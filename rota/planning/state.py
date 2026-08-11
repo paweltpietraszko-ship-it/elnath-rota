@@ -7,8 +7,10 @@ from rota.domain import (
     Assignment,
     AvailabilityRecord,
     CalendarDay,
+    Deviation,
     Employee,
     ExternalSupportWindow,
+    ShiftDemand,
     Site,
     SiteMembership,
     SiteProfile,
@@ -17,7 +19,7 @@ from rota.domain import (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlanningState:
     # Tozsamosc kontekstu
     site: Site
@@ -25,29 +27,40 @@ class PlanningState:
     month: date  # pierwszy dzien miesiaca
 
     # Kalendarz i granice
-    calendar_days: list[CalendarDay]
-    boundary_assignments: list[Assignment]
-    # Assignments konczace sie w ostatnich dniach
-    # poprzedniego miesiaca -- potrzebne dla REST-01
-    # i LOAD-01 na granicy miesiaca
+    calendar_days: tuple[CalendarDay, ...]
+    boundary_assignments: tuple[Assignment, ...]
+    # Assignments z konca poprzedniego miesiaca
+    # potrzebne dla REST-01 i LOAD-01
 
     # Pracownicy
-    memberships: list[SiteMembership]
-    employees: list[Employee]
-    external_windows: list[ExternalSupportWindow]
+    memberships: tuple[SiteMembership, ...]
+    employees: tuple[Employee, ...]
+    external_windows: tuple[ExternalSupportWindow, ...]
 
-    # Dostepnosc i reguly
-    availability_records: list[AvailabilityRecord]
-    site_rules: list[SiteRuleVersion]
-    # tylko RESOLVED -- STATE-01
+    # Dostepnosc
+    availability_records: tuple[AvailabilityRecord, ...]
 
-    # Kontekst planowania
-    existing_assignments: list[Assignment]
-    # biezaca ScheduleVersion -- PLANNED/REALIZED
-    work_balances: list[WorkBalance]
-    holiday_history: list[Assignment]
-    # historyczne REALIZED Assignments w dni
-    # CalendarDay(holiday=True) -- do holiday fairness
+    # Reguly -- STATE-01: dwa osobne zbiory
+    site_rules: tuple[SiteRuleVersion, ...]
+    # tylko RESOLVED -- executable przez PlanningEngine
+    unresolved_site_rules: tuple[SiteRuleVersion, ...]
+    # tylko NEEDS_RESOLUTION -- display only, nie executable
+
+    # Kontekst biezacej ScheduleVersion
+    shift_demands: tuple[ShiftDemand, ...]
+    existing_assignments: tuple[Assignment, ...]
+    deviations: tuple[Deviation, ...]
+
+    # Bilans i historia
+    work_balances: tuple[WorkBalance, ...]
+    holiday_history: tuple[Assignment, ...]
+    # historyczne REALIZED w CalendarDay(holiday=True)
+
+    # Kontekst cross-site (REST-01 / LOAD-01)
+    other_site_assignments: tuple[Assignment, ...]
+    # Assignments tych samych Employee na innych Site
+    # gdy dane dostepne; Assignment.schedule_version_id
+    # nalezy do innego Site
 
     # Metadane
     schedule_version_id: str
@@ -60,7 +73,7 @@ if __name__ == "__main__":
             profile_id="OCHRONA",
             display_name="Ochrona",
             active=True,
-            standard_shifts=[],
+            standard_shifts=(),
             day_only_blocks_n=True,
             external_support_enabled=False,
             training_s_enabled=True,
@@ -69,16 +82,20 @@ if __name__ == "__main__":
             rolling_7d_decision_threshold_hours=60,
         ),
         month=date(2026, 10, 1),
-        calendar_days=[],
-        boundary_assignments=[],
-        memberships=[],
-        employees=[],
-        external_windows=[],
-        availability_records=[],
-        site_rules=[],
-        existing_assignments=[],
-        work_balances=[],
-        holiday_history=[],
+        calendar_days=(),
+        boundary_assignments=(),
+        memberships=(),
+        employees=(),
+        external_windows=(),
+        availability_records=(),
+        site_rules=(),
+        unresolved_site_rules=(),
+        shift_demands=(),
+        existing_assignments=(),
+        deviations=(),
+        work_balances=(),
+        holiday_history=(),
+        other_site_assignments=(),
         schedule_version_id="v1",
     )
     print(state)
