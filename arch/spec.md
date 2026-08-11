@@ -16,6 +16,13 @@ REQUIRED:
 
 SITE-01: Site.profile_id selects SiteProfile semantics.
 
+DECYZJA_WŁAŚCICIELA 2026-08-10:
+Pola SiteProfile są konfigurowalne przez koordynatora w UI.
+Reguły są danymi, nie logiką w kodzie.
+day_only_blocks_n: dla profilu SKLEP może być potrzebny
+szerszy model ograniczeń zmiany — CONTRACT_GAP przy
+dodawaniu SKLEP, nie teraz.
+
 ### SiteProfile
 REQUIRED:
 - profile_id
@@ -393,6 +400,26 @@ Nie jest wymagane, aby solver zawsze wskazał jeden „jedyny najlepszy” grafi
 
 Każdy kandydat FEASIBLE MOŻE zawierać: SOFT deviations; preference compromises; hour-target deviation; warnings.
 
+### SOFT RANKING (v0.4 §6.3)
+SOFT wpływa na ranking kandydatów, nie może łamać HARD.
+
+Aktywne czynniki SOFT:
+- równomierność godzin względem target_hours
+- preferencje D/N; N,N i D,D dopuszczalne jeśli HARD zachowane
+- weekend fairness: monotoniczne zbliżanie do idealnie równego
+  podziału pracy weekendowej wśród uprawnionych pracowników
+- holiday fairness (historyczne): solver preferuje warianty
+  zmniejszające nierówność historycznej pracy w święta;
+  historia = persystowane Assignment +
+  CalendarDay(holiday=true); nie jest prawem pracy
+- DAY_SHIFT_OFF: pełny dzień wolny lepszy od wariantu
+  gdzie N wchodzi do 05:00 w dzień wolny
+- LEAVE_PLAN: wariant bez kolizji lepszy;
+  kolizja widoczna jako ostrzeżenie
+
+TARGET-01: target_hours jest parametrem SOFT;
+solver nie tworzy pracy ani nie narusza HARD dla targetu.
+
 ### DECISION_REQUIRED
 DECISION_REQUIRED nie jest awarią. Oznacza:
 - solver doszedł do granicy swojej autonomii;
@@ -645,7 +672,10 @@ CC nie zmienia fixture/oracle.
 
 ---
 
-## SECTION 9 — CODING STANDARDS
+## SECTION 9 — ENGINEERING POLICY
+Źródło: decyzja właściciela 2026-08-10.
+Nie jest częścią kanonu produktu v0.4.
+Obowiązuje jako standard inżynieryjny repo.
 
 Obowiązuje każdy plik Python w repo. Backend.py egzekwuje
 SIZE_FILE (max 600 linii), SIZE_FUNC (max 50 linii) i RUFF.
