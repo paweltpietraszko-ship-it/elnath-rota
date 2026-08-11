@@ -1,7 +1,10 @@
 # ELNATH ROTA — arch/spec.md
-CONTRACT_VERSION: v0.4
-FROZEN_SOURCE: SONET_HANDOFF_BRIEF + dokumenty 01–07 z ELNATH_WARD_HANDOFF_FINAL_2026-08-10.zip
-STATUS: maszynowy wyciąg kanonu produktu dla Ward Mechanical Gate i modeli implementujących
+CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10
+FROZEN_SOURCE: SONET_HANDOFF_BRIEF + dokumenty 01–07 z
+  ELNATH_WARD_HANDOFF_FINAL_2026-08-10.zip +
+  decyzje właściciela z sesji 2026-08-10
+STATUS: maszynowy wyciąg kanonu produktu dla Ward
+  Mechanical Gate i modeli implementujących
 
 ---
 
@@ -330,7 +333,9 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 ---
 
 ## SECTION 2 — HARD CONSTRAINTS
-Źródło: v0.4 sekcja 6.0. Treść dosłowna, bez parafrazy.
+Źródło: v0.4 sekcja 6.0. Treść dosłowna za wyjątkiem
+SHIFT-01 i LOAD-01 uogólnionych per decyzja właściciela
+2026-08-10.
 
 ### SHIFT-01
 - każdy SiteProfile definiuje standard_shifts
@@ -350,9 +355,15 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 - żadne SOFT ani target_hours nie mogą naruszyć REST-01.
 
 ### DAY_ONLY-01
-- pracownik z DAY_ONLY nie może otrzymać N w automatycznym planowaniu;
+- reguła aktywna tylko gdy SiteProfile.day_only_blocks_n=true;
+- gdy aktywna: pracownik z Employee.DAY_ONLY=true nie może
+  otrzymać N w automatycznym planowaniu;
 - koordynator może świadomie wyłączyć/override tę ochronę;
-- solver nie robi tego sam.
+- solver nie robi tego sam;
+- gdy SiteProfile.day_only_blocks_n=false: profil nie stosuje
+  tego ograniczenia (np. profil bez zmian N lub z innym
+  modelem ograniczeń); Employee.DAY_ONLY=true jest ignorowane
+  przez solver dla tego profilu.
 
 ### DAY_SHIFT_OFF-01
 - DAY_SHIFT_OFF oznacza dzień wolny od rozpoczynania pracy;
