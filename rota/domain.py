@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import time
+from datetime import date, datetime, time
 from enum import Enum
+from typing import Optional
 
 # --- Enums ---
 
@@ -127,6 +128,42 @@ class CoordinatorSiteAssociation:
     coordinator_id: str
     site_id: str
     active: bool
+
+
+@dataclass
+class Employee:
+    employee_id: str
+    display_name: str
+    active_from: date
+    active_to: Optional[date]
+    day_only: bool
+
+
+@dataclass
+class SiteMembership:
+    employee_id: str
+    site_id: str
+    membership_kind: MembershipKind
+    enabled: bool
+    readiness_state: ReadinessState
+    readiness_source: ReadinessSource
+
+
+@dataclass
+class ExternalSupportWindow:
+    window_id: str
+    employee_id: str
+    site_id: str
+    start_datetime: datetime
+    end_datetime: datetime
+    active: bool
+    allowed_shift_kind: Optional[ShiftKind]
+
+
+@dataclass(frozen=True)
+class CalendarDay:
+    date: date
+    holiday: bool
 
 
 if __name__ == "__main__":
