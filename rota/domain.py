@@ -90,6 +90,45 @@ class StandardShift:
     required_primary_count: int
 
 
+# --- Entities ---
+
+
+@dataclass
+class SiteProfile:
+    profile_id: str
+    display_name: str
+    active: bool
+    standard_shifts: list[StandardShift]
+    day_only_blocks_n: bool
+    external_support_enabled: bool
+    training_s_enabled: bool
+    training_s_weekdays_only: bool
+    training_s_default_readiness_threshold: int
+    rolling_7d_decision_threshold_hours: int
+
+
+@dataclass
+class Site:
+    site_id: str
+    profile_id: str
+    display_name: str
+    active: bool
+
+
+@dataclass
+class Coordinator:
+    coordinator_id: str
+    display_name: str
+    active: bool
+
+
+@dataclass
+class CoordinatorSiteAssociation:
+    coordinator_id: str
+    site_id: str
+    active: bool
+
+
 if __name__ == "__main__":
     print(f"ShiftKind: {list(ShiftKind)}")
     print(f"AssignmentRole: {list(AssignmentRole)}")
