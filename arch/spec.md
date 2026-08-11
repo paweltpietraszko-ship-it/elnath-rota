@@ -17,7 +17,35 @@ REQUIRED:
 SITE-01: Site.profile_id selects SiteProfile semantics.
 
 ### SiteProfile
-CONCEPT SiteProfile (no persisted field list defined by source documents).
+REQUIRED:
+- profile_id
+- display_name
+- active
+
+- standard_shifts: list of
+  - kind: D | N
+  - start_time
+  - end_time
+  - end_next_day: bool
+  - required_primary_count: int
+
+- day_only_blocks_n: bool
+  (false = profil nie blokuje N dla DAY_ONLY employees)
+
+- external_support_enabled: bool
+  (false = profil nie przewiduje X/Y)
+
+- training_s_enabled: bool
+- training_s_weekdays_only: bool
+  (OCHRONA = true; poniedziałek–piątek)
+- training_s_default_readiness_threshold: int
+  (OCHRONA = 2; liczba REALIZED TRAINEE → READY_FOR_PRIMARY)
+
+- rolling_7d_decision_threshold_hours: int
+  (LOAD-01 trigger; OCHRONA = 60;
+   solver zwraca DECISION_REQUIRED gdy przekroczone;
+   koordynator konfiguruje per profil przez UI)
+
 MUST define:
 - coverage generation;
 - standard shift semantics;
@@ -30,6 +58,10 @@ MUST NOT own:
 - Coordinator identity;
 - ScheduleVersion history;
 - WorkBalance identity.
+
+### GLOBAL CONSTANT (not in SiteProfile)
+REST_MIN_HOURS = 11
+(aktualne przepisy prawa pracy; zmiana wymaga zmiany kanonu)
 
 ### Coordinator
 REQUIRED:
@@ -164,6 +196,10 @@ AGGREGATE:
 
 WB-01: target_hours != planned_hours != realized_hours.
 WB-05: Hour calculations MUST use only current ScheduleVersion for each relevant (site_id, month). Historical ScheduleVersions MUST NOT be summed into operational hour totals.
+
+SCOPE BOUNDARY:
+WorkBalance śledzi godziny narastająco w kwartale, w tym saldo nadgodzin do oddania w następnym okresie (unresolved_carryover) — to odpowiedzialność koordynatora, w zakresie Rota.
+Rota NIE oblicza rozliczeń kadrowych ani list płac.
 
 ### ScheduleVersion
 REQUIRED:
@@ -368,6 +404,17 @@ Wynik musi zawierać:
 - możliwe klasy odblokowania;
 - skutki każdej klasy, jeśli dają się deterministycznie policzyć.
 
+Obowiązkowe typowane pola output:
+
+blocking_shift_demands: list of
+- demand_id
+- start_datetime
+- end_datetime
+
+blockers: list of
+- employee_id
+- condition: <built-in condition code | rule_version_id>
+
 Przykładowe odblokowania koordynatora:
 - potwierdzenie X/Y;
 - świadome ściągnięcie pracownika z wolnego;
@@ -460,10 +507,13 @@ Referencyjny plik PoC (zweryfikowany rzeczywistym uruchomieniem, nie produkcyjny
 ### BUILD NEW: Rota domain
 Nowe i kanoniczne dla Rota (v0.4 sekcja 5.3):
 - Site / SiteProfile;
+- Coordinator;
+- CoordinatorSiteAssociation;
 - Employee / SiteMembership;
-- Availability;
+- AvailabilityRecord;
 - ShiftDemand;
 - Assignment;
+- Deviation;
 - ScheduleVersion;
 - WorkBalance;
 - CalendarDay;
