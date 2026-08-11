@@ -38,6 +38,10 @@ REQUIRED:
 
 - day_only_blocks_n: bool
   (false = profil nie blokuje N dla DAY_ONLY employees)
+  (OCHRONA = true; profil blokuje N dla DAY_ONLY employees;
+   przyszły profil bez tej ochrony ustawia false;
+   nie jest to override Employee.DAY_ONLY —
+   jest to capability flag profilu)
 
 - external_support_enabled: bool
   (false = profil nie przewiduje X/Y)
@@ -329,9 +333,13 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 Źródło: v0.4 sekcja 6.0. Treść dosłowna, bez parafrazy.
 
 ### SHIFT-01
-- standardowa zmiana D: 05:00–17:00;
-- standardowa zmiana N: 17:00–05:00 następnego dnia;
-- każda wymagana D i N ma dokładnie jednego PRIMARY;
+- każdy SiteProfile definiuje standard_shifts
+  (kind, start_time, end_time, end_next_day, required_primary_count);
+- godziny i liczba PRIMARY są konfiguracją per profil,
+  wpisywaną ręcznie przez koordynatora w UI;
+- OCHRONA default: D=05:00–17:00, N=17:00–05:00,
+  required_primary_count=1;
+- każda wymagana zmiana ma dokładnie required_primary_count PRIMARY;
 - S nie pokrywa PRIMARY demand.
 
 ### REST-01
@@ -371,10 +379,14 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 - częściowy grafik nie jest FEASIBLE.
 
 ### LOAD-01
-- dla każdego pracownika należy policzyć każde ruchome okno 7 kolejnych dni kalendarzowych;
-- do 60 godzin w takim oknie nie uruchamia bramki tylko z powodu tego progu;
-- więcej niż 60 godzin w dowolnym takim oknie nie może być zwykłym FEASIBLE bez jawnej akceptacji koordynatora;
-- wynik przed akceptacją to DECISION_REQUIRED z employee, dokładnym oknem i liczbą godzin.
+- dla każdego pracownika należy policzyć każde ruchome okno
+  7 kolejnych dni kalendarzowych;
+- próg decyzji = SiteProfile.rolling_7d_decision_threshold_hours
+  (koordynator wpisuje ręcznie per profil; OCHRONA default: 60);
+- więcej niż próg w dowolnym takim oknie nie może być zwykłym
+  FEASIBLE bez jawnej akceptacji koordynatora;
+- wynik przed akceptacją to DECISION_REQUIRED z employee,
+  dokładnym oknem i liczbą godzin.
 
 ### EXTERNAL-01
 - X/Y są nieuprawnieni poza aktywnym, potwierdzonym ExternalSupportWindow;
@@ -441,6 +453,12 @@ blocking_shift_demands: list of
 blockers: list of
 - employee_id
 - condition: <built-in condition code | rule_version_id>
+
+load_blocker (present when LOAD-01 triggered):
+- employee_id
+- window_start: date
+- window_end: date
+- hours: int
 
 Przykładowe odblokowania koordynatora:
 - potwierdzenie X/Y;
