@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 # --- Enums ---
 
@@ -164,6 +164,45 @@ class ExternalSupportWindow:
 class CalendarDay:
     date: date
     holiday: bool
+
+
+@dataclass
+class AvailabilityRecord:
+    availability_id: str
+    availability_version_id: str
+    employee_id: str
+    kind: AvailabilityKind
+    start_date: date
+    end_date: date  # inclusive; == start_date dla 1 dnia
+    active: bool
+    supersedes_availability_version_id: Optional[str]
+    note: Optional[str]
+
+
+@dataclass
+class SiteRule:
+    rule_id: str
+
+
+@dataclass
+class SiteRuleVersion:
+    rule_version_id: str
+    rule_id: str
+    site_id: str
+    category: RuleCategory
+    rule_kind: Optional[str]
+    structured_parameters: Optional[dict[str, Any]]
+    # rule_kind catalog: CONTRACT_GAP — osobny task
+    enforcement: RuleEnforcement
+    resolution_status: RuleResolution
+    effective_from: date
+    effective_to: Optional[date]
+    changed_at: datetime
+    changed_by: str  # coordinator_id
+    supersedes_rule_version_id: Optional[str]
+    description: Optional[str]
+    source: Optional[str]
+    reason: Optional[str]
 
 
 if __name__ == "__main__":
