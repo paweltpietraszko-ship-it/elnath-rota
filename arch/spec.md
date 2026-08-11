@@ -1,0 +1,594 @@
+# ELNATH ROTA — arch/spec.md
+CONTRACT_VERSION: v0.4
+FROZEN_SOURCE: SONET_HANDOFF_BRIEF + dokumenty 01–07 z ELNATH_WARD_HANDOFF_FINAL_2026-08-10.zip
+STATUS: maszynowy wyciąg kanonu produktu dla Ward Mechanical Gate i modeli implementujących
+
+---
+
+## SECTION 1 — DOMAIN ENTITIES
+
+### Site
+REQUIRED:
+- site_id
+- profile_id
+- display_name
+- active
+
+SITE-01: Site.profile_id selects SiteProfile semantics.
+
+### SiteProfile
+CONCEPT SiteProfile (no persisted field list defined by source documents).
+MUST define:
+- coverage generation;
+- standard shift semantics;
+- profile-specific rule kinds;
+- profile-specific planning policy;
+- interpretation of relevant Employee restrictions.
+
+MUST NOT own:
+- Employee identity;
+- Coordinator identity;
+- ScheduleVersion history;
+- WorkBalance identity.
+
+### Coordinator
+REQUIRED:
+- coordinator_id
+- display_name
+- active
+
+RELATION CoordinatorSiteAssociation:
+- coordinator_id
+- site_id
+- active
+
+### Employee
+REQUIRED:
+- employee_id
+- display_name
+- active_from
+- active_to (optional)
+
+EMPLOYEE RESTRICTION:
+- DAY_ONLY enabled=true|false
+
+EMP-01: DAY_ONLY is a stable, toggleable Employee restriction.
+EMP-02: An Employee is eligible for an Assignment only if the complete Assignment interval lies inside Employee active period.
+EMP-03: Employee MUST NOT be structurally owned by exactly one Site.
+
+### SiteMembership
+REQUIRED:
+- employee_id
+- site_id
+- membership_kind: LOCAL | EXTERNAL_SUPPORT
+- enabled
+- readiness_state: NOT_READY | READY_FOR_PRIMARY
+- readiness_source: DEFAULT | COORDINATOR_OVERRIDE
+
+MEMBERSHIP-01: LOCAL is eligible when: membership enabled; Employee active period covers Assignment; Employee restrictions allow Assignment; AvailabilityRecords allow Assignment; active rules allow Assignment.
+MEMBERSHIP-02: EXTERNAL_SUPPORT is unavailable unless a confirmed ExternalSupportWindow covers the Assignment.
+
+### ExternalSupportWindow
+REQUIRED:
+- window_id
+- employee_id
+- site_id
+- start_datetime
+- end_datetime
+- active
+
+OPTIONAL:
+- allowed_shift_kind: D | N
+
+WINDOW-01: One EXTERNAL_SUPPORT membership MAY have N windows.
+WINDOW-02: Only active windows make X/Y eligible.
+WINDOW-03: Pilot does NOT model X/Y home-site HR, balances, or schedule.
+
+### CalendarDay
+REQUIRED:
+- date
+- holiday
+
+DERIVED:
+- weekday from date
+- weekend from weekday
+
+CAL-01: Holiday information used by planning MUST be reproducible after application restart.
+CAL-04: Holiday data MAY come from persisted CalendarDay records or a deterministic local calendar source, including a bundled structured data file. PlanningEngine MUST NOT read CSV/JSON/calendar files directly. Holiday data is resolved before planning and passed through PlanningState.
+CAL-05: Historical holiday-load metrics are derived from persisted current-version Assignments joined with CalendarDay where holiday=true.
+
+### AvailabilityRecord
+KINDS:
+- DAY_SHIFT_OFF
+- UNAVAILABLE_24H
+- LEAVE_PLAN
+- LEAVE_GRANTED
+
+REQUIRED:
+- availability_id
+- availability_version_id
+- employee_id
+- kind
+- date_or_range
+- active
+
+OPTIONAL:
+- supersedes_availability_version_id
+- note
+
+### SiteRule
+RULE FAMILY:
+- rule_id
+
+RULE VERSION:
+- rule_version_id
+- site_id
+- category: CLIENT_REQUIREMENT | LOCAL_RULE | CONFIRMED_EXCEPTION
+- rule_kind (optional when unresolved)
+- structured_parameters (optional when unresolved)
+- enforcement: HARD | SOFT | INFORMATIONAL
+- resolution_status: RESOLVED | NEEDS_RESOLUTION
+- effective_from
+- effective_to (optional)
+- changed_at
+- changed_by coordinator_id
+- supersedes_rule_version_id (optional)
+
+OPTIONAL:
+- description
+- source
+- reason/note
+
+RULE-01: Executable rule MUST be structured.
+RULE-02: NEEDS_RESOLUTION remains stored and visible; MUST NOT be executed by PlanningEngine.
+RULE-03: INFORMATIONAL MUST NOT constrain planning.
+RULE-04: HARD is protected from automatic violation.
+RULE-05: SOFT MAY be traded according to active profile planning policy.
+RULE-06: Rule version history is immutable.
+RULE-07: Each SiteRule belongs to exactly one Site.
+
+### WorkBalance
+KEY:
+- employee_id
+- month
+
+FIELDS:
+- target_hours: Coordinator planning input
+- planned_hours: derived from current ScheduleVersions
+- realized_hours: derived from current ScheduleVersions
+- month_balance
+- unresolved_carryover: operational value; exact lifecycle OPEN
+
+AGGREGATE:
+- quarter_balance from monthly balances
+
+WB-01: target_hours != planned_hours != realized_hours.
+WB-05: Hour calculations MUST use only current ScheduleVersion for each relevant (site_id, month). Historical ScheduleVersions MUST NOT be summed into operational hour totals.
+
+### ScheduleVersion
+REQUIRED:
+- version_id
+- site_id
+- month
+- parent_version_id (optional)
+- created_at
+- created_by coordinator_id
+- status: WORKING | WORKING_WITH_DEVIATIONS | FINAL_NO_DEVIATIONS | FINAL_WITH_DEVIATIONS
+- applied_rule_version_ids
+
+VERSION CONTENT:
+- complete ShiftDemand set for month;
+- complete Assignment state for month;
+- Deviations belonging to version.
+
+VER-01: A ScheduleVersion represents a complete reconstructable state of one Site/month.
+VER-03: Exactly one current version reference exists for each (site_id, month).
+VER-04: FINAL ScheduleVersion is immutable.
+
+### ShiftDemand
+REQUIRED:
+- demand_id
+- schedule_version_id
+- start_datetime
+- end_datetime
+- required_primary_count
+
+DEMAND-01: ShiftDemand is persisted as part of ScheduleVersion.
+DEMAND-02: OCHRONA standard required_primary_count=1.
+
+### Assignment
+REQUIRED:
+- assignment_id
+- schedule_version_id
+- employee_id
+- start_datetime
+- end_datetime
+- role: PRIMARY | TRAINEE
+- state: PLANNED | REALIZED | CANCELLED
+- frozen
+
+PRIMARY:
+- covers_demand_id required
+
+TRAINEE:
+- mentor_primary_assignment_id required
+- covers_demand_id absent
+
+ASSIGN-01: Site is derived through ScheduleVersion. No Assignment.site_id.
+ASSIGN-03: REALIZED work MUST NOT be changed by REPLAN.
+ASSIGN-04: future frozen Assignment MUST NOT be changed by REPLAN.
+ASSIGN-05: Manual Assignment is NOT automatically frozen.
+
+### Deviation
+REQUIRED:
+- deviation_id
+- schedule_version_id
+- category: LAW | CLIENT_REQUIREMENT | LEAVE_OR_TIME_OFF | HOURS | PREFERENCE | COVERAGE
+- source_reference
+- affected_assignment_or_employee
+- acknowledged
+
+OPTIONAL UNTIL ACKNOWLEDGED:
+- acknowledged_by
+- acknowledged_at
+- reason
+
+DEV-01: source_reference = SiteRule.rule_version_id or a stable built-in condition code.
+DEV-02: Finalization with deviations requires conscious confirmation.
+
+### PlanningState (not persisted)
+CONCEPT PlanningState — NOT a persisted domain entity.
+
+SCOPE:
+- one Site;
+- one month;
+- one current ScheduleVersion context.
+
+INCLUDES:
+- Site + SiteProfile;
+- calendar + boundary context;
+- eligible Employees/SiteMemberships;
+- Employee active periods/restrictions/readiness;
+- ExternalSupportWindows;
+- applicable resolved SiteRules;
+- unresolved SiteRules for display only;
+- AvailabilityRecords;
+- WorkBalance context;
+- current ScheduleVersion content;
+- adjacent boundary assignments;
+- relevant assignments of same Employees on other Sites when such data exists;
+- derived holiday-work history for eligible Employees, based on persisted Assignments and CalendarDay(holiday=true).
+
+STATE-01: NEEDS_RESOLUTION SiteRule MUST NOT enter executable rule set.
+STATE-02: Boundary context MUST be sufficient for cross-month validation.
+
+### PlanningEngine (no persistent state)
+COMPONENT PlanningEngine — NO persistent business-state ownership.
+
+precheck(PlanningState) OUTPUT:
+- NO_OBVIOUS_SHORTAGE
+- LIKELY_INSUFFICIENT + context
+
+plan(PlanningState) OUTPUT STATUS:
+- FEASIBLE
+- DECISION_REQUIRED
+- TECHNICAL_ERROR
+
+validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
+- findings
+- deviations
+- source references
+- explanations
+
+---
+
+## SECTION 2 — HARD CONSTRAINTS
+Źródło: v0.4 sekcja 6.0. Treść dosłowna, bez parafrazy.
+
+### SHIFT-01
+- standardowa zmiana D: 05:00–17:00;
+- standardowa zmiana N: 17:00–05:00 następnego dnia;
+- każda wymagana D i N ma dokładnie jednego PRIMARY;
+- S nie pokrywa PRIMARY demand.
+
+### REST-01
+- automatyczny plan musi zapewnić co najmniej 11 godzin nieprzerwanego odpoczynku między końcem jednego Assignment a początkiem następnego Assignment tego samego pracownika;
+- oznacza to między innymi, że N kończąca się o 05:00 nie może być bezpośrednio poprzedzona lub zakończona zmianą D zaczynającą się o 05:00 tego samego dnia;
+- N→N jest dopuszczalne, ponieważ standardowo daje 12 godzin odpoczynku;
+- D→D jest dopuszczalne, ponieważ standardowo daje 12 godzin odpoczynku;
+- żadne SOFT ani target_hours nie mogą naruszyć REST-01.
+
+### DAY_ONLY-01
+- pracownik z DAY_ONLY nie może otrzymać N w automatycznym planowaniu;
+- koordynator może świadomie wyłączyć/override tę ochronę;
+- solver nie robi tego sam.
+
+### DAY_SHIFT_OFF-01
+- DAY_SHIFT_OFF oznacza dzień wolny od rozpoczynania pracy;
+- w oznaczonym dniu solver nie może rozpocząć ani zmiany D, ani zmiany N;
+- zmiana N rozpoczęta poprzedniego dnia może zakończyć się o 05:00 w dniu oznaczonym DAY_SHIFT_OFF;
+- takie wejście pracy 00:00–05:00 w dzień wolny jest dopuszczalne, ale stanowi gorszy wariant SOFT;
+- jeżeli istnieje porównywalny kandydat zapewniający pełny dzień bez pracy, solver powinien go preferować;
+- DAY_SHIFT_OFF nie oznacza UNAVAILABLE_24H.
+
+### UNAVAILABLE-01
+- UNAVAILABLE_24H blokuje każdy automatyczny Assignment, którego rzeczywisty przedział czasu koliduje z okresem niedostępności.
+
+### LEAVE_GRANTED-01
+- LEAVE_GRANTED blokuje automatyczny Assignment kolidujący z okresem urlopu;
+- użycie pracownika wymaga świadomej decyzji koordynatora/override zgodnie z kontraktem.
+
+### LEAVE_PLAN-01
+- LEAVE_PLAN nie czyni pracownika nieuprawnionym;
+- kolizja jest dopuszczalna tylko jako gorszy wariant SOFT, jeżeli nie istnieje lepszy kandydat;
+- kolizja musi być widoczna jako ostrzeżenie.
+
+### COVERAGE-01
+- wymagane ShiftDemand muszą być pokryte w 100%;
+- częściowy grafik nie jest FEASIBLE.
+
+### LOAD-01
+- dla każdego pracownika należy policzyć każde ruchome okno 7 kolejnych dni kalendarzowych;
+- do 60 godzin w takim oknie nie uruchamia bramki tylko z powodu tego progu;
+- więcej niż 60 godzin w dowolnym takim oknie nie może być zwykłym FEASIBLE bez jawnej akceptacji koordynatora;
+- wynik przed akceptacją to DECISION_REQUIRED z employee, dokładnym oknem i liczbą godzin.
+
+### EXTERNAL-01
+- X/Y są nieuprawnieni poza aktywnym, potwierdzonym ExternalSupportWindow;
+- solver nie otwiera takiego okna i nie używa X/Y samodzielnie.
+
+### TARGET-01
+- target_hours jest parametrem SOFT;
+- solver nie tworzy pracy ani nie narusza HARD tylko po to, aby osiągnąć target.
+
+---
+
+## SECTION 3 — PLANNING OUTCOMES
+Źródło: v0.4 sekcja 6.1–6.6.
+
+### FEASIBLE
+Jeżeli istnieją pełne rozwiązania w ramach aktywnego kontraktu:
+- solver zwraca do 1–3 kandydatów;
+- każdy kandydat respektuje HARD;
+- kandydaci mogą różnić się jakością SOFT;
+- koordynator wybiera.
+
+Nie jest wymagane, aby solver zawsze wskazał jeden „jedyny najlepszy” grafik.
+
+Każdy kandydat FEASIBLE MOŻE zawierać: SOFT deviations; preference compromises; hour-target deviation; warnings.
+
+### DECISION_REQUIRED
+DECISION_REQUIRED nie jest awarią. Oznacza:
+- solver doszedł do granicy swojej autonomii;
+- normalny kontrakt nie pozwala ukończyć bez decyzji koordynatora.
+
+Wynik musi zawierać:
+- nieobsadzony/problematic demand albo constraint powodujący zatrzymanie;
+- konkretne blokery;
+- możliwe klasy odblokowania;
+- skutki każdej klasy, jeśli dają się deterministycznie policzyć.
+
+Przykładowe odblokowania koordynatora:
+- potwierdzenie X/Y;
+- świadome ściągnięcie pracownika z wolnego;
+- świadome odwołanie/override urlopu zgodnie z kontraktem;
+- świadome wyłączenie DAY_ONLY;
+- świadoma akceptacja >60 h / 7 kolejnych dni;
+- inna jawna ręczna korekta przewidziana kontraktem.
+
+Solver nie wybiera i nie aktywuje tych działań sam.
+
+Po decyzji koordynatora: PlanningState zostaje zmieniony jawnie; planowanie jest uruchamiane ponownie; dopiero wtedy solver może zwrócić kandydatów.
+
+### TECHNICAL_ERROR
+TECHNICAL_ERROR oznacza awarię techniczną:
+- błąd modelu;
+- błąd procesu;
+- nieobsłużony błąd systemowy.
+
+Nie wolno używać TECHNICAL_ERROR jako zastępstwa dla:
+- braku obsady;
+- konfliktu HARD;
+- wymaganej decyzji koordynatora.
+
+---
+
+## SECTION 4 — REUSE MAP
+Źródło: v0.4 sekcja 5.
+
+### REUSE/ADAPT: Continuity AI desktop shell
+Repo: paweltpietraszko-ship-it/continuity-ai
+Branch: ui/project-report-polish-v0.4
+Checkpoint SHA (baza techniczna): 709cf6a1ff829725e5d6572d286963809c990c4a
+
+Do wykorzystania jako baza techniczna:
+- Tauri 2;
+- React 18;
+- TypeScript;
+- Vite;
+- istniejący układ frontend/bridge/types/components;
+- wzorzec lokalnego procesu Bridge;
+- UTF-8 NDJSON;
+- kontrolowane błędy;
+- testowy toolchain frontendu i Rust.
+
+Nie przenosić domeny Continuity AI:
+- Project Report;
+- Aurora;
+- evidence map;
+- conversation;
+- attestations;
+- logiki filmu/projektów;
+- żadnych syntetycznych założeń domenowych.
+
+UI Continuity jest dawcą shellu i wzorców technicznych, nie kontraktu produktu Rota.
+
+### REUSE SELECTIVE: Elnath Memory Engine
+Repo: paweltpietraszko-ship-it/elnath-memory-engine
+Branch: main
+Provenance source commit SHA: 3bdcd7909373ce541be5e6bd1a5a88b99623801b
+
+Do rozważonego reuse:
+- elnath/memory/ jako domenowo neutralna baza pamięci;
+- append-only/history/source/retrieval patterns, jeśli odpowiadają kontraktowi Rota.
+
+Warunek:
+- Rota bierze własny fork/kopię;
+- brak wspólnej usługi;
+- brak wspólnej bazy;
+- brak automatycznego back-sync.
+
+NIE używać teraz:
+- elnath/guard/review jako runtime Rota;
+- code-review-specific diff/patch binding;
+- mechanizmów git jako części domeny planowania.
+
+### REUSE (tech): Google OR-Tools CP-SAT
+Technologia solvera: Google OR-Tools CP-SAT.
+
+Zakaz: CC nie implementuje własnego algorytmu scheduling/search/backtracking.
+
+CC implementuje:
+1. mapowanie domeny Rota -> model CP-SAT;
+2. mapowanie HARD/SOFT/DECISION gates -> constraints/objective;
+3. mapowanie wyniku CP-SAT -> Rota PlanningResult.
+
+OR-Tools wykonuje wyszukiwanie kombinatoryczne. Rota definiuje politykę produktu.
+
+Referencyjny plik PoC (zweryfikowany rzeczywistym uruchomieniem, nie produkcyjny kod): `elnath_rota_cp_sat_poc.py`. Rola: (1) dowód wykonalności wybranej architektury; (2) wzorzec mapowania najważniejszych HARD; (3) fixture porównawczy dla implementacji produkcyjnej; (4) zabezpieczenie przed ponownym projektowaniem solvera przez implementera.
+
+### BUILD NEW: Rota domain
+Nowe i kanoniczne dla Rota (v0.4 sekcja 5.3):
+- Site / SiteProfile;
+- Employee / SiteMembership;
+- Availability;
+- ShiftDemand;
+- Assignment;
+- ScheduleVersion;
+- WorkBalance;
+- CalendarDay;
+- ExternalSupportWindow;
+- SiteRule adapter do PlanningState;
+- PlanningState;
+- PlanningEngine;
+- REPLAN;
+- mapowanie wyników do kontraktu UI.
+
+Te elementy wynikają z Rota Product Contract, nie z Continuity ani starego Elnath Code.
+
+---
+
+## SECTION 5 — ANTI-DRIFT RULES
+Źródło: v0.4 sekcja 12. Dosłowne, z numeracją.
+
+1. Żaden model nie może przypisać właścicielowi decyzji, której właściciel jawnie nie podjął.
+2. PASS Codexa nie jest zgodą produktową.
+3. Akceptacja Soneta nie zmienia Frozen Product Contract.
+4. CC nie rozszerza tasku.
+5. „Lepsza architektura” implementera nie jest powodem do zmiany kontraktu.
+6. Test nie definiuje produktu; test weryfikuje kontrakt.
+7. Kod zgodny lokalnie, ale sprzeczny z Frozen Product Contract = FAIL kanonu.
+8. Materialna niejasność = CONTRACT_GAP, nie inference.
+9. Merge/acceptance dotyczy dokładnie audytowanego SHA.
+10. Zmiana kanonu wymaga jawnej decyzji właściciela i nowej wersji Frozen Product Contract.
+11. Żaden Task Contract nie może zastąpić literalnej reguły solvera zwrotem typu „zgodnie z zasadami czasu pracy” lub „zgodnie ze Spec”; reguła potrzebna implementacji musi być obecna bezpośrednio albo jednoznacznie referencjonowana identyfikatorem Frozen Product Contract.
+12. Kandydat FEASIBLE musi przejść niezależną walidację wszystkich HARD po wygenerowaniu, nawet jeżeli ten sam constraint był używany podczas wyszukiwania.
+13. Zweryfikowanego PoC CP-SAT nie wolno traktować jako sugestii do ponownego zaprojektowania solvera; jest on technicznym punktem odniesienia dla implementacji.
+14. Jeżeli produkcyjna implementacja daje inny status lub narusza HARD dla referencyjnego scenariusza PoC, domyślnym założeniem jest błąd implementacji lub mapowania kontraktu, nie potrzeba zmiany kanonu.
+15. Zmiana referencyjnego zachowania wymaga najpierw jawnej zmiany Frozen Product Contract, a dopiero potem zmiany kodu i testów.
+
+---
+
+## SECTION 6 — IMPLEMENTATION ORDER
+Źródło: v0.4 sekcja 14. Dosłowne.
+
+Nie zaczynać od pełnego UI.
+
+Preferowana kolejność:
+1. Frozen types / domain contract.
+2. PlanningState assembly.
+3. CP-SAT adapter — minimalne HARD.
+4. PlanningResult / DECISION_REQUIRED.
+5. SOFT ranking.
+6. REPLAN.
+7. Calendar + holiday history.
+8. Persistence potrzebne do scenariusza end-to-end.
+9. Adapter do desktop bridge.
+10. Dopiero wtedy szczegółowy UI oparty o rzeczywiste API.
+
+Każdy etap ma być osobnym lub małą grupą Task Contracts.
+
+---
+
+## SECTION 7 — REGRESSION ORACLE ROTA-REG-001
+Źródło: dokument 06 (ELNATH_ROTA_REGRESSION_ORACLE_ROTA-REG-001.md) + fixture 07 (ELNATH_ROTA_REGRESSION_ROTA-REG-001.json).
+
+### Wejście (fixture)
+Kanoniczne dane wejściowe: `ELNATH_ROTA_REGRESSION_ROTA_REG_001.json`.
+
+Najważniejsze warunki:
+- 5 pracowników A–E;
+- codziennie dokładnie 1 D i 1 N;
+- C = DAY_ONLY;
+- A = DAY_SHIFT_OFF 6, 17, 26;
+- B = LEAVE_GRANTED 12–18;
+- D = UNAVAILABLE_24H 9, 23, 24;
+- brak aktywnego ExternalSupportWindow dla X/Y;
+- minimum odpoczynku = 11 h;
+- >60 h w dowolnym ruchomym oknie 7 dni nie może być zwykłym FEASIBLE;
+- S 8 października wymaga A jako PRIMARY D;
+- target_hours: A 156, B 144, C 156, D 144, E 144.
+
+### 7 warunków PASS
+Implementacja produkcyjna przechodzi ROTA-REG-001 tylko wtedy, gdy:
+1. zwraca kompletny grafik pokrywający 100% D/N;
+2. wynik solvera jest sukcesem (`OPTIMAL` albo produktowo zaakceptowany odpowiednik pełnego `FEASIBLE`);
+3. niezależny validator zwraca `HARD PASS`;
+4. żaden Assignment nie narusza DAY_ONLY, DAY_SHIFT_OFF, LEAVE_GRANTED, UNAVAILABLE_24H, REST-01, EXTERNAL-01 ani LOAD-01;
+5. A jest PRIMARY D 8 października dla zaplanowanego S;
+6. każde ruchome okno 7 kolejnych dni ma <=60 h na pracownika;
+7. miesięczne godziny wynoszą dokładnie: A=156, B=144, C=156, D=144, E=144.
+
+### Co jest regresją
+- `INFEASIBLE`;
+- `DECISION_REQUIRED`;
+- `UNKNOWN` po normalnym limicie testowym;
+- `TECHNICAL_ERROR`;
+- częściowy grafik;
+- jakikolwiek `HARD FAIL`;
+- użycie X/Y;
+- przekroczenie 60 h / 7 dni;
+- odpoczynek <11 h;
+- przypisanie B kolidujące z LEAVE_GRANTED;
+- przypisanie D kolidujące z UNAVAILABLE_24H;
+- N dla C;
+- rozpoczęcie D lub N przez A w DAY_SHIFT_OFF;
+- brak A jako PRIMARY D 8 października;
+- inne sumy godzin niż wynik referencyjny, dopóki target_hours pozostają częścią tego samego objective/kontraktu.
+
+### Co NIE jest regresją
+- inny konkretny układ osób w dniach, jeżeli wszystkie powyższe warunki są spełnione;
+- inna kolejność równorzędnych kandydatów;
+- inna treść komunikatu dla użytkownika, jeżeli jego semantyka/status są zgodne z kontraktem;
+- wystąpienie dopuszczalnego ostrzeżenia SOFT dotyczącego N kończącej się o 05:00 w DAY_SHIFT_OFF.
+
+### Reguła dla implementera
+CC nie może zmienić oczekiwanego wyniku tego testu po to, aby dopasować test do nowej implementacji.
+
+Jeżeli ROTA-REG-001 FAIL:
+1. najpierw zakładamy regresję implementacji lub mapowania kontraktu;
+2. poprawiamy kod;
+3. zmiana oracle/fixture jest dozwolona wyłącznie po wcześniejszej jawnej zmianie Frozen Product Contract przez właściciela.
+
+CC nie zmienia fixture/oracle.
+
+---
+
+## SECTION 8 — GLOBAL FORBIDDEN ACTIONS
+
+- zastąpienie CP-SAT własnym solverem/backtrackingiem/heurystyką;
+- zmiana semantyki sprawdzonych constraints;
+- zmiana oracle lub fixture ROTA-REG-001;
+- merge do main bez polecenia właściciela;
+- wypełnianie luk własną decyzją produktową (luka = CONTRACT_GAP);
+- przenoszenie domeny Continuity AI do Rota.
