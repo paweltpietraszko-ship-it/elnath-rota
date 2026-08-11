@@ -49,3 +49,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# CC delivery artifacts (never committed)
+diffs/

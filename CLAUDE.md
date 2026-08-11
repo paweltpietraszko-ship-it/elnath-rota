@@ -18,7 +18,7 @@ GIT WORKFLOW:
 - Merge to `main` only when Paweł explicitly says "merge" / "zmerguj".
 - `git diff main task/<id>` output goes back to Paweł raw, verbatim — no prose summary layered on top. If you also have a concern to flag, put it briefly *after* the raw output, never as a preamble before it.
 - Every DELIVERY must include raw `git diff main task/<id>` output — not a description of the diff.
-- Deliver diff as file attachment: git diff main task/<id> > task_<id>_diff.txt
+- Deliver diff as file attachment: git diff main task/<id> > diffs/task_<id>_diff.txt — `diffs/` is gitignored, local scratch only, never committed.
 
 PIPELINE MECHANICS (see arch/spec.md for full spec):
 - `guard.py freeze|check <file>` — FROZEN.lock management. Lock file lives at `arch/FROZEN.lock`.
