@@ -205,6 +205,69 @@ class SiteRuleVersion:
     reason: Optional[str]
 
 
+@dataclass
+class WorkBalance:
+    employee_id: str
+    month: date  # pierwszy dzien miesiaca
+    target_hours: int
+    planned_hours: int
+    realized_hours: int
+    month_balance: int
+    unresolved_carryover: int
+    quarter_balance: int
+
+
+@dataclass
+class ScheduleVersion:
+    version_id: str
+    site_id: str
+    month: date  # pierwszy dzien miesiaca
+    parent_version_id: Optional[str]
+    created_at: datetime
+    created_by: str  # coordinator_id
+    status: ScheduleStatus
+    applied_rule_version_ids: list[str]
+
+
+@dataclass
+class ShiftDemand:
+    demand_id: str
+    schedule_version_id: str
+    start_datetime: datetime
+    end_datetime: datetime
+    required_primary_count: int
+
+
+@dataclass
+class Assignment:
+    assignment_id: str
+    schedule_version_id: str
+    employee_id: str
+    start_datetime: datetime
+    end_datetime: datetime
+    role: AssignmentRole
+    state: AssignmentState
+    frozen: bool
+    covers_demand_id: Optional[str]
+    # wymagane gdy role=PRIMARY; absent gdy TRAINEE
+    mentor_primary_assignment_id: Optional[str]
+    # wymagane gdy role=TRAINEE; absent gdy PRIMARY
+
+
+@dataclass
+class Deviation:
+    deviation_id: str
+    schedule_version_id: str
+    category: DeviationCategory
+    source_reference: str
+    # SiteRule.rule_version_id lub built-in code
+    affected_assignment_or_employee: str
+    acknowledged: bool
+    acknowledged_by: Optional[str]
+    acknowledged_at: Optional[datetime]
+    reason: Optional[str]
+
+
 if __name__ == "__main__":
     print(f"ShiftKind: {list(ShiftKind)}")
     print(f"AssignmentRole: {list(AssignmentRole)}")
