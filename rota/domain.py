@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 # --- Enums ---
 
@@ -184,6 +184,10 @@ class SiteRule:
     rule_id: str
 
 
+RuleParameters = object  # CONTRACT_GAP — osobny task
+# typed union per rule_kind; zamrozone 2026-08-11
+
+
 @dataclass
 class SiteRuleVersion:
     rule_version_id: str
@@ -191,7 +195,7 @@ class SiteRuleVersion:
     site_id: str
     category: RuleCategory
     rule_kind: Optional[str]
-    structured_parameters: Optional[dict[str, Any]]
+    structured_parameters: Optional["RuleParameters"]
     # rule_kind catalog: CONTRACT_GAP — osobny task
     enforcement: RuleEnforcement
     resolution_status: RuleResolution
