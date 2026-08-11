@@ -20,6 +20,11 @@ GIT WORKFLOW:
 - Every DELIVERY must include raw `git diff main task/<id>` output — not a description of the diff.
 - Deliver diff as file attachment: git diff main task/<id> > task_<id>_diff.txt
 
+CODING STANDARDS:
+- Full rules: `arch/spec.md` SECTION 9 — ENGINEERING POLICY. Applies to every Python file in the repo, in addition to backend.py's SIZE_FILE/SIZE_FUNC/RUFF checks.
+- Not part of the product canon (v0.4) — an engineering standard, cited here so it isn't missed.
+- Quick reference: full imports, type hints on all signatures, no magic numbers (constants in `rota.constants`, UPPER_SNAKE_CASE), functions ≤50 lines with verb names, no bare except, no print()-as-reporting, domain error classes not generic ValueError/RuntimeError, `if __name__ == "__main__":` runnable usage block per file. Read SECTION 9 itself before writing code — this line is a reminder, not the rule.
+
 PIPELINE MECHANICS (see arch/spec.md for full spec):
 - `guard.py freeze|check <file>` — FROZEN.lock management. Lock file lives at `arch/FROZEN.lock`.
 - `backend.py <brief.md> <before_sha> <head_sha> <output>` — mechanical PASS/FAIL/WYMAGA_DECYZJI gate. Never accept its result by paraphrase; quote its stdout verbatim in DELIVERY.
