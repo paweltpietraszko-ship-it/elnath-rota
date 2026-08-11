@@ -642,3 +642,69 @@ CC nie zmienia fixture/oracle.
 - merge do main bez polecenia właściciela;
 - wypełnianie luk własną decyzją produktową (luka = CONTRACT_GAP);
 - przenoszenie domeny Continuity AI do Rota.
+
+---
+
+## SECTION 9 — CODING STANDARDS
+
+Obowiązuje każdy plik Python w repo. Backend.py egzekwuje
+SIZE_FILE (max 600 linii), SIZE_FUNC (max 50 linii) i RUFF.
+Poniższe reguły uzupełniają te sprawdzenia.
+
+STRUCTURE:
+- jeden moduł = jedna odpowiedzialność
+- nazwy modułów odzwierciedlają domenę (site.py, solver.py),
+  nie warstwy (utils.py, helpers.py, misc.py)
+- żadnych plików „na wszelki wypadek" poza TASK_SCOPE
+
+IMPORTS:
+- pełne importy (from rota.domain.types import Assignment,
+  nie from rota.domain.types import *)
+- stdlib → third-party → local; oddzielone pustą linią
+- brak nieużywanych importów (ruff egzekwuje)
+
+TYPES:
+- wszystkie sygnatury funkcji mają type hints
+- byty domenowe jako @dataclass lub TypedDict
+- Optional[X] zamiast X | None dla czytelności w Python 3.10-
+- brak Any bez uzasadnionego komentarza
+
+CONSTANTS:
+- żadnych magic numbers w kodzie
+- stałe domenowe na poziomie modułu z UPPER_SNAKE_CASE
+- REST_MIN_HOURS = 11 importowane z rota.constants,
+  nie definiowane lokalnie
+
+FUNCTIONS:
+- max 50 linii (backend.py egzekwuje)
+- jedna funkcja = jedno zadanie
+- nazwa czasownikowa opisuje co robi (build_model,
+  validate_rest, map_result), nie co jest (model, rest, result)
+- brak zagnieżdżonych funkcji głębiej niż jeden poziom
+
+COMMENTS:
+- docstring na każdej funkcji publicznej: co robi + co zwraca
+- komentarz inline = DLACZEGO, nie CO (kod mówi co)
+- komentarz przy każdym constraint CP-SAT: identyfikator reguły
+  (# REST-01: min 11h between assignments)
+
+ERROR HANDLING:
+- żadnego bare except
+- jawny typ wyjątku i komunikat z kontekstem
+- błędy domenowe jako dedykowane klasy (RotaError,
+  ContractViolation), nie generyczne ValueError/RuntimeError
+- TECHNICAL_ERROR w PlanningEngine tylko dla wyjątków
+  systemowych, nigdy dla staffing shortage
+
+FORBIDDEN:
+- bloki kodu dłuższe niż 50 linii bez podziału na funkcje
+- powtórzony kod zamiast wyekstrahowanej funkcji
+- globalne zmienne mutowalne
+- print() jako mechanizm raportowania (logging lub
+  strukturalny return)
+- komentarze wyłączone (# x = foo()) zostawione w kodzie
+
+DELIVERY FORMAT:
+Każdy plik kończy się blokiem:
+if __name__ == "__main__":
+    # przykład użycia modułu — uruchamialny, nie mock
