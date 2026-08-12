@@ -48,6 +48,16 @@ def plan(state: PlanningState) -> PlanningResult:
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
 
+    if outcome.status_name != "INFEASIBLE":
+        # Round 14 audit (tests_r14.txt FINDING R14-2): only a proven
+        # INFEASIBLE justifies retrying without the LOAD-01 cap to see whether
+        # the cap itself was the cause. UNKNOWN (time limit) or MODEL_INVALID
+        # is a genuine technical failure, not a constraint conflict; retrying
+        # and then guessing a LOAD-01 cause from whatever the uncapped solve
+        # happens to return was producing untyped DECISION_REQUIRED payloads
+        # (load_blocker=None) with no real trigger.
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+
     # INFEASIBLE with the LOAD-01 cap enabled is not evidence of a REST-01
     # conflict by itself: the cap constraint is part of what CP-SAT's
     # assumption core can implicate. Round 13 audit (tests_r13.txt FINDING
@@ -145,6 +155,20 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
     report = validate(state, full)
     threshold = state.profile.rolling_7d_decision_threshold_hours
     over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
+    if not over_threshold:
+        # Defensive: this path is only reached because the capped solve was
+        # INFEASIBLE and the uncapped retry then succeeded, which should mean
+        # the cap was the cause. If independent validation finds nobody
+        # actually over threshold, that expectation was wrong -- do not
+        # return an untyped DECISION_REQUIRED (load_blocker=None, empty
+        # blockers); surface it as TECHNICAL_ERROR instead (round 14 audit,
+        # tests_r14.txt FINDING R14-2).
+        return PlanningResult(
+            "TECHNICAL_ERROR", [], None,
+            "uncapped solve succeeded but no employee is over the LOAD-01 threshold; "
+            "cannot attribute the capped INFEASIBLE to LOAD-01",
+            [],
+        )
     warnings = list(outcome.warnings) + list(report.warnings)
     load_blocker, blockers = _rank_load_blockers(report, over_threshold, warnings)
     payload = DecisionRequiredPayload(

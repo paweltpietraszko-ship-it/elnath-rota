@@ -68,6 +68,25 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], violati
             )
 
 
+def _check_membership_enabled(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
+    """MEMBERSHIP-01 (arch/spec.md:114): LOCAL is eligible only when
+    membership.enabled. Audit round 14 FINDING R14-1: this was enforced by
+    solver eligibility for newly-solved Assignments, but a pre-existing
+    Assignment (existing_assignments, already covering a demand before plan()
+    runs) was never checked against it at all, so a disabled membership could
+    reach FEASIBLE unnoticed on both the solver and validator side."""
+    membership_by_employee = {
+        m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id
+    }
+    for assignment in assignments:
+        membership = membership_by_employee.get(assignment.employee_id)
+        if membership is not None and not membership.enabled:
+            violations.append(
+                f"MEMBERSHIP-01: {assignment.employee_id} assignment {assignment.assignment_id} "
+                "has a disabled membership"
+            )
+
+
 def _check_employee_active(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
     """EMP-02 (arch/spec.md:102): an Assignment interval must lie entirely inside
     the Employee's active period. Audit round 13 FINDING R13-3: the validator had
@@ -250,6 +269,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     warnings: list[str] = []
 
     _check_coverage(state, assignments, violations)
+    _check_membership_enabled(state, assignments, violations)
     _check_employee_active(state, assignments, violations)
     _check_day_only(state, assignments, violations)
     _check_day_shift_off(state, assignments, violations, warnings)
