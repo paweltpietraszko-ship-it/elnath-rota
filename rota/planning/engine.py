@@ -37,6 +37,7 @@ from rota.planning.engine_types import (
 from rota.planning.shift_catalog import UnclassifiedShiftError
 from rota.planning.site_rules import UnsupportedOrMalformedSiteRule, validate_executable_site_rules
 from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
+from rota.planning.timeutil import intervals_overlap
 from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
 
 
@@ -356,6 +357,32 @@ def _frozen_blockers_and_demands(
     return blockers, blocking
 
 
+def _demand_ids_in_worst_windows(
+    report: IndependentValidationReport, full: list[Assignment], over_threshold: dict[str, float]
+) -> set:
+    """ROTA-T007 (audit round 3 FINDING R3-2, narrowed by round 4 FINDING
+    R4-1, then round 5 FINDING R5-1): demand_ids relevant to a LOAD-01
+    breach are those overlapping, in HOURS, the over-threshold employee's
+    own worst rolling-7d window (the same overlap semantics LOAD-01 itself
+    uses) -- not merely demands whose start date falls inside the window's
+    calendar-date range (an overnight shift starting the day before the
+    window can still contribute hours to it), and not every demand that
+    employee covers anywhere in the month (which would attribute an
+    unrelated SiteRule from a different week to this breach)."""
+    demand_ids: set = set()
+    for employee_id in over_threshold:
+        window = report.maximum_rolling_7d_window_datetimes.get(employee_id)
+        if window is None:
+            continue
+        window_start, window_end = window
+        demand_ids |= {
+            a.covers_demand_id for a in full
+            if a.employee_id == employee_id and a.covers_demand_id
+            and intervals_overlap(a.start_datetime, a.end_datetime, window_start, window_end)
+        }
+    return demand_ids
+
+
 def _load_decision(
     state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str],
     full: list[Assignment], site_rule_exclusions: dict[str, list[tuple[str, str]]],
@@ -377,25 +404,7 @@ def _load_decision(
         )
     warnings = list(extra_warnings) + list(report.warnings)
     load_blocker, blockers = _rank_load_blockers(report, over_threshold, warnings)
-    # ROTA-T007 (audit round 3 FINDING R3-2, narrowed by round 4 FINDING
-    # R4-1): a SiteRule that excluded other employees from demands the
-    # over-threshold employee(s) covered can be the necessary cause of this
-    # LOAD-01 breach -- but only for demands that actually fall inside THAT
-    # employee's own worst rolling-7d window (report.maximum_rolling_7d_window).
-    # Using every demand that employee ever covers anywhere in the month
-    # would attribute a totally unrelated SiteRule (e.g. one governing a
-    # different week) to a breach it had nothing to do with.
-    relevant_demand_ids: set = set()
-    for employee_id in over_threshold:
-        window = report.maximum_rolling_7d_window.get(employee_id)
-        if window is None:
-            continue
-        window_start, window_end = window
-        relevant_demand_ids |= {
-            a.covers_demand_id for a in full
-            if a.employee_id == employee_id and a.covers_demand_id
-            and window_start <= a.start_datetime.date() <= window_end
-        }
+    relevant_demand_ids = _demand_ids_in_worst_windows(report, full, over_threshold)
     blockers = blockers + _site_rule_blockers_for(site_rule_exclusions, relevant_demand_ids)
     payload = DecisionRequiredPayload(
         blocking_shift_demands=[],

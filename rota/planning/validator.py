@@ -54,6 +54,10 @@ class IndependentValidationReport:
     minimum_rest_hours: float | None = None
     maximum_rolling_7d_hours: dict[str, float] = field(default_factory=dict)
     maximum_rolling_7d_window: dict[str, tuple] = field(default_factory=dict)
+    # ROTA-T007 (audit round 5 FINDING R5-1): raw (datetime, datetime) window
+    # boundaries per employee, for callers that need real hour-overlap
+    # relevance rather than the calendar-date display form above.
+    maximum_rolling_7d_window_datetimes: dict[str, tuple] = field(default_factory=dict)
 
 
 def _by_employee(assignments: list[Assignment]) -> dict[str, list[Assignment]]:
@@ -444,7 +448,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
 
 def _check_load(
     state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]
-) -> tuple[dict[str, float], dict[str, tuple]]:
+) -> tuple[dict[str, float], dict[str, tuple], dict[str, tuple]]:
     all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     grouped = _by_employee(all_assignments)
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
@@ -452,9 +456,17 @@ def _check_load(
     threshold = state.profile.rolling_7d_decision_threshold_hours
     max_load: dict[str, float] = {}
     max_window: dict[str, tuple] = {}
+    # ROTA-T007 (audit round 5 FINDING R5-1): the display-friendly max_window
+    # (calendar dates only) can't answer "does this Assignment overlap the
+    # actual worst window" correctly for an overnight shift that starts the
+    # day before the window but still contributes hours to it -- callers
+    # that need real relevance (engine._load_decision) need the original
+    # datetime boundaries, not their date()-rounded display form.
+    max_window_datetimes: dict[str, tuple] = {}
     for employee_id, employee_assignments in grouped.items():
         worst = 0.0
         worst_window = None
+        worst_window_datetimes = None
         ids = tuple(a.assignment_id for a in employee_assignments)
         for window_start, window_end in windows:
             hours = sum(
@@ -464,6 +476,7 @@ def _check_load(
             if hours > worst:
                 worst = hours
                 worst_window = (window_start.date(), (window_end - timedelta(days=1)).date())
+                worst_window_datetimes = (window_start, window_end)
             if hours > threshold:
                 details.append(ViolationDetail(
                     "LOAD-01", ids,
@@ -472,7 +485,8 @@ def _check_load(
         max_load[employee_id] = worst
         if worst_window is not None:
             max_window[employee_id] = worst_window
-    return max_load, max_window
+            max_window_datetimes[employee_id] = worst_window_datetimes
+    return max_load, max_window, max_window_datetimes
 
 
 def _monthly_hours(state: PlanningState, assignments: list[Assignment]) -> dict[str, int]:
@@ -515,7 +529,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_external(state, for_eligibility_checks, details)
     _check_site_rules(state, for_eligibility_checks, details)
     min_rest = _check_rest(state, assignments, details)
-    max_load, max_window = _check_load(state, assignments, details)
+    max_load, max_window, max_window_datetimes = _check_load(state, assignments, details)
 
     return IndependentValidationReport(
         hard_pass=not details,
@@ -525,6 +539,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
         monthly_hours=_monthly_hours(state, assignments),
         minimum_rest_hours=min_rest,
         maximum_rolling_7d_window=max_window,
+        maximum_rolling_7d_window_datetimes=max_window_datetimes,
         maximum_rolling_7d_hours=max_load,
     )
 
