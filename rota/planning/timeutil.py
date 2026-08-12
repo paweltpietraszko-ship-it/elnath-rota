@@ -41,11 +41,21 @@ def rest_hours(a_start: datetime, a_end: datetime, b_start: datetime, b_end: dat
 
 
 def rolling_windows(month_start: date, num_days: int) -> list[tuple[datetime, datetime]]:
-    """Return every LOAD_WINDOW_DAYS-day rolling window that starts inside the month."""
+    """Return every LOAD_WINDOW_DAYS-day rolling window that overlaps the month.
+
+    LOAD-01 (arch/spec.md:409-417) and STATE-02 (boundary context sufficient for
+    cross-month validation, arch/spec.md:330) together require windows that start
+    up to LOAD_WINDOW_DAYS-1 days before month_start, not only windows starting on
+    or after day 1 -- otherwise a window straddling the previous month's last few
+    days and this month's first days is never checked (found in audit round 12,
+    tests_r12.txt FINDING 5).
+    """
     windows = []
-    last_start = max(1, num_days - LOAD_WINDOW_DAYS + 1)
-    for offset in range(last_start):
-        window_start = datetime(month_start.year, month_start.month, month_start.day) + timedelta(days=offset)
+    first_offset = -(LOAD_WINDOW_DAYS - 1)
+    last_offset = num_days - LOAD_WINDOW_DAYS
+    month_start_dt = datetime(month_start.year, month_start.month, month_start.day)
+    for offset in range(first_offset, last_offset + 1):
+        window_start = month_start_dt + timedelta(days=offset)
         window_end = window_start + timedelta(days=LOAD_WINDOW_DAYS)
         windows.append((window_start, window_end))
     return windows

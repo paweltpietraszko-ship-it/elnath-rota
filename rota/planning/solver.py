@@ -51,6 +51,8 @@ class SolverOutcome:
     assignments: list[Assignment] | None
     warnings: list[str]
     unassignable_demand_ids: list[str]
+    unassignable_reasons: dict[str, list[tuple[str, str]]]
+    conflicting_demand_ids: list[str]
 
 
 def _demand_hours(demand: ShiftDemand) -> int:
@@ -58,10 +60,16 @@ def _demand_hours(demand: ShiftDemand) -> int:
 
 
 def _already_covered_counts(state: PlanningState) -> dict[str, int]:
+    """Count only active PRIMARY coverage. Audit round 12 FINDING 1: a CANCELLED
+    or TRAINEE Assignment referencing covers_demand_id must not count (arch/spec.md
+    :257-265, COVERAGE-01 arch/spec.md:405-407)."""
     counts: dict[str, int] = {}
     for assignment in state.existing_assignments:
-        if assignment.role == AssignmentRole.PRIMARY and assignment.covers_demand_id:
-            counts[assignment.covers_demand_id] = counts.get(assignment.covers_demand_id, 0) + 1
+        if assignment.role != AssignmentRole.PRIMARY or not assignment.covers_demand_id:
+            continue
+        if assignment.state == AssignmentState.CANCELLED:
+            continue
+        counts[assignment.covers_demand_id] = counts.get(assignment.covers_demand_id, 0) + 1
     return counts
 
 
@@ -78,9 +86,10 @@ def _day_off_dates(state: PlanningState, employee_id: str) -> set:
     return dates
 
 
-def _build_slots(state: PlanningState) -> tuple[list[SolverSlot], dict[str, int], list[str]]:
+def _build_slots(
+    state: PlanningState,
+) -> tuple[list[SolverSlot], dict[str, int], list[str], dict[str, list[tuple[str, str]]]]:
     already_covered = _already_covered_counts(state)
-    memberships_by_employee = {m.employee_id: m for m in state.memberships}
     employees_by_id = {e.employee_id: e for e in state.employees}
     availability_by_employee: dict[str, list] = {}
     for record in state.availability_records:
@@ -89,6 +98,7 @@ def _build_slots(state: PlanningState) -> tuple[list[SolverSlot], dict[str, int]
     slots: list[SolverSlot] = []
     still_needed: dict[str, int] = {}
     unassignable: list[str] = []
+    reasons: dict[str, list[tuple[str, str]]] = {}
 
     for demand in state.shift_demands:
         needed = demand.required_primary_count - already_covered.get(demand.demand_id, 0)
@@ -96,22 +106,22 @@ def _build_slots(state: PlanningState) -> tuple[list[SolverSlot], dict[str, int]
             continue
         still_needed[demand.demand_id] = needed
         shift_kind = classify_demand(demand, state.profile)
-        eligible_count = _collect_eligible_slots(
-            demand, shift_kind, state, employees_by_id, memberships_by_employee,
-            availability_by_employee, slots,
+        eligible_count, demand_reasons = _collect_eligible_slots(
+            demand, shift_kind, state, employees_by_id, availability_by_employee, slots,
         )
         if eligible_count == 0:
             unassignable.append(demand.demand_id)
+            reasons[demand.demand_id] = demand_reasons
 
-    return slots, still_needed, unassignable
+    return slots, still_needed, unassignable, reasons
 
 
 def _collect_eligible_slots(
     demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
-    employees_by_id: dict, memberships_by_employee_list: dict,
-    availability_by_employee: dict, slots: list[SolverSlot],
-) -> int:
+    employees_by_id: dict, availability_by_employee: dict, slots: list[SolverSlot],
+) -> tuple[int, list[tuple[str, str]]]:
     eligible_count = 0
+    reasons: list[tuple[str, str]] = []
     for membership in state.memberships:
         employee = employees_by_id.get(membership.employee_id)
         if employee is None:
@@ -122,6 +132,7 @@ def _collect_eligible_slots(
             list(state.external_windows), state.site.site_id,
         )
         if not result.eligible:
+            reasons.append((employee.employee_id, result.blocked_reason or "UNKNOWN"))
             continue
         eligible_count += 1
         day_off_soft = shift_kind == ShiftKind.N and demand.end_datetime.date() in _day_off_dates(
@@ -130,7 +141,7 @@ def _collect_eligible_slots(
         slots.append(
             SolverSlot(employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft)
         )
-    return eligible_count
+    return eligible_count, reasons
 
 
 def _fixed_intervals(state: PlanningState) -> dict[str, list[tuple[datetime, datetime]]]:
@@ -144,13 +155,21 @@ def _fixed_intervals(state: PlanningState) -> dict[str, list[tuple[datetime, dat
 
 def _add_coverage_constraints(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], still_needed: dict[str, int]
-) -> None:
+) -> dict[str, object]:
+    """Gate each demand's coverage constraint behind an assumption literal so an
+    INFEASIBLE solve can be traced back to the minimal conflicting demand set
+    (audit round 12 FINDING 3: cross-demand REST-01 conflicts must surface as
+    DECISION_REQUIRED, not TECHNICAL_ERROR)."""
     by_demand: dict[str, list[SolverSlot]] = {}
     for slot in slots:
         by_demand.setdefault(slot.demand.demand_id, []).append(slot)
+    assumptions: dict[str, object] = {}
     for demand_id, needed in still_needed.items():
         terms = [x[s.employee_id, demand_id] for s in by_demand.get(demand_id, [])]
-        model.add(sum(terms) == needed)
+        assume_var = model.new_bool_var(f"assume_{demand_id}")
+        model.add(sum(terms) == needed).only_enforce_if(assume_var)
+        assumptions[demand_id] = assume_var
+    return assumptions
 
 
 def _add_rest_constraints(
@@ -283,9 +302,9 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
 
 def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment."""
-    slots, still_needed, unassignable = _build_slots(state)
+    slots, still_needed, unassignable, reasons = _build_slots(state)
     if unassignable:
-        return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable)
+        return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [])
 
     model = cp_model.CpModel()
     x = {
@@ -294,10 +313,11 @@ def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     }
     fixed = _fixed_intervals(state)
 
-    _add_coverage_constraints(model, x, slots, still_needed)
+    assumptions = _add_coverage_constraints(model, x, slots, still_needed)
     _add_rest_constraints(model, x, slots, fixed)
     _add_load_constraints(model, x, slots, fixed, state, enforce_load_cap)
     _add_objective(model, x, slots, state)
+    model.add_assumptions(list(assumptions.values()))
 
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
@@ -307,11 +327,32 @@ def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     status_name = solver.status_name(status)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return SolverOutcome(status_name, None, [], [])
+        conflicting = _conflicting_demand_ids(solver, status, assumptions)
+        return SolverOutcome(status_name, None, [], [], {}, conflicting)
 
     assignments = _extract_assignments(solver, x, slots, state)
     warnings = _collect_warnings(assignments, slots)
-    return SolverOutcome(status_name, assignments, warnings, [])
+    return SolverOutcome(status_name, assignments, warnings, [], {}, [])
+
+
+def _conflicting_demand_ids(solver: cp_model.CpSolver, status: int, assumptions: dict[str, object]) -> list[str]:
+    if status != cp_model.INFEASIBLE:
+        return []
+    core_indices = set(solver.sufficient_assumptions_for_infeasibility())
+    return [demand_id for demand_id, var in assumptions.items() if var.index in core_indices]
+
+
+def eligible_employees_for_demands(state: PlanningState, demand_ids: list[str]) -> list[str]:
+    """Return every employee_id eligible for at least one of the given demands.
+
+    Used by the engine to build best-effort Blocker entries for a conflicting
+    demand set; this is not a proof that each listed employee is individually
+    the cause, only that they are part of the candidate pool for it.
+    """
+    slots, _, _, _ = _build_slots(state)
+    demand_id_set = set(demand_ids)
+    employees = {slot.employee_id for slot in slots if slot.demand.demand_id in demand_id_set}
+    return sorted(employees)
 
 
 if __name__ == "__main__":

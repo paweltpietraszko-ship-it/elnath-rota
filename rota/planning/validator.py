@@ -16,7 +16,10 @@ from datetime import timedelta
 from rota.constants import REST_MIN_HOURS
 from rota.domain import (
     Assignment,
+    AssignmentRole,
+    AssignmentState,
     AvailabilityKind,
+    MembershipKind,
     ShiftKind,
 )
 from rota.planning.state import PlanningState
@@ -42,10 +45,16 @@ def _by_employee(assignments: list[Assignment]) -> dict[str, list[Assignment]]:
 
 
 def _check_coverage(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
+    """COVERAGE-01 (arch/spec.md:405-407). Audit round 12 FINDING 1: only an active
+    (not CANCELLED) PRIMARY Assignment counts as coverage; TRAINEE never does
+    (arch/spec.md:260-265)."""
     covered: dict[str, int] = {}
     for assignment in assignments:
-        if assignment.covers_demand_id:
-            covered[assignment.covers_demand_id] = covered.get(assignment.covers_demand_id, 0) + 1
+        if not assignment.covers_demand_id:
+            continue
+        if assignment.role != AssignmentRole.PRIMARY or assignment.state == AssignmentState.CANCELLED:
+            continue
+        covered[assignment.covers_demand_id] = covered.get(assignment.covers_demand_id, 0) + 1
     for demand in state.shift_demands:
         actual = covered.get(demand.demand_id, 0)
         if actual != demand.required_primary_count:
@@ -118,8 +127,34 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
                 )
 
 
+def _check_external(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
+    """EXTERNAL-01 (arch/spec.md:419-421): X/Y are only eligible inside an active,
+    confirmed ExternalSupportWindow. Audit round 12 FINDING 6: the validator had no
+    EXTERNAL-01 check at all."""
+    membership_kind_by_employee = {
+        m.employee_id: m.membership_kind for m in state.memberships if m.site_id == state.site.site_id
+    }
+    for assignment in assignments:
+        if membership_kind_by_employee.get(assignment.employee_id) != MembershipKind.EXTERNAL_SUPPORT:
+            continue
+        covered = any(
+            w.active and w.site_id == state.site.site_id
+            and w.employee_id == assignment.employee_id
+            and w.start_datetime <= assignment.start_datetime
+            and w.end_datetime >= assignment.end_datetime
+            for w in state.external_windows
+        )
+        if not covered:
+            violations.append(
+                f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} "
+                "has no covering active ExternalSupportWindow"
+            )
+
+
 def _check_rest(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> float | None:
-    all_assignments = list(assignments) + list(state.other_site_assignments)
+    """REST-01. Audit round 12 FINDING 6: boundary_assignments (end of previous
+    month, STATE-02 arch/spec.md:330) must be included, not only other_site_assignments."""
+    all_assignments = list(assignments) + list(state.other_site_assignments) + list(state.boundary_assignments)
     grouped = _by_employee(all_assignments)
     min_rest = None
     for employee_id, employee_assignments in grouped.items():
@@ -172,7 +207,7 @@ def _check_load(
 def _monthly_hours(state: PlanningState, assignments: list[Assignment]) -> dict[str, int]:
     hours: dict[str, int] = {}
     for assignment in assignments:
-        if assignment.role.value != "PRIMARY":
+        if assignment.role != AssignmentRole.PRIMARY or assignment.state == AssignmentState.CANCELLED:
             continue
         worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
@@ -188,6 +223,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_day_only(state, assignments, violations)
     _check_day_shift_off(state, assignments, violations, warnings)
     _check_leave_and_unavailable(state, assignments, violations)
+    _check_external(state, assignments, violations)
     min_rest = _check_rest(state, assignments, violations)
     max_load, max_window = _check_load(state, assignments, violations)
 

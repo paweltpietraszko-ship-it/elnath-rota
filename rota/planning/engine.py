@@ -3,15 +3,20 @@
 Status mapping (arch/spec.md SECTION 3, Frozen Execution Contract v0.4 §6):
 - CP-SAT finds a full-coverage solution within the LOAD-01 threshold and the
   independent validator confirms HARD PASS -> FEASIBLE.
-- No eligible employee exists for some demand, or coverage is only reachable
-  by exceeding the LOAD-01 threshold -> DECISION_REQUIRED with the relevant
-  blockers.
+- No eligible employee exists for some demand, coverage is only reachable by
+  exceeding the LOAD-01 threshold, or a minimal set of demands is jointly
+  unsatisfiable (e.g. REST-01 conflict between two demands for the only
+  eligible employee) -> DECISION_REQUIRED with the relevant blockers.
 - CP-SAT reports OPTIMAL/FEASIBLE but the independent validator finds a HARD
   violation anyway -> this is a solver/mapping bug (anti-drift rule 12), not
   a product outcome, and is reported as TECHNICAL_ERROR rather than silently
   claimed FEASIBLE.
 - Any other unresolved CP-SAT status (e.g. UNKNOWN after the time limit) with
-  no identifiable staffing cause -> TECHNICAL_ERROR.
+  no identifiable staffing or HARD-conflict cause -> TECHNICAL_ERROR. Audit
+  round 12 (tests_r12.txt FINDING 3) found that ordinary REST-01 conflicts
+  were falling into this branch; solver.solve() now diagnoses the minimal
+  conflicting demand set via CP-SAT assumptions so those cases route to
+  DECISION_REQUIRED instead.
 
 Known scope limit of this experiment: DecisionRequiredPayload.load_blocker is
 a single field (arch/spec.md SECTION 3), so when several employees exceed the
@@ -29,7 +34,7 @@ from rota.planning.engine_types import (
     LoadBlocker,
     PlanningResult,
 )
-from rota.planning.solver import SolverOutcome, solve
+from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, solve
 from rota.planning.validator import IndependentValidationReport, validate
 
 
@@ -38,10 +43,13 @@ def plan(state: PlanningState) -> PlanningResult:
     outcome = solve(state, enforce_load_cap=True)
 
     if outcome.unassignable_demand_ids:
-        return _decision_for_unassignable(state, outcome.unassignable_demand_ids)
+        return _decision_for_unassignable(state, outcome)
 
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
+
+    if outcome.conflicting_demand_ids:
+        return _decision_for_conflict(state, outcome)
 
     return _resolve_without_load_cap(state)
 
@@ -49,10 +57,12 @@ def plan(state: PlanningState) -> PlanningResult:
 def _resolve_without_load_cap(state: PlanningState) -> PlanningResult:
     fallback = solve(state, enforce_load_cap=False)
     if fallback.unassignable_demand_ids:
-        return _decision_for_unassignable(state, fallback.unassignable_demand_ids)
-    if fallback.assignments is None:
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [])
-    return _decision_for_load(state, fallback)
+        return _decision_for_unassignable(state, fallback)
+    if fallback.assignments is not None:
+        return _decision_for_load(state, fallback)
+    if fallback.conflicting_demand_ids:
+        return _decision_for_conflict(state, fallback)
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [])
 
 
 def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[Assignment]:
@@ -72,16 +82,22 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
 
 
-def _decision_for_unassignable(state: PlanningState, demand_ids: list[str]) -> PlanningResult:
+def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     by_id = {d.demand_id: d for d in state.shift_demands}
+    demand_ids = outcome.unassignable_demand_ids
     blocking = [
         BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
         for demand_id in demand_ids
         if demand_id in by_id
     ]
+    blockers = [
+        Blocker(employee_id, reason)
+        for demand_id in demand_ids
+        for employee_id, reason in outcome.unassignable_reasons.get(demand_id, [])
+    ]
     payload = DecisionRequiredPayload(
         blocking_shift_demands=blocking,
-        blockers=[],
+        blockers=blockers,
         load_blocker=None,
         unblocking_options=[
             "potwierdzenie X/Y",
@@ -91,6 +107,33 @@ def _decision_for_unassignable(state: PlanningState, demand_ids: list[str]) -> P
         ],
     )
     return PlanningResult("DECISION_REQUIRED", [], payload, None, [])
+
+
+def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
+    """Audit round 12 FINDING 3: a minimal set of demands that cannot be jointly
+    satisfied (typically a REST-01 conflict) is a normal autonomy boundary, not a
+    technical failure (arch/spec.md:503-512)."""
+    by_id = {d.demand_id: d for d in state.shift_demands}
+    demand_ids = outcome.conflicting_demand_ids
+    blocking = [
+        BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
+        for demand_id in demand_ids
+        if demand_id in by_id
+    ]
+    involved_employees = eligible_employees_for_demands(state, demand_ids)
+    blockers = [Blocker(employee_id, "REST-01") for employee_id in involved_employees]
+    payload = DecisionRequiredPayload(
+        blocking_shift_demands=blocking,
+        blockers=blockers,
+        load_blocker=None,
+        unblocking_options=["świadoma ręczna korekta zgodnie z kontraktem"],
+    )
+    warnings = [
+        "REST-01: demands "
+        f"{sorted(demand_ids)} cannot be jointly covered by eligible employees; "
+        "blockers list every employee eligible for any of them, not a proven minimal cause"
+    ]
+    return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 
 def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
