@@ -176,15 +176,14 @@ def test_r20_3_validator_independently_flags_dangling_trainee_reference():
 
 
 def test_r21_1_overlapping_sick_ranges_union_not_sum():
-    from rota.planning.solver import _sick_leave_days_in_month
+    from rota.planning.absence import excused_absence_days_in_month
 
     # Two active records both covering Oct 3: union is Oct 1-5 (5 days), not
     # 3+3=6 days -- the bug summed each record's own day count instead of
     # unioning per-employee calendar dates.
     sick_1 = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 3), True, None, None)
     sick_2 = AvailabilityRecord("s2", "s2v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 3), date(2026, 10, 5), True, None, None)
-    state = base_state(availability_records=(sick_1, sick_2))
-    assert _sick_leave_days_in_month(state) == {"A": 5}
+    assert excused_absence_days_in_month([sick_1, sick_2], date(2026, 10, 1)) == {"A": 5}
 
 
 if __name__ == "__main__":

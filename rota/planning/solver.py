@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from ortools.sat.python import cp_model
 
@@ -26,6 +26,7 @@ from rota.domain import (
     ShiftDemand,
     ShiftKind,
 )
+from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
 from rota.planning.shift_catalog import classify_demand
@@ -36,7 +37,6 @@ TARGET_DEVIATION_WEIGHT = 100
 SOFT_PENALTY_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
 MAX_MONTHLY_HOURS = 744
-SICK_LEAVE_HOURS_PER_DAY = 8
 
 
 @dataclass
@@ -382,47 +382,34 @@ def _add_load_constraints(
                 model.add(sum(terms) + fixed_hours <= threshold)
 
 
-def _sick_leave_days_in_month(state: PlanningState) -> dict[str, int]:
-    """Count active SICK_LEAVE calendar days per employee inside the current
-    month only -- target_hours is a monthly figure, so a sick period spanning
-    into another month must not discount days outside this one.
+def _sick_adjusted_targets(state: PlanningState) -> dict[str, int]:
+    """SICK_LEAVE-01 (owner decision 2026-08-12): a sick day counts as
+    EXCUSED_ABSENCE_HOURS_PER_DAY (8h) against target_hours regardless of
+    the employee's actual shift length (12h D/N) -- reduce the expected
+    monthly quota, not the worked-hours side of the deviation. Clamped at 0
+    so a sick period longer than the original target cannot invert it into
+    a negative expectation.
 
-    FINDING R21-1 (tests_r21.txt): two active SICK_LEAVE records for the same
-    employee can legitimately overlap or abut (e.g. an extension logged as a
-    second record instead of editing the first) -- a shared calendar day must
-    count once, not once per record. Unions per-employee calendar dates
-    instead of summing each record's own day count."""
-    num_days = calendar.monthrange(state.month.year, state.month.month)[1]
-    month_start = date(state.month.year, state.month.month, 1)
-    month_end = date(state.month.year, state.month.month, num_days)
-    dates_by_employee: dict[str, set] = {}
-    for record in state.availability_records:
-        if not record.active or record.kind != AvailabilityKind.SICK_LEAVE:
-            continue
-        overlap_start = max(record.start_date, month_start)
-        overlap_end = min(record.end_date, month_end)
-        if overlap_start > overlap_end:
-            continue
-        current = overlap_start
-        employee_dates = dates_by_employee.setdefault(record.employee_id, set())
-        while current <= overlap_end:
-            employee_dates.add(current)
-            current += timedelta(days=1)
-    return {employee_id: len(dates) for employee_id, dates in dates_by_employee.items()}
+    Deliberately SICK_LEAVE only, not LEAVE_GRANTED too: target_hours is a
+    coordinator input already set with planned leave in mind (leave is known
+    in advance, unlike sudden sick leave), and ROTA-REG-001's frozen
+    reference hours were verified against the original PoC run using raw
+    target_hours. Extending this to LEAVE_GRANTED shifted the exact hours
+    and broke the frozen oracle -- see absence.py's docstring. LEAVE_GRANTED
+    gets the 8h/day treatment only in the separate quarterly balance module
+    (rota/balance.py), a different question the owner answered "yes" to on
+    2026-08-13."""
+    absence_days_by_employee = excused_absence_days_in_month(
+        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,)
+    )
+    return {
+        wb.employee_id: max(0, wb.target_hours - EXCUSED_ABSENCE_HOURS_PER_DAY * absence_days_by_employee.get(wb.employee_id, 0))
+        for wb in state.work_balances
+    }
 
 
 def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState) -> None:
-    # SICK_LEAVE-01 (owner decision 2026-08-12): a sick day counts as
-    # SICK_LEAVE_HOURS_PER_DAY (8h) against target_hours regardless of the
-    # employee's actual shift length (12h D/N) -- reduce the expected
-    # monthly quota, not the worked-hours side of the deviation. Clamped at
-    # 0 so a sick period longer than the original target cannot invert it
-    # into a negative expectation.
-    sick_days_by_employee = _sick_leave_days_in_month(state)
-    target_by_employee = {
-        wb.employee_id: max(0, wb.target_hours - SICK_LEAVE_HOURS_PER_DAY * sick_days_by_employee.get(wb.employee_id, 0))
-        for wb in state.work_balances
-    }
+    target_by_employee = _sick_adjusted_targets(state)
     # FINDING R17-5: a CANCELLED existing Assignment is not actual work
     # (arch/spec.md:257) and must not count toward the TARGET-01 objective,
     # consistent with coverage/REST-01/LOAD-01/validator filtering already

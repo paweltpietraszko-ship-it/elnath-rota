@@ -77,6 +77,31 @@ def test_sick_leave_reduces_target_by_8h_per_day_not_shift_length():
     assert result.candidates[0][0].employee_id in {"A", "B"}
 
 
+def test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave():
+    """Owner decision 2026-08-13: LEAVE_GRANTED gets the 8h/day treatment in
+    the quarterly balance module (rota/balance.py), but NOT in solver.py's
+    live TARGET-01 objective -- target_hours is a coordinator input already
+    set with planned leave in mind, and applying the reduction here shifted
+    ROTA-REG-001's frozen exact-hours oracle when first tried. This locks in
+    the revert."""
+    demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
+    employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
+    employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
+    leave = AvailabilityRecord("l1", "l1v1", "A", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
+    # A target=40 unreduced by leave (unlike sick leave); B target=0.
+    # If LEAVE_GRANTED reduced A's target like sick leave, A would become the
+    # preferred (equally-matched) candidate same as in the sick-leave test.
+    # It must not: B alone should be the clear better fit (deviation 0 vs 12).
+    work_balances = (WorkBalance("A", MONTH, 40, 0, 0, 0, 0, 0), WorkBalance("B", MONTH, 12, 0, 0, 0, 0, 0))
+    state = base_state(
+        employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
+        shift_demands=(demand,), availability_records=(leave,), work_balances=work_balances,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert result.candidates[0][0].employee_id == "B"
+
+
 def test_sick_leave_replan_redistributes_when_reported_mid_month():
     demand = ShiftDemand("2026-10-01-D", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0), 1)
     employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
