@@ -238,7 +238,9 @@ class SiteRuleVersion:
     category: RuleCategory
     rule_kind: Optional[str]
     structured_parameters: Optional["RuleParameters"]
-    # rule_kind catalog: CONTRACT_GAP — osobny task
+    # rule_kind catalog: initial 3-kind catalog frozen by ROTA-T007
+    # (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md); only future catalog
+    # extension beyond those three kinds remains CONTRACT_GAP
     enforcement: RuleEnforcement
     resolution_status: RuleResolution
     effective_from: date

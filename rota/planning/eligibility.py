@@ -14,10 +14,14 @@ that do not carry a membership-kind qualifier in arch/spec.md, so they are
 now applied identically to LOCAL and EXTERNAL; EXTERNAL additionally requires
 a covering ExternalSupportWindow (MEMBERSHIP-02, EXTERNAL-01).
 
-SiteRuleVersion (RESOLVED) is intentionally not interpreted here: rule_kind
-catalog is CONTRACT_GAP per rota.domain.RuleParameters. Any active resolved
-SiteRule beyond what is modeled through AvailabilityRecord/Employee fields is
-out of scope for this experiment and is not silently applied.
+ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md): applicable RESOLVED
+HARD SiteRuleVersions ARE interpreted here, via
+rota.planning.site_rules.rule_allows_assignment(), for the frozen initial
+three-kind catalog (EMPLOYEE_ALLOWED_SHIFT_KINDS, EMPLOYEE_ALLOWED_WEEKDAYS,
+EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS). This module still performs no
+persistence I/O -- the caller supplies applicable_hard_rules, already
+sliced from PlanningState.site_rules/site_rule_applicability. Only rule
+kinds beyond that initial catalog remain a separate CONTRACT_GAP.
 """
 from __future__ import annotations
 
