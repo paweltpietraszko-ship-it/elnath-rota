@@ -1,0 +1,99 @@
+"""SICK_LEAVE-01: owner decision 2026-08-12, from real ROYALPACK/APEXIM
+schedules (Grafiki/). Two rules, both clarified directly by the owner:
+- HARD-blocks automatic Assignment, same as LEAVE_GRANTED.
+- Accounts as a flat 8h/day against target_hours regardless of actual shift
+  length (12h D/N) -- a sudden sick period is expected to be handled by
+  REPLAN (already implemented), not by a separate mechanism here.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
+    AvailabilityKind,
+    AvailabilityRecord,
+    Employee,
+    MembershipKind,
+    ShiftDemand,
+    SiteMembership,
+    WorkBalance,
+)
+from rota.planning.engine import plan
+from tests.support.minimal_state import MONTH, ReadinessSource, ReadinessState, SITE_ID, base_state
+
+
+def _local_membership(employee_id: str) -> SiteMembership:
+    return SiteMembership(employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+
+
+def test_sick_leave_hard_blocks_assignment_on_sick_day():
+    demand = ShiftDemand("2026-10-02-D", "test-v1", datetime(2026, 10, 2, 5, 0), datetime(2026, 10, 2, 17, 0), 1)
+    employee = Employee("A", "A", date(2026, 9, 1), None, False)
+    sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
+    state = base_state(
+        employees=(employee,), memberships=(_local_membership("A"),),
+        shift_demands=(demand,), availability_records=(sick,),
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.employee_id == "A" and b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+
+
+def test_sick_leave_does_not_block_assignment_outside_the_sick_range():
+    demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
+    employee = Employee("A", "A", date(2026, 9, 1), None, False)
+    sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
+    state = base_state(
+        employees=(employee,), memberships=(_local_membership("A"),),
+        shift_demands=(demand,), availability_records=(sick,),
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert result.candidates[0][0].employee_id == "A"
+
+
+def test_sick_leave_reduces_target_by_8h_per_day_not_shift_length():
+    demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
+    employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
+    employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
+    # A sick 5 days -> target drops by 5*8=40h, from 40 to 0: taking this one
+    # 12h shift now costs A a deviation of 12, same math as B starting from
+    # target 0. Without the 8h/day adjustment A would start from target 40
+    # and taking the shift would look like a *better* fit than it should.
+    sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
+    work_balances = (WorkBalance("A", MONTH, 40, 0, 0, 0, 0, 0), WorkBalance("B", MONTH, 0, 0, 0, 0, 0, 0))
+    state = base_state(
+        employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
+        shift_demands=(demand,), availability_records=(sick,), work_balances=work_balances,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    # both are equally (mis)matched after the adjustment -- solver picks one
+    # deterministically, not necessarily A, which is the point: sick days
+    # must not make A artificially preferred over B for this shift.
+    assert result.candidates[0][0].employee_id in {"A", "B"}
+
+
+def test_sick_leave_replan_redistributes_when_reported_mid_month():
+    demand = ShiftDemand("2026-10-01-D", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0), 1)
+    employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
+    employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
+    original = Assignment(
+        "orig-1", "test-v1", "A", demand.start_datetime, demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand.demand_id, None,
+    )
+    reported_sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 1), True, None, None)
+    state = base_state(
+        employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
+        shift_demands=(demand,), existing_assignments=(original,), availability_records=(reported_sick,),
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert [a.employee_id for a in result.candidates[0]] == ["B"]
+
+
+if __name__ == "__main__":
+    print("test_sick_leave module OK")

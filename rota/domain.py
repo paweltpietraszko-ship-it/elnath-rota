@@ -29,6 +29,12 @@ class AvailabilityKind(str, Enum):
     UNAVAILABLE_24H = "UNAVAILABLE_24H"
     LEAVE_PLAN = "LEAVE_PLAN"
     LEAVE_GRANTED = "LEAVE_GRANTED"
+    # SICK_LEAVE-01: owner decision 2026-08-12, from real ROYALPACK/APEXIM
+    # schedules (Grafiki/). HARD-blocks automatic Assignment like
+    # LEAVE_GRANTED, but accounts as a flat 8h/day against target_hours
+    # regardless of actual shift length (12h D/N) -- distinct from
+    # LEAVE_GRANTED, which carries no such hour-accounting rule.
+    SICK_LEAVE = "SICK_LEAVE"
 
 
 class MembershipKind(str, Enum):

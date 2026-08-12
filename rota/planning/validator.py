@@ -192,7 +192,7 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
         for record in records_by_employee.get(assignment.employee_id, []):
             if not record.active:
                 continue
-            if record.kind not in (AvailabilityKind.LEAVE_GRANTED, AvailabilityKind.UNAVAILABLE_24H):
+            if record.kind not in (AvailabilityKind.LEAVE_GRANTED, AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE):
                 continue
             overlaps = overlaps_date_range(
                 assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date

@@ -78,6 +78,9 @@ def _blocked_by_availability(
         elif record.kind == AvailabilityKind.LEAVE_GRANTED:
             if overlaps_availability(demand, record):
                 reason = "LEAVE_GRANTED-01"
+        elif record.kind == AvailabilityKind.SICK_LEAVE:
+            if overlaps_availability(demand, record):
+                reason = "SICK_LEAVE-01"
         elif record.kind == AvailabilityKind.LEAVE_PLAN:
             if overlaps_availability(demand, record):
                 leave_plan_collision = True

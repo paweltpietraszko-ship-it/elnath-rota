@@ -37,6 +37,7 @@ WEEKEND_FAIRNESS_WEIGHT = 1
 HOLIDAY_FAIRNESS_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
 MAX_MONTHLY_HOURS = 744
+SICK_LEAVE_HOURS_PER_DAY = 8
 
 
 @dataclass
@@ -319,8 +320,38 @@ def _add_load_constraints(
                 model.add(sum(terms) + fixed_hours <= threshold)
 
 
+def _sick_leave_days_in_month(state: PlanningState) -> dict[str, int]:
+    """Count active SICK_LEAVE calendar days per employee inside the current
+    month only -- target_hours is a monthly figure, so a sick period spanning
+    into another month must not discount days outside this one."""
+    num_days = calendar.monthrange(state.month.year, state.month.month)[1]
+    month_start = date(state.month.year, state.month.month, 1)
+    month_end = date(state.month.year, state.month.month, num_days)
+    days_by_employee: dict[str, int] = {}
+    for record in state.availability_records:
+        if not record.active or record.kind != AvailabilityKind.SICK_LEAVE:
+            continue
+        overlap_start = max(record.start_date, month_start)
+        overlap_end = min(record.end_date, month_end)
+        if overlap_start > overlap_end:
+            continue
+        days = (overlap_end - overlap_start).days + 1
+        days_by_employee[record.employee_id] = days_by_employee.get(record.employee_id, 0) + days
+    return days_by_employee
+
+
 def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState) -> None:
-    target_by_employee = {wb.employee_id: wb.target_hours for wb in state.work_balances}
+    # SICK_LEAVE-01 (owner decision 2026-08-12): a sick day counts as
+    # SICK_LEAVE_HOURS_PER_DAY (8h) against target_hours regardless of the
+    # employee's actual shift length (12h D/N) -- reduce the expected
+    # monthly quota, not the worked-hours side of the deviation. Clamped at
+    # 0 so a sick period longer than the original target cannot invert it
+    # into a negative expectation.
+    sick_days_by_employee = _sick_leave_days_in_month(state)
+    target_by_employee = {
+        wb.employee_id: max(0, wb.target_hours - SICK_LEAVE_HOURS_PER_DAY * sick_days_by_employee.get(wb.employee_id, 0))
+        for wb in state.work_balances
+    }
     # FINDING R17-5: a CANCELLED existing Assignment is not actual work
     # (arch/spec.md:257) and must not count toward the TARGET-01 objective,
     # consistent with coverage/REST-01/LOAD-01/validator filtering already
