@@ -189,6 +189,14 @@ def _check_external(state: PlanningState, assignments: list[Assignment], violati
     for assignment in assignments:
         if membership_kind_by_employee.get(assignment.employee_id) != MembershipKind.EXTERNAL_SUPPORT:
             continue
+        if not state.profile.external_support_enabled:
+            # FINDING R16-2: a window does not turn on a capability the
+            # profile has switched off (SITE-01, arch/spec.md:49-50).
+            violations.append(
+                f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} "
+                "uses EXTERNAL_SUPPORT but profile.external_support_enabled is false"
+            )
+            continue
         kind = _assignment_kind(assignment, state)
         covered = any(
             w.active and w.site_id == state.site.site_id

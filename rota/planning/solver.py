@@ -128,7 +128,15 @@ def _collect_eligible_slots(
     eligible_count = 0
     eligible_ids: list[str] = []
     reasons: list[tuple[str, str]] = []
+    # FINDING R16-1: an Employee is not structurally owned by exactly one Site
+    # (EMP-03), so state.memberships can legitimately contain a membership for
+    # a different site. Without this filter, an other-site-only membership
+    # wrongly authorized eligibility, and a multi-site Employee was iterated
+    # once per membership, duplicating the same (employee_id, demand_id) CP-SAT
+    # variable in the coverage constraint's term list.
     for membership in state.memberships:
+        if membership.site_id != state.site.site_id:
+            continue
         employee = employees_by_id.get(membership.employee_id)
         if employee is None:
             continue

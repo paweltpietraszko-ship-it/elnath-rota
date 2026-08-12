@@ -137,6 +137,12 @@ def check_eligibility(
         return gate
     if membership.membership_kind == MembershipKind.LOCAL:
         return gate
+    # FINDING R16-2: SiteProfile.external_support_enabled=false means the
+    # profile does not provide for X/Y at all (arch/spec.md:49-50, SITE-01);
+    # an active ExternalSupportWindow does not turn on a capability the
+    # profile has switched off.
+    if not profile.external_support_enabled:
+        return EligibilityCheck(False, False, "EXTERNAL_SUPPORT_DISABLED")
     if _external_window_covers(employee.employee_id, demand, shift_kind, site_id, external_windows):
         return gate
     return EligibilityCheck(False, False, "EXTERNAL-01")
