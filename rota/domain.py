@@ -31,9 +31,13 @@ class AvailabilityKind(str, Enum):
     LEAVE_GRANTED = "LEAVE_GRANTED"
     # SICK_LEAVE-01: owner decision 2026-08-12, from real ROYALPACK/APEXIM
     # schedules (Grafiki/). HARD-blocks automatic Assignment like
-    # LEAVE_GRANTED, but accounts as a flat 8h/day against target_hours
-    # regardless of actual shift length (12h D/N) -- distinct from
-    # LEAVE_GRANTED, which carries no such hour-accounting rule.
+    # LEAVE_GRANTED, and accounts as a flat 8h/day against target_hours
+    # regardless of actual shift length (12h D/N). Owner decision 2026-08-13:
+    # LEAVE_GRANTED gets the identical 8h/day accounting too, but only in
+    # rota.balance's quarterly WorkBalance tracking -- solver.py's live
+    # TARGET-01 SOFT ranking stays SICK_LEAVE-only (see
+    # rota/planning/absence.py for why: applying it there too shifted
+    # ROTA-REG-001's frozen exact-hours oracle).
     SICK_LEAVE = "SICK_LEAVE"
 
 
