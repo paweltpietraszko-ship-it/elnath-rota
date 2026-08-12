@@ -444,7 +444,7 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
 
     add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
     holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
-    add_holiday_fairness(model, x, by_employee, holiday_dates, _historical_holiday_hours(state), penalties)
+    add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
 
     model.minimize(sum(penalties))
 
@@ -467,6 +467,30 @@ def _historical_holiday_hours(state: PlanningState) -> dict[str, int]:
         worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
     return hours
+
+
+def _fixed_holiday_hours(state: PlanningState, holiday_dates: set) -> dict[str, int]:
+    """FINDING R23-1 (tests_r23.txt): a fixed (REALIZED/frozen/mentor-linked)
+    PRIMARY Assignment already on a holiday date this run is part of every
+    final candidate's holiday workload just as much as historical hours are
+    -- it must not be invisible to fairness just because it was decided
+    before this solve rather than by it."""
+    hours: dict[str, int] = {}
+    for assignment in fixed_existing_assignments(state):
+        if assignment.role != AssignmentRole.PRIMARY or assignment.start_datetime.date() not in holiday_dates:
+            continue
+        worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
+        hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
+    return hours
+
+
+def _base_holiday_hours(state: PlanningState, holiday_dates: set) -> dict[str, int]:
+    """Historical + current-run fixed holiday hours combined -- the base each
+    employee's newly-solved holiday hours are added to before comparing."""
+    base = dict(_historical_holiday_hours(state))
+    for employee_id, hours in _fixed_holiday_hours(state, holiday_dates).items():
+        base[employee_id] = base.get(employee_id, 0) + hours
+    return base
 
 
 def _extract_assignments(

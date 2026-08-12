@@ -116,8 +116,7 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     report = validate(state, full)
     if report.hard_pass:
         return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
-    non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
-    if non_load_violations:
+    if _has_non_load_violations(report):
         return _decision_for_conflicts(state, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
     # never gets a SolverSlot, so the LOAD-01 cap constraint is never added
@@ -184,8 +183,7 @@ def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> Plan
 def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
-    non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
-    if non_load_violations:
+    if _has_non_load_violations(report):
         # Round 15 audit (tests_r15.txt FINDING R15-2): the uncapped fallback
         # candidate is still a candidate and must pass full independent HARD
         # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
@@ -193,6 +191,34 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
         # co-occurring HARD violation via the DECISION_REQUIRED payload.
         return _decision_for_conflicts(state, report, list(outcome.warnings))
     return _load_decision(state, report, list(outcome.warnings))
+
+
+def _has_non_load_violations(report: IndependentValidationReport) -> bool:
+    return any(d.rule != "LOAD-01" for d in report.violation_details)
+
+
+def _unresolved_technical_error(
+    state: PlanningState, report: IndependentValidationReport, conflicts: list[tuple[str, str, str, str]]
+) -> PlanningResult | None:
+    """Returns a TECHNICAL_ERROR PlanningResult if some non-LOAD-01 violation
+    is not explained by a diagnosed frozen conflict, else None. FINDING
+    R23-2 (tests_r23.txt): matches by exact assignment_id membership, not by
+    searching for the id as a substring of the message text -- assignment_id
+    has no contractual format/minimum length, so short or common IDs ("a",
+    "mentor") could coincidentally match unrelated violations and mask a
+    genuinely independent one."""
+    non_load_details = [d for d in report.violation_details if d.rule != "LOAD-01"]
+    explained_ids = {assignment_id for _, _, _, assignment_id in conflicts}
+    unexplained = [d for d in non_load_details if not (set(d.assignment_ids) & explained_ids)]
+    if not conflicts or unexplained:
+        message_source = report.violations if not conflicts else [d.message for d in unexplained]
+        return PlanningResult(
+            "TECHNICAL_ERROR", [], None,
+            "independent validator found HARD violations that cannot be attributed to a known "
+            "autonomy boundary: " + "; ".join(message_source),
+            [],
+        )
+    return None
 
 
 def _decision_for_conflicts(
@@ -205,18 +231,15 @@ def _decision_for_conflicts(
     DECISION_REQUIRED payload, and if anything is left unexplained, fall back
     to TECHNICAL_ERROR (anti-drift rule 12) rather than presenting an
     incomplete decision."""
-    non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
+    # FINDING R23-2 (tests_r23.txt): match by exact assignment_id membership,
+    # not by searching for the id as a substring of the message text --
+    # assignment_id has no contractual format/minimum length, so short or
+    # common IDs ("a", "mentor") could coincidentally match unrelated
+    # violations and mask a genuinely independent one.
     conflicts = frozen_conflict_blockers(state)
-    explained_ids = {assignment_id for _, _, _, assignment_id in conflicts}
-    unexplained = [v for v in non_load_violations if not any(aid in v for aid in explained_ids)]
-    if not conflicts or unexplained:
-        message_source = report.violations if not conflicts else unexplained
-        return PlanningResult(
-            "TECHNICAL_ERROR", [], None,
-            "independent validator found HARD violations that cannot be attributed to a known "
-            "autonomy boundary: " + "; ".join(message_source),
-            [],
-        )
+    unresolved = _unresolved_technical_error(state, report, conflicts)
+    if unresolved is not None:
+        return unresolved
 
     threshold = state.profile.rolling_7d_decision_threshold_hours
     over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
