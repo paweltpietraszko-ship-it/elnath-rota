@@ -1,0 +1,128 @@
+ROTA-T007 — AUDYT IMPLEMENTACJI, RUNDA 3
+Data: 2026-08-12
+Audytor: Codex
+Audytowany SHA: d4af94705bfd4c43b2b1eda37d71b77c82da97ee
+Gałąź: origin/task/ROTA-T007
+
+WERDYKT
+=======
+FAIL — NOT READY FOR MERGE.
+
+Implementacja realizuje główną ścieżkę T007, ale dwa kontraktowe invarianty
+nie są domknięte. Findings poniżej są błędami zachowania kodu wynikającymi
+wprost z frozen addendum i Task Contract; nie są propozycjami architektury.
+
+FINDING R3-1 — HIGH
+===================
+Wadliwe, lecz poprawne JSON parametry mogą wyrzucić surowy TypeError z plan().
+
+Podstawa kontraktowa:
+- FROZEN_ADDENDUM_SITE_RULE_EXEC_01, SITE-RULE-EXEC-01 punkt 8;
+- brief.md UNKNOWN/MALFORMED EXECUTABLE oraz ACCEPTANCE 7;
+- publiczny plan() ma zwracać TECHNICAL_ERROR z rule_version_id dla wadliwego
+  RESOLVED HARD, a nie wypuszczać wyjątek.
+
+Reprodukcja przez pełną granicę T005 -> T007:
+1. Zapisz przez record_decision() poprawny JSON, ale wadliwy schemat wykonawczy:
+   - EMPLOYEE_ALLOWED_SHIFT_KINDS z allowed_shift_kinds=[['D']], albo
+   - EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS z
+     forbidden_shift_kinds=[{'kind': 'D'}].
+2. Odczytaj go przez assemble_monthly_site_rules().
+3. Wywołaj publiczne plan().
+
+Oba warianty kończą się surowym:
+`TypeError: cannot use 'list'/'dict' as a set element`.
+
+Przyczyna:
+rota/planning/site_rules.py:60 sprawdza każdy element przez członkostwo w
+frozenset zanim potwierdzi, że element jest stringiem. Lista i obiekt są
+legalnymi wartościami JSON, więc T005 słusznie je transportuje; to T007 jest
+właścicielem odrzucenia wadliwego schematu wykonawczego.
+
+Wymagane zachowanie:
+każdy wadliwy wariant tego pola ma zostać sklasyfikowany bez wyjątku surowego
+jako TECHNICAL_ERROR zawierający dokładny rule_version_id. Poprawka musi objąć
+oba pola list ShiftKind, nie tylko pierwszy reproduktor.
+
+Testy:
+- test_r3_json_valid_nested_values_fail_closed_at_public_plan_boundary
+  (2 warianty; oba FAIL).
+
+FINDING R3-2 — MEDIUM
+=====================
+SiteRule traci provenance, gdy powoduje konflikt wielodemandowy REST/LOAD.
+
+Podstawa kontraktowa:
+- FROZEN_ADDENDUM_SITE_RULE_EXEC_01 punkt 9;
+- brief.md SOLVER INTEGRATION;
+- brief.md ACCEPTANCE 14 i 15.
+
+Kontrakt wymaga, aby normalna niewykonalność spowodowana prawidłowym HARD
+SiteRule kończyła się DECISION_REQUIRED i wskazywała dokładny
+rule_version_id jako blocker/source. Działa to dla prostego niedoboru
+pojedynczego demandu, lecz nie dla sąsiednich ścieżek:
+
+A. REST-01
+- B jest DAY_ONLY, więc nie może pokryć N;
+- HARD SiteRule blokuje B na D;
+- A jest osobno eligible dla D i N, ale nie może wykonać obu bez REST-01;
+- usunięcie SiteRule czyni plan wykonalnym (B=D, A=N).
+
+Wynik jest prawidłowo DECISION_REQUIRED, lecz blockers zawiera wyłącznie
+REST-01 i nie zawiera rule_version_id koniecznej przyczyny.
+
+B. LOAD-01
+- sześć zmian D mieści się w jednym oknie 7 dni;
+- HARD SiteRule wyklucza B ze zmian D, więc wyłącznie A może je pokryć;
+- capped solve jest niewykonalny, uncapped fallback przekracza LOAD-01;
+- usunięcie SiteRule pozwala rozdzielić pracę bez przekroczenia.
+
+Wynik jest prawidłowo DECISION_REQUIRED z load_blocker, lecz blockers ponownie
+nie zawiera rule_version_id.
+
+Klasa została sprawdzona dla dwóch rodzajów reguł:
+- EMPLOYEE_ALLOWED_SHIFT_KINDS;
+- EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS.
+
+Przyczyna:
+rota/planning/solver.py zachowuje demand_reasons tylko wtedy, gdy pojedynczy
+demand ma za mało eligible pracowników. Gdy każdy demand osobno ma wystarczającą
+liczbę, informacje o wykluczeniach znikają. Następnie ścieżka konfliktu buduje
+wyłącznie ogólny REST-01, a ścieżka fallbacku wyłącznie LOAD-01.
+
+Wymagane zachowanie:
+jeżeli wykluczenie przez SiteRule jest konieczną przyczyną DECISION_REQUIRED,
+dokładny rule_version_id musi pozostać widoczny w payloadzie także na ścieżce
+REST i LOAD. Nie wolno ograniczyć poprawki do prostego unassignable demandu,
+bo ta ścieżka już działa.
+
+Testy:
+- test_r3_cross_demand_conflict_preserves_site_rule_provenance
+  (2 warianty; oba FAIL);
+- test_r3_load_fallback_preserves_site_rule_provenance
+  (2 warianty; oba FAIL).
+
+NIEZALEŻNE TESTY, KTÓRE PRZESZŁY
+================================
+- ten sam HARD katalog działa dla dwóch arbitralnych profile_id bez heurystyki
+  `OCHRONA`/display_name;
+- rzeczywista projekcja SQLite poprawnie tworzy slice'y dla mid-month
+  supersedes i corrects, a następnie kończy je na dacie rejects;
+- połączenie T007 z T006 zachowuje porządek HARD SiteRule -> minimalna liczba
+  roszad -> zwykły SOFT.
+
+WERYFIKACJA
+===========
+- oryginalny zestaw implementacji: 189/189 PASS;
+- zestaw z niezależnymi testami audytowymi: 194 PASS, 6 FAIL;
+- ROTA-REG-001: 7/7 PASS;
+- benchmark rota_stress.py: 100/100 PASS, max 3.270 s;
+- Ruff: PASS;
+- SIZE_FILE/SIZE_FUNC dla 14 zmienionych plików Python: PASS;
+- git diff --check: PASS;
+
+Artefakt testowy:
+tests/test_audit_t007_r3.py
+
+Nie znaleziono podstawy do kwestionowania wybranej architektury modułów.
+Blokada merge wynika wyłącznie z dwóch powyższych naruszeń obecnego kontraktu.

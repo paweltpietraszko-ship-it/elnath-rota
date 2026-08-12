@@ -56,6 +56,13 @@ class SolverOutcome:
     unassignable_demand_ids: list[str]
     unassignable_reasons: dict[str, list[tuple[str, str]]]
     conflicting_demand_ids: list[str]
+    # ROTA-T007 (audit round 3 FINDING R3-2): demand_id -> [(employee_id,
+    # rule_version_id), ...] for every applicable HARD SiteRule that
+    # excluded an employee from that demand, captured regardless of
+    # whether the demand itself ended up unassignable -- needed so REST-01/
+    # LOAD-01 DECISION_REQUIRED payloads can still surface the SiteRule as
+    # the conflict's provenance, not just the simple shortage path.
+    site_rule_exclusions: dict[str, list[tuple[str, str]]]
 
 
 def _demand_hours(demand: ShiftDemand) -> int:
@@ -142,14 +149,58 @@ def _day_off_dates(state: PlanningState, employee_id: str) -> set:
     return dates
 
 
+@dataclass
+class _DemandSlotResult:
+    needed: int
+    eligible_count: int
+    eligible_ids: list[str]
+    demand_reasons: list[tuple[str, str]]
+
+
+def _process_demand(
+    demand: ShiftDemand, state: PlanningState, already_covered: dict[str, int], employees_by_id: dict,
+    availability_by_employee: dict, slots: list[SolverSlot],
+) -> _DemandSlotResult | None:
+    """One demand's worth of _build_slots's loop body. Returns None when the
+    demand is already fully covered and contributes nothing further."""
+    # FINDING R19 (tests_r19.txt WYMAGA_DECYZJI, resolved by owner
+    # 2026-08-12): PlanningEngine -- not the assembler -- verifies every
+    # ShiftDemand matches a StandardShift, for demands already fully covered
+    # by existing_assignments too. Classifying only uncovered demands meant
+    # an invalid ShiftDemand could reach FEASIBLE silently whenever it
+    # happened to already be covered; the invariant must hold the same way
+    # regardless of coverage status.
+    shift_kind = classify_demand(demand, state.profile)
+    needed = demand.required_primary_count - already_covered.get(demand.demand_id, 0)
+    if needed <= 0:
+        return None
+    applicable_hard_rules = hard_rules_applicable_on(
+        state.site_rules, state.site_rule_applicability, demand.start_datetime.date()
+    )
+    eligible_count, eligible_ids, demand_reasons = _collect_eligible_slots(
+        demand, shift_kind, state, employees_by_id, availability_by_employee, slots, applicable_hard_rules,
+    )
+    return _DemandSlotResult(needed, eligible_count, eligible_ids, demand_reasons)
+
+
 def _build_slots(
     state: PlanningState,
-) -> tuple[list[SolverSlot], dict[str, int], list[str], dict[str, list[tuple[str, str]]]]:
+) -> tuple[
+    list[SolverSlot], dict[str, int], list[str], dict[str, list[tuple[str, str]]], dict[str, list[tuple[str, str]]]
+]:
     already_covered = _already_covered_counts(state)
     employees_by_id = {e.employee_id: e for e in state.employees}
     availability_by_employee: dict[str, list] = {}
     for record in state.availability_records:
         availability_by_employee.setdefault(record.employee_id, []).append(record)
+
+    # ROTA-T007 (audit round 3 FINDING R3-2): captured for EVERY demand, not
+    # only ones that end up unassignable -- a SiteRule can be the necessary
+    # cause of a REST-01/LOAD-01 cross-demand conflict even when each demand
+    # separately still has enough eligible employees, and that provenance
+    # must survive to the DECISION_REQUIRED payload on those paths too.
+    site_rule_ids = {r.rule_version_id for r in state.site_rules}
+    site_rule_exclusions: dict[str, list[tuple[str, str]]] = {}
 
     slots: list[SolverSlot] = []
     still_needed: dict[str, int] = {}
@@ -157,34 +208,23 @@ def _build_slots(
     reasons: dict[str, list[tuple[str, str]]] = {}
 
     for demand in state.shift_demands:
-        # FINDING R19 (tests_r19.txt WYMAGA_DECYZJI, resolved by owner
-        # 2026-08-12): PlanningEngine -- not the assembler -- verifies every
-        # ShiftDemand matches a StandardShift, for demands already fully
-        # covered by existing_assignments too. Classifying only uncovered
-        # demands meant an invalid ShiftDemand could reach FEASIBLE silently
-        # whenever it happened to already be covered; the invariant must hold
-        # the same way regardless of coverage status.
-        shift_kind = classify_demand(demand, state.profile)
-        needed = demand.required_primary_count - already_covered.get(demand.demand_id, 0)
-        if needed <= 0:
+        result = _process_demand(demand, state, already_covered, employees_by_id, availability_by_employee, slots)
+        if result is None:
             continue
-        still_needed[demand.demand_id] = needed
-        applicable_hard_rules = hard_rules_applicable_on(
-            state.site_rules, state.site_rule_applicability, demand.start_datetime.date()
-        )
-        eligible_count, eligible_ids, demand_reasons = _collect_eligible_slots(
-            demand, shift_kind, state, employees_by_id, availability_by_employee, slots, applicable_hard_rules,
-        )
-        if eligible_count < needed:
+        still_needed[demand.demand_id] = result.needed
+        excluded_by_site_rule = [(e, r) for e, r in result.demand_reasons if r in site_rule_ids]
+        if excluded_by_site_rule:
+            site_rule_exclusions[demand.demand_id] = excluded_by_site_rule
+        if result.eligible_count < result.needed:
             # FINDING R13-1: a pure headcount shortage (not enough eligible
             # employees for required_primary_count) is not a cross-demand
             # conflict and must not reach CP-SAT/REST-01 diagnosis at all.
             unassignable.append(demand.demand_id)
-            reasons[demand.demand_id] = demand_reasons + [
-                (employee_id, "INSUFFICIENT_COVERAGE") for employee_id in eligible_ids
+            reasons[demand.demand_id] = result.demand_reasons + [
+                (employee_id, "INSUFFICIENT_COVERAGE") for employee_id in result.eligible_ids
             ]
 
-    return slots, still_needed, unassignable, reasons
+    return slots, still_needed, unassignable, reasons, site_rule_exclusions
 
 
 def _collect_eligible_slots(
@@ -420,20 +460,20 @@ def _run_solver(model: cp_model.CpModel) -> tuple[cp_model.CpSolver, int]:
 
 def _finalize(
     solver: cp_model.CpSolver, status: int, x: dict, slots: list[SolverSlot],
-    state: PlanningState, assumptions: dict[str, object],
+    state: PlanningState, assumptions: dict[str, object], site_rule_exclusions: dict[str, list[tuple[str, str]]],
 ) -> SolverOutcome:
     status_name = solver.status_name(status)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         conflicting = _conflicting_demand_ids(solver, status, assumptions)
-        return SolverOutcome(status_name, None, [], [], {}, conflicting)
+        return SolverOutcome(status_name, None, [], [], {}, conflicting, site_rule_exclusions)
     assignments = _extract_assignments(solver, x, slots, state)
     warnings = _collect_warnings(assignments, slots)
-    return SolverOutcome(status_name, assignments, warnings, [], {}, [])
+    return SolverOutcome(status_name, assignments, warnings, [], {}, [], site_rule_exclusions)
 
 
 def _solve_minimal_reshuffle_then_soft(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
-    assumptions: dict[str, object], baseline: list[Assignment],
+    assumptions: dict[str, object], baseline: list[Assignment], site_rule_exclusions: dict[str, list[tuple[str, str]]],
 ) -> SolverOutcome:
     """REPLAN-MIN-01 (arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md): lexicographic,
     not weighted -- phase 1 finds the true minimum achievable reshuffle count
@@ -448,7 +488,7 @@ def _solve_minimal_reshuffle_then_soft(
         # A rigorous proof about the HARD model itself, not an approximation
         # -- route through the existing infeasibility/conflict-detection
         # path unchanged (audit round 2 FINDING R2-1 status matrix).
-        return _finalize(phase1_solver, phase1_status, x, slots, state, assumptions)
+        return _finalize(phase1_solver, phase1_status, x, slots, state, assumptions, site_rule_exclusions)
     if phase1_status != cp_model.OPTIMAL:
         # FEASIBLE (an unproven incumbent from hitting the time limit),
         # UNKNOWN, or MODEL_INVALID: none of these PROVE the minimum
@@ -459,20 +499,20 @@ def _solve_minimal_reshuffle_then_soft(
         # (assignments=None, status_name != "INFEASIBLE") instead of calling
         # _finalize, which would otherwise treat FEASIBLE as "good enough"
         # the same way the ordinary single-phase path legitimately does.
-        return SolverOutcome(phase1_solver.status_name(phase1_status), None, [], [], {}, [])
+        return SolverOutcome(phase1_solver.status_name(phase1_status), None, [], [], {}, [], {})
 
     min_reshuffle_count = round(phase1_solver.value(reshuffle_expr))
     model.add(reshuffle_expr == min_reshuffle_count)
     _add_objective(model, x, slots, state)
     phase2_solver, phase2_status = _run_solver(model)
-    return _finalize(phase2_solver, phase2_status, x, slots, state, assumptions)
+    return _finalize(phase2_solver, phase2_status, x, slots, state, assumptions, site_rule_exclusions)
 
 
 def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment."""
-    slots, still_needed, unassignable, reasons = _build_slots(state)
+    slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state)
     if unassignable:
-        return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [])
+        return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
 
     model = cp_model.CpModel()
     x = {
@@ -496,11 +536,13 @@ def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     # today's single-phase SOFT-only behavior unchanged.
     baseline = redistributable_baseline_assignments(state)
     if baseline:
-        return _solve_minimal_reshuffle_then_soft(model, x, slots, state, assumptions, baseline)
+        return _solve_minimal_reshuffle_then_soft(
+            model, x, slots, state, assumptions, baseline, site_rule_exclusions
+        )
 
     _add_objective(model, x, slots, state)
     solver, status = _run_solver(model)
-    return _finalize(solver, status, x, slots, state, assumptions)
+    return _finalize(solver, status, x, slots, state, assumptions, site_rule_exclusions)
 
 
 def _conflicting_demand_ids(solver: cp_model.CpSolver, status: int, assumptions: dict[str, object]) -> list[str]:
@@ -517,7 +559,7 @@ def eligible_employees_for_demands(state: PlanningState, demand_ids: list[str]) 
     demand set; this is not a proof that each listed employee is individually
     the cause, only that they are part of the candidate pool for it.
     """
-    slots, _, _, _ = _build_slots(state)
+    slots, _, _, _, _ = _build_slots(state)
     demand_id_set = set(demand_ids)
     employees = {slot.employee_id for slot in slots if slot.demand.demand_id in demand_id_set}
     return sorted(employees)

@@ -175,7 +175,7 @@ def test_r26_3_rest_between_fixed_and_solver_created_assignment_is_technical_err
     )
 
     def _fake_solve(state, enforce_load_cap=True):
-        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [])
+        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
 
     monkeypatch.setattr(engine_module, "solve", _fake_solve)
     state = base_state(

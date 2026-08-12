@@ -125,7 +125,7 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     # for that employee even though the capped solve reports OPTIMAL. A
     # LOAD-01-only violation surfacing here is a genuine boundary, not a
     # solver/mapping bug, and must not become TECHNICAL_ERROR.
-    return _load_decision(state, report, list(outcome.warnings))
+    return _load_decision(state, report, list(outcome.warnings), full, outcome.site_rule_exclusions)
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
@@ -155,6 +155,23 @@ def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> 
     return PlanningResult("DECISION_REQUIRED", [], payload, None, [])
 
 
+def _site_rule_blockers_for(
+    site_rule_exclusions: dict[str, list[tuple[str, str]]], demand_ids
+) -> list[Blocker]:
+    """ROTA-T007: dedup (employee_id, rule_version_id) pairs across the given
+    demand_ids from site_rule_exclusions, in stable order."""
+    seen: set = set()
+    blockers: list[Blocker] = []
+    for demand_id in demand_ids:
+        for employee_id, rule_version_id in site_rule_exclusions.get(demand_id, []):
+            key = (employee_id, rule_version_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            blockers.append(Blocker(employee_id, rule_version_id))
+    return blockers
+
+
 def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     """Audit round 12 FINDING 3: a minimal set of demands that cannot be jointly
     satisfied (typically a REST-01 conflict) is a normal autonomy boundary, not a
@@ -168,6 +185,12 @@ def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> Plan
     ]
     involved_employees = eligible_employees_for_demands(state, demand_ids)
     blockers = [Blocker(employee_id, "REST-01") for employee_id in involved_employees]
+    # ROTA-T007 (audit round 3 FINDING R3-2): a SiteRule can be the necessary
+    # cause of this REST-01 conflict (it removed an alternative employee for
+    # one of these demands) even though neither demand was unassignable on
+    # its own -- its rule_version_id must stay visible here too, not only on
+    # the simple single-demand shortage path.
+    blockers += _site_rule_blockers_for(outcome.site_rule_exclusions, demand_ids)
     payload = DecisionRequiredPayload(
         blocking_shift_demands=blocking,
         blockers=blockers,
@@ -192,7 +215,7 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
         # A LOAD-01 trigger does not authorize silently accepting a
         # co-occurring HARD violation via the DECISION_REQUIRED payload.
         return _decision_for_conflicts(state, full, report, list(outcome.warnings))
-    return _load_decision(state, report, list(outcome.warnings))
+    return _load_decision(state, report, list(outcome.warnings), full, outcome.site_rule_exclusions)
 
 
 def _has_non_load_violations(report: IndependentValidationReport) -> bool:
@@ -333,7 +356,10 @@ def _frozen_blockers_and_demands(
     return blockers, blocking
 
 
-def _load_decision(state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]) -> PlanningResult:
+def _load_decision(
+    state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str],
+    full: list[Assignment], site_rule_exclusions: dict[str, list[tuple[str, str]]],
+) -> PlanningResult:
     """Build a typed LOAD-01 DECISION_REQUIRED from a report already known to
     have no non-LOAD-01 violations. Shared by the existing-assignments-only
     path (_evaluate_candidate, FINDING R17-1) and the uncapped-retry path
@@ -351,6 +377,14 @@ def _load_decision(state: PlanningState, report: IndependentValidationReport, ex
         )
     warnings = list(extra_warnings) + list(report.warnings)
     load_blocker, blockers = _rank_load_blockers(report, over_threshold, warnings)
+    # ROTA-T007 (audit round 3 FINDING R3-2): a SiteRule that excluded other
+    # employees from demands the over-threshold employee(s) ended up
+    # covering can be the necessary cause of this LOAD-01 breach -- surface
+    # its rule_version_id too, not just LOAD-01.
+    over_threshold_demand_ids = {
+        a.covers_demand_id for a in full if a.employee_id in over_threshold and a.covers_demand_id
+    }
+    blockers = blockers + _site_rule_blockers_for(site_rule_exclusions, over_threshold_demand_ids)
     payload = DecisionRequiredPayload(
         blocking_shift_demands=[],
         blockers=blockers,

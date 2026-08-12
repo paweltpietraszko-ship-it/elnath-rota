@@ -78,8 +78,8 @@ def test_r15_2_uncapped_load_fallback_does_not_mask_emp02(monkeypatch):
 
     def _fake_solve(state, enforce_load_cap=True):
         if enforce_load_cap:
-            return SolverOutcome("INFEASIBLE", None, [], [], {}, [])
-        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [])
+            return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
 
     monkeypatch.setattr(engine_module, "solve", _fake_solve)
     # active_from the day after the demand -> independent validator finds

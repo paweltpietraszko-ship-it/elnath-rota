@@ -56,8 +56,16 @@ def _require_nonempty_str(rule_version_id: str, params: dict, key: str) -> None:
 
 
 def _require_shift_kind_list(rule_version_id: str, params: dict, key: str) -> None:
+    # Audit round 3 FINDING R3-1: `v in _VALID_SHIFT_KIND_VALUES` alone raises
+    # a raw TypeError for an unhashable v (a list or dict) -- valid JSON that
+    # T005 legitimately transports but T007 must reject as a malformed
+    # execution shape, not crash on. isinstance(v, str) must run first so
+    # `in` is never reached for a non-string element.
     value = params[key]
-    if not isinstance(value, list) or not value or not all(v in _VALID_SHIFT_KIND_VALUES for v in value):
+    valid = isinstance(value, list) and bool(value) and all(
+        isinstance(v, str) and v in _VALID_SHIFT_KIND_VALUES for v in value
+    )
+    if not valid:
         raise UnsupportedOrMalformedSiteRule(rule_version_id, f"{key} must be a non-empty list of 'D'/'N'")
 
 
