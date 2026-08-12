@@ -1,0 +1,68 @@
+PEŁNY AUDYT TASK CONTRACT ROTA-T003b-ii — ROUND 11 / STOP DECISION
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowany kontrakt: pełna wersja ROTA-T003b-ii przekazana 2026-08-11 po uproszczeniu do ROTA-REG-001
+Frozen Source: arch/spec.md Section 2 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres: gotowość do implementacji i decyzja continue/stop; bez implementacji.
+
+SECTION_CHECK: OBJECTIVE_AND_SCOPE — PASS
+Minimalny validator ROTA-REG-001 w jednym pliku, bez CP-SAT i bez plan(), jest właściwym kierunkiem i nie tworzy ogólnego frameworka.
+
+SECTION_CHECK: CORE_SEVEN_CHECKS — PASS
+REST, exact PRIMARY coverage, DAY_ONLY, DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED i LOAD odpowiadają minimalnemu validatorowi z PoC dla kanonicznego scenariusza.
+
+SECTION_CHECK: COVERAGE_EXACTNESS — PASS
+Kontrakt literalnie używa `primary_count != demand.required_primary_count`, więc wykrywa zarówno niedobór, jak i nadmiar PRIMARY; TRAINEE nie jest liczony.
+
+SECTION_CHECK: GENERIC_MONTH_LOAD — PASS
+Rok i miesiąc pochodzą z state.month, last_day z kompletnego calendar_days, a siedmiodniowe okno używa timedelta; implementacja nie jest związana z październikiem 2026.
+
+SECTION_CHECK: AVAILABILITY_DATETIME_CONSTRUCTION — FAIL
+`datetime(rec.end_date)` oraz `datetime(rec.start_date, 0, 0)` nie są poprawnymi wywołaniami konstruktora datetime w Pythonie; kontrakt przekazany „do implementacji” zawiera niewykonywalny pseudokod granic UNAVAILABLE/LEAVE_GRANTED.
+
+SECTION_CHECK: BOUNDARY_AND_OTHER_SITE_PRECONDITION — CONTRACT_GAP / REGRESSION
+Wcześniej zaakceptowany zapis, że boundary_assignments i other_site_assignments są puste w T003, zniknął z pełnego kontraktu; validator nie dołącza ich do REST/LOAD i nie ma już precondition uzasadniającego ich pominięcie.
+
+SECTION_CHECK: EXTERNAL_OWNERSHIP — FAIL / MISASSIGNED
+„Kandydat nie zawiera X/Y” znajduje się pod odpowiedzialnością assemblera, lecz kandydat powstaje po planowaniu, więc assembler nie może tego zagwarantować. T003c powinien jawnie asertować brak X/Y; obecny kontrakt zapisuje to jako precondition zamiast testowalnego warunku oracle.
+
+SECTION_CHECK: NEGATIVE_TEST_OWNERSHIP — FAIL / REGRESSION
+Z pełnej wersji zniknął wcześniej zaakceptowany obowiązek T003c: osobny negatywny przypadek każdej reguły z asercją RULE-ID. Kanoniczny poprawny grafik nie wykryje pustych validator checks.
+
+SECTION_CHECK: CURRENT_ACCEPTANCE — FAIL
+Import, liczba siedmiu funkcji, ruff i limity przejdą przy siedmiu stubach; bez zachowanego obowiązku negatywnych testów T003c nie ma żadnej behawioralnej bramki dla validate_hard.
+
+SECTION_CHECK: SECTION_9_DOCSTRING — GAP
+Publiczny docstring opisuje cel, ale nie mówi jawnie, że funkcja zwraca ValidationResult z passed i violations, mimo repo policy wymagającej „co robi + co zwraca”. To korekta mechaniczna, nie produktowa.
+
+OVERALL — FAIL / CONTRACT_GAP
+
+AUDITOR DECISION — STOP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+UZASADNIENIE DECYZJI STOP
+
+To nie jest już kwestia kolejnej pojedynczej poprawki. W kolejnych wersjach kontraktu naprawione decyzje były usuwane lub zastępowane wcześniejszym wariantem. Obecna pełna wersja ponownie zgubiła dwa jawne ownership decisions i dodała niewykonywalny zapis datetime. Dalsze punktowe łatki w tej samej przeciążonej instancji zwiększają ryzyko kolejnej regresji kontraktu.
+
+Nie przekazywać tego kontraktu CC. Poczekać na świeżą instancję odpowiedzialną wyłącznie za konsolidację, nie za nową architekturę.
+
+MINIMALNY HANDOFF DLA ŚWIEŻEJ INSTANCJI
+
+Nowa instancja ma zachować mały validator i skonsolidować cztery fakty:
+
+1. Granice AvailabilityRecord muszą być budowane jako północ start_date oraz północ end_date+1day przy użyciu poprawnego API datetime.
+2. T003 precondition: boundary_assignments=() i other_site_assignments=(); pełny cross-month/cross-site REST/LOAD należy do T004.
+3. T003c jawnie asertuje brak X/Y oraz A PRIMARY D 8 października; nie są to preconditions assemblera.
+4. T003c wykonuje negatywny przypadek każdego z siedmiu checks i asertuje odpowiadający RULE-ID, zanim cały T003 zostanie zaakceptowany.
+
+Pozostałe elementy obecnego kontraktu — siedem checks, exact coverage, dynamiczny miesiąc, CANCELLED filtering, zakres jednego pliku i adaptacja PoC — należy zachować bez rozbudowy.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Decyzja STOP wynika z regresji i niespójności tekstu kontraktu, nie z postulatu większej architektury.
+
+FINAL VERDICT
+
+STATUS: CONTRACT_GAP. Zatrzymujemy iterację i czekamy na świeżą instancję do konsolidacji. CC nie implementuje obecnej wersji.

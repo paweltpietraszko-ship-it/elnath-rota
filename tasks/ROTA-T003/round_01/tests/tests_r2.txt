@@ -1,0 +1,125 @@
+AUDYT TASK CONTRACT ROTA-T003b — ROUND 2
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza robocza: task/ROTA-T003 @ 4f733742d20009855dc9106d67df938cd9c3df9d
+Audytowany kontrakt: poprawiona wersja ROTA-T003b przekazana 2026-08-11
+Frozen Source: arch/spec.md Sections 2–3 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Cel audytu: implementowalność minimalnego etapu potrzebnego do ROTA-REG-001; bez implementacji kodu.
+
+SECTION_CHECK: PREVIOUS_GAPS — PARTIAL PASS
+Kontrakt rozstrzyga ShiftKind detection, materializację Assignment, active AvailabilityRecord, half-open overlap, pole warnings, MODEL_INVALID i timeout oraz rozszerza scope o pyproject.toml.
+
+SECTION_CHECK: ROTA_REG_001_COMPLETENESS — FAIL
+Brak jakiegokolwiek źródła lub constraintu zapewniającego A jako PRIMARY D 8 października, mimo że jest to obowiązkowy warunek 5 oracle i pierwotny PoC zawierał FORCED_PRIMARY.
+
+SECTION_CHECK: FROZEN_EXISTING_COVERAGE — FAIL
+Warunek coverage dodawany tylko dla needed > 0 pozostawia zmienne x całkowicie nieograniczone przy needed == 0 i nie definiuje zachowania przy needed < 0, więc solver może stworzyć nadmiarowe PRIMARY ponad required_primary_count.
+
+SECTION_CHECK: POST_SOLVE_VALIDATION_INPUT — FAIL
+Kontrakt najpierw dodaje frozen assignments do zmiennej assignments, a następnie przekazuje do validate_hard assignments + list(frozen), przez co każdy frozen Assignment jest walidowany podwójnie.
+
+SECTION_CHECK: TARGET_ORACLE — CONTRACT_GAP
+OPTIMAL i dowolne FEASIBLE są traktowane jednakowo, chociaż nieoptymalne FEASIBLE nie gwarantuje dokładnych godzin A=156, B=144, C=156, D=144, E=144 wymaganych przez ROTA-REG-001; validator tego warunku nie sprawdza.
+
+SECTION_CHECK: FROZEN_TARGET_ACCOUNTING — CONTRACT_GAP
+Nie ustalono, czy actual_hours w objective obejmuje frozen existing assignments; jeżeli A/8 października zostanie dostarczone jako frozen, pominięcie go w objective może dać błędne miesięczne godziny.
+
+SECTION_CHECK: ORTOOLS_DEPENDENCY — CONTRACT_GAP
+Alternatywa wpisania zależności do tool.pytest.ini_options nie jest instalowalną deklaracją, a utworzenie project.dependencies w obecnym pyproject wymaga również obowiązkowego project.name i statycznego lub dynamicznego project.version, których kontrakt nie określa.
+
+SECTION_CHECK: LEAVE_PLAN_OBJECTIVE — CONTRACT_GAP
+DEC-6 nakazuje dodać karę do sumy z odchyleniem godzin, ale nie określa jej współczynnika/jednostki, więc implementer musiałby sam zdecydować relację jednej kolizji LEAVE_PLAN do jednej godziny odchylenia.
+
+SECTION_CHECK: T004_DEFERRALS — ACCEPTED STAGED BEHAVIOR
+Pusty pełny payload DECISION_REQUIRED oraz nieobsłużone boundary/cross-site/window edge cases są jawnie przypisane do T004 i nie są ponownie liczone jako nowe defekty T003b; DONE T003b nie może jednak oznaczać pełnej zgodności produkcyjnej z Sections 2–3.
+
+SECTION_CHECK: LIMITS_AND_FORBIDDEN — GAP
+FORBIDDEN „>2 pliki poza TASK_SCOPE” literalnie dopuszcza do dwóch plików spoza scope; przy TASK_SCOPE obejmującym dokładnie dwa pliki powinien obowiązywać jednoznaczny zakaz wszystkich innych zmian.
+
+OVERALL — FAIL / CONTRACT_GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+CZĘŚĆ A — BLOKERY WPŁYWAJĄCE NA ROTA-REG-001
+
+A1. Brak constraintu S → A PRIMARY D 8 października
+
+Lokalizacja: OBJECTIVE, MAPOWANIE HARD oraz DEC-3 komentarz o TRAINEE.
+
+ROTA-REG-001 wymaga A jako PRIMARY D 8 października. Poprawiony kontrakt usunął wcześniejszą instrukcję wymuszenia, ale nie zastąpił jej innym źródłem. PlanningState nie ma TrainingEvent/S. Sama informacja, że assembler tworzy TRAINEE po solve, nie wpływa na wybór PRIMARY przez solver. Cel „minimum do przejścia ROTA-REG-001” nie jest więc gwarantowany.
+
+A2. Coverage przy frozen_count
+
+Lokalizacja: COVERAGE-01.
+
+Kontrakt definiuje needed = required_primary_count - frozen_count, lecz dodaje equality wyłącznie, gdy needed > 0. Dla needed == 0 zmienne x[e,d] nadal istnieją i mogą zostać wybrane przez objective TARGET, tworząc więcej PRIMARY niż required_primary_count. Dla needed < 0 kontrakt nie klasyfikuje wejścia ani wyniku. Jest to cała klasa błędów dla demand całkowicie lub nadmiarowo pokrytych przez frozen assignments.
+
+A3. Podwójne frozen assignments w validatorze
+
+Lokalizacja: „OPTIMAL lub FEASIBLE”.
+
+Po `_extract_assignments(...) + frozen existing assignments` zmienna assignments już zawiera frozen. Następne `validate_hard(state, assignments + list(frozen))` dodaje je drugi raz. Coverage, REST i LOAD mogą przez to zgłosić fałszywe naruszenia i zamienić poprawne FEASIBLE w TECHNICAL_ERROR.
+
+A4. Dowolne FEASIBLE nie zapewnia warunku godzin oracle
+
+Lokalizacja: status OPTIMAL lub FEASIBLE oraz SOFT objective.
+
+CP-SAT FEASIBLE oznacza rozwiązanie wykonalne, ale nie dowód osiągnięcia optimum objective. Przy limicie 60 sekund engine zwraca taki kandydat jako FEASIBLE bez sprawdzenia dokładnych miesięcznych godzin. ROTA-REG-001 wymaga dokładnie A=156, B=144, C=156, D=144, E=144, dlatego kontrakt musi określić warunek akceptacji nieoptymalnego FEASIBLE dla tego etapu.
+
+A5. Frozen hours w target objective
+
+Lokalizacja: DEC-2 i SOFT objective.
+
+DEC-2 jawnie wlicza frozen do coverage, REST i LOAD, ale nie mówi o actual_hours/target. Jeżeli wymuszenie A/8 zostanie zakodowane jako frozen existing Assignment, jego 12 godzin musi mieć określoną semantykę w objective; w przeciwnym razie solver może dobrać A dodatkową zmianę, a kandydat przekroczy wynik referencyjny.
+
+CZĘŚĆ B — POZOSTAŁE LUKI IMPLEMENTACYJNE
+
+B1. Poprawna lokalizacja zależności OR-Tools
+
+Lokalizacja: PYPROJECT.TOML.
+
+`[tool.pytest.ini_options]` konfiguruje pytest i nie deklaruje instalowalnych dependencies. Obecny pyproject nie ma `[project]`; specyfikacja PEP 621 wymaga wtedy co najmniej `name` oraz `version` albo dynamic version. Kontrakt nie może pozostawić CC wyboru pomiędzy nieważną lokalizacją a samodzielnym wymyśleniem metadanych projektu.
+
+B2. Waga LEAVE_PLAN
+
+Lokalizacja: DEC-6 i SOFT objective.
+
+CP-SAT potrzebuje liczbowej kary. Bez współczynnika dwie zgodne implementacje mogą inaczej wybrać pomiędzy kolizją urlopową a odchyleniem od target_hours. Nie jest to edge case reprezentacji, tylko niedookreślony ranking wymagany przez Section 3.
+
+B3. Scope zmian
+
+Lokalizacja: FORBIDDEN.
+
+Sformułowanie „>2 pliki poza TASK_SCOPE” nie odpowiada zamkniętej liście dwóch dozwolonych plików. Literalnie dopuszcza jeden lub dwa dodatkowe pliki, podczas gdy TASK_SCOPE ich nie wymienia.
+
+CZĘŚĆ C — POPRAWKI WZGLĘDEM ROUND 1, KTÓRE SĄ WYSTARCZAJĄCE
+
+C1. DEC-1 daje deterministyczne rozpoznanie D/N dla fixture i fail-closed przy braku dopasowania.
+
+C2. DEC-3 kompletnie określa pola nowo generowanego PRIMARY Assignment.
+
+C3. DEC-4 usuwa decyzję engine dotyczącą active/superseded AvailabilityRecord i przypisuje ją assemblerowi.
+
+C4. DEC-5 poprawnie definiuje half-open overlap pełnego zakresu dat inclusive.
+
+C5. DEC-6 oraz PlanningResult.warnings zapewniają nośnik wymaganych ostrzeżeń LEAVE_PLAN; pozostaje tylko waga objective.
+
+C6. DEC-7 mapuje MODEL_INVALID do TECHNICAL_ERROR, a DEC-8 ustala limit 60 sekund.
+
+C7. Validator zawiera już jawny SHIFT-01 i rozróżnia PRIMARY od TRAINEE.
+
+C8. Assignment IDs, state, frozen, covers_demand_id i mentor_primary_assignment_id nie wymagają już własnych decyzji CC.
+
+ACCEPTED STAGING / KNOWN NON-DEFECTS
+
+- W T003b wynik DECISION_REQUIRED może mieć puste listy, ponieważ właściciel jawnie przydzielił pełne wyjaśnienia do T004. Nie uznaje się tego za ukończenie pełnego kontraktu Section 3.
+- Cross-month, other-site oraz pełna semantyka aktywnego ExternalSupportWindow są edge cases T004. T003b jest oceniany wyłącznie jako slice ROTA-REG-001.
+- Acceptance T003b jest strukturalne; wykonanie właściwego oracle jest osobnym T003c i nie jest tu rozszerzane pod pozorem testu.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport nie projektuje rozwiązania; wskazuje wyłącznie miejsca wymagające korekty lub jawnej decyzji właściciela.
+
+FINAL VERDICT
+
+Kontrakt jest znacząco lepszy od Round 1, ale nadal nie jest gotowy do przekazania CC. Minimalne konieczne korekty przed implementacją to: źródło/wymuszenie A PRIMARY D 8 października, equality coverage również dla needed == 0 i zachowanie dla needed < 0, usunięcie podwójnego frozen input do validatora, warunek akceptacji nieoptymalnego FEASIBLE, frozen hours w objective oraz jedna poprawna deklaracja OR-Tools w pyproject.

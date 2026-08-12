@@ -1,0 +1,227 @@
+AUDYT R3 KOMPLETNOŚCI I IMPLEMENTOWALNOŚCI arch/spec.md
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T000
+Audytowany commit: fc268bfc9dce53551437e5b29321bf0e5d61afe6
+Audytowany obiekt: fc268bfc9dce53551437e5b29321bf0e5d61afe6:arch/spec.md
+Inkrement: d66c7a4e73ab7dd1d2fb72bf15d8bf1fc6cfe621..fc268bfc9dce53551437e5b29321bf0e5d61afe6
+BACKEND_OUTPUT: N/A — FROZEN.lock nie istnieje; audyt dokumentu nie uruchamia backendu.
+Zakres: pełny audyt dokumentu po FIX-8/FIX-9a/FIX-9b/FIX-9c; bez zmian specyfikacji i kodu.
+
+ZASADA KLASYFIKACJI R3
+
+- CZĘŚĆ A zawiera wyłącznie fakty wynikające z aktualnego dokumentu, wskazanego Frozen Contract lub mechanicznej kontroli SHA. Tylko ta część wpływa na PASS/FAIL/GAP.
+- CZĘŚĆ B zawiera materialne miejsca WYMAGA_DECYZJI: implementer musiałby wybrać zachowanie produktu, którego kontrakt nie ustala. Są liczone jako GAP, nie jako defekt o wybranej z góry poprawce.
+- CZĘŚĆ C zawiera propozycje zmian kontraktu lub architektury. Nie wpływają na wynik audytu i nie są oczekiwaniami testów, dopóki właściciel ich jawnie nie zaakceptuje.
+
+SECTION_CHECK: 1 / DOC SECTION 2 (HARD CONSTRAINTS) — FAIL
+Wszystkie 11 identyfikatorów występuje dokładnie raz, lecz SHIFT-01 i LOAD-01 nie są dosłowną treścią wskazanego v0.4 mimo takiej deklaracji, a DAY_ONLY-01 jest sprzeczny z profilem, który nie blokuje N i jawnie nie jest override.
+
+SECTION_CHECK: 2 / DOC SECTION 3 (PLANNING OUTCOMES) — PASS
+
+SECTION_CHECK: 3 / DOC SECTION 4 (REUSE MAP) — PASS
+
+SECTION_CHECK: 4 / DOC SECTION 7 (ROTA-REG-001) — PASS
+
+SECTION_CHECK: 5 / DOC SECTION 5 (ANTI-DRIFT) — PASS
+
+SECTION_CHECK: 6 / LUKI IMPLEMENTACYJNE — GAP
+Dokument nadal zawiera materialne punkty WYMAGA_DECYZJI wymienione w Części B, przede wszystkim politykę konfliktów SOFT, zakres LOAD/override, semantykę S/REPLAN i lifecycle WorkBalance.
+
+SECTION_CHECK: 7 / SPRZECZNOŚCI — FAIL
+Aktualny dokument narusza własną deklarację źródła i anti-drift rule 10 oraz jednocześnie nakazuje i wyłącza automatyczną ochronę DAY_ONLY dla profilu z day_only_blocks_n=false.
+
+OVERALL — FAIL
+
+CZĘŚĆ A — FAKTY AUDYTOWE (WPŁYWAJĄ NA WYNIK)
+
+A1. SECTION 2 — komplet identyfikatorów
+
+Mechanicznie potwierdzono dokładnie po jednym nagłówku: SHIFT-01, REST-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01, COVERAGE-01, LOAD-01, EXTERNAL-01, TARGET-01.
+
+A2. FAIL — SHIFT-01 i LOAD-01 nie są „treścią dosłowną v0.4”
+
+- arch/spec.md:2 deklaruje CONTRACT_VERSION v0.4.
+- arch/spec.md:3 wskazuje Frozen Source, a arch/spec.md:333 deklaruje dla Section 2: „Źródło: v0.4 sekcja 6.0. Treść dosłowna, bez parafrazy”.
+- Zweryfikowany lokalny Frozen Contract `01_ELNATH_WARD_FROZEN_EXECUTION_CONTRACT_v0.4_CURRENT.md` ma SHA-256 `fcc7f2e8c10d00729b1beaca81153a96ad0010e4e5f07f60f9bb16f6cfc6832d`, zgodny z `99_SHA256_MANIFEST.txt`.
+- Frozen v0.4:272–276 zamraża D=05:00–17:00, N=17:00–05:00 i dokładnie jednego PRIMARY. arch/spec.md:335–343 zastępuje to ręcznie konfigurowalnym SiteProfile i `required_primary_count`.
+- Frozen v0.4:314–318 zamraża próg 60 h. arch/spec.md:381–389 zastępuje go konfigurowalnym `SiteProfile.rolling_7d_decision_threshold_hours` z 60 tylko jako default OCHRONA.
+- To nie jest równoważna parafraza: nowe reguły dopuszczają zachowania zakazane przez wskazany v0.4 i odwrotnie.
+
+A3. FAIL — naruszenie anti-drift rule 10
+
+- arch/spec.md:588 mówi: „Zmiana kanonu wymaga jawnej decyzji właściciela i nowej wersji Frozen Product Contract”.
+- Dokument zawiera decyzję właściciela (19–24), lecz nadal deklaruje CONTRACT_VERSION v0.4 (2) i Frozen Source v0.4 (3, 333).
+- Brakuje drugiego wymaganego warunku: nowej wersji Frozen Product Contract. Zmiana SHIFT-01/LOAD-01 nie może być sklasyfikowana jako zgodny wyciąg v0.4.
+
+A4. FAIL — day_only_blocks_n=false vs DAY_ONLY-01
+
+- arch/spec.md:39–44 definiuje profil z `day_only_blocks_n=false`, który nie blokuje N dla Employee.DAY_ONLY, i podkreśla, że nie jest to override Employee.DAY_ONLY.
+- DAY_ONLY-01:352–355 bezwarunkowo mówi, że pracownik z DAY_ONLY nie może otrzymać N w automatycznym planowaniu, wyłączenie wymaga świadomego override, a solver nie robi tego sam.
+- Dla Employee.DAY_ONLY w profilu z flagą false pierwsza reguła zezwala na automatyczne N bez override, a druga tego zabrania. Obie dotyczą tego samego Assignment i nie mają rozdzielającego warunku zakresu.
+
+A5. SECTION 3 — PASS obowiązkowych danych output
+
+- blocking_shift_demands zawiera demand_id/start_datetime/end_datetime (448–451).
+- blockers zawiera employee_id oraz built-in condition code albo rule_version_id (453–455).
+- load_blocker, gdy działa LOAD-01, zawiera employee_id, dokładne window_start/window_end i hours (457–461).
+- Wynik musi zawierać możliwe klasy odblokowania (440–444), z przykładami obejmującymi X/Y, wolne, urlop, DAY_ONLY i extreme load (463–469).
+- TECHNICAL_ERROR jawnie nie obejmuje braku obsady, konfliktu HARD ani wymaganej decyzji koordynatora (475–484).
+
+A6. SECTION 4 — PASS
+
+- Continuity AI SHA = `709cf6a1ff829725e5d6572d286963809c990c4a` (494).
+- Elnath Memory Engine SHA = `3bdcd7909373ce541be5e6bd1a5a88b99623801b` (521).
+- BUILD NEW (552–570) zawiera wszystkie wymagane byty: Site, SiteProfile, Employee, SiteMembership, ExternalSupportWindow, CalendarDay, AvailabilityRecord, SiteRule, WorkBalance, ScheduleVersion, ShiftDemand, Assignment, Deviation, PlanningState i PlanningEngine. Dodatkowo zawiera Coordinator i CoordinatorSiteAssociation.
+
+A7. SECTION 7 — PASS wymaganej checklisty
+
+- Dokładnie siedem numerowanych warunków PASS (637–645).
+- Istnieją osobne listy „Co jest regresją” i „Co NIE jest regresją” (647–668).
+- Występuje literalna reguła „CC nie zmienia fixture/oracle” (678).
+- Fakt niewpływający na powyższy PASS: nagłówek źródła używa nazw `ROTA-REG-001` (619), wejście używa `ROTA_REG_001` (622), a wskazane oracle/fixture/PoC nie należą do drzewa audytowanego SHA.
+
+A8. SECTION 5 — PASS obecności anti-drift
+
+- Mechanicznie potwierdzono dokładnie 15 reguł, o treści odpowiadającej sekcji 12 v0.4 (579–593).
+- PASS oznacza obecność wymaganej listy. Naruszenie reguły 10 przez inne części dokumentu jest osobnym FAIL A3 i nie zmienia wyniku tej kontroli obecności.
+
+CZĘŚĆ B — WYMAGA_DECYZJI / CONTRACT_GAPS (WPŁYWAJĄ NA GAP, NIE NARZUCAJĄ ROZWIĄZANIA)
+
+B1. Section 1 / SiteProfile:60–65 i Section 3 / SOFT RANKING:415–433
+
+Aktualne zachowanie: kontrakt wymaga profile-specific planning policy i wymienia czynniki SOFT, ale nie ustala zachowania, gdy poprawa target_hours/weekend fairness/holiday fairness/DAY_SHIFT_OFF/LEAVE_PLAN jednocześnie pogarsza inny czynnik. Różne wybory dają różny ranking produktu. WYMAGA_DECYZJI właściciela, nie założenia implementera.
+
+B2. Section 1 / AvailabilityRecord:143–160 oraz HARD zależne od okresu
+
+Aktualne zachowanie: `date_or_range` nie ma określonej semantyki początku/końca dla UNAVAILABLE_24H, LEAVE_GRANTED i LEAVE_PLAN. Inkluzywność końca zakresu zmienia uprawnienie Assignment, więc nie jest wyłącznie detalem serializacji. WYMAGA_DECYZJI.
+
+B3. Section 1 / ExternalSupportWindow:112–127 i EXTERNAL-01:391–393
+
+Aktualne zachowanie: eligibility wymaga okna „confirmed”, ale model ma tylko `active`, a WINDOW-02 mówi, że eligibility daje aktywność. Dokument nie rozstrzyga, czy `active` oznacza zarazem confirmation, czy brakuje osobnego stanu produktu. WYMAGA_DECYZJI.
+
+B4. LOAD-01:381–389 i PlanningState:294–310
+
+Aktualne zachowanie: nie określono, które stany i role Assignment są liczone, jak liczyć TRAINEE, czy uwzględniać Assignment z innych Site przy braku pełnego snapshotu oraz jak działa okno na granicy miesiąca. Te wybory mogą zmienić FEASIBLE na DECISION_REQUIRED. WYMAGA_DECYZJI.
+
+B5. Override po DAY_ONLY/LEAVE_GRANTED/LOAD
+
+Aktualne zachowanie: po decyzji koordynatora PlanningState ma zostać jawnie zmieniony (473), ale nie określono zakresu decyzji: pojedynczy Assignment, Employee/dzień, okno LOAD, ScheduleVersion czy cały profil. Różny zakres zmienia późniejsze wyniki planowania. WYMAGA_DECYZJI.
+
+B6. S / TRAINEE / REPLAN
+
+Aktualne zachowanie: SiteProfile ma pola training_s_* (49–53), Assignment ma rolę TRAINEE i mentora (246–262), SHIFT-01 mówi, że S nie pokrywa demand (343), a oracle wymaga S (634). Dokument nie ustanawia wprost S=TRAINEE, zasad godzin S w REST/LOAD/WorkBalance ani zachowania pary mentor–S podczas REPLAN. REPLAN jest wymagany (569, 608), ale poza REALIZED/frozen (265–266) nie ma pełnego kontraktu. WYMAGA_DECYZJI.
+
+B7. WorkBalance:193–213
+
+Aktualne zachowanie: `unresolved_carryover` ma jawnie „exact lifecycle OPEN”; brak formuł month_balance/quarter_balance i zasad pracownika w wielu Site. Jest to nazwany wprost otwarty element produktu. WYMAGA_DECYZJI.
+
+B8. ScheduleVersion/Deviation:215–284
+
+Aktualne zachowanie: statusy są zdefiniowane, ale nie ma przejść, kryterium zmiany current reference ani kompletnej reguły, kiedy zaakceptowane odblokowanie HARD tworzy Deviation i status WITH_DEVIATIONS. Wpływa to na finalizację i historię produktu. WYMAGA_DECYZJI.
+
+B9. PlanningState:294–310
+
+Aktualne zachowanie: inne Site są uwzględniane „when such data exists”, ale brak zachowania dla danych niepełnych. Bez tej decyzji implementacja może albo zwrócić FEASIBLE mimo nieznanej pracy, albo zablokować planowanie. WYMAGA_DECYZJI.
+
+CZĘŚĆ C — PROPOZYCJE (NIE WPŁYWAJĄ NA PASS/FAIL/GAP)
+
+C1. PRODUCT CONTRACT RESOLUTION — provenance SHIFT-01/LOAD-01
+
+Obecne zachowanie: spec.md deklaruje v0.4, ale zawiera nowe konfigurowalne reguły.
+
+Propozycja: właściciel wybiera jedną z dwóch dróg:
+1. przywrócić literalne SHIFT-01/LOAD-01 z v0.4; albo
+2. wydać nową wersję Frozen Product Contract, zmienić CONTRACT_VERSION/FROZEN_SOURCE i jawnie przenieść konfigurowalne reguły do nowego kanonu.
+
+Korzyść: jedno źródło prawdy i zgodność z anti-drift rule 10.
+Tradeoff: droga 1 ogranicza profile; droga 2 wymaga formalnej zmiany kanonu i ponownej walidacji oracle.
+
+C2. PRODUCT CONTRACT RESOLUTION — DAY_ONLY capability
+
+Obecne zachowanie: profil false wyłącza ochronę bez override, DAY_ONLY-01 nadal chroni bezwarunkowo.
+
+Propozycja: właściciel jawnie wybiera zakres DAY_ONLY-01, np. „jeżeli SiteProfile.day_only_blocks_n=true, DAY_ONLY blokuje N; gdy false, ograniczenie nie jest aktywne dla tego profilu”, albo usuwa możliwość false z bieżącego kontraktu.
+
+Korzyść: jeden implementowalny warunek CP-SAT i validatora.
+Tradeoff: pierwsza opcja osłabia globalność Employee restriction; druga ogranicza przyszłe profile.
+
+C3. ARCHITECTURE PROPOSAL — kanoniczne pola profilu
+
+Obecne zachowanie: wszystkie pola SiteProfile są konfigurowalne.
+
+Propozycja: metadata pola `CANON_LOCKED | OWNER_CONFIGURABLE | COORDINATOR_CONFIGURABLE`, z walidacją przed PlanningState.
+
+Korzyść: UI nie może przypadkowo zmienić HARD wymagającego nowej wersji kanonu.
+Tradeoff: dodatkowy model uprawnień i migracja profili.
+
+C4. ARCHITECTURE PROPOSAL — lista wariantów blocker
+
+Obecne zachowanie: `load_blocker` jest pojedynczy, a demand/blockers są listami.
+
+Propozycja: dyskryminowana lista `DecisionBlocker` z wariantami DemandBlocker, EmployeeConditionBlocker i LoadBlocker.
+
+Korzyść: może reprezentować wiele jednoczesnych okien/pracowników i jest exhaustively obsługiwana przez UI.
+Tradeoff: bardziej rozbudowane API. Obecny kontrakt nie wymaga raportowania wszystkich naraz, więc jest to hardening, nie defekt.
+
+C5. ARCHITECTURE PROPOSAL — model czasu
+
+Obecne zachowanie: daty i datetime nie mają wspólnej jawnej konwencji.
+
+Propozycja: timezone na Site/SiteProfile, przedziały `[start, end)`, kalendarzowe availability w czasie lokalnym Site oraz jawna polityka DST.
+
+Korzyść: identyczne wyniki generatora, CP-SAT i niezależnego validatora na granicach.
+Tradeoff: większa złożoność i konieczność testów DST.
+
+C6. ARCHITECTURE PROPOSAL — audytowalny override
+
+Obecne zachowanie: decyzja zmienia PlanningState bez określonej trwałej reprezentacji.
+
+Propozycja: `CoordinatorDecision` zawierający actor, timestamp, reason, source condition/rule, employee/demand/window, scope, expiry i ScheduleVersion.
+
+Korzyść: rekonstruowalność decyzji i jednoznaczny validator.
+Tradeoff: nowy byt, persistence i UI; nie należy go wymagać bez akceptacji właściciela.
+
+C7. ARCHITECTURE PROPOSAL — kompletność PlanningState
+
+Obecne zachowanie: dane innych Site są warunkowe.
+
+Propozycja: jawny `data_completeness`/snapshot coverage i wybrana przez właściciela polityka dla braku danych.
+
+Korzyść: REST/LOAD nie zależą od cichego braku rekordów.
+Tradeoff: planowanie może częściej wymagać decyzji albo synchronizacji.
+
+C8. ARCHITECTURE PROPOSAL — state machine ScheduleVersion/REPLAN
+
+Obecne zachowanie: statusy i kilka invariants istnieją bez pełnego kontraktu przejść.
+
+Propozycja: osobna tabela przejść statusów, operacje create-child/make-current/finalize/replan oraz fault-injection invariants dla zmiany current reference.
+
+Korzyść: atomowość wersjonowania i testowalne zachowanie awarii.
+Tradeoff: większy zakres domeny i persistence.
+
+C9. ARCHITECTURE PROPOSAL — polityka SOFT
+
+Obecne zachowanie: czynniki są jakościowe.
+
+Propozycja do decyzji właściciela: priorytety leksykograficzne, wagi per profil albo Pareto i maksymalnie 1–3 reprezentatywnych kandydatów.
+
+Korzyść: deterministyczny ranking.
+Tradeoff: każda opcja koduje inne zachowanie produktu; żadna nie może zostać wybrana przez test lub implementera bez akceptacji.
+
+C10. ARCHITECTURE/DELIVERY PROPOSAL — artefakty oracle
+
+Obecne zachowanie: PoC/oracle/fixture są referencjonowane, lecz nie znajdują się w audytowanym drzewie Git; nazwy z myślnikiem i podkreśleniami są niespójne.
+
+Propozycja: commitować artefakty albo przypiąć każdy stabilną ścieżką i SHA-256 w repo.
+
+Korzyść: ROTA-REG-001 jest odtwarzalny z jednego audytowanego SHA.
+Tradeoff: większy zakres repozytorium lub proces synchronizacji artefaktów.
+
+TEST DESIGN — TYLKO ISTNIEJĄCY KONTRAKT
+
+- Zachować literalny reproducer ROTA-REG-001 i testować dokładnie siedem warunków oracle.
+- Dla LOAD po przyjęciu nowego kanonu testować granice T i T+1 dla progu profilu oraz osobno LOAD blocker z employee/window/hours. Dopóki nie ma nowej wersji kanonu, test nie może sam zastąpić 60 przez konfigurowalne T.
+- Dla DAY_ONLY nie ustanawiać oczekiwania dla `day_only_blocks_n=false`, dopóki właściciel nie rozstrzygnie konfliktu; klasyfikacja to WYMAGA_DECYZJI, nie wymyślony oracle.
+- Dla DECISION_REQUIRED testować reprezentatywnie: demand blocker, built-in employee condition, rule_version blocker i LOAD blocker. Nie wymagać listy wszystkich load blockers, bo bieżący kontrakt tego nie stanowi.
+- Nie zamieniać propozycji C3–C10 w testy akceptacyjne przed ich formalną akceptacją.

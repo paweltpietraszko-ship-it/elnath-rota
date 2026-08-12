@@ -1,0 +1,171 @@
+SKONSOLIDOWANY AUDYT FAIRNESS I REPLAN — ROUND 20
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: c9ea7ddd8ef418c5de8d587b08413b00c7ec3cab
+Poprzedni audyt: tests_r19.txt dla 8c5d534
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Audyt funkcjonalny względem arch/spec.md. Zakres obejmuje decyzję właściciela z R19, nowo zaimplementowane weekend/holiday fairness, REPLAN, semantykę REALIZED oraz regresje wcześniejszych HARD i granicy miesiąca. Nie narzucam podziału modułów, postaci objective ani mechanizmu naprawy.
+
+Poza werdyktem pozostają zadeklarowane przez autora: wykonywanie SiteRuleVersion, persystencja oraz UI/bridge.
+
+Zamrożona macierz obejmowała:
+- ShiftDemand↔StandardShift dla pokrycia częściowego i pełnego, PLANNED/frozen i REALIZED;
+- weekend fairness z fixed+new oraz przy ograniczonej eligibility;
+- holiday fairness dla 1–4 nowych świąt i istniejącej historii;
+- REPLAN: fixed+redistributable, konflikty frozen, REALIZED, TRAINEE/mentor;
+- zachowanie coverage, REST i LOAD dla REALIZED;
+- dokładne scenariusze cross-month z R18.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie c9ea7ddd8ef418c5de8d587b08413b00c7ec3cab.
+- Suita autora: 72 passed.
+- Niezależna macierz audytowa: 17 passed, 5 failed.
+- Łączny przebieg: 89 passed, 5 failed (94 przypadki).
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla pięciu zmienionych plików: PASS.
+- git diff --check: PASS.
+
+DECYZJA R19 SHIFTDEMAND↔STANDARDSHIFT — PASS
+
+PlanningEngine klasyfikuje teraz każdy ShiftDemand przed sprawdzeniem pozostałego `needed`, dlatego wynik nie zależy już od tego, czy demand jest niepokryty, częściowo pokryty czy całkowicie pokryty fixed Assignment.
+
+Przechodzą:
+- nieklasyfikowalny demand bez pokrycia;
+- częściowo pokryty demand;
+- w pełni pokryty PLANNED/frozen;
+- w pełni pokryty REALIZED.
+
+Każdy wariant zwraca TECHNICAL_ERROR zamiast wyjątku albo fałszywego FEASIBLE. Decyzja właściciela z tests_r19.txt jest domknięta.
+
+WEEKEND FAIRNESS — PASS
+
+Macierz potwierdziła:
+- cztery weekendowe zmiany przy dwóch uprawnionych pracownikach, z jedną fixed dla A, kończą się podziałem A=2/B=2;
+- pracownik z UNAVAILABLE na weekend nie jest używany w celu poprawienia fairness;
+- HARD oraz pełne coverage pozostają zachowane.
+
+Nie stwierdzono defektu weekend fairness w audytowanych klasach.
+
+REPLAN — CZĘŚCIOWY PASS
+
+Przechodzą:
+- PLANNED, non-frozen PRIMARY powiązany z demandem może zostać redystrybuowany;
+- frozen PRIMARY pozostaje identyczny;
+- REALIZED pozostaje identyczny;
+- TRAINEE pozostaje identyczny;
+- w mieszanym scenariuszu frozen demand zachowuje dokładnie jedno pokrycie, a tylko drugi demand zostaje przeniesiony do dostępnego pracownika;
+- independent validator wykrywa usunięcie albo modyfikację REALIZED/frozen/TRAINEE.
+
+Pozostają dwa findings REPLAN opisane niżej.
+
+REALIZED — PASS
+
+Wyłączenie retrospektywnej eligibility działa zgodnie z deklarowaną gwarancją:
+- brak obecnego membership nie unieważnia REALIZED;
+- późniejszy active_from nie unieważnia REALIZED;
+- bieżący DAY_ONLY nie unieważnia historycznej N;
+- brak dzisiejszego ExternalSupportWindow nie unieważnia REALIZED.
+
+Jednocześnie:
+- REALIZED nadal pokrywa demand;
+- konflikt REST między REALIZED nadal jest wykrywany;
+- sześć REALIZED po 12 h nadal daje typowany DECISION_REQUIRED/LOAD-01 z 72 h.
+
+FINDING R20-1 — MEDIUM — HOLIDAY FAIRNESS UŻYWA STATYCZNEGO RANKINGU I MOŻE ZWIĘKSZAĆ NIERÓWNOŚĆ
+
+Ślad kontraktowy:
+- arch/spec.md:443–454: holiday fairness ma preferować warianty zmniejszające nierówność historycznej pracy w święta;
+- jest to SOFT i nie może naruszać HARD.
+
+Macierz:
+- historia: A=0 h, B=12 h pracy świątecznej;
+- każdy nowy demand świąteczny ma 12 h;
+- obaj pracownicy są jednakowo uprawnieni, brak TARGET i innych różnic SOFT;
+- 1 nowe święto: wynik A=12/B=12 — optimum, PASS;
+- 2 nowe święta: wynik A=24/B=12 — minimalny osiągalny rozstrzał 12 h, PASS;
+- 3 nowe święta: wynik A=36/B=12 — rozstrzał 24 h, mimo że wariant A=24/B=24 istnieje, FAIL;
+- 4 nowe święta: wynik A=48/B=12 — rozstrzał 36 h, mimo że osiągalne jest 12 h, FAIL.
+
+Przyczyna:
+- solver.py:416–445 wylicza jednorazowy ordinal rank na podstawie historii sprzed planowania;
+- każdy nowy holiday Assignment A ma stale koszt 0, a B stale koszt 1;
+- objective nie uwzględnia godzin świątecznych dodawanych przez bieżącego kandydata, więc nigdy nie wykrywa momentu wyrównania ani przeregulowania nierówności.
+
+To nie jest spór o użycie rankingu zamiast surowych godzin. Dowolna reprezentacja jest dopuszczalna, ale obserwowalny ranking musi preferować kandydata o mniejszej końcowej nierówności. Obecny objective robi odwrotnie po przekroczeniu punktu równowagi.
+
+FINDING R20-2 — HIGH — KONFLIKT FUTURE FROZEN JEST MAPOWANY NA TECHNICAL_ERROR
+
+Ślad kontraktowy:
+- ASSIGN-04 (arch/spec.md:269): future frozen Assignment nie może zostać zmieniony przez REPLAN;
+- UNAVAILABLE-01 i LEAVE_GRANTED-01 blokują normalne automatyczne przypisanie (arch/spec.md:393–398);
+- DECISION_REQUIRED oznacza normalną granicę autonomii (arch/spec.md:463–501);
+- TECHNICAL_ERROR nie może zastępować konfliktu HARD ani wymaganej decyzji koordynatora (arch/spec.md:503–512).
+
+Dwa warianty:
+
+A. Frozen future PRIMARY koliduje z aktywnym UNAVAILABLE_24H.
+B. Frozen future PRIMARY koliduje z aktywnym LEAVE_GRANTED.
+
+W obu przypadkach:
+- Assignment poprawnie nie zostaje przesunięty;
+- validator poprawnie wykrywa właściwy HARD conflict;
+- `plan()` zwraca TECHNICAL_ERROR bez DecisionRequiredPayload.
+
+Wymagane zachowanie to DECISION_REQUIRED z konkretnym employee/condition i klasą jawnego odblokowania. Solver nie może ani sam usunąć `frozen`, ani przedstawiać zwykłej kolizji jako awarii technicznej.
+
+Przyczyna: frozen Assignment pokrywa demand przed budową slotów, następnie `_evaluate_candidate()` otrzymuje non-LOAD violation od validatora i engine.py:108–122 mapuje każde takie naruszenie na TECHNICAL_ERROR. Nie istnieje diagnoza konfliktów HARD pochodzących z zachowanego future frozen.
+
+FINDING R20-3 — HIGH — REPLAN ZACHOWUJE TRAINEE, ALE USUWA WSKAZANY ASSIGNMENT MENTORA
+
+Ślad kontraktowy:
+- TRAINEE wymaga `mentor_primary_assignment_id` (arch/spec.md:263–265);
+- ScheduleVersion jest kompletnym, rekonstruowalnym stanem Site/month (VER-01, arch/spec.md:229–235);
+- kanoniczny scenariusz S wymaga konkretnego mentora jako PRIMARY na tej zmianie (arch/spec.md:662 i fixture `requires_mentor_primary=true`).
+
+Reprodukcja:
+- PRIMARY A `assignment_id=mentor-primary`, PLANNED, non-frozen, pokrywa demand;
+- TRAINEE T wskazuje `mentor_primary_assignment_id=mentor-primary`;
+- A staje się UNAVAILABLE, B jest uprawniony;
+- REPLAN zachowuje TRAINEE, usuwa `mentor-primary` i tworzy nowy PRIMARY B o innym assignment_id;
+- wynik ma status FEASIBLE, ale TRAINEE wskazuje nieistniejący Assignment.
+
+Przyczyna:
+- solver.py:69–104 uznaje PRIMARY mentora za redystrybuowalny wyłącznie na podstawie jego własnych pól;
+- referencje z zachowywanych TRAINEE nie uczestniczą w klasyfikacji fixed;
+- validator.py:71–94 sprawdza zachowanie samego TRAINEE, ale nie sprawdza istnienia jego `mentor_primary_assignment_id` w kandydacie.
+
+Zmiana fixture ROTA-REG-001 na `frozen=True` zabezpiecza wyłącznie ten fixture. ASSIGN-05 mówi, że manual Assignment nie jest automatycznie frozen, a frozen spec nie ustanawia precondition, że każdy caller musi wcześniej zamrozić Primary wskazany przez TRAINEE. Nie wolno uznać dangling reference za FEASIBLE kompletny grafik.
+
+Nie narzucam sposobu naprawy: implementacja może zachować mentora, poprawnie przepiąć relację zgodnie z dozwoloną semantyką albo zatrzymać się po decyzję. Musi jedynie nie zwracać niespójnego FEASIBLE.
+
+REGRESJE R17–R19 I CROSS-MONTH — PASS
+
+- wszystkie 72 testy autora, w tym wcześniejsze findings, pozostają zielone;
+- N 30.09 17:00–01.10 05:00 nadal blokuje D A o 05:00 i pozwala przydzielić ją B;
+- pięć zmian boundary 26–30.09 plus D 01.10 nadal daje A/LOAD-01=72 h albo przydział B;
+- nie stwierdzono regresji wcześniejszych napraw LOAD, membership, LEAVE_PLAN, TARGET ani external support.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Findings opisują wyłącznie obserwowalne naruszenia zamrożonych reguł: kierunek SOFT fairness, klasyfikację statusu konfliktu oraz spójność wymaganej referencji TRAINEE→PRIMARY. Nie wymagają konkretnej architektury ani konkretnej postaci objective.
+
+FINAL VERDICT
+
+DECYZJA R19: PASS.
+
+WEEKEND FAIRNESS: PASS.
+
+REALIZED SEMANTICS: PASS.
+
+HOLIDAY FAIRNESS: FAIL.
+
+REPLAN: FAIL.
+
+OVERALL IMPLEMENTED PILOT SCOPE: FAIL na SHA c9ea7dd.
+
+Commit zachowuje 72 zielone testy autora i poprawnie realizuje znaczną część nowych funkcji, ale skonsolidowana macierz ujawnia trzy klasy błędów kodu: niemonotoniczne holiday fairness, błędny TECHNICAL_ERROR dla konfliktu future frozen oraz dangling mentor reference po REPLAN. Bilans: 3 błędy kodu, 0 findings wynikających z preferencji architektonicznej.

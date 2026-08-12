@@ -1,0 +1,171 @@
+AUDYT TASK CONTRACT ROTA-T003b — ROUND 1
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza robocza: task/ROTA-T003 @ 4f733742d20009855dc9106d67df938cd9c3df9d
+Audytowany kontrakt: ROTA-T003b przekazany 2026-08-11
+Frozen Source: arch/spec.md Sections 2–3 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres audytu: kompletność, zgodność z Frozen i implementowalność bez własnych decyzji produktowych; bez implementacji kodu.
+
+SECTION_CHECK: SOURCE_PIN_AND_SCOPE — PASS
+Wskazany SHA istnieje, Sections 2–3 zawierają reguły mapowane przez kontrakt, a baza Ward jest zgodna z podanym before SHA.
+
+SECTION_CHECK: RESULT_TYPES — FAIL
+DecisionRequiredPayload nie ma obowiązkowego pola na dostępne klasy odblokowania ani ich deterministyczne skutki, a PlanningResult nie ma nośnika ostrzeżenia wymaganego dla kolizji LEAVE_PLAN.
+
+SECTION_CHECK: HARD_TO_CP_SAT — FAIL / CONTRACT_GAP
+Mapowanie nie obejmuje pełnej semantyki SHIFT-01, kontekstu istniejących/boundary/other-site Assignment, pełnego EXTERNAL-01 ani wykonywalnych SiteRules; nie definiuje też sposobu rozpoznania kind D/N z ShiftDemand.
+
+SECTION_CHECK: INDEPENDENT_HARD_VALIDATOR — FAIL
+Lista deklarowana jako „każde HARD” pomija jawny check SHIFT-01 i nie określa walidacji względem existing_assignments, boundary_assignments oraz other_site_assignments.
+
+SECTION_CHECK: PLANNING_OUTCOMES — FAIL
+INFEASIBLE zwraca pusty DECISION_REQUIRED payload wprost sprzeczny z obowiązkowymi polami Frozen Section 3; status MODEL_INVALID nie ma mapowania.
+
+SECTION_CHECK: ROTA_REG_001_TRACE — CONTRACT_GAP
+PlanningState ani publiczne API nie przenoszą informacji o zdarzeniu S/mentorze A, więc polecenia „jeśli fixture ma S” nie da się zrealizować bez hardcode, bezpośredniego odczytu fixture przez engine albo nieopisanej interpretacji existing_assignments.
+
+SECTION_CHECK: DEPENDENCY_AND_TASK_SCOPE — CONTRACT_GAP
+pyproject.toml nie deklaruje OR-Tools, lecz scope pozwala zmienić wyłącznie engine.py; importowalny adapter CP-SAT nie jest przez to odtwarzalny w czystym środowisku w granicach tasku.
+
+SECTION_CHECK: ENGINEERING_LIMITS — PASS
+Limity 600/50, dwa publiczne entry pointy, zakaz własnego solvera i wymaganie niezależnej walidacji są jednoznaczne.
+
+OVERALL — FAIL / CONTRACT_GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+CZĘŚĆ A — LITERALNE KONFLIKTY Z FROZEN
+
+A1. DECISION_REQUIRED bez obowiązkowego payloadu
+
+Lokalizacja kontraktu: „MAPOWANIE CP-SAT STATUS → PlanningResult / INFEASIBLE” oraz „TYPY WYNIKOWE / DecisionRequiredPayload”.
+
+Frozen Section 3:468–497 wymaga problematycznych demand/constraint, konkretnych blokerów, możliwych klas odblokowania oraz ich skutków, gdy są deterministyczne. Kontrakt nakazuje zwrócić DecisionRequiredPayload([], [], None) i nie definiuje żadnego pola na opcje odblokowania. Odłożenie pełnego payloadu do T004 jest etapowaniem, ale nie zmienia literalnego kontraktu Section 3 wskazanego jako FROZEN_SOURCE.
+
+A2. LEAVE_PLAN nie jest zaimplementowany jako wymagany SOFT
+
+Lokalizacja kontraktu: „SOFT (TARGET-01, LEAVE_PLAN-01)”.
+
+Frozen Section 2:400–403 oraz Section 3:457–458 wymagają, aby wariant bez kolizji był lepszy, a kolizja była widoczna jako ostrzeżenie. Polecenie „nie dodawaj constraintu — tylko zostaw jako brak kary w objective” nie daje ani gorszego rankingu, ani ostrzeżenia. PlanningResult nie ma pola, które mogłoby to ostrzeżenie przenieść.
+
+A3. Deklaracja „validator sprawdza każde HARD” jest niezgodna z listą checks
+
+Lokalizacja kontraktu: „VALIDATE_HARD — sprawdza niezależnie każde HARD”.
+
+Lista prywatnych checks nie zawiera SHIFT-01. COVERAGE-01 nie zastępuje całego SHIFT-01 bez jawnego sprawdzenia co najmniej roli PRIMARY, dokładnego covers_demand_id, liczby required_primary_count i zasady, że TRAINEE/S nie pokrywa demand.
+
+A4. EXTERNAL-01 jest zawężone do istnienia dowolnego aktywnego okna
+
+Lokalizacja kontraktu: „EXTERNAL-01”.
+
+Frozen Section 2:419–421 oraz Section 1 MEMBERSHIP-02/WINDOW-02 wymagają, aby okno uprawniało konkretny Assignment. Kontrakt nie wymaga pokrycia pełnego przedziału Assignment, zgodności employee_id/site_id, allowed_shift_kind ani rozstrzygnięcia profile.external_support_enabled. Sam fakt istnienia aktywnego okna jest niewystarczający.
+
+A5. REST-01 i LOAD-01 ignorują przekazany kontekst decyzyjny
+
+Lokalizacja kontraktu: „REST-01”, „LOAD-01” oraz lista validator checks.
+
+PlanningState przekazuje boundary_assignments i other_site_assignments właśnie dla REST-01/LOAD-01, a existing_assignments reprezentuje bieżący kontekst wersji. Mapowanie CP-SAT opisuje wyłącznie pary nowych demand variables i nowe godziny x[e,d]. Taki model może zwrócić FEASIBLE mimo konfliktu z Assignment już istniejącym, granicznym lub z innego Site.
+
+CZĘŚĆ B — LUKI IMPLEMENTACYJNE WYMAGAJĄCE DECYZJI
+
+B1. Brak źródła warunku S → A PRIMARY D 8 października
+
+Lokalizacja: „TRAINEE/S”.
+
+PlanningState nie zawiera TrainingEvent/S ani relacji mentor/date/shift. Engine nie otrzymuje fixture i nie może czytać lokalnego pliku referencyjnego. Kontrakt nie mówi, czy informację koduje frozen existing_assignment, SiteRule czy inny input. Bez decyzji implementer musiałby hardcodować A/2026-10-08 albo rozszerzyć model poza scope.
+
+B2. Brak mapowania ShiftDemand → ShiftKind
+
+Lokalizacja: „DAY_ONLY-01”, „DAY_SHIFT_OFF-01”, „EXTERNAL-01”, „TRAINEE/S”.
+
+ShiftDemand ma przedział i required_primary_count, ale nie ma kind. Kontrakt używa pojęć „N-demand” i „demand_D_oct8” bez reguły dopasowania do SiteProfile.standard_shifts oraz bez zachowania dla demand, który nie pasuje do żadnego standard shift.
+
+B3. Brak semantyki existing_assignments
+
+Lokalizacja: wejście PlanningState, `_solve`, `_extract_assignments` i validate_hard.
+
+Nie ustalono, czy wynik ma zawierać istniejące PLANNED/REALIZED/frozen Assignment, które z nich są stałe, które zastępowane, czy CANCELLED są ignorowane oraz jak istniejące pozycje wpływają na coverage, REST i LOAD. To może zmienić zarówno wykonalność, jak i kompletną treść kandydata.
+
+B4. Niepełna definicja eligibility per MEMBERSHIP-01
+
+Lokalizacja: „Zmienne: tylko pracownicy uprawnieni per MEMBERSHIP-01”.
+
+Nie zdefiniowano zachowania dla brakującego/duplikowanego membership, membership innego Site, enabled=false, Employee poza active period, readiness_state=NOT_READY ani resolved HARD SiteRules. SiteRuleVersion ma nadal RuleParameters/object i brak katalogu rule_kind, więc polecenie uwzględnienia active rules nie jest wykonywalne dla ogólnego PlanningState.
+
+B5. AvailabilityRecord: brak filtracji wersji aktywnej
+
+Lokalizacja: DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01.
+
+Pętle mówią o wszystkich availability_records, ale rekord ma active oraz version/supersedes. Kontrakt nie mówi, czy PlanningState gwarantuje wyłącznie aktualne rekordy, czy engine ma odfiltrować inactive/superseded. Zastosowanie każdego rekordu może reaktywować anulowane ograniczenie.
+
+B6. Niedostępność/urlop: nieprecyzyjna granica przedziału
+
+Lokalizacja: UNAVAILABLE-01 i LEAVE_GRANTED-01.
+
+Zapis `[start_date 00:00 .. end_date 23:59:59]` pozostawia nieokreśloną końcówkę z mikrosekundami i nie definiuje half-open/closed overlap. Frozen wymaga kolizji z pełnym okresem dat inclusive. Implementer potrzebuje jednoznacznej granicy, szczególnie dla Assignment kończących/zaczynających się na granicy dnia.
+
+B7. LOAD-01: brak pełnej definicji okna i źródeł godzin
+
+Lokalizacja: „LOAD-01”.
+
+Nie ustalono, czy „d w oknie” oznacza start demand czy rzeczywiste minuty overlap. PoC liczy rzeczywiste godziny overlap, ale Task Contract tego nie zamraża. Nie ustalono też okien przecinających granicę miesiąca ani doliczenia existing/boundary/other-site Assignment. To są różne wyniki dla zmian nocnych i pierwszych/ostatnich dni miesiąca.
+
+B8. Materializacja Assignment po solve
+
+Lokalizacja: `_extract_assignments`.
+
+Kontrakt nie określa assignment_id, AssignmentState, frozen, covers_demand_id, mentor_primary_assignment_id ani zasad dołączenia już istniejących Assignment. Wszystkie pola są wymagane przez rota.domain.Assignment, a ich wypełnienie wpływa na persystencję i kolejne planowanie.
+
+B9. Objective TARGET-01 nie jest wystarczająco określone dla danych domenowych
+
+Lokalizacja: „SOFT / model.minimize(odchylenie od target_hours)”.
+
+Nie określono wyboru WorkBalance dla employee/month, zachowania przy braku lub duplikacie, jednostki minutowej, uwzględnienia istniejących/realized godzin ani agregacji odchyleń. PoC ma stały dict i 12-godzinne zmiany; produkcyjny PlanningState nie ma tych uproszczeń.
+
+B10. Zależność OR-Tools jest poza dozwolonym scope
+
+Lokalizacja: TASK_SCOPE i pyproject.toml.
+
+Na bazie 4f733742 pyproject.toml nie zawiera deklaracji projektu ani zależności ortools. Kontrakt zabrania zmiany plików poza engine.py. Obecność biblioteki w środowisku konkretnego wykonawcy nie zapewnia odtwarzalnego importu ani uruchomienia acceptance w czystym środowisku.
+
+B11. Niepełna mapa statusów CP-SAT i brak parametrów zatrzymania
+
+Lokalizacja: „MAPOWANIE CP-SAT STATUS”.
+
+Kontrakt mapuje OPTIMAL, FEASIBLE, INFEASIBLE i UNKNOWN, ale pomija MODEL_INVALID, który CP-SAT zwraca jako osobny status. Nie zamraża również limitu czasu/pamięci ani minimalnych parametrów solvera, mimo że opisuje UNKNOWN jako timeout. MODEL_INVALID powinien mieć jawnie określoną granicę wyniku, a implementer nie powinien sam ustalać produktowego limitu normalnego planowania.
+
+CZĘŚĆ C — ELEMENTY POPRAWNE
+
+C1. COVERAGE-01 używa dokładnego equality do required_primary_count, więc częściowe pokrycie nie może być FEASIBLE.
+
+C2. REST_MIN_HOURS jest importowane z rota.constants zamiast duplikowania magicznej wartości.
+
+C3. DAY_SHIFT_OFF blokuje wyłącznie start Assignment w oznaczonym dniu, zgodnie z Frozen.
+
+C4. UNAVAILABLE_24H i LEAVE_GRANTED są modelowane jako overlap rzeczywistego przedziału, po doprecyzowaniu granicy okresu.
+
+C5. OPTIMAL/FEASIBLE przechodzą przez niezależny validator przed zwróceniem FEASIBLE, zgodnie z anti-drift rule 12.
+
+C6. UNKNOWN jest klasyfikowane jako TECHNICAL_ERROR, a staffing INFEASIBLE jako DECISION_REQUIRED, co zachowuje podstawową granicę Section 3; problemem pozostaje payload, nie sam wybór statusu.
+
+C7. Jeden kandydat jest dopuszczalny przez Frozen „do 1–3 kandydatów”.
+
+DECYZJE WYMAGANE PRZED STARTEM CC
+
+1. Czy T003b ma być świadomie częściowym komponentem niezgodnym jeszcze z pełnym Section 3, czy ma od razu zwracać obowiązkowe opcje odblokowania? Samo „T004” nie usuwa konfliktu z FROZEN_SOURCE.
+2. Skąd PlanningState ma dostarczyć wymuszenie S/mentor PRIMARY i jak engine rozpoznaje ShiftKind demand?
+3. Jak existing, boundary i other-site assignments uczestniczą w coverage, REST, LOAD oraz wynikowym kandydacie?
+4. Jaka jest kompletna reguła EXTERNAL window coverage i znaczenie „confirmed” przy obecnym modelu danych?
+5. Czy state gwarantuje już odfiltrowane availability/site rules/memberships, czy engine wykonuje filtrację i walidację wersji?
+6. Jaka jest dokładna half-open semantyka okresów oraz rolling 7-day overlap/cross-month?
+7. Jak materializować wymagane pola Assignment i target objective?
+8. Gdzie ma zostać zadeklarowana i zamrożona zależność OR-Tools?
+9. Jak mapować MODEL_INVALID i jaki jest jawny limit solvera?
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport wskazuje wyłącznie konflikty i decyzje konieczne do implementacji bieżącego kontraktu.
+
+FINAL VERDICT
+
+Nie przekazywać kontraktu ROTA-T003b do implementacji w obecnym brzmieniu. Bez korekty CC musiałby naruszyć Frozen Section 3, hardcodować dane ROTA-REG-001 oraz samodzielnie zdecydować o semantyce kluczowych HARD i wymaganych pól Assignment.

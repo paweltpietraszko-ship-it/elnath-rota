@@ -1,0 +1,127 @@
+AUDYT TASK CONTRACT ROTA-T003b-ii — ROUND 5
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowany kontrakt: ROTA-T003b-ii przekazany 2026-08-11
+Frozen Source: arch/spec.md Section 2 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres audytu: kompletność i implementowalność niezależnego HARD validatora; bez implementacji kodu.
+
+SECTION_CHECK: HARD_RULE_SET — PASS
+Kontrakt obejmuje dziewięć właściwych checks: SHIFT, REST, COVERAGE, DAY_ONLY, DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED, LOAD i EXTERNAL; LEAVE_PLAN oraz TARGET są SOFT i prawidłowo nie należą do validate_hard.
+
+SECTION_CHECK: PUBLIC_API_AND_SCOPE — PASS
+Sygnatura validate_hard, strukturalny ValidationResult, zakaz CP-SAT/planowania oraz zakres jednego istniejącego pliku są jednoznaczne.
+
+SECTION_CHECK: SHIFT_AND_COVERAGE — CONTRACT_GAP
+Nie określono walidacji PRIMARY z covers_demand_id=None lub wskazującym demand spoza state, zgodności przedziału Assignment z demand ani komunikatów dla TRAINEE z covers_demand_id; sama liczba PRIMARY nie zamyka tych przypadków.
+
+SECTION_CHECK: REST_CONTEXT — CONTRACT_GAP
+„ALL assignments” wymienia frozen i nowe, ale nie rozstrzyga boundary_assignments i other_site_assignments z PlanningState, mimo że są one decision-relevant dla REST-01.
+
+SECTION_CHECK: AVAILABILITY — CONTRACT_GAP
+Reguły nie mówią wprost, że record blokuje wyłącznie Assignment tego samego employee_id, ani czy validator otrzymuje wyłącznie active/current AvailabilityRecord; literalna pętla może zablokować innych pracowników lub reaktywować rekord nieaktywny.
+
+SECTION_CHECK: LOAD_01 — FAIL
+Kontrakt każe doliczyć pełne duration każdego Assignment mającego overlap z oknem zamiast wyłącznie godzin overlap, co zawyża obciążenie zmian przecinających granicę okna; dodatkowo hardcoded 1–7..25–31 nie działa dla miesięcy krótszych niż 31 dni i pomija kontekst graniczny/cross-site.
+
+SECTION_CHECK: EXTERNAL_01 — FAIL / CONTRACT_GAP
+Sprawdzenie ignoruje membership.enabled, membership.site_id, window.site_id i allowed_shift_kind oraz nie rozstrzyga pracownika mającego równolegle LOCAL i EXTERNAL_SUPPORT membership; może zaakceptować okno innego Site albo odrzucić uprawnionego LOCAL.
+
+SECTION_CHECK: ASSIGNMENT_STATE — CONTRACT_GAP
+Nie określono, czy CANCELLED Assignment są ignorowane; liczenie ich do coverage, REST, availability i LOAD dawałoby fałszywe naruszenia oraz fałszywe pokrycie.
+
+SECTION_CHECK: ACCEPTANCE_BEHAVIOR — FAIL
+Acceptance sprawdza tylko import i liczbę funkcji, więc dziewięć pustych `_check_*` przejdzie wszystkie kontrole; nie ma ani jednego wykonania reguły pozytywnego/negatywnego, mimo że objective tego subtasku jest wyłącznie behawioralne.
+
+SECTION_CHECK: LIMITS_AND_FORBIDDEN — PASS
+Limit 600/50 oraz zakazy zmian dataclass, CP-SAT, plan() i plików spoza scope są jasne i proporcjonalne.
+
+OVERALL — FAIL / CONTRACT_GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+CZĘŚĆ A — BŁĘDY LITERALNE
+
+A1. LOAD-01 liczy pełną zmianę zamiast overlap
+
+Lokalizacja: `_check_load_01`.
+
+Kontrakt mówi: dla Assignment „z overlap z oknem” dodaj `(a.end - a.start).total_seconds()/3600`. Dla N rozpoczynającej się przed początkiem okna i kończącej wewnątrz okna nalicza to 12 h, choć w siedmiu dniach leży tylko część zmiany. PoC referencyjny liczy `overlap_hours(st, en, ws, we)`, a Frozen wymaga godzin w konkretnym ruchomym oknie. To może zmienić HARD PASS na fałszywy LOAD-01 FAIL.
+
+A2. Sztywne okna 1–7..25–31
+
+Lokalizacja: `_check_load_01`.
+
+PlanningState jest ogólny dla jednego miesiąca, ale kontrakt zakłada zawsze 31 dni. Dla lutego lub miesiąca 30-dniowego końcowe okna są nieważne, a implementer musi sam zdecydować, czy validator jest wyłącznie październikowy, czy wylicza granice z CalendarDay/miesiąca.
+
+A3. EXTERNAL window bez pełnej semantyki membership/window
+
+Lokalizacja: `_check_external_01`.
+
+Pełne pokrycie czasu i active=True są poprawne, ale okno musi należeć do tego samego Site i pracownika oraz respektować allowed_shift_kind. Membership musi dotyczyć state.site i być enabled. Obecny tekst może użyć okna dla innego Site. Nie określa też wyniku, gdy Employee ma aktywny LOCAL oraz osobny EXTERNAL_SUPPORT membership.
+
+A4. Acceptance pozwala na całkowity stub
+
+Lokalizacja: ACCEPTANCE_CHECKS 1–2.
+
+Implementacja dziewięciu funkcji z samym `pass` albo bez dopisywania violations spełni import, nazwę publiczną, liczbę `_check_*`, ruff i limity. Kontrole nie weryfikują żadnej reguły, choć komponent jest niezależnym zabezpieczeniem anti-drift rule 12.
+
+CZĘŚĆ B — DECYZJE KONTRAKTOWE BRAKUJĄCE PRZED IMPLEMENTACJĄ
+
+B1. Zakres referencji PRIMARY do demand
+
+Lokalizacja: `_check_shift_01`.
+
+Trzeba zamrozić zachowanie dla PRIMARY bez covers_demand_id, covers_demand_id nieistniejącego w state.shift_demands, niezgodnego schedule_version_id oraz Assignment, którego start/end nie odpowiada wskazanemu demand. Obecny jedyny format violation dotyczy wyłącznie count per istniejący demand.
+
+B2. Rozdział SHIFT-01 i COVERAGE-01
+
+Lokalizacja: `_check_shift_01` i `_check_coverage_01`.
+
+SHIFT wymaga dokładnie required count, COVERAGE sprawdza co najmniej required. Łącznie nadmiar jest wykrywany przez SHIFT, więc nie jest to sprzeczność wyniku, ale implementer nie ma instrukcji, czy jedno zdarzenie niedoboru ma dawać oba violations, czy tylko właściciela reguły. Ma to wpływ na stabilny output validatora.
+
+B3. Komplet wejścia dla REST i LOAD
+
+Lokalizacja: `_check_rest_01`, `_check_load_01` oraz sygnatura validate_hard.
+
+Kontrakt musi określić, czy caller przekazuje już połączone candidate + frozen + boundary + other-site assignments, czy validator sam dołącza konteksty z state. Bez tego ten sam PlanningState i kandydat mogą otrzymać różny HARD result zależnie od niejawnej konwencji wywołania.
+
+B4. Semantyka AssignmentState
+
+Lokalizacja: wszystkie `_check_*` przyjmujące assignments.
+
+Assignment ma PLANNED, REALIZED i CANCELLED. Kontrakt mówi o frozen/nowych, lecz nie o state. CANCELLED nie powinien jednocześnie pokrywać demand i generować REST/LOAD, ale implementer nie ma jawnej instrukcji filtrowania.
+
+B5. Zakres AvailabilityRecord
+
+Lokalizacja: DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED.
+
+Każdy check musi mieć jawne powiązanie `record.employee_id == assignment.employee_id`. Ponadto trzeba wskazać właściciela filtracji active/current: assembler albo validator. Sam typ PlanningState nie gwarantuje obecnie tego precondition.
+
+B6. Brak dopasowania ShiftKind podczas działania validatora
+
+Lokalizacja: `_check_day_only_01` i CONTRACT_GAP_CONDITIONS.
+
+STOP/escalation jest instrukcją dla implementera przy budowie, ale publiczny validator może później otrzymać Assignment bez pasującego standard_shift. Nie określono, czy ma zwrócić violation, zgłosić wyjątek, czy inny wynik. To jest granica runtime, nie pytanie możliwe do rozwiązania wyłącznie przed napisaniem kodu.
+
+CZĘŚĆ C — ELEMENTY POPRAWNE
+
+C1. REST używa globalnego REST_MIN_HOURS zamiast lokalnego magic number do warunku.
+
+C2. Sortowanie per employee i kontrola sąsiednich Assignment wystarcza do wykrycia naruszenia kolejności, gdy wejście zawiera kompletny zestaw aktywnych Assignment.
+
+C3. DAY_SHIFT_OFF prawidłowo bada datę rozpoczęcia, a nie pełny overlap.
+
+C4. UNAVAILABLE i LEAVE_GRANTED używają właściwego half-open warunku overlap pełnego zakresu dat inclusive, po zbudowaniu północy end_date+1day jako datetime.
+
+C5. EXTERNAL wymaga pełnego czasowego pokrycia Assignment przez aktywne okno; brakują wyłącznie pozostałe kwalifikatory.
+
+C6. validate_hard zawsze uruchamia wszystkie dziewięć checks i strukturalnie nie fail-fast, dzięki czemu może zwrócić kompletną listę wykrytych naruszeń.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport nie projektuje implementacji ani nowych typów.
+
+FINAL VERDICT
+
+Nie przekazywać jeszcze ROTA-T003b-ii do CC. Przed implementacją trzeba co najmniej poprawić LOAD na rzeczywisty overlap i kalendarz miesiąca, zamrozić komplet Assignment używany przez REST/LOAD, doprecyzować aktywność i employee ownership AvailabilityRecord, pełne kwalifikatory EXTERNAL, AssignmentState oraz dodać acceptance, które wykonuje reguły zamiast jedynie liczyć funkcje.

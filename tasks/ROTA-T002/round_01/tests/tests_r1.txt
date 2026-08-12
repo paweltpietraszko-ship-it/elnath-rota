@@ -1,0 +1,199 @@
+AUDYT IMPLEMENTACJI ROTA-T002 — ROUND 1
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T002
+Audytowany HEAD: f908175f8c24c706c5d3329451a5dbf647010b8b
+Baza/merge-base: main @ 5fc3049dc780b285d6a02b92270bf525a955f1a3
+Frozen Source Tasku: arch/spec.md Section 1 / PlanningState @ 7e34c251280a8054307e9f4b2f69d9f239604ac9
+Zakres: pełny main..HEAD oraz lokalny Task Contract; bez zmian kodu.
+
+KLASYFIKACJA
+
+- FAIL wynika wyłącznie z literalnego Objective lub Frozen PlanningState.
+- CONTRACT_GAP oznacza, że brief niższego poziomu pominął wymaganie Frozen i nie wolno samodzielnie projektować poprawki.
+- ARCHITECTURE_PROPOSALS są oddzielone i nie wpływają na wynik.
+
+DELIVERY_CHECK: HEAD_AND_DIFF_SCOPE — PASS
+
+DELIVERY_CHECK: FROZEN_LOCK — PASS
+
+DELIVERY_CHECK: BRIEF_FIELD_LIST — PASS
+
+DELIVERY_CHECK: IMPORT_AND_NAMESPACE — PASS
+
+DELIVERY_CHECK: LIMITS_AND_FORBIDDEN_SCOPE — PASS
+
+DELIVERY_CHECK: IMMUTABILITY — FAIL
+Objective wymaga niemutowalnego PlanningState, lecz zwykły `@dataclass` z listami pozwala przepisywać pola i mutować każdą kolekcję.
+
+DELIVERY_CHECK: FROZEN_PLANNING_STATE_COMPLETENESS — FAIL
+PlanningState nie przenosi unresolved SiteRules, ShiftDemands, Deviations ani assignments tych samych Employee z innych Site, mimo literalnego `INCLUDES` w Frozen Section 1.
+
+DELIVERY_CHECK: TASK_CONTRACT_VS_FROZEN — CONTRACT_GAP
+Brief wymienia zamkniętą listę pól, która jest węższa od Frozen Source; implementer nie powinien sam rozszerzać jej o brakujące elementy bez korekty Task Contract.
+
+DELIVERY_CHECK: BACKEND_OUTPUT — PASS
+
+OVERALL — FAIL / CONTRACT_GAP
+
+EXPECTED DELIVERY STATUS — CONTRACT_GAP, nie DONE
+
+CZĘŚĆ A — FAKTY WPŁYWAJĄCE NA WYNIK
+
+A1. HEAD, zakres i lock — PASS
+
+- HEAD jest dokładnie `f908175f8c24c706c5d3329451a5dbf647010b8b` na branch `task/ROTA-T002`.
+- merge-base z main jest dokładnie `5fc3049dc780b285d6a02b92270bf525a955f1a3`.
+- Diff zawiera dokładnie jeden dozwolony nowy plik: `rota/planning/state.py`.
+- `arch/spec.md` i `arch/FROZEN.lock` nie są zmienione względem zamrożonej bazy.
+- Nie utworzono `rota/planning/__init__.py`, PlanningEngine, PlanningResult, solvera, CP-SAT ani test files.
+
+A2. Implementacja literalnej listy z briefu — PASS
+
+Introspection potwierdziła dokładnie 14 pól zadeklarowanych w briefie, w tej samej kolejności:
+
+- site, profile, month;
+- calendar_days, boundary_assignments;
+- memberships, employees, external_windows;
+- availability_records, site_rules;
+- existing_assignments, work_balances, holiday_history;
+- schedule_version_id.
+
+Nie stwierdzono observed-instance patch: sprawdzono całą listę pól, nie tylko obecność klasy.
+
+A3. Import i moduł — PASS
+
+- `from rota.planning.state import PlanningState` przechodzi.
+- Łańcuch importów `rota.domain` + `rota.planning.state` przechodzi.
+- `python -m rota.planning.state` uruchamia przykład i tworzy obiekt.
+- Brak `rota/planning/__init__.py` jest zgodny z namespace package.
+- Bezpośrednie `python rota/planning/state.py` nie znajduje `rota` przy standardowym sys.path, ale Task acceptance wymaga importu, a uruchamialny przykład działa przez `python -m`; nie sklasyfikowano tego jako defekt.
+
+A4. Limity i brak logiki — PASS
+
+- `rota/planning/state.py` ma 84 linie, poniżej limitu 600.
+- Klasa nie ma metod biznesowych, `__post_init__`, walidacji, solvera ani logiki planowania.
+- `git diff --check main..HEAD` przechodzi.
+
+A5. FAIL — PlanningState nie jest niemutowalny
+
+- Task Objective literalnie mówi: „PlanningState — niemutowalna struktura danych”.
+- `rota/planning/state.py:20` używa zwykłego `@dataclass`, nie `@dataclass(frozen=True)`.
+- `PlanningState.__dataclass_params__.frozen` zwraca `False`.
+- Adversarial reproducer skutecznie wykonał `state.schedule_version_id = "v2"`; nie zgłoszono FrozenInstanceError.
+- Adversarial sibling skutecznie wykonał `state.calendar_days.append(...)`.
+- Ten sam bug class dotyczy wszystkich pól listowych: boundary_assignments, memberships, employees, external_windows, availability_records, site_rules, existing_assignments, work_balances i holiday_history.
+- Nawet samo `frozen=True` zamknęłoby reassignment, ale nie mutację list; wymagany poziom immutability (shallow czy strukturalny) nie został zdefiniowany przez brief. To prowadzi do CONTRACT_GAP opisanej w B1, lecz obecna implementacja nie spełnia nawet shallow immutability.
+
+A6. FAIL — brak unresolved SiteRules for display only
+
+- Frozen arch/spec.md:303 wymaga applicable resolved SiteRules.
+- Frozen arch/spec.md:304 osobno wymaga unresolved SiteRules for display only.
+- Kod ma wyłącznie `site_rules: list[SiteRuleVersion]` z komentarzem „tylko RESOLVED — STATE-01”.
+- Nie ma drugiego pola dla unresolved SiteRules. PlanningState nie może więc jednocześnie dostarczyć executable resolved set i display-only unresolved set.
+- To jest brak literalnego frozen input, nie propozycja hardeningu.
+
+A7. FAIL — niepełna current ScheduleVersion content
+
+- Frozen arch/spec.md:307 wymaga `current ScheduleVersion content`.
+- Frozen Section 1 / ScheduleVersion definiuje content jako kompletny ShiftDemand set, kompletny Assignment state oraz Deviations należące do wersji.
+- Kod przenosi `schedule_version_id` i `existing_assignments`, ale nie ma `shift_demands` ani `deviations`.
+- PlanningEngine ma otrzymywać PlanningState i nie posiada persistent business-state ownership, więc brakujących elementów nie można uznać za jego własność do doczytania.
+
+A8. FAIL — brak relevant assignments z innych Site
+
+- Frozen arch/spec.md:309 wymaga relevant assignments tych samych Employee na innych Site, gdy dane istnieją.
+- `existing_assignments` jest opisane w kodzie jako zawartość bieżącej ScheduleVersion, a PlanningState ma scope jednego Site.
+- Nie ma pola na other-site assignments ani metadanych pozwalających odróżnić ich Site; Assignment nie ma site_id, tylko schedule_version_id.
+- Brak może zmienić wynik REST-01 i LOAD-01, więc jest decision-relevant, a nie wyłącznie prezentacyjny.
+
+A9. Boundary context — GAP, nie dodatkowy FAIL
+
+- `boundary_assignments` istnieje i komentarz wiąże je z REST-01/LOAD-01 na granicy miesiąca.
+- Komentarz mówi tylko o końcu poprzedniego miesiąca, podczas gdy Frozen wymaga kontekstu wystarczającego do cross-month validation bez określenia kierunku/horyzontu.
+- Nie narzucono w audycie osobnego pola ani dokładnej liczby dni. Wymagany horyzont powinien zostać ustalony w Task Contract assemblera; obecny typ listy może go reprezentować.
+
+A10. Backend — PASS mechaniczny, bez wpływu na semantic FAIL
+
+Zapisany output odpowiada HEAD:
+
+STATUS: PASS
+HEAD_SHA: f908175f8c24c706c5d3329451a5dbf647010b8b
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+EXCLUDED_ARTIFACTS: NONE
+
+Backend nie sprawdza immutability ani kompletności Frozen `INCLUDES`, więc PASS nie jest sprzeczny z powyższymi ustaleniami.
+
+CZĘŚĆ B — CONTRACT GAPS / PYTANIA BLOKUJĄCE
+
+B1. Co oznacza „niemutowalna struktura danych” w tym Tasku?
+
+- Czy wymagane jest tylko zablokowanie przypisania pól (`frozen=True`), czy również strukturalna niemutowalność kolekcji i zagnieżdżonych rekordów?
+- Brief podaje nazwy pól, ale nie typy kolekcji; implementer wybrał listy, które przeczą deep immutability.
+- Właściciel powinien jawnie wskazać wymagany poziom, zamiast pozwalać testowi wybrać tuple/frozenset.
+
+B2. Jak zamodelować pełny current ScheduleVersion context?
+
+- Frozen wymaga demands, assignments i deviations.
+- Task musi zdecydować, czy PlanningState ma trzy osobne kolekcje, cały ScheduleVersion snapshot/value object, czy inny jawny model. Audyt nie wybiera architektury.
+
+B3. Jak rozdzielić resolved i unresolved SiteRules?
+
+- Frozen wymaga obu zbiorów o różnych uprawnieniach wykonawczych.
+- Task powinien zamrozić nazwy/pola lub jawny wrapper, aby STATE-01 był fail-closed bez utraty display-only data.
+
+B4. Jak reprezentować Assignment z innych Site?
+
+- Assignment nie ma site_id z definicji ASSIGN-01.
+- Task powinien ustalić, czy wystarczy para ScheduleVersion/site context + Assignment, osobny wrapper, czy dodatkowa mapa kontekstowa.
+
+CZĘŚĆ C — ARCHITECTURE PROPOSALS (NIE WPŁYWAJĄ NA FAIL)
+
+C1. Immutable snapshot
+
+Obecne zachowanie: mutable dataclass z mutable lists.
+
+Propozycja: po decyzji właściciela rozważyć `@dataclass(frozen=True)` oraz tuple dla kolekcji snapshotu. Jeżeli wymagana jest wyłącznie shallow immutability, zachować Sequence/list semantics i udokumentować poziom.
+
+Korzyść: PlanningEngine nie może przypadkowo zmienić wejścia podczas planowania.
+Tradeoff: tuple utrudnia inkrementalne składanie; assembler musi budować mutable buffers i zamrażać finalny snapshot.
+
+C2. Jawne rule sets
+
+Obecne zachowanie: jedna lista resolved rules, brak unresolved display data.
+
+Propozycja: osobne `resolved_site_rules` i `unresolved_site_rules` albo value object z dwoma nazwanymi zbiorami.
+
+Korzyść: STATE-01 jest widoczne w typie i trudniejsze do przypadkowego naruszenia.
+Tradeoff: szerszy publiczny kontrakt PlanningState.
+
+C3. Jawny ScheduleVersion snapshot
+
+Obecne zachowanie: id + assignments.
+
+Propozycja: trzy kolekcje `shift_demands`, `existing_assignments`, `deviations` lub osobny immutable snapshot current version.
+
+Korzyść: PlanningEngine dostaje kompletny, rekonstruowalny kontekst bez persistence reads.
+Tradeoff: duplikacja części danych ScheduleVersion albo kolejny value object.
+
+C4. Other-site context wrapper
+
+Obecne zachowanie: brak site metadata dla external assignments.
+
+Propozycja: wrapper zawierający site_id/schedule_version_id/Assignment albo mapa site_id → tuple[Assignment, ...].
+
+Korzyść: globalne per-employee REST/LOAD są audytowalne.
+Tradeoff: dodatkowy typ; nie należy go dodawać bez decyzji właściciela.
+
+C5. Acceptance derived from current contract
+
+Obecne zachowanie: acceptance sprawdza pola/import/ruff/rozmiar, ale nie objective immutability ani Frozen completeness.
+
+Propozycja: po korekcie Task Contract dodać introspection wszystkich required fields, próbę reassignment, próbę mutacji reprezentatywnej kolekcji oraz negatywny check, że unresolved rules nie trafiają do executable set.
+
+Korzyść: testuje klasy błędów, nie tylko import observed instance.
+Tradeoff: oczekiwania immutability mogą zostać dodane dopiero po decyzji B1.
+
+FINAL VERDICT
+
+SHA `f908175f8c24c706c5d3329451a5dbf647010b8b` spełnia mechaniczny brief field list i backend, ale nie spełnia Objective immutability ani kompletnego Frozen PlanningState. Nie akceptować DONE; najpierw poprawić Task Contract w punktach B1–B4, potem implementację i acceptance.

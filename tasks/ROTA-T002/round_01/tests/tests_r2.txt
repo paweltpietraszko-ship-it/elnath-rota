@@ -1,0 +1,69 @@
+AUDYT IMPLEMENTACJI ROTA-T002 — ROUND 2
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T002
+Audytowany HEAD: c7fd75d7dae496797da1e9ddc0e9ee649affa4b0
+Baza main: 5fc3049dc780b285d6a02b92270bf525a955f1a3
+Frozen Source: arch/spec.md Section 1 / PlanningState @ 7e34c251280a8054307e9f4b2f69d9f239604ac9
+Kontrakt korekcyjny: ROTA-T002-FIX + decyzje właściciela B1–B4 przekazane 2026-08-11.
+
+DELIVERY_CHECK: HEAD_AND_BRANCH — PASS
+HEAD i branch są zgodne z delivery.
+
+DELIVERY_CHECK: DIFF_SCOPE — PASS
+Pełny diff main..HEAD dodaje wyłącznie rota/planning/state.py; brak nowych typów, __init__.py, solvera i zmian fixture/oracle.
+
+DELIVERY_CHECK: B1_IMMUTABILITY — PASS
+PlanningState jest @dataclass(frozen=True), a wszystkie 14 pól kolekcyjnych ma adnotacje tuple[X, ...]; próba przypisania pola kończy się FrozenInstanceError.
+
+DELIVERY_CHECK: B2_SCHEDULE_VERSION_CONTENT — PASS
+Stan ma osobne tuple: shift_demands, existing_assignments i deviations, bez dodatkowego typu.
+
+DELIVERY_CHECK: B3_SITE_RULE_PARTITION — PASS
+Stan ma osobne site_rules oraz unresolved_site_rules zgodnie z przyjętym podziałem resolved/executable i unresolved/display-only.
+
+DELIVERY_CHECK: B4_OTHER_SITE_ASSIGNMENTS — PASS
+Stan ma other_site_assignments: tuple[Assignment, ...] i nie wprowadza odrzuconego wrappera.
+
+DELIVERY_CHECK: COMPLETE_FIELD_CONTRACT — PASS
+Introspection potwierdziła dokładnie 18 pól w wymaganej kolejności: site, profile, month, calendar_days, boundary_assignments, memberships, employees, external_windows, availability_records, site_rules, unresolved_site_rules, shift_demands, existing_assignments, deviations, work_balances, holiday_history, other_site_assignments, schedule_version_id.
+
+DELIVERY_CHECK: IMPORT_AND_RUNNABLE_EXAMPLE — PASS
+Import działa, instancja z pustymi tuple powstaje, a python -m rota.planning.state wykonuje przykład bez błędu.
+
+DELIVERY_CHECK: NO_BUSINESS_LOGIC — PASS
+Klasa nie deklaruje metod, __post_init__, walidacji, PlanningEngine, PlanningResult, solvera ani CP-SAT.
+
+DELIVERY_CHECK: LIMITS_AND_FORMAT — PASS
+Plik ma 101 linii, nie ma funkcji/metod, git diff --check przechodzi i rota/planning/__init__.py nie istnieje.
+
+DELIVERY_CHECK: RUFF — PASS (BACKEND)
+Zapisany backend dla audytowanego SHA raportuje RUFF PASS. Niezależnego uruchomienia lokalnego nie powtórzono, ponieważ ruff nie jest dostępny jako polecenie w środowisku audytowym; nie jest to defekt dostarczonego kodu.
+
+DELIVERY_CHECK: BACKEND_OUTPUT — PASS
+Backend raportuje STATUS: PASS dla dokładnie c7fd75d7dae496797da1e9ddc0e9ee649affa4b0 i wszystkie wskazane kontrole zakończone powodzeniem.
+
+ACCEPTED_DECISIONS / KNOWN NON-DEFECTS
+
+- B1 oznacza dokładnie frozen PlanningState i tuple dla jego kolekcji. Audyt nie rozszerza tego na deep immutability zagnieżdżonych encji domenowych.
+- B2: trzy osobne kolekcje są kontraktem; osobny snapshot/wrapper nie jest wymagany.
+- B3: site_rules zachowuje zaakceptowaną nazwę dla resolved rules; unresolved_site_rules jest zbiorem display-only.
+- B4: Assignment bez site_id jest zaakceptowaną reprezentacją other-site context; wrapper C4 został odrzucony.
+- Rozszerzone runtime mutation tests z propozycji C5 są odłożone do T003 i nie wpływają na wynik T002. Test R2 sprawdził wyłącznie przyjęty invariant B1.
+
+REGRESSION_CLASS COVERAGE
+
+- Sprawdzono frozen reassignment jako pierwotny reproducer.
+- Sprawdzono wspólny invariant typu tuple dla wszystkich 14 pól kolekcyjnych, aby fix nie ograniczał się do pierwszego wskazanego pola.
+- Sprawdzono dokładny kompletny zestaw pól, dzięki czemu brak któregokolwiek elementu B2–B4 nie może zostać ukryty przez test podzbioru.
+- Sprawdzono AST klasy pod kątem metod, aby fix danych nie przemycił logiki planowania.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Zgodnie z poleceniem właściciela audyt nie projektuje dalszych zmian.
+
+OVERALL — PASS
+
+EXPECTED DELIVERY STATUS — DONE
+
+SHA c7fd75d7dae496797da1e9ddc0e9ee649affa4b0 naprawia wszystkie cztery zaakceptowane braki A5–A8 zgodnie z decyzjami B1–B4 i nie rozszerza kontraktu.

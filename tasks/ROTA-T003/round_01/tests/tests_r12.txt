@@ -1,0 +1,155 @@
+AUDYT EKSPERYMENTALNEGO PILOTA PLANNINGENGINE — ROUND 12
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: c438fec3c17bff83733676641c9769c8d60c6772
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA AUDYTU
+
+Zgodnie z decyzją właściciela z bieżącej sesji eksperyment NIE jest oceniany względem dotychczasowych Task Contracts T003 ani mechaniki Ward. Claude Code miał swobodę sposobu implementacji. Audyt sprawdza wyłącznie, czy powstały pilot realizuje deklarowane zachowania PlanningEngine wynikające z arch/spec.md oraz czy dowody „10/10” i „dowolny miesiąc” uzasadniają PASS.
+
+Świadomie nie klasyfikuję jako defektów jawnie odłożonych elementów: REPLAN, weekend/holiday fairness ani interpretacji SiteRuleVersion. Nie wykorzystuję również przekroczenia starego TASK_SCOPE jako podstawy FAIL.
+
+WYNIKI WYKONANIA
+
+1. Oryginalna suita autora:
+   `python -m pytest -q`
+   Wynik: 10 passed.
+
+2. Ruff:
+   `python -m ruff check .`
+   Wynik: All checks passed.
+
+3. Łączny przebieg oryginalnej suity oraz parametryzowanych testów adversarialnych:
+   Wynik: 10 passed, 15 failed.
+
+Oryginalne testy potwierdzają dwa dodatnie scenariusze. Nie obejmują negatywnych klas stanów wejściowych, mapowania niedoboru kombinatorycznego, kompletności DecisionRequiredPayload ani niezależności validatora.
+
+FINDING 1 — CRITICAL — FAŁSZYWY FEASIBLE PRZY BRAKU AKTYWNEGO PRIMARY COVERAGE
+
+Kontrakt zachowania:
+- arch/spec.md:257 rozróżnia PLANNED, REALIZED i CANCELLED;
+- arch/spec.md:260–265 rozróżnia PRIMARY pokrywający demand od TRAINEE, który demandu nie pokrywa;
+- COVERAGE-01 (arch/spec.md:405–407) wymaga 100% pokrycia.
+
+Kod:
+- solver.py:60–65 zalicza existing Assignment do pokrycia, jeżeli ma role PRIMARY i covers_demand_id, ale nie odrzuca state=CANCELLED;
+- validator.py:44–49 liczy każdy Assignment posiadający covers_demand_id, bez sprawdzenia role i state.
+
+Reprodukcja end-to-end:
+- jeden demand D wymagający jednego PRIMARY;
+- brak pracowników i brak możliwego nowego Assignment;
+- existing_assignments zawiera wyłącznie PRIMARY/CANCELLED wskazujący ten demand;
+- `plan()` zwraca `FEASIBLE`, a kandydat składa się wyłącznie z anulowanego Assignment.
+
+Reprodukcja wspólnego invariantu validatora:
+- PRIMARY/CANCELLED zostaje uznany za pełne coverage;
+- TRAINEE/PLANNED z covers_demand_id również zostaje uznany za pełne PRIMARY coverage;
+- oba przypadki dają brak COVERAGE-01 violation.
+
+To jest bezpośredni fałszywy PASS produktu, nie różnica architektoniczna.
+
+FINDING 2 — CRITICAL — EXTERNAL SUPPORT OMija WSPÓLNE BRAMKI UPRAWNIENIA
+
+Kontrakt zachowania:
+- EMP-02 (arch/spec.md:102): kompletny przedział Assignment musi mieścić się w okresie aktywności Employee;
+- UNAVAILABLE-01, LEAVE_GRANTED-01 i DAY_ONLY-01 blokują automatyczny Assignment w odpowiadających warunkach;
+- ExternalSupportWindow jest koniecznym potwierdzeniem X/Y, a nie override wszystkich pozostałych HARD.
+
+Kod:
+- eligibility.py:73–86 stosuje membership.enabled, employee active period, DAY_ONLY i availability wyłącznie w ścieżce LOCAL;
+- eligibility.py:89–103 w ścieżce EXTERNAL sprawdza tylko window/site/allowed_shift_kind;
+- check_eligibility() kieruje EXTERNAL bezpośrednio do tej uboższej ścieżki.
+
+Parametryzowana reprodukcja obejmuje pięć równoważnych bramek dla pracownika EXTERNAL z aktywnym window:
+- membership.enabled=false -> rzeczywisty wynik `FEASIBLE`;
+- Employee.active_from po zmianie -> rzeczywisty wynik `FEASIBLE`;
+- DAY_ONLY na N -> `TECHNICAL_ERROR` zamiast `DECISION_REQUIRED`;
+- UNAVAILABLE_24H -> `TECHNICAL_ERROR` zamiast `DECISION_REQUIRED`;
+- LEAVE_GRANTED -> `TECHNICAL_ERROR` zamiast `DECISION_REQUIRED`.
+
+Pierwsze dwa warianty są fałszywym FEASIBLE. Pozostałe trzy pokazują, że validator przypadkowo zatrzymuje nielegalnego kandydata, ale engine błędnie przedstawia zwykłą granicę autonomii jako awarię techniczną.
+
+FINDING 3 — HIGH — KONFLIKT OBSADY/HARD JEST MAPOWANY NA TECHNICAL_ERROR
+
+Kontrakt zachowania:
+- DECISION_REQUIRED oznacza, że normalny kontrakt nie pozwala ukończyć bez decyzji koordynatora (arch/spec.md:463–500);
+- TECHNICAL_ERROR nie może zastępować braku obsady ani konfliktu HARD (arch/spec.md:503–512).
+
+Kod:
+- solver.py wykrywa `unassignable_demand_ids` tylko wtedy, gdy pojedynczy demand nie ma żadnego kandydata;
+- jeżeli każdy demand osobno ma kandydata, lecz zestawu nie można złożyć przez REST-01, CP-SAT zwraca INFEASIBLE bez `unassignable_demand_ids`;
+- engine.py:49–55 ponawia bez LOAD cap, a drugi INFEASIBLE mapuje bezwarunkowo na TECHNICAL_ERROR.
+
+Dwie reprezentatywne ścieżki dają błędny status:
+- jeden pracownik, dwa demandy D i N, każdy indywidualnie eligible, lecz niemożliwe razem przez REST-01;
+- jeden demand D oraz boundary N kończąca się dokładnie w chwili startu D, więc brakuje 11 h odpoczynku.
+
+W obu przypadkach wynik rzeczywisty to `TECHNICAL_ERROR`; wymagany status produktowy to `DECISION_REQUIRED`.
+
+FINDING 4 — HIGH — DECISION_REQUIRED NIE ZAWIERA KONKRETNYCH BLOCKERS
+
+Kontrakt zachowania:
+- arch/spec.md:470–491 wymaga konkretnego problematic demand/constraint oraz typowanych blockerów employee_id + condition.
+
+Kod:
+- engine.py:75–94 tworzy poprawne blocking_shift_demands, lecz zawsze ustawia `blockers=[]`.
+
+Parametryzowana reprodukcja:
+- jedyny pracownik z LEAVE_GRANTED kolidującym z demandem;
+- jedyny pracownik z UNAVAILABLE_24H kolidującym z demandem.
+
+Status w obu przypadkach to DECISION_REQUIRED, ale payload nie identyfikuje ani pracownika, ani LEAVE_GRANTED-01/UNAVAILABLE-01. Zwraca jedynie ogólną listę możliwych działań, więc koordynator nie dostaje wymaganego wyjaśnienia przyczyny.
+
+FINDING 5 — CRITICAL — LOAD-01 POMIJA OKNA 7-DNIOWE PRZECINAJĄCE POCZĄTEK MIESIĄCA
+
+Kontrakt zachowania:
+- LOAD-01 wymaga policzenia każdego ruchomego okna 7 kolejnych dni kalendarzowych (arch/spec.md:409–417);
+- STATE-02 wymaga wystarczającego boundary context dla walidacji cross-month (arch/spec.md:330).
+
+Kod:
+- timeutil.py:43–49 generuje wyłącznie okna rozpoczynające się pierwszego dnia bieżącego miesiąca lub później;
+- solver i validator korzystają z tej samej funkcji, więc nie istnieje niezależna ochrona przed tym błędem.
+
+Reprodukcja:
+- pięć 12-godzinnych boundary Assignments 26–30 września;
+- nowy 12-godzinny Assignment 1 października;
+- okno 26 września–2 października ma 72 h przy progu 60 h;
+- `plan()` zwraca `FEASIBLE`.
+
+To obala deklarację poprawności LOAD-01 dla dowolnego miesiąca. Nawet gdyby boundary uznać za poza zakresem tego eksperymentalnego etapu, findings 1–4 nadal samodzielnie wymuszają FAIL.
+
+FINDING 6 — HIGH — „NIEZALEŻNY HARD VALIDATOR” NIE WALIDUJE WSZYSTKICH HARD
+
+Kontrakt zachowania:
+- anti-drift rule 12 (arch/spec.md:618): każdy FEASIBLE musi przejść niezależną walidację wszystkich HARD.
+
+Udowodnione luki validator.py:
+- coverage nie filtruje AssignmentRole ani AssignmentState (Finding 1);
+- `_check_rest()` na linii 122 dodaje other_site_assignments, ale pomija boundary_assignments;
+- validator nie posiada żadnego checku EXTERNAL-01;
+- kandydat X bez jakiegokolwiek ExternalSupportWindow otrzymuje `hard_pass=True`;
+- kandydat kolidujący REST-01 z boundary Assignment nie otrzymuje REST-01 violation.
+
+Współdzielenie błędnej funkcji `rolling_windows()` przez solver i validator dodatkowo oznacza, że validator nie jest niezależny w klasie błędu LOAD-01 na granicy miesiąca.
+
+OCENA DEKLAROWANYCH DOWODÓW
+
+- `10/10 tests` — prawda mechaniczna, ale suita pokrywa wyłącznie dwa dodatnie scenariusze i nie uzasadnia PASS pilota.
+- `ROTA-REG-001: 7/7` — prawda dla konkretnego fixture; nie dowodzi poprawności klas HARD ani mapowania wyników.
+- `luty 2027 / dowolny miesiąc` — drugi przykład nie jest dowodem uniwersalności. Kontrprzykład na granicy wrzesień/październik zwraca fałszywe FEASIBLE.
+- `niezależny HARD validator` — nazwa i osobny moduł są prawdziwe, lecz zachowanie nie obejmuje wszystkich HARD i współdzieli wadliwą arytmetykę LOAD windows.
+- `ruff/size` — ruff potwierdzony; nie ma wpływu na funkcjonalny werdykt.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Wszystkie findings dotyczą zachowań już wymaganych przez zamrożoną architekturę, nie propozycji przebudowy.
+
+FINAL VERDICT
+
+STATUS: FAIL.
+
+Commit c438fec nie ma PASS jako działający pilot PlanningEngine. Oryginalne 10 testów przechodzi, ale 15/15 testów adversarialnych obala oczekiwane zachowanie. Co najmniej trzy ścieżki zwracają fałszywe `FEASIBLE` (CANCELLED jako coverage, disabled EXTERNAL, inactive EXTERNAL), konflikty staffing/HARD są błędnie raportowane jako `TECHNICAL_ERROR`, DecisionRequiredPayload traci konkretne blokery, a niezależny validator nie realizuje swojej deklarowanej funkcji.
+
+Nie rekomenduję przechodzenia do REPLAN ani SOFT fairness przed usunięciem powyższych klas defektów i dodaniem ich jako trwałych testów regresyjnych.

@@ -1,0 +1,98 @@
+AUDYT KOMPLETNOŚCI I IMPLEMENTOWALNOŚCI arch/spec.md
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T000
+Audytowany commit: 3f4440fe3ab607d3ab566a6500d60021610358da
+Audytowany obiekt: 3f4440fe3ab607d3ab566a6500d60021610358da:arch/spec.md
+Zakres: wyłącznie audyt dokumentu; bez zmian specyfikacji i kodu.
+
+SECTION_CHECK: 1 / DOC SECTION 2 (HARD CONSTRAINTS) — GAP
+Wszystkie 11 wymaganych identyfikatorów występuje, ale pełna implementacja reguł wymaga dodatkowych decyzji o modelu zmian, przedziałach czasu, override, naliczaniu LOAD i rankingu SOFT.
+
+SECTION_CHECK: 2 / DOC SECTION 3 (PLANNING OUTCOMES) — FAIL
+DECISION_REQUIRED nie wymaga w sposób jednoznaczny blokujących ShiftDemand wraz z okresami ani blokujących Employee wraz z warunkami i identyfikatorami reguł, chociaż LOAD-01 wymaga employee/okna/godzin, klasy odblokowania są wymagane, a granica TECHNICAL_ERROR jest wyraźna.
+
+SECTION_CHECK: 3 / DOC SECTION 4 (REUSE MAP) — FAIL
+Oba wymagane SHA są poprawne, lecz BUILD NEW nie wymienia Deviation, a AvailabilityRecord występuje tylko pod nieprecyzyjną nazwą „Availability”.
+
+SECTION_CHECK: 4 / DOC SECTION 7 (ROTA-REG-001) — PASS
+
+SECTION_CHECK: 5 / DOC SECTION 5 (ANTI-DRIFT) — PASS
+
+SECTION_CHECK: 6 / LUKI IMPLEMENTACYJNE — GAP
+Dokument pozostawia implementerowi materialne decyzje produktowe wymienione poniżej, więc nie jest samodzielnie implementowalnym kontraktem.
+
+SECTION_CHECK: 7 / SPRZECZNOŚCI — PASS
+
+OVERALL — FAIL
+
+KONKRETNE BRAKI I BŁĘDY
+
+1. DOC SECTION 2 — komplet identyfikatorów i wymagane dodatkowe założenia
+
+Zestaw identyfikatorów jest kompletny: SHIFT-01, REST-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01, COVERAGE-01, LOAD-01, EXTERNAL-01, TARGET-01.
+
+- SHIFT-01: Section 1 / ShiftDemand nie ma pola shift_kind, a symbol S nie jest nigdzie zdefiniowany ani zmapowany na Assignment/TRAINEE; trzeba założyć sposób rozpoznawania D/N oraz reprezentację S.
+- REST-01: trzeba ustalić, które stany Assignment wchodzą do kontroli (PLANNED/REALIZED/CANCELLED), czy kontrola zawsze obejmuje inne Site, oraz wspólną semantykę czasu (strefa, DST i granice przedziałów). Zdanie przykładowe o N kończącej się o 05:00 jest językowo niejednoznaczne, ale ogólne minimum 11 h pozostaje jednoznaczne.
+- DAY_ONLY-01: nie ma modelu, zakresu, trwałości ani śladu audytowego wyłączenia/override; nie wiadomo, czy koordynator zmienia stabilne Employee.DAY_ONLY, czy tworzy wyjątek dla konkretnej wersji/Assignment.
+- DAY_SHIFT_OFF-01: HARD dotyczący rozpoczęcia zmiany da się zakodować po ustaleniu semantyki daty, ale „porównywalny kandydat”, „pełny dzień bez pracy” i siła tej preferencji SOFT nie są zdefiniowane.
+- UNAVAILABLE-01: AvailabilityRecord.date_or_range nie ma typu ani zasad początku/końca, inkluzywności i strefy czasu, więc kolizja rzeczywistego przedziału wymaga założenia.
+- LEAVE_GRANTED-01: ma ten sam brak semantyki okresu co UNAVAILABLE-01, a ponadto nie ma kontraktu reprezentacji i zakresu świadomego override.
+- LEAVE_PLAN-01: nie zdefiniowano „lepszego kandydata”, miejsca tej preferencji w objective ani obowiązkowego schematu ostrzeżenia.
+- COVERAGE-01: nie określono, które stany Assignment liczą się do pokrycia oraz czy przedział PRIMARY ma być równy przedziałowi ShiftDemand, czy może go zawierać; samo covers_demand_id nie rozstrzyga tych warunków.
+- LOAD-01: nie określono sposobu przypisania godzin zmian przechodzących przez północ do dni/okien, stanów Assignment i innych Site wliczanych do sumy, zakresu okien na granicach miesiąca, zasad czasu/DST ani zakresu i trwałości akceptacji >60 h.
+- EXTERNAL-01: X/Y nie są pojęciem modelu domenowego, ExternalSupportWindow nie ma pola confirmation status, a brak allowed_shift_kind nie ma zdefiniowanego znaczenia; trzeba założyć mapowanie EXTERNAL_SUPPORT, potwierdzenia oraz domyślne dozwolone zmiany.
+- TARGET-01: zakaz naruszania HARD jest jasny, ale nie zdefiniowano funkcji odchylenia od target_hours, jej wagi/prioritetu ani relacji do innych SOFT, więc ranking kandydatów wymaga decyzji produktowej.
+
+2. DOC SECTION 3 — brakujące obowiązkowe dane DECISION_REQUIRED
+
+- Section 3 / DECISION_REQUIRED / „nieobsadzony/problematic demand albo constraint”: alternatywa pozwala zwrócić tylko ogólny constraint; nie wymaga listy blokujących ShiftDemand ani ich start/end lub okresów.
+- Section 3 / DECISION_REQUIRED / „konkretne blokery”: brak wymaganych, typowanych pól employee_id, warunek/AvailabilityRecord i rule_id/rule_version_id lub built-in condition code.
+- Section 2 / LOAD-01 prawidłowo wymaga employee, dokładnego okna 7 dni i liczby godzin; ten szczególny przypadek spełnia wymaganie.
+- Section 3 / DECISION_REQUIRED prawidłowo wymaga możliwych klas odblokowania i zabrania solverowi ich samodzielnie aktywować.
+- Section 3 / TECHNICAL_ERROR prawidłowo wyklucza brak obsady, konflikt HARD i wymaganą decyzję koordynatora, więc granica błędu technicznego jest jawna.
+
+3. DOC SECTION 4 — REUSE MAP
+
+- Continuity AI SHA jest dokładnie 709cf6a1ff829725e5d6572d286963809c990c4a.
+- Elnath Memory Engine SHA jest dokładnie 3bdcd7909373ce541be5e6bd1a5a88b99623801b.
+- Section 4 / BUILD NEW nie wymienia Deviation.
+- Section 4 / BUILD NEW używa ogólnego „Availability” zamiast kanonicznej nazwy bytu AvailabilityRecord, więc pokrycie tego bytu nie jest jednoznaczne.
+- Pozostałe byty z listy kontrolnej są wymienione: Site, SiteProfile, Employee, SiteMembership, ExternalSupportWindow, CalendarDay, SiteRule (jako adapter do PlanningState), WorkBalance, ScheduleVersion, ShiftDemand, Assignment, PlanningState i PlanningEngine.
+- Dodatkowa luka kompletności mapy: Section 1 definiuje Coordinator i CoordinatorSiteAssociation, lecz Section 4 nie klasyfikuje ich ani jako REUSE, ani BUILD NEW.
+
+4. DOC SECTION 7 — ROTA-REG-001
+
+- Lista „7 warunków PASS” zawiera dokładnie siedem ponumerowanych warunków.
+- Istnieją odrębne listy „Co jest regresją” i „Co NIE jest regresją”.
+- Reguła „CC nie zmienia fixture/oracle” występuje dosłownie, a zmiana oracle/fixture jest dopuszczona wyłącznie po wcześniejszej jawnej zmianie Frozen Product Contract.
+- Błąd referencyjny niezależny od powyższych trzech kontroli: nagłówek Section 7 podaje nazwy z „ROTA-REG-001”, natomiast akapit „Wejście” podaje fixture z „ROTA_REG_001”; żaden oracle, fixture ani PoC nie znajduje się w drzewie audytowanego commita, więc testu nie da się odtworzyć wyłącznie z tego SHA.
+
+5. DOC SECTION 5 — ANTI-DRIFT
+
+- Obecne są wszystkie reguły 1–15 i ich treść odpowiada sekcji 12 lokalnego Frozen Execution Contract v0.4.
+
+6. POZOSTAŁE LUKI IMPLEMENTACYJNE
+
+- Section 1 / SiteProfile: brak nawet kanonicznego klucza i pól profilu, a wymagane coverage generation, shift semantics, profile-specific rule kinds, planning policy oraz interpretacja Employee restrictions są tylko nazwane, nie zdefiniowane.
+- Section 1 / Employee: nie określono typów i inkluzywności active_from/active_to ani zachowania dla otwartego active_to przy Assignment przechodzącym przez granicę dnia/miesiąca.
+- Section 1 / SiteMembership: readiness_state i readiness_source nie mają reguł wpływu na PRIMARY/TRAINEE; MEMBERSHIP-01 pomija readiness całkowicie.
+- Section 1 / AvailabilityRecord: brak reguły wyboru obowiązującej wersji przy wielu rekordach/supersession oraz precyzyjnego modelu date_or_range.
+- Section 1 / SiteRule: brak katalogu rule_kind/structured_parameters, reguł rozstrzygania nakładających się wersji/rules i precyzyjnej semantyki effective_from/effective_to względem Assignment.
+- Section 1 / WorkBalance: unresolved_carryover ma jawnie „exact lifecycle OPEN”; nie ma wzorów month_balance i quarter_balance ani jednoznacznego naliczania planned_hours/realized_hours dla stanów Assignment, zmian między miesiącami i pracownika działającego w wielu Site.
+- Section 1 / ScheduleVersion i Deviation: nie zdefiniowano przejść statusów, kryteriów FINAL_* i *_WITH_DEVIATIONS, operacji zmiany current version ani tego, które zaakceptowane wyjątki HARD tworzą Deviation i jak acknowledgement wpływa na finalizację.
+- Section 1 / Assignment oraz Sections 2 i 7 / S: S nie ma definicji domenowej; nie wiadomo, czy jest TRAINEE, jak wiąże godziny i mentora z PRIMARY, czy wlicza się do REST/LOAD/WorkBalance oraz jak zachować parę mentor–S.
+- Section 4 / REPLAN i Section 6 / kolejność: REPLAN jest wskazany do zbudowania, ale nie ma własnego kontraktu operacji; ASSIGN-03/04 pokrywają tylko REALIZED i frozen, nie definiują zakresu redystrybucji, zachowania S ani tworzenia nowej ScheduleVersion.
+- Section 1 / PlanningState: „boundary context MUST be sufficient” nie określa horyzontu; dla LOAD-01 potrzeba co najmniej kontekstu sąsiednich sześciu dni, a dla REST kontekstu czasowego. Zwrot o Assignment z innych Site „when such data exists” nie określa, czy brak danych blokuje FEASIBLE, kończy się DECISION_REQUIRED, czy oznacza brak pracy.
+- Section 1 / PlanningEngine: brak typowanego payloadu wyników precheck/plan/validate i deterministycznego mapowania statusów CP-SAT, w szczególności INFEASIBLE i UNKNOWN, na DECISION_REQUIRED albo TECHNICAL_ERROR.
+- Sections 2–3 / override i odblokowania HARD: nie ma domenowego obiektu ani pól określających kto, kiedy, dla jakiego Employee/Assignment/okna/reguły podjął decyzję, jak długo obowiązuje i czy po zmianie PlanningState powstaje warning/Deviation.
+- Sections 1–3 / SOFT: nie ma kompletnej polityki objective/rankingu ani precedencji dla DAY_SHIFT_OFF, LEAVE_PLAN, target_hours, równości obciążenia, weekendów i świąt; odesłanie do niezdefiniowanego SiteProfile planning policy przenosi decyzję na implementera.
+- Section 4 / referencyjny PoC oraz Section 7 / oracle i fixture: wskazane artefakty nie są częścią audytowanego commita, a spec.md nie zawiera kompletnego odpowiednika ich danych/algorytmu walidacji.
+
+7. SPRZECZNOŚCI — USTALENIE
+
+Nie stwierdzono bezpośredniej sprzeczności dwóch reguł dokumentu. W szczególności:
+- LOAD-01 dopuszcza >60 h dopiero po jawnej decyzji, więc nie przeczy obowiązkowi HARD dla zwykłego FEASIBLE;
+- dokładne target_hours w ROTA-REG-001 są warunkiem konkretnego fixture i nie czynią TARGET-01 globalnym HARD;
+- „S nie pokrywa PRIMARY demand” może współistnieć z wymaganiem, by mentor A był PRIMARY D dla S; brak definicji S jest luką, nie dowodem sprzeczności;
+- override DAY_ONLY/LEAVE_GRANTED zmienia jawnie PlanningState przed ponownym planowaniem, więc nie jest autonomicznym naruszeniem HARD przez solver.

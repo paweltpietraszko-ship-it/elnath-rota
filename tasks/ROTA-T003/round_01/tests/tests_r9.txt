@@ -1,0 +1,115 @@
+PEŁNY REAUDYT TASK CONTRACT ROTA-T003b-ii — ROUND 9
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowany kontrakt: pełna wersja ROTA-T003b-ii przekazana 2026-08-11
+Frozen Source: arch/spec.md Section 2 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres: audyt od zera kompletności, spójności i implementowalności; bez implementacji.
+
+SECTION_CHECK: OBJECTIVE_AND_SCOPE — PASS
+Jeden plik, niezależny validator, zakaz CP-SAT/planowania i zachowanie istniejących dataclass są jednoznaczne.
+
+SECTION_CHECK: HARD_RULE_COVERAGE — PASS
+Kontrakt wywołuje dziewięć reguł HARD z Section 2; LEAVE_PLAN-01 i TARGET-01 prawidłowo pozostają poza HARD validatorem jako SOFT.
+
+SECTION_CHECK: ACCEPTED_DEFERRALS — PASS
+Orphan/mismatched/version-mismatched PRIMARY, disabled/dual EXTERNAL oraz boundary/other-site mają jawne tymczasowe zachowanie i właściciela T004; nie są liczone jako defekty T003b-ii.
+
+SECTION_CHECK: ASSIGNMENT_INPUT_AND_STATE — PASS
+Caller ownership scalonego frozen+new oraz pomijanie CANCELLED we wszystkich checks są jawne i wystarczające dla T003.
+
+SECTION_CHECK: AVAILABILITY — PASS
+Employee ownership recordu, active/current ownership assemblera, inclusive date range oraz half-open overlap są określone wystarczająco dla DAY_SHIFT_OFF, UNAVAILABLE i LEAVE_GRANTED.
+
+SECTION_CHECK: REST_01 — PASS
+Sortowanie aktywnych Assignment per employee i kontrola kolejnych par dokładnie wykrywa gap poniżej REST_MIN_HOURS; kontekst graniczny jest jawnie odłożony.
+
+SECTION_CHECK: LOAD_01_WINDOW_BOUNDARIES — PASS
+Start o północy i ekskluzywny koniec `start + timedelta(days=7)` definiują dokładnie siedem dób, a pełny calendar_days precondition daje prawidłowy last_day i dynamiczny zakres startów.
+
+SECTION_CHECK: LOAD_01_OVERLAP_ACCUMULATION — GAP / POTENTIAL FAIL
+DEC-D nie zawiera warunku `overlap_s < overlap_e` przed dodaniem różnicy; literalna implementacja odejmuje ujemne godziny dla Assignment poza oknem i może ukryć przekroczenie LOAD-01.
+
+SECTION_CHECK: SHIFT_KIND_AND_CONTRACT_GAP — FAIL / CONTRADICTION
+DEC-F definiuje runtime SHIFT-01 violation dla nieznanego ShiftKind Assignment, lecz CONTRACT_GAP_CONDITIONS nakazuje STOP dla niepasującego demand; `_check_shift_01` w ogóle nie dopasowuje demand do standard_shift, a `_check_day_only_01` może ominąć DEC-F, gdy day_only_blocks_n=false.
+
+SECTION_CHECK: DEMAND_PROFILE_CONSISTENCY — CONTRACT_GAP
+Nie ustalono, czy ShiftDemand.start/end i required_primary_count muszą odpowiadać dopasowanemu StandardShift; validator ufa polu demand.required_primary_count, więc demand D z required=0 może przejść mimo profile.required_primary_count=1.
+
+SECTION_CHECK: EXTERNAL_01 — PASS FOR DECLARED T003 SLICE
+Enabled EXTERNAL bieżącego Site wymaga aktywnego okna pokrywającego cały Assignment, LOCAL wins i disabled skip są jawne, a window.site_id/allowed_shift_kind mają właściciela T004.
+
+SECTION_CHECK: ACCEPTANCE_STAGING — PASS WITH EXPLICIT DEPENDENCY
+REST ma poprawny negatywny fixture, a osiem pozostałych negatywnych testów jest przypisanych do nazwanego T003c z obowiązkiem osobnego RULE-ID; nie uznaje się poprawnego FEASIBLE fixture za ich dowód.
+
+SECTION_CHECK: ENGINEERING_POLICY — PASS
+Imports, docstring publicznego API, limity 600/50, brak CP-SAT oraz rozdział jednej reguły na check są wykonalne w istniejącym module.
+
+OVERALL — FAIL / CONTRACT_GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+CZĘŚĆ A — KONTRPRZYKŁADY BLOKUJĄCE PASS
+
+A1. Ujemne godziny dla Assignment bez overlap
+
+Lokalizacja: DEC-D i `_check_load_01`.
+
+Dla okna 1–8 października i Assignment 20 października:
+- overlap_s = 20 października;
+- overlap_e = 8 października;
+- overlap_e - overlap_s jest ujemne.
+
+Jeżeli pętla doda tę wartość bez jawnego guard, późniejszy Assignment może obniżyć load pracownika i zamaskować rzeczywiste >threshold. Nazwa „overlap godzin” nie jest wykonywalnym warunkiem selekcji. Kontrakt musi literalnie ograniczyć sumowanie do `a.start_datetime < window_end_dt and a.end_datetime > window_start_dt` albo równoważnego `overlap_s < overlap_e`.
+
+A2. Nieznany Assignment ShiftKind zależy od DAY_ONLY flag
+
+Lokalizacja: DEC-F oraz `_check_day_only_01`.
+
+DEC-F jest używane w opisie DAY_ONLY. Gdy `profile.day_only_blocks_n=false`, check zgodnie z Frozen ma ignorować DAY_ONLY i może nie wykonywać detekcji ShiftKind. Assignment zaczynający się o 18:00 może wtedy zostać policzony jako PRIMARY przez SHIFT/COVERAGE bez SHIFT-01 violation. Nieznany ShiftKind jest własnością SHIFT-01, a kontrakt nie wskazuje niezależnego miejsca, które zawsze wykonuje DEC-F.
+
+A3. Demand mismatch ma dwa sprzeczne wyniki
+
+Lokalizacja: DEC-F, `_check_shift_01`, CONTRACT_GAP_CONDITIONS.
+
+DEC-F dotyczy Assignment i zwraca violation. CONTRACT_GAP_CONDITIONS dotyczy demand i nakazuje STOP. `_check_shift_01` jedynie liczy covers_demand_id i nie sprawdza żadnego dopasowania standard_shift. Implementer nie wie, czy runtime demand o nieznanej godzinie ma:
+- dać ValidationResult z SHIFT-01;
+- zgłosić wyjątek/STOP;
+- zostać zaakceptowany, jeśli primary_count jest poprawny.
+
+To jest materialna granica wyniku, nie detal techniczny.
+
+A4. required_primary_count może dryfować od profilu
+
+Lokalizacja: SHIFT-01 implementation.
+
+Frozen mówi, że standard shifts i liczba PRIMARY są konfiguracją per profil. Kontrakt używa wyłącznie demand.required_primary_count i nie określa assembler precondition zgodności z StandardShift. Przykład: profil D wymaga 1, demand D ma required=0, brak Assignment; SHIFT count 0==0 i COVERAGE 0>=0, więc validator zwraca PASS mimo konfiguracji profilu.
+
+CZĘŚĆ B — ELEMENTY POTWIERDZONE JAKO POPRAWNE
+
+B1. Dziewięć checks odpowiada dokładnie dziewięciu HARD; dwa SOFT nie są błędnie walidowane jako HARD.
+
+B2. CANCELLED nie pokrywa demand i nie wpływa na REST, availability, LOAD ani EXTERNAL.
+
+B3. REST test ma istniejącego Employee, LOCAL membership, komplet kalendarza oraz dwa znane ShiftKind z gap 0 h.
+
+B4. DAY_SHIFT_OFF bada start dnia, zaś UNAVAILABLE/LEAVE_GRANTED rzeczywisty overlap pełnego zakresu dat.
+
+B5. Dynamiczne okna działają dla miesięcy 28–31 dni pod zapisanym complete-calendar precondition.
+
+B6. Wszystkie wcześniejsze B3/B4/B7 zostały teraz literalnie przypisane do T004/T003c i nie wymagają inference CC.
+
+WYMAGANE OSTATNIE ROZSTRZYGNIĘCIA
+
+1. Dopisać jawny guard dodatniego overlap przed sumowaniem LOAD.
+2. Ustalić jedno miejsce i wynik walidacji nieznanego ShiftKind niezależnie od day_only_blocks_n.
+3. Ujednolicić runtime zachowanie demand niepasującego do StandardShift: violation albo jawny assembler precondition; usunąć nieimplementowalne „STOP” bez granicy API.
+4. Zamrozić, czy zgodność demand.start/end/required_primary_count z StandardShift jest precondition assemblera, czy sprawdza ją SHIFT-01.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Powyższe punkty dotyczą wyłącznie wartości passed/violations dla danych dozwolonych przez obecny kontrakt.
+
+FINAL VERDICT
+
+Pełny kontrakt nie jest jeszcze gotowy do CC. Deferrals i test ownership są już poprawne; pozostałe blokery skupiają się wyłącznie na LOAD overlap oraz jednej niespójnej granicy ShiftDemand/Assignment ↔ StandardShift. Po ich literalnym rozstrzygnięciu możliwy będzie PASS bez dalszego rozszerzania zakresu.

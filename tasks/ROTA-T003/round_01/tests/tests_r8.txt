@@ -1,0 +1,50 @@
+AUDYT R7-FIX TASK CONTRACT ROTA-T003b-ii — ROUND 8
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowane: DEC-E, ACCEPTED_DEFERRALS i komplet ACCEPTANCE_CHECKS przekazane 2026-08-11
+Zakres: gotowość kontraktu do implementacji; bez implementacji kodu.
+
+SECTION_CHECK: DEC_E_COMPLETE_CALENDAR — PASS
+Assembler ma jawny precondition dokładnie jednego CalendarDay dla każdej daty bieżącego miesiąca i zakaz dat obcych; last_day oraz zakres okien są przez to deterministyczne, a pusty input ma jawny LOAD-01 violation.
+
+SECTION_CHECK: REST_ACCEPTANCE — PASS
+Fixture zawiera Employee i LOCAL membership, oba Assignment zaczynają się o godzinach znanych standard shifts, a gap 0 h jednoznacznie wymusza REST-01 violation.
+
+SECTION_CHECK: T003C_NEGATIVE_TEST_OWNERSHIP — PASS
+Odroczenie ośmiu testów jest przypisane do konkretnego następnego subtasku, który musi wykonać osobny negatywny przypadek każdej reguły i sprawdzić właściwy RULE-ID; poprawny FEASIBLE fixture nie jest błędnie uznany za wystarczający dowód.
+
+SECTION_CHECK: EXTERNAL_DEFERRALS — PASS
+Disabled EXTERNAL i dual LOCAL+EXTERNAL mają jawne zachowanie T003b-ii, a pełna semantyka jest przypisana do T004.
+
+SECTION_CHECK: BOUNDARY_DEFERRALS — PASS
+Puste boundary_assignments i other_site_assignments są jawnym precondition T003, z rozszerzeniem przypisanym do T004.
+
+SECTION_CHECK: PRIMARY_DEFERRALS — GAP
+Odroczono covers_demand_id=None i nieistniejący demand, ale nie odroczono ani nie zwalidowano PRIMARY wskazującego istniejący demand z innym start_datetime/end_datetime; taki Assignment jest obecnie liczony do SHIFT/COVERAGE mimo że nie realizuje przedziału ShiftDemand.
+
+OVERALL — GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+JEDYNA BRAKUJĄCA KOREKTA
+
+Do ACCEPTED_DEFERRALS / PRECONDITIONS T003b-ii trzeba dodać literalne rozstrzygnięcie dla PRIMARY, którego covers_demand_id istnieje, lecz Assignment.start_datetime/end_datetime nie są zgodne z przedziałem wskazanego ShiftDemand. Jeżeli przypadek ma zostać odłożony, wystarczy jawnie zapisać, że T003b-ii nie generuje za niego violation, nie występuje on w ROTA-REG-001, a pełną walidację zamraża T004.
+
+Analogicznie warto w tym samym zdaniu objąć schedule_version_id niezgodny z bieżącym state.schedule_version_id, ponieważ obecny count opiera się wyłącznie na covers_demand_id. Jest to ten sam bug class referencji Assignment → ShiftDemand, nie osobna propozycja architektoniczna.
+
+ACCEPTED ELEMENTS
+
+- Poprawka half-open LOAD z poprzedniej rundy pozostaje poprawna.
+- Pełny calendar precondition zamyka B2.
+- Fixture REST zamyka B5/B6.
+- Jawne testy negatywne w T003c zamykają B7 na poziomie podziału odpowiedzialności.
+- Deferrals External i boundary/cross-site są wystarczająco precyzyjne dla etapu T003.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+Kontrakt jest o jedną literalną decyzję od PASS. Po dodaniu temporalnej oraz wersyjnej niezgodności PRIMARY→ShiftDemand do accepted deferrals T004 nadaje się do przekazania CC bez kolejnych zmian.

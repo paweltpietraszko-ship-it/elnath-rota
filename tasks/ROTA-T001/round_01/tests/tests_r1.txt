@@ -1,0 +1,211 @@
+AUDYT ZGODNOŚCI TASK CONTRACT ROTA-T001 Z FROZEN CONTRACT
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Finalny main SHA: 7e34c251280a8054307e9f4b2f69d9f239604ac9
+Branch bazowy: main
+Frozen source deklarowany przez Task: arch/spec.md SECTION 1 @ 7e34c251280a8054307e9f4b2f69d9f239604ac9
+Zakres audytu: Task Contract przekazany w rozmowie; bez implementacji.
+
+ZASADA KLASYFIKACJI
+
+- FAKT/FAIL oznacza niespełnienie obecnego kontraktu lub mechanicznego wymagania repozytorium.
+- CONTRACT_GAP oznacza, że Task sam wymaga decyzji, której nie zamraża; zgodnie z Taskiem implementer ma STOP.
+- WYMAGA_DECYZJI oznacza niejasność właścicielską lub procesową, której Codex nie rozstrzyga.
+- PROPOZYCJE są oddzielone i nie wpływają na wynik.
+
+TASK_CHECK: BASE_SHA_AND_FROZEN_LOCK — PASS
+
+TASK_CHECK: FROZEN_CONTRACT_ALIGNMENT — CONTRACT_GAP
+Task zastępuje frozen `AvailabilityRecord.date_or_range` polami start_date/end_date i ustanawia S=TRAINEE, lecz te dwie decyzje nie występują w zamrożonym arch/spec.md pod wskazanym SHA ani nie mają w Tasku jednoznacznego zapisu decyzji właściciela włączającej je do Frozen Contract.
+
+TASK_CHECK: OBJECTIVE_AND_SCOPE — PASS
+
+TASK_CHECK: DOMAIN_TYPE_COMPLETENESS — CONTRACT_GAP
+Task wymaga SiteRule/SiteRuleVersion, ale sam nakazuje STOP dla typu structured_parameters i nie zamraża kompletnego typu RuleCategory/rule_kind, więc nie da się dostarczyć wszystkich wymaganych typów bez własnej decyzji.
+
+TASK_CHECK: INPUT_REPRODUCIBILITY — FAIL
+PoC 05 i fixture 07 nie należą do drzewa finalnego main i Task nie podaje ich repo-relative paths ani SHA, więc czysty checkout wskazanego SHA nie zawiera wszystkich INPUTS.
+
+TASK_CHECK: ACCEPTANCE_CHECKS — GAP
+Acceptance pokrywa główne byty i limity, ale nie weryfikuje wymaganych SiteRule/SiteRuleVersion ani kompletności wszystkich bytów deklarowanych w OUTPUTS.
+
+TASK_CHECK: WARD_PIPELINE — FAIL
+Zagnieżdżony TASK_SCOPE z nagłówkami ADAPT/NEW jest parsowany przez backend.py jako pusta lista, więc prawidłowa implementacja zakończy się DIFF_SCOPE FAIL.
+
+OVERALL — CONTRACT_GAP / NIE URUCHAMIAĆ IMPLEMENTACJI
+
+CZĘŚĆ A — FAKTY WPŁYWAJĄCE NA WYNIK
+
+A1. Finalny main i lock są poprawne
+
+- HEAD i main wskazują dokładnie `7e34c251280a8054307e9f4b2f69d9f239604ac9`.
+- `arch/FROZEN.lock` istnieje w tym SHA.
+- SHA-256 lokalnego `arch/spec.md` wynosi `a1cf9e4adbe46a3ebba1aba4ab3714a1087d9803db4f515288d8471f7e6e70a4` i jest identyczny z lockiem.
+- Przekazane wcześniej „BACKEND_OUTPUT: N/A — FROZEN.lock nie istnieje jeszcze” jest nieaktualne dla finalnego main. Nie jest to defekt produktu, ale Task metadata powinny zostać zaktualizowane przed wykonaniem.
+
+A2. Cel i podstawowe ograniczenie scope są zgodne
+
+- Frozen Section 1:289–316 jawnie opisuje PlanningState jako niepersystowany concept, a PlanningEngine jako component bez persistent state.
+- Task ogranicza ten etap do persystowalnych typów/stałych i jawnie zabrania PlanningState, PlanningEngine, PlanningResult, solvera oraz logiki planowania. To jest zgodne z etapem „Frozen types / domain contract” z kolejności implementacji.
+- `REST_MIN_HOURS = 11` jest literalnie wymagane przez arch/spec.md:76–78 i Section 9:731–735.
+- Brak `rota/__init__.py` jest techniczną decyzją namespace package i nie zmienia kontraktu produktu.
+- Dokładnie dwa nowe pliki produkcyjne są zgodne z backendowym MAX_NEW_FILES=2; artefakty `tasks/` są przez backend wyłączane z liczenia scope/new files.
+
+A3. CONTRACT_GAP — AvailabilityRecord w Tasku nie odpowiada zamrożonej Section 1
+
+- Frozen arch/spec.md:146–163 wymaga jednego pola `date_or_range`; nie definiuje pól `start_date` i `end_date` ani inkluzywności.
+- Task wymaga `start_date`, `end_date` inclusive i zakazuje `date_or_range` w acceptance check 6.
+- Jest to celowe rozwiązanie luki B2, ale deklarowany `FROZEN_SOURCE` Tasku nadal wskazuje wyłącznie Section 1 @ 7e34c251. W zamrożonym obiekcie ta decyzja nie występuje.
+- Źródło Tasku mówi „fixture 07 + decyzja Soneta z PoC”. Anti-drift rule 3 w arch/spec.md:592 mówi, że akceptacja Soneta nie zmienia Frozen Product Contract. Task nie zawiera osobnego, jednoznacznego wpisu „DECYZJA_WŁAŚCICIELA” dla tej semantyki.
+- Nie wolno przypisać tej decyzji właścicielowi przez inference. Status: CONTRACT_GAP do formalnego przypięcia decyzji.
+
+A4. CONTRACT_GAP — S=TRAINEE nie jest zamrożone w wskazanej Section 1
+
+- Frozen Section 1 ma training_s_* (52–56), Assignment.role PRIMARY|TRAINEE (249–265) i mentor_primary_assignment_id dla TRAINEE.
+- Dokument nie zawiera literalnej tożsamości „S = TRAINEE”. Task dodaje ją jako RESOLVED_CONTRACT_GAP B6 bez wskazania miejsca decyzji właściciela w Frozen Source.
+- Ta identyczność jest spójna z istniejącymi polami, ale nadal jest nową semantyką, nie faktem literalnie wynikającym z Section 1. Status: CONTRACT_GAP/provenance, nie sprzeczność modelu.
+
+A5. CONTRACT_GAP — SiteRule/SiteRuleVersion blokuje realizację własnymi warunkami Tasku
+
+- OUTPUTS wymagają `@dataclass dla wszystkich bytów z SECTION 1` oraz SiteRule i SiteRuleVersion.
+- Frozen Section 1:165–194 wymaga między innymi category, rule_kind, structured_parameters, effective dates i optional description/source/reason.
+- Task nie definiuje `RuleCategory` mimo zamkniętego zbioru CLIENT_REQUIREMENT|LOCAL_RULE|CONFIRMED_EXCEPTION.
+- Task nie definiuje typu `rule_kind`.
+- Task jawnie mówi: „SiteRule.structured_parameters wymaga decyzji o typie (...) → STOP, eskaluj”. Oznacza to, że zgodne wykonanie bieżącego Tasku nie może zakończyć się DONE.
+- Zgodnie z jego własną CONTRACT_GAP_CONDITIONS implementer ma zatrzymać się przed utworzeniem niepełnego lub arbitralnego SiteRuleVersion.
+
+A6. FAIL — INPUTS nie są odtwarzalne z finalnego main
+
+- Drzewo `7e34c251...` zawiera arch/spec.md, FROZEN.lock i narzędzia Ward, ale nie zawiera `05_elnath_rota_cp_sat_poc.py` ani `07_ELNATH_ROTA_REGRESSION_ROTA_REG_001.json`.
+- W bieżącym workspace pliki istnieją wyłącznie w nieśledzonym katalogu `ELNATH_WARD_HANDOFF_FINAL_2026-08-10/`; nie są częścią audytowanego SHA.
+- Task podaje same nazwy plików, bez katalogu i bez SHA-256. CC pracujący z czystego checkoutu nie może odtworzyć wejść, na których oparto resolved gaps.
+
+A7. FAIL — format TASK_SCOPE jest niezgodny z parserem backend.py
+
+- Task zapisuje po `TASK_SCOPE:` najpierw niepunktowany nagłówek `ADAPT:`, potem `NEW`.
+- backend.py:85–100 rozpoczyna scope po dokładnym `TASK_SCOPE:`, przyjmuje kolejne wpisy tylko wtedy, gdy zaczynają się od `-`, a na pierwszym innym niepustym wierszu kończy sekcję.
+- Mechaniczna symulacja dokładnie przekazanego fragmentu zwraca `PARSED_SCOPE_COUNT=0`.
+- Po implementacji backend zobaczy pyproject.toml i dwa pliki rota jako zmiany poza pustym scope, więc zwróci DIFF_SCOPE FAIL. To nie jest luka architektoniczna, lecz deterministyczny błąd formatu Task Contract.
+
+A8. GAP — acceptance nie pokrywa całego deklarowanego OUTPUT
+
+- Acceptance 1 importuje reprezentatywny podzbiór bytów, ale nie SiteRule ani SiteRuleVersion.
+- Brak checku na kategorię SiteRule, resolution, enforcement, effective dates i pola supersession.
+- Nie wolno z tego wyprowadzić nowych wymagań produktu; fakt oznacza jedynie, że obecne checks nie wykryją pominięcia części OUTPUTS.
+- Zakaz testów w Tasku dotyczy tworzenia test files; proste import/introspection acceptance commands pozostają zgodne z zadaniem.
+
+A9. WYMAGA_DECYZJI — bieżący stan workflow po obowiązkowym audycie
+
+- Przed audytem `tasks/ROTA-T001/round_01/tests/tests_r1.txt` nie istniał.
+- Globalna instrukcja audytu wymaga zapisania raportu właśnie pod tą ścieżką, więc po dostarczeniu R1 katalog `tasks/ROTA-T001/` istnieje.
+- task_init.py:49–53 kończy się FAIL, jeśli cały `tasks/ROTA-T001/` już istnieje. Sekwencja Ward w Tasku nie może teraz wykonać kroku 2 bez jawnie ustalonej ścieżki wznowienia; raportu R1 nie wolno usuwać ani nadpisywać.
+- Jest to konflikt kolejności workflow, a nie defekt domeny. Wymaga decyzji Ward, jak utworzyć repo_before.hash/implementation przy zachowaniu istniejącego audytu.
+
+A10. GAP techniczny — ADAPT pyproject.toml nie jest jednoznaczny
+
+- Task dopuszcza „pythonpath lub packages”, ale obecny pyproject.toml ma wyłącznie konfigurację Ruff/Pytest, bez `[project]` i build backendu.
+- `python -c` uruchomione z repo root odkryje katalog `rota` jako namespace package przez bieżący katalog na sys.path; ustawienie pytest `pythonpath` nie definiuje instalowalnego package.
+- Task nie określa oczekiwanego diffu pyproject ani kontekstu uruchomienia import check. To decyzja techniczna, nie produktowa, lecz dwie dozwolone ścieżki nie są równoważne.
+
+A11. WYMAGA_DECYZJI — shell w SEKWENCJA_WARD
+
+- Environment tasku deklaruje PowerShell.
+- `CURRENT_SHA=$(...)` bez `$` po lewej stronie i kontynuacje `\` są składnią POSIX shell, nie PowerShell.
+- Sekwencja jest wykonalna w bash/Git Bash, ale Task nie wskazuje shell. Nie wpływa to na domenę, lecz uniemożliwia literalne wykonanie sekwencji w zadeklarowanym shellu.
+
+CZĘŚĆ B — PYTANIA BLOKUJĄCE DO WŁAŚCICIELA/SONETA
+
+1. Czy Task Contract jest sam w sobie jawną decyzją właściciela zamrażającą `AvailabilityRecord.start_date/end_date` inclusive i `S = TRAINEE`, czy decyzje mają najpierw zostać wpisane do arch/spec.md, ponownie zamrożone i przypięte nowym SHA/FROZEN.lock?
+2. Jaki jest dokładny typ `SiteRuleVersion.structured_parameters`?
+3. Jaki jest dokładny typ `rule_kind` i czy category ma być osobnym `RuleCategory(str, Enum)`?
+4. Jakie są typy effective_from/effective_to i optional description/source/reason dla SiteRuleVersion?
+5. Czy scope Tasku oznacza wszystkie persystowalne rekordy Section 1, z jawnym wyłączeniem tylko PlanningState/PlanningEngine, czy również profile planning-policy data muszą być reprezentowane już w tym etapie?
+
+CZĘŚĆ C — PROPOZYCJE KOREKT TASKU (NIE SĄ DODATKOWYMI WYMAGANIAMI PRODUKTU)
+
+C1. Korekta frozen provenance
+
+Obecne zachowanie: Task nadpisuje dwa elementy Section 1 przez resolved gaps, ale Frozen Source wskazuje stary kształt.
+
+Propozycja: po jawnej decyzji właściciela wpisać oba rozstrzygnięcia do arch/spec.md, utworzyć nowy lock/commit i przypiąć Task do nowego SHA; alternatywnie wskazać w Tasku jednoznaczny, podpisany artefakt decyzji właściciela jako dodatkowy Frozen Source.
+
+Korzyść: CC nie musi inferować, czy Task ma prawo zmienić frozen domain.
+Tradeoff: wymaga nowego commita kanonu przed implementacją.
+
+C2. Domknięcie SiteRule
+
+Obecne zachowanie: Task jednocześnie wymaga i blokuje SiteRuleVersion.
+
+Propozycja: właściciel zamraża pełny schemat, przykładowo przez osobne RuleCategory i jawne typy rule_kind/structured_parameters/effective dates/optional text. Konkretny wybór structured_parameters nie jest proponowany przez audytora.
+
+Korzyść: dwa pliki produkcyjne mogą być kompletne bez arbitralnej decyzji CC.
+Tradeoff: wymaga decyzji o rozszerzalności rule parameters.
+
+C3. Mechaniczna korekta TASK_SCOPE
+
+Obecne zachowanie: backend parsuje zero ścieżek.
+
+Propozycja formatu zgodnego z istniejącym parserem:
+
+TASK_SCOPE:
+- pyproject.toml
+- rota/constants.py
+- rota/domain.py
+
+Informację ADAPT/NEW pozostawić poza parsowaną sekcją.
+
+Korzyść: DIFF_SCOPE i MAX_NEW_FILES działają zgodnie z intencją.
+Tradeoff: brak wpływu produktowego.
+
+C4. Przypięcie INPUTS
+
+Obecne zachowanie: Task zależy od nieśledzonych plików handoff.
+
+Propozycja: podać pełne repo-relative paths i SHA-256 albo włączyć artefakty do zamrożonego drzewa wejściowego.
+
+Korzyść: odtwarzalny clean checkout.
+Tradeoff: większy zakres repozytorium lub dodatkowy mechanizm dystrybucji.
+
+C5. Jednoznaczny ADAPT pyproject
+
+Obecne zachowanie: dwie alternatywy o różnym działaniu.
+
+Propozycja: wskazać konkretny oczekiwany fragment konfiguracji i środowisko import check; jeśli jedynym wymaganiem jest import z repo root, rozważyć jawne stwierdzenie, że pyproject nie wymaga zmiany.
+
+Korzyść: brak inertnego lub przypadkowego diffu.
+Tradeoff: zamraża techniczną ścieżkę packagingu.
+
+C6. Uzupełnienie acceptance bez tworzenia test files
+
+Obecne zachowanie: część OUTPUT nie jest sprawdzana.
+
+Propozycja: po domknięciu SiteRule dodać import/introspection command obejmujący SiteRule, SiteRuleVersion i wszystkie enum values; osobno sprawdzić brak PlanningState/PlanningEngine i brak `rota/__init__.py`.
+
+Korzyść: acceptance odpowiada deklarowanemu scope.
+Tradeoff: dłuższa komenda acceptance, nadal bez plików testowych.
+
+C7. Uzgodnienie kolejności task_init/audyt
+
+Obecne zachowanie: wymagany raport audytu tworzy katalog, którego task_init wymaga nieistniejącego.
+
+Propozycja do decyzji Ward: uruchamiać task_init przed pierwszym audytem Task Contract albo dodać bezpieczny tryb resume, który zachowuje istniejące `tests_r<n>.txt` i tworzy tylko brakujące repo_before.hash/implementation.
+
+Korzyść: brak konieczności kasowania historii audytu.
+Tradeoff: zmiana procesu lub task_init poza scope ROTA-T001.
+
+C8. Oznaczenie shell
+
+Obecne zachowanie: sekwencja miesza założenie PowerShell z POSIX syntax.
+
+Propozycja: oznaczyć blok jako bash albo podać równoważną sekwencję PowerShell.
+
+Korzyść: literalnie wykonywalny handoff.
+Tradeoff: brak wpływu produktowego.
+
+TEST DESIGN — WYŁĄCZNIE OBECNY TASK CONTRACT
+
+- Nie implementować test files, zgodnie z FORBIDDEN.
+- Acceptance powinno zachować import reproducer z Tasku oraz jego reprezentatywne rodzeństwo po domknięciu SiteRule.
+- Sprawdzić wszystkie cztery AvailabilityKind i wszystkie enum values, nie tylko observed import instance.
+- Sprawdzić granice optional relations Assignment dla obu ról przez introspection typu, bez dodawania walidacji runtime zakazanej w tym Tasku.
+- Nie wymagać konkretnego typu structured_parameters, dopóki właściciel go nie zamrozi; obecny oczekiwany status to CONTRACT_GAP, nie FAIL implementacji.

@@ -1,0 +1,67 @@
+AUDYT IMPLEMENTACJI ROTA-T003b-i — ROUND 4
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T003
+Audytowany HEAD: 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Baza: 4f733742d20009855dc9106d67df938cd9c3df9d
+Frozen Source: arch/spec.md Sections 2–3 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Kontrakt: ROTA-T003b-i zaakceptowany w Round 3.
+
+SECTION_CHECK: HEAD_AND_BRANCH — PASS
+HEAD i branch są dokładnie zgodne z delivery.
+
+SECTION_CHECK: IMPLEMENTATION_SCOPE — PASS
+Zmiany produktowe obejmują wyłącznie pyproject.toml i nowy rota/planning/engine.py; zmieniony tasks/ROTA-T003/brief.md jest zadeklarowanym przez backend EXCLUDED_ARTIFACT i zawiera wyłącznie aktualizację metadanych Ward do kontraktu T003b-i.
+
+SECTION_CHECK: PYPROJECT_METADATA — PASS
+Dodano dokładnie project.name="elnath-rota", project.version="0.1.0" i dependencies=["ortools>=9.0"], bez zmiany istniejących ustawień ruff/pytest; tomllib poprawnie parsuje plik.
+
+SECTION_CHECK: ORTOOLS_IMPORT — PASS
+`from ortools.sat.python import cp_model` przechodzi, a utworzenie CpModel kończy się sukcesem.
+
+SECTION_CHECK: RESULT_DATACLASSES — PASS
+Moduł deklaruje dokładnie sześć wymaganych dataclass: BlockingDemand, Blocker, LoadBlocker, DecisionRequiredPayload, ValidationResult i PlanningResult.
+
+SECTION_CHECK: FIELD_NAMES_AND_ORDER — PASS
+Introspection potwierdziła dokładny zestaw oraz kolejność pól każdej z sześciu dataclass, w tym warnings i unblocking_options.
+
+SECTION_CHECK: FIELD_TYPES — PASS
+get_type_hints potwierdziło wszystkie typy z kontraktu, łącznie z Literal trzech statusów, zagnieżdżonym list[list[Assignment]] i wszystkimi Optional.
+
+SECTION_CHECK: ZERO_PLANNING_LOGIC — PASS
+Kontrola AST nie znalazła żadnej funkcji ani metody; plik nie zawiera plan, validate_hard, CpModel, CpSolver, solvera ani innej logiki planowania.
+
+SECTION_CHECK: RUNNABLE_EXAMPLE — PASS
+`python -m rota.planning.engine` wykonuje blok __main__ i zwraca „engine types OK”.
+
+SECTION_CHECK: RUFF_AND_LIMITS — PASS
+Backend raportuje RUFF PASS; engine.py ma 55 linii, nie zawiera funkcji podlegających limitowi 50 linii, a git diff --check przechodzi.
+
+SECTION_CHECK: BACKEND_OUTPUT — PASS
+Backend raportuje STATUS: PASS dla dokładnie 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af i wszystkie wymagane kontrole mechaniczne zakończone powodzeniem.
+
+REGRESSION_CLASS COVERAGE
+
+- Sprawdzono wszystkie sześć klas, nie tylko PlanningResult wskazany najmocniej przez acceptance.
+- Dla każdej klasy sprawdzono pełny ordered field set, więc brak lub dodatkowe pole nie może ukryć się za testem podzbioru.
+- Sprawdzono pełne resolved type hints, więc zgodność nazw z błędnymi typami nie przejdzie audytu.
+- Kontrola AST objęła wszystkie funkcje i metody w module, a nie tylko wyszukanie dwóch zabronionych publicznych nazw.
+- Metadane project sprawdzono jako pełną wartość po parsowaniu TOML, z zachowaniem obu istniejących konfiguracji tool.
+
+ACCEPTED BEHAVIOR / KNOWN NON-DEFECTS
+
+- tasks/ROTA-T003/brief.md jest metadanym wejściem Ward i został jawnie wyłączony przez backend; jego aktualizacja z T003a na T003b-i nie rozszerza implementacji produktu.
+- Brak solvera, plan() i validate_hard jest wymaganiem tego etapu, nie niekompletnością delivery.
+- ROTA-REG-001 oraz semantyka wypełniania typów należą do kolejnych podzadań i nie są wymagane przez T003b-i.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+OVERALL — PASS
+
+EXPECTED DELIVERY STATUS — DONE
+
+FINAL VERDICT
+
+SHA 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af implementuje kontrakt ROTA-T003b-i dokładnie, bez wyjścia poza dozwolony zakres produktu i bez logiki planowania. Delivery można zaakceptować jako DONE; branch pozostaje niepołączony zgodnie z poleceniem właściciela.

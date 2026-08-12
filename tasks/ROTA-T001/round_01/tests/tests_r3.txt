@@ -1,0 +1,149 @@
+AUDYT IMPLEMENTACJI ROTA-T001 — ROUND 3
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T001
+Audytowany HEAD: bd9225bd507a1eefe9e40a6e193ccf7e16987ea3
+Baza: main @ 7e34c251280a8054307e9f4b2f69d9f239604ac9
+Korekta: 1d177d706bac578b7975313d7615fe15a364ecbb..bd9225bd507a1eefe9e40a6e193ccf7e16987ea3
+Zakres: korekta oraz ponowna regresja pełnego main..HEAD; bez zmian kodu.
+
+KLASYFIKACJA
+
+- PASS/FAIL wynika wyłącznie z Frozen/Task Contract i acceptance.
+- PROCESS/ARCHITECTURE PROPOSALS są oddzielone i nie wpływają na wynik.
+- Nie rozszerzono wymagań o przyszły katalog rule_kind ani runtime validation.
+
+DELIVERY_CHECK: HEAD_AND_DIFF_SCOPE — PASS
+
+DELIVERY_CHECK: FROZEN_LOCK — PASS
+
+DELIVERY_CHECK: RULE_PARAMETERS_CORRECTION — PASS
+
+DELIVERY_CHECK: ENUMS_AND_DATACLASSES_REGRESSION — PASS
+
+DELIVERY_CHECK: IMPORT_AND_NAMESPACE — PASS
+
+DELIVERY_CHECK: LIMITS_AND_FORBIDDEN_SCOPE — PASS
+
+DELIVERY_CHECK: BACKEND_OUTPUT — PASS
+
+OVERALL — PASS
+
+ACCEPTED DELIVERY STATUS — DONE
+
+CZĘŚĆ A — FAKTY WPŁYWAJĄCE NA WYNIK
+
+A1. Korekcyjny commit jest precyzyjnie ograniczony — PASS
+
+- HEAD jest dokładnie `bd9225bd507a1eefe9e40a6e193ccf7e16987ea3` na `task/ROTA-T001`.
+- Korekta ma jednego rodzica: wcześniejszy audytowany HEAD `1d177d706bac578b7975313d7615fe15a364ecbb`.
+- Inkrement zmienia wyłącznie `rota/domain.py`: 6 insertions, 2 deletions.
+- Pełny diff main..HEAD nadal zawiera wyłącznie dozwolone `pyproject.toml`, `rota/constants.py`, `rota/domain.py`.
+
+A2. Poprzedni blocker structured_parameters został rozstrzygnięty — PASS
+
+- Commit message literalnie zapisuje: `structured_parameters typed as RuleParameters placeholder (owner decision 2026-08-11)`.
+- `typing.Any` został usunięty z importów i nie występuje już w `rota/domain.py`.
+- `dict[str, Any]` został usunięty.
+- Dodano `RuleParameters = object` z komentarzem, że katalog/typed union per rule_kind jest osobnym CONTRACT_GAP/taskiem.
+- `SiteRuleVersion.structured_parameters` ma teraz `Optional[RuleParameters]`; runtime `typing.get_type_hints` rozwiązuje to do `object | None`.
+- `object` jest neutralnym, bezpieczniejszym dla static typing placeholderem niż Any: nie pozwala konsumentowi wykonywać arbitralnych operacji bez narrowing. Nie udaje rozwiązania przyszłego katalogu rule kinds.
+- Jawna decyzja właściciela usuwa obowiązek STOP z poprzedniego Task Contract dla technicznego typu placeholdera. Semantyka konkretnych parametrów pozostaje prawidłowo odroczona.
+
+A3. Section 9 / zakaz nieuzasadnionego Any — PASS
+
+- W całym finalnym `rota/domain.py` nie występuje symbol `Any` ani `dict[str, ...]` dla structured_parameters.
+- Poprzedni niezależny FAIL z R2 jest zamknięty.
+
+A4. Pełna regresja enumów — PASS
+
+Introspection ponownie potwierdziła 12 Enum i ich kompletne wartości:
+
+- ShiftKind: D, N;
+- AssignmentRole: PRIMARY, TRAINEE;
+- AssignmentState: PLANNED, REALIZED, CANCELLED;
+- AvailabilityKind: DAY_SHIFT_OFF, UNAVAILABLE_24H, LEAVE_PLAN, LEAVE_GRANTED;
+- MembershipKind: LOCAL, EXTERNAL_SUPPORT;
+- ReadinessState: NOT_READY, READY_FOR_PRIMARY;
+- ReadinessSource: DEFAULT, COORDINATOR_OVERRIDE;
+- RuleCategory: CLIENT_REQUIREMENT, LOCAL_RULE, CONFIRMED_EXCEPTION;
+- RuleEnforcement: HARD, SOFT, INFORMATIONAL;
+- RuleResolution: RESOLVED, NEEDS_RESOLUTION;
+- DeviationCategory: LAW, CLIENT_REQUIREMENT, LEAVE_OR_TIME_OFF, HOURS, PREFERENCE, COVERAGE;
+- ScheduleStatus: WORKING, WORKING_WITH_DEVIATIONS, FINAL_NO_DEVIATIONS, FINAL_WITH_DEVIATIONS.
+
+A5. Pełna regresja dataclasses — PASS
+
+- Introspection potwierdziła nadal dokładnie 17 dataclasses: StandardShift oraz 16 entity/record classes.
+- Korekta nie zmieniła żadnej nazwy ani kolejności pól istniejących dataclasses poza typem structured_parameters.
+- AvailabilityRecord nadal ma start_date/end_date i nie ma date_or_range.
+- Assignment nadal ma covers_demand_id i mentor_primary_assignment_id jako Optional[str].
+- SiteRule i SiteRuleVersion są importowalne.
+
+A6. Imports, namespace i stała — PASS
+
+- Reproducer importujący Site, SiteProfile, Employee, Assignment, AvailabilityRecord, Deviation, ShiftDemand, SiteRule, SiteRuleVersion i RuleParameters zakończył się `OK`.
+- `RuleParameters is object` oraz type hint structured_parameters zostały sprawdzone mechanicznie.
+- `REST_MIN_HOURS == 11`.
+- Nie istnieje `rota/__init__.py`.
+- PlanningState i PlanningEngine nie są eksportowane.
+- Oba moduły są uruchamialne przez własne `__main__`.
+
+A7. Limity, scope i diff hygiene — PASS
+
+- `rota/domain.py` ma 296 linii; `rota/constants.py` ma 8, oba poniżej 600.
+- Brak funkcji/metod biznesowych, solvera, CP-SAT, PlanningResult i logiki planowania.
+- `git diff --check main..HEAD` przechodzi.
+- Brak nowych test files i brak dodatkowych plików produkcyjnych.
+
+A8. Backend — PASS
+
+Zapisany i przekazany output jest zgodny z HEAD:
+
+STATUS: PASS
+HEAD_SHA: bd9225bd507a1eefe9e40a6e193ccf7e16987ea3
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+EXCLUDED_ARTIFACTS: NONE
+
+Lokalne środowisko audytora nadal nie ma executable `ruff`, więc niezależne drugie uruchomienie Ruff nie było możliwe; backend stanowi pozytywny dowód wykonania tego checku. Pozostałe checks zostały niezależnie ponowione tam, gdzie dostępne.
+
+CZĘŚĆ B — ADVERSARIAL / REGRESSION COVERAGE
+
+- Zachowano reproducer poprzedniego FAIL: wyszukanie Any oraz `dict[str, Any]` zwraca brak wystąpień.
+- Sprawdzono typ placeholdera przez `typing.get_type_hints`, nie tylko tekst source.
+- Sprawdzono wszystkie Enum values, wszystkie dataclass counts, reprezentatywne imports oraz ujemne invariants dla forbidden symbols.
+- Sprawdzono zarówno korekcyjny increment, jak i pełny main..HEAD, aby korekta jednego pola nie ukryła regresji w wcześniejszych T001a–e.
+- Nie wymagano typed union variants per rule_kind, ponieważ bieżąca decyzja właściciela jawnie odracza je do osobnego tasku.
+
+CZĘŚĆ C — PROCESS / ARCHITECTURE PROPOSALS (NIE WPŁYWAJĄ NA PASS)
+
+C1. Utrwalenie decyzji RuleParameters w następnym kontrakcie
+
+Obecne zachowanie: decyzja właściciela jest zapisana w commit message i komentarzu source, a katalog pozostaje CONTRACT_GAP.
+
+Propozycja: przyszły task SiteRule powinien jawnie przypiąć tę decyzję jako input i zastąpić placeholder zaakceptowanym typed union dopiero po zamrożeniu rule_kind catalog.
+
+Korzyść: ciągłość provenance bez przedwczesnego projektowania katalogu.
+Tradeoff: do tego czasu konsumenci muszą narrow `object` przed użyciem.
+
+C2. Aggregate brief dla T001a–e
+
+Obecne zachowanie: lokalny `tasks/ROTA-T001/brief.md` opisuje tylko T001a, podczas gdy rozmowa i delivery definiują pełny aggregate T001a–e; backend interpretuje z briefu wyłącznie TASK_SCOPE.
+
+Propozycja: dla przyszłych wielocommitowych tasków zachować immutable briefs per increment albo finalny aggregate brief obok finalnego backend output.
+
+Korzyść: samowystarczalny ślad Ward poza historią rozmowy.
+Tradeoff: więcej pipeline artifacts. Nie jest to defekt finalnych typów ani warunek obecnego PASS.
+
+C3. Przyszłe acceptance SiteRule
+
+Obecne zachowanie: placeholder jest importowalny, lecz konkretne executable rule parameters są celowo poza scope.
+
+Propozycja: po zaakceptowaniu katalogu testować każdy rule_kind, odpowiadający wariant parametrów oraz fail-closed dla nieznanego kind; nie dodawać tych oczekiwań do T001.
+
+Korzyść: test wspólnego invariantu RULE-01/02 bez rozszerzania bieżącego Tasku.
+Tradeoff: wymaga wcześniejszej decyzji produktowej.
+
+FINAL VERDICT
+
+SHA `bd9225bd507a1eefe9e40a6e193ccf7e16987ea3` spełnia przekazany aggregate Task Contract ROTA-T001. Poprzednie FAIL z R2 są zamknięte; pozostałe uwagi są wyłącznie propozycjami dla następnych tasków.

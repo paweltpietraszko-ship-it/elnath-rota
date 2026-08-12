@@ -1,0 +1,206 @@
+SKONSOLIDOWANY AUDYT NAPRAW R20/R21 — ROUND 22
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 4999e8a17fb66c2c3dd6cdedbcdf1b3a4d08df39
+Poprzedni audyt: tests_r21.txt dla 76acb10
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Audyt sprawdza deklarowane naprawy czterech findings z R20/R21 jako klasy
+błędów, a nie tylko literalne reproduktory autora:
+- holiday fairness dla różnej liczby świąt, historii, fixed work i priorytetu
+  TARGET-01;
+- konflikt future fixed/frozen dla wszystkich istniejących bramek eligibility
+  oraz przy współwystępujących naruszeniach;
+- integralność TRAINEE→mentor dla active/CANCELLED, brakującego celu i celu
+  istniejącego, ale o niewłaściwej roli;
+- unię SICK_LEAVE dla overlap częściowego, zagnieżdżenia, duplikatu,
+  przylegania, wielu pracowników, inactive i zakresu przechodzącego przez
+  granicę miesiąca;
+- wcześniejsze HARD oraz dokładne przypadki REST/LOAD przechodzące przez
+  granicę miesiąca.
+
+Nie oceniam, czy podział solver.py/fairness.py jest preferowaną architekturą.
+Sprawdzam wyłącznie zachowanie oraz mechaniczne limity projektu.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 4999e8a17fb66c2c3dd6cdedbcdf1b3a4d08df39.
+- Suita autora: 84 passed.
+- Niezależna zamrożona macierz: 26 passed, 4 failed (30 przypadków).
+- Łączny przebieg: 110 passed, 4 failed (114 przypadków).
+- Ruff dla pełnego zakresu commitu: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla sześciu zmienionych plików: PASS.
+- git diff --check dla 76acb10..4999e8a: PASS.
+
+DEKLAROWANE NAPRAWY — CO PRZECHODZI
+
+1. Holiday fairness — literalny R20-1 PASS
+
+Historia A=0 h/B=12 h oraz 1–4 nowe święta kończy się minimalnym osiągalnym
+rozstrzałem odpowiednio 0/12/0/12 h. W szczególności trzy nowe święta dają
+A=24/B=24 zamiast dawnego A=36/B=12. Osobny przypadek potwierdza, że wyższy
+priorytet TARGET-01 nadal dominuje nad fairness.
+
+2. Future frozen conflict — literalny R20-2 i macierz eligibility PASS
+
+DECISION_REQUIRED z konkretnym blockerem powstaje dla 11 reprezentantów:
+- brak membership bieżącego Site;
+- membership tylko innego Site;
+- disabled membership;
+- EMP-02;
+- DAY_ONLY-01;
+- DAY_SHIFT_OFF-01;
+- UNAVAILABLE-01;
+- LEAVE_GRANTED-01;
+- SICK_LEAVE-01;
+- wyłączony external support;
+- brak właściwego ExternalSupportWindow.
+
+External PRIMARY z prawidłowym oknem pozostaje FEASIBLE. Non-frozen PRIMARY
+wskazany przez aktywnego TRAINEE pozostaje chroniony przed redystrybucją.
+
+3. TRAINEE→mentor — literalny R20-3 PASS
+
+Aktywny TRAINEE nie zostaje pozostawiony z brakującym mentorem po REPLAN.
+Independent validator wykrywa brakujący assignment_id. CANCELLED TRAINEE nie
+przypina dawnego PRIMARY i nie blokuje legalnej redystrybucji.
+
+4. SICK_LEAVE — R21-1 PASS
+
+Liczona jest unia dni kalendarzowych per employee. Przechodzą:
+- overlap 01–03 + 03–05;
+- zakres zagnieżdżony;
+- dokładny duplikat;
+- zakresy przylegające;
+- dwa niezależne employee;
+- clipping 29.09–03.10 do października;
+- pominięcie inactive record.
+
+5. Regresje granicy miesiąca — PASS
+
+- N 30.09 17:00–01.10 05:00 nadal blokuje D 01.10 o 05:00 przez REST-01;
+- pięć D 26–30.09 plus D 01.10 nadal daje typowany LOAD-01=72 h;
+- wcześniejsze 84 testy autora pozostają zielone.
+
+FINDING R22-1 — HIGH — DŁUGA HISTORIA ŚWIĄTECZNA CZYNI MODEL NIEWYKONALNY
+
+Ślad kontraktowy:
+- arch/spec.md:443–454: holiday fairness jest historycznym SOFT rankingiem;
+- SOFT wpływa na ranking kandydatów i nie może łamać HARD ani blokować
+  istniejącego poprawnego grafiku;
+- spec nie ogranicza historii świątecznej do jednego miesiąca ani do 744 h.
+
+Macierz graniczna:
+- A ma 62 historyczne zmiany świąteczne po 12 h, czyli 744 h: planowanie jest
+  FEASIBLE;
+- A ma 63 takie zmiany, czyli 756 h: ten sam bieżący demand i ci sami dwaj
+  uprawnieni pracownicy kończą się TECHNICAL_ERROR;
+- bieżący demand może legalnie otrzymać B, więc nie istnieje konflikt HARD.
+
+Przyczyna:
+- fairness.py:82 tworzy holiday_hours_<employee> w stałej domenie 0..744;
+- następnie wymusza równość tej zmiennej z historycznymi godzinami plus
+  bieżące przydziały;
+- 756 h poprawnej wieloletniej historii leży poza domeną i unieważnia cały
+  model CP-SAT.
+
+To nie jest propozycja innej funkcji fairness. Obecny czynnik SOFT zmienia
+rozwiązywalne wejście w awarię techniczną na zwykłej granicy danych.
+
+FINDING R22-2 — HIGH — OBSŁUGA FROZEN CONFLICT ODRZUCA WSPÓŁWYSTĘPUJĄCE NARUSZENIA
+
+Ślad kontraktowy:
+- DECISION_REQUIRED musi zawierać konkretne constrainty powodujące
+  zatrzymanie (arch/spec.md:463–501);
+- load_blocker jest obowiązkowy, gdy LOAD-01 występuje;
+- independent HARD validator jest bramą całego kandydata, a zaakceptowana w
+  R15 reguła zabrania ukrywania non-LOAD violation w typowanym payloadzie;
+- TECHNICAL_ERROR jest właściwą klasą dla niespójności procesu/modelu, ale
+  nie może zostać zastąpiony niepełną decyzją o innym konflikcie.
+
+Wariant A — utrata LOAD-01:
+- sześć frozen PRIMARY po 12 h daje 72 h i narusza LOAD-01;
+- pierwszy PRIMARY równolegle koliduje z SICK_LEAVE;
+- validator widzi oba naruszenia;
+- plan() zwraca DECISION_REQUIRED tylko dla SICK_LEAVE, z
+  load_blocker=None, mimo rzeczywistego LOAD-01=72 h.
+
+Wariant B — zamaskowanie niezależnej korupcji:
+- frozen PRIMARY koliduje z SICK_LEAVE;
+- zachowany TRAINEE równolegle wskazuje brakujący mentor assignment_id;
+- validator widzi zarówno konflikt frozen, jak i dangling reference;
+- plan() zwraca zwykły DECISION_REQUIRED tylko dla SICK_LEAVE i całkowicie
+  usuwa informację o niespójnym kandydacie.
+
+Przyczyna:
+- engine.py:119–124 i 199–205 sprawdza, czy istnieje jakikolwiek rozpoznany
+  frozen conflict;
+- jeśli istnieje, natychmiast wywołuje _decision_for_frozen_conflict();
+- funkcja buduje payload wyłącznie z listy frozen conflicts i zawsze ustawia
+  load_blocker=None, nie klasyfikując pozostałych report.violations.
+
+To jedna klasa błędu: specjalna ścieżka frozen nie może zastępować kompletnej
+klasyfikacji pełnego raportu validatora. Audyt nie narzuca kolejności ani
+wewnętrznej postaci implementacji.
+
+FINDING R22-3 — HIGH — VALIDATOR AKCEPTUJE TRAINEE JAKO CEL REFERENCJI MENTORA
+
+Ślad kontraktowy:
+- arch/spec.md:252–265 rozróżnia role PRIMARY i TRAINEE, a dla TRAINEE wymaga
+  pola mentor_primary_assignment_id;
+- VER-01 wymaga kompletnego, rekonstruowalnego stanu Site/month;
+- kanoniczny scenariusz S wymaga konkretnego mentora jako PRIMARY na zmianie
+  (arch/spec.md:662 i fixture requires_mentor_primary=true).
+
+Reprodukcja:
+- istnieje poprawny PRIMARY `real-primary`;
+- TRAINEE `first-trainee` wskazuje `real-primary`;
+- drugi TRAINEE `wrong-reference` wskazuje assignment_id `first-trainee`;
+- wskazany identyfikator istnieje, ale jego rola to TRAINEE, nie PRIMARY;
+- validate() zwraca hard_pass=True bez violation.
+
+Przyczyna:
+- validator.py:78 buduje wyłącznie set wszystkich assignment_id;
+- validator.py:81–87 sprawdza tylko obecność identyfikatora;
+- nie sprawdza, czy rozwiązany cel ma role=PRIMARY.
+
+Jest to niezamknięty sibling klasy R20-3. Ochrona przed dangling ID działa,
+ale niezależny validator nadal dopuszcza semantycznie błędną referencję
+TRAINEE→TRAINEE.
+
+WYMAGA_DECYZJI
+
+Brak. Każde oczekiwanie powyżej jest śledzalne do istniejącego frozen spec,
+obowiązkowych pól wyniku albo zaakceptowanej wcześniej bramy independent
+validatora.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Wydzielenie fairness.py przechodzi kontrole mechaniczne i nie jest
+przedmiotem werdyktu. Findings dotyczą wyłącznie obserwowalnych wyników,
+kompletności typowanego payloadu oraz semantyki istniejącego pola domenowego.
+
+FINAL VERDICT
+
+LITERALNE REPRODUKTORY R20/R21: PASS.
+
+HOLIDAY FAIRNESS — PEŁNA KLASA: FAIL.
+
+FROZEN CONFLICT — POJEDYNCZY KONFLIKT: PASS.
+
+FROZEN CONFLICT — WSPÓŁWYSTĘPUJĄCE NARUSZENIA: FAIL.
+
+SICK_LEAVE UNION: PASS.
+
+TRAINEE→PRIMARY INTEGRITY — PEŁNA KLASA: FAIL.
+
+OVERALL IMPLEMENTED PILOT SCOPE: FAIL na SHA 4999e8a.
+
+Bilans: 3 klasy błędów kodu, 0 findings wynikających z preferencji
+architektonicznej, 0 WYMAGA_DECYZJI. Deklarowane cztery literalne naprawy
+działają, ale ich klasy nie są jeszcze domknięte: długa historia świąteczna
+unieważnia model, ścieżka frozen maskuje inne violations, a validator sprawdza
+istnienie mentora bez sprawdzenia jego roli PRIMARY.

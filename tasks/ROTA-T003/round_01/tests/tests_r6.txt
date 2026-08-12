@@ -1,0 +1,113 @@
+AUDYT TASK CONTRACT ROTA-T003b-ii — ROUND 6
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowany kontrakt: druga poprawiona wersja ROTA-T003b-ii przekazana 2026-08-11
+Frozen Source: arch/spec.md Section 2 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres audytu: kompletność i implementowalność niezależnego HARD validatora; bez implementacji.
+
+SECTION_CHECK: HARD_RULE_SET — PASS
+Publiczne API nadal uruchamia dokładnie dziewięć właściwych HARD checks, a dwa SOFT nie zostały błędnie włączone do validate_hard.
+
+SECTION_CHECK: INPUT_AND_CANCELLED — PASS
+DEC-A jednoznacznie przypisuje callerowi scalenie frozen+new, DEC-B wyłącza CANCELLED ze wszystkich reguł, a jawnie puste boundary/other-site są zaakceptowanym ograniczeniem T003.
+
+SECTION_CHECK: AVAILABILITY_OWNERSHIP — PASS
+DEC-C zamraża employee_id matching oraz przypisuje assemblerowi gwarancję active/current, więc validator nie musi sam rozstrzygać wersjonowania AvailabilityRecord.
+
+SECTION_CHECK: LOAD_WINDOWS — FAIL
+Dynamiczny last_day naprawia miesiące krótsze niż 31 dni, ale window_end_dt ustawione na 23:59:59 nie jest końcem half-open siedmiodniowego okna i pomija ostatnią sekundę wraz z mikrosekundami; właściwa długość opisanego okna wynosi 7 dni minus 1 sekundę.
+
+SECTION_CHECK: SHIFT_AND_COVERAGE — CONTRACT_GAP
+Count per znany demand wykrywa niedobór/nadmiar PRIMARY, ale nadal nie klasyfikuje PRIMARY z pustym/nieistniejącym covers_demand_id ani Assignment czasowo niezgodnego ze wskazanym demand; takie dodatkowe Assignment mogą przejść HARD PASS.
+
+SECTION_CHECK: EXTERNAL_SCOPE — CONTRACT_GAP
+DEC-G dodaje enabled i Site membership oraz pełne pokrycie czasu, lecz nie mówi jednoznacznie, czy disabled EXTERNAL membership ma generować violation czy być pominięty oraz jak klasyfikować Employee mającego LOCAL i EXTERNAL membership równocześnie.
+
+SECTION_CHECK: BEHAVIORAL_ACCEPTANCE_FIXTURE — FAIL / GAP
+Test REST tworzy assignments pracownika A, ale state.employees jest puste, mimo że DAY_ONLY check wymaga employee(a); ponadto a2 startuje o 18:00, czego nie da się dopasować do standard shifts 05:00/17:00 i co zgodnie z DEC-F musi wygenerować dodatkowe SHIFT-01 violation.
+
+SECTION_CHECK: BEHAVIORAL_COVERAGE — FAIL
+Dodany test potwierdza tylko REST-01; pozostałe osiem `_check_*` może pozostać pustymi stubami i wszystkie acceptance checks nadal przejdą.
+
+SECTION_CHECK: LIMITS_AND_FORBIDDEN — PASS
+Zakres jednego pliku, brak CP-SAT/planowania, zakaz zmian dataclass oraz limity 600/50 są jasne.
+
+OVERALL — FAIL / CONTRACT_GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+CZĘŚĆ A — CO ZOSTAŁO NAPRAWIONE OD ROUND 5
+
+A1. Caller ma jawny obowiązek przekazać candidate frozen+new, a boundary/other-site zostały jawnie odłożone do T004.
+
+A2. CANCELLED są pomijane we wszystkich dziewięciu checks.
+
+A3. AvailabilityRecord działa wyłącznie na Assignment tego samego employee_id, a active/current jest precondition assemblera.
+
+A4. LOAD sumuje rzeczywisty overlap, nie pełny czas Assignment.
+
+A5. Liczba okien jest wyprowadzana dynamicznie z CalendarDay i dla października daje starty 1..25.
+
+A6. Brak rozpoznania ShiftKind Assignment ma jawny wynik SHIFT-01 violation zamiast nieokreślonego wyjątku.
+
+A7. EXTERNAL wymaga enabled membership bieżącego Site i aktywnego okna pokrywającego cały Assignment; window.site_id oraz allowed_shift_kind są jawnie odłożone do T004.
+
+CZĘŚĆ B — POZOSTAŁE BLOKERY
+
+B1. Granica LOAD window
+
+Lokalizacja: DEC-D.
+
+`datetime(..., day+6, 23, 59, 59)` wyklucza przedział od 23:59:59 do północy ostatniego dnia przy standardowej semantyce half-open. W efekcie Assignment w ostatniej sekundzie/mikrosekundach jest niedoliczony. Kontrakt musi zamrozić ekskluzywną granicę dokładnie po siedmiu dobach, bez ręcznego „23:59:59”.
+
+B2. Kompletność CalendarDay jako precondition
+
+Lokalizacja: DEC-E.
+
+`max()` nie działa dla pustego calendar_days, a niepełna kolekcja daje błędny last_day. Dla T003 można wymagać pełnego kalendarza miesiąca, ale to precondition nie zostało zapisane. Implementer nie wie, czy brak danych ma być violation, wyjątkiem czy CONTRACT_GAP.
+
+B3. Orphan/mismatched PRIMARY Assignment
+
+Lokalizacja: `_check_shift_01`.
+
+Pętla wyłącznie po state.shift_demands nie widzi PRIMARY wskazującego nieistniejący demand. Nie sprawdza też, czy start/end Assignment są identyczne z demand, który rzekomo pokrywa. Taki Assignment może wpływać na REST/LOAD, ale nie dostać SHIFT/COVERAGE violation.
+
+B4. EXTERNAL disabled/dual membership
+
+Lokalizacja: DEC-G.
+
+Warunek „membership.enabled=True” nie określa algorytmu wyboru membership. Jeżeli disabled membership jest tylko odfiltrowany, Assignment z wyłączonego EXTERNAL może przejść bez violation. Jeżeli istnieje także LOCAL, nie wiadomo, czy okno EXTERNAL jest nadal wymagane. To zmienia HARD result.
+
+B5. Test REST ma brakującego Employee
+
+Lokalizacja: ACCEPTANCE_CHECK 3.
+
+State ma `employees=()`, lecz `_check_day_only_01` musi odczytać Employee.day_only dla A. Kontrakt nie definiuje zachowania przy brakującym Employee. Acceptance wymusza więc na CC nieopisaną decyzję albo kończy się błędem przed zwróceniem ValidationResult.
+
+B6. Test REST używa nieznanego ShiftKind
+
+Lokalizacja: ACCEPTANCE_CHECK 3.
+
+a2 zaczyna się o 18:00 przy standardowych startach 05:00 i 17:00. DEC-F wymaga wówczas SHIFT-01 violation. Test nadal może przejść, bo szuka REST-01, ale nie jest izolowany i nie reprezentuje prawidłowego inputu dla wszystkich uruchamianych checks.
+
+B7. Osiem nietestowanych HARD checks
+
+Lokalizacja: ACCEPTANCE_CHECKS.
+
+Inspection liczy nazwy, nie zachowanie. Stub REST nie przejdzie testu 3, lecz stub SHIFT, COVERAGE, DAY_ONLY, DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED, LOAD albo EXTERNAL przejdzie. Ponieważ validate_hard jest niezależnym zabezpieczeniem anti-drift, acceptance musi śledzić implementację każdej zadeklarowanej reguły albo jawnie przypisać komplet testów do konkretnego kolejnego subtasku przed akceptacją DONE.
+
+ACCEPTED STAGING / KNOWN NON-DEFECTS
+
+- boundary_assignments i other_site_assignments są puste w T003 i zostaną dołączone w T004; nie są liczone jako brak tego subtasku.
+- window.site_id i allowed_shift_kind są jawnie przypisane do T004; R6 nie ponawia ich jako defect T003b-ii.
+- Assembler ownership active/current AvailabilityRecord jest przyjętym precondition, nie wymaganiem duplikowanej filtracji w validatorze.
+- COVERAGE `>= required` nie powoduje samodzielnie overcoverage PASS, ponieważ SHIFT równolegle wymaga dokładnego count; możliwe podwójne violations dla niedoboru nie zmieniają passed=False.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport nie projektuje kodu ani dodatkowych typów.
+
+FINAL VERDICT
+
+Kontrakt jest blisko gotowości, lecz przed przekazaniem CC wymaga korekty końca okna LOAD, precondition pełnego calendar_days, zachowania orphan/mismatched PRIMARY i disabled/dual EXTERNAL oraz poprawienia fixture REST. Acceptance musi objąć pozostałe osiem reguł albo jawnie odłożyć ich behawioralną weryfikację do nazwanego kolejnego tasku.

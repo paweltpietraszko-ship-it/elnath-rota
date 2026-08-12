@@ -1,0 +1,197 @@
+AUDYT NAPRAW R25 — ROUND 26
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 1cafbee8c83de17ab7ad280c4d89f290e71a8e0e
+Poprzedni audyt: tests_r25.txt dla 11b2798
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Audyt obejmuje wyłącznie zachowanie zadeklarowane dla rundy 25:
+- pełną klasyfikację ViolationDetail per reguła bez maskowania drugiej reguły
+  dotyczącej tego samego Assignment;
+- decyzję właściciela SICK_LEAVE > LEAVE_GRANTED na dniach, na których oba
+  rekordy się pokrywają, niezależnie od kolejności wejścia;
+- stabilność wbudowanych condition code z zamrożonej specyfikacji;
+- rozdzielenie normalnego konfliktu istniejących fixed faktów od naruszenia
+  HARD w Assignment utworzonym przez solver;
+- wykluczenie naruszeń strukturalnych ASSIGN z normalnych frozen boundaries.
+
+Nie oceniałem kształtu modułów, użycia CP-SAT ani preferowanej architektury.
+Nie dodano wymagań produktowych. SICK_LEAVE > LEAVE_GRANTED jest przyjętą
+pisemną decyzją właściciela, ale tylko w podanym zakresie wspólnego dnia.
+
+Macierz klas błędów obejmuje:
+- DAY_ONLY + SICK_LEAVE + REST dla jednego frozen Assignment;
+- SICK_LEAVE + LEAVE_GRANTED na tym samym dniu w obu kolejnościach rekordów;
+- jeden nocny Assignment przecinający urlop i chorobowe na różnych dniach;
+- UNAVAILABLE_24H + SICK_LEAVE na tym samym dniu w obu kolejnościach;
+- pojedynczy UNAVAILABLE_24H i condition code w payloadzie;
+- dangling TRAINEE: brak mentora, mentor o złej roli i zły przedział;
+- REST fixed↔fixed oraz fixed↔Assignment utworzony przez solver;
+- LOAD-01 + SICK_LEAVE w jednym kompletnym payloadzie.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 1cafbee8c83de17ab7ad280c4d89f290e71a8e0e.
+- Suita autora: 106 passed.
+- Niezależna macierz: 8 passed, 6 failed (14 przypadków).
+- Łączny przebieg funkcjonalny: 114 passed, 6 failed (120 przypadków).
+- Ruff dla sześciu zmienionych plików: PASS.
+- SIZE_FILE / SIZE_FUNC dla sześciu zmienionych plików: PASS.
+- git diff --check dla 11b2798..1cafbee: PASS.
+
+NAPRAWA R25-1 — PASS DLA LITERALNEJ KLASY
+
+Plan zwraca wszystkie trzy blockery DAY_ONLY-01, SICK_LEAVE-01 i REST-01,
+gdy dotyczą tego samego frozen Assignment. Klasyfikacja nie opiera się już
+na pierwszym wyniku oddzielnej funkcji eligibility.
+
+LOAD-01 współistniejący z SICK_LEAVE-01 pozostaje kompletny: payload zawiera
+load_blocker=72 h i oba condition code.
+
+PRIORYTET SICK_LEAVE > LEAVE_GRANTED — PASS W ZAMROŻONYM ZAKRESIE
+
+Dla obu rekordów blokujących ten sam dzień validator oraz plan raportują
+SICK_LEAVE-01, a nie LEAVE_GRANTED-01. Wynik jest identyczny po odwróceniu
+kolejności availability_records. Literalna decyzja właściciela działa.
+
+INTEGRALNOŚĆ ASSIGN — PASS
+
+Współistniejący frozen SICK_LEAVE nie ukrywa:
+- brakującego mentor_primary_assignment_id;
+- referencji TRAINEE do innego TRAINEE;
+- TRAINEE wychodzącego poza przedział PRIMARY.
+
+Wszystkie trzy warianty kończą się TECHNICAL_ERROR. Wyłączenie rodziny ASSIGN
+z _FROZEN_BOUNDARY_RULES chroni integralność referencyjną.
+
+FINDING R26-1 — HIGH — PRIORYTET NIEOBECNOŚCI TŁUMI NIEZALEŻNE BLOCKERY POZA DECYZJĄ WŁAŚCICIELA
+
+Ślad kontraktowy:
+- decyzja właściciela dotyczy wyłącznie SICK_LEAVE > LEAVE_GRANTED na dniach,
+  na których oba rekordy się pokrywają;
+- DECISION_REQUIRED ma zawierać konkretne blockery powodujące zatrzymanie
+  (arch/spec.md:463–501);
+- przyjęta naprawa R25-1 opiera klasyfikację na pełnej liście ViolationDetail
+  per reguła, aby jedna przyczyna nie ukrywała drugiej.
+
+Wariant A — różne dni jednego nocnego Assignment:
+- Assignment N trwa 02.10 17:00–03.10 05:00;
+- LEAVE_GRANTED kończy się 02.10;
+- SICK_LEAVE zaczyna się 03.10;
+- rekordy urlopu i chorobowego nie pokrywają się na żadnym dniu;
+- Assignment koliduje z każdym z nich na innym fragmencie czasu;
+- validator raportuje wyłącznie SICK_LEAVE-01 i gubi LEAVE_GRANTED-01;
+- ten sam wynik występuje dla obu kolejności rekordów.
+
+Wariant B — reguła, dla której nie ustanowiono pierwszeństwa:
+- frozen Assignment koliduje tego samego dnia z UNAVAILABLE_24H i SICK_LEAVE;
+- validator raportuje wyłącznie UNAVAILABLE_24H-01 i gubi SICK_LEAVE-01;
+- wynik również nie zależy od kolejności rekordów.
+
+Przyczyna:
+- validator.py:266–300 zbiera wszystkie rodzaje nachodzące na cały Assignment,
+  następnie wybiera pierwszy rodzaj z _UNAVAILABILITY_KIND_PRIORITY i wykonuje
+  break;
+- zakres decyzji „SICK ponad LEAVE na wspólnym dniu” został rozszerzony w
+  komentarzu i implementacji do „jedna najwyższa przyczyna dla całego
+  Assignment”;
+- lista priorytetów dodatkowo stawia UNAVAILABLE_24H nad SICK_LEAVE, mimo że
+  taka reguła pierwszeństwa nie została ustanowiona.
+
+To jest jedna klasa błędu: selekcja odbywa się na zbyt szerokiej jednostce i
+obejmuje pary rodzajów nieobjęte decyzją. Naprawa nie może ograniczyć się do
+konkretnej daty lub kolejności rekordów. Priorytet może tłumić LEAVE_GRANTED
+tylko tam, gdzie ten sam dzień jest równocześnie objęty SICK_LEAVE; pozostałe
+niezależne naruszenia muszą pozostać widoczne.
+
+FINDING R26-2 — MEDIUM — PAYLOAD UŻYWA NIEKANONICZNEGO CONDITION CODE
+
+Ślad kontraktowy:
+- zamrożona specyfikacja definiuje wbudowaną regułę jako UNAVAILABLE-01
+  (arch/spec.md:393–394);
+- pole blockers.condition ma zawierać built-in condition code albo
+  rule_version_id (arch/spec.md:483–486).
+
+Reprodukcja:
+- pojedynczy frozen Assignment koliduje z UNAVAILABLE_24H;
+- plan poprawnie zwraca DECISION_REQUIRED;
+- blockers.condition wynosi `UNAVAILABLE_24H-01`;
+- wymagany kanoniczny kod to `UNAVAILABLE-01`.
+
+UNAVAILABLE_24H jest nazwą rodzaju domenowego, natomiast UNAVAILABLE-01 jest
+zamrożonym kodem reguły. Commit zmienił produkcję oraz wcześniejsze testy na
+nową nazwę, ale nie zmienił źródła prawdy. Zielona suita autora potwierdza
+więc zgodność testów z implementacją, nie zgodność payloadu ze specyfikacją.
+Finding nie wymaga zmiany AvailabilityKind; dotyczy wyłącznie stabilnego kodu
+emitowanego przez validator i PlanningResult.
+
+FINDING R26-3 — HIGH — KONFLIKT REST FIXED↔SOLVED JEST BŁĘDNIE UZNAWANY ZA FROZEN BOUNDARY
+
+Ślad kontraktowy i zaakceptowane zachowanie:
+- kandydat CP-SAT oznaczony OPTIMAL/FEASIBLE, który nie przechodzi niezależnego
+  validatora HARD, oznacza błąd solvera/mapowania i TECHNICAL_ERROR
+  (rota/planning/engine.py:1–13);
+- DECISION_REQUIRED oznacza granicę autonomii, której nie da się zakończyć
+  bez decyzji koordynatora (arch/spec.md:463–476);
+- konflikt między dwoma zachowanymi fixed faktami jest zaakceptowaną normalną
+  granicą autonomii.
+
+Reprodukcja klasy mixed fixed/movable:
+- istniejący fixed PRIMARY kończy się 01.10 o 19:00;
+- zamockowany solve() zwraca status OPTIMAL i nowy, niezablokowany PRIMARY
+  rozpoczynający się 02.10 o 05:00;
+- niezależny validator wykrywa 10 h odpoczynku i REST-01;
+- actual: DECISION_REQUIRED;
+- expected: TECHNICAL_ERROR, ponieważ naruszenie zawiera Assignment utworzony
+  przez solver i nie jest konfliktem nieusuwalnym wskutek zachowania wyłącznie
+  fixed faktów.
+
+Kontrola sibling:
+- ten sam REST-01 pomiędzy dwoma istniejącymi fixed Assignment poprawnie daje
+  DECISION_REQUIRED.
+
+Przyczyna:
+- engine.py:218–240 klasyfikuje ViolationDetail jako frozen boundary, jeżeli
+  reguła jest na whiteliście i chociaż jedno assignment_id przecina zbiór
+  fixed_ids;
+- REST-01 opisuje relację dwóch Assignment, lecz przynależność drugiego ID do
+  solved/movable nie jest sprawdzana;
+- obecność jednego fixed ID wystarcza więc do zamiany błędu kandydata solvera
+  w decyzję koordynatora.
+
+Jest to błąd klasyfikacji własności konfliktu, nie propozycja architektury.
+Niezależny validator ma właśnie zabezpieczać ścieżkę, w której solver zwróci
+nieprawidłowy kandydat.
+
+WYMAGA_DECYZJI
+
+Brak. Wszystkie trzy findings mają jednoznaczny ślad do zamrożonej
+specyfikacji, pisemnej decyzji właściciela albo zaakceptowanej reguły
+anti-drift PlanningEngine.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Nie oceniano reprezentacji danych ani podziału modułów.
+
+FINAL VERDICT
+
+R25-1 PEŁNE REGUŁY DLA TEGO SAMEGO FROZEN ID: PASS dla reproduktorów R25.
+
+SICK_LEAVE > LEAVE_GRANTED NA WSPÓLNYM DNIU: PASS.
+
+ASSIGN/DANGLING TRAINEE POZA FROZEN BOUNDARY: PASS.
+
+KOMPLETNOŚĆ BLOCKERÓW POZA WSPÓLNYM DNIEM: FAIL (R26-1).
+
+KANONICZNY UNAVAILABLE-01 W PAYLOADZIE: FAIL (R26-2).
+
+KLASYFIKACJA REST FIXED↔SOLVED: FAIL (R26-3).
+
+OVERALL IMPLEMENTED PILOT SCOPE: FAIL na SHA 1cafbee.
+
+Bilans: 3 klasy błędów kodu, 0 findings wynikających z preferencji
+architektonicznej, 0 WYMAGA_DECYZJI. Sześć nieudanych przypadków testowych
+to warianty tych trzech klas, a nie sześć osobnych findings.

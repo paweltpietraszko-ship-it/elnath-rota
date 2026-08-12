@@ -1,0 +1,125 @@
+SKONSOLIDOWANY REAUDYT NAPRAW R17 — ROUND 19
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 8c5d5343019bfb474888f845183df4cfc2bf8db9
+Poprzednie audyty: tests_r17.txt i uzupełnienie cross-month tests_r18.txt
+Data audytu: 2026-08-12
+
+UWAGA O NUMERZE RUNDY
+
+tests_r18.txt już istniał i dokumentuje uzupełniającą weryfikację granicy miesiąca dla SHA 31d6162. Zgodnie z zasadą niezmienialności poprzednich raportów nie został nadpisany. Reaudyt commitu 8c5d534 jest dlatego zapisany jako round 19.
+
+PODSTAWA I GRANICA
+
+Audyt funkcjonalny względem arch/spec.md, bez narzucania architektury implementacji. Sprawdzono wszystkie pięć findings R17 na literalnych reproduktorach autora oraz reprezentatywnych sibling paths. Powtórzono także dokładne scenariusze cross-month z R18.
+
+Poza werdyktem pozostają wcześniej jawnie odłożone: REPLAN, weekend/holiday fairness i wykonywanie SiteRuleVersion. Audyt nie rozszerza zakresu o nowe reguły produktu.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 8c5d5343019bfb474888f845183df4cfc2bf8db9.
+- Suita autora: 64 passed.
+- Niezależna macierz reaudytu: 18 passed.
+- Łączny przebieg: 82 passed.
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla czterech zmienionych plików: PASS.
+- git diff --check: PASS.
+
+FINDING R17-1 — PASS — LOAD-01 DLA EXISTING ASSIGNMENTS
+
+Naprawa:
+- `_evaluate_candidate()` rozdziela LOAD-01-only od innych HARD violations;
+- wspólna `_load_decision()` buduje ten sam typowany DECISION_REQUIRED dla existing-only i uncapped retry;
+- współwystępujące non-LOAD HARD nadal kończy się TECHNICAL_ERROR.
+
+Macierz potwierdziła:
+- existing-only dokładnie 60 h → FEASIBLE;
+- existing-only 72 h → DECISION_REQUIRED z load_blocker=72 h;
+- boundary-only 72 h → typowany DECISION_REQUIRED;
+- existing + nowy solved Assignment dające 72 h → typowany DECISION_REQUIRED;
+- LOAD-01 + EMP-02 → TECHNICAL_ERROR, bez zamaskowania EMP-02;
+- dwóch pracowników przekraczających próg → obaj obecni w blockers jako LOAD-01.
+
+Nie stwierdzono regresji klasyfikacji statusu ani payloadu.
+
+FINDING R17-2 — PASS — KONKRETNE BLOCKERS DLA BRAKU MEMBERSHIP
+
+Naprawa dodaje diagnozę Employee, którzy nie mają żadnego SiteMembership dla bieżącego Site, bez cofania prawidłowego site-scopingu z R16.
+
+Macierz potwierdziła:
+- brak membership → employee/MEMBERSHIP-01;
+- membership wyłącznie dla innego Site → employee/MEMBERSHIP-01;
+- required_primary_count=2 z jednym missing i jednym disabled → oba konkretne blockery;
+- dwóch Employee posiadających wyłącznie other-site membership → dwa blockery MEMBERSHIP-01.
+
+Nie ma już pustego `blockers` w audytowanej klasie normalnego niedoboru uprawnionej obsady.
+
+FINDING R17-3 — PASS — UNCLASSIFIEDSHIFTERROR NA PUBLICZNEJ GRANICY
+
+Publiczny `plan()` mapuje `UnclassifiedShiftError` na PlanningResult(status=TECHNICAL_ERROR) i zachowuje kontekst błędu. Nie dodano szerokiego `except`, który mógłby maskować inne klasy awarii.
+
+Przechodzą:
+- nieklasyfikowalny demand bez istniejącego pokrycia;
+- nieklasyfikowalny demand częściowo pokryty existing Assignment, nadal wymagający uruchomienia klasyfikacji dla pozostałej obsady.
+
+Niejednoznaczna granica dla w pełni pokrytego demandu jest opisana osobno niżej i nie jest zaliczona jako defekt naprawy.
+
+FINDING R17-4 — PASS — LEAVE_PLAN DLA EXISTING I SOLVED
+
+Generowanie ostrzeżenia zostało przeniesione do warstwy widzącej pełny candidate. Duplikat po stronie solvera został usunięty.
+
+Macierz potwierdziła:
+- solved Assignment w kolizji → dokładnie jedno ostrzeżenie LEAVE_PLAN-01;
+- existing Assignment w kolizji → dokładnie jedno ostrzeżenie LEAVE_PLAN-01;
+- inactive LEAVE_PLAN → brak ostrzeżenia;
+- CANCELLED Assignment bez replacement → brak ostrzeżenia.
+
+Publiczny PlanningResult zachowuje wymaganą widoczność SOFT bez podwójnego raportowania.
+
+FINDING R17-5 — PASS — CANCELLED NIE WPŁYWA NA TARGET-01
+
+`_add_objective()` odfiltrowuje AssignmentState.CANCELLED przed obliczeniem fixed hours.
+
+Przechodzi literalny reproduktor autora oraz wariant mieszany:
+- CANCELLED A nie wpływa na objective;
+- rzeczywisty PLANNED B nadal wpływa na objective;
+- solver wybiera A dla nowego demandu, gdy jest to jednoznacznie najmniejsze odchylenie od target_hours.
+
+REGRESJA R18 CROSS-MONTH — PASS
+
+Powtórzono cztery dokładne przypadki:
+
+1. N A 30.09 17:00–01.10 05:00, potem D 01.10 05:00:
+   - tylko A → DECISION_REQUIRED z A/REST-01;
+   - A i B → FEASIBLE, D otrzymuje B.
+
+2. Pięć zmian A po 12 h w boundary 26–30.09 oraz D 01.10:
+   - tylko A → DECISION_REQUIRED z load_blocker=72 h;
+   - A i B → FEASIBLE, D otrzymuje B.
+
+Naprawy R17 nie wprowadziły regresji REST-01 ani LOAD-01 przez granicę miesiąca.
+
+WYMAGA_DECYZJI — NIE BLOKUJE REMEDIATION PASS
+
+Zaobserwowane zachowanie:
+- nieklasyfikowalny ShiftDemand wymagający nowej obsady przechodzi przez classify_demand i daje TECHNICAL_ERROR;
+- ten sam nieklasyfikowalny ShiftDemand, jeżeli jest już w 100% pokryty existing Assignment, jest pomijany przez `_build_slots()` przed klasyfikacją i może zakończyć się FEASIBLE.
+
+R17 jawnie wyłączył z findings referencyjną walidację zgodności ShiftDemand ze StandardShift, ponieważ frozen spec nie przypisuje jednoznacznie jej właściciela pomiędzy assemblerem i PlanningEngine. Nie wolno teraz przekształcić tego w nowy błąd kodu ani wymuszać dodatkowej walidacji bez decyzji właściciela.
+
+Pytanie produktowo-kontraktowe: czy PlanningState gwarantuje jako precondition, że każdy ShiftDemand odpowiada StandardShift, czy publiczny PlanningEngine ma weryfikować ten invariant również dla demandów już pokrytych? Do czasu decyzji nie wpływa to na PASS napraw R17.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+R17 REMEDIATION: PASS.
+
+R18 CROSS-MONTH REGRESSION: PASS.
+
+OVERALL IMPLEMENTED PILOT SCOPE: PASS na SHA 8c5d534.
+
+Wszystkie pięć bezspornych klas błędów kodu z tests_r17.txt zostało naprawionych, a ich reprezentatywne sibling paths przechodzą. Łącznie 82/82 testy są zielone. Nie stwierdzono nowego bezspornego defektu ani findingu wynikającego z preferencji architektonicznej. Jedna niejednoznaczna granica ShiftDemand/StandardShift została odseparowana jako decyzja właściciela i nie stanowi żądania zmiany kodu.

@@ -1,0 +1,155 @@
+SKONSOLIDOWANY AUDYT EKSPERYMENTALNEGO PILOTA PLANNINGENGINE — ROUND 17
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 31d616249277bb3be55edb897e21b0be93ec61f3
+Poprzedni audyt: tests_r16.txt dla d65c8ae
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Jest to świeży, skonsolidowany audyt funkcjonalny pilota względem arch/spec.md, a nie dalsze dopisywanie pojedynczych reproduktorów z poprzedniej rundy. Nie oceniam zgodności z dawnym Task Contract T003 i nie narzucam architektury implementacji.
+
+Przed pierwszym uruchomieniem została zamrożona macierz obejmująca:
+- eligibility/availability na ścieżkach solved i existing;
+- LOCAL/EXTERNAL oraz current-site/other-site/missing/disabled;
+- AssignmentRole i AssignmentState;
+- dokładne coverage;
+- REST-01 i LOAD-01 na granicach, przy końcu miesiąca oraz z kontekstem cross-month/other-site;
+- klasyfikację statusów i kompletność DecisionRequiredPayload;
+- zaimplementowane SOFT: TARGET-01, LEAVE_PLAN-01 i wejście N w DAY_SHIFT_OFF.
+
+Po pierwszym przebiegu jedno błędne założenie testu zostało odrzucone: independent validator ma gwarantować wszystkie HARD, ale nie musi być właścicielem ostrzeżeń LEAVE_PLAN. Oczekiwanie zostało przeniesione na publiczny wynik plan(), gdzie arch/spec.md rzeczywiście wymaga widocznego ostrzeżenia. Nie zaliczam tego jako zmiany architektury ani obowiązku validatora.
+
+Jawnie poza werdyktem pozostają wcześniej zadeklarowane przez autora: REPLAN, weekend/holiday fairness i wykonywanie SiteRuleVersion. Nie klasyfikuję również jako błędów nierozstrzygniętych semantyk readiness_state=NOT_READY, zaokrąglania niecałych godzin ani walidacji referencyjnej zgodności ShiftDemand ze StandardShift; spec nie przypisuje tych granic PlanningEngine wystarczająco jednoznacznie.
+
+WYNIKI WERYFIKACJI
+
+- HEAD odpowiada dokładnie SHA 31d616249277bb3be55edb897e21b0be93ec61f3.
+- Suita autora: 58 passed.
+- Skonsolidowana macierz audytowa: 52 passed, 6 failed.
+- Łączny przebieg: 110 passed, 6 failed (116 przypadków).
+- ROTA-REG-001: PASS w suicie autora, wszystkie 7 warunków oracle.
+- Test dowolnego miesiąca autora (luty 2027): PASS.
+- Ruff dla rota/ i tests/: All checks passed.
+- SIZE_FILE / SIZE_FUNC: PASS.
+- git diff --check dla badanego commitu: PASS.
+
+STATUS NAPRAW ROUND 16 — PASS
+
+Oba findings R16 zostały naprawione w kodzie i potwierdzone nie tylko literalnymi reproduktorami:
+
+1. Solver filtruje SiteMembership po bieżącym site_id. Przechodzą warianty other-site-only oraz multi-site bez duplikowania zmiennej coverage.
+2. SiteProfile.external_support_enabled=false blokuje EXTERNAL_SUPPORT zarówno na ścieżce solved, jak i existing. Macierz employee/site/window/allowed_shift_kind przechodzi.
+
+Remediation R16 ma PASS. Poniższe findings dotyczą innych klas zachowania.
+
+FINDING R17-1 — HIGH — LOAD-01 DLA JUŻ POKRYTEGO GRAFIKU JEST MAPOWANY NA TECHNICAL_ERROR
+
+Ślad kontraktowy:
+- arch/spec.md:409–417 wymaga DECISION_REQUIRED z employee, dokładnym oknem i godzinami po przekroczeniu progu LOAD-01;
+- arch/spec.md:463–501 opisuje taki wynik jako granicę autonomii;
+- arch/spec.md:503–512 zabrania użycia TECHNICAL_ERROR zamiast konfliktu HARD/wymaganej decyzji.
+
+Macierz alternatywnych ścieżek:
+- pięć istniejących zmian D po 12 h (60 h): FEASIBLE — PASS;
+- sześć istniejących zmian D po 12 h (72 h): oczekiwane DECISION_REQUIRED z load_blocker=72 h, rzeczywiste TECHNICAL_ERROR — FAIL;
+- analogiczne 60/72 h tworzone przez solver są sklasyfikowane poprawnie.
+
+Przyczyna kodowa:
+- solver.py:103–106 pomija demand już pokryty przez existing Assignment, więc nie powstaje SolverSlot;
+- solver.py:236–252 dodaje LOAD cap tylko dla employee obecnych w `by_employee` zbudowanym ze SolverSlot;
+- capped solve zwraca OPTIMAL zamiast INFEASIBLE;
+- engine.py:86–95 traktuje LOAD-01 znaleziony przez validator na tej ścieżce jako rozjazd solver/validator i zwraca TECHNICAL_ERROR;
+- jedyne mapowanie do typowanego load_blocker istnieje w `_decision_for_load()`, osiągalnym dopiero po capped INFEASIBLE.
+
+To jest błąd klasyfikacji tej samej reguły zależny od tego, czy godziny pochodzą z nowych, czy istniejących Assignment. Nie wymaga konkretnej przebudowy solvera.
+
+FINDING R17-2 — HIGH — BRAK CURRENT-SITE MEMBERSHIP DAJE DECISION_REQUIRED Z PUSTĄ LISTĄ BLOCKERS
+
+Ślad kontraktowy:
+- arch/spec.md:103–115 dopuszcza Employee wieloobiektowego i wymaga właściwego SiteMembership do eligibility;
+- arch/spec.md:468–489 wymaga w DECISION_REQUIRED problematic demand, konkretnych blockerów oraz typowanych pól `employee_id` + `condition`.
+
+Dwa reprezentatywne warianty jednej klasy:
+
+A. Employee A istnieje, ale nie ma żadnego SiteMembership.
+B. Employee A ma enabled LOCAL membership wyłącznie dla innego Site.
+
+W obu przypadkach status DECISION_REQUIRED i blocking_shift_demands są poprawne, lecz `blockers=[]`. Oczekiwany jest konkretny blocker A/MEMBERSHIP-01. Pozostałe osiem wariantów tej samej macierzy (disabled, EMP-02, DAY_ONLY, DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED, external disabled i brak właściwego window) zwraca identyfikowalny blocker.
+
+Przyczyna kodowa:
+- solver.py:137–142 iteruje wyłącznie istniejące current-site memberships; Employee bez takiej relacji nie przechodzi przez check_eligibility i nie powstaje reason;
+- engine.py:107–110 buduje blockers wyłącznie z `outcome.unassignable_reasons`.
+
+Filtr dodany w R16 jest poprawny. Brakuje osobnej diagnozy pracowników odrzuconych z powodu braku relacji; nie należy cofać site-scopingu.
+
+FINDING R17-3 — HIGH — DEDYKOWANY BŁĄD MODELU UCIEKA Z PUBLICZNEGO plan()
+
+Ślad kontraktowy:
+- plan(PlanningState) ma trzy statusy wyjściowe: FEASIBLE, DECISION_REQUIRED i TECHNICAL_ERROR (arch/spec.md:339–342);
+- błąd modelu należy do TECHNICAL_ERROR (arch/spec.md:503–507);
+- arch/spec.md:767–773 wymaga jawnych, kontekstowych i dedykowanych typów błędów.
+
+Reprodukcja:
+- ShiftDemand rozpoczyna się o 08:00, a profil ma standardowe starty 05:00/17:00;
+- `classify_demand()` poprawnie tworzy dedykowany `UnclassifiedShiftError` z demand_id i profile_id;
+- `plan()` wypuszcza wyjątek do callera zamiast zwrócić PlanningResult(status=TECHNICAL_ERROR, error_message=...).
+
+Przyczyna: engine.py:41–43 nie mapuje dedykowanego błędu modelu zgłaszanego przez solver.py:108 / shift_catalog.py:18–28. Sam typ wyjątku jest prawidłowy; defekt dotyczy granicy publicznego PlanningEngine.
+
+FINDING R17-4 — MEDIUM — LEAVE_PLAN-01 NIE JEST WIDOCZNY DLA EXISTING ASSIGNMENT
+
+Ślad kontraktowy:
+- LEAVE_PLAN nie blokuje Assignment, ale kolizja musi być widoczna jako ostrzeżenie (arch/spec.md:400–403);
+- wariant bez kolizji jest lepszy, a kolizja pozostaje widoczna w wyniku (arch/spec.md:443–458).
+
+Macierz ścieżek:
+- Assignment utworzony przez solver w kolizji z LEAVE_PLAN: FEASIBLE + warning — PASS;
+- identyczny PRIMARY/PLANNED już obecny w existing_assignments: FEASIBLE bez warning — FAIL.
+
+Przyczyna:
+- solver.py:307–320 zbiera LEAVE_PLAN warnings wyłącznie dla nowo rozwiązanych SolverSlot;
+- validator.py:160–178 celowo obsługuje w tej funkcji tylko HARD LEAVE_GRANTED/UNAVAILABLE;
+- engine.py:96 scala oba źródła, ale żadne nie raportuje LEAVE_PLAN dla existing Assignment.
+
+Nie wymagam przeniesienia SOFT do niezależnego HARD validatora. Wymagany jest wyłącznie poprawny publiczny PlanningResult, niezależnie od miejsca implementacji.
+
+FINDING R17-5 — MEDIUM — CANCELLED ASSIGNMENTS ZNIEKSZTAŁCAJĄ TARGET-01
+
+Ślad kontraktowy:
+- AssignmentState rozróżnia PLANNED, REALIZED i CANCELLED (arch/spec.md:249–257);
+- WorkBalance.planned_hours jest pochodną bieżących ScheduleVersions, a target_hours wejściem planistycznym (arch/spec.md:196–211);
+- TARGET-01 jest aktywnym czynnikiem SOFT rankingu (arch/spec.md:423–425 i 443–461);
+- przyjęta i już stosowana w całym HARD zachowaniu implementacji semantyka mówi, że CANCELLED nie jest rzeczywistą pracą.
+
+Reprodukcja z jednoznacznym optimum:
+- A target=12 h, B target=0 h;
+- dwa historyczne CANCELLED Assignment A po 12 h;
+- jeden nowy demand 12 h;
+- bez liczenia CANCELLED przypisanie A daje dokładnie oba targety; przypisanie B daje 24 h łącznego odchylenia;
+- solver wybiera B.
+
+Przyczyna: solver.py:258–260 sumuje każde existing Assignment do fixed_hours_by_employee bez filtra AssignmentState.CANCELLED. Coverage, REST, LOAD i validator odfiltrowują CANCELLED poprawnie; luka pozostała wyłącznie w objective TARGET.
+
+ODRZUCONE HIPOTEZY / BRAK FINDINGU
+
+- Brak LEAVE_PLAN warning bezpośrednio w independent validator nie jest samodzielnym defektem; właścicielem kontraktu jest końcowy PlanningResult.
+- readiness_state=NOT_READY ma pole domenowe, ale frozen spec nie definiuje jednoznacznie jego wpływu na zwykły PRIMARY. Nie inferuję reguły.
+- Spec nie ustala jawnie, czy PlanningEngine czy assembler odpowiada za pełną zgodność interval/required count ShiftDemand ze StandardShift. Nie zgłaszam tego jako błąd.
+- Spec nie określa zasad zaokrąglania niecałych godzin dla LOAD/TARGET. Nie wymagam własnej polityki.
+- Gdy w PlanningState nie istnieje żaden Employee, obowiązkowe blockers z employee_id nie mają reprezentowalnej wartości. Nie przypisuję tego implementacji bez decyzji właściciela kontraktu.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Wszystkie pięć findings dotyczy zachowania obserwowalnego przez publiczne API i jest śledzalne do istniejących reguł. Raport nie wymaga konkretnego podziału modułów, dodatkowego walidatora ani zmiany mechanizmu CP-SAT.
+
+FINAL VERDICT
+
+R16 REMEDIATION: PASS.
+
+OVERALL PILOT STATUS: FAIL.
+
+Commit 31d6162 poprawnie zamyka oba findings R16 i zachowuje 58 zielonych testów autora. Skonsolidowany audyt ujawnia pięć klas błędów kodu, reprezentowanych przez sześć czerwonych przypadków: błędną klasyfikację istniejącego LOAD-01, niekompletny payload przy missing/other-site membership, wyjątek modelu uciekający z plan(), niewidoczną kolizję LEAVE_PLAN na ścieżce existing oraz liczenie CANCELLED w TARGET objective.
+
+Bilans względem obawy właściciela: 5 błędów kodu, 0 findings wynikających z preferencji architektonicznej. Pilot nie ma PASS na SHA 31d6162.

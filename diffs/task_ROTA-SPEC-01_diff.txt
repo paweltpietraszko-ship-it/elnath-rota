@@ -1,0 +1,56 @@
+diff --git a/arch/spec.md b/arch/spec.md
+index 5023658..b25b891 100644
+--- a/arch/spec.md
++++ b/arch/spec.md
+@@ -294,20 +294,37 @@ SCOPE:
+ - one month;
+ - one current ScheduleVersion context.
+ 
+-INCLUDES:
+-- Site + SiteProfile;
+-- calendar + boundary context;
+-- eligible Employees/SiteMemberships;
+-- Employee active periods/restrictions/readiness;
+-- ExternalSupportWindows;
+-- applicable resolved SiteRules;
+-- unresolved SiteRules for display only;
+-- AvailabilityRecords;
+-- WorkBalance context;
+-- current ScheduleVersion content;
+-- adjacent boundary assignments;
+-- relevant assignments of same Employees on other Sites when such data exists;
+-- derived holiday-work history for eligible Employees, based on persisted Assignments and CalendarDay(holiday=true).
++INCLUDES (frozen=True, wszystkie kolekcje tuple):
++  site: Site
++  profile: SiteProfile
++  month: date
++
++  calendar_days: tuple[CalendarDay, ...]
++  boundary_assignments: tuple[Assignment, ...]
++
++  memberships: tuple[SiteMembership, ...]
++  employees: tuple[Employee, ...]
++  external_windows: tuple[ExternalSupportWindow, ...]
++
++  availability_records: tuple[AvailabilityRecord, ...]
++
++  site_rules: tuple[SiteRuleVersion, ...]
++    # tylko RESOLVED — executable; STATE-01
++  unresolved_site_rules: tuple[SiteRuleVersion, ...]
++    # tylko NEEDS_RESOLUTION — display only
++
++  shift_demands: tuple[ShiftDemand, ...]
++  existing_assignments: tuple[Assignment, ...]
++  deviations: tuple[Deviation, ...]
++
++  work_balances: tuple[WorkBalance, ...]
++  holiday_history: tuple[Assignment, ...]
++    # REALIZED w CalendarDay(holiday=True)
++
++  other_site_assignments: tuple[Assignment, ...]
++    # same Employee na innych Site; gdy dane dostępne
++
++  schedule_version_id: str
+ 
+ STATE-01: NEEDS_RESOLUTION SiteRule MUST NOT enter executable rule set.
+ STATE-02: Boundary context MUST be sufficient for cross-month validation.

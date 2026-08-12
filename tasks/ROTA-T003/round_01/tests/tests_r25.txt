@@ -1,0 +1,181 @@
+SKONSOLIDOWANY AUDYT NAPRAW R23 I DECYZJI R24 — ROUND 25
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 11b2798eb2ba8a6e6cec659bd5965e2cee1b8c79
+Commity pośrednie: ffb3214, 12f9484
+Poprzedni audyt: tests_r24.txt dla df2de53
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Audyt obejmuje:
+- R23-1: holiday fairness z bieżącymi fixed godzinami świątecznymi;
+- R23-2: strukturalne ViolationDetail i klasyfikację frozen conflicts bez
+  dopasowywania fragmentów tekstu;
+- R23-3: temporalną integralność TRAINEE→PRIMARY;
+- decyzję R24: month_balance liczy PLANNED + REALIZED;
+- decyzję R24: brak targetu dowolnego miesiąca kwartału zgłasza
+  MissingTargetHoursError;
+- regresje REST/LOAD po wydzieleniu rota/planning/constraints.py.
+
+Holiday fairness pozostaje nieblokującym SOFT zgodnie z decyzją właściciela.
+Nie jest regułą prawa ani warunkiem HARD PASS.
+
+Zamrożona macierz testuje klasy błędów, nie tylko literalne reproduktory:
+- fixed holiday PRIMARY jako frozen, REALIZED i mentor-linked;
+- krótkie i semantycznie podobne ID: `a`, `mentor`, `missing`, `ASSIGN`,
+  `LOAD-01`;
+- kilka różnych violations dotyczących tego samego frozen Assignment;
+- TRAINEE równy przedziałowi mentora, zawarty, zaczynający się wcześniej,
+  kończący się później i przypadający innego dnia;
+- bilans PLANNED+REALIZED z urlopem i filtrowaniem CANCELLED/innego employee;
+- brak pierwszego, drugiego i trzeciego targetu kwartału oraz jawny target=0;
+- dokładne granice REST 11 h/10 h i LOAD=72 h przechodzące przez miesiąc.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 11b2798eb2ba8a6e6cec659bd5965e2cee1b8c79.
+- Suita autora: 100 passed.
+- Niezależna zamrożona macierz: 19 passed, 2 failed (21 przypadków).
+- Łączny przebieg: 119 passed, 2 failed (121 przypadków).
+- Ruff dla pełnego zakresu df2de53..11b2798: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla ośmiu zmienionych plików: PASS.
+- git diff --check dla df2de53..11b2798: PASS.
+
+R23-1 HOLIDAY FAIRNESS — PASS, NIEBLOKUJĄCY SOFT
+
+Finalne godziny PRIMARY wynoszą A=24/B=24 zamiast A=36/B=12 dla wszystkich
+trzech klas bieżącej fixed pracy świątecznej:
+- future frozen PRIMARY;
+- REALIZED PRIMARY;
+- non-frozen PRIMARY chroniony przez aktywnego TRAINEE.
+
+Pracownicy TRAINEE zostali w macierzy uczynieni nieuprawnionymi do późniejszych
+demandów, aby test mierzył wyłącznie bazowe fixed godziny A, nie dodatkową
+możliwość użycia szkolonego jako PRIMARY. Wynik potwierdza, że
+_base_holiday_hours() łączy historię i wszystkie fixed PRIMARY obecnego
+kandydata.
+
+R23-3 TRAINEE→PRIMARY — PASS
+
+Validator:
+- akceptuje TRAINEE o przedziale równym PRIMARY;
+- akceptuje krótszy TRAINEE całkowicie zawarty w PRIMARY;
+- odrzuca rozpoczęcie przed mentorem;
+- odrzuca zakończenie po mentorze;
+- odrzuca PRIMARY z innego dnia;
+- zwraca ViolationDetail(rule=`ASSIGN`) z dokładnymi ID TRAINEE i mentora.
+
+Obecność targetu, jego rola oraz pokrycie całego czasu szkolenia są domknięte.
+
+DECYZJE BILANSOWE R24 — PASS
+
+1. PLANNED + REALIZED
+
+- 60 h REALIZED + 96 h PLANNED = 156 h;
+- target 196 pomniejszony o pięć dni LEAVE_GRANTED daje 156 h;
+- month_balance wynosi dokładnie 0;
+- 100 h CANCELLED i 100 h PLANNED innego employee nie wpływa na wynik.
+
+2. Missing target
+
+- brak października zgłasza MissingTargetHoursError z datą października;
+- brak listopada zgłasza błąd z datą listopada;
+- brak grudnia zgłasza błąd z datą grudnia;
+- jawne target=0 dla wszystkich trzech miesięcy jest akceptowane i nie jest
+  mylone z brakiem wpisu.
+
+Oba WYMAGA_DECYZJI z R24 są rozstrzygnięte i zaimplementowane.
+
+WYDZIELENIE CONSTRAINTS — PASS
+
+- dokładnie 11 h odpoczynku na granicy 30.09/01.10 pozostaje FEASIBLE;
+- 10 h daje DECISION_REQUIRED z REST-01;
+- pięć D 26–30.09 oraz D 01.10 daje DECISION_REQUIRED z load_blocker=72 h;
+- wszystkie wcześniejsze testy autora pozostają zielone;
+- solver.py oraz constraints.py przechodzą SIZE_FILE/SIZE_FUNC.
+
+Nie stwierdzono zmiany semantyki REST/LOAD wynikającej z refaktoryzacji.
+
+FINDING R25-1 — HIGH — EXACT ASSIGNMENT_ID NADAL MASKUJE INNĄ REGUŁĘ TEGO SAMEGO ASSIGNMENT
+
+Ślad kontraktowy:
+- accepted anti-drift z R15, R22 i R23: niezależne naruszenie pełnego
+  kandydata nie może zniknąć w payloadzie innej decyzji;
+- DECISION_REQUIRED musi wskazać konkretne constrainty powodujące
+  zatrzymanie (arch/spec.md:463–501);
+- R23-2 wymaga klasyfikacji naruszeń strukturalnie, a nie przypadkowo na
+  podstawie tekstu;
+- ViolationDetail zawiera zarówno `rule`, jak i `assignment_ids`, więc oba
+  wymiary są dostępne bez parsowania komunikatu.
+
+Wariant A — DAY_ONLY maskuje SICK_LEAVE:
+- jeden frozen PRIMARY A na N;
+- A ma DAY_ONLY i równocześnie aktywny SICK_LEAVE;
+- validator tworzy osobne ViolationDetail dla DAY_ONLY-01 i SICK_LEAVE-01,
+  oba z assignment_id=`frozen`;
+- frozen_conflict_blockers diagnozuje tylko DAY_ONLY-01, ponieważ eligibility
+  zwraca pierwszy blocker;
+- plan() zwraca DECISION_REQUIRED wyłącznie z DAY_ONLY-01;
+- SICK_LEAVE-01 znika z payloadu.
+
+Wariant B — SICK_LEAVE maskuje REST:
+- frozen PRIMARY A koliduje z SICK_LEAVE;
+- ten sam PRIMARY ma tylko 10 h odpoczynku po wcześniejszym fixed PRIMARY;
+- validator tworzy SICK_LEAVE-01 oraz REST-01;
+- plan() zwraca DECISION_REQUIRED wyłącznie z SICK_LEAVE-01;
+- REST-01 znika z payloadu.
+
+Przyczyna:
+- engine.py:_unresolved_technical_error() buduje zbiór ID rozpoznanych frozen
+  conflicts;
+- każde ViolationDetail jest uznawane za wyjaśnione, jeżeli jego
+  assignment_ids przecinają się z tym zbiorem;
+- `detail.rule` nie uczestniczy w porównaniu;
+- rozpoznanie jednej reguły dla Assignment błędnie wyjaśnia wszystkie inne
+  reguły dotyczące tego samego Assignment.
+
+To nie jest nowy wymóg ani propozycja architektury. Jest to pozostały sibling
+R23-2: exact ID usuwa kolizje podciągów, ale identyfikacja przyczyny musi
+rozróżniać również konkretną regułę. Dopuszczalne zachowanie to kompletny
+DECISION_REQUIRED ze wszystkimi normalnymi blockerami albo TECHNICAL_ERROR
+dla naruszenia, którego mechanizm nie umie bezpiecznie sklasyfikować. Nie
+wolno go pominąć.
+
+WYMAGA_DECYZJI
+
+Brak nowych. Dwie decyzje R24 zostały przez właściciela rozstrzygnięte i
+przechodzą. Macierz nie wymaga zachowania dla niekanonicznej daty początku
+kwartału ani Assignment przecinającego granicę miesiąca, ponieważ nie zostało
+ono zamrożone dla modułu balance.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. ViolationDetail oraz wydzielenie constraints są akceptowanymi wyborami
+implementacyjnymi. Finding dotyczy wyłącznie utraty istniejącego violation,
+nie kształtu modułów ani reprezentacji danych.
+
+FINAL VERDICT
+
+R23-1 HOLIDAY FAIRNESS: PASS, NIEBLOKUJĄCY SOFT.
+
+R23-2 ALTERNATYWNE TREŚCI ID: PASS.
+
+R23-2 WIELE REGUŁ DLA TEGO SAMEGO ID: FAIL.
+
+R23-3 TRAINEE TEMPORAL INTEGRITY: PASS.
+
+R24 PLANNED+REALIZED BALANCE: PASS.
+
+R24 MISSING TARGET ERROR: PASS.
+
+CONSTRAINTS REFACTOR REST/LOAD: PASS.
+
+OVERALL IMPLEMENTED PILOT SCOPE: FAIL na SHA 11b2798 z powodu jednej
+blokującej klasy błędu kodu R25-1.
+
+Bilans: 1 klasa błędu kodu, 0 findings wynikających z preferencji
+architektonicznej, 0 WYMAGA_DECYZJI. Naprawy R23-1 i R23-3 oraz obie decyzje
+R24 są domknięte; R23-2 wymaga jeszcze rozróżniania konkretnej reguły, nie
+tylko dokładnego Assignment ID.

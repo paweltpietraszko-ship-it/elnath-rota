@@ -1,0 +1,92 @@
+{
+  "fixture_id": "ROTA-REG-001",
+  "name": "October 2026 five-person reference schedule",
+  "contract_version": "ELNATH_WARD_FROZEN_EXECUTION_CONTRACT_v0.4_CANDIDATE",
+  "period": {
+    "year": 2026,
+    "month": 10
+  },
+  "employees": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E"
+  ],
+  "shifts": {
+    "D": {
+      "start": "05:00",
+      "end": "17:00"
+    },
+    "N": {
+      "start": "17:00",
+      "end_next_day": "05:00"
+    }
+  },
+  "demand": {
+    "D_per_day": 1,
+    "N_per_day": 1
+  },
+  "rules": {
+    "DAY_ONLY": {
+      "C": true
+    },
+    "DAY_SHIFT_OFF": {
+      "A": [
+        6,
+        17,
+        26
+      ]
+    },
+    "LEAVE_GRANTED": {
+      "B": [
+        {
+          "from": 12,
+          "to": 18
+        }
+      ]
+    },
+    "UNAVAILABLE_24H": {
+      "D": [
+        9,
+        23,
+        24
+      ]
+    },
+    "EXTERNAL_SUPPORT": {
+      "X": false,
+      "Y": false
+    },
+    "REST_MIN_HOURS": 11,
+    "ROLLING_7D_MAX_HOURS_BEFORE_DECISION_REQUIRED": 60,
+    "TRAINING_S": {
+      "date": 8,
+      "shift": "D",
+      "mentor": "A",
+      "hours": 6,
+      "requires_mentor_primary": true
+    },
+    "TARGET_HOURS": {
+      "A": 156,
+      "B": 144,
+      "C": 156,
+      "D": 144,
+      "E": 144
+    }
+  },
+  "reference_run": {
+    "solver": "OR-Tools CP-SAT",
+    "solver_status": "OPTIMAL",
+    "validator_status": "HARD_PASS",
+    "minimum_rest_hours_observed": 12,
+    "maximum_rolling_7d_hours_observed": 60,
+    "monthly_hours": {
+      "A": 156,
+      "B": 144,
+      "C": 156,
+      "D": 144,
+      "E": 144
+    },
+    "allowed_soft_warning": "DAY_SHIFT_OFF: prior N may enter day off until 05:00"
+  }
+}

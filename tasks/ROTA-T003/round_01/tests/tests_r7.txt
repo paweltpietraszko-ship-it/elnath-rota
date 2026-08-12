@@ -1,0 +1,49 @@
+AUDYT KOREKT TASK CONTRACT ROTA-T003b-ii — ROUND 7
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowane: cztery proponowane podmiany do kontraktu ROTA-T003b-ii, przekazane 2026-08-11
+Zakres: czy podmiany wystarczają do przekazania pełnego kontraktu CC; bez implementacji.
+
+SECTION_CHECK: DEC_D_LOAD_BOUNDARY — PASS
+`window_start_dt + timedelta(days=7)` daje dokładną ekskluzywną granicę half-open i poprawnie przechodzi przez koniec miesiąca/roku.
+
+SECTION_CHECK: DEC_E_CALENDAR_PRECONDITION — GAP
+Sprawdzenie wyłącznie „calendar_days niepuste” nie zapewnia poprawnego last_day; niepusta, ale niepełna kolekcja albo rekord z innego miesiąca nadal może skrócić lub wydłużyć zakres okien.
+
+SECTION_CHECK: REST_ACCEPTANCE_FIXTURE — PASS
+Dodanie Employee i LOCAL membership usuwa niejawny lookup, a starty 05:00/17:00 pasują do standard shifts; para daje jednoznaczny gap 0 h i testuje REST-01.
+
+SECTION_CHECK: B3_B4_DEFERRAL — GAP
+Decyzja właściciela o odłożeniu orphan/mismatched PRIMARY oraz disabled/dual EXTERNAL do T004 jest dopuszczalnym etapowaniem, ale musi znaleźć się literalnie w pełnym Task Contract jako ograniczenie/precondition T003b-ii, nie tylko w komentarzu poprzedzającym podmiany.
+
+SECTION_CHECK: B7_BEHAVIORAL_DEFERRAL — FAIL AS WRITTEN
+Kanoniczny poprawny wynik ROTA-REG-001 sprawdza brak false positives, lecz nie dowodzi, że osiem checks wykrywa naruszenia; stub zwracający brak violations przejdzie na poprawnym grafiku.
+
+OVERALL — GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+WYMAGANE DOPRECYZOWANIA
+
+1. DEC-E musi wymagać kompletnego kalendarza bieżącego state.month albo wyprowadzać długość miesiąca niezależnie od kompletności tuple. Jeżeli zostaje precondition assemblera, kontrakt powinien określić: dokładnie jeden CalendarDay dla każdej daty miesiąca, bez dat spoza miesiąca, oraz jawny LOAD-01 violation przy niespełnieniu.
+
+2. W pełnym kontrakcie trzeba dodać ACCEPTED_DEFERRALS/PRECONDITIONS: T003b-ii nie obsługuje orphan/mismatched PRIMARY ani disabled/dual EXTERNAL; takie wejścia nie występują w ROTA-REG-001, a zachowanie zamraża T004.
+
+3. B7 można odłożyć do T003c tylko wtedy, gdy kontrakt T003c jawnie wymaga negatywnych przypadków/mutacji dla SHIFT, COVERAGE, DAY_ONLY, DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED, LOAD i EXTERNAL oraz sprawdza odpowiadający RULE-ID. Sam jeden kanoniczny FEASIBLE fixture nie jest ich weryfikatorem.
+
+4. Po dodaniu nowego punktu acceptance trzeba ponumerować kolejne ruff/size checks bez dwóch punktów o numerze 4; jest to korekta redakcyjna, nie produktowa.
+
+ACCEPTED ELEMENTS
+
+- Nowa half-open granica LOAD jest poprawna.
+- Poprawiony fixture REST jest samowystarczalny względem Employee, membership i ShiftKind.
+- Jawne etapowanie B3/B4 oraz testów do nazwanego następnego subtasku jest dopuszczalne; problemem jest tylko brak pełnego zapisu/precyzyjnego zakresu testów.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+Cztery podmiany nie wystarczają jeszcze w obecnym brzmieniu. Po wzmocnieniu DEC-E, zapisaniu B3/B4 jako literalnych preconditions oraz zobowiązaniu T003c do negatywnej weryfikacji każdego z ośmiu odłożonych checks kontrakt będzie nadawał się do implementacji.

@@ -1,0 +1,64 @@
+AUDYT ZAMYKAJĄCY NAPRAWY R26 — ROUND 27
+
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 2da73294712f8c77d089d659883ea44513668416
+Commit bazowy: 1cafbee8c83de17ab7ad280c4d89f290e71a8e0e
+Poprzedni audyt: tests_r26.txt
+Data audytu: 2026-08-12
+
+GRANICA
+
+To jest wyłącznie audyt zamykający. Nie utworzono nowej macierzy i nie
+rozszerzono zakresu. Uruchomiono zamrożone przypadki R25/R26, pełną suitę
+regresyjną oraz kontrole mechaniczne dla pięciu plików zmienionych w commicie.
+
+WYNIKI
+
+- HEAD i gałąź: zgodne z deklaracją autora.
+- Zamrożona macierz R25/R26: 14/14 passed.
+- Pełna suita: 114/114 passed.
+- Ruff dla zmienionych plików: PASS.
+- SIZE_FILE / SIZE_FUNC dla zmienionych plików: PASS.
+- git diff --check dla 1cafbee..2da7329: PASS.
+
+R26-1 — PASS
+
+- nocny Assignment kolidujący z LEAVE_GRANTED jednego dnia i SICK_LEAVE
+  następnego zachowuje oba blockery;
+- wynik jest niezależny od kolejności rekordów;
+- UNAVAILABLE_24H nie tłumi niezależnego SICK_LEAVE;
+- SICK_LEAVE nadal tłumi LEAVE_GRANTED dokładnie na wspólnym dniu.
+
+R26-2 — PASS
+
+Validator i PlanningResult emitują kanoniczny kod `UNAVAILABLE-01`.
+Nie emitują `UNAVAILABLE_24H-01`.
+
+R26-3 — PASS
+
+- REST fixed↔solved po wyniku OPTIMAL kończy się TECHNICAL_ERROR;
+- kontrolny REST fixed↔fixed pozostaje DECISION_REQUIRED.
+
+REGRESJE R25 — PASS
+
+- niezależne reguły dotyczące tego samego frozen Assignment pozostają
+  kompletne;
+- naruszenia integralności ASSIGN nie stają się frozen boundary;
+- SICK_LEAVE > LEAVE_GRANTED na wspólnym dniu pozostaje deterministyczne.
+
+WYMAGA_DECYZJI
+
+Brak.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+PASS na SHA 2da7329.
+
+Bilans tej rundy: 0 błędów kodu, 0 findings architektonicznych,
+0 WYMAGA_DECYZJI. Findings R26-1, R26-2 i R26-3 są zamknięte. Audyt tej
+wersji pilota zostaje zakończony; wynik nie jest podstawą do uruchamiania
+kolejnej rundy bez zmiany kodu albo nowego, jawnego zakresu.

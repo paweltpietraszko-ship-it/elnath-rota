@@ -1,0 +1,169 @@
+AUDYT MODUŁU BILANSU MIESIĘCZNEGO I KWARTALNEGO — ROUND 24
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: df2de53978c9923d9d40a83c3135aefea64565b7
+Poprzedni audyt: tests_r23.txt dla 6a6d460
+Data audytu: 2026-08-12
+
+ZAMROŻONE DECYZJE WŁAŚCICIELA
+
+Na potrzeby tego audytu przyjmuję:
+- compute_month_balance() i compute_quarter_balance() są czystymi funkcjami
+  poza PlanningEngine;
+- SICK_LEAVE oraz LEAVE_GRANTED zmniejszają efektywny target bilansowy o
+  8 h za każdy aktywny kalendarzowy dzień, z unią dat per employee;
+- LEAVE_GRANTED nie zmienia SOFT TARGET-01 w solverze; target_hours pozostaje
+  wejściem koordynatora i frozen oracle ROTA-REG-001 nie jest przeliczany;
+- quarter_balance jest narastającą sumą month_balance w kwartale
+  kalendarzowym;
+- unresolved_carryover w tym wąskim module pokazuje tę samą nierozliczoną
+  wartość narastającą; UI i kolor pozostają poza zakresem;
+- holiday fairness jest nieblokującym SOFT, nie regułą prawa ani warunkiem
+  poprawności HARD grafiku.
+
+ZAKRES MACIERZY
+
+- dokładne 116 h REALIZED przy target 156 i pięciu dniach LEAVE_GRANTED;
+- LEAVE_GRANTED/SICK_LEAVE osobno i razem;
+- overlap między rodzajami, duplikaty, zakres cross-month, inactive,
+  LEAVE_PLAN i rekord innego employee;
+- clamp efektywnego targetu do zera;
+- niezależne filtrowanie employee, PRIMARY/TRAINEE, REALIZED/PLANNED/
+  CANCELLED oraz miesiąca;
+- wszystkie cztery kwartały kalendarzowe;
+- mieszane salda dodatnie, ujemne i zerowe oraz wejście w odwróconej
+  kolejności;
+- quarter_balance_before ujemne/zerowe/dodatnie;
+- brak mutacji wejściowych kolekcji;
+- regresja: LEAVE_GRANTED nie wpływa na solverowy TARGET-01.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie df2de53978c9923d9d40a83c3135aefea64565b7.
+- Suita autora: 94 passed.
+- Niezależna zamrożona macierz: 21 passed, 0 failed.
+- Łączny przebieg: 115 passed, 0 failed.
+- Ruff dla pełnego zakresu commitu: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla sześciu zmienionych plików: PASS.
+- git diff --check dla 6a6d460..df2de53: PASS.
+
+COMPUTE_MONTH_BALANCE — PASS DLA ZAMROŻONEJ SEMANTYKI
+
+Potwierdzone:
+- 116 h REALIZED przy target 156 i LEAVE_GRANTED 01–05.10 daje effective
+  target=116, month_balance=0, quarter_balance=0 i unresolved_carryover=0;
+- 180 h REALIZED przy target 156 daje month_balance=24;
+- brak pracy przy target 156 daje month_balance=-156;
+- pięć dni LEAVE_GRANTED albo SICK_LEAVE daje identyczne 40 h redukcji;
+- LEAVE_GRANTED 01–03 oraz SICK_LEAVE 03–05 daje pięć dni, nie sześć;
+- duplikat tego samego zakresu nie podwaja redukcji;
+- zakres 29.09–02.10 połączony z 02–03.10 daje w październiku trzy dni;
+- inactive, LEAVE_PLAN i nieobecność innego employee nie wpływają na A;
+- redukcja większa od targetu kończy się effective target=0, nie wartością
+  ujemną;
+- realized_hours obejmuje wyłącznie REALIZED PRIMARY właściwego employee i
+  miesiąca;
+- planned_hours niezależnie obejmuje PLANNED PRIMARY;
+- CANCELLED, TRAINEE, inny employee i inny miesiąc nie zanieczyszczają sum.
+
+COMPUTE_QUARTER_BALANCE — PASS DLA ZAMROŻONEJ SEMANTYKI
+
+Potwierdzone:
+- quarter_start poprawnie mapuje daty na I/IV/VII/X dla wszystkich czterech
+  kwartałów;
+- miesiące są zawsze zwracane chronologicznie;
+- miesięczne salda +24/-24/0 dają narastająco +24/0/0;
+- ten sam wynik powstaje przy odwróconej kolejności Assignment;
+- Assignment innego employee nie wpływa na wynik;
+- quarter_balance_before jest dodawany dokładnie raz;
+- unresolved_carryover odpowiada bieżącemu quarter_balance w każdym miesiącu;
+- funkcje nie mutują assignments, availability_records ani mapy targetów;
+- deklarowany scenariusz +24/+24/+24 daje +24/+48/+72.
+
+GRANICA PLANNINGENGINE — PASS
+
+Solver korzysta ze wspólnego licznika nieobecności, ale jawnie przekazuje
+kinds=(SICK_LEAVE,). Test regresyjny potwierdza, że LEAVE_GRANTED nie obniża
+solverowego target_hours i nie zmienia ROTA-REG-001. Rozdzielenie bilansu od
+rankingu planowania działa zgodnie z decyzją właściciela.
+
+FINDINGS KODU W NOWYM ZAKRESIE
+
+Brak. Macierz nie wykazała naruszenia zamrożonej semantyki dla prawidłowych
+danych wejściowych.
+
+WYMAGA_DECYZJI — ZNACZENIE CZERWONEJ LICZBY
+
+Aktualne zachowanie:
+- month_balance = realized_hours - effective_target;
+- planned_hours jest policzone i zwrócone, ale nie uczestniczy w
+  month_balance ani quarter_balance;
+- przyszły grafik z 180 h PLANNED, 0 h REALIZED i target 156 pokaże
+  planned_hours=180, lecz month_balance=-156, nie +24.
+
+Nie jest określone, czy czerwona liczba ma:
+A. ostrzegać już o nadplanowaniu przed wykonaniem pracy; czy
+B. pokazywać wyłącznie wykonane saldo po REALIZED.
+
+Obie interpretacje są spójne z rozdzieleniem WB-01
+target_hours/planned_hours/realized_hours, ale dają przeciwne liczby w
+bieżącym i przyszłym miesiącu. Nie klasyfikuję obecnej implementacji jako
+defektu bez decyzji właściciela.
+
+WYMAGA_DECYZJI — NIEKOMPLETNY TARGET KWARTAŁU
+
+compute_quarter_balance() obecnie używa target=0 dla miesiąca, którego nie ma
+w target_hours_by_month. Kontrakt nie określa, czy brak miesiąca oznacza
+rzeczywiste zero, niekompletne wejście wymagające błędu, czy miesiąc jeszcze
+nieplanowany. Nie tworzę testu FAIL dla żadnej z tych interpretacji.
+
+NIEBLOKUJĄCE UWAGI O TESTACH/DOKUMENTACJI
+
+1. Test autora opisujący „116 h realized” faktycznie tworzy 10 zmian po
+   int(116/10)=11 h, czyli 110 h. Asercja sprawdza wzór względem
+   total_realized, więc jest zielona, ale nie dowodzi komentarza o saldzie
+   zero. Niezależny test z 9*12 h + 8 h potwierdził prawdziwe 116 h i wynik 0.
+
+2. Komentarz przy AvailabilityKind.SICK_LEAVE w rota/domain.py nadal mówi,
+   że LEAVE_GRANTED „carries no such hour-accounting rule”. Po nowej decyzji
+   jest to prawdziwe tylko dla solverowego TARGET-01, ale fałszywe dla
+   rota.balance. absence.py opisuje granicę poprawnie. Jest to drift komentarza,
+   nie błąd wykonywanego kodu.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Osobny czysty moduł jest zgodny z zakresem właściciela, a audyt nie
+narzuca UI, raportu, persystencji ani włączenia bilansu do solvera.
+
+STATUS WCZEŚNIEJSZYCH FINDINGS R23
+
+Commit nie deklaruje napraw R23 i nie zmienia odpowiednich mechanizmów:
+- holiday fairness z current fixed pozostaje niezamkniętym SOFT, ale zgodnie
+  z decyzją właściciela jest nieblokujące dla poprawności grafiku;
+- tekstowe dopasowanie assignment_id przy klasyfikacji frozen violations
+  pozostaje blokującym findingiem R23-2;
+- temporalna integralność TRAINEE→PRIMARY pozostaje blokującym findingiem
+  R23-3.
+
+Nie liczę ich jako nowych błędów df2de53 ani nie powtarzam pełnych
+reproduktorów; ich status nie zmienił się względem tests_r23.txt.
+
+FINAL VERDICT
+
+NOWY MODUŁ BALANCE DLA ZAMROŻONYCH PRAWIDŁOWYCH WEJŚĆ: PASS.
+
+LEAVE_GRANTED=8H/DZIEŃ W BALANCE: PASS.
+
+LEAVE_GRANTED NIE ZMIENIA SOLVER TARGET-01: PASS.
+
+KUMULACJA +24/+48/+72: PASS.
+
+NOWE FINDINGS KODU: 0.
+
+WYMAGA_DECYZJI: 2 — planned vs realized jako podstawa czerwonej liczby oraz
+zachowanie brakującego targetu miesiąca.
+
+OVERALL IMPLEMENTED PILOT SCOPE: nadal FAIL wyłącznie z powodu dwóch
+niezmienionych blokujących findings R23-2 i R23-3. Nowy moduł bilansu nie
+dodaje żadnego nowego blokera.

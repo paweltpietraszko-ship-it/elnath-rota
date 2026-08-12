@@ -1,0 +1,146 @@
+REAUDYT EKSPERYMENTALNEGO PILOTA PLANNINGENGINE — ROUND 13
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: e410843f23ad94c1b1fdea5045899b1356ba783c
+Poprzedni audyt: tests_r12.txt dla c438fec
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA REAUDYTU
+
+Zgodnie z decyzją właściciela eksperyment nadal nie jest oceniany względem dawnych Task Contracts T003 ani preferowanej architektury audytora. Sprawdzam funkcjonalne zachowanie pilota względem arch/spec.md oraz czy poprawki obejmują klasy błędów, a nie tylko literalne reproduktory z round 12.
+
+Stosuję korektę klasyfikacji uzgodnioną po round 12: 15 nieudanych przypadków nie oznaczało 15 defektów. Boundary/cross-month został przez autora jawnie przyjęty do zakresu. Nie wracam do spornego pytania membership.enabled dla EXTERNAL jako osobnego finding.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie e410843f23ad94c1b1fdea5045899b1356ba783c.
+- Oryginalna pełna suita: 20 passed.
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla siedmiu zmienionych plików: PASS.
+- Łączny przebieg oryginalnej suity oraz testów adversarialnych round 13: 20 passed, 8 failed.
+
+STATUS DOKŁADNYCH POPRAWEK ROUND 12
+
+Wszystkie dokładne reproduktory dodane przez autora przechodzą:
+
+1. CANCELLED nie liczy się już jako coverage, a TRAINEE nie przechodzi validator coverage.
+2. Wykazane w round 12 wspólne bramki EXTERNAL są stosowane przez solver.
+3. Dokładny konflikt dwóch demandów przez REST-01 daje DECISION_REQUIRED.
+4. LEAVE_GRANTED dla jedynego pracownika daje konkretny Blocker.
+5. Validator widzi LOAD-01 w oknie przecinającym początek miesiąca.
+6. Validator wykrywa X bez window oraz REST z boundary Assignment.
+
+Twierdzenie „20/20” jest więc prawdziwe. Nie wystarcza jednak do zamknięcia klas błędów.
+
+FINDING R13-1 — CRITICAL — KAŻDY UNSAT CORE JEST BŁĘDNIE KLASYFIKOWANY JAKO REST-01
+
+Kontrakt zachowania:
+- LOAD-01 wymaga DECISION_REQUIRED z employee, dokładnym oknem i liczbą godzin (arch/spec.md:409–417 oraz typowane load_blocker na liniach 485–489);
+- wymagane coverage ma dokładnie required_primary_count PRIMARY (arch/spec.md:359–365);
+- blockery mają wskazywać rzeczywisty condition, nie dowolny HARD code.
+
+Kod:
+- solver.py:338–343 mapuje CP-SAT sufficient assumptions na listę demandów, lecz nie identyfikuje rodzaju constraintu powodującego UNSAT;
+- engine.py:51–52 obsługuje pierwszy `conflicting_demand_ids` przed próbą solve bez LOAD cap;
+- engine.py:112–137 mapuje każdy taki wynik na blocker `REST-01` i `load_blocker=None`.
+
+Reprodukcje jednej klasy błędu:
+
+A. LOAD-only, bez boundary:
+- jeden demand 12 h, jeden eligible Employee, threshold=11 h;
+- bez LOAD cap rozwiązanie istnieje;
+- wynik rzeczywisty: DECISION_REQUIRED z condition=REST-01 i load_blocker=None;
+- wymagany payload: LOAD-01 z typowanym load_blocker.
+
+B. LOAD-only, cross-month:
+- pięć 12 h boundary Assignments 26–30 września oraz demand 1 października;
+- 72 h w oknie przy threshold=60;
+- wynik rzeczywisty ponownie fałszywie wskazuje REST-01 i nie zawiera load_blocker.
+
+C. Czysty niedobór liczebny coverage:
+- jeden demand required_primary_count=2, jeden eligible Employee, brak konfliktu czasowego;
+- wynik ma poprawny status DECISION_REQUIRED, lecz blocker condition=REST-01 mimo że nie istnieje żadna para Assignment naruszająca odpoczynek.
+
+To jest regresja wprowadzona przez uogólnienie naprawy finding 3: exact REST reproducer działa, ale wspólny mechanizm przypisuje tę samą przyczynę wszystkim rodzajom INFEASIBLE.
+
+FINDING R13-2 — HIGH — CANCELLED ODFILTROWANO TYLKO Z COVERAGE, NIE Z POZOSTAŁYCH HARD
+
+Kontrakt zachowania:
+- Assignment ma rozłączne states PLANNED, REALIZED, CANCELLED (arch/spec.md:257);
+- anulowany Assignment nie jest wykonywaną pracą i nie może blokować replacement przez REST/LOAD.
+
+Kod:
+- solver.py:60–73 poprawnie filtruje CANCELLED z `_already_covered_counts`;
+- solver.py:147–153 nadal bezwarunkowo dodaje każdy existing/boundary/other-site Assignment do fixed intervals;
+- validator.py filtruje CANCELLED tylko w coverage (linie 55–56) i monthly_hours (210–211), lecz `_check_rest()` oraz `_check_load()` nadal otrzymują CANCELLED.
+
+Reprodukcje:
+
+A. End-to-end replacement:
+- existing PRIMARY/CANCELLED pokrywa demand D;
+- ten sam Employee jest eligible do nowego PLANNED replacement D;
+- wynik powinien być FEASIBLE;
+- wynik rzeczywisty: DECISION_REQUIRED, ponieważ CANCELLED interval blokuje nową zmienną solvera.
+
+B. Independent validator:
+- kandydat zawiera CANCELLED oraz jego PLANNED replacement na tym samym przedziale;
+- coverage jest dokładnie 1 aktywny PRIMARY;
+- validator zwraca HARD FAIL `REST-01: overlapping assignments` i liczy 24 h LOAD zamiast 12 h.
+
+Naprawa finding 1 jest zatem poprawna dla coverage, ale nie objęła wspólnego invariantu AssignmentState na alternatywnych ścieżkach HARD.
+
+FINDING R13-3 — HIGH — INDEPENDENT VALIDATOR NADAL NIE SPRAWDZA EMP-02
+
+Kontrakt zachowania:
+- EMP-02 (arch/spec.md:102): Assignment jest eligible tylko wtedy, gdy cały jego przedział mieści się w active period Employee;
+- anti-drift rule 12 (arch/spec.md:618): FEASIBLE musi przejść niezależną walidację wszystkich HARD.
+
+Reprodukcja:
+- Employee.active_from=2026-10-02;
+- kandydat PRIMARY D obejmuje 2026-10-01 05:00–17:00 i poprawnie pokrywa jedyny demand;
+- `validate()` zwraca `hard_pass=True`, bez EMP-02 violation.
+
+Solverowa bramka EMP-02 została naprawiona, ale niezależny validator nadal nie potrafi wykryć regresji tej bramki. Jest to brak kodu walidującego jawny invariant, nie postulat architektoniczny.
+
+FINDING R13-4 — HIGH — EXTERNALSUPPORTWINDOW NIE JEST DOPASOWYWANY PO PEŁNEJ TOŻSAMOŚCI/SEMANTYCE
+
+Kontrakt zachowania:
+- ExternalSupportWindow ma employee_id i opcjonalne allowed_shift_kind (arch/spec.md:117–127);
+- EXTERNAL-01 dopuszcza X/Y wyłącznie w potwierdzonym window właściwym dla tego Assignment.
+
+Reprodukcja A — solver eligibility:
+- sprawdzany Employee X ma EXTERNAL membership;
+- istnieje window o poprawnym site/czasie, ale należący do Employee Y;
+- eligibility.py:109–121 nie porównuje window.employee_id;
+- `check_eligibility(X, ...)` zwraca eligible=True.
+
+Reprodukcja B — independent validator:
+- Employee X ma N Assignment;
+- window należy do X i pokrywa przedział, ale `allowed_shift_kind=D`;
+- validator.py:130–152 sprawdza employee/time/site/active, lecz pomija allowed_shift_kind;
+- `validate()` zwraca hard_pass=True zamiast EXTERNAL-01 violation.
+
+Oba przypadki są reprezentatywnymi sibling paths tego samego invariantu: window musi należeć do właściwego Employee i zezwalać na właściwy ShiftKind.
+
+OCENA TESTÓW NAPRAWY
+
+Nowy plik tests/test_audit_r12_findings.py jest wartościowym zestawem regresyjnym i wiernie odtwarza dokładne przykłady z round 12. Nie generalizuje jednak napraw do sąsiednich ścieżek:
+
+- finding 1 testuje CANCELLED wyłącznie jako coverage, nie jako fixed REST/LOAD;
+- finding 3 testuje tylko rzeczywisty REST conflict, nie inne źródła UNSAT core;
+- finding 5 wywołuje bezpośrednio validator, więc nie sprawdza end-to-end typed load_blocker;
+- finding 6 sprawdza brak window, ale nie employee_id ani allowed_shift_kind;
+- żaden test validatora nie wymusza EMP-02.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Round 13 nie wymaga konkretnego sposobu przebudowy solvera, UNSAT diagnosis ani validatora. Wymaga wyłącznie prawdziwego condition/payload oraz egzekwowania istniejących pól i states.
+
+FINAL VERDICT
+
+STATUS: FAIL.
+
+Commit e410843 naprawia wszystkie literalne reproduktory z round 12, lecz nie zamyka odpowiadających im klas błędów. Cztery bezsporne klasy kodowe pozostają: błędna klasyfikacja każdego UNSAT core jako REST-01, niepełne filtrowanie CANCELLED, brak EMP-02 w independent validator oraz niepełne dopasowanie ExternalSupportWindow. Osiem reprezentatywnych sibling cases nie przechodzi przy 20 zielonych testach autora.
+
+Nie uznaję round 12 za zamknięty na tym SHA. Następna poprawka powinna zachować obecne 20 regresji i dodać testy klas wymienionych powyżej.

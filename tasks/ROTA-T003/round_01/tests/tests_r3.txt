@@ -1,0 +1,56 @@
+AUDYT TASK CONTRACT ROTA-T003b-i — ROUND 3
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza robocza: task/ROTA-T003 @ 4f733742d20009855dc9106d67df938cd9c3df9d
+Audytowany kontrakt: ROTA-T003b-i przekazany 2026-08-11
+Frozen Source: arch/spec.md Sections 2–3 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres audytu: implementowalność kontraktu typów i zależności; bez implementacji kodu.
+
+SECTION_CHECK: OBJECTIVE_AND_SCOPE — PASS
+Objective ogranicza etap do typów wynikowych i deklaracji zależności, a zamknięty TASK_SCOPE wskazuje dokładnie engine.py oraz pyproject.toml.
+
+SECTION_CHECK: PYPROJECT_METADATA — PASS
+Nowa sekcja project zawiera wymagane name i version oraz poprawną listę PEP 508 dependencies z ortools>=9.0; istniejące sekcje ruff i pytest mają pozostać bez zmian.
+
+SECTION_CHECK: ORTOOLS_ACCEPTANCE — PASS
+Import `from ortools.sat.python import cp_model` działa w bieżącym środowisku Ward, a pyproject deklaruje zależność dla odtwarzalnych instalacji.
+
+SECTION_CHECK: SECTION_3_OUTPUT_FIELDS — PASS
+BlockingDemand zawiera demand_id i dokładny okres, Blocker zawiera employee_id i condition, LoadBlocker zawiera employee plus okno i godziny, a DecisionRequiredPayload zawiera wszystkie te grupy oraz unblocking_options.
+
+SECTION_CHECK: PLANNING_RESULT — PASS
+PlanningResult ma dokładnie status, candidates, decision_payload, error_message i warnings; status jest ograniczony do FEASIBLE, DECISION_REQUIRED i TECHNICAL_ERROR.
+
+SECTION_CHECK: VALIDATION_RESULT — PASS
+ValidationResult przenosi bool passed oraz listę naruszeń, bez wprowadzania w tym etapie logiki walidatora.
+
+SECTION_CHECK: ZERO_PLANNING_LOGIC — PASS
+IMPLEMENTATION zezwala wyłącznie na importy, sześć dataclass i uruchamialny blok przykładu, a FORBIDDEN jawnie zakazuje solvera, plan() i validate_hard.
+
+SECTION_CHECK: ENGINEERING_POLICY — PASS
+Plik będzie znacznie poniżej 600 linii, nie zawiera funkcji podlegających limitowi 50 linii, używa pełnych importów i ma wymagany blok __main__.
+
+SECTION_CHECK: ACCEPTANCE_CHECKS — PASS
+Kontrole obejmują rzeczywisty import OR-Tools, introspection publicznych typów, obecność nowych pól, ruff oraz limit pliku; odpowiadają dokładnie ograniczonemu objective T003b-i.
+
+SECTION_CHECK: WARD_SEQUENCE — PASS
+Before SHA i bieżący HEAD są zgodne, branch to task/ROTA-T003, git add obejmuje dokładnie oba pliki TASK_SCOPE, a commit/backend nie wymagają dodatkowych zmian produktowych.
+
+OVERALL — PASS
+
+EXPECTED PRE-IMPLEMENTATION STATUS — READY FOR IMPLEMENTATION
+
+ACCEPTED STAGING / KNOWN NON-DEFECTS
+
+- Brak plan(), validate_hard i modelu CP-SAT jest wymaganiem tego podzadania, nie brakiem implementacji.
+- Dataclassy definiują strukturę pełnego przyszłego payloadu, ale T003b-i nie wypełnia payloadu ani nie realizuje semantyki wyników.
+- ROTA-REG-001 nie jest uruchamiane w tym podzadaniu; kontrakt tworzy wyłącznie typy i zależność potrzebne następnym etapom.
+- Wcześniejsze luki dotyczące coverage, frozen assignments, forced PRIMARY, objective i statusów solvera należą do kolejnego kontraktu z logiką i nie są przemycane do zadania typów.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+Kontrakt ROTA-T003b-i nadaje się do przekazania CC. Jest kompletny, mechanicznie implementowalny i nie wymaga samodzielnej decyzji produktowej ani architektonicznej.

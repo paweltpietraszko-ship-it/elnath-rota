@@ -1,0 +1,51 @@
+UZUPEŁNIAJĄCA WERYFIKACJA GRANICY MIESIĄCA — ROUND 18
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 31d616249277bb3be55edb897e21b0be93ec61f3
+Data audytu: 2026-08-12
+
+CEL
+
+Uzupełnienie skonsolidowanego audytu R17 o dokładne scenariusze end-to-end wskazane przez właściciela:
+
+1. LOAD-01 w ruchomym oknie 7 dni przechodzącym przez granicę dwóch miesięcy, z godzinami przekazanymi przez canonical `boundary_assignments`.
+2. REST-01, gdy ostatnia N poprzedniego miesiąca kończy się dokładnie o 05:00 pierwszego dnia nowego miesiąca, a demand D rozpoczyna się o tej samej godzinie.
+
+WYNIK
+
+4 passed.
+
+REST CROSS-MONTH — PASS
+
+Kontekst:
+- boundary Assignment A: N 30.09.2026 17:00–01.10.2026 05:00;
+- demand: D 01.10.2026 05:00–17:00.
+
+Warianty:
+- tylko A jest dostępny: `DECISION_REQUIRED`, blocker A/REST-01;
+- dostępni A i B: `FEASIBLE`, nowa D zostaje przypisana B, nie A.
+
+Solver nie przydziela A dniówki bez odpoczynku po nocce z poprzedniego miesiąca.
+
+LOAD CROSS-MONTH — PASS
+
+Kontekst:
+- pięć boundary Assignment A po 12 h: 26–30.09.2026;
+- demand D 01.10.2026: kolejne 12 h;
+- razem 72 h w siedmiodniowym oknie przekraczającym granicę miesiąca;
+- próg profilu: 60 h.
+
+Warianty:
+- tylko A jest dostępny: `DECISION_REQUIRED`, load_blocker A, 72 h, siedmiodniowe okno obejmujące 26.09–01.10;
+- dostępni A i B: `FEASIBLE`, październikowa D zostaje przypisana B, więc A nie przekracza progu.
+
+UWAGA O ORACLE
+
+Pierwsza wersja testu wymagała dokładnie okna 26.09–02.10. Implementacja wskazała 25.09–01.10. Oba okna mają po 7 dni i oba obejmują te same sześć zmian, więc oba mają prawidłowe 72 h. Frozen spec wymaga dokładnego okna powodującego przekroczenie, ale nie rozstrzyga wyboru między równorzędnymi maksimami. Zbyt wąskie oczekiwanie testu zostało odrzucone; nie jest to finding implementacji.
+
+FINAL VERDICT
+
+Obie dokładne klasy granicy miesiąca wskazane przez właściciela mają PASS na SHA 31d6162.
+
+Nie zmienia to ogólnego FAIL z tests_r17.txt: pięć niezależnych findings R17 pozostaje otwartych. Round 18 nie dodaje nowego defektu.

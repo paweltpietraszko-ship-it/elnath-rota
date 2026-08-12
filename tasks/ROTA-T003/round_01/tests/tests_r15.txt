@@ -1,0 +1,86 @@
+REAUDYT EKSPERYMENTALNEGO PILOTA PLANNINGENGINE — ROUND 15
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 717a39bcd67d8d5cdd3b6caee2b9cab6d8b041f8
+Poprzedni audyt: tests_r14.txt dla 64e20f9
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA REAUDYTU
+
+Audyt funkcjonalny względem arch/spec.md, bez dawnego Task Contract T003 i bez narzucania preferowanej architektury. Round 15 sprawdza literalne naprawy R14 oraz ich bezpośrednie sibling paths: brak membership dla current Site i niezależną walidację uncapped LOAD fallback.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 717a39bcd67d8d5cdd3b6caee2b9cab6d8b041f8.
+- Pełna suita autora: 32 passed.
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC: PASS.
+- git diff --check: PASS.
+- Łączny przebieg suity autora i testów adversarialnych round 15: 32 passed, 3 failed.
+
+STATUS NAPRAW ROUND 14 — PASS
+
+Oba findings R14 zostały naprawione w dokładnie audytowanych ścieżkach:
+
+1. Existing Assignment z LOCAL membership.enabled=false nie jest już FEASIBLE; independent validator zwraca MEMBERSHIP-01.
+2. UNKNOWN i MODEL_INVALID są mapowane bezpośrednio na TECHNICAL_ERROR. Tylko INFEASIBLE uruchamia próbę bez LOAD cap. Uncapped success bez rzeczywistego przekroczenia LOAD również daje TECHNICAL_ERROR.
+
+Cztery nowe regresje autora przechodzą. Nie stwierdzam regresji wcześniejszych 28 testów. Remediation R14 ma PASS.
+
+FINDING R15-1 — CRITICAL — BRAK MEMBERSHIP DLA CURRENT SITE NADAL DAJE FAŁSZYWY FEASIBLE
+
+Kontrakt zachowania:
+- MEMBERSHIP-01 (arch/spec.md:114): LOCAL jest eligible, gdy membership jest enabled i pozostałe bramki pozwalają na Assignment;
+- Employee nie jest strukturalnie przypisany dokładnie do jednego Site (EMP-03), więc Employee może poprawnie istnieć w danych bez membership do planowanego Site; brak relacji nie jest automatycznym uprawnieniem;
+- każdy FEASIBLE candidate musi respektować HARD i przejść niezależną walidację (arch/spec.md:618).
+
+Kod:
+- validator.py:78–84 buduje membership dla current Site, ale naruszenie dodaje tylko dla warunku `membership is not None and not membership.enabled`;
+- `membership is None` jest pomijane;
+- existing Assignment policzony wcześniej przez solver jako coverage nie przechodzi przez solver eligibility.
+
+Dwa reprezentatywne warianty:
+
+A. Employee A istnieje, ale `state.memberships=()`.
+B. Employee A ma enabled LOCAL membership wyłącznie dla `different-site`, nie dla `state.site.site_id`.
+
+W obu przypadkach existing PRIMARY/PLANNED A pokrywa jedyny demand bieżącego Site, a `plan()` zwraca `FEASIBLE`.
+
+To jest ta sama klasa MEMBERSHIP-01 co R14-1. Naprawa odróżnia disabled od missing, mimo że oba stany oznaczają brak aktywnego uprawnienia dla current Site. Nie wymagam nowej encji ani architektury; oczekuję jedynie, aby brak relacji nie przyznawał eligibility.
+
+FINDING R15-2 — HIGH — LOAD FALLBACK MASKUJE INNE NARUSZENIE HARD
+
+Kontrakt zachowania:
+- po wygenerowaniu kandydat musi przejść niezależną walidację wszystkich HARD (anti-drift rule 12, arch/spec.md:618);
+- LOAD-01 może prowadzić do DECISION_REQUIRED przed akceptacją przekroczenia, ale nie autoryzuje równoczesnego naruszenia innego HARD;
+- błąd modelu/mappingu wykryty przez niezależny validator jest TECHNICAL_ERROR (arch/spec.md:503–508 oraz deklaracja engine.py).
+
+Kod:
+- `_evaluate_candidate()` poprawnie zwraca TECHNICAL_ERROR, gdy validator znajduje dowolne HARD violation;
+- `_decision_for_load()` sprawdza wyłącznie, czy `over_threshold` jest niepuste;
+- gdy fallback candidate ma LOAD-01 oraz inne violation, wynik nadal jest DECISION_REQUIRED z samym load_blocker, a inne naruszenie znika z payloadu.
+
+Deterministyczna reprodukcja mapowania:
+- capped solve: INFEASIBLE;
+- uncapped solve: OPTIMAL z Assignment A;
+- próg LOAD=11 h, Assignment ma 12 h, więc istnieje prawdziwy LOAD trigger;
+- Employee A ma active_from dzień później, więc niezależny validator wykrywa jednocześnie EMP-02;
+- wynik rzeczywisty: DECISION_REQUIRED dla LOAD-01;
+- wynik wymagany: TECHNICAL_ERROR, ponieważ uncapped solver zwrócił kandydata naruszającego non-LOAD HARD.
+
+Mock testuje czyste mapowanie SolverOutcome -> PlanningResult i rolę niezależnego validatora bez polegania na rzeczywistym wystąpieniu regresji CP-SAT. To dokładnie klasa błędu, przed którą istnieje anti-drift validator.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Findings wymagają tylko pełnej semantyki już istniejącego MEMBERSHIP-01 oraz niewyciszania non-LOAD HARD przez ścieżkę LOAD decision.
+
+FINAL VERDICT
+
+R14 REMEDIATION: PASS.
+
+OVERALL PILOT STATUS: FAIL.
+
+Commit 717a39b poprawnie naprawia oba findings R14 i zachowuje 32 zielone testy. Dwie bezsporne klasy kodowe pozostają: missing/current-site membership jest akceptowany dla existing Assignment oraz uncapped LOAD fallback maskuje inne HARD violation wykryte przez independent validator.
+
+Round 14 można uznać za zamknięty. Do zamknięcia pilota pozostają dwa findings R15 powyżej.

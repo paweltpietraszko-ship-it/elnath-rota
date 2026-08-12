@@ -1,0 +1,102 @@
+MERGE GATE PLANNINGENGINE — ROUND 28
+
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 2da73294712f8c77d089d659883ea44513668416
+Cel: ocena, czy solver nadaje się do merge do main jako pilot do dalszych testów
+Data audytu: 2026-08-12
+
+ZAKRES WERDYKTU
+
+Werdykt dotyczy dokładnie commitowanego SHA 2da7329 i przydatności jako
+pilota testowego. Nie jest deklaracją gotowości produkcyjnej, SLA ani
+ukończenia warstw persystencji/UI.
+
+Nie uzależniam PASS od commitowania lokalnego śladu procesu w log/ i
+tasks/.../implementation/. Pliki te są dowodem audytowym, a nie częścią
+PlanningEngine. Zostało jednak jawnie sprawdzone, że po czystym merge sam
+lokalny benchmark edge nie będzie dostępny w historii Git; nie wpływa to na
+wynik kodu solvera.
+
+DOWODY
+
+1. Commitowany zakres
+
+- HEAD: 2da73294712f8c77d089d659883ea44513668416.
+- main jest przodkiem HEAD; gałąź ma 20 commitów ponad main.
+- git diff --check main...HEAD: PASS.
+- Ruff dla całego commitowanego rota/ i tests/: PASS.
+- SIZE_FILE/SIZE_FUNC dla kodu produkcyjnego rota/: PASS.
+
+2. Regresja funkcjonalna
+
+- pełna commitowana suita: 114/114 passed;
+- obejmuje ROTA-REG-001, drugi niezależny miesiąc, REPLAN, REST/LOAD przez
+  granicę miesiąca, absencje, memberships, external support, trainee/mentor,
+  fairness, chorobowe i bilans.
+
+3. Bazowy stress benchmark
+
+- 100 gwarantowanie wykonalnych pełnych miesięcy;
+- 100/100 FEASIBLE;
+- zero naruszeń HARD według produkcyjnego validatora i odrębnego oracle;
+- mean 0,122 s, p50 0,050 s, p95 0,294 s, max 1,786 s.
+
+4. Edge stress benchmark
+
+Parametry:
+- 100 pełnych miesięcy;
+- podwójna obsada PRIMARY każdego demandu;
+- do 8 HARD absences na pracownika;
+- około 1/4 grafiku frozen;
+- około 1/6 grafiku w ścieżce REPLAN;
+- 6 świąt w miesiącu;
+- kontekst sześciu dni przed początkiem miesiąca;
+- każdy przypadek posiada osobno zweryfikowany wykonalny witness.
+
+Zapisany przebieg:
+- witness_generation_failures: 0;
+- 100/100 FEASIBLE;
+- zero naruszeń coverage, REST, LOAD i pozostałych HARD według produkcyjnego
+  validatora oraz niezależnego candidate_errors oracle;
+- mean 1,945 s, p50 0,311 s, p95 9,254 s, max 30,026 s.
+
+Niezależny rerun audytora:
+- ten sam generator i seed;
+- 100/100 FEASIBLE;
+- 0 INVALID_WITNESS i 0 FAIL;
+- zakończony sukcesem w około 166 s w bieżącej instancji.
+
+OCENA
+
+Solver znajduje poprawne grafiki nie tylko dla pojedynczego fixture. Przeszedł
+200 automatycznie wygenerowanych pełnych miesięcy o znanej wykonalności, w tym
+100 scenariuszy o gęstym połączeniu podwójnej obsady, absencji, frozen i
+REPLAN. Każdy wynik został sprawdzony względem celu programu: pełne pokrycie i
+brak naruszeń HARD.
+
+Nie ma dowodu na fundamentalną wadę modelu ani na to, że kod jest
+nienaprawialny. Wynik daje wystarczającą podstawę, aby użyć solvera jako
+pilota do dalszych testów na main.
+
+OGRANICZENIE NIEBLOKUJĄCE
+
+Czas rośnie nieliniowo dla gęstych przypadków. P95=9,254 s i max=30,026 s
+oznaczają, że obecny wynik nie ustanawia SLA produkcyjnego. To nie blokuje
+merge w zadeklarowanym celu testowym: wszystkie przypadki zakończyły się
+merytorycznie poprawnym FEASIBLE, a nie UNKNOWN/TECHNICAL_ERROR.
+
+WYMAGA_DECYZJI
+
+Brak dla merge jako pilot testowy.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+PASS FOR MERGE TO MAIN na SHA 2da7329 jako PlanningEngine/pilot przeznaczony
+do dalszych testów.
+
+Nie jest to PASS produkcyjnego SLA. Bilans: 0 blokujących błędów kodu,
+0 findings architektonicznych, 0 WYMAGA_DECYZJI.

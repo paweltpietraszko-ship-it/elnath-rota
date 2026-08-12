@@ -1,0 +1,638 @@
+# SPECYFIKACJA KONCEPCYJNA SYSTEMU OBSADY I GRAFIKÓW v0.1
+
+Status: robocza, przed projektowaniem architektury
+Zakres pierwszego wdrożenia: Polska, ochrona całodobowa, z przygotowaniem rdzenia pod sklep i małą produkcję piekarniczo-cukierniczą
+
+## 1. Cel produktu
+
+Program ma zastąpić papierowy grafik i ręczne przeliczanie obsady przez koordynatora, nie stając się pełnym systemem kadrowym.
+
+Podstawowym użytkownikiem jest koordynator odpowiedzialny za zapewnienie obsady jednej lub wielu placówek. Program ma pomagać mu w trzech sytuacjach:
+
+1. przygotowaniu grafiku na kolejny okres;
+2. kontrolowaniu dostępności, urlopów, kompetencji i bilansu czasu pracy;
+3. awaryjnym przeliczeniu obsady po nagłej nieobecności pracownika.
+
+Program nie ma samodzielnie podejmować decyzji personalnych. Przedstawia dopuszczalne warianty, wskazuje ich skutki i wymaga zatwierdzenia przez koordynatora.
+
+## 2. Główna zasada modelu
+
+Program najpierw projektuje anonimowy plan obsady, a dopiero później przypisuje konkretne osoby.
+
+Plan nie zaczyna się od nazwisk. Składa się z miejsc do obsadzenia, na przykład:
+
+„Posterunek główny, zmiana dzienna, jedna osoba”
+
+„Posterunek główny, zmiana nocna, jedna osoba”
+
+„Zaopatrzenie, 6:00–10:00, wymagane prawo jazdy B”
+
+„Piec, zmiana nocna, wymagane uprawnienie operatora”
+
+Anonimowe miejsce w grafiku jest osobnym obiektem. Ma czas, placówkę, stanowisko, zadania, wymagania oraz stan obsadzenia.
+
+Dopiero do tak przygotowanego miejsca system proponuje osoby, które są dostępne i spełniają wymagania.
+
+## 3. Granica produktu
+
+Program przechowuje wyłącznie dane potrzebne do planowania i reagowania na zmiany.
+
+Obejmuje to pracowników, placówki, stanowiska, kompetencje, dostępność, ograniczenia, urlopy, profile czasu pracy, przypisania do zmian, planowane i wykonane godziny oraz historię wersji grafiku.
+
+Program nie prowadzi akt osobowych, list płac, podatków, dokumentacji medycznej ani pełnej dokumentacji urlopowej. Nie przechowuje diagnozy ani treści zwolnienia lekarskiego. Dla planowania wystarczy informacja, że osoba jest niedostępna w określonym czasie.
+
+System może eksportować dane do systemu kadrowego lub księgowego, ale nie zastępuje go.
+
+## 4. Pierwszy zakres branżowy
+
+Pierwsza działająca wersja ma zostać zaprojektowana i przetestowana na ochronie całodobowej.
+
+Musi obsługiwać:
+
+zmiany dwunastogodzinne;
+
+jeden lub wiele posterunków i placówek;
+
+pracowników przypisanych podstawowo do placówki oraz osoby dostępne między placówkami;
+
+planowanie w okresach rozliczeniowych dłuższych niż miesiąc;
+
+urlopy i inne niedostępności;
+
+preferowane rytmy pracy;
+
+nagłe nieobecności;
+
+przedłużenie zmiany osoby obecnej;
+
+przesunięcia kolejnych zmian;
+
+brak wystarczającej obsady wewnętrznej;
+
+konieczność pomocy z innej placówki lub z zewnątrz.
+
+Sklep i produkcja piekarniczo-cukiernicza mają służyć jako test generalności modelu. Nie powstają jako osobne silniki.
+
+## 5. Planowanie nie może kończyć się na granicy miesiąca
+
+Miesiąc jest widokiem użytkownika, ale nie granicą obliczeń.
+
+Solver musi uwzględniać stan poprzedzający początek okresu oraz konsekwencje wychodzące poza jego koniec.
+
+Jeżeli pracownik kończy miesiąc zmianą nocną, system nie może zaproponować mu dniówki pierwszego dnia następnego miesiąca, jeżeli naruszałoby to obowiązujący odpoczynek lub regułę organizacji.
+
+Każde generowanie miesięcznego grafiku musi otrzymać:
+
+ostatnie istotne przypisania z poprzedniego okresu;
+
+bilans godzin całego okresu rozliczeniowego;
+
+zatwierdzone nieobecności wychodzące poza granicę miesiąca;
+
+znane przypisania lub ograniczenia następnego okresu.
+
+Jeżeli kolejny miesiąc nie został jeszcze zaplanowany, program musi zapisać ograniczenia brzegowe, które przyszły grafik będzie musiał respektować.
+
+## 6. Warstwy zasad
+
+System rozróżnia zasady twarde, miękkie i awaryjne.
+
+### 6.1. Zasady twarde
+
+Zasada twarda wyklucza przypisanie.
+
+Przykłady:
+
+pracownik jest niedostępny;
+
+pracownik ma zatwierdzony urlop;
+
+zmiany nakładają się;
+
+brakuje wymaganego uprawnienia;
+
+pracownik nie może wykonywać pracy nocnej;
+
+nie został zachowany wymagany odpoczynek;
+
+pracownik nie może pracować na danej placówce;
+
+przypisanie narusza obsługiwany i potwierdzony przepis prawa pracy.
+
+Solver nie może proponować rozwiązania naruszającego zasadę twardą.
+
+### 6.2. Zasady miękkie
+
+Zasada miękka wpływa na ocenę wariantu, ale może zostać naruszona, jeżeli nie istnieje lepsze rozwiązanie.
+
+Przykłady:
+
+unikać dwóch nocek pod rząd;
+
+preferować rytm dniówka–nocka–wolne;
+
+równomiernie rozkładać weekendy;
+
+ograniczać liczbę zmian następujących po sobie;
+
+uwzględniać preferencje pracownika;
+
+wyrównywać bilans okresu rozliczeniowego;
+
+minimalizować przenoszenie pracowników między placówkami.
+
+Każde odstępstwo musi być widoczne i wyjaśnione koordynatorowi.
+
+### 6.3. Zasady awaryjne
+
+Zasady awaryjne określają kolejność szukania rozwiązania po nagłej nieobecności.
+
+Kolejność jest konfigurowalna dla organizacji. Profil ochrony może przewidywać:
+
+sprawdzenie możliwości przedłużenia zmiany osoby obecnej;
+
+sprawdzenie dostępnych osób z tej samej placówki;
+
+sprawdzenie puli mobilnej;
+
+sprawdzenie innych placówek bez uszkodzenia ich obsady;
+
+przesunięcie łańcucha przyszłych zmian;
+
+działania nadzwyczajne związane z urlopem;
+
+wsparcie zewnętrzne;
+
+zgłoszenie, że wewnętrzne rozwiązanie nie istnieje.
+
+Każda możliwość musi zostać przeliczona wraz z konsekwencjami dla kolejnych zmian, innych placówek oraz okresu rozliczeniowego.
+
+## 7. Profile organizacji i wzorce pracy
+
+Program korzysta z jednego silnika, ale organizacja może mieć wiele profili pracy.
+
+Profil określa między innymi:
+
+typowe godziny zmian;
+
+różnice między dniami tygodnia;
+
+minimalną obsadę;
+
+stanowiska i zadania;
+
+twarde wymagania stanowisk;
+
+preferowany rytm pracy;
+
+kolejność działań awaryjnych;
+
+okres rozliczeniowy;
+
+obsługiwany system czasu pracy;
+
+zasady korzystania z ludzi z innych placówek.
+
+Sklep może mieć inne godziny w sobotę niż od poniedziałku do piątku.
+
+Piekarze mogą rozpoczynać pracę wcześniej niż cukiernicy, sprzedawcy i zaopatrzenie.
+
+Ochrona może mieć stały posterunek całodobowy, ale różne cykle i różną dostępność osób.
+
+Profil nie może być zakodowany bezpośrednio w interfejsie. Musi być danymi wejściowymi dla wspólnego silnika.
+
+## 8. Podstawowe obiekty domenowe
+
+### 8.1. Organizacja
+
+Podmiot posiadający placówki, pracowników, profile pracy, zasady i okresy rozliczeniowe.
+
+### 8.2. Placówka
+
+Miejsce wykonywania pracy. Ma własne zapotrzebowanie, wzory zmian, stanowiska i poziom wymaganej rezerwy.
+
+### 8.3. Stanowisko
+
+Rodzaj pracy, który może być wykonywany w wielu placówkach. Zawiera zadania oraz wymagania.
+
+### 8.4. Kompetencja lub uprawnienie
+
+Cecha potrzebna do obsługi stanowiska, na przykład prawo jazdy, znajomość kasy albo uprawnienie operatora maszyny.
+
+### 8.5. Pracownik
+
+Osoba dostępna do planowania. Profil zawiera wyłącznie informacje operacyjne potrzebne solverowi.
+
+### 8.6. Profil planistyczny pracownika
+
+Określa dopuszczalne typy zmian, stanowiska, placówki, wymiar czasu pracy, ograniczenia oraz reguły indywidualne.
+
+### 8.7. Dostępność i nieobecność
+
+Zakres czasu wraz ze stanem:
+
+dostępny;
+
+niedostępny;
+
+prośba o wolne;
+
+planowany urlop;
+
+zatwierdzony urlop;
+
+nieobecność nagła;
+
+dostępność ograniczona do określonych godzin lub rodzajów zmian.
+
+### 8.8. Wzorzec obsady
+
+Powtarzalna definicja zapotrzebowania bez nazwisk.
+
+### 8.9. Miejsce w grafiku
+
+Pojedyncza jednostka pracy wymagająca obsadzenia przez jedną osobę.
+
+### 8.10. Przypisanie
+
+Powiązanie konkretnej osoby z miejscem w grafiku.
+
+### 8.11. Wersja grafiku
+
+Niemutowalny zapis stanu grafiku w chwili publikacji lub zatwierdzonej zmiany.
+
+### 8.12. Zdarzenie awaryjne
+
+Nagła sytuacja wymagająca przeliczenia planu, na przykład brak stawienia się, utrata kontaktu, zwolnienie lub konieczność opuszczenia stanowiska.
+
+### 8.13. Wariant naprawczy
+
+Kompletny pakiet zmian rozwiązujący zdarzenie awaryjne wraz z oceną skutków.
+
+## 9. Normalny przepływ planowania
+
+Koordynator wybiera okres i placówki.
+
+Program pobiera aktywny wzorzec obsady oraz obowiązujące zasady organizacji.
+
+Koordynator uzupełnia lub zatwierdza urlopy, prośby o wolne i pozostałe niedostępności.
+
+System tworzy anonimowe miejsca do obsadzenia.
+
+Solver przypisuje osoby zgodnie z zasadami twardymi i optymalizuje zasady miękkie.
+
+Koordynator otrzymuje proponowany grafik oraz podsumowanie:
+
+nieobsadzonych miejsc;
+
+naruszonych preferencji;
+
+braku wymaganej rezerwy;
+
+bilansu godzin w okresie rozliczeniowym;
+
+zależności od pomocy z innych placówek;
+
+ryzyka na granicach okresu.
+
+Koordynator poprawia lub zatwierdza grafik.
+
+Publikacja tworzy niemutowalną wersję.
+
+## 10. Przepływ awaryjny
+
+Koordynator wybiera zmianę i zgłasza nieobecność pracownika.
+
+System zamraża przeszłość i wszystkie przyszłe przypisania, których nie trzeba zmieniać.
+
+Solver analizuje minimum 72 godziny przyszłych konsekwencji oraz wszystkie zależne zmiany. Zakres ten może zostać rozszerzony, jeżeli powstaje dłuższy łańcuch przesunięć.
+
+System przedstawia kilka kompletnych wariantów.
+
+Każdy wariant pokazuje:
+
+kto przejmuje brakującą zmianę;
+
+które kolejne zmiany trzeba zmienić;
+
+które osoby i placówki zostaną dotknięte;
+
+czy naruszono zasadę miękką;
+
+czy placówka traci rezerwę;
+
+czy potrzebne jest wsparcie zewnętrzne;
+
+czy rozwiązanie wpływa na bilans okresu rozliczeniowego.
+
+Koordynator zatwierdza cały wariant, a nie pojedynczą zmianę wyrwaną z kontekstu.
+
+Zatwierdzenie tworzy nową wersję grafiku i zapisuje ślad decyzji.
+
+## 11. Ocena bezpieczeństwa obsady
+
+Grafik może mieć jeden z trzech stanów.
+
+„Obsada bezpieczna” oznacza, że wszystkie miejsca są obsadzone i istnieje określona rezerwa awaryjna.
+
+„Obsada napięta” oznacza, że wszystkie miejsca są obsadzone, ale jedna nieobecność może wymagać pomocy międzyplacówkowej lub działania nadzwyczajnego.
+
+„Brak zasobów” oznacza, że przy dostępnej puli nie można legalnie i operacyjnie obsadzić wszystkich zmian.
+
+System nie może ukrywać braku zasobów przez przeciążenie ludzi lub naruszanie ograniczeń.
+
+## 12. Czas pracy i prawo
+
+Silnik prawa pracy jest deterministyczną częścią backendu.
+
+Nie może opierać się na modelu językowym.
+
+Program ma znać wyłącznie jawnie wspierane systemy czasu pracy i reguły. Każda obsługiwana reguła musi posiadać:
+
+identyfikator;
+
+źródło prawne;
+
+zakres zastosowania;
+
+datę obowiązywania;
+
+testy zachowania;
+
+wersję.
+
+Jeżeli program nie potrafi rozstrzygnąć sytuacji, nie może deklarować zgodności. Powinien oznaczyć ją jako wymagającą decyzji lub weryfikacji.
+
+Bilans godzin prowadzony jest dla całego okresu rozliczeniowego, nie wyłącznie dla miesiąca.
+
+Program oddziela:
+
+wymiar okresu;
+
+godziny zaplanowane;
+
+godziny rzeczywiście wykonane;
+
+godziny zmniejszające wymiar;
+
+godziny nieprzydzielone przez pracodawcę;
+
+godziny wymagające osobnego rozliczenia.
+
+## 13. Pamięć zasad organizacji
+
+Program korzysta z wersjonowanego repozytorium zasad.
+
+Pierwsza implementacja może używać własnego prostego `PolicyRepository`. Integracja z Elnath następuje przez adapter, po ustabilizowaniu jego kontraktu.
+
+Elnath może przechowywać:
+
+zatwierdzone zasady organizacji;
+
+ich korekty;
+
+relacje zastąpienia;
+
+konflikty między aktywnymi zasadami;
+
+źródła i uzasadnienia decyzji;
+
+daty rozpoczęcia obowiązywania.
+
+Solver nie odczytuje bezpośrednio naturalnego języka z Elnath. Przed planowaniem otrzymuje zwalidowany, typowany `PolicySnapshot`.
+
+Snapshot musi zawierać wersję, datę obowiązywania, aktywne reguły oraz identyfikatory decyzji źródłowych.
+
+## 14. AI i LynxMask
+
+AI jest funkcją opcjonalną. Program musi działać bez połączenia z modelem.
+
+AI może pomagać przy:
+
+imporcie starych grafików;
+
+rozpoznawaniu struktury Excela, PDF-u lub obrazu;
+
+zamianie polecenia koordynatora na proponowane dane strukturalne;
+
+wyjaśnianiu wyniku solvera prostym językiem.
+
+AI nie może:
+
+układać autorytatywnego grafiku;
+
+rozstrzygać zgodności prawnej;
+
+decydować o odwołaniu z urlopu;
+
+samodzielnie przypisywać pracownika;
+
+zmieniać zatwierdzonej zasady;
+
+zapisywać wyniku bez walidacji i zatwierdzenia.
+
+Każde wysłanie danych do zewnętrznego AI musi przejść przez LynxMask.
+
+LynxMask działa lokalnie i pseudonimizuje dane przed opuszczeniem urządzenia. Lokalna mapa identyfikatorów nie jest wysyłana do modelu.
+
+Wynik AI musi przejść walidację strukturalną, kontrolę dopuszczalnych referencji oraz zatwierdzenie przez użytkownika.
+
+## 15. Interfejsy użytkownika
+
+Program ma dwa podstawowe interfejsy.
+
+Desktop służy do konfiguracji, importu, planowania okresu, edycji, kontroli bilansu i zarządzania zasadami.
+
+PWA służy przede wszystkim do sytuacji awaryjnych poza biurem.
+
+PWA nie jest pomniejszoną kopią pełnego desktopu. Pokazuje bieżący grafik, zdarzenia wymagające reakcji i warianty naprawcze.
+
+Awaryjne obliczenia odbywają się na wspólnym backendzie. PWA nie przechowuje pełnej lokalnej kopii danych pracowników.
+
+## 16. Onboarding
+
+Pierwsze uruchomienie nie może wymagać ręcznego wpisania całej organizacji.
+
+Program pyta, jak firma obecnie tworzy grafik, a następnie przyjmuje istniejący materiał:
+
+Excel;
+
+CSV;
+
+skopiowaną tabelę;
+
+PDF;
+
+zdjęcie papierowego grafiku.
+
+Pierwsza wersja produkcyjna zaczyna od niezawodnego importu Excel i CSV. PDF oraz obraz mogą zostać dodane po przygotowaniu kontrolowanego procesu LynxMask–AI–walidacja.
+
+Program proponuje rozpoznaną strukturę, ale nie uznaje wniosków za fakty bez potwierdzenia.
+
+Celem jest przejście od pustego konta do pierwszego roboczego grafiku w czasie krótszym niż dziesięć minut.
+
+## 17. Wymagania architektoniczne
+
+Rdzeń planowania musi być niezależny od interfejsu, transportu, AI i Elnath.
+
+Minimalny podział logiczny:
+
+`planning_core` — modele i solver;
+
+`work_time_rules` — deterministyczne zasady czasu pracy;
+
+`emergency_repair` — warianty naprawcze;
+
+`policy_repository` — aktywne zasady organizacji;
+
+`operational_store` — pracownicy, placówki, urlopy, grafiki i zdarzenia;
+
+`lynxmask_gateway` — jedyna dopuszczalna droga danych do AI;
+
+`ai_assistant` — import i interpretacja, bez autorytetu;
+
+`desktop_adapter` — komunikacja z Tauri;
+
+`api_adapter` — komunikacja z PWA;
+
+`audit_log` — historia operacji i decyzji.
+
+Solver musi być możliwy do uruchomienia w testach bez bazy, UI, sieci i modelu AI.
+
+Ten sam zestaw wejściowy, konfiguracja i wersja zasad muszą prowadzić do powtarzalnego wyniku.
+
+## 18. Minimalny zakres pierwszej wersji
+
+Pierwsza wersja obejmuje:
+
+ochronę całodobową;
+
+zmiany dwunastogodzinne;
+
+wiele placówek;
+
+anonimowy plan obsady;
+
+pracowników i profile planistyczne;
+
+dostępność i urlopy;
+
+twarde i miękkie zasady;
+
+okres rozliczeniowy;
+
+planowanie przekraczające granice miesiąca;
+
+ręczne poprawki;
+
+wersjonowanie grafiku;
+
+ocenę bezpieczeństwa obsady;
+
+tryb awaryjny;
+
+przesunięcia łańcucha zmian;
+
+informację o konieczności pomocy zewnętrznej;
+
+import Excel i CSV;
+
+desktopowy interfejs do planowania.
+
+PWA może początkowo korzystać z jednego ograniczonego flow awaryjnego, bez pełnej edycji miesięcznego grafiku.
+
+## 19. Scenariusz referencyjny
+
+Podstawowym scenariuszem akceptacyjnym jest ochrona jednego całodobowego posterunku.
+
+Organizacja ma siedem osób, z których dwie są niedostępne przez cały miesiąc. Jedna osoba pracuje wyłącznie na dniówkach. Pozostałe osoby mają indywidualne prośby o wolne i urlopy. Organizacja preferuje rytm dniówka–nocka–wolne i unika dwóch nocek pod rząd.
+
+System ma:
+
+utworzyć anonimowy plan;
+
+zaproponować obsadę;
+
+respektować poprzedni i następny miesiąc;
+
+prowadzić bilans okresu rozliczeniowego;
+
+wykryć brak rezerwy;
+
+obsłużyć nagłą nieobecność;
+
+sprawdzić możliwość pozostania osoby obecnej na kolejnej zmianie;
+
+przeliczyć jej następne dyżury;
+
+sprawdzić inne placówki;
+
+zaproponować kompletne warianty;
+
+w razie braku rozwiązania zgłosić potrzebę pomocy zewnętrznej.
+
+Ten scenariusz jest testem całego rdzenia, nie przykładem demonstracyjnym.
+
+## 20. Otwarte decyzje przed architekturą produkcyjną
+
+Należy jeszcze zdefiniować dokładne reguły branżowe dla:
+
+przejścia między miesiącami i okresami rozliczeniowymi;
+
+pracy nocnej kończącej się następnego dnia;
+
+różnych godzin pracy w poszczególne dni tygodnia;
+
+świąt i dni ustawowo wolnych;
+
+sklepów pracujących krócej w soboty;
+
+stanowisk produkcyjnych pracujących w innych cyklach;
+
+piekarzy, cukierników, ekspedycji i sprzedaży;
+
+kolejności zależnych etapów produkcji;
+
+minimalnej rezerwy placówki;
+
+maksymalnego dopuszczalnego łańcucha zmian awaryjnych;
+
+sposobu reprezentowania osób z niepełnosprawnościami i wyjątków związanych z pracą przy pilnowaniu;
+
+obsługi umów zlecenia;
+
+formalnego zatwierdzania i odwoływania urlopów;
+
+powiadomień oraz potwierdzania zastępstw;
+
+źródła rzeczywiście wykonanych godzin;
+
+integracji z zewnętrznymi systemami kadrowymi.
+
+Każdy taki przypadek powinien zostać zapisany jako scenariusz wejście–oczekiwany wynik, zanim zostanie zamieniony w kod.
+
+## 21. Kryterium rozpoczęcia produkcji
+
+Produkcja może rozpocząć się po przygotowaniu:
+
+zatwierdzonej wersji tej specyfikacji;
+
+typowanego modelu danych;
+
+kontraktu `PolicySnapshot`;
+
+katalogu zasad twardych i miękkich dla ochrony;
+
+macierzy obsługiwanych reguł prawa pracy;
+
+referencyjnego scenariusza miesięcznego;
+
+referencyjnych scenariuszy awaryjnych;
+
+kontraktu solvera;
+
+granic między backendem, AI, LynxMask i Elnath;
+
+planu testów opartych na rzeczywistych przypadkach koordynatora.
+
+Do tego momentu nie należy implementować interfejsu produkcyjnego ani wiązać projektu bezpośrednio z Elnath.

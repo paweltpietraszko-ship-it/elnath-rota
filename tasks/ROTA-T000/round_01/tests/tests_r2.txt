@@ -1,0 +1,110 @@
+AUDYT R2 KOMPLETNOŚCI I IMPLEMENTOWALNOŚCI arch/spec.md
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T000
+Audytowany commit: d66c7a4e73ab7dd1d2fb72bf15d8bf1fc6cfe621
+Audytowany obiekt: d66c7a4e73ab7dd1d2fb72bf15d8bf1fc6cfe621:arch/spec.md
+Inkrement deklarowany: 029163e9496dee8fffc40dd440ac134d6dc3e602..d66c7a4e73ab7dd1d2fb72bf15d8bf1fc6cfe621
+BACKEND_OUTPUT: N/A — FROZEN.lock nie istnieje; audyt dokumentu nie uruchamia backendu.
+Zakres: ponowny pełny audyt po FIX-5/FIX-6/FIX-7; bez zmian specyfikacji i kodu.
+
+SECTION_CHECK: 1 / DOC SECTION 2 (HARD CONSTRAINTS) — GAP
+Wszystkie 11 identyfikatorów nadal występuje dokładnie raz, ale pełne constrainty nadal wymagają niezdefiniowanych decyzji o przedziałach czasu, stanach Assignment, override, LOAD i mapowaniu profilu na literalne HARD.
+
+SECTION_CHECK: 2 / DOC SECTION 3 (PLANNING OUTCOMES) — GAP
+Blocking ShiftDemand i blokery Employee/condition są już typowane, a opcje odblokowania i granica TECHNICAL_ERROR są jawne, lecz typowany output nie zawiera okna 7 dni i godzin dla LOAD-01 mimo normatywnego wymagania w Section 2.
+
+SECTION_CHECK: 3 / DOC SECTION 4 (REUSE MAP) — PASS
+
+SECTION_CHECK: 4 / DOC SECTION 7 (ROTA-REG-001) — PASS
+
+SECTION_CHECK: 5 / DOC SECTION 5 (ANTI-DRIFT) — PASS
+
+SECTION_CHECK: 6 / LUKI IMPLEMENTACYJNE — GAP
+FIX-5 dodaje listę czynników SOFT, ale nie określa funkcji miar ani rozstrzygania konfliktów między nimi, a pozostałe materialne luki domenowe wymienione poniżej nadal wymagają decyzji produktowej.
+
+SECTION_CHECK: 7 / SPRZECZNOŚCI — FAIL
+Konfigurowalny per profil trigger LOAD oraz konfigurowalne standardowe zmiany mogą przyjąć wartości sprzeczne z literalnymi wartościami LOAD-01 i SHIFT-01, bez reguły ograniczającej konfigurację do kanonu.
+
+OVERALL — FAIL
+
+WERYFIKACJA FIX-5 / FIX-6 / FIX-7
+
+- FIX-5 — GAP / częściowo zastosowany: Section 3:403–421 dodaje czynniki SOFT z v0.4, ale nie definiuje metryki „równomierności”, metryki weekend/holiday fairness ani polityki kompromisu, gdy poprawa jednego czynnika pogarsza inny. SiteProfile:60 nadal tylko deklaruje, że planning policy „MUST define”, bez jej pól lub reguł.
+- FIX-6 — PASS: Section 9:675–678 ma nazwę ENGINEERING POLICY, wskazuje decyzję właściciela i jawnie stwierdza, że sekcja nie jest częścią kanonu produktu v0.4.
+- FIX-7 — FAIL: Section 1:19–24 potwierdza, że pola SiteProfile są konfigurowalne w UI, lecz nie definiuje granic konfiguracji chroniących literalne HARD; przez to materializuje konflikty opisane w sekcji SPRZECZNOŚCI.
+
+KONKRETNE BRAKI I BŁĘDY
+
+1. DOC SECTION 2 — komplet identyfikatorów i pozostałe założenia
+
+Obecne dokładnie raz: SHIFT-01, REST-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01, COVERAGE-01, LOAD-01, EXTERNAL-01, TARGET-01.
+
+- SHIFT-01 (331–335): SiteProfile.standard_shifts definiuje kind D/N, ale ShiftDemand nadal nie przechowuje kind; trzeba ustalić deterministyczne mapowanie demandu na rodzaj zmiany. S nadal nie jest jawnie zmapowane na Assignment.role=TRAINEE.
+- REST-01 (337–342): brak wskazania stanów Assignment objętych kontrolą, zachowania dla danych z innych Site oraz wspólnej semantyki strefy czasu/DST i granic przedziałów.
+- DAY_ONLY-01 (344–347): brak modelu zakresu i trwałości świadomego override; dodatkowo relacja między override a SiteProfile.day_only_blocks_n nie jest zdefiniowana.
+- DAY_SHIFT_OFF-01 (349–355): reguła HARD rozpoczęcia jest czytelna, lecz „porównywalny kandydat” nie ma formalnej definicji w rankingu SOFT.
+- UNAVAILABLE-01 (357–358): AvailabilityRecord.date_or_range nadal nie definiuje formatu, inkluzywności ani strefy czasu okresu.
+- LEAVE_GRANTED-01 (360–362): pozostają braki semantyki okresu oraz reprezentacji override.
+- LEAVE_PLAN-01 (364–367): wariant bez kolizji jest wskazany jako lepszy, ale konflikt z pozostałymi SOFT nie ma reguły rozstrzygającej.
+- COVERAGE-01 (369–371): brak jawnej reguły stanów Assignment liczonych do pokrycia oraz relacji czasowej PRIMARY do ShiftDemand.
+- LOAD-01 (373–377): brak zasad wliczania stanów Assignment, zmian przechodzących przez północ, innych Site, granic miesiąca oraz DST; brak także zakresu/trwałości akceptacji >60 h.
+- EXTERNAL-01 (379–381): ExternalSupportWindow nie ma confirmation status, X/Y nie są typem domenowym, a brak allowed_shift_kind nie ma jawnej semantyki.
+- TARGET-01 (383–385): relacja do HARD jest jasna, ale miara odchylenia i kompromis z innymi SOFT pozostają niezdefiniowane.
+
+2. DOC SECTION 3 — DECISION_REQUIRED i TECHNICAL_ERROR
+
+- PASS: blocking_shift_demands ma demand_id/start_datetime/end_datetime (436–439).
+- PASS: blockers ma employee_id oraz condition jako built-in condition code lub rule_version_id (441–443).
+- GAP: LOAD-01 wymaga employee, dokładnego okna i godzin (Section 2:377), ale obowiązkowe typowane pola Section 3:434–443 nie mają start_date/end_date/hours ani wariantu load blocker. Implementer musi sam rozszerzyć payload.
+- PASS: wynik musi zawierać możliwe klasy odblokowania (431), a przykłady pokrywają potwierdzenie X/Y, wolne, urlop, DAY_ONLY i >60 h (445–451).
+- PASS: TECHNICAL_ERROR wyraźnie nie obejmuje braku obsady, konfliktu HARD ani wymaganej decyzji koordynatora (457–466).
+
+3. DOC SECTION 4 — REUSE MAP
+
+- PASS: Continuity AI SHA = 709cf6a1ff829725e5d6572d286963809c990c4a (476).
+- PASS: Elnath Memory Engine SHA = 3bdcd7909373ce541be5e6bd1a5a88b99623801b (503).
+- PASS: BUILD NEW zawiera wszystkie wymagane byty: Site, SiteProfile, Employee, SiteMembership, ExternalSupportWindow, CalendarDay, AvailabilityRecord, SiteRule, WorkBalance, ScheduleVersion, ShiftDemand, Assignment, Deviation, PlanningState i PlanningEngine (534–552). Dodatkowo klasyfikuje Coordinator i CoordinatorSiteAssociation.
+
+4. DOC SECTION 7 — ROTA-REG-001
+
+- PASS: dokładnie siedem numerowanych warunków PASS (619–627).
+- PASS: istnieją odrębne listy „Co jest regresją” i „Co NIE jest regresją” (629–650).
+- PASS: istnieje bezpośrednia reguła „CC nie zmienia fixture/oracle” (660).
+- GAP REFERENCYJNY: Section 7:601 używa nazw z „ROTA-REG-001”, Section 7:604 nazwy z „ROTA_REG_001”, a oracle/fixture/PoC nadal nie należą do drzewa audytowanego commita. Nie zmienia to wyniku trzech wymaganych kontroli Section 7, ale uniemożliwia odtworzenie testu wyłącznie z tego SHA.
+
+5. DOC SECTION 5 — ANTI-DRIFT
+
+- PASS: występują wszystkie reguły 1–15 z v0.4, w poprawnej numeracji.
+
+6. POZOSTAŁE LUKI IMPLEMENTACYJNE
+
+- Section 1 / SiteProfile (56–61): coverage generation, profile-specific rule kinds, planning policy i interpretacja restrictions pozostają deklaracjami MUST bez modelu danych lub reguł wykonawczych.
+- Section 1 / Employee (84–96): brak typów oraz inkluzywności active_from/active_to.
+- Section 1 / SiteMembership (98–108): readiness_state/readiness_source nie mają kompletnej reguły wpływu na PRIMARY/TRAINEE; automatyczny próg REALIZED TRAINEE nie określa momentu i sposobu aktualizacji stanu.
+- Section 1 / AvailabilityRecord (139–156): brak reguły wyboru obowiązującej wersji i precyzyjnego date_or_range.
+- Section 1 / SiteRule (158–187): brak katalogu rule_kind/structured_parameters, precedencji nakładających się reguł i semantyki effective_from/effective_to.
+- Section 1 / WorkBalance (189–209): unresolved_carryover nadal ma „exact lifecycle OPEN”; brak wzorów month_balance/quarter_balance oraz zasad wielosite’owych i zmian między miesiącami.
+- Section 1 / ScheduleVersion i Deviation (211–280): brak przejść statusów, kryteriów finalizacji/current-version switch oraz zasad tworzenia Deviation po zaakceptowanym wyjątku HARD.
+- Sections 1, 2 i 7 / S: pola training_s_* i rola TRAINEE istnieją, ale dokument nie ustanawia ich tożsamości, reguły godzin S, wpływu na REST/LOAD/WorkBalance ani sprzężenia z mentorem podczas REPLAN.
+- Sections 4 i 6 / REPLAN: operacja jest wymagana, ale poza ochroną REALIZED/frozen nie ma kontraktu zakresu redystrybucji, S ani tworzenia następnej ScheduleVersion.
+- Section 1 / PlanningState (282–306): boundary context nie ma wymaganego horyzontu; zachowanie przy braku danych Assignment z innych Site „when such data exists” pozostaje otwarte.
+- Section 1 / PlanningEngine (308–324): brak typowanych payloadów precheck/validate i jawnego mapowania INFEASIBLE/UNKNOWN na status produktu.
+- Sections 2–3 / override: brak domenowego zapisu kto, kiedy, w jakim zakresie i na jak długo zaakceptował odblokowanie HARD oraz czy powstaje Deviation.
+
+7. SPRZECZNOŚCI
+
+- FAIL — Section 1:51–54 vs LOAD-01:373–377: rolling_7d_decision_threshold_hours jest konfigurowalny przez koordynatora per profil, ale LOAD-01 literalnie mówi, że <=60 h nie uruchamia bramki z powodu progu, a >60 h wymaga decyzji. Konfiguracja 48 powoduje niedozwoloną bramkę przy 49–60 h; konfiguracja 72 dopuszcza zwykłe FEASIBLE przy 61–72 h.
+- FAIL — Section 1:19–20 i 32–37 vs SHIFT-01:331–335: wszystkie pola SiteProfile, w tym czasy i required_primary_count standardowych zmian, są konfigurowalne w UI, podczas gdy SHIFT-01 zamraża D=05:00–17:00, N=17:00–05:00 i dokładnie jednego PRIMARY. Dokument nie ogranicza konfiguracji OCHRONA do tych wartości ani nie ogranicza SHIFT-01 do konkretnego profilu.
+- WYMAGA_DECYZJI, nie osobny FAIL — Section 1:39–40 vs DAY_ONLY-01:344–347: day_only_blocks_n=false może oznaczać profilowy, świadomy override koordynatora albo autonomiczne wyłączenie ochrony. Dokument nie rozstrzyga tej relacji; zgłoszono jako luka, nie jako dowiedzioną sprzeczność.
+
+ADVERSARIAL / REGRESSION CHECKS WYNIKAJĄCE Z KONTRAKTU
+
+- LOAD boundary class: sprawdzić 59/60/61 h oraz profile skonfigurowane na 48 i 72; oczekiwanie dla 60/61 wynika bezpośrednio z LOAD-01, a 48/72 ujawnia sprzeczność konfiguracji.
+- SHIFT profile class: zmienić start/end i required_primary_count profilu OCHRONA; walidator musi nadal spełnić SHIFT-01 albo konfiguracja musi zostać odrzucona — dokument nie wybiera zachowania.
+- DECISION_REQUIRED class: osobno brak pokrycia, employee blocker, rule_version blocker i LOAD blocker; każdy wynik powinien przenosić dane właściwe swojej klasie, a LOAD także dokładne okno i godziny.
+- SOFT conflict class: kandydat lepszy dla target_hours, ale gorszy dla weekend/holiday/LEAVE_PLAN; brak oczekiwanej relacji rankingu potwierdza CONTRACT_GAP, nie defekt implementacji.
+
+ARCHITECTURE_PROPOSALS
+
+Brak — raport nie zalicza propozycji hardeningu do FAIL; wszystkie FAIL/GAP powyżej wynikają z literalnych wymagań lub konieczności ich implementacji bez własnej decyzji produktowej.

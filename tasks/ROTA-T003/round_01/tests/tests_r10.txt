@@ -1,0 +1,63 @@
+AUDYT UPROSZCZONEGO TASK CONTRACT ROTA-T003b-ii — ROUND 10
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch/baza: task/ROTA-T003 @ 0246529a9c3a2c92db836fdb3f6b81bcc4cd05af
+Audytowany kontrakt: uproszczony ROTA-T003b-ii przekazany 2026-08-11
+Frozen Source: arch/spec.md Section 2 @ 10f6a30bc4aa1d58794104b5d03a7d555d1e8694
+Zakres: minimalny validator potrzebny T003c/ROTA-REG-001; bez implementacji.
+
+SECTION_CHECK: DIRECTION_AND_SCOPE — PASS
+Kontrakt prawidłowo ogranicza validator do kanonicznego slice ROTA-REG-001 i adaptacji działającego PoC zamiast projektowania ogólnego walidatora malformed/edge inputs.
+
+SECTION_CHECK: VALIDATOR_CORE — PASS
+REST, pełne pokrycie PRIMARY, DAY_ONLY, DAY_SHIFT_OFF, UNAVAILABLE, LEAVE_GRANTED i LOAD odpowiadają regułom rzeczywiście wykonywanym przez referencyjny validator PoC.
+
+SECTION_CHECK: CANCELLED — PASS
+Jednorazowe odfiltrowanie CANCELLED na wejściu jest prostsze i zapewnia wspólny invariant dla wszystkich siedmiu checks.
+
+SECTION_CHECK: LOAD_01 — PASS WITH POC OWNERSHIP
+Jawne odwołanie do działającego wzorca PoC zamraża dodatni overlap, half-open siedmiodniowe okna i zakres października; nie trzeba ponownie przepisywać całego algorytmu do Task Contract.
+
+SECTION_CHECK: COVERAGE_EXACTNESS — GAP
+Zwrot „ma wymaganą liczbę PRIMARY” powinien literalnie wskazać equality `primary_count == demand.required_primary_count`, aby implementer nie wybrał wcześniejszej semantyki „co najmniej” i nie dopuścił overcoverage.
+
+SECTION_CHECK: EXTERNAL_AND_TRAINING_BOUNDARY — GAP
+ROTA-REG-001 wymaga braku użycia X/Y oraz A jako PRIMARY D 8 października, lecz uproszczony validator świadomie nie ma checks EXTERNAL/S. Jest to dopuszczalne tylko po jawnym przypisaniu tych dwóch warunków do T003c/oracle, zamiast pozostawienia ich nieopisanych przy FROZEN_SOURCE Section 2.
+
+SECTION_CHECK: ROTA_INPUT_PRECONDITIONS — GAP
+`max(state.calendar_days)` i lookup Employee/Availability zakładają kompletny październik, komplet Employee A–E oraz active/current records; kontrakt powinien jednym krótkim precondition przypisać ich przygotowanie assemblerowi T003c.
+
+SECTION_CHECK: IMPORTS_AND_RUFF — FAIL
+`MembershipKind` jest nakazany w dodatkowych importach, ale żadna z siedmiu funkcji go nie używa; przy aktywnym Ruff F401 kontrakt jednocześnie wymaga importu i `ruff check rota/ → 0`, czego nie da się spełnić literalnie.
+
+SECTION_CHECK: ACCEPTANCE_STAGING — PASS WITH T003C
+Strukturalne acceptance T003b-ii jest proporcjonalne tylko wtedy, gdy T003c rzeczywiście wykonuje kanoniczny scenariusz i przejmuje wskazane warunki oracle; nie ma potrzeby rozbudowywać tego subtasku o osobny framework testów.
+
+SECTION_CHECK: LIMITS_AND_FORBIDDEN — PASS
+Jeden plik, siedem krótkich checks, brak CP-SAT/planowania i zakaz zmian dataclass pozwalają utrzymać mały moduł.
+
+OVERALL — GAP
+
+EXPECTED PRE-IMPLEMENTATION STATUS — CONTRACT_GAP
+
+MINIMALNE KOREKTY PRZED CC
+
+1. Usunąć `MembershipKind` z listy importów. To jedyny bezpośredni mechaniczny FAIL.
+
+2. Zmienić opis coverage na: `primary_count == demand.required_primary_count`; liczyć wyłącznie AssignmentRole.PRIMARY z pasującym covers_demand_id.
+
+3. Dodać krótki blok preconditions/ownership:
+   - T003c assembler przekazuje pełny CalendarDay 1–31 października, Employee A–E oraz active/current AvailabilityRecord z fixture;
+   - kandydat T003 nie zawiera X/Y; T003c jawnie asertuje brak X/Y;
+   - T003c jawnie asertuje A jako PRIMARY D 8 października;
+   - pełny EXTERNAL validator i pozostałe edge cases należą do T004.
+
+Nie są potrzebne kolejne modele, wrappery, typy ani reguły ogólnego malformed input.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+Uproszczony kontrakt idzie w dobrą stronę i jest blisko PASS. Po trzech małych korektach powyżej nadaje się do CC; oczekiwany validator powinien pozostać krótką adaptacją `validate()` z PoC, a nie ogólnym silnikiem walidacji.

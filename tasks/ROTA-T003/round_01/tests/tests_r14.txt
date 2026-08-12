@@ -1,0 +1,86 @@
+REAUDYT EKSPERYMENTALNEGO PILOTA PLANNINGENGINE — ROUND 14
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 64e20f924d4c5bc3459032b2997f2a5a349872b6
+Poprzedni audyt: tests_r13.txt dla e410843
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA REAUDYTU
+
+Audyt funkcjonalny pilota względem arch/spec.md, bez dawnego Task Contract T003 i bez narzucania preferowanej architektury. Sprawdzam dokładne findings R13, ich wskazane klasy równoważności oraz sąsiednie mapowanie jawnych statusów i eligibility.
+
+Nazwa `INSUFFICIENT_COVERAGE` jest akceptowalnym stabilnym built-in condition code. Frozen contract wymaga kodu warunku, lecz nie narzuca nazwy dla niedoboru `eligible_count < required_primary_count`; nie klasyfikuję tego judgment call jako defektu ani CONTRACT_GAP.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 64e20f924d4c5bc3459032b2997f2a5a349872b6.
+- Pełna suita autora: 28 passed.
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla zmienionych plików: PASS.
+- git diff --check: PASS.
+- Łączny przebieg suity autora i testów adversarialnych round 14: 28 passed, 3 failed.
+
+STATUS NAPRAW ROUND 13 — PASS
+
+Wszystkie cztery findings z tests_r13.txt zostały domknięte wraz z opisanymi sibling cases:
+
+1. LOAD-only, LOAD cross-month i niedobór required_primary_count nie są już fałszywie opisywane jako REST-01. LOAD otrzymuje typowany load_blocker; niedobór otrzymuje `INSUFFICIENT_COVERAGE`.
+2. CANCELLED jest odfiltrowany z solver fixed intervals oraz ze wszystkich HARD checks validatora; replacement jest FEASIBLE i godziny nie są podwajane.
+3. Independent validator wykrywa EMP-02.
+4. Solver dopasowuje ExternalSupportWindow.employee_id, a validator egzekwuje allowed_shift_kind.
+
+Nie stwierdzam regresji żadnej z 28 istniejących kontroli. Remediation R13 jako taki ma PASS.
+
+FINDING R14-1 — CRITICAL — EXISTING ASSIGNMENT OMIJA MEMBERSHIP-01 I DAJE FAŁSZYWY FEASIBLE
+
+Kontrakt zachowania:
+- MEMBERSHIP-01 (arch/spec.md:114): LOCAL jest eligible tylko wtedy, gdy membership.enabled oraz pozostałe bramki pozwalają na Assignment;
+- każdy kandydat FEASIBLE musi respektować HARD i przejść niezależną walidację (arch/spec.md:429–441, 618).
+
+Reprodukcja end-to-end:
+- jeden Employee A, aktywny w dniu demandu;
+- LOCAL SiteMembership A ma enabled=false;
+- existing PRIMARY/PLANNED A dokładnie pokrywa jedyny demand D;
+- `plan()` zwraca `FEASIBLE`, a jedynym Assignment kandydata jest ten existing Assignment.
+
+Przyczyna kodowa:
+- solver `_already_covered_counts()` zalicza existing Assignment przed uruchomieniem eligibility i nie sprawdza membership;
+- validator sprawdza EMP-02, DAY_ONLY, availability i EXTERNAL, ale nie posiada checku LOCAL membership.enabled;
+- dlatego solver oraz niezależny validator zgodnie akceptują ten sam nieuprawniony Assignment.
+
+Nie jest to żądanie nowej warstwy walidacji ani zmiany architektury. To brak egzekwowania literalnego MEMBERSHIP-01 na jednej z dwóch ścieżek wejścia Assignment: nowo solved jest sprawdzany, existing nie.
+
+FINDING R14-2 — HIGH — UNKNOWN/MODEL_INVALID SĄ REINTERPRETOWANE JAK LOAD DECISION
+
+Kontrakt zachowania:
+- TECHNICAL_ERROR oznacza błąd modelu/procesu lub nieobsłużony błąd systemowy (arch/spec.md:503–508);
+- DECISION_REQUIRED nie jest awarią i musi wskazać rzeczywisty constraint/blockers; gdy triggerem jest LOAD-01, load_blocker jest obowiązkowy (arch/spec.md:463–500);
+- docstring engine.py deklaruje UNKNOWN bez identyfikowalnej przyczyny staffing jako TECHNICAL_ERROR.
+
+Kod:
+- engine.py:41–56 przekazuje do `_resolve_without_load_cap()` każdy outcome bez assignments, niezależnie od raw status;
+- engine.py:57–66 uznaje dowolny FEASIBLE fallback za `_decision_for_load()`;
+- `_decision_for_load()` może następnie zwrócić DECISION_REQUIRED mimo braku przekroczenia progu, z `load_blocker=None` i pustymi blockers.
+
+Parametryzowany unit reproducer mapowania:
+- pierwszy solve zwraca odpowiednio UNKNOWN albo MODEL_INVALID, bez assignments i bez zdiagnozowanej przyczyny;
+- solve bez cap zwraca OPTIMAL z rozwiązaniem mieszczącym się pod progiem;
+- dla obu raw statuses wynik rzeczywisty to DECISION_REQUIRED z brakiem load_blocker;
+- wymagany wynik to TECHNICAL_ERROR, ponieważ brak dowodu, że LOAD-01 był przyczyną pierwszego niepowodzenia.
+
+Mock eliminuje niedeterministyczność limitu czasu CP-SAT i testuje czyste, publicznie deklarowane mapowanie SolverOutcome -> PlanningResult. Nie narzuca sposobu implementacji recovery.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Oba findings wynikają z istniejących reguł MEMBERSHIP-01 i statusów PlanningResult. Audyt nie wymaga konkretnej organizacji validatora ani kolejności wywołań solvera poza prawdziwością wyniku.
+
+FINAL VERDICT
+
+R13 REMEDIATION: PASS.
+
+OVERALL PILOT STATUS: FAIL.
+
+Commit 64e20f9 prawidłowo naprawia wszystkie cztery findings round 13 i zachowuje 28 zielonych regresji. Pilot nadal ma jednak dwie bezsporne klasy błędów kodu: fałszywy FEASIBLE dla existing Assignment z disabled LOCAL membership oraz błędne mapowanie UNKNOWN/MODEL_INVALID na nietypowane DECISION_REQUIRED bez rzeczywistego LOAD triggera.
+
+Round 13 można uznać za zamknięty. Do zamknięcia pilota pozostają dwa findings R14 powyżej.

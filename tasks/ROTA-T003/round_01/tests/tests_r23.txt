@@ -1,0 +1,189 @@
+SKONSOLIDOWANY AUDYT NAPRAW R22 — ROUND 23
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 6a6d460c7a1a237d13d0fe7d09c0603800384428
+Poprzedni audyt: tests_r22.txt dla 4999e8a
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Audyt weryfikuje trzy deklarowane naprawy R22 jako klasy błędów:
+- holiday fairness: granice historii oraz finalne obciążenie zawierające
+  istniejące fixed PRIMARY bieżącego grafiku;
+- frozen conflict: LOAD-01, niezależne corruption oraz różne legalne treści
+  assignment_id;
+- TRAINEE→PRIMARY: istnienie celu, jego rola oraz powiązanie czasowe z
+  konkretną zmianą szkolenia.
+
+Sprawa automatycznego odjęcia LEAVE_GRANTED od target_hours oraz użycia
+quarter_balance pozostaje osobną decyzją właściciela. Commit 6a6d460 jej nie
+dotyczy, a frozen spec nie zawiera wzorów pozwalających zbudować jednoznaczne
+oczekiwania. Nie zaliczam jej ani do PASS, ani do findings tego audytu.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 6a6d460c7a1a237d13d0fe7d09c0603800384428.
+- Suita autora: 88 passed.
+- Niezależna zamrożona macierz: 4 passed, 7 failed (11 przypadków).
+- Łączny przebieg: 92 passed, 7 failed (99 przypadków).
+- Ruff dla pełnego zakresu commitu: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla pięciu zmienionych plików: PASS.
+- git diff --check dla 4999e8a..6a6d460: PASS.
+
+DEKLAROWANE NAPRAWY — CO PRZECHODZI
+
+1. R22-1 — literalna długa historia PASS
+
+Dynamiczna domena działa dla 62, 63 i 100 historycznych zmian po 12 h, czyli
+także wyraźnie powyżej dawnej granicy 744 h. SOFT nie unieważnia już modelu
+wyłącznie z powodu wieloletniej wartości holiday_history.
+
+2. R22-2 — literalne współwystępowanie PASS
+
+- frozen SICK_LEAVE + LOAD-01 zwraca DECISION_REQUIRED z load_blocker oraz
+  oboma warunkami w blockers;
+- frozen SICK_LEAVE + dangling TRAINEE dla niekolidujących tekstowo ID zwraca
+  TECHNICAL_ERROR i zachowuje informację o brakującym celu.
+
+3. R22-3 — kontrola roli PASS
+
+Validator odrzuca TRAINEE→TRAINEE i nadal odrzuca brakujący assignment_id.
+Poprawny TRAINEE wskazujący PRIMARY obecnego podczas całego szkolenia
+pozostaje HARD PASS.
+
+4. Regresje — PASS
+
+Wszystkie 88 testów autora, w tym wcześniejsze HARD, LOAD, REST, SICK_LEAVE,
+membership, REPLAN i przypadki cross-month, pozostają zielone.
+
+FINDING R23-1 — MEDIUM — HOLIDAY FAIRNESS POMIJA BIEŻĄCĄ FIXED PRACĘ ŚWIĄTECZNĄ
+
+Ślad kontraktowy:
+- arch/spec.md:443–454: solver ma preferować warianty zmniejszające
+  nierówność pracy w święta wśród uprawnionych pracowników;
+- R20-1 przyjął obserwowalny finalny rozstrzał jako miarę klasy, niezależnie
+  od wewnętrznej postaci objective;
+- fixed Assignment jest częścią każdego finalnego kandydata, więc nie może
+  zniknąć z porównania jego końcowego obciążenia.
+
+Reprodukcja:
+- cztery demandy świąteczne po 12 h;
+- pierwsze dwa są frozen PRIMARY A, czyli A rozpoczyna z 24 h bieżącej pracy
+  świątecznej;
+- pozostałe dwa mogą legalnie obsadzić A albo B;
+- brak WorkBalance i innych różnic SOFT;
+- istnieje wynik A=24/B=24, gdy oba nowe demandy otrzyma B;
+- plan() zwraca A=36/B=12.
+
+Przyczyna:
+- solver.py:460 przekazuje do add_holiday_fairness wyłącznie
+  _historical_holiday_hours(state);
+- solver.py:475–482 liczy tylko state.holiday_history;
+- fixed_existing_assignments bieżącej ScheduleVersion nie uczestniczą w
+  godzinach bazowych holiday fairness;
+- objective rozdziela więc dwa nowe demandy po jednym, jakby wcześniejsze
+  fixed 24 h A nie istniały.
+
+To nie jest propozycja innej architektury ani wagi SOFT. Przy braku innych
+czynników implementacja wybiera obserwowalnie bardziej nierówny kandydat mimo
+istnienia idealnie równego.
+
+FINDING R23-2 — HIGH — DOPASOWANIE FRAGMENTU TEKSTU ID NADAL MASKUJE NIEZALEŻNE VIOLATION
+
+Ślad kontraktowy:
+- accepted anti-drift z R15 i R22: niezależne naruszenie kandydata nie może
+  zniknąć w payloadzie innej decyzji;
+- TECHNICAL_ERROR jest przyjętym zachowaniem dla dangling TRAINEE
+  współwystępującego z normalnym frozen conflict;
+- assignment_id nie ma kontraktowego formatu ani minimalnej długości, która
+  gwarantowałaby bezpieczeństwo dopasowania fragmentu tekstu.
+
+Macierz:
+- frozen PRIMARY A koliduje z SICK_LEAVE;
+- zachowany TRAINEE wskazuje brakujący `missing-mentor`;
+- frozen assignment_id ma kolejno wartość `a`, `mentor` i `missing`;
+- dla każdego wariantu validator wykrywa dangling reference;
+- dla każdego wariantu plan() błędnie zwraca DECISION_REQUIRED wyłącznie dla
+  frozen SICK_LEAVE zamiast TECHNICAL_ERROR.
+
+Przyczyna:
+- engine.py:210 zbiera assignment_id rozpoznanych frozen conflicts;
+- engine.py:211 uznaje violation za wyjaśnione, gdy `aid in violation`;
+- nie jest to porównanie tożsamości ani konkretnego źródła violation, tylko
+  case-sensitive substring dowolnego tekstu komunikatu;
+- `a` pasuje m.in. do tekstu `assignment`, a `mentor` i `missing` do opisu
+  brakującego `missing-mentor`, mimo że violation dotyczy innego Assignment.
+
+Jest to dokładnie klasa R22-2 dla alternatywnych, legalnych wartości ID.
+Sposób reprezentacji lub mapowania naruszeń pozostaje decyzją implementera;
+wynik nie może zależeć od przypadkowej kolizji napisów.
+
+FINDING R23-3 — HIGH — TRAINEE MOŻE WSKAZAĆ PRIMARY Z INNEJ ZMIANY
+
+Ślad kontraktowy:
+- arch/spec.md:263–265 wymaga mentor_primary_assignment_id;
+- zaakceptowany finding R20-3 i oracle mówią o konkretnym mentorze PRIMARY
+  na tej zmianie;
+- kanoniczny S jest dopisywany do konkretnej istniejącej zmiany PRIMARY, a
+  jego godziny mają mieścić się w obecności mentora;
+- VER-01 wymaga spójnego, rekonstruowalnego stanu.
+
+Macierz:
+- target referencji istnieje i ma prawidłową role=PRIMARY;
+- wariant A: PRIMARY mentora jest 01.10 05:00–17:00, TRAINEE jest 02.10
+  05:00–17:00;
+- wariant B: TRAINEE zaczyna 01.10 o 04:00, przed mentorem;
+- wariant C: TRAINEE kończy 01.10 o 18:00, po mentorze;
+- wszystkie trzy warianty otrzymują hard_pass=True bez violation;
+- kontrolny TRAINEE 09:00–13:00 wewnątrz PRIMARY 05:00–17:00 pozostaje
+  prawidłowym HARD PASS.
+
+Przyczyna:
+- validator.py:88–99 sprawdza wyłącznie istnienie celu i role=PRIMARY;
+- nie porównuje start_datetime/end_datetime TRAINEE z przedziałem wskazanego
+  PRIMARY.
+
+Kontrola roli z R22-3 jest potrzebna, lecz nie zamyka integralności relacji.
+PRIMARY z poprzedniego lub następnego dnia nie jest mentorem obecnym na
+szkoleniu tylko dlatego, że jego assignment_id istnieje.
+
+WYMAGA_DECYZJI — POZA WERDYKTEM R23
+
+Pozostają dwie niezamrożone kwestie bilansu godzin:
+- które dni LEAVE_GRANTED zmniejszają target_hours o 8 h;
+- dokładny wzór wpływu month_balance/quarter_balance/unresolved_carryover na
+  bieżące planowanie.
+
+Kod obecnie odejmuje 8 h/dzień wyłącznie dla SICK_LEAVE i nie używa pól
+kwartalnych. Bez decyzji o dniach wliczanych do urlopu oraz znaku/formule
+salda nie tworzę testu FAIL i nie przypisuję tej luki do commitu 6a6d460.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Wydzielenie helpera dynamicznej domeny przechodzi limity. Findings
+dotyczą wyłącznie finalnego rankingu, stabilnej klasyfikacji pełnego raportu
+oraz semantyki istniejącej relacji domenowej.
+
+FINAL VERDICT
+
+LITERALNE REPRODUKTORY R22: PASS.
+
+HOLIDAY HISTORY DOMAIN: PASS.
+
+HOLIDAY FAIRNESS Z CURRENT FIXED: FAIL.
+
+FROZEN + LOAD DLA NIEKOLIDUJĄCYCH ID: PASS.
+
+FROZEN + NIEZALEŻNE VIOLATION DLA DOWOLNEGO ID: FAIL.
+
+TRAINEE TARGET ROLE: PASS.
+
+TRAINEE→PRIMARY TEMPORAL INTEGRITY: FAIL.
+
+OVERALL IMPLEMENTED PILOT SCOPE: FAIL na SHA 6a6d460.
+
+Bilans: 3 klasy błędów kodu, 0 findings wynikających z preferencji
+architektonicznej. Cztery testy naprawcze autora przechodzą, lecz ich klasy
+nie są domknięte dla fixed holiday work, legalnych kolizji tekstowych ID oraz
+PRIMARY nieobecnego w czasie szkolenia.

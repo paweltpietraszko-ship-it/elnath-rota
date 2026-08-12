@@ -1,0 +1,182 @@
+AUDYT IMPLEMENTACJI ROTA-T001 — ROUND 2
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Branch: task/ROTA-T001
+Audytowany HEAD: 1d177d706bac578b7975313d7615fe15a364ecbb
+Baza: main @ 7e34c251280a8054307e9f4b2f69d9f239604ac9
+Zakres: pełny diff main..HEAD, wszystkie commity T001a–T001e; bez zmian kodu.
+
+KLASYFIKACJA
+
+- PASS/FAIL poniżej wynika wyłącznie z Frozen Contract, przekazanego Task Contract albo mechanicznego acceptance.
+- WYMAGA_DECYZJI oznacza brak wystarczającego śladu kontraktu; nie jest arbitralnie zamieniane na defekt kodu.
+- ARCHITECTURE_PROPOSALS są oddzielone i nie wpływają na wynik.
+
+DELIVERY_CHECK: HEAD_AND_DIFF_SCOPE — PASS
+
+DELIVERY_CHECK: FROZEN_LOCK — PASS
+
+DELIVERY_CHECK: ENUMS_AND_DATACLASSES — PASS
+
+DELIVERY_CHECK: IMPORT_AND_NAMESPACE — PASS
+
+DELIVERY_CHECK: LIMITS_AND_FORBIDDEN_SCOPE — PASS
+
+DELIVERY_CHECK: SITE_RULE_CONTRACT — FAIL
+Implementacja samodzielnie wybrała `Optional[dict[str, Any]]` dla pola, dla którego Task Contract nakazywał STOP i eskalację, oraz użyła Any bez wymaganego uzasadnienia z Section 9.
+
+DELIVERY_CHECK: BACKEND_EVIDENCE — GAP
+Przekazany backend ma STATUS PASS, ale lokalny finalny brief dotyczy tylko T001a i jawnie zabrania dataclasses poza StandardShift, więc nie stanowi spójnego Task Contract dla całego T001a–e.
+
+OVERALL — FAIL
+
+EXPECTED DELIVERY STATUS — CONTRACT_GAP, nie DONE
+
+CZĘŚĆ A — FAKTY WPŁYWAJĄCE NA WYNIK
+
+A1. HEAD, baza i zakres plików — PASS
+
+- HEAD jest dokładnie `1d177d706bac578b7975313d7615fe15a364ecbb` na branch `task/ROTA-T001`.
+- merge-base z main jest dokładnie `7e34c251280a8054307e9f4b2f69d9f239604ac9`.
+- Pełny zakres obejmuje pięć commitów T001a–e.
+- Diff produkcyjny zawiera wyłącznie trzy dozwolone ścieżki: zmodyfikowany `pyproject.toml` oraz nowe `rota/constants.py`, `rota/domain.py`.
+- Nie utworzono `rota/__init__.py`, test files ani innych plików produkcyjnych.
+
+A2. Frozen lock — PASS
+
+- `arch/spec.md` i `arch/FROZEN.lock` nie są zmienione względem main.
+- Przekazany backend raportuje FROZEN_LOCK PASS.
+
+A3. Import, namespace i stała — PASS
+
+- Reproducer importujący Site, SiteProfile, Employee, Assignment, AvailabilityRecord, Deviation i ShiftDemand zakończył się `OK`.
+- `from rota.constants import REST_MIN_HOURS` zwraca dokładnie 11.
+- Import działa bez `rota/__init__.py` jako namespace package.
+- `pyproject.toml` zachowuje wcześniejszą konfigurację i dodaje tylko `pythonpath = ["."]`.
+- Oba moduły mają uruchamialny blok `if __name__ == "__main__"` wymagany przez Section 9.
+
+A4. Enums — PASS całej klasy równoważności
+
+Mechaniczna introspection potwierdziła dokładnie 12 Enum oraz pełne zbiory wartości:
+
+- ShiftKind: D, N;
+- AssignmentRole: PRIMARY, TRAINEE;
+- AssignmentState: PLANNED, REALIZED, CANCELLED;
+- AvailabilityKind: DAY_SHIFT_OFF, UNAVAILABLE_24H, LEAVE_PLAN, LEAVE_GRANTED;
+- MembershipKind: LOCAL, EXTERNAL_SUPPORT;
+- ReadinessState: NOT_READY, READY_FOR_PRIMARY;
+- ReadinessSource: DEFAULT, COORDINATOR_OVERRIDE;
+- RuleCategory: CLIENT_REQUIREMENT, LOCAL_RULE, CONFIRMED_EXCEPTION;
+- RuleEnforcement: HARD, SOFT, INFORMATIONAL;
+- RuleResolution: RESOLVED, NEEDS_RESOLUTION;
+- DeviationCategory: LAW, CLIENT_REQUIREMENT, LEAVE_OR_TIME_OFF, HOURS, PREFERENCE, COVERAGE;
+- ScheduleStatus: WORKING, WORKING_WITH_DEVIATIONS, FINAL_NO_DEVIATIONS, FINAL_WITH_DEVIATIONS.
+
+A5. Dataclasses i pola — PASS poza SiteRule contract opisanym w A9
+
+Mechaniczna introspection potwierdziła dokładnie 17 dataclasses i brak różnic nazw/kolejności pól względem przekazanego modelu:
+
+- StandardShift;
+- SiteProfile, Site, Coordinator, CoordinatorSiteAssociation;
+- Employee, SiteMembership, ExternalSupportWindow, CalendarDay;
+- AvailabilityRecord, SiteRule, SiteRuleVersion;
+- WorkBalance, ScheduleVersion, ShiftDemand, Assignment, Deviation.
+
+AvailabilityRecord ma start_date/end_date i nie ma date_or_range. Assignment ma oba wymagane pola relacyjne jako Optional[str]. PlanningState i PlanningEngine nie są eksportowane.
+
+A6. Limity i brak logiki — PASS
+
+- `rota/domain.py` ma 292 linie, `rota/constants.py` ma 8; oba są poniżej limitu 600.
+- Moduły nie zawierają funkcji/metod biznesowych, solvera, CP-SAT ani logiki planowania.
+- Żaden Assignment invariant nie został przemycony jako runtime planning logic; relacje są wyłącznie typami i komentarzami, zgodnie ze scope.
+- `git diff --check` przechodzi.
+
+A7. Ruff — PASS na podstawie dowodu delivery, lokalnie niepowtórzony
+
+- Przekazany i zapisany `tasks/ROTA-T001/output_backend.txt` raportuje STATUS PASS obejmujący RUFF.
+- W bieżącym środowisku audytora executable `ruff` nie jest dostępny, więc nie wykonano niezależnego drugiego uruchomienia. Brak lokalnego executable nie jest defektem audytowanego kodu.
+
+A8. FAIL — naruszenie jawnej CONTRACT_GAP_CONDITION
+
+- Pierwotny Task Contract mówi literalnie: `SiteRule.structured_parameters wymaga decyzji o typie (dict? JSON? typed?) → STOP, eskaluj`.
+- Nie znaleziono późniejszej decyzji właściciela w arch/spec.md, lokalnych artefaktach T001 ani treści commitów T001a–e.
+- `rota/domain.py:194` implementuje mimo to `structured_parameters: Optional[dict[str, Any]]`.
+- To jest dokładnie wybór, którego Task zabraniał implementerowi dokonać samodzielnie. Backend PASS nie może zmienić tej oceny, ponieważ backend sprawdza scope/ruff/rozmiar, a nie semantyczną zgodność pól z kontraktem.
+- Zgodnym wynikiem na tym etapie było `STATUS: CONTRACT_GAP` i pytanie do właściciela, nie `DONE`.
+
+A9. FAIL — Any bez uzasadnienia
+
+- Section 9 / TYPES mówi: „brak Any bez uzasadnionego komentarza”.
+- `rota/domain.py:6` importuje Any, a `rota/domain.py:194` używa go w structured_parameters.
+- Komentarz w linii 195 brzmi `rule_kind catalog: CONTRACT_GAP — osobny task`; odnosi się do katalogu rule_kind, nie uzasadnia zakresu ani bezpieczeństwa Any.
+- Jest to niezależne naruszenie Engineering Policy nawet gdyby właściciel później wybrał słownik jako kontener.
+
+A10. WYMAGA_DECYZJI — pozostałe wybory SiteRuleVersion
+
+- `rule_kind: Optional[str]`, `effective_from: date`, `effective_to: Optional[date]` i dodatkowy `rule_id` w SiteRuleVersion są spójne technicznie, ale ich pełnego schematu nie ma w Frozen Section 1 ani w aktualnym briefie T001a.
+- Nie zgłoszono ich jako dodatkowych FAIL, ponieważ mogły wynikać z nieudostępnionych sub-contracts T001b–e. Bez śladu decyzji nie wolno jednak uznać ich za zamrożone zachowanie dla następnych tasków.
+
+A11. GAP/WYMAGA_DECYZJI — artefakt brief nie odpowiada finalnemu delivery
+
+- Lokalny `tasks/ROTA-T001/brief.md` ma `TASK_ID: ROTA-T001a`, objective „Stałe + wszystkie enumy + StandardShift” i FORBIDDEN „jakiekolwiek @dataclass poza StandardShift”.
+- Finalny HEAD zawiera 16 dalszych dataclasses z T001b–e, zgodnie z pełnym Task Contract przekazanym w rozmowie, ale niezgodnie z jedynym zapisanym briefem używanym przez pipeline.
+- `output_backend.txt` może mieć PASS, ponieważ backend nie interpretuje semantic FORBIDDEN; wszystkie commity modyfikują te same trzy dozwolone ścieżki.
+- Nie jest to osobny defekt klas domenowych, lecz finalny handoff nie ma samowystarczalnego, spójnego briefu dla audytowanego zakresu pięciu commitów.
+
+A12. Drobna nieścisłość DELIVERY — niewpływająca na wynik
+
+- Kod zawiera 17 dataclasses łącznie: StandardShift oraz 16 entity/record dataclasses.
+- Sformułowanie „StandardShift + 17 dataclass encji” sugeruje 18 dataclasses. Implementacja jest kompletna względem przekazanej listy; błędna jest tylko liczba w opisie delivery.
+
+CZĘŚĆ B — WNIOSKI REGRESYJNE / ADVERSARIAL CHECKS
+
+- Sprawdzono wszystkie wartości każdego Enum, nie tylko D/PRIMARY z observed acceptance.
+- Sprawdzono pełne listy pól wszystkich 17 dataclasses, dzięki czemu poprawka nie mogła ograniczyć się do klas importowanych w Acceptance Check 1.
+- Sprawdzono oba warianty relacji Assignment na poziomie typu: covers_demand_id i mentor_primary_assignment_id są Optional[str]. Runtime invariant nie był wymagany, ponieważ Task zabrania logiki.
+- Sprawdzono brak `date_or_range`, PlanningState, PlanningEngine i `rota/__init__.py` jako ujemne invariants.
+- Sprawdzono cały diff main..HEAD i wszystkie pięć commitów, nie tylko T001e.
+- SiteRule gap sprawdzono również w arch/spec.md, briefie, commit messages i artefaktach lokalnych; nie znaleziono decyzji rozstrzygającej.
+
+CZĘŚĆ C — ARCHITECTURE / CONTRACT PROPOSALS (NIE WPŁYWAJĄ NA FAIL)
+
+C1. Rozstrzygnięcie structured_parameters przez właściciela
+
+Obecne zachowanie: implementacja dopuszcza dowolny słownik przez Any, mimo aktywnego CONTRACT_GAP.
+
+Propozycja: właściciel wybiera i zamraża jeden kontrakt, np. JSON-compatible recursive value albo dyskryminowane, typowane parametry per rule_kind. Audyt nie wskazuje jednej opcji jako obowiązkowej.
+
+Korzyść: SiteRuleVersion jest importowalny bez utraty walidowalności i bez Any.
+Tradeoff: JSON-compatible model jest elastyczny, ale słabiej typowany; warianty per rule_kind są bezpieczniejsze, lecz zwiększają liczbę typów i koszt rozszerzania.
+
+C2. Jawny katalog rule_kind
+
+Obecne zachowanie: `Optional[str]` i komentarz, że katalog jest osobnym CONTRACT_GAP.
+
+Propozycja: pozostawić NEEDS_RESOLUTION bez executable parameters, a katalog executable rule kinds zamrozić w osobnym owner-approved tasku przed implementacją adaptera PlanningState.
+
+Korzyść: RULE-01/02 mogą być egzekwowane fail-closed.
+Tradeoff: odracza wykonywalne SiteRules; nie blokuje pozostałych typów, jeśli SiteRuleVersion otrzyma zaakceptowany neutralny kontener.
+
+C3. Spójny brief finalnego zakresu
+
+Obecne zachowanie: zapisany brief opisuje tylko T001a, a backend output dotyczy finalnego HEAD a–e.
+
+Propozycja: zachować osobne, immutable briefs/output_backend dla T001a–e albo utworzyć owner-approved aggregate brief ROTA-T001 obejmujący wszystkie trzy ścieżki i pełne acceptance, po czym ponownie uruchomić backend dla main..final HEAD.
+
+Korzyść: audytowalny związek Task Contract → diff → backend output.
+Tradeoff: więcej artefaktów Ward lub dodatkowy finalny gate.
+
+C4. Uogólnione acceptance przez introspection
+
+Obecne zachowanie: import check obejmuje reprezentatywny podzbiór.
+
+Propozycja: po rozstrzygnięciu SiteRule uruchamiać jednorazową introspection wszystkich Enum/dataclass fields i ujemne checks dla forbidden symbols, bez dodawania plików testowych.
+
+Korzyść: chroni całą klasę błędów mapowania pól.
+Tradeoff: dłuższy acceptance command; nie dodaje logiki produktu.
+
+REKOMENDOWANA DECYZJA DLA DELIVERY
+
+- Nie akceptować `STATUS: DONE` dla SHA `1d177d7...`.
+- Sklasyfikować jako `CONTRACT_GAP` do jawnego rozstrzygnięcia structured_parameters i usunięcia nieuzasadnionego Any.
+- Po decyzji właściciela wykonać mały korekcyjny task/commit i ponowić pełny audit; nie zmieniać frozen expectation przez test.

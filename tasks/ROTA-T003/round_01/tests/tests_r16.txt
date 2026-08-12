@@ -1,0 +1,94 @@
+REAUDYT EKSPERYMENTALNEGO PILOTA PLANNINGENGINE — ROUND 16
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: d65c8aef4b05c13feeb9dc51574b32f6660f0c4f
+Poprzedni audyt: tests_r15.txt dla 717a39b
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Audyt funkcjonalny względem arch/spec.md, bez dawnego Task Contract T003 i bez preferencji architektonicznych. Sprawdzam naprawy R15 oraz wspólny invariant SiteMembership/SiteProfile na ścieżce nowych Assignment.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie d65c8aef4b05c13feeb9dc51574b32f6660f0c4f.
+- Pełna suita autora: 35 passed.
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC: PASS.
+- git diff --check: PASS.
+- Łączny przebieg suity autora i testów adversarialnych round 16: 35 passed, 3 failed.
+
+STATUS NAPRAW ROUND 15 — PASS
+
+Oba findings R15 zostały naprawione:
+
+1. Existing Assignment bez membership dla current Site albo z membership wyłącznie dla innego Site nie jest już FEASIBLE.
+2. Uncapped LOAD fallback z równoczesnym non-LOAD HARD violation (EMP-02) daje TECHNICAL_ERROR; violation nie znika w DECISION_REQUIRED.
+
+Trzy nowe regresje autora przechodzą i wcześniejsze 32 testy pozostały zielone. Remediation R15 ma PASS.
+
+FINDING R16-1 — CRITICAL — SOLVER NIE OGRANICZA SITEMEMBERSHIP DO BIEŻĄCEGO SITE
+
+Kontrakt zachowania:
+- PlanningState dotyczy jednego Site (arch/spec.md:291–294);
+- SiteMembership zawiera site_id (arch/spec.md:105–112);
+- EMP-03 jawnie dopuszcza Employee niezwiązanego strukturalnie z dokładnie jednym Site (arch/spec.md:103);
+- MEMBERSHIP-01 określa eligibility LOCAL dla relacji z planowanym Site (arch/spec.md:114).
+
+Kod:
+- solver.py:124–151 w `_collect_eligible_slots()` iteruje każde `state.memberships` bez warunku `membership.site_id == state.site.site_id`;
+- klucz zmiennej CP-SAT zawiera tylko `(employee_id, demand_id)`, więc dwa memberships tego samego Employee tworzą zduplikowane SolverSlot odwołujące się do tej samej zmiennej.
+
+Dwa reprezentatywne warianty jednej klasy:
+
+A. Employee A ma enabled LOCAL membership wyłącznie dla `other-site`, brak membership dla current Site.
+- solver uznaje A za eligible i generuje Assignment;
+- validator poprawnie wykrywa brak current-site membership;
+- wynik rzeczywisty: TECHNICAL_ERROR;
+- właściwy wynik normalnego braku uprawnionej obsady: DECISION_REQUIRED.
+
+B. Employee A ma dwa enabled LOCAL memberships: jedno dla current Site i jedno dla `other-site`.
+- poprawnie istnieje dokładnie jeden eligible Employee dla jednego demandu;
+- solver dodaje go dwa razy, coverage staje się równaniem `2*x == 1`;
+- wynik rzeczywisty: DECISION_REQUIRED z fałszywym REST-01;
+- właściwy wynik: FEASIBLE z jednym Assignment.
+
+To nie jest edge malformed input: wieloobiektowość Employee jest literalnym EMP-03. Naprawa R15 domknęła validator dla existing Assignment, ale identyczny site-scoping nadal nie istnieje na solverowej ścieżce nowych Assignment.
+
+FINDING R16-2 — HIGH — EXTERNAL_SUPPORT_ENABLED=FALSE NIE BLOKUJE X/Y
+
+Kontrakt zachowania:
+- Site.profile_id wybiera semantykę SiteProfile (SITE-01, arch/spec.md:20);
+- `external_support_enabled=false` oznacza, że profil nie przewiduje X/Y (arch/spec.md:49–50);
+- MEMBERSHIP-02 i EXTERNAL-01 nakładają dodatkowy warunek confirmed ExternalSupportWindow, lecz samo window nie włącza capability wyłączonej w profilu.
+
+Reprodukcja:
+- SiteProfile.external_support_enabled=false;
+- Employee X ma current-site EXTERNAL_SUPPORT membership;
+- aktywne window X dokładnie pokrywa demand;
+- `plan()` zwraca FEASIBLE i przydziela X.
+
+Przyczyna:
+- eligibility.py nie odczytuje `profile.external_support_enabled` na ścieżce EXTERNAL;
+- validator również nie sprawdza tej flagi, więc solver i niezależny validator akceptują ten sam błąd.
+
+To jest pominięcie istniejącego pola konfiguracyjnego i SITE-01, nie propozycja nowej polityki.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+AUDITOR PROCESS DECISION
+
+To jest szesnasty round w tym katalogu i kolejny przypadek, w którym dokładne reproduktory są naprawione, lecz wspólny invariant pozostaje nieobjęty na sąsiedniej ścieżce. Nie należy traktować dalszego patchowania pojedynczych reproduktorów jako procesu projektowania ani dowodu kompletności.
+
+Po naprawie R16 wymagany jest jeden skonsolidowany przebieg testów macierzowych dla istniejących HARD/eligibility przez co najmniej: LOCAL/EXTERNAL, existing/solved, current-site/other-site/multi-site oraz enabled/disabled/missing. Macierz nie może rozszerzać wymagań; ma tylko wykonać te same już zapisane invariants na alternatywnych ścieżkach. Jeśli po takim przebiegu ponownie pojawi się nowa luka tej samej klasy, należy zatrzymać iterację i przeprowadzić świeży, całościowy audyt zamiast kontynuować round-by-round.
+
+FINAL VERDICT
+
+R15 REMEDIATION: PASS.
+
+OVERALL PILOT STATUS: FAIL.
+
+Commit d65c8ae poprawnie zamyka R15 i zachowuje 35 zielonych testów. Pilot nadal ma dwie bezsporne klasy błędów kodu: brak site-scoping SiteMembership w solverze oraz ignorowanie SiteProfile.external_support_enabled. Trzy reprezentatywne przypadki nie przechodzą.

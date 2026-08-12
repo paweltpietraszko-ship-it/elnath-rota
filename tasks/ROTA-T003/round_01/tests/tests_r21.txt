@@ -1,0 +1,124 @@
+AUDYT SICK_LEAVE I REGRESJI R20 — ROUND 21
+
+Repozytorium: paweltpietraszko-ship-it/elnath-rota
+Gałąź: experiment/rota-solo-build
+Audytowany SHA: 76acb109d4f01dd621a7872e21b183b1d52f480a
+Poprzedni audyt: tests_r20.txt dla c9ea7dd
+Data audytu: 2026-08-12
+
+PODSTAWA I GRANICA
+
+Commit 76acb10 dodaje SICK_LEAVE na podstawie decyzji właściciela wynikającej z rzeczywistych grafików w `Grafiki/`:
+- aktywne chorobowe jest HARD blokadą automatycznego Assignment;
+- chorobowe wpływa na target_hours jako 8 h za każdy kalendarzowy dzień;
+- nagłe chorobowe uruchamia zwykłą redystrybucję REPLAN;
+- REALIZED nie jest retrospektywnie unieważniany.
+
+Zdjęcia potwierdzają występowanie kodów C1–C5 obok D/N/urlopów, ale nie są używane do inferowania dodatkowych reguł. Audyt weryfikuje wyłącznie zachowanie jawnie opisane przez właściciela i autora.
+
+Commit nie deklaruje naprawy trzech findings R20. Zostały one powtórzone, aby werdykt dotyczył całego SHA, a nie wyłącznie nowego enumu.
+
+WYNIKI MECHANICZNE
+
+- HEAD: dokładnie 76acb109d4f01dd621a7872e21b183b1d52f480a.
+- Suita autora: 76 passed.
+- Niezależna macierz audytowa: 9 passed, 4 failed.
+- Łączny przebieg: 85 passed, 4 failed (89 przypadków).
+- Ruff: All checks passed.
+- SIZE_FILE / SIZE_FUNC dla pięciu zmienionych plików: PASS.
+- git diff --check: PASS.
+
+SICK_LEAVE — POTWIERDZONE ELEMENTY
+
+1. HARD eligibility — PASS
+- dzienna zmiana wewnątrz zakresu chorobowego daje DECISION_REQUIRED z employee/SICK_LEAVE-01;
+- N rozpoczynająca się poprzedniego dnia i kończąca w dniu chorobowego również jest blokowana;
+- Assignment poza zakresem chorobowego pozostaje dozwolony;
+- inactive SICK_LEAVE nie blokuje.
+
+2. Independent validator — PASS
+- przyszły Assignment kolidujący z SICK_LEAVE daje violation SICK_LEAVE-01;
+- REALIZED nie jest retrospektywnie unieważniany przez później wprowadzony rekord chorobowego.
+
+3. REPLAN — PASS DLA REDYSTRYBUOWALNEGO PRIMARY
+- PLANNED, non-frozen PRIMARY chorego A zostaje usunięty;
+- demand otrzymuje uprawniony B;
+- wynik jest FEASIBLE bez pozostawienia starego Assignment A.
+
+4. Target accounting 8 h/dzień — PASS DLA POJEDYNCZEGO AKTYWNEGO ZAKRESU
+- niezależny test używa jednoznacznego optimum, a nie asercji dopuszczającej dowolnego pracownika;
+- pięć dni chorobowego zmniejsza efektywny target A dokładnie o 40 h i zmienia wybór kandydata zgodnie z oczekiwaną matematyką;
+- zakres 29.09–02.10 nalicza tylko dwa dni październikowe, czyli 16 h;
+- inactive zakres nie zmienia targetu.
+
+Uwaga o teście autora: `test_sick_leave_reduces_target_by_8h_per_day_not_shift_length` dopuszcza wynik A albo B, więc sam nie dowodzi wpływu korekty na objective. Nie jest to defekt kodu testowanego; niezależny test z różnymi jednoznacznymi optimami potwierdził, że korekta rzeczywiście działa dla jednego zakresu.
+
+FINDING R21-1 — MEDIUM — ZACHODZĄCE ZAKRESY CHOROBOWE PODWÓJNIE NALICZAJĄ WSPÓLNY DZIEŃ
+
+Ślad decyzji właściciela:
+- chorobowe liczy się jako płaskie 8 h za każdy kalendarzowy dzień;
+- liczona wielkość jest liczbą dni chorobowego, nie liczbą rekordów AvailabilityRecord.
+
+Reprodukcja:
+- aktywny rekord A: 01–03.10;
+- drugi aktywny rekord A: 03–05.10;
+- unia zakresów zawiera pięć dni, więc korekta powinna wynosić 5*8=40 h;
+- implementacja nalicza 3+3=6 dni, czyli 48 h;
+- w scenariuszu z jednoznacznym objective błędne podwójne naliczenie zmienia przydział nowej zmiany z A na B.
+
+Przyczyna:
+- solver.py:323–340 oblicza liczbę dni każdego rekordu osobno;
+- `days_by_employee` sumuje długości zakresów, zamiast unii dat per employee.
+
+Przyjęte wcześniej ownership assemblera dotyczy przekazania aktywnych/aktualnych wersji AvailabilityRecord. Nie ustanawia zakazu dwóch różnych aktywnych zdarzeń lub rozszerzeń zakresu zachodzących na wspólny dzień. Nawet gdy rekordów jest kilka, jeden kalendarzowy dzień chorobowego ma wartość 8 h, nie 16 h.
+
+FINDING R20-1 — NADAL OTWARTY — HOLIDAY FAIRNESS
+
+Historia A=0 h/B=12 h oraz trzy nowe święta nadal kończy się A=36 h/B=12 h. Istnieje kandydat A=24 h/B=24 h. Statyczny ranking historyczny nadal zwiększa końcową nierówność po przekroczeniu punktu równowagi.
+
+Commit 76acb10 nie zmienia holiday fairness. Finding pozostaje otwarty bez nowej klasy błędu.
+
+FINDING R20-2 — NADAL OTWARTY I OBEJMUJE SICK_LEAVE
+
+Future frozen PRIMARY kolidujący z SICK_LEAVE:
+- poprawnie pozostaje niezmieniony;
+- validator poprawnie wykrywa SICK_LEAVE-01;
+- publiczny plan() zwraca TECHNICAL_ERROR bez DecisionRequiredPayload.
+
+Wymagany jest DECISION_REQUIRED z konkretnym blockerem, tak samo jak dla wykazanych w R20 wariantów UNAVAILABLE_24H i LEAVE_GRANTED. To zwykła granica autonomii: solver nie może sam ruszyć frozen ani zastępować wymaganej decyzji awarią techniczną.
+
+SICK_LEAVE nie tworzy tu nowej klasy błędu; jest trzecim reprezentantem istniejącego findingu R20-2.
+
+FINDING R20-3 — NADAL OTWARTY — TRAINEE WSKAZUJE USUNIĘTEGO MENTORA
+
+Wariant z nagłym SICK_LEAVE A potwierdza ten sam błąd:
+- PRIMARY `mentor-primary` A zostaje redystrybuowany do B z nowym assignment_id;
+- TRAINEE zostaje zachowany bez zmian;
+- jego `mentor_primary_assignment_id` nadal wskazuje usunięty `mentor-primary`;
+- kandydat mimo dangling reference ma status FEASIBLE.
+
+Commit 76acb10 nie zmienia klasyfikacji fixed ani walidacji referencji TRAINEE→PRIMARY. Finding pozostaje otwarty.
+
+REGRESJE HARD/CROSS-MONTH — PASS
+
+- N 30.09 17:00–01.10 05:00 nadal blokuje D tego samego A o 05:00;
+- pięć boundary D 26–30.09 plus D 01.10 nadal daje DECISION_REQUIRED z 72 h;
+- wszystkie 76 testów autora, w tym wcześniejsze regresje R12–R20, pozostają zielone.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Nowy finding dotyczy arytmetyki jawnej reguły 8 h/kalendarzowy dzień. Trzy pozostałe są bez zmian odziedziczone z R20. Raport nie wymaga konkretnego modelu danych ani sposobu naprawy.
+
+FINAL VERDICT
+
+SICK_LEAVE HARD: PASS.
+
+SICK_LEAVE REPLAN DLA REDYSTRYBUOWALNYCH PRIMARY: PASS.
+
+SICK_LEAVE TARGET DLA POJEDYNCZYCH ROZŁĄCZNYCH ZAKRESÓW: PASS.
+
+SICK_LEAVE TARGET DLA ZACHODZĄCYCH ZAKRESÓW: FAIL.
+
+OVERALL IMPLEMENTED PILOT SCOPE: FAIL na SHA 76acb10.
+
+Bilans otwartych klas: 4 błędy kodu — jeden nowy R21 (podwójne naliczanie wspólnego dnia chorobowego) oraz trzy niezmienione findings R20 (holiday fairness, status konfliktu future frozen i dangling TRAINEE→mentor). 0 findings wynika z preferencji architektonicznej.
