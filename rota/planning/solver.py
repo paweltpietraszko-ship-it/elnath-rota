@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from ortools.sat.python import cp_model
 
@@ -33,7 +33,10 @@ from rota.planning.timeutil import intervals_overlap, overlap_hours, rest_hours,
 
 TARGET_DEVIATION_WEIGHT = 100
 SOFT_PENALTY_WEIGHT = 1
+WEEKEND_FAIRNESS_WEIGHT = 1
+HOLIDAY_FAIRNESS_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
+MAX_MONTHLY_HOURS = 744
 
 
 @dataclass
@@ -59,15 +62,56 @@ def _demand_hours(demand: ShiftDemand) -> int:
     return int((demand.end_datetime - demand.start_datetime).total_seconds() // 3600)
 
 
-def _already_covered_counts(state: PlanningState) -> dict[str, int]:
-    """Count only active PRIMARY coverage. Audit round 12 FINDING 1: a CANCELLED
-    or TRAINEE Assignment referencing covers_demand_id must not count (arch/spec.md
-    :257-265, COVERAGE-01 arch/spec.md:405-407)."""
-    counts: dict[str, int] = {}
+def _not_cancelled(assignments) -> list[Assignment]:
+    return [a for a in assignments if a.state != AssignmentState.CANCELLED]
+
+
+def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
+    """REPLAN (arch/spec.md SECTION 7 / ASSIGN-03/04): REALIZED work and
+    frozen future Assignments are untouchable; TRAINEE (S) is never created
+    or moved by the solver (arch/spec.md SECTION 8) so it always passes
+    through unchanged too. A PRIMARY Assignment that is PLANNED, non-frozen,
+    AND covers a specific demand (covers_demand_id set) is redistributable:
+    REPLAN may keep the same employee or hand that demand to someone else, so
+    it is deliberately excluded here and the demand re-enters normal
+    eligibility/coverage as if unassigned. A PRIMARY Assignment with no
+    covers_demand_id is not "covering a demand" in the first place -- there
+    is nothing for REPLAN to redistribute it relative to -- so it stays fixed
+    regardless of frozen, the same as REALIZED work. CANCELLED is never
+    fixed (it is not real work at all, arch/spec.md:257).
+
+    Modeling note: S protection is expressed by the coordinator setting
+    frozen=True on the mentor's underlying PRIMARY Assignment when attaching
+    S to it, not by scanning for TRAINEE.mentor_primary_assignment_id
+    references -- arch/spec.md describes this as a behavioral outcome
+    ("nie powinien automatycznie rozdzielić underlying mentor shift od
+    przypiętego S"), not a specific mechanism, and frozen=True is the
+    existing domain mechanism for "do not touch this."""
+    fixed = []
     for assignment in state.existing_assignments:
-        if assignment.role != AssignmentRole.PRIMARY or not assignment.covers_demand_id:
-            continue
         if assignment.state == AssignmentState.CANCELLED:
+            continue
+        redistributable = (
+            assignment.role == AssignmentRole.PRIMARY
+            and assignment.covers_demand_id is not None
+            and assignment.state == AssignmentState.PLANNED
+            and not assignment.frozen
+        )
+        if not redistributable:
+            fixed.append(assignment)
+    return fixed
+
+
+def _already_covered_counts(state: PlanningState) -> dict[str, int]:
+    """Count only fixed (REALIZED/frozen) PRIMARY coverage. A redistributable
+    (PLANNED, non-frozen) PRIMARY Assignment does not count -- REPLAN may
+    reassign its demand, so the demand must be re-solved, not treated as
+    already satisfied (audit round 12 FINDING 1 established the CANCELLED/
+    TRAINEE exclusion; REPLAN extends the same "not a fixed fact" reasoning
+    to redistributable PRIMARY)."""
+    counts: dict[str, int] = {}
+    for assignment in fixed_existing_assignments(state):
+        if assignment.role != AssignmentRole.PRIMARY or not assignment.covers_demand_id:
             continue
         counts[assignment.covers_demand_id] = counts.get(assignment.covers_demand_id, 0) + 1
     return counts
@@ -101,11 +145,18 @@ def _build_slots(
     reasons: dict[str, list[tuple[str, str]]] = {}
 
     for demand in state.shift_demands:
+        # FINDING R19 (tests_r19.txt WYMAGA_DECYZJI, resolved by owner
+        # 2026-08-12): PlanningEngine -- not the assembler -- verifies every
+        # ShiftDemand matches a StandardShift, for demands already fully
+        # covered by existing_assignments too. Classifying only uncovered
+        # demands meant an invalid ShiftDemand could reach FEASIBLE silently
+        # whenever it happened to already be covered; the invariant must hold
+        # the same way regardless of coverage status.
+        shift_kind = classify_demand(demand, state.profile)
         needed = demand.required_primary_count - already_covered.get(demand.demand_id, 0)
         if needed <= 0:
             continue
         still_needed[demand.demand_id] = needed
-        shift_kind = classify_demand(demand, state.profile)
         eligible_count, eligible_ids, demand_reasons = _collect_eligible_slots(
             demand, shift_kind, state, employees_by_id, availability_by_employee, slots,
         )
@@ -173,11 +224,16 @@ def _collect_eligible_slots(
 def _fixed_intervals(state: PlanningState) -> dict[str, list[tuple[datetime, datetime]]]:
     """CANCELLED Assignments are not actual work (arch/spec.md:257) and must not
     block a replacement via REST-01/LOAD-01 (audit round 13, tests_r13.txt
-    FINDING R13-2)."""
+    FINDING R13-2). A redistributable existing PRIMARY (REPLAN) is excluded
+    the same way -- it is not a fixed fact and must not force a REST-01
+    conflict against its own possible replacement; boundary/other-site
+    Assignments are outside REPLAN's scope and stay fixed regardless."""
     fixed: dict[str, list[tuple[datetime, datetime]]] = {}
-    for assignment in (*state.existing_assignments, *state.boundary_assignments, *state.other_site_assignments):
-        if assignment.state == AssignmentState.CANCELLED:
-            continue
+    for assignment in (
+        *fixed_existing_assignments(state),
+        *_not_cancelled(state.boundary_assignments),
+        *_not_cancelled(state.other_site_assignments),
+    ):
         fixed.setdefault(assignment.employee_id, []).append(
             (assignment.start_datetime, assignment.end_datetime)
         )
@@ -268,10 +324,13 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
     # FINDING R17-5: a CANCELLED existing Assignment is not actual work
     # (arch/spec.md:257) and must not count toward the TARGET-01 objective,
     # consistent with coverage/REST-01/LOAD-01/validator filtering already
-    # applied elsewhere.
+    # applied elsewhere. A redistributable PRIMARY (REPLAN) is excluded the
+    # same way -- its hours are not fixed until re-solved. TRAINEE (S) is
+    # not PRIMARY demand coverage and does not count toward target_hours
+    # (matches validator._monthly_hours, which is also PRIMARY-only).
     fixed_hours_by_employee: dict[str, int] = {}
-    for assignment in state.existing_assignments:
-        if assignment.state == AssignmentState.CANCELLED:
+    for assignment in fixed_existing_assignments(state):
+        if assignment.role != AssignmentRole.PRIMARY:
             continue
         hours = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         fixed_hours_by_employee[assignment.employee_id] = fixed_hours_by_employee.get(assignment.employee_id, 0) + hours
@@ -285,8 +344,8 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
         employee_slots = by_employee.get(employee_id, [])
         worked = sum(_demand_hours(s.demand) * x[employee_id, s.demand.demand_id] for s in employee_slots)
         worked += fixed_hours_by_employee.get(employee_id, 0)
-        pos = model.new_int_var(0, 744, f"target_over_{employee_id}")
-        neg = model.new_int_var(0, 744, f"target_under_{employee_id}")
+        pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
+        neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
         model.add(worked - target == pos - neg)
         penalties.append(TARGET_DEVIATION_WEIGHT * (pos + neg))
 
@@ -294,7 +353,95 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
         if slot.leave_plan_collision or slot.day_off_soft_entry:
             penalties.append(SOFT_PENALTY_WEIGHT * x[slot.employee_id, slot.demand.demand_id])
 
+    _add_weekend_fairness(model, x, by_employee, state, penalties)
+    _add_holiday_fairness(model, x, by_employee, state, penalties)
+
     model.minimize(sum(penalties))
+
+
+def _is_weekend(day: date) -> bool:
+    return day.weekday() >= 5
+
+
+def _fixed_weekend_hours(state: PlanningState) -> dict[str, int]:
+    hours: dict[str, int] = {}
+    for assignment in fixed_existing_assignments(state):
+        if assignment.role != AssignmentRole.PRIMARY or not _is_weekend(assignment.start_datetime.date()):
+            continue
+        worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
+        hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
+    return hours
+
+
+def _add_weekend_fairness(
+    model: cp_model.CpModel, x: dict, by_employee: dict[str, list[SolverSlot]], state: PlanningState,
+    penalties: list,
+) -> None:
+    """Weekend fairness (arch/spec.md SECTION 3): monotonically prefer variants
+    closer to an equal weekend workload among employees eligible this period.
+    SOFT only -- weighted far below TARGET_DEVIATION_WEIGHT so it only breaks
+    ties among equally target-optimal candidates, never trades away target
+    accuracy (ROTA-REG-001 still requires exact monthly hours)."""
+    if len(by_employee) < 2:
+        return
+    fixed_weekend = _fixed_weekend_hours(state)
+    weekend_hours_vars = []
+    for employee_id, employee_slots in by_employee.items():
+        terms = [
+            _demand_hours(s.demand) * x[employee_id, s.demand.demand_id]
+            for s in employee_slots
+            if _is_weekend(s.demand.start_datetime.date())
+        ]
+        hours_var = model.new_int_var(0, MAX_MONTHLY_HOURS, f"weekend_hours_{employee_id}")
+        model.add(hours_var == sum(terms) + fixed_weekend.get(employee_id, 0))
+        weekend_hours_vars.append(hours_var)
+
+    max_weekend = model.new_int_var(0, MAX_MONTHLY_HOURS, "weekend_hours_max")
+    min_weekend = model.new_int_var(0, MAX_MONTHLY_HOURS, "weekend_hours_min")
+    model.add_max_equality(max_weekend, weekend_hours_vars)
+    model.add_min_equality(min_weekend, weekend_hours_vars)
+    penalties.append(WEEKEND_FAIRNESS_WEIGHT * (max_weekend - min_weekend))
+
+
+def _historical_holiday_hours(state: PlanningState) -> dict[str, int]:
+    hours: dict[str, int] = {}
+    for assignment in state.holiday_history:
+        if assignment.role != AssignmentRole.PRIMARY:
+            continue
+        worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
+        hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
+    return hours
+
+
+def _add_holiday_fairness(
+    model: cp_model.CpModel, x: dict, by_employee: dict[str, list[SolverSlot]], state: PlanningState,
+    penalties: list,
+) -> None:
+    """Holiday fairness (arch/spec.md SECTION 3): prefer variants that reduce
+    historical inequality of holiday work, derived from
+    state.holiday_history (persisted REALIZED Assignments on
+    CalendarDay(holiday=true)) -- not law, purely SOFT.
+
+    Scope-limited design: employees are ranked by historical holiday hours
+    (least-loaded = rank 0, no penalty); each candidate's penalty for taking a
+    holiday-dated demand this month is WEIGHT * rank, not the raw historical
+    hour count. This keeps the term bounded by team size (safely below
+    TARGET_DEVIATION_WEIGHT for realistic rosters) instead of by unbounded
+    accumulated history, at the cost of only expressing relative ordering,
+    not magnitude of the historical imbalance."""
+    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
+    if not holiday_dates or len(by_employee) < 2:
+        return
+    historical_hours = _historical_holiday_hours(state)
+    ranked_employees = sorted(by_employee, key=lambda e: historical_hours.get(e, 0))
+    rank_by_employee = {employee_id: rank for rank, employee_id in enumerate(ranked_employees)}
+    for employee_id, employee_slots in by_employee.items():
+        rank = rank_by_employee[employee_id]
+        if rank == 0:
+            continue
+        for slot in employee_slots:
+            if slot.demand.start_datetime.date() in holiday_dates:
+                penalties.append(HOLIDAY_FAIRNESS_WEIGHT * rank * x[employee_id, slot.demand.demand_id])
 
 
 def _extract_assignments(

@@ -35,7 +35,7 @@ from rota.planning.engine_types import (
     PlanningResult,
 )
 from rota.planning.shift_catalog import UnclassifiedShiftError
-from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, solve
+from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
 from rota.planning.validator import IndependentValidationReport, validate
 
 
@@ -96,7 +96,13 @@ def _resolve_without_load_cap(state: PlanningState) -> PlanningResult:
 
 
 def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[Assignment]:
-    return list(state.existing_assignments) + list(solved)
+    """REPLAN: only REALIZED/frozen/TRAINEE existing Assignments are fixed
+    facts (rota.planning.solver.fixed_existing_assignments); a redistributable
+    PRIMARY is intentionally NOT included here even though it is still in
+    state.existing_assignments -- solve() already excluded it from coverage
+    counting, so the demand it used to cover is re-solved into `solved`
+    instead. Including both would double-count that demand's coverage."""
+    return fixed_existing_assignments(state) + list(solved)
 
 
 def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:

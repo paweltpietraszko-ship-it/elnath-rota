@@ -68,6 +68,32 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], violati
             )
 
 
+def _check_replan_preserves_fixed(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
+    """REPLAN (arch/spec.md SECTION 7, ASSIGN-03/04): REALIZED work and frozen
+    future Assignments must not be changed by REPLAN; TRAINEE (S) is never
+    moved either (arch/spec.md SECTION 8). Independently re-derives this from
+    state.existing_assignments rather than trusting that the solver/engine
+    construction logic preserved them correctly (anti-drift rule 12)."""
+    by_id = {a.assignment_id: a for a in assignments}
+    for existing in state.existing_assignments:
+        if existing.state == AssignmentState.CANCELLED:
+            continue
+        must_preserve = (
+            existing.state == AssignmentState.REALIZED
+            or existing.frozen
+            or existing.role == AssignmentRole.TRAINEE
+        )
+        if not must_preserve:
+            continue
+        candidate = by_id.get(existing.assignment_id)
+        if candidate is None:
+            violations.append(
+                f"ASSIGN-03/04: {existing.assignment_id} (REALIZED/frozen/TRAINEE) missing from candidate"
+            )
+        elif candidate != existing:
+            violations.append(f"ASSIGN-03/04: {existing.assignment_id} (REALIZED/frozen/TRAINEE) was modified")
+
+
 def _check_membership_enabled(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
     """MEMBERSHIP-01 (arch/spec.md:114): LOCAL is eligible only when
     membership.enabled. Audit round 14 FINDING R14-1: this was enforced by
@@ -307,14 +333,27 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     violations: list[str] = []
     warnings: list[str] = []
 
+    # REPLAN (ASSIGN-03: REALIZED work MUST NOT be changed): a REALIZED
+    # Assignment is immutable historical fact, not a currently-decided one.
+    # Eligibility/availability HARD checks (membership, EMP-02, DAY_ONLY,
+    # DAY_SHIFT_OFF, LEAVE_GRANTED, UNAVAILABLE_24H, EXTERNAL-01) only make
+    # sense going forward -- data recorded after the fact (e.g. a later
+    # UNAVAILABLE_24H record) must not retroactively turn already-realized
+    # work into a HARD violation and break FEASIBLE for something REPLAN is
+    # required to leave untouched anyway. COVERAGE-01, ASSIGN-03/04
+    # preservation, REST-01 and LOAD-01 still consider every assignment,
+    # since those are about real elapsed time and identity, not eligibility.
+    for_eligibility_checks = [a for a in assignments if a.state != AssignmentState.REALIZED]
+
     _check_coverage(state, assignments, violations)
-    _check_membership_enabled(state, assignments, violations)
-    _check_employee_active(state, assignments, violations)
-    _check_day_only(state, assignments, violations)
-    _check_day_shift_off(state, assignments, violations, warnings)
-    _check_leave_and_unavailable(state, assignments, violations)
-    _check_leave_plan(state, assignments, warnings)
-    _check_external(state, assignments, violations)
+    _check_replan_preserves_fixed(state, assignments, violations)
+    _check_membership_enabled(state, for_eligibility_checks, violations)
+    _check_employee_active(state, for_eligibility_checks, violations)
+    _check_day_only(state, for_eligibility_checks, violations)
+    _check_day_shift_off(state, for_eligibility_checks, violations, warnings)
+    _check_leave_and_unavailable(state, for_eligibility_checks, violations)
+    _check_leave_plan(state, for_eligibility_checks, warnings)
+    _check_external(state, for_eligibility_checks, violations)
     min_rest = _check_rest(state, assignments, violations)
     max_load, max_window = _check_load(state, assignments, violations)
 

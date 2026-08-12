@@ -144,7 +144,10 @@ def _training_s_existing_assignment(fixture: dict, month: date, demands: tuple[S
     assignment = Assignment(
         assignment_id=f"existing-{demand_id}", schedule_version_id=version_id, employee_id=training["mentor"],
         start_datetime=matching.start_datetime, end_datetime=matching.end_datetime, role=AssignmentRole.PRIMARY,
-        state=AssignmentState.PLANNED, frozen=False, covers_demand_id=demand_id, mentor_primary_assignment_id=None,
+        # frozen=True: the coordinator attaching S to this shift is exactly
+        # the kind of explicit decision that must not be redistributed by
+        # REPLAN (rota.planning.solver.fixed_existing_assignments).
+        state=AssignmentState.PLANNED, frozen=True, covers_demand_id=demand_id, mentor_primary_assignment_id=None,
     )
     return (assignment,)
 
