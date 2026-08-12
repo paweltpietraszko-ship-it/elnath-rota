@@ -1,0 +1,170 @@
+AUDYT IMPLEMENTACJI ROTA-T006 — ROUND 2
+
+Gałąź: task/ROTA-T006
+Audytowany SHA: a421bf90a44cc92cb7d417f49f2adf0fcb09aa50
+Implementation parent: 876662cb2b5739382304204a25d21d52a12b65fa
+Task-init base: e106b704ea294f6da61a0302f695eabea307f720
+Aktualny main będący przodkiem zadania: 78e2fe449d14be3beaebec5787135241f4fc21bb
+Kontrakt: tasks/ROTA-T006/brief.md + arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md
+Data audytu: 2026-08-12
+
+ZAKRES
+
+Audyt obejmuje:
+- konstrukcyjną kolejność HARD -> minimum roszad -> ordinary SOFT/TARGET-01;
+- definicję baseline i liczenie per placement;
+- statusy obu faz CP-SAT;
+- wymaganą macierz A-I;
+- initial planning, ASSIGN-03/04 i PlanningResult status boundaries;
+- pełną regresję oraz produkcyjny benchmark stress;
+- zakres zmian, Ruff, SIZE_FILE/SIZE_FUNC i git diff --check.
+
+PROVENANCE I SCOPE
+
+- HEAD odpowiada dokładnie a421bf9.
+- tasks/ROTA-T006/repo_before.hash wskazuje e106b70: addendum i lock były już
+  na aktualnym main, natomiast brief i kod nie były jeszcze wprowadzone.
+- Commit 876662c dodał brief, repo_before.hash i wcześniejszy raport gotowości.
+- Implementacja a421bf9 zmienia wyłącznie dozwolone obszary:
+  rota/planning/solver.py, nowy rota/planning/replan_reshuffle.py i dedykowany
+  test T006.
+- engine.py, arch/spec.md, persistence i regression oracle pozostają
+  niezmienione.
+- git diff 876662c..a421bf9 --check: PASS.
+
+WYNIKI
+
+- Suita autora/commitowana: 159/159 passed.
+- Niezależna macierz adversarialna: 10 passed, 1 failed (11 przypadków).
+- Łącznie: 169 passed, 1 failed (170 przypadków).
+- ROTA-REG-001: PASS w pełnej suicie, bez zmiany oracle.
+- Ruff: PASS.
+- SIZE_FILE max 600 / SIZE_FUNC max 50: PASS.
+- Brak arbitralnej wagi reshuffle względem ordinary SOFT: PASS.
+
+OBSZARY POTWIERDZONE — PASS
+
+1. Funkcja roszady
+
+- baseline obejmuje redystrybuowalne PLANNED, non-frozen PRIMARY z
+  covers_demand_id;
+- fixed i baseline tworzą rozłączny podział aktywnych existing assignments;
+- zmienna zmiany zależy od pary employee_id + covers_demand_id, nie od
+  assignment_id;
+- brak eligible slotu dla starej pary wnosi stałą roszadę 1;
+- nowy demand bez baseline nie wnosi roszady sam z siebie.
+
+2. Właściwa leksykografia przy zakończonym OPTIMAL solve fazy 1
+
+Niezależne scenariusze potwierdziły:
+- dokładnie 1 roszada z gorszym LEAVE_PLAN SOFT wygrywa z 2 roszadami bez tej
+  kary (literalny przypadek A);
+- 2 roszady są dopuszczone, gdy 1 nie może spełnić REST/eligibility HARD;
+- TARGET-01 rozstrzyga pomiędzy rozwiązaniami o tym samym minimum;
+- mechanizm działa dla SICK_LEAVE oraz wyłączonego membership, bez gałęzi
+  zależnej od triggera;
+- REALIZED i frozen pozostają dokładnie zachowanymi obiektami;
+- initial planning wykonuje jedną fazę i zachowuje dotychczasowy SOFT result.
+
+3. Benchmark
+
+Pełny `benchmarks.rota_stress`, 100 deterministycznych przypadków, seed
+20260812:
+
+T006 a421bf9:
+- 100/100 PASS, wszystkie statusy FEASIBLE;
+- mean 0,170 s; p50 0,065 s; p95 0,472 s; max 3,334 s; total 17,028 s.
+
+Ta sama macierz na implementation parent 876662c:
+- 100/100 PASS;
+- mean 0,126 s; p50 0,051 s; p95 0,303 s; max 1,837 s; total 12,554 s.
+
+Dwufazowość zwiększyła w tym przebiegu mean o około 36%, p95 o około 56% i
+max o około 81%, ale żaden przypadek nie zbliżył się do 30 s na fazę. Nie ma
+podstawy do zgłoszenia błędu SLA z tej macierzy. Ryzyko maksymalnie dwóch
+budżetów po 30 s pozostaje właściwie ujawnioną cechą implementacji.
+
+FINDING R2-1 — HIGH — FEASIBLE FAZY 1 JEST BŁĘDNIE TRAKTOWANE JAKO DOWÓD MINIMUM
+
+Ślad kontraktowy:
+- Frozen REPLAN-MIN-01 wymaga minimalnej liczby roszad wśród wszystkich
+  HARD-valid harmonogramów;
+- brief ARCHITECTURE DECISION wymaga konstrukcyjnej gwarancji leksykograficznej;
+- Acceptance #1, #2 i #8 zabrania, aby większa liczba roszad wygrała dzięki
+  ordinary SOFT lub nieudowodnionemu przybliżeniu;
+- I wymaga zachowania TECHNICAL_ERROR boundary.
+
+Kod:
+- `_solve_minimal_reshuffle_then_soft()` przechodzi dalej dla statusów
+  `OPTIMAL` i `FEASIBLE`;
+- następnie odczytuje wartość incumbent przez `solver.value()`, nazywa ją
+  `min_reshuffle_count`, dodaje equality constraint i uruchamia fazę 2.
+
+Dlaczego to jest błędem:
+- CP-SAT `FEASIBLE` dla problemu optymalizacyjnego oznacza znaleziony
+  kandydat, ale nie dowodzi optymalności objective;
+- przy limicie 30 s może istnieć nieodkryty harmonogram z mniejszą liczbą
+  roszad;
+- zamrożenie incumbent tworzy poprawny HARD harmonogram, lecz bez wymaganej
+  gwarancji minimalności, a wynik może zostać zwrócony jako FEASIBLE.
+
+Niezależna macierz statusów, deterministycznie przez podmianę wyniku fazy 1:
+- OPTIMAL: może uruchomić fazę 2;
+- INFEASIBLE: zatrzymuje się — PASS;
+- UNKNOWN: zatrzymuje się — PASS;
+- MODEL_INVALID: zatrzymuje się — PASS;
+- FEASIBLE: błędnie uruchamia fazę 2 i zamraża nieudowodnioną wartość — FAIL.
+
+Klasa naprawy wynika wprost z kontraktu: faza 2 może rozpocząć się dopiero,
+gdy faza minimalizacji zwróci OPTIMAL. Samo FEASIBLE fazy 1 musi fail closed
+do istniejącej granicy wyniku technicznego, ponieważ solver nie udowodnił
+wymaganego minimum.
+
+FINDING R2-2 — MEDIUM — COMMITOWANA REQUIRED TEST MATRIX NIE POKRYWA W PEŁNI A ORAZ I
+
+Ślad kontraktowy:
+- REQUIRED TEST MATRIX A wymaga istniejącego rozwiązania z dokładnie 1 roszadą
+  oraz konkurenta z co najmniej 2 i lepszym ordinary SOFT;
+- I wymaga zachowania zarówno DECISION_REQUIRED, jak i TECHNICAL_ERROR;
+- Acceptance #17/#18 oraz AUDIT INSTRUCTIONS czynią te granice częścią
+  weryfikowalnego kontraktu zadania.
+
+Wariant A w teście autora:
+- A ma wyłącznie LEAVE_PLAN, czyli nadal może zachować swój baseline;
+- faktyczny wybrany kandydat ma 0 roszad, nie dokładnie 1;
+- test dowodzi `0 beats 2`, lecz nie realizuje literalnego przypadku A.
+
+Niezależny przypadek z jednym baseline zablokowanym HARD potwierdził, że kod
+przechodzi właściwe `1 beats 2`. Brakuje jednak trwałego, commitowanego testu
+tej wymaganej granicy.
+
+Wariant I w teście autora:
+- potwierdza wyłącznie DECISION_REQUIRED dla niedoboru obsady;
+- nie obejmuje TECHNICAL_ERROR ani statusu FEASIBLE fazy minimalizacji;
+- dlatego nie wykrywa R2-1.
+
+To finding testów, nie dodatkowy błąd algorytmu. Powinien zostać zamknięty
+uogólnioną macierzą statusów fazy 1 oraz literalnym scenariuszem 1-vs-2, nie
+samym reproduktorem pojedynczego statusu.
+
+WYMAGA_DECYZJI
+
+Brak. Oba findings wynikają bezpośrednio z zamrożonego addendum i briefu.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+OVERALL ROTA-T006: FAIL na SHA a421bf9.
+
+Bilans:
+- 1 klasa błędu kodu;
+- 1 klasa braku wymaganych testów kontraktowych;
+- 0 findings wynikających z preferencji architektonicznej;
+- 0 WYMAGA_DECYZJI.
+
+Algorytm działa poprawnie, gdy faza 1 kończy się OPTIMAL, i przeszedł pełny
+benchmark 100/100. Nie może jednak otrzymać PASS, dopóki status FEASIBLE fazy
+1 może zostać przedstawiony jako udowodnione minimum reshuffle_count.

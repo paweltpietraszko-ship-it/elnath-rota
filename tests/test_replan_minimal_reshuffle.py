@@ -58,19 +58,38 @@ def _balance(employee_id: str, target_hours: int) -> WorkBalance:
 
 
 def test_a_one_change_beats_a_better_soft_two_change_swap():
-    demand1, demand2 = _demand_d("D1", 1), _demand_d("D2", 2)
+    """Literal brief.md matrix A: an existing HARD-valid solution changes
+    EXACTLY 1 baseline placement; a competing HARD-valid solution changes
+    >=2 with better ordinary SOFT. The 1-change solution must win.
+
+    demand4's baseline holder (D) is forced out unconditionally, so the
+    achievable minimum can never be 0 -- the only real choice is between
+    "1" (only D4 changes) and "3" (D4 changes AND the A/B swap below), not
+    between "0" and "2"."""
+    demand1, demand2, demand4 = _demand_d("D1", 1), _demand_d("D2", 2), _demand_d("D4", 4)
     baseline1, baseline2 = _baseline("orig-1", "A", demand1), _baseline("orig-2", "B", demand2)
-    # A has a LEAVE_PLAN collision on demand1 -- swapping A<->B removes the
-    # SOFT penalty entirely, but requires changing BOTH baseline placements.
+    baseline4 = _baseline("orig-4", "D", demand4)
+    # A has a LEAVE_PLAN collision on demand1 -- swapping A<->B removes that
+    # SOFT penalty entirely, but requires changing BOTH baseline placements
+    # on top of D4's already-mandatory change.
     leave_plan = AvailabilityRecord("lp1", "lp1v1", "A", AvailabilityKind.LEAVE_PLAN, date(2026, 10, 1), date(2026, 10, 1), True, None, None)
+    d_gone = AvailabilityRecord("u1", "u1v1", "D", AvailabilityKind.UNAVAILABLE_24H, date(2026, 10, 1), date(2026, 10, 31), True, None, None)
     state = base_state(
-        employees=(_employee("A"), _employee("B")), memberships=(_membership("A"), _membership("B")),
-        shift_demands=(demand1, demand2), existing_assignments=(baseline1, baseline2),
-        availability_records=(leave_plan,),
+        employees=(_employee("A"), _employee("B"), _employee("D"), _employee("E")),
+        memberships=(_membership("A"), _membership("B"), _membership("D"), _membership("E")),
+        shift_demands=(demand1, demand2, demand4), existing_assignments=(baseline1, baseline2, baseline4),
+        availability_records=(leave_plan, d_gone),
     )
     result = plan(state)
     assert result.status == "FEASIBLE"
-    assert _covering_pairs(result.candidates[0]) == {("A", "D1"), ("B", "D2")}
+    # What matters: A and B's OWN baselines are untouched despite the swap's
+    # better SOFT score -- who ends up covering D4 (B taking a second shift,
+    # or E) is an incidental tie-break between two equally 1-reshuffle
+    # solutions, not part of what this test asserts.
+    pairs = _covering_pairs(result.candidates[0])
+    assert ("A", "D1") in pairs
+    assert ("B", "D2") in pairs
+    assert any(emp in ("B", "E") and dem == "D4" for emp, dem in pairs)
 
 
 # B. ESCALATE ONLY WHEN NECESSARY --------------------------------------------
@@ -245,6 +264,77 @@ def test_i_decision_required_is_not_bypassed_to_hunt_for_a_smaller_reshuffle():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
+
+
+def test_i_infeasible_phase1_routes_to_existing_conflict_handling():
+    """A rigorous phase-1 INFEASIBLE (the HARD model itself has no valid
+    schedule, not just an unproven minimum) must still reach
+    DECISION_REQUIRED via the existing conflict-detection path, not
+    TECHNICAL_ERROR -- distinguishes INFEASIBLE from the FEASIBLE/UNKNOWN/
+    MODEL_INVALID fail-closed cases below."""
+    demand_n, demand_d2 = _demand_n("N1", 1), _demand_d("D2", 2)
+    baseline_n, baseline_d2 = _baseline("orig-n", "A", demand_n), _baseline("orig-d2", "B", demand_d2)
+    gone = AvailabilityRecord("u1", "u1v1", "A", AvailabilityKind.UNAVAILABLE_24H, date(2026, 10, 1), date(2026, 10, 3), True, None, None)
+    state = base_state(
+        employees=(_employee("A"), _employee("B")), memberships=(_membership("A"), _membership("B")),
+        shift_demands=(demand_n, demand_d2), existing_assignments=(baseline_n, baseline_d2),
+        availability_records=(gone,),
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+
+
+def _replan_state_with_baseline():
+    demand1 = _demand_d("D1", 1)
+    baseline1 = _baseline("orig-1", "A", demand1)
+    return base_state(
+        employees=(_employee("A"), _employee("B")), memberships=(_membership("A"), _membership("B")),
+        shift_demands=(demand1,), existing_assignments=(baseline1,),
+    )
+
+
+def _assert_phase1_status_fails_closed(monkeypatch, forced_status_name: str):
+    """Regression for FINDING R2-1: forces solver.py's phase-1 _run_solver
+    call to return the given non-OPTIMAL, non-INFEASIBLE status and
+    confirms plan() fails closed to TECHNICAL_ERROR instead of treating an
+    unproven incumbent as the proven reshuffle minimum."""
+    from ortools.sat.python import cp_model
+
+    import rota.planning.solver as solver_module
+
+    forced_status = getattr(cp_model, forced_status_name)
+
+    class _FakeSolver:
+        def status_name(self, status):
+            return forced_status_name
+
+        def value(self, expr):  # pragma: no cover -- must never be called
+            raise AssertionError(f"{forced_status_name} phase 1 must not read an unproven objective value")
+
+    real_run_solver = solver_module._run_solver
+    call_count = {"n": 0}
+
+    def fake_run_solver(model):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _FakeSolver(), forced_status
+        return real_run_solver(model)
+
+    monkeypatch.setattr(solver_module, "_run_solver", fake_run_solver)
+    result = plan(_replan_state_with_baseline())
+    assert result.status == "TECHNICAL_ERROR"
+
+
+def test_i_phase1_feasible_without_proof_fails_closed_to_technical_error(monkeypatch):
+    _assert_phase1_status_fails_closed(monkeypatch, "FEASIBLE")
+
+
+def test_i_phase1_unknown_fails_closed_to_technical_error(monkeypatch):
+    _assert_phase1_status_fails_closed(monkeypatch, "UNKNOWN")
+
+
+def test_i_phase1_model_invalid_fails_closed_to_technical_error(monkeypatch):
+    _assert_phase1_status_fails_closed(monkeypatch, "MODEL_INVALID")
 
 
 # Baseline/fixed partition regression (guards replan_reshuffle.py's

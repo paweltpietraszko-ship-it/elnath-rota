@@ -438,8 +438,23 @@ def _solve_minimal_reshuffle_then_soft(
     reshuffle_expr = build_reshuffle_count_expr(x, baseline)
     model.minimize(reshuffle_expr)
     phase1_solver, phase1_status = _run_solver(model)
-    if phase1_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+
+    if phase1_status == cp_model.INFEASIBLE:
+        # A rigorous proof about the HARD model itself, not an approximation
+        # -- route through the existing infeasibility/conflict-detection
+        # path unchanged (audit round 2 FINDING R2-1 status matrix).
         return _finalize(phase1_solver, phase1_status, x, slots, state, assumptions)
+    if phase1_status != cp_model.OPTIMAL:
+        # FEASIBLE (an unproven incumbent from hitting the time limit),
+        # UNKNOWN, or MODEL_INVALID: none of these PROVE the minimum
+        # reshuffle count REPLAN-MIN-01 requires (brief.md ARCHITECTURE
+        # DECISION: "gwarantowane konstrukcyjnie"). Freezing an unproven
+        # incumbent as if it were the true minimum could silently accept a
+        # worse-than-necessary reshuffle -- fail closed to TECHNICAL_ERROR
+        # (assignments=None, status_name != "INFEASIBLE") instead of calling
+        # _finalize, which would otherwise treat FEASIBLE as "good enough"
+        # the same way the ordinary single-phase path legitimately does.
+        return SolverOutcome(phase1_solver.status_name(phase1_status), None, [], [], {}, [])
 
     min_reshuffle_count = round(phase1_solver.value(reshuffle_expr))
     model.add(reshuffle_expr == min_reshuffle_count)
