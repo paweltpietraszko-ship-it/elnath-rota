@@ -56,6 +56,7 @@ def base_state(**overrides) -> PlanningState:
         availability_records=(),
         site_rules=(),
         unresolved_site_rules=(),
+        site_rule_applicability=(),
         shift_demands=(),
         existing_assignments=(),
         deviations=(),

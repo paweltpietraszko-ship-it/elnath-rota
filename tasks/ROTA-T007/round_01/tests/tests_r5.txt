@@ -1,0 +1,87 @@
+ROTA-T007 — AUDYT IMPLEMENTACJI, RUNDA 5
+Data: 2026-08-12
+Audytor: Codex
+Audytowany SHA: 86223187882e6d1d93f6b903f016dd6cad152052
+Gałąź: origin/task/ROTA-T007
+
+WERDYKT
+-------
+FAIL — NOT READY FOR MERGE.
+
+R4-2 — ZAMKNIĘTE
+-----------------
+Mechaniczna ekstrakcja `_record_chain_rule_decision()` zachowała asercje testu
+i usunęła przekroczenie SIZE_FUNC. Wszystkie zmienione pliki Python mieszczą
+się w SIZE_FILE/SIZE_FUNC.
+
+R4-1 — CZĘŚCIOWO ZAMKNIĘTE
+---------------------------
+Reproduktor z rundy 4 przechodzi: reguła dotycząca demandu 20 października nie
+jest już przypisywana przekroczeniu LOAD w oknie 1–7 października.
+
+FINDING R5-1 — MEDIUM
+---------------------
+Provenance LOAD nadal gubi relewantny SiteRule dla nocnej zmiany zaczynającej
+się dzień przed najgorszym oknem, ale wchodzącej godzinami do tego okna.
+
+Podstawa kontraktowa:
+
+- arch/spec.md LOAD-01 liczy godziny nakładające się na rolling window;
+- FROZEN_ADDENDUM_SITE_RULE_EXEC_01 punkt 9 wymaga relewantnego
+  `rule_version_id` jako blocker/source dla SiteRule-caused infeasibility;
+- brief.md ACCEPTANCE 14–15.
+
+Reprodukcja:
+
+1. A ma pięć REALIZED zmian D po 12 h w dniach 4–8 października (60 h).
+2. Demand N zaczyna się 1 października o 17:00 i kończy 2 października o 05:00.
+3. SiteRule `RV-night-cause` pozwala B tylko na D, więc A musi pokryć N.
+4. Najgorsze okno A to 2–8 października: 60 h zmian D + 5 h nocnej zmiany
+   przypadających po północy = 65 h.
+5. Bez SiteRule plan jest FEASIBLE; z SiteRule jest DECISION_REQUIRED.
+
+Wynik poprawnie wskazuje load_blocker od 2 października, lecz nie zawiera
+`RV-night-cause` w blockers.
+
+Przyczyna:
+
+`_load_decision()` uznaje demand za relewantny tylko wtedy, gdy
+`window_start <= assignment.start_datetime.date() <= window_end`. To nie jest
+ta sama semantyka co LOAD-01: LOAD liczy nakładanie przedziałów godzinowych,
+więc nocka rozpoczęta poprzedniego dnia może wnosić godziny do okna.
+
+Wymagane zachowanie:
+
+Dobór demandów do provenance musi używać nakładania przedziału Assignmentu na
+to samo rolling-7d window, dla którego policzono LOAD, zamiast wyłącznie daty
+startu. Muszą nadal przechodzić oba wcześniejsze przypadki:
+
+- reguła będąca przyczyną przekroczenia jest raportowana;
+- reguła dotycząca demandu z innego tygodnia nie jest raportowana.
+
+Test:
+
+- `test_r5_load_provenance_includes_overnight_shift_entering_worst_window`
+  — FAIL.
+
+WERYFIKACJA
+-----------
+
+- skomitowany zestaw: 201/201 PASS;
+- z niezależnym testem rundy 5: 201 PASS, 1 FAIL;
+- ROTA-REG-001: 7/7 PASS;
+- benchmark rota_stress.py: 100/100 PASS, max 3.240 s;
+- Ruff: PASS;
+- SIZE_FILE/SIZE_FUNC: PASS;
+- diff poprawki 88060ea..8622318: clean.
+
+Znany false positive `git diff --check` na niezmiennym podkreśleniu w
+`tests_r3.txt` pozostaje sklasyfikowany zgodnie z tests_r4.txt i nie jest nowym
+findingiem.
+
+Artefakt testowy rundy 5:
+
+`tests/test_audit_t007_r5.py`
+
+Nie zgłaszam propozycji architektonicznych. Finding dotyczy wyłącznie zgodności
+filtra provenance z już obowiązującą godzinową semantyką LOAD-01.

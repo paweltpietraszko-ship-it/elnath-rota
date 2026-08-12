@@ -1,0 +1,112 @@
+ROTA-T007 — AUDYT IMPLEMENTACJI, RUNDA 4
+Data: 2026-08-12
+Audytor: Codex
+Audytowany SHA: 88060ea2545f3e987913a5799c63da9db9751444
+Gałąź: origin/task/ROTA-T007
+
+WERDYKT
+-------
+FAIL — NOT READY FOR MERGE.
+
+Naprawa R3-1 jest kompletna. Naprawa R3-2 przechodzi wszystkie dodatnie
+reproduktory z rundy 3, lecz na ścieżce LOAD może teraz wskazać SiteRule,
+który nie jest przyczyną danego DECISION_REQUIRED. Jest też jeden mechaniczny
+problem w skomitowanym teście audytowym. Żaden z tych problemów nie pozwala
+solverowi zaakceptować grafiku naruszającego HARD.
+
+R3-1 — ZAMKNIĘTE
+-----------------
+`_require_shift_kind_list()` potwierdza `isinstance(v, str)` przed operacją
+członkostwa w frozenset. Oba pola współdzielące walidator:
+
+- `allowed_shift_kinds`;
+- `forbidden_shift_kinds`
+
+odrzucają zagnieżdżoną listę/obiekt przez
+`UnsupportedOrMalformedSiteRule`, a publiczne `plan()` zwraca kontraktowe
+TECHNICAL_ERROR z dokładnym `rule_version_id`. Surowy TypeError nie ucieka.
+
+R3-2 — CZĘŚCIOWO ZAMKNIĘTE
+---------------------------
+Pozytywne reproduktory z tests_r3.txt przechodzą:
+
+- SiteRule będący przyczyną konfliktu REST-01 pozostaje w blockers;
+- SiteRule będący przyczyną fallbacku LOAD-01 pozostaje w blockers;
+- działa to dla dwóch rodzajów reguł;
+- powtarzające się pary `(employee_id, rule_version_id)` są deduplikowane.
+
+FINDING R4-1 — MEDIUM
+---------------------
+LOAD payload może przypisać niewłaściwe provenance do przekroczenia limitu.
+
+Podstawa kontraktowa:
+
+- FROZEN_ADDENDUM_SITE_RULE_EXEC_01 punkt 9 wymaga wskazania *relevant*
+  `rule_version_id` jako blocker/source;
+- frozen addendum MULTIPLE RULES mówi o SiteRule będącym powodem, że pracownik
+  nie może pokryć demandu;
+- brief.md ACCEPTANCE 14 wymaga właściwego blocker/source provenance.
+
+Reprodukcja:
+
+1. A ma sześć REALIZED zmian po 12 h w dniach 1–6 października. To samo
+   wystarcza do przekroczenia LOAD-01 w oknie 1–7 października.
+2. Jedyny nowy demand jest 20 października.
+3. SiteRule `RV-unrelated` wyklucza B wyłącznie z tego demandu 20 października.
+4. Z regułą i bez niej plan zwraca ten sam DECISION_REQUIRED z load_blocker;
+   usunięcie reguły nie może usunąć historycznego przekroczenia 1–7 października.
+
+Aktualny wynik mimo to dodaje `RV-unrelated` do blockers.
+
+Przyczyna: `_load_decision()` bierze wszystkie demandy pokryte przez pracownika,
+który gdziekolwiek przekracza próg, zamiast ograniczyć provenance do demandów
+nakładających się na rzeczywiste okno wskazane w `load_blocker`. W efekcie
+reguła dotycząca innej części miesiąca jest przedstawiana koordynatorowi jako
+przyczyna niezależnego przekroczenia.
+
+Wymagane zachowanie: na ścieżce LOAD `rule_version_id` może zostać dodany tylko
+dla wykluczeń dotyczących demandów istotnych dla okna LOAD będącego podstawą
+decyzji. Dodatnie testy rundy 3 muszą nadal przechodzić.
+
+Test:
+
+- `test_r4_load_payload_does_not_attribute_an_unrelated_site_rule` — FAIL.
+
+FINDING R4-2 — LOW / DELIVERY
+-----------------------------
+Skomitowany dosłownie test dostarczony przeze mnie w rundzie 3 ma funkcję
+`test_r3_monthly_projection_uses_real_chain_for_change_then_reject` długości
+59 linii przy globalnym SIZE_FUNC=50 (`arch/spec.md` SECTION 9).
+
+To błąd w moim przekazanym artefakcie audytowym, nie w produkcyjnej poprawce
+CC. Po wejściu pliku do repo formalnie narusza jednak ACCEPTANCE 23. Wymagana
+jest wyłącznie mechaniczna ekstrakcja helpera/podział testu bez zmiany jego
+asercji.
+
+`git diff --check` — ZNANY FALSE POSITIVE
+-----------------------------------------
+Pełny diff od d4af947 zgłasza `tests_r3.txt:8: leftover conflict marker`, bo
+niezmienny raport audytowy używa pojedynczej linii `=======` jako podkreślenia
+sekcji. Nie istnieją znaczniki `<<<<<<<` ani `>>>>>>>`; diff produkcji, testów
+i benchmarku poza tym niezmiennym raportem przechodzi. Poprzedniego raportu
+nie wolno modyfikować, dlatego nie klasyfikuję tego jako błąd CC.
+
+WERYFIKACJA
+-----------
+
+- skomitowany zestaw: 200/200 PASS;
+- z niezależnym testem rundy 4: 200 PASS, 1 FAIL;
+- ROTA-REG-001: 7/7 PASS;
+- benchmark rota_stress.py: 100/100 PASS, max 3.273 s;
+- Ruff: PASS;
+- produkcyjne SIZE_FILE/SIZE_FUNC: PASS;
+- skomitowany test audytowy: jeden SIZE_FUNC FAIL (59/50);
+- diff produkcyjny/testowy poza niezmiennym tests_r3.txt: clean.
+
+Artefakt testowy rundy 4:
+
+`tests/test_audit_t007_r4.py`
+
+Nie zgłaszam propozycji architektonicznych. Blokada jest wąska: zawężenie
+provenance LOAD do faktycznie relewantnego okna oraz mechaniczne skrócenie
+jednej funkcji testowej.

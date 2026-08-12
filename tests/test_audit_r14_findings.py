@@ -57,7 +57,7 @@ def test_r14_1_existing_assignment_with_disabled_membership_is_not_feasible():
 
 def _fake_solve_always(status_name: str):
     def _fake(state, enforce_load_cap=True):
-        return SolverOutcome(status_name, None, [], [], {}, [])
+        return SolverOutcome(status_name, None, [], [], {}, [], {})
     return _fake
 
 
@@ -85,8 +85,8 @@ def test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error(mo
     def _fake_solve(state, enforce_load_cap=True):
         calls["count"] += 1
         if enforce_load_cap:
-            return SolverOutcome("INFEASIBLE", None, [], [], {}, [])
-        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [])
+            return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
 
     monkeypatch.setattr(engine_module, "solve", _fake_solve)
     employee = Employee("A", "A", date(2026, 9, 1), None, False)

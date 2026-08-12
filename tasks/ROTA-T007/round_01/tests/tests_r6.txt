@@ -1,0 +1,78 @@
+ROTA-T007 — AUDYT IMPLEMENTACJI, RUNDA 6
+Data: 2026-08-12
+Audytor: Codex
+Audytowany SHA: 2819fb6e18b055ad2e13bdf1ce44eba795b7d567
+Gałąź: origin/task/ROTA-T007
+
+WERDYKT
+-------
+PASS — IMPLEMENTATION READY FOR FINAL ACCEPTANCE / MERGE DECISION.
+
+R5-1 — ZAMKNIĘTE
+-----------------
+Validator zachowuje teraz dla każdego pracownika zarówno:
+
+- daty przeznaczone do prezentacji w `maximum_rolling_7d_window`;
+- surowe półotwarte granice `(datetime, datetime)` w
+  `maximum_rolling_7d_window_datetimes`.
+
+Engine wybiera demandy relewantne dla provenance przez wspólne
+`timeutil.intervals_overlap()`. Jest to ta sama semantyka przedziałów, której
+LOAD-01 używa do obliczania godzin:
+
+- nocka zaczynająca się dzień przed oknem, lecz wchodząca godzinami do okna,
+  jest uwzględniona;
+- Assignment kończący się dokładnie na początku okna nie jest uwzględniony;
+- Assignment zaczynający się dokładnie na końcu okna nie jest uwzględniony.
+
+Wynik reproduktora rundy 5:
+
+- bez SiteRule: FEASIBLE;
+- z SiteRule: DECISION_REQUIRED, okno 2–8 października i blocker z dokładnym
+  `RV-night-cause`.
+
+REGRESJE PROVENANCE
+-------------------
+Przechodzą jednocześnie wszystkie wymagane warianty:
+
+1. SiteRule będący przyczyną prostego niedoboru wskazuje `rule_version_id`.
+2. SiteRule będący przyczyną konfliktu REST wskazuje `rule_version_id`.
+3. SiteRule będący przyczyną LOAD wskazuje `rule_version_id`.
+4. Powtarzające się wykluczenia są deduplikowane.
+5. SiteRule z innego tygodnia nie jest fałszywie przypisywany do okna LOAD.
+6. Nocka rozpoczynająca się przed oknem, ale wnosząca do niego godziny, nie
+   traci provenance.
+
+POZOSTAŁE FINDINGS R3–R5
+------------------------
+
+- R3-1, wadliwe poprawne-JSON parametry: ZAMKNIĘTE.
+- R3-2, provenance REST/LOAD: ZAMKNIĘTE.
+- R4-1, provenance spoza okna: ZAMKNIĘTE.
+- R4-2, SIZE_FUNC testu audytowego: ZAMKNIĘTE.
+- R5-1, nocna zmiana na granicy okna: ZAMKNIĘTE.
+
+Nie znaleziono nowych naruszeń kontraktu.
+
+WERYFIKACJA
+-----------
+
+- pełny zestaw: 202/202 PASS;
+- wszystkie 13 testów audytowych T007 z rund 3–5: PASS;
+- ROTA-REG-001: 7/7 PASS;
+- benchmark rota_stress.py: 100/100 PASS, max 3.244 s;
+- Ruff: PASS;
+- SIZE_FILE/SIZE_FUNC: PASS;
+- diff poprawki 8622318..2819fb6 dla kodu/testów/benchmarku: clean;
+- niezależna kontrola półotwartych granic overlap: PASS.
+
+Znany false positive pełnego `git diff --check` na niezmiennym podkreśleniu
+sekcji w immutable `tests_r3.txt` pozostaje udokumentowany w tests_r4.txt;
+nie jest znacznikiem konfliktu ani findingiem implementacji.
+
+ZAKRES PASS
+-----------
+PASS dotyczy zgodności implementacji SHA 2819fb6 z zamrożonym kontraktem
+ROTA-T007 oraz zachowania zaakceptowanego T006. Nie jest decyzją produktową;
+końcowa akceptacja architektoniczna i merge pozostają zgodnie z procesem po
+stronie architekta/właściciela.

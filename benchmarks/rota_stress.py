@@ -236,7 +236,7 @@ def generate_case(index: int, seed: int) -> GeneratedCase:
         Site(site_id, profile_id, site_id, True),
         SiteProfile(profile_id, profile_id, True, shifts, True, False, False, True, 2, 60),
         month, _calendar_days(rng, month), boundary, memberships, employees, (),
-        _availability(rng, month, employees, list(witness_tuple), boundary), (), (), demands, existing, (),
+        _availability(rng, month, employees, list(witness_tuple), boundary), (), (), (), demands, existing, (),
         tuple(WorkBalance(e.employee_id, month, targets[e.employee_id], 0, 0, 0, 0, 0) for e in employees),
         (), (), version,
     )

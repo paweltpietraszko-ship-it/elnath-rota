@@ -184,6 +184,7 @@ def build_state_from_fixture(
         availability_records=_availability_records(fixture, month),
         site_rules=(),
         unresolved_site_rules=(),
+        site_rule_applicability=(),
         shift_demands=demands,
         existing_assignments=_training_s_existing_assignment(fixture, month, demands, version_id),
         deviations=(),

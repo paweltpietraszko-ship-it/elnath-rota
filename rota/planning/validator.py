@@ -23,6 +23,7 @@ from rota.domain import (
     MembershipKind,
     ShiftKind,
 )
+from rota.planning.site_rules import hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rest_hours, rolling_windows
 
@@ -53,6 +54,10 @@ class IndependentValidationReport:
     minimum_rest_hours: float | None = None
     maximum_rolling_7d_hours: dict[str, float] = field(default_factory=dict)
     maximum_rolling_7d_window: dict[str, tuple] = field(default_factory=dict)
+    # ROTA-T007 (audit round 5 FINDING R5-1): raw (datetime, datetime) window
+    # boundaries per employee, for callers that need real hour-overlap
+    # relevance rather than the calendar-date display form above.
+    maximum_rolling_7d_window_datetimes: dict[str, tuple] = field(default_factory=dict)
 
 
 def _by_employee(assignments: list[Assignment]) -> dict[str, list[Assignment]]:
@@ -391,6 +396,32 @@ def _check_external(state: PlanningState, assignments: list[Assignment], details
             ))
 
 
+def _check_site_rules(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md INDEPENDENT
+    VALIDATION): re-checks every applicable HARD SiteRule against every
+    PRIMARY Assignment independently of solver eligibility filtering
+    (anti-drift rule 12). The violation's rule code IS the exact
+    rule_version_id, never a generic condition code, so it flows straight
+    into Blocker.condition unchanged."""
+    for assignment in assignments:
+        if assignment.role != AssignmentRole.PRIMARY:
+            continue
+        shift_kind = _assignment_kind(assignment, state)
+        if shift_kind is None:
+            continue
+        applicable = hard_rules_applicable_on(
+            state.site_rules, state.site_rule_applicability, assignment.start_datetime.date()
+        )
+        for rule in applicable:
+            if rule_allows_assignment(rule, assignment.employee_id, assignment.start_datetime.date(), shift_kind):
+                continue
+            details.append(ViolationDetail(
+                rule.rule_version_id, (assignment.assignment_id,),
+                f"{rule.rule_version_id}: {assignment.employee_id} assignment {assignment.assignment_id} "
+                f"violates {rule.rule_kind}",
+            ))
+
+
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
     """REST-01. boundary_assignments (end of previous month, STATE-02
     arch/spec.md:330) are included, not only other_site_assignments."""
@@ -417,7 +448,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
 
 def _check_load(
     state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]
-) -> tuple[dict[str, float], dict[str, tuple]]:
+) -> tuple[dict[str, float], dict[str, tuple], dict[str, tuple]]:
     all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     grouped = _by_employee(all_assignments)
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
@@ -425,9 +456,17 @@ def _check_load(
     threshold = state.profile.rolling_7d_decision_threshold_hours
     max_load: dict[str, float] = {}
     max_window: dict[str, tuple] = {}
+    # ROTA-T007 (audit round 5 FINDING R5-1): the display-friendly max_window
+    # (calendar dates only) can't answer "does this Assignment overlap the
+    # actual worst window" correctly for an overnight shift that starts the
+    # day before the window but still contributes hours to it -- callers
+    # that need real relevance (engine._load_decision) need the original
+    # datetime boundaries, not their date()-rounded display form.
+    max_window_datetimes: dict[str, tuple] = {}
     for employee_id, employee_assignments in grouped.items():
         worst = 0.0
         worst_window = None
+        worst_window_datetimes = None
         ids = tuple(a.assignment_id for a in employee_assignments)
         for window_start, window_end in windows:
             hours = sum(
@@ -437,6 +476,7 @@ def _check_load(
             if hours > worst:
                 worst = hours
                 worst_window = (window_start.date(), (window_end - timedelta(days=1)).date())
+                worst_window_datetimes = (window_start, window_end)
             if hours > threshold:
                 details.append(ViolationDetail(
                     "LOAD-01", ids,
@@ -445,7 +485,8 @@ def _check_load(
         max_load[employee_id] = worst
         if worst_window is not None:
             max_window[employee_id] = worst_window
-    return max_load, max_window
+            max_window_datetimes[employee_id] = worst_window_datetimes
+    return max_load, max_window, max_window_datetimes
 
 
 def _monthly_hours(state: PlanningState, assignments: list[Assignment]) -> dict[str, int]:
@@ -486,8 +527,9 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_leave_and_unavailable(state, for_eligibility_checks, details)
     _check_leave_plan(state, for_eligibility_checks, warnings)
     _check_external(state, for_eligibility_checks, details)
+    _check_site_rules(state, for_eligibility_checks, details)
     min_rest = _check_rest(state, assignments, details)
-    max_load, max_window = _check_load(state, assignments, details)
+    max_load, max_window, max_window_datetimes = _check_load(state, assignments, details)
 
     return IndependentValidationReport(
         hard_pass=not details,
@@ -497,6 +539,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
         monthly_hours=_monthly_hours(state, assignments),
         minimum_rest_hours=min_rest,
         maximum_rolling_7d_window=max_window,
+        maximum_rolling_7d_window_datetimes=max_window_datetimes,
         maximum_rolling_7d_hours=max_load,
     )
 

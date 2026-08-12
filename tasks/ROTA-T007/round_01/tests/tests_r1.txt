@@ -1,0 +1,191 @@
+AUDYT GOTOWOŚCI KONTRAKTU ROTA-T007 — ROUND 1
+
+Gałąź źródłowa: arch/site-rule-execution-2026-08-12
+Frozen addendum SHA: 282cc787a49b56ac94239b62d061f9ff9ff660c4
+Task Contract SHA: 6289146447afc3b62b6fe18a3a058b201216cdde
+Base gałęzi kontraktowej: b97b762b3dfb4eef9d43a747a064e3b1e1144786
+Aktualny main podczas audytu: 79f9023d7469a69f4dc6e6c084c4e9ee6067004d
+Data audytu: 2026-08-12
+
+ZAKRES
+
+Audyt dotyczy gotowości ROTA-T007 do implementacji przez CC:
+- zgodności addendum SITE-RULE-EXEC-01 z briefem;
+- zamknięcia katalogu rule_kind i RuleParameters;
+- projekcji SiteMemory na pełny miesiąc;
+- wykonania HARD, zachowania NEEDS_RESOLUTION/INFORMATIONAL/SOFT;
+- solvera, niezależnego validatora i provenance rule_version_id;
+- PLAN/REPLAN oraz zachowania REPLAN-MIN-01;
+- kompletności macierzy A-Q i dwumiesięcznego testu SQLite;
+- wykonalności handoffu na aktualny main.
+
+Nie oceniano implementacji T007, ponieważ jeszcze nie istnieje.
+
+OBSZARY GOTOWE — PASS
+
+1. Vertical path i ownership
+
+Kontrakt jednoznacznie wymaga:
+Decision Ledger/SQLite -> automatyczna projekcja miesięczna -> PlanningState ->
+prevalidation -> solver eligibility -> niezależny validator -> wynik.
+
+PlanningEngine i cały rota/planning/ pozostają bez SQLite, rota.persistence i
+Decision Ledger. Persistence nie interpretuje parametrów. Podział ownership
+jest zgodny z frozen PlanningEngine no-persistent-state oraz MEMORY-01..03.
+
+2. Projekcja miesięczna
+
+Semantyka jest testowalna i kompletna:
+- automatyczne odkrycie wszystkich rodzin site_id;
+- daily effective selection przez istniejący algorytm T005;
+- inclusive effective_to;
+- supersedes/corrects/rejects w środku miesiąca;
+- NO_ACTIVE_RULE jako brak slice;
+- koalescencja kolejnych dni tej samej wersji;
+- exact persisted versions bez modyfikowania effective_to;
+- rozdział RESOLVED/NEEDS_RESOLUTION;
+- jawny, efemeryczny SiteRuleApplicability w PlanningState.
+
+3. Trzy reguły i parametry
+
+Każdy rule_kind ma zamknięty exact-match identyfikator, exact-shape JSON,
+zakres wartości i jednoznaczną semantykę. Zdefiniowano:
+- EMPLOYEE_ALLOWED_SHIFT_KINDS;
+- EMPLOYEE_ALLOWED_WEEKDAYS;
+- EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS.
+
+Niepuste listy, D/N, ISO weekdays 1..7, błędne typy, brakujące i dodatkowe
+klucze są rozstrzygnięte. Day anchor to data rozpoczęcia demandu, także dla N.
+Nie pozostaje luka parsera naturalnego języka ani ogólnego DSL.
+
+4. HARD, konflikty i validator
+
+- HARD działa przed objective i przed REPLAN reshuffle;
+- reguły łączą się przez AND;
+- valid rule-caused infeasibility to DECISION_REQUIRED, nie TECHNICAL_ERROR;
+- blocker/violation używa dokładnego rule_version_id;
+- validator ma niezależnie od solvera ponownie wykonać wszystkie applicable
+  HARD semantics;
+- frozen conflict jest autonomiczną granicą z rule_version_id;
+- REALIZED nie jest unieważniane retrospektywnie.
+
+5. Integracja i macierz
+
+Macierz A-Q obejmuje baseline, wszystkie trzy reguły, overnight anchor,
+supersession/reject, unresolved/informational/soft/error boundaries,
+multiple rules, validator, dwa miesiące po restarcie, brak planning I/O,
+frozen i REALIZED.
+
+Test N wymaga rzeczywistego SQLite + Decision Ledger + restart + automatyczne
+family discovery + monthly projection + real plan() w dwóch miesiącach. Dla
+piątku wymaga zarówno negatywnego D, jak i pozytywnego N, więc nie można
+uzyskać PASS przez testowanie samego zakazu.
+
+WYMAGA_DECYZJI T7-R1-1 — ZAKRES KATALOGU WZGLĘDEM SITEPROFILE
+
+Ślad kontraktowy:
+- frozen SITE-01: Site.profile_id wybiera semantykę SiteProfile;
+- architecture reference RULE-08, przywołane przez addendum i brief:
+  SiteProfile owns supported profile rule kinds and their interpretation;
+- addendum: `INITIAL EXECUTABLE RULE CATALOG — PROFILE OCHRONA`;
+- brief: `Profile OCHRONA supports exactly these executable T007 kinds`.
+
+Brakujące rozstrzygnięcie:
+- SiteProfile nie zawiera pola profile family/type ani listy supported kinds;
+- repo używa wielu legalnych profile_id, m.in. OCHRONA, OCHRONA-FEB,
+  TESTPROF i STRESS-*;
+- kontrakt nie definiuje, jak rozpoznać, że konkretny SiteProfile jest
+  profilem OCHRONA dla potrzeb katalogu.
+
+Co może obecnie zrobić CC — trzy różne zachowania, każde zgodne z częścią
+tekstu, lecz dające inne wyniki:
+1. wykonywać trzy rule_kind dla każdego SiteProfile;
+2. wykonywać je tylko dla literalnego profile_id == "OCHRONA";
+3. próbować zgadnąć rodzinę po nazwie/prefiksie, np. OCHRONA-FEB.
+
+To wpływa na FEASIBLE kontra TECHNICAL_ERROR/DECISION_REQUIRED oraz na to, czy
+zapamiętana reguła w ogóle ogranicza grafik. Testy minimal_state i benchmark
+używają profili innych niż literalne OCHRONA, więc wybór wpłynie też na
+budowę macierzy.
+
+Potrzebna jest jedna jawna decyzja właściciela/architekta:
+- czy katalog T007 obowiązuje wszystkie aktualnie obsługiwane profile pilota;
+- czy tylko profil OCHRONA, a jeśli tak, jaka dokładna, strukturalna cecha
+  identyfikuje tę rodzinę (bez inference z tekstu).
+
+Audyt nie wybiera rozwiązania ani nie proponuje nowego pola; wskazuje brak
+jednoznacznego oracle wynikający z istniejącego RULE-08.
+
+WYMAGA_DECYZJI T7-R1-2 — UNKNOWN/MALFORMED INFORMATIONAL
+
+Ślad kontraktowy:
+- addendum SITE-RULE-EXEC-01 punkt 7: INFORMATIONAL pozostaje
+  non-constraining;
+- addendum punkt 8: RESOLVED rule claiming executable, ale unsupported lub
+  malformed, daje TECHNICAL_ERROR — bez jawnego ograniczenia do HARD;
+- brief RULE KIND REGISTRY i Acceptance #7 ograniczają jawny error do
+  `Unknown/malformed RESOLVED HARD`;
+- brief test I mówi tylko, że RESOLVED INFORMATIONAL ma zero planning
+  constraint effect;
+- test J mówi `malformed supported parameters` bez wskazania enforcement.
+
+Brakujące rozstrzygnięcie:
+Jak traktować applicable RESOLVED INFORMATIONAL, gdy:
+- rule_kind jest nieznany; albo
+- rule_kind jest wspierany, ale structured_parameters jest malformed?
+
+Dwa możliwe wyniki nie są równoważne:
+- pominąć wykonanie jako INFORMATIONAL i kontynuować planowanie;
+- zwrócić TECHNICAL_ERROR z rule_version_id jako malformed/unsupported model.
+
+TECHNICAL_ERROR nie jest constraintem, więc zdanie „INFORMATIONAL never
+constrains” samo nie rozstrzyga tej różnicy. CC nie powinien wybierać jej
+samodzielnie. SOFT jest już rozstrzygnięty osobno i zawsze failuje jawnie w
+T007; NEEDS_RESOLUTION także jest jednoznacznie display-only.
+
+Potrzebne jest jedno zdanie w addendum/briefie określające, czy walidacja
+unknown/malformed obejmuje RESOLVED INFORMATIONAL, oraz odpowiedni sibling
+test w I lub J.
+
+HANDOFF NA AKTUALNY MAIN — MECHANICZNIE WYKONALNY
+
+Gałąź kontraktowa powstała bezpośrednio z b97b762 i nie zawiera przyjętego
+T006. Aktualny main 79f9023 zawiera zaakceptowane REPLAN-MIN-01 i spełnia
+warunek sekwencjonowania briefu.
+
+Merge-tree nie wykazał konfliktów dla dwóch nowych artefaktów T007. Diff
+b97b762..6289146 zawiera wyłącznie addendum i brief, git diff --check PASS.
+
+Bezpośrednie `task_init.py ROTA-T007` na 6289146 kończy się FAIL, ponieważ
+brief już utworzył tasks/ROTA-T007/. Po zamknięciu dwóch decyzji handoff do CC
+powinien zachować następujące fakty procesowe:
+1. task/ROTA-T007 powstaje z aktualnego main 79f9023 lub jawnie nowszego
+   następcy zawierającego zaakceptowane T006;
+2. frozen addendum jest wprowadzone na tę bazę;
+3. task_init.py ROTA-T007 jest uruchomione zanim powstanie katalog zadania;
+4. repo_before.hash zachowuje dokładny base SHA;
+5. poprawiony brief jest wprowadzony przed kodowaniem.
+
+To jest mechaniczna sekwencja provenance, nie trzecia decyzja produktowa.
+
+FINDINGS
+
+Brak błędów implementacji — implementacja nie istnieje.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+ROTA-T007 TASK CONTRACT: WYMAGA_DECYZJI / NOT READY FOR CC na SHA 6289146.
+
+Bilans:
+- 0 preferencji architektonicznych przedstawionych jako defect;
+- 2 materialne, testowalne niejednoznaczności kontraktu;
+- pozostała projekcja, katalog parametrów, wykonanie HARD, provenance,
+  REPLAN i macierz A-Q są gotowe.
+
+Po literalnym rozstrzygnięciu T7-R1-1 i T7-R1-2 wystarczy jeden ponowny
+przegląd skorygowanego briefu. Audyt nie będzie iteracyjnie przeprojektowywał
+T007 poza tymi dwoma punktami.

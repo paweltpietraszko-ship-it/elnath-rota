@@ -1,0 +1,44 @@
+ROTA-T007 — FINALNY RE-AUDYT SHA, RUNDA 7
+Data: 2026-08-12
+Audytor: Codex
+Audytowany SHA: f50c49edeff92c0ef2c6274359fe4ede9f144f13
+Gałąź: origin/task/ROTA-T007
+
+WERDYKT
+-------
+PASS — READY FOR FINAL ACCEPTANCE / MERGE DECISION.
+
+ZAKRES ZMIANY PO POPRZEDNIM PASS
+--------------------------------
+Topologia od zaakceptowanego SHA 2819fb6:
+
+1. `cef176d` — dodaje wyłącznie immutable raport `tests_r6.txt` z PASS;
+2. `f50c49e` — aktualizuje wyłącznie dwa nieaktualne komentarze/docstringi:
+   - `rota/domain.py` — komentarz katalogu `rule_kind`;
+   - `rota/planning/eligibility.py` — docstring opisujący wykonywanie T007.
+
+Nie zmieniono kodu wykonywalnego, struktur danych, status mapping, solvera,
+validatora, persystencji ani testów. Porównanie AST po usunięciu docstringów
+potwierdza identyczność kodu wykonywalnego obu zmienionych modułów względem
+zaakceptowanego 2819fb6.
+
+WERYFIKACJA
+-----------
+
+- pełny zestaw: 202/202 PASS;
+- ROTA-REG-001: 7/7 PASS;
+- benchmark rota_stress.py: 100/100 PASS, max 3.464 s;
+- Ruff: PASS;
+- SIZE_FILE/SIZE_FUNC: PASS;
+- diff 2819fb6..f50c49e: wyłącznie raport audytowy oraz dwa komentarze/docstringi;
+- diff check dla finalnej korekty: PASS;
+- nowe findings: brak.
+
+PODTRZYMANIE WERDYKTU
+---------------------
+PASS z tests_r6.txt pozostaje w całości ważny dla dokładnego finalnego SHA
+`f50c49edeff92c0ef2c6274359fe4ede9f144f13`.
+
+PASS dotyczy zgodności implementacji z zamrożonym kontraktem ROTA-T007 oraz
+zachowania zaakceptowanego T006. Końcowa akceptacja architektoniczna i merge
+pozostają zgodnie z procesem decyzją architekta/właściciela.
