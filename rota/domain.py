@@ -195,7 +195,8 @@ class SiteRule:
 
 
 RuleParameters = object  # CONTRACT_GAP — osobny task
-# typed union per rule_kind; zamrozone 2026-08-11
+# Not yet a typed union per rule_kind -- that catalog is undefined
+# (CONTRACT_GAP, unchanged by ROTA-T005's JSON persistence adapter).
 
 
 @dataclass

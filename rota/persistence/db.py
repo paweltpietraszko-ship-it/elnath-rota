@@ -32,6 +32,81 @@ CREATE TABLE IF NOT EXISTS standard_shifts (
     required_primary_count INTEGER NOT NULL,
     PRIMARY KEY (profile_id, seq)
 );
+
+-- ROTA-T005: Rule Store (append-only SiteRuleVersion) + Decision Ledger.
+-- Triggers below physically forbid UPDATE/DELETE, matching the append-only
+-- pattern adapted from Elnath Memory Engine's store/schema.sql.
+
+-- RULE-07 / brief.md RULE FAMILY INTEGRITY: one rule_id belongs to exactly
+-- one site_id, forever. Populated (once) and checked by
+-- site_rule_repository.ensure_rule_family on every write that touches a
+-- rule_id, not just at first-decision time.
+CREATE TABLE IF NOT EXISTS rule_families (
+    rule_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS site_rule_versions (
+    rule_version_id TEXT PRIMARY KEY,
+    rule_id TEXT NOT NULL,
+    site_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    rule_kind TEXT,
+    structured_parameters TEXT,
+    enforcement TEXT NOT NULL,
+    resolution_status TEXT NOT NULL,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    changed_at TEXT NOT NULL,
+    changed_by TEXT NOT NULL,
+    supersedes_rule_version_id TEXT REFERENCES site_rule_versions(rule_version_id),
+    description TEXT,
+    source TEXT,
+    reason TEXT
+);
+
+CREATE TABLE IF NOT EXISTS decision_records (
+    decision_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    chain_seq INTEGER NOT NULL,
+    statement TEXT NOT NULL,
+    coordinator_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    effective_from TEXT NOT NULL,
+    rule_version_id TEXT REFERENCES site_rule_versions(rule_version_id),
+    rel TEXT,
+    predecessor_decision_id TEXT REFERENCES decision_records(decision_id),
+    UNIQUE (site_id, rule_id, chain_seq)
+);
+
+CREATE TABLE IF NOT EXISTS decision_relations (
+    relation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_decision_id TEXT NOT NULL REFERENCES decision_records(decision_id),
+    rel TEXT NOT NULL,
+    to_decision_id TEXT NOT NULL REFERENCES decision_records(decision_id),
+    created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS rule_families_no_update BEFORE UPDATE ON rule_families
+BEGIN SELECT RAISE(ABORT, 'rule_families is append-only: UPDATE forbidden'); END;
+CREATE TRIGGER IF NOT EXISTS rule_families_no_delete BEFORE DELETE ON rule_families
+BEGIN SELECT RAISE(ABORT, 'rule_families is append-only: DELETE forbidden'); END;
+
+CREATE TRIGGER IF NOT EXISTS site_rule_versions_no_update BEFORE UPDATE ON site_rule_versions
+BEGIN SELECT RAISE(ABORT, 'site_rule_versions is append-only: UPDATE forbidden'); END;
+CREATE TRIGGER IF NOT EXISTS site_rule_versions_no_delete BEFORE DELETE ON site_rule_versions
+BEGIN SELECT RAISE(ABORT, 'site_rule_versions is append-only: DELETE forbidden'); END;
+
+CREATE TRIGGER IF NOT EXISTS decision_records_no_update BEFORE UPDATE ON decision_records
+BEGIN SELECT RAISE(ABORT, 'decision_records is append-only: UPDATE forbidden'); END;
+CREATE TRIGGER IF NOT EXISTS decision_records_no_delete BEFORE DELETE ON decision_records
+BEGIN SELECT RAISE(ABORT, 'decision_records is append-only: DELETE forbidden'); END;
+
+CREATE TRIGGER IF NOT EXISTS decision_relations_no_update BEFORE UPDATE ON decision_relations
+BEGIN SELECT RAISE(ABORT, 'decision_relations is append-only: UPDATE forbidden'); END;
+CREATE TRIGGER IF NOT EXISTS decision_relations_no_delete BEFORE DELETE ON decision_relations
+BEGIN SELECT RAISE(ABORT, 'decision_relations is append-only: DELETE forbidden'); END;
 """
 
 
