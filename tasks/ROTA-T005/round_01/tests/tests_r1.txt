@@ -1,0 +1,164 @@
+AUDYT IMPLEMENTACJI ROTA-T005 — ROUND 1
+
+Gałąź: task/ROTA-T005
+Audytowany SHA: 6b6e3748328769dbdbd457717176d3b6611852ba
+Commit bazowy/provenance zadania: c17491cbde7311bf31ca0164093d71cbe0cf3d67
+Kontrakt: tasks/ROTA-T005/brief.md w rewizji 9963f0e
+Data audytu: 2026-08-12
+
+ZAKRES
+
+Audyt obejmuje:
+- append-only Rule Store i Decision Ledger;
+- liniowość łańcucha oraz spójność obu historii;
+- atomowość Decision Record + SiteRuleVersion + relacja;
+- supersedes/corrects/rejects;
+- EFFECTIVE SELECTION dla dat;
+- inclusive effective_to;
+- retrieval/provenance/fate;
+- JSON persistence boundary structured_parameters;
+- projekcję RESOLVED/NEEDS_RESOLUTION;
+- brak sprzężenia PlanningEngine z persistence.
+
+Nie oceniano katalogu rule_kind, interpretera naturalnego języka, UI ani
+wykonywania SiteRule przez solver, ponieważ pozostają poza T005.
+
+PROVENANCE I SCOPE
+
+- HEAD odpowiada dokładnie 6b6e374.
+- Parent commita odpowiada tasks/ROTA-T005/repo_before.hash: c17491c.
+- Zmieniono wyłącznie obszary dozwolone przez T005: typy pamięci, persistence,
+  neutralizację komentarza RuleParameters, testy i repo_before.hash.
+- arch/spec.md i rota/planning/ pozostają niezmienione.
+- git diff --check: PASS.
+
+WYNIKI
+
+- Suita autora/commitowana: 144/144 passed.
+- Niezależna macierz: 10 passed, 6 failed (16 przypadków).
+- Łączny przebieg: 154 passed, 6 failed (160 przypadków).
+- Ruff dla zakresu T005: PASS.
+- SIZE_FILE/SIZE_FUNC dla kodu produkcyjnego T005: PASS.
+- Brak importu persistence/site_memory/sqlite3 w rota/planning/: PASS.
+
+OBSZARY POTWIERDZONE — PASS
+
+1. Append-only
+
+UPDATE i DELETE są fizycznie blokowane przez SQLite dla wszystkich trzech
+tabel: site_rule_versions, decision_records i decision_relations.
+
+2. Atomowość
+
+Fault injection na każdym etapie supersedes:
+- odczyt końca łańcucha;
+- insert SiteRuleVersion;
+- insert Decision Record;
+- insert relacji.
+
+Fault injection na każdym etapie rejects:
+- odczyt końca;
+- insert Decision Record;
+- insert relacji.
+
+Każda awaria pozostawia dokładnie poprzedni łańcuch i liczbę rekordów. Nie
+pozostaje osierocona wersja, decyzja ani relacja.
+
+3. EFFECTIVE SELECTION i historia
+
+- przykład A/B/C z przyszłą decyzją przechodzi również po zamknięciu i
+  ponownym otwarciu bazy;
+- wybór jest oparty na kolejności łańcucha po odfiltrowaniu effective_from;
+- provenance każdej wersji wskazuje dokładną decyzję i właściwy prefiks
+  łańcucha;
+- fate ACTIVE/SUPERSEDED dla testowanej sekwencji jest poprawny;
+- commitowane testy potwierdzają rejects, restore, corrects, inclusive
+  effective_to, brak wskrzeszenia starszej wersji i NO_ACTIVE_RULE.
+
+4. Projekcja
+
+RESOLVED i NEEDS_RESOLUTION trafiają do odrębnych kolekcji, a brak aktywnej
+reguły jest pomijany. PlanningEngine nie wykonuje I/O i nie czyta ledgera.
+
+FINDING R1-1 — HIGH — RULE FAMILY INTEGRITY NIE JEST EGZEKWOWANE
+
+Ślad kontraktowy:
+- frozen RULE-07: każdy SiteRule należy do dokładnie jednego Site;
+- tasks/ROTA-T005/brief.md:141–149: jedna rodzina rule_id należy zawsze do
+  dokładnie jednego site_id, a supersedes musi wskazywać ten sam rule_id i
+  site_id;
+- acceptance #4–#7 wymaga integralności liniowego łańcucha i obu historii.
+
+Wariant A — publiczna ścieżka record_decision:
+- utworzenie pierwszej decyzji dla (S1, R1) przechodzi;
+- utworzenie kolejnej „pierwszej” decyzji dla (S2, R1) również przechodzi;
+- powstają dwie niezależne rodziny o tym samym rule_id należące do dwóch Site.
+
+Przyczyna:
+- decision_ledger._current_chain_end() wyszukuje po parze (site_id, rule_id);
+- brak osobnego invariant/mappingu, że istniejący rule_id ma jednego właściciela
+  site_id;
+- UNIQUE(site_id, rule_id, chain_seq) świadomie dopuszcza drugi Site.
+
+Wariant B — sibling w Rule Store:
+- insert_site_rule_version() przyjmuje wersję (S2, R2), której
+  supersedes_rule_version_id wskazuje istniejącą wersję (S1, R1);
+- foreign key sprawdza jedynie istnienie ID, nie zgodność rule_id/site_id;
+- zapis przechodzi, tworząc cross-family i cross-site lineage.
+
+To jedna klasa błędu: RULE FAMILY INTEGRITY nie jest chronione ani na głównej
+ścieżce ledgera, ani na sąsiedniej ścieżce repository. Naprawa jednego
+reproduktora bez wspólnego invariant pozostawi drugi wariant otwarty.
+
+FINDING R1-2 — MEDIUM — JSON BOUNDARY MILCZĄCO ZMIENIA LUB AKCEPTUJE DANE SPOZA JSON
+
+Ślad kontraktowy:
+- tasks/ROTA-T005/brief.md:152–168: JSON jest wyłącznie formatem persistence;
+  boundary przyjmuje reprezentację JSON-compatible i odczytuje ją bez zmiany
+  znaczenia;
+- acceptance #20: T005 ma zachować tę granicę bez zamrażania domenowego typu;
+- deklaracja implementacji mówi o odrzuceniu danych nie-JSON.
+
+Macierz siblingów:
+- `{1: "x"}` zapisuje się, lecz odczytuje jako `{"1": "x"}`;
+- `{"tuple": (1, 2)}` zapisuje się, lecz odczytuje jako
+  `{"tuple": [1, 2]}`;
+- NaN jest przyjmowane przez json.dumps i po round-trip nie jest nawet równe
+  własnej wartości wejściowej;
+- Infinity jest zapisywane jako niestandardowy token JSON zamiast zostać
+  odrzucone.
+
+Przyczyna:
+- site_rule_repository._dump_parameters() wywołuje json.dumps(value) z
+  ustawieniami domyślnymi;
+- domyślny encoder Pythona konwertuje klucze niebędące tekstem i tuple oraz
+  dopuszcza NaN/Infinity;
+- obsłużony TypeError dla object() pokrywa tylko jeden przypadek nie-JSON,
+  nie całą klasę granicy.
+
+Dopuszczalne zachowanie wynikające z kontraktu:
+- przyjąć wyłącznie rzeczywiście JSON-compatible strukturę i zachować ją
+  semantycznie bez zmian;
+- albo odrzucić wejście przed zapisem typowanym błędem.
+
+Nie wymaga to definiowania przyszłego RuleParameters ani katalogu rule_kind.
+Dotyczy wyłącznie poprawności zadeklarowanego adaptera persistence.
+
+WYMAGA_DECYZJI
+
+Brak. Oba findings wynikają wprost z RULE-07 oraz przyjętego Task Contract.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+OVERALL T005: FAIL na SHA 6b6e374.
+
+Bilans: 2 klasy błędów kodu, 0 findings wynikających z preferencji
+architektonicznej, 0 WYMAGA_DECYZJI.
+
+Append-only, atomowość, EFFECTIVE SELECTION, provenance i projekcja przechodzą.
+Do zamknięcia pozostaje integralność globalnej rodziny rule_id oraz ścisła,
+bezstratna granica JSON.

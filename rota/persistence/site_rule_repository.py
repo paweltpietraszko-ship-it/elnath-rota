@@ -18,22 +18,63 @@ class SiteRuleVersionNotFound(Exception):
     """Raised when rule_version_id has no matching row."""
 
 
+class RuleFamilyIntegrityError(Exception):
+    """Raised when a write would let one rule_id span two site_id, or link
+    a SiteRuleVersion to a supersedes target outside its own family
+    (RULE-07 / brief.md RULE FAMILY INTEGRITY)."""
+
+
+def ensure_rule_family(conn: sqlite3.Connection, rule_id: str, site_id: str) -> None:
+    """Register rule_id's owning site_id on first sight; reject any later
+    write for the same rule_id under a different site_id. Shared by both
+    write paths that can create/extend a family (record_decision and this
+    module's insert_site_rule_version) so neither can bypass the other."""
+    row = conn.execute("SELECT site_id FROM rule_families WHERE rule_id = ?", (rule_id,)).fetchone()
+    if row is None:
+        conn.execute("INSERT INTO rule_families (rule_id, site_id) VALUES (?, ?)", (rule_id, site_id))
+    elif row[0] != site_id:
+        raise RuleFamilyIntegrityError(f"rule_id {rule_id!r} belongs to site {row[0]!r}, not {site_id!r}")
+
+
 def _dump_parameters(value: Optional[object]) -> Optional[str]:
     if value is None:
         return None
     try:
-        return json.dumps(value)
-    except TypeError as exc:
+        dumped = json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError) as exc:
         raise TypeError(f"structured_parameters must be JSON-compatible: {exc}") from exc
+    if json.loads(dumped) != value:
+        # Python's json module silently coerces on encode (non-string dict
+        # keys -> str, tuple -> list) instead of rejecting them -- round-trip
+        # comparison catches any such lossy encoding generically, without
+        # special-casing each Python type that isn't real JSON.
+        raise TypeError(
+            "structured_parameters is not exactly JSON-representable "
+            "(e.g. non-string dict keys or tuples would silently change on round-trip)"
+        )
+    return dumped
 
 
 def _load_parameters(raw: Optional[str]) -> Optional[object]:
     return None if raw is None else json.loads(raw)
 
 
+def _check_supersedes_same_family(conn: sqlite3.Connection, version: SiteRuleVersion) -> None:
+    if version.supersedes_rule_version_id is None:
+        return
+    target = get_site_rule_version(conn, version.supersedes_rule_version_id)
+    if target.rule_id != version.rule_id or target.site_id != version.site_id:
+        raise RuleFamilyIntegrityError(
+            f"supersedes_rule_version_id {version.supersedes_rule_version_id!r} belongs to "
+            f"({target.site_id!r}, {target.rule_id!r}), not ({version.site_id!r}, {version.rule_id!r})"
+        )
+
+
 def insert_site_rule_version(conn: sqlite3.Connection, version: SiteRuleVersion) -> None:
     """Insert-only. Callers needing atomicity with a Decision Record use
     decision_ledger.record_decision instead of calling this directly."""
+    ensure_rule_family(conn, version.rule_id, version.site_id)
+    _check_supersedes_same_family(conn, version)
     conn.execute(
         """INSERT INTO site_rule_versions
            (rule_version_id, rule_id, site_id, category, rule_kind, structured_parameters,

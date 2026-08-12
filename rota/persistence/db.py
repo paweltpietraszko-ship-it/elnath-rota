@@ -37,6 +37,15 @@ CREATE TABLE IF NOT EXISTS standard_shifts (
 -- Triggers below physically forbid UPDATE/DELETE, matching the append-only
 -- pattern adapted from Elnath Memory Engine's store/schema.sql.
 
+-- RULE-07 / brief.md RULE FAMILY INTEGRITY: one rule_id belongs to exactly
+-- one site_id, forever. Populated (once) and checked by
+-- site_rule_repository.ensure_rule_family on every write that touches a
+-- rule_id, not just at first-decision time.
+CREATE TABLE IF NOT EXISTS rule_families (
+    rule_id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS site_rule_versions (
     rule_version_id TEXT PRIMARY KEY,
     rule_id TEXT NOT NULL,
@@ -78,6 +87,11 @@ CREATE TABLE IF NOT EXISTS decision_relations (
     to_decision_id TEXT NOT NULL REFERENCES decision_records(decision_id),
     created_at TEXT NOT NULL
 );
+
+CREATE TRIGGER IF NOT EXISTS rule_families_no_update BEFORE UPDATE ON rule_families
+BEGIN SELECT RAISE(ABORT, 'rule_families is append-only: UPDATE forbidden'); END;
+CREATE TRIGGER IF NOT EXISTS rule_families_no_delete BEFORE DELETE ON rule_families
+BEGIN SELECT RAISE(ABORT, 'rule_families is append-only: DELETE forbidden'); END;
 
 CREATE TRIGGER IF NOT EXISTS site_rule_versions_no_update BEFORE UPDATE ON site_rule_versions
 BEGIN SELECT RAISE(ABORT, 'site_rule_versions is append-only: UPDATE forbidden'); END;

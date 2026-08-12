@@ -15,7 +15,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from rota.domain import SiteRuleVersion
-from rota.persistence.site_rule_repository import insert_site_rule_version
+from rota.persistence.site_rule_repository import ensure_rule_family, insert_site_rule_version
 from rota.site_memory_types import DECISION_RELATIONS, DecisionRecord, NewRuleContent
 
 
@@ -115,6 +115,7 @@ def record_decision(
     rule_content: Optional[NewRuleContent],
 ) -> DecisionRecord:
     with conn:
+        ensure_rule_family(conn, rule_id, site_id)
         end_row = _current_chain_end(conn, site_id, rule_id)
         predecessor_id, _, predecessor_rule_version_id, chain_seq = _resolve_predecessor(
             end_row, rel, rule_content

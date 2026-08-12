@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rota.domain import RuleCategory, RuleEnforcement, RuleResolution
+from rota.domain import RuleCategory, RuleEnforcement, RuleResolution, SiteRuleVersion
 from rota.persistence.db import connect
 from rota.persistence.decision_ledger import ChainIntegrityError, record_decision
 from rota.persistence.site_memory import (
@@ -18,6 +18,7 @@ from rota.persistence.site_memory import (
     rule_provenance,
 )
 from rota.persistence.site_rule_assembly import assemble_site_rules
+from rota.persistence.site_rule_repository import RuleFamilyIntegrityError, insert_site_rule_version
 from rota.site_memory_types import EffectiveRule, NewRuleContent, NoActiveRule
 
 
@@ -331,6 +332,63 @@ def test_assemble_site_rules_splits_resolved_and_skips_no_active_rule(tmp_path: 
     resolved, unresolved = assemble_site_rules(conn, "S1", ["R1", "R_NEVER_DECIDED"], date(2026, 3, 5))
     assert len(resolved) == 1
     assert unresolved == ()
+
+
+def test_r1_1a_same_rule_id_under_two_sites_is_rejected(tmp_path: Path) -> None:
+    """Audit round 1 FINDING R1-1 variant A: record_decision let a second,
+    independent family reuse the same rule_id under a different site_id."""
+    conn = _conn(tmp_path)
+    record_decision(
+        conn, site_id="S1", rule_id="R1", statement="v1", coordinator_id="C",
+        recorded_at=datetime(2026, 3, 1), effective_from=date(2026, 3, 1), rel=None, rule_content=_content(),
+    )
+    with pytest.raises(RuleFamilyIntegrityError):
+        record_decision(
+            conn, site_id="S2", rule_id="R1", statement="v1 on a different site", coordinator_id="C",
+            recorded_at=datetime(2026, 3, 2), effective_from=date(2026, 3, 2), rel=None, rule_content=_content(),
+        )
+
+
+def test_r1_1b_cross_family_supersedes_link_is_rejected(tmp_path: Path) -> None:
+    """Audit round 1 FINDING R1-1 variant B: insert_site_rule_version accepted
+    a version whose supersedes_rule_version_id pointed at a different
+    (site_id, rule_id) family -- only the foreign key existence was checked."""
+    conn = _conn(tmp_path)
+    original = record_decision(
+        conn, site_id="S1", rule_id="R1", statement="v1", coordinator_id="C",
+        recorded_at=datetime(2026, 3, 1), effective_from=date(2026, 3, 1), rel=None, rule_content=_content(),
+    )
+    cross_family_version = SiteRuleVersion(
+        rule_version_id="RV-cross-family", rule_id="R2", site_id="S2",
+        category=RuleCategory.LOCAL_RULE, rule_kind=None, structured_parameters=None,
+        enforcement=RuleEnforcement.HARD, resolution_status=RuleResolution.RESOLVED,
+        effective_from=date(2026, 3, 1), effective_to=None,
+        changed_at=datetime(2026, 3, 1), changed_by="C",
+        supersedes_rule_version_id=original.rule_version_id,
+        description=None, source=None, reason=None,
+    )
+    with pytest.raises(RuleFamilyIntegrityError):
+        insert_site_rule_version(conn, cross_family_version)
+
+
+def test_r1_2_json_boundary_rejects_lossy_or_non_standard_values(tmp_path: Path) -> None:
+    """Audit round 1 FINDING R1-2: json.dumps defaults silently coerce
+    non-string dict keys and tuples, and accept NaN/Infinity, which are not
+    valid JSON -- all four must now be refused, not silently mutated."""
+    conn = _conn(tmp_path)
+    non_json_values = [
+        {1: "x"},
+        {"tuple": (1, 2)},
+        float("nan"),
+        float("inf"),
+    ]
+    for index, value in enumerate(non_json_values):
+        with pytest.raises(TypeError):
+            record_decision(
+                conn, site_id="S1", rule_id=f"R-json-{index}", statement="v1", coordinator_id="C",
+                recorded_at=datetime(2026, 3, 1), effective_from=date(2026, 3, 1),
+                rel=None, rule_content=_content(structured_parameters=value),
+            )
 
 
 def test_planning_engine_has_no_site_memory_coupling() -> None:
