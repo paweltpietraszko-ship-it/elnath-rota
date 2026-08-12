@@ -35,7 +35,13 @@ from rota.planning.engine_types import (
     PlanningResult,
 )
 from rota.planning.shift_catalog import UnclassifiedShiftError
-from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
+from rota.planning.solver import (
+    SolverOutcome,
+    eligible_employees_for_demands,
+    fixed_existing_assignments,
+    frozen_conflict_blockers,
+    solve,
+)
 from rota.planning.validator import IndependentValidationReport, validate
 
 
@@ -112,6 +118,9 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
         return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
     non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
     if non_load_violations:
+        conflicts = frozen_conflict_blockers(state)
+        if conflicts:
+            return _decision_for_frozen_conflict(state, conflicts)
         return PlanningResult(
             "TECHNICAL_ERROR", [], None,
             "independent validator found HARD violations in a CP-SAT-OPTIMAL candidate: "
@@ -190,6 +199,9 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
         # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
         # A LOAD-01 trigger does not authorize silently accepting a
         # co-occurring HARD violation via the DECISION_REQUIRED payload.
+        conflicts = frozen_conflict_blockers(state)
+        if conflicts:
+            return _decision_for_frozen_conflict(state, conflicts)
         return PlanningResult(
             "TECHNICAL_ERROR", [], None,
             "independent validator found non-LOAD-01 HARD violations in the uncapped fallback candidate: "
@@ -197,6 +209,31 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
             [],
         )
     return _load_decision(state, report, list(outcome.warnings))
+
+
+def _decision_for_frozen_conflict(state: PlanningState, conflicts: list[tuple[str, str, str]]) -> PlanningResult:
+    """FINDING R20-2 (tests_r20.txt): a future frozen Assignment that no
+    longer has an eligible employee behind it (new UNAVAILABLE_24H/
+    LEAVE_GRANTED/SICK_LEAVE, disabled membership, ...) is a normal autonomy
+    boundary -- ASSIGN-04 forbids REPLAN from silently moving it, so the
+    coordinator must decide, same as any other DECISION_REQUIRED."""
+    by_id = {d.demand_id: d for d in state.shift_demands}
+    blocking = [
+        BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
+        for _, _, demand_id in conflicts
+        if demand_id in by_id
+    ]
+    blockers = [Blocker(employee_id, reason) for employee_id, reason, _ in conflicts]
+    payload = DecisionRequiredPayload(
+        blocking_shift_demands=blocking,
+        blockers=blockers,
+        load_blocker=None,
+        unblocking_options=[
+            "świadome odmrożenie Assignment i ponowne planowanie",
+            "świadoma ręczna korekta frozen Assignment zgodnie z kontraktem",
+        ],
+    )
+    return PlanningResult("DECISION_REQUIRED", [], payload, None, [])
 
 
 def _load_decision(state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]) -> PlanningResult:

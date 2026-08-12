@@ -27,14 +27,13 @@ from rota.domain import (
     ShiftKind,
 )
 from rota.planning.eligibility import check_eligibility
+from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import intervals_overlap, overlap_hours, rest_hours, rolling_windows
 
 TARGET_DEVIATION_WEIGHT = 100
 SOFT_PENALTY_WEIGHT = 1
-WEEKEND_FAIRNESS_WEIGHT = 1
-HOLIDAY_FAIRNESS_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
 MAX_MONTHLY_HOURS = 744
 SICK_LEAVE_HOURS_PER_DAY = 8
@@ -81,13 +80,24 @@ def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
     regardless of frozen, the same as REALIZED work. CANCELLED is never
     fixed (it is not real work at all, arch/spec.md:257).
 
-    Modeling note: S protection is expressed by the coordinator setting
-    frozen=True on the mentor's underlying PRIMARY Assignment when attaching
-    S to it, not by scanning for TRAINEE.mentor_primary_assignment_id
-    references -- arch/spec.md describes this as a behavioral outcome
-    ("nie powinien automatycznie rozdzielić underlying mentor shift od
-    przypiętego S"), not a specific mechanism, and frozen=True is the
-    existing domain mechanism for "do not touch this."""
+    Modeling note: S protection was originally expressed only via the
+    coordinator setting frozen=True on the mentor's underlying PRIMARY
+    Assignment when attaching S to it. FINDING R20-3 (tests_r20.txt) showed
+    that is not sufficient by itself: ASSIGN-05 says a manual Assignment is
+    NOT automatically frozen, so a mentor PRIMARY with an attached TRAINEE
+    can legitimately have frozen=False, and REPLAN redistributing it away
+    left the TRAINEE's mentor_primary_assignment_id pointing at an
+    Assignment no longer in the candidate. A PRIMARY referenced by any
+    active (non-CANCELLED) TRAINEE.mentor_primary_assignment_id is now also
+    fixed, regardless of its own frozen/state -- frozen=True remains a valid
+    independent way to pin it too, but is no longer the only one."""
+    mentor_linked_ids = {
+        assignment.mentor_primary_assignment_id
+        for assignment in state.existing_assignments
+        if assignment.role == AssignmentRole.TRAINEE
+        and assignment.state != AssignmentState.CANCELLED
+        and assignment.mentor_primary_assignment_id
+    }
     fixed = []
     for assignment in state.existing_assignments:
         if assignment.state == AssignmentState.CANCELLED:
@@ -97,10 +107,56 @@ def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
             and assignment.covers_demand_id is not None
             and assignment.state == AssignmentState.PLANNED
             and not assignment.frozen
+            and assignment.assignment_id not in mentor_linked_ids
         )
         if not redistributable:
             fixed.append(assignment)
     return fixed
+
+
+def frozen_conflict_blockers(state: PlanningState) -> list[tuple[str, str, str]]:
+    """Diagnose fixed (non-redistributable, non-REALIZED) PRIMARY Assignments
+    that currently conflict with eligibility/availability data (FINDING
+    R20-2, tests_r20.txt): ASSIGN-04 blocks REPLAN from moving a frozen
+    Assignment, and R20-3's mentor-link protection blocks it from moving a
+    PRIMARY an active TRAINEE depends on even when frozen=False -- either way
+    it is not exempt from HARD scrutiny the way REALIZED is. A fixed
+    Assignment whose employee is no longer eligible (new UNAVAILABLE_24H/
+    LEAVE_GRANTED/SICK_LEAVE, disabled membership, ...) is a normal autonomy
+    boundary the coordinator must resolve, not a technical failure. Returns
+    (employee_id, reason, demand_id) for every such conflict."""
+    demands_by_id = {d.demand_id: d for d in state.shift_demands}
+    employees_by_id = {e.employee_id: e for e in state.employees}
+    memberships_by_employee = {
+        m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id
+    }
+    availability_by_employee: dict[str, list] = {}
+    for record in state.availability_records:
+        availability_by_employee.setdefault(record.employee_id, []).append(record)
+
+    conflicts: list[tuple[str, str, str]] = []
+    for assignment in fixed_existing_assignments(state):
+        if assignment.state == AssignmentState.REALIZED:
+            continue
+        if assignment.role != AssignmentRole.PRIMARY or not assignment.covers_demand_id:
+            continue
+        demand = demands_by_id.get(assignment.covers_demand_id)
+        employee = employees_by_id.get(assignment.employee_id)
+        membership = memberships_by_employee.get(assignment.employee_id)
+        if demand is None:
+            continue
+        if employee is None or membership is None:
+            conflicts.append((assignment.employee_id, "MEMBERSHIP-01", assignment.covers_demand_id))
+            continue
+        shift_kind = classify_demand(demand, state.profile)
+        result = check_eligibility(
+            employee, membership, demand, shift_kind, state.profile,
+            availability_by_employee.get(assignment.employee_id, []),
+            list(state.external_windows), state.site.site_id,
+        )
+        if not result.eligible:
+            conflicts.append((assignment.employee_id, result.blocked_reason or "UNKNOWN", assignment.covers_demand_id))
+    return conflicts
 
 
 def _already_covered_counts(state: PlanningState) -> dict[str, int]:
@@ -323,11 +379,17 @@ def _add_load_constraints(
 def _sick_leave_days_in_month(state: PlanningState) -> dict[str, int]:
     """Count active SICK_LEAVE calendar days per employee inside the current
     month only -- target_hours is a monthly figure, so a sick period spanning
-    into another month must not discount days outside this one."""
+    into another month must not discount days outside this one.
+
+    FINDING R21-1 (tests_r21.txt): two active SICK_LEAVE records for the same
+    employee can legitimately overlap or abut (e.g. an extension logged as a
+    second record instead of editing the first) -- a shared calendar day must
+    count once, not once per record. Unions per-employee calendar dates
+    instead of summing each record's own day count."""
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
     month_start = date(state.month.year, state.month.month, 1)
     month_end = date(state.month.year, state.month.month, num_days)
-    days_by_employee: dict[str, int] = {}
+    dates_by_employee: dict[str, set] = {}
     for record in state.availability_records:
         if not record.active or record.kind != AvailabilityKind.SICK_LEAVE:
             continue
@@ -335,9 +397,12 @@ def _sick_leave_days_in_month(state: PlanningState) -> dict[str, int]:
         overlap_end = min(record.end_date, month_end)
         if overlap_start > overlap_end:
             continue
-        days = (overlap_end - overlap_start).days + 1
-        days_by_employee[record.employee_id] = days_by_employee.get(record.employee_id, 0) + days
-    return days_by_employee
+        current = overlap_start
+        employee_dates = dates_by_employee.setdefault(record.employee_id, set())
+        while current <= overlap_end:
+            employee_dates.add(current)
+            current += timedelta(days=1)
+    return {employee_id: len(dates) for employee_id, dates in dates_by_employee.items()}
 
 
 def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState) -> None:
@@ -384,54 +449,21 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
         if slot.leave_plan_collision or slot.day_off_soft_entry:
             penalties.append(SOFT_PENALTY_WEIGHT * x[slot.employee_id, slot.demand.demand_id])
 
-    _add_weekend_fairness(model, x, by_employee, state, penalties)
-    _add_holiday_fairness(model, x, by_employee, state, penalties)
+    add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
+    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
+    add_holiday_fairness(model, x, by_employee, holiday_dates, _historical_holiday_hours(state), penalties)
 
     model.minimize(sum(penalties))
-
-
-def _is_weekend(day: date) -> bool:
-    return day.weekday() >= 5
 
 
 def _fixed_weekend_hours(state: PlanningState) -> dict[str, int]:
     hours: dict[str, int] = {}
     for assignment in fixed_existing_assignments(state):
-        if assignment.role != AssignmentRole.PRIMARY or not _is_weekend(assignment.start_datetime.date()):
+        if assignment.role != AssignmentRole.PRIMARY or assignment.start_datetime.weekday() < 5:
             continue
         worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
     return hours
-
-
-def _add_weekend_fairness(
-    model: cp_model.CpModel, x: dict, by_employee: dict[str, list[SolverSlot]], state: PlanningState,
-    penalties: list,
-) -> None:
-    """Weekend fairness (arch/spec.md SECTION 3): monotonically prefer variants
-    closer to an equal weekend workload among employees eligible this period.
-    SOFT only -- weighted far below TARGET_DEVIATION_WEIGHT so it only breaks
-    ties among equally target-optimal candidates, never trades away target
-    accuracy (ROTA-REG-001 still requires exact monthly hours)."""
-    if len(by_employee) < 2:
-        return
-    fixed_weekend = _fixed_weekend_hours(state)
-    weekend_hours_vars = []
-    for employee_id, employee_slots in by_employee.items():
-        terms = [
-            _demand_hours(s.demand) * x[employee_id, s.demand.demand_id]
-            for s in employee_slots
-            if _is_weekend(s.demand.start_datetime.date())
-        ]
-        hours_var = model.new_int_var(0, MAX_MONTHLY_HOURS, f"weekend_hours_{employee_id}")
-        model.add(hours_var == sum(terms) + fixed_weekend.get(employee_id, 0))
-        weekend_hours_vars.append(hours_var)
-
-    max_weekend = model.new_int_var(0, MAX_MONTHLY_HOURS, "weekend_hours_max")
-    min_weekend = model.new_int_var(0, MAX_MONTHLY_HOURS, "weekend_hours_min")
-    model.add_max_equality(max_weekend, weekend_hours_vars)
-    model.add_min_equality(min_weekend, weekend_hours_vars)
-    penalties.append(WEEKEND_FAIRNESS_WEIGHT * (max_weekend - min_weekend))
 
 
 def _historical_holiday_hours(state: PlanningState) -> dict[str, int]:
@@ -442,37 +474,6 @@ def _historical_holiday_hours(state: PlanningState) -> dict[str, int]:
         worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
     return hours
-
-
-def _add_holiday_fairness(
-    model: cp_model.CpModel, x: dict, by_employee: dict[str, list[SolverSlot]], state: PlanningState,
-    penalties: list,
-) -> None:
-    """Holiday fairness (arch/spec.md SECTION 3): prefer variants that reduce
-    historical inequality of holiday work, derived from
-    state.holiday_history (persisted REALIZED Assignments on
-    CalendarDay(holiday=true)) -- not law, purely SOFT.
-
-    Scope-limited design: employees are ranked by historical holiday hours
-    (least-loaded = rank 0, no penalty); each candidate's penalty for taking a
-    holiday-dated demand this month is WEIGHT * rank, not the raw historical
-    hour count. This keeps the term bounded by team size (safely below
-    TARGET_DEVIATION_WEIGHT for realistic rosters) instead of by unbounded
-    accumulated history, at the cost of only expressing relative ordering,
-    not magnitude of the historical imbalance."""
-    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
-    if not holiday_dates or len(by_employee) < 2:
-        return
-    historical_hours = _historical_holiday_hours(state)
-    ranked_employees = sorted(by_employee, key=lambda e: historical_hours.get(e, 0))
-    rank_by_employee = {employee_id: rank for rank, employee_id in enumerate(ranked_employees)}
-    for employee_id, employee_slots in by_employee.items():
-        rank = rank_by_employee[employee_id]
-        if rank == 0:
-            continue
-        for slot in employee_slots:
-            if slot.demand.start_datetime.date() in holiday_dates:
-                penalties.append(HOLIDAY_FAIRNESS_WEIGHT * rank * x[employee_id, slot.demand.demand_id])
 
 
 def _extract_assignments(

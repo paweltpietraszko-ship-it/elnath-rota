@@ -136,17 +136,24 @@ def test_replan_preserves_realized_assignment_even_if_employee_now_unavailable()
 
 def test_replan_preserves_trainee_assignment_always():
     mentee = Employee("MENTEE", "MENTEE", date(2026, 9, 1), None, False)
+    mentor = Employee("MENTOR", "MENTOR", date(2026, 9, 1), None, False)
+    mentor_primary = Assignment(
+        "mentor-primary-1", "test-v1", "MENTOR", DEMAND_D.start_datetime, DEMAND_D.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, DEMAND_D.demand_id, None,
+    )
     trainee = Assignment(
         "s-1", "test-v1", "MENTEE", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 11, 0),
         AssignmentRole.TRAINEE, AssignmentState.PLANNED, False, None, "mentor-primary-1",
     )
     state = base_state(
-        employees=(mentee,), memberships=(_local_membership("MENTEE"),),
-        shift_demands=(), existing_assignments=(trainee,),
+        employees=(mentee, mentor), memberships=(_local_membership("MENTEE"), _local_membership("MENTOR")),
+        shift_demands=(DEMAND_D,), existing_assignments=(mentor_primary, trainee),
     )
     result = plan(state)
     assert result.status == "FEASIBLE"
-    assert result.candidates[0] == [trainee]
+    assert sorted(result.candidates[0], key=lambda a: a.assignment_id) == sorted(
+        [mentor_primary, trainee], key=lambda a: a.assignment_id
+    )
 
 
 def test_validator_flags_tampered_fixed_assignment_independently():

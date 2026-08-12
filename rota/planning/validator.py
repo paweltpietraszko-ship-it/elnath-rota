@@ -68,6 +68,24 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], violati
             )
 
 
+def _check_trainee_mentor_reference(assignments: list[Assignment], violations: list[str]) -> None:
+    """FINDING R20-3 (tests_r20.txt): a TRAINEE's mentor_primary_assignment_id
+    must resolve inside the same candidate. Independently re-derived from the
+    final assignment list, not from solver.fixed_existing_assignments()'s own
+    bookkeeping of what it decided to keep (anti-drift rule 12) -- catches a
+    dangling reference regardless of which code path produced it."""
+    ids_present = {a.assignment_id for a in assignments}
+    for assignment in assignments:
+        if assignment.role != AssignmentRole.TRAINEE:
+            continue
+        mentor_id = assignment.mentor_primary_assignment_id
+        if mentor_id and mentor_id not in ids_present:
+            violations.append(
+                f"ASSIGN: {assignment.assignment_id} (TRAINEE) references missing "
+                f"mentor_primary_assignment_id {mentor_id}"
+            )
+
+
 def _check_replan_preserves_fixed(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
     """REPLAN (arch/spec.md SECTION 7, ASSIGN-03/04): REALIZED work and frozen
     future Assignments must not be changed by REPLAN; TRAINEE (S) is never
@@ -347,6 +365,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
 
     _check_coverage(state, assignments, violations)
     _check_replan_preserves_fixed(state, assignments, violations)
+    _check_trainee_mentor_reference(assignments, violations)
     _check_membership_enabled(state, for_eligibility_checks, violations)
     _check_employee_active(state, for_eligibility_checks, violations)
     _check_day_only(state, for_eligibility_checks, violations)
