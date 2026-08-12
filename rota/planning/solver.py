@@ -11,13 +11,11 @@ is hardcoded to October 2026 or to employees A-E.
 """
 from __future__ import annotations
 
-import calendar
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from ortools.sat.python import cp_model
 
-from rota.constants import REST_MIN_HOURS
 from rota.domain import (
     Assignment,
     AssignmentRole,
@@ -27,11 +25,11 @@ from rota.domain import (
     ShiftKind,
 )
 from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
+from rota.planning.constraints import add_load_constraints, add_rest_constraints, build_fixed_intervals
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.state import PlanningState
-from rota.planning.timeutil import intervals_overlap, overlap_hours, rest_hours, rolling_windows
 
 TARGET_DEVIATION_WEIGHT = 100
 SOFT_PENALTY_WEIGHT = 1
@@ -284,25 +282,6 @@ def _collect_eligible_slots(
     return eligible_count, eligible_ids, reasons
 
 
-def _fixed_intervals(state: PlanningState) -> dict[str, list[tuple[datetime, datetime]]]:
-    """CANCELLED Assignments are not actual work (arch/spec.md:257) and must not
-    block a replacement via REST-01/LOAD-01 (audit round 13, tests_r13.txt
-    FINDING R13-2). A redistributable existing PRIMARY (REPLAN) is excluded
-    the same way -- it is not a fixed fact and must not force a REST-01
-    conflict against its own possible replacement; boundary/other-site
-    Assignments are outside REPLAN's scope and stay fixed regardless."""
-    fixed: dict[str, list[tuple[datetime, datetime]]] = {}
-    for assignment in (
-        *fixed_existing_assignments(state),
-        *_not_cancelled(state.boundary_assignments),
-        *_not_cancelled(state.other_site_assignments),
-    ):
-        fixed.setdefault(assignment.employee_id, []).append(
-            (assignment.start_datetime, assignment.end_datetime)
-        )
-    return fixed
-
-
 def _add_coverage_constraints(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], still_needed: dict[str, int]
 ) -> dict[str, object]:
@@ -320,66 +299,6 @@ def _add_coverage_constraints(
         model.add(sum(terms) == needed).only_enforce_if(assume_var)
         assumptions[demand_id] = assume_var
     return assumptions
-
-
-def _add_rest_constraints(
-    model: cp_model.CpModel, x: dict, slots: list[SolverSlot], fixed: dict[str, list[tuple[datetime, datetime]]]
-) -> None:
-    by_employee: dict[str, list[SolverSlot]] = {}
-    for slot in slots:
-        by_employee.setdefault(slot.employee_id, []).append(slot)
-
-    for employee_id, employee_slots in by_employee.items():
-        for i in range(len(employee_slots)):
-            for j in range(i + 1, len(employee_slots)):
-                a, b = employee_slots[i], employee_slots[j]
-                if _violates_rest(a.demand, b.demand):
-                    model.add(x[employee_id, a.demand.demand_id] + x[employee_id, b.demand.demand_id] <= 1)
-        for slot in employee_slots:
-            for fixed_start, fixed_end in fixed.get(employee_id, []):
-                if _violates_rest_against(slot.demand, fixed_start, fixed_end):
-                    model.add(x[employee_id, slot.demand.demand_id] == 0)
-
-
-def _violates_rest(demand_a: ShiftDemand, demand_b: ShiftDemand) -> bool:
-    if intervals_overlap(demand_a.start_datetime, demand_a.end_datetime, demand_b.start_datetime, demand_b.end_datetime):
-        return True
-    gap = rest_hours(demand_a.start_datetime, demand_a.end_datetime, demand_b.start_datetime, demand_b.end_datetime)
-    return gap < REST_MIN_HOURS
-
-
-def _violates_rest_against(demand: ShiftDemand, fixed_start: datetime, fixed_end: datetime) -> bool:
-    if intervals_overlap(demand.start_datetime, demand.end_datetime, fixed_start, fixed_end):
-        return True
-    gap = rest_hours(demand.start_datetime, demand.end_datetime, fixed_start, fixed_end)
-    return gap < REST_MIN_HOURS
-
-
-def _add_load_constraints(
-    model: cp_model.CpModel, x: dict, slots: list[SolverSlot], fixed: dict[str, list[tuple[datetime, datetime]]],
-    state: PlanningState, enforce_cap: bool,
-) -> None:
-    if not enforce_cap:
-        return
-    num_days = calendar.monthrange(state.month.year, state.month.month)[1]
-    windows = rolling_windows(state.month, num_days)
-    by_employee: dict[str, list[SolverSlot]] = {}
-    for slot in slots:
-        by_employee.setdefault(slot.employee_id, []).append(slot)
-
-    threshold = state.profile.rolling_7d_decision_threshold_hours
-    for employee_id, employee_slots in by_employee.items():
-        for window_start, window_end in windows:
-            fixed_hours = sum(
-                overlap_hours(fs, fe, window_start, window_end) for fs, fe in fixed.get(employee_id, [])
-            )
-            terms = []
-            for slot in employee_slots:
-                hrs = overlap_hours(slot.demand.start_datetime, slot.demand.end_datetime, window_start, window_end)
-                if hrs:
-                    terms.append(hrs * x[employee_id, slot.demand.demand_id])
-            if terms or fixed_hours:
-                model.add(sum(terms) + fixed_hours <= threshold)
 
 
 def _sick_adjusted_targets(state: PlanningState) -> dict[str, int]:
@@ -546,11 +465,15 @@ def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
         (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
         for s in slots
     }
-    fixed = _fixed_intervals(state)
+    fixed = build_fixed_intervals(
+        fixed_existing_assignments(state), list(state.boundary_assignments), list(state.other_site_assignments)
+    )
 
     assumptions = _add_coverage_constraints(model, x, slots, still_needed)
-    _add_rest_constraints(model, x, slots, fixed)
-    _add_load_constraints(model, x, slots, fixed, state, enforce_load_cap)
+    add_rest_constraints(model, x, slots, fixed)
+    add_load_constraints(
+        model, x, slots, fixed, state.month, state.profile.rolling_7d_decision_threshold_hours, enforce_load_cap
+    )
     _add_objective(model, x, slots, state)
     model.add_assumptions(list(assumptions.values()))
 

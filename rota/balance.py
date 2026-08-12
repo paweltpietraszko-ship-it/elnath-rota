@@ -23,6 +23,14 @@ from rota.domain import Assignment, AssignmentRole, AssignmentState, Availabilit
 from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
 
 
+class MissingTargetHoursError(Exception):
+    """Owner decision 2026-08-14: target_hours is the statutory monthly
+    work-hour norm, not something the program may assume. A month absent from
+    target_hours_by_month must not silently compute a balance against 0 --
+    that produces a misleading number (looks like enormous overtime). The
+    program asks for it to be set manually instead of guessing."""
+
+
 def quarter_start(month: date) -> date:
     """First day of the calendar quarter containing month (owner decision
     2026-08-13: calendar quarters, I-III/IV-VI/VII-IX/X-XII)."""
@@ -58,6 +66,13 @@ def compute_month_balance(
     -- distinct from solver.py's live TARGET-01 objective, which stays
     SICK_LEAVE-only (see absence.py docstring for why).
 
+    Owner decision 2026-08-14: the balance must fire on already-scheduled
+    (PLANNED) hours, not only on hours that have already happened (REALIZED)
+    -- impending overtime is worth surfacing before it is worked, not only
+    after. month_balance therefore compares (realized + planned) against the
+    effective target; realized_hours and planned_hours are still returned
+    separately (WB-01: target_hours != planned_hours != realized_hours).
+
     unresolved_carryover: arch/spec.md marks its exact lifecycle OPEN. This
     computes it as the running quarter_balance not yet explicitly resolved
     by the coordinator; nothing beyond that is invented here."""
@@ -65,7 +80,7 @@ def compute_month_balance(
     planned_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.PLANNED)
     absence_days = excused_absence_days_in_month(availability_records, month).get(employee_id, 0)
     effective_target = max(0, target_hours - EXCUSED_ABSENCE_HOURS_PER_DAY * absence_days)
-    month_balance = realized_hours - effective_target
+    month_balance = (realized_hours + planned_hours) - effective_target
     running_quarter_balance = quarter_balance_before + month_balance
     return WorkBalance(
         employee_id=employee_id,
@@ -86,12 +101,20 @@ def compute_quarter_balance(
     """Compute WorkBalance for every month of one calendar quarter in order,
     carrying the running balance forward. The last entry's quarter_balance is
     the number to surface at quarter end; each entry's own month_balance is
-    the number to surface at that month's end."""
+    the number to surface at that month's end.
+
+    Raises MissingTargetHoursError if any of the quarter's three months has
+    no entry in target_hours_by_month -- a missing statutory norm is not the
+    same as a norm of zero hours and must not be guessed."""
     balances = []
     running_balance = 0
     for offset in range(3):
         month = _add_months(quarter_first_month, offset)
-        target_hours = target_hours_by_month.get(month, 0)
+        if month not in target_hours_by_month:
+            raise MissingTargetHoursError(
+                f"target_hours_by_month is missing an entry for {month} -- set it manually before computing balance"
+            )
+        target_hours = target_hours_by_month[month]
         balance = compute_month_balance(employee_id, month, target_hours, assignments, availability_records, running_balance)
         running_balance = balance.quarter_balance
         balances.append(balance)
