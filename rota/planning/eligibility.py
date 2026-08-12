@@ -1,7 +1,7 @@
 """Determine which employees may be assigned to a given ShiftDemand.
 
 Implements MEMBERSHIP-01/02, EMP-02, DAY_ONLY-01, DAY_SHIFT_OFF-01,
-UNAVAILABLE_24H-01, LEAVE_GRANTED-01, LEAVE_PLAN-01 and EXTERNAL-01 eligibility
+UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01 and EXTERNAL-01 eligibility
 checks. Rest (REST-01) and load (LOAD-01) are cross-demand constraints and
 are handled separately in the solver, not here.
 
@@ -73,7 +73,22 @@ _BLOCKING_KIND_PRIORITY = (
 # switch from "urlop" to "chorobowe" on those days, not depend on which
 # AvailabilityRecord happened to be listed first. DAY_SHIFT_OFF and
 # UNAVAILABLE_24H are ranked ahead only for a fixed, deterministic order;
-# no cross-priority among those was requested or is implied.
+# no cross-priority among those was requested or is implied. This function
+# returns a single reason by design (EligibilityCheck.blocked_reason is one
+# solver-facing exclusion reason, not the exhaustive violation list that
+# feeds DECISION_REQUIRED -- that list comes from validator.py), so unlike
+# validator._check_leave_and_unavailable (FINDING R26-1) a fixed priority
+# order is the correct shape here, not a bug to remove.
+
+# arch/spec.md:393-394 freezes the condition code for UNAVAILABLE_24H as
+# "UNAVAILABLE-01", not "UNAVAILABLE_24H-01" (audit round 26, FINDING
+# R26-2) -- matches validator._CONDITION_CODE.
+_CONDITION_CODE = {
+    AvailabilityKind.DAY_SHIFT_OFF: "DAY_SHIFT_OFF-01",
+    AvailabilityKind.UNAVAILABLE_24H: "UNAVAILABLE-01",
+    AvailabilityKind.SICK_LEAVE: "SICK_LEAVE-01",
+    AvailabilityKind.LEAVE_GRANTED: "LEAVE_GRANTED-01",
+}
 
 
 def _blocked_by_availability(
@@ -98,7 +113,7 @@ def _blocked_by_availability(
                 leave_plan_collision = True
     for kind in _BLOCKING_KIND_PRIORITY:
         if kind in blocking_kinds:
-            return f"{kind.value}-01", leave_plan_collision
+            return _CONDITION_CODE[kind], leave_plan_collision
     return None, leave_plan_collision
 
 
@@ -111,7 +126,7 @@ def _common_hard_gate(
     availability_records: list[AvailabilityRecord],
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled, EMP-02,
-    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE_24H-01, LEAVE_GRANTED-01, LEAVE_PLAN-01."""
+    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
     if not _employee_active(employee, demand):

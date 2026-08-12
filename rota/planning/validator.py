@@ -263,19 +263,36 @@ def _check_day_shift_off(
                 )
 
 
-_UNAVAILABILITY_KIND_PRIORITY = (
+_RELEVANT_UNAVAILABILITY_KINDS = (
     AvailabilityKind.UNAVAILABLE_24H,
     AvailabilityKind.SICK_LEAVE,
     AvailabilityKind.LEAVE_GRANTED,
 )
-# Owner decision 2026-08-14: matches eligibility._BLOCKING_KIND_PRIORITY --
-# when SICK_LEAVE and LEAVE_GRANTED overlap the same Assignment, report only
-# SICK_LEAVE-01, not both. A day is either "chorobowe" or "urlop" in the
-# visible result, not both at once, and sick leave wins (it interrupts an
-# approved vacation in reality).
+
+# arch/spec.md:393-394 freezes the condition code for UNAVAILABLE_24H as
+# "UNAVAILABLE-01", not "UNAVAILABLE_24H-01" -- the AvailabilityKind enum
+# value and the frozen rule code intentionally differ here (audit round 26,
+# FINDING R26-2). Every other kind's code matches its enum value.
+_CONDITION_CODE = {
+    AvailabilityKind.UNAVAILABLE_24H: "UNAVAILABLE-01",
+    AvailabilityKind.SICK_LEAVE: "SICK_LEAVE-01",
+    AvailabilityKind.LEAVE_GRANTED: "LEAVE_GRANTED-01",
+}
 
 
 def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """Owner decision 2026-08-14 is narrow: on a day where a SICK_LEAVE record
+    and a LEAVE_GRANTED record both cover that day, only SICK_LEAVE-01 is
+    reported for that Assignment -- not both. FINDING R26-1 (tests_r26.txt):
+    an earlier version picked one "winning" kind for the *entire* Assignment
+    via a fixed priority order, which (a) dropped LEAVE_GRANTED-01 when it and
+    SICK_LEAVE blocked the same Assignment on genuinely different days, and
+    (b) invented an UNAVAILABLE_24H > SICK_LEAVE priority that was never
+    decided. Every overlapping kind is now reported independently; the only
+    suppression is LEAVE_GRANTED when its own record's date range actually
+    intersects an overlapping SICK_LEAVE record's date range (the owner's
+    "same day" scope), not merely because both happen to touch the Assignment
+    somewhere."""
     records_by_employee: dict[str, list] = {}
     for record in state.availability_records:
         records_by_employee.setdefault(record.employee_id, []).append(record)
@@ -283,22 +300,33 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
     for assignment in assignments:
         overlapping_by_kind: dict[AvailabilityKind, AvailabilityRecord] = {}
         for record in records_by_employee.get(assignment.employee_id, []):
-            if not record.active or record.kind not in _UNAVAILABILITY_KIND_PRIORITY:
+            if not record.active or record.kind not in _RELEVANT_UNAVAILABILITY_KINDS:
                 continue
             overlaps = overlaps_date_range(
                 assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date
             )
             if overlaps:
                 overlapping_by_kind.setdefault(record.kind, record)
-        for kind in _UNAVAILABILITY_KIND_PRIORITY:
+
+        sick = overlapping_by_kind.get(AvailabilityKind.SICK_LEAVE)
+        leave = overlapping_by_kind.get(AvailabilityKind.LEAVE_GRANTED)
+        suppress_leave_granted = (
+            sick is not None and leave is not None
+            and max(sick.start_date, leave.start_date) <= min(sick.end_date, leave.end_date)
+        )
+
+        for kind in _RELEVANT_UNAVAILABILITY_KINDS:
             record = overlapping_by_kind.get(kind)
-            if record is not None:
-                details.append(ViolationDetail(
-                    f"{kind.value}-01", (assignment.assignment_id,),
-                    f"{kind.value}-01: {assignment.employee_id} assignment {assignment.assignment_id} "
-                    f"overlaps {kind.value} {record.start_date}-{record.end_date}",
-                ))
-                break
+            if record is None:
+                continue
+            if kind == AvailabilityKind.LEAVE_GRANTED and suppress_leave_granted:
+                continue
+            code = _CONDITION_CODE[kind]
+            details.append(ViolationDetail(
+                code, (assignment.assignment_id,),
+                f"{code}: {assignment.employee_id} assignment {assignment.assignment_id} "
+                f"overlaps {kind.value} {record.start_date}-{record.end_date}",
+            ))
 
 
 def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warnings: list[str]) -> None:

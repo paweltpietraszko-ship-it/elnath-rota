@@ -94,7 +94,7 @@ def _frozen_primary(availability_kind: AvailabilityKind):
 def test_r20_2a_frozen_conflict_with_unavailable_is_decision_required():
     result = plan(_frozen_primary(AvailabilityKind.UNAVAILABLE_24H))
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.employee_id == "A" and b.condition == "UNAVAILABLE_24H-01" for b in result.decision_payload.blockers)
+    assert any(b.employee_id == "A" and b.condition == "UNAVAILABLE-01" for b in result.decision_payload.blockers)
 
 
 def test_r20_2b_frozen_conflict_with_leave_granted_is_decision_required():
@@ -129,7 +129,7 @@ def test_r20_2d_mentor_linked_non_frozen_conflict_is_decision_required():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.employee_id == "A" and b.condition == "UNAVAILABLE_24H-01" for b in result.decision_payload.blockers)
+    assert any(b.employee_id == "A" and b.condition == "UNAVAILABLE-01" for b in result.decision_payload.blockers)
 
 
 # FINDING R20-3 -------------------------------------------------------------

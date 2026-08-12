@@ -211,7 +211,7 @@ def _fixed_non_realized_ids(state: PlanningState) -> set:
 # not a coordinator decision point, and must stay TECHNICAL_ERROR.
 _FROZEN_BOUNDARY_RULES = frozenset({
     "MEMBERSHIP-01", "EMP-02", "DAY_ONLY-01", "DAY_SHIFT_OFF-01",
-    "UNAVAILABLE_24H-01", "SICK_LEAVE-01", "LEAVE_GRANTED-01", "EXTERNAL-01", "REST-01",
+    "UNAVAILABLE-01", "SICK_LEAVE-01", "LEAVE_GRANTED-01", "EXTERNAL-01", "REST-01",
 })
 
 
@@ -231,7 +231,20 @@ def _split_frozen_violations(
     fixed_ids = _fixed_non_realized_ids(state)
 
     def _is_frozen_boundary(detail: ViolationDetail) -> bool:
-        return detail.rule in _FROZEN_BOUNDARY_RULES and bool(set(detail.assignment_ids) & fixed_ids)
+        # FINDING R26-3 (tests_r26.txt): a rule matching on the whitelist plus
+        # *any* one of its assignment_ids being fixed was enough to call a
+        # violation "explained" -- so REST-01 between one fixed Assignment and
+        # one newly solver-created (movable) Assignment was misclassified as
+        # a coordinator autonomy boundary. That is a solver/mapping bug (the
+        # candidate itself violates HARD), not a frozen-fact conflict; only
+        # when EVERY assignment_id the rule names is itself fixed does this
+        # violation describe a conflict between preserved facts the
+        # coordinator, not the solver, must resolve.
+        return (
+            detail.rule in _FROZEN_BOUNDARY_RULES
+            and bool(detail.assignment_ids)
+            and set(detail.assignment_ids) <= fixed_ids
+        )
 
     non_load_details = [d for d in report.violation_details if d.rule != "LOAD-01"]
     frozen_details = [d for d in non_load_details if _is_frozen_boundary(d)]
