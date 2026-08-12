@@ -112,57 +112,6 @@ def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
     return fixed
 
 
-def frozen_conflict_blockers(state: PlanningState) -> list[tuple[str, str, str, str]]:
-    """Diagnose fixed (non-redistributable, non-REALIZED) PRIMARY Assignments
-    that currently conflict with eligibility/availability data (FINDING
-    R20-2, tests_r20.txt): ASSIGN-04 blocks REPLAN from moving a frozen
-    Assignment, and R20-3's mentor-link protection blocks it from moving a
-    PRIMARY an active TRAINEE depends on even when frozen=False -- either way
-    it is not exempt from HARD scrutiny the way REALIZED is. A fixed
-    Assignment whose employee is no longer eligible (new UNAVAILABLE_24H/
-    LEAVE_GRANTED/SICK_LEAVE, disabled membership, ...) is a normal autonomy
-    boundary the coordinator must resolve, not a technical failure. Returns
-    (employee_id, reason, demand_id, assignment_id) for every such conflict --
-    assignment_id lets the caller (engine._decision_for_conflicts, FINDING
-    R22-2) attribute exactly which validator violation messages are already
-    explained by a diagnosed frozen conflict, instead of assuming a frozen
-    conflict explains every non-LOAD-01 violation in the report."""
-    demands_by_id = {d.demand_id: d for d in state.shift_demands}
-    employees_by_id = {e.employee_id: e for e in state.employees}
-    memberships_by_employee = {
-        m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id
-    }
-    availability_by_employee: dict[str, list] = {}
-    for record in state.availability_records:
-        availability_by_employee.setdefault(record.employee_id, []).append(record)
-
-    conflicts: list[tuple[str, str, str, str]] = []
-    for assignment in fixed_existing_assignments(state):
-        if assignment.state == AssignmentState.REALIZED:
-            continue
-        if assignment.role != AssignmentRole.PRIMARY or not assignment.covers_demand_id:
-            continue
-        demand = demands_by_id.get(assignment.covers_demand_id)
-        employee = employees_by_id.get(assignment.employee_id)
-        membership = memberships_by_employee.get(assignment.employee_id)
-        if demand is None:
-            continue
-        if employee is None or membership is None:
-            conflicts.append((assignment.employee_id, "MEMBERSHIP-01", assignment.covers_demand_id, assignment.assignment_id))
-            continue
-        shift_kind = classify_demand(demand, state.profile)
-        result = check_eligibility(
-            employee, membership, demand, shift_kind, state.profile,
-            availability_by_employee.get(assignment.employee_id, []),
-            list(state.external_windows), state.site.site_id,
-        )
-        if not result.eligible:
-            conflicts.append(
-                (assignment.employee_id, result.blocked_reason or "UNKNOWN", assignment.covers_demand_id, assignment.assignment_id)
-            )
-    return conflicts
-
-
 def _already_covered_counts(state: PlanningState) -> dict[str, int]:
     """Count only fixed (REALIZED/frozen) PRIMARY coverage. A redistributable
     (PLANNED, non-frozen) PRIMARY Assignment does not count -- REPLAN may

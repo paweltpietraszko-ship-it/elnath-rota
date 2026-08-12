@@ -1,7 +1,7 @@
 """Determine which employees may be assigned to a given ShiftDemand.
 
 Implements MEMBERSHIP-01/02, EMP-02, DAY_ONLY-01, DAY_SHIFT_OFF-01,
-UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01 and EXTERNAL-01 eligibility
+UNAVAILABLE_24H-01, LEAVE_GRANTED-01, LEAVE_PLAN-01 and EXTERNAL-01 eligibility
 checks. Rest (REST-01) and load (LOAD-01) are cross-demand constraints and
 are handled separately in the solver, not here.
 
@@ -60,31 +60,46 @@ def _employee_active(employee: Employee, demand: ShiftDemand) -> bool:
     return True
 
 
+_BLOCKING_KIND_PRIORITY = (
+    AvailabilityKind.DAY_SHIFT_OFF,
+    AvailabilityKind.UNAVAILABLE_24H,
+    AvailabilityKind.SICK_LEAVE,
+    AvailabilityKind.LEAVE_GRANTED,
+)
+# Owner decision 2026-08-14: when SICK_LEAVE and LEAVE_GRANTED overlap the
+# same day, the reported reason must be SICK_LEAVE-01, not LEAVE_GRANTED-01
+# -- a sick note handed in during an approved vacation is the real-world
+# case (sick leave interrupts the vacation), so the visible reason must
+# switch from "urlop" to "chorobowe" on those days, not depend on which
+# AvailabilityRecord happened to be listed first. DAY_SHIFT_OFF and
+# UNAVAILABLE_24H are ranked ahead only for a fixed, deterministic order;
+# no cross-priority among those was requested or is implied.
+
+
 def _blocked_by_availability(
     demand: ShiftDemand, records: list[AvailabilityRecord]
 ) -> tuple[Optional[str], bool]:
-    """Return (blocking_reason or None, leave_plan_collision)."""
-    reason = None
+    """Return (blocking_reason or None, leave_plan_collision). If multiple
+    kinds block the same day, the reason follows _BLOCKING_KIND_PRIORITY
+    rather than the order records happen to appear in."""
+    blocking_kinds: set[AvailabilityKind] = set()
     leave_plan_collision = False
     for record in records:
         if not record.active:
             continue
         if record.kind == AvailabilityKind.DAY_SHIFT_OFF:
             if record.start_date <= demand.start_datetime.date() <= record.end_date:
-                reason = "DAY_SHIFT_OFF-01"
-        elif record.kind == AvailabilityKind.UNAVAILABLE_24H:
+                blocking_kinds.add(record.kind)
+        elif record.kind in (AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED):
             if overlaps_availability(demand, record):
-                reason = "UNAVAILABLE-01"
-        elif record.kind == AvailabilityKind.LEAVE_GRANTED:
-            if overlaps_availability(demand, record):
-                reason = "LEAVE_GRANTED-01"
-        elif record.kind == AvailabilityKind.SICK_LEAVE:
-            if overlaps_availability(demand, record):
-                reason = "SICK_LEAVE-01"
+                blocking_kinds.add(record.kind)
         elif record.kind == AvailabilityKind.LEAVE_PLAN:
             if overlaps_availability(demand, record):
                 leave_plan_collision = True
-    return reason, leave_plan_collision
+    for kind in _BLOCKING_KIND_PRIORITY:
+        if kind in blocking_kinds:
+            return f"{kind.value}-01", leave_plan_collision
+    return None, leave_plan_collision
 
 
 def _common_hard_gate(
@@ -96,7 +111,7 @@ def _common_hard_gate(
     availability_records: list[AvailabilityRecord],
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled, EMP-02,
-    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01."""
+    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE_24H-01, LEAVE_GRANTED-01, LEAVE_PLAN-01."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
     if not _employee_active(employee, demand):

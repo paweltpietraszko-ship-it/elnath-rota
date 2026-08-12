@@ -19,6 +19,7 @@ from rota.domain import (
     AssignmentRole,
     AssignmentState,
     AvailabilityKind,
+    AvailabilityRecord,
     MembershipKind,
     ShiftKind,
 )
@@ -262,26 +263,42 @@ def _check_day_shift_off(
                 )
 
 
+_UNAVAILABILITY_KIND_PRIORITY = (
+    AvailabilityKind.UNAVAILABLE_24H,
+    AvailabilityKind.SICK_LEAVE,
+    AvailabilityKind.LEAVE_GRANTED,
+)
+# Owner decision 2026-08-14: matches eligibility._BLOCKING_KIND_PRIORITY --
+# when SICK_LEAVE and LEAVE_GRANTED overlap the same Assignment, report only
+# SICK_LEAVE-01, not both. A day is either "chorobowe" or "urlop" in the
+# visible result, not both at once, and sick leave wins (it interrupts an
+# approved vacation in reality).
+
+
 def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     records_by_employee: dict[str, list] = {}
     for record in state.availability_records:
         records_by_employee.setdefault(record.employee_id, []).append(record)
 
     for assignment in assignments:
+        overlapping_by_kind: dict[AvailabilityKind, AvailabilityRecord] = {}
         for record in records_by_employee.get(assignment.employee_id, []):
-            if not record.active:
-                continue
-            if record.kind not in (AvailabilityKind.LEAVE_GRANTED, AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE):
+            if not record.active or record.kind not in _UNAVAILABILITY_KIND_PRIORITY:
                 continue
             overlaps = overlaps_date_range(
                 assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date
             )
             if overlaps:
+                overlapping_by_kind.setdefault(record.kind, record)
+        for kind in _UNAVAILABILITY_KIND_PRIORITY:
+            record = overlapping_by_kind.get(kind)
+            if record is not None:
                 details.append(ViolationDetail(
-                    f"{record.kind.value}-01", (assignment.assignment_id,),
-                    f"{record.kind.value}-01: {assignment.employee_id} assignment {assignment.assignment_id} "
-                    f"overlaps {record.kind.value} {record.start_date}-{record.end_date}",
+                    f"{kind.value}-01", (assignment.assignment_id,),
+                    f"{kind.value}-01: {assignment.employee_id} assignment {assignment.assignment_id} "
+                    f"overlaps {kind.value} {record.start_date}-{record.end_date}",
                 ))
+                break
 
 
 def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warnings: list[str]) -> None:

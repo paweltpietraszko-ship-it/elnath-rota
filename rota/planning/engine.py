@@ -25,7 +25,7 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 """
 from __future__ import annotations
 
-from rota.domain import Assignment
+from rota.domain import Assignment, AssignmentState
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
     BlockingDemand,
@@ -35,14 +35,8 @@ from rota.planning.engine_types import (
     PlanningResult,
 )
 from rota.planning.shift_catalog import UnclassifiedShiftError
-from rota.planning.solver import (
-    SolverOutcome,
-    eligible_employees_for_demands,
-    fixed_existing_assignments,
-    frozen_conflict_blockers,
-    solve,
-)
-from rota.planning.validator import IndependentValidationReport, validate
+from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
+from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
 
 
 def plan(state: PlanningState) -> PlanningResult:
@@ -117,7 +111,7 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     if report.hard_pass:
         return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
     if _has_non_load_violations(report):
-        return _decision_for_conflicts(state, report, list(outcome.warnings))
+        return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
     # never gets a SolverSlot, so the LOAD-01 cap constraint is never added
     # for that employee even though the capped solve reports OPTIMAL. A
@@ -189,7 +183,7 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
         # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
         # A LOAD-01 trigger does not authorize silently accepting a
         # co-occurring HARD violation via the DECISION_REQUIRED payload.
-        return _decision_for_conflicts(state, report, list(outcome.warnings))
+        return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     return _load_decision(state, report, list(outcome.warnings))
 
 
@@ -197,32 +191,56 @@ def _has_non_load_violations(report: IndependentValidationReport) -> bool:
     return any(d.rule != "LOAD-01" for d in report.violation_details)
 
 
-def _unresolved_technical_error(
-    state: PlanningState, report: IndependentValidationReport, conflicts: list[tuple[str, str, str, str]]
-) -> PlanningResult | None:
-    """Returns a TECHNICAL_ERROR PlanningResult if some non-LOAD-01 violation
-    is not explained by a diagnosed frozen conflict, else None. FINDING
-    R23-2 (tests_r23.txt): matches by exact assignment_id membership, not by
-    searching for the id as a substring of the message text -- assignment_id
-    has no contractual format/minimum length, so short or common IDs ("a",
-    "mentor") could coincidentally match unrelated violations and mask a
-    genuinely independent one."""
+def _fixed_non_realized_ids(state: PlanningState) -> set:
+    """Assignments REPLAN cannot move (frozen/mentor-linked/no-demand) and
+    that are not REALIZED historical fact -- a violation attached to one of
+    these is a normal autonomy boundary the coordinator must resolve, not a
+    technical failure (ASSIGN-04)."""
+    return {a.assignment_id for a in fixed_existing_assignments(state) if a.state != AssignmentState.REALIZED}
+
+
+# Rules that represent "this fixed Assignment's employee is no longer
+# eligible" or "this fixed Assignment conflicts with another Assignment" --
+# a genuine, resolvable autonomy boundary (arch/spec.md:463-501). ASSIGN and
+# ASSIGN-03/04 are deliberately excluded: those mean the candidate itself is
+# structurally inconsistent (e.g. a dangling TRAINEE reference, or a
+# REALIZED/frozen Assignment that was altered) -- TRAINEE Assignments are
+# always in the fixed set (solver.fixed_existing_assignments), so a dangling
+# reference naturally names its own assignment_id and would otherwise look
+# "explained" by nothing more than matching its own id. That is corruption,
+# not a coordinator decision point, and must stay TECHNICAL_ERROR.
+_FROZEN_BOUNDARY_RULES = frozenset({
+    "MEMBERSHIP-01", "EMP-02", "DAY_ONLY-01", "DAY_SHIFT_OFF-01",
+    "UNAVAILABLE_24H-01", "SICK_LEAVE-01", "LEAVE_GRANTED-01", "EXTERNAL-01", "REST-01",
+})
+
+
+def _split_frozen_violations(
+    state: PlanningState, report: IndependentValidationReport
+) -> tuple[list[ViolationDetail], list[ViolationDetail]]:
+    """FINDING R25-1 (tests_r25.txt): matching only by assignment_id let one
+    diagnosed rule "explain away" an independent violation of a DIFFERENT
+    rule on the same Assignment (e.g. a frozen Assignment's DAY_ONLY-01
+    masking its own co-occurring SICK_LEAVE-01, or SICK_LEAVE-01 masking its
+    own REST-01). Every non-LOAD-01 ViolationDetail whose rule is a known
+    autonomy-boundary rule AND whose assignment_ids intersect a fixed
+    (non-REALIZED) Assignment is its own frozen-boundary blocker, taken
+    directly from the validator's own exhaustive per-rule checks -- no
+    separate eligibility re-derivation (which stops at the first failing
+    rule) is used to decide what counts as "explained" anymore."""
+    fixed_ids = _fixed_non_realized_ids(state)
+
+    def _is_frozen_boundary(detail: ViolationDetail) -> bool:
+        return detail.rule in _FROZEN_BOUNDARY_RULES and bool(set(detail.assignment_ids) & fixed_ids)
+
     non_load_details = [d for d in report.violation_details if d.rule != "LOAD-01"]
-    explained_ids = {assignment_id for _, _, _, assignment_id in conflicts}
-    unexplained = [d for d in non_load_details if not (set(d.assignment_ids) & explained_ids)]
-    if not conflicts or unexplained:
-        message_source = report.violations if not conflicts else [d.message for d in unexplained]
-        return PlanningResult(
-            "TECHNICAL_ERROR", [], None,
-            "independent validator found HARD violations that cannot be attributed to a known "
-            "autonomy boundary: " + "; ".join(message_source),
-            [],
-        )
-    return None
+    frozen_details = [d for d in non_load_details if _is_frozen_boundary(d)]
+    unexplained = [d for d in non_load_details if not _is_frozen_boundary(d)]
+    return frozen_details, unexplained
 
 
 def _decision_for_conflicts(
-    state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]
+    state: PlanningState, full: list[Assignment], report: IndependentValidationReport, extra_warnings: list[str]
 ) -> PlanningResult:
     """FINDING R22-2 (tests_r22.txt): a diagnosed frozen conflict (FINDING
     R20-2) must not silently swallow a co-occurring LOAD-01 violation or any
@@ -231,15 +249,15 @@ def _decision_for_conflicts(
     DECISION_REQUIRED payload, and if anything is left unexplained, fall back
     to TECHNICAL_ERROR (anti-drift rule 12) rather than presenting an
     incomplete decision."""
-    # FINDING R23-2 (tests_r23.txt): match by exact assignment_id membership,
-    # not by searching for the id as a substring of the message text --
-    # assignment_id has no contractual format/minimum length, so short or
-    # common IDs ("a", "mentor") could coincidentally match unrelated
-    # violations and mask a genuinely independent one.
-    conflicts = frozen_conflict_blockers(state)
-    unresolved = _unresolved_technical_error(state, report, conflicts)
-    if unresolved is not None:
-        return unresolved
+    frozen_details, unexplained = _split_frozen_violations(state, report)
+    if not frozen_details or unexplained:
+        message_source = report.violations if not frozen_details else [d.message for d in unexplained]
+        return PlanningResult(
+            "TECHNICAL_ERROR", [], None,
+            "independent validator found HARD violations that cannot be attributed to a known "
+            "autonomy boundary: " + "; ".join(message_source),
+            [],
+        )
 
     threshold = state.profile.rolling_7d_decision_threshold_hours
     over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
@@ -253,13 +271,7 @@ def _decision_for_conflicts(
         load_blocker, load_blockers = _rank_load_blockers(report, over_threshold, warnings)
         unblocking_options.append("świadoma akceptacja >" + str(threshold) + "h / 7 kolejnych dni")
 
-    by_id = {d.demand_id: d for d in state.shift_demands}
-    blocking = [
-        BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
-        for _, _, demand_id, _ in conflicts
-        if demand_id in by_id
-    ]
-    frozen_blockers = [Blocker(employee_id, reason) for employee_id, reason, _, _ in conflicts]
+    frozen_blockers, blocking = _frozen_blockers_and_demands(state, full, frozen_details)
     payload = DecisionRequiredPayload(
         blocking_shift_demands=blocking,
         blockers=frozen_blockers + load_blockers,
@@ -267,6 +279,29 @@ def _decision_for_conflicts(
         unblocking_options=unblocking_options,
     )
     return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
+
+
+def _frozen_blockers_and_demands(
+    state: PlanningState, full: list[Assignment], frozen_details: list[ViolationDetail]
+) -> tuple[list[Blocker], list[BlockingDemand]]:
+    assignments_by_id = {a.assignment_id: a for a in full}
+    by_demand_id = {d.demand_id: d for d in state.shift_demands}
+    blockers = []
+    blocking_demand_ids: set = set()
+    for detail in frozen_details:
+        for assignment_id in detail.assignment_ids:
+            assignment = assignments_by_id.get(assignment_id)
+            if assignment is None:
+                continue
+            blockers.append(Blocker(assignment.employee_id, detail.rule))
+            if assignment.covers_demand_id:
+                blocking_demand_ids.add(assignment.covers_demand_id)
+    blocking = [
+        BlockingDemand(demand_id, by_demand_id[demand_id].start_datetime, by_demand_id[demand_id].end_datetime)
+        for demand_id in blocking_demand_ids
+        if demand_id in by_demand_id
+    ]
+    return blockers, blocking
 
 
 def _load_decision(state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]) -> PlanningResult:
