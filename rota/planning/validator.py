@@ -44,15 +44,20 @@ def _by_employee(assignments: list[Assignment]) -> dict[str, list[Assignment]]:
     return grouped
 
 
+def _not_cancelled(assignments) -> list[Assignment]:
+    """CANCELLED Assignments are not actual work (arch/spec.md:257) and must not
+    participate in any HARD check -- coverage, DAY_ONLY/DAY_SHIFT_OFF/LEAVE/
+    UNAVAILABLE/EXTERNAL, REST-01 or LOAD-01 (audit round 13, tests_r13.txt
+    FINDING R13-2: round 12 only filtered coverage and monthly_hours)."""
+    return [a for a in assignments if a.state != AssignmentState.CANCELLED]
+
+
 def _check_coverage(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
-    """COVERAGE-01 (arch/spec.md:405-407). Audit round 12 FINDING 1: only an active
-    (not CANCELLED) PRIMARY Assignment counts as coverage; TRAINEE never does
-    (arch/spec.md:260-265)."""
+    """COVERAGE-01 (arch/spec.md:405-407). Only PRIMARY counts as coverage;
+    TRAINEE never does (arch/spec.md:260-265)."""
     covered: dict[str, int] = {}
     for assignment in assignments:
-        if not assignment.covers_demand_id:
-            continue
-        if assignment.role != AssignmentRole.PRIMARY or assignment.state == AssignmentState.CANCELLED:
+        if not assignment.covers_demand_id or assignment.role != AssignmentRole.PRIMARY:
             continue
         covered[assignment.covers_demand_id] = covered.get(assignment.covers_demand_id, 0) + 1
     for demand in state.shift_demands:
@@ -60,6 +65,27 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], violati
         if actual != demand.required_primary_count:
             violations.append(
                 f"COVERAGE-01: demand {demand.demand_id} has {actual}/{demand.required_primary_count} PRIMARY"
+            )
+
+
+def _check_employee_active(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
+    """EMP-02 (arch/spec.md:102): an Assignment interval must lie entirely inside
+    the Employee's active period. Audit round 13 FINDING R13-3: the validator had
+    no EMP-02 check, so the solver's own EMP-02 gate could regress unnoticed
+    (anti-drift rule 12). An assignment for an employee_id with no matching
+    Employee record is not flagged here -- that is a referential-integrity
+    concern outside this experiment's scope, not an EMP-02 violation."""
+    employees_by_id = {e.employee_id: e for e in state.employees}
+    for assignment in assignments:
+        employee = employees_by_id.get(assignment.employee_id)
+        if employee is None:
+            continue
+        start_date = assignment.start_datetime.date()
+        end_date = assignment.end_datetime.date()
+        if start_date < employee.active_from or (employee.active_to is not None and end_date > employee.active_to):
+            violations.append(
+                f"EMP-02: {assignment.employee_id} assignment {assignment.assignment_id} "
+                f"outside active period {employee.active_from}-{employee.active_to}"
             )
 
 
@@ -129,19 +155,22 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
 
 def _check_external(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
     """EXTERNAL-01 (arch/spec.md:419-421): X/Y are only eligible inside an active,
-    confirmed ExternalSupportWindow. Audit round 12 FINDING 6: the validator had no
-    EXTERNAL-01 check at all."""
+    confirmed ExternalSupportWindow for the right employee AND, when the window
+    restricts it, the right ShiftKind (arch/spec.md:117-127). Audit round 13
+    FINDING R13-4: allowed_shift_kind was never compared here."""
     membership_kind_by_employee = {
         m.employee_id: m.membership_kind for m in state.memberships if m.site_id == state.site.site_id
     }
     for assignment in assignments:
         if membership_kind_by_employee.get(assignment.employee_id) != MembershipKind.EXTERNAL_SUPPORT:
             continue
+        kind = _assignment_kind(assignment, state)
         covered = any(
             w.active and w.site_id == state.site.site_id
             and w.employee_id == assignment.employee_id
             and w.start_datetime <= assignment.start_datetime
             and w.end_datetime >= assignment.end_datetime
+            and (w.allowed_shift_kind is None or w.allowed_shift_kind == kind)
             for w in state.external_windows
         )
         if not covered:
@@ -152,9 +181,9 @@ def _check_external(state: PlanningState, assignments: list[Assignment], violati
 
 
 def _check_rest(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> float | None:
-    """REST-01. Audit round 12 FINDING 6: boundary_assignments (end of previous
-    month, STATE-02 arch/spec.md:330) must be included, not only other_site_assignments."""
-    all_assignments = list(assignments) + list(state.other_site_assignments) + list(state.boundary_assignments)
+    """REST-01. boundary_assignments (end of previous month, STATE-02
+    arch/spec.md:330) are included, not only other_site_assignments."""
+    all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     grouped = _by_employee(all_assignments)
     min_rest = None
     for employee_id, employee_assignments in grouped.items():
@@ -176,7 +205,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], violations:
 def _check_load(
     state: PlanningState, assignments: list[Assignment], violations: list[str]
 ) -> tuple[dict[str, float], dict[str, tuple]]:
-    all_assignments = list(assignments) + list(state.other_site_assignments) + list(state.boundary_assignments)
+    all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     grouped = _by_employee(all_assignments)
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
     windows = rolling_windows(state.month, num_days)
@@ -207,7 +236,7 @@ def _check_load(
 def _monthly_hours(state: PlanningState, assignments: list[Assignment]) -> dict[str, int]:
     hours: dict[str, int] = {}
     for assignment in assignments:
-        if assignment.role != AssignmentRole.PRIMARY or assignment.state == AssignmentState.CANCELLED:
+        if assignment.role != AssignmentRole.PRIMARY:
             continue
         worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
@@ -216,10 +245,12 @@ def _monthly_hours(state: PlanningState, assignments: list[Assignment]) -> dict[
 
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
     """Recheck every HARD rule from scratch against the final Assignment set."""
+    assignments = _not_cancelled(assignments)
     violations: list[str] = []
     warnings: list[str] = []
 
     _check_coverage(state, assignments, violations)
+    _check_employee_active(state, assignments, violations)
     _check_day_only(state, assignments, violations)
     _check_day_shift_off(state, assignments, violations, warnings)
     _check_leave_and_unavailable(state, assignments, violations)

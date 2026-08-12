@@ -106,12 +106,17 @@ def _build_slots(
             continue
         still_needed[demand.demand_id] = needed
         shift_kind = classify_demand(demand, state.profile)
-        eligible_count, demand_reasons = _collect_eligible_slots(
+        eligible_count, eligible_ids, demand_reasons = _collect_eligible_slots(
             demand, shift_kind, state, employees_by_id, availability_by_employee, slots,
         )
-        if eligible_count == 0:
+        if eligible_count < needed:
+            # FINDING R13-1: a pure headcount shortage (not enough eligible
+            # employees for required_primary_count) is not a cross-demand
+            # conflict and must not reach CP-SAT/REST-01 diagnosis at all.
             unassignable.append(demand.demand_id)
-            reasons[demand.demand_id] = demand_reasons
+            reasons[demand.demand_id] = demand_reasons + [
+                (employee_id, "INSUFFICIENT_COVERAGE") for employee_id in eligible_ids
+            ]
 
     return slots, still_needed, unassignable, reasons
 
@@ -119,8 +124,9 @@ def _build_slots(
 def _collect_eligible_slots(
     demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
     employees_by_id: dict, availability_by_employee: dict, slots: list[SolverSlot],
-) -> tuple[int, list[tuple[str, str]]]:
+) -> tuple[int, list[str], list[tuple[str, str]]]:
     eligible_count = 0
+    eligible_ids: list[str] = []
     reasons: list[tuple[str, str]] = []
     for membership in state.memberships:
         employee = employees_by_id.get(membership.employee_id)
@@ -135,18 +141,24 @@ def _collect_eligible_slots(
             reasons.append((employee.employee_id, result.blocked_reason or "UNKNOWN"))
             continue
         eligible_count += 1
+        eligible_ids.append(employee.employee_id)
         day_off_soft = shift_kind == ShiftKind.N and demand.end_datetime.date() in _day_off_dates(
             state, employee.employee_id
         )
         slots.append(
             SolverSlot(employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft)
         )
-    return eligible_count, reasons
+    return eligible_count, eligible_ids, reasons
 
 
 def _fixed_intervals(state: PlanningState) -> dict[str, list[tuple[datetime, datetime]]]:
+    """CANCELLED Assignments are not actual work (arch/spec.md:257) and must not
+    block a replacement via REST-01/LOAD-01 (audit round 13, tests_r13.txt
+    FINDING R13-2)."""
     fixed: dict[str, list[tuple[datetime, datetime]]] = {}
     for assignment in (*state.existing_assignments, *state.boundary_assignments, *state.other_site_assignments):
+        if assignment.state == AssignmentState.CANCELLED:
+            continue
         fixed.setdefault(assignment.employee_id, []).append(
             (assignment.start_datetime, assignment.end_datetime)
         )

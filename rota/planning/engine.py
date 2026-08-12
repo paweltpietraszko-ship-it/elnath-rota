@@ -48,9 +48,13 @@ def plan(state: PlanningState) -> PlanningResult:
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
 
-    if outcome.conflicting_demand_ids:
-        return _decision_for_conflict(state, outcome)
-
+    # INFEASIBLE with the LOAD-01 cap enabled is not evidence of a REST-01
+    # conflict by itself: the cap constraint is part of what CP-SAT's
+    # assumption core can implicate. Round 13 audit (tests_r13.txt FINDING
+    # R13-1) found every capped-solve conflict being reported as REST-01 even
+    # when removing the cap alone would resolve it (pure LOAD-01 case). The
+    # cap must be dropped and re-solved before treating this as a genuine
+    # cross-demand conflict.
     return _resolve_without_load_cap(state)
 
 

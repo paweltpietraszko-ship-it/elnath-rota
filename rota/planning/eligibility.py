@@ -107,10 +107,12 @@ def _common_hard_gate(
 
 
 def _external_window_covers(
-    demand: ShiftDemand, shift_kind: ShiftKind, site_id: str, windows: list[ExternalSupportWindow]
+    employee_id: str, demand: ShiftDemand, shift_kind: ShiftKind, site_id: str, windows: list[ExternalSupportWindow]
 ) -> bool:
+    """Audit round 13 FINDING R13-4: a window belonging to a different employee
+    was accepted because employee_id was never compared."""
     for window in windows:
-        if not window.active or window.site_id != site_id:
+        if not window.active or window.site_id != site_id or window.employee_id != employee_id:
             continue
         if window.allowed_shift_kind is not None and window.allowed_shift_kind != shift_kind:
             continue
@@ -135,7 +137,7 @@ def check_eligibility(
         return gate
     if membership.membership_kind == MembershipKind.LOCAL:
         return gate
-    if _external_window_covers(demand, shift_kind, site_id, external_windows):
+    if _external_window_covers(employee.employee_id, demand, shift_kind, site_id, external_windows):
         return gate
     return EligibilityCheck(False, False, "EXTERNAL-01")
 
