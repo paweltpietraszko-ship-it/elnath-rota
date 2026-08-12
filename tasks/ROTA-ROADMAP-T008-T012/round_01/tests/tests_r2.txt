@@ -1,0 +1,109 @@
+ROTA-T008–T012 — RE-AUDYT SKORYGOWANEJ ROADMAPY, RUNDA 2
+Data: 2026-08-12
+Audytor: Codex
+Stan repo podczas audytu: main @ e010f004e90a1e4f426bb72298e7307045d32b56
+Przedmiot: pisemna decyzja właściciela korygująca roadmapę po tests_r1.txt
+
+WERDYKT
+-------
+PASS — ROADMAP READY FOR TASK CONTRACT AUTHORING.
+
+PASS dotyczy podziału zakresu i kolejności T008–T012. Nie jest zgodą na
+implementację żadnego z tych zadań bez osobnego, zamrożonego Task Contract.
+
+ZAMKNIĘCIE FINDINGS Z RUNDY 1
+-----------------------------
+
+RMAP-1 — CLOSED
+
+Kolejność została zmieniona na:
+
+  T008 LocalStore
+  -> T009 Application Layer
+  -> T010 Natural-language Rule Intake
+  -> T011 Backend/Application E2E
+  -> T012 Desktop + Desktop E2E
+
+Natural-language intake nie tworzy własnej orchestration, nie zna repository
+ani SQLite i korzysta z gotowego kontekstu oraz application command T009.
+
+RMAP-2 — CLOSED AT ROADMAP LEVEL
+
+T008 obejmuje pełny wymagany zakres A17, z zachowaniem istniejących źródeł
+prawdy T004/T005, oraz literalne invarianty ScheduleVersion, current reference,
+Deviation, boundary context, WorkBalance i atomowego zapisu.
+
+Szczegółowy Task Contract T008 nadal musi zamrozić operacje i macierz testów;
+roadmapa nie pozostawia już obowiązkowych encji poza zakresem.
+
+RMAP-3 — CLOSED AT ROADMAP LEVEL
+
+T010 otrzyma osobny frozen addendum przed briefem. Zakres jest bounded do
+katalogu T007, fail-closed, bez rozszerzania katalogu przez parser i bez
+uniwersalnego DSL lub LLM runtime dependency. Roadmapa wymienia wymagane
+metadata, historię T005, NEEDS_RESOLUTION oraz runtime/privacy boundary.
+
+KOREKTA INTERPRETACJI HARD
+--------------------------
+
+Uwaga właściciela jest trafna. Źródłowe wymaganie „status HARD musi być
+świadomie zatwierdzony” nie ustanawia samo w sobie obowiązkowego drugiego okna,
+drugiego kliknięcia ani technicznego formularza.
+
+Jedno normalne działanie może jednocześnie być świadomym zatwierdzeniem, jeżeli
+zamrożony kontrakt T010 jednoznacznie określi:
+
+- skąd wynika category/enforcement;
+- jakie wartości domyślne są jawnie komunikowane;
+- jaki zakres dat obowiązuje;
+- co dokładnie zostanie zapisane po wykonaniu działania.
+
+Audyt nie będzie wymagał dodatkowej ceremonii UI bez literalnej podstawy w
+przyszłym frozen addendum/Task Contract.
+
+RMAP-4 — CLOSED
+
+T011 został prawidłowo nazwany Backend/Application E2E. Jego PASS oznacza
+gotowy rdzeń aplikacji, nie gotowy desktop. Desktop E2E należy do T012.
+
+RMAP-5 — CLOSED AT ROADMAP LEVEL
+
+T012 wskazuje dokładne, już zamrożone źródło Continuity AI i obejmuje pełną
+macierz A16, desktop bridge oraz E2E przez rzeczywisty bridge/UI. Print pozostaje
+wymagany; PWA i Excel/XLSX są jawnie poza aktualnym zakresem.
+
+ODPOWIEDZI KOŃCOWE
+------------------
+
+1. Brakujący obowiązkowy obszar między T007 a desktopem: brak po korekcie.
+2. Zbędny task: brak.
+3. Kolejność powodująca prowizorkę lub późniejsze przepisywanie: usunięta.
+4. Sformułowanie kierujące do demonstracyjnego rozwiązania: usunięte na
+   poziomie roadmapy; przyszłe briefy muszą zamienić zakresy na testowalne
+   invarianty i macierze odbioru.
+
+NASTĘPNY DOZWOLONY KROK
+-----------------------
+
+Przygotowanie zamrożonego kontraktu dla:
+
+  ROTA-T008 — LocalStore + ScheduleVersion lifecycle
+
+Nie parsera. Nie UI. Implementacja dopiero po osobnym audycie gotowego briefu.
+
+KOREKTA METADANYCH RAPORTU R1
+-----------------------------
+
+tests_r1.txt podał błędnie rozwinięty pełny SHA stanu main. Prawidłowy SHA to:
+
+  e010f004e90a1e4f426bb72298e7307045d32b56
+
+Skrót e010f00 i analizowany stan były właściwe; błąd dotyczył wyłącznie
+niezweryfikowanego rozwinięcia identyfikatora w nagłówku. tests_r1.txt pozostaje
+immutable zgodnie z zasadą delivery, a korekta jest zapisana tutaj.
+
+ARCHITECTURE_PROPOSALS
+----------------------
+
+Brak.
+

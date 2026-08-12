@@ -1,0 +1,297 @@
+ROTA-T008–T012 — AUDYT ROADMAPY PRZED TASK CONTRACTS, RUNDA 1
+Data: 2026-08-12
+Audytor: Codex
+Stan repo podczas audytu: main @ e010f0043c5e74b559f45c4169e70d6cce1813f7
+Charakter audytu: przegląd zakresu i kolejności; brak implementacji T008–T012
+
+WERDYKT
+-------
+WYMAGA KOREKTY PRZED ZAMROŻENIEM TASK CONTRACTS.
+
+Roadmapa ma poprawny główny podział odpowiedzialności i żaden z T008–T012
+nie jest zbędny. Nie jest jednak jeszcze kompletna ani bezpieczna do przekazania
+implementerowi. Dwa problemy są materialne:
+
+1. T008, w deklarowanym przepływie aż do Decision Ledger/SiteMemory, jest już
+   przypadkiem użycia aplikacji, a został ustawiony przed warstwą aplikacyjną
+   T010 i przed trwałymi danymi osób/Site/koordynatora z T009.
+2. T009 i T012 nie wymieniają całego obowiązkowego zakresu LocalStore i UI,
+   który frozen kontrakt podaje literalnie.
+
+To nie jest FAIL kodu ani propozycja innej architektury. To wykryte rozjazdy
+planowanej roadmapy z istniejącym kontraktem produktu. T008–T012 nie mają
+jeszcze briefów, więc nie audytowano ich implementacji.
+
+PODSTAWA
+-------
+
+- arch/spec.md, w szczególności SECTION 1, 4, 5 i 6;
+- arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md;
+- arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md;
+- zaakceptowane tasks/ROTA-T004/brief.md — tasks/ROTA-T007/brief.md;
+- tasks/ROTA-T007/architect_acceptance.md;
+- źródłowa specyfikacja produktu:
+  ELNATH_WARD_HANDOFF_FINAL_2026-08-10/
+  02_ELNATH_ROTA_SPEC_PRODUKTOWA_v0.19_REFERENCE.md;
+- źródłowa architektura:
+  ELNATH_WARD_HANDOFF_FINAL_2026-08-10/
+  03_ELNATH_ROTA_ARCHITEKTURA_v0.5_REFERENCE.md.
+
+FINDINGS
+--------
+
+RMAP-1 — HIGH — T008 przecina odpowiedzialność T010 i zależy od T009
+
+Stan roadmapy:
+
+T008 ma realizować pełny przepływ:
+
+  tekst -> struktura T007 -> walidacja -> Decision Ledger / SiteMemory
+
+i pozwalać zapisać jednoznaczną regułę w jednym normalnym działaniu.
+T010 ma dopiero później ustanowić przypadki użycia aplikacji pomiędzy
+persistence, PlanningEngine i UI.
+
+Dlaczego to jest problem kontraktowy:
+
+- zapis decyzji koordynatora do Decision Ledger jest przypadkiem użycia
+  aplikacji, nie samą funkcją parsera;
+- frozen UI boundary zabrania przeniesienia logiki domenowej i składania
+  procesu do UI;
+- T005 zapewnia atomowy zapis historii, ale celowo wyłącza natural-language
+  parser i nie ustanawia warstwy aplikacyjnej;
+- zdanie z nazwą człowieka wymaga rozstrzygnięcia Employee, Site i Coordinator,
+  których właściwa trwałość ma dopiero powstać w T009.
+
+Skutek pozostawienia kolejności bez korekty:
+
+Implementer musiałby albo połączyć parser bezpośrednio z repository, albo
+utworzyć przejściową warstwę orchestration/lookup, którą T010 później zastąpi.
+Oba warianty przeczą deklaracji „nie budujemy MVP do wyrzucenia”.
+
+Wymagana korekta roadmapy:
+
+- nie traktować numerów T008–T010 jako bezwarunkowej kolejności wykonania;
+- przed pełnym T008 musi istnieć docelowe źródło kontekstu operacyjnego z T009
+  oraz jawnie przypisana odpowiedzialność application-layer dla całej operacji;
+- kontrakty muszą rozstrzygnąć, czy tę odpowiedzialność ustanawia wcześniejszy
+  fragment T010, czy trwały fragment application-layer wykonywany już w T008.
+
+Audyt nie narzuca API ani modułów. Wymaga jedynie zachowania już przyjętej
+granicy odpowiedzialności.
+
+RMAP-2 — HIGH — lista T009 jest niepełna względem obowiązkowego LocalStore
+
+Opis T009 wymienia do zweryfikowania:
+
+- Employee;
+- SiteMembership;
+- availability / absences / leave;
+- WorkBalance;
+- ShiftDemand;
+- Assignment;
+- ScheduleVersion;
+- relacje kolejnych wersji.
+
+Frozen architektura A17 / arch/spec.md wymaga ponadto trwałości:
+
+- Sites;
+- Coordinators;
+- CoordinatorSiteAssociations;
+- ExternalSupportWindows;
+- AvailabilityRecords wraz z historią;
+- Deviations;
+- current-version references;
+- holiday/calendar data, jeżeli nie jest deterministycznie odtwarzana lokalnie.
+
+SiteProfile i SiteRules/Decision Ledger są już pokryte przez T004/T005, więc
+T009 nie ma ich przepisywać. Musi jednak działać z nimi jako jedna warstwa
+trwałego produktu, bez drugiego, konkurencyjnego źródła prawdy.
+
+Task Contract T009 musi również przenieść literalne invarianty:
+
+- ScheduleVersion jest kompletnym, odtwarzalnym stanem Site/miesiąca;
+- dokładnie jeden current-version reference dla (site_id, month);
+- FINAL jest immutable;
+- materialna zmiana FINAL tworzy najpierw WORKING child, a nie modyfikuje FINAL;
+- restore/select zmienia current reference bez usuwania późniejszej historii;
+- wersja zachowuje applied_rule_version_ids, komplet ShiftDemand, Assignment
+  i Deviation;
+- Assignment przekraczający granicę miesiąca należy do wersji według czasu
+  początku i jest czytany przez miesiąc sąsiedni jako boundary context;
+- WorkBalance używa tylko bieżących wersji; historyczne wersje nie są sumowane
+  do operacyjnych godzin;
+- publikacja/zapis wieloelementowej wersji nie może po awarii pozostawić
+  częściowo utworzonej wersji lub rozbieżnego current reference.
+
+Ostatni punkt wynika również wprost z przeciwniczego scenariusza produktu:
+zamknięcie programu podczas zapisu nie może wytworzyć pozornego sukcesu ani
+niespójnego stanu.
+
+RMAP-3 — HIGH — T008 nie ma jeszcze testowalnego kontraktu natural-language
+
+T008 jest sensownym, jawnym rozszerzeniem produktu właściciela. Nie wynika
+jednak jako obowiązkowy mechanizm z obecnego frozen kontraktu: źródłowa spec
+dopuszcza warstwę pamięci bez modeli językowych, a T007 jawnie wyłącza
+natural-language parsing ze swojego zakresu. Dlatego przed implementacją T008
+potrzebuje własnego frozen addendum/Task Contract; sama nazwa „docelowy parser”
+nie stanowi kryterium odbioru.
+
+Kontrakt musi rozstrzygnąć co najmniej informacje konieczne do atomowego
+record_decision(), których nie zawiera przykład „Pracownik A pracuje tylko
+w weekendy”:
+
+- sposób jednoznacznego wskazania Employee oraz kontekst Site/Coordinator;
+- effective_from i ewentualne effective_to;
+- category oraz enforcement; źródłowa spec wymaga świadomego zatwierdzenia
+  statusu kandydata do reguły HARD;
+- czy wypowiedź tworzy nową rodzinę reguły, czy jest zmianą/odrzuceniem
+  istniejącej, a więc jaką semantykę historii T005 uruchamia;
+- co dokładnie zostaje zapisane dla NEEDS_RESOLUTION i jak późniejsza odpowiedź
+  koordynatora tworzy następny immutable wpis zamiast edycji historii;
+- obsługiwany zakres języka i fail-closed dla zdań spoza katalogu T007.
+
+Zasada „jedno maksymalnie konkretne pytanie” jest testowalna dopiero po
+ustaleniu, które z powyższych danych daje kontekst lub jawny default. Bez tego
+jedno zdanie może mieć kilka niezależnych braków i nie istnieje kontraktowa
+podstawa do wybrania jednego z nich albo zgadnięcia pozostałych.
+
+Aktualny A20 zabrania uniwersalnego DSL, automatycznej interpretacji umów i
+runtime dependency od LLM. Bounded intake mapujący wyłącznie do zamrożonego
+katalogu T007 może być zgodny, ale implementer nie może z hasła „docelowy”
+wywnioskować chmury, LLM ani rozszerzenia katalogu. Ewentualna zmiana tego
+ograniczenia wymaga jawnej zmiany kanonu, nie decyzji implementera.
+
+RMAP-4 — MEDIUM — T011 przed T012 nie jest „pełną walidacją produktu”
+
+Scenariusz T011 jest wartościowy i potrzebny. W obecnej kolejności może jednak
+zweryfikować pełny backend/application workflow, nie gotowy produkt desktopowy,
+ponieważ React/Tauri/bridge/UI powstają dopiero w T012.
+
+Wymagana korekta:
+
+- nazwać T011 pełnym E2E backendu/application layer;
+- nie używać jego PASS jako dowodu gotowości desktopowego produktu;
+- odbiór T012 musi zawierać E2E przez rzeczywistą granicę desktop bridge/UI,
+  co najmniej dla podstawowego przepływu użytkownika.
+
+Backendowe E2E T011 powinno objąć kontraktowe klasy przepływów, a nie tylko
+jeden „happy path”:
+
+- PLAN -> publikacja -> restart -> odtworzenie tej samej wersji i reguł;
+- DECISION_REQUIRED -> jawna decyzja koordynatora -> ponowne planowanie;
+- ręczna korekta -> ponowna walidacja -> Deviation -> świadome zatwierdzenie;
+- REPLAN -> minimalna roszada -> nowy immutable child/current reference;
+- przerwanie zapisu -> brak częściowej publikacji.
+
+To nie rozszerza produktu: wszystkie te przepływy są już wymagane przez frozen
+ScheduleVersion/Deviation/UI boundary i REPLAN-MIN-01.
+
+RMAP-5 — HIGH — T012 pomija literalne operacje obowiązkowego UI
+
+Lista T012 jest opisana jako przykładowa („m.in.”), lecz przy przekładaniu na
+Task Contract nie może pozostać skrótem. Frozen A16 wymaga dodatkowo jawnie:
+
+- add/remove ExternalSupportWindow dla X/Y;
+- add/edit/cancel szkolenia S wraz z mentorem;
+- precheck;
+- ręczną edycję grafiku i walidację po edycji;
+- freeze/unfreeze przypisań;
+- pokazanie warnings/deviations/explanations;
+- restore/select wcześniejszej ScheduleVersion;
+- print;
+- local backup;
+- opt-in diagnostic ZIP z obowiązkowym filtrowaniem danych.
+
+Roadmapa wspomina ręczne decyzje, publikację i wersje, ale nie zastępuje to
+powyższych konkretnych operacji. Szczególnie manualna decyzja w
+DECISION_REQUIRED i ręczna edycja Assignmentu z Deviation to dwa różne
+kontraktowe przepływy.
+
+Brakuje też jawnego miejsca dla desktop bridge adaptera i mapowania wyniku do
+kontraktu UI, które arch/spec.md SECTION 4/6 wymienia przed szczegółowym UI.
+Nie jest potrzebny osobny numer zadania, ale T010/T012 muszą jednoznacznie
+przypisać tę odpowiedzialność; nie może ona zostać zbudowana ad hoc w React.
+
+Źródło reuse Continuity AI nie jest otwarte: arch/spec.md już zamraża repo,
+branch i SHA:
+
+- repo: paweltpietraszko-ship-it/continuity-ai;
+- branch: ui/project-report-polish-v0.4;
+- SHA: 709cf6a1ff829725e5d6572d286963809c990c4a.
+
+T012 powinien wykonać analizę adaptacji tego dokładnego źródła, a nie ponownie
+wybierać dawcę lub checkpoint.
+
+ODPOWIEDZI NA CZTERY PYTANIA
+----------------------------
+
+1. Czy brakuje obowiązkowego elementu produktu?
+
+Tak. Brakuje jawnego pokrycia pełnego A17 LocalStore, Deviation/current-version
+reference, CalendarDay lub deterministycznego źródła kalendarza, desktop bridge,
+print, backup, diagnostic ZIP oraz kilku obowiązkowych operacji UI z A16.
+Nie wymaga to automatycznie nowych numerów tasków; musi zostać przypisane do
+T009/T010/T012 i objęte odbiorem.
+
+2. Czy któryś task jest zbędny albo nie wynika z programu?
+
+Nie. T009–T012 wynikają bezpośrednio z frozen architektury i produktu. T008 nie
+jest wymagany przez dotychczasowy frozen kontrakt, ale jest spójną nową decyzją
+produktową właściciela pod warunkiem ograniczenia do katalogu T007 i osobnego
+zamrożenia kontraktu. Nie jest zbędny.
+
+3. Czy kolejność grozi przepisywaniem?
+
+Tak. Pełny T008 przed T009/T010 grozi bezpośrednim sprzężeniem parsera z
+repository albo tymczasową orchestration. T011 przed T012 może być poprawnym
+backend E2E, ale nie finalnym E2E produktu. Poza tym kierunek persistence ->
+application workflow -> bridge -> szczegółowy UI jest zgodny z SECTION 6.
+
+4. Czy sformułowania prowadzą do rozwiązania demonstracyjnego?
+
+Tak, przede wszystkim:
+
+- „docelowy parser” bez zamrożonego zakresu języka i fail-closed;
+- „do zweryfikowania” przy danych T009, mimo że A17 część z nich już wymaga;
+- „pełna walidacja produktu” przed powstaniem desktopu;
+- lista UI „m.in.” bez literalnej macierzy A16;
+- ponowne „wskazanie źródła reuse”, mimo że źródło jest już zamrożone.
+
+MINIMALNA KOREKTA ROADMAPY PRZED PISANIEM BRIEFÓW
+--------------------------------------------------
+
+1. Zamrozić odrębny kontrakt T008: bounded intake do dokładnego katalogu T007,
+   wymagane metadata/defaulty, świadome HARD, NEEDS_RESOLUTION, historia T005,
+   fail-closed i runtime/privacy boundary.
+2. Ustalić wykonawczą zależność T008 od trwałego kontekstu T009 i docelowej
+   odpowiedzialności application-layer; nie wdrażać parser -> repository.
+3. Rozszerzyć T009 do pełnego A17 i pełnych invariantów ScheduleVersion,
+   Deviation, current reference, boundary context oraz crash consistency.
+4. Rozszerzyć T010 o wszystkie rzeczywiste przypadki użycia: składanie
+   PlanningState, PLAN/REPLAN, ręczna korekta i rewalidacja, decyzje,
+   finalizacja/restore oraz operacje backup/diagnostic po właściwej stronie
+   granicy aplikacyjnej.
+5. Traktować T011 jako backend/application E2E i objąć macierzą także
+   DECISION_REQUIRED, Deviation oraz przerwanie zapisu.
+6. W T012 użyć zamrożonego Continuity SHA, jawnie objąć pełne A16, desktop
+   bridge i co najmniej podstawowe E2E rzeczywistego desktopu.
+
+ELEMENTY PRAWIDŁOWO WYŁĄCZONE / NIE DODAWAĆ
+------------------------------------------
+
+- PWA może pozostać poza pierwszym desktopowym wdrożeniem zgodnie ze źródłową
+  specyfikacją produktu.
+- Excel/XLSX nie jest wymagany w pierwszym zakresie; czytelny wydruk jest.
+- Dalsze branże, integracje zewnętrzne i dodatkowe katalogi reguł wymagają
+  osobnych decyzji i nie powinny być dopisywane do T008–T012.
+- Nie ma podstawy do dodawania SaaS, chmury, event bus, pluginów, uniwersalnego
+  rule DSL ani LLM runtime dependency.
+
+ARCHITECTURE_PROPOSALS
+----------------------
+
+Brak. Wszystkie wymagane korekty powyżej są bezpośrednio wyprowadzone z
+obowiązującego kontraktu lub z jawnych założeń właściciela dla T008; raport nie
+proponuje dodatkowych funkcji ani alternatywnej architektury produktu.
+
