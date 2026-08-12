@@ -73,16 +73,29 @@ def _check_trainee_mentor_reference(assignments: list[Assignment], violations: l
     must resolve inside the same candidate. Independently re-derived from the
     final assignment list, not from solver.fixed_existing_assignments()'s own
     bookkeeping of what it decided to keep (anti-drift rule 12) -- catches a
-    dangling reference regardless of which code path produced it."""
-    ids_present = {a.assignment_id for a in assignments}
+    dangling reference regardless of which code path produced it.
+
+    FINDING R22-3 (tests_r22.txt): resolving to *some* assignment_id is not
+    enough -- arch/spec.md:263-265 requires TRAINEE.mentor_primary_assignment_id
+    to reference a PRIMARY. A reference that resolves to another TRAINEE (or
+    anything non-PRIMARY) is just as semantically broken as a dangling one."""
+    by_id = {a.assignment_id: a for a in assignments}
     for assignment in assignments:
         if assignment.role != AssignmentRole.TRAINEE:
             continue
         mentor_id = assignment.mentor_primary_assignment_id
-        if mentor_id and mentor_id not in ids_present:
+        if not mentor_id:
+            continue
+        target = by_id.get(mentor_id)
+        if target is None:
             violations.append(
                 f"ASSIGN: {assignment.assignment_id} (TRAINEE) references missing "
                 f"mentor_primary_assignment_id {mentor_id}"
+            )
+        elif target.role != AssignmentRole.PRIMARY:
+            violations.append(
+                f"ASSIGN: {assignment.assignment_id} (TRAINEE) mentor_primary_assignment_id {mentor_id} "
+                f"is not PRIMARY (role={target.role.value})"
             )
 
 

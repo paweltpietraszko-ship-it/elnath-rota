@@ -118,15 +118,7 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
         return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
     non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
     if non_load_violations:
-        conflicts = frozen_conflict_blockers(state)
-        if conflicts:
-            return _decision_for_frozen_conflict(state, conflicts)
-        return PlanningResult(
-            "TECHNICAL_ERROR", [], None,
-            "independent validator found HARD violations in a CP-SAT-OPTIMAL candidate: "
-            + "; ".join(report.violations),
-            [],
-        )
+        return _decision_for_conflicts(state, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
     # never gets a SolverSlot, so the LOAD-01 cap constraint is never added
     # for that employee even though the capped solve reports OPTIMAL. A
@@ -199,41 +191,59 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
         # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
         # A LOAD-01 trigger does not authorize silently accepting a
         # co-occurring HARD violation via the DECISION_REQUIRED payload.
-        conflicts = frozen_conflict_blockers(state)
-        if conflicts:
-            return _decision_for_frozen_conflict(state, conflicts)
-        return PlanningResult(
-            "TECHNICAL_ERROR", [], None,
-            "independent validator found non-LOAD-01 HARD violations in the uncapped fallback candidate: "
-            + "; ".join(non_load_violations),
-            [],
-        )
+        return _decision_for_conflicts(state, report, list(outcome.warnings))
     return _load_decision(state, report, list(outcome.warnings))
 
 
-def _decision_for_frozen_conflict(state: PlanningState, conflicts: list[tuple[str, str, str]]) -> PlanningResult:
-    """FINDING R20-2 (tests_r20.txt): a future frozen Assignment that no
-    longer has an eligible employee behind it (new UNAVAILABLE_24H/
-    LEAVE_GRANTED/SICK_LEAVE, disabled membership, ...) is a normal autonomy
-    boundary -- ASSIGN-04 forbids REPLAN from silently moving it, so the
-    coordinator must decide, same as any other DECISION_REQUIRED."""
+def _decision_for_conflicts(
+    state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]
+) -> PlanningResult:
+    """FINDING R22-2 (tests_r22.txt): a diagnosed frozen conflict (FINDING
+    R20-2) must not silently swallow a co-occurring LOAD-01 violation or any
+    other violation it does not explain (e.g. a dangling TRAINEE reference,
+    FINDING R20-3/R22-3) -- combine every explainable cause into one
+    DECISION_REQUIRED payload, and if anything is left unexplained, fall back
+    to TECHNICAL_ERROR (anti-drift rule 12) rather than presenting an
+    incomplete decision."""
+    non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
+    conflicts = frozen_conflict_blockers(state)
+    explained_ids = {assignment_id for _, _, _, assignment_id in conflicts}
+    unexplained = [v for v in non_load_violations if not any(aid in v for aid in explained_ids)]
+    if not conflicts or unexplained:
+        message_source = report.violations if not conflicts else unexplained
+        return PlanningResult(
+            "TECHNICAL_ERROR", [], None,
+            "independent validator found HARD violations that cannot be attributed to a known "
+            "autonomy boundary: " + "; ".join(message_source),
+            [],
+        )
+
+    threshold = state.profile.rolling_7d_decision_threshold_hours
+    over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
+    warnings = list(extra_warnings) + list(report.warnings)
+    unblocking_options = [
+        "świadome odmrożenie Assignment i ponowne planowanie",
+        "świadoma ręczna korekta frozen Assignment zgodnie z kontraktem",
+    ]
+    load_blocker, load_blockers = (None, [])
+    if over_threshold:
+        load_blocker, load_blockers = _rank_load_blockers(report, over_threshold, warnings)
+        unblocking_options.append("świadoma akceptacja >" + str(threshold) + "h / 7 kolejnych dni")
+
     by_id = {d.demand_id: d for d in state.shift_demands}
     blocking = [
         BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
-        for _, _, demand_id in conflicts
+        for _, _, demand_id, _ in conflicts
         if demand_id in by_id
     ]
-    blockers = [Blocker(employee_id, reason) for employee_id, reason, _ in conflicts]
+    frozen_blockers = [Blocker(employee_id, reason) for employee_id, reason, _, _ in conflicts]
     payload = DecisionRequiredPayload(
         blocking_shift_demands=blocking,
-        blockers=blockers,
-        load_blocker=None,
-        unblocking_options=[
-            "świadome odmrożenie Assignment i ponowne planowanie",
-            "świadoma ręczna korekta frozen Assignment zgodnie z kontraktem",
-        ],
+        blockers=frozen_blockers + load_blockers,
+        load_blocker=load_blocker,
+        unblocking_options=unblocking_options,
     )
-    return PlanningResult("DECISION_REQUIRED", [], payload, None, [])
+    return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 
 def _load_decision(state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]) -> PlanningResult:

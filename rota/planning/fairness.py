@@ -53,6 +53,21 @@ def add_weekend_fairness(
     penalties.append(WEEKEND_FAIRNESS_WEIGHT * (max_weekend - min_weekend))
 
 
+def _holiday_hours_upper_bound(by_employee: dict[str, list], holiday_dates: set, historical_holiday_hours: dict[str, int]) -> int:
+    """FINDING R22-1: bound each employee's possible total (historical +
+    every holiday-dated demand they could take this run), not a fixed
+    monthly constant -- historical_holiday_hours is cumulative and can
+    legitimately exceed one month's hours."""
+    return max(
+        (
+            historical_holiday_hours.get(employee_id, 0)
+            + sum(_demand_hours(s.demand) for s in employee_slots if s.demand.start_datetime.date() in holiday_dates)
+            for employee_id, employee_slots in by_employee.items()
+        ),
+        default=0,
+    )
+
+
 def add_holiday_fairness(
     model: cp_model.CpModel, x: dict, by_employee: dict[str, list],
     holiday_dates: set, historical_holiday_hours: dict[str, int], penalties: list,
@@ -69,9 +84,21 @@ def add_holiday_fairness(
     point where doing so made the final distribution *more* unequal than an
     achievable alternative. Mirrors add_weekend_fairness instead: minimize
     the max-min spread of each employee's total holiday hours (historical +
-    this run), which is monotonic in the actual resulting inequality."""
+    this run), which is monotonic in the actual resulting inequality.
+
+    FINDING R22-1 (tests_r22.txt): the per-employee hours_var domain was
+    hardcoded to 0..MAX_MONTHLY_HOURS (744). historical_holiday_hours is a
+    cumulative, potentially multi-year figure with no reason to stay under
+    one month's hours -- a legitimately large history (e.g. 63 historical
+    12h holiday shifts = 756h) fell outside that domain and made the whole
+    CP-SAT model INFEASIBLE/invalid on a SOFT term, even though the current
+    demand had a perfectly HARD-valid solution. The domain is now sized per
+    run from the actual historical hours plus every holiday-dated demand's
+    hours this run, not a fixed constant."""
     if not holiday_dates or len(by_employee) < 2:
         return
+    upper_bound = _holiday_hours_upper_bound(by_employee, holiday_dates, historical_holiday_hours)
+
     holiday_hours_vars = []
     for employee_id, employee_slots in by_employee.items():
         terms = [
@@ -79,12 +106,12 @@ def add_holiday_fairness(
             for s in employee_slots
             if s.demand.start_datetime.date() in holiday_dates
         ]
-        hours_var = model.new_int_var(0, MAX_MONTHLY_HOURS, f"holiday_hours_{employee_id}")
+        hours_var = model.new_int_var(0, upper_bound, f"holiday_hours_{employee_id}")
         model.add(hours_var == sum(terms) + historical_holiday_hours.get(employee_id, 0))
         holiday_hours_vars.append(hours_var)
 
-    max_holiday = model.new_int_var(0, MAX_MONTHLY_HOURS, "holiday_hours_max")
-    min_holiday = model.new_int_var(0, MAX_MONTHLY_HOURS, "holiday_hours_min")
+    max_holiday = model.new_int_var(0, upper_bound, "holiday_hours_max")
+    min_holiday = model.new_int_var(0, upper_bound, "holiday_hours_min")
     model.add_max_equality(max_holiday, holiday_hours_vars)
     model.add_min_equality(min_holiday, holiday_hours_vars)
     penalties.append(HOLIDAY_FAIRNESS_WEIGHT * (max_holiday - min_holiday))
