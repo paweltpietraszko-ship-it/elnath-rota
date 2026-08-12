@@ -36,6 +36,16 @@ def ensure_rule_family(conn: sqlite3.Connection, rule_id: str, site_id: str) -> 
         raise RuleFamilyIntegrityError(f"rule_id {rule_id!r} belongs to site {row[0]!r}, not {site_id!r}")
 
 
+def list_rule_ids_for_site(conn: sqlite3.Connection, site_id: str) -> list[str]:
+    """ROTA-T007: automatic family discovery -- callers must not supply a
+    manually curated rule_id list (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md
+    MONTHLY APPLICABILITY PROJECTION)."""
+    rows = conn.execute(
+        "SELECT rule_id FROM rule_families WHERE site_id = ? ORDER BY rule_id", (site_id,)
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
 def _dump_parameters(value: Optional[object]) -> Optional[str]:
     if value is None:
         return None

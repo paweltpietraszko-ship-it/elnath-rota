@@ -35,6 +35,7 @@ from rota.planning.engine_types import (
     PlanningResult,
 )
 from rota.planning.shift_catalog import UnclassifiedShiftError
+from rota.planning.site_rules import UnsupportedOrMalformedSiteRule, validate_executable_site_rules
 from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
 from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
 
@@ -47,15 +48,22 @@ def plan(state: PlanningState) -> PlanningResult:
     a genuine model error (arch/spec.md:503-507) -- a ShiftDemand that
     matches no StandardShift in the profile -- and must be mapped to
     TECHNICAL_ERROR at this public boundary, not left to propagate to the
-    caller.
+    caller. ROTA-T007: UnsupportedOrMalformedSiteRule (a RESOLVED rule that
+    claims to be executable but isn't) is the same class of model error.
     """
     try:
         return _plan(state)
     except UnclassifiedShiftError as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
+    except UnsupportedOrMalformedSiteRule as exc:
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
 
 
 def _plan(state: PlanningState) -> PlanningResult:
+    # ROTA-T007: prevalidate before solve() -- a RESOLVED HARD/SOFT SiteRule
+    # that cannot be executed must never be silently ignored just to reach
+    # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
+    validate_executable_site_rules(state.site_rules)
     outcome = solve(state, enforce_load_cap=True)
 
     if outcome.unassignable_demand_ids:
@@ -229,6 +237,14 @@ def _split_frozen_violations(
     separate eligibility re-derivation (which stops at the first failing
     rule) is used to decide what counts as "explained" anymore."""
     fixed_ids = _fixed_non_realized_ids(state)
+    # ROTA-T007: a SiteRule-caused ViolationDetail.rule IS the exact
+    # rule_version_id (rota.planning.site_rules), never a fixed code, so it
+    # can never appear in the static _FROZEN_BOUNDARY_RULES whitelist -- it
+    # is instead recognized by membership in this state's own rule set
+    # (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md: a frozen conflict with an
+    # applicable HARD SiteRule is an autonomy boundary, not a technical
+    # failure).
+    site_rule_version_ids = {r.rule_version_id for r in state.site_rules}
 
     def _is_frozen_boundary(detail: ViolationDetail) -> bool:
         # FINDING R26-3 (tests_r26.txt): a rule matching on the whitelist plus
@@ -241,7 +257,7 @@ def _split_frozen_violations(
         # violation describe a conflict between preserved facts the
         # coordinator, not the solver, must resolve.
         return (
-            detail.rule in _FROZEN_BOUNDARY_RULES
+            (detail.rule in _FROZEN_BOUNDARY_RULES or detail.rule in site_rule_version_ids)
             and bool(detail.assignment_ids)
             and set(detail.assignment_ids) <= fixed_ids
         )

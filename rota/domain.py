@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Optional
+from typing import Optional, TypedDict, Union
 
 # --- Enums ---
 
@@ -194,9 +194,40 @@ class SiteRule:
     rule_id: str
 
 
-RuleParameters = object  # CONTRACT_GAP — osobny task
-# Not yet a typed union per rule_kind -- that catalog is undefined
-# (CONTRACT_GAP, unchanged by ROTA-T005's JSON persistence adapter).
+class EmployeeAllowedShiftKindsParams(TypedDict):
+    """ROTA-T007 rule_kind=EMPLOYEE_ALLOWED_SHIFT_KINDS."""
+
+    employee_id: str
+    allowed_shift_kinds: list[str]  # non-empty, values in {"D", "N"}
+
+
+class EmployeeAllowedWeekdaysParams(TypedDict):
+    """ROTA-T007 rule_kind=EMPLOYEE_ALLOWED_WEEKDAYS."""
+
+    employee_id: str
+    allowed_weekdays: list[int]  # non-empty, ISO weekdays 1..7
+
+
+class EmployeeForbiddenShiftKindsOnWeekdaysParams(TypedDict):
+    """ROTA-T007 rule_kind=EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS."""
+
+    employee_id: str
+    weekdays: list[int]  # non-empty, ISO weekdays 1..7
+    forbidden_shift_kinds: list[str]  # non-empty, values in {"D", "N"}
+
+
+# CONTRACT_GAP narrowed by ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md)
+# to exactly the three initial executable rule_kind parameter shapes below.
+# A future rule_kind catalog beyond these three remains a separate task.
+# Persistence (rota/persistence/site_rule_repository.py) stores whatever is
+# JSON-compatible and does not require it to match one of these shapes --
+# execution-time validation (rota/planning/site_rules.py) is what enforces
+# the shape, only for RESOLVED+HARD rules.
+RuleParameters = Union[
+    EmployeeAllowedShiftKindsParams,
+    EmployeeAllowedWeekdaysParams,
+    EmployeeForbiddenShiftKindsOnWeekdaysParams,
+]
 
 
 @dataclass

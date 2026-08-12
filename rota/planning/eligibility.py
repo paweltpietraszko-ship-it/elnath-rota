@@ -35,6 +35,8 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
 )
+from rota.domain import SiteRuleVersion
+from rota.planning.site_rules import rule_allows_assignment
 from rota.planning.timeutil import overlaps_date_range
 
 
@@ -117,6 +119,19 @@ def _blocked_by_availability(
     return None, leave_plan_collision
 
 
+def _blocked_by_site_rules(
+    employee_id: str, demand: ShiftDemand, shift_kind: ShiftKind, applicable_hard_rules: list[SiteRuleVersion]
+) -> Optional[str]:
+    """ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md MULTIPLE RULES):
+    every applicable HARD rule must pass (AND) -- the first one that doesn't
+    is the blocker, identified by its exact rule_version_id, never a generic
+    condition code."""
+    for rule in applicable_hard_rules:
+        if not rule_allows_assignment(rule, employee_id, demand.start_datetime.date(), shift_kind):
+            return rule.rule_version_id
+    return None
+
+
 def _common_hard_gate(
     employee: Employee,
     membership: SiteMembership,
@@ -124,9 +139,11 @@ def _common_hard_gate(
     shift_kind: ShiftKind,
     profile: SiteProfile,
     availability_records: list[AvailabilityRecord],
+    applicable_hard_rules: list[SiteRuleVersion],
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled, EMP-02,
-    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01."""
+    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01,
+    and (ROTA-T007) applicable HARD SiteRules."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
     if not _employee_active(employee, demand):
@@ -136,6 +153,9 @@ def _common_hard_gate(
     reason, leave_plan_collision = _blocked_by_availability(demand, availability_records)
     if reason:
         return EligibilityCheck(False, False, reason)
+    site_rule_block = _blocked_by_site_rules(employee.employee_id, demand, shift_kind, applicable_hard_rules)
+    if site_rule_block:
+        return EligibilityCheck(False, False, site_rule_block)
     return EligibilityCheck(True, leave_plan_collision, None)
 
 
@@ -163,9 +183,12 @@ def check_eligibility(
     availability_records: list[AvailabilityRecord],
     external_windows: list[ExternalSupportWindow],
     site_id: str,
+    applicable_hard_rules: list[SiteRuleVersion] = (),
 ) -> EligibilityCheck:
     """Return whether employee may cover demand, plus a reason code when blocked."""
-    gate = _common_hard_gate(employee, membership, demand, shift_kind, profile, availability_records)
+    gate = _common_hard_gate(
+        employee, membership, demand, shift_kind, profile, availability_records, applicable_hard_rules
+    )
     if not gate.eligible:
         return gate
     if membership.membership_kind == MembershipKind.LOCAL:

@@ -30,6 +30,7 @@ from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
 from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
 from rota.planning.shift_catalog import classify_demand
+from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.state import PlanningState
 
 TARGET_DEVIATION_WEIGHT = 100
@@ -168,8 +169,11 @@ def _build_slots(
         if needed <= 0:
             continue
         still_needed[demand.demand_id] = needed
+        applicable_hard_rules = hard_rules_applicable_on(
+            state.site_rules, state.site_rule_applicability, demand.start_datetime.date()
+        )
         eligible_count, eligible_ids, demand_reasons = _collect_eligible_slots(
-            demand, shift_kind, state, employees_by_id, availability_by_employee, slots,
+            demand, shift_kind, state, employees_by_id, availability_by_employee, slots, applicable_hard_rules,
         )
         if eligible_count < needed:
             # FINDING R13-1: a pure headcount shortage (not enough eligible
@@ -186,6 +190,7 @@ def _build_slots(
 def _collect_eligible_slots(
     demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
     employees_by_id: dict, availability_by_employee: dict, slots: list[SolverSlot],
+    applicable_hard_rules: list,
 ) -> tuple[int, list[str], list[tuple[str, str]]]:
     eligible_count = 0
     eligible_ids: list[str] = []
@@ -205,7 +210,7 @@ def _collect_eligible_slots(
         records = availability_by_employee.get(employee.employee_id, [])
         result = check_eligibility(
             employee, membership, demand, shift_kind, state.profile, records,
-            list(state.external_windows), state.site.site_id,
+            list(state.external_windows), state.site.site_id, applicable_hard_rules,
         )
         if not result.eligible:
             reasons.append((employee.employee_id, result.blocked_reason or "UNKNOWN"))

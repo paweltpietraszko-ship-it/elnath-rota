@@ -20,6 +20,19 @@ from rota.domain import (
 
 
 @dataclass(frozen=True)
+class SiteRuleApplicability:
+    """ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md MONTHLY
+    APPLICABILITY PROJECTION): ephemeral, non-persisted -- derived fresh per
+    plan()/REPLAN from T005 effective selection, never written back to
+    SiteRuleVersion.effective_to. applies_from/applies_to are both
+    inclusive calendar dates."""
+
+    rule_version_id: str
+    applies_from: date
+    applies_to: date
+
+
+@dataclass(frozen=True)
 class PlanningState:
     # Tozsamosc kontekstu
     site: Site
@@ -45,6 +58,8 @@ class PlanningState:
     # tylko RESOLVED -- executable przez PlanningEngine
     unresolved_site_rules: tuple[SiteRuleVersion, ...]
     # tylko NEEDS_RESOLUTION -- display only, nie executable
+    site_rule_applicability: tuple[SiteRuleApplicability, ...]
+    # ROTA-T007: kiedy ktora RESOLVED wersja obowiazuje w tym miesiacu
 
     # Kontekst biezacej ScheduleVersion
     shift_demands: tuple[ShiftDemand, ...]
@@ -90,6 +105,7 @@ if __name__ == "__main__":
         availability_records=(),
         site_rules=(),
         unresolved_site_rules=(),
+        site_rule_applicability=(),
         shift_demands=(),
         existing_assignments=(),
         deviations=(),

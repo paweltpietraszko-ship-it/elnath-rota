@@ -23,6 +23,7 @@ from rota.domain import (
     MembershipKind,
     ShiftKind,
 )
+from rota.planning.site_rules import hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rest_hours, rolling_windows
 
@@ -391,6 +392,32 @@ def _check_external(state: PlanningState, assignments: list[Assignment], details
             ))
 
 
+def _check_site_rules(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md INDEPENDENT
+    VALIDATION): re-checks every applicable HARD SiteRule against every
+    PRIMARY Assignment independently of solver eligibility filtering
+    (anti-drift rule 12). The violation's rule code IS the exact
+    rule_version_id, never a generic condition code, so it flows straight
+    into Blocker.condition unchanged."""
+    for assignment in assignments:
+        if assignment.role != AssignmentRole.PRIMARY:
+            continue
+        shift_kind = _assignment_kind(assignment, state)
+        if shift_kind is None:
+            continue
+        applicable = hard_rules_applicable_on(
+            state.site_rules, state.site_rule_applicability, assignment.start_datetime.date()
+        )
+        for rule in applicable:
+            if rule_allows_assignment(rule, assignment.employee_id, assignment.start_datetime.date(), shift_kind):
+                continue
+            details.append(ViolationDetail(
+                rule.rule_version_id, (assignment.assignment_id,),
+                f"{rule.rule_version_id}: {assignment.employee_id} assignment {assignment.assignment_id} "
+                f"violates {rule.rule_kind}",
+            ))
+
+
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
     """REST-01. boundary_assignments (end of previous month, STATE-02
     arch/spec.md:330) are included, not only other_site_assignments."""
@@ -486,6 +513,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_leave_and_unavailable(state, for_eligibility_checks, details)
     _check_leave_plan(state, for_eligibility_checks, warnings)
     _check_external(state, for_eligibility_checks, details)
+    _check_site_rules(state, for_eligibility_checks, details)
     min_rest = _check_rest(state, assignments, details)
     max_load, max_window = _check_load(state, assignments, details)
 
