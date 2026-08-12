@@ -1,0 +1,111 @@
+AUDYT IMPLEMENTACJI ROTA-T005 — ROUND 2
+
+Gałąź: task/ROTA-T005
+Audytowany SHA: b97b762b3dfb4eef9d43a747a064e3b1e1144786
+Poprzedni audytowany SHA: 6b6e3748328769dbdbd457717176d3b6611852ba
+Kontrakt: tasks/ROTA-T005/brief.md w rewizji 9963f0e
+Data audytu: 2026-08-12
+
+ZAKRES RUNDY
+
+Runda 2 weryfikuje poprawki dwóch klas błędów z tests_r1.txt:
+- R1-1: integralność rodziny rule_id na obu publicznych ścieżkach zapisu;
+- R1-2: ścisła, bezstratna granica JSON dla structured_parameters.
+
+Nie rozszerzano kontraktu T005. Katalog rule_kind, typed RuleParameters,
+wykonywanie SiteRule przez solver i integracyjny benchmark pamięci pozostają
+poza zakresem tego audytu.
+
+PROVENANCE I SCOPE
+
+- HEAD odpowiada dokładnie b97b762.
+- Diff względem 6b6e374 obejmuje implementację obu poprawek, testy regresyjne
+  autora oraz zachowany raport tests_r1.txt.
+- arch/spec.md i rota/planning/ nie zostały zmienione.
+- tests_r2.txt nie istniał przed zapisem tego raportu.
+- git diff 6b6e374..b97b762 --check: PASS.
+
+WYNIKI
+
+- Suita autora/commitowana: 147/147 passed.
+- Niezależna macierz rundy 2: 20/20 passed.
+- Ruff dla rota/ i tests/: PASS.
+- SIZE_FILE max 600 i SIZE_FUNC max 50 dla zmienionego kodu produkcyjnego:
+  PASS.
+- Brak importu persistence/site_memory/sqlite3 w rota/planning/: PASS.
+
+WERYFIKACJA R1-1 — PASS
+
+Ślad kontraktowy:
+- frozen RULE-07: każdy SiteRule należy do dokładnie jednego Site;
+- tasks/ROTA-T005/brief.md RULE FAMILY INTEGRITY: jedna rodzina rule_id
+  należy zawsze do dokładnie jednego site_id, a supersedes musi pozostać
+  w tej samej parze (site_id, rule_id).
+
+Potwierdzone warianty:
+- ledger -> ledger: drugi Site nie może przejąć istniejącego rule_id;
+- ledger -> repository: publiczny Rule Store nie może ominąć ledgera;
+- repository -> ledger: ledger widzi właściciela ustanowionego przez Rule Store;
+- repository -> repository: druga ścieżka tego samego API także respektuje
+  globalnego właściciela;
+- supersedes z tym samym rule_id, lecz innym site_id jest odrzucane;
+- supersedes z tym samym site_id, lecz innym rule_id jest odrzucane;
+- supersedes różniące się na obu osiach jest odrzucane;
+- prawidłowe V2 -> V1 w tej samej rodzinie przechodzi;
+- właściciel rodziny i poprawne następstwo pozostają skuteczne po zamknięciu
+  i ponownym otwarciu bazy;
+- UPDATE i DELETE rule_families są fizycznie blokowane przez SQLite.
+
+Wspólny ensure_rule_family() jest wywoływany przez record_decision() oraz
+insert_site_rule_version(). Osobny check celu supersedes porównuje oba pola
+rodziny. Finding R1-1 został zamknięty jako błąd kodu naprawiony.
+
+WERYFIKACJA R1-2 — PASS
+
+Ślad kontraktowy:
+- tasks/ROTA-T005/brief.md structured_parameters — WYŁĄCZNIE FORMAT
+  PERSISTENCE: boundary przyjmuje reprezentację JSON-compatible i odczytuje
+  ją bez zmiany znaczenia.
+
+Potwierdzone prawidłowe wartości, także zagnieżdżone i po restarcie:
+- obiekt i tablica;
+- null, bool, duża liczba całkowita;
+- liczba zmiennoprzecinkowa, Unicode;
+- zagnieżdżone obiekty i tablice.
+
+Potwierdzone klasy odrzucanych wartości:
+- nietekstowy klucz obiektu, również zagnieżdżony;
+- tuple, również zagnieżdżona;
+- set i bytes;
+- NaN, +Infinity i -Infinity, również jako pola obiektu.
+
+Każde odrzucenie na ścieżce record_decision() cofa całą operację: nie zostaje
+rule_family, SiteRuleVersion ani DecisionRecord. Walidacja nie interpretuje
+parametrów i nie definiuje przyszłego RuleParameters. Finding R1-2 został
+zamknięty jako błąd kodu naprawiony.
+
+NOWE FINDINGS
+
+Brak.
+
+WYMAGA_DECYZJI
+
+Brak.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+OVERALL T005: PASS na SHA b97b762.
+
+Bilans rundy 2:
+- 2/2 wcześniejsze klasy błędów kodu naprawione;
+- 0 nowych błędów kodu;
+- 0 findings wynikających z preferencji architektonicznej;
+- 0 WYMAGA_DECYZJI.
+
+PASS dotyczy wyłącznie kontraktu ROTA-T005. Nie stanowi dowodu, że
+PlanningEngine wykonuje zapamiętane SiteRule — brief T005 jawnie pozostawia
+solver execution poza zakresem.
