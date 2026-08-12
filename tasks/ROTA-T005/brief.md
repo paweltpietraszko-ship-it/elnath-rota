@@ -15,7 +15,10 @@ OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: yes
 
 Ten plik jest artefaktem architektonicznym pozostawionym celowo w repo, aby można było później odtworzyć workflow i provenance decyzji.
 
-UWAGA PROVENANCE: wcześniejsza robocza propozycja architekta zakładająca wyłącznie prosty Rule Store bez wartościowej warstwy historii decyzji została odrzucona przed przekazaniem do implementacji. Niniejszy Task Contract ją zastępuje.
+UWAGA PROVENANCE:
+- wcześniejsza robocza propozycja architekta zakładająca wyłącznie prosty Rule Store bez wartościowej warstwy historii decyzji została odrzucona przed przekazaniem do implementacji;
+- pierwsza wersja niniejszego T005 została następnie poddana przeglądowi przed implementacją; przegląd wskazał brak semantyki spójności obu historii, jednoznacznego wyboru wersji dla daty oraz `rejects/corrects`;
+- niniejsza rewizja zamyka te luki przed rozpoczęciem implementacji T005.
 
 Podział ról:
 - architekt projektuje Task Contract i rozstrzyga kwestie techniczne w granicach kanonu;
@@ -47,6 +50,16 @@ Jeżeli wypowiedź jest rzeczywiście niejednoznaczna, program zadaje jedno moż
 
 Priorytet UX: Rota jest asystentem do budowania grafiku, nie systemem sprawozdawczo-kontrolnym. Nie dodawać ceremonii i zabezpieczeń niewymaganych przez kontrakt lub rzeczywistą niejednoznaczność.
 
+## OWNER DECISION — 2026-08-12 — `effective_to` JEST INCLUSIVE
+
+Znaczenie dla człowieka jest literalne:
+
+`obowiązuje do 31 maja` oznacza, że reguła obowiązuje przez cały 31 maja i wygasa dopiero z końcem tego dnia.
+
+W domenie datowej T005:
+- `effective_from` jest pierwszym dniem obowiązywania — inclusive;
+- `effective_to`, gdy istnieje, jest ostatnim dniem obowiązywania — inclusive.
+
 ## OBJECTIVE
 
 Zbudować pamięć Site, która ma dwie odpowiedzialności:
@@ -65,7 +78,7 @@ Program ma móc odpowiedzieć zarówno:
 - kto ją zmienił;
 - kiedy ją zmienił;
 - co obowiązywało wcześniej;
-- jaka późniejsza decyzja zastąpiła lub skorygowała wcześniejszą.
+- jaka późniejsza decyzja zastąpiła, skorygowała albo odrzuciła wcześniejszą.
 
 ## ARCHITECTURE DECISION — SELECTIVE EME REUSE
 
@@ -77,7 +90,7 @@ Z EME zachowujemy/adaptujemy wartościowe wzorce:
 - `supersedes`;
 - `corrects`;
 - `rejects`;
-- wyprowadzanie aktualnego statusu z historii;
+- wyprowadzanie losu decyzji z historii;
 - możliwość prześledzenia decyzji wstecz.
 
 Nie przenosimy do Rota:
@@ -121,7 +134,7 @@ Po utworzeniu wersji:
 - brak UPDATE;
 - brak DELETE.
 
-Zmiana zasady tworzy nową wersję.
+Zmiana strukturalnej treści reguły tworzy nową wersję.
 
 Rozwiązanie wcześniej nierozpoznanej reguły również tworzy nową wersję zamiast modyfikować poprzedni rekord.
 
@@ -135,17 +148,24 @@ Jedna rodzina `rule_id` należy zawsze do dokładnie jednego `site_id`.
 - musi dotyczyć tego samego `site_id`;
 - nie może wskazywać samej siebie.
 
-## structured_parameters
+## `structured_parameters` — WYŁĄCZNIE FORMAT PERSISTENCE
 
-`structured_parameters` jest wewnętrzną reprezentacją programu i dla T005 ma być trwałym obiektem danych zgodnym z JSON z kluczami tekstowymi.
+JSON w T005 jest wyłącznie formatem trwałego zapisu danych `structured_parameters`.
 
-Persistence:
-- zapisuje go jako JSON;
-- odczytuje bez zmiany znaczenia;
+Nie jest to decyzja, że domenowym typem `RuleParameters` ma być `dict`.
+Nie jest to decyzja przeciw przyszłemu typed union per `rule_kind`.
+Nie rozstrzyga to katalogu `rule_kind`.
+
+`RuleParameters` pozostaje CONTRACT_GAP dla osobnego zadania.
+
+Persistence boundary:
+- serializuje aktualną wartość `structured_parameters` do reprezentacji JSON-compatible;
+- odczytuje ją bez zmiany znaczenia;
 - nie interpretuje parametrów;
-- nie zna katalogu `rule_kind`.
+- nie zna katalogu `rule_kind`;
+- nie ustanawia docelowego typu domenowego.
 
-T005 nie projektuje katalogu `rule_kind` i nie implementuje interpretera naturalnego języka.
+Do czasu zdefiniowania typed `RuleParameters` testy persistence mogą używać JSON-compatible obiektów jako fixtures, ale nie wolno na tej podstawie zamrozić typu domenowego ani zmienić kanonu.
 
 Dla `NEEDS_RESOLUTION` `rule_kind` i/lub `structured_parameters` mogą pozostać puste zgodnie z frozen contract.
 
@@ -153,18 +173,26 @@ Wolny tekst sam nie staje się logiką solvera.
 
 ## DECISION LEDGER
 
-Każda decyzja dotycząca `SiteRule` ma immutable rekord zawierający co najmniej:
+Każda decyzja zmieniająca stan rodziny `SiteRule` ma immutable Decision Record zawierający co najmniej:
 - `decision_id`
 - `site_id`
 - `rule_id`
 - `statement` — oryginalna wypowiedź koordynatora zachowana bez przepisywania jej przez model
 - `coordinator_id`
 - `recorded_at` — kiedy decyzja została rzeczywiście podjęta/zapisana
-- `rule_version_id` — dokładna strukturalna wersja reguły utworzona przez tę decyzję
+- `effective_from` — pierwszy dzień, od którego ta decyzja ma wpływ na stan reguły; inclusive
+- `rule_version_id` — OPTIONAL; dokładna strukturalna wersja reguły utworzona przez tę decyzję, jeżeli decyzja tworzy aktywną treść reguły
 
-Jeżeli czas podjęcia decyzji różni się od czasu jej obowiązywania, źródłem okresu obowiązywania pozostaje `SiteRuleVersion.effective_from/effective_to`.
+Jeżeli Decision Record ma `rule_version_id`, musi zachodzić pełna spójność:
+- DecisionRecord.site_id == SiteRuleVersion.site_id;
+- DecisionRecord.rule_id == SiteRuleVersion.rule_id;
+- DecisionRecord.coordinator_id == SiteRuleVersion.changed_by;
+- DecisionRecord.recorded_at == SiteRuleVersion.changed_at;
+- DecisionRecord.effective_from == SiteRuleVersion.effective_from.
 
-`powiedział to 16 maja` i `reguła zaczęła obowiązywać 1 czerwca` to dwa różne fakty i nie wolno ich zlewać.
+Jeżeli czas podjęcia decyzji różni się od czasu jej obowiązywania, są to dwa różne fakty:
+
+`powiedział to 16 maja` != `reguła zaczęła obowiązywać 1 czerwca`.
 
 ## DECISION IMMUTABILITY
 
@@ -172,45 +200,140 @@ Decision Record po utworzeniu:
 - nie podlega UPDATE;
 - nie podlega DELETE.
 
-Jeżeli koordynator zmieni zdanie, powstaje nowy Decision Record i nowa `SiteRuleVersion`.
+Jeżeli koordynator zmieni zdanie, powstaje nowy Decision Record.
 
-Stary wpis pozostaje dostępny historycznie.
+Jeżeli ta nowa decyzja ustanawia nową strukturalną treść reguły, powstaje również nowa `SiteRuleVersion`.
+
+Jeżeli decyzja wyłącznie odrzuca obowiązującą regułę (`rejects`), nie powstaje fikcyjna `SiteRuleVersion` tylko po to, aby reprezentować "brak reguły".
+
+Stare wpisy pozostają dostępne historycznie.
+
+## LINEAR DECISION CHAIN — ZERO BRANCHING
+
+Dla jednego `(site_id, rule_id)` Decision Ledger tworzy jeden liniowy łańcuch zmian stanu.
+
+Pierwsza decyzja rodziny nie ma poprzednika.
+
+Każda kolejna decyzja zmieniająca stan:
+- ma dokładnie jedną relację stanu do aktualnego końca łańcucha;
+- relacja ma typ dokładnie jeden z: `supersedes`, `corrects`, `rejects`;
+- nie może wskazywać dowolnej starszej decyzji z pominięciem aktualnego końca;
+- nie może tworzyć drugiego następcy dla tego samego końca;
+- nie może tworzyć cyklu.
+
+W efekcie dla jednej rodziny nie istnieją dwie konkurencyjne gałęzie historii.
+
+Kolejność w łańcuchu oznacza kolejność późniejszych decyzji/provenance. Nie należy jej mylić z `recorded_at` ani z chronologicznym porządkiem `effective_from`.
+
+To celowe: można wcześniej zapisać decyzję, która ma wejść w życie w przyszłości, a potem przed jej wejściem podjąć następną decyzję, która ją zastępuje lub koryguje.
 
 ## DECISION RELATIONS / FATE
 
-Minimalne relacje historii decyzji:
+### `supersedes`
 
-`supersedes` — nowa decyzja zastępuje wcześniejszą.
+Nowa decyzja zastępuje aktualny koniec łańcucha od swojego `effective_from`.
 
-`corrects` — nowa decyzja koryguje błędnie zapisaną wcześniejszą decyzję.
+Jeżeli zarówno nowa decyzja, jak i decyzja zastępowana mają `rule_version_id`, to:
 
-`rejects` — wcześniejsza decyzja zostaje świadomie odrzucona.
+`new_site_rule_version.supersedes_rule_version_id == previous_decision.rule_version_id`
 
-Relacje są append-only.
+To jest obowiązkowy invariant spójności Rule Store <-> Decision Ledger.
 
-Status decyzji jest wyprowadzany z historii, nie ręcznie nadpisywany.
+Jeżeli poprzedni koniec łańcucha jest `rejects` i nie ma `rule_version_id`, nowa aktywna reguła może go zastąpić, ale jej `SiteRuleVersion.supersedes_rule_version_id` musi być `None`, ponieważ nie istnieje bezpośrednio zastępowana aktywna `SiteRuleVersion`.
 
-Minimalne statusy potrzebne Rota:
+### `corrects`
+
+`corrects` oznacza: nowa decyzja koryguje treść/interpretację aktualnego końca łańcucha i ustanawia nową strukturalną wersję reguły.
+
+Wymagania:
+- decyzja korygująca ma `rule_version_id`;
+- decyzja korygowana ma `rule_version_id`;
+- `new_site_rule_version.supersedes_rule_version_id == corrected_decision.rule_version_id`;
+- wpływ korekty zaczyna się dokładnie od `new_decision.effective_from`;
+- korekta nie jest automatycznie retroaktywna do daty wcześniejszej decyzji; retroaktywność istnieje tylko wtedy, gdy jawnie podane `effective_from` nowej decyzji wskazuje taką wcześniejszą datę.
+
+Relacja `corrects` zachowuje provenance, dlaczego powstała nowa wersja; dla wyboru obowiązującej wersji jest zmianą stanu tak samo jak `supersedes`.
+
+### `rejects`
+
+`rejects` oznacza: od `new_decision.effective_from` rodzina reguły nie ma aktywnej reguły, dopóki późniejsza decyzja nie ustanowi kolejnej.
+
+Wymagania:
+- nowy Decision Record ma `rule_version_id = None`;
+- odrzucana decyzja musi być aktualnym końcem łańcucha i mieć `rule_version_id`;
+- nie tworzyć fikcyjnego `SiteRuleVersion` ze stanem "disabled";
+- nie modyfikować starego `SiteRuleVersion.effective_to`.
+
+Późniejsze przywrócenie reguły jest nową decyzją z nową `SiteRuleVersion`; może `supersede` Decision Record odrzucenia. Ponieważ odrzucenie nie ma `rule_version_id`, nowa wersja po przerwie ma `supersedes_rule_version_id = None`.
+
+## LOS DECYZJI A OBOWIĄZYWANIE NA DATĘ
+
+Minimalne historyczne statusy/fates Decision Record:
 - `ACTIVE`
 - `SUPERSEDED`
 - `REJECTED`
 
 Informację o korekcie zachowuje relacja `corrects`; wcześniejszy rekord nie znika.
 
-Nie budować rozbudowanego workflow statusów EME.
+WAŻNE: historyczny fate nie jest samodzielnym algorytmem wyboru reguły dla daty.
+
+Przykład: jeżeli decyzja B została już zapisana i `supersedes` A, ale B.effective_from jest 1 czerwca, to 20 maja A nadal może być regułą obowiązującą. Retrieval zawsze używa reguł z sekcji EFFECTIVE SELECTION poniżej.
 
 ## ATOMICITY
 
 Jedna czynność koordynatora nie może zakończyć się sytuacją, w której Decision Ledger mówi jedno, a Rule Store drugie.
 
-Utworzenie zmiany reguły jest jedną transakcją obejmującą:
-- Decision Record;
-- `SiteRuleVersion`;
-- ewentualną relację do poprzedniej decyzji.
+Jedna transakcja obejmuje odpowiednio:
+- nowy Decision Record;
+- nową `SiteRuleVersion`, jeśli decyzja tworzy nową treść reguły;
+- relację do poprzedniego końca łańcucha, jeśli to nie jest pierwsza decyzja.
 
-Albo wszystkie elementy powstają, albo żaden.
+Dodatkowo w tej samej transakcji muszą zostać sprawdzone invarianty spójności obu historii opisane w tym kontrakcie.
+
+Albo całość powstaje poprawnie, albo nie powstaje żaden fragment zmiany.
 
 To zabezpieczenie jest niewidoczne dla użytkownika.
+
+## EFFECTIVE SELECTION — JEDNOZNACZNY ALGORYTM
+
+Dla jednego `(site_id, rule_id)` oraz daty `D` obowiązuje dokładnie następujący algorytm.
+
+1. Pobierz liniowy łańcuch Decision Record od najstarszego do aktualnego końca.
+2. Odrzuć z rozważania decyzje, dla których `effective_from > D`.
+3. Z pozostałych wybierz decyzję najpóźniejszą W ŁAŃCUCHU, nie tę z najpóźniejszym `recorded_at` i nie tę z największym `effective_from`.
+4. Jeżeli nie ma takiej decyzji -> dla tej rodziny `NO_ACTIVE_RULE` w dniu D.
+5. Jeżeli wybrana decyzja jest `rejects` (`rule_version_id = None`) -> `NO_ACTIVE_RULE` w dniu D.
+6. Jeżeli wybrana decyzja ma `rule_version_id`, pobierz dokładnie tę `SiteRuleVersion`.
+7. Jeżeli jej `effective_to is not None` oraz `D > effective_to` -> `NO_ACTIVE_RULE` w dniu D. Nie wolno "wskrzeszać" starszej wersji po wygaśnięciu nowszej.
+8. W przeciwnym razie dokładnie ta `SiteRuleVersion` jest wersją obowiązującą w dniu D.
+
+Konsekwencje:
+- zapis przyszłej decyzji wcześniej nie zmienia stanu przed jej `effective_from`;
+- późniejsza decyzja może zastąpić/korygować wcześniej zapisaną przyszłą decyzję jeszcze przed jej wejściem w życie;
+- nie ma konfliktu dwóch gałęzi, bo gałęzie są zabronione;
+- `effective_to=None` nie wymaga późniejszej modyfikacji: późniejsza decyzja przejmuje stan od własnego `effective_from`;
+- wersja z jawnym `effective_to` wygasa z końcem tej daty; po niej nie wraca automatycznie wcześniejsza reguła;
+- zmiana w połowie miesiąca nie działa wstecz.
+
+### Przykład przyszłej decyzji
+
+A:
+- zapis 1 marca;
+- effective_from = 1 marca.
+
+B supersedes A:
+- zapis 10 marca;
+- effective_from = 1 czerwca.
+
+Dla 20 maja -> A.
+Dla 10 czerwca -> B.
+
+Jeżeli 15 kwietnia powstanie C, które supersedes B i ma effective_from = 1 maja:
+- dla 20 kwietnia -> A;
+- dla 20 maja -> C;
+- dla 10 czerwca -> C.
+
+B pozostaje w historii, ale nigdy nie staje się obowiązującą wersją, ponieważ późniejsza w łańcuchu decyzja C przejęła stan wcześniej.
 
 ## RETRIEVAL / HISTORY API
 
@@ -218,15 +341,23 @@ SiteMemory ma umożliwiać co najmniej:
 
 ### 1. Historia reguły
 
-Dla `rule_id` zwrócić wszystkie decyzje chronologicznie wraz z ich relacjami i odpowiadającymi `rule_version_id`.
+Dla `rule_id` zwrócić wszystkie decyzje w kolejności łańcucha wraz z:
+- `recorded_at`;
+- `effective_from`;
+- relacją do poprzednika;
+- odpowiadającym `rule_version_id`, jeśli istnieje.
 
 ### 2. Co obowiązywało danego dnia
 
-Dla `rule_id + date` ustalić dokładną wersję reguły i odpowiadającą decyzję obowiązującą wtedy.
+Dla `rule_id + date` zastosować dokładnie EFFECTIVE SELECTION powyżej i zwrócić:
+- jedną `SiteRuleVersion` + Decision Record;
+- albo jawny wynik `NO_ACTIVE_RULE`.
+
+Nigdy nie wybierać arbitralnie jednej z wielu wersji przez `ORDER BY changed_at DESC LIMIT 1`, `MAX(effective_from)` ani podobny skrót.
 
 ### 3. Dlaczego obowiązuje obecna reguła
 
-Dla `rule_version_id` odnaleźć decyzję, która ją utworzyła, oraz wcześniejszy łańcuch decyzji.
+Dla `rule_version_id` odnaleźć Decision Record, który ją utworzył, oraz wcześniejszy łańcuch decyzji.
 
 Przyszłe UI ma dzięki temu móc pokazać np.:
 
@@ -234,23 +365,11 @@ Przyszłe UI ma dzięki temu móc pokazać np.:
 
 Bez czytania technicznych logów.
 
-## EFFECTIVE HISTORY
-
-Retrieval dla reguł uwzględnia:
-- `effective_from`;
-- `effective_to`;
-- supersession;
-- okres zapytania.
-
-Zmiana w połowie miesiąca nie może powodować zastosowania nowej wersji do wcześniejszych dni.
-
-Nie wolno redukować historii do zasady `po prostu najnowsza wersja`.
-
 ## PROJECTION TO PLANNINGSTATE
 
 PlanningEngine nie czyta Decision Ledger ani bazy.
 
-Warstwa assembly pobiera reguły i dzieli je:
+Warstwa assembly pobiera reguły dla dni/okresu planowania zgodnie z EFFECTIVE SELECTION.
 
 `RESOLVED` -> `PlanningState.site_rules`
 
@@ -266,9 +385,10 @@ T005 nie implementuje wykonywania `rule_kind` przez solver.
 
 Dla decyzji wpisanej bezpośrednio w Rota provenance jest proste i automatyczne:
 - kto: `coordinator_id`;
-- kiedy: `recorded_at`;
+- kiedy podjął/zapisał: `recorded_at`;
+- od kiedy ma wpływ: `effective_from`;
 - co powiedział: niezmieniony `statement`;
-- co z tego powstało: `rule_version_id`.
+- co z tego powstało: `rule_version_id`, jeśli powstała strukturalna wersja.
 
 Nie wymaga to od człowieka żadnej dodatkowej pracy.
 
@@ -286,9 +406,12 @@ Dozwolone:
 - schema SiteRule/SiteRuleVersion w lokalnej bazie Rota utworzonej przez T004;
 - Decision Ledger tables/model;
 - append-only relations `supersedes/corrects/rejects`;
+- integralność liniowego łańcucha;
+- integralność Rule Store <-> Decision Ledger;
 - SiteRule persistence;
 - SiteMemory retrieval/history API;
-- minimalna korekta reprezentacji `RuleParameters` zgodnie z tym Task Contract;
+- JSON persistence adapter dla `structured_parameters` bez rozstrzygania domenowego `RuleParameters`;
+- neutralizacja niezweryfikowanego komentarza w `rota/domain.py` sugerującego, że typed union został zamrożony, przy zachowaniu `RuleParameters` jako CONTRACT_GAP;
 - testy T005;
 - minimalny assembly helper/API do rozdzielenia resolved/unresolved, bez PlanningEngine I/O.
 
@@ -296,6 +419,7 @@ Dozwolone:
 
 Nie implementować:
 - katalogu `rule_kind`;
+- domenowego typed union `RuleParameters`;
 - solver execution dla SiteRule;
 - natural-language parsera;
 - LLM;
@@ -314,28 +438,36 @@ Nie implementować:
 ## ACCEPTANCE CONTRACT
 
 PASS wymaga łącznie:
-1. Decision Record i odpowiadająca `SiteRuleVersion` powstają atomowo.
+1. Decision Record i odpowiadająca `SiteRuleVersion`, jeśli występuje, powstają atomowo z relacją stanu.
 2. Stara decyzja nigdy nie jest nadpisywana ani usuwana.
-3. Stara `SiteRuleVersion` pozostaje niezmieniona.
-4. Zmiana decyzji tworzy nową decyzję i nową wersję reguły.
-5. Można odtworzyć chronologiczną historię jednej reguły.
-6. Można wskazać, która decyzja zastąpiła, skorygowała lub odrzuciła którą.
-7. Można ustalić, co obowiązywało konkretnego dnia.
-8. Można przejść od `rule_version_id` do ludzkiej decyzji, która je spowodowała.
-9. Zachowany jest dokładny tekst wpisany przez koordynatora.
-10. Zachowany jest koordynator i czas decyzji.
-11. `structured_parameters` przechodzi poprawny JSON round-trip i persistence nie interpretuje jego semantyki.
-12. `NEEDS_RESOLUTION` nie pojawia się w executable rule set.
-13. `NEEDS_RESOLUTION` pozostaje dostępne do wyświetlenia/rozstrzygnięcia.
-14. PlanningEngine nie wykonuje I/O i nie czyta Decision Ledger.
-15. Wolny tekst sam nie jest wykonywany przez solver.
-16. Nie istnieje obowiązek Evidence/Span dla zwykłej decyzji koordynatora.
-17. Nie powstaje dodatkowy krok UX tylko po to, aby zapisać historię.
-18. Nie ma zależności od działającej usługi EME ani wspólnej bazy.
-19. Nie ma git/review/archive machinery EME.
-20. Stare decyzje pozostają dostępne również wtedy, gdy dawno przestały obowiązywać.
-21. Retrieval uwzględnia `effective_from`, `effective_to` i supersession; zmiana w środku miesiąca nie działa wstecz.
-22. T005 nie zmienia `arch/spec.md`.
+3. Stara `SiteRuleVersion` pozostaje niezmieniona; późniejsza decyzja nie wymaga UPDATE starego `effective_to`.
+4. Dla jednego `(site_id, rule_id)` istnieje dokładnie jeden liniowy łańcuch bez branchy i cykli.
+5. Każda kolejna decyzja stanu wskazuje aktualny koniec łańcucha, nie dowolnego starszego przodka.
+6. Dla `supersedes/corrects` dwóch decyzji mających `rule_version_id`, nowa `SiteRuleVersion.supersedes_rule_version_id` wskazuje dokładnie `rule_version_id` decyzji będącej celem relacji.
+7. Decision Record i `SiteRuleVersion` mają zgodne `site_id`, `rule_id`, autora, czas zapisu i `effective_from`.
+8. `rejects` nie tworzy fikcyjnej `SiteRuleVersion`; od swojego `effective_from` daje `NO_ACTIVE_RULE` do czasu kolejnej decyzji ustanawiającej regułę.
+9. `corrects` tworzy nową wersję i działa od jawnego `effective_from`; nie ma ukrytej retroaktywności.
+10. Można odtworzyć pełną historię jednej reguły wraz z decyzjami, datami i relacjami.
+11. Można wskazać, która decyzja zastąpiła, skorygowała lub odrzuciła którą.
+12. Dla `rule_id + date` EFFECTIVE SELECTION zwraca dokładnie jedną wersję albo `NO_ACTIVE_RULE`.
+13. Przyszła decyzja zapisana wcześniej nie działa przed `effective_from`.
+14. Późniejsza decyzja w łańcuchu może sprawić, że wcześniej zapisana przyszła wersja nigdy nie stanie się aktywna, bez usuwania jej z historii.
+15. `effective_to` jest inclusive: wersja obowiązuje przez cały dzień `effective_to`.
+16. Po wygaśnięciu nowszej wersji przez jej jawne `effective_to` starsza wersja nie odżywa automatycznie.
+17. Można przejść od `rule_version_id` do ludzkiej decyzji, która je spowodowała.
+18. Zachowany jest dokładny tekst wpisany przez koordynatora.
+19. Zachowany jest koordynator, `recorded_at` i `effective_from` decyzji.
+20. JSON jest wyłącznie formatem persistence dla `structured_parameters`; T005 nie zamraża domenowego `dict`, typed union ani katalogu `rule_kind`.
+21. `NEEDS_RESOLUTION` nie pojawia się w executable rule set.
+22. `NEEDS_RESOLUTION` pozostaje dostępne do wyświetlenia/rozstrzygnięcia.
+23. PlanningEngine nie wykonuje I/O i nie czyta Decision Ledger.
+24. Wolny tekst sam nie jest wykonywany przez solver.
+25. Nie istnieje obowiązek Evidence/Span dla zwykłej decyzji koordynatora.
+26. Nie powstaje dodatkowy krok UX tylko po to, aby zapisać historię.
+27. Nie ma zależności od działającej usługi EME ani wspólnej bazy.
+28. Nie ma git/review/archive machinery EME.
+29. Stare decyzje pozostają dostępne również wtedy, gdy nigdy nie weszły w życie albo dawno przestały obowiązywać.
+30. T005 nie zmienia `arch/spec.md`.
 
 ## ARCHITECTURAL INTENT
 
