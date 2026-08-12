@@ -1,0 +1,60 @@
+ROTA-T008–T012 — AUDYT DOKUMENTU OWNER_APPROVED_ROADMAP, RUNDA 3
+Data: 2026-08-13
+Audytor: Codex
+Audytowany SHA: 9c0919100d245262f90b69c08ba13efcb93fadf5
+Gałąź: origin/arch/rota-t008-t012-roadmap-2026-08-12
+
+WERDYKT
+-------
+PASS — DOKUMENT WIERNIE ZAPISUJE ZATWIERDZONĄ ROADMAPĘ.
+
+ZAKRES WERYFIKACJI
+------------------
+
+- commit ma dokładnie jednego rodzica:
+  e010f004e90a1e4f426bb72298e7307045d32b56 (zaakceptowany main po T007);
+- origin/arch/rota-t008-t012-roadmap-2026-08-12 wskazuje dokładnie audytowany SHA;
+- diff względem bazy zawiera wyłącznie:
+  - arch/OWNER_APPROVED_ROADMAP_T008_T012.md;
+  - immutable tests_r1.txt;
+  - immutable tests_r2.txt;
+- blob SHA obu wcześniejszych raportów jest identyczny z dostarczonymi
+  lokalnymi artefaktami; nie zostały zmienione przy commicie;
+- brak tasks/ROTA-T008/brief.md;
+- brak zmian w kodzie produkcyjnym, arch/spec.md, addendach i T004–T007.
+
+ZGODNOŚĆ TREŚCI
+---------------
+
+Dokument poprawnie zapisuje:
+
+1. status OWNER_APPROVED_ROADMAP i aprobatę właściciela z 2026-08-12;
+2. kolejność:
+   T008 LocalStore -> T009 Application Layer -> T010 Natural Language ->
+   T011 Backend/Application E2E -> T012 Desktop + Desktop E2E;
+3. rozdzielenie identyfikatora audytu ROTA-ROADMAP-T008-T012 od wolnego numeru
+   zadania ROTA-T008;
+4. korektę HARD: świadome zatwierdzenie nie ustanawia obowiązkowego drugiego
+   okna ani działania, a konkretne defaulty i konsekwencje ma zamrozić T010;
+5. zamknięcia RMAP-1–RMAP-5 bez dopisywania nowych decyzji projektowych;
+6. zastrzeżenie, że dokument jest podstawą do pisania Task Contracts, a nie
+   zgodą na implementację;
+7. następny krok jako kontrakt ROTA-T008 LocalStore + ScheduleVersion lifecycle.
+
+UWAGI NIEBLOKUJĄCE
+------------------
+
+git diff --check wskazuje wyłącznie końcowe puste linie w tests_r1.txt i
+tests_r2.txt. Są to wcześniejsze immutable artefakty Codexa, nie treść nowego
+dokumentu. Commit message jawnie je identyfikuje; nie stanowią findingu i nie
+powinny być poprawiane przez nadpisanie historycznych raportów.
+
+NOWE FINDINGS
+-------------
+
+Brak.
+
+ARCHITECTURE_PROPOSALS
+----------------------
+
+Brak.
