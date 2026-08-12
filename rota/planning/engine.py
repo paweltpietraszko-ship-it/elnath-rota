@@ -377,14 +377,26 @@ def _load_decision(
         )
     warnings = list(extra_warnings) + list(report.warnings)
     load_blocker, blockers = _rank_load_blockers(report, over_threshold, warnings)
-    # ROTA-T007 (audit round 3 FINDING R3-2): a SiteRule that excluded other
-    # employees from demands the over-threshold employee(s) ended up
-    # covering can be the necessary cause of this LOAD-01 breach -- surface
-    # its rule_version_id too, not just LOAD-01.
-    over_threshold_demand_ids = {
-        a.covers_demand_id for a in full if a.employee_id in over_threshold and a.covers_demand_id
-    }
-    blockers = blockers + _site_rule_blockers_for(site_rule_exclusions, over_threshold_demand_ids)
+    # ROTA-T007 (audit round 3 FINDING R3-2, narrowed by round 4 FINDING
+    # R4-1): a SiteRule that excluded other employees from demands the
+    # over-threshold employee(s) covered can be the necessary cause of this
+    # LOAD-01 breach -- but only for demands that actually fall inside THAT
+    # employee's own worst rolling-7d window (report.maximum_rolling_7d_window).
+    # Using every demand that employee ever covers anywhere in the month
+    # would attribute a totally unrelated SiteRule (e.g. one governing a
+    # different week) to a breach it had nothing to do with.
+    relevant_demand_ids: set = set()
+    for employee_id in over_threshold:
+        window = report.maximum_rolling_7d_window.get(employee_id)
+        if window is None:
+            continue
+        window_start, window_end = window
+        relevant_demand_ids |= {
+            a.covers_demand_id for a in full
+            if a.employee_id == employee_id and a.covers_demand_id
+            and window_start <= a.start_datetime.date() <= window_end
+        }
+    blockers = blockers + _site_rule_blockers_for(site_rule_exclusions, relevant_demand_ids)
     payload = DecisionRequiredPayload(
         blocking_shift_demands=[],
         blockers=blockers,

@@ -178,48 +178,35 @@ def test_r3_json_valid_nested_values_fail_closed_at_public_plan_boundary(
     assert decision.rule_version_id in result.error_message
 
 
+def _record_chain_rule_decision(conn, *, statement, recorded_at, effective_from, rel, allowed_shift_kinds):
+    """Round 4 FINDING R4-2: mechanical helper extraction to bring the test
+    below it under SIZE_FUNC=50 -- no assertion changes."""
+    rule_content = (
+        _content(EMPLOYEE_ALLOWED_SHIFT_KINDS, {"employee_id": "A", "allowed_shift_kinds": allowed_shift_kinds})
+        if allowed_shift_kinds is not None
+        else None
+    )
+    return record_decision(
+        conn, site_id=SITE_ID, rule_id="R-chain", statement=statement, coordinator_id="COORD",
+        recorded_at=recorded_at, effective_from=effective_from, rel=rel, rule_content=rule_content,
+    )
+
+
 @pytest.mark.parametrize("relation", ["supersedes", "corrects"])
 def test_r3_monthly_projection_uses_real_chain_for_change_then_reject(tmp_path, relation: str) -> None:
     """Acceptance 2: real T005 selection, mid-month change and reject gap."""
     conn = connect(tmp_path / "rota.db")
-    first = record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-chain",
-        statement="N only",
-        coordinator_id="COORD",
-        recorded_at=datetime(2026, 9, 1),
-        effective_from=MONTH,
-        rel=None,
-        rule_content=_content(
-            EMPLOYEE_ALLOWED_SHIFT_KINDS,
-            {"employee_id": "A", "allowed_shift_kinds": ["N"]},
-        ),
+    first = _record_chain_rule_decision(
+        conn, statement="N only", recorded_at=datetime(2026, 9, 1), effective_from=MONTH,
+        rel=None, allowed_shift_kinds=["N"],
     )
-    second = record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-chain",
-        statement="D only",
-        coordinator_id="COORD",
-        recorded_at=datetime(2026, 9, 2),
-        effective_from=date(2026, 10, 16),
-        rel=relation,
-        rule_content=_content(
-            EMPLOYEE_ALLOWED_SHIFT_KINDS,
-            {"employee_id": "A", "allowed_shift_kinds": ["D"]},
-        ),
+    second = _record_chain_rule_decision(
+        conn, statement="D only", recorded_at=datetime(2026, 9, 2), effective_from=date(2026, 10, 16),
+        rel=relation, allowed_shift_kinds=["D"],
     )
-    record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-chain",
-        statement="rejected",
-        coordinator_id="COORD",
-        recorded_at=datetime(2026, 9, 3),
-        effective_from=date(2026, 10, 21),
-        rel="rejects",
-        rule_content=None,
+    _record_chain_rule_decision(
+        conn, statement="rejected", recorded_at=datetime(2026, 9, 3), effective_from=date(2026, 10, 21),
+        rel="rejects", allowed_shift_kinds=None,
     )
 
     resolved, unresolved, applicability = assemble_monthly_site_rules(conn, SITE_ID, MONTH)
