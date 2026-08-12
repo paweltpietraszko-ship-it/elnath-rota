@@ -1,0 +1,62 @@
+ROTA-T007 — AUDYT KONTRAKTU, RUNDA 2
+Data: 2026-08-12
+Audytor: Codex
+
+Zakres re-review
+----------------
+- pierwotny Task Contract: 6289146447afc3b62b6fe18a3a058b201216cdde
+- frozen clarification: 9627958254d3782c758a149c96cc47b3e3af110b
+- ślad rozstrzygnięcia review: af543d523d7ba5504a30c3639b22da9b6bb80689
+- wcześniejszy raport: tests_r1.txt
+
+Wynik kontroli ustaleń z rundy 1
+--------------------------------
+
+R1-1 — zakres katalogu względem SiteProfile: ZAMKNIĘTE
+
+Clarification definiuje zachowanie bez polegania na niezdefiniowanej semantyce
+profile_id: katalog T007 obowiązuje każdy SiteProfile używany w bieżącym pilocie
+OCHRONA, a dopasowanie po wartości, prefiksie, sufiksie lub display_name jest
+zabronione. Jednocześnie dokument nie rozciąga katalogu na przyszłe profile
+spoza tego pilota. Wymaganie jest testowalne, a konsekwencje testowe obejmują
+dwa arbitralnie nazwane profile i zakaz heurystyk tekstowych.
+
+R1-2 — nieznany/wadliwy RESOLVED INFORMATIONAL: ZAMKNIĘTE
+
+Clarification rozdziela klasy jednoznacznie:
+- RESOLVED HARD: nieznany kind lub wadliwe parametry => TECHNICAL_ERROR z
+  rule_version_id;
+- RESOLVED SOFT: unsupported => TECHNICAL_ERROR z rule_version_id;
+- RESOLVED INFORMATIONAL: brak wykonania i walidacji schematu wykonawczego,
+  zero wpływu na plan i brak TECHNICAL_ERROR;
+- NEEDS_RESOLUTION: brak wykonania i brak awarii wyłącznie z powodu nieznanej
+  lub niepełnej struktury.
+
+Nie ma już dwóch zgodnych z tekstem, lecz sprzecznych implementacji tego punktu.
+
+Sequencing T006: ZAMKNIĘTE KONTRAKTOWO
+
+review_01_architect_clarification.md wskazuje zaakceptowany SHA T006
+6568de1de85a2cb290ebea041c62b00f99f79add i wymaga bazy integracyjnej
+zawierającej T005 oraz T006. Utrzymuje porządek leksykograficzny:
+HARD SiteRules -> minimalna liczba roszad -> zwykły SOFT.
+
+Lokalna gałąź main (79f9023d7469a69f4dc6e6c084c4e9ee6067004d) zawiera wskazany
+SHA T006. Sama gałąź kontraktowa pozostaje gałęzią dokumentacyjną; CC musi
+utworzyć gałąź implementacyjną zgodnie z zapisanym procesem, z bazy zawierającej
+T006, i przenieść na nią kompletny zestaw kontraktowy T007 przed task_init/code.
+To jest jawny warunek handoffu, nie luka kontraktu.
+
+Nowe findings
+-------------
+Brak.
+
+Werdykt
+-------
+PASS — READY_FOR_IMPLEMENTATION.
+
+Obie kwestie z tests_r1.txt zostały rozstrzygnięte przed implementacją i są
+wystarczająco precyzyjne do niezależnego testowania. T007 może zostać przekazany
+CC pod warunkiem wykonania opisanego handoffu na bazie zawierającej zaakceptowane
+T006. Ten PASS dotyczy wyłącznie kontraktu; nie jest PASS-em przyszłej
+implementacji.
