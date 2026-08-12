@@ -1,0 +1,120 @@
+AUDYT IMPLEMENTACJI ROTA-T004 — ROUND 1
+
+Gałąź: task/ROTA-T004
+Audytowany SHA: c3c43d176c58a14a70ee0db760d4df96a5c66bae
+Commit bazowy/provenance zadania: 9963f0e7308bc981fce51cc954c9c4ae3d1d8259
+Kontrakt: tasks/ROTA-T004/brief.md
+Data audytu: 2026-08-12
+
+ZAKRES
+
+Audyt obejmuje wyłącznie T004:
+- lokalną bazę SQLite i idempotentną inicjalizację schematu;
+- zapis, odczyt i listowanie SiteProfile;
+- pełny round-trip istniejących pól SiteProfile i StandardShift;
+- zachowanie kolejności standard_shifts;
+- zastępowanie bieżącego stanu bez historii wersji;
+- atomowość zapisu profilu i całej listy shiftów;
+- przekazywanie ścieżki bazy przez caller;
+- brak I/O/persistence w PlanningEngine.
+
+Nie oceniano T005, UI, bridge ani przyszłego katalogu rule_kind.
+Nie wymagano walidacji biznesowej pól, ponieważ brief T004 jej nie definiuje.
+
+PROVENANCE I SCOPE
+
+- HEAD odpowiada dokładnie deklarowanemu SHA c3c43d1.
+- Parent commita: 9963f0e, zgodny z tasks/ROTA-T004/repo_before.hash.
+- Commit zmienia wyłącznie:
+  - rota/persistence/__init__.py;
+  - rota/persistence/db.py;
+  - rota/persistence/site_profile_repository.py;
+  - tasks/ROTA-T004/repo_before.hash;
+  - tests/test_site_profile_persistence.py.
+- rota/planning/ i arch/spec.md pozostają niezmienione.
+- git diff --check: PASS.
+
+WYNIKI
+
+- Suita autora/commitowana: 122/122 passed.
+- Niezależna macierz audytora: 15/15 passed.
+- Łączny przebieg funkcjonalny: 137/137 passed.
+- Ruff dla zmienionego kodu i testu: PASS.
+- SIZE_FILE/SIZE_FUNC dla kodu produkcyjnego T004: PASS.
+- Brak importu rota.persistence/sqlite3 w rota/planning/: PASS.
+
+ROUND-TRIP — PASS
+
+Po zamknięciu i ponownym otwarciu bazy zachowane są dokładnie wszystkie pola:
+- profile_id, display_name i active;
+- wszystkie flagi profilu;
+- progi readiness i rolling 7d;
+- komplet oraz kolejność StandardShift;
+- ShiftKind, oba czasy z precyzją mikrosekund, end_next_day i liczba PRIMARY.
+
+active=false jest normalnie odczytywalnym bieżącym stanem.
+Brak profilu daje typowany SiteProfileNotFound.
+
+REPLACEMENT BEZ HISTORII — PASS
+
+Ponowny save tego samego profile_id:
+- aktualizuje jeden bieżący rekord site_profiles;
+- usuwa poprzednią listę shiftów i zapisuje nową;
+- nie pozostawia historycznych ani osieroconych shiftów;
+- poprawnie obsługuje zmianę długości listy 4 -> 0 -> 1;
+- resetuje i zachowuje kolejność seq od zera;
+- nie wpływa na inne profile.
+
+Listowanie zwraca wyłącznie istniejące profile w stabilnej kolejności.
+
+ATOMOWOŚĆ — PASS
+
+Macierz fault injection objęła każdy etap save dla profilu z trzema shiftami:
+1. upsert site_profiles;
+2. delete poprzednich standard_shifts;
+3. insert pierwszego shiftu;
+4. insert drugiego shiftu;
+5. insert trzeciego shiftu.
+
+Dla istniejącego profilu błąd na każdym etapie pozostawia dokładnie poprzedni
+SiteProfile i poprzednią listę shiftów.
+
+Dla nowego profilu błąd na każdym etapie nie pozostawia ani rekordu profilu,
+ani częściowej listy shiftów.
+
+Zapis profilu i shiftów jest jedną transakcją zgodnie z acceptance #5.
+
+DATABASE FOUNDATION — PASS
+
+- connect() przyjmuje ścieżkę od callera i nie hardkoduje lokalizacji;
+- dwie różne ścieżki tworzą niezależne bazy;
+- init_schema() można wykonać wielokrotnie bez utraty istniejących danych;
+- schema zawiera osobną tabelę bieżącego profilu i uporządkowanych shiftów;
+- nie dodano frameworka migracji, Unit of Work, cache ani event sourcing.
+
+PLANNINGENGINE BOUNDARY — PASS
+
+PlanningEngine pozostaje bezstanowy względem persistence:
+- nie importuje rota.persistence;
+- nie importuje sqlite3;
+- nie zna ścieżki bazy;
+- nie wykonuje zapisu ani odczytu profilu.
+
+PlanningState nadal otrzymuje gotowy SiteProfile.
+
+WYMAGA_DECYZJI
+
+Brak.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+PASS na SHA c3c43d1.
+
+Implementacja spełnia wszystkie 10 punktów ACCEPTANCE CONTRACT T004.
+Bilans: 0 błędów kodu, 0 findings architektonicznych, 0 WYMAGA_DECYZJI.
+T004 jest gotowy do przekazania architektowi do finalnego architectural
+acceptance; ten audyt nie stanowi jeszcze audytu ani zgody na implementację T005.
