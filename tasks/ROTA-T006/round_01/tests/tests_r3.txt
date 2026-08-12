@@ -1,0 +1,130 @@
+AUDYT IMPLEMENTACJI ROTA-T006 — ROUND 3
+
+Gałąź: task/ROTA-T006
+Audytowany SHA: 6568de1de85a2cb290ebea041c62b00f99f79add
+Poprzedni audytowany SHA: a421bf90a44cc92cb7d417f49f2adf0fcb09aa50
+Kontrakt: tasks/ROTA-T006/brief.md + arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md
+Data audytu: 2026-08-12
+
+ZAKRES RUNDY
+
+Runda 3 weryfikuje pełne klasy poprawek z tests_r2.txt:
+- R2-1: tylko OPTIMAL fazy 1 może ustanowić min_reshuffle_count;
+- R2-2: trwałe pokrycie literalnego przypadku A oraz granic statusów I.
+
+Ponownie wykonano publiczne scenariusze leksykograficzne, pełną suitę,
+benchmark 100 przypadków oraz kontrole mechaniczne. Nie rozszerzano kontraktu.
+
+PROVENANCE I SCOPE
+
+- HEAD odpowiada dokładnie 6568de1.
+- Parent poprawki odpowiada audytowanemu w rundzie 2 SHA a421bf9.
+- Diff poprawki obejmuje wyłącznie solver.py, dedykowane testy T006 oraz
+  zachowany raport tests_r2.txt.
+- engine.py, arch/spec.md, persistence i regression oracle pozostają
+  niezmienione.
+- tests_r3.txt nie istniał przed zapisaniem tego raportu.
+- git diff a421bf9..6568de1 --check: PASS.
+
+WYNIKI
+
+- Suita autora/commitowana: 163/163 passed.
+- Niezależna macierz rundy 3: 6/6 passed.
+- Łącznie: 169/169 passed.
+- Produkcyjny benchmark stress: 100/100 passed.
+- Ruff: PASS.
+- SIZE_FILE max 600 / SIZE_FUNC max 50: PASS.
+- Zakres zmian zgodny z IMPLEMENTATION BOUNDARY: PASS.
+
+WERYFIKACJA R2-1 — PASS
+
+Macierz fazy 1:
+- OPTIMAL: wartość objective jest odczytywana, zamrażana equality constraint
+  i dopiero wtedy uruchamia się ordinary SOFT/TARGET-01;
+- INFEASIBLE: pozostaje dowodem braku HARD-valid rozwiązania i przechodzi
+  przez istniejącą diagnozę konfliktu;
+- FEASIBLE: nie jest traktowane jako minimum, faza 2 nie startuje, publiczny
+  plan() zwraca TECHNICAL_ERROR;
+- UNKNOWN: faza 2 nie startuje, plan() zwraca TECHNICAL_ERROR;
+- MODEL_INVALID: faza 2 nie startuje, plan() zwraca TECHNICAL_ERROR.
+
+Niezależne testy wymuszały każdy nieudowodniony status przez podmianę
+_run_solver, sprawdzały dokładnie jedno wywołanie solvera, zakaz odczytania
+objective value oraz końcowy status publicznego plan().
+
+Rzeczywisty przypadek INFEASIBLE nadal kończy się DECISION_REQUIRED, więc
+naprawa nie zamieniła prawidłowej granicy konfliktu w awarię techniczną.
+
+Finding R2-1 został zamknięty jako błąd kodu naprawiony.
+
+WERYFIKACJA R2-2 — PASS
+
+Commitowany test A ma teraz bezwarunkową podłogę jednej roszady przez HARD
+blocker baseline D4. Kandydat z jedną zmianą zachowuje baseline A/B mimo
+LEAVE_PLAN SOFT; konkurencyjna zamiana A/B poprawia SOFT, ale wymaga dodatkowych
+roszad i nie wygrywa.
+
+Niezależny, odmienny wariant użył dwóch nakładających się demandów:
+- A nie może zachować D1 przez UNAVAILABLE_24H;
+- X->D1 i B->D2 oznacza dokładnie 1 zmianę z LEAVE_PLAN SOFT;
+- B->D1 i X->D2 oznacza dokładnie 2 zmiany bez tej kary;
+- wynik zachował B->D2 i wybrał X->D1: PASS.
+
+Commitowana macierz I zawiera teraz:
+- niedobór obsady -> DECISION_REQUIRED;
+- rzeczywisty INFEASIBLE fazy 1 -> istniejąca obsługa konfliktu;
+- FEASIBLE/UNKNOWN/MODEL_INVALID fazy 1 -> TECHNICAL_ERROR.
+
+Finding R2-2 został zamknięty jako brak testów kontraktowych naprawiony.
+
+POZOSTAŁE INVARIANTY — PASS
+
+- faza 2 pozostaje konstrukcyjnie dostępna dopiero po dowodzie minimum;
+- nie wprowadzono pojedynczej ważonej funkcji reshuffle+SOFT;
+- initial planning nadal wykonuje dokładnie jedną fazę i zachowuje ordinary
+  SOFT behavior;
+- ASSIGN-03/04, liczenie per employee+demand, nowe demandy i trigger independence
+  pozostają zielone w pełnej suicie;
+- niezależny validator nadal sprawdza końcowy kandydat przez PlanningEngine.
+
+BENCHMARK
+
+`python -m benchmarks.rota_stress --cases 100 --seed 20260812 --json`:
+- 100/100 PASS;
+- statusy: FEASIBLE=100;
+- mean 0,169 s;
+- p50 0,065 s;
+- p95 0,473 s;
+- max 3,268 s;
+- total 16,947 s.
+
+Wynik odpowiada profilowi z rundy 2 i nie wskazuje regresji wydajnościowej po
+naprawie statusów. Ujawniony wcześniej teoretyczny limit dwóch faz po 30 s
+pozostaje cechą, nie findingiem kontraktowym ani zaobserwowanym błędem SLA.
+
+NOWE FINDINGS
+
+Brak.
+
+WYMAGA_DECYZJI
+
+Brak.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+OVERALL ROTA-T006: PASS na SHA 6568de1.
+
+Bilans rundy 3:
+- 1/1 wcześniejsza klasa błędu kodu naprawiona;
+- 1/1 wcześniejsza klasa braków testów naprawiona;
+- 0 nowych błędów kodu;
+- 0 findings wynikających z preferencji architektonicznej;
+- 0 WYMAGA_DECYZJI.
+
+PASS dotyczy kontraktu REPLAN-MIN-01 i implementacji T006. Finalne architectural
+acceptance oraz decyzja o merge pozostają zgodnie z briefem po stronie
+architekta i właściciela.
