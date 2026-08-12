@@ -28,6 +28,7 @@ from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence
 from rota.planning.constraints import add_load_constraints, add_rest_constraints, build_fixed_intervals
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
+from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.state import PlanningState
 
@@ -403,6 +404,65 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
     return warnings
 
 
+def _run_solver(model: cp_model.CpModel) -> tuple[cp_model.CpSolver, int]:
+    solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
+    solver.parameters.random_seed = 0
+    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
+    status = solver.solve(model)
+    return solver, status
+
+
+def _finalize(
+    solver: cp_model.CpSolver, status: int, x: dict, slots: list[SolverSlot],
+    state: PlanningState, assumptions: dict[str, object],
+) -> SolverOutcome:
+    status_name = solver.status_name(status)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        conflicting = _conflicting_demand_ids(solver, status, assumptions)
+        return SolverOutcome(status_name, None, [], [], {}, conflicting)
+    assignments = _extract_assignments(solver, x, slots, state)
+    warnings = _collect_warnings(assignments, slots)
+    return SolverOutcome(status_name, assignments, warnings, [], {}, [])
+
+
+def _solve_minimal_reshuffle_then_soft(
+    model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
+    assumptions: dict[str, object], baseline: list[Assignment],
+) -> SolverOutcome:
+    """REPLAN-MIN-01 (arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md): lexicographic,
+    not weighted -- phase 1 finds the true minimum achievable reshuffle count
+    under the SAME HARD model; phase 2 fixes that count as a hard constraint
+    and only THEN applies the ordinary TARGET/SOFT objective, so no SOFT
+    improvement can ever justify one additional reshuffled placement."""
+    reshuffle_expr = build_reshuffle_count_expr(x, baseline)
+    model.minimize(reshuffle_expr)
+    phase1_solver, phase1_status = _run_solver(model)
+
+    if phase1_status == cp_model.INFEASIBLE:
+        # A rigorous proof about the HARD model itself, not an approximation
+        # -- route through the existing infeasibility/conflict-detection
+        # path unchanged (audit round 2 FINDING R2-1 status matrix).
+        return _finalize(phase1_solver, phase1_status, x, slots, state, assumptions)
+    if phase1_status != cp_model.OPTIMAL:
+        # FEASIBLE (an unproven incumbent from hitting the time limit),
+        # UNKNOWN, or MODEL_INVALID: none of these PROVE the minimum
+        # reshuffle count REPLAN-MIN-01 requires (brief.md ARCHITECTURE
+        # DECISION: "gwarantowane konstrukcyjnie"). Freezing an unproven
+        # incumbent as if it were the true minimum could silently accept a
+        # worse-than-necessary reshuffle -- fail closed to TECHNICAL_ERROR
+        # (assignments=None, status_name != "INFEASIBLE") instead of calling
+        # _finalize, which would otherwise treat FEASIBLE as "good enough"
+        # the same way the ordinary single-phase path legitimately does.
+        return SolverOutcome(phase1_solver.status_name(phase1_status), None, [], [], {}, [])
+
+    min_reshuffle_count = round(phase1_solver.value(reshuffle_expr))
+    model.add(reshuffle_expr == min_reshuffle_count)
+    _add_objective(model, x, slots, state)
+    phase2_solver, phase2_status = _run_solver(model)
+    return _finalize(phase2_solver, phase2_status, x, slots, state, assumptions)
+
+
 def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment."""
     slots, still_needed, unassignable, reasons = _build_slots(state)
@@ -423,23 +483,19 @@ def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
     add_load_constraints(
         model, x, slots, fixed, state.month, state.profile.rolling_7d_decision_threshold_hours, enforce_load_cap
     )
-    _add_objective(model, x, slots, state)
     model.add_assumptions(list(assumptions.values()))
 
-    solver = cp_model.CpSolver()
-    solver.parameters.num_search_workers = 1
-    solver.parameters.random_seed = 0
-    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
-    status = solver.solve(model)
-    status_name = solver.status_name(status)
+    # REPLAN-MIN-01 applies only when there is an existing schedule to
+    # preserve (brief.md SCOPE: "Nie dotyczy pierwszego planowania, gdy nie
+    # istnieją baseline placements do zachowania") -- initial planning keeps
+    # today's single-phase SOFT-only behavior unchanged.
+    baseline = redistributable_baseline_assignments(state)
+    if baseline:
+        return _solve_minimal_reshuffle_then_soft(model, x, slots, state, assumptions, baseline)
 
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        conflicting = _conflicting_demand_ids(solver, status, assumptions)
-        return SolverOutcome(status_name, None, [], [], {}, conflicting)
-
-    assignments = _extract_assignments(solver, x, slots, state)
-    warnings = _collect_warnings(assignments, slots)
-    return SolverOutcome(status_name, assignments, warnings, [], {}, [])
+    _add_objective(model, x, slots, state)
+    solver, status = _run_solver(model)
+    return _finalize(solver, status, x, slots, state, assumptions)
 
 
 def _conflicting_demand_ids(solver: cp_model.CpSolver, status: int, assumptions: dict[str, object]) -> list[str]:

@@ -1,0 +1,138 @@
+AUDYT GOTOWOŚCI KONTRAKTU ROTA-T006 — ROUND 1
+
+Audytowany commit kontraktu: 8dc4ef07b0805776116b21249a31d874f488dc28
+Frozen addendum commit: 11cca0d8ddb69277045d17151c7bef234b41b0f1
+Lock commit: cff24efa629e552cbd77f0564a0d84bec2f9ccc8
+Aktualny main podczas audytu: 78e2fe449d14be3beaebec5787135241f4fc21bb
+Data audytu: 2026-08-12
+
+ZAKRES
+
+Audyt dotyczy wyłącznie gotowości ROTA-T006 do implementacji przez CC:
+- zgodności tasks/ROTA-T006/brief.md z frozen REPLAN-MIN-01;
+- jednoznaczności kolejności leksykograficznej;
+- definicji baseline i jednostki roszady;
+- relacji do HARD, ASSIGN-03/04, TARGET-01 i ordinary SOFT;
+- kompletności i testowalności macierzy A-I;
+- wykonalności przekazania kontraktu na aktualną bazę produkcyjną.
+
+Nie oceniano implementacji T006, ponieważ jeszcze nie istnieje.
+
+WYNIK MERYTORYCZNY — PASS
+
+1. Źródło prawdy
+
+- Addendum ma status FROZEN_PRODUCT_CONTRACT_ADDENDUM i literalnie zachowuje
+  decyzję właściciela.
+- Brief wskazuje dokładnie REPLAN-MIN-01 jako regułę nadrzędną dla REPLAN.
+- Nie znaleziono sprzeczności między addendum, briefem i istniejącymi
+  ASSIGN-03, ASSIGN-04 oraz TARGET-01.
+
+2. Kolejność optymalizacji
+
+Kontrakt jednoznacznie wymaga:
+1) HARD i niepodlegające negocjacji zasady zachowania;
+2) minimalny reshuffle_count;
+3) istniejący TARGET/SOFT objective dopiero wewnątrz klasy minimalnej.
+
+Brief zakazuje arbitralnej pojedynczej wagi i wymaga konstrukcyjnej gwarancji
+leksykograficznej. Preferowany solve dwuetapowy jest zgodny z addendum, a
+równoważne rozwiązanie jest dopuszczone wyłącznie przy matematycznie tej samej
+kolejności. Nie pozostaje decyzja produktowa do podjęcia przez CC.
+
+Konsekwencja testowa dla przyszłego audytu implementacji: wartość minimum z
+fazy reshuffle musi być udowodniona przez solver. Zwykły status FEASIBLE fazy
+1 bez dowodu optymalności nie może być traktowany jako certyfikat minimum;
+istniejący status contract wymaga w nierozstrzygniętym przypadku zachowania
+granicy TECHNICAL_ERROR. Jest to bezpośrednia konsekwencja wymaganej gwarancji,
+nie nowy wymóg produktu.
+
+3. Jednostka roszady
+
+Baseline jest określony przez role=PRIMARY, state=PLANNED, frozen=false,
+obecny covers_demand_id i przynależność do istniejącego redistributable set.
+
+Porównanie odbywa się po parze employee_id + covers_demand_id, nie po
+assignment_id ani per pracownik. Kontrakt rozstrzyga także:
+- konieczna zmiana wywołana HARD nadal liczy się jako roszada;
+- nowy demand bez baseline nie jest sam roszadą;
+- REALIZED, frozen i inne nieredystrybuowalne Assignment pozostają pod
+  dotychczasową ochroną.
+
+4. Zakres
+
+Reguła działa dla każdego REPLAN istniejącego grafiku, bez wyjątku zależnego
+od triggera. Initial planning pozostaje poza nowym poziomem rankingu.
+Persistence, T005, nowe trigger-y i nowe rule_kind są jawnie poza zakresem.
+
+5. Macierz A-I
+
+Każdy przypadek ma ślad do kontraktu i jednoznaczny oracle:
+- A: mniejsza liczba roszad wygrywa z lepszym SOFT;
+- B: solver przechodzi do N+1 wyłącznie, gdy N nie daje kompletnego HARD-valid
+  grafiku;
+- C: ordinary SOFT rozstrzyga remis w minimalnej klasie;
+- D: co najmniej dwa różne źródła zmiany stanu potwierdzają niezależność od
+  triggera;
+- E: ASSIGN-03/04 pozostają silniejsze;
+- F: odtworzony assignment_id nie tworzy roszady;
+- G: nowy demand nie jest automatyczną roszadą;
+- H: initial plan pozostaje semantycznie bez zmian;
+- I: statusy DECISION_REQUIRED/TECHNICAL_ERROR nie są obchodzone.
+
+W przyszłym audycie implementacji niezależna macierz musi objąć co najmniej
+A, B, C, D, E i H zgodnie z samym briefem; klasy F, G i I także pozostają
+obowiązkowe przez Acceptance Contract.
+
+HANDOFF / BASE PROVENANCE — OBOWIĄZKOWA SEKWENCJA STARTU
+
+Gałąź arch/replan-minimal-reshuffle-2026-08-12 na 8dc4ef0 nie jest właściwą
+bezpośrednią bazą implementacji:
+- jej merge-base z aktualnym main to eded4c0;
+- aktualny main zawiera później scalone T005;
+- bezpośrednie `task_init.py ROTA-T006` na 8dc4ef0 kończy się FAIL, ponieważ
+  commit briefu już utworzył tasks/ROTA-T006/.
+
+Nie jest to luka kontraktu produktu. Czysty merge-tree potwierdza, że trzy
+artefakty T006 dają się przenieść na aktualny main bez konfliktu.
+
+CC powinien rozpocząć w tej kolejności:
+1. utworzyć task/ROTA-T006 z aktualnego main 78e2fe4 lub jego jawnie nowszego
+   następcy;
+2. wprowadzić frozen addendum 11cca0d i lock cff24ef na tę bazę;
+3. uruchomić `task_init.py ROTA-T006`, zanim pojawi się katalog zadania;
+4. zachować wygenerowany repo_before.hash;
+5. wprowadzić brief z 8dc4ef0 i dopiero wtedy rozpocząć kodowanie.
+
+Równoważna sekwencja jest dopuszczalna tylko jeśli zachowuje te same fakty:
+aktualny main jako przodek, addendum obecne przed implementacją i prawdziwy
+repo_before.hash utworzony przed zmianami kodu.
+
+UWAGA O LOCKU — NIE BLOKUJE GOTOWOŚCI KONTRAKTU
+
+Wartość e8869c... w addendum lock jest SHA-256 kanonicznej zawartości LF z
+repozytorium. Na Windows z core.autocrlf=true surowe bajty checkoutu mają
+SHA-256 98eec3... z powodu CRLF. Commit SHA nadal jednoznacznie przypina treść,
+więc nie jest to luka produktu ani blocker CC. Ewentualny przyszły verifier
+tego dodatkowego locka musi liczyć hash kanonicznego blobu/LF albo wymusić
+EOL; obecny guard.py obsługuje wyłącznie arch/spec.md i arch/FROZEN.lock.
+
+FINDINGS
+
+Brak błędów lub niejednoznaczności kontraktu T006.
+
+WYMAGA_DECYZJI
+
+Brak.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+FINAL VERDICT
+
+ROTA-T006 TASK CONTRACT: PASS / READY FOR CC.
+
+PASS obowiązuje dla treści z 8dc4ef0 pod warunkiem wykonania opisanego,
+mechanicznego handoffu na aktualny main. CC nie powinien kodować bezpośrednio
+na historycznej gałęzi architektonicznej ani omijać prawdziwego task_init.
