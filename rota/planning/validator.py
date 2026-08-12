@@ -74,16 +74,22 @@ def _check_membership_enabled(state: PlanningState, assignments: list[Assignment
     solver eligibility for newly-solved Assignments, but a pre-existing
     Assignment (existing_assignments, already covering a demand before plan()
     runs) was never checked against it at all, so a disabled membership could
-    reach FEASIBLE unnoticed on both the solver and validator side."""
+    reach FEASIBLE unnoticed on both the solver and validator side.
+
+    Audit round 15 (tests_r15.txt FINDING R15-1): a missing membership for the
+    current site -- no membership record at all, or one that exists only for a
+    different site (EMP-03: an Employee is not structurally owned by exactly
+    one Site, so this is valid data, not corruption) -- is the same absence of
+    authorization as a disabled one and must be rejected the same way."""
     membership_by_employee = {
         m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id
     }
     for assignment in assignments:
         membership = membership_by_employee.get(assignment.employee_id)
-        if membership is not None and not membership.enabled:
+        if membership is None or not membership.enabled:
             violations.append(
                 f"MEMBERSHIP-01: {assignment.employee_id} assignment {assignment.assignment_id} "
-                "has a disabled membership"
+                "has no enabled membership for this site"
             )
 
 

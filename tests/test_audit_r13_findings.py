@@ -99,7 +99,7 @@ def test_r13_2b_cancelled_excluded_from_validator_rest_and_load():
         "replacement-1", "test-v1", "A", DEMAND_D.start_datetime, DEMAND_D.end_datetime,
         AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, DEMAND_D.demand_id, None,
     )
-    state = base_state(shift_demands=(DEMAND_D,))
+    state = base_state(shift_demands=(DEMAND_D,), memberships=(_local_membership("A"),))
     report = validate(state, [cancelled, replacement])
     assert report.hard_pass, report.violations
     assert report.monthly_hours == {"A": 12}

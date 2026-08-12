@@ -153,6 +153,19 @@ def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> Plan
 def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
+    non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
+    if non_load_violations:
+        # Round 15 audit (tests_r15.txt FINDING R15-2): the uncapped fallback
+        # candidate is still a candidate and must pass full independent HARD
+        # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
+        # A LOAD-01 trigger does not authorize silently accepting a
+        # co-occurring HARD violation via the DECISION_REQUIRED payload.
+        return PlanningResult(
+            "TECHNICAL_ERROR", [], None,
+            "independent validator found non-LOAD-01 HARD violations in the uncapped fallback candidate: "
+            + "; ".join(non_load_violations),
+            [],
+        )
     threshold = state.profile.rolling_7d_decision_threshold_hours
     over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
     if not over_threshold:
