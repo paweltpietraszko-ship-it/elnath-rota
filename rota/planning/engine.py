@@ -34,12 +34,28 @@ from rota.planning.engine_types import (
     LoadBlocker,
     PlanningResult,
 )
+from rota.planning.shift_catalog import UnclassifiedShiftError
 from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, solve
 from rota.planning.validator import IndependentValidationReport, validate
 
 
 def plan(state: PlanningState) -> PlanningResult:
-    """Produce a PlanningResult for one PlanningState."""
+    """Produce a PlanningResult for one PlanningState.
+
+    plan() has exactly three output statuses (arch/spec.md:339-342); a raw
+    exception is never one of them. FINDING R17-3: UnclassifiedShiftError is
+    a genuine model error (arch/spec.md:503-507) -- a ShiftDemand that
+    matches no StandardShift in the profile -- and must be mapped to
+    TECHNICAL_ERROR at this public boundary, not left to propagate to the
+    caller.
+    """
+    try:
+        return _plan(state)
+    except UnclassifiedShiftError as exc:
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
+
+
+def _plan(state: PlanningState) -> PlanningResult:
     outcome = solve(state, enforce_load_cap=True)
 
     if outcome.unassignable_demand_ids:
@@ -86,14 +102,22 @@ def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[As
 def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
-    if not report.hard_pass:
+    if report.hard_pass:
+        return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
+    non_load_violations = [v for v in report.violations if not v.startswith("LOAD-01")]
+    if non_load_violations:
         return PlanningResult(
             "TECHNICAL_ERROR", [], None,
             "independent validator found HARD violations in a CP-SAT-OPTIMAL candidate: "
             + "; ".join(report.violations),
             [],
         )
-    return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
+    # FINDING R17-1: a demand already fully covered by existing_assignments
+    # never gets a SolverSlot, so the LOAD-01 cap constraint is never added
+    # for that employee even though the capped solve reports OPTIMAL. A
+    # LOAD-01-only violation surfacing here is a genuine boundary, not a
+    # solver/mapping bug, and must not become TECHNICAL_ERROR.
+    return _load_decision(state, report, list(outcome.warnings))
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
@@ -166,23 +190,26 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
             + "; ".join(non_load_violations),
             [],
         )
+    return _load_decision(state, report, list(outcome.warnings))
+
+
+def _load_decision(state: PlanningState, report: IndependentValidationReport, extra_warnings: list[str]) -> PlanningResult:
+    """Build a typed LOAD-01 DECISION_REQUIRED from a report already known to
+    have no non-LOAD-01 violations. Shared by the existing-assignments-only
+    path (_evaluate_candidate, FINDING R17-1) and the uncapped-retry path
+    (_decision_for_load)."""
     threshold = state.profile.rolling_7d_decision_threshold_hours
     over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
     if not over_threshold:
-        # Defensive: this path is only reached because the capped solve was
-        # INFEASIBLE and the uncapped retry then succeeded, which should mean
-        # the cap was the cause. If independent validation finds nobody
-        # actually over threshold, that expectation was wrong -- do not
-        # return an untyped DECISION_REQUIRED (load_blocker=None, empty
-        # blockers); surface it as TECHNICAL_ERROR instead (round 14 audit,
-        # tests_r14.txt FINDING R14-2).
+        # Defensive: report.hard_pass was False but nobody is over threshold
+        # after all -- that expectation was wrong; do not return an untyped
+        # DECISION_REQUIRED (load_blocker=None, empty blockers) (round 14
+        # audit, tests_r14.txt FINDING R14-2).
         return PlanningResult(
             "TECHNICAL_ERROR", [], None,
-            "uncapped solve succeeded but no employee is over the LOAD-01 threshold; "
-            "cannot attribute the capped INFEASIBLE to LOAD-01",
-            [],
+            "a LOAD-01 violation was reported but no employee is over threshold; cannot classify", [],
         )
-    warnings = list(outcome.warnings) + list(report.warnings)
+    warnings = list(extra_warnings) + list(report.warnings)
     load_blocker, blockers = _rank_load_blockers(report, over_threshold, warnings)
     payload = DecisionRequiredPayload(
         blocking_shift_demands=[],

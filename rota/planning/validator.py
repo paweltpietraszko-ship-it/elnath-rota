@@ -178,6 +178,31 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
                 )
 
 
+def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warnings: list[str]) -> None:
+    """LEAVE_PLAN-01 (arch/spec.md:400-403): a collision does not block the
+    Assignment but must be visible as a warning. FINDING R17-4: this was only
+    ever emitted by the solver for newly-solved slots, so an existing
+    Assignment colliding with LEAVE_PLAN produced no warning at all in the
+    public plan() result. Covering it here reaches both existing and solved
+    Assignments uniformly, since validate() always sees the full candidate."""
+    records_by_employee: dict[str, list] = {}
+    for record in state.availability_records:
+        records_by_employee.setdefault(record.employee_id, []).append(record)
+
+    for assignment in assignments:
+        for record in records_by_employee.get(assignment.employee_id, []):
+            if not record.active or record.kind != AvailabilityKind.LEAVE_PLAN:
+                continue
+            overlaps = overlaps_date_range(
+                assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date
+            )
+            if overlaps:
+                warnings.append(
+                    f"LEAVE_PLAN-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} "
+                    f"overlaps LEAVE_PLAN {record.start_date}-{record.end_date}"
+                )
+
+
 def _check_external(state: PlanningState, assignments: list[Assignment], violations: list[str]) -> None:
     """EXTERNAL-01 (arch/spec.md:419-421): X/Y are only eligible inside an active,
     confirmed ExternalSupportWindow for the right employee AND, when the window
@@ -288,6 +313,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_day_only(state, assignments, violations)
     _check_day_shift_off(state, assignments, violations, warnings)
     _check_leave_and_unavailable(state, assignments, violations)
+    _check_leave_plan(state, assignments, warnings)
     _check_external(state, assignments, violations)
     min_rest = _check_rest(state, assignments, violations)
     max_load, max_window = _check_load(state, assignments, violations)

@@ -156,6 +156,17 @@ def _collect_eligible_slots(
         slots.append(
             SolverSlot(employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft)
         )
+    # FINDING R17-2: an Employee with no membership at all for the current
+    # site never enters the loop above (the R16-1 site filter skips other-site
+    # memberships before check_eligibility is ever called), so no rejection
+    # reason was ever recorded for them -- DECISION_REQUIRED then had
+    # blockers=[] instead of a concrete MEMBERSHIP-01 entry.
+    current_site_employee_ids = {
+        m.employee_id for m in state.memberships if m.site_id == state.site.site_id
+    }
+    for employee_id in employees_by_id:
+        if employee_id not in current_site_employee_ids:
+            reasons.append((employee_id, "MEMBERSHIP-01"))
     return eligible_count, eligible_ids, reasons
 
 
@@ -254,8 +265,14 @@ def _add_load_constraints(
 
 def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState) -> None:
     target_by_employee = {wb.employee_id: wb.target_hours for wb in state.work_balances}
+    # FINDING R17-5: a CANCELLED existing Assignment is not actual work
+    # (arch/spec.md:257) and must not count toward the TARGET-01 objective,
+    # consistent with coverage/REST-01/LOAD-01/validator filtering already
+    # applied elsewhere.
     fixed_hours_by_employee: dict[str, int] = {}
     for assignment in state.existing_assignments:
+        if assignment.state == AssignmentState.CANCELLED:
+            continue
         hours = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         fixed_hours_by_employee[assignment.employee_id] = fixed_hours_by_employee.get(assignment.employee_id, 0) + hours
 
@@ -305,6 +322,10 @@ def _extract_assignments(
 
 
 def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) -> list[str]:
+    """DAY_SHIFT_OFF-01 SOFT only; LEAVE_PLAN-01 SOFT moved to
+    validator._check_leave_plan (FINDING R17-4), which sees the full
+    existing+solved candidate instead of only newly-solved slots -- keeping
+    it here too would have duplicated the warning for solved Assignments."""
     warnings = []
     assigned = {(a.employee_id, a.covers_demand_id) for a in assignments}
     for slot in slots:
@@ -315,8 +336,6 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
                 f"DAY_SHIFT_OFF-01 SOFT: {slot.employee_id} prior N enters day off until 05:00 "
                 f"on {slot.demand.end_datetime.date()}"
             )
-        if slot.leave_plan_collision:
-            warnings.append(f"LEAVE_PLAN-01 SOFT: {slot.employee_id} assigned during LEAVE_PLAN")
     return warnings
 
 
