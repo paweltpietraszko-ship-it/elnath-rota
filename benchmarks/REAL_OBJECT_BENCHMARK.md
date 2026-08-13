@@ -1,6 +1,6 @@
 # ROTA-REAL-OBJECT-01 — R4 simplified benchmark
 
-Status: architect-authored R4 candidate after owner-directed simplification  
+Status: architect-authored R4 candidate after owner-directed simplification
 Production base: `e010f004e90a1e4f426bb72298e7307045d32b56`
 
 ## Purpose
@@ -48,7 +48,7 @@ For `FEASIBLE`:
 - production must return exactly one candidate;
 - the independent checker verifies coverage, assignment intervals, DAY_ONLY,
   availability, SiteRules, X/Y window eligibility, REST, LOAD, fixed facts and
-  the strict ROTA-REG-001 monthly-hour oracle where applicable;
+  the strict ROTA-REG-001 monthly-hour expectation where applicable;
 - REPLAN cases additionally compare baseline `(employee_id, demand_id)` pairs.
 
 For controlled negative cases:
