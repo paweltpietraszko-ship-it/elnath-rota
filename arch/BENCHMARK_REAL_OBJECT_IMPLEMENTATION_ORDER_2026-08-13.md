@@ -45,34 +45,57 @@ oczekiwań nowego benchmarku.
 
 ## Nienaruszalny model realnego obiektu
 
-Każdy podstawowy przypadek benchmarku ma używać:
+Każdy przypadek operacyjnej macierzy benchmarku (poza literalnym baseline
+ROTA-REG-001, który zachowuje własny zamrożony fixture) ma używać:
 
-- dokładnie 5 pracowników: A, B, C, D, E;
+- dokładnie 5 pracowników LOCAL: A, B, C, D, E;
 - dokładnie jednej osoby `DAY_ONLY`: C;
 - A, B, D i E zdolnych do pracy D/N;
+- X i Y jako odrębnych pracowników z membership
+  `EXTERNAL_SUPPORT`, reprezentujących pomoc z innych obiektów;
 - dokładnie jednej obsady PRIMARY na D i jednej na N każdego dnia;
 - zmian D 05:00–17:00 oraz N 17:00–05:00 następnego dnia;
 - minimum 11 godzin odpoczynku;
 - granicy decyzji LOAD-01: ponad 60 godzin w dowolnym ruchomym oknie 7 dni;
-- braku dostępnego X/Y w scenariuszach podstawowych;
 - faktycznych przedziałów czasu, również dla N przechodzącej przez miesiąc;
 - sześciu dni poprawnej historii przed pierwszym dniem badanego miesiąca.
+
+X/Y nie są szóstą i siódmą osobą lokalnej obsady ani ukrytą rezerwą. Zgodnie
+z `arch/spec.md` MEMBERSHIP-02, WINDOW-01..03 i EXTERNAL-01:
+
+- `SiteProfile.external_support_enabled` musi pozwalać na tę funkcję w
+  scenariuszach wsparcia;
+- bez aktywnego, potwierdzonego `ExternalSupportWindow` X/Y są nieeligible i
+  solver nie może użyć ich samodzielnie;
+- przy realnym niedoborze wynik ma móc wskazać koordynatorowi klasę
+  odblokowania „potwierdzenie X/Y”;
+- dopiero ponowne planowanie po jawnej decyzji koordynatora i dodaniu
+  właściwego okna może użyć X/Y;
+- okno musi pasować do employee, Site, całego przedziału Assignment oraz
+  `allowed_shift_kind`, jeżeli je ograniczono.
+
+Bazowy przypadek ROTA-REG-001 zachowuje swoje oczekiwanie „brak aktywnego
+ExternalSupportWindow i brak użycia X/Y”. Macierz operacyjna musi dodatkowo
+zawierać pary przed/po decyzji koordynatora opisane poniżej.
 
 Źródłem bazowych danych obiektu jest
 `tests/fixtures/rota_reg_001.json` wraz z
 `tests/regression/oracle_rota_reg_001.md`. Benchmark może parametryzować
-miesiąc i perturbacje, ale nie może zwiększać zespołu, tworzyć ukrytej rezerwy
-ani zmieniać C w pracownika nocnego.
+miesiąc i perturbacje, ale nie może zwiększać lokalnego zespołu, tworzyć
+ukrytej rezerwy ani zmieniać C w pracownika nocnego. X/Y występują wyłącznie
+na zasadach zamrożonego ExternalSupportWindow.
 
 ## Cel techniczny
 
-Benchmark ma dla każdego przypadku odpowiedzieć niezależnie na trzy pytania:
+Benchmark ma dla każdego przypadku odpowiedzieć niezależnie na cztery pytania:
 
 1. Czy istnieje legalny grafik przy wszystkich HARD constraints, w tym
    LOAD-01 <= 60 h?
 2. Jeżeli nie, czy istnieje legalny grafik po zdjęciu wyłącznie granicy
    LOAD-01, z zachowaniem pozostałych HARD constraints?
-3. Czy wynik produkcyjnego `rota.planning.engine.plan()` odpowiada tej
+3. Jeżeli nadal nie, czy jawnie określona pomoc X/Y rozwiązuje problem po
+   dodaniu właściwego, aktywnego ExternalSupportWindow?
+4. Czy wynik produkcyjnego `rota.planning.engine.plan()` odpowiada tej
    niezależnej klasyfikacji i wskazuje właściwą przyczynę?
 
 Sam brak `TECHNICAL_ERROR` nie jest PASS. Sam `DECISION_REQUIRED` również nie
@@ -108,10 +131,41 @@ Oczekiwanie od produkcji:
 - `FEASIBLE` z przekroczeniem, inny zmyślony blocker albo `TECHNICAL_ERROR`
   jest FAIL-em.
 
+### EXTERNAL_SUPPORT_DECISION_REQUIRED
+
+W aktualnym stanie bez potwierdzonego okna nie istnieje lokalny grafik
+(również po zdjęciu LOAD-01), ale odpowiadający mu wariant po jawnej decyzji
+koordynatora i dodaniu poprawnego ExternalSupportWindow dla X albo Y jest
+wykonalny bez naruszenia HARD.
+
+Oczekiwanie od produkcji przed decyzją:
+
+- X/Y nie występują w kandydacie;
+- brak fałszywego `FEASIBLE`;
+- `DECISION_REQUIRED` zawiera właściwy problem/blockery oraz klasę
+  odblokowania przez potwierdzenie X/Y zgodnie z frozen output contract;
+- solver nie tworzy i nie aktywuje okna samodzielnie.
+
+### KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT
+
+To sparowany przypadek po jawnej decyzji koordynatora: ten sam stan otrzymuje
+aktywne, właściwe ExternalSupportWindow, a reference oracle dowodzi pełnej
+wykonalności. Przypadek ma być skonstruowany tak, aby bez X/Y nie istniał
+lokalny grafik — dzięki temu rzeczywiście testuje użycie pomocy.
+
+Oczekiwanie od produkcji po decyzji:
+
+- `FEASIBLE` i niezależny HARD PASS;
+- użycie wyłącznie X/Y objętego oknem;
+- Assignment mieści się w całości w oknie i respektuje allowed shift kind;
+- brak użycia innego external employee albo użycia poza oknem.
+
 ### PROVEN_STAFFING_SHORTAGE
 
-Nie istnieje pełny grafik nawet po zdjęciu wyłącznie LOAD-01, przy zachowaniu
-coverage, eligibility, dostępności, REST-01, DAY_ONLY i pozostałych HARD.
+Nie istnieje pełny grafik nawet po zdjęciu wyłącznie LOAD-01 i po uwzględnieniu
+wszystkich X/Y już jawnie udostępnionych w danych przez koordynatora, przy
+zachowaniu coverage, eligibility, dostępności, REST-01, DAY_ONLY i pozostałych
+HARD.
 
 Oczekiwanie od produkcji:
 
@@ -143,11 +197,15 @@ Model referencyjny obejmuje co najmniej:
 - fixed/REALIZED/frozen assignments użyte w danym przypadku;
 - rzeczywiste przedziały REST-01, także przez granicę miesiąca;
 - ruchome okna LOAD-01 z sześciodniową historią;
+- membership EXTERNAL_SUPPORT, flagę profilu oraz pełną semantykę
+  ExternalSupportWindow (active, employee, Site, interval, shift kind);
 - wykonywalne HARD SiteRules, jeżeli scenariusz jawnie je zawiera.
 
-Oracle uruchamia dwa rozstrzygające solve'y: capped i uncapped-LOAD. Do
-klasyfikacji wolno użyć wyłącznie rozstrzygającego `FEASIBLE/OPTIMAL` albo
-`INFEASIBLE`; `UNKNOWN` nie jest dowodem.
+Oracle uruchamia dwa rozstrzygające solve'y dla aktualnego stanu: capped i
+uncapped-LOAD. Dla pary external-support uruchamia także dokładnie ten sam
+model po dodaniu jawnie zdefiniowanego okna koordynatora. Do klasyfikacji wolno
+użyć wyłącznie rozstrzygającego `FEASIBLE/OPTIMAL` albo `INFEASIBLE`; `UNKNOWN`
+nie jest dowodem.
 
 Niezależny checker ma ponownie sprawdzić każdy witness zwrócony przez oracle
 oraz każdy kandydat produkcji bez wywoływania produkcyjnego validatora.
@@ -176,10 +234,19 @@ Generator ma być deterministyczny i objąć co najmniej:
     początek albo koniec miesiąca.
 12. Noc kończąca miesiąc połączona z próbą przydzielenia D pierwszego dnia
     następnego miesiąca.
+13. Sparowany niedobór przed/po decyzji X/Y: bez okna
+    `EXTERNAL_SUPPORT_DECISION_REQUIRED`, po dodaniu okna
+    `KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT`.
+14. Macierz granic ExternalSupportWindow: właściwy X vs cudzy Y, właściwy Site
+    vs inny Site, active vs inactive, pełne pokrycie przedziału vs częściowe,
+    D/N zgodne vs niezgodne z `allowed_shift_kind`, oraz profil support enabled
+    vs disabled.
 
 Perturbacje mają być dodawane stopniowo. Raport ma pokazywać pierwszy poziom,
 na którym reference oracle zmienia klasę z `KNOWN_FEASIBLE` na
-`LOAD_DECISION_REQUIRED` albo `PROVEN_STAFFING_SHORTAGE`.
+`LOAD_DECISION_REQUIRED`, `EXTERNAL_SUPPORT_DECISION_REQUIRED` albo
+`PROVEN_STAFFING_SHORTAGE`. Dla external support raport pokazuje również wynik
+sparowanego przypadku po decyzji.
 
 ## Reprodukowalność i raport
 
@@ -190,6 +257,7 @@ Każdy przypadek musi posiadać:
 - miesiąc;
 - pełny opis perturbacji;
 - pięcioosobowy roster i flagę C=DAY_ONLY;
+- external memberships X/Y oraz komplet aktywnych/nieaktywnych windows;
 - boundary assignments;
 - oczekiwaną klasę reference oracle;
 - wynik capped i uncapped reference solve;
@@ -232,7 +300,9 @@ Niedozwolone w tym zleceniu:
 - zmiany w `rota/planning/`, `rota/domain.py` lub persistence;
 - poprawianie PlanningEngine, aby dopasować go do wyniku benchmarku;
 - zmiana frozen spec/addendów/oracle ROTA-REG-001;
-- dodawanie szóstej osoby, X/Y albo automatyczne rozluźnianie HARD w celu
+- dodawanie szóstej osoby LOCAL, innych ukrytych pracowników lub używanie X/Y
+  bez właściwego, jawnie potwierdzonego ExternalSupportWindow;
+- automatyczne otwieranie okna X/Y albo rozluźnianie HARD przez solver w celu
   uzyskania zielonego wyniku;
 - uznanie istniejącego `100/100` za wykonanie tego zlecenia.
 
@@ -244,19 +314,26 @@ Nie naprawia engine w tym samym commicie.
 
 Codex może zwrócić PASS dla benchmarku tylko wtedy, gdy:
 
-1. Każdy przypadek podstawowy ma dokładnie A–E i tylko C=DAY_ONLY.
-2. Nie istnieje ukryta pula ani dodatkowy eligible pracownik.
+1. Każdy przypadek podstawowy ma dokładnie pięciu LOCAL A–E i tylko
+   C=DAY_ONLY; X/Y są jawnie oznaczeni jako EXTERNAL_SUPPORT.
+2. Nie istnieje ukryta pula ani dodatkowy LOCAL. X/Y są eligible wyłącznie w
+   pełni pasującym, aktywnym ExternalSupportWindow i przy włączonej funkcji
+   profilu.
 3. Każda oczekiwana klasa pochodzi z niezależnego capped/uncapped oracle.
 4. `DECISION_REQUIRED` jest zaliczany wyłącznie w klasie i z przyczyną, które
    potwierdził oracle.
 5. Wszystkie witnessy i kandydaci przechodzą niezależny checker.
-6. Obowiązkowa drabina 1–12 jest pokryta testami klas, nie pojedynczymi
+6. Obowiązkowa drabina 1–14 jest pokryta testami klas, nie pojedynczymi
    literalnymi przykładami.
 7. Generator wykrywa własne nielegalne boundary inputs przed `plan()`.
 8. Ten sam seed/case_id odtwarza identyczne wejście i klasyfikację.
 9. Raport rozdziela correctness od performance.
 10. Testy istniejącego produktu pozostają zielone, ale ich liczba sama w sobie
     nie zastępuje powyższych dowodów.
+11. Ta sama sytuacja niedoboru przed decyzją nie używa X/Y i proponuje
+    potwierdzenie pomocy, a po dodaniu właściwego okna staje się FEASIBLE.
+12. Negatywna macierz employee/Site/active/interval/shift-kind/profile dowodzi,
+    że okno nie jest ogólnym obejściem eligibility.
 
 Po implementacji CC przekazuje Codexowi dokładny SHA oraz polecenia do:
 
