@@ -1,0 +1,252 @@
+AUDYT KONTRAKTU ROTA-T010 A-D — ROUND 1
+
+AUDYTOWANY SHA:
+f337b511baf42220d746b176c3b90a99a864cb09
+
+GAŁĄŹ:
+arch/rota-t010-panel-sterowania-2026-08-13
+
+WERDYKT: WYMAGA KOREKTY — NIE PRZEKAZYWAĆ JESZCZE DO IMPLEMENTACJI CC
+
+To jest audyt kontraktu, nie implementacji. Nie uruchamiano testów kodu
+produkcyjnego. Sprawdzono części A-D względem:
+
+- arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md;
+- zamrożonego SITE-RULE-EXEC-01;
+- zaakceptowanych granic T005, T007, T008 i T009;
+- aktualnego modelu, wyłącznie w celu ustalenia, czy wymagania są wykonywalne
+  i testowalne bez zgadywania przez implementera.
+
+git diff --check dla baseline..audytowany SHA: PASS.
+Kod produkcyjny nie został zmieniony przez audyt.
+
+
+PODSUMOWANIE CZĘŚCI
+
+T010-A: WYMAGA KOREKTY
+T010-B: WYMAGA KOREKTY
+T010-C: USUNĄĆ JAKO ZADANIE IMPLEMENTACYJNE / ZOSTAWIĆ TYLKO REGRESJĘ
+T010-D: WYMAGA KOREKTY
+
+Podział na cztery części jest użyteczny i pozwolił wykryć całe klasy luk bez
+projektowania Panelu ani dodawania nowych funkcji. Problemem nie jest wielkość
+T010, lecz cztery konkretne rozbieżności poniżej.
+
+
+FINDING R1-1 — HIGH — A MA INNĄ DEFINICJĘ „SKONFIGUROWANY” NIŻ DECYZJA WŁAŚCICIELA
+
+Ślad wymagania:
+
+- aneks właścicielski, §3.1: odczyt nie może uznać obiektu za gotowy do
+  pierwszego PLAN bez pełnego CalendarDay dla planowanego miesiąca oraz
+  pozostałych danych wymaganych przez application layer;
+- aneks, §4: projekcja ma rozróżniać brak kontekstu, konfigurację częściową i
+  skonfigurowany obiekt oraz wskazywać konkretne braki;
+- part_a_bootstrap_roster.md:11: „obiekt skonfigurowany” nie wymaga
+  CalendarDay planowanego miesiąca. Nie wiąże też wyniku z konkretnym
+  miesiącem.
+
+Skutek:
+
+Ten sam stan bazy może być według A „skonfigurowany”, a według wiążącego
+aneksu nadal niegotowy do PLAN. T012 nie będzie wiedzieć, który wynik jest
+kanoniczny.
+
+Wymagana korekta:
+
+- rozdzielić w kontrakcie kompletność stałego kontekstu od gotowości do PLAN
+  dla wskazanego miesiąca albo zastosować jedną definicję obejmującą oba;
+- miesięczna gotowość musi sprawdzać pełny CalendarDay i zwracać jego brak na
+  liście braków;
+- dodać macierz: kompletny kontekst bez kalendarza, kalendarz niepełny,
+  kalendarz pełny, brak target_hours (nie blokuje) oraz miesiąc A kompletny /
+  miesiąc B niekompletny.
+
+Nie narzuca to formatu API ani UI. Wymaga jedynie jednego znaczenia statusu.
+
+
+FINDING R1-2 — HIGH — B WPROWADZA WYJĄTEK OD DAY_ONLY, KTÓREGO NIE MA W ZAMROŻONEJ SEMANTYCE T007
+
+Ślad wymagania:
+
+- part_b_availability.md:18 wymaga, aby
+  EMPLOYEE_ALLOWED_SHIFT_KINDS=[N] w kategorii CONFIRMED_EXCEPTION czasowo
+  uchylało DAY_ONLY-01;
+- SITE-RULE-EXEC-01, „MULTIPLE RULES”: wszystkie HARD składają się przez
+  koniunkcję;
+- SITE-RULE-EXEC-01, EMPLOYEE_ALLOWED_SHIFT_KINDS: reguła wyłącznie ogranicza
+  automatyczne przydziały do podanego zbioru; nie nadaje prawa do uchylania
+  innej bramki HARD;
+- aktualna niezależna eligibility i validator sprawdzają DAY_ONLY-01 osobno
+  od SiteRule. Samo zapisanie allowed=[N] nie może więc wykonać zachowania B.
+
+Skutek:
+
+CC musiałby sam wymyślić precedencję pomiędzy wbudowanym DAY_ONLY-01 a T007.
+To nie jest mechaniczne „podpięcie” istniejącej reguły. Jest to nowe,
+zamierzone znaczenie produktu, ale obecny dokument nie rozstrzyga formalnie
+sprzeczności z zamrożoną zasadą koniunkcji.
+
+Wymagana korekta:
+
+- zamrozić wąskie odstępstwo od SITE-RULE-EXEC-01: kiedy dokładnie wyjątek N
+  uchyla wyłącznie DAY_ONLY-01 i że nie uchyla Availability, membership,
+  REST, LOAD ani żadnego innego HARD SiteRule;
+- określić identyczną semantykę dla eligibility i niezależnego validatora;
+- macierz musi objąć: środek okresu, obie granice inclusive, dzień przed i po,
+  równoczesny zakaz N z innego SiteRule, chorobę/urlop, disabled membership
+  oraz powrót DAY_ONLY-01 po effective_to.
+
+To nie jest propozycja szerszego mechanizmu override. Wprost przeciwnie:
+kontrakt już żąda jednego wyjątku i musi go zamknąć bez pozostawiania CC pola
+do rozszerzenia.
+
+
+FINDING R1-3 — MEDIUM — B OPISUJE DODANIE OGRANICZENIA, ALE NIE JEGO PÓŹNIEJSZĄ EDYCJĘ
+
+Ślad wymagania:
+
+- aneks, §2-4 i §15: pierwsza konfiguracja oraz późniejsza edycja korzystają
+  z tego samego mechanizmu i tych samych źródeł prawdy;
+- T005: rodzina reguły ma jeden liniowy, append-only łańcuch decyzji;
+- part_b_availability.md:14 mówi tylko, że niezależne zakresy używają
+  oddzielnych rodzin. Nie określa zachowania dla poprawienia dat istniejącego
+  ograniczenia ani wcześniejszego przywrócenia ✓.
+
+Skutek:
+
+Implementer może dopisywać nową rodzinę przy każdej edycji, pozostawiając
+stare ograniczenie aktywne, albo mutować historię. Oba zachowania łamią
+istniejący lifecycle, lecz obecna macierz ich nie wykryje.
+
+Wymagana korekta:
+
+- opisać na poziomie zachowania, że zmiana okresu i wcześniejsze cofnięcie
+  ograniczenia tworzą właściwą kolejną decyzję w tej samej rodzinie, bez
+  UPDATE/DELETE historii i bez równoległego aktywnego źródła;
+- dodać testy: korekta od/do, ponowne ✓ przed pierwotnym effective_to,
+  dwa niezależne niepokrywające się okresy oraz restart bazy i identyczna
+  projekcja.
+
+Kontrakt nie musi narzucać sposobu generowania identyfikatora rodziny, ale
+musi zamrozić obserwowalny lifecycle edycji.
+
+
+FINDING R1-4 — HIGH / ZBĘDNY ZAKRES — C NAKAZUJE USUNĄĆ DOZWOLONE ZACHOWANIE
+
+Ślad wymagania:
+
+- aneks właścicielski, §12: automatyczne przestawienie informacyjnej etykiety
+  po policzeniu szkoleń może pozostać, o ile nie wpływa na eligibility; T010
+  nie ma tego mechanizmu rozbudowywać;
+- part_c_training_readiness.md:9 oraz brief.md:70 nakazują usunięcie tej
+  automatyki i uznają wcześniejsze testy za uchylone;
+- aktualny PlanningEngine nie używa readiness_state/readiness_source w
+  eligibility. Automatyka zmienia etykietę, nie dopuszczenie pracownika.
+
+Skutek:
+
+C tworzy zmianę produkcyjną, której właściciel nie zamówił i którą jawnie
+pozwolił zostawić. To jest dokładnie rodzaj niepotrzebnej pracy, której T010
+miał uniknąć przez reuse.
+
+Wymagana korekta:
+
+- usunąć C jako część wymagającą implementacji albo przekształcić ją w sam
+  gate regresyjny: NOT_READY i READY_FOR_PRIMARY dają identyczne eligibility;
+- pozostawić ręczne S i istniejące wersjonowanie bez zmian;
+- usunąć z brief.md wyjątek od pełnej regresji dotyczący „jawnie uchylonej”
+  promocji, ponieważ aneks jej nie uchylił.
+
+Nie trzeba tu kolejnej decyzji produktowej. Obecna pisemna decyzja
+właściciela już rozstrzyga sprawę.
+
+
+FINDING R1-5 — HIGH — D NIE DEFINIUJE TESTOWALNEJ REPREZENTACJI I SKUTKU NN
+
+Ślad wymagania:
+
+- aneks, §11.2 i przypadek 12: konkretna zaplanowana zmiana ma dostać NN,
+  liczyć 0 godzin, zachować wcześniejszą wersję i w przykładzie zmienić wynik
+  168 -> 156;
+- part_d_nn.md:10 wymaga „trwałego kodu NN”, ale nie wskazuje, który trwały
+  fakt jest jego właścicielem;
+- obecny Assignment ma tylko stany PLANNED/REALIZED/CANCELLED i nie ma kodu
+  operacyjnego NN;
+- WorkBalance wystawia osobno planned_hours, realized_hours i month_balance;
+  nie ma pola „effective_hours”;
+- T009 manual correction ponownie waliduje snapshot i materializuje
+  Deviation, w tym COVERAGE dla niepokrytego demandu.
+
+Skutek:
+
+Nie da się napisać jednoznacznego testu „trwały NN + 156” bez zgadnięcia:
+
+- czy Assignment staje się CANCELLED, czy powstaje inny fakt;
+- gdzie persystowany jest kod NN;
+- które konkretne pole/pola WorkBalance mają dać 156;
+- czy brak zastępstwa pozostawia COVERAGE Deviation, a zastępstwo je usuwa.
+
+Wymagana korekta:
+
+- wskazać jedno istniejące lub jawnie rozszerzone miejsce przechowywania kodu
+  NN; nie pozostawiać wyboru pomiędzy Assignment, Deviation i nową tabelą CC;
+- określić stan Assignment niewykonanej zmiany oraz to, że nie może on wejść
+  do planned_hours ani realized_hours;
+- rozpisać przykład 168 -> 156 na istniejące pola WorkBalance;
+- wymagać zachowania demandu oraz zwykłej rewalidacji: bez zastępstwa powstaje
+  aktualny COVERAGE Deviation, z ręcznym zastępstwem pokrycie jest oceniane
+  zgodnie z istniejącą walidacją;
+- dodać macierz: NN bez zastępstwa, NN z ręcznym zastępstwem, restart,
+  wcześniejsza wersja bez zmian, brak AvailabilityRecord/SiteRule i brak
+  automatycznego REPLAN.
+
+Kontrakt powinien wybrać najmniejsze miejsce w obecnym modelu. Audyt nie
+proponuje nowego subsystemu NN.
+
+
+FINDING R1-6 — MEDIUM — ANEKS SAM PODAJE DWIE RÓŻNE SEMANTYKI NN
+
+Ślad wymagania:
+
+- aneks §11.1 wymienia NN jako powód ogólnej niedostępności znanej przed
+  planowaniem;
+- aneks §11.2, brief.md:50, part_b_availability.md:16 i part_d_nn.md:5
+  definiują NN jako fakt jednej niewykonanej zmiany po planowaniu i zabraniają
+  używania go jako availability.
+
+Skutek:
+
+Nie da się jednocześnie uznać obu zachowań za obowiązujące. B i D wybrały
+późniejszą, bardziej konkretną semantykę, ale nadal odsyłają do całego aneksu.
+
+Wymagana korekta:
+
+- ujednolicić aneks i części zadania: NN z tego zakresu jest wyłącznie faktem
+  niewykonanej, istniejącej zmiany; znana wcześniej niedostępność korzysta z
+  właściwej dostępności/ograniczenia, bez kodu NN.
+
+
+WARUNEK READY_FOR_IMPLEMENTATION PO R1
+
+Nie potrzeba dopisywać kolejnych funkcji ani przebudowywać całego briefu.
+Wystarczy zamknąć sześć punktów powyżej:
+
+1. jedna definicja kompletności A, z gotowością miesięczną;
+2. jawnie zamrożony, wąski wyjątek day_only w B;
+3. testowalna edycja/cofnięcie okresowego ograniczenia w B;
+4. usunięcie produkcyjnego zakresu C, pozostawienie regresji eligibility;
+5. jednoznaczny model i bilans NN w D;
+6. jedna semantyka NN w aneksie.
+
+Po tych korektach następny audyt powinien być krótki i ograniczony do
+sprawdzenia powyższych rozstrzygnięć. Jeżeli dokument zacznie wymagać dalszego
+projektowania ponad te punkty, należy zatrzymać iterowanie briefu zamiast
+prowadzić kolejne rundy redakcyjne.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Wszystkie findings wynikają bezpośrednio z pisemnej decyzji właściciela,
+zamrożonej semantyki T007 albo istniejących, zaakceptowanych kontraktów
+T005/T009. Żaden finding nie służy proponowaniu dodatkowej funkcji.
