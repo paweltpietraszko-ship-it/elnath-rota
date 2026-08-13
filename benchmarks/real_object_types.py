@@ -1,8 +1,8 @@
-"""Data types for the architect-owned real-object benchmark.
+"""Data types for ROTA-REAL-OBJECT-01.
 
-This package is test infrastructure.  It deliberately does not define product
-semantics; it encodes already-frozen Rota facts into reproducible benchmark
-cases that can be checked independently of the production solver.
+Benchmark types are test infrastructure only. Product semantics remain owned by
+frozen Rota contracts; these types make the benchmark inputs and evidence
+explicit and reproducible.
 """
 from __future__ import annotations
 
@@ -13,8 +13,6 @@ from typing import Optional
 
 
 class OracleClass(str, Enum):
-    """Independent expected class for one benchmark case."""
-
     KNOWN_FEASIBLE = "KNOWN_FEASIBLE"
     LOAD_DECISION_REQUIRED = "LOAD_DECISION_REQUIRED"
     EXTERNAL_SUPPORT_DECISION_REQUIRED = "EXTERNAL_SUPPORT_DECISION_REQUIRED"
@@ -24,17 +22,17 @@ class OracleClass(str, Enum):
 
 
 class SolveVerdict(str, Enum):
-    """Reference solve result; UNKNOWN is never evidence of correctness."""
-
     FEASIBLE = "FEASIBLE"
     INFEASIBLE = "INFEASIBLE"
     UNKNOWN = "UNKNOWN"
 
 
+class BenchmarkInputError(ValueError):
+    """Scenario fixture is illegal and must not be used to judge production."""
+
+
 @dataclass(frozen=True)
 class DemandSpec:
-    """One required PRIMARY shift."""
-
     demand_id: str
     kind: str
     start: datetime
@@ -43,8 +41,6 @@ class DemandSpec:
 
 @dataclass(frozen=True)
 class AvailabilitySpec:
-    """One active benchmark availability fact."""
-
     employee_id: str
     kind: str
     start_date: date
@@ -53,8 +49,6 @@ class AvailabilitySpec:
 
 @dataclass(frozen=True)
 class RuleSpec:
-    """One RESOLVED+HARD SiteRule from the T007 executable catalog."""
-
     rule_version_id: str
     rule_kind: str
     employee_id: str
@@ -64,8 +58,6 @@ class RuleSpec:
 
 @dataclass(frozen=True)
 class ExternalWindowSpec:
-    """One explicit coordinator-confirmed external support window."""
-
     window_id: str
     employee_id: str
     start: datetime
@@ -77,8 +69,6 @@ class ExternalWindowSpec:
 
 @dataclass(frozen=True)
 class FixedAssignmentSpec:
-    """Assignment that is already a fixed fact before production plan()."""
-
     assignment_id: str
     employee_id: str
     start: datetime
@@ -90,10 +80,13 @@ class FixedAssignmentSpec:
 
 @dataclass(frozen=True)
 class ScenarioSpec:
-    """Complete deterministic input recipe for one Site/month benchmark case."""
-
     case_id: str
     month: date
+    seed: int = 0
+    ladder_steps: tuple[int, ...] = ()
+    perturbations: tuple[str, ...] = ()
+    series_id: str = ""
+    series_level: int = 0
     availability: tuple[AvailabilitySpec, ...] = ()
     site_rules: tuple[RuleSpec, ...] = ()
     boundary_assignments: tuple[FixedAssignmentSpec, ...] = ()
@@ -107,36 +100,43 @@ class ScenarioSpec:
 
 
 @dataclass(frozen=True)
-class ReferenceSolve:
-    """One independent CP-SAT existence check."""
+class LoadViolation:
+    employee_id: str
+    window_start: date
+    window_end: date
+    hours: int
 
+
+@dataclass(frozen=True)
+class ReferenceSolve:
     verdict: SolveVerdict
     witness: tuple[tuple[str, str], ...]
     elapsed_seconds: float
+    status_name: str = ""
+    timed_out: bool = False
+    witness_checker_errors: tuple[str, ...] = ()
+    load_violations: tuple[LoadViolation, ...] = ()
 
 
 @dataclass(frozen=True)
 class ReferenceClassification:
-    """Independent case classification before production code is evaluated."""
-
     expected_class: OracleClass
     capped: ReferenceSolve
     uncapped: Optional[ReferenceSolve] = None
     without_external: Optional[ReferenceSolve] = None
     with_external_probe: Optional[ReferenceSolve] = None
+    with_external_probe_uncapped: Optional[ReferenceSolve] = None
 
 
 @dataclass(frozen=True)
 class CheckResult:
-    """Independent checker result for one production candidate."""
-
     errors: tuple[str, ...]
     monthly_hours: tuple[tuple[str, int], ...]
     max_rolling_7d_hours: tuple[tuple[str, int], ...]
+    load_violations: tuple[LoadViolation, ...] = ()
 
     @property
     def hard_pass(self) -> bool:
-        """Return True when the candidate has no independent HARD error."""
         return not self.errors
 
 
