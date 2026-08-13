@@ -1,131 +1,378 @@
-# ROTA — decyzja właściciela: T010 / Panel Sterowania
+# ROTA — decyzja właściciela: T010 / konfiguracja i Panel Sterowania
 
 DATA: 2026-08-13
-STATUS: OWNER DECISION / aneks produktu przed briefem ROTA-T010
+STATUS: OWNER DECISION / skonsolidowany aneks produktu przed briefem ROTA-T010
 BAZA: main `51b71725186fa30be23219e94aa135bb69bc5bce`
+ZASTĘPUJE: wcześniejszą treść tego dokumentu z commita
+`4925be4ba755755373200b7ffc0581882a31c5ce`
 
 ## 1. Zmiana kierunku T010
 
-ROTA-T010 nie jest już zadaniem dotyczącym parsera języka naturalnego.
+ROTA-T010 nie jest zadaniem dotyczącym parsera języka naturalnego.
 
-Parser i sterowanie Rotą żywym językiem są usunięte z zakresu produktu. Koordynator nie ma przekazywać reguł przez swobodny tekst, a program nie ma zgadywać jego intencji.
+Parser i sterowanie Rotą swobodnym tekstem są usunięte z zakresu produktu.
+Koordynator przekazuje konfigurowalne decyzje jawnie. Program nie zgaduje
+jego intencji i nie tworzy reguł na podstawie analizy zachowania pracownika.
 
-Konfigurowalne decyzje koordynatora mają być przekazywane jawnie przez UI.
+T010 ma przygotować trwałe operacje aplikacyjne oraz odczyty konfiguracji.
+Nie implementuje jeszcze Reacta, Tauri ani żadnego tymczasowego UI.
 
-## 2. Nazwa i rola miejsca konfiguracji
+## 2. Panel Sterowania
 
-W UI miejsce skupiające konfigurowalne zasady programu nazywa się **Panel Sterowania**.
+**Panel Sterowania** jest nazwą docelowego okna przyszłego desktopowego UI.
+Nazwa nie jest poleceniem zaprojektowania tego okna w T010.
 
-Panel Sterowania jest jednym, rozpoznawalnym miejscem, w którym koordynator szuka ustawień wpływających na działanie Roty.
+Panel będzie jednym, rozpoznawalnym miejscem, w którym koordynator:
 
-Panel Sterowania NIE jest drugim źródłem logiki biznesowej i NIE przechowuje równoległej kopii prawdy. Jeżeli dana funkcja już istnieje w domenie, warstwie aplikacyjnej lub persistence, panel ma ją tylko udostępnić przez prostą bramkę/podpięcie do istniejącej operacji.
+- przeprowadzi pierwszą konfigurację obiektu;
+- później zmieni te same ustawienia obiektu i pracowników.
 
-Duplikowanie istniejącego stanu albo logiki tylko dlatego, że funkcja pojawia się w Panelu Sterowania, jest błędem architektonicznym.
+Panel nie jest drugim źródłem logiki ani danych. Jeżeli stan lub operacja już
+istnieją w domenie, application layer albo persistence, Panel ma użyć ich
+przez właściwą operację aplikacyjną. Nie wolno tworzyć równoległej kopii
+konfiguracji tylko dlatego, że dana funkcja jest widoczna w Panelu.
 
-## 3. Bieżąca lista pracowników obiektu
+Docelowy Panel powstanie w T012. T010 przygotowuje wspólny mechanizm
+konfiguracji, z którego T012 skorzysta bez bezpośrednich zapisów do repository.
 
-Panel Sterowania musi pozwalać koordynatorowi:
+## 3. Jedna konfiguracja: pierwsze uruchomienie i późniejsza edycja
+
+Pierwsza konfiguracja i późniejsza edycja są jednym mechanizmem konfiguracji.
+
+T010 zapewnia operacje aplikacyjne zapisujące te same istniejące encje zarówno
+przy pierwszym uruchomieniu, jak i później. Nie tworzy:
+
+- osobnych par „create dla onboardingu / update dla Panelu”, jeżeli jedna
+  operacja może bezpiecznie obsłużyć oba stany;
+- tabel onboardingowych;
+- kopii danych konfiguracyjnych;
+- szkicu konfiguracji;
+- numeru kroku ani flagi `onboarding_in_progress`.
+
+Pierwszy kontekst obejmuje:
+
+`Coordinator → SiteProfile → Site → CoordinatorSiteAssociation`
+
+a następnie konfigurację zmian i bieżącej listy pracowników obiektu. Po
+utworzeniu kontekstu te same źródła prawdy służą do dalszej edycji.
+
+Pierwsza konfiguracja ma doprowadzić do zwykłego, operacyjnego stanu programu,
+wystarczającego do ułożenia grafiku. Nie powstaje osobny „wynik onboardingu”.
+
+### 3.1 Minimalna kompletność do pierwszego PLAN
+
+Odczyt konfiguracji nie może uznać obiektu za gotowy do pierwszego PLAN, jeżeli
+brakuje danych wymaganych przez istniejący application layer. Minimalny
+operacyjny zestaw obejmuje:
+
+- aktywnego Coordinator;
+- aktywny Site;
+- aktywne CoordinatorSiteAssociation dla tego Coordinator i Site;
+- SiteProfile przypisany do Site;
+- co najmniej jedną zdefiniowaną zmianę standardową z godziną początku,
+  godziną końca, informacją o końcu następnego dnia oraz wymaganą obsadą
+  PRIMARY;
+- próg ruchomego okna godzin używany przez istniejącą kontrolę LOAD-01;
+- pełne CalendarDay dla planowanego miesiąca;
+- bieżącą listę pracowników obiektu wraz z Employee i aktywnymi
+  SiteMembership;
+- stałe ustawienia pracowników potrzebne solverowi, w tym `day_only`;
+- miesięczne `target_hours`, jeżeli koordynator chce użyć istniejącego
+  rankingu TARGET-01 i obserwacji bilansu.
+
+Brak `target_hours` nie blokuje utworzenia demandów ani pierwszego PLAN —
+zgodnie z T009 pozostaje brakującą daną i wyłącza tylko target-based SOFT dla
+danego pracownika. Brak pełnego kalendarza miesiąca nadal blokuje planowanie;
+program nie zgaduje świąt ani dni roboczych.
+
+Pracownicy zewnętrzni X/Y, ExternalSupportWindow, nieobecności i dodatkowe
+SiteRules są konfigurowane wtedy, gdy występują. Ich brak nie oznacza sam w
+sobie niedokończonego onboardingu podstawowego obiektu.
+
+## 4. Przerwanie i wznowienie konfiguracji
+
+Konfiguracja może zostać przerwana.
+
+To, co zostało poprawnie zapisane, pozostaje w normalnych danych programu. Po
+ponownym uruchomieniu T010 odczytuje istniejący stan i pozwala kontynuować od
+brakujących danych. Nie cofa poprawnych wcześniejszych zapisów tylko dlatego,
+że koordynator nie zakończył całej konfiguracji w jednej sesji.
+
+T010 dostarcza mały odczyt bieżącej konfiguracji, wyliczany z istniejących
+danych. Ma on pozwolić T012 rozpoznać:
+
+- brak pierwszego kontekstu;
+- konfigurację częściową;
+- istniejący, skonfigurowany obiekt.
+
+Odczyt nie jest nowym trwałym stanem onboardingu. Jest projekcją istniejących
+danych i wskazuje konkretnie, czego brakuje.
+
+Przy pustej konfiguracji T012 otworzy Panel Sterowania w trybie pierwszej
+konfiguracji. Ten sam Panel później służy do edycji. T010 nie projektuje
+ekranów, kolejności pól ani kreatora.
+
+## 5. Ograniczone odstępstwo dla bootstrapu
+
+Utworzenie pierwszego kontekstu jest jedynym przypadkiem, w którym nie istnieje
+jeszcze pełna relacja koordynator–obiekt możliwa do sprawdzenia zwykłą bramką
+application layer.
+
+Specjalne odstępstwo może istnieć wyłącznie w najmniejszej operacji potrzebnej
+do utworzenia pierwszego kontekstu. Po jego powstaniu normalne operacje znów
+podlegają istniejącej kontroli aktywnego Coordinator, Site oraz
+CoordinatorSiteAssociation.
+
+Nie wolno pod pretekstem bootstrapu:
+
+- osłabić kontroli wszystkich operacji aplikacyjnych;
+- pozwolić istniejącemu koordynatorowi konfigurować dowolny obiekt;
+- dopuścić UI do bezpośrednich zapisów w repository;
+- stworzyć drugiej, słabiej chronionej ścieżki późniejszej edycji.
+
+## 6. Bieżąca lista pracowników obiektu
+
+Mechanizm konfiguracji pozwala koordynatorowi:
 
 - dodać pracownika do bieżącej listy pracowników obiektu;
 - usunąć pracownika z bieżącej listy pracowników obiektu.
 
-"Usunięcie pracownika" w tym miejscu NIE oznacza fizycznego kasowania Employee ani historycznych danych.
+„Usunięcie pracownika” nie oznacza fizycznego kasowania Employee ani historii.
 
 Po usunięciu z bieżącej listy:
 
-- nazwisko nie ma pojawiać się w nowych/bieżących grafikach tego obiektu tylko dlatego, że rekord historycznie istnieje;
-- wcześniejsze ScheduleVersion, Assignment, rozliczenia i inne dane historyczne pozostają niezmienione i odtwarzalne;
-- historia musi nadal jednoznacznie wskazywać pracownika, który wcześniej pracował na obiekcie.
+- pracownik nie uczestniczy w nowych planowaniach tego obiektu tylko dlatego,
+  że jego rekord historycznie istnieje;
+- wcześniejsze ScheduleVersion, Assignment, bilanse i inne dane historyczne
+  pozostają niezmienione i odtwarzalne;
+- historia nadal jednoznacznie wskazuje pracownika, który wcześniej pracował
+  na obiekcie.
 
-Gdy pracownik odchodzi, koordynator może najpierw wyłączyć jego ogólną dostępność, a następnie usunąć go z bieżącej listy. Program nie usuwa historii.
+Jeżeli aktywny Employee znajduje się na bieżącej, włączonej liście pracowników
+obiektu, oznacza to, że koordynator dopuścił go do układania grafiku. Rota nie
+prowadzi kadr i nie ustanawia dodatkowej oceny dopuszczenia pracownika.
 
-## 4. Sterowanie dostępnością pracownika
+## 7. Ustawienia pracownika udostępniane przez konfigurację
 
-Dla pracownika przypisanego do obiektu Panel Sterowania udostępnia pięć jawnych pozycji:
+Dla pracownika przypisanego do obiektu konfiguracja udostępnia cztery jawne
+obszary:
 
 1. **Ogólna dostępność** — domyślnie włączona.
 2. **Dniówka** — domyślnie włączona.
-3. **Nocka** — domyślnie włączona.
-4. **Dzień tygodnia** — wybór dnia/dni z listy oraz okres obowiązywania.
-5. **Szkolenie** — domyślnie wyłączone.
+3. **Nocka** — domyślnie włączona, z uwzględnieniem stałego `day_only`.
+4. **Niedostępność w wybrane dni tygodnia** — lista dni oraz zakres od–do.
 
-Nie dodaje się osobnej pozycji **Święta**.
+Nie ma osobnego ustawienia **Święta**.
 
-## 5. Znaczenie decyzji koordynatora dla solvera
+Nie ma przełącznika **Szkolenie**. Szkolenie `S` koordynator wstawia ręcznie
+do grafiku, jeżeli uzna je za potrzebne. Solver nie rozstrzyga, czy pracownik
+potrzebuje szkolenia.
 
-Powyższe ustawienia są bieżącą komunikacją koordynatora z solverem i mają charakter bezwzględny.
+## 8. Bezwzględne znaczenie dostępności
 
-Jeżeli obowiązujące ustawienie mówi, że pracownik nie jest dostępny dla danego użycia, solver NIE może tego ustawienia samodzielnie naruszyć w celu ułożenia grafiku.
+Ustawienia dostępności są bieżącą, jawną komunikacją koordynatora z solverem i
+mają charakter HARD.
+
+Każde ustawienie może być stanem stałym albo czasową zmianą z zakresem od–do.
+Zmiana okresowa nie nadpisuje stanu bazowego: obowiązuje wyłącznie w podanym
+zakresie, a po jego zakończeniu automatycznie wraca wcześniejszy stan.
+
+Jeżeli obowiązujące ustawienie mówi, że pracownik nie jest dostępny dla danego
+użycia, solver nie może go samodzielnie naruszyć, aby ułożyć grafik.
 
 W szczególności:
 
-- brak Ogólnej dostępności blokuje użycie pracownika w danym okresie;
-- wyłączona Dniówka blokuje D;
-- wyłączona Nocka blokuje N;
-- wyłączony wybrany dzień tygodnia blokuje planowanie w tym dniu w zadanym okresie;
-- wyłączone Szkolenie oznacza, że solver nie może sam użyć pracownika jako szkolonego;
-- włączone Szkolenie oznacza wyłącznie, że koordynator dopuścił możliwość szkolenia — nie nakazuje solverowi zaplanowania szkolenia.
+- wyłączona ogólna dostępność blokuje użycie pracownika w obowiązującym
+  okresie;
+- wyłączona Dniówka blokuje automatyczny przydział D;
+- wyłączona Nocka blokuje automatyczny przydział N;
+- zaznaczony dzień tygodnia blokuje przydział w każdym takim dniu mieszczącym
+  się w zadanym zakresie od–do.
 
-Jeżeli przy tych decyzjach nie da się stworzyć kompletnego grafiku, solver ma zwrócić brak rozwiązania wymagający działania koordynatora. Nie może sam odblokować pracownika ani zignorować ustawienia.
+Dla ograniczeń dnia tygodnia obowiązuje istniejąca konwencja Rota: dniem
+zmiany, także nocnej, jest data rozpoczęcia ShiftDemand.
 
-## 6. Zmiany stałe i okresowe
+Jeżeli przy tych decyzjach nie da się stworzyć kompletnego grafiku, program ma
+zwrócić brak rozwiązania wymagający działania koordynatora. Nie może sam
+odblokować pracownika ani zignorować ustawienia.
 
-Ustawienie może wyrażać stan stały albo czasową zmianę z zakresem **od–do**.
+## 9. Znaczenie listy dni tygodnia
 
-Przykład rzeczywisty:
+Koordynator rozwija listę dni tygodnia, zaznacza ptaszek przy wybranym dniu i
+podaje daty od–do.
 
-- pracownica normalnie pracuje tylko na dniówkach: D włączone, N wyłączone;
-- w sytuacji kryzysowej koordynator włącza N na okres 20–29;
-- solver może uwzględnić ją na N wyłącznie w tym okresie;
-- po zakończeniu okresowej zmiany wraca wcześniejszy stan, czyli N wyłączone.
+Zaznaczenie oznacza **niedostępność**, nie dozwolony dzień pracy.
 
-Program nie wyprowadza takich decyzji z historii, zachowania pracownika, liczby szkoleń ani własnej oceny sytuacji.
+Przykład:
 
-## 7. Ogólna niedostępność i rodzaj nieobecności
+- zaznaczony Piątek;
+- od 2026-09-01 do 2026-10-31;
+- pracownik jest niedostępny w każdy piątek mieszczący się w tym okresie;
+- pozostałe dni nie zmieniają się;
+- po 2026-10-31 ograniczenie wygasa automatycznie.
 
-Po wyłączeniu Ogólnej dostępności na okres koordynator może wskazać jeden z trzech powodów potrzebnych Rotcie do grafiku i godzin:
+To obejmuje praktyczne sytuacje okresowe, np. leczenie powodujące brak
+dostępności w piątki przez dwa miesiące.
 
-- **choroba**;
-- **urlop**;
-- **nieobecność nieusprawiedliwiona**.
+## 10. Stałe `day_only` i czasowe dopuszczenie N
 
-Rota wykorzystuje ten wybór wyłącznie do prawidłowego oznaczenia grafiku i obliczenia godzin.
+`Employee.day_only` pozostaje stałą zasadą pracownika.
 
-Dla nieobecności nieusprawiedliwionej solver wpisuje `0` godzin. Konsekwencje kadrowe pozostają całkowicie poza zakresem Roty.
+Koordynator może czasowo zawiesić wynikający z niej zakaz N, zaznaczając
+Nockę i zakres od–do. W tym okresie solver może przydzielić pracownika na N.
+Po dacie końcowej automatycznie wraca wcześniejszy stan, czyli zakaz N.
 
-Rota nie ocenia pracownika i nie wykonuje działań kadrowych.
+Przykład:
 
-## 8. Program nie decyduje o pracowniku
+- pracownica zwykle pracuje tylko na D;
+- w sytuacji kryzysowej koordynator dopuszcza N od 20 do 29 dnia miesiąca;
+- solver może użyć jej na N wyłącznie w tym okresie;
+- od 30 dnia ponownie obowiązuje `day_only`.
 
-Koordynator ustanawia reguły dotyczące pracownika. Program je wykonuje i może pokazywać fakty lub ostrzeżenia, ale nie może samodzielnie:
+Brief T010 ma wskazać najmniejszy mechanizm wykorzystujący istniejące źródła
+prawdy. Nie wolno pozostawić dwóch konkurencyjnych reguł, z których stałe
+`day_only` zawsze wygrywałoby i czyniło okresowe dopuszczenie nieskutecznym.
 
-- dopuścić pracownika do samodzielnej pracy;
-- odsunąć go od pracy;
-- podnieść lub obniżyć jego statusu;
-- wyprowadzić uprawnienia z liczby zrealizowanych szkoleń;
-- tworzyć nowej reguły o pracowniku na podstawie analizy jego historii.
+## 11. Nieobecności
 
-W szczególności dotychczasowe założenie, że osiągnięcie progu liczby REALIZED TRAINEE automatycznie zmienia pracownika na READY_FOR_PRIMARY, jest uchylone decyzją właściciela. Liczbę szkoleń można policzyć i pokazać koordynatorowi, ale decyzja o dopuszczeniu należy do koordynatora.
+### 11.1 Niedostępność znana przed planowaniem
 
-## 9. Granica HARD / SOFT / informacja
+Koordynator może wcześniej zapisać niedostępność ciągłą albo powtarzalną w
+wybrane dni tygodnia. Solver omija te terminy i może rozłożyć pracę na inne
+dni, nadal respektując pozostałe HARD.
 
-Ustawienia dostępności opisane w tym aneksie są decyzjami bezwzględnymi dla solvera.
+Przy ogólnej niedostępności koordynator może wskazać powód potrzebny Rotcie do
+grafiku i godzin:
 
-Oddzielnie w produkcie istnieją zasady miękkie: solver powinien ich przestrzegać, ale może je naruszyć, jeżeli inaczej nie stworzy grafiku; takie naruszenie ma być widoczne dla koordynatora.
+- choroba;
+- urlop;
+- nieobecność nieusprawiedliwiona (`NN`).
 
-Informacje nie ograniczają planowania.
+Rota wykorzystuje powód wyłącznie do oznaczenia grafiku i prawidłowego
+policzenia godzin. Konsekwencje kadrowe są poza zakresem.
 
-Nie wolno mieszać tych trzech znaczeń w Panelu Sterowania.
+### 11.2 NN po niewykonaniu zaplanowanej zmiany
 
-## 10. Zakres następnego briefu ROTA-T010
+`NN` jest faktem operacyjnym: pracownik nie wykonał zaplanowanej zmiany.
 
-Brief ROTA-T010 ma być mały. Nie tworzy uniwersalnego edytora reguł, parsera, DSL, silnika workflow ani nowej warstwy przechowującej kopię danych.
+Po korekcie bieżącego grafiku zmiana jest widoczna jako `NN`, a efektywne
+godziny pracy za nią wynoszą `0`. Program nie udaje, że zmiana została
+przepracowana i nie tworzy sztucznego przepracowanego Assignment.
 
-Pierwszy zakres T010 powinien objąć tylko brakujące podpięcia potrzebne do:
+Przykład:
 
-- bieżącej listy pracowników obiektu (dodanie / usunięcie bez kasowania historii);
-- pięciu ustawień pracownika z sekcji 4;
-- okresów od–do i powrotu do wcześniejszego stanu;
+- ułożony grafik dawał pracownikowi 168 godzin;
+- pracownik nie wykonał jednej zmiany 12-godzinnej;
+- bieżący grafik oznacza tę zmianę jako `NN`;
+- efektywne godziny pracy wynoszą 156.
+
+`168` w tym przykładzie jest wynikiem wcześniej ułożonego grafiku, a nie
+indywidualnym nakazem wypracowania dokładnie 168 godzin.
+
+## 12. Rota nie decyduje o pracowniku
+
+Rota jest kalkulatorem grafików pilnującym jawnych założeń obiektu i norm
+pracy. Koordynator decyduje o pracowniku. Program wykonuje jego ustawienia,
+liczy godziny i pokazuje fakty, ostrzeżenia oraz brak możliwości ułożenia
+grafiku.
+
+Program nie może samodzielnie:
+
+- dopuścić ani odsunąć pracownika od pracy;
+- tworzyć decyzji kadrowych;
+- wyprowadzać uprawnień z historii lub liczby szkoleń;
+- zmieniać eligibility na podstawie etykiety `readiness_state`.
+
+`READY_FOR_PRIMARY` / `NOT_READY` mogą pozostać informacyjną etykietą programu,
+np. pomocną przy nowym pracowniku. Etykieta nie blokuje ani nie dopuszcza do
+grafiku. Istniejące automatyczne przestawienie tej etykiety po policzeniu
+szkoleń może pozostać, dopóki pozostaje wyłącznie informacyjne; T010 nie ma
+rozbudowywać tego mechanizmu.
+
+## 13. TARGET-01 i obserwacja godzin
+
+Zapotrzebowanie obiektu określa liczbę potrzebnych zmian. Solver nie tworzy
+dodatkowej pracy po to, aby pracownik osiągnął określoną liczbę godzin.
+
+`target_hours` pozostaje istniejącym parametrem SOFT. Pomaga rozsądnie
+rozdzielić wymagane zmiany i obserwować miesięczne oraz kwartalne saldo, ale:
+
+- nie może naruszyć HARD;
+- nie może utworzyć dodatkowej zmiany;
+- nie jest decyzją kadrową;
+- liczby `planned_hours` i `realized_hours` nadal wynikają z grafiku.
+
+T010 nie zmienia istniejącej semantyki TARGET-01.
+
+## 14. HARD, SOFT i informacja
+
+W konfiguracji nie wolno mieszać trzech znaczeń:
+
+- ustawienia dostępności z tego aneksu są HARD;
+- istniejące zasady SOFT mogą wpływać na ranking, lecz nie na poprawność HARD;
+- informacje i etykiety nie ograniczają planowania.
+
+Wygląd przyszłego Panelu ma komunikować tę różnicę, ale szczegóły UI należą
+do T012.
+
+## 15. Granica briefu ROTA-T010
+
+Brief T010 ma być mały i ma najpierw zinwentaryzować istniejące możliwości:
+
+- SiteProfile i jego repository;
+- Employee, SiteMembership, AvailabilityRecord i ich application commands;
+- SiteRuleVersion / SiteMemory oraz wykonywalny katalog T007;
+- Site, Coordinator i CoordinatorSiteAssociation;
+- istniejącą warstwę application z T009.
+
+T010 implementuje wyłącznie brakujące podpięcia potrzebne do:
+
+- bootstrapu pierwszego kontekstu;
+- odczytu kompletności konfiguracji;
+- pierwszej konfiguracji i późniejszej edycji tych samych danych;
+- bieżącej listy pracowników bez kasowania historii;
+- stałych i okresowych ustawień D/N oraz niedostępności;
+- powtarzalnej niedostępności w dniach tygodnia;
+- czasowego zawieszenia `day_only`;
+- zapisu i rozliczenia `NN` zgodnie z tym aneksem;
 - bezwzględnego respektowania tych decyzji przez solver.
 
-Jeżeli istniejący kod już zapewnia część powyższego zachowania, T010 ma go wykorzystać zamiast implementować drugi mechanizm.
+T010 nie tworzy:
+
+- UI, kreatora ani tymczasowego ekranu;
+- parsera języka naturalnego;
+- uniwersalnego edytora reguł ani DSL;
+- nowej warstwy workflow;
+- drugiego źródła prawdy;
+- osobnego systemu kadrowego;
+- osobnego systemu onboardingu.
+
+Jeżeli istniejący kod zapewnia część zachowania, T010 ma go wykorzystać.
+Jeżeli implementacja wymaga nowej decyzji produktowej, brief ma zwrócić ją
+właścicielowi przed kodowaniem zamiast zakodować założenie.
+
+## 16. Obowiązkowe przypadki do zamrożenia w briefie
+
+Brief T010 ma uczynić testowalnymi co najmniej następujące klasy:
+
+1. pusta baza → utworzenie pierwszego kontekstu;
+2. przerwanie po części poprawnych zapisów → restart → rozpoznanie braków i
+   kontynuacja bez osobnego stanu onboardingu;
+3. istniejący obiekt → edycja przez te same operacje i źródła prawdy;
+4. próba użycia bootstrapu do obejścia kontroli istniejącego obiektu → odmowa;
+5. usunięcie pracownika z bieżącej listy → brak w nowym planowaniu i pełna
+   historyczna odtwarzalność;
+6. stałe `day_only` + czasowe N od–do → N tylko w okresie i automatyczny
+   powrót zakazu;
+7. zaznaczony Piątek od–do → brak automatycznego przydziału w każdy piątek
+   tego okresu, bez wpływu na inne dni;
+8. ustawienie HARD uniemożliwiające pokrycie → jawny brak rozwiązania, bez
+   samodzielnego odblokowania pracownika;
+9. `NOT_READY` i `READY_FOR_PRIMARY` → identyczna eligibility przy tych samych
+   rzeczywistych danych pracownika;
+10. NN na zaplanowanej zmianie → oznaczenie NN, 0 godzin efektywnych za tę
+    zmianę i zachowana historia wcześniejszej wersji grafiku;
+11. target_hours → wpływ wyłącznie SOFT na rozdział istniejącego demandu,
+    nigdy tworzenie dodatkowej pracy ani naruszenie HARD.
+
+Ten aneks jest podstawą do napisania briefu T010, nie zgodą na implementację.
