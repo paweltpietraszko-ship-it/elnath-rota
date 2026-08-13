@@ -18,9 +18,7 @@ from benchmarks.real_object_production import build_planning_state
 from benchmarks.real_object_scenarios import (
     EXTERNAL_EMPLOYEES, LOCAL_EMPLOYEES, all_scenarios, calendar_scenarios, core_scenarios,
 )
-from benchmarks.real_object_types import (
-    BenchmarkVerdict, ExpectedStatus, ExpectationKind, ScenarioSpec,
-)
+from benchmarks.real_object_types import BenchmarkVerdict, ExpectedStatus, ExpectationKind, ScenarioSpec
 from rota.planning.engine import plan
 
 BASE_PRODUCTION_SHA = "e010f004e90a1e4f426bb72298e7307045d32b56"
@@ -98,9 +96,7 @@ def _feasible_errors(scenario: ScenarioSpec, result) -> tuple[list[str], dict]:
     if scenario.expectation_kind == ExpectationKind.REPLAN:
         reshuffles = reshuffle_count(scenario, candidate)
         if reshuffles != scenario.expected_reshuffles:
-            errors.append(
-                f"reshuffle count {reshuffles}, expected {scenario.expected_reshuffles}"
-            )
+            errors.append(f"reshuffle count {reshuffles}, expected {scenario.expected_reshuffles}")
     return errors, {
         "checker_errors": list(checked.errors),
         "monthly_hours": dict(checked.monthly_hours),
@@ -151,33 +147,29 @@ def _invalid_result(
     }
 
 
-def run_case(scenario: ScenarioSpec) -> dict:
-    """Validate the fixture and its small construction claim before calling plan()."""
-    structural = validate_scenario(scenario)
-    if structural:
-        return _invalid_result(scenario, BenchmarkVerdict.BENCHMARK_INVALID, structural)
-    if scenario.expected_status is None:
-        state = build_planning_state(scenario)
-        started = clock.perf_counter()
-        result = plan(state)
-        elapsed = clock.perf_counter() - started
-        return {
-            "case_id": scenario.case_id,
-            "seed": scenario.seed,
-            "input_fingerprint": _input_fingerprint(scenario),
-            "scenario": _scenario_dict(scenario),
-            "verdict": BenchmarkVerdict.INCONCLUSIVE.value,
-            "production": {
-                "status": result.status, "elapsed_seconds": elapsed,
-                "error_message": result.error_message, "warnings": list(result.warnings),
-                **_payload_dict(result),
-            },
-            "errors": ["scenario has no frozen expected_status"],
-        }
-    ground_truth = validate_ground_truth(scenario)
-    if ground_truth:
-        return _invalid_result(scenario, BenchmarkVerdict.BENCHMARK_INVALID, ground_truth)
+def _run_unfrozen(scenario: ScenarioSpec) -> dict:
+    state = build_planning_state(scenario)
+    started = clock.perf_counter()
+    result = plan(state)
+    elapsed = clock.perf_counter() - started
+    return {
+        "case_id": scenario.case_id,
+        "seed": scenario.seed,
+        "input_fingerprint": _input_fingerprint(scenario),
+        "scenario": _scenario_dict(scenario),
+        "verdict": BenchmarkVerdict.INCONCLUSIVE.value,
+        "production": {
+            "status": result.status,
+            "elapsed_seconds": elapsed,
+            "error_message": result.error_message,
+            "warnings": list(result.warnings),
+            **_payload_dict(result),
+        },
+        "errors": ["scenario has no frozen expected_status"],
+    }
 
+
+def _run_expected(scenario: ScenarioSpec) -> dict:
     state = build_planning_state(scenario)
     started = clock.perf_counter()
     result = plan(state)
@@ -201,13 +193,29 @@ def run_case(scenario: ScenarioSpec) -> dict:
         },
         "verdict": verdict.value,
         "production": {
-            "status": result.status, "elapsed_seconds": elapsed,
-            "error_message": result.error_message, "warnings": list(result.warnings),
-            "candidate_count": len(result.candidates), "candidate_check": checker,
+            "status": result.status,
+            "elapsed_seconds": elapsed,
+            "error_message": result.error_message,
+            "warnings": list(result.warnings),
+            "candidate_count": len(result.candidates),
+            "candidate_check": checker,
             **_payload_dict(result),
         },
         "errors": errors,
     }
+
+
+def run_case(scenario: ScenarioSpec) -> dict:
+    """Validate fixture and small ground-truth claim before calling production."""
+    structural = validate_scenario(scenario)
+    if structural:
+        return _invalid_result(scenario, BenchmarkVerdict.BENCHMARK_INVALID, structural)
+    if scenario.expected_status is None:
+        return _run_unfrozen(scenario)
+    ground_truth = validate_ground_truth(scenario)
+    if ground_truth:
+        return _invalid_result(scenario, BenchmarkVerdict.BENCHMARK_INVALID, ground_truth)
+    return _run_expected(scenario)
 
 
 def _percentile(values: list[float], percentile: float) -> float:
