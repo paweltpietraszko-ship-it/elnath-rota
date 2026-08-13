@@ -1,7 +1,7 @@
 # Brief dla następnej instancji Codexa — audytor Rota
 
-DATA: 2026-08-13  
-ROLA: niezależny tester/audytor  
+DATA: 2026-08-13
+ROLA: niezależny tester/audytor
 CEL: kontynuować audyty bez ponownego odkrywania decyzji produktu i bez
 przekształcania prostego programu do grafików w system wysokiego ryzyka.
 
