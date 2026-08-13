@@ -1,0 +1,104 @@
+ROTA-T009 — PRE-IMPLEMENTATION CONTRACT AUDIT R2
+Data: 2026-08-13
+Audytowany contract set:
+- brief: 85bc18547c78c74bcc080486ed6a27ceed15b433
+- clarification: 0d5fdfa31844b0932a2c23654b7b8ced8c4edc50
+Gałąź: arch/rota-t009-application-layer-2026-08-13
+Integrated base: 81c30912bb24ed70a6cc095916fd2d3b6a2071fb
+
+WERDYKT: NOT READY FOR IMPLEMENTATION — JEDEN KONKRETNY KONFLIKT ATOMOWOŚCI
+
+
+ZAMKNIĘCIE FINDINGÓW R1
+
+R1-1 (manual split vs coverage validator): ZAMKNIĘTY.
+
+Clarification zamraża jednoznaczną, geometryczną semantykę COVERAGE-01:
+- rzeczywiste PRIMARY intervals są miarodajne;
+- w każdym punkcie przedziału demandu musi istnieć dokładnie
+  required_primary_count pokrycia;
+- sekwencyjne części są legalne;
+- luka i nadmiar pokrycia są COVERAGE-01;
+- jedno rzeczywiste Assignment może przez overlap wnosić pokrycie do kolejnych
+  demandów bez sztucznego dzielenia przepracowanego interwału.
+
+Jest to jawna decyzja właścicielska rozszerzająca w wąskim zakresie validator,
+a nie założenie pozostawione CC. Wymagane testy obejmują split, gap, excess i
+długi interwał przechodzący przez D/N.
+
+R1-2 (brak legalnego targetu Deviation dla pustego demandu): ZAMKNIĘTY.
+
+Clarification wymaga, aby COVERAGE Deviation mogło wskazać exact same-version
+demand_id. Zakazuje przypisywania luki wymyślonemu Employee, zachowuje
+source_reference=COVERAGE-01 i category=COVERAGE oraz wymaga walidacji targetu
+w tej samej ScheduleVersion. Jest to testowalne i nie tworzy nowego subsystemu.
+
+
+FINDING R2-1 — MANUAL CORRECTION FLOW ŁAMIE WŁASNĄ GWARANCJĘ ATOMOWOŚCI
+
+Waga: HIGH
+
+Ślad kontraktowy:
+
+1. Bazowy brief, TRANSACTION / RESTART RULES:
+   „One application write either succeeds through repository/lifecycle
+   operations or leaves the prior durable aggregate intact.”
+
+2. Clarification, OWNER VERSIONING RULE:
+   materialna korekta tworzy nowy child i jest „one application action”.
+
+3. Clarification, T009 MANUAL CORRECTION FLOW nakazuje kolejno:
+   - create one complete child snapshot;
+   - apply correction;
+   - make child current;
+   - run validator;
+   - materialize Deviations.
+
+4. Accepted T008 create_schedule_version() atomowo zapisuje podaną zawartość i
+   od razu przełącza current reference. replace_working_snapshot() jest osobną
+   transakcją. Nie istnieje bezpieczny stan pośredni, w którym już-current child
+   czeka na późniejszą walidację i materializację Deviations.
+
+Scenariusz awarii:
+
+1. application tworzy child bez jeszcze policzonych aktualnych Deviations;
+2. T008 zatwierdza transakcję i ustawia child jako current;
+3. validator albo późniejszy zapis Deviations kończy się wyjątkiem/awarią;
+4. po restarcie widoczny jest nowy current child bez wyniku wymaganej
+   rewalidacji i bez prawdziwego zestawu Deviations, zamiast wcześniejszego
+   aggregate intact.
+
+CC nie może spełnić jednocześnie literalnej kolejności clarification oraz
+globalnej gwarancji atomowości/restartu.
+
+Wymagana korekta jest mała i nie wymaga nowej architektury. Kontrakt powinien
+nakazać logicznie:
+
+1. odczytać parent;
+2. przygotować pełny child snapshot w pamięci;
+3. zastosować korektę w pamięci;
+4. zbudować fresh validation context dla przygotowanego child;
+5. zwalidować i zmaterializować komplet Deviations w pamięci;
+6. jednym atomowym wywołaniem lifecycle zapisać kompletny child wraz z
+   Deviations i przełączyć current reference;
+7. przy dowolnym błędzie przed/ podczas kroku 6 parent/current pozostaje bez
+   zmian.
+
+Nie jest wymagany workflow engine ani nowy event log. Może to być przygotowanie
+argumentów przed istniejącym atomowym create_schedule_version(), z najmniejszą
+niezbędną adaptacją do effective_from/nowego targetu Deviation.
+
+
+OCENA CEREMONIALNOŚCI
+
+Nowe wymagania nie czynią całego T009 zbędnym ani ceremonialnym. Opisują realny
+przypadek operacyjny i usuwają dwa wcześniejsze CONTRACT_GAP. Nie ma podstawy
+do wyrzucenia T009.
+
+To jest druga i ostatnia pełna runda przeglądu języka briefu. Do zamknięcia
+potrzebna jest wyłącznie krótka korekta kolejności/atomowości R2-1. Codex nie
+będzie otwierał dalszego ogólnego projektowania kontraktu. Następny re-review
+powinien sprawdzić tylko R2-1 i wydać PASS albo stwierdzić, że task pozostaje
+niewykonalny bez sprzeczności.
+
+STATUS DLA CC: NOT READY FOR IMPLEMENTATION na SHA 0d5fdfa31844b0932a2c23654b7b8ced8c4edc50.

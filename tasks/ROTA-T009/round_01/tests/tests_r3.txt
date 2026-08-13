@@ -1,0 +1,74 @@
+ROTA-T009 — PRE-IMPLEMENTATION CONTRACT AUDIT R3 FINAL
+Data: 2026-08-13
+Audytowany contract set:
+- brief: 85bc18547c78c74bcc080486ed6a27ceed15b433
+- R1 clarification: 0d5fdfa31844b0932a2c23654b7b8ced8c4edc50
+- R2 clarification: 9e41a8e0b65692fc526924d407feda3b964c5fc7
+Gałąź: arch/rota-t009-application-layer-2026-08-13
+Integrated base: 81c30912bb24ed70a6cc095916fd2d3b6a2071fb
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+
+ZAKRES RE-REVIEW
+
+Zgodnie z tests_r2.txt audyt ograniczono wyłącznie do zamknięcia findingu
+R2-1: atomowości manualnej korekty tworzącej nową ScheduleVersion child.
+Nie otwierano ponownie ogólnego projektu T009.
+
+
+R2-1 — PASS / ZAMKNIĘTY
+
+R2 clarification ustanawia spójną kolejność:
+
+1. odczyt kompletnego current parent;
+2. przyjęcie coordinator-supplied effective_from;
+3. przygotowanie pełnego child snapshot w pamięci;
+4. zastosowanie korekty wyłącznie w pamięci;
+5. zbudowanie fresh PlanningState z bieżących trwałych faktów oraz
+   nieutrwalonego jeszcze child snapshot;
+6. niezależna walidacja przygotowanych assignments;
+7. zmaterializowanie kompletnego zestawu Deviations w pamięci;
+8. jedno wywołanie T008 lifecycle z pełnym child content;
+9. zapis childa i przełączenie current reference w jednej transakcji.
+
+Nie istnieje już kontraktowy stan pośredni, w którym niekompletny child jest
+current przed walidacją albo przed zapisaniem Deviations.
+
+Semantyka błędów jest jednoznaczna:
+- błąd przed lifecycle call nie zmienia persistence;
+- błąd w lifecycle transaction korzysta z zaakceptowanego rollback T008 i
+  zachowuje dotychczasowy parent/current;
+- nie wolno dodawać staging state, pending status, workflow engine, event log,
+  drugiego protokołu transakcyjnego ani nowej persystencji.
+
+Focused test wymaga fault injection przed ScheduleVersion creation oraz
+sprawdzenia, że nie powstał child, current nadal wskazuje niezmienionego parent.
+Istniejące testy T008 pozostają dowodem rollbacku awarii w samej transakcji
+create_schedule_version(). Razem pokrywają obie strony granicy atomowego zapisu.
+
+
+POPRZEDNIE FINDINGI
+
+- R1-1: CLOSED w R1 clarification — interval-based geometric COVERAGE-01.
+- R1-2: CLOSED w R1 clarification — same-version ShiftDemand jako legalny
+  affected target COVERAGE Deviation.
+- R2-1: CLOSED w R2 clarification — kompletna walidacja/deviation preparation
+  przed jednym atomowym zapisem childa.
+
+
+OCENA KOŃCOWA
+
+Contract set jest wewnętrznie wykonalny i testowalny. Nie pozostawia CC
+konieczności zgadywania kolejności transakcji, semantyki split coverage ani
+reprezentacji coverage-gap Deviation.
+
+T009 ma realną odpowiedzialność aplikacyjną i nie jest warstwą ceremonialną.
+Jednocześnie kontrakt zawiera jawne zabezpieczenia przed rozbudowaniem go w
+command bus, workflow engine, nowy audit subsystem lub drugą persystencję.
+
+Brak dalszych findings. Brak WYMAGA_DECYZJI. Brak ARCHITECTURE_PROPOSALS.
+
+STATUS DLA CC: READY_FOR_IMPLEMENTATION na pełnym contract set kończącym się
+SHA 9e41a8e0b65692fc526924d407feda3b964c5fc7, przeciw integrated base
+81c30912bb24ed70a6cc095916fd2d3b6a2071fb.
