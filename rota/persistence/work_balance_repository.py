@@ -16,6 +16,8 @@ from rota.persistence.schedule_repository import get_current_assignments_for_emp
 
 
 def save_work_balance_target(conn: sqlite3.Connection, *, employee_id: str, month: date, target_hours: int) -> None:
+    if month.day != 1:
+        raise ValueError(f"month {month} is not the first day of its month")
     if conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (employee_id,)).fetchone() is None:
         raise KeyError(f"unknown employee {employee_id!r}")
     with conn:

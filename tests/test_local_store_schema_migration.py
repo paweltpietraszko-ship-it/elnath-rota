@@ -23,6 +23,21 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _apply_only_migration_1(conn: sqlite3.Connection) -> None:
+    """R3-5: simulate a genuine pre-T008 legacy database -- migration 1's
+    tables only, PRAGMA user_version left at 1. Calling migrate(conn) here
+    instead would apply every migration up to LATEST_SCHEMA_VERSION in one
+    go (current_version starts at 0), so the database would never actually
+    be a v1-schema legacy database by the time data is written into it."""
+    import rota.persistence.db as db_module
+
+    conn.execute("BEGIN")
+    for statement in db_module._MIGRATION_1:
+        conn.execute(statement)
+    conn.execute("PRAGMA user_version = 1")
+    conn.execute("COMMIT")
+
+
 def test_a1_empty_db_migrates_to_latest_schema(tmp_path: Path) -> None:
     conn = connect(tmp_path / "rota.db")
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION
@@ -34,7 +49,8 @@ def test_a2_legacy_nonempty_db_migrates_without_data_loss(tmp_path: Path) -> Non
     db_path = tmp_path / "rota.db"
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
-    migrate(conn)  # simulate the pre-T008 world stopping at migration 1's tables
+    _apply_only_migration_1(conn)
+    assert "sites" not in _table_names(conn)  # genuinely v1-schema before data is written
     save_site_profile(conn, make_profile("LEGACY-PROF"))
     insert_site_rule_version(conn, make_rule_version(rule_version_id="RV-LEGACY", site_id="LEGACY-SITE"))
     conn.close()
@@ -91,7 +107,8 @@ def test_legacy_migration_scenario_preserves_t005_effective_selection_and_t007_a
     db_path = tmp_path / "rota.db"
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
-    migrate(conn)
+    _apply_only_migration_1(conn)
+    assert "sites" not in _table_names(conn)  # genuinely v1-schema before data is written
     save_site_profile(conn, make_profile("PROF-1"))
     decision = seed_rule_decision(conn, rule_id="RULE-1", site_id="SITE-1")
     conn.close()

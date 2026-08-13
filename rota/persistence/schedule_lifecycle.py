@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 
-from rota.domain import Assignment, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand
+from rota.domain import Assignment, AssignmentRole, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand
 from rota.persistence import schedule_validation as validation
 from rota.persistence.schedule_errors import (
     DuplicateScheduleVersionId,
@@ -19,6 +19,13 @@ from rota.persistence.schedule_errors import (
     NonEditableScheduleVersion,
 )
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
+
+
+def _order_assignments_mentor_first(assignments: list[Assignment]) -> list[Assignment]:
+    """PRIMARY rows before TRAINEE rows, so the immediate (schedule_version_id,
+    mentor_primary_assignment_id) FK always finds its mentor row already
+    inserted -- caller-supplied order is not guaranteed to be mentor-first."""
+    return sorted(assignments, key=lambda a: a.role != AssignmentRole.PRIMARY)
 
 
 def _insert_content(
@@ -41,7 +48,7 @@ def _insert_content(
         "role, state, frozen, covers_demand_id, mentor_primary_assignment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(version_id, a.assignment_id, a.employee_id, a.start_datetime.isoformat(), a.end_datetime.isoformat(),
           a.role.value, a.state.value, int(a.frozen), a.covers_demand_id, a.mentor_primary_assignment_id)
-         for a in assignments],
+         for a in _order_assignments_mentor_first(assignments)],
     )
     conn.executemany(
         "INSERT INTO deviations (schedule_version_id, deviation_id, category, source_reference, "
@@ -54,10 +61,13 @@ def _insert_content(
 
 
 def _delete_content(conn: sqlite3.Connection, version_id: str) -> None:
+    # assignments before shift_demands: assignments.covers_demand_id has an
+    # immediate FK into shift_demands, so deleting shift_demands first would
+    # (correctly) be rejected while assignments still reference them.
     conn.execute("DELETE FROM schedule_version_applied_rules WHERE version_id = ?", (version_id,))
-    conn.execute("DELETE FROM shift_demands WHERE schedule_version_id = ?", (version_id,))
-    conn.execute("DELETE FROM assignments WHERE schedule_version_id = ?", (version_id,))
     conn.execute("DELETE FROM deviations WHERE schedule_version_id = ?", (version_id,))
+    conn.execute("DELETE FROM assignments WHERE schedule_version_id = ?", (version_id,))
+    conn.execute("DELETE FROM shift_demands WHERE schedule_version_id = ?", (version_id,))
 
 
 def _set_current_reference(conn: sqlite3.Connection, site_id: str, month: date, version_id: str) -> None:
@@ -92,6 +102,7 @@ def create_schedule_version(
     with conn:
         if conn.execute("SELECT 1 FROM schedule_versions WHERE version_id = ?", (version_id,)).fetchone():
             raise DuplicateScheduleVersionId(version_id)
+        validation.validate_month_is_first_of_month(month)
         validation.validate_site_and_coordinator(conn, site_id, created_by)
         validation.validate_lineage(conn, version_id=version_id, site_id=site_id, month=month, parent_version_id=parent_version_id)
         status = _validate_content(

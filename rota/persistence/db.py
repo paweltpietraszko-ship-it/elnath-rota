@@ -191,7 +191,8 @@ _MIGRATION_2: tuple[str, ...] = (
         employee_id TEXT NOT NULL REFERENCES employees(employee_id),
         month TEXT NOT NULL,
         target_hours INTEGER NOT NULL,
-        PRIMARY KEY (employee_id, month)
+        PRIMARY KEY (employee_id, month),
+        CHECK (substr(month, 9, 2) = '01')
     )""",
     # ScheduleVersion aggregate. status/lineage semantics are enforced by
     # rota/persistence/schedule_repository.py; the triggers below only
@@ -205,8 +206,15 @@ _MIGRATION_2: tuple[str, ...] = (
         parent_version_id TEXT REFERENCES schedule_versions(version_id),
         created_at TEXT NOT NULL,
         created_by TEXT NOT NULL REFERENCES coordinators(coordinator_id),
-        status TEXT NOT NULL
+        status TEXT NOT NULL,
+        CHECK (substr(month, 9, 2) = '01')
     )""",
+    # R3-2: composite unique target so current_schedule_versions can enforce,
+    # at the storage boundary, that its declared (site_id, month) actually
+    # matches the version_id it points at -- version_id alone is already the
+    # PK, but a bare FK on version_id alone cannot also pin site_id/month.
+    """CREATE UNIQUE INDEX IF NOT EXISTS schedule_versions_identity
+       ON schedule_versions(version_id, site_id, month)""",
     """CREATE TRIGGER IF NOT EXISTS schedule_versions_no_update_if_final
        BEFORE UPDATE ON schedule_versions
        WHEN OLD.status LIKE 'FINAL%'
@@ -232,8 +240,9 @@ _MIGRATION_2: tuple[str, ...] = (
     """CREATE TABLE IF NOT EXISTS current_schedule_versions (
         site_id TEXT NOT NULL REFERENCES sites(site_id),
         month TEXT NOT NULL,
-        version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
-        PRIMARY KEY (site_id, month)
+        version_id TEXT NOT NULL,
+        PRIMARY KEY (site_id, month),
+        FOREIGN KEY (version_id, site_id, month) REFERENCES schedule_versions(version_id, site_id, month)
     )""",
     """CREATE TABLE IF NOT EXISTS shift_demands (
         schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
@@ -243,6 +252,14 @@ _MIGRATION_2: tuple[str, ...] = (
         required_primary_count INTEGER NOT NULL,
         PRIMARY KEY (schedule_version_id, demand_id)
     )""",
+    # R3-2: covers_demand_id and mentor_primary_assignment_id must both
+    # belong to the SAME schedule_version_id as the assignment. Both FKs are
+    # immediate (not deferred) so a single raw SQL INSERT/UPDATE fails right
+    # away at the storage boundary, not only at eventual transaction commit.
+    # This requires callers to insert shift_demands before assignments (see
+    # schedule_lifecycle._insert_content) and PRIMARY assignments before any
+    # TRAINEE assignment that names them as mentor (see
+    # schedule_lifecycle._order_assignments_mentor_first).
     """CREATE TABLE IF NOT EXISTS assignments (
         schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
         assignment_id TEXT NOT NULL,
@@ -254,7 +271,11 @@ _MIGRATION_2: tuple[str, ...] = (
         frozen INTEGER NOT NULL,
         covers_demand_id TEXT,
         mentor_primary_assignment_id TEXT,
-        PRIMARY KEY (schedule_version_id, assignment_id)
+        PRIMARY KEY (schedule_version_id, assignment_id),
+        FOREIGN KEY (schedule_version_id, covers_demand_id)
+            REFERENCES shift_demands(schedule_version_id, demand_id),
+        FOREIGN KEY (schedule_version_id, mentor_primary_assignment_id)
+            REFERENCES assignments(schedule_version_id, assignment_id)
     )""",
     """CREATE TABLE IF NOT EXISTS deviations (
         schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
@@ -281,13 +302,26 @@ _FINAL_CHILD_TABLES = (
 
 
 def _final_guard_triggers() -> tuple[str, ...]:
+    # R3-1: UPDATE must reject if EITHER the row's current (OLD) version is
+    # FINAL, OR the row's incoming (NEW) version is FINAL -- otherwise an
+    # UPDATE that reassigns a row from a WORKING version straight into a
+    # FINAL one bypasses the guard entirely (OLD alone is FINAL-free).
+    conditions = {
+        "INSERT": "(SELECT status FROM schedule_versions WHERE version_id = NEW.{col}) LIKE 'FINAL%'",
+        "UPDATE": (
+            "(SELECT status FROM schedule_versions WHERE version_id = OLD.{col}) LIKE 'FINAL%' "
+            "OR (SELECT status FROM schedule_versions WHERE version_id = NEW.{col}) LIKE 'FINAL%'"
+        ),
+        "DELETE": "(SELECT status FROM schedule_versions WHERE version_id = OLD.{col}) LIKE 'FINAL%'",
+    }
     triggers = []
     for table, version_col in _FINAL_CHILD_TABLES:
-        for verb, ref in (("INSERT", "NEW"), ("UPDATE", "OLD"), ("DELETE", "OLD")):
+        for verb, condition_template in conditions.items():
+            condition = condition_template.format(col=version_col)
             triggers.append(f"""
                 CREATE TRIGGER IF NOT EXISTS {table}_no_{verb.lower()}_if_final
                 BEFORE {verb} ON {table}
-                WHEN (SELECT status FROM schedule_versions WHERE version_id = {ref}.{version_col}) LIKE 'FINAL%'
+                WHEN {condition}
                 BEGIN SELECT RAISE(ABORT, '{table}: FINAL ScheduleVersion content is immutable'); END
             """)
     return tuple(triggers)

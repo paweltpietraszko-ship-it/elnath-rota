@@ -9,7 +9,16 @@ import sqlite3
 from datetime import date, datetime
 from typing import Optional
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand
+from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
+    Deviation,
+    DeviationCategory,
+    ScheduleStatus,
+    ScheduleVersion,
+    ShiftDemand,
+)
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
 from rota.persistence.schedule_types import ScheduleSnapshot
 
@@ -32,7 +41,7 @@ def _row_to_deviation(row: tuple) -> Deviation:
     (schedule_version_id, deviation_id, category, source_reference, affected,
      acknowledged, acknowledged_by, acknowledged_at, reason) = row
     return Deviation(
-        deviation_id, schedule_version_id, category, source_reference, affected, bool(acknowledged),
+        deviation_id, schedule_version_id, DeviationCategory(category), source_reference, affected, bool(acknowledged),
         acknowledged_by, datetime.fromisoformat(acknowledged_at) if acknowledged_at else None, reason,
     )
 

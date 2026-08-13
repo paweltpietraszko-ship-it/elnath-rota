@@ -22,6 +22,15 @@ def validate_site_and_coordinator(conn: sqlite3.Connection, site_id: str, coordi
         raise MalformedScheduleSnapshot(f"unknown coordinator {coordinator_id!r}")
 
 
+def validate_month_is_first_of_month(month: date) -> None:
+    """R3-3: ScheduleVersion.month (brief.md:386) and WorkBalance target
+    month (brief.md:339) are both defined as the first calendar day of the
+    month -- any other day would let one logical month collide under two
+    different keys."""
+    if month.day != 1:
+        raise MalformedScheduleSnapshot(f"month {month} is not the first day of its month")
+
+
 def validate_lineage(
     conn: sqlite3.Connection, *, version_id: str, site_id: str, month: date, parent_version_id: str | None
 ) -> None:
