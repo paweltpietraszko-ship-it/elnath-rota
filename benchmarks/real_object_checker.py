@@ -1,43 +1,50 @@
-"""Independent HARD checker for production candidates from real-object cases.
-
-It does not call rota.planning.validator or production eligibility helpers.
-The checker intentionally re-derives the benchmark's HARD facts.
-"""
+"""Independent HARD checker for oracle witnesses and production candidates."""
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, time, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
+from typing import Iterable
 
-from benchmarks.real_object_oracle import demands_for_month
 from benchmarks.real_object_scenarios import (
     EXTERNAL_EMPLOYEES,
     LOAD_LIMIT_HOURS,
     LOCAL_EMPLOYEES,
     REST_MIN_HOURS,
     SITE_ID,
+    demands_for_month,
 )
-from benchmarks.real_object_types import CheckResult, DemandSpec, RuleSpec, ScenarioSpec
-from rota.domain import Assignment, AssignmentRole, AssignmentState
+from benchmarks.real_object_types import (
+    CheckResult,
+    DemandSpec,
+    ExternalWindowSpec,
+    LoadViolation,
+    RuleSpec,
+    ScenarioSpec,
+)
+from rota.domain import AssignmentRole, AssignmentState
+
+
+@dataclass(frozen=True)
+class _Work:
+    assignment_id: str
+    employee_id: str
+    start: datetime
+    end: datetime
+    demand_id: str | None
+    state: str
 
 
 def _overlap(start_a: datetime, end_a: datetime, start_b: datetime, end_b: datetime) -> bool:
-    """Return True when two half-open intervals overlap."""
     return start_a < end_b and end_a > start_b
 
 
 def _overlap_hours(start_a: datetime, end_a: datetime, start_b: datetime, end_b: datetime) -> int:
-    """Return whole overlap hours."""
     seconds = max(0.0, (min(end_a, end_b) - max(start_a, start_b)).total_seconds())
     return int(seconds // 3600)
 
 
-def _rest_gap_hours(first, second) -> float:
-    """Return chronological rest gap in hours."""
-    return (second.start_datetime - first.end_datetime).total_seconds() / 3600
-
-
-def _availability_error(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> str | None:
-    """Return one independent availability blocker if present."""
+def _availability_reason(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> str | None:
     for record in scenario.availability:
         if record.employee_id != employee_id:
             continue
@@ -47,180 +54,319 @@ def _availability_error(scenario: ScenarioSpec, employee_id: str, demand: Demand
             continue
         start = datetime.combine(record.start_date, time())
         end = datetime.combine(record.end_date + timedelta(days=1), time())
-        if record.kind in {"UNAVAILABLE_24H", "LEAVE_GRANTED", "SICK_LEAVE"}:
-            if _overlap(demand.start, demand.end, start, end):
-                return record.kind
+        if not _overlap(demand.start, demand.end, start, end):
+            continue
+        mapping = {
+            "UNAVAILABLE_24H": "UNAVAILABLE-01",
+            "LEAVE_GRANTED": "LEAVE_GRANTED-01",
+            "SICK_LEAVE": "SICK_LEAVE-01",
+        }
+        if record.kind in mapping:
+            return mapping[record.kind]
     return None
 
 
-def _rule_error(rule: RuleSpec, employee_id: str, demand: DemandSpec) -> bool:
-    """Return True when this one T007 benchmark rule blocks the assignment."""
+def _rule_reason(rule: RuleSpec, employee_id: str, demand: DemandSpec) -> str | None:
     if rule.employee_id != employee_id:
-        return False
+        return None
+    blocked = False
     if rule.rule_kind == "EMPLOYEE_ALLOWED_SHIFT_KINDS":
-        return demand.kind not in rule.shift_kinds
-    if rule.rule_kind == "EMPLOYEE_ALLOWED_WEEKDAYS":
-        return demand.start.date().isoweekday() not in rule.weekdays
-    if rule.rule_kind == "EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS":
-        return demand.start.date().isoweekday() in rule.weekdays and demand.kind in rule.shift_kinds
-    return True
+        blocked = demand.kind not in rule.shift_kinds
+    elif rule.rule_kind == "EMPLOYEE_ALLOWED_WEEKDAYS":
+        blocked = demand.start.date().isoweekday() not in rule.weekdays
+    elif rule.rule_kind == "EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS":
+        blocked = demand.start.date().isoweekday() in rule.weekdays and demand.kind in rule.shift_kinds
+    return rule.rule_version_id if blocked else None
 
 
-def _external_covered(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> bool:
-    """Check the full ExternalSupportWindow boundary independently."""
+def _window_covers(
+    scenario: ScenarioSpec,
+    windows: tuple[ExternalWindowSpec, ...],
+    employee_id: str,
+    demand: DemandSpec,
+) -> bool:
     if not scenario.external_support_enabled:
         return False
-    for window in scenario.external_windows:
-        if not window.active or window.employee_id != employee_id or window.site_id != SITE_ID:
-            continue
-        if window.allowed_shift_kind is not None and window.allowed_shift_kind != demand.kind:
-            continue
-        if window.start <= demand.start and window.end >= demand.end:
-            return True
-    return False
+    return any(
+        window.active
+        and window.site_id == SITE_ID
+        and window.employee_id == employee_id
+        and window.start <= demand.start
+        and window.end >= demand.end
+        and (window.allowed_shift_kind is None or window.allowed_shift_kind == demand.kind)
+        for window in windows
+    )
 
 
-def _eligibility_errors(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> list[str]:
-    """Return all benchmark-side eligibility errors for one demand assignment."""
-    errors = []
+def _boundary_rest_reason(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> str | None:
+    for item in scenario.boundary_assignments:
+        if item.employee_id != employee_id or item.state == "CANCELLED":
+            continue
+        if _overlap(item.start, item.end, demand.start, demand.end):
+            return "REST-01"
+        if item.end <= demand.start:
+            gap = (demand.start - item.end).total_seconds() / 3600
+        else:
+            gap = (item.start - demand.end).total_seconds() / 3600
+        if gap < REST_MIN_HOURS:
+            return "REST-01"
+    return None
+
+
+def eligibility_reasons(
+    scenario: ScenarioSpec,
+    employee_id: str,
+    demand: DemandSpec,
+    *,
+    windows: tuple[ExternalWindowSpec, ...] | None = None,
+    realized: bool = False,
+) -> tuple[str, ...]:
+    """Independent per-demand reasons; REALIZED skips forward eligibility."""
+    if realized:
+        return ()
+    selected_windows = scenario.external_windows if windows is None else windows
+    reasons = []
     if employee_id not in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES):
-        return [f"unknown employee {employee_id}"]
+        return ("UNKNOWN_EMPLOYEE",)
     if employee_id == "C" and demand.kind == "N":
-        errors.append(f"DAY_ONLY-01 {employee_id}/{demand.demand_id}")
-    blocker = _availability_error(scenario, employee_id, demand)
-    if blocker:
-        errors.append(f"{blocker} {employee_id}/{demand.demand_id}")
+        reasons.append("DAY_ONLY-01")
+    availability = _availability_reason(scenario, employee_id, demand)
+    if availability:
+        reasons.append(availability)
     for rule in scenario.site_rules:
-        if _rule_error(rule, employee_id, demand):
-            errors.append(f"{rule.rule_version_id} {employee_id}/{demand.demand_id}")
-    if employee_id in EXTERNAL_EMPLOYEES and not _external_covered(scenario, employee_id, demand):
-        errors.append(f"EXTERNAL-01 {employee_id}/{demand.demand_id}")
-    return errors
+        reason = _rule_reason(rule, employee_id, demand)
+        if reason:
+            reasons.append(reason)
+    boundary_rest = _boundary_rest_reason(scenario, employee_id, demand)
+    if boundary_rest:
+        reasons.append(boundary_rest)
+    if employee_id in EXTERNAL_EMPLOYEES and not _window_covers(
+        scenario, selected_windows, employee_id, demand
+    ):
+        reasons.append("EXTERNAL-01")
+    return tuple(dict.fromkeys(reasons))
 
 
-def _coverage_and_eligibility(scenario: ScenarioSpec, assignments: list[Assignment]) -> list[str]:
-    """Check exact automatic coverage, intervals and per-demand eligibility."""
+def independently_unassignable_demands(
+    scenario: ScenarioSpec,
+    *,
+    windows: tuple[ExternalWindowSpec, ...] | None = None,
+) -> dict[str, dict[str, tuple[str, ...]]]:
+    """Demands with zero individually eligible employees, plus evidence."""
+    selected_windows = scenario.external_windows if windows is None else windows
+    evidence = {}
+    for demand in demands_for_month(scenario):
+        per_employee = {
+            employee: eligibility_reasons(scenario, employee, demand, windows=selected_windows)
+            for employee in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)
+        }
+        if all(per_employee[employee] for employee in per_employee):
+            evidence[demand.demand_id] = per_employee
+    return evidence
+
+
+def external_unlock_pairs(scenario: ScenarioSpec) -> set[tuple[str, str]]:
+    """Pairs made eligible by explicit probe windows and not by current state."""
+    current = scenario.external_windows
+    combined_by_id = {window.window_id: window for window in (*current, *scenario.external_probe_windows)}
+    combined = tuple(combined_by_id.values())
+    pairs = set()
+    for demand in demands_for_month(scenario):
+        for employee in EXTERNAL_EMPLOYEES:
+            before = eligibility_reasons(scenario, employee, demand, windows=current)
+            after = eligibility_reasons(scenario, employee, demand, windows=combined)
+            if before and "EXTERNAL-01" in before and not after:
+                pairs.add((demand.demand_id, employee))
+    return pairs
+
+
+def _from_candidate(assignments: Iterable) -> list[_Work]:
+    work = []
+    for item in assignments:
+        role = item.role.value if hasattr(item.role, "value") else str(item.role)
+        state = item.state.value if hasattr(item.state, "value") else str(item.state)
+        if role != AssignmentRole.PRIMARY.value or state == AssignmentState.CANCELLED.value:
+            continue
+        work.append(_Work(
+            item.assignment_id, item.employee_id, item.start_datetime, item.end_datetime,
+            item.covers_demand_id, state,
+        ))
+    return work
+
+
+def _from_witness(scenario: ScenarioSpec, witness: tuple[tuple[str, str], ...]) -> list[_Work]:
+    demands = {demand.demand_id: demand for demand in demands_for_month(scenario)}
+    work = []
+    for demand_id, employee_id in witness:
+        demand = demands.get(demand_id)
+        if demand is None:
+            marker = datetime.combine(scenario.month, time())
+            work.append(_Work(
+                f"oracle-{demand_id}-{employee_id}", employee_id, marker, marker,
+                demand_id, "PLANNED",
+            ))
+            continue
+        work.append(_Work(
+            f"oracle-{demand_id}-{employee_id}", employee_id, demand.start, demand.end,
+            demand_id, "PLANNED",
+        ))
+    return work
+
+
+def _coverage_and_eligibility(
+    scenario: ScenarioSpec,
+    work: list[_Work],
+    windows: tuple[ExternalWindowSpec, ...],
+) -> list[str]:
     demands = {demand.demand_id: demand for demand in demands_for_month(scenario)}
     covered = {demand_id: [] for demand_id in demands}
     errors = []
-    for assignment in assignments:
-        if assignment.state == AssignmentState.CANCELLED or assignment.role != AssignmentRole.PRIMARY:
-            continue
-        demand = demands.get(assignment.covers_demand_id or "")
+    for item in work:
+        demand = demands.get(item.demand_id or "")
         if demand is None:
-            errors.append(f"unknown covers_demand_id {assignment.assignment_id}")
+            errors.append(f"unknown covers_demand_id {item.assignment_id}")
             continue
-        covered[demand.demand_id].append(assignment)
-        if assignment.start_datetime != demand.start or assignment.end_datetime != demand.end:
-            errors.append(f"automatic interval mismatch {assignment.assignment_id}")
-        errors.extend(_eligibility_errors(scenario, assignment.employee_id, demand))
+        covered[demand.demand_id].append(item)
+        if item.start != demand.start or item.end != demand.end:
+            errors.append(f"automatic interval mismatch {item.assignment_id}")
+        realized = item.state == AssignmentState.REALIZED.value
+        reasons = eligibility_reasons(
+            scenario, item.employee_id, demand, windows=windows, realized=realized,
+        )
+        errors.extend(f"{reason} {item.employee_id}/{demand.demand_id}" for reason in reasons)
     for demand_id, items in covered.items():
         if len(items) != 1:
             errors.append(f"COVERAGE-01 {demand_id}: {len(items)}/1")
     return errors
 
 
-def _synthetic_assignment(spec) -> Assignment:
-    """Create a checker-only Assignment-shaped boundary object."""
-    return Assignment(
-        spec.assignment_id, "checker-boundary", spec.employee_id, spec.start, spec.end,
-        AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None,
-    )
+def _synthetic_boundary(scenario: ScenarioSpec) -> list[_Work]:
+    return [
+        _Work(item.assignment_id, item.employee_id, item.start, item.end, item.demand_id, item.state)
+        for item in scenario.boundary_assignments if item.state != "CANCELLED"
+    ]
 
 
-def _rest_errors(scenario: ScenarioSpec, assignments: list[Assignment]) -> list[str]:
-    """Check REST-01 including benchmark boundary history."""
-    work = [item for item in assignments if item.state != AssignmentState.CANCELLED]
-    work.extend(_synthetic_assignment(item) for item in scenario.boundary_assignments)
-    by_employee: dict[str, list[Assignment]] = {}
-    for assignment in work:
-        by_employee.setdefault(assignment.employee_id, []).append(assignment)
+def _rest_errors(scenario: ScenarioSpec, work: list[_Work]) -> list[str]:
+    all_work = [*work, *_synthetic_boundary(scenario)]
+    grouped: dict[str, list[_Work]] = {}
+    for item in all_work:
+        grouped.setdefault(item.employee_id, []).append(item)
     errors = []
-    for employee_id, employee_work in by_employee.items():
-        ordered = sorted(employee_work, key=lambda item: item.start_datetime)
+    for employee_id, employee_work in grouped.items():
+        ordered = sorted(employee_work, key=lambda item: item.start)
         for earlier, later in zip(ordered, ordered[1:]):
-            if earlier.end_datetime > later.start_datetime:
+            if earlier.end > later.start:
                 errors.append(f"REST-01 overlap {employee_id}: {earlier.assignment_id}->{later.assignment_id}")
                 continue
-            gap = _rest_gap_hours(earlier, later)
+            gap = (later.start - earlier.end).total_seconds() / 3600
             if gap < REST_MIN_HOURS:
                 errors.append(f"REST-01 {employee_id}: {gap:g}h {earlier.assignment_id}->{later.assignment_id}")
     return errors
 
 
 def _rolling_windows(scenario: ScenarioSpec) -> tuple[tuple[datetime, datetime], ...]:
-    """Return every seven-day window overlapping the month."""
     count = calendar.monthrange(scenario.month.year, scenario.month.month)[1]
-    start = datetime.combine(scenario.month, time())
-    return tuple((start + timedelta(days=offset), start + timedelta(days=offset + 7)) for offset in range(-6, count - 6))
+    month_start = datetime.combine(scenario.month, time())
+    return tuple(
+        (month_start + timedelta(days=offset), month_start + timedelta(days=offset + 7))
+        for offset in range(-6, count)
+    )
 
 
-def _load_metrics(scenario: ScenarioSpec, assignments: list[Assignment]) -> tuple[list[str], tuple[tuple[str, int], ...]]:
-    """Check LOAD-01 and return per-employee worst window hours."""
-    work = [item for item in assignments if item.state != AssignmentState.CANCELLED]
-    work.extend(_synthetic_assignment(item) for item in scenario.boundary_assignments)
-    errors = []
+def _load_metrics(
+    scenario: ScenarioSpec, work: list[_Work],
+) -> tuple[tuple[tuple[str, int], ...], tuple[LoadViolation, ...]]:
+    all_work = [*work, *_synthetic_boundary(scenario)]
     maxima = []
+    violations = []
     for employee_id in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES):
-        employee_work = [item for item in work if item.employee_id == employee_id]
+        employee_work = [item for item in all_work if item.employee_id == employee_id]
         worst = 0
         for window_start, window_end in _rolling_windows(scenario):
-            hours = sum(
-                _overlap_hours(item.start_datetime, item.end_datetime, window_start, window_end)
-                for item in employee_work
-            )
+            hours = sum(_overlap_hours(item.start, item.end, window_start, window_end) for item in employee_work)
             worst = max(worst, hours)
             if hours > LOAD_LIMIT_HOURS:
-                errors.append(f"LOAD-01 {employee_id}: {hours}h from {window_start.date()}")
+                violations.append(LoadViolation(
+                    employee_id, window_start.date(), (window_end - timedelta(days=1)).date(), hours,
+                ))
         maxima.append((employee_id, worst))
-    return errors, tuple(maxima)
+    return tuple(maxima), tuple(violations)
 
 
-def _fixed_errors(scenario: ScenarioSpec, assignments: list[Assignment]) -> list[str]:
-    """Check that benchmark fixed demand facts remain present and unchanged."""
+def _fixed_errors(scenario: ScenarioSpec, work: list[_Work]) -> list[str]:
+    by_demand = {item.demand_id: item for item in work if item.demand_id}
     errors = []
-    by_demand = {
-        assignment.covers_demand_id: assignment
-        for assignment in assignments
-        if assignment.role == AssignmentRole.PRIMARY and assignment.state != AssignmentState.CANCELLED
-    }
     for fixed in scenario.fixed_demand_assignments:
+        if not (fixed.state == "REALIZED" or fixed.frozen):
+            continue
         actual = by_demand.get(fixed.demand_id)
         if actual is None:
             errors.append(f"fixed demand missing {fixed.demand_id}")
             continue
         if actual.employee_id != fixed.employee_id:
             errors.append(f"fixed employee changed {fixed.demand_id}: {fixed.employee_id}->{actual.employee_id}")
-        if actual.start_datetime != fixed.start or actual.end_datetime != fixed.end:
+        if actual.start != fixed.start or actual.end != fixed.end:
             errors.append(f"fixed interval changed {fixed.demand_id}")
     return errors
 
 
-def _monthly_hours(assignments: list[Assignment]) -> tuple[tuple[str, int], ...]:
-    """Return deterministic PRIMARY monthly hours by employee."""
+def _monthly_hours(work: list[_Work], scenario: ScenarioSpec) -> tuple[tuple[str, int], ...]:
     hours = {employee: 0 for employee in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)}
-    for assignment in assignments:
-        if assignment.role != AssignmentRole.PRIMARY or assignment.state == AssignmentState.CANCELLED:
+    for item in work:
+        if (item.start.year, item.start.month) != (scenario.month.year, scenario.month.month):
             continue
-        worked = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
-        hours[assignment.employee_id] = hours.get(assignment.employee_id, 0) + worked
+        worked = int((item.end - item.start).total_seconds() // 3600)
+        hours[item.employee_id] = hours.get(item.employee_id, 0) + worked
     return tuple(sorted(hours.items()))
 
 
-def check_candidate(scenario: ScenarioSpec, assignments: list[Assignment]) -> CheckResult:
-    """Independently verify a production FEASIBLE candidate."""
-    errors = _coverage_and_eligibility(scenario, assignments)
-    errors.extend(_fixed_errors(scenario, assignments))
-    errors.extend(_rest_errors(scenario, assignments))
-    load_errors, maxima = _load_metrics(scenario, assignments)
-    errors.extend(load_errors)
-    monthly = _monthly_hours(assignments)
-    if scenario.strict_monthly_hours:
+def _check_work(
+    scenario: ScenarioSpec,
+    work: list[_Work],
+    *,
+    windows: tuple[ExternalWindowSpec, ...],
+    enforce_load: bool,
+    enforce_strict_hours: bool,
+) -> CheckResult:
+    errors = _coverage_and_eligibility(scenario, work, windows)
+    errors.extend(_fixed_errors(scenario, work))
+    errors.extend(_rest_errors(scenario, work))
+    maxima, violations = _load_metrics(scenario, work)
+    if enforce_load:
+        errors.extend(
+            f"LOAD-01 {item.employee_id}: {item.hours}h from {item.window_start}"
+            for item in violations
+        )
+    monthly = _monthly_hours(work, scenario)
+    if enforce_strict_hours and scenario.strict_monthly_hours:
         observed = dict(monthly)
         for employee, expected in scenario.strict_monthly_hours:
             if observed.get(employee) != expected:
                 errors.append(f"monthly hours {employee}: {observed.get(employee)}/{expected}")
-    return CheckResult(tuple(dict.fromkeys(errors)), monthly, maxima)
+    return CheckResult(tuple(dict.fromkeys(errors)), monthly, maxima, violations)
+
+
+def check_candidate(scenario: ScenarioSpec, assignments: Iterable) -> CheckResult:
+    """Independent check of one production FEASIBLE candidate."""
+    return _check_work(
+        scenario, _from_candidate(assignments), windows=scenario.external_windows,
+        enforce_load=True, enforce_strict_hours=True,
+    )
+
+
+def check_reference_witness(
+    scenario: ScenarioSpec,
+    witness: tuple[tuple[str, str], ...],
+    *,
+    windows: tuple[ExternalWindowSpec, ...],
+    enforce_load: bool,
+) -> CheckResult:
+    """Independent check of every witness returned by the reference oracle."""
+    return _check_work(
+        scenario, _from_witness(scenario, witness), windows=windows,
+        enforce_load=enforce_load, enforce_strict_hours=False,
+    )
 
 
 if __name__ == "__main__":
