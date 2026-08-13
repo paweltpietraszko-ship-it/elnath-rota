@@ -1,166 +1,170 @@
-# ROTA-REAL-OBJECT-01 — benchmark realnego obiektu przeciwko production code
+# ROTA-REAL-OBJECT-01 — R4 simplified benchmark
 
-Status: architect-authored test infrastructure — **R3 candidate after Codex R2 FAIL**
-Production base used by the benchmark: `e010f004e90a1e4f426bb72298e7307045d32b56`
+Status: architect-authored R4 candidate after owner-directed simplification  
+Production base: `e010f004e90a1e4f426bb72298e7307045d32b56`
 
-## Cel
+## Purpose
 
-ROTA-REAL-OBJECT-01 nie zastępuje technicznie `rota_stress.py`. Tamten plik
-pozostaje syntetycznym generatorem z góry wykonalnych problemów. Ten benchmark
-sprawdza aktualny PlanningEngine na realnym pięcioosobowym rdzeniu obiektu oraz
-kontrolowanych warunkach brzegowych.
+This benchmark is deliberately **not** a second scheduling system.
 
-## Nienaruszalny model
+It answers only:
 
-Lokalny roster to zawsze dokładnie A–E, przy czym C jest `DAY_ONLY`.
-X i Y są wyłącznie `EXTERNAL_SUPPORT`; nie są ukrytą szóstą i siódmą osobą.
+1. Did production create a complete legal schedule?
+2. In a controlled resource shortage, did production avoid false `FEASIBLE`?
+3. After adding a concrete resource such as a confirmed X/Y window, does the problem disappear?
+4. Does REPLAN preserve the known minimum number of baseline placements?
+5. How long did production planning take?
 
-Target Site używa:
+`rota_stress.py` may remain a synthetic stress generator. It is not evidence for the
+five-person real object.
 
-- D 05:00–17:00;
-- N 17:00–05:00;
-- jednej PRIMARY D i jednej PRIMARY N dziennie;
-- REST-01 = 11 h;
-- LOAD-01 = 60 h / ruchome 7 dni przed `DECISION_REQUIRED`.
+## Fixed real-object model
 
-Target-site boundary/fixed facts muszą mieć legalną geometrię D/N. Kontekst
-`other_site_assignments` jest jawnie odrębny: reprezentuje pracę pracownika na
-innym obiekcie i może mieć inną geometrię zmian, ale nadal podlega REST/LOAD.
-To pozwala uczciwie testować granicę dokładnie 11 h bez wymyślania lokalnej
-zmiany 06:00–18:00.
+Operational cases use:
 
-## Fail-closed wejścia
+- five LOCAL employees: A, B, C, D, E;
+- C is `DAY_ONLY`;
+- optional X/Y with `EXTERNAL_SUPPORT`;
+- one D 05:00–17:00 and one N 17:00–05:00 per day;
+- REST-01 = 11h;
+- LOAD-01 threshold = 60h in a rolling 7-day window;
+- real predecessor and cross-month context where relevant.
 
-`real_object_input.py` uruchamia się przed oracle i przed production `plan()`.
-Nielegalny fixture nie może służyć do oceny solvera.
+X/Y are not hidden sixth/seventh local workers. They become usable only through
+the existing production rules for external support.
 
-Walidowane są m.in.:
+## What decides PASS
 
-- employee ids, availability, SiteRules i ExternalSupportWindow;
-- dodatnie przedziały;
-- globalna unikalność assignment_id między boundary/fixed/cross-site context;
-- legalna geometria lokalnych target-site facts;
-- operatywny stan fixed facts — `CANCELLED` nie udaje historii pracy;
-- DAY_ONLY dla target Site;
-- same-version fixed demand references;
-- REST/overlap między wszystkimi fixed/context facts;
-- dokładnie jedna REALIZED D i N na każdym z sześciu predecessor days,
-  gdy scenariusz wymaga ladder step 3.
+Each frozen scenario states:
 
-## Niezależny oracle i checker
+- `expected_status`: `FEASIBLE` or `DECISION_REQUIRED`;
+- `expectation_kind`;
+- one short `expectation_reason`;
+- only the small amount of extra data needed for that expectation
+  (`expected_demand_ids`, `expected_employee_id`, or `expected_reshuffles`).
 
-`real_object_oracle.py` buduje własny CP-SAT existence model i nie importuje
-produkcyjnego solvera/eligibility/validatora. Uwzględnia target-site boundary
-oraz jawny cross-site context dla REST i LOAD.
+For `FEASIBLE`:
 
-Każdy FEASIBLE witness oracle jest ponownie sprawdzany przez
-`real_object_checker.py`. Witness z błędem COVERAGE, eligibility, REST lub LOAD
-staje się `UNKNOWN/WITNESS_CHECK_FAILED` i nie jest dowodem przeciw produkcji.
+- production must return exactly one candidate;
+- the independent checker verifies coverage, assignment intervals, DAY_ONLY,
+  availability, SiteRules, X/Y window eligibility, REST, LOAD, fixed facts and
+  the strict ROTA-REG-001 monthly-hour oracle where applicable;
+- REPLAN cases additionally compare baseline `(employee_id, demand_id)` pairs.
 
-Reference classes:
+For controlled negative cases:
 
-- `KNOWN_FEASIBLE`;
-- `LOAD_DECISION_REQUIRED`;
-- `EXTERNAL_SUPPORT_DECISION_REQUIRED`;
-- `KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT`;
-- `PROVEN_STAFFING_SHORTAGE`;
-- `INCONCLUSIVE`.
+- the fixture itself contains a short local proof;
+- production must return `DECISION_REQUIRED`;
+- any `FEASIBLE` is a mismatch and its candidate is checked independently.
 
-`UNKNOWN` nigdy nie jest PASS-em.
+The benchmark **does not** decide basic PASS from:
 
-## DECISION_REQUIRED — pełny certyfikat
+- blocker wording;
+- `unblocking_options`;
+- `EXTERNAL-01` versus `EXTERNAL_SUPPORT_DISABLED`;
+- inferred UNSAT cores;
+- an independently reimplemented PlanningEngine.
 
-R3 nie stosuje zasady „wystarczy jeden poprawny element”.
-`real_object_decisions.py` sprawdza każdy zgłoszony element payloadu:
+Decision payload details are preserved in JSON for diagnostics only.
 
-- każdy `blocking_shift_demand` musi istnieć i mieć dokładny przedział;
-- każdy blocker employee/condition musi mieć niezależne evidence;
-- dodatkowy fikcyjny blocker jest FAIL-em nawet obok poprawnego;
-- wymagana klasa unblocking option musi istnieć;
-- niepowiązana opcja jest FAIL-em;
-- nie-LOAD decision nie może przemycić `load_blocker`.
+## Small ground-truth constructions
 
-Dla LOAD dokładny `employee/window/hours` jest ponownie dowodzony przez osobny
-uncapped solve `verify_load_claim()`.
+R4 permits only simple constructions that can be checked directly from fixture data:
 
-Dla prostego shortage checker używa dowodu zero individually eligible.
-Dla konfliktów zbiorowych buduje osobny uncapped CP-SAT dla zgłoszonego zbioru
-blocking demands i potwierdza coverage + eligibility + REST. Dzięki temu para
-zmian, które osobno może wykonać A, lecz razem łamie REST, może zostać
-pozytywnie certyfikowana bez udawania indywidualnego shortage.
+- `SIMPLE_SHORTAGE`: a named demand has zero eligible employees;
+- `REST_PAIR_SHORTAGE`: two named demands each have only the same employee and
+  those intervals violate REST if both are assigned;
+- `EXTERNAL_BEFORE`: current state cannot cover the named demand, while a named
+  probe window makes the expected X/Y employee eligible;
+- `EXTERNAL_AFTER`: the confirmed X/Y employee is eligible and local workers are not;
+- `FORCED_LOAD`: named demands are each forced to one employee and together exceed
+  60h in a real rolling 7-day window;
+- `FIXED_LOAD`: known fixed/history work is exactly at or above the threshold;
+- `REPLAN`: only the declared baseline placement count is evaluated.
 
-## External support condition
+There is no generic UNSAT analyser and no reference CP-SAT solver in R4.
 
-Publicznym condition dla niemożności użycia X/Y jest `EXTERNAL-01`, również
-gdy wewnętrzną przyczyną jest `SiteProfile.external_support_enabled=false`.
-Szczegół `EXTERNAL_SUPPORT_DISABLED` może pozostać diagnostyką wewnętrzną, ale
-nie stanowi drugiej publicznej taksonomii blockera. Rozstrzygnięcie zapisano w:
+## REPLAN
 
-`arch/BENCHMARK_REAL_OBJECT_R3_CONDITION_CLARIFICATION_2026-08-13.md`.
+R4 contains three explicit REPLAN cases:
 
-Wyłączony profil nie staje się przez to odblokowywalny oknem X/Y. Taki case
-pozostaje shortage; zmienia się wyłącznie kanoniczny kod provenance.
+- `replan-min-0` → expected reshuffles: 0;
+- `replan-min-1` → expected reshuffles: 1;
+- `replan-min-2` → expected reshuffles: 2.
 
-## Drabina 1–14
+A reshuffle is counted per redistributable baseline pair `(employee_id, demand_id)`.
+If the same pair remains in the candidate it is unchanged; otherwise it counts as
+one change. New demands do not add a reshuffle.
 
-Core matrix obejmuje:
+## Fixture validation
 
-1. literalny ROTA-REG-001;
-2. miesiące 28/29/30/31 dni;
-3. poprawną sześciodniową historię;
-4. PLAN i REPLAN z REALIZED/frozen/redistributable baseline;
-5. monotonicznie narastające absencje;
-6. osobno brak C i brak flexible worker;
-7. trudne przetasowanie nadal <=60 h;
-8. coverage możliwe dopiero >60 h;
-9. prosty brak eligible employee;
-10. REST dokładnie 11 h i poniżej 11 h przez cross-site context;
-11. LOAD dokładnie 60 h i >60 h na boundary;
-12. month-end N kontra znany next-month D;
-13. X/Y before/after jawnego window;
-14. negatywną macierz employee/Site/active/interval/kind/profile.
+Before production `plan()` is called, fixtures are checked for:
 
-Absence ladder jest inkluzywna: fakty poziomu N są podzbiorem poziomu N+1.
-Runner sam sprawdza tę własność i ustawia `benchmark_errors`, więc sama zgodna
-metadata `series_level` nie wystarcza.
+- stable ids and valid intervals;
+- legal availability/rule values;
+- weekday validation for both weekday-based T007 rule kinds;
+- global assignment-id uniqueness across boundary, other-site and fixed facts;
+- canonical target-site D/N boundary geometry;
+- C not working N in fixed facts;
+- complete operative six-day history where required;
+- valid hard fixed demand references and intervals;
+- REST consistency among fixed facts;
+- actual monotonicity of the absence ladder.
 
-## Reprodukcja i raport
+A malformed fixture yields `BENCHMARK_INVALID` and production is not blamed.
 
-Każdy case zapisuje m.in.:
+## Verdict classes
 
-- `case_id` i stały `seed`;
-- SHA-256 `input_fingerprint`;
-- pełny scenario z perturbacjami, windows i context assignments;
-- reference capped/uncapped/probe solves oraz witness checker evidence;
-- production status, każdy blocker, load blocker, unblocking options i czas;
-- independent candidate/decision certificate evidence.
+Per case:
 
-JSON jest serializowalny bez utraty dat/enums. Exact replay wymaga zgodnego
-`case_id + seed`. Czasy nie należą do deterministic correctness identity.
+- `PRODUCTION_PASS` — production matches the explicit expectation;
+- `PRODUCTION_MISMATCH` — wrong production status, illegal candidate, or wrong
+  REPLAN reshuffle count;
+- `BENCHMARK_INVALID` — malformed fixture or contradictory declared construction;
+- `INCONCLUSIVE` — no frozen expected status, so the run is diagnostic only.
 
-## Correctness i performance
+## Required mutation coverage
 
-Raport rozdziela:
+Tests must demonstrate that the benchmark detects:
 
-- `correctness` — oracle/checker kontra production;
-- `performance` — mean/p50/p95/max i timeout counts per reference class.
+- missing coverage;
+- an ineligible employee;
+- REST violation;
+- LOAD violation;
+- false `FEASIBLE` in a controlled shortage;
+- an unnecessary REPLAN reshuffle.
 
-Brak zatwierdzonego SLA oznacza, że wolny poprawny wynik nie jest automatycznie
-błędem merytorycznym.
+They must also demonstrate that arbitrary decision-payload wording does **not**
+control the basic PASS/FAIL result.
 
-## Uruchomienie
+## Reproduction and report
+
+Each result keeps:
+
+- `case_id` and seed;
+- SHA-256 input fingerprint;
+- full scenario input;
+- short expected status/kind/reason;
+- production status;
+- full decision payload as diagnostic data;
+- candidate-check metrics;
+- reshuffle count where applicable;
+- production elapsed time.
+
+Commands:
 
 ```bash
-pytest -q tests/test_real_object_benchmark.py tests/test_real_object_benchmark_r3.py
-python -m benchmarks.real_object --suite core --json real_object_core_r3.json
-python -m benchmarks.real_object --suite calendar --json real_object_calendar_r3.json
-python -m benchmarks.real_object --suite all --json real_object_all_r3.json
+pytest -q tests/test_real_object_benchmark.py
+python -m benchmarks.real_object --suite core --json real_object_core_r4.json
+python -m benchmarks.real_object --suite calendar --json real_object_calendar_r4.json
+python -m benchmarks.real_object --suite all --json real_object_all_r4.json
 python -m benchmarks.real_object --suite all --case external-before-confirmation --seed 13001
 ```
 
-## Zasada audytu
+## Scope lock
 
-R3 nadal nie deklaruje własnego PASS. Codex ma najpierw zaatakować benchmark.
-Jeżeli infrastruktura przejdzie audyt, a prawidłowo certyfikowany case pozostaje
-czerwony, dopiero wtedy wolno utworzyć osobny finding przeciw PlanningEngine.
-Benchmark branch nie zmienia `rota/`.
+R4 must not change `rota/`.
+
+If a future benchmark requirement again needs a general oracle, generic causal
+certificate system, or another scheduling solver, work stops and returns to the
+owner instead of growing the benchmark into a duplicate product.
