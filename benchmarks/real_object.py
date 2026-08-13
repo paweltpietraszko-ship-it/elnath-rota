@@ -195,7 +195,7 @@ def _performance(results: list[dict]) -> dict:
 
 
 def run_matrix(scenarios: Iterable[ScenarioSpec]) -> dict:
-    """Run a deterministic scenario collection and return one structured report."""
+    """Run a fixed scenario collection and return one structured report."""
     results = [run_case(scenario) for scenario in scenarios]
     passed = sum(result["correctness"]["pass"] for result in results)
     return {
@@ -263,7 +263,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suite", choices=("core", "calendar", "all"), default="core")
     parser.add_argument("--case", action="append", default=[], help="exact case_id; repeatable")
-    parser.add_argument("--json", type=Path, help="write deterministic report JSON")
+    parser.add_argument(
+        "--json", type=Path,
+        help="write replayable report JSON; scenario/classification are deterministic, timing values naturally vary",
+    )
     args = parser.parse_args(argv)
     scenarios = _select_cases(_select_suite(args.suite), args.case)
     report = run_matrix(scenarios)
