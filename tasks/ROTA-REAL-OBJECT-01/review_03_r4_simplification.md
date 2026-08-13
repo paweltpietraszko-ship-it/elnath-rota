@@ -1,6 +1,6 @@
 # ROTA-REAL-OBJECT-01 — R4 simplification handoff
 
-Status: READY_FOR_CODEX_R4_AUDIT  
+Status: READY_FOR_CODEX_R4_AUDIT
 Architect candidate: to be bound to branch head after this file is committed.
 
 ## Owner correction
