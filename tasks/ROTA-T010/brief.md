@@ -56,15 +56,48 @@ Jawna operacja koordynatora ma zapisywać istniejący `AvailabilityRecord` z zak
 
 Solver ma korzystać z istniejącej logiki HARD. Po końcu zakresu rekord nie blokuje późniejszych terminów.
 
-## 5. D / N i stałe `day_only`
+## 5. Jedna matryca dostępności
+
+Każda pozycja ma identyczną semantykę:
+
+- `✓` = solver może korzystać;
+- `☐` = solver nie może korzystać.
+
+Dla nowego pracownika domyślnie zaznaczone są Ogólna dostępność, Dniówka,
+Nocka oraz wszystkie dni Pon–Nd. Dla przydziału muszą być jednocześnie
+dozwolone: dostępność ogólna, właściwy typ zmiany i dzień startu demandu.
+
+Odznaczenie z `effective_from/effective_to` jest czasowym HARD i po
+`effective_to` automatycznie wraca stan bazowy. Implementacja nie może mieć
+odwróconego znaczenia checkboxa dla dni tygodnia.
+
+`effective_from` i `effective_to` są inclusive. Ograniczenie obowiązuje przez
+oba dni graniczne, a stan bazowy wraca następnego dnia po `effective_to`.
+
+Nakładające się wymiary składają się przez AND: jedno obowiązujące `☐`
+wystarcza do blokady właściwego przydziału. Ogólna dostępność ☐ blokuje D i N;
+Dniówka ☐ tylko D; Nocka ☐ tylko N; dzień tygodnia ☐ blokuje D i N
+rozpoczynające się tego dnia. Dniówka ☐ i Nocka ☐ razem oznaczają pełną
+niedostępność na oba rodzaje zmian w okresie.
+
+### D / N i stałe `day_only`
 
 `Employee.day_only` pozostaje jedynym stałym źródłem zasady „ten pracownik jest tylko na dniówki”. Nie wolno lustrzanie zapisywać tej samej stałej reguły w nowym polu ani drugim trwałym mechanizmie.
 
 Dla site-specific ograniczeń D/N użyć istniejącego `EMPLOYEE_ALLOWED_SHIFT_KINDS`.
 
-### Czasowy wyjątek N dla `day_only`
+`day_only=true` jest istniejącym źródłem bazowego stanu Nocka ☐, a nie drugą
+widoczną kontrolką. Dla zwykłego pracownika bazowo Nocka ✓.
 
-Koordynator może jawnie dopuścić N w zakresie od–do. Reprezentacja ma użyć istniejącego `SiteRuleVersion` jako datowanej `CONFIRMED_EXCEPTION`, a nie zmieniać `Employee.day_only` na czas wyjątku.
+### Czasowa zmiana N
+
+Koordynator może zapisać Nocka ☐ w zakresie od–do dla pracownika z bazowym
+Nocka ✓. Solver blokuje N tylko w tym okresie i po nim wraca Nocka ✓.
+
+Koordynator może także czasowo dopuścić Nocka ✓ dla pracownika z
+`day_only=true` i bazowym Nocka ☐. Reprezentacja ma użyć istniejącego
+`SiteRuleVersion` jako datowanej `CONFIRMED_EXCEPTION`, a nie zmieniać
+`Employee.day_only` na czas wyjątku.
 
 W okresie wyjątku eligibility i niezależny validator muszą zgodnie uznać N za dozwolone mimo `day_only=true`. Po `effective_to` wyjątek przestaje obowiązywać i bazowe `day_only` znów blokuje N bez tworzenia przyszłej operacji „przywróć”.
 
@@ -74,13 +107,14 @@ Nie wolno implementować czasowego wyjątku przez ręczne przełączanie `day_on
 
 Użyć istniejącego `EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS` jako HARD z:
 
-- `weekdays` = zaznaczone dni ISO;
+- `weekdays` = odznaczone dni ISO;
 - `forbidden_shift_kinds` = `["D", "N"]`;
 - `effective_from` / `effective_to` = zakres koordynatora.
 
-Znaczenie zaznaczenia jest jednoznaczne: **zaznaczony dzień = niedostępność**.
+Wszystkie dni są bazowo zaznaczone, czyli dozwolone. Ograniczenie tworzy
+odznaczony dzień z zakresem od–do: **Piątek ☐ = niedostępność w piątki**.
 
-Przykład: Piątek + 2026-09-01..2026-10-31 blokuje D i N rozpoczynające się w każdy piątek tego okresu i nic poza tym.
+Przykład: Piątek ☐ + 2026-09-01..2026-10-31 blokuje D i N rozpoczynające się w każdy piątek tego okresu i nic poza tym.
 
 ## 7. Szkolenie i READY_FOR_PRIMARY
 
@@ -131,12 +165,16 @@ T010 nie zmienia semantyki target_hours. Zapotrzebowanie generuje pracę; target
 
 1. `membership.enabled=false` -> pracownik pozostaje w historii, ale solver nie może go użyć na tym Site.
 2. SICK/LEAVE/UNAVAILABLE od–do -> istniejący HARD blokuje tylko właściwy okres.
-3. Piątek od–do -> D i N są zablokowane tylko w piątki zakresu; po `effective_to` reguła wygasa.
-4. `day_only=true` -> N zablokowane przed wyjątkiem i po nim; N dozwolone wewnątrz jawnego datowanego wyjątku; solver i validator zgadzają się.
-5. REALIZED TRAINEE -> brak automatycznej zmiany readiness.
-6. readiness nie wpływa na eligibility.
-7. NN -> parent zachowuje PLANNED, child ma CANCELLED + NN, 0 godzin z tej zmiany, brak sztucznego REALIZED.
-8. pełna regresja dotychczasowych testów poza testami jawnie usuwanej automatycznej promocji readiness.
+3. Wszystkie checkboxy bazowo ✓ -> brak dodatkowego ograniczenia.
+4. Piątek ☐ od–do -> D i N są zablokowane tylko w piątki zakresu; po `effective_to` reguła wygasa.
+5. Nocka ☐ od–do -> N zablokowane tylko w zakresie; po nim wraca bazowe Nocka ✓.
+6. Dniówka ☐ i Nocka ☐ w tym samym okresie -> pracownik nie może pokryć żadnego D ani N w okresie.
+7. nakładające się ustawienia -> jedno właściwe ☐ blokuje; inne ✓ nie odblokowuje przydziału.
+8. `day_only=true` -> bazowe Nocka ☐; Nocka ✓ dozwolone wewnątrz jawnego datowanego wyjątku; po nim wraca zakaz; solver i validator zgadzają się.
+9. REALIZED TRAINEE -> brak automatycznej zmiany readiness.
+10. readiness nie wpływa na eligibility.
+11. NN -> parent zachowuje PLANNED, child ma CANCELLED + NN, 0 godzin z tej zmiany, brak sztucznego REALIZED.
+12. pełna regresja dotychczasowych testów poza testami jawnie usuwanej automatycznej promocji readiness.
 
 ## 11. Zakazy
 

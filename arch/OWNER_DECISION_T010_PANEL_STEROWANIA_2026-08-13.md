@@ -154,13 +154,20 @@ prowadzi kadr i nie ustanawia dodatkowej oceny dopuszczenia pracownika.
 
 ## 7. Ustawienia pracownika udostępniane przez konfigurację
 
-Dla pracownika przypisanego do obiektu konfiguracja udostępnia cztery jawne
-obszary:
+Dla pracownika przypisanego do obiektu konfiguracja udostępnia jedną spójną
+matrycę dostępności:
 
-1. **Ogólna dostępność** — domyślnie włączona.
-2. **Dniówka** — domyślnie włączona.
-3. **Nocka** — domyślnie włączona, z uwzględnieniem stałego `day_only`.
-4. **Niedostępność w wybrane dni tygodnia** — lista dni oraz zakres od–do.
+1. **Ogólna dostępność**.
+2. **Dniówka**.
+3. **Nocka**.
+4. **Dni tygodnia** — rozwijana lista: Pon, Wt, Śr, Czw, Pt, Sob, Nd.
+
+Dla nowego pracownika domyślnie wszystkie pozycje są zaznaczone:
+
+- Ogólna dostępność ✓;
+- Dniówka ✓;
+- Nocka ✓;
+- Pon ✓, Wt ✓, Śr ✓, Czw ✓, Pt ✓, Sob ✓, Nd ✓.
 
 Nie ma osobnego ustawienia **Święta**.
 
@@ -168,26 +175,60 @@ Nie ma przełącznika **Szkolenie**. Szkolenie `S` koordynator wstawia ręcznie
 do grafiku, jeżeli uzna je za potrzebne. Solver nie rozstrzyga, czy pracownik
 potrzebuje szkolenia.
 
-## 8. Bezwzględne znaczenie dostępności
+## 8. Jedno znaczenie wszystkich kontrolek dostępności
 
 Ustawienia dostępności są bieżącą, jawną komunikacją koordynatora z solverem i
 mają charakter HARD.
 
-Każde ustawienie może być stanem stałym albo czasową zmianą z zakresem od–do.
-Zmiana okresowa nie nadpisuje stanu bazowego: obowiązuje wyłącznie w podanym
-zakresie, a po jego zakończeniu automatycznie wraca wcześniejszy stan.
+Każdy ptaszek w tej matrycy ma dokładnie to samo znaczenie:
+
+- `✓` = solver może korzystać z pracownika w tym wymiarze;
+- `☐` = solver nie może korzystać z pracownika w tym wymiarze.
+
+Nie istnieje kontrolka, w której zaznaczenie oznacza zakaz. Dotyczy to również
+listy dni tygodnia.
+
+Odznaczenie pozycji wraz z zakresem od–do tworzy czasowe ograniczenie HARD.
+Obowiązuje wyłącznie w podanym zakresie, a po dacie `do` automatycznie wygasa
+i wraca wcześniejszy stan. Stan bazowy nie jest nadpisywany zmianą okresową.
+Obie granice są włączne: ograniczenie obowiązuje przez cały dzień `od` i cały
+dzień `do`; stan bazowy wraca następnego dnia po `do`.
+
+Dla konkretnego ShiftDemand solver może użyć pracownika tylko wtedy, gdy
+jednocześnie obowiązują:
+
+- Ogólna dostępność ✓;
+- właściwy rodzaj zmiany: Dniówka ✓ dla D albo Nocka ✓ dla N;
+- dzień tygodnia, w którym zaczyna się ShiftDemand, ma ✓.
+
+Jest to jedna logika koniunkcji dostępności, a nie osobne mechanizmy o różnych
+znaczeniach.
+
+| Obowiązujące stany | Skutek dla solvera |
+|---|---|
+| wszystkie właściwe pozycje ✓ | pracownik jest dostępny dla danego demandu |
+| Ogólna dostępność ☐ | D i N są zablokowane przez cały obowiązujący okres |
+| Dniówka ☐ | D jest zablokowana; samo to ustawienie nie blokuje N |
+| Nocka ☐ | N jest zablokowana; samo to ustawienie nie blokuje D |
+| Dniówka ☐ i Nocka ☐ | D i N są zablokowane |
+| Piątek ☐ | D i N zaczynające się w piątek są zablokowane |
+
+Jeżeli kilka ograniczeń nakłada się w czasie, nie konkurują ze sobą i nie są
+uszeregowane priorytetem. Jedno obowiązujące `☐` we właściwym wymiarze
+wystarcza do zablokowania przydziału. Solver niczego nie „odblokowuje” na
+podstawie innego zaznaczonego pola.
 
 Jeżeli obowiązujące ustawienie mówi, że pracownik nie jest dostępny dla danego
 użycia, solver nie może go samodzielnie naruszyć, aby ułożyć grafik.
 
 W szczególności:
 
-- wyłączona ogólna dostępność blokuje użycie pracownika w obowiązującym
+- Ogólna dostępność ☐ blokuje użycie pracownika w obowiązującym
   okresie;
-- wyłączona Dniówka blokuje automatyczny przydział D;
-- wyłączona Nocka blokuje automatyczny przydział N;
-- zaznaczony dzień tygodnia blokuje przydział w każdym takim dniu mieszczącym
-  się w zadanym zakresie od–do.
+- Dniówka ☐ blokuje automatyczny przydział D;
+- Nocka ☐ blokuje automatyczny przydział N;
+- dzień tygodnia z ☐ blokuje D i N rozpoczynające się w każdym takim dniu
+  mieszczącym się w zadanym zakresie od–do.
 
 Dla ograniczeń dnia tygodnia obowiązuje istniejąca konwencja Rota: dniem
 zmiany, także nocnej, jest data rozpoczęcia ShiftDemand.
@@ -196,31 +237,46 @@ Jeżeli przy tych decyzjach nie da się stworzyć kompletnego grafiku, program m
 zwrócić brak rozwiązania wymagający działania koordynatora. Nie może sam
 odblokować pracownika ani zignorować ustawienia.
 
-## 9. Znaczenie listy dni tygodnia
+## 9. Lista dni tygodnia
 
-Koordynator rozwija listę dni tygodnia, zaznacza ptaszek przy wybranym dniu i
-podaje daty od–do.
-
-Zaznaczenie oznacza **niedostępność**, nie dozwolony dzień pracy.
+Koordynator rozwija listę dni tygodnia. Wszystkie dni są domyślnie zaznaczone,
+czyli dozwolone dla solvera. Aby zapisać ograniczenie, odznacza wybrany dzień
+i podaje daty od–do.
 
 Przykład:
 
-- zaznaczony Piątek;
-- od 2026-09-01 do 2026-10-31;
+- `Piątek ☐ | od 2026-09-01 | do 2026-10-31`;
 - pracownik jest niedostępny w każdy piątek mieszczący się w tym okresie;
 - pozostałe dni nie zmieniają się;
 - po 2026-10-31 ograniczenie wygasa automatycznie.
 
+Oznacza to, że piątek 2026-10-30 jest jeszcze objęty ograniczeniem, a stan
+bazowy wraca 2026-11-01.
+
 To obejmuje praktyczne sytuacje okresowe, np. leczenie powodujące brak
 dostępności w piątki przez dwa miesiące.
 
-## 10. Stałe `day_only` i czasowe dopuszczenie N
+## 10. `day_only` w tej samej logice Nocki
 
-`Employee.day_only` pozostaje stałą zasadą pracownika.
+`Employee.day_only` pozostaje istniejącym źródłem bazowego stanu Nocki, ale
+nie jest osobną kontrolką o innym znaczeniu:
 
-Koordynator może czasowo zawiesić wynikający z niej zakaz N, zaznaczając
-Nockę i zakres od–do. W tym okresie solver może przydzielić pracownika na N.
-Po dacie końcowej automatycznie wraca wcześniejszy stan, czyli zakaz N.
+- dla zwykłego nowego pracownika bazowo Nocka ✓;
+- gdy `Employee.day_only=true`, bazowo Nocka ☐.
+
+Panel nie pokazuje jednocześnie osobnego przełącznika `day_only` i konkurującej
+z nim Nocki. Widoczny stan Nocki jest projekcją obowiązującej decyzji.
+
+Koordynator może czasowo zawiesić bazowy zakaz `day_only`, zapisując
+`Nocka ✓` z zakresem od–do. Znaczenie ptaszka się nie odwraca: ✓ zawsze znaczy
+„solver może”. Po dacie końcowej wraca bazowe Nocka ☐.
+
+Analogicznie dla pracownika z bazowym Nocka ✓ koordynator może zapisać:
+
+`Nocka ☐ | od 2026-09-20 | do 2026-09-29`
+
+W tym okresie solver nie może przydzielać N; po 2026-09-29 wraca bazowe
+Nocka ✓.
 
 Przykład:
 
@@ -230,8 +286,8 @@ Przykład:
 - od 30 dnia ponownie obowiązuje `day_only`.
 
 Brief T010 ma wskazać najmniejszy mechanizm wykorzystujący istniejące źródła
-prawdy. Nie wolno pozostawić dwóch konkurencyjnych reguł, z których stałe
-`day_only` zawsze wygrywałoby i czyniło okresowe dopuszczenie nieskutecznym.
+prawdy. Nie wolno pozostawić dwóch konkurencyjnych logik ani nadać ptaszkowi
+Nocki innego znaczenia niż pozostałym kontrolkom.
 
 ## 11. Nieobecności
 
@@ -331,9 +387,11 @@ T010 implementuje wyłącznie brakujące podpięcia potrzebne do:
 - odczytu kompletności konfiguracji;
 - pierwszej konfiguracji i późniejszej edycji tych samych danych;
 - bieżącej listy pracowników bez kasowania historii;
-- stałych i okresowych ustawień D/N oraz niedostępności;
+- jednej matrycy dostępności z identycznym znaczeniem wszystkich ptaszków;
+- stałych i okresowych ustawień ogólnych, D/N oraz dni tygodnia;
 - powtarzalnej niedostępności w dniach tygodnia;
-- czasowego zawieszenia `day_only`;
+- projekcji `day_only` jako bazowego Nocka ☐ oraz jego czasowego zawieszenia
+  przez Nocka ✓ od–do;
 - zapisu i rozliczenia `NN` zgodnie z tym aneksem;
 - bezwzględnego respektowania tych decyzji przez solver.
 
@@ -362,17 +420,20 @@ Brief T010 ma uczynić testowalnymi co najmniej następujące klasy:
 4. próba użycia bootstrapu do obejścia kontroli istniejącego obiektu → odmowa;
 5. usunięcie pracownika z bieżącej listy → brak w nowym planowaniu i pełna
    historyczna odtwarzalność;
-6. stałe `day_only` + czasowe N od–do → N tylko w okresie i automatyczny
-   powrót zakazu;
-7. zaznaczony Piątek od–do → brak automatycznego przydziału w każdy piątek
-   tego okresu, bez wpływu na inne dni;
-8. ustawienie HARD uniemożliwiające pokrycie → jawny brak rozwiązania, bez
+6. wszystkie pozycje domyślnie ✓ → brak dodatkowego ograniczenia;
+7. Nocka ☐ od–do → brak N tylko w tym okresie i automatyczny powrót bazowego
+   stanu;
+8. `day_only=true` → bazowe Nocka ☐; czasowe Nocka ✓ od–do → N tylko w tym
+   okresie i automatyczny powrót zakazu;
+9. Piątek ☐ od–do → brak automatycznego przydziału D i N rozpoczynających się
+   w każdy piątek tego okresu, bez wpływu na inne dni;
+10. ustawienie HARD uniemożliwiające pokrycie → jawny brak rozwiązania, bez
    samodzielnego odblokowania pracownika;
-9. `NOT_READY` i `READY_FOR_PRIMARY` → identyczna eligibility przy tych samych
+11. `NOT_READY` i `READY_FOR_PRIMARY` → identyczna eligibility przy tych samych
    rzeczywistych danych pracownika;
-10. NN na zaplanowanej zmianie → oznaczenie NN, 0 godzin efektywnych za tę
+12. NN na zaplanowanej zmianie → oznaczenie NN, 0 godzin efektywnych za tę
     zmianę i zachowana historia wcześniejszej wersji grafiku;
-11. target_hours → wpływ wyłącznie SOFT na rozdział istniejącego demandu,
+13. target_hours → wpływ wyłącznie SOFT na rozdział istniejącego demandu,
     nigdy tworzenie dodatkowej pracy ani naruszenie HARD.
 
 Ten aneks jest podstawą do napisania briefu T010, nie zgodą na implementację.
