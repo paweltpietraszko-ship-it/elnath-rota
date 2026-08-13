@@ -1,0 +1,186 @@
+REAUDYT KONTRAKTU ROTA-T010 A-D — ROUND 2
+
+AUDYTOWANY SHA:
+2de74063909a1c2b207c2170855b835571d378b0
+
+GAŁĄŹ:
+arch/rota-t010-panel-sterowania-2026-08-13
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T010/round_01/tests/tests_r1.txt
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+Zakres R2 został świadomie ograniczony do sześciu warunków zamknięcia z R1.
+Nie wykonywano ponownego projektowania całego T010 i nie dodano nowych
+wymagań produktu.
+
+T010-A: READY_FOR_IMPLEMENTATION
+T010-B: READY_FOR_IMPLEMENTATION
+T010-C: PASS JAKO GATE REGRESYJNY — BRAK IMPLEMENTACJI PRODUKCYJNEJ
+T010-D: READY_FOR_IMPLEMENTATION
+
+CC może implementować kolejno A, B i D. Nie powinien łączyć ich w jeden duży
+commit. C ma wyłącznie potwierdzić istniejące zachowanie.
+
+
+WERYFIKACJA FINDINGS R1
+
+R1-1 — ZAMKNIĘTE
+
+Part A rozdziela teraz dwa odczyty:
+
+- kompletność stałego kontekstu obiektu;
+- gotowość do PLAN dla wskazanego miesiąca.
+
+Gotowość miesięczna wymaga pełnego CalendarDay każdego dnia tego miesiąca,
+jest liczona osobno dla każdego miesiąca i nie jest blokowana brakiem
+target_hours. Macierz zawiera brak kalendarza, kalendarz częściowy i pełny
+oraz różne wyniki dla miesięcy A/B. Jest to zgodne z decyzją właściciela.
+
+
+R1-2 — ZAMKNIĘTE
+
+Powstał zamrożony addendum:
+
+arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md
+
+Nie wykorzystuje już EMPLOYEE_ALLOWED_SHIFT_KINDS jako domniemanego override.
+Wprowadza jeden nazwany rodzaj EMPLOYEE_DAY_ONLY_N_EXCEPTION i określa, że:
+
+- uchyla wyłącznie DAY_ONLY-01;
+- dotyczy tylko N wskazanego employee/Site/dat;
+- nie uchyla membership, Employee activity, Availability, REST, LOAD,
+  coverage ani innych HARD SiteRule;
+- pozostałe HARD nadal składają się przez AND;
+- eligibility i validator muszą być zgodne;
+- po effective_to wraca DAY_ONLY-01.
+
+Macierz obejmuje obie granice, środek, dzień przed/po oraz sąsiednie klasy
+HARD. Nie powstaje ogólny mechanizm override.
+
+
+R1-3 — ZAMKNIĘTE
+
+Part B definiuje obserwowalny lifecycle edycji:
+
+- jedno ograniczenie/wyjątek ma jedną rodzinę;
+- korekta dat i wcześniejsze przywrócenie ✓ dopisują decyzję do tego samego
+  liniowego łańcucha;
+- nie ma UPDATE/DELETE starej historii ani równoległego aktywnego źródła;
+- nowy niezależny okres może być osobną rodziną;
+- restart ma odtworzyć identyczną projekcję.
+
+To jest zgodne z istniejącą semantyką T005 corrects/rejects i nie narzuca
+implementerowi nowego repozytorium ani nowego modelu historii.
+
+
+R1-4 — ZAMKNIĘTE
+
+C przestało być zadaniem implementacyjnym. Nie usuwa i nie rozbudowuje
+automatycznej zmiany informacyjnej etykiety readiness. Wymaga tylko regresji:
+
+- S pozostaje ręcznym TRAINEE;
+- solver sam nie tworzy szkolenia;
+- NOT_READY i READY_FOR_PRIMARY mają identyczne eligibility przy pozostałych
+  danych bez zmian.
+
+Brief nie wyłącza już z pełnej regresji testów istniejącej promocji etykiety.
+Jest to literalnie zgodne z decyzją właściciela i nie tworzy zbędnej pracy.
+
+
+R1-5 — ZAMKNIĘTE
+
+Part D wybiera jedno minimalne miejsce reprezentacji NN:
+
+- Assignment.operational_code: Optional, w T010 jedyna wartość NN;
+- niewykonany wcześniej PLANNED PRIMARY w child ma state=CANCELLED i
+  operational_code=NN;
+- poprzednia ScheduleVersion pozostaje bez zmian;
+- nie powstaje sztuczny REALIZED;
+- persistence zachowuje kod po restarcie;
+- brak osobnej tabeli NN.
+
+Skutek godzinowy jest rozpisany na istniejące pola WorkBalance:
+
+- CANCELLED+NN wnosi 0 do planned_hours i 0 do realized_hours;
+- przykład 14 x 12 h przechodzi z planned_hours=168 na planned_hours=156,
+  realized_hours pozostaje 0;
+- nie powstaje nowe pole effective_hours.
+
+Demand zostaje. Bez zastępstwa zwykła rewalidacja materializuje COVERAGE
+Deviation; z ręcznym zastępstwem/split coverage walidacja korzysta z
+faktycznych Assignment. Nie ma automatycznego REPLAN.
+
+
+R1-6 — ZAMKNIĘTE
+
+Skonsolidowany aneks i części B/D mają jedną semantykę:
+
+- NN dotyczy wyłącznie niewykonanej, wcześniej zaplanowanej zmiany;
+- NN nie jest preplanning Availability ani SiteRule;
+- znana wcześniej choroba/urlop/inny brak dostępności korzystają z normalnych
+  rekordów dostępności/ograniczeń bez kodu NN.
+
+
+MACIERZ DLA PÓŹNIEJSZEGO AUDYTU IMPLEMENTACJI
+
+Poniższa macierz nie rozszerza kontraktu. Grupuje klasy już zamrożone w A-D,
+aby implementacja nie mogła naprawić wyłącznie jednego przykładu.
+
+A — kontekst i miesiąc:
+
+- empty / partial / complete context;
+- restart i wznowienie bez duplikacji;
+- bootstrap bez istniejącego association / normalna autoryzacja po jego
+  utworzeniu / konkurencyjny bootstrap;
+- calendar: missing / one day missing / complete;
+- month A ready / month B not ready;
+- target present / absent;
+- membership enabled / disabled / re-enabled z zachowaną historią.
+
+B — ograniczenia i wyjątek:
+
+- Ogólna, D, N oraz każdy reprezentatywny weekday;
+- dzień przed / effective_from / środek / effective_to / dzień po;
+- D i N, w tym N przechodząca na kolejny dzień, kotwiczona datą startu;
+- pojedyncze i nakładające się ograniczenia;
+- SICK_LEAVE / LEAVE_GRANTED / UNAVAILABLE bez podwójnego SiteRule;
+- day_only bez wyjątku / z wyjątkiem / po wygaśnięciu;
+- wyjątek zestawiony osobno z: drugim zakazem N, Availability, disabled
+  membership oraz innym employee/Site;
+- korekta dat / wcześniejsze ✓ / nowy niezależny okres / restart;
+- identyczny wynik eligibility i niezależnego validatora.
+
+C — wyłącznie regresja:
+
+- NOT_READY i READY_FOR_PRIMARY przy identycznych pozostałych danych;
+- brak readiness w eligibility;
+- brak nowych zapisów lub zmian produkcyjnych wykonywanych tylko dla C.
+
+D — NN:
+
+- PLANNED PRIMARY -> CANCELLED+NN w child;
+- poprzednia wersja niezmieniona;
+- round-trip po restarcie;
+- 168 -> 156 w planned_hours, 0 w realized_hours;
+- stan mieszany PLANNED/REALIZED/CANCELLED: NN zawsze wnosi 0;
+- bez zastępstwa -> COVERAGE Deviation;
+- ręczne pełne oraz częściowe zastępstwo -> zwykła geometria coverage;
+- brak AvailabilityRecord, SiteRule i automatycznego REPLAN;
+- walidacja reprezentacji: operational_code=NN tylko dla opisanego
+  CANCELLED PRIMARY; zwykły CANCELLED bez NN nadal pozostaje legalnym
+  istniejącym stanem.
+
+
+KONTROLE DOKUMENTACYJNE
+
+- git diff --check baseline..2de7406: PASS.
+- Korekty obejmują wyłącznie dokumentację kontraktu; kod produkcyjny nie był
+  zmieniany na gałęzi architektonicznej.
+- Nie stwierdzono nowego CONTRACT_GAP wymagającego trzeciej rundy projektu.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
