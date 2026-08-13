@@ -35,8 +35,8 @@ def demands_for_month(scenario: ScenarioSpec) -> tuple[DemandSpec, ...]:
         day = scenario.month.replace(day=day_number)
         day_start = _dt(day, 5)
         night_start = _dt(day, 17)
-        demands.append(DemandSpec(f"{day}-D", "D", day_start, day_start + timedelta(hours=SHIFT_HOURS)))
-        demands.append(DemandSpec(f"{day}-N", "N", night_start, night_start + timedelta(hours=SHIFT_HOURS)))
+        demands.append(DemandSpec(f"{day}-D", "D", day_start, day_start + timedelta(hours=12)))
+        demands.append(DemandSpec(f"{day}-N", "N", night_start, night_start + timedelta(hours=12)))
     return tuple(demands)
 
 
@@ -45,13 +45,13 @@ def _absence(employee: str, kind: str, start: date, end: date | None = None) -> 
 
 
 def _fixed_demand(
-    employee: str, day: date, kind: str, *, state: str = "PLANNED", frozen: bool = True
+    employee: str, day: date, kind: str, *, state: str = "PLANNED", frozen: bool = True,
 ) -> FixedAssignmentSpec:
     start = _dt(day, 5 if kind == "D" else 17)
     demand_id = f"{day.isoformat()}-{kind}"
     return FixedAssignmentSpec(
         f"existing-{demand_id}-{employee}", employee, start,
-        start + timedelta(hours=SHIFT_HOURS), state, frozen, demand_id,
+        start + timedelta(hours=12), state, frozen, demand_id,
     )
 
 
@@ -60,11 +60,15 @@ def _window(
     site_id: str = SITE_ID, start_delta_hours: int = 0, end_delta_hours: int = 0,
     allowed_shift_kind: str | None = None,
 ) -> ExternalWindowSpec:
-    start = _dt(day, 5 if kind == "D" else 17) + timedelta(hours=start_delta_hours)
-    end = _dt(day, 5 if kind == "D" else 17) + timedelta(hours=SHIFT_HOURS + end_delta_hours)
+    base = _dt(day, 5 if kind == "D" else 17)
     return ExternalWindowSpec(
         f"window-{employee}-{day}-{kind}-{active}-{site_id}-{start_delta_hours}-{end_delta_hours}-{allowed_shift_kind}",
-        employee, start, end, allowed_shift_kind if allowed_shift_kind is not None else kind, active, site_id,
+        employee,
+        base + timedelta(hours=start_delta_hours),
+        base + timedelta(hours=12 + end_delta_hours),
+        allowed_shift_kind if allowed_shift_kind is not None else kind,
+        active,
+        site_id,
     )
 
 
@@ -78,13 +82,12 @@ def _boundary_from_staff(
             start = _dt(day, hour)
             assignments.append(FixedAssignmentSpec(
                 f"boundary-{day}-{kind}-{employee}", employee, start,
-                start + timedelta(hours=SHIFT_HOURS), "REALIZED", True, None,
+                start + timedelta(hours=12), "REALIZED", True, None,
             ))
     return tuple(assignments)
 
 
 def standard_boundary(month: date) -> tuple[FixedAssignmentSpec, ...]:
-    """Six legal predecessor days; the final N ends at 05:00 on month day 1."""
     return _boundary_from_staff(
         month,
         ("C", "A", "B", "C", "D", "E"),
@@ -93,7 +96,6 @@ def standard_boundary(month: date) -> tuple[FixedAssignmentSpec, ...]:
 
 
 def _load_boundary(month: date, e_day_count: int) -> tuple[FixedAssignmentSpec, ...]:
-    """Legal six-day history with E on exactly 4 or 5 trailing day shifts."""
     if e_day_count == 4:
         day_staff = ("A", "A", "E", "E", "E", "E")
         night_staff = ("B", "B", "A", "A", "A", "B")
@@ -103,19 +105,6 @@ def _load_boundary(month: date, e_day_count: int) -> tuple[FixedAssignmentSpec, 
     else:
         raise ValueError("e_day_count must be 4 or 5")
     return _boundary_from_staff(month, day_staff, night_staff)
-
-
-def _future_days(employee: str, month: date, count: int) -> tuple[FixedAssignmentSpec, ...]:
-    next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
-    items = []
-    for offset in range(count):
-        day = next_month + timedelta(days=offset)
-        start = _dt(day, 5)
-        items.append(FixedAssignmentSpec(
-            f"future-{employee}-{day}-D", employee, start, start + timedelta(hours=12),
-            "PLANNED", True, None,
-        ))
-    return tuple(items)
 
 
 def _base(
@@ -176,20 +165,19 @@ def _replan_case() -> ScenarioSpec:
 def _absence_ladder() -> tuple[ScenarioSpec, ...]:
     month = date(2027, 11, 1)
     day = date(2027, 11, 9)
-    rows = (
-        (),
-        (_absence("B", "UNAVAILABLE_24H", day),),
-        (_absence("A", "DAY_SHIFT_OFF", day), _absence("B", "DAY_SHIFT_OFF", day)),
-        tuple(_absence(e, "DAY_SHIFT_OFF", day) for e in ("A", "B", "D", "E")),
-    )
+    b_unavailable = _absence("B", "UNAVAILABLE_24H", day)
+    a_off = _absence("A", "DAY_SHIFT_OFF", day)
+    d_off = _absence("D", "DAY_SHIFT_OFF", day)
+    e_off = _absence("E", "DAY_SHIFT_OFF", day)
+    rows = ((), (b_unavailable,), (b_unavailable, a_off), (b_unavailable, a_off, d_off, e_off))
     cases = []
     for level, availability in enumerate(rows):
-        declared = OracleClass.PROVEN_STAFFING_SHORTAGE if level == 3 else None
         cases.append(_base(
             f"absence-ladder-{level}", month, seed=5000 + level, steps=(5,),
-            perturbations=(f"absence ladder level {level}",),
+            perturbations=(f"monotonic absence ladder level {level}",),
             series_id="absence-ladder", series_level=level,
-            availability=availability, declared_class=declared,
+            availability=availability,
+            declared_class=OracleClass.PROVEN_STAFFING_SHORTAGE if level == 3 else None,
         ))
     return tuple(cases)
 
@@ -224,7 +212,6 @@ def _hard_reshuffle_feasible() -> ScenarioSpec:
 
 def _load_decision_case() -> ScenarioSpec:
     month = date(2027, 3, 1)
-    unavailable = _absence("C", "UNAVAILABLE_24H", date(2027, 3, 10), date(2027, 3, 15))
     rules = tuple(
         RuleSpec(f"{employee}-N-only", "EMPLOYEE_ALLOWED_SHIFT_KINDS", employee, ("N",))
         for employee in ("A", "B", "D")
@@ -232,8 +219,8 @@ def _load_decision_case() -> ScenarioSpec:
     return _base(
         "load-decision-forced-72h", month, seed=8001, steps=(8,),
         perturbations=("C absent six days", "A/B/D N-only", "E forced to six D shifts"),
-        availability=(unavailable,), site_rules=rules,
-        declared_class=OracleClass.LOAD_DECISION_REQUIRED,
+        availability=(_absence("C", "UNAVAILABLE_24H", date(2027, 3, 10), date(2027, 3, 15)),),
+        site_rules=rules, declared_class=OracleClass.LOAD_DECISION_REQUIRED,
     )
 
 
@@ -247,21 +234,25 @@ def _simple_shortage_case() -> ScenarioSpec:
     )
 
 
-def _rest_boundary_case(case_id: str, end_hour: int, seed: int) -> ScenarioSpec:
+def _rest_boundary_case(case_id: str, gap_hours: int, seed: int) -> ScenarioSpec:
     month = date(2027, 8, 1)
     prior = month - timedelta(days=1)
-    boundary = [
+    boundary = tuple(
         item for item in standard_boundary(month)
         if not (item.employee_id == "E" and item.start.date() == prior)
-    ]
-    start = _dt(prior, end_hour - 12)
-    boundary.append(FixedAssignmentSpec(
-        f"{case_id}-E-boundary", "E", start, _dt(prior, end_hour), "REALIZED", True, None,
-    ))
+    )
+    target_start = _dt(month, 5)
+    context_end = target_start - timedelta(hours=gap_hours)
+    context = FixedAssignmentSpec(
+        f"other-site-{case_id}-E", "E", context_end - timedelta(hours=12),
+        context_end, "REALIZED", True, None,
+    )
     return ScenarioSpec(
         case_id, month, seed=seed, ladder_steps=(10,),
-        perturbations=(f"E predecessor ends {end_hour:02d}:00; day-1 D starts 05:00",),
-        boundary_assignments=tuple(boundary), external_support_enabled=True,
+        perturbations=(f"cross-site predecessor leaves exactly {gap_hours}h rest before day-1 D",),
+        boundary_assignments=boundary,
+        other_site_assignments=(context,),
+        external_support_enabled=True,
         declared_class=OracleClass.KNOWN_FEASIBLE,
     )
 
@@ -270,7 +261,7 @@ def _load_boundary_case(case_id: str, e_history_days: int, expected: OracleClass
     month = date(2027, 3, 1)
     return ScenarioSpec(
         case_id, month, seed=seed, ladder_steps=(11,),
-        perturbations=(f"E has {e_history_days * 12}h in predecessor history", "E fixed on month day 1 D"),
+        perturbations=(f"E has {e_history_days * 12}h predecessor history", "E fixed on month day 1 D"),
         boundary_assignments=_load_boundary(month, e_history_days),
         fixed_demand_assignments=(_fixed_demand("E", month, "D"),),
         external_support_enabled=True, declared_class=expected,
@@ -282,7 +273,8 @@ def _month_end_rest_case() -> ScenarioSpec:
     last_day = date(2027, 7, 31)
     next_day = date(2027, 8, 1)
     future = FixedAssignmentSpec(
-        "future-A-2027-08-01-D", "A", _dt(next_day, 5), _dt(next_day, 17), "PLANNED", True, None,
+        "future-A-2027-08-01-D", "A", _dt(next_day, 5), _dt(next_day, 17),
+        "PLANNED", True, None,
     )
     availability = tuple(_absence(e, "DAY_SHIFT_OFF", last_day) for e in ("B", "D", "E"))
     return ScenarioSpec(
@@ -317,44 +309,45 @@ def _external_base(
 def _external_cases() -> tuple[ScenarioSpec, ...]:
     day = date(2027, 5, 12)
     valid = _window("X", day, "N")
-    before = _external_base(
-        "external-before-confirmation", probe_windows=(valid,),
-        declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=13001,
+    return (
+        _external_base(
+            "external-before-confirmation", probe_windows=(valid,),
+            declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=13001,
+        ),
+        _external_base(
+            "external-after-confirmation", current_windows=(valid,),
+            declared=OracleClass.KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT, seed=13002,
+        ),
+        _external_base(
+            "external-window-wrong-employee", current_windows=(_window("Y", day, "N"),),
+            probe_windows=(valid,), extra_availability=(_absence("Y", "DAY_SHIFT_OFF", day),),
+            declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14001,
+        ),
+        _external_base(
+            "external-window-wrong-site", current_windows=(_window("X", day, "N", site_id="other-site"),),
+            probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14002,
+        ),
+        _external_base(
+            "external-window-inactive", current_windows=(_window("X", day, "N", active=False),),
+            probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14003,
+        ),
+        _external_base(
+            "external-window-partial", current_windows=(_window("X", day, "N", start_delta_hours=1),),
+            probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14004,
+        ),
+        _external_base(
+            "external-window-wrong-kind", current_windows=(_window("X", day, "N", allowed_shift_kind="D"),),
+            probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14005,
+        ),
+        _external_base(
+            "external-window-profile-disabled", current_windows=(valid,), probe_windows=(valid,),
+            enabled=False, declared=OracleClass.PROVEN_STAFFING_SHORTAGE, seed=14006,
+        ),
     )
-    after = _external_base(
-        "external-after-confirmation", current_windows=(valid,),
-        declared=OracleClass.KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT, seed=13002,
-    )
-    wrong_employee = _external_base(
-        "external-window-wrong-employee", current_windows=(_window("Y", day, "N"),),
-        probe_windows=(valid,), extra_availability=(_absence("Y", "DAY_SHIFT_OFF", day),),
-        declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14001,
-    )
-    wrong_site = _external_base(
-        "external-window-wrong-site", current_windows=(_window("X", day, "N", site_id="other-site"),),
-        probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14002,
-    )
-    inactive = _external_base(
-        "external-window-inactive", current_windows=(_window("X", day, "N", active=False),),
-        probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14003,
-    )
-    partial = _external_base(
-        "external-window-partial", current_windows=(_window("X", day, "N", start_delta_hours=1),),
-        probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14004,
-    )
-    wrong_kind = _external_base(
-        "external-window-wrong-kind", current_windows=(_window("X", day, "N", allowed_shift_kind="D"),),
-        probe_windows=(valid,), declared=OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED, seed=14005,
-    )
-    disabled = _external_base(
-        "external-window-profile-disabled", current_windows=(valid,), probe_windows=(valid,), enabled=False,
-        declared=OracleClass.PROVEN_STAFFING_SHORTAGE, seed=14006,
-    )
-    return before, after, wrong_employee, wrong_site, inactive, partial, wrong_kind, disabled
 
 
 def core_scenarios() -> tuple[ScenarioSpec, ...]:
-    rows = [
+    return (
         _baseline_october(),
         _calendar_case("calendar-28-feb-2027", date(2027, 2, 1), 2001),
         _calendar_case("calendar-29-feb-2028", date(2028, 2, 1), 2002),
@@ -367,14 +360,13 @@ def core_scenarios() -> tuple[ScenarioSpec, ...]:
         _hard_reshuffle_feasible(),
         _load_decision_case(),
         _simple_shortage_case(),
-        _rest_boundary_case("rest-boundary-exact-11h", 18, 10001),
-        _rest_boundary_case("rest-boundary-below-11h", 19, 10002),
+        _rest_boundary_case("rest-boundary-exact-11h", 11, 10001),
+        _rest_boundary_case("rest-boundary-below-11h", 10, 10002),
         _load_boundary_case("load-boundary-exact-60h", 4, OracleClass.KNOWN_FEASIBLE, 11001),
         _load_boundary_case("load-boundary-above-60h", 5, OracleClass.LOAD_DECISION_REQUIRED, 11002),
         _month_end_rest_case(),
         *_external_cases(),
-    ]
-    return tuple(rows)
+    )
 
 
 def calendar_scenarios() -> tuple[ScenarioSpec, ...]:
