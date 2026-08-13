@@ -1,4 +1,4 @@
-"""Run ROTA-REAL-OBJECT-01 against production PlanningEngine."""
+"""Run the real-object benchmark against production PlanningEngine."""
 from __future__ import annotations
 
 import argparse
@@ -12,23 +12,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
-from benchmarks.real_object_checker import check_candidate
-from benchmarks.real_object_decisions import check_decision
-from benchmarks.real_object_input import validate_scenario
-from benchmarks.real_object_oracle import classify_reference
+from benchmarks.real_object_checker import check_candidate, reshuffle_count, validate_ground_truth
+from benchmarks.real_object_input import validate_scenario, validate_series_monotonicity
 from benchmarks.real_object_production import build_planning_state
 from benchmarks.real_object_scenarios import (
-    EXTERNAL_EMPLOYEES,
-    LOCAL_EMPLOYEES,
-    all_scenarios,
-    calendar_scenarios,
-    core_scenarios,
+    EXTERNAL_EMPLOYEES, LOCAL_EMPLOYEES, all_scenarios, calendar_scenarios, core_scenarios,
 )
 from benchmarks.real_object_types import (
-    OracleClass,
-    ReferenceClassification,
-    ReferenceSolve,
-    ScenarioSpec,
+    BenchmarkVerdict, ExpectedStatus, ExpectationKind, ScenarioSpec,
 )
 from rota.planning.engine import plan
 
@@ -61,154 +52,138 @@ def _scenario_dict(scenario: ScenarioSpec) -> dict:
 
 def _input_fingerprint(scenario: ScenarioSpec) -> str:
     encoded = json.dumps(
-        _scenario_dict(scenario), ensure_ascii=False, sort_keys=True,
-        separators=(",", ":"),
+        _scenario_dict(scenario), ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _solve_dict(reference_solve: ReferenceSolve | None) -> dict | None:
-    if reference_solve is None:
-        return None
+def _payload_dict(result) -> dict:
+    payload = result.decision_payload
+    if payload is None:
+        return {
+            "blocking_demands": [], "blockers": [], "load_blocker": None,
+            "unblocking_options": [],
+        }
     return {
-        "verdict": reference_solve.verdict.value,
-        "status_name": reference_solve.status_name,
-        "timed_out": reference_solve.timed_out,
-        "elapsed_seconds": reference_solve.elapsed_seconds,
-        "witness": [
-            {"demand_id": demand_id, "employee_id": employee_id}
-            for demand_id, employee_id in reference_solve.witness
-        ],
-        "witness_checker_errors": list(reference_solve.witness_checker_errors),
-        "load_violations": _json_value(reference_solve.load_violations),
+        "blocking_demands": _json_value(payload.blocking_shift_demands),
+        "blockers": _json_value(payload.blockers),
+        "load_blocker": _json_value(payload.load_blocker),
+        "unblocking_options": list(payload.unblocking_options),
     }
 
 
-def _reference_dict(reference: ReferenceClassification) -> dict:
-    return {
-        "expected_class": reference.expected_class.value,
-        "capped": _solve_dict(reference.capped),
-        "uncapped": _solve_dict(reference.uncapped),
-        "without_external": _solve_dict(reference.without_external),
-        "with_external_probe": _solve_dict(reference.with_external_probe),
-        "with_external_probe_uncapped": _solve_dict(reference.with_external_probe_uncapped),
-    }
-
-
-def _all_reference_solves(reference: ReferenceClassification) -> tuple[ReferenceSolve, ...]:
-    rows = (
-        reference.capped,
-        reference.uncapped,
-        reference.without_external,
-        reference.with_external_probe,
-        reference.with_external_probe_uncapped,
+def _candidate_contains_pair(candidate, employee_id: str, demand_id: str) -> bool:
+    return any(
+        item.employee_id == employee_id
+        and item.covers_demand_id == demand_id
+        and (item.state.value if hasattr(item.state, "value") else str(item.state)) != "CANCELLED"
+        for item in candidate
     )
-    return tuple(row for row in rows if row is not None)
 
 
-def _reference_errors(scenario, reference: ReferenceClassification) -> list[str]:
-    errors = []
-    if reference.expected_class == OracleClass.INCONCLUSIVE:
-        errors.append("reference oracle inconclusive")
-    if scenario.declared_class is not None and reference.expected_class != scenario.declared_class:
-        errors.append(
-            f"scenario declaration mismatch: declared={scenario.declared_class.value} "
-            f"oracle={reference.expected_class.value}"
-        )
-    for solve in _all_reference_solves(reference):
-        if solve.witness_checker_errors:
-            errors.append(
-                f"reference witness failed independent checker ({solve.status_name}): "
-                + "; ".join(solve.witness_checker_errors)
-            )
-    return errors
-
-
-def _feasible_errors(scenario, expected: OracleClass, result) -> tuple[list[str], dict]:
-    if result.status != "FEASIBLE":
+def _feasible_errors(scenario: ScenarioSpec, result) -> tuple[list[str], dict]:
+    if result.status != ExpectedStatus.FEASIBLE.value:
         return [f"expected FEASIBLE, got {result.status}"], {}
     if len(result.candidates) != 1:
         return [f"FEASIBLE candidate count must be 1, got {len(result.candidates)}"], {}
     candidate = result.candidates[0]
     checked = check_candidate(scenario, candidate)
     errors = list(checked.errors)
-    if expected == OracleClass.KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT:
-        if not any(item.employee_id in EXTERNAL_EMPLOYEES for item in candidate):
-            errors.append("confirmed-support case is FEASIBLE without actually using X/Y")
-    metrics = {
+    reshuffles = None
+    if scenario.expectation_kind == ExpectationKind.EXTERNAL_AFTER:
+        demand_id = scenario.expected_demand_ids[0]
+        employee = scenario.expected_employee_id
+        if not employee or not _candidate_contains_pair(candidate, employee, demand_id):
+            errors.append(f"confirmed external resource is not used on {demand_id}")
+    if scenario.expectation_kind == ExpectationKind.REPLAN:
+        reshuffles = reshuffle_count(scenario, candidate)
+        if reshuffles != scenario.expected_reshuffles:
+            errors.append(
+                f"reshuffle count {reshuffles}, expected {scenario.expected_reshuffles}"
+            )
+    return errors, {
         "checker_errors": list(checked.errors),
         "monthly_hours": dict(checked.monthly_hours),
         "max_rolling_7d_hours": dict(checked.max_rolling_7d_hours),
         "load_violations": _json_value(checked.load_violations),
-    }
-    return errors, metrics
-
-
-def _production_errors(scenario, reference, result):
-    expected = reference.expected_class
-    if expected in {
-        OracleClass.KNOWN_FEASIBLE,
-        OracleClass.KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT,
-    }:
-        errors, checker = _feasible_errors(scenario, expected, result)
-        return errors, checker, None
-    if expected in {
-        OracleClass.LOAD_DECISION_REQUIRED,
-        OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED,
-        OracleClass.PROVEN_STAFFING_SHORTAGE,
-    }:
-        errors, certificate = check_decision(scenario, reference, result)
-        return errors, {}, certificate
-    return ["cannot judge production against INCONCLUSIVE reference"], {}, None
-
-
-def _production_dict(result, elapsed: float, checker: dict, certificate) -> dict:
-    payload = result.decision_payload
-    return {
-        "status": result.status,
-        "elapsed_seconds": elapsed,
-        "error_message": result.error_message,
-        "warnings": list(result.warnings),
-        "blocking_demands": _json_value(payload.blocking_shift_demands) if payload else [],
-        "blockers": _json_value(payload.blockers) if payload else [],
-        "load_blocker": _json_value(payload.load_blocker) if payload and payload.load_blocker else None,
-        "unblocking_options": list(payload.unblocking_options) if payload else [],
-        "candidate_count": len(result.candidates),
-        "independent_candidate_check": checker,
-        "decision_certificate_check": certificate,
+        "reshuffle_count": reshuffles,
     }
 
 
-def _invalid_case_result(scenario: ScenarioSpec, input_errors: tuple[str, ...]) -> dict:
+def _decision_errors(scenario: ScenarioSpec, result) -> tuple[list[str], dict]:
+    if result.status == ExpectedStatus.DECISION_REQUIRED.value:
+        return [], {}
+    if result.status != ExpectedStatus.FEASIBLE.value:
+        return [f"expected DECISION_REQUIRED, got {result.status}"], {}
+    errors = ["controlled shortage/load case returned false FEASIBLE"]
+    checker = {}
+    if len(result.candidates) == 1:
+        checked = check_candidate(scenario, result.candidates[0])
+        checker = {
+            "checker_errors": list(checked.errors),
+            "monthly_hours": dict(checked.monthly_hours),
+            "max_rolling_7d_hours": dict(checked.max_rolling_7d_hours),
+            "load_violations": _json_value(checked.load_violations),
+        }
+        errors.extend(f"false-FEASIBLE candidate: {item}" for item in checked.errors)
+    return errors, checker
+
+
+def _production_errors(scenario: ScenarioSpec, result) -> tuple[list[str], dict]:
+    if scenario.expected_status == ExpectedStatus.FEASIBLE:
+        return _feasible_errors(scenario, result)
+    if scenario.expected_status == ExpectedStatus.DECISION_REQUIRED:
+        return _decision_errors(scenario, result)
+    return [], {}
+
+
+def _invalid_result(
+    scenario: ScenarioSpec, verdict: BenchmarkVerdict, errors: tuple[str, ...] | list[str],
+) -> dict:
     return {
         "case_id": scenario.case_id,
         "seed": scenario.seed,
         "input_fingerprint": _input_fingerprint(scenario),
-        "ladder_steps": list(scenario.ladder_steps),
         "scenario": _scenario_dict(scenario),
-        "reference": None,
+        "verdict": verdict.value,
         "production": {"skipped": True},
-        "correctness": {
-            "pass": False,
-            "errors": [f"benchmark input invalid: {item}" for item in input_errors],
-        },
+        "errors": list(errors),
     }
 
 
 def run_case(scenario: ScenarioSpec) -> dict:
-    input_errors = validate_scenario(scenario)
-    if input_errors:
-        return _invalid_case_result(scenario, input_errors)
-    reference = classify_reference(scenario)
-    reference_errors = _reference_errors(scenario, reference)
+    """Validate the fixture and its small construction claim before calling plan()."""
+    structural = validate_scenario(scenario)
+    if structural:
+        return _invalid_result(scenario, BenchmarkVerdict.BENCHMARK_INVALID, structural)
+    if scenario.expected_status is None:
+        state = build_planning_state(scenario)
+        started = clock.perf_counter()
+        result = plan(state)
+        elapsed = clock.perf_counter() - started
+        return {
+            "case_id": scenario.case_id,
+            "seed": scenario.seed,
+            "input_fingerprint": _input_fingerprint(scenario),
+            "scenario": _scenario_dict(scenario),
+            "verdict": BenchmarkVerdict.INCONCLUSIVE.value,
+            "production": {
+                "status": result.status, "elapsed_seconds": elapsed,
+                "error_message": result.error_message, "warnings": list(result.warnings),
+                **_payload_dict(result),
+            },
+            "errors": ["scenario has no frozen expected_status"],
+        }
+    ground_truth = validate_ground_truth(scenario)
+    if ground_truth:
+        return _invalid_result(scenario, BenchmarkVerdict.BENCHMARK_INVALID, ground_truth)
+
     state = build_planning_state(scenario)
     started = clock.perf_counter()
     result = plan(state)
     elapsed = clock.perf_counter() - started
-    production_errors, checker, certificate = _production_errors(
-        scenario, reference, result,
-    )
-    errors = [*reference_errors, *production_errors]
+    errors, checker = _production_errors(scenario, result)
+    verdict = BenchmarkVerdict.PRODUCTION_PASS if not errors else BenchmarkVerdict.PRODUCTION_MISMATCH
     return {
         "case_id": scenario.case_id,
         "seed": scenario.seed,
@@ -216,9 +191,22 @@ def run_case(scenario: ScenarioSpec) -> dict:
         "ladder_steps": list(scenario.ladder_steps),
         "series": {"id": scenario.series_id, "level": scenario.series_level},
         "scenario": _scenario_dict(scenario),
-        "reference": _reference_dict(reference),
-        "production": _production_dict(result, elapsed, checker, certificate),
-        "correctness": {"pass": not errors, "errors": errors},
+        "expected": {
+            "status": scenario.expected_status.value,
+            "kind": scenario.expectation_kind.value if scenario.expectation_kind else None,
+            "reason": scenario.expectation_reason,
+            "expected_demand_ids": list(scenario.expected_demand_ids),
+            "expected_employee_id": scenario.expected_employee_id,
+            "expected_reshuffles": scenario.expected_reshuffles,
+        },
+        "verdict": verdict.value,
+        "production": {
+            "status": result.status, "elapsed_seconds": elapsed,
+            "error_message": result.error_message, "warnings": list(result.warnings),
+            "candidate_count": len(result.candidates), "candidate_check": checker,
+            **_payload_dict(result),
+        },
+        "errors": errors,
     }
 
 
@@ -226,11 +214,15 @@ def _percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, int(round((len(ordered) - 1) * percentile))))
-    return ordered[index]
+    index = int(round((len(ordered) - 1) * percentile))
+    return ordered[max(0, min(len(ordered) - 1, index))]
 
 
-def _timing_summary(values: list[float]) -> dict:
+def _performance(results: list[dict]) -> dict:
+    values = [
+        row["production"]["elapsed_seconds"]
+        for row in results if "elapsed_seconds" in row.get("production", {})
+    ]
     return {
         "mean_seconds": statistics.mean(values) if values else 0.0,
         "p50_seconds": _percentile(values, 0.50),
@@ -239,123 +231,51 @@ def _timing_summary(values: list[float]) -> dict:
     }
 
 
-def _performance_by_class(results: list[dict]) -> dict:
-    grouped: dict[str, list[dict]] = {}
-    for result in results:
-        reference = result.get("reference")
-        key = reference["expected_class"] if reference else "INVALID_BENCHMARK_INPUT"
-        grouped.setdefault(key, []).append(result)
-    report = {}
-    for class_name, rows in grouped.items():
-        times = [
-            row["production"]["elapsed_seconds"]
-            for row in rows if "elapsed_seconds" in row["production"]
-        ]
-        report[class_name] = {
-            **_timing_summary(times),
-            "case_count": len(rows),
-            "reference_timeout_count": _reference_timeout_count(rows),
-            "production_timeout_count": _production_timeout_count(rows),
-        }
-    return report
-
-
-def _reference_timeout_count(rows: list[dict]) -> int:
-    count = 0
-    for row in rows:
-        reference = row.get("reference") or {}
-        for key in (
-            "capped", "uncapped", "without_external",
-            "with_external_probe", "with_external_probe_uncapped",
-        ):
-            solve = reference.get(key)
-            count += int(bool(solve and solve.get("timed_out")))
-    return count
-
-
-def _production_timeout_count(rows: list[dict]) -> int:
-    count = 0
-    for row in rows:
-        production = row.get("production") or {}
-        message = (production.get("error_message") or "").upper()
-        count += int(production.get("status") == "TECHNICAL_ERROR" and "UNKNOWN" in message)
-    return count
-
-
-def _series_errors(scenarios: Iterable[ScenarioSpec]) -> list[str]:
-    grouped: dict[str, list[ScenarioSpec]] = {}
-    for scenario in scenarios:
-        if scenario.series_id:
-            grouped.setdefault(scenario.series_id, []).append(scenario)
-    errors = []
-    for series_id, rows in grouped.items():
-        ordered = sorted(rows, key=lambda item: item.series_level)
-        for previous, current in zip(ordered, ordered[1:]):
-            if not set(previous.availability) <= set(current.availability):
-                errors.append(
-                    f"series {series_id} is not monotonic: level {previous.series_level} "
-                    f"availability is not a subset of level {current.series_level}"
-                )
-    return errors
-
-
-def _series_transitions(results: list[dict]) -> list[dict]:
-    grouped: dict[str, list[dict]] = {}
+def _series_summary(results: list[dict]) -> list[dict]:
+    grouped = {}
     for row in results:
         series = row.get("series") or {}
         if series.get("id"):
             grouped.setdefault(series["id"], []).append(row)
-    transitions = []
+    summaries = []
     for series_id, rows in sorted(grouped.items()):
         ordered = sorted(rows, key=lambda row: row["series"]["level"])
-        first = next((row for row in ordered if _non_feasible_reference(row)), None)
-        transitions.append({
+        summaries.append({
             "series_id": series_id,
             "levels": [
                 {
-                    "level": row["series"]["level"],
-                    "case_id": row["case_id"],
-                    "reference_class": row["reference"]["expected_class"] if row.get("reference") else None,
+                    "level": row["series"]["level"], "case_id": row["case_id"],
+                    "expected_status": row.get("expected", {}).get("status"),
+                    "production_status": row.get("production", {}).get("status"),
+                    "verdict": row["verdict"],
                 }
                 for row in ordered
             ],
-            "first_non_feasible_level": first["series"]["level"] if first else None,
-            "first_non_feasible_case_id": first["case_id"] if first else None,
         })
-    return transitions
-
-
-def _non_feasible_reference(row: dict) -> bool:
-    return bool(
-        row.get("reference")
-        and row["reference"]["expected_class"] != OracleClass.KNOWN_FEASIBLE.value
-    )
+    return summaries
 
 
 def run_matrix(scenarios: Iterable[ScenarioSpec]) -> dict:
-    scenario_rows = tuple(scenarios)
-    benchmark_errors = _series_errors(scenario_rows)
-    results = [run_case(scenario) for scenario in scenario_rows]
-    passed = sum(row["correctness"]["pass"] for row in results)
-    case_pass = passed == len(results)
+    scenarios = tuple(scenarios)
+    series_errors = validate_series_monotonicity(scenarios)
+    results = [run_case(scenario) for scenario in scenarios]
+    counts = {
+        verdict.value: sum(row["verdict"] == verdict.value for row in results)
+        for verdict in BenchmarkVerdict
+    }
+    all_pass = counts[BenchmarkVerdict.PRODUCTION_PASS.value] == len(results)
     return {
         "benchmark": "ROTA-REAL-OBJECT-01",
         "base_production_sha": BASE_PRODUCTION_SHA,
         "roster": {
-            "local": list(LOCAL_EMPLOYEES),
-            "day_only": "C",
+            "local": list(LOCAL_EMPLOYEES), "day_only": "C",
             "external_support": list(EXTERNAL_EMPLOYEES),
         },
-        "ladder_steps_covered": sorted({step for item in scenario_rows for step in item.ladder_steps}),
-        "benchmark_errors": benchmark_errors,
-        "correctness": {
-            "passed": passed,
-            "failed": len(results) - passed,
-            "total": len(results),
-            "pass": case_pass and not benchmark_errors,
-        },
-        "performance": _performance_by_class(results),
-        "series_transitions": _series_transitions(results),
+        "benchmark_errors": list(series_errors),
+        "verdict_counts": counts,
+        "pass": all_pass and not series_errors,
+        "performance": _performance(results),
+        "series": _series_summary(results),
         "results": results,
     }
 
@@ -368,7 +288,9 @@ def _select_suite(name: str) -> tuple[ScenarioSpec, ...]:
     return all_scenarios()
 
 
-def _select_cases(scenarios, case_ids: list[str], seed: int | None):
+def _select_cases(
+    scenarios: tuple[ScenarioSpec, ...], case_ids: list[str], seed: int | None,
+) -> tuple[ScenarioSpec, ...]:
     selected = scenarios
     if case_ids:
         by_id = {scenario.case_id: scenario for scenario in scenarios}
@@ -384,21 +306,22 @@ def _select_cases(scenarios, case_ids: list[str], seed: int | None):
 
 
 def _print_summary(report: dict) -> None:
-    correctness = report["correctness"]
+    counts = report["verdict_counts"]
     print(
-        f"ROTA-REAL-OBJECT-01: {correctness['passed']}/{correctness['total']} "
-        f"case correctness PASS; {correctness['failed']} case FAIL"
+        "ROTA-REAL-OBJECT-01: "
+        f"{counts['PRODUCTION_PASS']} PASS, "
+        f"{counts['PRODUCTION_MISMATCH']} MISMATCH, "
+        f"{counts['BENCHMARK_INVALID']} INVALID, "
+        f"{counts['INCONCLUSIVE']} INCONCLUSIVE"
     )
     for error in report["benchmark_errors"]:
-        print(f"BENCHMARK FAIL: {error}")
-    print(f"LADDER: {report['ladder_steps_covered']}")
-    for result in report["results"]:
-        marker = "PASS" if result["correctness"]["pass"] else "FAIL"
-        expected = result["reference"]["expected_class"] if result.get("reference") else "INVALID_BENCHMARK_INPUT"
-        actual = result["production"].get("status", "SKIPPED")
-        print(f"{marker:4} {result['case_id']} seed={result['seed']}: expected={expected} production={actual}")
-        for error in result["correctness"]["errors"]:
-            print(f"     - {error}")
+        print(f"BENCHMARK_INVALID: {error}")
+    for row in report["results"]:
+        expected = row.get("expected", {}).get("status", "UNFROZEN")
+        actual = row.get("production", {}).get("status", "SKIPPED")
+        print(f"{row['verdict']:20} {row['case_id']}: expected={expected} actual={actual}")
+        for error in row["errors"]:
+            print(f"  - {error}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -406,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--suite", choices=("core", "calendar", "all"), default="core")
     parser.add_argument("--case", action="append", default=[], help="exact case_id; repeatable")
     parser.add_argument("--seed", type=int, help="assert selected case(s) use this exact seed")
-    parser.add_argument("--json", type=Path, help="write full audit report JSON")
+    parser.add_argument("--json", type=Path, help="write full report JSON")
     args = parser.parse_args(argv)
     scenarios = _select_cases(_select_suite(args.suite), args.case, args.seed)
     report = run_matrix(scenarios)
@@ -416,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
     _print_summary(report)
-    return 0 if report["correctness"]["pass"] else 1
+    return 0 if report["pass"] else 1
 
 
 if __name__ == "__main__":
