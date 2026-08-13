@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from rota.application import lifecycle_ops, manual_edit, plan_ops, training
+from rota.application import manual_edit, plan_ops, training
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ReadinessSource, ReadinessState
 from rota.persistence.db import connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_site_membership
@@ -98,31 +98,6 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
         conn, site_id=state.site.site_id, month=MONTH,
         coordinator_id="COORD-1", candidate=replanned.candidates[0],
     )
-
-
-@pytest.mark.parametrize("operation", ["select", "revalidate"])
-def test_r6_coordinator_originated_write_requires_explicit_actor(tmp_path, operation):
-    """Historical created_by is not the identity of the present caller."""
-    conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-r6-actor-{operation}", month=MONTH, seed=903)
-    result = plan_ops.plan_month(
-        conn, site_id=state.site.site_id, month=MONTH,
-        coordinator_id="COORD-1", effective_from=MONTH,
-    )
-    assert result.status == "FEASIBLE"
-
-    if operation == "select":
-        with pytest.raises(TypeError):
-            plan_ops.select_candidate(
-                conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0],
-            )
-    else:
-        plan_ops.select_candidate(
-            conn, site_id=state.site.site_id, month=MONTH,
-            coordinator_id="COORD-1", candidate=result.candidates[0],
-        )
-        with pytest.raises(TypeError):
-            lifecycle_ops.revalidate(conn, site_id=state.site.site_id, month=MONTH)
 
 
 def _prepare_training_month(conn, month: date, seed: int, trainee_id: str | None = None):

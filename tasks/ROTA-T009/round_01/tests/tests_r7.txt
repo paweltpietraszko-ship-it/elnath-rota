@@ -1,0 +1,143 @@
+ROTA-T009 — AUDYT IMPLEMENTACJI, RUNDA 7
+
+Data: 2026-08-13
+Audytowany SHA: aa3b7097b8a7c1b57b37bf340e5c48ca59a72c64
+Gałąź: task/ROTA-T009
+Contract set:
+- tasks/ROTA-T009/brief.md (85bc18547c78c74bcc080486ed6a27ceed15b433)
+- review_01_architect_clarification.md
+  (0d5fdfa31844b0932a2c23654b7b8ced8c4edc50)
+- review_02_architect_clarification.md
+  (9e41a8e0b65692fc526924d407feda3b964c5fc7)
+- rozstrzygnięcie właściciela z 2026-08-13 przekazane z SHA aa3b709:
+  fallback coordinator_id pozostaje, a readiness wynika ze zwykłych
+  Assignment ocenianych według bieżącego SiteProfile.
+
+WERDYKT: PASS — READY TO MERGE
+
+Nie znalazłem nowej klasy błędu w zakresie ograniczonego re-audytu. Wszystkie
+kontraktowe klasy R6 są zamknięte. Dwa przypadki R6-2 zostały formalnie
+wycofane jako niekontraktowe wymaganie audytora; nie są findingiem produktu.
+
+-------------------------------------------------------------------------------
+ZAMKNIĘCIE KLAS R6
+-------------------------------------------------------------------------------
+
+R6-1 — ZAMKNIĘTE
+
+PLAN i REPLAN nadają w pamięci nowy schedule_version_id całemu stanowi
+przekazywanemu do PlanningEngine: PlanningState, ShiftDemand, Assignment i
+Deviation. Ten sam identyfikator zostaje użyty przy utworzeniu trwałej wersji.
+
+Macierz potwierdza oba entry pointy (initial PLAN i REPLAN) oraz wszystkie
+trzy kontraktowe klasy fixed fact:
+- frozen PRIMARY;
+- REALIZED PRIMARY;
+- TRAINEE.
+
+Każdy REPLAN nie tylko zwraca FEASIBLE, ale jego własny kandydat przechodzi
+publiczne select_candidate(). Wynik: 5/5 PASS.
+
+R6-2 — WYCOFANE JAKO FINDING AUDYTORA
+
+Kontrakt wymaga zweryfikowanego kontekstu koordynatora, ale nie rozstrzygał,
+że coordinator_id musi być obowiązkowym argumentem każdego publicznego
+wywołania ani nie zabraniał fallbacku do created_by aktualnej wersji.
+Właściciel jawnie zaakceptował pozostawienie fallbacku w lokalnym asystencie.
+
+Poprzedni audyt rozszerzył wymaganie ponad contract set. Dwa testy wymagające
+TypeError bez jawnego coordinator_id zostały usunięte z
+tests/test_audit_t009_r6.py. Historia błędnej hipotezy pozostaje w niezmiennym
+tests_r6.txt i w Git; nie wolno jej ponownie zgłaszać jako regresji bez nowej
+pisemnej decyzji produktu.
+
+R6-3 — ZAMKNIĘTE BEZ DRUGIEJ TOŻSAMOŚCI
+
+Readiness jest liczone z REALIZED TRAINEE należących do current
+ScheduleVersion. Tym samym obowiązuje kontraktowa tożsamość Assignment
+(schedule_version_id, assignment_id), bez globalnej unikalności lokalnego ID.
+Dwumiesięczny reproduktor z identycznym assignment_id liczy dwa odrębne
+szkolenia i osiąga próg. Wynik: PASS.
+
+R6-4 — ZAMKNIĘTE
+
+Usunięto:
+- tabelę training_readiness_credits;
+- training_readiness_repository.py;
+- migrację schematu 4.
+
+LATEST_SCHEMA_VERSION ponownie wynosi 3. Szkolenie pozostaje zwykłym
+Assignment, zgodnie z literalnym punktem 9 briefu: „no TrainingRecord”. Test
+schematu potwierdza brak drugiego trwałego typu rekordu. Wynik: PASS.
+
+Niecontractowy wariant R5 „training zapisany przy disabled nie liczy się po
+późniejszym enabled” został prawidłowo wycofany. SiteProfile nie ma historii,
+więc test nie mógł sam ustanowić historycznej semantyki ani autoryzować nowej
+tabeli biznesowej.
+
+-------------------------------------------------------------------------------
+WERYFIKACJA
+-------------------------------------------------------------------------------
+
+1. Tożsamość kodu:
+   - HEAD == origin/task/ROTA-T009 ==
+     aa3b7097b8a7c1b57b37bf340e5c48ca59a72c64 przed dopisaniem artefaktów
+     audytora.
+
+2. Macierz R6 po formalnym wycofaniu dwóch błędnych testów R6-2:
+   - 7/7 PASS;
+   - obejmuje exact target version dla PLAN/REPLAN, trzy klasy fixed fact,
+     złożoną tożsamość szkolenia oraz brak drugiego TrainingRecord.
+
+3. Regresje wcześniejszych rund:
+   - R4: 32/32 PASS;
+   - R5: 14/14 PASS po wycofaniu jednego niekontraktowego przypadku;
+   - razem R4+R5: 46/46 PASS.
+
+4. Pełna suita, bez filtrów, skipów i xfail:
+   - 405/405 PASS w 29,92 s.
+
+5. ROTA-REG-001:
+   - 7/7 PASS.
+
+6. rota_stress:
+   - 100/100 PASS;
+   - p50=0,066 s, p95=0,474 s, max=3,283 s, total=17,010 s.
+
+7. real_object --suite all:
+   - 55/55 PRODUCTION_PASS;
+   - zgodnie z decyzją właściciela pozostaje testem regresyjnym, nie dowodem
+     ręcznej poprawności konkretnego grafiku.
+
+8. Manual audits:
+   - 3/3 PASS;
+   - obejmują dwa jawne grafiki (58/58 i 62/62 pokrytych demandów) oraz ręczny
+     dowód DECISION_REQUIRED.
+
+9. Ruff:
+   - rota, tests i benchmarks: PASS.
+
+10. Limity:
+   - SIZE_FILE max 586/600 (rota/planning/validator.py);
+   - SIZE_FUNC max 49/50
+     (rota/persistence/schedule_lifecycle.py:create_schedule_version).
+
+11. git diff --check:
+   - a0a365b..aa3b709: PASS;
+   - bieżące artefakty audytora: PASS.
+
+-------------------------------------------------------------------------------
+ARTEFAKTY AUDYTORA DO DOŁĄCZENIA
+-------------------------------------------------------------------------------
+
+- tests/test_audit_t009_r6.py: usunięcie wyłącznie dwóch wycofanych testów
+  R6-2 i nieużywanego importu; zero osłabienia siedmiu kontraktowych testów.
+- tasks/ROTA-T009/round_01/tests/tests_r7.txt: niniejszy raport.
+
+Poza tymi dwoma artefaktami nie zmieniono kodu ani testów produkcyjnych.
+
+-------------------------------------------------------------------------------
+ARCHITECTURE_PROPOSALS
+-------------------------------------------------------------------------------
+
+Brak.
