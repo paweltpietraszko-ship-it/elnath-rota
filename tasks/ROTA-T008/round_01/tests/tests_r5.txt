@@ -1,0 +1,69 @@
+ROTA-T008 — OGRANICZONY RE-AUDYT, RUNDA 5
+
+Data: 2026-08-13
+Audytowany SHA: 5dee28d1a692b3fde94c0f1e0add8b27c32c9b3d
+Gałąź: task/ROTA-T008
+Zakres: wyłącznie zamknięcie brakującego dowodu testowego R4-1
+
+WERDYKT: PASS — READY TO MERGE
+
+-------------------------------------------------------------------------------
+ZAKRES COMMITA
+-------------------------------------------------------------------------------
+
+Diff 248ad8d..5dee28d zawiera dokładnie dwa pliki:
+
+- tasks/ROTA-T008/round_01/tests/tests_r4.txt
+- tests/test_audit_t008_r4.py
+
+Zero zmian w kodzie produkcyjnym, schemacie, kontrakcie, arch/spec.md albo
+rota/planning/.
+
+-------------------------------------------------------------------------------
+ZAMKNIĘCIE R4-1
+-------------------------------------------------------------------------------
+
+Do trwałej suity dołączono pełną wymaganą macierz:
+
+- 9 klas zmian parent REALIZED:
+  employee, start, end, PLANNED, CANCELLED, frozen, demand reference,
+  poprawna strukturalnie zmiana role PRIMARY→TRAINEE oraz mentor reference;
+- atomowość każdego odrzucenia: brak V2, current nadal V1, parent bez zmian;
+- dodatni przypadek parent PLANNED→child REALIZED;
+- odrębne ASG-OLD i ASG-CURRENT dla holiday history, bez maskowania wycieku
+  non-current przez set/deduplication.
+
+Wynik macierzy: 11/11 PASS.
+
+Wszystkie findings R3-1..R3-5 oraz R4-1 są zamknięte.
+
+-------------------------------------------------------------------------------
+WERYFIKACJA
+-------------------------------------------------------------------------------
+
+1. HEAD lokalny:
+   5dee28d1a692b3fde94c0f1e0add8b27c32c9b3d
+
+2. task/ROTA-T008:
+   5dee28d1a692b3fde94c0f1e0add8b27c32c9b3d
+
+3. origin/task/ROTA-T008:
+   5dee28d1a692b3fde94c0f1e0add8b27c32c9b3d
+
+4. tests/test_audit_t008_r4.py:
+   11 passed.
+
+5. Pełna suita:
+   299 passed.
+
+6. Ruff:
+   PASS.
+
+7. git diff --check 248ad8d..5dee28d:
+   PASS.
+
+-------------------------------------------------------------------------------
+ARCHITECTURE_PROPOSALS
+-------------------------------------------------------------------------------
+
+Brak.
