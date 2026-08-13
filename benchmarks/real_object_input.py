@@ -150,7 +150,7 @@ def _validate_rest(items, errors: list[str], label: str) -> None:
                 errors.append(f"{label} REST<{REST_MIN_HOURS}h for {employee_id}: {earlier.assignment_id}->{later.assignment_id}")
 
 
-def _validate_fixed_shape(item, errors: list[str], label: str) -> str | None:
+def _validate_fixed_shape(item, errors: list[str], label: str, *, require_target_geometry: bool) -> None:
     known = set((*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES))
     if item.employee_id not in known:
         errors.append(f"{label} unknown employee {item.employee_id}")
@@ -160,30 +160,30 @@ def _validate_fixed_shape(item, errors: list[str], label: str) -> str | None:
         errors.append(f"{label} CANCELLED is not an operative fixed fact {item.assignment_id}")
     if item.end <= item.start:
         errors.append(f"{label} non-positive interval {item.assignment_id}")
-        return None
+        return
     kind = _shift_kind(item.start, item.end)
-    if kind is None:
+    if require_target_geometry and kind is None:
         errors.append(f"{label} interval is not canonical D/N geometry {item.assignment_id}")
-    elif item.employee_id == "C" and kind == "N":
+    if require_target_geometry and item.employee_id == "C" and kind == "N":
         errors.append(f"{label} puts DAY_ONLY C on N {item.assignment_id}")
-    return kind
 
 
 def _validate_fixed_family(scenario: ScenarioSpec, errors: list[str]) -> None:
     demands = {demand.demand_id: demand for demand in demands_for_month(scenario)}
     all_items = [
-        *(('boundary', item) for item in scenario.boundary_assignments),
-        *(('fixed', item) for item in scenario.fixed_demand_assignments),
+        *(('boundary', item, True) for item in scenario.boundary_assignments),
+        *(('other-site', item, False) for item in scenario.other_site_assignments),
+        *(('fixed', item, True) for item in scenario.fixed_demand_assignments),
     ]
     seen_ids: set[str] = set()
-    for label, item in all_items:
+    for label, item, target_geometry in all_items:
         if item.assignment_id in seen_ids:
             errors.append(f"duplicate assignment id across fixed inputs {item.assignment_id}")
         seen_ids.add(item.assignment_id)
-        _validate_fixed_shape(item, errors, label)
+        _validate_fixed_shape(item, errors, label, require_target_geometry=target_geometry)
         if label == "fixed":
             _validate_fixed_demand(scenario, item, demands, errors)
-    _validate_rest([item for _, item in all_items], errors, "fixed/boundary")
+    _validate_rest([item for _, item, _ in all_items], errors, "fixed/boundary/context")
 
 
 def _validate_fixed_demand(scenario, item, demands, errors: list[str]) -> None:
