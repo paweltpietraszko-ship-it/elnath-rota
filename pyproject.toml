@@ -18,3 +18,16 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.mypy]
+# Added 2026-08-13 per owner instruction: a static type checker to catch
+# the simplest classes of error (wrong argument types/order, mishandled
+# Optional, mismatched signatures) before they reach tests. Deliberately
+# NOT wired into any engineering gate yet -- owner asked for checking to
+# stay off until the in-flight ROTA-T009 Codex audit round finishes, so
+# this section only prepares configuration; nothing currently invokes it.
+python_version = "3.11"
+files = ["rota"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
