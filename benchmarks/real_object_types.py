@@ -1,8 +1,7 @@
 """Data types for ROTA-REAL-OBJECT-01.
 
 Benchmark types are test infrastructure only. Product semantics remain owned by
-frozen Rota contracts; these types make the benchmark inputs and evidence
-explicit and reproducible.
+frozen Rota contracts; these types make benchmark inputs and evidence explicit.
 """
 from __future__ import annotations
 
@@ -90,6 +89,7 @@ class ScenarioSpec:
     availability: tuple[AvailabilitySpec, ...] = ()
     site_rules: tuple[RuleSpec, ...] = ()
     boundary_assignments: tuple[FixedAssignmentSpec, ...] = ()
+    other_site_assignments: tuple[FixedAssignmentSpec, ...] = ()
     fixed_demand_assignments: tuple[FixedAssignmentSpec, ...] = ()
     external_windows: tuple[ExternalWindowSpec, ...] = ()
     external_probe_windows: tuple[ExternalWindowSpec, ...] = ()
