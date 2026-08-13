@@ -1,15 +1,16 @@
-# ROTA-T010-C — szkolenie i READY_FOR_PRIMARY
+# ROTA-T010-C — gate regresyjny
 
 STATUS: DRAFT FOR CODEX AUDIT
+NOWA IMPLEMENTACJA: NIE
 
-`S` pozostaje ręcznym TRAINEE w konkretnym grafiku przez istniejącą manualną korektę. Nie ma ustawienia „Szkolenie” w konfiguracji pracownika i solver nie tworzy szkolenia z własnej inicjatywy.
+T010 nie zmienia istniejącej obsługi szkolenia ani informacyjnej etykiety readiness.
 
-`readiness_state` i `readiness_source` pozostają informacją w `SiteMembership` i nie uczestniczą w eligibility.
+Sprawdzić tylko:
+- `S` pozostaje ręcznym TRAINEE;
+- solver nie tworzy szkolenia sam;
+- `NOT_READY` i `READY_FOR_PRIMARY` mają identyczne eligibility przy tych samych pozostałych danych;
+- readiness nie blokuje ani nie dopuszcza do grafiku.
 
-Usunąć z `rota/application/training.py` automatyczną zmianę na `READY_FOR_PRIMARY` po osiągnięciu liczby REALIZED TRAINEE. REALIZED TRAINEE nie może modyfikować membership/readiness. Jeżeli `mark_training_realized()` zostaje dla zgodności z istniejącym API, ma tylko korzystać z manualnej korekty bez zmiany membership.
+Nie usuwać i nie rozbudowywać automatycznego przestawiania samej etykiety w T010.
 
-Liczbę szkoleń wolno później pokazywać jako fakt; nie wolno wyprowadzać z niej decyzji o pracowniku.
-
-Testy: REALIZED TRAINEE nie zmienia readiness; `NOT_READY` i `READY_FOR_PRIMARY` mają identyczne eligibility przy tych samych pozostałych danych; TRAINEE nadal działa przez istniejące wersjonowanie grafiku; regresja poza usuwaną automatyką pozostaje PASS.
-
-FAIL za nowy automatyczny mechanizm dopuszczania lub odsuwania pracownika na podstawie szkoleń albo historii.
+FAIL za nową logikę oceny pracownika opartą o readiness lub liczbę szkoleń.
