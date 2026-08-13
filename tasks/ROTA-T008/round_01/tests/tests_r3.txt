@@ -1,0 +1,204 @@
+ROTA-T008 — AUDYT IMPLEMENTACJI, RUNDA 3
+
+Data: 2026-08-13
+Audytowany SHA: 3f486331d0b19ddc7b7cb084d95d66cc2ce0fb64
+Gałąź: task/ROTA-T008
+Contract set:
+- tasks/ROTA-T008/brief.md (49ab1276ae0ee2eeff375a86224a87b57fd3c6a6)
+- tasks/ROTA-T008/review_01_architect_clarification.md
+  (5506b7874cc0948b74086b995b3d75455f7b8bee)
+
+WERDYKT: FAIL — NOT READY TO MERGE
+
+Powód: cztery klasy błędów wykonywalnego kodu naruszają jawne wymagania
+kontraktu. Niezależna macierz daje 17 czerwonych przypadków, ale nie są to
+17 osobnych findings: przypadki zostały zgrupowane według wspólnej przyczyny.
+Piąty finding dotyczy brakującego obowiązkowego dowodu testowego, a nie nowej
+preferencji architektonicznej.
+
+-------------------------------------------------------------------------------
+R3-1 — HIGH — FINAL można zmienić przez UPDATE przenoszący do niego obcy wiersz
+-------------------------------------------------------------------------------
+
+Kontrakt:
+- brief.md:468-490 — kompletna migawka FINAL jest zamrożona, a bezpośrednie
+  próby SQL mutate/delete/add pod FINAL muszą się nie udać;
+- brief.md:643-651 oraz G4/G5 — storage boundary ma chronić child content i
+  applied rules, w tym INSERT/UPDATE/DELETE.
+
+Kod:
+- rota/persistence/db.py:283-292 generuje trigger UPDATE z odwołaniem wyłącznie
+  do OLD.schedule_version_id / OLD.version_id.
+- Jeżeli wiersz pochodzi z WORKING, ale UPDATE ustawia jego klucz wersji na
+  FINAL, warunek patrzy na źródło WORKING i przepuszcza zapis do FINAL.
+
+Reprodukcja klasy:
+- test_final_child_guard_rejects_update_that_moves_working_row_into_final,
+  sparametryzowany dla wszystkich czterech tabel:
+  assignments, shift_demands, deviations, schedule_version_applied_rules.
+- Wszystkie 4 warianty: FAILED (DID NOT RAISE sqlite3.IntegrityError).
+
+Skutek: storage boundary nie zapewnia deklarowanej fizycznej niezmienności
+FINAL. Repozytorium może później zostać ominięte przez inny moduł lub błąd SQL.
+
+Oczekiwana własność naprawy: UPDATE ma zostać odrzucony, gdy wersja OLD albo
+NEW jest FINAL; test ma objąć każdą tabelę child/applied-rules.
+
+-------------------------------------------------------------------------------
+R3-2 — HIGH — brak wymaganej spójności referencji na granicy storage
+-------------------------------------------------------------------------------
+
+Kontrakt:
+- brief.md:643-651 wymaga na granicy storage:
+  * niemożliwego cross-Site/month current reference;
+  * niemożliwych cross-version covered-demand / mentor references.
+- brief.md:960-963 wymaga prób bezpośredniego SQL dla tych relacji.
+
+Kod:
+- rota/persistence/db.py:232-237 ma osobne FK current reference do Site i do
+  ScheduleVersion, ale nie wiąże wskazanej wersji z tym samym site_id/month.
+- rota/persistence/db.py:246-258 przechowuje covers_demand_id i
+  mentor_primary_assignment_id bez referencji złożonej obejmującej
+  schedule_version_id.
+- Walidacja API w schedule_validation.py nie zamyka kontraktu storage boundary,
+  ponieważ bezpośredni SQL nadal może stworzyć stan niemożliwy.
+
+Reprodukcja klasy:
+- current reference podmieniony na wersję innego Site: FAILED;
+- current reference podmieniony na wersję innego miesiąca: FAILED;
+- PRIMARY wskazujący demand istniejący wyłącznie w innej wersji: FAILED;
+- TRAINEE wskazujący mentora istniejącego wyłącznie w innej wersji: FAILED.
+
+W każdym wariancie SQLite zaakceptował zapis, mimo że kontrakt wymaga ochrony
+na granicy storage.
+
+Oczekiwana własność naprawy: bezpośredni SQL nie może utworzyć żadnego z tych
+czterech stanów; walidacja repository może pozostać dodatkową warstwą.
+
+-------------------------------------------------------------------------------
+R3-3 — MEDIUM — niekanoniczna data miesiąca jest akceptowana
+-------------------------------------------------------------------------------
+
+Kontrakt:
+- brief.md:339 — WorkBalance target month to pierwszy dzień miesiąca;
+- brief.md:386 — ScheduleVersion.month jest pierwszym dniem kalendarzowym
+  miesiąca.
+
+Kod:
+- create_schedule_version zapisuje month.isoformat(), ale create/validation nie
+  sprawdza month.day == 1 (schedule_lifecycle.py:84-108,
+  schedule_validation.py:25-66).
+- save_work_balance_target robi to samo bez walidacji
+  (work_balance_repository.py:18-26).
+
+Reprodukcja klasy:
+- ScheduleVersion z month=2026-08-15: zaakceptowany;
+- target_hours z month=2026-08-15: zaakceptowany.
+
+Skutek: jeden logiczny miesiąc może mieć kilka kluczy, current references i
+targetów; zapytania używające 2026-08-01 nie zobaczą danych zapisanych jako
+2026-08-15.
+
+Oczekiwana własność naprawy: oba publiczne wejścia fail-closed dla day != 1;
+warto również chronić trwały klucz tak, aby inny zapis nie obszedł invariantu.
+
+-------------------------------------------------------------------------------
+R3-4 — MEDIUM — DeviationCategory nie round-tripuje jako typ domenowy
+-------------------------------------------------------------------------------
+
+Kontrakt:
+- brief.md:138 — enumy mają round-tripować bez zmiany semantycznej;
+- brief.md:805-848 (sekcje E i L1) — pełna migawka i wszystkie kategorie/fields mają być
+  rekonstruowane;
+- wynik ma być kompletną, ponownie używalną migawką ScheduleVersion.
+
+Kod:
+- schedule_repository.py:31-37 przekazuje surowy str category do Deviation,
+  podczas gdy role/state/status są rekonstruowane przez właściwe enumy.
+- _insert_content oczekuje potem d.category.value
+  (schedule_lifecycle.py:47-52).
+
+Reprodukcja klasy:
+- wszystkie 6 wartości DeviationCategory wracają jako str, nie enum;
+- migawka odczytana przez get_schedule_snapshot nie może zostać przekazana do
+  replace_working_snapshot: AttributeError: 'str' object has no attribute
+  'value'.
+
+Istniejący test L1 tego nie wykrywa, bo DeviationCategory jest StrEnum i
+porównanie 'CLIENT_REQUIREMENT' == DeviationCategory.CLIENT_REQUIREMENT daje
+True mimo utraty typu.
+
+Oczekiwana własność naprawy: mapper odczytu rekonstruuje DeviationCategory dla
+każdej wartości, a odczytana migawka jest akceptowana przez publiczną operację
+replace bez ręcznego przepisywania pól.
+
+-------------------------------------------------------------------------------
+R3-5 — MEDIUM — deklarowana obowiązkowa macierz testowa nie została dostarczona
+-------------------------------------------------------------------------------
+
+To finding dotyczący wymaganego artefaktu testowego, nie propozycja zmiany
+produktu.
+
+Kontrakt:
+- clarification: UPDATED REQUIRED INTEGRATION SCENARIO DELTAS, punkty 1-6;
+- brief.md:120-138 i A2 — test migracji ma startować z niepustej bazy legacy
+  w kształcie zaakceptowanego T007;
+- clarification wymaga też dedykowanych testów R1-1..R1-5.
+
+Stan dostarczonych testów:
+- test_version_restart_restore_integration_scenario realizuje REALIZED parent
+  preservation, ale nie realizuje obowiązkowych dodatków 3-6:
+  * brak manual split/truthful partial w V2;
+  * boundary to nocka nachodząca zakres, nie niepokrywający miesiąca
+    predecessor + sześciodniowy kontekst LOAD;
+  * brak rozróżnienia holiday current REALIZED vs current PLANNED;
+  * brak replacement przechodzącego zero <-> non-zero Deviations wraz ze
+    statusem WORKING.
+- test_a2_legacy_nonempty_db_migrates_without_data_loss oraz drugi scenariusz
+  legacy wywołują migrate(conn) przed zapisaniem danych. migrate() wykonuje
+  wszystkie migracje do LATEST_SCHEMA_VERSION, więc baza nie jest legacy w
+  chwili testowanego reopen; test nie dowodzi upgrade v1 -> v2.
+- Brakuje pełnej wymaganej macierzy negatywnej m.in. modyfikacji pól parent
+  REALIZED i macierzy holiday: PLANNED/CANCELLED/TRAINEE/non-current/non-holiday.
+
+Oczekiwana własność naprawy: uzupełnić dokładnie przypadki wskazane w
+clarification. Nie rozszerzać przy tym kontraktu i nie duplikować walidacji
+poza komponentem, który ją posiada.
+
+-------------------------------------------------------------------------------
+WERYFIKACJA
+-------------------------------------------------------------------------------
+
+1. Dokładny HEAD i origin/task/ROTA-T008:
+   3f486331d0b19ddc7b7cb084d95d66cc2ce0fb64.
+
+2. Testy dostarczone przez implementera, bez testu audytowego:
+   269 passed.
+
+3. Pełny pytest po dodaniu tests/test_audit_t008_r3.py:
+   17 failed, 269 passed.
+   17 reprodukcji mapuje się na R3-1..R3-4, nie na 17 findings.
+
+4. Ruff:
+   PASS, także dla tests/test_audit_t008_r3.py.
+
+5. ROTA-REG-001:
+   7 passed.
+
+6. Benchmark produkcyjnego PlanningEngine:
+   100/100 PASS, 0 FAIL; p50=0.068s, p95=0.487s, max=3.456s,
+   total=17.561s. Benchmark solvera nie obejmuje wskazanych błędów LocalStore.
+
+7. Limity rozmiaru rota/:
+   max file 569/600 linii; max function 48/50 linii — PASS.
+
+8. git diff --check dla base..SHA zgłasza wyłącznie końcowe puste linie w
+   istniejących, niezmienialnych raportach tests_r1.txt/tests_r2.txt. Nie jest
+   to finding kodu produkcyjnego ani powód któregoś z powyższych FAIL.
+
+-------------------------------------------------------------------------------
+ARCHITECTURE_PROPOSALS
+-------------------------------------------------------------------------------
+
+Brak. Wszystkie findings wynikają bezpośrednio z brief.md albo zaakceptowanego
+clarification; raport nie proponuje zmiany architektury ani rozszerzenia scope.

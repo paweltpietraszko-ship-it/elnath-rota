@@ -1,0 +1,109 @@
+ROTA-T008 — RE-AUDYT TASK CONTRACT PRZED IMPLEMENTACJĄ, RUNDA 2
+Data: 2026-08-13
+Audytor: Codex
+Audytowany contract set:
+- brief: 49ab1276ae0ee2eeff375a86224a87b57fd3c6a6
+- clarification: 5506b7874cc0948b74086b995b3d75455f7b8bee
+Gałąź: origin/arch/rota-t008-localstore-2026-08-13
+
+WERDYKT
+-------
+PASS — READY FOR IMPLEMENTATION.
+
+PASS dotyczy wyłącznie efektywnego zestawu kontraktowego złożonego z:
+
+1. tasks/ROTA-T008/brief.md z SHA 49ab1276...;
+2. tasks/ROTA-T008/review_01_architect_clarification.md z SHA 5506b78....
+
+Clarification ma pierwszeństwo w pięciu wskazanych obszarach. Implementacja
+wyłącznie na podstawie pierwotnego briefu 49ab1276 nie jest autoryzowana.
+
+POCHODZENIE I ZAKRES
+-------------------
+
+- origin/arch/rota-t008-localstore-2026-08-13 wskazuje dokładnie SHA
+  5506b7874cc0948b74086b995b3d75455f7b8bee;
+- bezpośrednim rodzicem clarification jest dokładnie pierwotny kontrakt
+  49ab1276ae0ee2eeff375a86224a87b57fd3c6a6;
+- commit 5506b78 dodaje wyłącznie
+  tasks/ROTA-T008/review_01_architect_clarification.md;
+- git diff --check dla clarification: PASS;
+- roadmapa, arch/spec.md, addenda i kod produkcyjny nie zostały zmienione.
+
+ZAMKNIĘCIE FINDINGS RUNDY 1
+---------------------------
+
+R1-1 — CLOSED
+
+Usunięto błędny invariant `Assignment interval == ShiftDemand interval`.
+Storage zachowuje rzeczywiste przedziały PRIMARY i same-version demand reference,
+ale nie przejmuje COVERAGE-01 od validate(). Macierz obejmuje split, częściowe
+pokrycie, brak sztucznego rozszerzania Assignment oraz dangling/cross-version
+reference.
+
+R1-2 — CLOSED
+
+Każdy child musi zawierać dokładnie semantycznie niezmieniony komplet REALIZED
+z parent, z jednoznaczną listą porównywanych pól i jedyną konieczną różnicą w
+schedule_version_id. Pominięcie lub zmiana powoduje atomowe odrzucenie bez
+przestawienia current reference. Rozróżniono też poprawnie nowe przejście
+PLANNED -> REALIZED od próby zmiany faktu już REALIZED w parent.
+
+R1-3 — CLOSED
+
+Boundary support jest teraz ogólnym current-version interval query z jawnie
+podanym context_start/context_end, a nie filtrem „nachodzi na target month”.
+Testy wymagają poprzednich sześciu dni dla LOAD-01, nieprzecinającego miesiąca
+kontekstu REST-01, nocki granicznej oraz możliwości pobrania kontekstu po końcu
+miesiąca. CANCELLED i non-current pozostają wykluczone.
+
+R1-4 — CLOSED
+
+Holiday history zostało zamrożone jako CURRENT + REALIZED + PRIMARY na zapisanym
+CalendarDay(holiday=true), z wykluczeniem PLANNED, CANCELLED, TRAINEE,
+non-current i non-holiday. Jedna wymagana macierz rozróżnia wszystkie te ścieżki.
+
+R1-5 — CLOSED
+
+Spójność statusu working snapshotu jest jednoznaczna:
+
+- zero Deviations -> WORKING;
+- jedna lub więcej Deviations -> WORKING_WITH_DEVIATIONS.
+
+Obowiązuje przy create i replacement, niezależnie od acknowledgement. Testy
+obejmują oba poprawne stany, oba przejścia po zmianie liczby Deviations oraz
+odrzucenie jawnie sprzecznego statusu, jeśli API przyjmuje go od callera.
+
+OCENA TESTOWALNOŚCI
+-------------------
+
+Clarification nie ogranicza się do opisowych korekt. Rozszerza obowiązkowy
+restart/restore integration scenario o:
+
+- parent REALIZED i jego zachowanie w child;
+- manual split / truthful partial PRIMARY;
+- boundary work bez overlapu z miesiącem oraz sześciodniowy predecessor load;
+- rozróżnienie REALIZED i PLANNED w holiday history;
+- replacement przechodzący przez granicę zero/non-zero Deviations.
+
+Pokrywa to klasy błędów i alternatywne ścieżki, nie tylko literalne reproduktory.
+
+NOWE FINDINGS
+-------------
+
+Brak.
+
+GRANICA PASS
+------------
+
+PASS oznacza, że CC może rozpocząć implementację ROTA-T008 zgodnie z PROCESS
+opisanym w contract set. Nie jest to PASS przyszłego kodu ani zgoda właściciela
+na merge. Audyt implementacji musi zostać wykonany osobno dla dokładnego SHA i
+obejmować wymagane fault injection, direct-SQL immutability oraz real SQLite
+migration/restart/restore scenarios.
+
+ARCHITECTURE_PROPOSALS
+----------------------
+
+Brak.
+

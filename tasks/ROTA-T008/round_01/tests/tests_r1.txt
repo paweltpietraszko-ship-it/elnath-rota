@@ -1,0 +1,193 @@
+ROTA-T008 — AUDYT TASK CONTRACT PRZED IMPLEMENTACJĄ, RUNDA 1
+Data: 2026-08-13
+Audytor: Codex
+Audytowany SHA: 49ab1276ae0ee2eeff375a86224a87b57fd3c6a6
+Gałąź: origin/arch/rota-t008-localstore-2026-08-13
+Plik: tasks/ROTA-T008/brief.md
+
+WERDYKT
+-------
+WYMAGA KOREKTY — NOT READY FOR IMPLEMENTATION.
+
+Brief prawidłowo pokrywa zasadniczy zakres A17, migracje, atomowość,
+ScheduleVersion/current reference, T004/T005 isolation i granicę PlanningEngine.
+Nie jest jednak jeszcze bezpieczny do przekazania CC. Pięć poniższych findings
+wynika bezpośrednio z frozen kontraktu lub zaakceptowanego zachowania main;
+żaden nie jest preferencją architektoniczną audytora.
+
+POCHODZENIE I ZAKRES
+-------------------
+
+- commit ma jednego rodzica:
+  6a237002d51a5225d1573342d4e7f51469b8beee;
+- ten rodzic zawiera owner-approved roadmapę i jej PASS;
+- diff commita dodaje wyłącznie tasks/ROTA-T008/brief.md;
+- BASE_MAIN_SHA wskazuje prawidłowy zaakceptowany main po T007:
+  e010f004e90a1e4f426bb72298e7307045d32b56;
+- git diff --check dla commita: PASS.
+
+FINDINGS
+--------
+
+R1-1 — HIGH — LocalStore odrzuca kontraktowo dozwolony ręczny stan grafiku
+
+Brief, ASSIGNMENT PERSISTENCE INVARIANTS, wymaga:
+
+  Assignment interval equals the covered demand interval.
+
+To jest sprzeczne z zamrożoną architekturą A9:
+
+- ASSIGN-07 dopuszcza ręczny podział jednego ShiftDemand na kolejne PRIMARY,
+  np. A 05:00–13:00 i B 13:00–17:00;
+- ASSIGN-08 wymaga wykrywania luk lub nadmiarowego pokrycia przez validate(),
+  ale jawnie zabrania blokowania zapisu rzeczywistego stanu operacyjnego;
+- ASSIGN-09 mówi, że rzeczywisty przedział Assignment jest autorytatywny.
+
+Obecny brief przenosi politykę walidacji COVERAGE do storage i uniemożliwia
+zarówno prawidłowy split, jak i zapis roboczego stanu z COVERAGE Deviation.
+To zablokowałoby późniejszy wymagany przepływ ręcznej korekty T009/T012.
+
+Wymagana korekta kontraktu:
+
+- LocalStore zachowuje rzeczywisty przedział PRIMARY oraz jego same-version
+  covers_demand_id;
+- nie wymaga równości przedziału PRIMARY z całym demandem;
+- dangling/cross-version demand nadal jest błędem strukturalnym;
+- kompletność, luka, nadmiar i sekwencyjne pokrycie należą do validate()/
+  Deviation, a nie do odmowy zapisu roboczego snapshotu.
+
+Wymagana klasa testów:
+
+1. pełny PRIMARY round-trip;
+2. dwa sekwencyjne PRIMARY pokrywające jeden demand round-trip;
+3. robocza luka i robocze nadpokrycie mogą zostać zapisane i odczytane;
+4. dangling/cross-version covers_demand_id pozostaje odrzucony.
+
+R1-2 — HIGH — Tworzenie child ScheduleVersion nie chroni REALIZED z parent
+
+Frozen A14 VER-02 wymaga, aby podczas tworzenia nowej wersji wszystkie REALIZED
+Assignments z parent zostały skopiowane semantycznie bez zmian. A13 REPLAN-03/05
+powtarza zakaz zmiany zrealizowanej pracy.
+
+Brief wymaga od callera kompletnego child snapshotu, ale nie nakazuje LocalStore
+porównać REALIZED z parent ani samodzielnie zachować ich bez zmian. Scenariusz
+integracyjny V1/V2 nie zawiera obowiązkowego REALIZED reproduktora. Implementacja
+zgodna literalnie z briefem mogłaby utworzyć child, który usuwa, przesuwa lub
+przypisuje innemu pracownikowi już zrealizowaną pracę.
+
+Wymagana korekta kontraktu:
+
+- każda operacja tworząca child z parent musi zagwarantować semantycznie
+  niezmieniony komplet parent REALIZED w child;
+- musi być jednoznaczne, które pola tworzą semantyczną tożsamość przy zmianie
+  schedule_version_id;
+- brak, duplikat albo materialna zmiana parent REALIZED ma zostać odrzucona
+  atomowo, bez zmiany current reference.
+
+Wymagana klasa testów obejmuje co najmniej: poprawną kopię, pominięcie,
+zmieniony employee, zmieniony przedział, zmienioną rolę/state oraz awarię bez
+częściowego child/current switch.
+
+R1-3 — HIGH — Boundary query nie dostarcza kontekstu LOAD-01/REST-01
+
+Brief definiuje boundary context jako Assignments z innego miesiąca, których
+rzeczywisty przedział nachodzi na target month. To pokrywa nockę przechodzącą
+przez północ, ale nie pokrywa całej klasy wymaganej przez STATE-02/TIME-03:
+
+- LOAD-01 musi liczyć każde ruchome okno 7 dni, również zaczynające się przed
+  pierwszym dniem miesiąca;
+- REST-01 wymaga sąsiedniej pracy w odległości mniejszej niż 11 h, nawet gdy
+  same przedziały nie nachodzą na miesiąc;
+- znane przypisanie z następnego miesiąca może ograniczać końcówkę miesiąca.
+
+Zaakceptowany main zawiera już regresję
+tests/test_audit_r12_findings.py::
+test_finding5_load01_window_crossing_month_boundary_is_checked: pięć zmian
+26–30 września nie nachodzi na październik, ale musi wejść do boundary context,
+aby wykryć rolling-7d po dodaniu 1 października. API opisane w briefie ich nie
+zwróci.
+
+Wymagana korekta kontraktu:
+
+- LocalStore musi zapewnić query support wystarczający do wszystkich frozen
+  walidacji granicznych, a nie wyłącznie interval-overlap z miesiącem;
+- semantyka przedziałów pozostaje half-open [start_datetime, end_datetime);
+- T009 może później dobrać kontekst, ale T008 musi umożliwić pobranie pełnego
+  current-only, non-CANCELLED zakresu potrzebnego REST-01 i LOAD-01.
+
+Macierz testów musi objąć niezależnie:
+
+1. nockę rzeczywiście przechodzącą przez początek miesiąca;
+2. poprzednie 6 dni wpływające na rolling-7d bez overlapu z miesiącem;
+3. poprzedni Assignment kończący się mniej niż 11 h przed pierwszą pracą;
+4. znany Assignment następnego miesiąca zaczynający się mniej niż 11 h po
+   ostatniej pracy miesiąca;
+5. wykluczenie CANCELLED i non-current wersji we wszystkich wariantach.
+
+R1-4 — MEDIUM — Holiday history nie ogranicza się do REALIZED
+
+Brief wymaga current-version historical PRIMARY Assignments na święta, ale nie
+klasyfikuje AssignmentState. Frozen PlanningState definiuje holiday_history
+literalnie jako REALIZED w CalendarDay(holiday=true). Zaakceptowany moduł
+fairness również konsumuje to pole jako historycznie wykonaną pracę.
+
+Bez filtra REALIZED zaplanowana, jeszcze niewykonana praca trafia do historii
+świątecznej, a następnie może zostać policzona ponownie jako bieżąca/fixed praca.
+CANCELLED również nie może oznaczać historycznie wykonanej pracy.
+
+Wymagana korekta:
+
+- holiday-history support zwraca wyłącznie current-version PRIMARY ze
+  state=REALIZED na odpowiednich CalendarDay(holiday=true);
+- test rozróżnia REALIZED, PLANNED i CANCELLED tego samego pracownika/dnia oraz
+  identyczny REALIZED z non-current wersji.
+
+R1-5 — MEDIUM — „as appropriate” nie zamraża spójności statusu WORKING
+
+Brief jawnie mapuje statusy FINAL według liczby Deviations, lecz dla tworzenia
+i edycji dopuszcza WORKING / WORKING_WITH_DEVIATIONS jedynie „as appropriate”.
+Macierz H nie określa, czy storage ma odrzucić:
+
+- WORKING zawierający Deviations;
+- WORKING_WITH_DEVIATIONS bez żadnej Deviation.
+
+Źródłowy kontrakt ręcznych korekt wymaga, aby wykryte odstępstwo natychmiast
+oznaczało wersję jako WORKING_WITH_DEVIATIONS. Complete reconstructable snapshot
+nie może mieć nagłówka sprzecznego z własną kompletną listą Deviations.
+
+Wymagana korekta:
+
+- zamrozić jednoznaczne mapowanie statusu również dla working snapshotu;
+- zastosować je zarówno przy create, jak i complete replacement;
+- dodać testy obu kierunków niespójności oraz poprawnych par zero/jeden+.
+
+OCENA POZOSTAŁEGO ZAKRESU
+-------------------------
+
+Poza powyższymi findings brief prawidłowo i testowalnie określa:
+
+- jeden lokalny SQLite LocalStore i brak sprzężenia PlanningEngine;
+- ordered PRAGMA user_version migrations, legacy migration i future-version
+  fail-closed;
+- zachowanie T004/T005 bez przepisywania immutable history;
+- pełne current master data i append-only AvailabilityRecord chain;
+- persisted CalendarDay;
+- target_hours jako jedyny trwały input WorkBalance oraz current-only derivation;
+- atomową kreację/replacement/finalizację/restore ScheduleVersion;
+- storage-level immutable FINAL;
+- applied_rule_version provenance;
+- crash consistency i rzeczywisty restart/restore integration scenario;
+- brak parsera, application workflow i UI w T008.
+
+ODPOWIEDŹ PROCESOWA
+-------------------
+
+CC NIE POWINIEN jeszcze implementować SHA 49ab1276. Findings są lokalne i
+możliwe do zamknięcia jedną korektą briefu; nie wymagają zmiany roadmapy ani
+przeprojektowania LocalStore.
+
+ARCHITECTURE_PROPOSALS
+----------------------
+
+Brak.
+
