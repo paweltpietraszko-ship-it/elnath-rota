@@ -1,201 +1,166 @@
 # ROTA-REAL-OBJECT-01 — benchmark realnego obiektu przeciwko production code
 
-Status: architect-authored test infrastructure — **R2 po audycie Codex R1, oczekuje na re-audyt**  
+Status: architect-authored test infrastructure — **R3 candidate after Codex R2 FAIL**
 Production base used by the benchmark: `e010f004e90a1e4f426bb72298e7307045d32b56`
 
 ## Cel
 
-Ten benchmark nie jest następcą w znaczeniu technicznym dla `rota_stress.py`.
-`rota_stress.py` pozostaje syntetycznym generatorem z góry wykonalnych problemów.
-ROTA-REAL-OBJECT-01 odpowiada na inne pytanie: co robi aktualny PlanningEngine,
-gdy lokalny roster pozostaje realnym pięcioosobowym obiektem i dokładamy
-kontrolowane warunki brzegowe.
+ROTA-REAL-OBJECT-01 nie zastępuje technicznie `rota_stress.py`. Tamten plik
+pozostaje syntetycznym generatorem z góry wykonalnych problemów. Ten benchmark
+sprawdza aktualny PlanningEngine na realnym pięcioosobowym rdzeniu obiektu oraz
+kontrolowanych warunkach brzegowych.
 
-## Nienaruszalny roster
+## Nienaruszalny model
 
-Każdy przypadek operacyjny ma dokładnie pięciu LOCAL:
+Lokalny roster to zawsze dokładnie A–E, przy czym C jest `DAY_ONLY`.
+X i Y są wyłącznie `EXTERNAL_SUPPORT`; nie są ukrytą szóstą i siódmą osobą.
 
-- A
-- B
-- C — `DAY_ONLY`
-- D
-- E
+Target Site używa:
 
-X i Y są odrębnymi `EXTERNAL_SUPPORT`. Nie są ukrytą szóstą/siódmą osobą.
-Bez pasującego aktywnego `ExternalSupportWindow` nie mogą zostać użyci.
-
-Podstawowa geometria obiektu:
-
-- 1× PRIMARY D dziennie, 05:00–17:00;
-- 1× PRIMARY N dziennie, 17:00–05:00;
+- D 05:00–17:00;
+- N 17:00–05:00;
+- jednej PRIMARY D i jednej PRIMARY N dziennie;
 - REST-01 = 11 h;
-- LOAD-01 = maks. 60 h w dowolnym ruchomym 7-dniowym oknie przed
-  `DECISION_REQUIRED`;
-- sześć dni predecessor context przed miesiącem.
+- LOAD-01 = 60 h / ruchome 7 dni przed `DECISION_REQUIRED`.
 
-## Fail-closed benchmark input
+Target-site boundary/fixed facts muszą mieć legalną geometrię D/N. Kontekst
+`other_site_assignments` jest jawnie odrębny: reprezentuje pracę pracownika na
+innym obiekcie i może mieć inną geometrię zmian, ale nadal podlega REST/LOAD.
+To pozwala uczciwie testować granicę dokładnie 11 h bez wymyślania lokalnej
+zmiany 06:00–18:00.
 
-`real_object_input.py` waliduje każdy fixture **przed** reference oracle i
-przed wywołaniem production `plan()`.
+## Fail-closed wejścia
 
-Nielegalny fixture nie może być użyty do oceny solvera. Walidowane są m.in.:
+`real_object_input.py` uruchamia się przed oracle i przed production `plan()`.
+Nielegalny fixture nie może służyć do oceny solvera.
 
-- employee ids i rodzaje availability/rules;
+Walidowane są m.in.:
+
+- employee ids, availability, SiteRules i ExternalSupportWindow;
 - dodatnie przedziały;
-- duplicate ids;
-- DAY_ONLY w fixed/boundary facts;
-- same-demand fixed conflicts;
-- REST/overlap pomiędzy boundary i nienegocjowalnymi existing assignments;
-- pełna sześciodniowa historia w przypadkach drabiny wymagających tego dowodu.
+- globalna unikalność assignment_id między boundary/fixed/cross-site context;
+- legalna geometria lokalnych target-site facts;
+- operatywny stan fixed facts — `CANCELLED` nie udaje historii pracy;
+- DAY_ONLY dla target Site;
+- same-version fixed demand references;
+- REST/overlap między wszystkimi fixed/context facts;
+- dokładnie jedna REALIZED D i N na każdym z sześciu predecessor days,
+  gdy scenariusz wymaga ladder step 3.
 
-Semantycznie niepasujące okno X/Y (wrong Site, inactive, partial interval,
-wrong shift kind, disabled profile) jest **legalnym wejściem testowym**, ale
-nie może odblokować external eligibility.
+## Niezależny oracle i checker
 
-## Niezależny oracle i checker witnessów
+`real_object_oracle.py` buduje własny CP-SAT existence model i nie importuje
+produkcyjnego solvera/eligibility/validatora. Uwzględnia target-site boundary
+oraz jawny cross-site context dla REST i LOAD.
 
-`real_object_oracle.py` buduje własny CP-SAT existence model. Nie importuje ani
-nie wywołuje produkcyjnego PlanningEngine, solvera, eligibility builderów,
-constraint builderów ani validatora.
+Każdy FEASIBLE witness oracle jest ponownie sprawdzany przez
+`real_object_checker.py`. Witness z błędem COVERAGE, eligibility, REST lub LOAD
+staje się `UNKNOWN/WITNESS_CHECK_FAILED` i nie jest dowodem przeciw produkcji.
 
-Każdy FEASIBLE witness oracle jest następnie sprawdzany przez
-`real_object_checker.py`. Witness z COVERAGE/REST/LOAD/eligibility błędem
-zostaje `UNKNOWN/WITNESS_CHECK_FAILED` i nie może służyć jako dowód przeciwko
-production.
+Reference classes:
 
-Klasy reference:
-
-- `KNOWN_FEASIBLE`
-- `LOAD_DECISION_REQUIRED`
-- `EXTERNAL_SUPPORT_DECISION_REQUIRED`
-- `KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT`
-- `PROVEN_STAFFING_SHORTAGE`
-- `INCONCLUSIVE`
+- `KNOWN_FEASIBLE`;
+- `LOAD_DECISION_REQUIRED`;
+- `EXTERNAL_SUPPORT_DECISION_REQUIRED`;
+- `KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT`;
+- `PROVEN_STAFFING_SHORTAGE`;
+- `INCONCLUSIVE`.
 
 `UNKNOWN` nigdy nie jest PASS-em.
 
-## Certyfikaty DECISION_REQUIRED
+## DECISION_REQUIRED — pełny certyfikat
 
-Sam status `DECISION_REQUIRED` nie wystarcza.
+R3 nie stosuje zasady „wystarczy jeden poprawny element”.
+`real_object_decisions.py` sprawdza każdy zgłoszony element payloadu:
 
-Dla shortage/external runner niezależnie wyznacza demands, które mają zero
-eligible employees, oraz przyczyny per employee. Payload production musi
-wskazać prawdziwy demand i blocker zgodny z tym evidence.
+- każdy `blocking_shift_demand` musi istnieć i mieć dokładny przedział;
+- każdy blocker employee/condition musi mieć niezależne evidence;
+- dodatkowy fikcyjny blocker jest FAIL-em nawet obok poprawnego;
+- wymagana klasa unblocking option musi istnieć;
+- niepowiązana opcja jest FAIL-em;
+- nie-LOAD decision nie może przemycić `load_blocker`.
 
-Dla X/Y benchmark dodatkowo wyznacza parę `(demand, external employee)`, która
-jest zablokowana w current state przez `EXTERNAL-01`, ale staje się eligible
-po jawnie zadanym probe window.
+Dla LOAD dokładny `employee/window/hours` jest ponownie dowodzony przez osobny
+uncapped solve `verify_load_claim()`.
 
-Dla LOAD-01 runner nie ufa samemu `LoadBlocker`. Osobny niezależny solve
-`verify_load_claim()` musi dowieść, że dokładnie zgłoszone
-`employee/window/hours` da się uzyskać w legalnym uncapped grafiku, podczas gdy
-reference capped pozostaje INFEASIBLE.
+Dla prostego shortage checker używa dowodu zero individually eligible.
+Dla konfliktów zbiorowych buduje osobny uncapped CP-SAT dla zgłoszonego zbioru
+blocking demands i potwierdza coverage + eligibility + REST. Dzięki temu para
+zmian, które osobno może wykonać A, lecz razem łamie REST, może zostać
+pozytywnie certyfikowana bez udawania indywidualnego shortage.
 
-## Obowiązkowa drabina 1–14
+## External support condition
 
-Core matrix obejmuje wszystkie wymagane klasy:
+Publicznym condition dla niemożności użycia X/Y jest `EXTERNAL-01`, również
+gdy wewnętrzną przyczyną jest `SiteProfile.external_support_enabled=false`.
+Szczegół `EXTERNAL_SUPPORT_DISABLED` może pozostać diagnostyką wewnętrzną, ale
+nie stanowi drugiej publicznej taksonomii blockera. Rozstrzygnięcie zapisano w:
+
+`arch/BENCHMARK_REAL_OBJECT_R3_CONDITION_CLARIFICATION_2026-08-13.md`.
+
+Wyłączony profil nie staje się przez to odblokowywalny oknem X/Y. Taki case
+pozostaje shortage; zmienia się wyłącznie kanoniczny kod provenance.
+
+## Drabina 1–14
+
+Core matrix obejmuje:
 
 1. literalny ROTA-REG-001;
-2. miesiące 28/29/30/31 dni i różne weekday starts;
-3. poprawną sześciodniową historię z N kończącą się w dniu 1;
+2. miesiące 28/29/30/31 dni;
+3. poprawną sześciodniową historię;
 4. PLAN i REPLAN z REALIZED/frozen/redistributable baseline;
-5. narastające absencje;
-6. osobno brak C oraz brak flexible worker;
-7. trudne przetasowanie nadal możliwe <=60 h;
-8. przypadek możliwy dopiero >60 h;
-9. prosty brak eligible employee dla konkretnej zmiany;
-10. REST dokładnie 11 h i poniżej 11 h;
+5. monotonicznie narastające absencje;
+6. osobno brak C i brak flexible worker;
+7. trudne przetasowanie nadal <=60 h;
+8. coverage możliwe dopiero >60 h;
+9. prosty brak eligible employee;
+10. REST dokładnie 11 h i poniżej 11 h przez cross-site context;
 11. LOAD dokładnie 60 h i >60 h na boundary;
 12. month-end N kontra znany next-month D;
-13. X/Y before/after coordinator window;
-14. negative ExternalSupportWindow matrix: employee/Site/active/interval/kind/profile.
+13. X/Y before/after jawnego window;
+14. negatywną macierz employee/Site/active/interval/kind/profile.
 
-Absence ladder ma jawne `series_id/series_level`; raport wskazuje pierwszy poziom,
-na którym reference przestaje być `KNOWN_FEASIBLE`.
+Absence ladder jest inkluzywna: fakty poziomu N są podzbiorem poziomu N+1.
+Runner sam sprawdza tę własność i ustawia `benchmark_errors`, więc sama zgodna
+metadata `series_level` nie wystarcza.
 
-## Reprodukcja
+## Reprodukcja i raport
 
-Każdy case zawiera w raporcie:
+Każdy case zapisuje m.in.:
 
-- `case_id`;
-- stały `seed`;
-- SHA-256 `input_fingerprint` pełnego wejścia;
-- miesiąc;
-- numery ladder steps;
-- pełną listę perturbacji;
-- A–E + C=DAY_ONLY;
-- memberships X/Y oraz wszystkie current/probe windows;
-- boundary/fixed assignments;
-- reference class;
-- capped/uncapped/probe solves z witnessami i checker errors;
-- production status, blockers, load blocker, unblocking options i czas;
-- independent candidate/certificate evidence.
+- `case_id` i stały `seed`;
+- SHA-256 `input_fingerprint`;
+- pełny scenario z perturbacjami, windows i context assignments;
+- reference capped/uncapped/probe solves oraz witness checker evidence;
+- production status, każdy blocker, load blocker, unblocking options i czas;
+- independent candidate/decision certificate evidence.
 
-Czasy nie są częścią deterministic correctness identity. Ten sam
-`case_id + seed` musi jednak odtwarzać identyczny input fingerprint, reference
-class i deterministic oracle witness przy jednym workerze CP-SAT.
+JSON jest serializowalny bez utraty dat/enums. Exact replay wymaga zgodnego
+`case_id + seed`. Czasy nie należą do deterministic correctness identity.
 
-## Correctness vs performance
+## Correctness i performance
 
 Raport rozdziela:
 
-- `correctness` — zgodność production z niezależnym oracle/checker;
-- `performance` — mean/p50/p95/max oraz reference/production timeout counts
-  osobno per reference class.
+- `correctness` — oracle/checker kontra production;
+- `performance` — mean/p50/p95/max i timeout counts per reference class.
 
-Brak SLA oznacza, że wolny poprawny wynik nie jest automatycznie błędem
-merytorycznym.
+Brak zatwierdzonego SLA oznacza, że wolny poprawny wynik nie jest automatycznie
+błędem merytorycznym.
 
 ## Uruchomienie
 
-Core:
-
 ```bash
-python -m benchmarks.real_object --suite core
-```
-
-Pełna macierz + 24-month calendar sweep:
-
-```bash
-python -m benchmarks.real_object --suite all
-```
-
-Exact replay:
-
-```bash
-python -m benchmarks.real_object --suite all \
-  --case external-before-confirmation --seed 13001
-```
-
-Audit JSON:
-
-```bash
-python -m benchmarks.real_object --suite all --json real_object_all.json
-```
-
-Self-tests benchmarku:
-
-```bash
-pytest -q tests/test_real_object_benchmark.py
+pytest -q tests/test_real_object_benchmark.py tests/test_real_object_benchmark_r3.py
+python -m benchmarks.real_object --suite core --json real_object_core_r3.json
+python -m benchmarks.real_object --suite calendar --json real_object_calendar_r3.json
+python -m benchmarks.real_object --suite all --json real_object_all_r3.json
+python -m benchmarks.real_object --suite all --case external-before-confirmation --seed 13001
 ```
 
 ## Zasada audytu
 
-Jeżeli R2 zwróci czerwony przypadek przeciwko PlanningEngine, nie wolno:
-
-- zwiększyć lokalnego rosteru;
-- dopisać ukrytej rezerwy;
-- otworzyć X/Y bez jawnego window;
-- zmienić oczekiwanej klasy po zobaczeniu production result;
-- osłabić HARD tylko po to, aby odzyskać zielony raport.
-
-Najpierw należy rozstrzygnąć, czy czerwony przypadek jest błędem benchmarku,
-czy produkcyjnego PlanningEngine. Nie naprawiać obu w tym samym commicie.
-
-## Status po audycie R1
-
-SHA `54d3bb9` **nie jest zaakceptowany**. Codex R1 wykazał 7 klas błędów
-benchmarku i nie wydał findingu przeciwko PlanningEngine.
-
-R2 naprawia te klasy, ale sam dokument nie deklaruje PASS. Nowy exact SHA ma
-zostać uruchomiony i ponownie zaatakowany przez Codexa.
+R3 nadal nie deklaruje własnego PASS. Codex ma najpierw zaatakować benchmark.
+Jeżeli infrastruktura przejdzie audyt, a prawidłowo certyfikowany case pozostaje
+czerwony, dopiero wtedy wolno utworzyć osobny finding przeciw PlanningEngine.
+Benchmark branch nie zmienia `rota/`.
