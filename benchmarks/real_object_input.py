@@ -40,10 +40,8 @@ def _availability_blocks(scenario: ScenarioSpec, employee_id: str, demand: Deman
     for record in scenario.availability:
         if record.employee_id != employee_id:
             continue
-        if record.kind == "DAY_SHIFT_OFF":
-            if record.start_date <= demand.start.date() <= record.end_date:
-                return True
-            continue
+        if record.kind == "DAY_SHIFT_OFF" and record.start_date <= demand.start.date() <= record.end_date:
+            return True
         start = datetime.combine(record.start_date, time())
         end = datetime.combine(record.end_date + timedelta(days=1), time())
         if record.kind in {"UNAVAILABLE_24H", "LEAVE_GRANTED", "SICK_LEAVE"}:
@@ -123,67 +121,18 @@ def _validate_availability_and_rules(scenario: ScenarioSpec, errors: list[str]) 
 
 
 def _validate_windows(scenario: ScenarioSpec, errors: list[str]) -> None:
-    for collection_name, windows in (
-        ("current", scenario.external_windows),
-        ("probe", scenario.external_probe_windows),
-    ):
+    for label, windows in (("current", scenario.external_windows), ("probe", scenario.external_probe_windows)):
         seen = set()
         for window in windows:
             if window.window_id in seen:
-                errors.append(
-                    f"duplicate {collection_name} external window id {window.window_id}"
-                )
+                errors.append(f"duplicate {label} external window id {window.window_id}")
             seen.add(window.window_id)
             if window.employee_id not in EXTERNAL_EMPLOYEES:
-                errors.append(
-                    f"external window employee is not X/Y: {window.employee_id}"
-                )
+                errors.append(f"external window employee is not X/Y: {window.employee_id}")
             if window.end <= window.start:
-                errors.append(
-                    f"external window non-positive interval {window.window_id}"
-                )
+                errors.append(f"external window non-positive interval {window.window_id}")
             if window.allowed_shift_kind not in (None, "D", "N"):
-                errors.append(
-                    f"invalid allowed_shift_kind {window.window_id}"
-                )
-
-
-def _validate_boundary_shape(scenario: ScenarioSpec, errors: list[str]) -> None:
-    seen = set()
-    for item in scenario.boundary_assignments:
-        if item.assignment_id in seen:
-            errors.append(f"duplicate boundary assignment {item.assignment_id}")
-        seen.add(item.assignment_id)
-        if item.employee_id not in LOCAL_EMPLOYEES:
-            errors.append(f"boundary employee must be LOCAL: {item.employee_id}")
-        if item.end <= item.start:
-            errors.append(f"boundary non-positive interval {item.assignment_id}")
-        if item.state not in _ALLOWED_STATES:
-            errors.append(f"boundary invalid state {item.assignment_id}")
-        kind = _shift_kind(item.start, item.end)
-        if item.employee_id == "C" and kind == "N":
-            errors.append(f"boundary puts DAY_ONLY C on N {item.assignment_id}")
-    _validate_rest(scenario.boundary_assignments, errors, "boundary")
-
-
-def _validate_six_day_history(scenario: ScenarioSpec, errors: list[str]) -> None:
-    if 3 not in scenario.ladder_steps:
-        return
-    month_start = datetime.combine(scenario.month, time())
-    expected = set()
-    for offset in range(-6, 0):
-        day = scenario.month + timedelta(days=offset)
-        expected.add((day, "D"))
-        expected.add((day, "N"))
-    observed = []
-    for item in scenario.boundary_assignments:
-        if not (month_start - timedelta(days=6) <= item.start < month_start):
-            continue
-        kind = _shift_kind(item.start, item.end)
-        if kind:
-            observed.append((item.start.date(), kind))
-    if set(observed) != expected or len(observed) != 12:
-        errors.append("ladder step 3 requires exactly one D and one N on each of six predecessor days")
+                errors.append(f"invalid allowed_shift_kind {window.window_id}")
 
 
 def _validate_rest(items, errors: list[str], label: str) -> None:
@@ -197,47 +146,88 @@ def _validate_rest(items, errors: list[str], label: str) -> None:
         for earlier, later in zip(ordered, ordered[1:]):
             if earlier.end > later.start:
                 errors.append(f"{label} overlap for {employee_id}: {earlier.assignment_id}->{later.assignment_id}")
-                continue
-            gap = (later.start - earlier.end).total_seconds() / 3600
-            if gap < REST_MIN_HOURS:
+            elif (later.start - earlier.end).total_seconds() / 3600 < REST_MIN_HOURS:
                 errors.append(f"{label} REST<{REST_MIN_HOURS}h for {employee_id}: {earlier.assignment_id}->{later.assignment_id}")
 
 
-def _validate_fixed(scenario: ScenarioSpec, errors: list[str]) -> None:
+def _validate_fixed_shape(item, errors: list[str], label: str) -> str | None:
+    known = set((*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES))
+    if item.employee_id not in known:
+        errors.append(f"{label} unknown employee {item.employee_id}")
+    if item.state not in _ALLOWED_STATES:
+        errors.append(f"{label} invalid state {item.assignment_id}")
+    elif item.state == "CANCELLED":
+        errors.append(f"{label} CANCELLED is not an operative fixed fact {item.assignment_id}")
+    if item.end <= item.start:
+        errors.append(f"{label} non-positive interval {item.assignment_id}")
+        return None
+    kind = _shift_kind(item.start, item.end)
+    if kind is None:
+        errors.append(f"{label} interval is not canonical D/N geometry {item.assignment_id}")
+    elif item.employee_id == "C" and kind == "N":
+        errors.append(f"{label} puts DAY_ONLY C on N {item.assignment_id}")
+    return kind
+
+
+def _validate_fixed_family(scenario: ScenarioSpec, errors: list[str]) -> None:
     demands = {demand.demand_id: demand for demand in demands_for_month(scenario)}
-    seen_assignments = set()
-    seen_hard_demands = set()
-    hard_items = list(scenario.boundary_assignments)
-    for item in scenario.fixed_demand_assignments:
-        if item.assignment_id in seen_assignments:
-            errors.append(f"duplicate fixed assignment {item.assignment_id}")
-        seen_assignments.add(item.assignment_id)
-        if item.employee_id not in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES):
-            errors.append(f"fixed unknown employee {item.employee_id}")
-        if item.state not in _ALLOWED_STATES or item.state == "CANCELLED":
-            errors.append(f"fixed invalid/non-operative state {item.assignment_id}")
-        demand = demands.get(item.demand_id or "")
-        if demand is None:
-            errors.append(f"fixed unknown demand {item.assignment_id}/{item.demand_id}")
+    all_items = [
+        *(('boundary', item) for item in scenario.boundary_assignments),
+        *(('fixed', item) for item in scenario.fixed_demand_assignments),
+    ]
+    seen_ids: set[str] = set()
+    for label, item in all_items:
+        if item.assignment_id in seen_ids:
+            errors.append(f"duplicate assignment id across fixed inputs {item.assignment_id}")
+        seen_ids.add(item.assignment_id)
+        _validate_fixed_shape(item, errors, label)
+        if label == "fixed":
+            _validate_fixed_demand(scenario, item, demands, errors)
+    _validate_rest([item for _, item in all_items], errors, "fixed/boundary")
+
+
+def _validate_fixed_demand(scenario, item, demands, errors: list[str]) -> None:
+    demand = demands.get(item.demand_id or "")
+    if demand is None:
+        errors.append(f"fixed unknown demand {item.assignment_id}/{item.demand_id}")
+        return
+    if item.start != demand.start or item.end != demand.end:
+        errors.append(f"fixed interval does not equal demand {item.assignment_id}")
+    if item.employee_id == "C" and demand.kind == "N":
+        errors.append(f"fixed DAY_ONLY C on N {item.assignment_id}")
+    if not (item.state == "REALIZED" or item.frozen):
+        return
+    if item.state != "REALIZED" and _availability_blocks(scenario, item.employee_id, demand):
+        errors.append(f"fixed PLANNED assignment blocked by availability {item.assignment_id}")
+    if item.state != "REALIZED" and _rule_blocks(scenario, item.employee_id, demand):
+        errors.append(f"fixed PLANNED assignment blocked by SiteRule {item.assignment_id}")
+    if (
+        item.state != "REALIZED" and item.employee_id in EXTERNAL_EMPLOYEES
+        and not _external_window_covers(scenario, item.employee_id, demand)
+    ):
+        errors.append(f"fixed external assignment lacks valid window {item.assignment_id}")
+
+
+def _validate_six_day_history(scenario: ScenarioSpec, errors: list[str]) -> None:
+    if 3 not in scenario.ladder_steps:
+        return
+    month_start = datetime.combine(scenario.month, time())
+    expected = {
+        (scenario.month + timedelta(days=offset), kind)
+        for offset in range(-6, 0) for kind in ("D", "N")
+    }
+    observed = []
+    for item in scenario.boundary_assignments:
+        if not (month_start - timedelta(days=6) <= item.start < month_start):
             continue
-        if item.start != demand.start or item.end != demand.end:
-            errors.append(f"fixed interval does not equal demand {item.assignment_id}")
-        if item.employee_id == "C" and demand.kind == "N":
-            errors.append(f"fixed DAY_ONLY C on N {item.assignment_id}")
-        hard = item.state == "REALIZED" or item.frozen
-        if hard:
-            if demand.demand_id in seen_hard_demands:
-                errors.append(f"two hard existing assignments cover {demand.demand_id}")
-            seen_hard_demands.add(demand.demand_id)
-            hard_items.append(item)
-            if item.state != "REALIZED":
-                if _availability_blocks(scenario, item.employee_id, demand):
-                    errors.append(f"fixed PLANNED assignment blocked by availability {item.assignment_id}")
-                if _rule_blocks(scenario, item.employee_id, demand):
-                    errors.append(f"fixed PLANNED assignment blocked by SiteRule {item.assignment_id}")
-                if item.employee_id in EXTERNAL_EMPLOYEES and not _external_window_covers(scenario, item.employee_id, demand):
-                    errors.append(f"fixed external assignment lacks valid window {item.assignment_id}")
-    _validate_rest(hard_items, errors, "fixed/boundary")
+        if item.state != "REALIZED":
+            errors.append(f"six-day history must be REALIZED: {item.assignment_id}")
+            continue
+        kind = _shift_kind(item.start, item.end)
+        if kind is not None:
+            observed.append((item.start.date(), kind))
+    if set(observed) != expected or len(observed) != 12:
+        errors.append("ladder step 3 requires exactly one REALIZED D and N on each of six predecessor days")
 
 
 def validate_scenario(scenario: ScenarioSpec) -> tuple[str, ...]:
@@ -245,9 +235,8 @@ def validate_scenario(scenario: ScenarioSpec) -> tuple[str, ...]:
     _validate_meta(scenario, errors)
     _validate_availability_and_rules(scenario, errors)
     _validate_windows(scenario, errors)
-    _validate_boundary_shape(scenario, errors)
+    _validate_fixed_family(scenario, errors)
     _validate_six_day_history(scenario, errors)
-    _validate_fixed(scenario, errors)
     return tuple(dict.fromkeys(errors))
 
 
