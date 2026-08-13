@@ -1,8 +1,4 @@
-"""Data types for ROTA-REAL-OBJECT-01.
-
-Benchmark types are test infrastructure only. Product semantics remain owned by
-frozen Rota contracts; these types make benchmark inputs and evidence explicit.
-"""
+"""Small data model for ROTA-REAL-OBJECT-01 benchmark."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,23 +7,27 @@ from enum import Enum
 from typing import Optional
 
 
-class OracleClass(str, Enum):
-    KNOWN_FEASIBLE = "KNOWN_FEASIBLE"
-    LOAD_DECISION_REQUIRED = "LOAD_DECISION_REQUIRED"
-    EXTERNAL_SUPPORT_DECISION_REQUIRED = "EXTERNAL_SUPPORT_DECISION_REQUIRED"
-    KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT = "KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT"
-    PROVEN_STAFFING_SHORTAGE = "PROVEN_STAFFING_SHORTAGE"
-    INCONCLUSIVE = "INCONCLUSIVE"
-
-
-class SolveVerdict(str, Enum):
+class ExpectedStatus(str, Enum):
     FEASIBLE = "FEASIBLE"
-    INFEASIBLE = "INFEASIBLE"
-    UNKNOWN = "UNKNOWN"
+    DECISION_REQUIRED = "DECISION_REQUIRED"
 
 
-class BenchmarkInputError(ValueError):
-    """Scenario fixture is illegal and must not be used to judge production."""
+class ExpectationKind(str, Enum):
+    FEASIBLE = "FEASIBLE"
+    SIMPLE_SHORTAGE = "SIMPLE_SHORTAGE"
+    REST_PAIR_SHORTAGE = "REST_PAIR_SHORTAGE"
+    EXTERNAL_BEFORE = "EXTERNAL_BEFORE"
+    EXTERNAL_AFTER = "EXTERNAL_AFTER"
+    FORCED_LOAD = "FORCED_LOAD"
+    FIXED_LOAD = "FIXED_LOAD"
+    REPLAN = "REPLAN"
+
+
+class BenchmarkVerdict(str, Enum):
+    PRODUCTION_PASS = "PRODUCTION_PASS"
+    PRODUCTION_MISMATCH = "PRODUCTION_MISMATCH"
+    BENCHMARK_INVALID = "BENCHMARK_INVALID"
+    INCONCLUSIVE = "INCONCLUSIVE"
 
 
 @dataclass(frozen=True)
@@ -94,8 +94,13 @@ class ScenarioSpec:
     external_windows: tuple[ExternalWindowSpec, ...] = ()
     external_probe_windows: tuple[ExternalWindowSpec, ...] = ()
     external_support_enabled: bool = False
-    declared_class: Optional[OracleClass] = None
     strict_monthly_hours: tuple[tuple[str, int], ...] = ()
+    expected_status: Optional[ExpectedStatus] = None
+    expectation_kind: Optional[ExpectationKind] = None
+    expectation_reason: str = ""
+    expected_demand_ids: tuple[str, ...] = ()
+    expected_employee_id: Optional[str] = None
+    expected_reshuffles: Optional[int] = None
     note: str = ""
 
 
@@ -105,27 +110,6 @@ class LoadViolation:
     window_start: date
     window_end: date
     hours: int
-
-
-@dataclass(frozen=True)
-class ReferenceSolve:
-    verdict: SolveVerdict
-    witness: tuple[tuple[str, str], ...]
-    elapsed_seconds: float
-    status_name: str = ""
-    timed_out: bool = False
-    witness_checker_errors: tuple[str, ...] = ()
-    load_violations: tuple[LoadViolation, ...] = ()
-
-
-@dataclass(frozen=True)
-class ReferenceClassification:
-    expected_class: OracleClass
-    capped: ReferenceSolve
-    uncapped: Optional[ReferenceSolve] = None
-    without_external: Optional[ReferenceSolve] = None
-    with_external_probe: Optional[ReferenceSolve] = None
-    with_external_probe_uncapped: Optional[ReferenceSolve] = None
 
 
 @dataclass(frozen=True)
