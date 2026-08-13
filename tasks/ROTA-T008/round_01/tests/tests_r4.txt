@@ -1,0 +1,162 @@
+ROTA-T008 — AUDYT IMPLEMENTACJI, RUNDA 4
+
+Data: 2026-08-13
+Audytowany SHA: 248ad8d5ecc7f5de1b83cf42c4cc8d10e1cdaeb4
+Gałąź: task/ROTA-T008
+Zakres re-audytu: poprawki R3-1..R3-5 z tests_r3.txt
+
+WERDYKT: FAIL — CODE FIXES PASS, REQUIRED TEST EVIDENCE INCOMPLETE
+
+Nie znaleziono nowego błędu wykonywalnego kodu w poprawkach R3-1..R3-4.
+Rozszerzona niezależna macierz również potwierdza zachowanie R1-2 i R1-4.
+Blokada dotyczy wyłącznie niepełnego, literalnie wymaganego artefaktu testowego
+R3-5 na audytowanym SHA.
+
+-------------------------------------------------------------------------------
+STATUS POPRZEDNICH FINDINGS
+-------------------------------------------------------------------------------
+
+R3-1 — PASS
+
+- Na świeżym schemacie trigger UPDATE sprawdza OLD i NEW.
+- Dostarczony test audytowy przechodzi dla wszystkich czterech tabel:
+  assignments, shift_demands, deviations, schedule_version_applied_rules.
+- INSERT/UPDATE/DELETE pod FINAL pozostają chronione.
+
+R3-2 — PASS
+
+- Current reference jest związany z tym samym site_id/month złożonym FK.
+- covers_demand_id i mentor_primary_assignment_id są związane z tym samym
+  schedule_version_id.
+- Bezpośrednie warianty other-Site, other-month, cross-version demand i mentor
+  z tests/test_audit_t008_r3.py są odrzucane.
+- Zmiana kolejności insert/delete poprawnie respektuje natychmiastowe FK.
+
+R3-3 — PASS
+
+- Publiczne create_schedule_version oraz save_work_balance_target odrzucają
+  month.day != 1.
+- Świeży schemat zawiera odpowiadające CHECK dla obu trwałych kluczy.
+
+R3-4 — PASS
+
+- Wszystkie sześć DeviationCategory wraca jako właściwy enum.
+- Migawka odczytana przez get_schedule_snapshot jest ponownie akceptowana
+  przez replace_working_snapshot bez AttributeError.
+
+R3-5 — PARTIAL
+
+Poprawnie domknięto:
+
+- prawdziwą migrację z niepustej bazy T007/v1 zamiast wcześniejszego testu,
+  który najpierw dochodził do latest;
+- integration deltas 3-6: truthful partial, sześciodniowy predecessor context,
+  REALIZED-vs-PLANNED holiday oraz zero/non-zero Deviation status transition;
+- wykluczenia PLANNED/CANCELLED/TRAINEE/non-holiday z holiday history.
+
+Pozostają dwa braki dowodu opisane poniżej.
+
+-------------------------------------------------------------------------------
+R4-1 — MEDIUM — OBOWIĄZKOWA MACIERZ R1-2/R1-4 JEST NADAL NIEPEŁNA
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+
+- review_01_architect_clarification.md R1-2 Test correction wymaga odrzucenia
+  zmian employee/time/role/state/reference parent REALIZED oraz atomowości;
+- R1-4 wymaga jawnego dowodu, że non-current REALIZED PRIMARY nie trafia do
+  holiday history;
+- AGENTS.md wymaga pokrywania klasy błędu i sibling cases, nie tylko jednego
+  literalnego przykładu.
+
+Brak 1 — REALIZED:
+
+- test_r1_2_rejects_modified_not_only_omitted_realized_field zmienia wyłącznie
+  start_datetime jednego Assignmentu;
+- nie testuje employee, end time, state PLANNED/CANCELLED, frozen, role,
+  covers_demand_id ani mentor_primary_assignment_id;
+- nie asertuje w tym negatywnym przebiegu braku V2, zachowania current reference
+  i niezmienności parent snapshot.
+
+Brak 2 — holiday non-current:
+
+- test_holiday_history_exclusion_matrix tworzy V1 i V2 z tym samym
+  assignment_id ASG-REALIZED;
+- następnie porównuje set identyfikatorów;
+- gdyby query błędnie zwróciło rekord z current i drugi z non-current, set
+  zredukowałby oba do jednego ASG-REALIZED i test nadal byłby zielony;
+- test nie dowodzi więc wymaganego wykluczenia non-current.
+
+Niezależny test tests/test_audit_t008_r4.py domyka obie klasy:
+
+- 9 mutacji REALIZED: employee, start, end, PLANNED, CANCELLED, frozen,
+  demand reference, poprawna strukturalnie zmiana PRIMARY→TRAINEE oraz zmiana
+  mentor reference;
+- po każdej porażce: brak V2, current nadal V1, parent byte-for-byte bez zmian;
+- dodatni przypadek parent PLANNED→child REALIZED;
+- holiday V-OLD/ASG-OLD kontra V-CURRENT/ASG-CURRENT, bez maskowania przez set.
+
+Wynik: 11/11 PASS. Oznacza to brak wykrytego błędu kodu, ale te obowiązkowe
+testy nie należą do audytowanego SHA 248ad8d.
+
+Wymagana korekta:
+
+- dodać pełną macierz do trwałej suity (można przyjąć dostarczony
+  tests/test_audit_t008_r4.py bez zmiany semantyki);
+- bez zmian kodu produkcyjnego, jeżeli pozostaje zielona;
+- kolejny re-audyt ograniczyć do exact SHA, obecności testów i pełnej suity.
+
+-------------------------------------------------------------------------------
+ŚWIADOMIE ODRZUCONY FALSE POSITIVE
+-------------------------------------------------------------------------------
+
+Nie wymagam migracji z pośredniego schematu v2 z odrzuconego SHA 3f48633.
+T008 nie został jeszcze zaakceptowany ani zmergowany; kontrakt wymaga migracji
+z zaakceptowanej, nieversionowanej bazy T004/T005/T007. Ta ścieżka jest teraz
+testowana prawidłowo. Wymaganie v2→v3 na tym etapie rozszerzałoby kontrakt
+przez audytora, więc nie jest findingiem.
+
+Nie wymagam też storage-level FK dla cross-Site parent/applied-rule ponad
+minimum zapisane w sekcji STORAGE-LEVEL INTEGRITY. Publiczne API waliduje te
+inwarianty; kontrakt dopuszcza repository-level validation jako uzupełnienie.
+
+-------------------------------------------------------------------------------
+WERYFIKACJA
+-------------------------------------------------------------------------------
+
+1. HEAD lokalny, task/ROTA-T008 i origin/task/ROTA-T008:
+   248ad8d5ecc7f5de1b83cf42c4cc8d10e1cdaeb4.
+
+2. Testy audytowe rundy 3:
+   17 passed.
+
+3. Suita dostarczona na audytowanym SHA:
+   288 passed.
+
+4. Niezależna macierz rundy 4:
+   11 passed.
+
+5. Pełna suita z niezależną macierzą:
+   299 passed.
+
+6. Ruff:
+   PASS, także dla tests/test_audit_t008_r4.py.
+
+7. ROTA-REG-001:
+   pozostaje częścią zielonej suity; 7 warunków bez zmiany.
+
+8. Benchmark syntetyczny (nie benchmark realnego obiektu):
+   100/100 PASS; p50=0.067s, p95=0.478s, max=3.423s, total=17.449s.
+
+9. Limity:
+   max file 569/600; max function 48/50 — PASS.
+
+10. git diff --check dla 3f48633..248ad8d:
+    PASS.
+
+-------------------------------------------------------------------------------
+ARCHITECTURE_PROPOSALS
+-------------------------------------------------------------------------------
+
+Brak. R4-1 jest wyłącznie brakującym dowodem wymaganym przez istniejący
+clarification, nie propozycją zmiany architektury ani produktu.
