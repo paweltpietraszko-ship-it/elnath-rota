@@ -1,9 +1,11 @@
-"""R4 tests for the simplified real-object benchmark."""
+"""R5 tests for the simplified real-object benchmark."""
 from __future__ import annotations
 
 import json
 from dataclasses import replace
 from types import SimpleNamespace
+
+import pytest
 
 import benchmarks.real_object as benchmark_runner
 from benchmarks.real_object import _json_value, run_case, run_matrix
@@ -14,8 +16,9 @@ from benchmarks.real_object_scenarios import (
     EXTERNAL_EMPLOYEES, LOCAL_EMPLOYEES, calendar_scenarios, core_scenarios,
 )
 from benchmarks.real_object_types import (
-    BenchmarkVerdict, ExpectedStatus, ExpectationKind, RuleSpec,
+    BenchmarkVerdict, ExpectedStatus, ExpectationKind, FixedAssignmentSpec, RuleSpec,
 )
+from rota.domain import AssignmentState
 from rota.planning.engine import plan
 from rota.planning.engine_types import Blocker, DecisionRequiredPayload, PlanningResult
 
@@ -148,6 +151,67 @@ def test_candidate_checker_detects_illegal_employee():
     ]
     checked = check_candidate(scenario, mutated)
     assert any("DAY_ONLY-01" in error for error in checked.errors)
+
+
+@pytest.mark.parametrize(
+    ("employee_id", "demand_suffix", "expected_reason"),
+    [
+        ("Z", "-D", "UNKNOWN_EMPLOYEE"),
+        ("C", "-N", "DAY_ONLY-01"),
+        ("X", "-D", "EXTERNAL"),
+    ],
+)
+def test_untrusted_realized_cannot_bypass_eligibility(
+    employee_id, demand_suffix, expected_reason,
+):
+    scenario, candidate = _clean_candidate()
+    target = next(item for item in candidate if item.covers_demand_id.endswith(demand_suffix))
+    mutated = [
+        replace(item, employee_id=employee_id, state=AssignmentState.REALIZED)
+        if item.assignment_id == target.assignment_id else item
+        for item in candidate
+    ]
+    checked = check_candidate(scenario, mutated)
+    assert any("untrusted REALIZED assignment" in error for error in checked.errors)
+    assert any(expected_reason in error for error in checked.errors)
+
+
+def test_exact_input_realized_remains_trusted_history():
+    scenario, candidate = _clean_candidate()
+    target = candidate[0]
+    fixed = FixedAssignmentSpec(
+        target.assignment_id,
+        target.employee_id,
+        target.start_datetime,
+        target.end_datetime,
+        "REALIZED",
+        True,
+        target.covers_demand_id,
+    )
+    historical = replace(scenario, fixed_demand_assignments=(fixed,))
+    preserved = [
+        replace(item, state=AssignmentState.REALIZED)
+        if item.assignment_id == target.assignment_id else item
+        for item in candidate
+    ]
+    assert check_candidate(historical, preserved).errors == ()
+
+
+def test_run_case_rejects_all_untrusted_realized_variants(monkeypatch):
+    scenario, candidate = _clean_candidate()
+    variants = (("Z", "-D"), ("C", "-N"), ("X", "-D"))
+    for employee_id, demand_suffix in variants:
+        target = next(item for item in candidate if item.covers_demand_id.endswith(demand_suffix))
+        mutated = [
+            replace(item, employee_id=employee_id, state=AssignmentState.REALIZED)
+            if item.assignment_id == target.assignment_id else item
+            for item in candidate
+        ]
+        fake = PlanningResult("FEASIBLE", [mutated], None, None, [])
+        monkeypatch.setattr(benchmark_runner, "plan", lambda _state, fake=fake: fake)
+        result = run_case(scenario)
+        assert result["verdict"] == BenchmarkVerdict.PRODUCTION_MISMATCH.value
+        assert any("untrusted REALIZED assignment" in error for error in result["errors"])
 
 
 def test_candidate_checker_detects_rest_violation():
