@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -327,9 +327,26 @@ def _final_guard_triggers() -> tuple[str, ...]:
     return tuple(triggers)
 
 
+# ---------------------------------------------------------------------------
+# Migration 3 -- ROTA-T009: coordinator-facing "Obowiazuje od" provenance.
+# Legacy pre-T009 rows keep effective_from = NULL (genuinely unknown, never
+# guessed); every version created going forward supplies it explicitly.
+# effective_from is immutable once set, same as created_at -- changing it
+# means creating another child version, not rewriting this one.
+# ---------------------------------------------------------------------------
+_MIGRATION_3: tuple[str, ...] = (
+    "ALTER TABLE schedule_versions ADD COLUMN effective_from TEXT",
+    """CREATE TRIGGER IF NOT EXISTS schedule_versions_no_effective_from_change
+       BEFORE UPDATE ON schedule_versions
+       WHEN NEW.effective_from IS NOT OLD.effective_from
+       BEGIN SELECT RAISE(ABORT, 'schedule_versions: effective_from is immutable once set'); END""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
+    (3, _MIGRATION_3),
 )
 
 

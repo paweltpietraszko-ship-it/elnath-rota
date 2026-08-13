@@ -1,0 +1,106 @@
+ROTA-T009 — PRE-IMPLEMENTATION CONTRACT AUDIT R1
+Data: 2026-08-13
+Audytowany SHA: 85bc18547c78c74bcc080486ed6a27ceed15b433
+Gałąź: arch/rota-t009-application-layer-2026-08-13
+Integrated base: 81c30912bb24ed70a6cc095916fd2d3b6a2071fb
+
+WERDYKT: WYMAGA JEDNEGO ROZSTRZYGNIĘCIA KONTRAKTOWEGO PRZED IMPLEMENTACJĄ
+
+T009 NIE jest zbędną warstwą ceremonialną i nie rekomenduję wyrzucenia tasku.
+Kontrakt przypisuje application layer realne obowiązki, których nie posiadają
+ani LocalStore, ani PlanningEngine: złożenie PlanningState z trwałych źródeł,
+sterowanie PLAN/REPLAN i wyborem kandydata, pilnowanie cyklu ScheduleVersion,
+ponowną walidację przed zapisem/finalizacją oraz udostępnienie jednej granicy
+dla przyszłego T010/UI. Bez tej granicy T010 albo UI musiałyby samodzielnie
+koordynować repozytoria, PlanningEngine i historię wersji.
+
+Reguła ANTI-BUREAUCRACY jest testowalna i trafna: task jawnie zabrania command
+bus, workflow engine, DI framework, klas per przycisk, kopii DTO i warstw
+forwardujących. Sam rozmiar listy przypadków użycia nie czyni jej biurokracją.
+
+
+BLOCKER R1-1 — „MANUAL SPLIT VALIDATES CORRECTLY” JEST SPRZECZNY Z ISTNIEJĄCYM
+VALIDATOREM I ZAKAZEM ZMIANY HARD
+
+Ślad kontraktowy:
+- brief T009, sekcja 8: ręczna edycja ma pozwalać „split one demand across
+  sequential PRIMARY assignments”;
+- test 11: „manual split coverage is storable and validates correctly”;
+- OUT OF SCOPE: brak nowych solver objectives/HARD semantics;
+- frozen arch/spec.md COVERAGE-01: wymagany ShiftDemand ma być pokryty w 100%;
+- arch/spec.md: każda zmiana ma dokładnie required_primary_count PRIMARY.
+
+Stan accepted base:
+- T008 świadomie pozwala trwale przechować częściowe PRIMARY/split jako
+  prawdziwy stan operacyjny;
+- rota/planning/validator.py:_check_coverage nie mierzy unii przedziałów.
+  Liczy liczbę PRIMARY wskazujących demand_id i wymaga dokładnie
+  required_primary_count;
+- dla profilu OCHRONA required_primary_count=1, więc dwa kolejne PRIMARY
+  pokrywające po części jeden demand dają actual=2 i COVERAGE-01.
+
+W rezultacie CC nie może jednocześnie:
+1. użyć „existing validator” zgodnie z briefem;
+2. uznać dwuczęściowy split za poprawnie pokryty;
+3. nie zmienić semantyki HARD/validatora.
+
+To nie jest wybór implementacyjny. Kontrakt musi zdecydować, czy:
+- T009 tylko przechowuje split jako stan z Deviation, bez twierdzenia, że
+  istniejący validator uzna go za poprawne pokrycie; albo
+- zamrożona zostaje nowa semantyka coverage dla sekwencyjnych części i jawnie
+  rozszerza się zakres o odpowiednią zmianę validatora.
+
+Codex nie wybiera jednej z tych opcji.
+
+
+BLOCKER R1-2 — COVERAGE DEVIATION DLA PUSTEGO DEMANDU NIE MA LEGALNEGO
+AFFECTED TARGET W T008
+
+Ślad kontraktowy:
+- brief T009 wymaga zapisania ręcznego coverage gap i natychmiastowego
+  zmaterializowania COVERAGE Deviation;
+- mapowanie wymaga COVERAGE-01 -> COVERAGE;
+- T008/frozen Deviation wymaga affected_assignment_or_employee;
+- accepted T008 validation dopuszcza tam wyłącznie istniejącego Employee albo
+  Assignment z tej samej ScheduleVersion.
+
+Dla typowego pustego demandu validator zwraca COVERAGE-01 bez assignment_id,
+bo naruszenie dotyczy demandu. Nie istnieje Assignment, który można wskazać,
+a wybranie dowolnego Employee byłoby zmyśleniem odpowiedzialności. Demand_id
+jest naturalnym identyfikatorem naruszenia, lecz T008 jawnie go obecnie nie
+dopuszcza w affected_assignment_or_employee.
+
+CC musiałby więc zgadnąć nieistniejącą semantykę albo stworzyć nieprawdziwy
+rekord. Kontrakt musi jawnie ustalić legalną reprezentację Deviation dla
+COVERAGE-01 bez Assignment. Jest to decyzja na granicy T008/T009, nie detal
+implementacyjny.
+
+
+OCENA POZOSTAŁEGO ZAKRESU
+
+Poza dwoma powiązanymi blockerami nie znalazłem podstawy do uznania T009 za
+ceremonię ani do żądania przebudowy tasku:
+- canonical PlanningState assembler ma realnego konsumenta i eliminuje
+  składanie domeny w T010/UI;
+- PLAN/select/REPLAN/finalize/restore dodają zachowanie aplikacyjne ponad
+  operacje repository;
+- structured SiteRule seam jest konieczną, wąską granicą dla T010 i nie
+  zawiera parsera;
+- backup i filtrowany diagnostic ZIP były objęte owner-approved roadmapą;
+- precheck istnieje w frozen spec i został ograniczony tak, by nie udawał
+  solvera;
+- zakazy zależności i testy restart/atomowość odpowiadają przyjętym granicom
+  T004–T008.
+
+
+WARUNEK ZAMKNIĘCIA
+
+Wystarczy jedna korekta/clarification rozstrzygająca R1-1 i R1-2. Nie ma
+potrzeby ponownie redagować całego briefu ani dodawać nowych warstw.
+
+Jeżeli autor kontraktu nie potrafi rozstrzygnąć tych dwóch punktów jednym
+krótkim uzupełnieniem bez doprojektowywania dużego subsystemu, należy usunąć z
+T009 ręczne split/gap+Deviation i odłożyć tę funkcję z aktualnego scope — nie
+budować prowizorki. Nie jest to jednak podstawa do wyrzucenia całego T009.
+
+STATUS DLA CC: NOT READY FOR IMPLEMENTATION na SHA 85bc18547c78c74bcc080486ed6a27ceed15b433.

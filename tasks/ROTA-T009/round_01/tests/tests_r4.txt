@@ -1,0 +1,371 @@
+ROTA-T009 — AUDYT IMPLEMENTACJI, RUNDA 4
+
+Data: 2026-08-13
+Audytowany SHA: 1de655874693473f6c6eae3402668fd38f92f13a
+Gałąź: task/ROTA-T009
+Contract set:
+- tasks/ROTA-T009/brief.md (85bc18547c78c74bcc080486ed6a27ceed15b433)
+- review_01_architect_clarification.md
+  (0d5fdfa31844b0932a2c23654b7b8ced8c4edc50)
+- review_02_architect_clarification.md
+  (9e41a8e0b65692fc526924d407feda3b964c5fc7)
+
+WERDYKT: FAIL — NOT READY TO MERGE
+
+Stara i dostarczona suita przechodzi 352/352, ale niezależna macierz
+tests/test_audit_t009_r4.py daje 30 czerwonych przypadków i 2 zielone
+kontrole. To nie jest lista 30 punktowych usterek. Przypadki są pogrupowane
+poniżej w 12 klas przyczyn źródłowych. Naprawa pojedynczego reproduktora nie
+zamyka findingu; musi przejść cała przypisana macierz rodzeństwa.
+
+Nie stwierdzam, że pakiet application trzeba wyrzucić. Fundamentalny podział
+persistence/planning/application jest zachowany, a regresji PlanningEngine
+nie wykryto. Błędy dotyczą przede wszystkim granic integracyjnych, które T009
+ma posiadać: atomowości przypadku użycia, kontekstu koordynatora/Site,
+kwalifikacji danych wejściowych i poprawnego złożenia PlanningState.
+
+-------------------------------------------------------------------------------
+R4-1 — HIGH — wieloetapowe application writes nie są atomowe
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- brief.md TRANSACTION / RESTART RULES: jedna application write albo kończy
+  się w całości, albo pozostawia poprzedni trwały agregat bez zmian;
+- R2 zamraża tę własność wprost dla manual correction; ogólna reguła briefu
+  obowiązuje również pozostałe przypadki użycia.
+
+Jedna klasa występuje w czterech sąsiednich przepływach:
+
+1. Pierwszy PLAN zapisuje pustą ScheduleVersion i current reference przed
+   złożeniem kompletnego PlanningState. Brak CalendarDay rzuca
+   IncompleteCalendarData, ale pusta wersja pozostaje current.
+2. REPLAN zapisuje i przełącza current na child przed złożeniem kontekstu.
+   Ten sam błąd pozostawia częściowo wykonany REPLAN i zmieniony current.
+3. finalize najpierw trwale rewaliduje, potem sprawdza exact acknowledgement,
+   potem osobno zapisuje acknowledgement i osobno FINAL. Złe ID pozostawia
+   skutki rewalidacji; awaria finalnego zapisu pozostawia acknowledgement
+   mimo nieudanego finalize.
+4. mark_training_realized najpierw trwale tworzy child, a dopiero potem
+   osobno aktualizuje readiness. Awaria readiness pozostawia child/current.
+
+Macierz fault injection / rejection: 5 czerwonych przypadków.
+
+Wymagana własność naprawy: wyjątek przed końcem każdej z tych application
+actions pozostawia poprzedni current, liczbę wersji i migawkę byte-for-byte
+bez zmian. Nie wymagam nowego Unit of Work/frameworka; kontrakt zabrania
+takiej biurokracji. Wymagany jest skutek transakcyjny, nie konkretna technika.
+
+-------------------------------------------------------------------------------
+R4-2 — HIGH — prepared child jest walidowany razem z własnym trwałym parentem
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- canonical assembler: nie duplikuje target-version Assignments w boundary;
+- R2 krok 6: prepared in-memory child ma być walidowany z boundary/cross-Site,
+  nie z drugą kopią własnego miesiąca.
+
+assemble_planning_state dla prepared content wyklucza z boundary przekazany
+schedule_version_id. apply_manual_correction nie przekazuje child ID, więc
+wykluczeniem jest pusty string. Current parent wchodzi jako boundary obok
+sklonowanych Assignments dziecka.
+
+Reprodukcja klasowa wykonuje rzeczywistą zmianę frozen na jednym Assignment.
+Program materializuje fałszywe REST-01/LOAD-01 wynikające z dwóch kopii tych
+samych zmian, choć nie występują one w żadnym pojedynczym grafiku.
+
+Wymagana własność naprawy: prepared target snapshot występuje dokładnie raz;
+target month/current parent nie może wrócić przez boundary. Prawdziwe
+poprzedni/następny miesiąc i inne Site nadal muszą pozostać w kontekście.
+
+-------------------------------------------------------------------------------
+R4-3 — HIGH — kontekst koordynatora/Site nie chroni całej klasy zapisów
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- COORDINATOR CONTEXT: każdy coordinator-originated write wymaga aktywnego
+  Coordinator, Site i CoordinatorSiteAssociation;
+- cienkie komendy durable input mają walidować ten kontekst.
+
+Macierz ujawnia dwa warianty tej samej granicy:
+
+A. select_candidate i revalidate zapisują bez coordinator_id i bez
+   require_active_coordinator_context. Obie operacje przechodzą po wyłączeniu
+   COORD-1.
+
+B. durable_inputs sprawdza tylko przekazane site_id, ale nie wiąże z nim
+   obiektu zapisywanego. Koordynator Site A może przez komendę Site A:
+   - utworzyć ExternalSupportWindow dla Site B;
+   - zmienić SiteMembership należący do Site B;
+   - nadpisać SiteProfile przypisany do Site B.
+
+Macierz: 5 czerwonych przypadków. Nie testuję tutaj globalnych Employee /
+Availability / WorkBalance, bo ich dokładny ownership między Site nie jest w
+T009 wystarczająco jednoznaczny; nie rozszerzam wymagania przez audyt.
+
+Wymagana własność naprawy: każda coordinator-originated mutacja sprawdza
+aktywny kontekst, a payload posiadający własny Site/profile scope musi należeć
+do tego samego kontekstu.
+
+-------------------------------------------------------------------------------
+R4-4 — HIGH — „mark training REALIZED” nie sprawdza, czy trening się kwalifikuje
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- brief.md operation 9: readiness zmienia się po kwalifikującym TRAINEE,
+  który staje się REALIZED;
+- arch/spec.md SiteProfile: training_s_enabled,
+  training_s_weekdays_only i próg REALIZED TRAINEE.
+
+mark_training_realized przyjmuje dowolny Assignment i bez walidacji liczy go
+do readiness po zapisaniu:
+- PRIMARY w stanie REALIZED;
+- TRAINEE w stanie PLANNED;
+- REALIZED TRAINEE przy training_s_enabled=false;
+- weekendowy REALIZED TRAINEE przy training_s_weekdays_only=true.
+
+Dwa pierwsze warianty tworzą child mimo niezgodności nazwy/kontraktu operacji.
+Dwa ostatnie podnoszą NOT_READY do READY_FOR_PRIMARY przy progu 1, choć rekord
+nie spełnia profilu. Macierz: 4 czerwone przypadki.
+
+Wymagana własność naprawy: do automatycznego readiness liczą się tylko
+rzeczywiste, kwalifikujące REALIZED TRAINEE. COORDINATOR_OVERRIDE nadal nie
+może być nadpisywany.
+
+-------------------------------------------------------------------------------
+R4-5 — MEDIUM — nowe wersje nie wymagają rzeczywistego effective_from: date
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- R1 SCHEDULEVERSION DATES: każda nowa wersja T009 wymaga ręcznie podanego
+  effective_from: date; None jest dozwolone tylko dla legacy pre-T009.
+
+Macierz wszystkich publicznych ścieżek tworzenia:
+- first PLAN poprawnie odrzuca None (zielona kontrola);
+- REPLAN i manual correction akceptują None i zapisują nowy wiersz NULL;
+- first PLAN, REPLAN i manual correction przyjmują datetime. Wartość zostaje
+  zapisana jako pełny timestamp; późniejszy odczyt date.fromisoformat rzuca,
+  ale wadliwa wersja i current są już trwale zapisane.
+
+Wynik: 5 czerwonych przypadków + 1 zielona kontrola.
+
+Wymagana własność naprawy: wszystkie coordinator-facing ścieżki fail-closed
+przed zapisem dla None, datetime i każdego typu innego niż rzeczywisty date.
+Training/freeze delegujące do manual correction mają odziedziczyć tę samą
+granicę, nie osobne łatki.
+
+-------------------------------------------------------------------------------
+R4-6 — MEDIUM — canonical assembler ignoruje jawny schedule_version_id
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- assembler ma budować PlanningState dla (site_id, month,
+  schedule_version_id) i zwracać exact schedule_version_id.
+
+Po utworzeniu V1 i current V2 wywołanie assemblera z schedule_version_id=V1
+zwraca content oraz ID V2. Argument jest używany tylko, gdy caller równocześnie
+przekaże shift_demands; sam identyfikator trwałej wersji jest ignorowany.
+
+Wymagana własność naprawy: jawnie wskazana trwała wersja jest targetem, także
+gdy nie jest current. Surrounding/cross-Site context nadal korzysta wyłącznie
+z current versions i nie może dołączyć target month jako boundary.
+
+-------------------------------------------------------------------------------
+R4-7 — MEDIUM — precheck myli pełne/p częściowe fixed coverage z niedoborem
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- precheck może zgłosić tylko brak oczywisty i nie może wprowadzać w błąd
+  przez błędne liczenie zapotrzebowania;
+- istniejące fixed Assignments są częścią świeżego PlanningState.
+
+precheck pyta eligible_employees_for_demands, które zwraca wyłącznie sloty
+pozostałe po odjęciu fixed coverage, lecz porównuje ich liczbę z całym
+required_primary_count. Dla demandu już w pełni pokrytego REALIZED lista
+slotów jest pusta i demand zostaje oznaczony jako under-covered.
+
+To samo źródło obejmuje częściowe fixed coverage przy required count > 1:
+porównywać trzeba pozostałą potrzebę, nie pierwotną obsadę.
+
+Wymagana własność naprawy: fully fixed coverage nigdy nie jest shortage;
+partially fixed coverage porównuje eligible count wyłącznie z remaining need.
+
+-------------------------------------------------------------------------------
+R4-8 — MEDIUM — generator demandów nie zachowuje „jednego occurrence per shift”
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- INITIAL SHIFTDEMAND GENERATION: jeden occurrence każdego elementu
+  SiteProfile.standard_shifts każdego dnia;
+- T004 zachowuje ordered list i nie zamraża unikalności ShiftKind.
+
+ID ma postać date-kind. Profil z dwiema różnymi godzinowo zmianami rodzaju D
+generuje 56 obiektów w lutym 2027, ale tylko 28 unikalnych demand_id. Próba
+utrwalenia pełnego zestawu kończy się duplicate demand_id zamiast pierwszego
+PLAN.
+
+Wymagana własność naprawy: deterministyczne ID rozróżnia każde skonfigurowane
+occurrence; standardowy profil D/N ma zachować stabilne zachowanie.
+
+-------------------------------------------------------------------------------
+R4-9 — MEDIUM — Open Site/month pomija wymagane current availability
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- operation 1 literalnie wymaga Employees/memberships/current availability.
+
+Assembler wczytuje rekordy, ale OpenMonthView ich nie posiada i open_month
+ich nie zwraca. Aktywny LEAVE_GRANTED zapisany przed open jest niewidoczny w
+wyniku operacji.
+
+Wymagana własność naprawy: read model otwarcia zwraca bieżącą dostępność dla
+załadowanych pracowników bez wykonania zapisu.
+
+Nie klasyfikuję w tej rundzie samego braku pełnego ScheduleSnapshot w
+OpenMonthView jako defect: sformułowanie „current ScheduleVersion” może być
+czytane jako istniejący nagłówek domenowy, a wymaganie kompletnej migawki nie
+jest wystarczająco jednoznaczne, by audytor rozszerzał je testem.
+
+-------------------------------------------------------------------------------
+R4-10 — MEDIUM — bieżący REALIZED holiday Assignment jest liczony podwójnie
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- assembler ma dostarczyć holiday history z current REALIZED PRIMARY;
+- istniejąca fairness sumuje historical + fixed current-run hours;
+- jedna rzeczywista Assignment nie może wnosić godzin dwukrotnie.
+
+Assembler wkłada bieżący REALIZED PRIMARY jednocześnie do
+existing_assignments i holiday_history. solver._base_holiday_hours liczy go
+raz przez historical history i drugi raz przez fixed_existing_assignments.
+Reprodukcja: pojedyncze 12h pracy daje bazę 24h.
+
+Skutek dotyczy SOFT holiday fairness, nie HARD legality. Może zmienić wybór
+kandydata, choć ten sam fakt wystąpił tylko raz.
+
+Wymagana własność naprawy: history/current fixed muszą być rozłączne albo
+deduplikowane tożsamościowo; wcześniejsze miesiące nadal są historią.
+
+-------------------------------------------------------------------------------
+R4-11 — MEDIUM — dwa jawne wymagania granicy/assemblera nie mają testu ani implementacji
+-------------------------------------------------------------------------------
+
+A. Canonical assembler ma ładować „current active AvailabilityRecords”, ale
+do PlanningState wkłada także current record z active=false. Eligibility go
+ignoruje, więc nie jest to obecnie błąd HARD wyniku solvera, ale jest to
+niezgodny z kontraktem kontekst przekazywany downstream.
+
+B. DEPENDENCY BOUNDARY mówi jednoznacznie „application contains no SQL/table
+names”. context.py i backup.py wykonują bezpośrednie SQL/PRAGMA oraz znają
+konkretne tabele. Dostarczony dependency test sprawdza wyłącznie importy
+UI i w ogóle nie testuje tej klauzuli.
+
+Macierz: 2 czerwone przypadki (active/inactive oraz statyczny skan całego
+pakietu application).
+
+To nie jest moja preferencja architektoniczna: oba wymagania są literalne w
+brief.md. Nie zaliczam natomiast sprzecznego zdania test item 18 „no
+application import from persistence” jako defect — jest oczywistą odwrotnością
+głównego diagramu i reszty kontraktu, które wprost wymagają application ->
+persistence. Interpretacja CC tego jednego zdania jest zaakceptowana.
+
+-------------------------------------------------------------------------------
+R4-12 — HIGH — caller może ominąć fresh candidate validation przez REALIZED
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- select candidate przyjmuje FEASIBLE candidate i przed zapisem ma sprawdzić
+  dostarczony kandydat w fresh assembled context przez independent validator;
+- wyjątek validatora dla REALIZED dotyczy zachowanej historii, której nowe
+  dane availability nie mogą unieważniać retroaktywnie, nie nowych rekordów
+  sfabrykowanych przez caller.
+
+PlanningEngine zwraca PLANNED Assignments, ale select_candidate przyjmuje
+dowolną listę bez registry/provenance. Caller może zmienić Assignment.state na
+REALIZED. Validator wyłącza wtedy całą rodzinę eligibility checks i zapis
+przechodzi mimo świeżego naruszenia.
+
+Macierz trzech niezależnych bram:
+- nowy UNAVAILABLE_24H dla przydzielonego pracownika;
+- N pracownika zmienionego na DAY_ONLY;
+- podmiana pracownika na X bez ExternalSupportWindow.
+
+Wszystkie trzy sfabrykowane REALIZED zostają zaakceptowane i zapisane jako
+wybrany candidate.
+
+Wymagana własność naprawy: retroaktywne zwolnienie eligibility przysługuje
+wyłącznie REALIZED, który jest zaufanym, dokładnie zachowanym wejściowym faktem.
+Nowy/zmieniony REALIZED na ścieżce select candidate podlega normalnej fresh
+validation albo jest odrzucany jako niedozwolony kształt kandydata. Nie jest
+wymagany in-memory candidate registry — kontrakt wprost go nie wymaga.
+
+-------------------------------------------------------------------------------
+ZIELONE KONTROLE / ŚWIADOME WYŁĄCZENIA
+-------------------------------------------------------------------------------
+
+1. Manual PRIMARY z covers_demand_id nieistniejącym w tej samej wersji jest
+   odrzucany atomowo. Geometric multi-demand coverage nie rozluźniło
+   integralności referencji T008.
+
+2. First PLAN odrzuca effective_from=None przed utworzeniem wersji.
+
+3. Nie zgłaszam jako finding różnicy integrated base 81c309 -> repo_before
+   1d0a899. 1d0a899 jest późniejszym owner-current main, potomkiem 81c309,
+   dodającym zaakceptowany benchmark/regresje i ręczne audyty. W świetle
+   późniejszej decyzji właściciela nie ma podstaw, by uznać to za błąd kodu.
+
+4. Nie żądam walidacji ownership dla globalnych Employee/Availability/
+   WorkBalance ponad to, co jednoznacznie zapisano. To wymagałoby dopisania
+   polityki autoryzacji przez audytora.
+
+-------------------------------------------------------------------------------
+WERYFIKACJA
+-------------------------------------------------------------------------------
+
+1. HEAD lokalny, branch i origin/task/ROTA-T009:
+   1de655874693473f6c6eae3402668fd38f92f13a.
+
+2. Suita dostarczona, bez niezależnego testu audytowego:
+   352 passed.
+
+3. Niezależna macierz tests/test_audit_t009_r4.py:
+   30 failed, 2 passed.
+   30 reprodukcji mapuje się do powyższych klas, nie do 30 findings.
+
+4. Ruff dla rota/, dostarczonych testów T009 i testu audytowego:
+   PASS.
+
+5. ROTA-REG-001:
+   7 passed.
+
+6. Syntetyczny benchmark PlanningEngine:
+   100/100 PASS; p50=0.065s, p95=0.466s, max=3.255s, total=16.972s.
+   Nie jest acceptance gate T009 i nie obejmuje wskazanych błędów application.
+
+7. Limity:
+   max production file 586/600; max function 48/50 — PASS.
+
+8. git diff --check base..1de6558:
+   PASS.
+
+-------------------------------------------------------------------------------
+WYMAGANA FORMA POPRAWKI I RE-AUDYTU
+-------------------------------------------------------------------------------
+
+- Naprawiać przyczyny klasowe, nie kolejne 30 literalnych przykładów.
+- Dołączyć tests/test_audit_t009_r4.py jako trwałą regresję; wolno wykonać
+  wyłącznie mechaniczne porządki bez osłabiania asercji/zakresu macierzy.
+- Dla R4-1 stosować fault injection we wszystkich czterech przepływach.
+- Dla R4-3 zachować macierz operation x context/payload scope.
+- Dla R4-4 zachować macierz role/state/profile-enabled/weekday.
+- Dla R4-5 zachować wszystkie ścieżki tworzenia nowej wersji i typy graniczne.
+- Kolejny audyt powinien najpierw potwierdzić wszystkie klasy R4-1..R4-12,
+  a następnie wykonać ograniczony przegląd sąsiadujących zmienionych ścieżek,
+  nie rozpoczynać ponownie przypadkowej eksploracji od zera.
+
+-------------------------------------------------------------------------------
+ARCHITECTURE_PROPOSALS
+-------------------------------------------------------------------------------
+
+Brak. Wszystkie findings są śledzalne do frozen spec, brief.md lub dwóch
+zaakceptowanych clarifications. Raport nie proponuje nowej funkcji produktu,
+frameworka ani zmiany architektury.

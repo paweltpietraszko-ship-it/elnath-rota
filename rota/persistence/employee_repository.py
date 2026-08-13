@@ -75,24 +75,33 @@ def list_employees(conn: sqlite3.Connection) -> list[Employee]:
     return [_row_to_employee(row) for row in rows]
 
 
-def save_site_membership(conn: sqlite3.Connection, membership: SiteMembership) -> None:
+def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
+    """Same write as save_site_membership, without its own `with conn:` --
+    for a caller (e.g. rota/application/training.py) that must combine this
+    write with another one inside a single already-open transaction, since
+    nested `with conn:` blocks each commit independently in Python's sqlite3
+    module and cannot be composed into one atomic unit by nesting alone."""
     employee_row = conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (membership.employee_id,)).fetchone()
     site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (membership.site_id,)).fetchone()
     if employee_row is None or site_row is None:
         raise UnknownEmployeeOrSite((membership.employee_id, membership.site_id))
+    conn.execute(
+        """INSERT INTO site_memberships
+           (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(employee_id, site_id) DO UPDATE SET
+            membership_kind=excluded.membership_kind, enabled=excluded.enabled,
+            readiness_state=excluded.readiness_state, readiness_source=excluded.readiness_source""",
+        (
+            membership.employee_id, membership.site_id, membership.membership_kind.value,
+            int(membership.enabled), membership.readiness_state.value, membership.readiness_source.value,
+        ),
+    )
+
+
+def save_site_membership(conn: sqlite3.Connection, membership: SiteMembership) -> None:
     with conn:
-        conn.execute(
-            """INSERT INTO site_memberships
-               (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(employee_id, site_id) DO UPDATE SET
-                membership_kind=excluded.membership_kind, enabled=excluded.enabled,
-                readiness_state=excluded.readiness_state, readiness_source=excluded.readiness_source""",
-            (
-                membership.employee_id, membership.site_id, membership.membership_kind.value,
-                int(membership.enabled), membership.readiness_state.value, membership.readiness_source.value,
-            ),
-        )
+        write_site_membership_in_open_transaction(conn, membership)
 
 
 def _row_to_membership(row: tuple) -> SiteMembership:

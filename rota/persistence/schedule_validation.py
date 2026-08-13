@@ -10,7 +10,7 @@ import sqlite3
 from dataclasses import replace
 from datetime import date
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, Deviation, ScheduleStatus, ShiftDemand
+from rota.domain import Assignment, AssignmentRole, AssignmentState, Deviation, DeviationCategory, ScheduleStatus, ShiftDemand
 from rota.persistence.schedule_errors import InvalidScheduleLineage, MalformedScheduleSnapshot, RealizedWorkAltered
 from rota.persistence.schedule_repository import ScheduleVersionNotFound, get_schedule_snapshot, get_schedule_version_header
 
@@ -120,25 +120,33 @@ def validate_assignments(conn: sqlite3.Connection, month: date, assignments: lis
 
 
 def validate_deviations(
-    conn: sqlite3.Connection, deviations: list[Deviation], assignments_by_id: dict[str, Assignment]
+    conn: sqlite3.Connection, deviations: list[Deviation], assignments_by_id: dict[str, Assignment],
+    demands_by_id: dict | None = None,
 ) -> None:
     seen: set[str] = set()
     for deviation in deviations:
         if deviation.deviation_id in seen:
             raise MalformedScheduleSnapshot(f"duplicate deviation_id {deviation.deviation_id!r}")
         seen.add(deviation.deviation_id)
-        _validate_one_deviation(conn, deviation, assignments_by_id)
+        _validate_one_deviation(conn, deviation, assignments_by_id, demands_by_id or {})
 
 
-def _validate_one_deviation(conn: sqlite3.Connection, deviation: Deviation, assignments_by_id: dict) -> None:
+def _validate_one_deviation(
+    conn: sqlite3.Connection, deviation: Deviation, assignments_by_id: dict, demands_by_id: dict,
+) -> None:
     if not deviation.source_reference:
         raise MalformedScheduleSnapshot(f"deviation {deviation.deviation_id!r}: source_reference required")
     target = deviation.affected_assignment_or_employee
     is_employee = conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (target,)).fetchone() is not None
-    if not target or (not is_employee and target not in assignments_by_id):
+    # tasks/ROTA-T009/review_01_architect_clarification.md COVERAGE GAP
+    # DEVIATION TARGET: a coverage gap has no truthful Employee/Assignment to
+    # blame when nothing covers it -- a same-version ShiftDemand is also a
+    # legal target, but only for category=COVERAGE.
+    is_demand = target in demands_by_id and deviation.category == DeviationCategory.COVERAGE
+    if not target or not (is_employee or target in assignments_by_id or is_demand):
         raise MalformedScheduleSnapshot(
             f"deviation {deviation.deviation_id!r}: affected_assignment_or_employee must resolve to an "
-            "Employee or a same-version Assignment"
+            "Employee, a same-version Assignment, or (for COVERAGE) a same-version ShiftDemand"
         )
     if deviation.acknowledged:
         if not deviation.acknowledged_by or not deviation.acknowledged_at:
