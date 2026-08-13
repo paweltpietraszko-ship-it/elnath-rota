@@ -54,6 +54,10 @@ def _rest_conflict(first: DemandSpec, second: DemandSpec) -> bool:
     return (first.start - second.end).total_seconds() / 3600 < REST_MIN_HOURS
 
 
+def _context_assignments(scenario: ScenarioSpec):
+    return (*scenario.boundary_assignments, *scenario.other_site_assignments)
+
+
 def _availability_reason(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> str | None:
     mapping = {
         "UNAVAILABLE_24H": "UNAVAILABLE-01",
@@ -99,8 +103,8 @@ def _window_covers(scenario, windows, employee_id: str, demand: DemandSpec) -> b
     )
 
 
-def _boundary_rest_reason(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> str | None:
-    for item in scenario.boundary_assignments:
+def _context_rest_reason(scenario: ScenarioSpec, employee_id: str, demand: DemandSpec) -> str | None:
+    for item in _context_assignments(scenario):
         if item.employee_id != employee_id or item.state == "CANCELLED":
             continue
         if _overlap(item.start, item.end, demand.start, demand.end):
@@ -123,7 +127,6 @@ def eligibility_reasons(
     windows: tuple[ExternalWindowSpec, ...] | None = None,
     realized: bool = False,
 ) -> tuple[str, ...]:
-    """Independent per-demand exclusion reasons using canonical public codes."""
     if realized:
         return ()
     selected = scenario.external_windows if windows is None else windows
@@ -139,9 +142,9 @@ def eligibility_reasons(
         reason for rule in scenario.site_rules
         if (reason := _rule_reason(rule, employee_id, demand))
     )
-    boundary = _boundary_rest_reason(scenario, employee_id, demand)
-    if boundary:
-        reasons.append(boundary)
+    context = _context_rest_reason(scenario, employee_id, demand)
+    if context:
+        reasons.append(context)
     if employee_id in EXTERNAL_EMPLOYEES and not _window_covers(scenario, selected, employee_id, demand):
         reasons.append("EXTERNAL-01")
     return tuple(dict.fromkeys(reasons))
@@ -214,7 +217,6 @@ def _add_collective_fixed_and_rest(scenario, selected, model, variables) -> set[
 
 
 def collective_shortage_evidence(scenario: ScenarioSpec, demand_ids: set[str]) -> dict:
-    """Independent uncapped coverage/REST proof for a reported demand set."""
     by_id = {item.demand_id: item for item in demands_for_month(scenario)}
     if not demand_ids or any(demand_id not in by_id for demand_id in demand_ids):
         return {"infeasible": False, "status_name": "INVALID_DEMAND_SET", "rest_employees": []}
@@ -292,16 +294,16 @@ def _coverage_and_eligibility(scenario, work: list[_Work], windows) -> list[str]
     return errors
 
 
-def _synthetic_boundary(scenario: ScenarioSpec) -> list[_Work]:
+def _synthetic_context(scenario: ScenarioSpec) -> list[_Work]:
     return [
         _Work(item.assignment_id, item.employee_id, item.start, item.end, item.demand_id, item.state)
-        for item in scenario.boundary_assignments if item.state != "CANCELLED"
+        for item in _context_assignments(scenario) if item.state != "CANCELLED"
     ]
 
 
 def _rest_errors(scenario: ScenarioSpec, work: list[_Work]) -> list[str]:
     grouped: dict[str, list[_Work]] = {}
-    for item in [*work, *_synthetic_boundary(scenario)]:
+    for item in [*work, *_synthetic_context(scenario)]:
         grouped.setdefault(item.employee_id, []).append(item)
     errors = []
     for employee_id, employee_work in grouped.items():
@@ -325,7 +327,7 @@ def _rolling_windows(scenario: ScenarioSpec) -> tuple[tuple[datetime, datetime],
 
 
 def _load_metrics(scenario, work: list[_Work]):
-    all_work = [*work, *_synthetic_boundary(scenario)]
+    all_work = [*work, *_synthetic_context(scenario)]
     maxima, violations = [], []
     for employee_id in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES):
         employee_work = [item for item in all_work if item.employee_id == employee_id]
