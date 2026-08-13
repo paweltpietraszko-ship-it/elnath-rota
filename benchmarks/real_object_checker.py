@@ -331,8 +331,28 @@ def _context_work(scenario: ScenarioSpec) -> list[_Work]:
     ]
 
 
+def _input_realized_by_id(scenario: ScenarioSpec) -> dict[str, object]:
+    return {
+        item.assignment_id: item
+        for item in scenario.fixed_demand_assignments
+        if item.state == AssignmentState.REALIZED.value
+    }
+
+
+def _matches_input_realized(item: _Work, fixed) -> bool:
+    return (
+        item.assignment_id == fixed.assignment_id
+        and item.employee_id == fixed.employee_id
+        and item.demand_id == fixed.demand_id
+        and item.start == fixed.start
+        and item.end == fixed.end
+        and item.state == fixed.state == AssignmentState.REALIZED.value
+    )
+
+
 def _coverage_and_eligibility(scenario: ScenarioSpec, work: list[_Work]) -> list[str]:
     demands = _demand_map(scenario)
+    input_realized = _input_realized_by_id(scenario)
     covered = {demand_id: [] for demand_id in demands}
     errors = []
     for item in work:
@@ -343,7 +363,13 @@ def _coverage_and_eligibility(scenario: ScenarioSpec, work: list[_Work]) -> list
         covered[demand.demand_id].append(item)
         if item.start != demand.start or item.end != demand.end:
             errors.append(f"assignment interval mismatch {item.assignment_id}")
-        if item.state != AssignmentState.REALIZED.value:
+        trusted_realized = False
+        if item.state == AssignmentState.REALIZED.value:
+            fixed = input_realized.get(item.assignment_id)
+            trusted_realized = fixed is not None and _matches_input_realized(item, fixed)
+            if not trusted_realized:
+                errors.append(f"untrusted REALIZED assignment {item.assignment_id}")
+        if not trusted_realized:
             reasons = eligibility_reasons(scenario, item.employee_id, demand)
             errors.extend(f"{reason} {item.employee_id}/{demand.demand_id}" for reason in reasons)
     errors.extend(
@@ -386,10 +412,18 @@ def _load_metrics(
 
 
 def _fixed_errors(scenario: ScenarioSpec, work: list[_Work]) -> list[str]:
+    by_id = {item.assignment_id: item for item in work}
     by_demand = {item.demand_id: item for item in work if item.demand_id}
     errors = []
     for fixed in scenario.fixed_demand_assignments:
-        if not (fixed.state == "REALIZED" or fixed.frozen):
+        if fixed.state == AssignmentState.REALIZED.value:
+            actual = by_id.get(fixed.assignment_id)
+            if actual is None:
+                errors.append(f"REALIZED assignment missing {fixed.assignment_id}")
+            elif not _matches_input_realized(actual, fixed):
+                errors.append(f"REALIZED assignment changed {fixed.assignment_id}")
+            continue
+        if not fixed.frozen:
             continue
         actual = by_demand.get(fixed.demand_id)
         if actual is None:
