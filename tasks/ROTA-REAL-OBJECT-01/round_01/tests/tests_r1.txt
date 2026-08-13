@@ -1,0 +1,96 @@
+ROTA-REAL-OBJECT-01 — AUDYT R1 / TRWAŁY HANDOFF
+Data: 2026-08-13
+Werdykt: FAIL — benchmark nie jest gotowy do oceny PlanningEngine.
+
+Audytowany benchmark:
+- branch: benchmark/real-object-architect-2026-08-13
+- SHA: 54d3bb91841461efa4c121f42308a462381286c9
+- production base: e010f004e90a1e4f426bb72298e7307045d32b56
+- owner-directed contract: arch/BENCHMARK_REAL_OBJECT_IMPLEMENTATION_ORDER_2026-08-13.md @ 097bd47
+
+UWAGA O WERDYKCIE
+
+To jest FAIL infrastruktury benchmarku, nie PlanningEngine. Na audytowanym
+SHA nie wolno wyciągać wniosku PASS/FAIL o solverze. Benchmark ma własny
+czerwony przypadek konstrukcyjny i potrafi zaakceptować fałszywe dowody.
+
+FINDINGS
+
+R1-1 HIGH — para X/Y jest wewnętrznie niewykonalna.
+UNAVAILABLE_24H A/B/D/E dnia 2027-05-12 blokuje też N 2027-05-11 17:00–
+2027-05-12 05:00, a jedyne okno X pokrywa dopiero N rozpoczynającą się
+2027-05-12. Oracle zwraca PROVEN_STAFFING_SHORTAGE zarówno przed, jak i po
+potwierdzeniu. Własne testy benchmarku padają na obu asercjach pary.
+
+R1-2 HIGH — _decision_errors zalicza payload DECISION_REQUIRED bez związku z
+niezależnym dowodem. Przechodzą: fikcyjne 72 h pracownika X dla LOAD, dowolny
+EXTERNAL-01 dla X bez blocking demand/unblocking option oraz nieistniejący
+demand_id jako dowód shortage. Checker musi powiązać pracownika, okno,
+godziny, demand i opcję odblokowania z konkretnym ScenarioSpec/reference.
+
+R1-3 HIGH — witness reference oracle nie jest sprawdzany niezależnie.
+check_candidate() sprawdza wyłącznie produkcyjnego kandydata. Pusty FEASIBLE
+witness oracle nadal pozwala przypadkowi uzyskać PASS. Każdy witness musi
+przejść niezależny checker coverage/eligibility/REST/LOAD/fixed/boundary.
+
+R1-4 HIGH — generator weryfikuje w boundary tylko REST pomiędzy rekordami.
+classify_reference przyjmuje zamiast odrzucić: C na nocce, nieznanego
+employee_id Z oraz przedział end < start. Walidacja przed plan() musi objąć
+całą klasę boundary i fixed_demand_assignments, zgodnie z kryterium odbioru 7.
+
+R1-5 HIGH — nie zaimplementowano obowiązkowej drabiny 1–14. Brakuje m.in.:
+- prawdziwego REPLAN z REALIZED/frozen/redystrybuowalnym baseline;
+- progresywnej drabiny i raportu pierwszej zmiany klasy;
+- osobnych klas nieobecności C i pracowników elastycznych;
+- LOAD dokładnie 60 h i >60 h na granicy miesiąca;
+- N kończącej miesiąc + D pierwszego dnia następnego;
+- negatywnej macierzy ExternalSupportWindow: employee, Site, active,
+  pełny/częściowy interval, shift kind, profile enabled.
+Istniejąca para external jest dodatkowo nieskuteczna (R1-1).
+
+R1-6 MEDIUM — kontrakt reprodukcji/raportu jest niepełny. Brak seed i replay
+po seedzie, pełnych danych wymaganych per case, raportu pierwszej zmiany klasy,
+metryk i timeoutów per klasa. Performance jest wyłącznie globalne.
+
+R1-7 MEDIUM — wymagany zapis JSON kończy się TypeError, ponieważ
+asdict(load_blocker) pozostawia date w window_start/window_end. Należy
+przetestować JSON dla core/calendar/all, pojedynczego case oraz wszystkich
+kształtów FEASIBLE/DECISION_REQUIRED.
+
+WERYFIKACJA R1
+
+- tests/test_real_object_benchmark.py: 2 failed, 3 passed.
+- pełna istniejąca suita: 2 failed, 205 passed.
+- core: 11/13 correctness PASS; oba FAIL to external before/after.
+- calendar: 24/24 PASS.
+- adwersarialny test R1: 8 failed zgodnie z reprodukcją findings.
+- Ruff nowych modułów i testów: PASS.
+- git diff --check: trailing whitespace w REAL_OBJECT_BENCHMARK.md:3.
+
+ARTEFAKTY ROBOCZE
+
+Audyt wykonano w zachowanym worktree:
+C:\Projects\Elnath Rota\.audit-real-object
+
+Pełniejszy raport z warunkami zamknięcia:
+.audit-real-object/tasks/ROTA-REAL-OBJECT-01/round_01/tests/tests_r1.txt
+
+Test adwersarialny:
+.audit-real-object/tests/test_audit_real_object_r1.py
+
+Test zawiera 8 reproduktorów: trzy fałszywe certyfikaty decyzji, trzy klasy
+nielegalnych fixed boundary, awarię JSON oraz brak walidacji witness.
+
+NASTĘPNA RUNDA
+
+Autor benchmarku powinien przekazać nowy dokładny SHA po spójnym domknięciu
+wszystkich klas. R2 nie może ograniczyć się do literalnych reproduktorów.
+Ma ponownie sprawdzić:
+- całą drabinę 1–14;
+- certyfikaty poprawne, obce i częściowe;
+- pełną rodzinę fixed inputs;
+- niezależne sprawdzanie witness i kandydatów;
+- realny JSON replay case_id/seed.
+
+Brak ARCHITECTURE_PROPOSALS. Wszystkie findings wynikają z zatwierdzonego
+zlecenia benchmarku, nie z preferencji architektonicznych audytora.

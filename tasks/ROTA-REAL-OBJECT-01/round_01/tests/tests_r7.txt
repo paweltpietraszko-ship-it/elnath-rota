@@ -1,0 +1,112 @@
+ROTA — RĘCZNY AUDYT KONKRETNEGO GRAFIKU STYCZEŃ 2027
+Data: 2026-08-13
+Kod produkcyjny uruchomiony przez plan(): baza e010f004e90a1e4f426bb72298e7307045d32b56
+
+WERDYKT: PASS DLA PRZEDSTAWIONEGO GRAFIKU STYCZNIOWEGO
+
+To nie jest ocena samego komunikatu FEASIBLE. Program utworzył 62 konkretne
+przydziały. Poniżej znajduje się pełny wynik, a następnie niezależne, proste
+przeliczenie surowych assignments bez użycia benchmarkowego verdictu.
+
+
+JAWNE ZAŁOŻENIA WEJŚCIA
+
+- miesiąc: styczeń 2027;
+- pracownicy lokalni: A, B, C, D, E;
+- C jest DAY_ONLY;
+- jedna D każdego dnia: 05:00–17:00;
+- jedna N każdego dnia: 17:00–05:00 następnego dnia;
+- target miesięczny każdego pracownika: 152 h;
+- święta zaznaczone w kalendarzu: 1 i 6 stycznia;
+- rolling 7d decision threshold: 60 h;
+- minimalny odpoczynek: 11 h;
+- brak absencji/urlopów/chorobowego/S i brak użycia X/Y;
+- do sprawdzenia REST/LOAD przekazano sześć dni historii końca grudnia z
+  istniejącego deterministycznego fixture benchmarku.
+
+
+GRAFIK UTWORZONY PRZEZ PROGRAM
+
+dzień | D | N
+01    | E | A
+02    | C | D
+03    | C | B
+04    | E | A
+05    | E | A
+06    | B | D
+07    | A | D
+08    | A | D
+09    | A | B
+10    | C | D
+11    | C | B
+12    | D | A
+13    | C | B
+14    | C | E
+15    | C | D
+16    | A | B
+17    | A | E
+18    | C | D
+19    | B | E
+20    | A | B
+21    | E | B
+22    | E | B
+23    | C | A
+24    | D | E
+25    | B | D
+26    | E | A
+27    | C | D
+28    | C | D
+29    | C | B
+30    | E | D
+31    | E | B
+
+
+RĘCZNE SPRAWDZENIE SUROWYCH PRZYDZIAŁÓW
+
+Pokrycie:
+- 62 assignments dla 62 wymaganych zmian;
+- 62 różne demand_id;
+- dokładnie każda para dzień 1–31 × D/N, bez braku i bez duplikatu.
+
+Pracownicy:
+
+- A: 12 zmian, 6 D + 6 N, 144 h, bilans do targetu -8 h,
+  minimalny odpoczynek 12 h, najgorsze rolling 7d = 60 h;
+- B: 13 zmian, 3 D + 10 N, 156 h, bilans +4 h,
+  minimalny odpoczynek 12 h, najgorsze rolling 7d = 60 h;
+- C: 12 zmian, 12 D + 0 N, 144 h, bilans -8 h,
+  minimalny odpoczynek 12 h, najgorsze rolling 7d = 60 h;
+- D: 13 zmian, 2 D + 11 N, 156 h, bilans +4 h,
+  minimalny odpoczynek 12 h, najgorsze rolling 7d = 60 h;
+- E: 12 zmian, 8 D + 4 N, 144 h, bilans -8 h,
+  minimalny odpoczynek 12 h, najgorsze rolling 7d = 53 h.
+
+Kontrola granicy miesiąca:
+- obliczenie odpoczynku i rolling 7d objęło przekazaną historię końca grudnia;
+- żaden odpoczynek nie spadł poniżej 11 h;
+- żadne okno 7d nie przekroczyło 60 h.
+
+DAY_ONLY:
+- C ma zero zmian N.
+
+Target:
+- suma koniecznej obsady to 62 × 12 = 744 h;
+- suma targetów pięciu osób to 5 × 152 = 760 h;
+- nie da się przydzielić 744 h w blokach po 12 h tak, aby każdy dostał
+  dokładnie 152 h;
+- wynik 144/156 h daje odchylenia wynikające z niepodzielności zmian, nie
+  ukryte przekroczenie HARD;
+- łączny bilans względem targetów wynosi -16 h, zgodnie z różnicą 744–760.
+
+
+WYNIK
+
+Przedstawiony grafik styczniowy jest kompletny i zgodny ze sprawdzonymi HARD:
+coverage, DAY_ONLY, REST 11 h, LOAD 60 h/7d oraz przekazanym kontekstem końca
+poprzedniego miesiąca.
+
+Program rzeczywiście ułożył grafik; nie tylko zaraportował, że go ułożył.
+
+Ograniczenie tego PASS: wejście nie zawierało absencji, urlopów, chorobowego,
+szkoleń S ani X/Y. Jest to ręczna walidacja czystego stycznia pięcioosobowego,
+nie jeszcze odtworzenie konkretnego historycznego zdjęcia z folderu Grafiki.

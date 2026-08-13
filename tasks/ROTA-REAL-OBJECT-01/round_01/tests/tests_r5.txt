@@ -1,0 +1,115 @@
+ROTA-REAL-OBJECT-01 — AUDYT R5 FINAL
+Data: 2026-08-13
+Audytowany SHA: 5cbe8aa7297b5e3bb1277d5f7ab0c779bc303ac6
+Gałąź: benchmark/real-object-architect-2026-08-13
+Baza produkcyjna: e010f004e90a1e4f426bb72298e7307045d32b56
+
+WERDYKT: PASS — benchmark ROTA-REAL-OBJECT-01 jest wiarygodnym, uproszczonym
+testem PlanningEngine w zadeklarowanym zakresie realnego pięcioosobowego
+obiektu.
+
+PASS oznacza:
+
+- benchmark poprawnie uruchamia produkcyjne plan();
+- FEASIBLE jest niezależnie sprawdzane pod kątem coverage, interwałów,
+  eligibility, REST, LOAD, fixed history oraz wymaganych roszad REPLAN;
+- kontrolowane braki zasobów muszą dać DECISION_REQUIRED, a fałszywe FEASIBLE
+  jest odrzucane;
+- przypadki X/Y rozróżniają brak potwierdzonego zasobu i jego skuteczne
+  dodanie;
+- benchmark nie jest drugim PlanningEngine i nie rozstrzyga tekstu payloadu
+  DECISION_REQUIRED;
+- aktualny PlanningEngine przeszedł wszystkie 55 przypadków.
+
+PASS nie jest certyfikacją wszystkich możliwych grafików ani całego produktu.
+Dotyczy dokładnie zakresu opisanego w benchmarks/REAL_OBJECT_BENCHMARK.md.
+
+
+ZAMKNIĘCIE R4-1 — PASS
+
+Poprawka provenance REALIZED spełnia warunek zamknięcia:
+
+1. Checker buduje mapę wejściowych REALIZED wyłącznie z
+   scenario.fixed_demand_assignments.
+
+2. Zwolnienie z retroaktywnej eligibility wymaga dokładnej zgodności:
+   assignment_id, employee_id, demand_id, start, end oraz state=REALIZED.
+
+3. Nowy lub zmieniony REALIZED:
+   - zgłasza untrusted REALIZED assignment;
+   - nadal przechodzi zwykłe eligibility.
+
+4. Macierz ataków przechodzi:
+   - Z -> untrusted REALIZED + UNKNOWN_EMPLOYEE;
+   - C na N -> untrusted REALIZED + DAY_ONLY-01;
+   - X bez ExternalSupportWindow -> untrusted REALIZED + EXTERNAL.
+
+5. Pełny run_case() zwraca PRODUCTION_MISMATCH dla wszystkich trzech
+   wariantów, nigdy PRODUCTION_PASS.
+
+6. Pozytywny przypadek dokładnie zachowanego wejściowego REALIZED przechodzi.
+
+7. _fixed_errors dodatkowo wykrywa brak lub zmianę historycznego REALIZED.
+
+Zakres diffu R4..R5 jest prawidłowy: wyłącznie
+benchmarks/real_object_checker.py i tests/test_real_object_benchmark.py.
+
+
+WERYFIKACJA
+
+1. Dokładny SHA oraz branch: PASS.
+
+2. Reproduktory audytowe R4-1 + oficjalne testy benchmarku:
+   28/28 PASS.
+
+3. Oficjalny test benchmarku R5 samodzielnie: 24/24 PASS.
+
+4. Pełna oficjalna suita z pominięciem lokalnych, historycznych plików
+   audytowych: 226/226 PASS.
+
+5. Ruff dla benchmarks i test_real_object_benchmark.py: PASS.
+
+6. git diff --check production-base..R5: PASS.
+
+7. Brak zmian w rota/ względem production base: PASS.
+
+8. Brak drugiego solvera/oracle/certyfikatora:
+   brak cp_model, CpSolver, ortools, real_object_oracle i
+   real_object_decisions w benchmarks/: PASS.
+
+9. Core runtime:
+   31 PRODUCTION_PASS, 0 MISMATCH, 0 INVALID, 0 INCONCLUSIVE.
+
+10. Calendar runtime:
+    24 PRODUCTION_PASS, 0 MISMATCH, 0 INVALID, 0 INCONCLUSIVE.
+
+11. All runtime:
+    55 PRODUCTION_PASS, 0 MISMATCH, 0 INVALID, 0 INCONCLUSIVE.
+
+12. REPLAN:
+    replan-min-0, replan-min-1 i replan-min-2 wszystkie PASS z oczekiwanymi
+    liczbami roszad.
+
+13. ROTA-REG-001: FEASIBLE i niezależny HARD/strict-hours checker PASS.
+
+14. Performance dla all (55 przypadków, lokalny przebieg audytowy):
+    mean 0.0715 s, p50 0.0694 s, p95 0.1459 s, max 0.2948 s.
+    Są to dane diagnostyczne tego środowiska, nie zamrożone SLA.
+
+
+WYNIK DLA PLANNINGENGINE
+
+PlanningEngine na bazie e010f004e90a1e4f426bb72298e7307045d32b56 otrzymuje
+PASS w ROTA-REAL-OBJECT-01:
+
+- układa legalne grafiki dla kontrolowanych wykonalnych wariantów obiektu;
+- rozpoznaje skonstruowane niedobory załogi i przekroczenia LOAD;
+- prawidłowo reaguje na granice REST/LOAD i kontekst między miesiącami;
+- korzysta z X po potwierdzeniu właściwego ExternalSupportWindow i nie używa
+  błędnych okien;
+- zachowuje minimum roszad 0/1/2 w kontrolowanych REPLAN;
+- przechodzi 24 kolejne miesiące kalendarzowe.
+
+Brak findings. Brak WYMAGA_DECYZJI. Brak ARCHITECTURE_PROPOSALS.
+
+AUDYT ROTA-REAL-OBJECT-01 ZAMKNIĘTY.

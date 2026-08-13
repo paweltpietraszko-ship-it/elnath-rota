@@ -1,0 +1,110 @@
+ROTA-REAL-OBJECT-01 — KOREKTA WERDYKTU PO WYMAGANIU WŁAŚCICIELA
+Data: 2026-08-13
+Dotyczy SHA benchmarku: 5cbe8aa7297b5e3bb1277d5f7ab0c779bc303ac6
+
+WERDYKT PRODUKTOWY: BRAK PASS / MERGE WSTRZYMANY
+
+Raport tests_r5.txt prawidłowo potwierdza techniczną sprawność uproszczonego
+benchmarku, ale jego sformułowanie "PASS PlanningEngine" było zbyt szerokie.
+Właściciel uznaje PASS dopiero po przedstawieniu i niezależnym sprawdzeniu
+pełnego grafiku utworzonego przez program na jednoznacznie odtworzonych danych
+realnego obiektu.
+
+Tego warunku tests_r5 nie spełnił: sprawdził 55 kontrolowanych scenariuszy i
+legalność kandydatów, lecz nie przedstawił właścicielowi konkretnego grafiku
+wynikowego dzień po dniu ani nie odtworzył kompletnego wejścia z fotografii
+realnego grafiku.
+
+
+WYKONANY DODATKOWY PRZEBIEG — NIE WYSTARCZA DO PASS
+
+Źródło wizualne:
+- Grafiki/7424.jpg;
+- lipiec 2026;
+- D 05:00–17:00, N 17:00–05:00;
+- układ zmianowy realnego obiektu.
+
+Program samodzielnie utworzył następujący grafik dla modelu pięcioosobowego
+A–E, C=DAY_ONLY:
+
+dzień | D | N
+01    | E | D
+02    | C | E
+03    | B | A
+04    | C | E
+05    | B | D
+06    | B | A
+07    | E | D
+08    | C | E
+09    | C | A
+10    | E | A
+11    | B | A
+12    | C | D
+13    | C | B
+14    | D | B
+15    | D | A
+16    | E | A
+17    | D | E
+18    | C | A
+19    | E | D
+20    | C | B
+21    | D | B
+22    | C | B
+23    | E | A
+24    | E | A
+25    | C | E
+26    | B | A
+27    | D | E
+28    | C | D
+29    | B | D
+30    | C | D
+31    | B | A
+
+Nie oparto oceny wyłącznie na statusie programu. Osobne, bezpośrednie
+przeliczenie surowych assignments dało:
+
+- 62 rekordy, 62 różne demand_id, dokładnie pełny zbiór 31×D/N;
+- A: 12 zmian / 144 h / 12 N / minimalny odpoczynek 12 h / max 48 h w 7d;
+- B: 12 zmian / 144 h / 7 D + 5 N / minimalny odpoczynek 12 h / max 48 h;
+- C: 12 zmian / 144 h / 12 D + 0 N / minimalny odpoczynek 12 h / max 48 h;
+- D: 13 zmian / 156 h / 5 D + 8 N / minimalny odpoczynek 12 h / max 48 h;
+- E: 13 zmian / 156 h / 7 D + 6 N / minimalny odpoczynek 12 h / max 48 h.
+
+Wynik jest więc konkretnym, kompletnym i legalnym grafikiem utworzonym przez
+program, a nie samym komunikatem FEASIBLE.
+
+Nie nadaję mu jednak produktu PASS jako "realnemu grafikowi 7424", ponieważ:
+
+1. fotografia ucina nazwy/wskazanie pełnego składu i pokazuje więcej wierszy
+   niż zadeklarowany model pięcioosobowy;
+2. nie da się z niej jednoznacznie ustalić mapowania pięciu pracowników A–E;
+3. nie da się jednoznacznie przepisać wszystkich absencji, urlopów, S i
+   boundary history;
+4. przebieg użył realnego miesiąca i geometrii zmian, ale syntetycznej
+   sześciodniowej historii wejściowej z benchmarku.
+
+
+WARUNEK RZECZYWISTEGO PASS
+
+Potrzebny jest jeden jednoznaczny zestaw źródłowy dla konkretnego miesiąca:
+
+- dokładnie wskazane pięć osób oraz która jest DAY_ONLY;
+- poprzednie sześć dni i znane assignmenty następnego miesiąca;
+- wszystkie absencje, urlopy, chorobowe, S i potwierdzone X/Y;
+- miesięczne target hours;
+- ewentualne stałe/frozen/REALIZED assignmenty;
+- informacja, czy zdjęcie pokazuje PLAN czy WYK jako źródło faktów.
+
+Następnie program ma utworzyć nowy grafik bez kopiowania ręcznych przydziałów
+ze zdjęcia. Audyt przedstawia tabelę dzień×D/N i niezależnie liczy każdy HARD,
+godziny miesięczne, każde okno 7d oraz granice miesiąca. Dopiero ten wynik może
+otrzymać PASS właściciela.
+
+Do tego czasu:
+
+- techniczny benchmark R5: PASS w swoim ograniczonym zakresie;
+- produktowy PASS solvera na realnym grafiku: NIEUDOWODNIONY;
+- zgoda testera na merge na podstawie wymogu właściciela: WSTRZYMANA.
+
+Brak findingu kodu wynikającego z dodatkowego przebiegu. Problemem jest brak
+jednoznacznego realnego inputu, nie wykazana wada wygenerowanego grafiku.

@@ -1,0 +1,214 @@
+ROTA-REAL-OBJECT-01 — AUDYT R2
+Data: 2026-08-13
+Audytowany SHA: e2ed1a9be999780e941e8df12de55bc630f8fab6
+Baza produkcyjna: e010f004e90a1e4f426bb72298e7307045d32b56
+Gałąź: benchmark/real-object-architect-2026-08-13
+
+WERDYKT: FAIL — benchmark jest znacznie poprawiony, ale nadal nie jest
+wiarygodnym arbitrem PASS/FAIL dla PlanningEngine.
+
+Nie wydaję na tej podstawie ostatecznego findingu przeciwko PlanningEngine.
+Core pokazuje dwa czerwone przypadki produkcyjne, lecz jeden z nich przechodzi
+przez niedostateczny model dowodu checkera, a drugi ma niezamrożoną wprost
+taksonomię condition. Najpierw trzeba domknąć benchmark albo uzyskać decyzję
+kontraktową; dopiero potem wolno przypisać winę produkcji.
+
+Źródło kryteriów:
+- arch/BENCHMARK_REAL_OBJECT_IMPLEMENTATION_ORDER_2026-08-13.md @ 097bd47;
+- frozen arch/spec.md i addenda wskazane przez to zlecenie.
+
+Zakres diffu jest prawidłowy: brak zmian w rota/ względem production base.
+
+
+R2-1 — HIGH — R1-2 domknięto tylko dla minimalnego poprawnego fragmentu payloadu
+
+Miejsce:
+- benchmarks/real_object.py::_payload_common_errors
+- _load_decision_errors
+- _external_decision_errors
+- _shortage_decision_errors
+
+R2 dobrze odrzuca nieznane demand_id/employee_id i potrafi niezależnie
+certyfikować exact LOAD employee/window/hours. Nadal jednak poprawny fragment
+payloadu maskuje dopisane dane nieprawdziwe lub niepowiązane:
+
+1. EXTERNAL przechodzi z prawidłowym X/EXTERNAL-01 oraz dodatkowym fikcyjnym
+   A/SICK_LEAVE-01, mimo że A nie ma chorobowego.
+2. EXTERNAL przechodzi z opcją "świadome wyłączenie DAY_ONLY" i bez wymaganej
+   dla tej klasy opcji "potwierdzenie X/Y"; sprawdzana jest tylko niepustość.
+3. LOAD przechodzi po dopisaniu fikcyjnego A/SICK_LEAVE-01 do prawidłowego
+   certyfikatu LOAD.
+4. PROVEN_STAFFING_SHORTAGE przechodzi z prawdziwym demand_id, ale z pustą
+   listą blockers, czyli bez konkretnej przyczyny.
+
+To jest jedna wspólna klasa: checker stosuje "istnieje co najmniej jeden
+poprawny element", zamiast potwierdzić każdy element decyzji i wymagany typ
+odblokowania.
+
+Ślad kontraktowy: DECISION_REQUIRED ma zawierać konkretny problem, konkretne
+blockery i możliwe klasy odblokowania; kryterium odbioru benchmarku 4 wymaga
+przyczyny potwierdzonej przez oracle. R1 zapowiedział również testy
+certyfikatów poprawnych, obcych i częściowych.
+
+Warunek zamknięcia: jedna wspólna walidacja dowodzi każdego zgłoszonego
+blocking demand, każdego blockera oraz semantycznie wymaganej opcji. Macierz
+ma objąć LOAD, EXTERNAL i shortage oraz warianty: brak, poprawny, dodatkowy
+fikcyjny, poprawny dla innego demandu i niepowiązana opcja.
+
+
+R2-2 — HIGH — checker shortage nie obsługuje zbiorowych konfliktów HARD
+
+Miejsce:
+- benchmarks/real_object_checker.py::independently_unassignable_demands
+- benchmarks/real_object.py::_shortage_decision_errors
+
+PROVEN_STAFFING_SHORTAGE jest definiowane przez niewykonalność całego modelu,
+również z powodu REST między demandami. Checker payloadu dopuszcza jednak
+wyłącznie demand, dla którego każdy pracownik jest nieeligible indywidualnie.
+
+Reproduktor R2 tworzy poniedziałkową parę D/N, dla której tylko A jest
+indywidualnie eligible na każdą zmianę. Każda zmiana osobno jest obsadzalna,
+ale jedna osoba nie może wykonać obu z wymaganym REST. Oracle rozstrzygająco
+klasyfikuje PROVEN_STAFFING_SHORTAGE. Payload wskazujący oba demandy oraz
+A/REST-01 jest mimo to odrzucany komunikatem, że demandy nie są indywidualnie
+unassignable.
+
+To dotyczy obowiązkowej klasy scenariuszy, a nie hipotetycznego rozszerzenia.
+Punkt 12 sam wymaga konfliktu N kończącej miesiąc z D następnego dnia. Obecny
+case month-end-N-vs-next-D jest czerwony właśnie na granicy pomiędzy globalnym
+dowodem oracle i uproszczonym dowodem checkera.
+
+Warunek zamknięcia: checker musi mieć niezależny dowód odpowiedni do rodzaju
+przyczyny, co najmniej:
+- zero individually eligible dla prostego shortage;
+- zbiorowa niewykonalność wskazanego zestawu dla REST/coverage;
+- zgodność wszystkich zgłoszonych blockerów z tym dowodem.
+
+Dopóki to nie istnieje, czerwonego month-end-N-vs-next-D nie klasyfikuję jako
+ostateczny błąd PlanningEngine. Produkcja zwraca podejrzanie szeroki zestaw 62
+demandów i REST-01 dla A-E, ale aktualny checker również nie potrafi
+pozytywnie certyfikować poprawnego zbiorowego payloadu.
+
+
+R2-3 — MEDIUM — R1-4 nadal nie obejmuje całej rodziny fixed inputs
+
+Miejsce: benchmarks/real_object_input.py
+
+Nowa walidacja poprawnie odrzuca trzy reproduktory R1: C na N, nieznanego
+employee oraz end < start. Sibling cases nadal przechodzą:
+
+1. Boundary A 06:00–18:00, czyli dodatni 12-godzinny przedział niebędący ani
+   D 05–17, ani N 17–05.
+2. Ten sam assignment_id użyty raz w boundary_assignments i raz w
+   fixed_demand_assignments. Duplikaty są sprawdzane osobno w dwóch zbiorach,
+   nie w całym wejściu przekazywanym do PlanningState.
+3. Dwanaście CANCELLED assignments spełnia kontrolę wymaganej sześciodniowej
+   historii, mimo że oracle/produkcja prawidłowo nie liczą ich jako pracy.
+
+Ślad kontraktowy: generator ma zweryfikować boundary i wszystkie fixed inputs
+przed plan(); model realnego obiektu wymaga D/N w ustalonych godzinach oraz
+faktycznie przepracowanej sześciodniowej historii.
+
+Warunek zamknięcia: walidacja wspólnej rodziny fixed facts obejmuje globalną
+unikalność ID, legalną geometrię zmian, stan operatywny wymaganej historii i
+te same zasady we wszystkich kolekcjach. Testy mają być parametryzowane po
+boundary/fixed oraz ACTIVE/CANCELLED, nie ograniczone do trzech R1 literals.
+
+
+R2-4 — MEDIUM — drabina absencji nie jest stopniowa
+
+Miejsce: benchmarks/real_object_scenarios.py::_absence_ladder
+
+Poziom 1 zawiera B/UNAVAILABLE_24H. Poziom 2 usuwa ten fakt i zastępuje go
+A+B/DAY_SHIFT_OFF. To nie jest dodawanie perturbacji; jednocześnie zmienia się
+liczba osób i semantyka czasowa nieobecności. Raport "first class change" nie
+izoluje więc pierwszego dodatkowego obciążenia, które zmieniło klasę.
+
+Ślad kontraktowy: obowiązkowa drabina mówi literalnie, że perturbacje mają być
+dodawane stopniowo i raport ma wskazać pierwszy poziom zmiany klasy.
+
+Warunek zamknięcia: fakty każdego poziomu są podzbiorem następnego poziomu
+(albo istnieje równoważny, jawny monotoniczny parametr), a test porównuje dane,
+nie tylko metadata series_level/ladder_steps.
+
+
+WYMAGA_DECYZJI — nazwa condition przy wyłączonym external support
+
+Case external-window-profile-disabled jest poprawnie INFEASIBLE w capped,
+uncapped i obu probe solve. Produkcja zwraca DECISION_REQUIRED i konkretne
+blockery, lecz dla X/Y używa condition EXTERNAL_SUPPORT_DISABLED. Checker
+uznaje wyłącznie EXTERNAL-01 i dlatego oznacza wynik jako fikcyjny blocker.
+
+Frozen spec jawnie nazywa regułę EXTERNAL-01, ale nie zapisuje literalnie,
+czy profil external_support_enabled=false ma raportować właśnie EXTERNAL-01,
+czy odrębny built-in condition code. Nie uznaję preferencji checkera za błąd
+produkcji bez takiego śladu. Właściciel/architekt powinien jednorazowo wskazać
+kanoniczny condition albo potwierdzić, że oba kody są dozwolone. Benchmark ma
+potem sprawdzać tę decyzję, a nie sam ją ustanawiać.
+
+
+ORYGINALNY TEST R1 — WYNIK I KWALIFIKACJA
+
+Oryginalny lokalny tests/test_audit_real_object_r1.py uruchomiono bez zmian;
+hash SHA-256 przed uruchomieniem:
+6C97AC92FE1324DCC1347851A4FC04CB21806CCA6D3B4FC615E78C8B7F282B8A
+
+Wynik: 4 failed, 4 passed.
+
+Trzech TypeError nie liczę jako defect: test wywoływał prywatne
+_decision_errors(expected, result), podczas gdy R2 prawidłowo dodał wymagany
+kontekst scenario/reference. Czwarty stary test podmieniał całe
+classify_reference już po granicy walidacji, więc omijał nową walidację
+witness zamiast ją testować. Odpowiednik R2 podmienia checker wewnątrz oracle
+i potwierdza, że błędny witness daje INCONCLUSIVE — PASS.
+
+Zachowanie testu bez zmian było wartościowym śladem regresji, ale jego
+sprzężenie z prywatnym API nie jest kontraktem benchmarku. Invariant został
+ponownie sprawdzony aktualną ścieżką.
+
+
+WERYFIKACJA
+
+1. tests/test_real_object_benchmark.py: 24/24 PASS.
+
+2. Pełna oficjalna suita bez lokalnych testów audytowych: 226/226 PASS.
+
+3. Lokalny tests/test_audit_real_object_r2.py: 9 failed, 5 passed.
+   FAIL obejmuje 4 warianty częściowego/fikcyjnego payloadu, zbiorowy REST,
+   3 warianty fixed input oraz niemonotoniczną drabinę.
+
+4. Core JSON: zapis i parse PASS; correctness 26/28, dwa czerwone cases:
+   - month-end-N-vs-next-D;
+   - external-window-profile-disabled.
+
+5. Calendar JSON: zapis i parse PASS; 24/24 correctness PASS.
+
+6. All JSON: zapis i parse PASS; 50/52 correctness PASS.
+
+7. Exact replay external-before-confirmation + seed 13001: PASS.
+
+8. Oracle X/Y before/after, LOAD exact/above, witness checker i podstawowa
+   negatywna macierz windows: PASS.
+
+9. Brak zmian w rota/ względem production base: PASS.
+
+10. Ruff: FAIL — niewykorzystany import datetime.date w
+    benchmarks/real_object_checker.py:6.
+
+11. git diff --check: FAIL — trailing whitespace w
+    benchmarks/REAL_OBJECT_BENCHMARK.md:3.
+
+
+ZAKRES R3
+
+To nie wymaga nowej architektury benchmarku. Autor powinien domknąć cztery
+opisane klasy w jednym podejściu, usunąć dwie wady higieniczne i przekazać
+nowy dokładny SHA. R3 powinno być ograniczone do:
+- macierzy kompletności każdego elementu certyfikatu;
+- indywidualnego i zbiorowego dowodu shortage;
+- walidacji całej rodziny fixed inputs;
+- rzeczywiście monotonicznej drabiny;
+- ponownego uruchomienia core/all po rozstrzygnięciu condition dla profilu.
+
+Brak ARCHITECTURE_PROPOSALS. Żaden finding nie wynika z preferencji
+architektonicznej audytora.
