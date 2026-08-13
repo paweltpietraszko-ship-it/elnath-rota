@@ -1,23 +1,19 @@
-# ROTA-REAL-OBJECT-01 — benchmark against production code
+# ROTA-REAL-OBJECT-01 — benchmark realnego obiektu przeciwko production code
 
-Status: architect-authored test infrastructure  
-Base production SHA: `e010f004e90a1e4f426bb72298e7307045d32b56`
+Status: architect-authored test infrastructure — **R2 po audycie Codex R1, oczekuje na re-audyt**  
+Production base used by the benchmark: `e010f004e90a1e4f426bb72298e7307045d32b56`
 
-## Why this exists
+## Cel
 
-The historical `benchmarks/rota_stress.py` is a synthetic-feasible stress
-generator. It creates a known witness first and then constructs a larger
-employee pool around that witness. It is useful as a solver stress tool, but
-its `100/100` result is **not** evidence that Rota works for the real
-five-person object.
+Ten benchmark nie jest następcą w znaczeniu technicznym dla `rota_stress.py`.
+`rota_stress.py` pozostaje syntetycznym generatorem z góry wykonalnych problemów.
+ROTA-REAL-OBJECT-01 odpowiada na inne pytanie: co robi aktualny PlanningEngine,
+gdy lokalny roster pozostaje realnym pięcioosobowym obiektem i dokładamy
+kontrolowane warunki brzegowe.
 
-ROTA-REAL-OBJECT-01 asks a different question: what does the current
-production `PlanningEngine` do when the input keeps the real local roster
-fixed and the environment becomes difficult?
+## Nienaruszalny roster
 
-## Non-negotiable roster
-
-Every operational case uses exactly five LOCAL employees:
+Każdy przypadek operacyjny ma dokładnie pięciu LOCAL:
 
 - A
 - B
@@ -25,37 +21,49 @@ Every operational case uses exactly five LOCAL employees:
 - D
 - E
 
-X and Y are separate `EXTERNAL_SUPPORT` employees. They are never a hidden
-sixth/seventh local reserve. They can be assigned only when the scenario
-contains a matching active `ExternalSupportWindow` and the profile has
-external support enabled.
+X i Y są odrębnymi `EXTERNAL_SUPPORT`. Nie są ukrytą szóstą/siódmą osobą.
+Bez pasującego aktywnego `ExternalSupportWindow` nie mogą zostać użyci.
 
-The benchmark uses one PRIMARY D 05:00–17:00 and one PRIMARY N
-17:00–05:00 every day, REST-01 = 11h, and LOAD-01 decision threshold = 60h
-in every rolling seven-day window.
+Podstawowa geometria obiektu:
 
-## Independence from production planning logic
+- 1× PRIMARY D dziennie, 05:00–17:00;
+- 1× PRIMARY N dziennie, 17:00–05:00;
+- REST-01 = 11 h;
+- LOAD-01 = maks. 60 h w dowolnym ruchomym 7-dniowym oknie przed
+  `DECISION_REQUIRED`;
+- sześć dni predecessor context przed miesiącem.
 
-The reference oracle in `real_object_oracle.py` uses OR-Tools, but builds its
-own small CP-SAT existence model.
+## Fail-closed benchmark input
 
-It does **not** import or call:
+`real_object_input.py` waliduje każdy fixture **przed** reference oracle i
+przed wywołaniem production `plan()`.
 
-- `rota.planning.engine.plan`;
-- the production solver;
-- production eligibility/constraint builders;
-- the production validator.
+Nielegalny fixture nie może być użyty do oceny solvera. Walidowane są m.in.:
 
-The independent checker in `real_object_checker.py` also does not call the
-production validator.
+- employee ids i rodzaje availability/rules;
+- dodatnie przedziały;
+- duplicate ids;
+- DAY_ONLY w fixed/boundary facts;
+- same-demand fixed conflicts;
+- REST/overlap pomiędzy boundary i nienegocjowalnymi existing assignments;
+- pełna sześciodniowa historia w przypadkach drabiny wymagających tego dowodu.
 
-Only `real_object_production.py` translates a benchmark scenario into the
-real `PlanningState`. Then `real_object.py` calls production `plan()` and
-compares the result with the already-computed reference class.
+Semantycznie niepasujące okno X/Y (wrong Site, inactive, partial interval,
+wrong shift kind, disabled profile) jest **legalnym wejściem testowym**, ale
+nie może odblokować external eligibility.
 
-## Reference classes
+## Niezależny oracle i checker witnessów
 
-A case is independently classified as one of:
+`real_object_oracle.py` buduje własny CP-SAT existence model. Nie importuje ani
+nie wywołuje produkcyjnego PlanningEngine, solvera, eligibility builderów,
+constraint builderów ani validatora.
+
+Każdy FEASIBLE witness oracle jest następnie sprawdzany przez
+`real_object_checker.py`. Witness z COVERAGE/REST/LOAD/eligibility błędem
+zostaje `UNKNOWN/WITNESS_CHECK_FAILED` i nie może służyć jako dowód przeciwko
+production.
+
+Klasy reference:
 
 - `KNOWN_FEASIBLE`
 - `LOAD_DECISION_REQUIRED`
@@ -64,62 +72,130 @@ A case is independently classified as one of:
 - `PROVEN_STAFFING_SHORTAGE`
 - `INCONCLUSIVE`
 
-`UNKNOWN` from the reference solver becomes `INCONCLUSIVE`; it is never
-counted as proof that production is right.
+`UNKNOWN` nigdy nie jest PASS-em.
 
-For external support, the benchmark contains paired before/after cases. The
-before state has no confirmed window and must not use X/Y. The after state
-contains the explicit window. The reference oracle additionally proves that
-the corresponding local-only state is infeasible when the case claims that
-external support was actually necessary.
+## Certyfikaty DECISION_REQUIRED
 
-## Correctness is not performance
+Sam status `DECISION_REQUIRED` nie wystarcza.
 
-The JSON report has separate `correctness` and `performance` sections.
+Dla shortage/external runner niezależnie wyznacza demands, które mają zero
+eligible employees, oraz przyczyny per employee. Payload production musi
+wskazać prawdziwy demand i blocker zgodny z tym evidence.
 
-A fast wrong status is a correctness failure. A slow correct result is
-reported as slow, but is not called semantically wrong because this benchmark
-does not define an SLA.
+Dla X/Y benchmark dodatkowo wyznacza parę `(demand, external employee)`, która
+jest zablokowana w current state przez `EXTERNAL-01`, ale staje się eligible
+po jawnie zadanym probe window.
 
-## Run
+Dla LOAD-01 runner nie ufa samemu `LoadBlocker`. Osobny niezależny solve
+`verify_load_claim()` musi dowieść, że dokładnie zgłoszone
+`employee/window/hours` da się uzyskać w legalnym uncapped grafiku, podczas gdy
+reference capped pozostaje INFEASIBLE.
 
-Core matrix:
+## Obowiązkowa drabina 1–14
+
+Core matrix obejmuje wszystkie wymagane klasy:
+
+1. literalny ROTA-REG-001;
+2. miesiące 28/29/30/31 dni i różne weekday starts;
+3. poprawną sześciodniową historię z N kończącą się w dniu 1;
+4. PLAN i REPLAN z REALIZED/frozen/redistributable baseline;
+5. narastające absencje;
+6. osobno brak C oraz brak flexible worker;
+7. trudne przetasowanie nadal możliwe <=60 h;
+8. przypadek możliwy dopiero >60 h;
+9. prosty brak eligible employee dla konkretnej zmiany;
+10. REST dokładnie 11 h i poniżej 11 h;
+11. LOAD dokładnie 60 h i >60 h na boundary;
+12. month-end N kontra znany next-month D;
+13. X/Y before/after coordinator window;
+14. negative ExternalSupportWindow matrix: employee/Site/active/interval/kind/profile.
+
+Absence ladder ma jawne `series_id/series_level`; raport wskazuje pierwszy poziom,
+na którym reference przestaje być `KNOWN_FEASIBLE`.
+
+## Reprodukcja
+
+Każdy case zawiera w raporcie:
+
+- `case_id`;
+- stały `seed`;
+- SHA-256 `input_fingerprint` pełnego wejścia;
+- miesiąc;
+- numery ladder steps;
+- pełną listę perturbacji;
+- A–E + C=DAY_ONLY;
+- memberships X/Y oraz wszystkie current/probe windows;
+- boundary/fixed assignments;
+- reference class;
+- capped/uncapped/probe solves z witnessami i checker errors;
+- production status, blockers, load blocker, unblocking options i czas;
+- independent candidate/certificate evidence.
+
+Czasy nie są częścią deterministic correctness identity. Ten sam
+`case_id + seed` musi jednak odtwarzać identyczny input fingerprint, reference
+class i deterministic oracle witness przy jednym workerze CP-SAT.
+
+## Correctness vs performance
+
+Raport rozdziela:
+
+- `correctness` — zgodność production z niezależnym oracle/checker;
+- `performance` — mean/p50/p95/max oraz reference/production timeout counts
+  osobno per reference class.
+
+Brak SLA oznacza, że wolny poprawny wynik nie jest automatycznie błędem
+merytorycznym.
+
+## Uruchomienie
+
+Core:
 
 ```bash
 python -m benchmarks.real_object --suite core
 ```
 
-Core + 24-month calendar sweep:
+Pełna macierz + 24-month calendar sweep:
 
 ```bash
 python -m benchmarks.real_object --suite all
 ```
 
-Replay one exact case:
+Exact replay:
 
 ```bash
-python -m benchmarks.real_object --suite all --case external-before-confirmation
+python -m benchmarks.real_object --suite all \
+  --case external-before-confirmation --seed 13001
 ```
 
-Write an audit artifact:
+Audit JSON:
 
 ```bash
-python -m benchmarks.real_object --suite all --json real_object_report.json
+python -m benchmarks.real_object --suite all --json real_object_all.json
 ```
 
-Exit code is zero only when every selected case passes correctness and every
-declared benchmark scenario is classified by the reference oracle as intended.
+Self-tests benchmarku:
 
-## Audit rule
+```bash
+pytest -q tests/test_real_object_benchmark.py
+```
 
-If this benchmark produces a reproducible red case against production code,
-do **not** weaken the scenario, enlarge the LOCAL roster, silently add an
-external window, or rewrite the expected class to make the report green.
+## Zasada audytu
 
-First classify whether the error is:
+Jeżeli R2 zwróci czerwony przypadek przeciwko PlanningEngine, nie wolno:
 
-1. a bug in benchmark construction/oracle/checker; or
-2. a production PlanningEngine defect.
+- zwiększyć lokalnego rosteru;
+- dopisać ukrytej rezerwy;
+- otworzyć X/Y bez jawnego window;
+- zmienić oczekiwanej klasy po zobaczeniu production result;
+- osłabić HARD tylko po to, aby odzyskać zielony raport.
 
-Those are separate changes and must not be repaired in the same commit merely
-to restore a green benchmark.
+Najpierw należy rozstrzygnąć, czy czerwony przypadek jest błędem benchmarku,
+czy produkcyjnego PlanningEngine. Nie naprawiać obu w tym samym commicie.
+
+## Status po audycie R1
+
+SHA `54d3bb9` **nie jest zaakceptowany**. Codex R1 wykazał 7 klas błędów
+benchmarku i nie wydał findingu przeciwko PlanningEngine.
+
+R2 naprawia te klasy, ale sam dokument nie deklaruje PASS. Nowy exact SHA ma
+zostać uruchomiony i ponownie zaatakowany przez Codexa.
