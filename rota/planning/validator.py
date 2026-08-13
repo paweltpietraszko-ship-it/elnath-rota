@@ -42,6 +42,11 @@ class ViolationDetail:
     rule: str
     assignment_ids: tuple[str, ...]
     message: str
+    # tasks/ROTA-T009/review_01_architect_clarification.md COVERAGE GAP
+    # DEVIATION TARGET: a coverage gap/excess has no employee/Assignment to
+    # blame when nothing at all covers the gap -- the demand itself is the
+    # only truthful target. Empty for every other rule.
+    demand_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -75,22 +80,55 @@ def _not_cancelled(assignments) -> list[Assignment]:
     return [a for a in assignments if a.state != AssignmentState.CANCELLED]
 
 
-def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """COVERAGE-01 (arch/spec.md:405-407). Only PRIMARY counts as coverage;
-    TRAINEE never does (arch/spec.md:260-265). Not tied to one Assignment --
-    a coverage shortfall is about the demand, not a specific candidate."""
-    covered: dict[str, int] = {}
-    for assignment in assignments:
-        if not assignment.covers_demand_id or assignment.role != AssignmentRole.PRIMARY:
+def _coverage_segments(demand_start, demand_end, overlapping: list[tuple]) -> list[tuple]:
+    """Sweep-line over [demand_start, demand_end): breakpoints are the demand
+    bounds plus every (already demand-clipped) PRIMARY interval's own bounds.
+    Each resulting sub-segment has a single, well-defined coverage count."""
+    points = sorted({demand_start, demand_end, *(p for iv in overlapping for p in iv)})
+    segments = []
+    for a, b in zip(points, points[1:]):
+        if a >= b:
             continue
-        covered[assignment.covers_demand_id] = covered.get(assignment.covers_demand_id, 0) + 1
+        count = sum(1 for s, e in overlapping if s <= a and b <= e)
+        segments.append((a, b, count))
+    return segments
+
+
+def _coverage_violation_detail(demand, bad_segments: list[tuple]) -> ViolationDetail:
+    first_start, first_end, first_count = bad_segments[0]
+    kind = "gap" if first_count < demand.required_primary_count else "excess"
+    return ViolationDetail(
+        "COVERAGE-01", (),
+        f"COVERAGE-01: demand {demand.demand_id} has a coverage {kind} in "
+        f"{len(bad_segments)} interval(s), e.g. {first_count}/{demand.required_primary_count} "
+        f"PRIMARY during {first_start}-{first_end}",
+        demand_ids=(demand.demand_id,),
+    )
+
+
+def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """COVERAGE-01 (arch/spec.md:405-407), narrowed by
+    tasks/ROTA-T009/review_01_architect_clarification.md to interval-geometric
+    semantics: only PRIMARY counts as coverage, TRAINEE never does
+    (arch/spec.md:260-265). Coverage is derived from each PRIMARY's actual
+    [start_datetime, end_datetime) interval overlapping the demand -- not
+    merely from covers_demand_id tagging -- because a truthful manual
+    correction (e.g. one employee covering the tail of a D shift and the
+    start of the following N) may legitimately span more than one standard
+    demand. Every instant of the demand must have exactly
+    required_primary_count overlapping PRIMARY coverage; sequential pieces
+    are valid when their union covers it exactly."""
+    primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
     for demand in state.shift_demands:
-        actual = covered.get(demand.demand_id, 0)
-        if actual != demand.required_primary_count:
-            details.append(ViolationDetail(
-                "COVERAGE-01", (),
-                f"COVERAGE-01: demand {demand.demand_id} has {actual}/{demand.required_primary_count} PRIMARY",
-            ))
+        overlapping = [
+            (max(a.start_datetime, demand.start_datetime), min(a.end_datetime, demand.end_datetime))
+            for a in primary
+            if a.start_datetime < demand.end_datetime and a.end_datetime > demand.start_datetime
+        ]
+        segments = _coverage_segments(demand.start_datetime, demand.end_datetime, overlapping)
+        bad_segments = [s for s in segments if s[2] != demand.required_primary_count]
+        if bad_segments:
+            details.append(_coverage_violation_detail(demand, bad_segments))
 
 
 def _check_trainee_mentor_reference(assignments: list[Assignment], details: list[ViolationDetail]) -> None:

@@ -48,13 +48,13 @@ def _row_to_deviation(row: tuple) -> Deviation:
 
 def get_schedule_version_header(conn: sqlite3.Connection, version_id: str) -> ScheduleVersion:
     row = conn.execute(
-        "SELECT version_id, site_id, month, parent_version_id, created_at, created_by, status "
+        "SELECT version_id, site_id, month, parent_version_id, created_at, created_by, status, effective_from "
         "FROM schedule_versions WHERE version_id = ?",
         (version_id,),
     ).fetchone()
     if row is None:
         raise ScheduleVersionNotFound(version_id)
-    version_id_, site_id, month, parent_id, created_at, created_by, status = row
+    version_id_, site_id, month, parent_id, created_at, created_by, status, effective_from = row
     applied_rules = [
         r[0] for r in conn.execute(
             "SELECT rule_version_id FROM schedule_version_applied_rules WHERE version_id = ? ORDER BY seq",
@@ -65,6 +65,7 @@ def get_schedule_version_header(conn: sqlite3.Connection, version_id: str) -> Sc
         version_id=version_id_, site_id=site_id, month=date.fromisoformat(month), parent_version_id=parent_id,
         created_at=datetime.fromisoformat(created_at), created_by=created_by, status=ScheduleStatus(status),
         applied_rule_version_ids=applied_rules,
+        effective_from=date.fromisoformat(effective_from) if effective_from else None,
     )
 
 

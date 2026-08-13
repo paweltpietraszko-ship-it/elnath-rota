@@ -275,6 +275,11 @@ class ScheduleVersion:
     created_by: str  # coordinator_id
     status: ScheduleStatus
     applied_rule_version_ids: list[str]
+    # ROTA-T009 review_01: coordinator-facing "Obowiazuje od". System
+    # created_at remains automatic provenance; effective_from is always
+    # coordinator-supplied for a new version and never derived. None only
+    # for legacy pre-T009 rows, where it is genuinely unknown.
+    effective_from: Optional[date] = None
 
 
 @dataclass

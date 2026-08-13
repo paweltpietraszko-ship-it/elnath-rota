@@ -1,0 +1,174 @@
+"""ONE CANONICAL PLANNINGSTATE ASSEMBLER (tasks/ROTA-T009/brief.md).
+
+Read-only. Builds a PlanningState for (site_id, month) from LocalStore, or
+(when shift_demands/assignments/deviations are supplied directly) around a
+prepared-but-not-yet-persisted ScheduleVersion snapshot -- used by the
+atomic manual-correction flow (review_02_architect_clarification.md) to
+validate a child before it is ever written.
+"""
+from __future__ import annotations
+
+import calendar
+from datetime import date, datetime, timedelta
+
+from rota.application.errors import IncompleteCalendarData
+from rota.balance import MissingTargetHoursError
+from rota.domain import (
+    Assignment,
+    AvailabilityRecord,
+    CalendarDay,
+    Deviation,
+    Employee,
+    ExternalSupportWindow,
+    ShiftDemand,
+    SiteMembership,
+    WorkBalance,
+)
+from rota.persistence.availability_repository import get_current_availability_for_employee
+from rota.persistence.calendar_repository import list_calendar_days
+from rota.persistence.employee_repository import get_employee, list_memberships_for_site, list_windows_for_site
+from rota.persistence.site_profile_repository import get_site_profile
+from rota.persistence.site_repository import get_site
+from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
+from rota.persistence.schedule_repository import (
+    get_current_assignments_for_employees,
+    get_current_assignments_in_interval,
+    get_current_realized_primary_on_holidays,
+    get_current_schedule_snapshot,
+    get_current_version_id,
+)
+from rota.persistence.work_balance_repository import reconstruct_month_balance
+from rota.planning.state import PlanningState
+
+
+def resolved_rule_version_ids(conn, site_id: str, month: date) -> list[str]:
+    """Shared by every operation that must set applied_rule_version_ids from
+    the currently assembled RESOLVED monthly rule versions (brief.md
+    sections 3, 5, 8)."""
+    resolved, _, _ = assemble_monthly_site_rules(conn, site_id, month)
+    return [r.rule_version_id for r in resolved]
+
+
+def generate_profile_demands(profile, month: date) -> tuple[ShiftDemand, ...]:
+    """INITIAL SHIFTDEMAND GENERATION: pure data expansion from
+    SiteProfile.standard_shifts, independent of roster/target_hours/
+    absences/X-Y. One occurrence of every configured StandardShift per
+    calendar day."""
+    days = calendar.monthrange(month.year, month.month)[1]
+    demands = []
+    for day in range(1, days + 1):
+        current = date(month.year, month.month, day)
+        for shift in profile.standard_shifts:
+            start = datetime.combine(current, shift.start_time)
+            end = start + timedelta(days=1 if shift.end_next_day else 0)
+            end = datetime.combine(end.date(), shift.end_time)
+            demand_id = f"{current.isoformat()}-{shift.kind.value}"
+            demands.append(ShiftDemand(demand_id, "", start, end, shift.required_primary_count))
+    return tuple(demands)
+
+
+def _assemble_calendar(conn, month: date) -> tuple[CalendarDay, ...]:
+    days = calendar.monthrange(month.year, month.month)[1]
+    range_start, range_end = date(month.year, month.month, 1), date(month.year, month.month, days)
+    rows = {day.date: day for day in list_calendar_days(conn, range_start, range_end)}
+    result = []
+    for day in range(1, days + 1):
+        current = date(month.year, month.month, day)
+        if current not in rows:
+            raise IncompleteCalendarData(f"missing CalendarDay for {current}")
+        result.append(rows[current])
+    return tuple(result)
+
+
+def _assemble_roster(conn, site_id: str) -> tuple[tuple[SiteMembership, ...], tuple[Employee, ...]]:
+    memberships = tuple(list_memberships_for_site(conn, site_id))
+    employees = tuple(get_employee(conn, m.employee_id) for m in memberships)
+    return memberships, employees
+
+
+def _assemble_windows_and_availability(
+    conn, site_id: str, employee_ids: list[str],
+) -> tuple[tuple[ExternalSupportWindow, ...], tuple[AvailabilityRecord, ...]]:
+    windows = tuple(list_windows_for_site(conn, site_id))
+    availability: list[AvailabilityRecord] = []
+    for employee_id in employee_ids:
+        availability.extend(get_current_availability_for_employee(conn, employee_id))
+    return windows, tuple(availability)
+
+
+def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple[tuple[WorkBalance, ...], list[str]]:
+    balances, warnings = [], []
+    for employee_id in employee_ids:
+        try:
+            balances.append(reconstruct_month_balance(conn, employee_id=employee_id, month=month))
+        except MissingTargetHoursError:
+            warnings.append(f"missing target_hours for employee {employee_id!r}: omitted from WorkBalance context")
+    return tuple(balances), warnings
+
+
+def _context_window(month: date) -> tuple[datetime, datetime]:
+    days = calendar.monthrange(month.year, month.month)[1]
+    context_start = datetime.combine(month, datetime.min.time()) - timedelta(days=6)
+    month_end = date(month.year, month.month, days)
+    context_end = datetime.combine(month_end, datetime.min.time()) + timedelta(days=8)
+    return context_start, context_end
+
+
+def _assemble_cross_context(
+    conn, site_id: str, employee_ids: list[str], month: date, exclude_version_id: str | None,
+) -> tuple[tuple[Assignment, ...], tuple[Assignment, ...]]:
+    context_start, context_end = _context_window(month)
+    boundary_raw = get_current_assignments_in_interval(conn, site_id, context_start, context_end)
+    boundary = tuple(a for a in boundary_raw if a.schedule_version_id != exclude_version_id)
+    other_site = tuple(
+        get_current_assignments_for_employees(conn, employee_ids, context_start, context_end, exclude_site_id=site_id)
+    )
+    return boundary, other_site
+
+
+def _assemble_version_content(
+    conn, site_id: str, month: date, shift_demands, assignments, deviations, schedule_version_id, profile,
+) -> tuple[tuple[ShiftDemand, ...], tuple[Assignment, ...], tuple[Deviation, ...], str]:
+    """Either uses the explicitly supplied (prepared-in-memory or otherwise
+    overridden) content, or reads the durable current ScheduleVersion, or --
+    when none exists yet -- generates ephemeral profile-derived demands with
+    no assignments/deviations (read-only: nothing is persisted here)."""
+    if shift_demands is not None:
+        return tuple(shift_demands), tuple(assignments or ()), tuple(deviations or ()), schedule_version_id or ""
+    current = get_current_schedule_snapshot(conn, site_id, month)
+    if current is not None:
+        header, snapshot = current
+        return snapshot.shift_demands, snapshot.assignments, snapshot.deviations, header.version_id
+    return generate_profile_demands(profile, month), (), (), ""
+
+
+def assemble_planning_state(
+    conn, *, site_id: str, month: date,
+    shift_demands=None, assignments=None, deviations=None, schedule_version_id=None,
+) -> tuple[PlanningState, list[str]]:
+    site = get_site(conn, site_id)
+    profile = get_site_profile(conn, site.profile_id)
+    calendar_days = _assemble_calendar(conn, month)
+    memberships, employees = _assemble_roster(conn, site_id)
+    employee_ids = [e.employee_id for e in employees]
+    windows, availability = _assemble_windows_and_availability(conn, site_id, employee_ids)
+    resolved, unresolved, applicability = assemble_monthly_site_rules(conn, site_id, month)
+
+    demands, existing, devs, version_id = _assemble_version_content(
+        conn, site_id, month, shift_demands, assignments, deviations, schedule_version_id, profile,
+    )
+    exclude_id = get_current_version_id(conn, site_id, month) if shift_demands is None else version_id
+    boundary, other_site = _assemble_cross_context(conn, site_id, employee_ids, month, exclude_id)
+    work_balances, warnings = _assemble_work_balances(conn, employee_ids, month)
+    holiday_history = tuple(get_current_realized_primary_on_holidays(conn, site_id))
+
+    state = PlanningState(
+        site=site, profile=profile, month=month, calendar_days=calendar_days,
+        boundary_assignments=boundary, memberships=memberships, employees=employees,
+        external_windows=windows, availability_records=availability,
+        site_rules=resolved, unresolved_site_rules=unresolved, site_rule_applicability=applicability,
+        shift_demands=demands, existing_assignments=existing, deviations=devs,
+        work_balances=work_balances, holiday_history=holiday_history, other_site_assignments=other_site,
+        schedule_version_id=version_id,
+    )
+    return state, warnings

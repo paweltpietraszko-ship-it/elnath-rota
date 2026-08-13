@@ -86,7 +86,7 @@ def _validate_content(
     validation.validate_applied_rules(conn, site_id=site_id, applied_rule_version_ids=applied_rule_version_ids)
     demands_by_id = validation.validate_demands(month, shift_demands)
     assignments_by_id = validation.validate_assignments(conn, month, assignments, demands_by_id)
-    validation.validate_deviations(conn, deviations, assignments_by_id)
+    validation.validate_deviations(conn, deviations, assignments_by_id, demands_by_id)
     validation.validate_realized_preserved(conn, parent_version_id, assignments_by_id)
     return validation.derive_working_status(deviations)
 
@@ -94,11 +94,18 @@ def _validate_content(
 def create_schedule_version(
     conn: sqlite3.Connection, *, version_id: str, site_id: str, month: date, parent_version_id: str | None,
     created_at: datetime, created_by: str, applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand],
-    assignments: list[Assignment], deviations: list[Deviation],
+    assignments: list[Assignment], deviations: list[Deviation], effective_from: date | None = None,
 ) -> ScheduleVersion:
     """Atomically create a new ScheduleVersion header+content and point the
     (site_id, month) current reference at it. If parent_version_id is set,
-    every parent REALIZED Assignment must be preserved byte-for-byte (R1-2)."""
+    every parent REALIZED Assignment must be preserved byte-for-byte (R1-2).
+
+    effective_from (tasks/ROTA-T009/review_01_architect_clarification.md
+    SCHEDULEVERSION DATES) is coordinator-supplied provenance, never derived
+    by this storage primitive -- callers that omit it get NULL, matching
+    legacy pre-T009 rows. The T009 application layer is responsible for
+    always supplying a real value on its own coordinator-facing operations;
+    this lower-level primitive stays permissive for T008-era callers."""
     with conn:
         if conn.execute("SELECT 1 FROM schedule_versions WHERE version_id = ?", (version_id,)).fetchone():
             raise DuplicateScheduleVersionId(version_id)
@@ -112,8 +119,11 @@ def create_schedule_version(
         )
         conn.execute(
             "INSERT INTO schedule_versions (version_id, site_id, month, parent_version_id, created_at, "
-            "created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (version_id, site_id, month.isoformat(), parent_version_id, created_at.isoformat(), created_by, status.value),
+            "created_by, status, effective_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                version_id, site_id, month.isoformat(), parent_version_id, created_at.isoformat(), created_by,
+                status.value, effective_from.isoformat() if effective_from else None,
+            ),
         )
         _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
         _set_current_reference(conn, site_id, month, version_id)
