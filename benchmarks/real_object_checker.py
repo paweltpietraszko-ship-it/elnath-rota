@@ -212,6 +212,82 @@ def _fixed_load_hours(scenario: ScenarioSpec, employee: str) -> int:
     )
 
 
+def _shortage_ground_truth(
+    scenario: ScenarioSpec, demands: dict[str, DemandSpec], kind: ExpectationKind,
+) -> list[str]:
+    if kind == ExpectationKind.SIMPLE_SHORTAGE:
+        if not scenario.expected_demand_ids:
+            return ["SIMPLE_SHORTAGE lacks expected_demand_ids"]
+        errors = []
+        for demand_id in scenario.expected_demand_ids:
+            demand = demands.get(demand_id)
+            if demand is None:
+                errors.append(f"unknown shortage demand {demand_id}")
+                continue
+            eligible = eligible_employees_for_demand(scenario, demand)
+            if eligible:
+                errors.append(f"{demand_id} still has eligible employees {eligible}")
+        return errors
+    if len(scenario.expected_demand_ids) != 2 or not scenario.expected_employee_id:
+        return ["REST_PAIR_SHORTAGE requires two demands and one employee"]
+    first = demands.get(scenario.expected_demand_ids[0])
+    second = demands.get(scenario.expected_demand_ids[1])
+    if first is None or second is None:
+        return ["REST_PAIR_SHORTAGE references unknown demand"]
+    expected = (scenario.expected_employee_id,)
+    errors = []
+    if eligible_employees_for_demand(scenario, first) != expected:
+        errors.append("first REST pair demand is not restricted to expected employee")
+    if eligible_employees_for_demand(scenario, second) != expected:
+        errors.append("second REST pair demand is not restricted to expected employee")
+    if not _rest_conflict(first.start, first.end, second.start, second.end):
+        errors.append("REST pair demands do not conflict")
+    return errors
+
+
+def _external_ground_truth(
+    scenario: ScenarioSpec, demands: dict[str, DemandSpec], kind: ExpectationKind,
+) -> list[str]:
+    demand = demands.get(scenario.expected_demand_ids[0]) if scenario.expected_demand_ids else None
+    employee = scenario.expected_employee_id
+    if demand is None or employee is None:
+        return [f"{kind.value} lacks expected demand/employee"]
+    if kind == ExpectationKind.EXTERNAL_BEFORE:
+        errors = []
+        if eligible_employees_for_demand(scenario, demand):
+            errors.append("external-before demand is already coverable")
+        probe_eligible = eligible_employees_for_demand(
+            scenario, demand, windows=_combined_probe_windows(scenario),
+        )
+        if employee not in probe_eligible:
+            errors.append("probe window does not unlock expected external employee")
+        return errors
+    errors = []
+    current_eligible = eligible_employees_for_demand(scenario, demand)
+    if employee not in current_eligible:
+        errors.append("confirmed external employee is not eligible")
+    local = tuple(worker for worker in LOCAL_EMPLOYEES if worker in current_eligible)
+    if local:
+        errors.append(f"external-after demand is still locally coverable: {local}")
+    return errors
+
+
+def _load_ground_truth(scenario: ScenarioSpec, kind: ExpectationKind) -> list[str]:
+    if kind == ExpectationKind.FORCED_LOAD:
+        error = _forced_load_error(scenario)
+        return [error] if error else []
+    if not scenario.expected_employee_id:
+        return ["FIXED_LOAD lacks expected_employee_id"]
+    observed = _fixed_load_hours(scenario, scenario.expected_employee_id)
+    should_exceed = scenario.expected_status.value == "DECISION_REQUIRED"
+    if should_exceed == (observed > LOAD_LIMIT_HOURS):
+        return []
+    return [
+        f"fixed load ground truth mismatch: {observed}h "
+        f"for expected {scenario.expected_status.value}"
+    ]
+
+
 def validate_ground_truth(scenario: ScenarioSpec) -> tuple[str, ...]:
     """Validate only the short construction claim declared by this scenario."""
     kind = scenario.expectation_kind
@@ -220,73 +296,16 @@ def validate_ground_truth(scenario: ScenarioSpec) -> tuple[str, ...]:
     if not scenario.expectation_reason.strip():
         return ("expectation_reason is empty",)
     demands = _demand_map(scenario)
-    errors = []
-    if kind == ExpectationKind.SIMPLE_SHORTAGE:
-        if not scenario.expected_demand_ids:
-            return ("SIMPLE_SHORTAGE lacks expected_demand_ids",)
-        for demand_id in scenario.expected_demand_ids:
-            demand = demands.get(demand_id)
-            if demand is None:
-                errors.append(f"unknown shortage demand {demand_id}")
-            elif eligible_employees_for_demand(scenario, demand):
-                errors.append(
-                    f"{demand_id} still has eligible employees "
-                    f"{eligible_employees_for_demand(scenario, demand)}"
-                )
-    elif kind == ExpectationKind.REST_PAIR_SHORTAGE:
-        if len(scenario.expected_demand_ids) != 2 or not scenario.expected_employee_id:
-            return ("REST_PAIR_SHORTAGE requires two demands and one employee",)
-        first = demands.get(scenario.expected_demand_ids[0])
-        second = demands.get(scenario.expected_demand_ids[1])
-        if first is None or second is None:
-            return ("REST_PAIR_SHORTAGE references unknown demand",)
-        expected = (scenario.expected_employee_id,)
-        if eligible_employees_for_demand(scenario, first) != expected:
-            errors.append("first REST pair demand is not restricted to expected employee")
-        if eligible_employees_for_demand(scenario, second) != expected:
-            errors.append("second REST pair demand is not restricted to expected employee")
-        if not _rest_conflict(first.start, first.end, second.start, second.end):
-            errors.append("REST pair demands do not conflict")
-    elif kind == ExpectationKind.EXTERNAL_BEFORE:
-        demand = demands.get(scenario.expected_demand_ids[0]) if scenario.expected_demand_ids else None
-        employee = scenario.expected_employee_id
-        if demand is None or employee is None:
-            return ("EXTERNAL_BEFORE lacks expected demand/employee",)
-        if eligible_employees_for_demand(scenario, demand):
-            errors.append("external-before demand is already coverable")
-        if employee not in eligible_employees_for_demand(
-            scenario, demand, windows=_combined_probe_windows(scenario)
-        ):
-            errors.append("probe window does not unlock expected external employee")
-    elif kind == ExpectationKind.EXTERNAL_AFTER:
-        demand = demands.get(scenario.expected_demand_ids[0]) if scenario.expected_demand_ids else None
-        employee = scenario.expected_employee_id
-        if demand is None or employee is None:
-            return ("EXTERNAL_AFTER lacks expected demand/employee",)
-        if employee not in eligible_employees_for_demand(scenario, demand):
-            errors.append("confirmed external employee is not eligible")
-        local = tuple(
-            worker for worker in LOCAL_EMPLOYEES
-            if worker in eligible_employees_for_demand(scenario, demand)
-        )
-        if local:
-            errors.append(f"external-after demand is still locally coverable: {local}")
-    elif kind == ExpectationKind.FORCED_LOAD:
-        if error := _forced_load_error(scenario):
-            errors.append(error)
-    elif kind == ExpectationKind.FIXED_LOAD:
-        if not scenario.expected_employee_id:
-            return ("FIXED_LOAD lacks expected_employee_id",)
-        observed = _fixed_load_hours(scenario, scenario.expected_employee_id)
-        should_exceed = scenario.expected_status.value == "DECISION_REQUIRED"
-        if should_exceed != (observed > LOAD_LIMIT_HOURS):
-            errors.append(
-                f"fixed load ground truth mismatch: {observed}h "
-                f"for expected {scenario.expected_status.value}"
-            )
-    elif kind == ExpectationKind.REPLAN:
-        if scenario.expected_reshuffles is None:
-            errors.append("REPLAN lacks expected_reshuffles")
+    if kind in {ExpectationKind.SIMPLE_SHORTAGE, ExpectationKind.REST_PAIR_SHORTAGE}:
+        errors = _shortage_ground_truth(scenario, demands, kind)
+    elif kind in {ExpectationKind.EXTERNAL_BEFORE, ExpectationKind.EXTERNAL_AFTER}:
+        errors = _external_ground_truth(scenario, demands, kind)
+    elif kind in {ExpectationKind.FORCED_LOAD, ExpectationKind.FIXED_LOAD}:
+        errors = _load_ground_truth(scenario, kind)
+    elif kind == ExpectationKind.REPLAN and scenario.expected_reshuffles is None:
+        errors = ["REPLAN lacks expected_reshuffles"]
+    else:
+        errors = []
     return tuple(errors)
 
 
