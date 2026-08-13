@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -120,7 +120,11 @@ def test_target_site_boundary_rejects_noncanonical_geometry() -> None:
         start=datetime(2027, 1, 26, 6),
         end=datetime(2027, 1, 26, 18),
     )
-    invalid = replace(scenario, case_id="bad-geometry-case", boundary_assignments=(bad, *scenario.boundary_assignments[1:]))
+    invalid = replace(
+        scenario,
+        case_id="bad-geometry-case",
+        boundary_assignments=(bad, *scenario.boundary_assignments[1:]),
+    )
     assert any("canonical D/N geometry" in error for error in validate_scenario(invalid))
 
 
