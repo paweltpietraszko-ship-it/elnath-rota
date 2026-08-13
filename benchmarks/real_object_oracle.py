@@ -52,18 +52,20 @@ def _rest_conflict(start_a: datetime, end_a: datetime, start_b: datetime, end_b:
     return (start_a - end_b).total_seconds() / 3600 < REST_MIN_HOURS
 
 
+def _context_assignments(scenario: ScenarioSpec):
+    return (*scenario.boundary_assignments, *scenario.other_site_assignments)
+
+
 def _availability_blocks(scenario: ScenarioSpec, employee_id: str, demand) -> bool:
     for record in scenario.availability:
         if record.employee_id != employee_id:
             continue
-        if record.kind == "DAY_SHIFT_OFF":
-            if record.start_date <= demand.start.date() <= record.end_date:
-                return True
-            continue
-        range_start = datetime.combine(record.start_date, time())
-        range_end = datetime.combine(record.end_date + timedelta(days=1), time())
+        if record.kind == "DAY_SHIFT_OFF" and record.start_date <= demand.start.date() <= record.end_date:
+            return True
+        start = datetime.combine(record.start_date, time())
+        end = datetime.combine(record.end_date + timedelta(days=1), time())
         if record.kind in {"UNAVAILABLE_24H", "LEAVE_GRANTED", "SICK_LEAVE"}:
-            if _intervals_overlap(demand.start, demand.end, range_start, range_end):
+            if _intervals_overlap(demand.start, demand.end, start, end):
                 return True
     return False
 
@@ -83,9 +85,7 @@ def _rule_allows(rule: RuleSpec, employee_id: str, demand) -> bool:
     return False
 
 
-def _window_covers(
-    window: ExternalWindowSpec, employee_id: str, demand,
-) -> bool:
+def _window_covers(window: ExternalWindowSpec, employee_id: str, demand) -> bool:
     if not window.active or window.site_id != SITE_ID or window.employee_id != employee_id:
         return False
     if window.allowed_shift_kind is not None and window.allowed_shift_kind != demand.kind:
@@ -93,12 +93,7 @@ def _window_covers(
     return window.start <= demand.start and window.end >= demand.end
 
 
-def _employee_eligible(
-    scenario: ScenarioSpec,
-    employee_id: str,
-    demand,
-    windows: tuple[ExternalWindowSpec, ...],
-) -> bool:
+def _employee_eligible(scenario, employee_id: str, demand, windows) -> bool:
     if employee_id == "C" and demand.kind == "N":
         return False
     if _availability_blocks(scenario, employee_id, demand):
@@ -124,11 +119,8 @@ def _rolling_windows(scenario: ScenarioSpec) -> tuple[tuple[datetime, datetime],
 def _hard_fixed_by_demand(scenario: ScenarioSpec) -> dict[str, str]:
     fixed = {}
     for assignment in scenario.fixed_demand_assignments:
-        if not (assignment.state == "REALIZED" or assignment.frozen):
-            continue
-        if assignment.demand_id is None:
-            continue
-        fixed[assignment.demand_id] = assignment.employee_id
+        if (assignment.state == "REALIZED" or assignment.frozen) and assignment.demand_id:
+            fixed[assignment.demand_id] = assignment.employee_id
     return fixed
 
 
@@ -152,35 +144,28 @@ def _add_fixed_demands(model, scenario, variables) -> None:
 
 def _add_rest(model, scenario, demands, variables) -> None:
     employees = (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)
+    context = _context_assignments(scenario)
     for employee in employees:
         for index, first in enumerate(demands):
             for second in demands[index + 1:]:
                 if _rest_conflict(first.start, first.end, second.start, second.end):
-                    model.add(
-                        variables[(employee, first.demand_id)]
-                        + variables[(employee, second.demand_id)] <= 1
-                    )
+                    model.add(variables[(employee, first.demand_id)] + variables[(employee, second.demand_id)] <= 1)
         for demand in demands:
-            if any(
-                item.employee_id == employee
-                and item.state != "CANCELLED"
+            blocked = any(
+                item.employee_id == employee and item.state != "CANCELLED"
                 and _rest_conflict(item.start, item.end, demand.start, demand.end)
-                for item in scenario.boundary_assignments
-            ):
+                for item in context
+            )
+            if blocked:
                 model.add(variables[(employee, demand.demand_id)] == 0)
 
 
 def _add_load(model, scenario, demands, variables) -> None:
+    context = _context_assignments(scenario)
     for employee in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES):
-        boundary = [
-            item for item in scenario.boundary_assignments
-            if item.employee_id == employee and item.state != "CANCELLED"
-        ]
+        history = [item for item in context if item.employee_id == employee and item.state != "CANCELLED"]
         for window_start, window_end in _rolling_windows(scenario):
-            fixed_hours = sum(
-                _overlap_hours(item.start, item.end, window_start, window_end)
-                for item in boundary
-            )
+            fixed_hours = sum(_overlap_hours(item.start, item.end, window_start, window_end) for item in history)
             terms = [
                 _overlap_hours(demand.start, demand.end, window_start, window_end)
                 * variables[(employee, demand.demand_id)]
@@ -189,17 +174,12 @@ def _add_load(model, scenario, demands, variables) -> None:
             model.add(sum(terms) + fixed_hours <= LOAD_LIMIT_HOURS)
 
 
-def _build_model(
-    scenario: ScenarioSpec,
-    windows: tuple[ExternalWindowSpec, ...],
-    enforce_load: bool,
-):
+def _build_model(scenario: ScenarioSpec, windows, enforce_load: bool):
     demands = demands_for_month(scenario)
     model = cp_model.CpModel()
     variables = {
         (employee, demand.demand_id): model.new_bool_var(f"x_{employee}_{demand.demand_id}")
-        for demand in demands
-        for employee in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)
+        for demand in demands for employee in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)
     }
     _add_coverage(model, demands, variables)
     _add_eligibility(model, scenario, demands, windows, variables)
@@ -221,15 +201,7 @@ def _status_name(status: int) -> str:
     return mapping.get(status, f"STATUS_{status}")
 
 
-def _solve_built_model(
-    scenario: ScenarioSpec,
-    model,
-    demands,
-    variables,
-    *,
-    windows: tuple[ExternalWindowSpec, ...],
-    enforce_load: bool,
-) -> ReferenceSolve:
+def _solve_built_model(scenario, model, demands, variables, *, windows, enforce_load) -> ReferenceSolve:
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = REFERENCE_TIME_LIMIT_SECONDS
     solver.parameters.num_search_workers = 1
@@ -245,23 +217,16 @@ def _solve_built_model(
             for employee in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)
             if solver.value(variables[(employee, demand.demand_id)])
         )
-        checked = check_reference_witness(
-            scenario, witness, windows=windows, enforce_load=enforce_load,
-        )
+        checked = check_reference_witness(scenario, witness, windows=windows, enforce_load=enforce_load)
         if checked.errors:
             return ReferenceSolve(
                 SolveVerdict.UNKNOWN, witness, elapsed, "WITNESS_CHECK_FAILED", False,
                 checked.errors, checked.load_violations,
             )
-        return ReferenceSolve(
-            SolveVerdict.FEASIBLE, witness, elapsed, name, False, (),
-            checked.load_violations,
-        )
+        return ReferenceSolve(SolveVerdict.FEASIBLE, witness, elapsed, name, False, (), checked.load_violations)
     if status == cp_model.INFEASIBLE:
         return ReferenceSolve(SolveVerdict.INFEASIBLE, (), elapsed, name, False)
-    return ReferenceSolve(
-        SolveVerdict.UNKNOWN, (), elapsed, name, status == cp_model.UNKNOWN,
-    )
+    return ReferenceSolve(SolveVerdict.UNKNOWN, (), elapsed, name, status == cp_model.UNKNOWN)
 
 
 def solve_reference(
@@ -270,33 +235,28 @@ def solve_reference(
     enforce_load: bool,
     windows: Optional[tuple[ExternalWindowSpec, ...]] = None,
 ) -> ReferenceSolve:
-    selected_windows = scenario.external_windows if windows is None else windows
-    model, demands, variables = _build_model(
-        scenario, selected_windows, enforce_load,
-    )
+    selected = scenario.external_windows if windows is None else windows
+    model, demands, variables = _build_model(scenario, selected, enforce_load)
     return _solve_built_model(
         scenario, model, demands, variables,
-        windows=selected_windows, enforce_load=enforce_load,
+        windows=selected, enforce_load=enforce_load,
     )
 
 
-def _claim_window(
-    scenario: ScenarioSpec, window_start: date, window_end: date,
-) -> tuple[datetime, datetime] | None:
-    valid_windows = {
+def _claim_window(scenario: ScenarioSpec, window_start: date, window_end: date):
+    valid = {
         (start.date(), (end - timedelta(days=1)).date()): (start, end)
         for start, end in _rolling_windows(scenario)
     }
-    return valid_windows.get((window_start, window_end))
+    return valid.get((window_start, window_end))
 
 
 def _add_claimed_load_equality(
-    model, scenario: ScenarioSpec, demands, variables,
-    employee_id: str, start_dt: datetime, end_dt: datetime, hours: int,
+    model, scenario, demands, variables, employee_id, start_dt, end_dt, hours,
 ) -> None:
-    boundary_hours = sum(
+    context_hours = sum(
         _overlap_hours(item.start, item.end, start_dt, end_dt)
-        for item in scenario.boundary_assignments
+        for item in _context_assignments(scenario)
         if item.employee_id == employee_id and item.state != "CANCELLED"
     )
     terms = [
@@ -304,7 +264,7 @@ def _add_claimed_load_equality(
         * variables[(employee_id, demand.demand_id)]
         for demand in demands
     ]
-    model.add(sum(terms) + boundary_hours == hours)
+    model.add(sum(terms) + context_hours == hours)
 
 
 def verify_load_claim(
@@ -315,21 +275,17 @@ def verify_load_claim(
     window_end: date,
     hours: int,
 ) -> ReferenceSolve:
-    """Prove a production load certificate is realizable independently."""
     validate_scenario_or_raise(scenario)
     boundaries = _claim_window(scenario, window_start, window_end)
     if (
         employee_id not in (*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES)
-        or hours <= LOAD_LIMIT_HOURS
-        or boundaries is None
+        or hours <= LOAD_LIMIT_HOURS or boundaries is None
     ):
         return ReferenceSolve(
             SolveVerdict.UNKNOWN, (), 0.0, "INVALID_LOAD_CLAIM", False,
             ("load certificate has invalid employee/window/hours",),
         )
-    model, demands, variables = _build_model(
-        scenario, scenario.external_windows, enforce_load=False,
-    )
+    model, demands, variables = _build_model(scenario, scenario.external_windows, enforce_load=False)
     _add_claimed_load_equality(
         model, scenario, demands, variables, employee_id,
         boundaries[0], boundaries[1], hours,
@@ -362,36 +318,23 @@ def _combined_probe_windows(scenario: ScenarioSpec) -> tuple[ExternalWindowSpec,
     return tuple(by_id[key] for key in sorted(by_id))
 
 
-def _classify_feasible_current(
-    scenario: ScenarioSpec,
-    capped: ReferenceSolve,
-) -> ReferenceClassification:
+def _classify_feasible_current(scenario, capped) -> ReferenceClassification:
     if not scenario.external_windows:
         return ReferenceClassification(OracleClass.KNOWN_FEASIBLE, capped)
     no_external = solve_reference(scenario, enforce_load=False, windows=())
     if no_external.verdict == SolveVerdict.UNKNOWN:
-        return ReferenceClassification(
-            OracleClass.INCONCLUSIVE, capped, without_external=no_external,
-        )
+        return ReferenceClassification(OracleClass.INCONCLUSIVE, capped, without_external=no_external)
     if no_external.verdict == SolveVerdict.INFEASIBLE:
         return ReferenceClassification(
             OracleClass.KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT,
             capped, without_external=no_external,
         )
-    return ReferenceClassification(
-        OracleClass.KNOWN_FEASIBLE, capped, without_external=no_external,
-    )
+    return ReferenceClassification(OracleClass.KNOWN_FEASIBLE, capped, without_external=no_external)
 
 
-def _classify_hard_shortage(
-    scenario: ScenarioSpec,
-    capped: ReferenceSolve,
-    uncapped: ReferenceSolve,
-) -> ReferenceClassification:
+def _classify_hard_shortage(scenario, capped, uncapped) -> ReferenceClassification:
     if not scenario.external_probe_windows:
-        return ReferenceClassification(
-            OracleClass.PROVEN_STAFFING_SHORTAGE, capped, uncapped,
-        )
+        return ReferenceClassification(OracleClass.PROVEN_STAFFING_SHORTAGE, capped, uncapped)
     probe_windows = _combined_probe_windows(scenario)
     probe = solve_reference(scenario, enforce_load=True, windows=probe_windows)
     if probe.verdict == SolveVerdict.UNKNOWN:
@@ -401,13 +344,9 @@ def _classify_hard_shortage(
             OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED,
             capped, uncapped, with_external_probe=probe,
         )
-    probe_uncapped = solve_reference(
-        scenario, enforce_load=False, windows=probe_windows,
-    )
+    probe_uncapped = solve_reference(scenario, enforce_load=False, windows=probe_windows)
     if probe_uncapped.verdict != SolveVerdict.INFEASIBLE:
-        return _inconclusive(
-            capped, uncapped, probe=probe, probe_uncapped=probe_uncapped,
-        )
+        return _inconclusive(capped, uncapped, probe=probe, probe_uncapped=probe_uncapped)
     return ReferenceClassification(
         OracleClass.PROVEN_STAFFING_SHORTAGE,
         capped, uncapped,
@@ -417,25 +356,22 @@ def _classify_hard_shortage(
 
 
 def classify_reference(scenario: ScenarioSpec) -> ReferenceClassification:
-    """Classify legally-constructed input before production is invoked."""
     validate_scenario_or_raise(scenario)
     capped = solve_reference(scenario, enforce_load=True)
     if capped.verdict == SolveVerdict.UNKNOWN:
         return _inconclusive(capped)
     if capped.verdict == SolveVerdict.FEASIBLE:
         return _classify_feasible_current(scenario, capped)
-
     uncapped = solve_reference(scenario, enforce_load=False)
     if uncapped.verdict == SolveVerdict.UNKNOWN:
         return _inconclusive(capped, uncapped)
     if uncapped.verdict == SolveVerdict.FEASIBLE:
-        return ReferenceClassification(
-            OracleClass.LOAD_DECISION_REQUIRED, capped, uncapped,
-        )
+        return ReferenceClassification(OracleClass.LOAD_DECISION_REQUIRED, capped, uncapped)
     return _classify_hard_shortage(scenario, capped, uncapped)
 
 
 if __name__ == "__main__":
     from benchmarks.real_object_scenarios import core_scenarios
+
     first = core_scenarios()[0]
     print(first.case_id, classify_reference(first).expected_class)
