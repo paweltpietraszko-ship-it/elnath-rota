@@ -10,10 +10,11 @@ from datetime import date
 import pytest
 
 from rota.application import backup, lifecycle_ops, memory_read, plan_ops, rule_decisions, training
-from rota.domain import AssignmentRole, AssignmentState, ReadinessSource, ReadinessState
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ReadinessSource, ReadinessState
 from rota.persistence.db import connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_site_membership
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
+from rota.persistence.site_profile_repository import save_site_profile
 from rota.site_memory_types import NewRuleContent
 from rota.domain import RuleCategory, RuleEnforcement, RuleResolution
 from tests.support.t009_fixtures import seed_real_object
@@ -27,6 +28,18 @@ def _plan_and_select(conn, site_id: str):
     return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
 
 
+def _realize_training_n_times(conn, *, site_id: str, mentor, trainee_id: str, n: int, label: str) -> None:
+    for i in range(n):
+        trainee_assignment = Assignment(
+            f"ASG-TRAIN-{label}-{i}", "", trainee_id, mentor.start_datetime, mentor.end_datetime,
+            AssignmentRole.TRAINEE, AssignmentState.REALIZED, False, None, mentor.assignment_id,
+        )
+        training.mark_training_realized(
+            conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1",
+            effective_from=date(2026, 8, i + 2), trainee_assignment=trainee_assignment,
+        )
+
+
 def test_13_realized_training_updates_default_readiness_but_not_override(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
     pstate = seed_real_object(conn, case_id="life-1", month=MONTH, seed=400)
@@ -36,23 +49,19 @@ def test_13_realized_training_updates_default_readiness_but_not_override(tmp_pat
     mentor = next(a for a in snapshot.assignments if a.role == AssignmentRole.PRIMARY)
     trainee_id = next(e.employee_id for e in pstate.employees if e.employee_id != mentor.employee_id)
 
+    # R4-4: training_s_enabled/training_s_weekdays_only gate readiness
+    # counting -- this test exercises the counting/threshold/override
+    # mechanics, so it opts the profile in explicitly rather than relying on
+    # the benchmark's own (disabled) default.
+    save_site_profile(conn, replace(pstate.profile, training_s_enabled=True, training_s_weekdays_only=False))
+
     memberships = list_memberships_for_site(conn, site_id)
     membership = next(m for m in memberships if m.employee_id == trainee_id)
     save_site_membership(conn, replace(
         membership, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.DEFAULT,
     ))
     threshold = pstate.profile.training_s_default_readiness_threshold
-
-    from rota.domain import Assignment
-    for i in range(threshold):
-        trainee_assignment = Assignment(
-            f"ASG-TRAIN-{i}", "", trainee_id, mentor.start_datetime, mentor.end_datetime,
-            AssignmentRole.TRAINEE, AssignmentState.REALIZED, False, None, mentor.assignment_id,
-        )
-        training.mark_training_realized(
-            conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1",
-            effective_from=date(2026, 8, i + 2), trainee_assignment=trainee_assignment,
-        )
+    _realize_training_n_times(conn, site_id=site_id, mentor=mentor, trainee_id=trainee_id, n=threshold, label="SELF")
     updated = next(m for m in list_memberships_for_site(conn, site_id) if m.employee_id == trainee_id)
     assert updated.readiness_state == ReadinessState.READY_FOR_PRIMARY
 
@@ -64,15 +73,7 @@ def test_13_realized_training_updates_default_readiness_but_not_override(tmp_pat
     save_site_membership(conn, replace(
         other_membership, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.COORDINATOR_OVERRIDE,
     ))
-    for i in range(threshold):
-        trainee_assignment = Assignment(
-            f"ASG-TRAIN-OTHER-{i}", "", other_id, mentor.start_datetime, mentor.end_datetime,
-            AssignmentRole.TRAINEE, AssignmentState.REALIZED, False, None, mentor.assignment_id,
-        )
-        training.mark_training_realized(
-            conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1",
-            effective_from=date(2026, 8, i + 10), trainee_assignment=trainee_assignment,
-        )
+    _realize_training_n_times(conn, site_id=site_id, mentor=mentor, trainee_id=other_id, n=threshold, label="OTHER")
     unchanged = next(m for m in list_memberships_for_site(conn, site_id) if m.employee_id == other_id)
     assert unchanged.readiness_state == ReadinessState.NOT_READY
 

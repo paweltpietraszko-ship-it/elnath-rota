@@ -1,6 +1,8 @@
 """Typed errors for the T009 application layer (tasks/ROTA-T009/brief.md)."""
 from __future__ import annotations
 
+from datetime import date, datetime
+
 
 class InvalidCoordinatorContext(Exception):
     """Raised when the coordinator/Site/CoordinatorSiteAssociation triple is
@@ -33,3 +35,16 @@ class UnknownDeviationSource(Exception):
     brief.md section 8 source_reference -> DeviationCategory mapping table
     -- fails closed instead of guessing (brief.md: 'Unknown future source
     fails closed instead of being guessed')."""
+
+
+def require_real_date(value: object, *, field_name: str = "effective_from") -> date:
+    """tasks/ROTA-T009/review_01_architect_clarification.md SCHEDULEVERSION
+    DATES: every new version requires a coordinator-supplied real date, and
+    Rota MUST NOT derive/guess it. `datetime` is a subclass of `date` in
+    Python, so `isinstance(value, date)` alone would silently accept a
+    timestamp -- checked separately and rejected."""
+    if isinstance(value, datetime):
+        raise TypeError(f"{field_name} must be a date, not a datetime (got {value!r})")
+    if not isinstance(value, date):
+        raise TypeError(f"{field_name} must be a date (got {type(value).__name__})")
+    return value

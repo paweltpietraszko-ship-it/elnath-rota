@@ -35,7 +35,8 @@ from rota.persistence.schedule_repository import (
     get_current_assignments_in_interval,
     get_current_realized_primary_on_holidays,
     get_current_schedule_snapshot,
-    get_current_version_id,
+    get_schedule_snapshot,
+    get_schedule_version_header,
 )
 from rota.persistence.work_balance_repository import reconstruct_month_balance
 from rota.planning.state import PlanningState
@@ -53,16 +54,30 @@ def generate_profile_demands(profile, month: date) -> tuple[ShiftDemand, ...]:
     """INITIAL SHIFTDEMAND GENERATION: pure data expansion from
     SiteProfile.standard_shifts, independent of roster/target_hours/
     absences/X-Y. One occurrence of every configured StandardShift per
-    calendar day."""
+    calendar day.
+
+    R4-8: demand_id stays exactly "{date}-{kind}" for the common case (one
+    StandardShift per ShiftKind), preserving every existing id assumption --
+    a profile with more than one StandardShift of the SAME kind (e.g. two
+    differently-timed D shifts) instead gets a "-{n}" occurrence suffix so
+    each configured shift still gets its own distinct, deterministic demand
+    per day."""
     days = calendar.monthrange(month.year, month.month)[1]
+    kind_counts: dict = {}
+    for shift in profile.standard_shifts:
+        kind_counts[shift.kind] = kind_counts.get(shift.kind, 0) + 1
     demands = []
     for day in range(1, days + 1):
         current = date(month.year, month.month, day)
+        kind_seen: dict = {}
         for shift in profile.standard_shifts:
             start = datetime.combine(current, shift.start_time)
             end = start + timedelta(days=1 if shift.end_next_day else 0)
             end = datetime.combine(end.date(), shift.end_time)
-            demand_id = f"{current.isoformat()}-{shift.kind.value}"
+            occurrence = kind_seen.get(shift.kind, 0)
+            kind_seen[shift.kind] = occurrence + 1
+            suffix = f"-{occurrence}" if kind_counts[shift.kind] > 1 else ""
+            demand_id = f"{current.isoformat()}-{shift.kind.value}{suffix}"
             demands.append(ShiftDemand(demand_id, "", start, end, shift.required_primary_count))
     return tuple(demands)
 
@@ -89,10 +104,16 @@ def _assemble_roster(conn, site_id: str) -> tuple[tuple[SiteMembership, ...], tu
 def _assemble_windows_and_availability(
     conn, site_id: str, employee_ids: list[str],
 ) -> tuple[tuple[ExternalSupportWindow, ...], tuple[AvailabilityRecord, ...]]:
+    """brief.md ONE CANONICAL PLANNINGSTATE ASSEMBLER: 'current active
+    AvailabilityRecords' -- the chain-end record for an inactive family is
+    still current (correct for other reads) but must not enter PlanningState
+    as if it were live availability data (R4-11-A)."""
     windows = tuple(list_windows_for_site(conn, site_id))
     availability: list[AvailabilityRecord] = []
     for employee_id in employee_ids:
-        availability.extend(get_current_availability_for_employee(conn, employee_id))
+        availability.extend(
+            record for record in get_current_availability_for_employee(conn, employee_id) if record.active
+        )
     return windows, tuple(availability)
 
 
@@ -130,11 +151,18 @@ def _assemble_version_content(
     conn, site_id: str, month: date, shift_demands, assignments, deviations, schedule_version_id, profile,
 ) -> tuple[tuple[ShiftDemand, ...], tuple[Assignment, ...], tuple[Deviation, ...], str]:
     """Either uses the explicitly supplied (prepared-in-memory or otherwise
-    overridden) content, or reads the durable current ScheduleVersion, or --
-    when none exists yet -- generates ephemeral profile-derived demands with
-    no assignments/deviations (read-only: nothing is persisted here)."""
+    overridden) content, or reads one specific durable ScheduleVersion when
+    schedule_version_id names one explicitly (R4-6: this must work for a
+    non-current version too, not silently fall back to current), or reads
+    the durable current ScheduleVersion, or -- when none exists yet --
+    generates ephemeral profile-derived demands with no assignments/
+    deviations (read-only: nothing is persisted here)."""
     if shift_demands is not None:
         return tuple(shift_demands), tuple(assignments or ()), tuple(deviations or ()), schedule_version_id or ""
+    if schedule_version_id is not None:
+        header = get_schedule_version_header(conn, schedule_version_id)
+        snapshot = get_schedule_snapshot(conn, schedule_version_id)
+        return snapshot.shift_demands, snapshot.assignments, snapshot.deviations, header.version_id
     current = get_current_schedule_snapshot(conn, site_id, month)
     if current is not None:
         header, snapshot = current
@@ -157,10 +185,14 @@ def assemble_planning_state(
     demands, existing, devs, version_id = _assemble_version_content(
         conn, site_id, month, shift_demands, assignments, deviations, schedule_version_id, profile,
     )
-    exclude_id = get_current_version_id(conn, site_id, month) if shift_demands is None else version_id
-    boundary, other_site = _assemble_cross_context(conn, site_id, employee_ids, month, exclude_id)
+    # R4-2/R4-6: the assembled target version's own content (whether read
+    # fresh, explicitly named, or a prepared-in-memory snapshot) must never
+    # also re-enter through boundary/holiday_history -- both of those exist
+    # only for OTHER (surrounding/cross-Site/other-month) current work.
+    boundary, other_site = _assemble_cross_context(conn, site_id, employee_ids, month, version_id)
     work_balances, warnings = _assemble_work_balances(conn, employee_ids, month)
-    holiday_history = tuple(get_current_realized_primary_on_holidays(conn, site_id))
+    holiday_history_raw = get_current_realized_primary_on_holidays(conn, site_id)
+    holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id != version_id)
 
     state = PlanningState(
         site=site, profile=profile, month=month, calendar_days=calendar_days,

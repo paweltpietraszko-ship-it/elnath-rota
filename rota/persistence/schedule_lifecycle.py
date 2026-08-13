@@ -8,6 +8,7 @@ backstop underneath.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from datetime import date, datetime
 
 from rota.domain import Assignment, AssignmentRole, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand
@@ -95,6 +96,7 @@ def create_schedule_version(
     conn: sqlite3.Connection, *, version_id: str, site_id: str, month: date, parent_version_id: str | None,
     created_at: datetime, created_by: str, applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand],
     assignments: list[Assignment], deviations: list[Deviation], effective_from: date | None = None,
+    on_success: Callable[[sqlite3.Connection], None] | None = None,
 ) -> ScheduleVersion:
     """Atomically create a new ScheduleVersion header+content and point the
     (site_id, month) current reference at it. If parent_version_id is set,
@@ -105,7 +107,16 @@ def create_schedule_version(
     by this storage primitive -- callers that omit it get NULL, matching
     legacy pre-T009 rows. The T009 application layer is responsible for
     always supplying a real value on its own coordinator-facing operations;
-    this lower-level primitive stays permissive for T008-era callers."""
+    this lower-level primitive stays permissive for T008-era callers.
+
+    on_success (tasks/ROTA-T009 R4-1): an optional same-transaction hook for
+    a caller that must combine this write with exactly one other write (e.g.
+    training.mark_training_realized's readiness update) so both commit or
+    roll back together -- nested `with conn:` calls each commit
+    independently in Python's sqlite3 module, so composing two already-
+    wrapped writes cannot achieve this by nesting alone. Not a general
+    workflow mechanism: at most one hook, called only on the success path,
+    inside the same transaction as everything above."""
     with conn:
         if conn.execute("SELECT 1 FROM schedule_versions WHERE version_id = ?", (version_id,)).fetchone():
             raise DuplicateScheduleVersionId(version_id)
@@ -127,6 +138,8 @@ def create_schedule_version(
         )
         _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
         _set_current_reference(conn, site_id, month, version_id)
+        if on_success is not None:
+            on_success(conn)
     return get_schedule_version_header(conn, version_id)
 
 
@@ -160,15 +173,53 @@ def replace_working_snapshot(
     return get_schedule_version_header(conn, version_id)
 
 
-def finalize_schedule_version(conn: sqlite3.Connection, *, version_id: str) -> ScheduleVersion:
+def _replace_content_for_finalize(
+    conn: sqlite3.Connection, version_id: str, header: ScheduleVersion,
+    applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand],
+    assignments: list[Assignment], deviations: list[Deviation],
+) -> None:
+    if any(not d.acknowledged for d in deviations):
+        raise MalformedScheduleSnapshot(f"{version_id}: all Deviations must be acknowledged to finalize")
+    _validate_content(
+        conn, site_id=header.site_id, month=header.month, parent_version_id=header.parent_version_id,
+        applied_rule_version_ids=applied_rule_version_ids, shift_demands=shift_demands,
+        assignments=assignments, deviations=deviations,
+    )
+    _delete_content(conn, version_id)
+    _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
+
+
+def finalize_schedule_version(
+    conn: sqlite3.Connection, *, version_id: str,
+    applied_rule_version_ids: list[str] | None = None, shift_demands: list[ShiftDemand] | None = None,
+    assignments: list[Assignment] | None = None, deviations: list[Deviation] | None = None,
+) -> ScheduleVersion:
     """One-way transition WORKING(_WITH_DEVIATIONS) -> FINAL_*; every
-    Deviation on the version must already be acknowledged."""
+    Deviation on the version must already be acknowledged.
+
+    tasks/ROTA-T009 R4-1: a caller (lifecycle_ops.finalize) that must both
+    persist a freshly-revalidated, now-acknowledged snapshot AND flip to
+    FINAL cannot do so as two separate committing calls -- the second call's
+    failure would leave the first one's acknowledgement persisted with no
+    FINAL transition. Supplying shift_demands/assignments/deviations here
+    replaces the whole snapshot in the SAME transaction as the status
+    transition; omitting them preserves the original single-purpose
+    behavior (deviations already acknowledged in storage)."""
     with conn:
-        _require_editable_current(conn, version_id)
-        rows = conn.execute("SELECT acknowledged FROM deviations WHERE schedule_version_id = ?", (version_id,)).fetchall()
-        if any(not acknowledged for (acknowledged,) in rows):
-            raise MalformedScheduleSnapshot(f"{version_id}: all Deviations must be acknowledged before finalization")
-        target = ScheduleStatus.FINAL_WITH_DEVIATIONS if rows else ScheduleStatus.FINAL_NO_DEVIATIONS
+        header = _require_editable_current(conn, version_id)
+        if shift_demands is not None:
+            _replace_content_for_finalize(
+                conn, version_id, header, applied_rule_version_ids, shift_demands, assignments, deviations,
+            )
+            has_deviations = bool(deviations)
+        else:
+            rows = conn.execute(
+                "SELECT acknowledged FROM deviations WHERE schedule_version_id = ?", (version_id,),
+            ).fetchall()
+            if any(not acknowledged for (acknowledged,) in rows):
+                raise MalformedScheduleSnapshot(f"{version_id}: all Deviations must be acknowledged before finalization")
+            has_deviations = bool(rows)
+        target = ScheduleStatus.FINAL_WITH_DEVIATIONS if has_deviations else ScheduleStatus.FINAL_NO_DEVIATIONS
         conn.execute("UPDATE schedule_versions SET status = ? WHERE version_id = ?", (target.value, version_id))
     return get_schedule_version_header(conn, version_id)
 

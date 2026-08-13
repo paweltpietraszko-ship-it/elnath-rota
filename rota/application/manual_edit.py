@@ -15,7 +15,7 @@ from datetime import date, datetime
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.deviation_mapping import materialize_deviations
-from rota.application.errors import NoCurrentScheduleVersion
+from rota.application.errors import NoCurrentScheduleVersion, require_real_date
 from rota.domain import Assignment, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
@@ -31,7 +31,7 @@ def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: li
 
 def apply_manual_correction(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
-    upsert_assignments: list[Assignment],
+    upsert_assignments: list[Assignment], on_success=None,
 ) -> ScheduleVersion:
     """review_02_architect_clarification.md ATOMIC MANUAL CORRECTION FLOW,
     steps 1-11. Manual state may be saved even with a coordinator-created
@@ -41,6 +41,7 @@ def apply_manual_correction(
     that atomically writes the child and switches current. Never calls
     REPLAN automatically."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    require_real_date(effective_from)
     current_id = get_current_version_id(conn, site_id, month)  # step 1
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to correct")
@@ -49,7 +50,7 @@ def apply_manual_correction(
     corrected_assignments = _cloned_and_corrected(parent_snapshot.assignments, upsert_assignments)  # steps 4-5
 
     state, _ = assemble_planning_state(  # step 6
-        conn, site_id=site_id, month=month,
+        conn, site_id=site_id, month=month, schedule_version_id=current_id,
         shift_demands=list(parent_snapshot.shift_demands), assignments=corrected_assignments, deviations=[],
     )
     report = validate(state, corrected_assignments)  # step 7
@@ -62,7 +63,7 @@ def apply_manual_correction(
         created_at=datetime.now(), created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=parent_snapshot.shift_demands, assignments=corrected_assignments, deviations=deviations,
-        effective_from=effective_from,
+        effective_from=effective_from, on_success=on_success,
     )
 
 
