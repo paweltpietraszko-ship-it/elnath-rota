@@ -1,0 +1,141 @@
+ROTA-REAL-OBJECT-01 — AUDYT R4
+Data: 2026-08-13
+Audytowany SHA: 4bacc75cd66f2fb5144061ae2ff5f5ba78f8be6b
+Gałąź: benchmark/real-object-architect-2026-08-13
+Baza produkcyjna: e010f004e90a1e4f426bb72298e7307045d32b56
+
+WERDYKT: FAIL — jeden HIGH finding w niezależnym checkerze pozwala na
+fałszywy PRODUCTION_PASS.
+
+Jednocześnie R4 jest rzeczywistym i udanym uproszczeniem. Nie ma już drugiego
+CP-SAT, generycznego UNSAT analyzera ani certyfikatora payloadu. Aktualny
+PlanningEngine przeszedł wszystkie 55 scenariuszy, oficjalne testy, Ruff i
+kontrole mechaniczne. Finding jest pojedynczy, dokładnie ograniczony i można
+go naprawić bez zmiany architektury benchmarku oraz bez dodawania oracle.
+
+Nie zgłaszam żadnego findingu przeciwko aktualnemu PlanningEngine na podstawie
+tego przebiegu. Wynik 55/55 jest silnym pozytywnym dowodem operacyjnym, ale
+formalnego PASS benchmarku nie można wydać, dopóki checker potrafi zaakceptować
+nielegalnego kandydata.
+
+
+R4-1 — HIGH — wymyślony stan REALIZED omija wszystkie kontrole eligibility
+
+Miejsce:
+- benchmarks/real_object_checker.py::_coverage_and_eligibility
+- benchmarks/real_object_checker.py::check_candidate
+- benchmarks/real_object.py::_feasible_errors
+
+Checker wykonuje eligibility tylko wtedy, gdy kandydat nie ma stanu REALIZED:
+
+    if item.state != AssignmentState.REALIZED.value:
+        reasons = eligibility_reasons(...)
+
+To jest prawidłowe wyłącznie dla REALIZED Assignment, który faktycznie istniał
+w wejściowym grafiku. Obecny checker nie weryfikuje jednak provenance stanu.
+Dowolny nowy przydział zwrócony przez solver może sam oznaczyć się REALIZED i
+ominąć roster, DAY_ONLY, availability, SiteRule oraz ExternalSupportWindow.
+
+Macierz reprodukcyjna na legalnym kandydacie calendar-28-feb-2027:
+
+1. Zmieniono jedną D na nieistniejącego pracownika Z i stan REALIZED.
+   check_candidate.errors == ().
+
+2. Zmieniono jedną N na DAY_ONLY C i stan REALIZED.
+   Dla wielu legalnych pozycji check_candidate.errors == ().
+
+3. Zmieniono jedną D na zewnętrznego X bez ExternalSupportWindow i stan
+   REALIZED. check_candidate.errors == ().
+
+4. Podmieniono wynik plan() na FEASIBLE zawierający wariant Z/REALIZED.
+   Pełny run_case() zwrócił PRODUCTION_PASS.
+
+To jest jedna klasa błędu, nie cztery niezależne findings: zaufanie do
+niepotwierdzonego AssignmentState.REALIZED.
+
+Ślad kontraktowy:
+- benchmarks/REAL_OBJECT_BENCHMARK.md deklaruje, że dla FEASIBLE niezależny
+  checker sprawdza kompletny legalny grafik, w tym DAY_ONLY, SiteRules i X/Y;
+- required mutation coverage wymaga wykrywania ineligible employee;
+- arch/spec.md ASSIGN-03 chroni historyczny REALIZED, ale nie zezwala solverowi
+  tworzyć nowych REALIZED assignments ani używać tego stanu do ominięcia HARD.
+
+Warunek zamknięcia:
+
+- checker buduje zbiór wejściowych REALIZED assignments z
+  scenario.fixed_demand_assignments;
+- kandydat REALIZED jest zwolniony z retroaktywnej eligibility wyłącznie po
+  dokładnym dopasowaniu do takiego wejściowego rekordu (co najmniej stabilna
+  tożsamość oraz employee/demand/interval/state);
+- nowy, zmieniony albo nieznany REALIZED w wyniku jest błędem checkera;
+- parametryzowana regresja obejmuje co najmniej unknown employee, C na N,
+  X bez window oraz normalny wejściowy REALIZED, który nadal ma przechodzić;
+- pełny run_case nie może zwrócić PRODUCTION_PASS dla żadnego z trzech
+  nielegalnych wariantów.
+
+Ta poprawka nie wymaga generalnego oracle, UNSAT core ani sprawdzania treści
+DECISION_REQUIRED.
+
+
+POTWIERDZONE ZAMKNIĘCIE R3
+
+- R3-1: usunięto generyczny certyfikat przyczynowy; status controlled shortage
+  jest oparty na krótkim ground truth fixture.
+- R3-2: usunięto interpretowanie rule_version_id po nazwie.
+- R3-3: oba weekday-based rule_kind mają walidację weekdays.
+- R3-4: REPLAN ma jawne przypadki minimum 0, 1 i 2 oraz licznik par
+  (employee_id, demand_id). Aktualna produkcja zwróciła dokładnie 0/1/2.
+- R3-5: oficjalne testy oraz Ruff są zielone.
+- Sporna taksonomia EXTERNAL-01/EXTERNAL_SUPPORT_DISABLED nie kontroluje już
+  PASS/FAIL i nie wymaga decyzji w zakresie benchmarku.
+
+
+WERYFIKACJA
+
+1. Dokładny SHA/branch: PASS.
+
+2. Brak zmian w rota/ względem production base: PASS.
+
+3. Brak drugiego solvera/oracle:
+   - brak importu ortools/cp_model w benchmarks/;
+   - real_object_oracle.py usunięty;
+   - real_object_decisions.py usunięty.
+   PASS.
+
+4. Oficjalny test benchmarku: 19/19 PASS.
+
+5. Pełna oficjalna suita z wyłączeniem lokalnych, historycznych testów
+   audytowych: 221/221 PASS.
+
+6. Ruff dla benchmarks + test_real_object_benchmark.py: PASS.
+
+7. git diff --check production-base..R4: PASS.
+
+8. Core runtime: 31 PRODUCTION_PASS, 0 MISMATCH, 0 INVALID, 0 INCONCLUSIVE.
+
+9. Calendar runtime: 24/24 PRODUCTION_PASS.
+
+10. All runtime: 55 PRODUCTION_PASS, 0 MISMATCH, 0 INVALID, 0 INCONCLUSIVE.
+
+11. Exact replay external-before-confirmation + seed 13001:
+    1 PRODUCTION_PASS, 0 MISMATCH/INVALID/INCONCLUSIVE.
+
+12. Lokalny tests/test_audit_real_object_r4.py: 4 failed. Trzy warianty
+    eligibility oraz pełny run_case dowodzą R4-1.
+
+
+ZAKRES R5
+
+R5 powinno zawierać wyłącznie naprawę provenance REALIZED, jej macierz
+regresyjną oraz ponowne uruchomienie istniejących gate'ów. Nie należy dodawać
+nowego oracle, rozbudowywać ground truth ani wracać do oceny payloadu
+DECISION_REQUIRED.
+
+Po tej jednej poprawce następny audyt może być finalny i ograniczony do:
+- testów R4-1;
+- oficjalnej suity/Ruff/diff;
+- core/calendar/all;
+- potwierdzenia braku zmian w rota/.
+
+Brak ARCHITECTURE_PROPOSALS. Finding nie wynika z preferencji architektonicznej
+audytora.

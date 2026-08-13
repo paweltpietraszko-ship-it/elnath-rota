@@ -1,0 +1,113 @@
+ROTA-REAL-OBJECT-01 — INTERPRETACJA DOWODU Z BENCHMARKU R5
+Data: 2026-08-13
+Audytowany SHA: 5cbe8aa7297b5e3bb1277d5f7ab0c779bc303ac6
+
+WERDYKT: PASS OGRANICZONY — benchmark daje rzeczywisty, lecz niepełny dowód
+działania PlanningEngine. Nie jest wyłącznie testem samego benchmarku, ale jego
+zbiorczego PRODUCTION_PASS nie wolno utożsamiać z ręcznie weryfikowalnym PASS
+solvera dla realnego obiektu.
+
+
+CO REALNIE WYKAZUJE O SOLVERZE
+
+1. Benchmark wywołuje produkcyjne rota.planning.engine.plan(), a nie atrapę ani
+   drugi solver.
+
+2. W przypadkach FEASIBLE nie ufa samemu statusowi. Pobiera pierwszy kandydat
+   z PlanningResult i niezależny checker ponownie sprawdza surowe Assignment:
+   - dokładnie jedno pokrycie każdego demandu;
+   - zgodność interwałów;
+   - eligibility, w tym C=DAY_ONLY, absencje, SiteRules i X/Y;
+   - REST również z przekazanym kontekstem granicznym;
+   - LOAD w rzeczywistych rolling 7d;
+   - zachowanie frozen/REALIZED;
+   - zadeklarowaną liczbę roszad REPLAN;
+   - miesięczne godziny wyłącznie tam, gdzie scenariusz podał strict_monthly_hours.
+
+   Dlatego FEASIBLE+checker PASS jest dowodem, że solver faktycznie utworzył
+   legalny grafik dla zakodowanego scenariusza. Nie jest tylko potwierdzeniem,
+   że benchmark potrafi wypisać PASS.
+
+3. Mutacyjne testy benchmarku wykazują, że checker odrzuca m.in. brak pokrycia,
+   nieuprawnionego pracownika, REST, LOAD, fałszywe REALIZED i dodatkową roszadę.
+   To jest dowód sprawności samego mechanizmu kontrolnego benchmarku.
+
+4. Wynik 55/55 łączy więc dwa różne dowody:
+   - testy jednostkowe/mutacyjne: benchmark rozpoznaje wybrane klasy błędów;
+   - przebiegi run_case(): PlanningEngine produkuje kandydatów zgodnych z tymi
+     automatycznymi kontrolami w zadeklarowanych scenariuszach.
+
+
+GDZIE PASS JEST SŁABY
+
+1. Dla DECISION_REQUIRED podstawowy PASS zależy wyłącznie od zgodności statusu.
+   Funkcja _decision_errors() natychmiast akceptuje każdy wynik o tym statusie.
+   Payload, blocker, wskazany demand, przyczyna i unblocking_options są zapisane
+   diagnostycznie, lecz nie decydują o PASS.
+
+   Fixture ma prostą kontrolę, że skonstruowany brak/REST/LOAD rzeczywiście
+   istnieje, ale benchmark nie wykazuje, że PlanningEngine poprawnie go
+   zdiagnozował. Wykazuje tylko, że w takim przypadku nie zwrócił FEASIBLE, lecz
+   DECISION_REQUIRED.
+
+2. Raport JSON nie przechowuje pełnego kandydata FEASIBLE. Przechowuje wejście,
+   status i metryki checkera, ale nie pełną tabelę przydziałów. Człowiek nie może
+   z raportu odtworzyć i ręcznie skontrolować grafiku. Ręczny audyt stycznia z
+   tests_r7.txt był osobnym przebiegiem audytowym, a nie funkcją benchmarku R5.
+
+3. Katalog nie jest losowym lub generatywnym stress testem. Scenariusze są
+   deterministycznie zapisane w real_object_scenarios.py. Pole seed jest
+   raportowane, ale w katalogu nie ma losowania, shuffle, choice ani sample.
+   Zmiana seed nie tworzy nowej konfiguracji załogi.
+
+4. 24 przypadki calendar to ta sama czysta recepta pięcioosobowa uruchamiana dla
+   kolejnych miesięcy. Dowodzą obsługi długości i granic kalendarza, ale nie są
+   24 różnymi układami absencji, zasad i obciążenia.
+
+5. „Real object” oznacza uproszczony model A–E, C=DAY_ONLY, codzienne D/N oraz
+   opcjonalne X/Y. Dane nie zostały jednoznacznie odtworzone z konkretnego
+   historycznego grafiku z folderu Grafiki. PASS nie dowodzi zatem zgodności z
+   konkretnym rzeczywistym miesiącem obiektu.
+
+6. Checker jest niezależny od implementacji solvera, lecz dzieli z adapterem
+   benchmarku definicję demandów i stałe scenariusza. Wykryje nielegalne
+   przydziały względem zakodowanego modelu, ale nie wykryje, że sam model wejścia
+   błędnie opisuje rzeczywisty obiekt.
+
+7. Poza strict ROTA-REG-001 benchmark nie ocenia ogólnej jakości rozłożenia
+   godzin, weekendów/świąt ani jakości SOFT. Legalny, lecz bardzo nierówny grafik
+   może otrzymać PASS, jeśli nie narusza sprawdzanych HARD i szczególnych
+   oczekiwań scenariusza.
+
+
+PRECYZYJNE ZNACZENIE OBECNEGO PRODUCTION_PASS
+
+„Na zamkniętym katalogu uproszczonych scenariuszy pięcioosobowego obiektu
+produkcyjny PlanningEngine zwrócił oczekiwany status. Gdy zwrócił FEASIBLE,
+utworzony kandydat przeszedł niezależne automatyczne kontrole zakodowanych HARD
+oraz właściwą dla scenariusza kontrolę REPLAN/strict hours.”
+
+PRODUCTION_PASS nie oznacza:
+
+- że człowiek zobaczył i zatwierdził każdy wynikowy grafik;
+- że negatywny przypadek został poprawnie wyjaśniony przez solver;
+- że scenariusze wiernie odtwarzają rzeczywiste dane obiektu;
+- że solver był badany na nieprzewidzianych kombinacjach wejścia;
+- że oceniono ogólną jakość grafiku lub wszystkie SOFT;
+- że solver nadaje się już na tej podstawie do merge jako zweryfikowany produkt.
+
+
+ODPOWIEDŹ NA PYTANIE WŁAŚCICIELA
+
+Obecny PASS wykazuje więcej niż właściwe działanie benchmarku: dla pozytywnych
+scenariuszy realnie wykazuje utworzenie przez solver legalnych grafików w
+zakodowanym, ograniczonym modelu. Najmocniejsza część dowodu dotyczy FEASIBLE.
+
+Nie wykazuje natomiast pełnej poprawności solvera dla realnego obiektu.
+Szczególnie negatywne przypadki potwierdzają głównie właściwy status, a brak
+pełnego wyniku w raporcie uniemożliwia normalną kontrolę człowieka. Zatem R5 jest
+wartościowym automatycznym testem regresyjnym PlanningEngine, ale nie kompletnym
+benchmarkiem akceptacyjnym w rozumieniu właściciela.
+
+Poprzedni werdykt tests_r5.txt należy czytać wyłącznie w powyższym ograniczonym
+znaczeniu. Nie stanowi samodzielnej podstawy do produktowego PASS ani merge.

@@ -1,0 +1,284 @@
+ROTA-REAL-OBJECT-01 — AUDYT R3
+Data: 2026-08-13
+Audytowany SHA: b93c51965b269769ffc1bce6b02b5341b74f0f16
+Gałąź: benchmark/real-object-architect-2026-08-13
+Baza produkcyjna deklarowana przez benchmark: e010f004e90a1e4f426bb72298e7307045d32b56
+
+WERDYKT: FAIL — benchmark nadal nie może być arbitrem PASS/FAIL dla
+PlanningEngine.
+
+R3 realnie zamyka większość reproduktorów R2, ale audyt adwersarialny wykazał
+cztery nadal niepokryte klasy semantyczne. Dwie z nich pozwalają benchmarkowi
+zarówno odrzucić poprawny certyfikat, jak i zaakceptować certyfikat, którego
+blocker nie jest przyczyną niewykonalności. Osobno benchmark nie sprawdza
+zamrożonej gwarancji minimalnej roszady REPLAN-MIN-01.
+
+Nie wydaję na podstawie R3 ostatecznego findingu przeciwko PlanningEngine.
+Core pokazuje 10 czerwonych przypadków produkcyjnych, ale benchmark ma nadal
+wady własnego dowodu, a jeden z czerwonych wyników zależy od niezatwierdzonej
+przez właściciela taksonomii condition. Te obserwacje należy zachować i
+ponownie ocenić po naprawie benchmarku; nie wolno obecnie poprawiać produkcji
+pod jego wynik.
+
+Źródło kryteriów:
+- frozen arch/spec.md;
+- arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md;
+- arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md i clarification R1;
+- tasks/ROTA-T006/brief.md oraz tasks/ROTA-T007/brief.md;
+- własny kontrakt benchmarku benchmarks/REAL_OBJECT_BENCHMARK.md.
+
+Zakres branchu jest prawidłowy: brak zmian w rota/ względem deklarowanej bazy
+produkcyjnej.
+
+
+R3-1 — HIGH — certyfikat zbiorowej niewykonalności nie dowodzi związku
+przyczynowego każdego blockera
+
+Miejsce:
+- benchmarks/real_object_checker.py::collective_shortage_evidence
+- benchmarks/real_object_decisions.py::_shortage_errors
+- benchmarks/real_object_decisions.py::_external_errors
+
+To jedna wspólna klasa błędu dowodu, potwierdzona na dwóch przeciwnych
+ścieżkach.
+
+A. Fałszywie odrzucony poprawny certyfikat EXTERNAL
+
+Scenariusz zawiera parę D/N. Lokalnie tylko A może obsadzić każdą z nich
+osobno, lecz nie obie razem z REST. Potwierdzone okno X dla N odblokowuje cały
+model. Oracle rozstrzygająco zwraca EXTERNAL_SUPPORT_DECISION_REQUIRED.
+Poprawny payload wskazujący oba demandy, A/REST-01, X/EXTERNAL-01 i
+potwierdzenie X/Y jest odrzucany, ponieważ _external_errors wymaga, aby każdy
+demand był indywidualnie nieobsadzalny. To jest powtórzenie klasy R2-2 w
+sąsiedniej gałęzi EXTERNAL: lokalna niewykonalność może być zbiorowa.
+
+B. Fałszywie zaakceptowany niepowiązany blocker REST
+
+Scenariusz zgłasza normalną parę D/N z potencjalnym REST dla A oraz osobny
+demand N, który sam jest nieobsadzalny z przyczyn eligibility. Zbiór demandów
+jest więc INFEASIBLE niezależnie od pierwszej pary. Payload zawierający tylko
+A/REST-01 przechodzi bez błędu.
+
+collective_shortage_evidence zwraca każdego employee eligible dla dowolnej
+konfliktowej pary jako rest_employees. Nie sprawdza, czy usunięcie właśnie tego
+ograniczenia REST zmieniłoby zgłoszony zbiór na FEASIBLE. Dowodzi więc osobno:
+"zbiór jest niewykonalny" i "gdzieś w zbiorze istnieje para REST", lecz nie
+dowodzi, że zgłoszony REST jest przyczyną niewykonalności.
+
+Ślad kontraktowy: benchmarks/REAL_OBJECT_BENCHMARK.md deklaruje, że każdy
+blocker employee/condition ma niezależne evidence, a dodatkowy fikcyjny
+blocker jest FAIL. DECISION_REQUIRED z arch/spec.md ma wskazywać konkretny
+problem i konkretne blockery.
+
+Warunek zamknięcia: wspólny dowód decyzji musi obsługiwać niewykonalność
+zbiorową również dla EXTERNAL oraz wiązać każdy zgłoszony blocker z
+kontrfaktycznym/certyfikowalnym wpływem na wskazany zbiór. Testy muszą objąć
+co najmniej: indywidualny shortage, czysty collective REST, collective REST
+odblokowany X/Y oraz REST obecny, ale niepowiązany z właściwą przyczyną FAIL.
+
+
+R3-2 — HIGH — znaczenie opcji zależy od składni nieprzezroczystego
+rule_version_id
+
+Miejsce: benchmarks/real_object_decisions.py::_supported_option_kinds
+
+Checker uznaje SiteRule za podstawę ręcznej korekty tylko wtedy, gdy condition
+zaczyna się od "bench-" albo kończy na "-only". Frozen T007 nie definiuje
+żadnej semantyki tekstowej rule_version_id. Wymaga wyłącznie przekazania
+dokładnego identyfikatora wersji reguły.
+
+Reproduktor używa legalnych, nieprzezroczystych ID rv-A-73f ... rv-E-73f dla
+reguły zakazującej N w poniedziałek. Oracle dowodzi staffing shortage, blockery
+mają dokładne rule_version_id, a payload zawiera świadomą ręczną korektę.
+Checker odrzuca ją jako "unrelated unblocking option" wyłącznie z powodu nazw
+ID.
+
+To nie jest kwestia preferowanego API. Interpretacja ma wynikać z RuleSpec
+odpowiadającego condition, nie z konwencji nazewniczej identyfikatora.
+
+Warunek zamknięcia: ta sama macierz opcji przechodzi dla semantycznie
+identycznych reguł o ID opisowym, UUID-podobnym, krótkim i losowym. Zmiana
+samego rule_version_id nie może zmienić wyniku certyfikatu.
+
+
+R3-3 — MEDIUM — walidator wejścia pomija weekdays dla jednego z trzech
+wykonywalnych rule_kind
+
+Miejsce: benchmarks/real_object_input.py::_validate_availability_and_rules
+
+EMPLOYEE_ALLOWED_WEEKDAYS ma walidację niepustej listy i zakresu 1..7.
+EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS waliduje shift_kinds, ale w ogóle
+nie waliduje weekdays. Reproduktory z (), (0,) i (8,) przechodzą do oracle i
+production bez błędu wejścia.
+
+Ślad kontraktowy:
+- arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md: weekdays ma być niepustą listą
+  ISO 1..7, a invalid weekdays są malformed executable rule;
+- tasks/ROTA-T007/brief.md zapisuje ten sam dokładny kształt.
+
+Warunek zamknięcia: wspólna macierz shape/value obejmuje oba weekday-based
+rule_kind: pustą wartość, 0, 8, błędny typ, wartości poprawne 1 i 7 oraz
+duplikaty zgodnie z dokładnym kontraktem T007.
+
+
+R3-4 — HIGH — scenariusz REPLAN nie certyfikuje minimalnej roszady T006
+
+Miejsce:
+- benchmarks/real_object_checker.py::_fixed_errors
+- benchmarks/real_object_checker.py::check_candidate
+- benchmarks/real_object_oracle.py (brak objective REPLAN-MIN-01)
+
+Scenariusz replan-realized-frozen-baseline zawiera REALIZED, frozen oraz
+redystrybuowalny baseline B -> 2027-01-02-D. Prawdziwa produkcja zachowuje tę
+parę, więc zero roszad jest osiągalne i jest jednoznacznym minimum.
+
+W teście adwersarialnym zmieniono wyłącznie tę parę z B na C. Wynik nadal
+spełnia coverage, eligibility, REST i LOAD, ale ma jedną całkowicie zbędną
+roszadę. check_candidate zwrócił pustą listę błędów.
+
+Checker chroni tylko REALIZED/frozen. Redistributable baseline nie jest
+porównywany, a oracle sprawdza wyłącznie wykonalność HARD. Regresja solvera,
+która przestawiłaby wszystkie redystrybuowalne przydziały mimo dostępnego
+minimum, dostałaby PASS.
+
+Ślad kontraktowy: frozen REPLAN-MIN-01 obowiązuje dla każdego REPLAN i wymaga
+kolejności HARD -> minimalny reshuffle_count -> SOFT. Benchmark sam deklaruje
+REPLAN z redistributable baseline jako obowiązkowy element drabiny.
+
+Warunek zamknięcia: reference/checker wyznacza albo niezależnie certyfikuje
+minimalny reshuffle_count i porównuje z kandydatem. Macierz musi zawierać
+minimum 0, wymuszone minimum 1, minimum większe niż 1 oraz tę samą parę
+employee+demand odtworzoną z innym assignment_id.
+
+
+R3-5 — LOW — kandydat nie przechodzi własnej oficjalnej suity ani Ruff
+
+1. tests/test_real_object_benchmark.py::
+   test_generator_rejects_illegal_boundary_before_production nadal oczekuje
+   fragmentu tekstu "boundary overlap". R3 uogólniło komunikat na
+   "fixed/boundary/context overlap", więc walidacja działa, lecz oficjalny
+   test jest niezsynchronizowany.
+
+2. tests/test_real_object_benchmark_r3.py importuje niewykorzystany
+   FixedAssignmentSpec. Ruff zwraca F401. Head ma opis "remove unused test
+   import", ale tego importu nie usunął.
+
+To nie są defekty semantyki benchmarku, ale oznaczają brak deklarowanego
+zielonego gate'u dostawy.
+
+Warunek zamknięcia: pełna oficjalna suita i Ruff przechodzą bez wyłączania
+testów lub reguł.
+
+
+WYMAGA_DECYZJI — clarification EXTERNAL-01 nie jest zamrożoną decyzją
+właściciela
+
+R3 dodało
+arch/BENCHMARK_REAL_OBJECT_R3_CONDITION_CLARIFICATION_2026-08-13.md i na jego
+podstawie uznaje EXTERNAL-01 za jedyny publiczny condition również dla
+SiteProfile.external_support_enabled=false.
+
+Dokument jest oznaczony jako ARCHITECTURAL CLARIFICATION. W audytowanym
+zestawie nie ma śladu akceptacji właściciela ani frozen addendum. R2
+zaklasyfikowało tę kwestię jako WYMAGA_DECYZJI, ponieważ frozen spec nazywa
+rodzinę EXTERNAL-01, ale nie rozstrzyga literalnie publicznego condition dla
+wyłączonej capability profilu.
+
+Zgodnie z granicą roli testera nie uznaję samego dokumentu autora benchmarku
+za źródło nowego wymagania produktowego. Właściciel może zaakceptować tę
+clarification jednym zapisem; alternatywnie benchmark musi dopuścić zachowanie
+wynikające z już zamrożonego kontraktu. Do tego czasu czerwonego
+external-window-profile-disabled nie wolno raportować jako błąd produkcji.
+
+
+STATUS FINDINGÓW R2
+
+- R2-1: istotnie poprawione — R3 sprawdza każdy element payloadu i exact LOAD;
+  nie jest jednak całkowicie zamknięte z powodu nowej klasy związku
+  przyczynowego R3-1.
+- R2-2: częściowo poprawione — collective CP-SAT istnieje, ale nie obejmuje
+  gałęzi EXTERNAL i nie dowodzi przyczynowości REST (R3-1).
+- R2-3: zamknięte dla wskazanej rodziny fixed/boundary/context: kanoniczna
+  geometria, globalne ID i CANCELLED history mają testy i przechodzą.
+- R2-4: zamknięte: drabina absencji jest monotoniczna po rzeczywistych faktach.
+- R2 hygiene: poprzednie F401 i trailing whitespace usunięto, lecz pojawił się
+  nowy F401 w teście R3.
+- R2 WYMAGA_DECYZJI EXTERNAL condition: nie zostało zamknięte decyzją
+  właściciela; patrz sekcja powyżej.
+
+
+OBSERWACJE O AKTUALNYM PLANNINGENGINE — NIE SĄ JESZCZE WERDYKTEM PRODUKCYJNYM
+
+Core R3 ma 18/28 PASS. Dziesięć czerwonych przypadków to:
+
+- absence-ladder-3 i simple-no-eligible-night: zgłoszona niepowiązana opcja
+  override urlopu;
+- month-end-N-vs-next-D: zgłoszony blocker C/REST-01 bez evidence checkera;
+- external-before-confirmation oraz pięć negatywnych wariantów window:
+  niepowiązana opcja override urlopu;
+- external-window-profile-disabled: X/Y z EXTERNAL_SUPPORT_DISABLED zamiast
+  EXTERNAL-01 oraz niepowiązana opcja override urlopu.
+
+Pierwsze grupy są konkretnymi kandydatami do audytu produkcji po naprawie
+benchmarku. Ostatni kod condition pozostaje WYMAGA_DECYZJI. Nie wolno mieszać
+tych obserwacji z czterema dowiedzionymi wadami samego benchmarku.
+
+
+WERYFIKACJA
+
+1. Dokładny HEAD i branch: PASS.
+
+2. Brak zmian w rota/ względem production base: PASS.
+
+3. Oficjalne testy benchmarku:
+   tests/test_real_object_benchmark.py + test_real_object_benchmark_r3.py:
+   1 failed, 34 passed (stary test tekstu komunikatu).
+
+4. Pełna oficjalna suita bez lokalnych testów audytowych:
+   1 failed, 236 passed (ten sam test).
+
+5. Lokalny tests/test_audit_real_object_r3.py:
+   8 failed, 4 passed. FAIL dowodzi:
+   - 3 wariantów malformed forbidden weekdays;
+   - opaque rule_version_id;
+   - collective EXTERNAL;
+   - niepowiązanego REST blockera;
+   - zbędnej roszady REPLAN;
+   - 10 pozostałych różnic production w core.
+
+6. Core: 18/28 correctness PASS.
+
+7. Calendar: 24/24 correctness PASS.
+
+8. All: 42/52 correctness PASS (suma rozłącznych core + calendar).
+
+9. JSON core/calendar/all: zapis i parse PASS również przy czerwonym wyniku.
+
+10. Exact replay external-before-confirmation + seed 13001: PASS.
+
+11. git diff --check production-base..R3: PASS.
+
+12. Ruff: FAIL — F401 w tests/test_real_object_benchmark_r3.py:20.
+
+13. Literalny lokalny test R2 nie kolekcjonuje się po usunięciu prywatnego
+    _decision_errors. Nie liczę tego jako defect publicznego benchmarku.
+    Wszystkie jego inwarianty zostały ponownie wywołane przez publiczne
+    check_decision/validate_scenario oraz nowe testy R3.
+
+
+ZAKRES NASTĘPNEJ KOREKTY
+
+To nie wymaga zmiany architektury produktu ani PlanningEngine. Autor
+benchmarku powinien jednorazowo domknąć cztery klasy R3-1..R3-4, naprawić dwa
+gate'y R3-5 i przekazać dokładny SHA. Następny audyt powinien być ograniczony
+do tych reproduktorów, ich sibling matrix, oficjalnej suity, core/all oraz
+ponownej kwalifikacji zapisanych czerwonych wyników produkcji.
+
+Po trzech wersjach benchmark nadal nie ma PASS. Jeżeli kolejna korekta nie
+zamknie tych jasno ograniczonych klas, nie należy kontynuować kolejnych rund
+punktowego łatania; wtedy benchmark trzeba uznać za niegotowy i wrócić do
+autora z pełnym redesignem jego modelu dowodu, bez używania go do oceny
+PlanningEngine.
+
+Brak ARCHITECTURE_PROPOSALS. Żaden finding nie wynika z preferencji
+architektonicznej audytora.
