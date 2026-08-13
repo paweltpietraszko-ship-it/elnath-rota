@@ -40,11 +40,13 @@ def _fresh_deviations(conn, site_id: str, month: date, header: ScheduleVersion):
     return state, deviations
 
 
-def revalidate(conn, *, site_id: str, month: date) -> ScheduleVersion:
-    """Acts as the version's own creating coordinator (R4-3-A: this write
-    still requires that coordinator to be currently active)."""
+def revalidate(conn, *, site_id: str, month: date, coordinator_id: str | None = None) -> ScheduleVersion:
+    """R4-3-A/R5-4: the acting coordinator is whoever the caller identifies
+    via coordinator_id; the version's own created_by is only a fallback for
+    callers that don't (yet) supply an actor."""
     header = _require_current_working(conn, site_id, month)
-    require_active_coordinator_context(conn, coordinator_id=header.created_by, site_id=site_id)
+    acting_coordinator_id = coordinator_id if coordinator_id is not None else header.created_by
+    require_active_coordinator_context(conn, coordinator_id=acting_coordinator_id, site_id=site_id)
     state, deviations = _fresh_deviations(conn, site_id, month, header)
     return lifecycle.replace_working_snapshot(
         conn, version_id=header.version_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),

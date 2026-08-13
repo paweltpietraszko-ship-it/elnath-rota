@@ -30,6 +30,13 @@ class CandidateRejected(Exception):
     independent validation before being persisted."""
 
 
+class ScheduleVersionContextMismatch(Exception):
+    """Raised when an explicit schedule_version_id does not belong to the
+    requested (site_id, month) -- brief.md ONE CANONICAL PLANNINGSTATE
+    ASSEMBLER targets the whole (site_id, month, schedule_version_id)
+    tuple, not just an existing version_id."""
+
+
 class UnknownDeviationSource(Exception):
     """Raised when a validator ViolationDetail's rule has no entry in the
     brief.md section 8 source_reference -> DeviationCategory mapping table

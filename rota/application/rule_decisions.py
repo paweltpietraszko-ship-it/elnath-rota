@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from rota.application.context import require_active_coordinator_context
+from rota.application.errors import require_real_date
 from rota.persistence.decision_ledger import record_decision
 from rota.site_memory_types import DecisionRecord, NewRuleContent
 
@@ -18,6 +19,7 @@ def record_structured_rule_decision(
     recorded_at: Optional[datetime] = None,
 ) -> DecisionRecord:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    require_real_date(effective_from)
     return record_decision(
         conn, site_id=site_id, rule_id=rule_id, statement=statement, coordinator_id=coordinator_id,
         recorded_at=recorded_at or datetime.now(), effective_from=effective_from, rel=rel, rule_content=rule_content,

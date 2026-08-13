@@ -59,17 +59,20 @@ def plan_month(
     existing current WORKING version. A FINAL current version is never
     reopened -- callers must REPLAN.
 
-    R4-1: the calendar/roster/rule read that assemble_planning_state does is
-    performed once, BEFORE create_schedule_version, purely as validation --
-    it touches no persistence writes, so if it raises (e.g.
-    IncompleteCalendarData) nothing has been written yet. The version is
-    only created once that dry run has proven it would succeed."""
+    R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
+    trigger), so a version created and only later found broken by a
+    downstream read cannot be undone -- every assemble_planning_state read
+    this function needs, including the one that produces the state handed
+    to plan(), must happen BEFORE create_schedule_version. The version is
+    only created once every read that could fail already has."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     current_id = _require_working_or_absent(conn, site_id, month)
     if current_id is None:
         require_real_date(effective_from)
-        assemble_planning_state(conn, site_id=site_id, month=month)  # validate first; writes nothing
+        assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
+        state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
         _create_first_version(conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from)
+        return plan(state)
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     return plan(state)
 
@@ -90,19 +93,26 @@ def _coerce_unproven_realized_to_planned(candidate: list[Assignment], prior_exis
     ]
 
 
-def select_candidate(conn, *, site_id: str, month: date, candidate: list[Assignment]) -> ScheduleVersion:
+def select_candidate(
+    conn, *, site_id: str, month: date, candidate: list[Assignment], coordinator_id: str | None = None,
+) -> ScheduleVersion:
     """Operation 4. Persists a coordinator-chosen FEASIBLE candidate onto
     the current WORKING version in place -- this fills in a version that
     was already created empty/ephemeral by PLAN and has not yet been shown
     as a real schedule, so it is not the "material correction" the owner
-    versioning rule (review_01) targets; that rule governs operation 8. Acts
-    as the version's own creating coordinator (R4-3-A: this write still
-    requires that coordinator to be currently active)."""
+    versioning rule (review_01) targets; that rule governs operation 8.
+
+    R4-3-A/R5-4: the acting coordinator is whoever the caller identifies via
+    coordinator_id; the version's own created_by is only a fallback for
+    callers that don't (yet) supply an actor, since the version creator
+    being active is a necessary but not sufficient proxy for who is
+    actually performing THIS write."""
     current_id = _require_working_or_absent(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
     header = get_schedule_version_header(conn, current_id)
-    require_active_coordinator_context(conn, coordinator_id=header.created_by, site_id=site_id)
+    acting_coordinator_id = coordinator_id if coordinator_id is not None else header.created_by
+    require_active_coordinator_context(conn, coordinator_id=acting_coordinator_id, site_id=site_id)
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     for_validation = _coerce_unproven_realized_to_planned(candidate, state.existing_assignments)
     report = validate(state, for_validation)
@@ -122,16 +132,19 @@ def replan(conn, *, site_id: str, month: date, coordinator_id: str, effective_fr
     create_schedule_version()/plan() themselves. Never auto-saves the
     returned candidate.
 
-    R4-1: dry-run assemble_planning_state against the (still current)
-    parent's own content before writing the child -- if that would raise,
-    nothing is written."""
+    R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
+    trigger), so every assemble_planning_state read this needs -- including
+    the one that produces the state handed to plan() -- must happen BEFORE
+    create_schedule_version writes the child; a failure discovered only
+    afterward could never be undone."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to REPLAN from")
     parent_snapshot = get_schedule_snapshot(conn, current_id)
-    assemble_planning_state(conn, site_id=site_id, month=month)  # validate first; writes nothing
+    assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
     child_id = f"SV-{uuid.uuid4().hex}"
     lifecycle.create_schedule_version(
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
@@ -140,5 +153,4 @@ def replan(conn, *, site_id: str, month: date, coordinator_id: str, effective_fr
         shift_demands=parent_snapshot.shift_demands, assignments=parent_snapshot.assignments,
         deviations=parent_snapshot.deviations, effective_from=effective_from,
     )
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     return plan(state)

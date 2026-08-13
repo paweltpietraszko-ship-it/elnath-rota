@@ -11,7 +11,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timedelta
 
-from rota.application.errors import IncompleteCalendarData
+from rota.application.errors import IncompleteCalendarData, ScheduleVersionContextMismatch
 from rota.balance import MissingTargetHoursError
 from rota.domain import (
     Assignment,
@@ -35,6 +35,7 @@ from rota.persistence.schedule_repository import (
     get_current_assignments_in_interval,
     get_current_realized_primary_on_holidays,
     get_current_schedule_snapshot,
+    get_current_version_id,
     get_schedule_snapshot,
     get_schedule_version_header,
 )
@@ -136,11 +137,11 @@ def _context_window(month: date) -> tuple[datetime, datetime]:
 
 
 def _assemble_cross_context(
-    conn, site_id: str, employee_ids: list[str], month: date, exclude_version_id: str | None,
+    conn, site_id: str, employee_ids: list[str], month: date, exclude_version_ids: frozenset[str],
 ) -> tuple[tuple[Assignment, ...], tuple[Assignment, ...]]:
     context_start, context_end = _context_window(month)
     boundary_raw = get_current_assignments_in_interval(conn, site_id, context_start, context_end)
-    boundary = tuple(a for a in boundary_raw if a.schedule_version_id != exclude_version_id)
+    boundary = tuple(a for a in boundary_raw if a.schedule_version_id not in exclude_version_ids)
     other_site = tuple(
         get_current_assignments_for_employees(conn, employee_ids, context_start, context_end, exclude_site_id=site_id)
     )
@@ -161,6 +162,14 @@ def _assemble_version_content(
         return tuple(shift_demands), tuple(assignments or ()), tuple(deviations or ()), schedule_version_id or ""
     if schedule_version_id is not None:
         header = get_schedule_version_header(conn, schedule_version_id)
+        # R5-2: the canonical target is the whole (site_id, month,
+        # schedule_version_id) tuple -- an existing version_id belonging to
+        # a different Site or month is a caller error, not a silent read.
+        if header.site_id != site_id or header.month != month:
+            raise ScheduleVersionContextMismatch(
+                f"{schedule_version_id!r} belongs to ({header.site_id!r}, {header.month!r}), "
+                f"not requested ({site_id!r}, {month!r})",
+            )
         snapshot = get_schedule_snapshot(conn, schedule_version_id)
         return snapshot.shift_demands, snapshot.assignments, snapshot.deviations, header.version_id
     current = get_current_schedule_snapshot(conn, site_id, month)
@@ -185,14 +194,19 @@ def assemble_planning_state(
     demands, existing, devs, version_id = _assemble_version_content(
         conn, site_id, month, shift_demands, assignments, deviations, schedule_version_id, profile,
     )
-    # R4-2/R4-6: the assembled target version's own content (whether read
-    # fresh, explicitly named, or a prepared-in-memory snapshot) must never
-    # also re-enter through boundary/holiday_history -- both of those exist
-    # only for OTHER (surrounding/cross-Site/other-month) current work.
-    boundary, other_site = _assemble_cross_context(conn, site_id, employee_ids, month, version_id)
+    # R4-2/R4-6/R5-2: the assembled target version's own content (whether
+    # read fresh, explicitly named, or a prepared-in-memory snapshot) must
+    # never also re-enter through boundary/holiday_history -- both of those
+    # exist only for OTHER (surrounding/cross-Site/other-month) current
+    # work. The requested target MONTH is never its own surrounding
+    # context either, so its current version is excluded even when an
+    # explicit non-current version_id was requested instead.
+    current_target_version_id = get_current_version_id(conn, site_id, month)
+    exclude_version_ids = frozenset(v for v in (version_id, current_target_version_id) if v)
+    boundary, other_site = _assemble_cross_context(conn, site_id, employee_ids, month, exclude_version_ids)
     work_balances, warnings = _assemble_work_balances(conn, employee_ids, month)
     holiday_history_raw = get_current_realized_primary_on_holidays(conn, site_id)
-    holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id != version_id)
+    holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id not in exclude_version_ids)
 
     state = PlanningState(
         site=site, profile=profile, month=month, calendar_days=calendar_days,

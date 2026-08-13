@@ -7,14 +7,28 @@ TRAINEE Assignment REALIZED.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date
 
 from rota.application import manual_edit
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ReadinessSource, ReadinessState, ScheduleVersion
-from rota.persistence.employee_repository import get_employee, list_memberships_for_site, save_site_membership
-from rota.persistence.schedule_repository import get_current_assignments_for_employees
+from rota.persistence.employee_repository import list_memberships_for_site, write_site_membership_in_open_transaction
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_repository import get_site
+from rota.persistence.training_readiness_repository import (
+    count_training_readiness_credits,
+    write_training_readiness_credit_in_open_transaction,
+)
+
+
+def save_site_membership(conn, membership) -> None:
+    """R5-1: the on_success hook below runs INSIDE create_schedule_version's
+    still-open transaction, so this write must NOT open (and commit) a
+    transaction of its own -- a nested `with conn:` would commit everything
+    written so far (the schedule child included) the moment this call
+    returns, making a failure raised immediately afterward unable to roll
+    anything back. Kept as a module-level function (not inlined) so it
+    stays the name tests patch to inject that exact failure."""
+    write_site_membership_in_open_transaction(conn, membership)
 
 
 def _require_qualifying_shape(trainee_assignment: Assignment) -> None:
@@ -39,44 +53,40 @@ def _qualifies_for_readiness(trainee_assignment: Assignment, profile) -> bool:
     return True
 
 
-def _realized_training_count(conn, employee_id: str, active_from: date) -> int:
-    window_start = datetime.combine(active_from, datetime.min.time())
-    window_end = window_start + timedelta(days=365 * 100)
-    assignments = get_current_assignments_for_employees(conn, [employee_id], window_start, window_end)
-    return sum(1 for a in assignments if a.role == AssignmentRole.TRAINEE and a.state == AssignmentState.REALIZED)
+def _build_readiness_hook(conn, *, site_id: str, trainee_assignment: Assignment, qualifies: bool, threshold: int):
+    """R4-1/R5-1: the schedule child write and the derived readiness update
+    are one coordinator write -- whenever there is a DEFAULT-sourced
+    membership to (re)save at all, that save must go through the SAME
+    transaction as the schedule child, via the hook run by
+    create_schedule_version() INSIDE its own open transaction. When the
+    training doesn't qualify for promotion (R4-4), the hook still runs but
+    resaves the membership's own current readiness_state unchanged -- the
+    write, not just its outcome, is part of what must be atomic with the
+    schedule child.
 
-
-def _build_readiness_hook(conn, *, site_id: str, trainee_assignment: Assignment, qualifies: bool):
-    """R4-1: the schedule child write and the derived readiness update are
-    one coordinator write -- whenever there is a DEFAULT-sourced membership
-    to (re)save at all, that save must go through the SAME transaction as
-    the schedule child, via the hook run by create_schedule_version()
-    INSIDE its own open transaction (not a second, separately-committing
-    call). When the training doesn't qualify for promotion (R4-4), the
-    hook still runs but resaves the membership's own current
-    readiness_state unchanged -- the write, not just its outcome, is part
-    of what must be atomic with the schedule child."""
+    R5-3: a credit is recorded (idempotently, by assignment_id) only for a
+    qualifying event, so re-submitting the same assignment_id or disabling/
+    re-enabling the profile between calls cannot inflate the count -- the
+    threshold counts unique, qualifying training events, not a live
+    re-judgement of every current REALIZED TRAINEE Assignment."""
     membership = next(
         (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == trainee_assignment.employee_id), None,
     )
     if membership is None or membership.readiness_source != ReadinessSource.DEFAULT:
         return None
     target_state = membership.readiness_state
-    if qualifies:
-        profile = get_site_profile(conn, get_site(conn, site_id).profile_id)
-        employee = get_employee(conn, trainee_assignment.employee_id)
-        # +1 for the Assignment being recorded in this same transaction --
-        # it is not yet visible to a query run before the write completes.
-        count = _realized_training_count(conn, trainee_assignment.employee_id, employee.active_from) + 1
-        if count >= profile.training_s_default_readiness_threshold:
-            target_state = ReadinessState.READY_FOR_PRIMARY
 
     def _apply(open_conn) -> None:
-        # save_site_membership's own `with conn:` commits the transaction
-        # so far -- including the just-written schedule child -- as one
-        # unit; on failure it raises before committing, so the child
-        # insert rolls back too.
-        save_site_membership(open_conn, replace(membership, readiness_state=target_state))
+        state = target_state
+        if qualifies:
+            write_training_readiness_credit_in_open_transaction(
+                open_conn, site_id=site_id, employee_id=trainee_assignment.employee_id,
+                assignment_id=trainee_assignment.assignment_id,
+            )
+            count = count_training_readiness_credits(open_conn, site_id=site_id, employee_id=trainee_assignment.employee_id)
+            if count >= threshold:
+                state = ReadinessState.READY_FOR_PRIMARY
+        save_site_membership(open_conn, replace(membership, readiness_state=state))
 
     return _apply
 
@@ -90,8 +100,12 @@ def mark_training_realized(
     it only if the profile's threshold is reached and readiness_source is
     still DEFAULT."""
     _require_qualifying_shape(trainee_assignment)
-    qualifies = _qualifies_for_readiness(trainee_assignment, get_site_profile(conn, get_site(conn, site_id).profile_id))
-    on_success = _build_readiness_hook(conn, site_id=site_id, trainee_assignment=trainee_assignment, qualifies=qualifies)
+    profile = get_site_profile(conn, get_site(conn, site_id).profile_id)
+    qualifies = _qualifies_for_readiness(trainee_assignment, profile)
+    on_success = _build_readiness_hook(
+        conn, site_id=site_id, trainee_assignment=trainee_assignment, qualifies=qualifies,
+        threshold=profile.training_s_default_readiness_threshold,
+    )
     return manual_edit.apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
         upsert_assignments=[trainee_assignment], on_success=on_success,
