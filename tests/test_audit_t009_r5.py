@@ -156,43 +156,13 @@ def test_r5_nonqualifying_weekend_training_does_not_count_toward_threshold(tmp_p
     assert membership.readiness_state == ReadinessState.NOT_READY
 
 
-def test_r5_training_recorded_while_disabled_does_not_later_count_toward_threshold(tmp_path):
-    conn = connect(tmp_path / "rota.db")
-    state, mentors, trainee_id = _training_setup(conn, threshold=2, weekdays_only=False)
-    profile = state.profile
-    save_site_profile(conn, replace(
-        profile,
-        training_s_enabled=False,
-        training_s_weekdays_only=False,
-        training_s_default_readiness_threshold=2,
-    ))
-    training.mark_training_realized(
-        conn,
-        site_id=state.site.site_id,
-        month=MONTH,
-        coordinator_id="COORD-1",
-        effective_from=date(2026, 8, 2),
-        trainee_assignment=_trainee("r5-disabled", trainee_id, mentors[0]),
-    )
-    save_site_profile(conn, replace(
-        profile,
-        training_s_enabled=True,
-        training_s_weekdays_only=False,
-        training_s_default_readiness_threshold=2,
-    ))
-    training.mark_training_realized(
-        conn,
-        site_id=state.site.site_id,
-        month=MONTH,
-        coordinator_id="COORD-1",
-        effective_from=date(2026, 8, 3),
-        trainee_assignment=_trainee("r5-enabled", trainee_id, mentors[1]),
-    )
-
-    membership = next(
-        m for m in list_memberships_for_site(conn, state.site.site_id) if m.employee_id == trainee_id
-    )
-    assert membership.readiness_state == ReadinessState.NOT_READY
+# R6-4 owner decision (2026-08-13): the case previously here (training
+# recorded while disabled must never count, even after the profile is
+# later re-enabled) assumed a historical qualification record that T009's
+# contract explicitly forbids ("Training remains ordinary Assignment data;
+# no TrainingRecord") and that SiteProfile, being unversioned, cannot
+# support without one. Retracted, not weakened: readiness now counts
+# CURRENT REALIZED TRAINEE Assignments against the CURRENT profile only.
 
 
 def test_r5_same_realized_training_cannot_increment_threshold_twice(tmp_path):

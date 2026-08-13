@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 4
+LATEST_SCHEMA_VERSION = 3
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -343,30 +343,10 @@ _MIGRATION_3: tuple[str, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Migration 4 -- ROTA-T009 R5-3: readiness threshold counts unique,
-# qualifying training events, not a re-derived judgement about every
-# current REALIZED TRAINEE Assignment re-evaluated against today's
-# SiteProfile config (which would let a config change retroactively count
-# or discount past events, and would double-count a re-submitted
-# assignment_id). A credit row is written only for an event that qualified
-# at the moment it was recorded.
-# ---------------------------------------------------------------------------
-_MIGRATION_4: tuple[str, ...] = (
-    """CREATE TABLE IF NOT EXISTS training_readiness_credits (
-        site_id TEXT NOT NULL,
-        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
-        assignment_id TEXT NOT NULL,
-        PRIMARY KEY (site_id, employee_id, assignment_id)
-    )""",
-)
-
-
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
     (3, _MIGRATION_3),
-    (4, _MIGRATION_4),
 )
 
 

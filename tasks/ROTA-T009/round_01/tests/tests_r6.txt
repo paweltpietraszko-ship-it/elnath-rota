@@ -1,0 +1,194 @@
+ROTA-T009 — AUDYT IMPLEMENTACJI, RUNDA 6
+
+Data: 2026-08-13
+Audytowany SHA: a0a365b1fd4449fd39d25ec0e3a5434a9f3f5fc0
+Gałąź: task/ROTA-T009
+Contract set:
+- tasks/ROTA-T009/brief.md (85bc18547c78c74bcc080486ed6a27ceed15b433)
+- review_01_architect_clarification.md
+  (0d5fdfa31844b0932a2c23654b7b8ced8c4edc50)
+- review_02_architect_clarification.md
+  (9e41a8e0b65692fc526924d407feda3b964c5fc7)
+
+WERDYKT: FAIL — NOT READY TO MERGE
+
+Literalne reproduktory R5-1..R5-5 przechodzą 15/15, a macierz R4 nadal
+przechodzi 32/32. Poprawki zamknęły wskazane przypadki R5, ale ich nowe
+ścieżki nie zachowują czterech kontraktowych klas. Macierz R6 ma 9
+reproduktorów i wszystkie są czerwone. Najpoważniejszy skutek jest
+wykonawczy: REPLAN raportuje FEASIBLE, lecz jego kandydat z fixed fact nie
+może zostać wybrany i zapisany.
+
+-------------------------------------------------------------------------------
+R6-1 — CRITICAL — PLAN/REPLAN przekazują silnikowi stan niewłaściwej wersji
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- brief.md ONE CANONICAL PLANNINGSTATE ASSEMBLER: assembler buduje stan dla
+  `(site_id, month, schedule_version_id)` z exact schedule_version_id;
+- operation 3: pierwsza durable WORKING powstaje przed złożeniem
+  PlanningState i wywołaniem PlanningEngine;
+- operation 5: REPLAN zawsze tworzy NEW WORKING child przed wywołaniem
+  PlanningEngine, po czym składa fresh context;
+- T008 identity: Assignment/ShiftDemand są scoped przez schedule_version_id;
+- T006/T009: REALIZED, frozen i TRAINEE muszą zostać zachowane przez REPLAN.
+
+Naprawa R5-1 przeniosła oba wywołania PlanningEngine przed trwały zapis:
+
+1. Initial PLAN przekazuje stan efemeryczny z schedule_version_id="". Po solve
+   current wskazuje już nowo utworzoną wersję, ale kandydat i jego demands
+   nadal identyfikują pusty target.
+2. REPLAN przekazuje stan rodzica. Dopiero później tworzy child, więc wynik
+   FEASIBLE nadal zawiera schedule_version_id rodzica, nie bieżącego child.
+
+To powoduje błąd funkcjonalny w publicznym przepływie. Dla każdego fixed fact:
+- frozen PRIMARY;
+- REALIZED PRIMARY;
+- TRAINEE;
+
+replan() zwraca FEASIBLE, ale select_candidate() odrzuca jego własny kandydat
+jako ASSIGN-03/04 „was modified”, bo schedule_version_id fixed Assignmentu
+pochodzi od rodzica, a świeży validator porównuje go z current child.
+
+Macierz: 5 czerwonych przypadków — 2 exact-version + 3 rodzaje fixed facts.
+
+Wymagana własność naprawy: PlanningState przekazany do silnika musi opisywać
+dokładnie wersję, której dotyczy wynik. Dla initial PLAN jest to pierwsza
+current WORKING, dla REPLAN nowy current child. Kandydat FEASIBLE zwrócony
+przez publiczną operację musi przejść własną publiczną select_candidate dla
+każdej zamrożonej klasy fixed fact. Nie narzucam mechanizmu transakcyjnego,
+ale nie wolno ponownie łamać zasady atomowości z briefu.
+
+-------------------------------------------------------------------------------
+R6-2 — HIGH — rzeczywisty koordynator nadal jest opcjonalny
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- brief.md COORDINATOR CONTEXT: coordinator-originated writes wymagają
+  aktywnego Coordinator, Site i CoordinatorSiteAssociation;
+- operation 4: bieżący koordynator wybiera kandydata;
+- TRANSACTION / RESTART RULES: correctness nie może zależeć od ukrytej sesji.
+
+R5-4 dodało coordinator_id do select_candidate i revalidate, ale jako
+parametr opcjonalny. Gdy caller go pominie, obie operacje nadal wykonują
+zapis, używając historycznego header.created_by. Ta wartość opisuje autora
+wersji, nie tożsamość osoby wykonującej bieżący write. Naprawa zachowuje więc
+dokładnie stare obejście dla wszystkich dotychczasowych callerów.
+
+Macierz: 2 czerwone przypadki — select/revalidate bez current actor.
+
+Wymagana własność naprawy: publiczny coordinator-originated write nie może
+wykonać się bez jawnej tożsamości aktualnego aktora, którą sprawdza active
+context. Nie wymagam systemu sesji ani frameworka autoryzacji.
+
+-------------------------------------------------------------------------------
+R6-3 — HIGH — deduplikacja szkolenia używa niekontraktowej tożsamości
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- T008 ASSIGNMENT PERSISTENCE INVARIANTS: LocalStore identity to
+  `(schedule_version_id, assignment_id)`; logiczne assignment_id może być
+  ponownie użyte w innej ScheduleVersion;
+- arch/spec.md i brief.md operation 9: próg dotyczy liczby kwalifikujących
+  REALIZED TRAINEE.
+
+training_readiness_credits ma PRIMARY KEY `(site_id, employee_id,
+assignment_id)` i pomija schedule_version_id. Dwa różne, kwalifikujące
+szkolenia tego samego pracownika w różnych wersjach/miesiącach, legalnie
+używające tego samego lokalnego assignment_id, zlewają się w jeden credit.
+Przy progu 2 membership pozostaje NOT_READY po drugim rzeczywistym szkoleniu.
+
+Macierz: 1 czerwony, dwumiesięczny przypadek z pełnym publicznym przepływem.
+
+Wymagana własność naprawy: deduplikacja zdarzeń opartych na Assignment musi
+używać kontraktowej tożsamości Assignment, a nie zakładać globalnej unikalności
+assignment_id. Należy też przetestować identyczny local id w dwóch wersjach
+tego samego miesiąca oraz w dwóch miesiącach.
+
+-------------------------------------------------------------------------------
+R6-4 — HIGH — training_readiness_credits jest drugim trwałym rekordem szkolenia
+-------------------------------------------------------------------------------
+
+Podstawa kontraktowa:
+- brief.md operation 9: „Training remains ordinary Assignment data; no
+  TrainingRecord”;
+- R2 clarification pozwala na najmniejszy application-side helper dla
+  prepared snapshot, ale zabrania nowego persistence subsystem;
+- T009 pozwala na najmniejszą migrację LocalStore wyłącznie dla
+  ScheduleVersion.effective_from.
+
+Migracja 4 tworzy trwałą tabelę `training_readiness_credits`. Wiersz powstaje
+wyłącznie dla szkolenia zakwalifikowanego w chwili wykonania i to jego
+obecność — według docstringa, nie ponowna ocena ordinary Assignment — jest
+źródłem licznika readiness. To jest trwały biznesowy rekord szkolenia pod
+inną nazwą, a nie rekonstruowalny cache: usunięcie/utrata tabeli zmienia wynik
+readiness mimo niezmienionych Assignmentów.
+
+Macierz: 1 czerwony storage-boundary test.
+
+Wymagana własność naprawy: T009 nie może utrwalać drugiego typu rekordu
+szkolenia. Readiness ma wynikać z ordinary Assignment data zgodnie z briefem.
+Jeżeli właściciel naprawdę chce niezmienną kwalifikację „w chwili zdarzenia”,
+której nie da się odtworzyć z dozwolonych danych po zmianie SiteProfile, jest
+to luka kontraktu do rozstrzygnięcia przez architekta/właściciela — test R5
+nie może sam autoryzować nowej tabeli biznesowej.
+
+Uwaga audytora o R5-3: poprzedni raport prawidłowo wykrył double-count tego
+samego zdarzenia i liczenie niekwalifikujących rekordów, ale jego wariant
+„disabled wtedy, enabled później” nie dawał implementerowi prawa stworzenia
+nowego TrainingRecord wbrew literalnemu briefowi. To ograniczenie naprawy
+powinno było zostać zapisane wyraźniej w R5.
+
+-------------------------------------------------------------------------------
+WERYFIKACJA
+-------------------------------------------------------------------------------
+
+1. Dokładny SHA i branch:
+   - HEAD == origin/task/ROTA-T009 ==
+     a0a365b1fd4449fd39d25ec0e3a5434a9f3f5fc0.
+
+2. Zaadoptowane macierze:
+   - tests/test_audit_t009_r5.py + test_audit_t009_r4.py: 47/47 PASS.
+
+3. Pełna suita bez nowej macierzy R6: 399/399 PASS.
+
+4. Niezależna macierz tests/test_audit_t009_r6.py:
+   - 9 failed, 0 passed;
+   - pełna suita z R6: 9 failed, 399 passed.
+
+5. ROTA-REG-001: 7/7 PASS.
+
+6. rota_stress: 100/100 PASS; p50=0.065s, p95=0.474s,
+   max=3.229s, total=16.960s.
+
+7. real_object --suite all: 55/55 PRODUCTION_PASS. Zgodnie z wcześniejszą
+   decyzją właściciela pozostaje regresją, nie acceptance gate T009.
+
+8. Manual audits: 3/3 PASS.
+
+9. Ruff dla rota/ i macierzy R6: PASS.
+
+10. SIZE_FILE: max 586/600; SIZE_FUNC: max 49/50 — PASS.
+
+11. git diff --check dla worktree i 9093627..a0a365b: PASS.
+
+-------------------------------------------------------------------------------
+WYMAGANA FORMA POPRAWKI I RE-AUDYTU
+-------------------------------------------------------------------------------
+
+- Dołączyć tests/test_audit_t009_r6.py bez osłabiania asercji.
+- R6-1 zachować jako macierz initial/replan + frozen/REALIZED/TRAINEE i
+  sprawdzać nie tylko status FEASIBLE, lecz również wybór własnego kandydata.
+- R6-2 usunąć fallback do historycznego creator dla obu publicznych write.
+- R6-3 testować kontraktową złożoną tożsamość w wielu wersjach/miesiącach.
+- R6-4 usunąć drugi trwały record szkolenia. Jeśli zmiana profilu ma wymagać
+  trwałej historycznej kwalifikacji, zatrzymać implementację i zwrócić tylko
+  ten punkt jako WYMAGA_DECYZJI; nie doprojektowywać storage przez test.
+- Kolejny audyt ograniczyć do czterech klas R6, regresji R4/R5 i gate'ów.
+
+-------------------------------------------------------------------------------
+ARCHITECTURE_PROPOSALS
+-------------------------------------------------------------------------------
+
+Brak. Wszystkie cztery findings są bezpośrednio śledzalne do contract setu.
+Raport nie proponuje nowej funkcji produktu ani nowego mechanizmu trwałości.

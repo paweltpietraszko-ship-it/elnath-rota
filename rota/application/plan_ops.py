@@ -7,7 +7,7 @@ import uuid
 from dataclasses import replace
 from datetime import date, datetime
 
-from rota.application.assembler import assemble_planning_state, generate_profile_demands, resolved_rule_version_ids
+from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.errors import (
     CandidateRejected,
@@ -17,13 +17,7 @@ from rota.application.errors import (
 )
 from rota.domain import Assignment, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
-from rota.persistence.schedule_repository import (
-    get_current_version_id,
-    get_schedule_snapshot,
-    get_schedule_version_header,
-)
-from rota.persistence.site_profile_repository import get_site_profile
-from rota.persistence.site_repository import get_site
+from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
 from rota.planning.engine import plan
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
@@ -39,10 +33,10 @@ def _require_working_or_absent(conn, site_id: str, month: date) -> str | None:
     return current_id
 
 
-def _create_first_version(conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date) -> None:
-    profile = get_site_profile(conn, get_site(conn, site_id).profile_id)
-    demands = generate_profile_demands(profile, month)
-    version_id = f"SV-{uuid.uuid4().hex}"
+def _create_first_version(
+    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
+    version_id: str, demands: list,
+) -> None:
     lifecycle.create_schedule_version(
         conn, version_id=version_id, site_id=site_id, month=month, parent_version_id=None,
         created_at=datetime.now(), created_by=coordinator_id,
@@ -64,14 +58,27 @@ def plan_month(
     downstream read cannot be undone -- every assemble_planning_state read
     this function needs, including the one that produces the state handed
     to plan(), must happen BEFORE create_schedule_version. The version is
-    only created once every read that could fail already has."""
+    only created once every read that could fail already has.
+
+    R6-1: assemble_planning_state, run before any version exists, stamps
+    schedule_version_id="" on its ephemeral ShiftDemands (T008 identity:
+    Assignment/ShiftDemand are scoped by schedule_version_id) -- the state
+    handed to plan() must instead already carry the REAL id the version is
+    about to be created with, or a REPLAN'd/selected candidate later fails
+    ASSIGN-03/04 as "modified" purely because its scope doesn't match."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     current_id = _require_working_or_absent(conn, site_id, month)
     if current_id is None:
         require_real_date(effective_from)
         assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
         state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
-        _create_first_version(conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from)
+        version_id = f"SV-{uuid.uuid4().hex}"
+        demands = tuple(replace(d, schedule_version_id=version_id) for d in state.shift_demands)
+        state = replace(state, schedule_version_id=version_id, shift_demands=demands)
+        _create_first_version(
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
+            version_id=version_id, demands=list(demands),
+        )
         return plan(state)
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     return plan(state)
@@ -136,21 +143,37 @@ def replan(conn, *, site_id: str, month: date, coordinator_id: str, effective_fr
     trigger), so every assemble_planning_state read this needs -- including
     the one that produces the state handed to plan() -- must happen BEFORE
     create_schedule_version writes the child; a failure discovered only
-    afterward could never be undone."""
+    afterward could never be undone.
+
+    R6-1: the pre-write read is necessarily scoped to the still-current
+    PARENT (the child doesn't exist yet) -- state.shift_demands/
+    existing_assignments/deviations are re-stamped in memory to the child's
+    real id before either persisting or planning, so a frozen/REALIZED/
+    TRAINEE fixed fact carried into the child, and the demands the
+    candidate references, both already match what create_schedule_version
+    is about to persist. Without this, a later ASSIGN-03/04 check comparing
+    the candidate to a freshly-read (child-scoped) existing_assignments
+    would see every fixed fact as "modified" purely by scope, not content."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to REPLAN from")
-    parent_snapshot = get_schedule_snapshot(conn, current_id)
     assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write; scoped to parent
     child_id = f"SV-{uuid.uuid4().hex}"
+    demands = tuple(replace(d, schedule_version_id=child_id) for d in state.shift_demands)
+    existing = tuple(replace(a, schedule_version_id=child_id) for a in state.existing_assignments)
+    deviations = tuple(replace(d, schedule_version_id=child_id) for d in state.deviations)
+    state = replace(
+        state, schedule_version_id=child_id, shift_demands=demands,
+        existing_assignments=existing, deviations=deviations,
+    )
     lifecycle.create_schedule_version(
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
         created_at=datetime.now(), created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
-        shift_demands=parent_snapshot.shift_demands, assignments=parent_snapshot.assignments,
-        deviations=parent_snapshot.deviations, effective_from=effective_from,
+        shift_demands=list(demands), assignments=list(existing),
+        deviations=list(deviations), effective_from=effective_from,
     )
     return plan(state)
