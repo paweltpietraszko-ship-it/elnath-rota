@@ -1,8 +1,4 @@
-"""Run ROTA-REAL-OBJECT-01 against production PlanningEngine.
-
-Correctness is judged against an independent reference oracle/checker.
-Performance is reported separately and is not a correctness SLA.
-"""
+"""Run ROTA-REAL-OBJECT-01 against production PlanningEngine."""
 from __future__ import annotations
 
 import argparse
@@ -16,13 +12,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
-from benchmarks.real_object_checker import (
-    check_candidate,
-    external_unlock_pairs,
-    independently_unassignable_demands,
-)
+from benchmarks.real_object_checker import check_candidate
+from benchmarks.real_object_decisions import check_decision
 from benchmarks.real_object_input import validate_scenario
-from benchmarks.real_object_oracle import classify_reference, verify_load_claim
+from benchmarks.real_object_oracle import classify_reference
 from benchmarks.real_object_production import build_planning_state
 from benchmarks.real_object_scenarios import (
     EXTERNAL_EMPLOYEES,
@@ -30,14 +23,12 @@ from benchmarks.real_object_scenarios import (
     all_scenarios,
     calendar_scenarios,
     core_scenarios,
-    demands_for_month,
 )
 from benchmarks.real_object_types import (
     OracleClass,
     ReferenceClassification,
     ReferenceSolve,
     ScenarioSpec,
-    SolveVerdict,
 )
 from rota.planning.engine import plan
 
@@ -45,7 +36,6 @@ BASE_PRODUCTION_SHA = "e010f004e90a1e4f426bb72298e7307045d32b56"
 
 
 def _json_value(value):
-    """Recursively convert dataclasses/enums/date-time values to JSON-safe data."""
     if is_dataclass(value):
         return _json_value(asdict(value))
     if isinstance(value, Enum):
@@ -71,7 +61,8 @@ def _scenario_dict(scenario: ScenarioSpec) -> dict:
 
 def _input_fingerprint(scenario: ScenarioSpec) -> str:
     encoded = json.dumps(
-        _scenario_dict(scenario), ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        _scenario_dict(scenario), ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -115,9 +106,7 @@ def _all_reference_solves(reference: ReferenceClassification) -> tuple[Reference
     return tuple(row for row in rows if row is not None)
 
 
-def _reference_errors(
-    scenario: ScenarioSpec, reference: ReferenceClassification,
-) -> list[str]:
+def _reference_errors(scenario, reference: ReferenceClassification) -> list[str]:
     errors = []
     if reference.expected_class == OracleClass.INCONCLUSIVE:
         errors.append("reference oracle inconclusive")
@@ -135,144 +124,7 @@ def _reference_errors(
     return errors
 
 
-def _valid_blocking_ids(scenario: ScenarioSpec) -> set[str]:
-    return {demand.demand_id for demand in demands_for_month(scenario)}
-
-
-def _payload_common_errors(scenario: ScenarioSpec, result) -> list[str]:
-    if result.status != "DECISION_REQUIRED":
-        return [f"expected DECISION_REQUIRED, got {result.status}"]
-    if result.candidates:
-        return ["DECISION_REQUIRED unexpectedly contains candidate assignments"]
-    payload = result.decision_payload
-    if payload is None:
-        return ["DECISION_REQUIRED lacks decision_payload"]
-    valid_demands = _valid_blocking_ids(scenario)
-    blocking_ids = {item.demand_id for item in payload.blocking_shift_demands}
-    invalid = sorted(blocking_ids - valid_demands)
-    errors = [f"payload contains unknown blocking demand(s): {invalid}"] if invalid else []
-    known_employees = set((*LOCAL_EMPLOYEES, *EXTERNAL_EMPLOYEES))
-    unknown_blockers = sorted({
-        blocker.employee_id for blocker in payload.blockers
-        if blocker.employee_id not in known_employees
-    })
-    if unknown_blockers:
-        errors.append(f"payload contains unknown blocker employee(s): {unknown_blockers}")
-    return errors
-
-
-def _load_decision_errors(
-    scenario: ScenarioSpec, reference: ReferenceClassification, result,
-) -> tuple[list[str], dict | None]:
-    errors = _payload_common_errors(scenario, result)
-    payload = result.decision_payload
-    if payload is None:
-        return errors, None
-    blocker = payload.load_blocker
-    if blocker is None:
-        return [*errors, "LOAD_DECISION_REQUIRED lacks load_blocker"], None
-    if blocker.hours <= 60:
-        errors.append(f"load_blocker does not exceed threshold: {blocker.hours}h")
-    if not any(
-        item.employee_id == blocker.employee_id and item.condition == "LOAD-01"
-        for item in payload.blockers
-    ):
-        errors.append("load_blocker employee is not backed by a LOAD-01 blocker")
-
-    proof = verify_load_claim(
-        scenario,
-        employee_id=blocker.employee_id,
-        window_start=blocker.window_start,
-        window_end=blocker.window_end,
-        hours=blocker.hours,
-    )
-    if proof.verdict != SolveVerdict.FEASIBLE:
-        errors.append(
-            "production load certificate is not realizable by independent uncapped oracle"
-        )
-    if reference.capped.verdict != SolveVerdict.INFEASIBLE:
-        errors.append("reference did not prove capped model infeasible")
-    if reference.uncapped is None or reference.uncapped.verdict != SolveVerdict.FEASIBLE:
-        errors.append("reference did not prove uncapped model feasible")
-    return errors, _solve_dict(proof)
-
-
-def _external_decision_errors(
-    scenario: ScenarioSpec, result,
-) -> list[str]:
-    errors = _payload_common_errors(scenario, result)
-    payload = result.decision_payload
-    if payload is None:
-        return errors
-    evidence = independently_unassignable_demands(scenario)
-    unlock_pairs = external_unlock_pairs(scenario)
-    blocking_ids = {item.demand_id for item in payload.blocking_shift_demands}
-    unlock_demands = {demand_id for demand_id, _ in unlock_pairs}
-    if not blocking_ids.intersection(unlock_demands):
-        errors.append(
-            "external-support decision does not name a demand independently unlocked by probe window"
-        )
-    blocker_pairs = {(item.employee_id, item.condition) for item in payload.blockers}
-    if not any(
-        demand_id in blocking_ids and (employee_id, "EXTERNAL-01") in blocker_pairs
-        for demand_id, employee_id in unlock_pairs
-    ):
-        errors.append(
-            "external-support decision lacks independently evidenced X/Y EXTERNAL-01 blocker"
-        )
-    if not payload.unblocking_options:
-        errors.append("external-support decision lacks any unblocking option")
-    if not evidence:
-        errors.append("external-support class has no independently unassignable current demand")
-    return errors
-
-
-def _shortage_decision_errors(
-    scenario: ScenarioSpec, result,
-) -> list[str]:
-    errors = _payload_common_errors(scenario, result)
-    payload = result.decision_payload
-    if payload is None:
-        return errors
-    evidence = independently_unassignable_demands(scenario)
-    blocking_ids = {item.demand_id for item in payload.blocking_shift_demands}
-    if not blocking_ids:
-        errors.append("proven staffing shortage lacks blocking_shift_demands")
-        return errors
-    evidenced_ids = blocking_ids.intersection(evidence)
-    if not evidenced_ids:
-        errors.append(
-            "reported blocking demands are not independently unassignable under current facts"
-        )
-        return errors
-
-    for blocker in payload.blockers:
-        if not any(
-            blocker.condition in evidence[demand_id].get(blocker.employee_id, ())
-            for demand_id in evidenced_ids
-        ):
-            errors.append(
-                f"fictional blocker certificate: {blocker.employee_id}/{blocker.condition}"
-            )
-    return errors
-
-
-def _decision_errors(
-    scenario: ScenarioSpec, reference: ReferenceClassification, result,
-) -> tuple[list[str], dict | None]:
-    expected = reference.expected_class
-    if expected == OracleClass.LOAD_DECISION_REQUIRED:
-        return _load_decision_errors(scenario, reference, result)
-    if expected == OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED:
-        return _external_decision_errors(scenario, result), None
-    if expected == OracleClass.PROVEN_STAFFING_SHORTAGE:
-        return _shortage_decision_errors(scenario, result), None
-    return [f"unexpected decision class {expected.value}"], None
-
-
-def _feasible_errors(
-    scenario: ScenarioSpec, expected: OracleClass, result,
-) -> tuple[list[str], dict]:
+def _feasible_errors(scenario, expected: OracleClass, result) -> tuple[list[str], dict]:
     if result.status != "FEASIBLE":
         return [f"expected FEASIBLE, got {result.status}"], {}
     if len(result.candidates) != 1:
@@ -281,10 +133,7 @@ def _feasible_errors(
     checked = check_candidate(scenario, candidate)
     errors = list(checked.errors)
     if expected == OracleClass.KNOWN_FEASIBLE_WITH_CONFIRMED_EXTERNAL_SUPPORT:
-        used_external = [
-            item for item in candidate if item.employee_id in EXTERNAL_EMPLOYEES
-        ]
-        if not used_external:
+        if not any(item.employee_id in EXTERNAL_EMPLOYEES for item in candidate):
             errors.append("confirmed-support case is FEASIBLE without actually using X/Y")
     metrics = {
         "checker_errors": list(checked.errors),
@@ -295,9 +144,7 @@ def _feasible_errors(
     return errors, metrics
 
 
-def _production_errors(
-    scenario: ScenarioSpec, reference: ReferenceClassification, result,
-) -> tuple[list[str], dict, dict | None]:
+def _production_errors(scenario, reference, result):
     expected = reference.expected_class
     if expected in {
         OracleClass.KNOWN_FEASIBLE,
@@ -310,12 +157,12 @@ def _production_errors(
         OracleClass.EXTERNAL_SUPPORT_DECISION_REQUIRED,
         OracleClass.PROVEN_STAFFING_SHORTAGE,
     }:
-        errors, certificate = _decision_errors(scenario, reference, result)
+        errors, certificate = check_decision(scenario, reference, result)
         return errors, {}, certificate
     return ["cannot judge production against INCONCLUSIVE reference"], {}, None
 
 
-def _production_dict(result, elapsed: float, checker: dict, certificate: dict | None) -> dict:
+def _production_dict(result, elapsed: float, checker: dict, certificate) -> dict:
     payload = result.decision_payload
     return {
         "status": result.status,
@@ -349,17 +196,15 @@ def _invalid_case_result(scenario: ScenarioSpec, input_errors: tuple[str, ...]) 
 
 
 def run_case(scenario: ScenarioSpec) -> dict:
-    """Validate fixture, classify independently, then invoke production."""
     input_errors = validate_scenario(scenario)
     if input_errors:
         return _invalid_case_result(scenario, input_errors)
-
     reference = classify_reference(scenario)
     reference_errors = _reference_errors(scenario, reference)
     state = build_planning_state(scenario)
     started = clock.perf_counter()
     result = plan(state)
-    production_seconds = clock.perf_counter() - started
+    elapsed = clock.perf_counter() - started
     production_errors, checker, certificate = _production_errors(
         scenario, reference, result,
     )
@@ -372,9 +217,7 @@ def run_case(scenario: ScenarioSpec) -> dict:
         "series": {"id": scenario.series_id, "level": scenario.series_level},
         "scenario": _scenario_dict(scenario),
         "reference": _reference_dict(reference),
-        "production": _production_dict(
-            result, production_seconds, checker, certificate,
-        ),
+        "production": _production_dict(result, elapsed, checker, certificate),
         "correctness": {"pass": not errors, "errors": errors},
     }
 
@@ -383,9 +226,7 @@ def _percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = max(
-        0, min(len(ordered) - 1, int(round((len(ordered) - 1) * percentile))),
-    )
+    index = max(0, min(len(ordered) - 1, int(round((len(ordered) - 1) * percentile))))
     return ordered[index]
 
 
@@ -402,87 +243,101 @@ def _performance_by_class(results: list[dict]) -> dict:
     grouped: dict[str, list[dict]] = {}
     for result in results:
         reference = result.get("reference")
-        if not reference:
-            grouped.setdefault("INVALID_BENCHMARK_INPUT", []).append(result)
-            continue
-        grouped.setdefault(reference["expected_class"], []).append(result)
-
+        key = reference["expected_class"] if reference else "INVALID_BENCHMARK_INPUT"
+        grouped.setdefault(key, []).append(result)
     report = {}
     for class_name, rows in grouped.items():
-        production_times = [
+        times = [
             row["production"]["elapsed_seconds"]
             for row in rows if "elapsed_seconds" in row["production"]
         ]
-        reference_timeouts = 0
-        production_timeouts = 0
-        for row in rows:
-            reference = row.get("reference") or {}
-            for key in (
-                "capped", "uncapped", "without_external",
-                "with_external_probe", "with_external_probe_uncapped",
-            ):
-                solve = reference.get(key)
-                reference_timeouts += int(bool(solve and solve.get("timed_out")))
-            production = row.get("production") or {}
-            message = (production.get("error_message") or "").upper()
-            production_timeouts += int(
-                production.get("status") == "TECHNICAL_ERROR" and "UNKNOWN" in message
-            )
         report[class_name] = {
-            **_timing_summary(production_times),
+            **_timing_summary(times),
             "case_count": len(rows),
-            "reference_timeout_count": reference_timeouts,
-            "production_timeout_count": production_timeouts,
+            "reference_timeout_count": _reference_timeout_count(rows),
+            "production_timeout_count": _production_timeout_count(rows),
         }
     return report
+
+
+def _reference_timeout_count(rows: list[dict]) -> int:
+    count = 0
+    for row in rows:
+        reference = row.get("reference") or {}
+        for key in (
+            "capped", "uncapped", "without_external",
+            "with_external_probe", "with_external_probe_uncapped",
+        ):
+            solve = reference.get(key)
+            count += int(bool(solve and solve.get("timed_out")))
+    return count
+
+
+def _production_timeout_count(rows: list[dict]) -> int:
+    count = 0
+    for row in rows:
+        production = row.get("production") or {}
+        message = (production.get("error_message") or "").upper()
+        count += int(production.get("status") == "TECHNICAL_ERROR" and "UNKNOWN" in message)
+    return count
+
+
+def _series_errors(scenarios: Iterable[ScenarioSpec]) -> list[str]:
+    grouped: dict[str, list[ScenarioSpec]] = {}
+    for scenario in scenarios:
+        if scenario.series_id:
+            grouped.setdefault(scenario.series_id, []).append(scenario)
+    errors = []
+    for series_id, rows in grouped.items():
+        ordered = sorted(rows, key=lambda item: item.series_level)
+        for previous, current in zip(ordered, ordered[1:]):
+            if not set(previous.availability) <= set(current.availability):
+                errors.append(
+                    f"series {series_id} is not monotonic: level {previous.series_level} "
+                    f"availability is not a subset of level {current.series_level}"
+                )
+    return errors
 
 
 def _series_transitions(results: list[dict]) -> list[dict]:
     grouped: dict[str, list[dict]] = {}
     for row in results:
         series = row.get("series") or {}
-        series_id = series.get("id")
-        if series_id:
-            grouped.setdefault(series_id, []).append(row)
+        if series.get("id"):
+            grouped.setdefault(series["id"], []).append(row)
     transitions = []
     for series_id, rows in sorted(grouped.items()):
         ordered = sorted(rows, key=lambda row: row["series"]["level"])
-        first_changed = next(
-            (
-                row for row in ordered
-                if row.get("reference")
-                and row["reference"]["expected_class"] != OracleClass.KNOWN_FEASIBLE.value
-            ),
-            None,
-        )
+        first = next((row for row in ordered if _non_feasible_reference(row)), None)
         transitions.append({
             "series_id": series_id,
             "levels": [
                 {
                     "level": row["series"]["level"],
                     "case_id": row["case_id"],
-                    "reference_class": (
-                        row["reference"]["expected_class"] if row.get("reference") else None
-                    ),
+                    "reference_class": row["reference"]["expected_class"] if row.get("reference") else None,
                 }
                 for row in ordered
             ],
-            "first_non_feasible_level": (
-                first_changed["series"]["level"] if first_changed else None
-            ),
-            "first_non_feasible_case_id": (
-                first_changed["case_id"] if first_changed else None
-            ),
+            "first_non_feasible_level": first["series"]["level"] if first else None,
+            "first_non_feasible_case_id": first["case_id"] if first else None,
         })
     return transitions
 
 
+def _non_feasible_reference(row: dict) -> bool:
+    return bool(
+        row.get("reference")
+        and row["reference"]["expected_class"] != OracleClass.KNOWN_FEASIBLE.value
+    )
+
+
 def run_matrix(scenarios: Iterable[ScenarioSpec]) -> dict:
-    results = [run_case(scenario) for scenario in scenarios]
+    scenario_rows = tuple(scenarios)
+    benchmark_errors = _series_errors(scenario_rows)
+    results = [run_case(scenario) for scenario in scenario_rows]
     passed = sum(row["correctness"]["pass"] for row in results)
-    ladder_covered = sorted({
-        step for scenario in scenarios for step in scenario.ladder_steps
-    })
+    case_pass = passed == len(results)
     return {
         "benchmark": "ROTA-REAL-OBJECT-01",
         "base_production_sha": BASE_PRODUCTION_SHA,
@@ -491,12 +346,13 @@ def run_matrix(scenarios: Iterable[ScenarioSpec]) -> dict:
             "day_only": "C",
             "external_support": list(EXTERNAL_EMPLOYEES),
         },
-        "ladder_steps_covered": ladder_covered,
+        "ladder_steps_covered": sorted({step for item in scenario_rows for step in item.ladder_steps}),
+        "benchmark_errors": benchmark_errors,
         "correctness": {
             "passed": passed,
             "failed": len(results) - passed,
             "total": len(results),
-            "pass": passed == len(results),
+            "pass": case_pass and not benchmark_errors,
         },
         "performance": _performance_by_class(results),
         "series_transitions": _series_transitions(results),
@@ -512,11 +368,7 @@ def _select_suite(name: str) -> tuple[ScenarioSpec, ...]:
     return all_scenarios()
 
 
-def _select_cases(
-    scenarios: tuple[ScenarioSpec, ...],
-    case_ids: list[str],
-    seed: int | None,
-) -> tuple[ScenarioSpec, ...]:
+def _select_cases(scenarios, case_ids: list[str], seed: int | None):
     selected = scenarios
     if case_ids:
         by_id = {scenario.case_id: scenario for scenario in scenarios}
@@ -527,9 +379,7 @@ def _select_cases(
     if seed is not None:
         mismatched = [item.case_id for item in selected if item.seed != seed]
         if mismatched:
-            raise ValueError(
-                f"seed {seed} does not match selected case(s): {', '.join(mismatched)}"
-            )
+            raise ValueError(f"seed {seed} does not match selected case(s): {', '.join(mismatched)}")
     return selected
 
 
@@ -537,35 +387,25 @@ def _print_summary(report: dict) -> None:
     correctness = report["correctness"]
     print(
         f"ROTA-REAL-OBJECT-01: {correctness['passed']}/{correctness['total']} "
-        f"correctness PASS; {correctness['failed']} FAIL"
+        f"case correctness PASS; {correctness['failed']} case FAIL"
     )
+    for error in report["benchmark_errors"]:
+        print(f"BENCHMARK FAIL: {error}")
     print(f"LADDER: {report['ladder_steps_covered']}")
     for result in report["results"]:
         marker = "PASS" if result["correctness"]["pass"] else "FAIL"
-        expected = (
-            result["reference"]["expected_class"] if result.get("reference")
-            else "INVALID_BENCHMARK_INPUT"
-        )
+        expected = result["reference"]["expected_class"] if result.get("reference") else "INVALID_BENCHMARK_INPUT"
         actual = result["production"].get("status", "SKIPPED")
-        print(
-            f"{marker:4} {result['case_id']} seed={result['seed']}: "
-            f"expected={expected} production={actual}"
-        )
+        print(f"{marker:4} {result['case_id']} seed={result['seed']}: expected={expected} production={actual}")
         for error in result["correctness"]["errors"]:
             print(f"     - {error}")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--suite", choices=("core", "calendar", "all"), default="core",
-    )
-    parser.add_argument(
-        "--case", action="append", default=[], help="exact case_id; repeatable",
-    )
-    parser.add_argument(
-        "--seed", type=int, help="assert the selected case(s) use this exact seed",
-    )
+    parser.add_argument("--suite", choices=("core", "calendar", "all"), default="core")
+    parser.add_argument("--case", action="append", default=[], help="exact case_id; repeatable")
+    parser.add_argument("--seed", type=int, help="assert selected case(s) use this exact seed")
     parser.add_argument("--json", type=Path, help="write full audit report JSON")
     args = parser.parse_args(argv)
     scenarios = _select_cases(_select_suite(args.suite), args.case, args.seed)
