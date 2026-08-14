@@ -1,0 +1,78 @@
+REAUDYT KONTRAKTU ROTA-T011-E — ROUND 2
+
+AUDYTOWANY SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-E/round_01/tests/tests_r1.txt
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION PO ZMERGOWANIU T011-A
+
+FINDING E-1 z round 1 jest zamknięty. Test dowodzi teraz braku cichego obejścia
+HARD, a nie fałszywego zamkniętego katalogu dwóch legalnych działań. Nie ma
+WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+SECTION_CHECK 1 — ZAMKNIĘCIE FINDING E-1: PASS
+
+Round 2 konsekwentnie usuwa „wyłącznie dwie drogi” z tytułu, treści testu,
+wymaganych asercji, acceptance i review requestu. Ręczny zapis oraz korekta
+reguły są opisane jako przykłady, nie katalog zamknięty.
+
+Kontrakt uznaje istniejące klasy odblokowania przez jawne zmiany danych:
+pracownik/membership, support window, availability lub konfigurację. To jest
+zgodne z DECISION_REQUIRED i nie jest obejściem HARD.
+
+Węższy invariant jest sprawdzalny:
+
+- brak ogólnego parametru `ignore/disable HARD` w powierzchni application;
+- `select_candidate` odrzuca HARD FAIL jako `CandidateRejected`;
+- manual correction może zapisać świadomy stan, ale materializuje widoczny
+  Deviation;
+- zmiana reguły pozostawia ślad w Decision Ledger;
+- ponowne FEASIBLE wynika z legalnych danych lub jawnej zmiany, nie z cichego
+  pominięcia validatora.
+
+
+SECTION_CHECK 2 — HAPPY PATH: PASS
+
+Po T011-A wszystkie 12 kroków mają wejście w `rota.application.*`: otwarcie
+magazynu, bootstrap/resume, obsada, targety, kalendarz, readiness, PLAN, wybór,
+odczyt, ręczna korekta, revalidate/finalize i restart. Deviations do finalize są
+pobierane z `assemble_planning_state`, a stan po restarcie porównuje
+`open_month`, bez persistence-only snapshot read.
+
+
+SECTION_CHECK 3 — GRANICA I TESTOWALNOŚĆ HARD: PASS
+
+Blokującą structured rule można zapisać przez `rule_decisions`, kandydat HARD
+FAIL można zbudować domenowo i podać do `select_candidate`, a korektę/reject
+reguły odczytać przez `memory_read`. Dopuszczenie niezależnego
+`rota.planning.validator.validate` jest zgodne z wymaganiem niezależnej
+walidacji i nie otwiera zapisu persistence.
+
+Oba pliki mogą pozostać bez importów `rota.persistence` i bez helpera w trzecim
+pliku. Limit 600 linii na każdy z dwóch odrębnych scenariuszy jest realistyczny.
+
+
+SECTION_CHECK 4 — SCOPE, ZALEŻNOŚĆ I BRAMKI: PASS
+
+- `DEPENDS_ON: ROTA-T011-A` jest twarde i wystarczające; E nie korzysta z B/C/D;
+- parser backend.py: 2 wpisy TASK_SCOPE, oba nowe testy; zero plików produkcyjnych;
+- przeniesienie dawnego `arch/T011_architect_brief.md` nadal nie gubi treści;
+- `guard.py check arch/spec.md`: PASS;
+- `backend.check_frozen_lock()`: brak blockera;
+- `git diff --check 7239b51..51f3b42`: PASS;
+- diff round 2 nie zawiera kodu produkcyjnego ani testów.
+
+
+GOTOWOŚĆ
+
+T011-E może zostać zaimplementowane po zielonym merge T011-A. Reaudyt ma
+sprawdzić rzeczywistą ciągłość obu scenariuszy oraz brak importów persistence,
+bez próby udowadniania nieistniejącego zamkniętego katalogu odblokowań.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
