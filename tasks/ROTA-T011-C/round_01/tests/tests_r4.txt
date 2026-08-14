@@ -1,0 +1,200 @@
+WĄSKI REAUDYT IMPLEMENTACJI ROTA-T011-C — ROUND 4
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-C
+
+AUDYTOWANY SHA:
+357416967c0cccd57855db6b40c2f8f4f0df5839
+
+SHA KOREKTY:
+ff2593eb2bbcc447a1ddc6300224ec8d1198fdeb
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-C/round_01/tests/tests_r3.txt
+
+ZAKRES REAUDYTU:
+Zamknięcie C-R3-1, C-R3-2 i C-R3-3, kontrola bezpośrednich regresji zmiany
+bootstrapu oraz potwierdzenie finalnego backendu. Przyjęte decyzje W1 i brak
+kontroli tożsamości Coordinator nie były ponownie otwierane.
+
+WERDYKT: FAIL — C-R3-1..3 ZAMKNIĘTE, ALE BRAK DETERMINISTYCZNEGO DOWODU WYŚCIGU T010
+
+Wszystkie trzy findings round 3 są zamknięte. Rozstrzygnięcie właściciela jest
+jednoznaczne, trzy warianty samozablokowania są odwracalne, memory_read działa
+po lockoucie, a restart obejmuje zmienioną flagę active i open_month.
+
+Zmiana punktu wejścia bootstrapu unieważniła jednak fault injection w trzech
+istniejących testach współbieżności T010. Testy pozostają zielone, lecz nie
+synchronizują już dwóch wywołań przed zapisem. To bezpośrednia regresja dowodu
+kontraktowego wywołana przez C-R3-1, nie propozycja nowej architektury.
+
+
+SECTION_CHECK 1 — ZAKRES KOREKTY: PASS
+
+Commit `ff2593e` zmienia:
+
+- `rota/application/bootstrap.py`;
+- istniejący plik testowy T011-C;
+- brief T011-C, który jawnie dopisuje bootstrap.py do TASK_SCOPE i zapisuje
+  decyzję właściciela.
+
+Commit `3574169` aktualizuje wyłącznie `output_backend.txt`. Nie ma zmian
+persistence, migracji, SQL ani publicznych sygnatur. Nowy zakres bootstrap.py
+jest opisany jawnie, a `coordinator_context_completeness` nie został zmieniony.
+
+
+SECTION_CHECK 2 — C-R3-1: ZAMKNIĘTY
+
+Brief rozstrzyga pełną odwracalność dla Site, Coordinator i Association. Nie
+zawęża poprzedniego ACCEPTANCE i nie pozostawia decyzji implementatorowi.
+
+Nowa prywatna `_has_full_active_context` re-używa
+`require_active_coordinator_context`, czyli jeden istniejący trójwarunkowy
+inwariant:
+
+- Coordinator.active;
+- Site.active;
+- CoordinatorSiteAssociation.active.
+
+Bootstrap odmawia, gdy zwykła guarded edit path jest dostępna. Gdy dowolny z
+trzech warunków jest fałszywy, pozwala dostarczyć rekord potrzebny do wznowienia.
+`_has_active_association` pozostaje osobnym sprawdzeniem w
+`coordinator_context_completeness`, więc granularny komunikat kompletności nie
+zmienił semantyki.
+
+Dowód testowy obejmuje całą klasę:
+
+- Association 1→0: istniejący test 6 przywraca Association i ponownie wykonuje
+  guarded edit;
+- Site active=False: test 5b przywraca Site i ponownie wykonuje guarded edit;
+- Coordinator active=False: test 5b przywraca Coordinator i ponownie wykonuje
+  guarded edit;
+- przed każdym wznowieniem kolejny durable input zwraca
+  `InvalidCoordinatorContext`;
+- przy pełnym aktywnym kontekście test 7 nadal wymaga
+  `CoordinatorContextAlreadyActive`.
+
+
+SECTION_CHECK 3 — C-R3-2: ZAMKNIĘTY
+
+Test 5 przed lockoutem zapisuje realną, strukturalną decyzję reguły przez
+publiczne `record_structured_rule_decision`. Po dezaktywacji Association:
+
+- guarded write jest odrzucony;
+- `open_month` nadal zwraca Site;
+- `memory_read.decision_chain_for_rule_family` zwraca dokładnie jeden wpis z
+  oczekiwaną treścią.
+
+Test nie używa persistence do zapisu ani odczytu dowodu.
+
+
+SECTION_CHECK 4 — C-R3-3: ZAMKNIĘTY
+
+Test restartu tworzy i finalizuje realny miesiąc, zmienia nazwę Coordinator,
+a jako ostatnią guarded operację zapisuje Site z `active=False`.
+
+Przed zamknięciem i po ponownym `store.open_store` porównuje jedną krotkę:
+
+- `all_coordinators`;
+- `all_sites_for_coordinator`;
+- `open_month`.
+
+Dodatkowa asercja potwierdza, że porównywana flaga Site faktycznie ma wartość
+False, a nie tylko zachowała domyślne True.
+
+
+FAIL C-R4-1 — TESTY WYŚCIGU T010 PATCHUJĄ HELPER, KTÓRY WYPADŁ ZE ŚCIEŻKI BOOTSTRAPU
+
+Ślad kontraktu:
+
+- `tasks/ROTA-T010/part_a_bootstrap_roster.md` wymaga odmowy przy równolegle
+  powstającym zapisie tego samego pierwszego kontekstu;
+- round 4 T010 utrwalił atomowy CAS oraz osobne siblingi: jeden zwycięzca przy
+  reaktywacji tej samej Association i niezależny sukces dwóch różnych Site;
+- `test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed`
+  mówi wprost, że test ma objąć race, nie późniejszą próbę sekwencyjną.
+
+Trzy testy realizujące ten dowód:
+
+- `tests/test_audit_t010_r3.py::test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed`;
+- `tests/test_audit_t010_r4_a.py::test_r4_a_concurrent_reactivation_of_one_inactive_association_has_one_winner`;
+- `tests/test_audit_t010_r4_a.py::test_r4_a_concurrent_bootstrap_of_two_different_sites_both_succeeds`.
+
+Każdy z nich monkeypatchuje `_has_active_association` i czeka na
+`threading.Barrier(2)` wewnątrz tego patcha. Po C-R3-1
+`bootstrap_or_resume_coordinator_context` wywołuje `_has_full_active_context`,
+nie `_has_active_association`. Stary helper jest używany już tylko przez
+`coordinator_context_completeness`, którego te scenariusze nie wywołują.
+
+Niezależny licznik potwierdził zero wywołań `_has_active_association` podczas
+bootstrapu. Bariery testów nie są więc osiągane. Wątki mogą wykonać się
+sekwencyjnie, a 52/52 i 537/537 nadal będą zielone bez wymuszenia audytowanego
+okna wyścigu.
+
+Kod CAS nie wykazał usterki produkcyjnej: diagnostyczne przekierowanie bariery
+na aktualny pre-check odtworzyło wszystkie trzy scenariusze 3/3 PASS. Nie
+zamyka to findingu, ponieważ poprawka istnieje tylko w diagnostyce audytora,
+nie w repozytorium.
+
+Warunek zamknięcia: przywrócić deterministyczną synchronizację obu wywołań na
+aktualnej ścieżce bootstrapu dla wszystkich trzech wymienionych siblingów.
+Testy muszą ponownie dowodzić race/CAS, a nie jedynie poprawnego wyniku dwóch
+potencjalnie sekwencyjnych wywołań. Jeśli korekta dotknie plików spoza obecnego
+TASK_SCOPE, brief musi je jawnie autoryzować. Sposób techniczny pozostaje po
+stronie implementatora; finding nie wymaga zmiany architektury CAS.
+
+
+SECTION_CHECK 5 — TESTY I BRAMKI: PASS Z ZASTRZEŻENIEM C-R4-1
+
+Uruchomiono T011-C, pełną macierz bootstrapu T010, audytowe macierze R3/R4/R9,
+ROTA-REG-001 i dependency boundary scan:
+
+- macierz rozszerzona: 52/52 PASS;
+- pełna suite: 537/537 PASS;
+- trzy scenariusze z diagnostycznie naprawioną synchronizacją: 3/3 PASS;
+- Ruff na trzech plikach TASK_SCOPE: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check`: PASS.
+
+Zielony wynik repo nie zamyka C-R4-1, ponieważ właśnie badany punkt fault
+injection nie jest wykonywany.
+
+
+SECTION_CHECK 6 — FINALNY BACKEND: POTWIERDZONY
+
+Zapisany `output_backend.txt` wskazuje `ff2593e`, czyli finalny kod, testy i
+brief przed commitem samego dowodu. Niezależny backend na aktualnym `3574169`
+odtworzył:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- `RATIO: 419/5 = 83.8:1`;
+- `TOTAL_LINES: 424`;
+- wszystkie gate'y blokujące zielone.
+
+Poza oczekiwaną różnicą HEAD_SHA zapisany output i aktualna reprodukcja są
+merytorycznie zgodne.
+
+RATIO 83.8:1 i TOTAL_LINES 424 wymagają jednej finalnej akceptacji architekta.
+Ta akceptacja nie zastępuje zamknięcia C-R4-1.
+
+
+FINDINGS
+
+- C-R3-1 — ZAMKNIĘTY;
+- C-R3-2 — ZAMKNIĘTY;
+- C-R3-3 — ZAMKNIĘTY;
+- C-R4-1 — FAIL: trzy testy współbieżności T010 utraciły aktywny punkt
+  synchronizacji po zmianie helpera bootstrapu.
+
+
+GOTOWOŚĆ
+
+T011-C nie ma jeszcze finalnego PASS Codexa. Potrzebna jest jedna wąska
+korekta C-R4-1, ponowny reaudyt tego findingu oraz finalna akceptacja architekta
+dla RATIO 83.8:1 i TOTAL_LINES 424. Nie należy zmieniać progów backend.py ani
+otwierać ponownie decyzji o pełnej odwracalności.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
