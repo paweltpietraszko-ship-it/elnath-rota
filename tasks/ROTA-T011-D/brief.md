@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T011-D
 TITLE: Domknięcie salda kwartalnego — jawny odczyt kwartału i realny carry-in w assemblerze
-STATUS: DRAFT FOR CODEX AUDIT
+STATUS: DRAFT FOR CODEX AUDIT — ROUND 2 (po FAIL round 1)
 DATE: 2026-08-14
 ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
@@ -70,15 +70,39 @@ kontekst planowania.
 liczy realny carry-in. Uzasadnienie właściciela: zostawienie samego W1
 oznaczałoby, że `open_month` dalej kłamie, co jest gorsze niż brak danych.
 
-**Dowód bezpieczeństwa dla silnika** (sprawdzony w kodzie, wiążący dla audytu):
-solver czyta ze `state.work_balances` wyłącznie `wb.target_hours`
-(`rota/planning/solver.py:320-321`) i nigdzie nie czyta `quarter_balance`,
-`unresolved_carryover` ani `month_balance`. Ranking TARGET-01 i oracle
-ROTA-REG-001 nie mogą się więc przez tę zmianę przesunąć. Testy asertujące te
-pola dotyczą wyłącznie czystych funkcji `rota.balance`
-(`tests/test_balance.py:44-55`), nie wyjścia assemblera. §10 decyzji właściciela
-(„T010 nie zmienia semantyki TARGET-01") pozostaje spełniony, bo zmiana dotyczy
-tylko odczytu salda, nie wejścia solvera.
+**Dowód bezpieczeństwa dla silnika — w wersji poprawionej po FINDING D-1
+(round 1), wiążący dla audytu.** Solver nie czyta pól `quarter_balance`,
+`unresolved_carryover` ani `month_balance` — czyta wyłącznie `wb.target_hours`
+(`rota/planning/solver.py:320-321`). Zmiana wartości tych trzech pól jest więc
+dla silnika neutralna.
+
+To **nie wystarcza** jako dowód bezpieczeństwa i pierwsza wersja tego briefu
+błędnie na tym poprzestała. Cel TARGET-01 jest budowany **iteracją po
+`state.work_balances`**:
+
+```text
+rota/planning/solver.py:319-322 (_sick_adjusted_targets)
+    return {
+        wb.employee_id: max(0, wb.target_hours - ...)
+        for wb in state.work_balances
+    }
+```
+
+Pracownik nieobecny w `state.work_balances` nie ma wpisu w słowniku celów, więc
+`_add_objective` (`solver.py:325-353`) nie dodaje dla niego kary TARGET-01 wcale.
+Usunięcie pracownika z tego zbioru zmienia zatem przydział godzin, ranking
+kandydatów i potencjalnie liczbę zwróconych kandydatów — czyli semantykę
+TARGET-01, której §10 decyzji właściciela zmieniać nie pozwala.
+
+Wiążący wniosek: **liczy się nie tylko wartość pól, ale i przynależność do
+`state.work_balances`.** Każdy kształt degradacji musi zachować pracownika w tym
+zbiorze wraz z jego `target_hours` na planowany miesiąc. Wyklucza to technicznie,
+nie preferencyjnie, wariant „pomiń pracownika".
+
+Zachowanie istniejące i nietknięte przez ten task: gdy normy brakuje w **samym
+planowanym miesiącu**, pracownik jest pomijany już dziś
+(`assembler.py:124-127`) i już dziś nie waży w TARGET-01. T011-D tego nie zmienia
+ani w jedną, ani w drugą stronę.
 
 ## CONSTRAINT — B-5/W2 NIE JEST GOŁYM PODPIĘCIEM ISTNIEJĄCEJ FUNKCJI
 
@@ -101,13 +125,20 @@ Wymóg wiążący:
 2. Dla pierwszego miesiąca kwartału carry-in wynosi `0` — to jest istniejąca
    semantyka `quarter_balance_before` (`balance.py:59-62`).
 3. Brak `target_hours` **nigdy** nie może stać się wyjątkiem blokującym
-   `assemble_planning_state`. Degradacja pozostaje taka jak dziś: ostrzeżenie w
-   liście zwracanej przez `assemble_planning_state`, pracownik pomijany w
-   `work_balances`, PLAN działa dalej (`assembler.py:124-127`).
-4. Liczba i treść dzisiejszych ostrzeżeń dla miesiąca planowanego nie może się
+   `assemble_planning_state`, ani dla planowanego miesiąca, ani dla
+   wcześniejszego miesiąca kwartału.
+4. Rozróżnienie dwóch przypadków, których nie wolno mieszać:
+   - **normy brakuje w samym planowanym miesiącu** — zachowanie bez zmian wobec
+     dzisiejszego: ostrzeżenie plus pominięcie pracownika w `work_balances`
+     (`assembler.py:124-127`). Tego T011-D nie dotyka.
+   - **normy brakuje w wcześniejszym miesiącu kwartału, planowany miesiąc ma
+     normę** — pracownik **zostaje** w `work_balances` ze swoim
+     `target_hours`, carry-in wynosi `0`, dochodzi ostrzeżenie nazywające
+     brakujący miesiąc. Kształt wiążący opisuje sekcja ROZSTRZYGNIĘCIE
+     WŁAŚCICIELA (2026-08-14).
+5. Liczba i treść dzisiejszych ostrzeżeń dla miesiąca planowanego nie może się
    zmienić — dochodzą co najwyżej ostrzeżenia dotyczące wcześniejszych miesięcy
-   kwartału, w kształcie opisanym w sekcji JEDNA REGUŁA DEGRADACJI DLA OBU
-   ODCZYTÓW.
+   kwartału.
 
 ## ZAKRES — A-5: jawny odczyt kwartału
 
@@ -163,44 +194,39 @@ ani dotykać `rota/planning/*`. `quarter_balance_before` jest już parametrem
 `reconstruct_month_balance` (`work_balance_repository.py:56-57`), więc assembler
 ma czym przekazać carry-in bez żadnej nowej funkcji.
 
-## JEDNA REGUŁA DEGRADACJI DLA OBU ODCZYTÓW
+## ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14, po FINDING D-1/D-2): CARRY-IN ZEROWY
 
-Rozstrzygnięcie z 2026-08-14 („saldo kwartalne degraduje się do ostrzeżenia przy
-braku normy we wcześniejszym miesiącu — tak jak zapisany constraint w B-5, i ta
-sama degradacja obowiązuje nowy odczyt A-5") daje jedną regułę wiążącą dla
-całego tasku:
+Pisemna decyzja właściciela, zamykająca zarówno pytanie o liczbę, jak i konflikt
+z TARGET-01. Przy braku normy we wcześniejszym miesiącu kwartału obowiązuje
+dokładnie to:
 
-**Nigdy nie pokazujemy liczby narastającej policzonej ponad luką w normach.
-Zamiast liczby częściowej jest ostrzeżenie nazywające brakujący miesiąc.**
+1. `quarter_balance_before = 0` dla planowanego miesiąca — carry-in nie jest
+   liczony z części miesięcy;
+2. pracownik **pozostaje** w `state.work_balances`;
+3. jego `target_hours` na planowany miesiąc **nadal uczestniczy** w TARGET-01;
+4. wynik zawiera ostrzeżenie wskazujące brakujący wcześniejszy miesiąc;
+5. PLAN nie jest blokowany;
+6. nie pokazujemy częściowego salda narastającego ponad luką.
 
-Ta sama reguła w dwóch kształtach, bo odczyty mają różne kształty wyniku:
+Carry-in **częściowy** (suma miesięcy, które normę mają) jest odrzucony: łamałby
+punkt 6. Wariant **pominięcia pracownika** jest odrzucony: łamie punkty 2 i 3 i
+jest właśnie tym, co FINDING D-1 wykazał jako sprzeczne z TARGET-01.
 
-- **`quarter_balance` (A-5)** — brak normy w którymkolwiek miesiącu kwartału daje
-  pustą listę bilansów plus ostrzeżenie. Nie zwraca prefiksu miesięcy przed luką,
-  bo raport kwartału bez części kwartału wyglądałby jak kompletny.
-- **Kontekst planowania (`assembler`, B-5/W2)** — brak normy w którymkolwiek
-  wcześniejszym miesiącu tego kwartału powoduje, że pracownik jest **pomijany
-  w `work_balances`** dla planowanego miesiąca, z ostrzeżeniem nazywającym
-  miesiąc bez normy. Jest to dokładnie ten sam kształt degradacji, który
-  assembler stosuje dziś, gdy normy brakuje w samym planowanym miesiącu
-  (`assembler.py:124-127`) — nie powstaje żadna nowa ścieżka zachowania.
+Zachowany inwariant, teraz spełnialny w całości: **żadnej liczby narastającej
+policzonej ponad luką — i żadnej zmiany w wejściu solvera.** Praktycznie oznacza
+to, że dla takiego pracownika `quarter_balance` i `unresolved_carryover` w
+kontekście planowanego miesiąca są równe jego `month_balance` (bo carry-in to
+zero), a ostrzeżenie mówi, dlaczego nie są narastające. To jest dzisiejsza
+liczba, ale po raz pierwszy jawnie opisana jako niepełna, zamiast milcząco
+udawać saldo kwartału.
 
-Konsekwencja do świadomego przyjęcia: pracownik, który ma normę na planowany
-miesiąc, ale nie ma jej na wcześniejszy miesiąc tego samego kwartału, zniknie
-z `work_balances` — dziś by się tam pokazał z saldem miesięcznym. To jest
-widoczna zmiana zachowania dla istniejących danych i jest zamierzona: liczba
-narastająca policzona ponad luką byłaby myląca w sposób, którego UI nie ma jak
-wykryć. `target_hours` pozostaje przy tym wyłącznie SOFT i nadal **nigdy** nie
-blokuje PLAN — pominięcie w bilansie nie ma wpływu na planowanie, bo solver
-czyta z `work_balances` tylko `target_hours` tych pracowników, którzy tam są.
+Ta sama reguła w drugim odczycie: **`quarter_balance` (A-5)** przy braku normy w
+którymkolwiek miesiącu kwartału zwraca pustą listę bilansów plus ostrzeżenie —
+nie prefiks miesięcy przed luką, bo raport kwartału bez części kwartału
+wyglądałby jak kompletny. A-5 nie karmi solvera, więc punkty 2 i 3 go nie
+dotyczą.
 
-INTERPRETACJA DO POTWIERDZENIA PRZEZ AUDYT: rozstrzygnięcie właściciela mówiło
-„ta sama degradacja", nie wskazując wprost liczby. Powyższy kształt jest
-odczytaniem „ta sama" jako „ten sam mechanizm, który assembler stosuje dziś",
-czyli pominięcie plus ostrzeżenie — a nie carry-in policzony z części miesięcy.
-Gdyby właściciel miał w myśli carry-in częściowy (suma miesięcy, które normę
-mają, z ostrzeżeniem o pominiętym), zmienia się wyłącznie ta sekcja i punkt 7
-wymaganych testów; reszta briefu zostaje bez zmian.
+W briefie nie ma już żadnej sekcji proszącej audytora o wybór znaczenia.
 
 ## B-1 JEST DOMKNIĘTE PRZEZ T011-A — SPRAWDZONE
 
@@ -287,17 +313,28 @@ B-5/W2; wszystkie są w zakresie tego tasku — nic nie czeka już na decyzję.
    miesiąc kwartału jej nie ma: `assemble_planning_state` **nie** rzuca,
    `plan_month` nadal zwraca wynik planowania, a `month_plan_readiness` nadal
    `ready=True`. To jest test zamrożonego wymogu, nie detalu.
-7. **Kształt degradacji w kontekście planowania.** Pracownik z normą na
-   planowany miesiąc, ale bez normy na wcześniejszy miesiąc tego kwartału, jest
-   **pomijany** w `state.work_balances`, a `assemble_planning_state` zwraca
-   ostrzeżenie nazywające miesiąc bez normy. Żadna liczba narastająca policzona
-   ponad luką nie pojawia się w wyniku. Drugi pracownik, mający normy na oba
-   miesiące, jest w `work_balances` obecny — dowód, że degradacja jest
-   per-pracownik, nie globalna.
-8. **Silnik nietknięty.** ROTA-REG-001 bez zmian; dodatkowo test dowodzący, że
-   dla tego samego wejścia `plan_month` zwraca ten sam status i tę samą liczbę
-   kandydatów przed i po zmianie carry-in (dowód, że solver czyta tylko
-   `target_hours`).
+7. **Carry-in zerowy zachowuje wejście solvera.** Pracownik z normą na planowany
+   miesiąc, ale bez normy na wcześniejszy miesiąc tego kwartału:
+   - **jest obecny** w `state.work_balances` — asercja na przynależność, nie tylko
+     na wartości pól;
+   - jego `target_hours` w `work_balances` równa się dokładnie liczbie ustawionej
+     przez `set_target_hours` dla planowanego miesiąca;
+   - jego `quarter_balance` i `unresolved_carryover` równają się jego
+     `month_balance` (carry-in zerowy), a nie sumie z niepełnego kwartału;
+   - `assemble_planning_state` zwraca ostrzeżenie nazywające miesiąc bez normy.
+
+   Ten test jest bezpośrednim dowodem zamknięcia FINDING D-1: gdyby pracownik
+   wypadł ze zbioru, jego norma zniknęłaby z celu TARGET-01.
+8. **Semantyka TARGET-01 nietknięta.** ROTA-REG-001 bez zmian. Dodatkowo dowód
+   mocniejszy niż status i liczba kandydatów — te dwie wartości mogą być
+   identyczne przy zmienionym rozkładzie godzin, więc same niczego nie dowodzą
+   (FINDING D-1, round 1). Wymagane: dla scenariusza z dwoma pracownikami,
+   z których jeden ma lukę w normie wcześniejszego miesiąca, zbiór
+   `(employee_id, target_hours)` w `state.work_balances` jest identyczny jak w
+   scenariuszu kontrolnym, w którym obaj mają wszystkie normy kwartału — czyli
+   luka w normie wcześniejszego miesiąca nie zmienia ani składu zbioru, ani
+   żadnej normy w nim. Różnić się mają wyłącznie pola salda narastającego i lista
+   ostrzeżeń.
 9. **Restart.** Po zamknięciu i ponownym otwarciu magazynu oba odczyty dają te
    same liczby.
 
@@ -325,6 +362,34 @@ blokuje PLAN.
 Znalezisko Z-6 zamknięte. Z-5 zamknięte decyzją właściciela bez kodu. Z-9
 zamknięte jako trwale informacyjne.
 
+## ZMIANY PO AUDYCIE KONTRAKTU — ROUND 1
+
+Raport: `tasks/ROTA-T011-D/round_01/tests/tests_r1.txt` (werdykt FAIL +
+WYMAGA_DECYZJI, dwa findingi, audytowany SHA `7670b2d`).
+
+**FINDING D-1 — zamknięty.** Brief twierdził, że zmiana carry-in nie może
+zmienić solvera, bo solver czyta tylko `target_hours`, i jednocześnie nakazywał
+usuwać pracownika z `state.work_balances`. Audyt wykazał, że cel TARGET-01 jest
+budowany iteracją po tym zbiorze (`solver.py:319-322`), więc usunięcie wpisu
+usuwa normę z funkcji celu i może zmienić przydział godzin. Dowód bezpieczeństwa
+został poprawiony (liczy się przynależność, nie tylko wartości pól), wariant
+pominięcia jest teraz jawnie wykluczony technicznie, a wymagany test 8 nie opiera
+się już na samym statusie i liczbie kandydatów — porównuje zbiór
+`(employee_id, target_hours)` ze scenariuszem kontrolnym. Dodano test 7
+asertujący wprost obecność pracownika w `work_balances`.
+
+**FINDING D-2 — zamknięty.** Sekcja „INTERPRETACJA DO POTWIERDZENIA PRZEZ AUDYT"
+prosiła audytora o wybór znaczenia i została usunięta. Zastąpiła ją pisemna
+decyzja właściciela z 2026-08-14 (carry-in zerowy, pracownik zostaje w zbiorze,
+norma nadal uczestniczy w TARGET-01, ostrzeżenie, PLAN niezablokowany, brak
+częściowego salda). Nagłówek `OWNER_ACCEPTANCE_REQUIRED...: no` jest teraz
+zgodny z treścią.
+
+Reszta raportu round 1 była PASS: cienki wrapper A-5 łapiący
+`MissingTargetHoursError`, carry-in policzalny przez istniejący parametr
+`quarter_balance_before` bez nowych funkcji persistence, brak udziału przyszłych
+miesięcy w assemblerze, spójność B-4=W3.
+
 ## REVIEW REQUEST TO CODEX
 
 Audytuj wyłącznie pod kątem:
@@ -337,13 +402,16 @@ Audytuj wyłącznie pod kątem:
    `rota/planning/solver.py:320-321` niezależnie, bo na nim opiera się cała ocena
    ryzyka dla ROTA-REG-001;
 4. testowalności, zwłaszcza punktów 6, 7 i 8;
-5. czy jedna reguła degradacji („nigdy liczba narastająca ponad luką") jest
-   zastosowana spójnie w obu odczytach, mimo że mają różny kształt wyniku;
-6. czy INTERPRETACJA DO POTWIERDZENIA w sekcji o degradacji jest właściwie
-   oznaczona — rozstrzygnięcie właściciela mówiło „ta sama degradacja" bez
-   wskazania liczby, a brief odczytuje to jako pominięcie plus ostrzeżenie.
-   Jeśli uznasz, że dopuszczalne jest też odczytanie „carry-in częściowy",
-   zgłoś to jako finding kontraktowy do decyzji właściciela, nie jako błąd.
+5. czy rozstrzygnięcie „carry-in zerowy" jest w całym briefie zastosowane
+   spójnie i czy nie został nigdzie ślad po odrzuconym wariancie pominięcia
+   pracownika;
+6. czy punkt 7 wymaganych testów faktycznie dowodzi zamknięcia FINDING D-1 —
+   to znaczy czy asercja na przynależność do `state.work_balances` i na
+   niezmienione `target_hours` jest postawiona wprost, a nie wyprowadzana
+   z braku wyjątku;
+7. czy rozdzielenie dwóch przypadków w CONSTRAINT punkt 4 (luka w planowanym
+   miesiącu vs luka we wcześniejszym) jest jednoznaczne — pierwszy jest
+   zachowaniem istniejącym, którego ten task nie dotyka.
 
 Oczekiwany wynik: `PASS / READY_FOR_IMPLEMENTATION` albo precyzyjne findings.
 Nie implementuj podczas audytu.

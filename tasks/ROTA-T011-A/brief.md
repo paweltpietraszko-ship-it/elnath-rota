@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T011-A
 TITLE: Mechaniczne wejścia aplikacyjne — CalendarDay, otwarcie magazynu, historia dostępności
-STATUS: DRAFT FOR CODEX AUDIT
+STATUS: DRAFT FOR CODEX AUDIT — ROUND 2 (po FAIL round 1)
 DATE: 2026-08-14
 ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
@@ -208,11 +208,31 @@ nazwy dobiera CC.
    z różnym `holiday` daje jeden dzień o ostatniej wartości.
 4. **Guard kontekstu działa.** `set_calendar_day` bez aktywnej asocjacji
    koordynator–obiekt podnosi `InvalidCoordinatorContext` i nic nie zapisuje.
-5. **`open_store` na pustej ścieżce.** Plik powstaje, `PRAGMA user_version`
-   równa się `LATEST_SCHEMA_VERSION`, a zwrócone połączenie jest od razu
-   użyteczne dla funkcji aplikacyjnych.
-6. **`open_store` jest idempotentne.** Ponowne otwarcie tego samego pliku nie
-   migruje po raz drugi i nie traci danych zapisanych przed zamknięciem.
+5. **`open_store` na pustej ścieżce daje działający, aktualny schemat.** Plik
+   powstaje, a na zwróconym połączeniu przechodzi pełna sekwencja aplikacyjna:
+   bootstrap kontekstu, zapis obsady, `set_calendar_day` i
+   `month_plan_readiness`. Dowodem migracji jest to, że operacje wymagające
+   aktualnego schematu działają — **nie** odczyt `PRAGMA user_version` i **nie**
+   porównanie z `LATEST_SCHEMA_VERSION`.
+
+   Uzasadnienie tego kształtu (FINDING A-1, round 1): `LATEST_SCHEMA_VERSION`
+   istnieje wyłącznie w `rota.persistence.db`, a `PRAGMA user_version` wymaga
+   surowego SQL na połączeniu. Każda z tych dróg przeczyłaby punktowi 9 i
+   ACCEPTANCE tego samego briefu. Kontrakt wybiera dowód pośredni i **nie
+   dopuszcza** wyjątku dla `PRAGMA` — CC nie ma tu wyboru między naruszeniem
+   granicy a pominięciem asercji.
+
+   Odrzucenie bazy o schemacie nowszym niż binarka (`UnsupportedSchemaVersion`)
+   jest już pokryte istniejącym testem na poziomie persistence
+   (`tests/test_local_store_schema_migration.py:81`) i **nie jest** duplikowane
+   w T011-A: zbudowanie takiej bazy wymaga zapisu `PRAGMA user_version`, czyli
+   dokładnie tego, czego ten plik testowy nie robi.
+6. **`open_store` jest idempotentne w obserwowalny sposób.** Dane zapisane przez
+   funkcje aplikacyjne przed zamknięciem połączenia są w całości widoczne po
+   ponownym `open_store` na tym samym pliku, a ponowne otwarcie niczego nie
+   psuje ani nie zeruje. Kontrakt **nie** wymaga dowodu „nie migrowało po raz
+   drugi" — bez odczytu wersji schematu jest to nieobserwowalne, a samo
+   `migrate` pomija już zastosowane kroki (`db.py:385-387`).
 7. **Restart bez importu persistence.** Zapis pełnego kontekstu + kalendarza,
    zamknięcie połączenia, `open_store` na tym samym pliku, `month_plan_readiness`
    nadal `ready=True`.
@@ -252,6 +272,23 @@ rodziny dostępności — nie importując `rota.persistence` ani nie znając SQL
 
 Trzy znaleziska audytu zamknięte: Z-1 (zapis kalendarza), Z-3 (otwarcie
 magazynu), Z-7b (historia dostępności).
+
+## ZMIANY PO AUDYCIE KONTRAKTU — ROUND 1
+
+Raport: `tasks/ROTA-T011-A/round_01/tests/tests_r1.txt` (werdykt FAIL, jeden
+finding, audytowany SHA `7670b2d`).
+
+**FINDING A-1 — zamknięty.** Wymóg testowy nr 5 żądał sprawdzenia
+`PRAGMA user_version == LATEST_SCHEMA_VERSION`, co było sprzeczne z punktem 9 i
+ACCEPTANCE tego samego briefu, bo obie te wartości są dostępne wyłącznie przez
+`rota.persistence` lub surowy SQL. Punkt 5 został przepisany na dowód pośredni
+(operacje aplikacyjne wymagające aktualnego schematu), z jawnym zakazem wyjątku
+dla `PRAGMA`; punkt 6 stracił nieobserwowalny wymóg „nie migrowało po raz
+drugi"; odrzucenie nowszego schematu wskazano jako już pokryte istniejącym
+testem persistence, zamiast duplikować je tutaj.
+
+Reszta raportu round 1 była PASS i nie wymagała zmian: zakres A-1/A-2/A-4,
+zgodność z CAL-01/CAL-04, brak SQL w application, realny TASK_SCOPE.
 
 ## REVIEW REQUEST TO CODEX
 

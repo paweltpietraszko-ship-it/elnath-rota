@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T011-B
 TITLE: Odkrywanie kontekstu i nawigacja po miesiącach
-STATUS: DRAFT FOR CODEX AUDIT
+STATUS: DRAFT FOR CODEX AUDIT — ROUND 2 (po FAIL round 1)
 DATE: 2026-08-14
 ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
@@ -20,8 +20,12 @@ TASK_SCOPE:
 - rota/persistence/schedule_repository.py
 - rota/application/open_month.py
 - tests/test_t011_b_context_discovery.py
+- tests/test_local_store_operational_queries.py
 
-Powyższa lista jest zamknięta. Plik testowy jest jedynym nowym plikiem.
+Powyższa lista jest zamknięta. `tests/test_t011_b_context_discovery.py` jest
+jedynym nowym plikiem; `tests/test_local_store_operational_queries.py` to
+istniejący plik testów zapytań operacyjnych na magazynie, modyfikowany z powodu
+opisanego w sekcji o zakresowaniu do bieżącej wersji.
 
 ## ŹRÓDŁA
 
@@ -154,6 +158,33 @@ tylko wtedy, gdy dla pary `(site_id, month)` istnieje bieżąca wersja i ta
 wersja ma co najmniej jeden wiersz `Assignment`. Liczy się wyłącznie bieżąca
 wersja — obecność assignmentów w wersji historycznej niczego nie kwalifikuje.
 
+### Gdzie dowodzi się zakresowania do bieżącej wersji (FINDING B-1, round 1)
+
+Warunek „liczy się wyłącznie bieżąca wersja" jest realny w SQL, ale stanu, który
+by go rozróżniał — bieżąca wersja pusta, wersja historyczna z obsadą — **nie da
+się zbudować przez API aplikacji**. Potwierdzone w kodzie: `select_candidate([])`
+dla wersji z demandami jest odrzucane przez niezależną walidację coverage jako
+`CandidateRejected`; `replan` klonuje pełną treść parenta, więc child nie jest
+pusty; `apply_manual_correction` scala assignmenty po `assignment_id` i nigdy nie
+usuwa całego zbioru; `mark_not_worked` zachowuje wiersz jako `CANCELLED`+`NN`,
+który wg tego briefu nadal kwalifikuje miesiąc.
+
+Poprzednia wersja briefu wymagała tego stanu w teście aplikacyjnym z klauzulą
+„jeśli nieosiągalny, zgłoś finding". Było to przerzucenie decyzji kontraktowej na
+implementatora i słusznie zostało zgłoszone jako defekt kontraktu.
+
+Rozstrzygnięcie: dowód tego jednego warunku przenosi się na poziom persistence,
+do istniejącego pliku `tests/test_local_store_operational_queries.py`, który jest
+w tym repo miejscem testów zapytań operacyjnych na magazynie i normalnie używa
+`rota.persistence` do budowy fixture'ów. Tam wolno zbudować kontrolowany stan
+(wersja z assignmentami, następnie pusta wersja bieżąca) wprost przez
+`schedule_lifecycle`. Plik testów aplikacyjnych T011-B pozostaje wolny od
+importów persistence.
+
+Nie wolno w zamian dodawać do `rota/application/*` ani `rota/persistence/*`
+żadnej nowej operacji usuwania assignmentów tylko po to, żeby stan dał się
+zbudować od strony aplikacji.
+
 Nazwa mówi o kryterium rzeczywistym, nie o mechanizmie: `..._with_assignments`,
 a nie `..._with_current_version`, bo sam bieżący wskaźnik nie jest warunkiem
 wystarczającym.
@@ -260,13 +291,20 @@ SQLite. Scenariusze, nie nazwy:
     `select_candidate` było `manual_edit.mark_not_worked`, nadal jest zwracany —
     `Assignment` z `state=CANCELLED` i `operational_code="NN"` liczy się jako
     obsada.
-13. **Zakresowanie do bieżącej wersji.** Miesiąc, którego bieżąca wersja jest
-    pusta, ale wersja historyczna miała assignmenty, **nie jest** zwracany. Jeśli
-    zbudowanie takiego stanu nie jest możliwe wyłącznie przez warstwę aplikacji,
-    należy to zgłosić jako finding zamiast obchodzić przez persistence — sam fakt
-    nieosiągalności jest wtedy odpowiedzią.
+Plik `tests/test_t011_b_context_discovery.py` nie może importować
+`rota.persistence` — ani do budowy stanu, ani do weryfikacji. Stany nieaktywne
+buduje się przez `bootstrap.bootstrap_or_resume_coordinator_context` z encjami
+o `active=False`.
 
-Testy nie mogą importować `rota.persistence` do budowy stanu.
+Osobno, w istniejącym `tests/test_local_store_operational_queries.py`, jeden test
+na poziomie persistence:
+
+14. **Zakresowanie do bieżącej wersji.** Kontrolowany fixture zbudowany wprost
+    przez `schedule_lifecycle`: miesiąc, którego wersja historyczna miała
+    assignmenty, a bieżąca wersja jest pusta, **nie jest** zwracany przez
+    `list_months_with_assignments`. Ten jeden test świadomie używa persistence,
+    bo opisanego stanu nie da się osiągnąć przez API aplikacji — uzasadnienie w
+    sekcji „Gdzie dowodzi się zakresowania do bieżącej wersji".
 
 ## ENGINEERING GATES
 
@@ -292,6 +330,24 @@ pusta wersja.
 
 Znaleziska Z-4 i Z-7a zamknięte. Z-8 pozostaje otwarte i jest jawnie przeniesione
 do T012 — nie wolno go zamknąć w tym tasku.
+
+## ZMIANY PO AUDYCIE KONTRAKTU — ROUND 1
+
+Raport: `tasks/ROTA-T011-B/round_01/tests/tests_r1.txt` (werdykt FAIL, jeden
+finding, audytowany SHA `7670b2d`).
+
+**FINDING B-1 — zamknięty.** Wymagany test 13 opisywał stan (bieżąca wersja
+pusta, historyczna z obsadą) nieosiągalny przez API aplikacji, a klauzula „jeśli
+nieosiągalny, zgłoś finding" przerzucała decyzję kontraktową na implementatora.
+Dowód tego jednego warunku przeniesiono na poziom persistence, do istniejącego
+`tests/test_local_store_operational_queries.py` (dopisany do TASK_SCOPE jako
+plik modyfikowany, bez wzrostu liczby nowych plików), z jawnym uzasadnieniem i
+z zakazem dodawania nowej operacji usuwania assignmentów tylko dla potrzeb testu.
+Plik testów aplikacyjnych pozostaje wolny od importów persistence.
+
+Reszta raportu round 1 była PASS: definicje czterech odczytów, kryterium SQL
+„current + co najmniej jeden Assignment", budowalność stanów nieaktywnych przez
+bootstrap, poprawne odłożenie B-7 do T012.
 
 ## REVIEW REQUEST TO CODEX
 

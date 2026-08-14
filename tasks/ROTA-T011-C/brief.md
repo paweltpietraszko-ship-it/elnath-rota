@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T011-C
 TITLE: Cykl życia Site, Coordinator i CoordinatorSiteAssociation po bootstrapie
-STATUS: DRAFT FOR CODEX AUDIT
+STATUS: DRAFT FOR CODEX AUDIT — ROUND 2 (po FAIL round 1)
 DATE: 2026-08-14
 ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
@@ -14,6 +14,7 @@ koordynatora, rozstrzygnięty 2026-08-14).
 
 INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
+DEPENDS_ON: ROTA-T011-B (twarda zależność — patrz ZALEŻNOŚĆ niżej)
 
 TASK_SCOPE:
 - rota/application/durable_inputs.py
@@ -33,6 +34,25 @@ Powyższa lista jest zamknięta. Plik testowy jest jedynym nowym plikiem.
 - `tasks/ROTA-T008/brief.md` — klasyfikacja MUTABLE CURRENT-STATE ENTITIES.
 
 Wszystkie źródła są na `main` od `029107b`.
+
+## ZALEŻNOŚĆ OD T011-B — TWARDA, WYNIKAJĄCA Z TESTOWALNOŚCI
+
+T011-C **nie może** zostać zaimplementowane przed zmergowaniem T011-B.
+
+Na bazie `029107b` nie istnieje ŻADEN odczyt `Coordinator` w
+`rota.application.*`. `coordinator_repository.get_coordinator` (`:37`) leży w
+persistence, a testy tego tasku nie mogą go użyć. Bez odczytu aplikacyjnego CC
+może wywołać `update_coordinator`, ale nie ma czym udowodnić, że nowa nazwa lub
+flaga `active` faktycznie się utrwaliły — ani po zapisie, ani po restarcie. Brak
+wyjątku nie jest dowodem zapisu właściwego rekordu.
+
+Odczyty `active_coordinators` i `all_coordinators` są kontraktowane przez
+`tasks/ROTA-T011-B/brief.md` i to one są dozwoloną powierzchnią weryfikacji w
+tym tasku. T011-C nie dodaje własnego odczytu `Coordinator` — byłby duplikatem
+tamtych.
+
+Kolejność rodziny T011 jest więc: A (niezależne) → B → C; D niezależne od B i C;
+E po A.
 
 ## PROCES — BRAMKA MECHANICZNA: STAN POTWIERDZONY
 
@@ -250,23 +270,28 @@ tymczasowy SQLite. Scenariusze, nie nazwy:
    właściciela nie został osłabiony: przy aktywnej asocjacji bootstrap podnosi
    `CoordinatorContextAlreadyActive`, więc nie stał się alternatywną ścieżką
    edycji.
-8. **Dezaktywacja obiektu nie kasuje historii.** Miesiąc z sfinalizowanym
+8. **Dezaktywacja obiektu nie kasuje historii.** Miesiąc ze sfinalizowanym
    grafikiem pozostaje czytelny przez `open_month`/`assemble_planning_state` po
-   `update_site(active=False)`; `active_sites_for_coordinator` z T011-B (jeśli
-   już zmergowane) go nie zwraca. Jeśli T011-B nie jest jeszcze w bazie, test
-   sprawdza tylko czytelność historii.
+   `update_site(active=False)`, a `active_sites_for_coordinator` (z T011-B) go
+   nie zwraca, natomiast `all_sites_for_coordinator` zwraca. Wariant warunkowy
+   („jeśli T011-B jest już zmergowane") został usunięty — zależność jest twarda,
+   patrz sekcja ZALEŻNOŚĆ.
 9. **Restart.** Po zamknięciu i ponownym otwarciu magazynu zmienione wartości i
-   flagi `active` są takie same.
+   flagi `active` są takie same, weryfikowane przez
+   `all_coordinators`/`all_sites_for_coordinator` oraz `open_month` — bez
+   sięgania do persistence.
 10. **Payload asocjacji z obcym `site_id`** podnosi `InvalidCoordinatorContext`.
 11. **Zmiana własnych danych koordynatora.** `update_coordinator` z nową
-    `display_name` zmienia ją, a `active_coordinators`/`get_coordinator` widzą
-    nową wartość.
+    `display_name` zmienia ją, a `bootstrap.all_coordinators` (z T011-B) zwraca
+    `Coordinator` z nową wartością. Nie wolno użyć
+    `coordinator_repository.get_coordinator` — jest w persistence.
 12. **Zapis encji innego koordynatora jest dozwolony.** Koordynator A z aktywnym
     kontekstem zmienia `display_name` koordynatora B, a następnie ustawia mu
-    `active=False`; oba wywołania kończą się sukcesem. Ten test utrwala
-    rozstrzygnięcie właściciela z 2026-08-14 i musi mieć komentarz mówiący, że
-    brak kontroli tożsamości jest świadomy — inaczej przyszły audyt zgłosi go
-    jako lukę.
+    `active=False`; oba wywołania kończą się sukcesem, a `all_coordinators`
+    potwierdza nową nazwę B, natomiast `active_coordinators` już B nie zwraca.
+    Sam brak wyjątku nie jest tu wystarczającym dowodem — trzeba pokazać zapisany
+    rekord. Test musi mieć komentarz mówiący, że brak kontroli tożsamości jest
+    świadomy, inaczej przyszły audyt zgłosi go jako lukę.
 13. **Odebranie powiązania innemu koordynatorowi.** Koordynator A wyłącza
     asocjację koordynatora B z tym samym obiektem; B traci możliwość edycji
     durable input, A nadal ją ma.
@@ -300,6 +325,24 @@ edycji — a wszystkie te operacje są odwracalne i nie kasują historii.
 Znalezisko Z-2 zamknięte w całości — łącznie z encjami innego koordynatora,
 gdzie brak kontroli tożsamości jest zapisanym rozstrzygnięciem właściciela, nie
 pozostawionym pytaniem.
+
+## ZMIANY PO AUDYCIE KONTRAKTU — ROUND 1
+
+Raport: `tasks/ROTA-T011-C/round_01/tests/tests_r1.txt` (werdykt FAIL, jeden
+finding, audytowany SHA `7670b2d`).
+
+**FINDING C-1 — zamknięty.** Na `029107b` nie istnieje aplikacyjny odczyt
+`Coordinator`, a brief wymagał weryfikacji przez `get_coordinator` (persistence)
+oraz przez `active_coordinators` z niezależnego T011-B, nie deklarując od niego
+zależności. Dodano `DEPENDS_ON: ROTA-T011-B` i sekcję ZALEŻNOŚĆ z uzasadnieniem;
+testy 8, 9, 11, 12 i 13 weryfikują teraz zapisane rekordy przez
+`all_coordinators`/`active_coordinators`/`all_sites_for_coordinator` z T011-B;
+usunięto wariant warunkowy „jeśli T011-B jest już zmergowane" oraz odwołanie do
+`get_coordinator`. Ustalona kolejność rodziny: A → B → C, D niezależne, E po A.
+
+Reszta raportu round 1 była PASS — w szczególności B-2=W1, świadomy brak kontroli
+tożsamości koordynatora i zakaz zmiany `Site.profile_id` nie zostały uznane za
+findingi.
 
 ## REVIEW REQUEST TO CODEX
 

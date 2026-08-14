@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T011-E
 TITLE: Dowód E2E — pełny łańcuch koordynatora wyłącznie przez warstwę aplikacji
-STATUS: DRAFT FOR CODEX AUDIT
+STATUS: DRAFT FOR CODEX AUDIT — ROUND 2 (po FAIL round 1)
 DATE: 2026-08-14
 ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
@@ -163,7 +163,7 @@ aplikacji (po `revalidate` przez `assembler.assemble_planning_state`, pole
 `state.deviations`), nie zbudowany ręcznie w teście — inaczej test dowodziłby
 własnych założeń, nie zachowania systemu.
 
-## ZAKRES — TEST 2: zatrzymanie na HARD i dwie legalne drogi dalej, żadnej trzeciej
+## ZAKRES — TEST 2: zatrzymanie na HARD i brak cichego obejścia
 
 Scenariusz, w którym `plan_month()` nie jest w stanie osiągnąć `FEASIBLE` z
 powodu realnej kolizji HARD — na przykład jedyny eligible pracownik na dany
@@ -172,8 +172,9 @@ demand ma aktywną `SiteRuleVersion` typu
 zmiany w tym dniu tygodnia. Regułę zapisuje
 `rule_decisions.record_structured_rule_decision()`.
 
-Test dowodzi dokładnie trzech rzeczy, z których każda jest już w kontrakcie, ale
-nigdy nie zostały połączone w jeden dowód:
+Test dowodzi trzech rzeczy, z których każda jest już w kontrakcie, ale nigdy nie
+zostały połączone w jeden dowód. Dwie pierwsze to przykłady legalnych dróg
+wyjścia, **nie** zamknięty katalog — patrz sekcja o braku cichego obejścia niżej:
 
 1. **Silnik się zatrzymuje, nie „przepycha" grafiku.** `plan_month()` zwraca
    `DECISION_REQUIRED`, a nie `FEASIBLE` z ukrytym naruszeniem HARD. Jeśli
@@ -191,18 +192,44 @@ nigdy nie zostały połączone w jeden dowód:
    audytowalną, historyczną decyzją — `memory_read` musi ją pokazać w łańcuchu
    rodziny reguły.
 
-Test musi też wykazać, że **nie istnieje trzecia droga**: nie ma żadnej funkcji
-aplikacyjnej pozwalającej zignorować ten HARD i zaplanować mimo niego, bez
-jednej z dwóch jawnych, zapisanych w historii akcji koordynatora. To jest
-właściwy przedmiot tego testu — nie mechanika PLAN, a dowód, że system nie ma
-cichego wyłącznika bezpieczeństwa.
+### Brak cichego obejścia HARD — właściwy przedmiot tego testu (FINDING E-1)
 
-Dowód braku trzeciej drogi ma być pozytywnym stwierdzeniem o powierzchni API
-(żadna publiczna funkcja `rota.application.*` nie przyjmuje parametru
-wyłączającego HARD ani nie zapisuje kandydata z `hard_pass=False` przez
-`select_candidate`), a nie próbą wyliczenia wszystkich możliwych obejść.
-W szczególności: `plan_ops.select_candidate()` z kandydatem łamiącym HARD musi
-podnieść `CandidateRejected`.
+Pierwsza wersja tego briefu twierdziła, że po HARD istnieją **wyłącznie dwie
+drogi** wyjścia. To twierdzenie było fałszywe i sprzeczne z zamrożonym
+kontraktem. `tasks/ROTA-T009/brief.md:239-240` opisuje obowiązkowy przepływ
+„PLAN → DECISION_REQUIRED → koordynator zmienia jeden durable input (na przykład
+dodaje okno X) → PLAN ponownie na świeżym PlanningState", a `arch/spec.md`
+w sekcji DECISION_REQUIRED wymaga pokazania **klas** odblokowania, nie zamkniętej
+listy dwóch pozycji.
+
+Legalnych dróg jest więcej i część nie dotyka blokującej reguły: dodanie albo
+ponowne włączenie innego eligible pracownika (`durable_inputs.update_employee` +
+`update_membership`), dodanie okna wsparcia zewnętrznego, wycofanie nieobecności
+przez `append_availability`, zmiana konfiguracji profilu przez
+`update_site_profile`. Po każdej z nich `plan_month` może legalnie zwrócić
+`FEASIBLE`, przy nadal aktywnej regule, bez ręcznego Assignmentu i bez
+`corrects`/`rejects`. To nie jest obejście HARD — to jawna zmiana wejścia,
+dokładnie model DECISION_REQUIRED.
+
+Test dowodzi zatem inwariantu węższego i prawdziwego: **nie istnieje ciche
+obejście HARD.** Dowód ma być pozytywnym stwierdzeniem o powierzchni API, nie
+próbą wyliczenia wszystkich dróg:
+
+- żadna publiczna funkcja `rota.application.*` nie przyjmuje parametru
+  wyłączającego, pomijającego ani osłabiającego HARD;
+- `plan_ops.select_candidate()` z kandydatem łamiącym HARD podnosi
+  `CandidateRejected` — nie da się utrwalić takiego kandydata jako grafiku;
+- `manual_edit.apply_manual_correction()` **wolno** zapisać stan łamiący HARD, ale
+  naruszenie zostaje wtedy widoczne jako `Deviation` i nie znika po cichu;
+- każda droga do `FEASIBLE` albo spełnia regułę na istniejących danych, albo
+  zmienia dane wejściowe jawnie przez funkcję aplikacyjną, albo zmienia samą
+  regułę przez Decision Ledger. Żadna nie planuje wbrew regule bez śladu.
+
+Test **nie może** twierdzić ani asertować, że katalog legalnych zmian wejścia jest
+zamknięty do dwóch pozycji. Gdyby intencją produktu naprawdę było zamknięcie
+pozostałych klas odblokowania, wymagałoby to jawnej decyzji właściciela
+zmieniającej istniejący kontrakt DECISION_REQUIRED — i nie jest przedmiotem
+T011-E.
 
 ## OUT OF SCOPE
 
@@ -231,8 +258,9 @@ Ten task **jest** testami; sekcja opisuje warunki uznania ich za wystarczające.
    dowodu.
 4. Krok 12 (restart) porównuje stan przed i po, a nie tylko sprawdza, że odczyt
    nie rzucił wyjątku.
-5. Test 2 zawiera wszystkie trzy dowody plus dowód braku trzeciej drogi;
-   `CandidateRejected` z `select_candidate` jest asertowane wprost.
+5. Test 2 zawiera wszystkie trzy dowody plus dowód braku cichego obejścia HARD;
+   `CandidateRejected` z `select_candidate` jest asertowane wprost. Test nie
+   asertuje, że legalnych dróg wyjścia jest dokładnie dwie.
 6. `SIZE_FILE` (600 linii na plik) jest realnym ryzykiem dla scenariusza z 12
    krokami — jeśli Test 1 zbliża się do limitu, należy to zgłosić jako finding,
    a nie ciąć kroków ani wyprowadzać helpera do trzeciego pliku.
@@ -257,8 +285,31 @@ go obchodzić przez okrojenie dowodu.
 T011-E jest kompletne, gdy w repo istnieje dowód, że koordynator (a więc i
 przyszłe UI) przechodzi od pustego pliku bazy do sfinalizowanego grafiku i przez
 restart, nie znając SQLite i nie importując `rota.persistence` — oraz że
-napotkany HARD zatrzymuje planowanie i da się go przejść wyłącznie dwiema
-jawnymi, zapisanymi w historii drogami.
+napotkany HARD zatrzymuje planowanie i nie istnieje ciche obejście: każde
+przejście dalej jest albo jawną zmianą danych wejściowych przez funkcję
+aplikacyjną, albo jawną zmianą reguły w Decision Ledger, albo zapisem ręcznym z
+widocznym `Deviation`.
+
+## ZMIANY PO AUDYCIE KONTRAKTU — ROUND 1
+
+Raport: `tasks/ROTA-T011-E/round_01/tests/tests_r1.txt` (werdykt FAIL, jeden
+finding, audytowany SHA `7670b2d`).
+
+**FINDING E-1 — zamknięty.** Test 2 twierdził, że po HARD istnieją wyłącznie dwie
+drogi wyjścia. Twierdzenie było fałszywe i sprzeczne z obowiązkowym przepływem
+z `tasks/ROTA-T009/brief.md:239-240` oraz z modelem DECISION_REQUIRED w
+`arch/spec.md`: dodanie innego eligible pracownika, okna wsparcia, wycofanie
+nieobecności czy zmiana profilu też prowadzą legalnie do `FEASIBLE`, przy nadal
+aktywnej regule. Dowód został zawężony do inwariantu prawdziwego — braku
+**cichego obejścia HARD** — z jawnym zakazem asertowania zamkniętego katalogu
+dróg. Poprawiono tytuł sekcji, treść dowodu, warunek 5 wymaganych testów,
+ACCEPTANCE i punkt 2 review requestu.
+
+Reszta raportu round 1 była PASS: wykonalność 12 kroków happy path przez samo
+API aplikacji, poprawność twardej zależności od T011-A, dostępność
+`Deviation` do finalize przez `assemble_planning_state`, realność limitu dwóch
+plików testowych, oraz brak utraty treści przy przeniesieniu
+`arch/T011_architect_brief.md`.
 
 ## REVIEW REQUEST TO CODEX
 
@@ -266,9 +317,9 @@ Audytuj wyłącznie pod kątem:
 1. czy oba scenariusze są wykonalne w całości przez `rota.application.*` po
    T011-A — jeśli którykolwiek krok wymaga persistence, jest to finding
    kontraktowy, nie problem implementacji;
-2. czy dowód „nie ma trzeciej drogi" jest postawiony jako sprawdzalne
-   stwierdzenie o powierzchni API, a nie jako niemożliwe do zamknięcia
-   wyliczanie obejść;
+2. czy dowód braku cichego obejścia HARD jest postawiony jako sprawdzalne
+   stwierdzenie o powierzchni API i czy nigdzie nie został ślad po fałszywym
+   twierdzeniu o zamkniętym katalogu dwóch dróg;
 3. czy rozstrzygnięcie kolizji nazwy (T011-E + usunięcie
    `arch/T011_architect_brief.md`) nie gubi żadnej treści dokumentu źródłowego;
 4. czy limit dwóch nowych plików jest realistyczny dla obu scenariuszy, czy
