@@ -1,0 +1,141 @@
+WĄSKI REAUDYT IMPLEMENTACJI ROTA-T011-B — ROUND 5
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-B
+
+AUDYTOWANY SHA:
+2a8b4ebc3d1a52b60e406cccf46f62db60ff3b0e
+
+SHA KOREKTY:
+37d378c587a7c447079cb285200113b77c9792ba
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-B/round_01/tests/tests_r4.txt
+
+ZAKRES REAUDYTU:
+Wyłącznie zamknięcie B-R4-1, B-R4-2 i B-R4-3 oraz potwierdzenie finalnego
+backendu. Poprawna implementacja produkcyjna nie była ponownie negocjowana.
+
+WERDYKT: PASS IMPLEMENTACJI — READY_FOR_FINAL_ARCHITECTURAL_ACCEPTANCE
+
+Wszystkie trzy findings są zamknięte. Nie zmieniono kodu produkcyjnego. Do
+merge pozostaje finalna akceptacja architekta dla mechanicznych wyników
+`RATIO: 338.0:1` i `TOTAL_LINES: 339`.
+
+
+SECTION_CHECK 1 — ZAKRES KOREKTY: PASS
+
+Commit `37d378c` zmienia wyłącznie:
+
+- opis faktycznej topologii w `tasks/ROTA-T011-B/brief.md`;
+- dwa testy w istniejącym
+  `tests/test_t011_b_context_discovery.py`.
+
+Commit `2a8b4eb` aktualizuje wyłącznie zapisany `output_backend.txt`. Nie ma
+zmian w `rota/`, TASK_SCOPE ani decyzjach produktowych.
+
+
+SECTION_CHECK 2 — B-R4-1: ZAMKNIĘTY
+
+Sekcja DEPENDS_ON nie wskazuje już niezmergowanego brancha A. Opisuje faktyczny
+stan:
+
+- branch B jest oparty na `main@c2dd245`;
+- ta baza zawiera zielony merge T011-A;
+- późniejsze merge D/E są niezależne od diffu B.
+
+Opis briefu jest zgodny z `repo_before.hash`, merge-base oraz historią Git.
+B-R3-1 nie ma już sprzecznego dowodu dokumentacyjnego.
+
+
+SECTION_CHECK 3 — B-R4-2: ZAMKNIĘTY
+
+Test 12 pobiera wszystkie PRIMARY Assignmenty bieżącego snapshotu i przez
+publiczne `apply_manual_correction` zachowuje ich tożsamość, zmieniając każdy
+na `state=CANCELLED` i `operational_code="NN"`.
+
+Przed asercją nawigacji test potwierdza:
+
+- snapshot pozostaje niepusty;
+- każdy istniejący Assignment jest CANCELLED/NN;
+- nie ma PLANNED ani innego niezależnego wiersza, który mógłby sam
+  zakwalifikować miesiąc.
+
+Dopiero w tym izolowanym stanie `months_with_schedule` musi zwrócić miesiąc.
+Test wykryje więc regresję polegającą na wykluczeniu NN przez zapytanie.
+
+
+SECTION_CHECK 4 — B-R4-3: ZAMKNIĘTY
+
+Helper `_all_five_reads` zbiera:
+
+- active_coordinators;
+- all_coordinators;
+- active_sites_for_coordinator;
+- all_sites_for_coordinator;
+- months_with_schedule.
+
+Test zapisuje pełną krotkę przed zamknięciem połączenia, otwiera ten sam
+magazyn przez `store.open_store`, zbiera pełną krotkę ponownie i asertuje
+`after == before`.
+
+
+SECTION_CHECK 5 — TESTY I BRAMKI: PASS
+
+Uruchomiono pełną macierz B, cały plik zapytań operacyjnych, ROTA-REG-001 oraz
+dependency boundary scan.
+
+Wynik: 33/33 PASS.
+
+Pozostałe wyniki:
+
+- pełna suite: 522/522 PASS;
+- Ruff na pięciu plikach TASK_SCOPE: PASS;
+- niezależny skan AST: zero importów `rota.persistence` w teście aplikacyjnym;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check`: PASS;
+- brak zmian kodu produkcyjnego po round 4.
+
+
+SECTION_CHECK 6 — FINALNY BACKEND: POTWIERDZONY
+
+Zapisany `output_backend.txt` wskazuje `37d378c`, czyli finalny stan testów i
+briefu przed commitem samego dowodu. Niezależny backend na aktualnym
+`2a8b4eb` odtworzył:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- `RATIO: 338/1 = 338.0:1`;
+- `TOTAL_LINES: 339`;
+- wszystkie gate'y blokujące zielone.
+
+Po pominięciu nieuniknionej różnicy `HEAD_SHA` zapisany output i niezależna
+reprodukcja były identyczne. Plik tymczasowy został usunięty.
+
+
+WYMAGA_DECYZJI B-R4-4 — STATUS AKCEPTACJI
+
+Właściciel przekazał pisemną, jednorazową zgodę na finalny RATIO 338.0:1, bez
+zmiany progów i bez tworzenia precedensu.
+
+`TOTAL_LINES: 339` oraz RATIO pozostają w outputcie jako mechaniczne
+WYMAGA_DECYZJI, a kontrakt wskazuje
+`FINAL_ARCHITECTURAL_ACCEPTANCE: architekt`. Przed merge architekt powinien
+zaakceptować oba dokładne finalne wyniki jednorazowo dla T011-B. Nie należy
+zmieniać progów ani skracać wymaganych testów.
+
+
+FINDINGS
+
+Brak otwartych findings implementacyjnych.
+
+
+GOTOWOŚĆ
+
+T011-B ma PASS Codexa dla implementacji na SHA `2a8b4eb`. Po finalnej
+akceptacji architekta dla RATIO 338.0:1 oraz TOTAL_LINES 339 może zostać
+zmergowane do `main`.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
