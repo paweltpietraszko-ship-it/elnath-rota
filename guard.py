@@ -72,8 +72,9 @@ def cmd_freeze(filepath: Path, recompute: bool) -> None:
         print("STATUS: FAIL\nREASON: FROZEN.lock exists — use --recompute to update")
         sys.exit(1)
     sha = compute_sha256(filepath)
-    write_lock(f"FILE: {filepath}\nSHA256: {sha}\n")
-    print(f"STATUS: FROZEN\nFILE: {filepath}\nSHA256: {sha}")
+    posix_path = filepath.as_posix()
+    write_lock(f"FILE: {posix_path}\nSHA256: {sha}\n")
+    print(f"STATUS: FROZEN\nFILE: {posix_path}\nSHA256: {sha}")
 
 
 def cmd_check(filepath: Path) -> None:
