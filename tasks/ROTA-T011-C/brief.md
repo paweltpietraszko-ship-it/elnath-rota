@@ -36,6 +36,15 @@ obu plikach jest wąska: retarget monkeypatcha z `_has_active_association`
 na `_has_full_active_context` w trzech miejscach, bez zmiany scenariusza,
 asercji ani architektury CAS.
 
+Dodatkowo w obu plikach zastosowano czysto formatującą kompresję kilku
+wieloliniowych wywołań (bez zmiany asercji, danych, kolejności operacji
+ani logiki) — w tym w `test_r3_b_projection_distinguishes_early_restore_
+from_unchanged_ban`, funkcji niedotkniętej samą naprawą C-R4-1. Wymagane,
+bo `backend.py`'s `SIZE_FUNC` ocenia CAŁY autoryzowany plik, nie tylko
+zmienione linie — dopisanie pliku do TASK_SCOPE wystawia na ten gate
+również funkcje, których naprawa nie dotyczy. Sam plik pozostaje jedną
+pozycją TASK_SCOPE; funkcja nie jest osobnym wpisem.
+
 `rota/application/bootstrap.py` dopisany po FINDING C-R3-1 (round 3,
 `tasks/ROTA-T011-C/round_01/tests/tests_r3.txt`) — patrz ROZSTRZYGNIĘCIE
 NIŻEJ. Zmiana w nim jest wąska: jedna nowa funkcja pomocnicza plus zamiana

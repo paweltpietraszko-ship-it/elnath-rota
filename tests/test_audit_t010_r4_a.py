@@ -157,11 +157,7 @@ def test_r4_a_concurrent_reactivation_of_one_inactive_association_has_one_winner
     initial.close()
 
     barrier = threading.Barrier(2)
-    # ROTA-T011-C (FINDING C-R4-1): bootstrap_or_resume_coordinator_context's
-    # fast-path check is _has_full_active_context since C-R3-1, not
-    # _has_active_association -- patching the old helper no longer
-    # synchronizes anything on the actual bootstrap entry path.
-    original_check = bootstrap_module._has_full_active_context
+    original_check = bootstrap_module._has_full_active_context  # C-R4-1: was _has_active_association, stale since C-R3-1
 
     def synchronized_check(conn, *, coordinator_id: str, site_id: str) -> bool:
         result = original_check(conn, coordinator_id=coordinator_id, site_id=site_id)
@@ -175,12 +171,8 @@ def test_r4_a_concurrent_reactivation_of_one_inactive_association_has_one_winner
         conn = connect(db_path)
         try:
             bootstrap_or_resume_coordinator_context(
-                conn,
-                coordinator_id=COORDINATOR_ID,
-                site_id="SITE-REACTIVATE",
-                association=CoordinatorSiteAssociation(
-                    COORDINATOR_ID, "SITE-REACTIVATE", True
-                ),
+                conn, coordinator_id=COORDINATOR_ID, site_id="SITE-REACTIVATE",
+                association=CoordinatorSiteAssociation(COORDINATOR_ID, "SITE-REACTIVATE", True),
             )
         except CoordinatorContextAlreadyActive:
             outcomes.append("rejected")
@@ -209,11 +201,7 @@ def test_r4_a_concurrent_bootstrap_of_two_different_sites_both_succeeds(
     initial.close()
 
     barrier = threading.Barrier(2)
-    # ROTA-T011-C (FINDING C-R4-1): bootstrap_or_resume_coordinator_context's
-    # fast-path check is _has_full_active_context since C-R3-1, not
-    # _has_active_association -- patching the old helper no longer
-    # synchronizes anything on the actual bootstrap entry path.
-    original_check = bootstrap_module._has_full_active_context
+    original_check = bootstrap_module._has_full_active_context  # C-R4-1: was _has_active_association, stale since C-R3-1
 
     def synchronized_check(conn, *, coordinator_id: str, site_id: str) -> bool:
         result = original_check(conn, coordinator_id=coordinator_id, site_id=site_id)

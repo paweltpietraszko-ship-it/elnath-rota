@@ -253,51 +253,26 @@ def test_r3_b_projection_distinguishes_early_restore_from_unchanged_ban(tmp_path
     conn = connect(tmp_path / "rota.db")
     _seed_context(conn)
     content = NewRuleContent(
-        category=RuleCategory.LOCAL_RULE,
-        rule_kind=EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
+        category=RuleCategory.LOCAL_RULE, rule_kind=EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
         structured_parameters={
-            "employee_id": EMPLOYEE_ID,
-            "weekdays": list(range(1, 8)),
-            "forbidden_shift_kinds": ["N"],
+            "employee_id": EMPLOYEE_ID, "weekdays": list(range(1, 8)), "forbidden_shift_kinds": ["N"],
         },
-        enforcement=RuleEnforcement.HARD,
-        resolution_status=RuleResolution.RESOLVED,
-        effective_to=date(2026, 10, 31),
-        description=None,
-        source=None,
-        reason=None,
+        enforcement=RuleEnforcement.HARD, resolution_status=RuleResolution.RESOLVED,
+        effective_to=date(2026, 10, 31), description=None, source=None, reason=None,
     )
     record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-N-BAN",
-        statement="N disabled",
-        coordinator_id=COORDINATOR_ID,
-        recorded_at=datetime(2026, 9, 1, 9),
-        effective_from=date(2026, 10, 1),
-        rel=None,
-        rule_content=content,
+        conn, site_id=SITE_ID, rule_id="R-N-BAN", statement="N disabled", coordinator_id=COORDINATOR_ID,
+        recorded_at=datetime(2026, 9, 1, 9), effective_from=date(2026, 10, 1), rel=None, rule_content=content,
     )
     before_effective = effective_rule_on(conn, SITE_ID, "R-N-BAN", date(2026, 10, 20))
-    before_matrix = employee_availability_matrix(
-        conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH
-    )
+    before_matrix = employee_availability_matrix(conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH)
 
     record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-N-BAN",
-        statement="N restored early",
-        coordinator_id=COORDINATOR_ID,
-        recorded_at=datetime(2026, 10, 10, 9),
-        effective_from=date(2026, 10, 15),
-        rel="rejects",
-        rule_content=None,
+        conn, site_id=SITE_ID, rule_id="R-N-BAN", statement="N restored early", coordinator_id=COORDINATOR_ID,
+        recorded_at=datetime(2026, 10, 10, 9), effective_from=date(2026, 10, 15), rel="rejects", rule_content=None,
     )
     after_effective = effective_rule_on(conn, SITE_ID, "R-N-BAN", date(2026, 10, 20))
-    after_matrix = employee_availability_matrix(
-        conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH
-    )
+    after_matrix = employee_availability_matrix(conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH)
 
     assert isinstance(before_effective, EffectiveRule)
     assert isinstance(after_effective, NoActiveRule)
