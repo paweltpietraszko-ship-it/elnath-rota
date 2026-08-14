@@ -82,7 +82,17 @@ def test_5_missing_target_hours_not_invented_and_demand_count_unchanged(tmp_path
     state_after, warnings_after = assemble_planning_state(conn, site_id=pstate.site.site_id, month=MONTH)
     assert len(state_after.work_balances) == 1
     assert len(state_after.shift_demands) == demand_count_before  # unaffected by target_hours presence
-    assert len(warnings_after) == len(pstate.employees) - 1
+    # ROTA-T011-D (FINDING D-R3-1): the assembler now also computes each
+    # employee's quarter carry-in from earlier months, which this fixture
+    # never sets target_hours for either. CONSTRAINT pt.5 explicitly allows
+    # -- and here requires -- one new warning for first_employee's own
+    # genuine earlier-month gap, on top of (never instead of) the unchanged
+    # per-employee omission warnings below.
+    omitted_warnings = [w for w in warnings_after if "omitted from WorkBalance context" in w]
+    carry_in_warnings = [w for w in warnings_after if "quarter carry-in reset to 0" in w]
+    assert len(omitted_warnings) == len(pstate.employees) - 1
+    assert len(carry_in_warnings) == 1
+    assert len(warnings_after) == len(omitted_warnings) + len(carry_in_warnings)
 
 
 def test_6_boundary_and_cross_site_current_assignments_included_noncurrent_excluded(tmp_path: Path) -> None:
