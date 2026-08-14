@@ -30,8 +30,10 @@ from rota.application.durable_inputs import (
 )
 from rota.application.errors import CoordinatorContextAlreadyActive, InvalidCoordinatorContext
 from rota.application.lifecycle_ops import finalize, revalidate
+from rota.application.memory_read import decision_chain_for_rule_family
 from rota.application.open_month import open_month
 from rota.application.plan_ops import plan_month, select_candidate
+from rota.application.rule_decisions import record_structured_rule_decision
 from rota.application.assembler import assemble_planning_state
 from rota.domain import (
     CalendarDay,
@@ -41,12 +43,18 @@ from rota.domain import (
     MembershipKind,
     ReadinessSource,
     ReadinessState,
+    RuleCategory,
+    RuleEnforcement,
+    RuleResolution,
     ShiftKind,
     Site,
     SiteMembership,
     SiteProfile,
     StandardShift,
 )
+from rota.site_memory_types import NewRuleContent
+
+RULE_ID = "RULE-T011C-LOCKOUT"
 
 COORD_A = "COORD-T011C-A"
 COORD_B = "COORD-T011C-B"
@@ -157,6 +165,15 @@ def test_5_deactivating_association_locks_out_further_edits_but_not_reads(tmp_pa
     conn = store.open_store(tmp_path / "rota.db")
     _bootstrap(conn, coordinator_id=COORD_A, site_id=SITE_A)
     _staff_and_fill_calendar(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH)
+    record_structured_rule_decision(
+        conn, coordinator_id=COORD_A, site_id=SITE_A, rule_id=RULE_ID, statement="Lockout probe rule.",
+        effective_from=MONTH, rel=None,
+        rule_content=NewRuleContent(
+            category=RuleCategory.LOCAL_RULE, rule_kind=None, structured_parameters=None,
+            enforcement=RuleEnforcement.INFORMATIONAL, resolution_status=RuleResolution.RESOLVED,
+            effective_to=None, description=None, source=None, reason=None,
+        ),
+    )
 
     update_association(conn, coordinator_id=COORD_A, site_id=SITE_A, association=CoordinatorSiteAssociation(COORD_A, SITE_A, False))
 
@@ -165,6 +182,33 @@ def test_5_deactivating_association_locks_out_further_edits_but_not_reads(tmp_pa
 
     view = open_month(conn, site_id=SITE_A, month=MONTH)  # reads never check the guard
     assert view.site.site_id == SITE_A
+    chain = decision_chain_for_rule_family(conn, site_id=SITE_A, rule_id=RULE_ID)  # WYMAGANE TESTY pt.5: memory_read too
+    assert len(chain) == 1
+    assert chain[0].statement == "Lockout probe rule."
+
+
+def test_5b_deactivating_site_or_coordinator_is_also_reversible(tmp_path) -> None:
+    # C-R3-1 closure: bootstrap resume must work identically no matter which
+    # of the three entities caused the lockout, not only Association -- see
+    # bootstrap._has_full_active_context's docstring.
+    for entity in ("site", "coordinator"):
+        conn = store.open_store(tmp_path / f"rota-{entity}.db")
+        _bootstrap(conn, coordinator_id=COORD_A, site_id=SITE_A)
+        if entity == "site":
+            update_site(conn, coordinator_id=COORD_A, site_id=SITE_A, site=_site(SITE_A, PROFILE_A, f"Site {SITE_A}", active=False))
+        else:
+            update_coordinator(conn, coordinator_id=COORD_A, site_id=SITE_A, coordinator=Coordinator(COORD_A, f"Coord {COORD_A}", False))
+
+        with pytest.raises(InvalidCoordinatorContext):
+            update_employee(conn, coordinator_id=COORD_A, site_id=SITE_A, employee=Employee(EMP, "X", date(2020, 1, 1), None, False))
+
+        reactivated = _site(SITE_A, PROFILE_A, f"Site {SITE_A}") if entity == "site" else None
+        reactivated_coordinator = Coordinator(COORD_A, f"Coord {COORD_A}", True) if entity == "coordinator" else None
+        bootstrap_or_resume_coordinator_context(
+            conn, coordinator_id=COORD_A, site_id=SITE_A, site=reactivated, coordinator=reactivated_coordinator,
+        )
+        update_site(conn, coordinator_id=COORD_A, site_id=SITE_A, site=_site(SITE_A, PROFILE_A, f"Recovered after {entity}"))
+        assert _site_view(conn, coordinator_id=COORD_A, site_id=SITE_A).display_name == f"Recovered after {entity}"
 
 
 def test_6_resume_after_self_lockout_restores_editing(tmp_path) -> None:
@@ -206,14 +250,27 @@ def test_9_restart_yields_the_same_lifecycle_state(tmp_path) -> None:
     db_path = tmp_path / "rota.db"
     conn = store.open_store(db_path)
     _bootstrap(conn, coordinator_id=COORD_A, site_id=SITE_A)
-    update_site(conn, coordinator_id=COORD_A, site_id=SITE_A, site=_site(SITE_A, PROFILE_A, "Before restart"))
+    _staff_and_fill_calendar(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH)
+    _plan_and_finalize(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH)
     update_coordinator(conn, coordinator_id=COORD_A, site_id=SITE_A, coordinator=Coordinator(COORD_A, "Coord before restart", True))
-    before = (tuple(all_coordinators(conn)), tuple(all_sites_for_coordinator(conn, coordinator_id=COORD_A)))
+    # active=False LAST -- any durable_inputs call for SITE_A after this would
+    # itself be blocked by the guard (WYMAGANE TESTY pt.9: a changed active
+    # flag must be part of what restart proves, per C-R3-3).
+    update_site(conn, coordinator_id=COORD_A, site_id=SITE_A, site=_site(SITE_A, PROFILE_A, "Before restart", active=False))
+
+    before = (
+        tuple(all_coordinators(conn)), tuple(all_sites_for_coordinator(conn, coordinator_id=COORD_A)),
+        open_month(conn, site_id=SITE_A, month=MONTH),
+    )
     conn.close()
 
     reopened = store.open_store(db_path)
-    after = (tuple(all_coordinators(reopened)), tuple(all_sites_for_coordinator(reopened, coordinator_id=COORD_A)))
+    after = (
+        tuple(all_coordinators(reopened)), tuple(all_sites_for_coordinator(reopened, coordinator_id=COORD_A)),
+        open_month(reopened, site_id=SITE_A, month=MONTH),
+    )
     assert after == before
+    assert before[1][0].active is False  # the flag actually changed, not just the name
 
 
 def test_10_association_payload_with_foreign_site_id_rejected(tmp_path) -> None:

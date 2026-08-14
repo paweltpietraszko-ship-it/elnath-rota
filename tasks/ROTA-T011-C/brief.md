@@ -18,9 +18,59 @@ DEPENDS_ON: ROTA-T011-B (twarda zależność — patrz ZALEŻNOŚĆ niżej)
 
 TASK_SCOPE:
 - rota/application/durable_inputs.py
+- rota/application/bootstrap.py
 - tests/test_t011_c_site_coordinator_lifecycle.py
 
 Powyższa lista jest zamknięta. Plik testowy jest jedynym nowym plikiem.
+`rota/application/bootstrap.py` dopisany po FINDING C-R3-1 (round 3,
+`tasks/ROTA-T011-C/round_01/tests/tests_r3.txt`) — patrz ROZSTRZYGNIĘCIE
+NIŻEJ. Zmiana w nim jest wąska: jedna nowa funkcja pomocnicza plus zamiana
+jednego warunku w `bootstrap_or_resume_coordinator_context`, bez zmiany
+sygnatur, bez nowej logiki w `coordinator_context_completeness`.
+
+## ROZSTRZYGNIĘCIE (2026-08-14, po FINDING C-R3-1): PEŁNA ODWRACALNOŚĆ DLA WSZYSTKICH TRZECH ENCJI
+
+C-R3-1 wykazał, że `bootstrap_or_resume_coordinator_context` odmawiał
+wznowienia patrząc wyłącznie na `CoordinatorSiteAssociation.active`, podczas
+gdy `require_active_coordinator_context` (guard używany przez każdy
+`durable_inputs.*`) wymaga trzech niezależnych warunków: aktywnego
+`Coordinator`, aktywnego `Site` i aktywnej `Association`. Dezaktywacja
+`Site` lub `Coordinator` przy wciąż aktywnej `Association` dawała więc
+trwały lockout bez żadnej drogi powrotnej przez publiczne API — dokładnie
+to, czego sekcja „Samozablokowanie jest oczekiwanym, odwracalnym
+zachowaniem” zabrania.
+
+Rozstrzygnięcie: odwracalność obowiązuje **dla wszystkich trzech encji
+równorzędnie**, zgodnie z pierwotnym brzmieniem briefu i ACCEPTANCE — nie
+zawężamy kontraktu do samej `Association`. Uzasadnienie: zawężenie
+oznaczałoby, że `update_site(active=False)` lub
+`update_coordinator(active=False)` mogłyby nieodwracalnie zablokować
+koordynatora z jego własnego kontekstu bez żadnej ścieżki ratunkowej — to
+gorsze niż brak funkcji w ogóle, bo `update_site`/`update_coordinator` już
+istnieją i nic nie ostrzega przed nieodwracalnością w ich sygnaturze ani
+docstringu.
+
+Wybrana naprawa: `bootstrap_or_resume_coordinator_context` sprawdza teraz
+przez nową, prywatną `_has_full_active_context` dokładnie ten sam
+trójwarunkowy stan co `require_active_coordinator_context` (którego
+implementację wprost re-używa, łapiąc `InvalidCoordinatorContext`), zamiast
+wyłącznie `Association.active` przez `_has_active_association`. To
+przywraca inwariant już opisany w docstringu funkcji („ordinary edits go
+through require_active_coordinator_context() instead”) — bootstrap ma
+odmawiać dokładnie wtedy, gdy zwykła edycja JEST dostępna, nie wtedy, gdy
+tylko jeden z trzech warunków jest spełniony.
+
+`_has_active_association` (funkcja) pozostaje nietknięta i nadal używana
+w `coordinator_context_completeness` do osobnego, granularnego raportowania
+brakującej asocjacji — ta ścieżka nie jest częścią tego findingu i nie ma
+w niej zmiany zachowania.
+
+Odrzucony wariant: zawężenie kontraktu do samej `Association` (czyli
+formalne przyjęcie, że dezaktywacja `Site`/`Coordinator` jest
+nieodwracalna). Odrzucony, bo brief w wersji zaakceptowanej w round 2
+(PASS/READY_FOR_IMPLEMENTATION) już obiecywał odwracalność wprost dla
+wszystkich trzech i ACCEPTANCE tego nie różnicuje — zawężenie byłoby
+cichą zmianą już zaakceptowanego kontraktu, nie domknięciem luki w nim.
 
 ## ŹRÓDŁA
 

@@ -28,7 +28,8 @@ import calendar as _calendar
 from dataclasses import dataclass
 from datetime import date
 
-from rota.application.errors import CoordinatorContextAlreadyActive
+from rota.application.context import require_active_coordinator_context
+from rota.application.errors import CoordinatorContextAlreadyActive, InvalidCoordinatorContext
 from rota.domain import (
     Coordinator,
     CoordinatorSiteAssociation,
@@ -71,6 +72,24 @@ def _has_active_association(conn, *, coordinator_id: str, site_id: str) -> bool:
     )
 
 
+def _has_full_active_context(conn, *, coordinator_id: str, site_id: str) -> bool:
+    """ROTA-T011-C (FINDING C-R3-1): bootstrap must refuse resume exactly
+    when the ordinary edit path (require_active_coordinator_context) is
+    already usable -- not merely when the Association row is active. T011-C
+    added update_site/update_coordinator, which can deactivate Site.active
+    or Coordinator.active while the Association stays active; in that state
+    durable_inputs is already blocked by the guard, so refusing resume here
+    on Association-alone would leave no public path back at all, the exact
+    permanent lockout the brief's 'samozablokowanie jest odwracalne' promise
+    forbids. Reuses require_active_coordinator_context's own three-part
+    definition of "active" instead of duplicating it."""
+    try:
+        require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+        return True
+    except InvalidCoordinatorContext:
+        return False
+
+
 def _require_id_match(label: str, actual: tuple[str, ...], expected: tuple[str, ...]) -> None:
     if actual != expected:
         raise ValueError(f"{label} {actual!r} != {expected!r}")
@@ -99,8 +118,10 @@ def bootstrap_or_resume_coordinator_context(
     UPSERT...WHERE, called last: only one of two racing calls that both
     reach it can actually flip the row to active, and the loser is refused
     here -- after coordinator/profile/site writes (idempotent resume data,
-    harmless either way), never before the association decision itself."""
-    if _has_active_association(conn, coordinator_id=coordinator_id, site_id=site_id):
+    harmless either way), never before the association decision itself.
+    C-R3-1: the check itself is _has_full_active_context now, not
+    _has_active_association -- see that function's docstring."""
+    if _has_full_active_context(conn, coordinator_id=coordinator_id, site_id=site_id):
         raise CoordinatorContextAlreadyActive(
             f"({coordinator_id!r}, {site_id!r}) already has an active context; "
             "use the T009 authorized edit operations instead"
