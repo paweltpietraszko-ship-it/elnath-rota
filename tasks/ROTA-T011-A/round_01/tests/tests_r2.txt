@@ -1,0 +1,76 @@
+REAUDYT KONTRAKTU ROTA-T011-A — ROUND 2
+
+AUDYTOWANY SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-A/round_01/tests/tests_r1.txt
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+FINDING A-1 z round 1 jest zamknięty. Nie znaleziono nowej sprzeczności z
+arch/spec.md, decyzjami T011 ani zaakceptowanymi wzorcami T004-T010. Nie ma
+WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+SECTION_CHECK 1 — ZAMKNIĘCIE FINDING A-1: PASS
+
+Poprzedni kontrakt jednocześnie wymagał odczytu `PRAGMA user_version ==
+LATEST_SCHEMA_VERSION` i zakazywał testowi znajomości SQLite/persistence.
+Round 2 usuwa tę sprzeczność w całości:
+
+- test 5 dowodzi aktualnego schematu pośrednio przez pełną sekwencję publicznych
+  operacji aplikacyjnych wymagających zmigrowanych tabel;
+- surowy `PRAGMA` i import `LATEST_SCHEMA_VERSION` są jawnie zabronione;
+- test nowszej bazy pozostaje na właściwym poziomie persistence i nie jest
+  duplikowany w T011-A;
+- test 6 sprawdza obserwowalną idempotencję — zachowanie danych po ponownym
+  otwarciu — zamiast nieobserwowalnego twierdzenia, że migracja „nie ruszyła”.
+
+CC nie musi już wybierać między pominięciem asercji a złamaniem granicy.
+
+
+SECTION_CHECK 2 — ZGODNOŚĆ Z FROZEN INVARIANTS: PASS
+
+- `set_calendar_day` nadal jest cienkim guarded wrapperem, bez SQL w application;
+- trwały CalendarDay spełnia CAL-01, a brak generatora świąt pozostaje zgodny z
+  dopuszczeniem CAL-04 i odłożoną decyzją B-1;
+- `open_store` deleguje do istniejącego `db.connect`, bez własnej migracji,
+  sesji magazynu ani tłumaczenia błędów;
+- `availability_history` pozostaje jednoliniowym odczytem istniejącego łańcucha;
+- nie powstaje restore, workflow engine, cache ani dodatkowa warstwa API.
+
+
+SECTION_CHECK 3 — TESTOWALNOŚĆ I GRANICA: PASS
+
+Wszystkie dziewięć scenariuszy można wykonać od pustego pliku bazy wyłącznie
+przez `rota.application.*` i typy domenowe. Dowód migracji jest funkcjonalny,
+restart nie wymaga persistence, a historia dostępności ma istniejący publiczny
+zapis przez `append_availability` i gotowy odczyt repository za wrapperem.
+
+Zakaz importu pośredniego przez helper pozostaje jednoznaczny.
+
+
+SECTION_CHECK 4 — TASK_SCOPE I BRAMKI: PASS
+
+- parser backend.py: 4 wpisy TASK_SCOPE;
+- nowe pliki: `rota/application/store.py` i jeden plik testowy, czyli 2/2;
+- pozostałe dwa pliki produkcyjne istnieją i mieszczą cienkie wrappery;
+- przewidywany TOTAL_LINES może dać WYMAGA_DECYZJI mechaniczne, ale nie jest
+  ukrytym zwolnieniem z wymaganych testów;
+- `guard.py check arch/spec.md`: PASS;
+- `backend.check_frozen_lock()`: brak blockera;
+- `git diff --check 7239b51..51f3b42`: PASS;
+- diff round 2 nie zawiera kodu produkcyjnego ani testów.
+
+
+GOTOWOŚĆ
+
+T011-A może przejść do implementacji na zadeklarowanym scope. Reaudyt
+implementacji ma sprawdzić rzeczywisty brak importów persistence/SQL w nowym
+teście, a nie ponownie otwierać rozstrzygnięty kształt dowodu migracji.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

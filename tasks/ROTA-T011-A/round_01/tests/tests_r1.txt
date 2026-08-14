@@ -1,0 +1,67 @@
+AUDYT KONTRAKTU ROTA-T011-A — ROUND 1
+
+AUDYTOWANY SHA:
+7670b2d30e4fac54b906a8584030f2139f49b9eb
+
+INTEGRATED_BASE_SHA:
+029107be9045d2759e77450a0fb943a04483932c
+
+WERDYKT: FAIL — KONTRAKT NIE JEST JESZCZE READY_FOR_IMPLEMENTATION
+
+Zakres funkcjonalny A-1/A-2/A-4 jest zgodny z arch/spec.md i z decyzjami
+T011. Nie znaleziono zakazanego SQL w application, nowego workflow ani
+nadmiarowej warstwy. TASK_SCOPE jest realny: dwa nowe pliki, czyli dokładnie
+limit MAX_NEW_FILES=2.
+
+Pozostaje jedna sprzeczność w wymaganym dowodzie granicy aplikacyjnej.
+
+
+FINDING A-1 — REQUIRED TEST WYMAGA WIEDZY O SQLITE, KTÓREJ ACCEPTANCE ZABRANIA
+
+Ślad kontraktu:
+
+- WYMAGANE TESTY pkt 5 wymaga sprawdzenia `PRAGMA user_version ==
+  LATEST_SCHEMA_VERSION`;
+- pkt 9 mówi, że cały scenariusz od pustego pliku do ready=True przechodzi
+  wyłącznie przez `rota.application.*`;
+- ACCEPTANCE wymaga, aby wołający nie znał SQLite ani `rota.persistence`.
+
+`LATEST_SCHEMA_VERSION` istnieje wyłącznie w `rota.persistence.db`, a odczyt
+`PRAGMA user_version` wymaga bezpośredniego wykonania SQL na połączeniu. Test
+może więc spełnić pkt 5 tylko przez import persistence, zahardkodowanie
+wewnętrznego numeru migracji albo bezpośrednią znajomość SQLite. Każda z tych
+dróg przeczy pkt 9 lub końcowemu warunkowi acceptance.
+
+To nie jest brak nowej funkcji produktowej. Migrację można dowieść pośrednio:
+po `open_store()` wykonać operacje aplikacyjne wymagające aktualnego schematu.
+Kontrakt musi jednak wybrać taki dowód albo jawnie dopuścić w teście technicznym
+wyjątek dla PRAGMA i określić, skąd bez persistence bierze się oczekiwana
+wersja. Obecny tekst nakazuje jednocześnie obie sprzeczne rzeczy.
+
+Warunek zamknięcia: pkt 5 i pkt 9/ACCEPTANCE mają definiować jeden wykonalny
+test granicy, bez pozostawiania CC wyboru między naruszeniem granicy a
+pominięciem wymaganej asercji.
+
+
+POZOSTAŁA WERYFIKACJA — PASS
+
+- `set_calendar_day` jest cienkim odpowiednikiem istniejącego
+  `set_target_hours`: guard kontekstu i delegacja do repository;
+- globalny charakter CalendarDay jest zgodny z CAL-01/CAL-04;
+- `open_store` może być jednoliniowym delegatem do istniejącego `db.connect`,
+  które samo migruje i odrzuca nowszy schemat;
+- `availability_history` ma istniejący odpowiednik w
+  `memory_read.decision_chain_for_rule_family` i gotowy delegat
+  `get_availability_history`;
+- brak restore odpowiada B-4=W3;
+- `guard.py check arch/spec.md`: PASS;
+- `backend.check_frozen_lock()`: brak blockera;
+- parser backend.py odczytuje 4 wpisy TASK_SCOPE; dwa z nich są nowe;
+- `git diff --check 029107b..7670b2d`: PASS.
+
+Nie ma WYMAGA_DECYZJI produktowego. Nie implementowano kodu ani testów.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

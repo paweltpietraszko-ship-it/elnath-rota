@@ -1,0 +1,26 @@
+STATUS: WYMAGA_DECYZJI
+HEAD_SHA: ecfd0bc7188922176985fba50f7e9593e036f6cd
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+WYMAGA_DECYZJI:
+  - RATIO: 228/2 = 114.0:1 (threshold 5:1)
+  - TOTAL_LINES: 230 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_audit_t010_r3.py
+  - tests\test_audit_t010_r5_b.py
+  - tests\test_audit_t010_r9_consistency.py
+  - tests\test_t009_plan_select_replan.py
+  - tests\test_t010_day_only_n_exception.py
+  - tests\test_t011_a_application_entry_points.py
+  - .worktrees\t011-audit\tests\test_audit_t010_r3.py
+  - .worktrees\t011-audit\tests\test_audit_t010_r5_b.py
+  - .worktrees\t011-audit\tests\test_audit_t010_r9_consistency.py
+  - .worktrees\t011-audit\tests\test_t009_plan_select_replan.py
+  - .worktrees\t011-audit\tests\test_t010_day_only_n_exception.py
+  - .worktrees\t010-doc\tests\test_t009_plan_select_replan.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T011-A/brief.md
+  - tasks/ROTA-T011-A/output_backend.txt
+  - tasks/ROTA-T011-A/repo_before.hash
+  - tasks/ROTA-T011-A/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T011-A/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T011-A/round_01/tests/tests_r3.txt

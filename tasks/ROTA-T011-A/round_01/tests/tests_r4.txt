@@ -1,0 +1,118 @@
+WĄSKI REAUDYT IMPLEMENTACJI ROTA-T011-A — ROUND 4
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-A
+
+AUDYTOWANY SHA KOREKTY DOWODU:
+158df0c0c26a29b2a2379b236497bb09573df714
+
+AUDYTOWANY SHA IMPLEMENTACJI:
+5a0cdff40f020151d0a514f614abd263a1592c63
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-A/round_01/tests/tests_r3.txt
+
+ZAKRES REAUDYTU:
+Wyłącznie zamknięcie FINDING A-R3-1 oraz WYMAGA_DECYZJI A-R3-2. Kod produktu,
+testy i rozstrzygnięcia kontraktu A nie były ponownie otwierane.
+
+WERDYKT: PASS — READY_TO_MERGE T011-A
+
+
+SECTION_CHECK 1 — ZAKRES KOREKTY: PASS
+
+Commit `158df0c` zmienia wyłącznie:
+
+`tasks/ROTA-T011-A/output_backend.txt`
+
+Między audytowaną implementacją `5a0cdff` i korektą `158df0c` nie ma żadnej
+zmiany w `rota/` ani `tests/`. Jedynymi pozostałymi zmianami w historii są
+append-only raport Codexa `tests_r3.txt` oraz skorygowany dowód backendu.
+
+
+SECTION_CHECK 2 — FINDING A-R3-1: ZAMKNIĘTY
+
+Poprzedni `output_backend.txt` błędnie wskazywał bazę `029107b` i STATUS PASS.
+Skorygowany plik wskazuje `ecfd0bc`, czyli bezpośredni stan gałęzi sprzed
+commita korekty. Stan ten zawiera niezmienioną implementację `5a0cdff` oraz
+append-only raport audytowy, który backend jawnie klasyfikuje jako wyłączony
+artefakt.
+
+Zapisany wynik zawiera rzeczywisty stan bramki:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- `RATIO: 228/2 = 114.0:1`;
+- `TOTAL_LINES: 230`;
+- brak REASON/FAIL dla TASK_SCOPE, STALE_HEAD, GIT_DIFF, FROZEN_LOCK,
+  DIFF_SCOPE, NEW_FILES, DELETED_FILES, Ruff, SIZE_FILE lub SIZE_FUNC.
+
+Wskazanie commita-rodzica jest poprawnym kształtem dowodu zapisanego w
+następnym commicie: plik nie może zawierać SHA commita, którego hash zależy od
+treści tego samego pliku.
+
+
+SECTION_CHECK 3 — NIEZALEŻNA REPRODUKCJA: PASS
+
+Backend uruchomiono ponownie na aktualnym SHA `158df0c`, zapisując wynik do
+osobnego pliku tymczasowego, bez nadpisywania dowodu CC:
+
+`python backend.py tasks/ROTA-T011-A/brief.md 029107b... 158df0c... <temp>`
+
+Wynik ponownie wyniósł WYMAGA_DECYZJI z dokładnie tymi samymi wartościami
+RATIO 114.0:1 oraz TOTAL_LINES 230. Po pominięciu wyłącznie pola `HEAD_SHA`
+porównanie zapisanego dowodu z niezależną reprodukcją nie wykazało żadnej
+różnicy.
+
+Plik tymczasowy został usunięty po porównaniu.
+
+
+SECTION_CHECK 4 — WYMAGA_DECYZJI A-R3-2: ZAMKNIĘTY
+
+Architekt przekazał auditorowi pisemną, jednorazową akceptację obu wyników:
+
+- RATIO 114.0:1;
+- TOTAL_LINES 230.
+
+Akceptacja nie zmienia progów `backend.py`, nie tworzy precedensu dla innych
+tasków i nie wymaga redukcji zakontraktowanych testów. Jest wystarczająca dla
+tego tasku, ponieważ oba wyniki są mechanicznym WYMAGA_DECYZJI, a nie FAIL ani
+naruszeniem frozen invariant; wszystkie blokujące gate'y są zielone.
+
+
+SECTION_CHECK 5 — REGRESJA: PASS PRZEZ BRAK ZMIANY KODU
+
+Round 3 potwierdził na implementacji `5a0cdff`:
+
+- pełna suite: 501/501 PASS;
+- macierz A + ROTA-REG-001 + dependency boundary: 17/17 PASS;
+- Ruff i frozen guard: PASS.
+
+Od tamtego audytu nie zmieniono żadnego pliku produkcyjnego ani testowego.
+Ponowne uruchomienie pełnej suite nie jest potrzebne do zamknięcia findingu
+dotyczącego wyłącznie poprawności zapisanego dowodu backendu.
+
+
+FINDINGS
+
+Brak nowych findings.
+
+
+WYMAGA_DECYZJI
+
+Brak otwartych. Oba mechaniczne wyniki zostały zaakceptowane przez architekta
+jednorazowo dla T011-A.
+
+
+GOTOWOŚĆ
+
+FINDING A-R3-1 i WYMAGA_DECYZJI A-R3-2 są zamknięte. T011-A ma finalny PASS
+Codexa i może zostać zmergowane do `main`, przy zachowaniu wymaganej akceptacji
+architekta przekazanej dla tego tasku.
+
+Po zielonym merge T011-A do `main` warunek wstępny T011-E zostaje spełniony i
+T011-E należy rozpocząć z tego nowego `main`, nie z niezmergowanego brancha A.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

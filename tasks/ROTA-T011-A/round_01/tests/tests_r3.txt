@@ -1,0 +1,147 @@
+AUDYT IMPLEMENTACJI ROTA-T011-A — ROUND 3
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-A
+
+AUDYTOWANY SHA IMPLEMENTACJI:
+5a0cdff40f020151d0a514f614abd263a1592c63
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-A/round_01/tests/tests_r2.txt
+
+WERDYKT: WYMAGA_DECYZJI — KOD PASS, MERGE JESZCZE ZABLOKOWANY
+
+Implementacja trzech wejść aplikacyjnych jest zgodna z kontraktem i pełna
+regresja jest zielona. Nie ma defektu produktu ani propozycji zmiany
+architektury. Finalny PASS do merge nie może jednak zostać wydany, ponieważ
+committed dowód `output_backend.txt` nie dotyczy audytowanej implementacji, a
+rzeczywiste uruchomienie backendu dla SHA 5a0cdff zwraca dwa jawne gate'y
+WYMAGA_DECYZJI wymagające akceptacji architekta.
+
+
+SECTION_CHECK 1 — TASK_SCOPE I KSZTAŁT IMPLEMENTACJI: PASS
+
+Diff produkcyjny mieści się w trzech zadeklarowanych plikach:
+
+- `durable_inputs.set_calendar_day` wykonuje wspólny
+  `require_active_coordinator_context` i deleguje zapis do
+  `save_calendar_day`; nie zapisuje `site_id` i nie dodaje zakresowania
+  kalendarza po Site;
+- `store.open_store` przyjmuje `str | Path` i jedną linią deleguje do
+  istniejącego `persistence.db.connect`; nie duplikuje migracji i nie tłumaczy
+  wyjątków;
+- `availability_matrix.availability_history` jedną linią zwraca istniejący
+  łańcuch `get_availability_history`, bez guardu i bez przepakowania danych.
+
+Nie ma SQL ani nazw tabel w `rota/application/*`, nowej warstwy, DTO, workflow,
+cache'u ani kodu z T011-B/C/D/E.
+
+
+SECTION_CHECK 2 — WYMAGANE SCENARIUSZE A: PASS
+
+Nowy plik testowy realizuje dziewięć scenariuszy kontraktu:
+
+- kalendarz przełącza gotowość i odblokowuje `open_month`;
+- zapis jednego dnia jest upsertem;
+- brak aktywnego kontekstu blokuje zapis przed delegacją;
+- `open_store` tworzy i migruje świeży magazyn oraz zachowuje dane po
+  kolejnych otwarciach;
+- restart zachowuje `ready=True`;
+- historia dostępności zwraca pełny łańcuch w kolejności oraz pustą listę dla
+  nieznanej rodziny;
+- plik nie importuje `rota.persistence` bezpośrednio ani przez helper testowy.
+
+Surowa inspekcja SQLite w testach upsertu i braku zapisu nie znajduje się w
+kodzie aplikacji i nie zastępuje dowodu migracji: scenariusze od pustej ścieżki
+do `ready=True`, restart oraz odczyt historii używają publicznych wejść
+`rota.application.*`, zgodnie z wiążącym kształtem round 2.
+
+
+SECTION_CHECK 3 — FROZEN INVARIANTS I GRANICE: PASS
+
+- kierunek zależności pozostaje `application -> persistence`;
+- application nie zawiera SQL;
+- CAL-01 jest osiągalne przez warstwę aplikacji, bez dodawania źródła świąt
+  wyłączonego z zakresu przez CAL-04 i decyzję właściciela;
+- `test_18_dependency_boundary_scan`: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS.
+
+
+SECTION_CHECK 4 — TESTY I BRAMKI JAKOŚCI: PASS
+
+Uruchomiono macierz T011-A, oracle ROTA-REG-001 oraz skan granicy:
+
+`python -m pytest -q tests/test_t011_a_application_entry_points.py tests/test_rota_reg_001.py tests/test_t009_lifecycle_memory_backup_boundary.py::test_18_dependency_boundary_scan`
+
+Wynik: 17/17 PASS.
+
+Pozostałe wyniki:
+
+- pełna suite: 501/501 PASS;
+- Ruff na czterech plikach TASK_SCOPE: PASS;
+- `git diff --check 029107b..5a0cdff`: PASS;
+- dwa nowe pliki: 2/2, zgodnie z limitem.
+
+
+FINDING A-R3-1 — COMMITTED OUTPUT_BACKEND NIE AUDYTUJE IMPLEMENTACJI
+
+`tasks/ROTA-T011-A/output_backend.txt` zawarty w commicie 5a0cdff deklaruje:
+
+- `STATUS: PASS`;
+- `HEAD_SHA: 029107be...`.
+
+To SHA jest bazą tasku, nie audytowaną implementacją. Commit message również
+podaje `backend.py STATUS: PASS`, więc zapisany dowód i opis commita nie
+odpowiadają rzeczywistemu wynikowi implementacji.
+
+Ponowne uruchomienie dokładnego gate'u:
+
+`python backend.py tasks/ROTA-T011-A/brief.md 029107be... 5a0cdff... tasks/ROTA-T011-A/output_backend.txt`
+
+zwraca dla implementacji:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- `RATIO: 228/2 = 114.0:1` przy progu 5:1;
+- `TOTAL_LINES: 230` przy progu 150;
+- wszystkie bramki blokujące, w tym TASK_SCOPE, DIFF_SCOPE, NEW_FILES, Ruff,
+  SIZE_FILE i SIZE_FUNC, pozostają zielone.
+
+Plik został po diagnostyce przywrócony do audytowanego commita; auditor nie
+nadpisuje dowodu implementera.
+
+Warunek zamknięcia: CC zapisuje rzeczywisty wynik backendu dla SHA 5a0cdff (lub
+następnego SHA zawierającego wyłącznie korektę dowodu) i nie opisuje go jako
+PASS. Nie trzeba zmieniać kodu produktu ani redukować wymaganych testów.
+
+
+WYMAGA_DECYZJI A-R3-2 — AKCEPTACJA RATIO I TOTAL_LINES
+
+`TOTAL_LINES` jest klasą jawnie przewidzianą przez brief jako dopuszczalne
+WYMAGA_DECYZJI. `RATIO` pochodzi z tego samego mechanicznego gate'u: większość
+zmiany to wymagany nowy plik testowy, a dwie deletions w istniejących plikach
+powodują zastosowanie progu proporcji.
+
+Nie jest to podstawa do FAIL kodu ani do okrajania testów. Przed merge architekt
+musi jednak świadomie zaakceptować oba wyniki WYMAGA_DECYZJI, zgodnie z rolą
+`FINAL_ARCHITECTURAL_ACCEPTANCE` i procesem wskazanym przez właściciela.
+
+
+GOTOWOŚĆ I KOLEJNOŚĆ T011-E
+
+T011-A nie ma jeszcze finalnego PASS do merge. Po:
+
+1. odświeżeniu dowodu backendu przez CC;
+2. akceptacji RATIO i TOTAL_LINES przez architekta;
+3. wąskim potwierdzeniu Codexa, że A-R3-1 jest zamknięty;
+4. zielonym merge T011-A do `main`;
+
+można utworzyć T011-E z nowego `main`.
+
+Nie wolno implementować E bezpośrednio na niezmergowanym branchu A. T011-B i
+T011-D nie są warunkiem wstępnym E, ponieważ brief E zależy wyłącznie od A i
+jawnie wyłącza funkcje B/C/D ze swoich scenariuszy.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

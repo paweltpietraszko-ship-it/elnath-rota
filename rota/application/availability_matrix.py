@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from rota.domain import AvailabilityKind, AvailabilityRecord, Employee, SiteRuleVersion
-from rota.persistence.availability_repository import get_current_availability_for_employee
+from rota.persistence.availability_repository import get_availability_history, get_current_availability_for_employee
 from rota.persistence.employee_repository import get_employee
 from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
 from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION, EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS
@@ -70,3 +70,10 @@ def employee_availability_matrix(conn, *, site_id: str, employee_id: str, month:
         employee=employee, availability_records=availability, weekday_and_exception_rules=rules,
         rule_applicability=rule_applicability,
     )
+
+
+def availability_history(conn, *, availability_id: str) -> list[AvailabilityRecord]:
+    """ROTA-T011-A (A-4): the full version chain for one availability_id
+    family, oldest first. An unknown family returns an empty list, matching
+    the repository's own behavior -- no exception invented here."""
+    return get_availability_history(conn, availability_id)
