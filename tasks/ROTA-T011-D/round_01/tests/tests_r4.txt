@@ -1,0 +1,104 @@
+WĄSKI REAUDYT IMPLEMENTACJI ROTA-T011-D — ROUND 4
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-D
+
+AUDYTOWANY SHA:
+742d12a10e0ac3ff7da81ae641d9010ad9726c6c
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-D/round_01/tests/tests_r3.txt
+
+ZAKRES REAUDYTU:
+Wyłącznie warunek zamknięcia FINDING D-R3-1. D-1, D-2, decyzja właściciela
+o zerowym carry-in oraz pozostałe części kontraktu nie były ponownie otwierane.
+
+WERDYKT: PASS — FINDING D-R3-1 ZAMKNIĘTY
+
+
+SECTION_CHECK 1 — TASK_SCOPE: PASS
+
+Brief zawiera teraz istniejący plik
+`tests/test_t009_open_and_assembler.py` w zamkniętym TASK_SCOPE. Opisuje też
+wąską dozwoloną zmianę: zastąpienie starej asercji łącznej liczby ostrzeżeń
+klasyfikacją ostrzeżeń o pominięciu pracownika oraz ostrzeżenia carry-in.
+
+Nie dodano trzeciego nowego pliku. `rota/application/balance_read.py` i
+`tests/test_t011_d_quarter_balance.py` pozostają jedynymi dwoma nowymi plikami
+produktu/testów deklarowanymi przez kontrakt.
+
+
+SECTION_CHECK 2 — KOREKTA REGRESJI D-R3-1: PASS
+
+W teście
+`test_5_missing_target_hours_not_invented_and_demand_count_unchanged` stara
+asercja `len(warnings_after) == len(employees) - 1` została zastąpiona trzema
+asercjami wymaganymi przez raport round 3:
+
+- liczba dotychczasowych ostrzeżeń `omitted from WorkBalance context` jest
+  równa `len(employees) - 1`;
+- istnieje dokładnie jedno ostrzeżenie `quarter carry-in reset to 0`;
+- łączna liczba ostrzeżeń jest sumą obu grup, więc nie ma trzeciej,
+  nieoczekiwanej kategorii.
+
+Substring służy wyłącznie lokalnej klasyfikacji wyniku testu. Nie został
+potraktowany jako nowy globalny kontrakt komunikatu.
+
+
+SECTION_CHECK 3 — BRAK TŁUMIENIA KONTRAKTOWEGO OSTRZEŻENIA: PASS
+
+`_assemble_work_balances` najpierw zachowuje dotychczasowe zachowanie dla
+pracownika bez `target_hours` w miesiącu planowanym: jedno ostrzeżenie o
+pominięciu i brak WorkBalance. Carry-in jest liczony dopiero dla pracownika,
+który normę miesiąca planowanego posiada.
+
+Jeżeli takiemu pracownikowi brakuje normy wcześniejszego miesiąca kwartału,
+`_carry_in_before` zwraca carry-in `0` oraz dokładnie jedno ostrzeżenie
+nazywające brakujący miesiąc. Pracownik nadal trafia do `work_balances` ze
+swoim bieżącym `target_hours`. Nie ma częściowego carry-in, wyjątku blokującego
+PLAN ani obejścia wymaganego ostrzeżenia.
+
+
+SECTION_CHECK 4 — REPRODUCER I MACIERZ D: PASS
+
+Uruchomiono:
+
+`python -m pytest -q tests/test_t009_open_and_assembler.py::test_5_missing_target_hours_not_invented_and_demand_count_unchanged tests/test_t011_d_quarter_balance.py tests/test_rota_reg_001.py`
+
+Wynik: 17/17 PASS.
+
+Obejmuje to bezpośredni reproducer D-R3-1, dziewięć scenariuszy T011-D oraz
+siedem testów krytycznego oracle ROTA-REG-001 dla TARGET-01.
+
+
+SECTION_CHECK 5 — PEŁNA REGRESJA I BRAMKI MECHANICZNE: PASS
+
+- pełna suite: 501/501 PASS;
+- Ruff na czterech plikach TASK_SCOPE: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check 029107b..742d12a`: PASS;
+- zapisany wynik `tasks/ROTA-T011-D/output_backend.txt`: STATUS PASS.
+
+Lokalne, nieśledzone artefakty użytkownika oraz modyfikacja `Grafiki/7442.jpg`
+nie należą do audytowanego commita i nie były dotykane.
+
+
+FINDINGS
+
+Brak nowych findings w zakresie wąskiego reaudytu D-R3-1.
+
+
+WYMAGA_DECYZJI
+
+Brak.
+
+
+GOTOWOŚĆ
+
+ROTA-T011-D na SHA 742d12a jest PASS dla D-R3-1. Implementacja D nie wymaga
+kolejnej korekty wynikającej z tego findingu.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
