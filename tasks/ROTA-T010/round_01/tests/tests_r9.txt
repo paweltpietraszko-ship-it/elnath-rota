@@ -1,0 +1,175 @@
+KOŃCOWY AUDYT SPÓJNOŚCI IMPLEMENTACJI ROTA-T010 A/B/C/D — ROUND 9
+
+AUDYTOWANY SHA:
+ca43204fa0d4bd09d4e0fe77eff29b8d7292353e
+
+GAŁĄŹ:
+task/ROTA-T010
+
+BAZA IMPLEMENTACJI:
+51b71725186fa30be23219e94aa135bb69bc5bce
+
+WERDYKT: PASS — T010 SPÓJNE I GOTOWE DO RĘCZNEJ AKCEPTACJI / MERGE
+
+T010-A: PASS
+T010-B: PASS
+T010-C: PASS
+T010-D: PASS
+
+Wszystkie findings R3, R6 i R7 są zamknięte. Nie znaleziono nowego defektu
+kontraktowego ani rozjazdu między częściami. Nie ma WYMAGA_DECYZJI.
+
+Audytor nie zmieniał kodu produkcyjnego. Dodano wyłącznie przekrojową macierz
+testową i niniejszy raport append-only.
+
+
+ŹRÓDŁA KONTRAKTU
+
+- zaakceptowany kontrakt T010: 2de74063909a1c2b207c2170855b835571d378b0;
+- PASS kontraktu R2: 405d2414483d2a2c7cafccc14a0e4cf070341937;
+- decyzja właściciela A z 2026-08-14: 408d439aa87983685f7a717f10d2e28443969b92;
+- tasks/ROTA-T010/brief.md i części A/B/C/D;
+- arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md;
+- arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md;
+- wcześniejsze raporty implementacyjne tests_r3.txt–tests_r8.txt.
+
+
+SPÓJNOŚĆ GRANIC I ŹRÓDEŁ PRAWDY — PASS
+
+Diff produkcyjny względem bazy obejmuje brakujące podpięcia A/B/D oraz
+minimalne rozszerzenie Assignment dla NN. Nie powstały:
+
+- tabela, flaga ani numer kroku onboardingu;
+- drugie źródło profilu, membership albo availability;
+- drugi stały stan day_only;
+- osobna tabela NN ani HR-event;
+- ogólny mechanizm override HARD;
+- automatyczny REPLAN po NN;
+- logika produktu oparta na readiness;
+- UI, parser, DSL, workflow/command bus ani uniwersalny edytor reguł.
+
+Operacje A/B/D przyjmują jawny site_id. Nie wyszukują niejawnie jedynego Site
+koordynatora i nie zamykają drogi do późniejszej wieloobiektowości T012.
+
+
+T010-A — PASS
+
+Potwierdzono wcześniejszy audyt A oraz współdziałanie z pozostałymi częściami:
+
+- bootstrap/resume używa Coordinator, SiteProfile, Site i Association bez
+  osobnego stanu onboardingu;
+- atomowy CAS na aktywacji Association daje jednego zwycięzcę dla tej samej
+  pary i nie blokuje dwóch różnych Site;
+- kompletność wymaga co najmniej jednej poprawnej StandardShift oraz aktywnej
+  obsady LOCAL;
+- gotowość miesiąca jest osobnym odczytem i wymaga wszystkich CalendarDay;
+- brak target_hours pozostaje ostrzeżeniem SOFT i nie blokuje gotowości;
+- enabled=false usuwa pracownika z bieżącej obsady i eligibility bez DELETE;
+- ponowne włączenie aktualizuje to samo membership bez duplikatu;
+- zmiana readiness tego membership nie zmienia eligibility ani gotowości.
+
+W przekrojowym teście ten sam kontekst był gotowy z brakiem target_hours,
+przestał być gotowy po disabled membership i ponownie stał się gotowy po
+włączeniu tego samego rekordu jako NOT_READY. Liczba rekordów membership dla
+Employee/Site pozostała równa jeden.
+
+
+T010-B — PASS
+
+Potwierdzono wcześniejszy audyt B oraz zgodność projekcji z wykonaniem:
+
+- bazowy stan nie tworzy drugiej trwałej matrycy;
+- Ogólna/D/N/weekday korzystają z istniejącego
+  EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS;
+- SICK_LEAVE, LEAVE_GRANTED i UNAVAILABLE_24H pozostają AvailabilityRecord,
+  bez podwójnego SiteRule;
+- wyjątek EMPLOYEE_DAY_ONLY_N_EXCEPTION działa wyłącznie jako
+  CONFIRMED_EXCEPTION dla wskazanego Employee/Site/dat;
+- nie uchyla membership, Availability ani innego zakazu N;
+- eligibility i niezależny validator mają zgodny wynik;
+- granice od–do są włączne, N jest kotwiczona datą startu, a po końcu wraca
+  DAY_ONLY-01;
+- korekty, wcześniejsze przywrócenie i niezależne okresy zachowują
+  append-only historię oraz rzeczywiste SiteRuleApplicability po restarcie.
+
+W scenariuszu przekrojowym aktywny wyjątek pozwolił pracownikowi day_only na N
+zarówno w eligibility, jak i validatorze. Zmiana READY_FOR_PRIMARY na NOT_READY
+nie zmieniła tego wyniku.
+
+
+T010-C — PASS
+
+C pozostaje wyłącznie gate regresyjnym:
+
+- T010 nie zmieniło produkcyjnej obsługi training/readiness;
+- NOT_READY i READY_FOR_PRIMARY dają identyczne eligibility;
+- solver nie tworzy TRAINEE samodzielnie;
+- S pozostaje ręcznym TRAINEE;
+- readiness nie blokuje ani nie dopuszcza do grafiku.
+
+Przekrojowy test potwierdził ten invariant zarówno na zwykłej D, jak i na N
+dopuszczonej wąskim wyjątkiem day_only.
+
+
+T010-D — PASS
+
+Potwierdzono wcześniejsze zamknięcie R3-5, R6-1 i R7-1:
+
+- jedynym kodem T010 jest NN i wymaga CANCELLED PRIMARY;
+- NN może powstać wyłącznie z tego samego wcześniej PLANNED PRIMARY w parent;
+- child zachowuje employee_id, start_datetime, end_datetime i covers_demand_id;
+- root oraz drogi in-place nie mogą wymyślić nowego NN;
+- parent pozostaje PLANNED i niezmieniony;
+- restart zachowuje operational_code;
+- NN wnosi 0 do planned_hours i 0 do realized_hours;
+- brak zastępstwa tworzy zwykłą COVERAGE Deviation;
+- częściowe i pełne zastępstwo używa normalnej geometrii coverage;
+- nie powstaje AvailabilityRecord, SiteRule ani automatyczny REPLAN;
+- zwykłe CANCELLED+None pozostaje legalne.
+
+W scenariuszu przekrojowym legalna N dopuszczona przez część B została
+oznaczona NN. Powstał dokładnie jeden child, parent pozostał PLANNED, matryca
+dostępności była identyczna przed i po, liczby AvailabilityRecord i SiteRule
+nie zmieniły się, a child zawierał zwykłą dewiację COVERAGE.
+
+
+RĘCZNY OGLĄD REALNEGO GRAFIKU — PASS
+
+Poza testami statusów wygenerowano produkcyjną ścieżką i odczytano w tabeli
+pełny ROTA-REG-001 dla października 2026:
+
+- status FEASIBLE;
+- 62 PRIMARY: dokładnie D i N dla każdego z 31 dni;
+- independent validator: HARD PASS, 0 violations;
+- pracownik C oznaczony w benchmarku jako day_only występuje wyłącznie na D;
+- 08.10 D przypisano A zgodnie z oracle;
+- monthly_hours: A=156, B=144, C=156, D=144, E=144;
+- maximum rolling 7d: A=48, B=60, C=60, D=53, E=48, czyli wszystkie <=60.
+
+Ogląd nie zastępuje przyszłej akceptacji UI T012, ale potwierdza, że aktualna
+produkcja zwraca zrozumiały, kompletny grafik zgodny z wejściem i oracle.
+
+
+WYNIKI TESTÓW I KONTROLE
+
+- pełna macierz T010 autora i audytora, łącznie z R9: 74 passed;
+- tests/test_audit_t010_r9_consistency.py: 2 passed;
+- pełny python -m pytest -q po dodaniu R9: 479 passed;
+- benchmark real-object --suite all: 55 PASS, 0 MISMATCH, 0 INVALID,
+  0 INCONCLUSIVE;
+- ruff check całego repozytorium: PASS;
+- git diff --check dla working tree: PASS;
+- git diff --check baza..HEAD: PASS;
+- nowy test R9: brak linii ponad 119 znaków i trailing whitespace.
+
+
+GOTOWOŚĆ
+
+T010 spełnia zatwierdzony kontrakt i jest gotowe do ręcznej akceptacji oraz
+merge. Zamkniętych findings nie należy ponownie otwierać bez zmiany ich
+właścicieli albo nowego dowodu regresji.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
