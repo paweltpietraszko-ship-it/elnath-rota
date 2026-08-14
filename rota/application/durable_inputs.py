@@ -9,8 +9,9 @@ from datetime import date
 
 from rota.application.context import require_active_coordinator_context
 from rota.application.errors import InvalidCoordinatorContext
-from rota.domain import AvailabilityKind, Employee, ExternalSupportWindow, SiteMembership, SiteProfile
+from rota.domain import AvailabilityKind, CalendarDay, Employee, ExternalSupportWindow, SiteMembership, SiteProfile
 from rota.persistence.availability_repository import append_availability_version
+from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.employee_repository import save_employee, save_external_support_window, save_site_membership
 from rota.persistence.site_profile_repository import save_site_profile
 from rota.persistence.site_repository import get_site
@@ -62,6 +63,14 @@ def set_target_hours(
 ) -> None:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     save_work_balance_target(conn, employee_id=employee_id, month=month, target_hours=target_hours)
+
+
+def set_calendar_day(conn, *, coordinator_id: str, site_id: str, day: CalendarDay) -> None:
+    """ROTA-T011-A (A-1): calendar_days is keyed by date alone, not scoped to
+    a Site -- site_id here authorizes the coordinator's write, exactly like
+    set_target_hours, and is never itself persisted."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    save_calendar_day(conn, day)
 
 
 def update_site_profile(conn, *, coordinator_id: str, site_id: str, profile: SiteProfile) -> None:
