@@ -9,6 +9,13 @@ class InvalidCoordinatorContext(Exception):
     not all active for a coordinator-originated write."""
 
 
+class CoordinatorContextAlreadyActive(Exception):
+    """Raised by bootstrap_or_resume_coordinator_context (ROTA-T010-A) when
+    (coordinator_id, site_id) already has an active CoordinatorSiteAssociation
+    -- further writes to that context must go through the T009 authorized
+    edit operations instead of the bootstrap/resume path."""
+
+
 class IncompleteCalendarData(Exception):
     """Raised when a CalendarDay is missing for some date in the target
     month -- brief.md ONE CANONICAL PLANNINGSTATE ASSEMBLER: never guessed
