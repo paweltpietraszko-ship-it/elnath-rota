@@ -14,6 +14,10 @@ Files:
 - `coordinator_wall.json` — deliberate DECISION_REQUIRED scenario.  The N
   shift starts on 13 October and enters the first sick day on the 14th.  An N
   exception effective only from the 14th is not yet applicable to that demand.
+- `exception_retry_before.json` and `exception_retry_after.svg` / `.csv` /
+  `.json` — the same WORKING first stops on that overnight boundary, then
+  reaches FEASIBLE after the coordinator corrects the exception start to the
+  13th; the final schedule survives store restart.
 
 Legend: `D` day shift, `N` night shift, `U` approved leave, `L4` sick leave,
 `D-OFF` no day shift (night remains available).  These files are audit

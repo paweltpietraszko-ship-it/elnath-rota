@@ -154,6 +154,29 @@ def coordinator_wall_spec() -> ScenarioSpec:
     )
 
 
+def exception_retry_spec() -> ScenarioSpec:
+    return ScenarioSpec(
+        "exception_retry",
+        (
+            EmployeeInput("BARTEK", 156),
+            EmployeeInput("CELINA", 156),
+            EmployeeInput(DAY_ONLY_EMPLOYEE, 24, day_only=True),
+        ),
+        (
+            AvailabilityInput(
+                "AV-BARTEK-SICK-RETRY", "BARTEK", AvailabilityKind.SICK_LEAVE,
+                date(2026, 10, 14), date(2026, 10, 14), "isolates the overnight exception boundary",
+            ),
+            AvailabilityInput(
+                "AV-CELINA-SICK-RETRY", "CELINA", AvailabilityKind.SICK_LEAVE,
+                date(2026, 10, 14), date(2026, 10, 14), "isolates the overnight exception boundary",
+            ),
+        ),
+        (date(2026, 10, 14), date(2026, 10, 14)),
+        "DECISION_REQUIRED",
+    )
+
+
 def _profile() -> SiteProfile:
     return SiteProfile(
         profile_id=PROFILE_ID,
@@ -172,13 +195,21 @@ def _profile() -> SiteProfile:
     )
 
 
-def _bootstrap_and_roster(conn, spec: ScenarioSpec) -> None:
+def _night_only_profile() -> SiteProfile:
+    return replace(
+        _profile(),
+        display_name="T011 retry-isolation profile",
+        standard_shifts=[StandardShift(ShiftKind.N, time(18), time(6), True, 1)],
+    )
+
+
+def _bootstrap_and_roster(conn, spec: ScenarioSpec, profile: SiteProfile | None = None) -> None:
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn,
         coordinator_id=COORDINATOR_ID,
         site_id=SITE_ID,
         coordinator=Coordinator(COORDINATOR_ID, "Coordinator before rename", True),
-        site_profile=_profile(),
+        site_profile=profile or _profile(),
         site=Site(SITE_ID, PROFILE_ID, "Site before rename", True),
         association=CoordinatorSiteAssociation(COORDINATOR_ID, SITE_ID, True),
     )
@@ -249,6 +280,31 @@ def _write_availability_and_exception(conn, spec: ScenarioSpec) -> None:
             description="Temporary operational cover during sickness",
             source="owner-requested T011 integrated audit",
             reason="Seven-day staffing gap",
+        ),
+    )
+
+
+def _correct_exception_start(conn, spec: ScenarioSpec, corrected_start: date) -> None:
+    assert spec.exception_window is not None
+    _old_start, end = spec.exception_window
+    rule_decisions.record_structured_rule_decision(
+        conn,
+        coordinator_id=COORDINATOR_ID,
+        site_id=SITE_ID,
+        rule_id=f"RULE-DAYONLY-N-{spec.name}",
+        statement=f"Corrected N exception for {DAY_ONLY_EMPLOYEE}, {corrected_start} through {end}.",
+        effective_from=corrected_start,
+        rel="corrects",
+        rule_content=rule_decisions.NewRuleContent(
+            category=RuleCategory.CONFIRMED_EXCEPTION,
+            rule_kind=DAY_ONLY_EXCEPTION_KIND,
+            structured_parameters={"employee_id": DAY_ONLY_EMPLOYEE},
+            enforcement=RuleEnforcement.HARD,
+            resolution_status=RuleResolution.RESOLVED,
+            effective_to=end,
+            description="Corrected exception includes the preceding overnight shift start",
+            source="owner-requested T011 retry audit",
+            reason="The N shift covering the first unavailable hours starts one day earlier",
         ),
     )
 
@@ -396,6 +452,57 @@ def run_scenario(spec: ScenarioSpec, db_path: Path) -> ScenarioOutcome:
     return outcome
 
 
+def run_exception_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome]:
+    """Retry PLAN on the same empty WORKING after correcting the dated rule."""
+    spec = exception_retry_spec()
+    conn = store.open_store(db_path)
+    _bootstrap_and_roster(conn, spec, _night_only_profile())
+    _write_availability_and_exception(conn, spec)
+    _assert_discovery_and_inputs(conn, spec)
+
+    started = _time.perf_counter()
+    first = plan_ops.plan_month(
+        conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORDINATOR_ID, effective_from=MONTH,
+    )
+    first_elapsed = _time.perf_counter() - started
+    assert first.status == "DECISION_REQUIRED"
+    before = replace(_decision_outcome(spec, first, first_elapsed), name="exception_retry_before")
+    working = open_month.open_month(conn, site_id=SITE_ID, month=MONTH).current_version
+    assert working is not None
+    working_id = working.version_id
+
+    _correct_exception_start(conn, spec, date(2026, 10, 13))
+    started = _time.perf_counter()
+    second = plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORDINATOR_ID)
+    second_elapsed = _time.perf_counter() - started
+    retried = open_month.open_month(conn, site_id=SITE_ID, month=MONTH).current_version
+    assert retried is not None
+    assert retried.version_id == working_id
+    if second.status != "FEASIBLE":
+        after = replace(_decision_outcome(spec, second, second_elapsed), name="exception_retry_after")
+        conn.close()
+        return before, after
+
+    assert second.candidates
+    reopened, view, state, warnings = _finalize_and_restart(conn, db_path, second.candidates[0], spec)
+    after = ScenarioOutcome(
+        name="exception_retry_after",
+        status=second.status,
+        plan_seconds=second_elapsed,
+        assignments=tuple(state.existing_assignments),
+        employees=tuple(view.employees),
+        availability=tuple(view.availability_records),
+        warnings=warnings + tuple(second.warnings),
+        deviation_count=len(state.deviations),
+        quarter_balance_warnings=(),
+        blocking_demand_ids=(),
+        blockers=(),
+        unblocking_options=(),
+    )
+    reopened.close()
+    return before, after
+
+
 def _assignment_kind(assignment: Assignment) -> str:
     return "D" if assignment.start_datetime.hour == 6 else "N"
 
@@ -508,6 +615,10 @@ def run_all(output_dir: Path) -> dict[str, ScenarioOutcome]:
         for spec in (normal_spec(), boundary_spec(), coordinator_wall_spec()):
             outcome = run_scenario(spec, Path(temp_dir) / f"{spec.name}.db")
             outcomes[spec.name] = outcome
+            write_artifacts(outcome, output_dir)
+        before, after = run_exception_retry(Path(temp_dir) / "exception_retry.db")
+        for outcome in (before, after):
+            outcomes[outcome.name] = outcome
             write_artifacts(outcome, output_dir)
     return outcomes
 

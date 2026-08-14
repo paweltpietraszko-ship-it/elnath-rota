@@ -1,7 +1,7 @@
 {
-  "scenario": "coordinator_wall",
+  "scenario": "exception_retry_before",
   "status": "DECISION_REQUIRED",
-  "plan_seconds": 0.011668,
+  "plan_seconds": 0.01074,
   "assignment_count": 0,
   "worked_hours": {},
   "deviation_count": 0,
@@ -12,11 +12,11 @@
   ],
   "blockers": [
     {
-      "employee_id": "ANNA",
-      "condition": "LEAVE_GRANTED-01"
+      "employee_id": "BARTEK",
+      "condition": "SICK_LEAVE-01"
     },
     {
-      "employee_id": "BARTEK",
+      "employee_id": "CELINA",
       "condition": "SICK_LEAVE-01"
     },
     {

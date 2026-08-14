@@ -1,0 +1,78 @@
+AUDYT UZUPEŁNIAJĄCY RETRY PIPELINE'U ROTA-T011 — ROUND 2
+
+AUDYTOWANA BAZA:
+main@004f8774ce8ac3aa6ff04c69ce8f0733306e6f92
+
+ŹRÓDŁO TESTU:
+Jawne pytanie właściciela: czy po rozszerzeniu datowanego wyjątku N dla
+pracownika day_only program ponownie przeliczy istniejący miesiąc, czy pozostanie
+zablokowany po pierwszym wyniku DECISION_REQUIRED.
+
+WERDYKT: PASS — KOREKTA REGUŁY ODBLOKOWUJE PONOWNY PLAN NA TYM SAMYM WORKING
+
+
+SECTION_CHECK 1 — PONOWIENIE NA TEJ SAMEJ WERSJI: PASS
+
+Test tworzy pełny stan przez `rota.application.*`, uruchamia PLAN i otrzymuje
+DECISION_REQUIRED dla demandu `2026-10-13-N`. Zapisany wyjątek day_only zaczyna
+się 14.10, podczas gdy nocka wchodząca w tę dobę zaczyna się 13.10.
+
+Następnie koordynator zapisuje skorygowaną wersję tej samej rodziny reguły przez
+`rule_decisions.record_structured_rule_decision(..., rel="corrects")`, z
+`effective_from=2026-10-13`, i ponownie wywołuje `plan_month` na tym samym
+połączeniu oraz tym samym istniejącym WORKING.
+
+Identyfikator ScheduleVersion przed i po drugim PLAN jest identyczny. Nie jest
+tworzona nowa baza ani nowy miesiąc, więc test obejmuje dokładnie ryzyko trwałego
+zakleszczenia po pierwszym DECISION_REQUIRED.
+
+
+SECTION_CHECK 2 — WYNIK PO KOREKCIE: PASS
+
+Scenariusz izolacyjny ma jeden typ służby N, dwóch zwykłych pracowników
+rotacyjnych i day_only Filipa. Obaj zwykli pracownicy są na L4 14.10. Wyjątek od
+14.10 nie obejmuje N rozpoczętej 13.10; korekta początku na 13.10 obejmuje obie
+graniczne nocki i nie pozostawia innego sztucznego braku obsady.
+
+Po korekcie:
+
+- drugi PLAN zwraca FEASIBLE i kandydata;
+- wszystkie 31 demandów N jest pokrytych dokładnie raz;
+- Filip ma N rozpoczęte 13.10 i 14.10, czyli wyłącznie w skorygowanym oknie;
+- select, revalidate i finalize przechodzą;
+- FINAL oraz Assignmenty są identyczne po zamknięciu i ponownym otwarciu store.
+
+
+SECTION_CHECK 3 — ODRÓŻNIENIE RETRY OD NOWEJ ŚCIANY OBSADY: PASS
+
+Pierwotny, celowo ekstremalny „coordinator_wall” ma tylko trzy osoby, z czego
+dwie są jednocześnie długo nieobecne. Po analogicznej korekcie reguły silnik też
+wykonuje drugi PLAN i usuwa pierwotny DAY_ONLY-01, lecz nadal zwraca
+DECISION_REQUIRED z REST-01, ponieważ poprawienie daty wyjątku nie tworzy
+brakującej obsady. To jest nowe przeliczenie i nowa przyczyna, nie zapamiętana
+blokada poprzedniego kroku.
+
+Dlatego osobny scenariusz izolacyjny jest właściwym dowodem, że mechanizm retry
+działa, a scenariusz ekstremalny pozostaje dowodem, że program nie ukrywa
+niezależnej ściany kadrowej.
+
+
+SECTION_CHECK 4 — REGRESJA I ARTEFAKTY: PASS
+
+- test celowany retry: 1/1 PASS;
+- macierz zintegrowanego pipeline'u: 5/5 PASS;
+- pełna suite repozytorium: 551/551 PASS;
+- Ruff dla zmienionego harnessu i testu: PASS;
+- `git diff --check`: PASS;
+- zapisano `exception_retry_before.json` oraz po korekcie
+  `exception_retry_after.json`, `.csv`, `.svg`.
+
+
+FINDINGS
+
+Brak findings implementacyjnych.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
