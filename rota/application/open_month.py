@@ -19,7 +19,12 @@ from rota.domain import (
     SiteRuleVersion,
     WorkBalance,
 )
-from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header, list_schedule_versions
+from rota.persistence.schedule_repository import (
+    get_current_version_id,
+    get_schedule_version_header,
+    list_months_with_assignments,
+    list_schedule_versions,
+)
 
 
 @dataclass(frozen=True)
@@ -52,3 +57,10 @@ def open_month(conn, *, site_id: str, month: date) -> OpenMonthView:
         current_version=current_version, version_history=history, work_balances=state.work_balances,
         warnings=tuple(warnings),
     )
+
+
+def months_with_schedule(conn, *, site_id: str) -> tuple[date, ...]:
+    """ROTA-T011-B (B-6=W1+filtr obsady): months whose CURRENT version has
+    at least one Assignment -- a month whose only version is the empty root
+    plan_month creates before ever calling the solver does not qualify."""
+    return tuple(list_months_with_assignments(conn, site_id))

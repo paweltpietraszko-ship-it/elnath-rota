@@ -171,6 +171,25 @@ def get_current_assignments_for_employees(
     return [_row_to_assignment(row) for row in rows]
 
 
+def list_months_with_assignments(conn: sqlite3.Connection, site_id: str) -> list[date]:
+    """ROTA-T011-B (B-6=W1+filtr obsady): a month qualifies only when its
+    CURRENT version has at least one Assignment row -- state is irrelevant
+    (a CANCELLED+NN Assignment still counts, per part_d_nn.md: the parent
+    plan is preserved, not erased). A month whose current version has a
+    current-version pointer but zero Assignments (the empty root
+    plan_month creates before ever calling the solver) does not qualify --
+    that pointer alone is not evidence of a schedule to navigate to."""
+    rows = conn.execute(
+        """SELECT DISTINCT c.month
+           FROM current_schedule_versions c
+           JOIN assignments a ON a.schedule_version_id = c.version_id
+           WHERE c.site_id = ?
+           ORDER BY c.month""",
+        (site_id,),
+    ).fetchall()
+    return [date.fromisoformat(row[0]) for row in rows]
+
+
 def get_current_realized_primary_on_holidays(conn: sqlite3.Connection, site_id: str) -> list[Assignment]:
     """ROTA-T008 HOLIDAY HISTORY SUPPORT (R1-4 clarification): CURRENT
     ScheduleVersions only, Assignment.state == REALIZED only,

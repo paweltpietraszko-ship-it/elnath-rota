@@ -1,0 +1,194 @@
+AUDYT IMPLEMENTACJI ROTA-T011-B — ROUND 4
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-B
+
+AUDYTOWANY SHA:
+2890206b4e96ec337ac763b7d9d9500625308a39
+
+SHA IMPLEMENTACJI:
+3953bb96eece3a0bb9de643006448111ab4c8dca
+
+BAZA PO MERGE T011-A/D/E:
+c2dd2456e176c01ba3dd5539f0342144810a92ed
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-B/round_01/tests/tests_r3.txt
+
+WERDYKT: FAIL + WYMAGA_DECYZJI
+
+Kod produkcyjny realizuje zakontraktowane filtry i zapytanie miesięcy
+poprawnie, pełna regresja jest zielona, a faktyczna topologia Git zamyka
+techniczną część B-R3-1. Finalny PASS blokują jednak trzy wąskie problemy
+dowodowe: jeden fałszywy zapis topologii w briefie oraz dwa niepełne testy
+kontraktowe. Backend zgłasza ponadto dwa mechaniczne WYMAGA_DECYZJI, które
+należy zaakceptować dopiero dla finalnego diffu po korektach.
+
+
+SECTION_CHECK 1 — FAKTYCZNA BAZA I TASK_SCOPE: PASS
+
+- merge-base `c2dd245..2890206` jest dokładnie `c2dd245`;
+- `c2dd245` jest main po merge T011-A, D i E;
+- implementacja B jest jednym rebased commitem `3953bb9`, a następny commit
+  zmienia tylko `repo_before.hash` i `output_backend.txt`;
+- diff produkcyjny/testowy mieści się w pięciu zadeklarowanych plikach;
+- jedynym nowym plikiem testowym jest
+  `tests/test_t011_b_context_discovery.py`;
+- nie ma wycieku do T012 ani pozostałych części T011.
+
+Techniczny warunek B-R3-1 — T011-A obecne przez zielony merge do main przed
+finalnym stanem brancha B — jest spełniony.
+
+
+SECTION_CHECK 2 — CZTERY ODCZYTY KONTEKSTU: PASS
+
+- `active_coordinators` filtruje wyłącznie `Coordinator.active`;
+- `all_coordinators` zwraca nieprzefiltrowaną listę;
+- `active_sites_for_coordinator` wybiera aktywne asocjacje i aktywne Site,
+  bez dodatkowego filtra aktywności koordynatora;
+- `all_sites_for_coordinator` uwzględnia aktywne i nieaktywne asocjacje oraz
+  nie filtruje `Site.active`;
+- wszystkie cztery odczyty są bez guardu kontekstu i zwracają tuple;
+- odczyty Site są zakresowane przez jawny `coordinator_id`.
+
+Implementacja nie dodaje flag trybu, globalnego odczytu Site ani nowej warstwy.
+
+
+SECTION_CHECK 3 — MONTHS_WITH_SCHEDULE: PASS PRODUKCJI
+
+SQL znajduje bieżący wskaźnik dla `(site_id, month)`, łączy go z Assignmentami
+tej dokładnej bieżącej wersji, używa `DISTINCT` i sortuje rosnąco. Nie filtruje
+po state ani operational_code, więc CANCELLED/NN kwalifikuje miesiąc zgodnie z
+kontraktem.
+
+Jednoliniowy wrapper `open_month.months_with_schedule` deleguje bez SQL i
+zwraca tuple dat.
+
+Test persistence poprawnie odróżnia wersję historyczną z Assignmentem od
+pustej wersji bieżącej. Test aplikacyjny potwierdza pusty magazyn, porzucone
+PLAN bez select, dwa miesiące w kolejności, zakresowanie po Site i wynik po
+select. Dowód NN pozostaje jednak zakłócony — patrz FINDING B-R4-2.
+
+
+SECTION_CHECK 4 — GRANICA APLIKACYJNA: PASS
+
+Nowy plik testowy otwiera i ponownie otwiera magazyn przez
+`rota.application.store.open_store`, czyli deliverable zmergowanego T011-A.
+Niezależny skan AST nie znalazł żadnego importu `rota.persistence` w tym pliku.
+
+Kontrolowany stan nieosiągalny przez API aplikacji pozostaje prawidłowo
+ograniczony do istniejącego testu persistence, zgodnie z decyzją round 2.
+
+
+SECTION_CHECK 5 — TESTY I BRAMKI: PASS / WYMAGA_DECYZJI
+
+Uruchomiono macierz B, test current-vs-history, ROTA-REG-001 oraz dependency
+boundary scan.
+
+Wynik: 22/22 PASS.
+
+Pozostałe wyniki:
+
+- pełna suite: 522/522 PASS;
+- Ruff na pięciu plikach TASK_SCOPE: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check c2dd245..2890206`: PASS;
+- niezależny backend dla `2890206` odtworzył dokładnie:
+  - `RATIO: 314/1 = 314.0:1`;
+  - `TOTAL_LINES: 315`;
+  - wszystkie gate'y blokujące zielone.
+
+Po pominięciu nieuniknionej różnicy `HEAD_SHA` zapisany output i reprodukcja
+były identyczne. Plik tymczasowy usunięto po porównaniu.
+
+
+FINDING B-R4-1 — BRIEF NADAL OPISUJE STARĄ, NIELEGALNĄ TOPOLOGIĘ
+
+Ślad kontraktu i poprzedniego raportu:
+
+- B-R3-1 wymaga T011-A zmergowanego i zielonego przed B;
+- finalny branch został prawidłowo przebudowany na `main@c2dd245`.
+
+Mimo tego bieżący brief nadal stwierdza w DEPENDS_ON:
+
+`this branch is built on task/ROTA-T011-A (commit 5a0cdff)`
+
+To opis starego stanu zakwestionowanego przez B-R3-1, nie obecnej gałęzi.
+`repo_before.hash`, ancestry Git i commit korekty wskazują już `c2dd245`, więc
+brief jest jedynym sprzecznym dowodem.
+
+Warunek zamknięcia: zaktualizować wyłącznie ten opis faktu, wskazując
+`main@c2dd245` zawierający zielony merge T011-A. Nie zmieniać decyzji
+produktowych, TASK_SCOPE ani semantyki DEPENDS_ON.
+
+
+FINDING B-R4-2 — TEST NN NIE DOWODZI, ŻE NN SAMO KWALIFIKUJE MIESIĄC
+
+Ślad kontraktu:
+
+- filtr miesięcy nie może wykluczać Assignmentu `CANCELLED` z
+  `operational_code="NN"`;
+- wymagany test 12 ma dowodzić, że NN nadal jest obsadą kwalifikującą miesiąc.
+
+Test planuje pełny miesiąc i wywołuje `mark_not_worked` dla jednego
+Assignmentu. Niezależna diagnostyka bieżącego snapshotu po tej operacji
+wykazała:
+
+- 29 Assignmentów `PLANNED` bez operational_code;
+- 1 Assignment `CANCELLED/NN`.
+
+Miesiąc pozostanie więc w wyniku nawet wtedy, gdy zapytanie błędnie zacznie
+wykluczać wszystkie NN — zakwalifikuje go dowolny z 29 pozostałych wierszy.
+To klasa błędu „pozytywny wynik zapewniony przez niezależnego siblinga".
+
+Warunek zamknięcia: przez publiczne API aplikacji doprowadzić bieżący snapshot
+do stanu, w którym wszystkie pozostałe Assignmenty również są NN albo jedynym
+Assignmentem kwalifikującym miesiąc jest CANCELLED/NN; jawnie potwierdzić brak
+innego stanu Assignment i dopiero wtedy asertować obecność miesiąca. Nie
+zmieniać SQL ani dodawać test-only operacji usuwania.
+
+
+FINDING B-R4-3 — RESTART NIE SPRAWDZA „WSZYSTKICH ODCZYTÓW"
+
+Ślad kontraktu:
+
+- wymagany test 10: po ponownym otwarciu magazynu wszystkie odczyty zwracają
+  to samo.
+
+Test po restarcie sprawdza tylko:
+
+- `active_coordinators`;
+- `active_sites_for_coordinator`;
+- `months_with_schedule`.
+
+Pomija `all_coordinators` i `all_sites_for_coordinator`, czyli połowę nowych
+odczytów kontekstu. Nie zapisuje też wyników sprzed zamknięcia do bezpośredniego
+porównania z wynikami po ponownym otwarciu.
+
+Warunek zamknięcia: zebrać przed restartem wynik wszystkich pięciu odczytów
+(czterech kontekstowych i miesięcy), po `open_store` zebrać je ponownie i
+asertować pełną równość odpowiednich tuple.
+
+
+WYMAGA_DECYZJI B-R4-4 — RATIO I TOTAL_LINES
+
+RATIO 314.0:1 oraz TOTAL_LINES 315 są mechanicznymi gate'ami, nie defektem
+produktu. Dominującą zmianą jest wymagany nowy plik testowy. Nie wolno obchodzić
+ich cięciem dowodu.
+
+Akceptację właściciela/architekta należy uzyskać dopiero po zamknięciu trzech
+findings i ponownym wygenerowaniu backendu dla finalnego SHA, ponieważ liczby
+mogą się zmienić.
+
+
+GOTOWOŚĆ
+
+Nie mergować T011-B. Kod produkcyjny nie wymaga poprawki; zmiany są ograniczone
+do jednej korekty faktu w briefie oraz dwóch uszczelnień istniejącego pliku
+testowego. Po nich wystarczy wąski reaudyt B-R4-1..3 i finalna akceptacja
+mechanicznych WYMAGA_DECYZJI.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

@@ -133,6 +133,26 @@ def test_m5_restore_changes_query_results_immediately(tmp_path: Path) -> None:
     assert [a.assignment_id for a in found] == ["ASG-1"]
 
 
+def test_m5_months_with_assignments_scoped_to_current_version_only(tmp_path: Path) -> None:
+    """ROTA-T011-B FINDING B-1 (round 1): a historical version's Assignment
+    must not qualify a month whose CURRENT version is empty. Built directly
+    through schedule_lifecycle because this state -- current version with
+    zero Assignments, superseding a historical version that had some -- is
+    not reachable through the application API (see brief.md section 'Gdzie
+    dowodzi się zakresowania do bieżącej wersji'). The historical
+    Assignment is PLANNED, not REALIZED, so the empty child does not
+    violate ASSIGN-03 realized-preservation."""
+    conn = connect(tmp_path / "rota.db")
+    seed_base_entities(conn)
+    _create(conn, assignments=[_assignment(state=AssignmentState.PLANNED)])
+    lc.create_schedule_version(
+        conn, version_id="SV-EMPTY", site_id="SITE-1", month=MONTH, parent_version_id=None,
+        created_at=datetime(2026, 8, 2, 8, 0), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[_demand()], assignments=[], deviations=[],
+    )
+    assert repo.list_months_with_assignments(conn, "SITE-1") == []
+
+
 # --- N. WORKBALANCE -----------------------------------------------------------
 
 
