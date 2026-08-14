@@ -32,15 +32,24 @@ freeze`) to osobna decyzja po akceptacji.
 
 ## UWAGA O WZORCU FORMY
 
-Prośba mówiła „wzorowany na `tasks/ROTA-T010/brief.md`". Tego pliku nie ma w
-repo: `tasks/ROTA-T010/` zawiera wyłącznie `repo_before.hash` i
-`round_01/tests/tests_r{3..10}.txt`. Nie ma też
-`tasks/ROTA-T010/part_a_bootstrap_roster.md` ani `part_b_availability.md` /
-`part_d_nn.md`, mimo że docstringi w `rota/application/bootstrap.py:1-2`,
-`availability_matrix.py:1-2` i `manual_edit.py:92` się do nich odwołują.
-Formę wzorowałem więc na `tasks/ROTA-T009/brief.md`, który w repo jest
-(TASK_CONTRACT / PROCESS GATE / PURPOSE / ANTI-BUREAUCRACY RULE /
-DEPENDENCY BOUNDARY / zakres / OUT OF SCOPE / ACCEPTANCE).
+Prośba mówiła „wzorowany na `tasks/ROTA-T010/brief.md`". W chwili pisania tej
+sekcji pliku nie było w repo (`tasks/ROTA-T010/` zawierało wyłącznie
+`repo_before.hash` i `round_01/tests/tests_r{3..10}.txt`), mimo że docstringi w
+`rota/application/bootstrap.py:1-2`, `availability_matrix.py:1-2` i
+`manual_edit.py:92` odwołują się do `part_a_bootstrap_roster.md` /
+`part_b_availability.md` / `part_d_nn.md`. Formę wzorowałem więc na
+`tasks/ROTA-T009/brief.md` (TASK_CONTRACT / PROCESS GATE / PURPOSE /
+ANTI-BUREAUCRACY RULE / DEPENDENCY BOUNDARY / zakres / OUT OF SCOPE /
+ACCEPTANCE).
+
+**AKTUALIZACJA 2026-08-14 (po tej turze):** CC przywrócił `brief.md` i
+wszystkie cztery `part_*.md` na `main` (commit `95717be`), razem z dwoma
+brakującymi dokumentami `arch/` (`FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md`,
+`OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md`), z gałęzi architekta
+`arch/rota-t010-panel-sterowania-2026-08-13`, gdzie żyły od początku. Fakt
+powyżej opisuje stan w chwili audytu, nie stan obecny — architekt piszący
+docelowe briefy T011 może teraz użyć `tasks/ROTA-T010/brief.md` bezpośrednio
+jako wzorca, zgodnie z pierwotną prośbą.
 
 ## PROCESS GATE
 
@@ -219,8 +228,27 @@ składa `list_associations_for_coordinator` (`:111`) z `site_repository.get_site
 konfiguracji czy listę obiektów" nie znając z góry żadnego identyfikatora.
 
 **Czego A-3 świadomie NIE rozstrzyga.** Czy te odczyty filtrują po
-`active` i po powiązaniu — to B-3. Sygnatury są od tej decyzji niezależne,
-zmienia się wyłącznie treść ciał.
+`active` i po powiązaniu — to B-3.
+
+**KOREKTA 2026-08-14 (po decyzji właściciela B-3=W3):** zdanie „sygnatury są
+od tej decyzji niezależne, zmienia się wyłącznie treść ciał" było zbyt mocne.
+Prawdziwe dla W1/W2, nieprawdziwe dla W3 — rozdzielenie „w co mogę wejść" od
+„co istnieje" biegnie po INNEJ osi niż `known_coordinators`/
+`sites_for_coordinator` (ta oś to encja: koordynatorzy vs. obiekty; W3 to oś:
+dostępność vs. pełnia). Przy W3 potrzeba czterech nazwanych odczytów, nie
+dwóch z dwoma trybami:
+
+```text
+def known_coordinators(conn) -> tuple[Coordinator, ...]
+def active_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]
+def all_coordinators(conn) -> tuple[Coordinator, ...]
+def all_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]
+```
+
+(nazwy robocze — architekt pisząc brief może je zmienić; treść, nie etykieta,
+jest tu wiążąca). Zgodnie z własnym argumentem tego dokumentu przeciw flagom
+boolowskim w sygnaturze (patrz B-3/W3 „bez flag boolowskich w sygnaturze") nie
+proponuję jednej funkcji z parametrem `only_active: bool`.
 
 ## A-4 (zamyka Z-7, część b) — historia łańcucha dostępności
 
@@ -317,6 +345,13 @@ jak i deterministyczne lokalne źródło, w tym dołączony plik danych;
 Zablokowane do decyzji: istnienie i kształt operacji „wypełnij miesiąc" oraz to,
 czy powstaje nowy prymityw w `calendar_repository`.
 
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): W1.** Uzasadnienie: częściowo
+wypełniony miesiąc jest już dziś poprawnie raportowanym stanem pośrednim, więc
+atomowość „wypełnij miesiąc" (W2) nic realnie nie chroni, a byłaby pierwszym
+przypadkiem sterowania transakcją dla zwykłego durable input — rozszerzeniem
+wzorca, nie jego kopią. Źródło dni świątecznych (dodatek z W3) pozostaje
+OSOBNĄ, odłożoną decyzją produktową — nie blokuje T011-A.
+
 ## B-2 (Z-2) — co znaczy „edytować" i „dezaktywować" Site oraz Coordinator?
 
 Kontekst: `Site`/`Coordinator` są w T008 opisane jako „MUTABLE CURRENT-STATE
@@ -358,6 +393,36 @@ tego nie dopuszcza, i to nie jest przeoczenie — komentarz przy
 (`coordinator_repository.py:85-94`) opisuje ten warunek jako celową ochronę
 przed wyścigiem dwóch bootstrapów.
 
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): W1.** Uzasadnienie właściciela:
+T008 już zaklasyfikował te encje jako „MUTABLE CURRENT-STATE ENTITIES" —
+dokładnie ten sam status co `Employee`/`SiteMembership`, które już używają
+zwykłego upsertu; W2 zmieniałby tę już podjętą klasyfikację architektoniczną,
+nie tylko domykał lukę. Sprzężone pytanie o `active: 1 → 0`: TAK, musi być
+możliwe zwykłym zapisem — zakaz w `activate_association_if_not_already_active_
+in_open_transaction` (`WHERE ... active = 0`) dotyczy wyłącznie ścieżki CAS
+używanej przez bootstrap przy wyścigu dwóch aktywacji, nie jest ogólnym
+zakazem deaktywacji. `save_coordinator_site_association` (zwykły upsert,
+`coordinator_repository.py:51-64`) nie ma żadnego `WHERE` i już dziś fizycznie
+pozwala na `1 → 0` — nowego prymitywu nie trzeba, wystarczy nowy wrapper
+aplikacyjny w kształcie `durable_inputs.update_employee`, wołający ten
+istniejący zapis.
+
+**CONSTRAINT 2026-08-14 (konsekwencja W1, do brief T011-C, nie nowa decyzja
+właściciela).** Zwykły upsert `write_site_in_open_transaction`
+(`site_repository.py:20-36`) nadpisuje `profile_id` i waliduje tylko, że
+docelowy profil ISTNIEJE, nie że się nie zmienił. To niesymetryczne wobec
+`durable_inputs.update_site_profile`, który explicite ODRZUCA profil
+nienależący do autoryzowanego Site (`durable_inputs.py:70-73`). Przepięcie
+Site na inny profil po cichu zmienia katalog zmian i retroaktywnie zmienia
+kwalifikację szkoleń: `training._qualifies_for_readiness` liczy względem
+BIEŻĄCEGO profilu w momencie liczenia, nie profilu z chwili realizacji
+(świadomie przyjęty kompromis R6-4, `training.py:50-56`). Nowy wrapper
+`update_site` (B-2/W1) MUSI odrzucać zmianę `profile_id` przez samego siebie —
+`profile_id` pozostaje ustawiane wyłącznie przy bootstrapie (A-2/`bootstrap.py`),
+tak jak dziś. Jeśli kiedyś powstanie realna potrzeba świadomego przepięcia
+Site na inny profil, to osobna, jawnie nazwana operacja z własnym pytaniem
+produktowym o retroaktywność szkoleń — nie efekt uboczny zwykłej edycji nazwy.
+
 ## B-3 (Z-4, część decyzyjna) — co dokładnie widzi ekran startowy?
 
 - **W1 — surowo wszystko, bez filtra.** Konsekwencje: widać też nieaktywne i
@@ -374,6 +439,11 @@ przed wyścigiem dwóch bootstrapów.
   ograniczenie dostępu (dziś odczyty nie mają żadnego).
 
 Zablokowane do decyzji: treść ciał funkcji z A-3.
+
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): W3.** Uzasadnienie: spójne z tym,
+że reszta systemu już rozdziela „bieżący, aktualny stan" od „pełnej historii"
+(np. `current_schedule_versions` vs. `list_schedule_versions`). Konsekwencja
+sygnaturowa opisana w korekcie A-3 powyżej: cztery nazwane odczyty, nie dwa.
 
 ## B-4 (Z-5) — co znaczy „odtworzyć z backupu"?
 
@@ -403,6 +473,14 @@ starszej kopii (`db.py:385-402`), więc odtworzony plik nie jest bitowo tym, co
 zapisano; kopia nowsza niż binarka zostanie odrzucona przez
 `UnsupportedSchemaVersion` (`db.py:380-384`).
 
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): W3.** Uzasadnienie: W1 (nadpisanie
+w miejscu) to dokładnie ten rodzaj nieodwracalnej, jednokliknięciowej akcji
+wysokiego ryzyka, której unika się w całym projekcie; W2 wymaga trzymania
+stanu „która baza jest aktywna" w pamięci procesu, co `tasks/ROTA-T009/brief.md:355`
+wprost zakazuje. Odtwarzanie zostaje procedurą operacyjną poza aplikacją —
+świadoma decyzja produktowa „nie robimy", zapisana tutaj żeby nie wróciła jako
+luka w kolejnym audycie.
+
 ## B-5 (Z-6) — gdzie żyje saldo kwartalne?
 
 - **W1 — tylko nowy osobny odczyt (A-5), `open_month` bez zmian.**
@@ -420,6 +498,30 @@ zapisano; kopia nowsza niż binarka zostanie odrzucona przez
   (`tests/test_balance.py:44-55`), nie wyjścia assemblera. Koszt: assembler
   wykonuje dodatkowe odczyty za wcześniejsze miesiące kwartału (dziś czyta
   jeden miesiąc, `assembler.py:121-128`).
+
+  **CONSTRAINT 2026-08-14 (właściciel wybrał W2, ale w kształcie poniżej —
+  nie jako gołe podpięcie istniejącej funkcji).**
+  `rota.balance.compute_quarter_balance` (`balance.py:105-116`) rzuca
+  `MissingTargetHoursError`, jeśli KTÓRYKOLWIEK z trzech miesięcy kalendarzowego
+  kwartału nie ma `target_hours` — w tym miesiące PO planowanym. Gołe podpięcie
+  `reconstruct_quarter_balance` (`work_balance_repository.py:68-81`) do
+  assemblera złamałoby zamrożone „brak target_hours nigdy nie blokuje PLAN"
+  (`bootstrap.month_plan_readiness`, potwierdzone też w
+  `tasks/ROTA-T010/part_a_bootstrap_roster.md`): planowanie września
+  wymagałoby z góry `target_hours` na październik i listopad. Brief T011
+  (część dotycząca B-5/W2) MUSI zdefiniować carry-in jako liczony wyłącznie z
+  miesięcy kwartału **do planowanego włącznie**, z brakiem normy we
+  wcześniejszym miesiącu degradującym się do ostrzeżenia — dokładnie tak jak
+  dziś `_assemble_work_balances` łapie `MissingTargetHoursError` per miesiąc
+  (`assembler.py:124-127`), nie do wyjątku blokującego. To doprecyzowanie
+  już podjętej decyzji W2, nie nowa decyzja do wyboru.
+
+  Otwarte mikro-pytanie do architekta (nie właściciela — to szczegół
+  implementacyjny A-5, nie zmiana znaczenia produktu): A-5
+  (`quarter_balance`, osobny jawny odczyt) może zachować surową semantykę
+  `compute_quarter_balance` bez zmian (rzuci dla bieżącego kwartału, dopóki
+  przyszłe miesiące nie mają `target_hours`) — to spójne z tym, że to
+  osobny, opcjonalny odczyt „pokaż mi kwartał", nie prekondycja PLAN.
 - **W3 — zostawić jak jest i zapisać, że w kontekście planowania pola
   `quarter_balance`/`unresolved_carryover` są niezdefiniowane.**
   Konsekwencje: najtaniej. Koszt: `arch/spec.md` przypisuje narastające saldo
@@ -443,6 +545,11 @@ więc nie jest czystym wrapperem i nie trafił do grupy A.
 - **W3 — zakres (najstarszy/najnowszy miesiąc) zamiast listy; UI iteruje.**
   Konsekwencje: najmniejszy możliwy odczyt. Koszt: UI pokaże także miesiące
   puste w środku zakresu.
+
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): W1.** Uzasadnienie: odpowiada na
+realne pytanie „gdzie jest grafik". W2 pokazywałoby też porzucone próby (pustą
+wersję, którą `plan_month` tworzy przed wywołaniem solvera) — szum bez
+wartości dla nawigacji po historii.
 
 ## B-7 (Z-8, nowe znalezisko tej tury) — czy granica „UI nie zapisuje do persistence" ma być wymuszona automatycznie?
 
@@ -469,6 +576,14 @@ persistence wprost.
   Konsekwencje: powierzchnia API staje się jawna i wersjonowalna. Koszt: każda
   nowa funkcja aplikacyjna wymaga dopisania w dwóch miejscach, co przy
   `ANTI-BUREAUCRACY RULE` trzeba świadomie zaakceptować.
+
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): W2.** Uzasadnienie: rozszerzenie
+już istniejącego mechanizmu (`test_18_dependency_boundary_scan`) jest spójne z
+resztą repo; W3 wprowadzałoby strukturę (kuratorowane eksporty), której nie ma
+nigdzie indziej w tym kodzie — każdy inny moduł `rota.application.*` jest
+importowany bezpośrednio po pełnej ścieżce, bez `__init__`-owej listy
+dozwolonych nazw. Nie wdrażać teraz — działa dopiero, gdy T012 (katalog UI)
+zacznie istnieć; zapisane tu jako zobowiązanie na start T012, nie na T011.
 
 ---
 
