@@ -1,0 +1,205 @@
+AUDYT IMPLEMENTACJI ROTA-T011-E — ROUND 3
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-E
+
+AUDYTOWANY SHA:
+f2ec010b6ef2812817e0da75f2d4a1943325863e
+
+BAZA PO MERGE T011-A:
+c9d8b9d812c30a3b383cf3b016bf20a4eaacf76c
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-E/round_01/tests/tests_r2.txt
+
+WERDYKT: FAIL + WYMAGA_DECYZJI
+
+Implementacja nie zmienia kodu produktu i oba scenariusze wykonują się do
+końca, ale trzy wymagane dowody są nieszczelne. Dwa findings dotyczą tego, co
+test faktycznie dowodzi; trzeci jest bezpośrednim naruszeniem zadeklarowanej
+granicy importów. `TOTAL_LINES` pozostaje przewidzianym mechanicznym
+WYMAGA_DECYZJI, lecz prośba o jego akceptację powinna zostać wysłana dopiero po
+korektach, gdy znana będzie finalna liczba linii.
+
+
+SECTION_CHECK 1 — BAZA, TASK_SCOPE I BRAK KODU PRODUKCYJNEGO: PASS
+
+- merge-base `c9d8b9d..f2ec010` jest dokładnie `c9d8b9d`, czyli zielony merge
+  T011-A do `main`;
+- jedyne pliki implementacyjne w TASK_SCOPE to dwa nowe testy;
+- diff nie zmienia niczego w `rota/`;
+- nie dodano helpera w `tests/support/` ani trzeciego nowego pliku testowego;
+- pliki mają odpowiednio 165 i 256 linii, a wszystkie funkcje pozostają pod
+  limitem 50 linii.
+
+
+SECTION_CHECK 2 — HAPPY PATH 1–11: PASS
+
+Jeden ciągły test, z jednym plikiem SQLite i jednym narastającym stanem,
+wykonuje kolejno:
+
+1. `open_store`;
+2. dwuczęściowy bootstrap/resume;
+3. roster LOCAL;
+4. target_hours;
+5. pełny kalendarz;
+6. `ready=True` przed PLAN;
+7. FEASIBLE;
+8. select;
+9. open_month;
+10. legalne NN przez `mark_not_worked`;
+11. revalidate i finalize z identyfikatorami Deviation pobranymi z
+   `assemble_planning_state`.
+
+Nie ma skrótu przez persistence ani ręcznie skonstruowanego zestawu
+acknowledged deviations.
+
+
+SECTION_CHECK 3 — HARD STOP I LEGALNE DROGI: PASS Z WYJĄTKIEM FINDING E-R3-2
+
+- rzeczywista reguła HARD dla jedynego eligible pracownika daje
+  `DECISION_REQUIRED`, pustą listę kandydatów i blocker wskazujący pracownika;
+- ręczny zapis z drugim eligible pracownikiem pozostawia brak Deviation;
+- ręczny zapis powtarzający zakaz pozostawia widoczne Deviation ze źródłem
+  wskazującym wersję reguły;
+- jawne `rejects` w Decision Ledger odblokowuje FEASIBLE i pozostaje widoczne
+  w historii rodziny;
+- skan powierzchni nie znalazł publicznego parametru nazwanego jak obejście
+  HARD;
+- test nie przywraca fałszywego twierdzenia, że istnieją dokładnie dwie legalne
+  drogi wyjścia.
+
+Dowód `select_candidate -> CandidateRejected` nie izoluje jednak testowanej
+reguły; szczegóły w FINDING E-R3-2.
+
+
+SECTION_CHECK 4 — REGRESJA I BRAMKI: PASS / WYMAGA_DECYZJI
+
+Uruchomiono oba nowe pliki, ROTA-REG-001 oraz skan granicy T009:
+
+`python -m pytest -q tests/test_t011_e_pipeline_e2e_happy_path.py tests/test_t011_e_pipeline_e2e_hard_stop.py tests/test_rota_reg_001.py tests/test_t009_lifecycle_memory_backup_boundary.py::test_18_dependency_boundary_scan`
+
+Wynik: 15/15 PASS.
+
+Pozostałe wyniki:
+
+- pełna suite: 508/508 PASS;
+- ROTA-REG-001: 7/7 PASS;
+- Ruff na TASK_SCOPE: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check c9d8b9d..f2ec010`: PASS;
+- niezależny backend dla `f2ec010`: wszystkie bramki blokujące zielone,
+  `WYMAGA_DECYZJI` wyłącznie `TOTAL_LINES: 421`.
+
+
+FINDING E-R3-1 — IMPORT POZA DOZWOLONĄ GRANICĄ
+
+Ślad kontraktu:
+
+- DEPENDENCY BOUNDARY: testy wołają wyłącznie `rota.application.*` i
+  `rota.domain`;
+- jedynym jawnym wyjątkiem jest
+  `rota.planning.validator.validate` w Teście 2.
+
+`tests/test_t011_e_pipeline_e2e_hard_stop.py` importuje dodatkowo:
+
+`from rota.site_memory_types import NewRuleContent`
+
+Niezależny skan AST obu plików potwierdził, że jest to jedyny import `rota.*`
+poza dozwoloną powierzchnią. Importów `rota.persistence` rzeczywiście nie ma,
+ale brak persistence nie znosi węższego, jawnego wymagania tego tasku.
+
+Właścicielem kontraktu wywołania pozostaje warstwa aplikacji. Moduł
+`rota.application.rule_decisions` już posiada `NewRuleContent` w swoim
+namespace i przyjmuje ten typ w publicznej funkcji; korekta testu nie wymaga
+zmiany produkcji ani nowej warstwy.
+
+Warunek zamknięcia: usunąć bezpośredni import `rota.site_memory_types` i
+budować wejście do decyzji przez dozwoloną powierzchnię aplikacyjną. Skan AST
+obu plików ma następnie wykazać wyłącznie `rota.application.*`, `rota.domain`
+oraz zaakceptowany wyjątek `rota.planning.validator`.
+
+
+FINDING E-R3-2 — CANDIDATEREJECTED NIE JEST PRZYPISANE TESTOWANEJ REGULE HARD
+
+Ślad kontraktu:
+
+- brak cichego obejścia ma obejmować wprost
+  `select_candidate` z kandydatem łamiącym aktywną regułę HARD;
+- test ma dowodzić tej reguły, nie dowolnego innego powodu odrzucenia.
+
+Test 5 tworzy kandydat zawierający tylko jeden Assignment dla jednego demandu,
+podczas gdy PlanningState zawiera demand dla każdego dnia miesiąca. Niezależna
+diagnostyka `validator.validate` wykazała:
+
+- 30 naruszeń `COVERAGE-01`;
+- dodatkowo naruszenie wersji testowanej SiteRule.
+
+W tej postaci test nadal przejdzie, jeżeli `select_candidate` przestanie
+respektować SiteRule: pozostałe braki pokrycia samodzielnie wymuszą
+`CandidateRejected`, a końcowe `hard_pass=False` również pozostanie prawdziwe.
+
+To jest klasa błędu „odrzucenie z właściwym statusem, lecz z niezależnego
+powodu”. Sam status wyjątku nie dowodzi właściciela decyzji.
+
+Warunek zamknięcia:
+
+- zbudować kompletnego kandydata pokrywającego każdy demand dokładnie raz i
+  spełniającego pozostałe HARD;
+- potwierdzić, że `validate` odrzuca go przez identyfikator aktywnej wersji
+  SiteRule, bez `COVERAGE-01` ani innej niezależnej klasy HARD;
+- na tym samym kandydacie asertować `select_candidate -> CandidateRejected`.
+
+Kontrola równoważności może dodatkowo wykazać, że po jawnym `rejects` tej
+reguły ten sam kandydat uzyskuje `hard_pass=True`. Nie należy zmieniać silnika
+ani `select_candidate`.
+
+
+FINDING E-R3-3 — RESTART PORÓWNUJE TYLKO FRAGMENT STANU
+
+Ślad kontraktu:
+
+- krok 12 wymaga, aby `open_month()` zwrócił identyczny stan przed i po
+  restarcie;
+- WYMAGANE TESTY pkt 4 nakazuje porównanie stanu, nie tylko brak wyjątku;
+- bieżąca wersja i status są wskazane jako szczególnie ważne, a nie jako
+  zamknięty katalog porównywanych pól.
+
+Test porównuje obecnie tylko:
+
+- version_id i status bieżącej wersji;
+- zbiór employee_id;
+- site_id.
+
+Pomija profile, memberships, availability, resolved/unresolved rules, historię
+wersji, work balances i warnings dostępne w `OpenMonthView`. Regresja trwałości
+któregokolwiek z tych pól nie zostałaby wykryta.
+
+Niezależna diagnostyka na tym samym scenariuszu wykazała, że
+`view_after_restart == view_before_restart` jest obecnie prawdą i lista
+różniących się pól dataclass jest pusta. Warunek można więc zamknąć jedną
+asercją pełnej równości, bez zmiany scenariusza i bez kodu produkcyjnego.
+
+Warunek zamknięcia: asertować pełną równość obu `OpenMonthView` (zachowując
+jawne asercje bieżącej wersji i statusu, jeśli są pomocne diagnostycznie).
+
+
+WYMAGA_DECYZJI E-R3-4 — TOTAL_LINES 421
+
+Jest to dokładnie klasa przewidziana przez ENGINEERING GATES briefu i nie jest
+defektem ani podstawą do cięcia dowodu. Akceptacji architekta należy jednak
+zażądać dopiero po zamknięciu trzech findings i ponownym uruchomieniu backendu,
+ponieważ finalna liczba linii może się zmienić.
+
+
+GOTOWOŚĆ
+
+Nie mergować T011-E i jeszcze nie wysyłać prośby o akceptację liczby 421.
+Wszystkie trzy poprawki mieszczą się w dwóch istniejących plikach testowych;
+nie wymagają zmiany `rota/`, briefu ani architektury. Po poprawce wystarczy
+wąski reaudyt E-R3-1..3 oraz potwierdzenie finalnego outputu backendu.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
