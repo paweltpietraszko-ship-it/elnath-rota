@@ -1,0 +1,109 @@
+REAUDYT KONTRAKTU ROTA-T011-D — ROUND 3
+
+AUDYTOWANY KONTRAKT SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-D/round_01/tests/tests_r2.txt
+
+WERDYKT: FAIL — TASK_SCOPE NIE OBEJMUJE NIEUNIKNIONEJ KOREKTY REGRESJI
+
+PASS T011-D z round 2 zostaje cofnięty wyłącznie dla jednego nowego findingu
+ujawnionego podczas implementacji. D-1, D-2 i decyzja o zerowym carry-in
+pozostają zamknięte; nie są ponownie negocjowane.
+
+Nie ma WYMAGA_DECYZJI produktowego ani propozycji architektonicznej. Problem
+dotyczy kompletności TASK_SCOPE wobec skutku, który obecny kontrakt nakazuje.
+
+
+FINDING D-R3-1 — ISTNIEJĄCA ASERCJA LICZBY OSTRZEŻEŃ MUSI SIĘ ZMIENIĆ
+
+Ślad kontraktu:
+
+- CONSTRAINT pkt 4 rozdziela brak normy w planowanym miesiącu od braku normy w
+  wcześniejszym miesiącu kwartału;
+- pracownik z normą planowanego miesiąca i wcześniejszą luką pozostaje w
+  `work_balances`, dostaje carry-in `0` oraz ostrzeżenie nazywające brakujący
+  miesiąc;
+- CONSTRAINT pkt 5 zachowuje dotychczasowe ostrzeżenia planowanego miesiąca i
+  jawnie dopuszcza dodatkowe ostrzeżenia dla wcześniejszych miesięcy;
+- `tests/test_t009_open_and_assembler.py` nie znajduje się w TASK_SCOPE D.
+
+Istniejący test
+`test_5_missing_target_hours_not_invented_and_demand_count_unchanged` buduje
+dokładnie reprezentatywny przypadek:
+
+1. początkowo żaden pracownik nie ma normy planowanego miesiąca;
+2. następnie pierwszy pracownik dostaje normę wyłącznie na planowany miesiąc;
+3. wcześniejszy miesiąc tego samego kwartału pozostaje bez normy;
+4. test oczekuje obecnie dokładnie `len(employees) - 1` ostrzeżeń.
+
+Po legalnej implementacji D pozostaje `employees - 1` dotychczasowych
+ostrzeżeń „omitted from WorkBalance context” oraz dochodzi dokładnie jedno
+ostrzeżenie o wyzerowaniu quarter carry-in dla pierwszego pracownika. Stara
+asercja musi zatem zawieść. Usunięcie nowego ostrzeżenia złamałoby kontrakt.
+
+
+MINIMALIZACJA KLASY SKUTKU — POTWIERDZONA
+
+Implementacja powinna liczyć carry-in tylko dla pracowników mających normę na
+planowany miesiąc. Pracownik bez tej normy jest już pomijany przez istniejące
+zachowanie i dostaje dotychczasowe ostrzeżenie; dokładanie mu równocześnie
+ostrzeżenia carry-in byłoby duplikowaniem skutku.
+
+Zgłoszona redukcja z siedmiu nowych ostrzeżeń do jednego jest więc zgodna z
+CONSTRAINT. Dalsza redukcja do zera ukryłaby jedyną realną wcześniejszą lukę i
+byłaby niezgodna z decyzją właściciela.
+
+
+WŁAŚCICIEL KONTRAKTU
+
+Właścicielem błędu jest TASK_SCOPE briefu T011-D. Test nie definiuje nowego
+zachowania produktu; jego dokładna asercja stała się nieaktualna wskutek
+zachowania już wymaganego przez kontrakt D. CC nie może legalnie zmienić pliku,
+dopóki brief go nie obejmie, ale nie może też uzyskać pełnej regresji bez tej
+zmiany.
+
+
+WARUNEK ZAMKNIĘCIA
+
+Do TASK_SCOPE T011-D należy dodać istniejący plik:
+
+`tests/test_t009_open_and_assembler.py`
+
+Zakres zmiany w nim jest wąski: zastąpić jedną asercję łącznej liczby
+ostrzeżeń klasyfikacją dwóch oczekiwanych grup i potwierdzić:
+
+- `omitted_warnings == len(employees) - 1`;
+- `carry_in_warnings == 1`;
+- brak trzeciej, nieoczekiwanej grupy ostrzeżeń.
+
+Przedstawiona sześcioliniowa korekta realizuje ten warunek i nie wymaga zmiany
+produkcji poza już zakontraktowaną implementacją. Substring użyty lokalnie do
+klasyfikacji może odpowiadać stabilnemu komunikatowi implementacji, ale nie
+staje się przez ten test nowym, globalnym wymaganiem produktowym; wiążąca jest
+semantyka zerowego carry-in oraz wskazanie brakującego miesiąca.
+
+
+POZOSTAŁE SECTION_CHECK Z ROUND 2 — NADAL PASS
+
+- pracownik z bieżącym target pozostaje w `state.work_balances`;
+- jego target nadal uczestniczy w TARGET-01;
+- carry-in po wcześniejszej luce wynosi zero, nie jest częściowy;
+- pełny odczyt kwartału degraduje do pustych danych i ostrzeżenia;
+- brak normy nie blokuje PLAN;
+- nie potrzeba zmian w planning, balance ani persistence;
+- limity nowych plików pozostają zachowane, bo dodawany test już istnieje.
+
+
+GOTOWOŚĆ
+
+Nie zmieniać testu poza scope i nie tłumić kontraktowego ostrzeżenia. Po dodaniu
+jednego istniejącego pliku do TASK_SCOPE oraz opisaniu minimalnej korekty
+asercji wystarczy wąski reaudyt D-R3-1. Nie ma podstaw do ponownego otwierania
+decyzji carry-in ani pozostałych części T011-D.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

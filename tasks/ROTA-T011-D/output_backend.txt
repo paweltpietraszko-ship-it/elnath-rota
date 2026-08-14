@@ -1,0 +1,27 @@
+STATUS: PASS
+HEAD_SHA: 029107be9045d2759e77450a0fb943a04483932c
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+IMPORTERS_FOR_REVIEW:
+  - tests\test_audit_t009_r4.py
+  - tests\test_audit_t009_r5.py
+  - tests\test_t009_open_and_assembler.py
+  - tests\test_t011_d_quarter_balance.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+  - rota\application\open_month.py
+  - rota\application\plan_ops.py
+  - .worktrees\t011-audit\tests\test_audit_t009_r4.py
+  - .worktrees\t011-audit\tests\test_audit_t009_r5.py
+  - .worktrees\t011-audit\tests\test_t009_open_and_assembler.py
+  - .worktrees\t011-audit\rota\application\lifecycle_ops.py
+  - .worktrees\t011-audit\rota\application\manual_edit.py
+  - .worktrees\t011-audit\rota\application\open_month.py
+  - .worktrees\t011-audit\rota\application\plan_ops.py
+  - .worktrees\t010-doc\tests\test_audit_t009_r4.py
+  - .worktrees\t010-doc\tests\test_audit_t009_r5.py
+  - .worktrees\t010-doc\tests\test_t009_open_and_assembler.py
+  - .worktrees\t010-doc\rota\application\lifecycle_ops.py
+  - .worktrees\t010-doc\rota\application\manual_edit.py
+  - .worktrees\t010-doc\rota\application\open_month.py
+  - .worktrees\t010-doc\rota\application\plan_ops.py
+EXCLUDED_ARTIFACTS: NONE

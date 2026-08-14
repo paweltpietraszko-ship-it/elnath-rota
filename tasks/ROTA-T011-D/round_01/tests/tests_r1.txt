@@ -1,0 +1,86 @@
+AUDYT KONTRAKTU ROTA-T011-D — ROUND 1
+
+AUDYTOWANY SHA:
+7670b2d30e4fac54b906a8584030f2139f49b9eb
+
+INTEGRATED_BASE_SHA:
+029107be9045d2759e77450a0fb943a04483932c
+
+WERDYKT: FAIL — KONTRAKT NIE JEST READY_FOR_IMPLEMENTATION
+
+TASK_SCOPE jest mechanicznie realny (dwa nowe pliki, brak zmian w planning i
+persistence), a jawny odczyt całego kwartału może być cienkim wrapperem nad
+`reconstruct_quarter_balance`. Część assemblerowa zawiera jednak sprzeczność z
+TARGET-01, a tekst równocześnie pozostawia materialną decyzję do audytora.
+
+
+FINDING D-1 — POMINIĘCIE PRACOWNIKA ZMIENIA CEL SOLVERA
+
+Ślad kontraktu:
+
+- arch/spec.md TARGET-01: target_hours jest parametrem SOFT;
+- OWNER_DECISION_T010_PANEL_STEROWANIA §10: target_hours pozostaje istniejącym
+  SOFT pomagającym rozdzielać pracę, a T010 nie zmienia jego semantyki;
+- brief D, linie 73-81 i test 8, twierdzi, że zmiana carry-in nie może zmienić
+  solvera, ponieważ solver czyta tylko `target_hours`;
+- linie 181-195 nakazują przy braku wcześniejszej normy usunąć pracownika z
+  `state.work_balances`.
+
+Potwierdzenie w kodzie:
+
+`solver._sick_adjusted_targets` buduje cały słownik celów wyłącznie iterując po
+`state.work_balances` (`solver.py:319-322`), a `_add_objective` dodaje karę
+TARGET-01 wyłącznie dla wpisów tego słownika (`solver.py:325-353`). Usunięcie
+pracownika z `work_balances` nie zmienia tylko pól salda — usuwa jego bieżące
+`target_hours` z funkcji celu. Może więc zmienić przydział, ranking, a nawet
+liczbę zwróconych kandydatów. Zdanie, że pominięcie „nie ma wpływu na
+planowanie”, jest fałszywe.
+
+Test 8, który porównuje tylko status i liczbę kandydatów, nie dowodzi
+niezmienionej semantyki TARGET-01; rozkład godzin może się zmienić przy tej
+samej liczbie kandydatów.
+
+Warunek zamknięcia: kontrakt musi zachować bieżący target pracownika w wejściu
+solvera również wtedy, gdy nie wolno pokazać niepełnej liczby narastającej,
+albo uzyskać jawną zmianę semantyki TARGET-01 i odpowiednio zmienić scope oraz
+oracle. Obecnych wymagań nie da się spełnić jednocześnie samą zmianą
+`assembler.py` opisaną w briefie.
+
+
+FINDING D-2 — WYMAGA_DECYZJI: KSZTAŁT DEGRADACJI NIE JEST ROZSTRZYGNIĘTY
+
+Nagłówek deklaruje `OWNER_ACCEPTANCE_REQUIRED...: no` i twierdzi, że kształt
+degradacji został rozstrzygnięty. Jednocześnie sekcja „INTERPRETACJA DO
+POTWIERDZENIA PRZEZ AUDYT” mówi wprost, że właściciel nie wskazał liczby i że
+możliwe jest inne odczytanie: carry-in częściowy.
+
+Audytor nie jest właścicielem produktu i nie może zamienić zwrotu „ta sama
+degradacja” w wybór W3 (pominięcie pracownika) ani w wybór częściowej liczby.
+To materialne zachowanie UI i solvera, nie szczegół mechaniczny. Dodatkowo
+wybór pominięcia ujawnia konflikt D-1.
+
+Warunek zamknięcia: pisemna decyzja właściciela musi wskazać zachowanie przy
+luce wcześniejszego miesiąca w sposób zgodny z TARGET-01. Po tej decyzji brief
+nie może już zawierać sekcji proszącej audytora o wybór znaczenia.
+
+
+POZOSTAŁA WERYFIKACJA — PASS
+
+- pełny `quarter_balance` może łapać `MissingTargetHoursError` i zwracać pusty
+  wynik z ostrzeżeniem bez duplikowania pętli domenowej;
+- surowe `reconstruct_quarter_balance` rzeczywiście wymaga trzech norm;
+- carry-in dla planowanego miesiąca można policzyć sekwencyjnie przez istniejący
+  parametr `quarter_balance_before`, bez nowych funkcji persistence;
+- przyszłe miesiące nie muszą uczestniczyć w assemblerze;
+- B-4=W3 i brak kodu restore są spójne;
+- solver rzeczywiście nie czyta pól `quarter_balance`, `month_balance` ani
+  `unresolved_carryover`; problem D-1 wynika z usunięcia całego wpisu;
+- `guard.py check arch/spec.md`: PASS;
+- TASK_SCOPE: 3 wpisy, 2 nowe pliki; `git diff --check`: PASS.
+
+Nie implementowano kodu ani testów.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

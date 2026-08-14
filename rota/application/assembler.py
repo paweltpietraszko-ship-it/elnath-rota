@@ -12,7 +12,7 @@ import calendar
 from datetime import date, datetime, timedelta
 
 from rota.application.errors import IncompleteCalendarData, ScheduleVersionContextMismatch
-from rota.balance import MissingTargetHoursError
+from rota.balance import MissingTargetHoursError, quarter_start
 from rota.domain import (
     Assignment,
     AvailabilityRecord,
@@ -39,7 +39,7 @@ from rota.persistence.schedule_repository import (
     get_schedule_snapshot,
     get_schedule_version_header,
 )
-from rota.persistence.work_balance_repository import reconstruct_month_balance
+from rota.persistence.work_balance_repository import get_work_balance_target, reconstruct_month_balance
 from rota.planning.state import PlanningState
 
 
@@ -118,13 +118,53 @@ def _assemble_windows_and_availability(
     return windows, tuple(availability)
 
 
+def _add_one_month(month: date) -> date:
+    return date(month.year + month.month // 12, month.month % 12 + 1, 1)
+
+
+def _carry_in_before(conn, *, employee_id: str, month: date) -> tuple[int, list[str]]:
+    """ROTA-T011-D (B-5=W2, CONSTRAINT): sums quarter_balance from the
+    quarter's first month through the month immediately BEFORE `month` --
+    never `month` itself, never a future month (T011-D owner decision:
+    carry-in only up to and including the planned month). Missing
+    target_hours in any earlier month resets the carry-in to 0 with a
+    warning naming that month, never a partial sum, never an exception --
+    missing target_hours must never block PLAN
+    (part_a_bootstrap_roster.md)."""
+    running = 0
+    current = quarter_start(month)
+    while current < month:
+        try:
+            balance = reconstruct_month_balance(
+                conn, employee_id=employee_id, month=current, quarter_balance_before=running,
+            )
+        except MissingTargetHoursError:
+            return 0, [
+                f"missing target_hours for employee {employee_id!r}, month {current.isoformat()}: "
+                "quarter carry-in reset to 0"
+            ]
+        running = balance.quarter_balance
+        current = _add_one_month(current)
+    return running, []
+
+
 def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple[tuple[WorkBalance, ...], list[str]]:
     balances, warnings = [], []
     for employee_id in employee_ids:
-        try:
-            balances.append(reconstruct_month_balance(conn, employee_id=employee_id, month=month))
-        except MissingTargetHoursError:
+        # R3-11-D: skip the carry-in lookup entirely for an employee already
+        # omitted for lacking target_hours on the PLANNED month itself --
+        # today's single, unchanged warning for that case must stay the only
+        # one; computing an earlier-month carry-in for someone who won't get
+        # a WorkBalance anyway would add a second, redundant warning about a
+        # gap that is moot once they are already excluded.
+        if get_work_balance_target(conn, employee_id, month) is None:
             warnings.append(f"missing target_hours for employee {employee_id!r}: omitted from WorkBalance context")
+            continue
+        carry_in, carry_warnings = _carry_in_before(conn, employee_id=employee_id, month=month)
+        warnings.extend(carry_warnings)
+        balances.append(
+            reconstruct_month_balance(conn, employee_id=employee_id, month=month, quarter_balance_before=carry_in)
+        )
     return tuple(balances), warnings
 
 
