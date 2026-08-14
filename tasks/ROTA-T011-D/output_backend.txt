@@ -1,11 +1,18 @@
-STATUS: PASS
-HEAD_SHA: 029107be9045d2759e77450a0fb943a04483932c
+STATUS: WYMAGA_DECYZJI
+HEAD_SHA: 6fd27eb6cb5c9f60cec42f5ed313da1ded2ec1b2
 CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+WYMAGA_DECYZJI:
+  - RATIO: 331/6 = 55.2:1 (threshold 5:1)
+  - TOTAL_LINES: 337 lines changed (threshold 150)
 IMPORTERS_FOR_REVIEW:
   - tests\test_audit_t009_r4.py
   - tests\test_audit_t009_r5.py
   - tests\test_t009_open_and_assembler.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
   - tests\test_t011_d_quarter_balance.py
+  - tests\test_t011_e_pipeline_e2e_happy_path.py
+  - tests\test_t011_e_pipeline_e2e_hard_stop.py
   - rota\application\lifecycle_ops.py
   - rota\application\manual_edit.py
   - rota\application\open_month.py
@@ -24,4 +31,11 @@ IMPORTERS_FOR_REVIEW:
   - .worktrees\t010-doc\rota\application\manual_edit.py
   - .worktrees\t010-doc\rota\application\open_month.py
   - .worktrees\t010-doc\rota\application\plan_ops.py
-EXCLUDED_ARTIFACTS: NONE
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T011-D/brief.md
+  - tasks/ROTA-T011-D/output_backend.txt
+  - tasks/ROTA-T011-D/repo_before.hash
+  - tasks/ROTA-T011-D/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T011-D/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T011-D/round_01/tests/tests_r3.txt
+  - tasks/ROTA-T011-D/round_01/tests/tests_r4.txt
