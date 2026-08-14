@@ -36,19 +36,31 @@ from rota.domain import (
     MembershipKind,
     Site,
     SiteProfile,
+    StandardShift,
 )
 from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.coordinator_repository import (
     CoordinatorNotFound,
+    activate_association_if_not_already_active_in_open_transaction,
     get_coordinator,
     list_associations_for_coordinator,
-    save_coordinator,
-    save_coordinator_site_association,
+    write_coordinator_in_open_transaction,
 )
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site
-from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
-from rota.persistence.site_repository import SiteNotFound, get_site, save_site
+from rota.persistence.site_profile_repository import get_site_profile, write_site_profile_in_open_transaction
+from rota.persistence.site_repository import SiteNotFound, get_site, write_site_in_open_transaction
 from rota.persistence.work_balance_repository import get_work_balance_target
+
+
+def _is_valid_standard_shift(shift: StandardShift) -> bool:
+    """R3-1: a row present in standard_shifts is not by itself proof of a
+    usable configuration -- it must be able to produce a legal ShiftDemand
+    (same invariants as assembler.generate_profile_demands /
+    schedule_validation.validate_demands: end > start, required_primary_count
+    > 0). end_next_day always yields end > start regardless of the times."""
+    if shift.required_primary_count <= 0:
+        return False
+    return shift.end_next_day or shift.end_time > shift.start_time
 
 
 def _has_active_association(conn, *, coordinator_id: str, site_id: str) -> bool:
@@ -78,10 +90,15 @@ def bootstrap_or_resume_coordinator_context(
     a partial context over several calls by re-supplying the same
     coordinator_id/site_id with more pieces filled in each time.
 
-    Sequential-consistency guard only (human error / engine failure threat
-    model, not concurrent multi-client writers): rejects a *second*
-    bootstrap call arriving after the first already went active, not a true
-    simultaneous race between two in-flight calls."""
+    R3-2: the upfront _has_active_association check is a fast, friendly
+    rejection for the common case (already active, don't even try), but two
+    concurrent callers can both pass it before either has written anything.
+    The real exclusivity guard is
+    activate_association_if_not_already_active_in_open_transaction's atomic
+    UPSERT...WHERE, called last: only one of two racing calls that both
+    reach it can actually flip the row to active, and the loser is refused
+    here -- after coordinator/profile/site writes (idempotent resume data,
+    harmless either way), never before the association decision itself."""
     if _has_active_association(conn, coordinator_id=coordinator_id, site_id=site_id):
         raise CoordinatorContextAlreadyActive(
             f"({coordinator_id!r}, {site_id!r}) already has an active context; "
@@ -90,18 +107,30 @@ def bootstrap_or_resume_coordinator_context(
 
     if coordinator is not None:
         _require_id_match("coordinator.coordinator_id", (coordinator.coordinator_id,), (coordinator_id,))
-        save_coordinator(conn, coordinator)
+        with conn:
+            write_coordinator_in_open_transaction(conn, coordinator)
     if site_profile is not None:
-        save_site_profile(conn, site_profile)
+        with conn:
+            write_site_profile_in_open_transaction(conn, site_profile)
     if site is not None:
         _require_id_match("site.site_id", (site.site_id,), (site_id,))
-        save_site(conn, site)
+        with conn:
+            write_site_in_open_transaction(conn, site)
     if association is not None:
         _require_id_match(
             "association (coordinator_id, site_id)",
             (association.coordinator_id, association.site_id), (coordinator_id, site_id),
         )
-        save_coordinator_site_association(conn, association)
+        _activate_association_or_raise(conn, coordinator_id=coordinator_id, site_id=site_id, association=association)
+
+
+def _activate_association_or_raise(conn, *, coordinator_id: str, site_id: str, association: CoordinatorSiteAssociation) -> None:
+    with conn:
+        won = activate_association_if_not_already_active_in_open_transaction(conn, association)
+    if not won:
+        raise CoordinatorContextAlreadyActive(
+            f"({coordinator_id!r}, {site_id!r}) was activated by a concurrent bootstrap first"
+        )
 
 
 @dataclass(frozen=True)
@@ -131,8 +160,8 @@ def coordinator_context_completeness(conn, *, coordinator_id: str, site_id: str)
             profile = get_site_profile(conn, site.profile_id)
             if not profile.active:
                 missing.append(f"site profile {site.profile_id!r} is not active")
-            elif not profile.standard_shifts:
-                missing.append(f"site profile {site.profile_id!r} has no standard shifts")
+            elif not any(_is_valid_standard_shift(s) for s in profile.standard_shifts):
+                missing.append(f"site profile {site.profile_id!r} has no valid standard shift")
     except SiteNotFound:
         missing.append(f"site {site_id!r} does not exist")
 

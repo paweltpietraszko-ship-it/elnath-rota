@@ -19,52 +19,58 @@ class SiteProfileNotFound(Exception):
     """Raised when profile_id has no row in site_profiles."""
 
 
-def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
-    with conn:
+def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: SiteProfile) -> None:
+    """Same write as save_site_profile, without its own `with conn:` (see
+    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
+    conn.execute(
+        """INSERT INTO site_profiles
+           (profile_id, display_name, active, day_only_blocks_n,
+            external_support_enabled, training_s_enabled,
+            training_s_weekdays_only, training_s_default_readiness_threshold,
+            rolling_7d_decision_threshold_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(profile_id) DO UPDATE SET
+            display_name=excluded.display_name,
+            active=excluded.active,
+            day_only_blocks_n=excluded.day_only_blocks_n,
+            external_support_enabled=excluded.external_support_enabled,
+            training_s_enabled=excluded.training_s_enabled,
+            training_s_weekdays_only=excluded.training_s_weekdays_only,
+            training_s_default_readiness_threshold=excluded.training_s_default_readiness_threshold,
+            rolling_7d_decision_threshold_hours=excluded.rolling_7d_decision_threshold_hours""",
+        (
+            profile.profile_id,
+            profile.display_name,
+            int(profile.active),
+            int(profile.day_only_blocks_n),
+            int(profile.external_support_enabled),
+            int(profile.training_s_enabled),
+            int(profile.training_s_weekdays_only),
+            profile.training_s_default_readiness_threshold,
+            profile.rolling_7d_decision_threshold_hours,
+        ),
+    )
+    conn.execute("DELETE FROM standard_shifts WHERE profile_id = ?", (profile.profile_id,))
+    for seq, shift in enumerate(profile.standard_shifts):
         conn.execute(
-            """INSERT INTO site_profiles
-               (profile_id, display_name, active, day_only_blocks_n,
-                external_support_enabled, training_s_enabled,
-                training_s_weekdays_only, training_s_default_readiness_threshold,
-                rolling_7d_decision_threshold_hours)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(profile_id) DO UPDATE SET
-                display_name=excluded.display_name,
-                active=excluded.active,
-                day_only_blocks_n=excluded.day_only_blocks_n,
-                external_support_enabled=excluded.external_support_enabled,
-                training_s_enabled=excluded.training_s_enabled,
-                training_s_weekdays_only=excluded.training_s_weekdays_only,
-                training_s_default_readiness_threshold=excluded.training_s_default_readiness_threshold,
-                rolling_7d_decision_threshold_hours=excluded.rolling_7d_decision_threshold_hours""",
+            """INSERT INTO standard_shifts
+               (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 profile.profile_id,
-                profile.display_name,
-                int(profile.active),
-                int(profile.day_only_blocks_n),
-                int(profile.external_support_enabled),
-                int(profile.training_s_enabled),
-                int(profile.training_s_weekdays_only),
-                profile.training_s_default_readiness_threshold,
-                profile.rolling_7d_decision_threshold_hours,
+                seq,
+                shift.kind.value,
+                shift.start_time.isoformat(),
+                shift.end_time.isoformat(),
+                int(shift.end_next_day),
+                shift.required_primary_count,
             ),
         )
-        conn.execute("DELETE FROM standard_shifts WHERE profile_id = ?", (profile.profile_id,))
-        for seq, shift in enumerate(profile.standard_shifts):
-            conn.execute(
-                """INSERT INTO standard_shifts
-                   (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    profile.profile_id,
-                    seq,
-                    shift.kind.value,
-                    shift.start_time.isoformat(),
-                    shift.end_time.isoformat(),
-                    int(shift.end_next_day),
-                    shift.required_primary_count,
-                ),
-            )
+
+
+def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
+    with conn:
+        write_site_profile_in_open_transaction(conn, profile)
 
 
 def _row_to_shift(row: tuple) -> StandardShift:

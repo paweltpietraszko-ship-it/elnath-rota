@@ -15,8 +15,8 @@ from datetime import date, datetime
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.deviation_mapping import materialize_deviations
-from rota.application.errors import NoCurrentScheduleVersion, require_real_date
-from rota.domain import Assignment, AssignmentState, ScheduleVersion
+from rota.application.errors import NoCurrentScheduleVersion, NotWorkedRequiresPlannedPrimary, require_real_date
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
@@ -101,6 +101,11 @@ def mark_not_worked(
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
     snapshot = get_schedule_snapshot(conn, current_id)
     target = next(a for a in snapshot.assignments if a.assignment_id == assignment_id)
+    if target.role != AssignmentRole.PRIMARY or target.state != AssignmentState.PLANNED:
+        raise NotWorkedRequiresPlannedPrimary(
+            f"assignment {assignment_id!r} is role={target.role.value} state={target.state.value}, "
+            "not a PLANNED PRIMARY -- NN cannot be applied"
+        )
     updated = replace(target, state=AssignmentState.CANCELLED, operational_code="NN")
     return apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,

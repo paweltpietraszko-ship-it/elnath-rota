@@ -1,0 +1,321 @@
+AUDYT IMPLEMENTACJI ROTA-T010 A/B/C/D — ROUND 3
+
+AUDYTOWANY SHA IMPLEMENTACJI:
+527662eaf4497c7739bee8ebbcdf5aafcacfaedf
+
+GAŁĄŹ:
+task/ROTA-T010
+
+BAZA IMPLEMENTACJI:
+51b71725186fa30be23219e94aa135bb69bc5bce
+
+ŹRÓDŁA KONTRAKTU:
+- zaakceptowany kontrakt T010: 2de74063909a1c2b207c2170855b835571d378b0;
+- PASS kontraktu R2: 405d2414483d2a2c7cafccc14a0e4cf070341937;
+- późniejsza pisemna decyzja właściciela A z 2026-08-14:
+  408d439aa87983685f7a717f10d2e28443969b92;
+- arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md.
+
+WERDYKT: FAIL — NIE PRZEKAZYWAĆ JESZCZE DO MERGE / AKCEPTACJI RĘCZNEJ
+
+T010-A: FAIL
+T010-B: FAIL
+T010-C: PASS
+T010-D: FAIL
+
+Nie ma CONTRACT_GAP ani pytania wymagającego decyzji właściciela. Wszystkie
+findings poniżej wynikają literalnie z zaakceptowanych części A/B/D albo z
+zamrożonego addendum. Nie zmieniano kodu produkcyjnego podczas audytu.
+
+
+WYNIKI TESTÓW
+
+Testy autora T010:
+
+python -m pytest -q tests/test_t010_bootstrap_roster.py \
+  tests/test_t010_day_only_n_exception.py \
+  tests/test_t010_c_readiness_regression.py tests/test_t010_nn.py
+
+27 passed.
+
+Pełna regresja przed dodaniem testów audytowych:
+
+python -m pytest -q
+
+432 passed.
+
+Macierz audytowa:
+
+tests/test_audit_t010_r3.py
+
+10 failed. Wynik powtórzono; reproduktory są stabilne.
+
+Pełna regresja z testami audytowymi:
+
+10 failed, 432 passed.
+
+git diff --check: PASS.
+
+
+FINDING R3-1 — HIGH — A UZNAJE DOWOLNY NIEPUSTY STANDARD_SHIFT ZA POPRAWNY
+
+Ślad wymagania:
+
+- part_a_bootstrap_roster.md, „Dwa odczyty, dwa znaczenia”: kompletność
+  wymaga co najmniej jednej poprawnej standardowej zmiany;
+- zaakceptowana semantyka ShiftDemand wymaga end_datetime > start_datetime
+  i required_primary_count > 0 (tasks/ROTA-T008/brief.md, SHIFTDEMAND
+  PERSISTENCE INVARIANTS).
+
+Właściciel kontraktu:
+
+- coordinator_context_completeness() / month_plan_readiness().
+
+Obecne zachowanie:
+
+- rota/application/bootstrap.py:134 sprawdza wyłącznie, czy
+  profile.standard_shifts nie jest pustą listą;
+- profil z required_primary_count=0 jest COMPLETE;
+- profil ze zmianą 05:00–05:00 i end_next_day=false również jest COMPLETE;
+- oba warianty wygenerowałyby ShiftDemand odrzucany później przez istniejącą
+  walidację snapshotu.
+
+Klasa błędu:
+
+Każdy wpis StandardShift obecny w bazie, ale niezdolny do utworzenia legalnego
+ShiftDemandu, jest traktowany jako dowód kompletności. Oryginalny reproduktor
+oraz sibling graniczny są w:
+
+- test_r3_a_context_is_not_complete_with_an_invalid_standard_shift
+  [required_primary_count=0];
+- ten sam test [zerowy przedział czasu].
+
+Skutek:
+
+Panel może pokazać kompletny kontekst i gotowość miesiąca, choć pierwsza próba
+zapisu wygenerowanego grafiku zostanie odrzucona jako błędny demand. To jest
+zwykła pomyłka konfiguracyjna użytkownika, którą odczyt kompletności miał
+wykrywać.
+
+Warunek zamknięcia:
+
+Odczyt kompletności nie może uznać profilu z samymi niepoprawnymi zmianami za
+kompletny i musi zwrócić konkretny brak/błąd. Nie narzuca to miejsca ani formy
+implementacji walidacji; reguły poprawności muszą pozostać zgodne z już
+istniejącym generowaniem i walidacją ShiftDemand.
+
+
+FINDING R3-2 — HIGH — A NIE ODRZUCA RZECZYWISTEJ KOLIZJI DWÓCH BOOTSTRAPÓW
+
+Ślad wymagania:
+
+- part_a_bootstrap_roster.md: konflikt z innym, równolegle powstającym zapisem
+  tego samego pierwszego kontekstu oznacza odmowę;
+- decyzja właściciela 2026-08-14 zawęża tę odmowę do tego samego kontekstu,
+  ale jej nie usuwa.
+
+Właściciel kontraktu:
+
+- bootstrap_or_resume_coordinator_context().
+
+Obecne zachowanie:
+
+- rota/application/bootstrap.py:81 jawnie opisuje zabezpieczenie jako tylko
+  „Sequential-consistency guard”;
+- kontrola aktywnego Association na linii 85 odbywa się przed czterema
+  osobnymi zapisami;
+- dwa połączenia zsynchronizowane tak, aby oba odczytały brak Association,
+  następnie oba kończą bootstrap sukcesem;
+- wynik reproduktora: ["success", "success"], zamiast jednego sukcesu i jednej
+  kontrolowanej odmowy.
+
+Klasa błędu:
+
+Każde przeplatanie, w którym dwa wywołania tego samego coordinator_id/site_id
+miną kontrolę przed powstaniem Association, omija guard. Różne wartości
+display_name w reproduktorze pokazują również, że późniejszy zapis może
+nadpisać dane wcześniejszego wywołania.
+
+Test:
+
+- test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed.
+
+Warunek zamknięcia:
+
+Dla dwóch równoległych prób tego samego pierwszego kontekstu dokładnie jedna
+może zakończyć się sukcesem, a druga ma otrzymać kontrolowaną odmowę. Nie wolno
+przy tym wprowadzić ograniczenia „jeden Site na koordynatora”; różne site_id
+pozostają niezależne zgodnie z decyzją właściciela.
+
+
+FINDING R3-3 — HIGH — B UCHYLA DAY_ONLY TAKŻE DLA REGUŁY, KTÓRA NIE JEST
+CONFIRMED_EXCEPTION
+
+Ślad wymagania:
+
+- FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md: nowy rodzaj musi być
+  CONFIRMED_EXCEPTION, HARD i RESOLVED;
+- part_b_availability.md: jest to jeden wąski wyjątek wyłącznie od DAY_ONLY-01,
+  a nie ogólny mechanizm override.
+
+Właściciel kontraktu:
+
+- wykonanie EMPLOYEE_DAY_ONLY_N_EXCEPTION w eligibility/validator oraz
+  walidacja wykonywalnego rodzaju SiteRule.
+
+Obecne zachowanie:
+
+- validate_executable_site_rules() nie sprawdza category;
+- day_only_n_exception_applies() sprawdza tylko rule_kind i employee_id;
+- reguła o tym rodzaju zapisana jako LOCAL_RULE albo CLIENT_REQUIREMENT
+  przechodzi do wykonania;
+- dla jedynego pracownika day_only=true i demandu N plan() zwraca FEASIBLE i
+  tworzy jego PRIMARY Assignment w obu niedozwolonych kategoriach.
+
+Klasa błędu i test:
+
+- test_r3_b_day_only_exception_requires_confirmed_exception_category jest
+  sparametryzowany dla obu siblingów category innych niż CONFIRMED_EXCEPTION.
+
+Skutek:
+
+Zwykła reguła lokalna lub wymaganie klienta może przypadkiem dostać moc
+zatwierdzonego wyjątku i dopuścić pracownika day_only do N. To narusza
+zamrożoną granicę wyjątku.
+
+Warunek zamknięcia:
+
+EMPLOYEE_DAY_ONLY_N_EXCEPTION spoza CONFIRMED_EXCEPTION nie może uchylić
+DAY_ONLY-01. Kontrakt nie wymaga konkretnego sposobu fail-closed; wynik nie
+może być zwykłym FEASIBLE opartym na takiej regule. Macierz należy zachować
+dla obu niedozwolonych kategorii oraz poprawnego CONFIRMED_EXCEPTION.
+
+
+FINDING R3-4 — HIGH — B GUBI DATĘ WCZEŚNIEJSZEGO PRZYWRÓCENIA ✓ W PROJEKCJI
+
+Ślad wymagania:
+
+- part_b_availability.md, „Edycja ograniczenia”: wcześniejsze przywrócenie ✓
+  tworzy kolejną decyzję w tej samej rodzinie, stara wersja nie pozostaje
+  równoległym aktywnym źródłem, a restart odtwarza identyczną projekcję;
+- ta sama część wymaga projekcji bazowego stanu i datowanych zmian.
+
+Właściciel kontraktu:
+
+- employee_availability_matrix().
+
+Obecne zachowanie:
+
+- assemble_monthly_site_rules() poprawnie wylicza wersje wraz z dokładnymi
+  SiteRuleApplicability;
+- rota/application/availability_matrix.py:51 odrzuca trzeci wynik
+  (applicability) i zwraca tylko surowe SiteRuleVersion;
+- dla zakazu N 01–31.10 projekcja przed korektą i po decyzji „przywróć ✓ od
+  15.10” jest dokładnie równa;
+- jednocześnie effective_rule_on(20.10) poprawnie zmienia się z EffectiveRule
+  przed korektą na NoActiveRule po korekcie.
+
+Klasa błędu:
+
+Każda korekta/reject/supersession skracająca realny okres obowiązywania bez
+mutowania effective_to starej wersji może być niewidoczna dla projection
+consumer. Dotyczy Ogólnej, D, N, weekday oraz wyjątku day_only, ponieważ
+wszystkie używają tego samego utraconego wyniku applicability.
+
+Test:
+
+- test_r3_b_projection_distinguishes_early_restore_from_unchanged_ban.
+
+Skutek:
+
+Panel nie może odróżnić „N nadal ☐ do 31.10” od „N wraca ✓ od 15.10”, mimo że
+solver rozróżnia te stany. Odczyt i wykonanie pokazują więc różne znaczenie
+tych samych danych.
+
+Warunek zamknięcia:
+
+Projekcja musi obserwowalnie zachować efektywne, datowane odcinki albo
+równoważny wynik pozwalający odróżnić oba stany. Nie narzuca to DTO ani UI;
+ważne jest, aby wcześniejsze ✓, korekta dat i restart dawały prawdziwą
+projekcję.
+
+
+FINDING R3-5 — HIGH — D PERSISTUJE NIELEGALNE KOMBINACJE operational_code I
+POZWALA OZNACZYĆ TRAINEE JAKO NN
+
+Ślad wymagania:
+
+- part_d_nn.md: w T010 jedyną dozwoloną wartością operational_code jest NN;
+- NN dotyczy wyłącznie wcześniej PLANNED PRIMARY;
+- child ma dla tego samego Assignment state=CANCELLED i operational_code=NN;
+- zaakceptowana macierz R2 wymaga odrzucenia nielegalnych kombinacji oraz
+  zachowania zwykłego CANCELLED bez NN.
+
+Właściciele kontraktu:
+
+- wspólna walidacja ScheduleVersion/Assignment dla wszystkich ścieżek zapisu;
+- named application operation mark_not_worked().
+
+Obecne zachowanie:
+
+- migracja 4 dodaje nieograniczoną kolumnę TEXT;
+- schedule_validation.validate_assignments() nie sprawdza operational_code;
+- warstwa lifecycle zapisuje każdy przekazany tekst i kombinację;
+- mark_not_worked() na rota/application/manual_edit.py:89–105 nie sprawdza
+  wejściowych role/state i bezwarunkowo zamienia wskazanie na CANCELLED+NN.
+
+Potwierdzone siblingi:
+
+1. PLANNED PRIMARY + NN zostaje zapisany;
+2. CANCELLED TRAINEE + NN zostaje zapisany;
+3. CANCELLED PRIMARY + operational_code="OTHER" zostaje zapisany;
+4. mark_not_worked() wywołane dla PLANNED TRAINEE tworzy child zamiast
+   odmówić; liczba ScheduleVersion rośnie.
+
+Testy:
+
+- test_r3_d_schedule_write_rejects_every_illegal_operational_code_shape
+  (trzy warianty);
+- test_r3_d_mark_not_worked_rejects_a_trainee_without_creating_a_child.
+
+Skutek:
+
+Program może trwale zapisać NN dla szkolenia albo pokazać NN na zmianie,
+która nadal jest PLANNED, oraz zaakceptować nieznany kod. Po restarcie te
+nielegalne fakty round-tripują jak zwykłe dane.
+
+Warunek zamknięcia:
+
+Wszystkie drogi utworzenia snapshotu muszą odrzucać operational_code inne niż
+None/NN oraz NN inne niż CANCELLED PRIMARY. mark_not_worked() musi odmówić,
+jeżeli bieżące wskazanie nie jest PLANNED PRIMARY, i nie może utworzyć child po
+takiej odmowie. Zwykłe CANCELLED+None pozostaje legalne.
+
+
+T010-C
+
+PASS. Commit 527662e dodaje wyłącznie testy regresyjne. Nie ma produkcyjnej
+logiki readiness. NOT_READY i READY_FOR_PRIMARY mają identyczne eligibility,
+a solver sam nie tworzy TRAINEE.
+
+
+WERYFIKACJA REALNEGO GRAFIKU
+
+Istniejąca pełna regresja, w tym real-object benchmark, pozostaje zielona, ale
+nie zastępuje akceptacji zachowań T010. Obecnej implementacji nie należy jeszcze
+przekazywać do ręcznej akceptacji, ponieważ B może pokazać inny okres niż
+wykonuje solver, a D dopuszcza nieprawdziwy kod NN.
+
+Po zamknięciu findings wystarczy jeden czytelny scenariusz ręczny obejmujący:
+- day_only z poprawnym wyjątkiem, innym zakazem N i wcześniejszym
+  przywróceniem ✓;
+- jedną wcześniej PLANNED zmianę oznaczoną NN, widoczną jako CANCELLED+NN w
+  child, z parent bez zmian i zwykłym COVERAGE do czasu ręcznego zastępstwa.
+
+Nie ma potrzeby budować drugiego solvera ani nowego benchmarku.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Warunki zamknięcia są wymaganiami istniejącego kontraktu, nie propozycją
+nowej architektury.

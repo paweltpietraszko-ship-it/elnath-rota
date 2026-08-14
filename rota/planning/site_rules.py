@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from rota.domain import RuleEnforcement, ShiftKind, SiteRuleVersion
+from rota.domain import RuleCategory, RuleEnforcement, ShiftKind, SiteRuleVersion
 
 EMPLOYEE_ALLOWED_SHIFT_KINDS = "EMPLOYEE_ALLOWED_SHIFT_KINDS"
 EMPLOYEE_ALLOWED_WEEKDAYS = "EMPLOYEE_ALLOWED_WEEKDAYS"
@@ -165,9 +165,15 @@ def day_only_n_exception_applies(applicable_hard_rules: list[SiteRuleVersion], e
     applicable RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule names
     employee_id. Exempts only DAY_ONLY-01 for N; every other HARD rule
     still applies via AND -- callers must only consult this at the
-    DAY_ONLY-01 check site, never as a general override."""
+    DAY_ONLY-01 check site, never as a general override.
+
+    R3-3: the addendum requires category=CONFIRMED_EXCEPTION -- a rule of
+    this kind saved under any other category (e.g. an ordinary LOCAL_RULE)
+    must not grant the exception."""
     return any(
-        r.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION and r.structured_parameters.get("employee_id") == employee_id
+        r.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION
+        and r.category == RuleCategory.CONFIRMED_EXCEPTION
+        and r.structured_parameters.get("employee_id") == employee_id
         for r in applicable_hard_rules
     )
 

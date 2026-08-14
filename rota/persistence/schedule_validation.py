@@ -87,6 +87,24 @@ def _validate_assignment_shape(
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: start date not in ScheduleVersion.month")
     if conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (assignment.employee_id,)).fetchone() is None:
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: unknown employee {assignment.employee_id!r}")
+    _validate_operational_code(assignment)
+
+
+def _validate_operational_code(assignment: Assignment) -> None:
+    """R3-5 (part_d_nn.md): every write path -- not just mark_not_worked --
+    must reject an operational_code T010 does not define, or a legal "NN"
+    attached to anything other than a CANCELLED PRIMARY (a TRAINEE, or a
+    still-PLANNED Assignment, are not truthful NN facts)."""
+    if assignment.operational_code is None:
+        return
+    if assignment.operational_code != "NN":
+        raise MalformedScheduleSnapshot(
+            f"assignment {assignment.assignment_id!r}: unsupported operational_code {assignment.operational_code!r}"
+        )
+    if assignment.role != AssignmentRole.PRIMARY or assignment.state != AssignmentState.CANCELLED:
+        raise MalformedScheduleSnapshot(
+            f"assignment {assignment.assignment_id!r}: operational_code=NN requires role=PRIMARY and state=CANCELLED"
+        )
 
 
 def _validate_assignment_references(

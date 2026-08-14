@@ -25,6 +25,7 @@ from rota.persistence.availability_repository import get_current_availability_fo
 from rota.persistence.employee_repository import get_employee
 from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
 from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION, EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS
+from rota.planning.state import SiteRuleApplicability
 
 _RELEVANT_AVAILABILITY_KINDS = (
     AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED, AvailabilityKind.UNAVAILABLE_24H,
@@ -37,6 +38,16 @@ class EmployeeAvailabilityMatrix:
     employee: Employee
     availability_records: tuple[AvailabilityRecord, ...]
     weekday_and_exception_rules: tuple[SiteRuleVersion, ...]
+    # R3-4: assemble_monthly_site_rules's resolved SiteRuleVersion list keeps
+    # each version's OWN effective_from/effective_to (when it was written),
+    # not the ACTUAL currently-effective days -- a "rejects" decision that
+    # ends a ban early leaves the same version object unchanged but shrinks
+    # its real applicability. Without these per-day slices, an early
+    # checkmark restore was invisible: the resolved-rules list looked
+    # identical before and after. Keyed by rule_version_id (not embedded in
+    # each rule) so the shape stays exactly what assemble_monthly_site_rules
+    # already produces, no re-derivation.
+    rule_applicability: tuple[SiteRuleApplicability, ...]
 
 
 def employee_availability_matrix(conn, *, site_id: str, employee_id: str, month: date) -> EmployeeAvailabilityMatrix:
@@ -48,11 +59,14 @@ def employee_availability_matrix(conn, *, site_id: str, employee_id: str, month:
         r for r in get_current_availability_for_employee(conn, employee_id)
         if r.active and r.kind in _RELEVANT_AVAILABILITY_KINDS
     )
-    resolved, _, _ = assemble_monthly_site_rules(conn, site_id, month)
+    resolved, _, applicability = assemble_monthly_site_rules(conn, site_id, month)
     rules = tuple(
         r for r in resolved
         if r.rule_kind in _RELEVANT_RULE_KINDS and r.structured_parameters.get("employee_id") == employee_id
     )
+    relevant_ids = {r.rule_version_id for r in rules}
+    rule_applicability = tuple(a for a in applicability if a.rule_version_id in relevant_ids)
     return EmployeeAvailabilityMatrix(
         employee=employee, availability_records=availability, weekday_and_exception_rules=rules,
+        rule_applicability=rule_applicability,
     )
