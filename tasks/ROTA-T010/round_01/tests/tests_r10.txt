@@ -1,0 +1,129 @@
+WĄSKI REAUDYT POPRAWKI ARCHITEKTA ARCH-1 — ROTA-T010-D — ROUND 10
+
+AUDYTOWANY SHA:
+ad81923ea6ba6af84027811756336bc11adacea3
+
+GAŁĄŹ:
+task/ROTA-T010
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T010/round_01/tests/tests_r9.txt — końcowy PASS spójności A/B/C/D.
+
+ZAKRES RUNDY:
+
+Wyłącznie ARCH-1: zachowanie tożsamości już istniejącego CANCELLED PRIMARY+NN
+w kolejnych descendant oraz zapisach in-place. Nie wykonywano ponownego
+audytu A/B/C ani całego projektu T010.
+
+WERDYKT: PASS — ARCH-1 ZAMKNIĘTE
+
+Końcowy PASS T010 z R9 pozostaje ważny. Nie znaleziono nowego defektu
+kontraktowego. Nie ma WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+ŚLAD WYMAGANIA
+
+- finding architekta ARCH-1 przekazany dla T010-D;
+- tasks/ROTA-T010/part_d_nn.md: ten sam Assignment w child zachowuje
+  identyfikator pracownika, interval i powiązanie z demandem;
+- R7-1 w tests_r7.txt: pierwsze PLANNED PRIMARY -> CANCELLED+NN zachowuje
+  employee_id, start_datetime, end_datetime i covers_demand_id;
+- R8 i R9: legalne NN może być przenoszone dalej bez zmiany.
+
+ARCH-1 stosuje ten sam istniejący invariant do gałęzi, w której reference ma
+już operational_code=NN. Nie ustanawia nowego modelu produktu.
+
+
+IMPLEMENTACJA — PASS
+
+validate_nn_provenance() nie akceptuje już bezwarunkowo zgodnego
+assignment_id z istniejącym NN. Gałąź wymaga teraz
+_nn_transition_preserves_identity(reference, candidate), czyli równości:
+
+- employee_id;
+- start_datetime;
+- end_datetime;
+- covers_demand_id.
+
+Niezmienione istniejące NN nadal przechodzi. Zmiana dowolnego z czterech pól
+kończy się MalformedScheduleSnapshot przed zapisem treści.
+
+Sprawdzenie pozostaje w jednym wspólnym punkcie _validate_content(), więc
+obejmuje:
+
+- kolejny child tworzony przez apply_manual_correction();
+- bezpośrednie create_schedule_version() z parent;
+- replace_working_snapshot() in-place;
+- replacement treści podczas finalize_schedule_version() in-place.
+
+
+MACIERZ AUTORA — 5/5 PASS
+
+Potwierdzono cztery negatywne siblingi dla istniejącego NN w kolejnym child:
+
+- inny employee_id;
+- inny start_datetime;
+- inny end_datetime;
+- inny covers_demand_id.
+
+Każda odmowa zachowuje liczbę ScheduleVersion, current version oraz niezmienny
+snapshot. Pozytywny przypadek przenosi identyczne NN do kolejnego child i
+zachowuje wszystkie cztery pola.
+
+
+DODATKOWA MACIERZ AUDYTOWA — 8/8 PASS
+
+Tę samą klasę czterech mutacji wykonano niezależnie dla obu alternatywnych
+zapisów in-place:
+
+- replace_working_snapshot();
+- finalize_schedule_version() z replacementem treści.
+
+W każdym z ośmiu przypadków zapis został odrzucony jako
+MalformedScheduleSnapshot. Po odmowie pozostały niezmienione:
+
+- current ScheduleVersion;
+- header i status wersji;
+- pełny snapshot wraz z legalnym NN;
+- liczba wersji i historia parent/child.
+
+Test:
+
+- tests/test_audit_t010_r10_arch1.py.
+
+
+REGRESJA D — PASS
+
+Wcześniejsze invarianty pozostają zielone:
+
+- legalne pierwsze PLANNED PRIMARY -> CANCELLED+NN;
+- parent bez zmian;
+- odrzucenie syntetycznego NN bez właściwego parent;
+- zachowanie tożsamości przy pierwszym przejściu R7-1;
+- odrzucenie NN w root i nowego NN in-place;
+- niezmienione NN w dalszym descendant;
+- godziny, coverage, zastępstwo i brak automatycznego REPLAN.
+
+
+WYNIKI TESTÓW I KONTROLE
+
+- macierz autora ARCH-1 + dodatkowa macierz R10: 13 passed;
+- pełna regresja D autora/R3/R6/R7/ARCH-1/R10: 41 passed,
+  6 deselected;
+- pełny python -m pytest -q po dodaniu R10: 492 passed;
+- benchmark real-object --suite all: 55 PASS, 0 MISMATCH, 0 INVALID,
+  0 INCONCLUSIVE;
+- ruff check całego repozytorium: PASS;
+- git diff --check: PASS;
+- nowy test R10: brak linii ponad 119 znaków i trailing whitespace.
+
+
+GOTOWOŚĆ
+
+ARCH-1 jest zamknięte. T010 pozostaje gotowe do ręcznej akceptacji i merge
+zgodnie z końcowym raportem R9.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
