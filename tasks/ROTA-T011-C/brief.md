@@ -8,11 +8,11 @@ ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
 AUDITOR_ROLE: Codex
 FINAL_ARCHITECTURAL_ACCEPTANCE: architekt
-OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: tak, dla jednego punktu —
-patrz WYMAGA_DECYZJI niżej. Sam kształt edycji wynika z rozstrzygnięcia B-2=W1
-podjętego 2026-08-14.
+OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: no — wszystkie decyzje
+produktowe tego tasku są rozstrzygnięte (B-2=W1 oraz brak kontroli tożsamości
+koordynatora, rozstrzygnięty 2026-08-14).
 
-INTEGRATED_BASE_SHA: 95717be1682840934252c610ceafc59f9980bf28
+INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
 
 TASK_SCOPE:
@@ -23,23 +23,27 @@ Powyższa lista jest zamknięta. Plik testowy jest jedynym nowym plikiem.
 
 ## ŹRÓDŁA
 
-- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znalezisko Z-2 (branch
-  `cursor/audit-pipeline-completeness-d5d7`, commit `a0e4650`).
+- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znalezisko Z-2.
 - `arch/T011_pipeline_closure_proposal_2026-08-14.md` — pytanie B-2 z
-  rozstrzygnięciem W1 i CONSTRAINT o `profile_id` (branch
-  `cursor/pipeline-closure-proposal-d5d7`, commit `5c2fd3c`).
+  rozstrzygnięciem W1 i CONSTRAINT o `profile_id`.
 - `arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` §2 — Panel
   Sterowania jest jednym miejscem pierwszej konfiguracji i późniejszej edycji
   tych samych danych; „Bootstrap nie może stać się słabiej chronioną ścieżką
   edycji istniejącego obiektu".
 - `tasks/ROTA-T008/brief.md` — klasyfikacja MUTABLE CURRENT-STATE ENTITIES.
 
-UWAGA DLA CODEXA: dwa pierwsze źródła nie są jeszcze zmergowane do `main`.
+Wszystkie źródła są na `main` od `029107b`.
 
-## PROCES — WARUNEK WSTĘPNY BLOKUJĄCY
+## PROCES — BRAMKA MECHANICZNA: STAN POTWIERDZONY
 
-Identyczny jak w `tasks/ROTA-T011-A/brief.md` (rozjazd `arch/FROZEN.lock`
-CRLF/LF). `arch/FROZEN.lock` nie jest w TASK_SCOPE.
+Wcześniejsza blokada `FROZEN_LOCK` (hash `arch/spec.md` policzony z CRLF plus
+pole `FILE:` z backslashem) została naprawiona poza zakresem T011 (`20f08f9`,
+zmergowane w `0175d71`) i zweryfikowana na `029107b`:
+`guard.py check arch/spec.md` → `STATUS: PASS`, `backend.check_frozen_lock()` →
+brak blockera. Szczegóły w `tasks/ROTA-T011-A/brief.md`.
+
+`arch/FROZEN.lock` pozostaje poza TASK_SCOPE. Jeśli `FROZEN_LOCK` zgłosi
+cokolwiek podczas implementacji, jest to NOWY problem — zgłoś go, nie obchodź.
 
 ## PURPOSE
 
@@ -120,8 +124,12 @@ Kontrola tożsamości payloadu (wymagana, nie opcjonalna):
   w `bootstrap.py:116`.
 - `update_association`: `association.site_id` musi równać się autoryzowanemu
   `site_id`, inaczej `InvalidCoordinatorContext`.
-- `update_coordinator`: patrz WYMAGA_DECYZJI — kontrola tożsamości koordynatora
-  jest właśnie tym nierozstrzygniętym punktem.
+- `update_coordinator`: **żadnej kontroli tożsamości koordynatora** — patrz
+  rozstrzygnięcie niżej. Dosłowna kopia wzorca `durable_inputs.update_employee`
+  (`durable_inputs.py:49-51`): guard kontekstu i delegacja, bez porównywania
+  `coordinator.coordinator_id` z autoryzowanym `coordinator_id`.
+- `update_association`: również bez kontroli tożsamości koordynatora —
+  sprawdzany jest wyłącznie `association.site_id`, jak wyżej.
 
 ### Zakaz zmiany `profile_id` przez `update_site`
 
@@ -171,41 +179,39 @@ Nie wolno dodawać zabezpieczenia przed samozablokowaniem ani warunku wstępnego
 „brak otwartej wersji WORKING" — ten drugi to odrzucony wariant W3. Gdyby
 właściciel chciał którekolwiek z nich, jest to osobna decyzja i osobny task.
 
-## WYMAGA_DECYZJI — WŁAŚCICIEL (nie rozstrzygam tego sam)
+## ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): BRAK KONTROLI TOŻSAMOŚCI KOORDYNATORA
 
-**Czy koordynator może zapisywać encje innego koordynatora?**
-
+Pytanie brzmiało: czy koordynator może zapisywać encje innego koordynatora.
 Dosłowne odczytanie B-2=W1 („zwykły upsert, jak każdy inny durable input")
 prowadzi do braku kontroli, bo wzorcowy `durable_inputs.update_employee`
-(`durable_inputs.py:49-51`) nie ma żadnej kontroli tożsamości payloadu —
-`Employee` nie nosi `site_id`, więc nie ma czego porównywać. `Coordinator` też
-nie nosi `site_id`. Przy dosłownej kopii wzorca koordynator A mógłby więc
-zmienić nazwę koordynatora B albo ustawić mu `active=False`, co jest jakościowo
-inną operacją niż zmiana nazwy pracownika: odbiera dostęp innej osobie.
+(`durable_inputs.py:49-51`) żadnej kontroli tożsamości payloadu nie ma —
+`Employee` nie nosi `site_id`, więc nie ma czego porównywać, i `Coordinator`
+również go nie nosi.
 
-Warianty:
+Rozstrzygnięcie: **brak kontroli, świadomie.** Uzasadnienie właściciela:
+koordynatorzy mogą się zastępować na jednym koncie i jest to ich wewnętrzna
+sprawa organizacyjna, a każdy dostaje osobną kopię programu — model „wielu
+użytkowników na jednej instalacji" nie istnieje w tym produkcie. Logowanie i
+uprawnienia są odłożoną przyszłą pracą, nie przemilczanym brakiem.
 
-- **W1 — bez kontroli, dosłowna kopia wzorca `update_employee`.** Konsekwencje:
-  najprostsze i formalnie zgodne z „jak każdy inny durable input"; koszt: każdy
-  aktywny koordynator może zdezaktywować każdego innego, a przy jednym
-  koordynatorze w pilocie nikt tego nie zauważy — problem pojawi się dopiero
-  przy drugim, czyli w T012.
-- **W2 — `update_coordinator` wymaga `coordinator.coordinator_id == coordinator_id`,
-  a `update_association` dodatkowo `association.coordinator_id == coordinator_id`.**
-  Konsekwencje: koordynator edytuje wyłącznie siebie i własne powiązanie; spójne
-  z duchem R4-3-B (`durable_inputs.py:20-26`), gdzie kontekst dla jednego Site
-  nie autoryzuje mutowania payloadu innego Site; koszt: nie ma wtedy żadnej
-  ścieżki aplikacyjnej do zdezaktywowania koordynatora, który odszedł — trzeba
-  by jej dodać osobno w T012.
-- **W3 — kontrola jak w W2 dla `update_coordinator`, brak kontroli dla
-  `update_association`.** Konsekwencje: koordynator może odebrać innemu dostęp do
-  OBIEKTU, którym sam zarządza (co jest naturalne dla właściciela obiektu), ale
-  nie może zmienić danych tożsamościowych innej osoby; koszt: dwie różne reguły
-  w jednym module, wymagające wyjaśnienia w docstringu.
+Konsekwencje przyjęte świadomie, do udokumentowania w docstringu, nie do
+obejścia w kodzie:
 
-Do czasu rozstrzygnięcia CC **nie implementuje** `update_coordinator` ani
-kontroli tożsamości koordynatora w `update_association`. `update_site` i
-zakaz zmiany `profile_id` są niezależne od tej decyzji i mogą powstać od razu.
+- aktywny koordynator może zmienić `display_name` innego koordynatora oraz
+  ustawić mu `active=False`;
+- może też odebrać innemu koordynatorowi powiązanie z obiektem przez
+  `update_association`;
+- nie ma w tym eskalacji uprawnień w sensie, w którym produkt ich nie modeluje:
+  wszystkie te operacje wymagają już posiadania aktywnego kontekstu
+  koordynator–obiekt, a instalacja jest jednoosobowa.
+
+CC implementuje więc `update_coordinator` bez porównywania identyfikatorów i
+**nie dodaje** żadnego sprawdzenia „edytujesz siebie". Nie wolno też dodawać
+komentarza sugerującego, że to luka bezpieczeństwa — jest to zapisana decyzja
+produktowa z podanym uzasadnieniem.
+
+Gdy w przyszłości pojawi się logowanie, kontrola tożsamości jest naturalnym
+miejscem do ponownego rozpatrzenia; to wtedy, nie teraz.
 
 ## OUT OF SCOPE
 
@@ -215,8 +221,8 @@ zakaz zmiany `profile_id` są niezależne od tej decyzji i mogą powstać od raz
 - Kaskadowe skutki dezaktywacji obiektu (co dzieje się z jego FINAL-ami poza
   tym, że pozostają czytelne) — nie ma tu żadnej nowej logiki.
 - Zabezpieczenie przed samozablokowaniem.
-- Ścieżka „zdezaktywuj koordynatora, który odszedł", jeśli rozstrzygnięcie
-  WYMAGA_DECYZJI ją wykluczy — wtedy trafia do T012.
+- Logowanie, uwierzytelnianie i jakikolwiek model uprawnień — odłożona przyszła
+  praca, jawnie poza T011 (patrz ROZSTRZYGNIĘCIE wyżej).
 - Wszystko z T011-A/B/D/E.
 
 ## WYMAGANE TESTY
@@ -252,6 +258,18 @@ tymczasowy SQLite. Scenariusze, nie nazwy:
 9. **Restart.** Po zamknięciu i ponownym otwarciu magazynu zmienione wartości i
    flagi `active` są takie same.
 10. **Payload asocjacji z obcym `site_id`** podnosi `InvalidCoordinatorContext`.
+11. **Zmiana własnych danych koordynatora.** `update_coordinator` z nową
+    `display_name` zmienia ją, a `active_coordinators`/`get_coordinator` widzą
+    nową wartość.
+12. **Zapis encji innego koordynatora jest dozwolony.** Koordynator A z aktywnym
+    kontekstem zmienia `display_name` koordynatora B, a następnie ustawia mu
+    `active=False`; oba wywołania kończą się sukcesem. Ten test utrwala
+    rozstrzygnięcie właściciela z 2026-08-14 i musi mieć komentarz mówiący, że
+    brak kontroli tożsamości jest świadomy — inaczej przyszły audyt zgłosi go
+    jako lukę.
+13. **Odebranie powiązania innemu koordynatorowi.** Koordynator A wyłącza
+    asocjację koordynatora B z tym samym obiektem; B traci możliwość edycji
+    durable input, A nadal ją ma.
 
 Testy nie mogą importować `rota.persistence` do budowy stanu ani do weryfikacji
 — jedynym dopuszczonym oknem na stan jest `rota.application.*`.
@@ -279,8 +297,9 @@ nazwę i flagę aktywności swojego obiektu oraz odebrać/przywrócić powiązan
 bez sięgania do `rota/persistence/*` i bez używania bootstrapu jako ścieżki
 edycji — a wszystkie te operacje są odwracalne i nie kasują historii.
 
-Znalezisko Z-2 zamknięte w części niezależnej od WYMAGA_DECYZJI. Część dotycząca
-encji innego koordynatora pozostaje otwarta i jawnie oznaczona.
+Znalezisko Z-2 zamknięte w całości — łącznie z encjami innego koordynatora,
+gdzie brak kontroli tożsamości jest zapisanym rozstrzygnięciem właściciela, nie
+pozostawionym pytaniem.
 
 ## REVIEW REQUEST TO CODEX
 
@@ -292,8 +311,11 @@ Audytuj wyłącznie pod kątem:
    wznowienie) są wykonalne wyłącznie przez warstwę aplikacji;
 4. czy zakaz zmiany `profile_id` jest postawiony jako twardy wymóg, a nie
    sugestia;
-5. czy sekcja WYMAGA_DECYZJI jest realnym pytaniem produktowym, a nie
-   architektem uchylającym się od decyzji technicznej.
+5. czy brak kontroli tożsamości koordynatora jest opisany jako rozstrzygnięcie
+   właściciela z uzasadnieniem — a nie jako przeoczenie. Nie zgłaszaj tego jako
+   luki bezpieczeństwa: model „wielu użytkowników na jednej instalacji" nie
+   istnieje w tym produkcie, a logowanie jest jawnie odłożone. Zgłoś natomiast,
+   jeśli którykolwiek fragment briefu jest z tym rozstrzygnięciem sprzeczny.
 
 Oczekiwany wynik: `PASS / READY_FOR_IMPLEMENTATION` albo precyzyjne findings.
 Nie implementuj podczas audytu.

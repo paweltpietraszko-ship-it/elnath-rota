@@ -8,11 +8,11 @@ ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
 AUDITOR_ROLE: Codex
 FINAL_ARCHITECTURAL_ACCEPTANCE: architekt
-OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: tak, dla jednego punktu —
-patrz WYMAGA_DECYZJI niżej. Kierunek wynika z rozstrzygnięcia B-5=W2 podjętego
-2026-08-14.
+OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: no — wszystkie decyzje
+produktowe tego tasku są rozstrzygnięte (B-4=W3, B-5=W2 wraz z kształtem
+degradacji rozstrzygniętym 2026-08-14).
 
-INTEGRATED_BASE_SHA: 95717be1682840934252c610ceafc59f9980bf28
+INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
 
 TASK_SCOPE:
@@ -25,21 +25,25 @@ są jedynymi dwoma nowymi plikami — dokładnie limit `MAX_NEW_FILES = 2`.
 
 ## ŹRÓDŁA
 
-- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znaleziska Z-5, Z-6, Z-9
-  (branch `cursor/audit-pipeline-completeness-d5d7`, commit `a0e4650`).
+- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znaleziska Z-5, Z-6, Z-9.
 - `arch/T011_pipeline_closure_proposal_2026-08-14.md` — punkt A-5, pytania B-4
-  i B-5 z rozstrzygnięciami oraz CONSTRAINT do B-5 (branch
-  `cursor/pipeline-closure-proposal-d5d7`, commit `5c2fd3c`).
+  i B-5 z rozstrzygnięciami oraz CONSTRAINT do B-5.
 - `arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` §3 („Brak
   `target_hours` nie blokuje PLAN") i §10 (TARGET-01 bez zmian, pozostaje SOFT).
 - `rota/balance.py:3-9` — cytat z `arch/spec.md` o WorkBalance SCOPE BOUNDARY.
 
-UWAGA DLA CODEXA: dwa pierwsze źródła nie są jeszcze zmergowane do `main`.
+Wszystkie źródła są na `main` od `029107b`.
 
-## PROCES — WARUNEK WSTĘPNY BLOKUJĄCY
+## PROCES — BRAMKA MECHANICZNA: STAN POTWIERDZONY
 
-Identyczny jak w `tasks/ROTA-T011-A/brief.md` (rozjazd `arch/FROZEN.lock`
-CRLF/LF). `arch/FROZEN.lock` nie jest w TASK_SCOPE.
+Wcześniejsza blokada `FROZEN_LOCK` (hash `arch/spec.md` policzony z CRLF plus
+pole `FILE:` z backslashem) została naprawiona poza zakresem T011 (`20f08f9`,
+zmergowane w `0175d71`) i zweryfikowana na `029107b`:
+`guard.py check arch/spec.md` → `STATUS: PASS`, `backend.check_frozen_lock()` →
+brak blockera. Szczegóły w `tasks/ROTA-T011-A/brief.md`.
+
+`arch/FROZEN.lock` pozostaje poza TASK_SCOPE. Jeśli `FROZEN_LOCK` zgłosi
+cokolwiek podczas implementacji, jest to NOWY problem — zgłoś go, nie obchodź.
 
 ## PURPOSE
 
@@ -102,7 +106,8 @@ Wymóg wiążący:
    `work_balances`, PLAN działa dalej (`assembler.py:124-127`).
 4. Liczba i treść dzisiejszych ostrzeżeń dla miesiąca planowanego nie może się
    zmienić — dochodzą co najwyżej ostrzeżenia dotyczące wcześniejszych miesięcy
-   kwartału, i tylko w kształcie rozstrzygniętym w WYMAGA_DECYZJI.
+   kwartału, w kształcie opisanym w sekcji JEDNA REGUŁA DEGRADACJI DLA OBU
+   ODCZYTÓW.
 
 ## ZAKRES — A-5: jawny odczyt kwartału
 
@@ -113,23 +118,38 @@ kontekstu, delegujący bez zmiany kształtu wyniku).
 Sygnatura (wiążąca):
 
 ```text
-def quarter_balance(conn, *, employee_id: str, quarter_first_month: date) -> list[WorkBalance]
+def quarter_balance(conn, *, employee_id: str, quarter_first_month: date) -> tuple[list[WorkBalance], list[str]]
 ```
 
-Wzorzec kopiowany 1:1: `memory_read.effective_rules_for_month`
-(`memory_read.py:13-16`). Delegacja:
+Kształt wyniku `(dane, ostrzeżenia)` jest kopią istniejącej konwencji
+`assembler.assemble_planning_state` (`assembler.py:182-185`, zwraca
+`tuple[PlanningState, list[str]]`), a styl modułu — całego
+`rota/application/memory_read.py`. Delegacja:
 `work_balance_repository.reconstruct_quarter_balance` (`:68-81`).
 
-**Decyzja architekta (nie właściciela — to szczegół implementacyjny, nie zmiana
-znaczenia produktu):** `quarter_balance` zachowuje surową semantykę
-`compute_quarter_balance` bez zmian, czyli podnosi `MissingTargetHoursError`,
-gdy któremuś miesiącowi kwartału brakuje normy — także gdy jest to miesiąc
-przyszły w bieżącym kwartale. Uzasadnienie: to osobny, opcjonalny odczyt „pokaż
-mi kwartał", a nie prekondycja PLAN, więc zamrożone „brak `target_hours` nie
-blokuje PLAN" go nie dotyczy; a `balance.py:106-108` wprost stwierdza, że
-brakującej normy nie wolno zgadywać ani traktować jako zera. Ten odczyt nie
-degraduje się do ostrzeżeń — degradacja jest zachowaniem kontekstu planowania,
-nie raportu.
+**ROZSTRZYGNIĘCIE WŁAŚCICIELA (2026-08-14): `quarter_balance` degraduje się do
+ostrzeżenia, nie podnosi `MissingTargetHoursError`.** Zastępuje to wcześniejszą
+notatkę architekta, która pozostawiała temu odczytowi surową semantykę.
+
+Kształt degradacji: gdy któremuś miesiącowi kwartału brakuje normy, odczyt
+zwraca **pustą listę bilansów** i ostrzeżenie nazywające brakujący miesiąc.
+Nigdy nie podnosi `MissingTargetHoursError` i nigdy nie zwraca liczb policzonych
+częściowo.
+
+Implementacja pozostaje cienka: wołanie `reconstruct_quarter_balance` i
+przechwycenie `MissingTargetHoursError` z zamianą na ostrzeżenie. **Nie wolno**
+odtwarzać w warstwie aplikacji pętli po miesiącach z `rota.balance.compute_quarter_balance`
+— duplikacja istniejącej logiki jest w tym repo błędem architektonicznym
+(`tasks/ROTA-T010/brief.md`: „Reuse istniejącej logiki jest obowiązkowy.
+Duplikacja = FAIL architektoniczny").
+
+Świadomie przyjęta konsekwencja, którą trzeba znać: w trakcie kwartału, dopóki
+normy na jego przyszłe miesiące nie są ustawione, ten odczyt zwraca puste dane
+i ostrzeżenie. Nie jest to defekt, a podział odpowiedzialności między dwoma
+odczytami: `open_month` pokazuje saldo narastające **do miesiąca planowanego
+włącznie** (część B-5/W2 niżej) i jest właściwym miejscem na obraz „na teraz",
+a `quarter_balance` jest raportem całego kwartału i staje się dostępny, gdy
+kwartał ma wszystkie normy.
 
 ## ZAKRES — B-5/W2: carry-in w assemblerze
 
@@ -143,34 +163,44 @@ ani dotykać `rota/planning/*`. `quarter_balance_before` jest już parametrem
 `reconstruct_month_balance` (`work_balance_repository.py:56-57`), więc assembler
 ma czym przekazać carry-in bez żadnej nowej funkcji.
 
-## WYMAGA_DECYZJI — WŁAŚCICIEL (nie rozstrzygam tego sam)
+## JEDNA REGUŁA DEGRADACJI DLA OBU ODCZYTÓW
 
-**Jaka jest wartość carry-in, gdy wcześniejszemu miesiącowi kwartału brakuje
-`target_hours`?**
+Rozstrzygnięcie z 2026-08-14 („saldo kwartalne degraduje się do ostrzeżenia przy
+braku normy we wcześniejszym miesiącu — tak jak zapisany constraint w B-5, i ta
+sama degradacja obowiązuje nowy odczyt A-5") daje jedną regułę wiążącą dla
+całego tasku:
 
-CONSTRAINT wyżej mówi, że brak normy degraduje się do ostrzeżenia, a nie do
-wyjątku. Nie mówi, jaką liczbę koordynator wtedy widzi — a to jest liczba na
-ekranie, więc decyzja produktowa. Przykład: planowany jest wrzesień, kwartał to
-lipiec–wrzesień, lipiec ma normę, sierpień nie.
+**Nigdy nie pokazujemy liczby narastającej policzonej ponad luką w normach.
+Zamiast liczby częściowej jest ostrzeżenie nazywające brakujący miesiąc.**
 
-- **W1 — carry-in z miesięcy, które mają normę; brakujący miesiąc pomijany.**
-  Konsekwencje: `quarter_balance` dla września uwzględnia lipiec, pomija
-  sierpień, plus ostrzeżenie nazywające pominięty miesiąc. Koszt: pokazana
-  liczba jest częściowa i bez przeczytania ostrzeżenia wygląda na kompletną.
-- **W2 — carry-in `0` dla całego kwartału, gdy brakuje choć jednej normy
-  wcześniejszego miesiąca; plus ostrzeżenie.** Konsekwencje: liczba nigdy nie
-  jest częściowa — albo pełna, albo jawnie zerowa, czyli dzisiejsze zachowanie.
-  Koszt: pojedynczy brak normy zeruje poprawnie policzalny wkład pozostałych
-  miesięcy kwartału.
-- **W3 — pominąć pracownika w `work_balances` całkowicie, gdy brakuje normy
-  wcześniejszego miesiąca.** Konsekwencje: pełna spójność z dzisiejszą regułą
-  „brak normy = pracownik pomijany w kontekście bilansu"
-  (`assembler.py:124-127`), zero liczb częściowych. Koszt: pracownik zniknie z
-  bilansu miesiąca, który sam ma normę — dzisiejsze zachowanie by go pokazało,
-  więc jest to widoczna zmiana zachowania dla istniejących danych.
+Ta sama reguła w dwóch kształtach, bo odczyty mają różne kształty wyniku:
 
-Do czasu rozstrzygnięcia CC **nie implementuje** części B-5/W2. A-5 jest od tej
-decyzji niezależne i może powstać od razu.
+- **`quarter_balance` (A-5)** — brak normy w którymkolwiek miesiącu kwartału daje
+  pustą listę bilansów plus ostrzeżenie. Nie zwraca prefiksu miesięcy przed luką,
+  bo raport kwartału bez części kwartału wyglądałby jak kompletny.
+- **Kontekst planowania (`assembler`, B-5/W2)** — brak normy w którymkolwiek
+  wcześniejszym miesiącu tego kwartału powoduje, że pracownik jest **pomijany
+  w `work_balances`** dla planowanego miesiąca, z ostrzeżeniem nazywającym
+  miesiąc bez normy. Jest to dokładnie ten sam kształt degradacji, który
+  assembler stosuje dziś, gdy normy brakuje w samym planowanym miesiącu
+  (`assembler.py:124-127`) — nie powstaje żadna nowa ścieżka zachowania.
+
+Konsekwencja do świadomego przyjęcia: pracownik, który ma normę na planowany
+miesiąc, ale nie ma jej na wcześniejszy miesiąc tego samego kwartału, zniknie
+z `work_balances` — dziś by się tam pokazał z saldem miesięcznym. To jest
+widoczna zmiana zachowania dla istniejących danych i jest zamierzona: liczba
+narastająca policzona ponad luką byłaby myląca w sposób, którego UI nie ma jak
+wykryć. `target_hours` pozostaje przy tym wyłącznie SOFT i nadal **nigdy** nie
+blokuje PLAN — pominięcie w bilansie nie ma wpływu na planowanie, bo solver
+czyta z `work_balances` tylko `target_hours` tych pracowników, którzy tam są.
+
+INTERPRETACJA DO POTWIERDZENIA PRZEZ AUDYT: rozstrzygnięcie właściciela mówiło
+„ta sama degradacja", nie wskazując wprost liczby. Powyższy kształt jest
+odczytaniem „ta sama" jako „ten sam mechanizm, który assembler stosuje dziś",
+czyli pominięcie plus ostrzeżenie — a nie carry-in policzony z części miesięcy.
+Gdyby właściciel miał w myśli carry-in częściowy (suma miesięcy, które normę
+mają, z ostrzeżeniem o pominiętym), zmienia się wyłącznie ta sekcja i punkt 7
+wymaganych testów; reszta briefu zostaje bez zmian.
 
 ## B-1 JEST DOMKNIĘTE PRZEZ T011-A — SPRAWDZONE
 
@@ -232,18 +262,19 @@ nietknięte.
 ## WYMAGANE TESTY
 
 Jeden nowy plik `tests/test_t011_d_quarter_balance.py`, prawdziwy tymczasowy
-SQLite. Scenariusze, nie nazwy. Punkty 4-7 dotyczą części B-5/W2 i powstają
-dopiero po rozstrzygnięciu WYMAGA_DECYZJI.
+SQLite. Scenariusze, nie nazwy. Punkty 1-3 dotyczą A-5, punkty 4-7 części
+B-5/W2; wszystkie są w zakresie tego tasku — nic nie czeka już na decyzję.
 
 1. **Odczyt kwartału narasta.** Pracownik z normami na wszystkie trzy miesiące
    kwartału i pracą w każdym: `quarter_balance` zwraca trzy pozycje w kolejności
-   miesięcy, a `quarter_balance` każdej kolejnej pozycji jest sumą narastającą,
-   różną od jej `month_balance` (dowód, że carry-in faktycznie działa, a nie
-   tylko przepisuje saldo miesiąca).
-2. **Surowa semantyka odczytu kwartału.** Brak normy w którymkolwiek miesiącu
-   kwartału — w tym w miesiącu przyszłym — podnosi `MissingTargetHoursError`.
-   Ten test utrwala decyzję architekta i musi mieć komentarz mówiący, że to
-   zachowanie jest celowe, nie przeoczenie.
+   miesięcy i pustą listę ostrzeżeń, a `quarter_balance` każdej kolejnej pozycji
+   jest sumą narastającą, różną od jej `month_balance` (dowód, że carry-in
+   faktycznie działa, a nie tylko przepisuje saldo miesiąca).
+2. **Odczyt kwartału degraduje, nie rzuca.** Brak normy w którymkolwiek miesiącu
+   kwartału — w tym w miesiącu przyszłym — daje pustą listę bilansów i
+   ostrzeżenie nazywające brakujący miesiąc. `MissingTargetHoursError` **nie**
+   wydostaje się z tej funkcji. Test musi mieć komentarz mówiący, że pusty wynik
+   mid-kwartał jest zamierzony, nie przeoczenie.
 3. **Odczyt kwartału nie wymaga kontekstu koordynatora.** Wywołanie bez aktywnej
    asocjacji zwraca dane, zgodnie z konwencją odczytów w tym repo.
 4. **`open_month` przestaje kłamać.** Dla drugiego miesiąca kwartału, z pracą i
@@ -256,8 +287,13 @@ dopiero po rozstrzygnięciu WYMAGA_DECYZJI.
    miesiąc kwartału jej nie ma: `assemble_planning_state` **nie** rzuca,
    `plan_month` nadal zwraca wynik planowania, a `month_plan_readiness` nadal
    `ready=True`. To jest test zamrożonego wymogu, nie detalu.
-7. **Kształt degradacji.** Zachowanie liczbowe dokładnie takie, jak wybrany
-   wariant WYMAGA_DECYZJI, plus ostrzeżenie nazywające miesiąc bez normy.
+7. **Kształt degradacji w kontekście planowania.** Pracownik z normą na
+   planowany miesiąc, ale bez normy na wcześniejszy miesiąc tego kwartału, jest
+   **pomijany** w `state.work_balances`, a `assemble_planning_state` zwraca
+   ostrzeżenie nazywające miesiąc bez normy. Żadna liczba narastająca policzona
+   ponad luką nie pojawia się w wyniku. Drugi pracownik, mający normy na oba
+   miesiące, jest w `work_balances` obecny — dowód, że degradacja jest
+   per-pracownik, nie globalna.
 8. **Silnik nietknięty.** ROTA-REG-001 bez zmian; dodatkowo test dowodzący, że
    dla tego samego wejścia `plan_month` zwraca ten sam status i tę samą liczbę
    kandydatów przed i po zmianie carry-in (dowód, że solver czyta tylko
@@ -300,9 +336,14 @@ Audytuj wyłącznie pod kątem:
 3. czy dowód „solver czyta tylko `target_hours`" jest poprawny — sprawdź
    `rota/planning/solver.py:320-321` niezależnie, bo na nim opiera się cała ocena
    ryzyka dla ROTA-REG-001;
-4. testowalności, zwłaszcza punktów 6 i 8;
-5. czy asymetria między A-5 (rzuca) a assemblerem (degraduje) jest uzasadniona,
-   czy jest niespójnością.
+4. testowalności, zwłaszcza punktów 6, 7 i 8;
+5. czy jedna reguła degradacji („nigdy liczba narastająca ponad luką") jest
+   zastosowana spójnie w obu odczytach, mimo że mają różny kształt wyniku;
+6. czy INTERPRETACJA DO POTWIERDZENIA w sekcji o degradacji jest właściwie
+   oznaczona — rozstrzygnięcie właściciela mówiło „ta sama degradacja" bez
+   wskazania liczby, a brief odczytuje to jako pominięcie plus ostrzeżenie.
+   Jeśli uznasz, że dopuszczalne jest też odczytanie „carry-in częściowy",
+   zgłoś to jako finding kontraktowy do decyzji właściciela, nie jako błąd.
 
 Oczekiwany wynik: `PASS / READY_FOR_IMPLEMENTATION` albo precyzyjne findings.
 Nie implementuj podczas audytu.

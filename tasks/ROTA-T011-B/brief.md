@@ -8,11 +8,11 @@ ARCHITECT_ROLE: Cursor (architekt)
 IMPLEMENTER_ROLE: CC
 AUDITOR_ROLE: Codex
 FINAL_ARCHITECTURAL_ACCEPTANCE: architekt
-OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: tak, dla jednego punktu —
-patrz WYMAGA_DECYZJI niżej. Reszta zakresu wynika z rozstrzygnięć B-3=W3
-i B-6=W1 podjętych 2026-08-14.
+OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: no — wszystkie decyzje
+produktowe tego tasku są rozstrzygnięte (B-3=W3, B-6=W1 z filtrem
+uzupełniającym z 2026-08-14, B-7=W2 przeniesione do T012).
 
-INTEGRATED_BASE_SHA: 95717be1682840934252c610ceafc59f9980bf28
+INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
 
 TASK_SCOPE:
@@ -25,24 +25,25 @@ Powyższa lista jest zamknięta. Plik testowy jest jedynym nowym plikiem.
 
 ## ŹRÓDŁA
 
-- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znaleziska Z-4, Z-7a, Z-8
-  (branch `cursor/audit-pipeline-completeness-d5d7`, commit `a0e4650`).
+- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znaleziska Z-4, Z-7a, Z-8.
 - `arch/T011_pipeline_closure_proposal_2026-08-14.md` — punkt A-3 z korektą po
-  B-3, pytania B-3, B-6, B-7 z rozstrzygnięciami (branch
-  `cursor/pipeline-closure-proposal-d5d7`, commit `5c2fd3c`).
+  B-3, pytania B-3, B-6, B-7 z rozstrzygnięciami.
 - `arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` §2, §11.
 - `tasks/ROTA-T010/part_a_bootstrap_roster.md` — wymóg jawnego `site_id`
   w sygnaturach pod przyszłą wieloobiektowość T012.
 
-UWAGA DLA CODEXA: dwa pierwsze źródła nie są jeszcze zmergowane do `main`.
+Wszystkie źródła są na `main` od `029107b`.
 
-## PROCES — WARUNEK WSTĘPNY BLOKUJĄCY
+## PROCES — BRAMKA MECHANICZNA: STAN POTWIERDZONY
 
-Identyczny jak w `tasks/ROTA-T011-A/brief.md` (rozjazd `arch/FROZEN.lock`:
-lock trzyma hash `arch/spec.md` z CRLF, plik w repo ma LF, treść identyczna).
-`backend.py` zwróci `FAIL` na `FROZEN_LOCK` dla każdej implementacji, dopóki
-lock nie zostanie odświeżony. Nie jest to zadanie CC i `arch/FROZEN.lock` nie
-jest w TASK_SCOPE.
+Wcześniejsza blokada `FROZEN_LOCK` (hash `arch/spec.md` policzony z CRLF plus
+pole `FILE:` z backslashem) została naprawiona poza zakresem T011 (`20f08f9`,
+zmergowane w `0175d71`) i zweryfikowana na `029107b`:
+`guard.py check arch/spec.md` → `STATUS: PASS`, `backend.check_frozen_lock()` →
+brak blockera. Szczegóły w `tasks/ROTA-T011-A/brief.md`.
+
+`arch/FROZEN.lock` pozostaje poza TASK_SCOPE. Jeśli `FROZEN_LOCK` zgłosi
+cokolwiek podczas implementacji, jest to NOWY problem — zgłoś go, nie obchodź.
 
 ## PURPOSE
 
@@ -132,20 +133,41 @@ niejawnego „jedyny aktywny Site"). Jeśli T012 będzie potrzebował listy
 wszystkich obiektów bez podania koordynatora, to osobny odczyt i osobna decyzja
 — CC go tutaj nie dodaje.
 
-## ZAKRES — B-6: enumeracja miesięcy z grafikiem (B-6 = W1)
+## ZAKRES — B-6: enumeracja miesięcy z grafikiem (B-6 = W1 + filtr obsady)
 
-Rozstrzygnięcie właściciela B-6=W1: miesiące, dla których istnieje bieżący
-wskaźnik wersji.
+Rozstrzygnięcie właściciela, uzupełnione 2026-08-14 po znalezisku opisanym
+w następnej sekcji: miesiące, dla których istnieje bieżący wskaźnik wersji
+**i których bieżąca wersja ma co najmniej jeden `Assignment`**.
+
+Sam warunek „ma bieżący wskaźnik" nie usuwa szumu, o który chodziło — usuwa go
+dopiero filtr obsady. Oba warunki są wymagane i żaden z nich nie jest
+opcjonalny.
 
 Nowy odczyt w persistence (jedyne miejsce z SQL o `schedule_versions`):
 
 ```text
-def list_months_with_current_version(conn: sqlite3.Connection, site_id: str) -> list[date]
+def list_months_with_assignments(conn: sqlite3.Connection, site_id: str) -> list[date]
 ```
 
-Zwraca miesiące rosnąco, bez duplikatów. Wzorzec kształtu: istniejące
-`schedule_repository.list_schedule_versions` (`:100-106`) i
-`get_current_version_id` (`:108-114`) — ten sam styl zapytania i konwersji daty.
+Zwraca miesiące rosnąco, bez duplikatów. Miesiąc wchodzi do wyniku wtedy i
+tylko wtedy, gdy dla pary `(site_id, month)` istnieje bieżąca wersja i ta
+wersja ma co najmniej jeden wiersz `Assignment`. Liczy się wyłącznie bieżąca
+wersja — obecność assignmentów w wersji historycznej niczego nie kwalifikuje.
+
+Nazwa mówi o kryterium rzeczywistym, nie o mechanizmie: `..._with_assignments`,
+a nie `..._with_current_version`, bo sam bieżący wskaźnik nie jest warunkiem
+wystarczającym.
+
+Wzorzec kształtu: istniejące `schedule_repository.list_schedule_versions`
+(`:100-106`) i `get_current_version_id` (`:108-114`) — ten sam styl zapytania
+i konwersji daty.
+
+Stan `CANCELLED`/`NN` nie jest wyłączany: `Assignment` z `state=CANCELLED`
+i `operational_code="NN"` nadal jest wierszem obsady i nadal kwalifikuje
+miesiąc. Miesiąc, w którym koordynator odnotował niewykonaną zmianę, jest
+miesiącem z grafikiem — inaczej NN mógłby usunąć miesiąc z nawigacji, co
+przeczyłoby `tasks/ROTA-T010/part_d_nn.md` (wcześniejsza wersja zachowuje plan,
+a demand nie znika).
 
 Wrapper aplikacyjny w `rota/application/open_month.py`:
 
@@ -157,39 +179,31 @@ Moduł jest właścicielem operacji „otwórz miesiąc"; wyliczenie, które mie
 da się otworzyć, jest tą samą odpowiedzialnością, a modul już importuje
 `schedule_repository`.
 
-## WYMAGA_DECYZJI — WŁAŚCICIEL (nie rozstrzygam tego sam)
+## DLACZEGO FILTR OBSADY JEST CZĘŚCIĄ DECYZJI
 
-Uzasadnienie rozstrzygnięcia B-6=W1 brzmiało: „W2 pokazywałoby też porzucone
-próby (`plan_month` tworzy wersję przed wywołaniem solvera), co jest szumem".
-**Sprawdzone w kodzie: przy W1 te porzucone próby pojawią się dokładnie tak
-samo.** `schedule_lifecycle.create_schedule_version` woła
-`_set_current_reference` bezwarunkowo, w tej samej transakcji
-(`schedule_lifecycle.py:153`), więc miesiąc dostaje bieżący wskaźnik w tej samej
-chwili, w której powstaje pierwsza — jeszcze pusta — wersja tworzona przez
-`plan_ops.plan_month` (`plan_ops.py:78-81`). W dzisiejszym kodzie nie istnieje
-sposób, by wersja istniała bez bieżącego wskaźnika dla swojego miesiąca, więc
-W1 i W2 dają identyczny wynik.
+Pierwotne uzasadnienie B-6=W1 brzmiało: „W2 pokazywałoby też porzucone próby
+(`plan_month` tworzy wersję przed wywołaniem solvera), co jest szumem".
 
-Decyzja B-6=W1 pozostaje w mocy jako prostszy odczyt (i nie wymaga zmiany), ale
-sam cel „bez szumu z porzuconych prób" nie jest przez nią osiągnięty. Pytanie
-zamknięte dla właściciela:
+Sprawdzone w kodzie i potwierdzone przez właściciela 2026-08-14: **samo
+kryterium „ma bieżący wskaźnik" tego szumu nie usuwa.**
+`schedule_lifecycle.create_schedule_version` woła `_set_current_reference`
+bezwarunkowo, w tej samej transakcji (`schedule_lifecycle.py:153`), więc miesiąc
+dostaje bieżący wskaźnik w tej samej chwili, w której powstaje pierwsza — jeszcze
+pusta — wersja tworzona przez `plan_ops.plan_month` (`plan_ops.py:78-81`).
+W dzisiejszym kodzie nie istnieje sposób, by wersja istniała bez bieżącego
+wskaźnika dla swojego miesiąca, więc kryterium „ma current" i „ma jakąkolwiek
+wersję" dają identyczny wynik i oba pokazują miesiąc, w którym ktoś tylko
+kliknął PLAN i wyszedł.
 
-- **W1a** — zostawić dokładnie jak zdecydowano: lista wszystkich miesięcy z
-  bieżącym wskaźnikiem, włącznie z miesiącami, w których ktoś tylko kliknął PLAN
-  i wyszedł. Konsekwencja: nawigacja pokaże miesiące z pustym grafikiem; UI nie
-  ma jak ich odróżnić bez dodatkowego odczytu.
-- **W1b** — dodatkowo pominąć miesiące, których bieżąca wersja nie ma ani
-  jednego `Assignment`. Konsekwencja: „gdzie jest grafik" odpowiada na pytanie
-  dosłownie; koszt to jedno `JOIN`/podzapytanie w tym samym odczycie i to, że
-  miesiąc świadomie zaplanowany jako pusty (gdyby taki stan był legalny) też
-  zniknie z nawigacji.
-- **W1c** — zwrócić miesiące razem z informacją, czy bieżąca wersja jest pusta,
-  i pozostawić filtrowanie UI. Konsekwencja: odczyt przestaje zwracać
-  `tuple[date, ...]`, czyli zmienia sygnaturę z tej sekcji.
+Rozstrzygnięcie właściciela: W1 zostaje jako kryterium bazowe, ale enumeracja
+filtruje dodatkowo po „co najmniej jeden `Assignment`" — to usuwa szum, którego
+samo „ma current" nie usuwało. Kryterium odpowiada wtedy dosłownie na pytanie
+„gdzie jest grafik", zamiast na „gdzie ktoś kiedyś nacisnął PLAN".
 
-Do czasu rozstrzygnięcia CC implementuje **W1a** — dosłowne brzmienie decyzji
-właściciela — i nie zgaduje. Jeśli właściciel wybierze W1b lub W1c, zmienia się
-treść odczytu (W1b) albo dodatkowo jego sygnatura (W1c).
+Świadomie przyjęta konsekwencja: miesiąc, którego bieżąca wersja jest pusta, nie
+pojawia się w nawigacji, mimo że wersja trwale istnieje i pozostaje osiągalna
+przez `open_month.open_month` z jawnie podanym miesiącem. Enumeracja jest
+pomocą w nawigacji, nie rejestrem wszystkiego, co kiedykolwiek powstało.
 
 ## OUT OF SCOPE
 
@@ -237,10 +251,20 @@ SQLite. Scenariusze, nie nazwy:
    się w odczycie dla obiektu A.
 10. **Restart.** Po zamknięciu i ponownym otwarciu magazynu wszystkie odczyty
     zwracają to samo.
-11. **Utrwalenie W1a.** Miesiąc, w którym wywołano wyłącznie `plan_month` (bez
-    `select_candidate`), **pojawia się** w `months_with_schedule`. Ten test jest
-    jawnym dowodem zachowania opisanego w sekcji WYMAGA_DECYZJI — jeśli
-    właściciel wybierze W1b, ten test zmienia się na przeciwny.
+11. **Filtr obsady — porzucona próba nie jest szumem.** Miesiąc, w którym
+    wywołano wyłącznie `plan_month` (bez `select_candidate`), **nie pojawia
+    się** w `months_with_schedule`, mimo że ma bieżącą wersję. Ten sam miesiąc
+    pojawia się natychmiast po `select_candidate`. To jest właściwy dowód, że
+    filtr działa na obsadzie, a nie na obecności wskaźnika.
+12. **NN nie usuwa miesiąca z nawigacji.** Miesiąc, w którym jedyną zmianą po
+    `select_candidate` było `manual_edit.mark_not_worked`, nadal jest zwracany —
+    `Assignment` z `state=CANCELLED` i `operational_code="NN"` liczy się jako
+    obsada.
+13. **Zakresowanie do bieżącej wersji.** Miesiąc, którego bieżąca wersja jest
+    pusta, ale wersja historyczna miała assignmenty, **nie jest** zwracany. Jeśli
+    zbudowanie takiego stanu nie jest możliwe wyłącznie przez warstwę aplikacji,
+    należy to zgłosić jako finding zamiast obchodzić przez persistence — sam fakt
+    nieosiągalności jest wtedy odpowiedzią.
 
 Testy nie mogą importować `rota.persistence` do budowy stanu.
 
@@ -262,8 +286,9 @@ przy przekroczeniu 150 zmienionych linii. Nie obchodzić przez cięcie testów.
 T011-B jest kompletne, gdy UI znające wyłącznie `rota/application/*` potrafi bez
 żadnego z góry znanego identyfikatora: wylistować koordynatorów, wylistować
 obiekty danego koordynatora w dwóch jawnie rozdzielonych znaczeniach
-(„w co mogę wejść" / „co istnieje") i wylistować miesiące, dla których istnieje
-grafik do otwarcia.
+(„w co mogę wejść" / „co istnieje") i wylistować miesiące, w których faktycznie
+istnieje obsadzony grafik do otwarcia — bez miesięcy, w których powstała tylko
+pusta wersja.
 
 Znaleziska Z-4 i Z-7a zamknięte. Z-8 pozostaje otwarte i jest jawnie przeniesione
 do T012 — nie wolno go zamknąć w tym tasku.
@@ -277,8 +302,11 @@ Audytuj wyłącznie pod kątem:
 3. testowalności, zwłaszcza czy stany nieaktywne da się zbudować bez sięgania do
    persistence;
 4. wycieku zakresu do T012 (B-7) lub do pozostałych części T011;
-5. czy sekcja WYMAGA_DECYZJI jest postawiona poprawnie jako pytanie do
-   właściciela, a nie ukryta decyzja architekta.
+5. czy filtr „co najmniej jeden `Assignment`" jest opisany jednoznacznie —
+   w szczególności czy jest jasne, że liczy się wyłącznie bieżąca wersja i że
+   `CANCELLED`/`NN` nadal kwalifikuje miesiąc;
+6. czy sprawdzenie z `schedule_lifecycle.py:153` jest poprawne — na nim opiera
+   się uzasadnienie, dla którego sam bieżący wskaźnik nie wystarcza.
 
 Oczekiwany wynik: `PASS / READY_FOR_IMPLEMENTATION` albo precyzyjne findings.
 Nie implementuj podczas audytu.

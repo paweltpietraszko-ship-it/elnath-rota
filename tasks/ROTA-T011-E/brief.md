@@ -11,7 +11,7 @@ FINAL_ARCHITECTURAL_ACCEPTANCE: architekt
 OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: no — ten task nie zmienia
 zachowania produktu, tylko dowodzi zachowania już zakontraktowanego.
 
-INTEGRATED_BASE_SHA: 95717be1682840934252c610ceafc59f9980bf28
+INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
 DEPENDS_ON: ROTA-T011-A (twarda zależność — patrz ZALEŻNOŚĆ niżej)
 
@@ -28,8 +28,8 @@ istniejące, nie je tworzyć.
 ## POCHODZENIE I ROZSTRZYGNIĘCIE KOLIZJI NAZWY „T011"
 
 Treść merytoryczna tego briefu pochodzi z `arch/T011_architect_brief.md`
-(commit `95717be` na `main`), przygotowanego przez CC po przeglądzie stanu
-projektu po merge T010. Tamten dokument nazwał siebie „T011 (proponowane)" i
+(obecny na `main` do `029107b` włącznie), przygotowanego przez CC po przeglądzie
+stanu projektu po merge T010. Tamten dokument nazwał siebie „T011 (proponowane)" i
 sam zastrzegł, że numer jest propozycją, nie zamrożonym przypisaniem.
 
 Równolegle nazwa „T011" została użyta dla domknięcia luk audytowych Z-1..Z-9
@@ -72,11 +72,17 @@ czyli obalić własną tezę. Po T011-A oba kroki mają wejście aplikacyjne i d
 jest szczelny. Dlatego brak importu `rota.persistence` w obu plikach testowych
 jest w tym tasku wymogiem, nie preferencją stylu.
 
-## PROCES — WARUNEK WSTĘPNY BLOKUJĄCY
+## PROCES — BRAMKA MECHANICZNA: STAN POTWIERDZONY
 
-Identyczny jak w `tasks/ROTA-T011-A/brief.md` (rozjazd `arch/FROZEN.lock`
-CRLF/LF, `backend.py:61-82` i `guard.py:90-92`). `arch/FROZEN.lock` nie jest
-w TASK_SCOPE.
+Wcześniejsza blokada `FROZEN_LOCK` (hash `arch/spec.md` policzony z CRLF plus
+pole `FILE:` z backslashem, `backend.py:61-82` i `guard.py:90-92`) została
+naprawiona poza zakresem T011 (`20f08f9`, zmergowane w `0175d71`) i
+zweryfikowana na `029107b`: `guard.py check arch/spec.md` → `STATUS: PASS`,
+`backend.check_frozen_lock()` → brak blockera. Szczegóły w
+`tasks/ROTA-T011-A/brief.md`.
+
+`arch/FROZEN.lock` pozostaje poza TASK_SCOPE. Jeśli `FROZEN_LOCK` zgłosi
+cokolwiek podczas implementacji, jest to NOWY problem — zgłoś go, nie obchodź.
 
 ## PURPOSE — FAKT, KTÓRY UZASADNIA TEN TASK
 

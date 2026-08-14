@@ -12,7 +12,7 @@ OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: no — T011-A nie zawiera ani
 jednego pytania produktowego; wszystkie trzy punkty są powtórzeniem wzorca,
 który już istnieje w repo.
 
-INTEGRATED_BASE_SHA: 95717be1682840934252c610ceafc59f9980bf28
+INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
 
 TASK_SCOPE:
@@ -28,36 +28,35 @@ i plik testowy są jedynymi dwoma nowymi plikami — to dokładnie limit
 
 ## ŹRÓDŁA
 
-- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znaleziska Z-1, Z-3, Z-7b
-  (branch `cursor/audit-pipeline-completeness-d5d7`, commit `a0e4650`).
-- `arch/T011_pipeline_closure_proposal_2026-08-14.md` — punkty A-1, A-2, A-4
-  (branch `cursor/pipeline-closure-proposal-d5d7`, commit `5c2fd3c`).
+- `arch/AUDIT_PIPELINE_COMPLETENESS_2026-08-14.md` — znaleziska Z-1, Z-3, Z-7b.
+- `arch/T011_pipeline_closure_proposal_2026-08-14.md` — punkty A-1, A-2, A-4.
 - `arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` §2, §3.
 - `tasks/ROTA-T009/brief.md` — operacje 6 i 12, DEPENDENCY BOUNDARY.
 
-UWAGA DLA CODEXA: oba pierwsze źródła nie są jeszcze zmergowane do `main`.
-Audyt kontraktu wymaga dostępu do tych gałęzi.
+Wszystkie źródła są na `main` od `029107b`, więc audyt kontraktu nie wymaga
+dostępu do żadnej gałęzi roboczej.
 
-## PROCES — WARUNEK WSTĘPNY BLOKUJĄCY (dotyczy wszystkich części T011)
+## PROCES — BRAMKA MECHANICZNA: STAN POTWIERDZONY (dotyczy wszystkich części T011)
 
-`backend.py` zwróci dziś `FAIL` dla dowolnej implementacji, niezależnie od jej
-jakości, z powodu istniejącego wcześniej rozjazdu `FROZEN.lock`:
+Wcześniejsza wersja tego briefu opisywała blokadę niezależną od T011:
+`arch/FROZEN.lock` trzymał `SHA256` policzony z `arch/spec.md` w wersji CRLF,
+więc `check_frozen_lock()` (`backend.py:61-82`) zgłaszał „arch/spec.md modified
+outside guard" jako blocker i `backend.py` zwracał `FAIL` dla dowolnej
+implementacji; niezależnie `guard.py check` zawodził na polu
+`FILE: arch\spec.md` (backslash) na POSIX (`guard.py:90-92`).
 
-- `arch/FROZEN.lock` zawiera `SHA256: 1b23d35c…`, co jest hashem `arch/spec.md`
-  **z zakończeniami linii CRLF**;
-- `arch/spec.md` w repo ma LF i hashuje się do `9f5f6cfc…` na każdym commicie
-  od `0fb5292` do `95717be`;
-- treść pliku jest identyczna — różnią się wyłącznie zakończenia linii;
-- `check_frozen_lock()` (`backend.py:61-82`) porównuje same hashe, więc zgłasza
-  „arch/spec.md modified outside guard" jako blocker → `STATUS: FAIL`;
-- niezależnie `guard.py check arch/spec.md` zawodzi jeszcze wcześniej, bo pole
-  `FILE:` w locku brzmi `arch\spec.md` (backslash) i na POSIX
-  `Path("arch\\spec.md") != Path("arch/spec.md")` (`guard.py:90-92`).
+Naprawione poza zakresem T011 (`20f08f9`, zmergowane w `0175d71`): dodane
+`.gitattributes` (`* text=auto eol=lf`), hash przeliczony na kanonicznej treści
+LF, `guard.py` zapisuje `FILE:` przez `.as_posix()`.
 
-CC NIE naprawia tego w ramach T011-A — `arch/FROZEN.lock` nie jest w TASK_SCOPE
-i re-freeze jest decyzją właściciela/architekta, nie implementatora. Warunek
-musi być domknięty osobno, przed pierwszym uruchomieniem `backend.py` dla
-którejkolwiek części T011.
+Zweryfikowane na `029107b` przed wydaniem tej wersji briefu:
+`python3 guard.py check arch/spec.md` → `STATUS: PASS`, `SHA256:
+9f5f6cfce906a0d506c019a4637a59303a190aeaf95c9deccb8cb4dcb4306b97`;
+`backend.check_frozen_lock()` → brak blockera.
+
+`arch/FROZEN.lock` pozostaje poza TASK_SCOPE każdej części T011. Jeśli
+`FROZEN_LOCK` zgłosi cokolwiek podczas implementacji, jest to NOWY problem —
+zgłoś go, nie obchodź i nie przeliczaj locka samodzielnie.
 
 ## PURPOSE
 
