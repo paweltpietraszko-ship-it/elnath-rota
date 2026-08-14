@@ -1,0 +1,149 @@
+REAUDYT IMPLEMENTACJI ROTA-T010-D — ROUND 7
+
+AUDYTOWANY SHA:
+0d912e5a27a747b1b4ae032d13b144b34dbe4451
+
+GAŁĄŹ:
+task/ROTA-T010
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T010/round_01/tests/tests_r6.txt
+
+ZAKRES RUNDY:
+
+Wyłącznie wąski reaudyt zamknięcia R6-1 w T010-D. Sprawdzono pochodzenie NN,
+wszystkie wskazane klasy dróg zapisu treści Assignment oraz zachowanie pól,
+które part_d_nn.md nakazuje przenieść z wcześniej PLANNED PRIMARY.
+
+T010-A i T010-B nie były ponownie audytowane ani modyfikowane. Końcowy audyt
+spójności całego T010 pozostaje odłożony do czasu zamknięcia D.
+
+WERDYKT T010-D: FAIL — R6-1 NIE JEST JESZCZE W PEŁNI ZAMKNIĘTE
+
+Naprawa zamyka pięć reproduktorów R6 oraz poprawnie obejmuje root, child,
+replace_working_snapshot i replacement wykonywany podczas finalize. Pozostaje
+jednak jeden wspólny invariant wymagany wprost przez kontrakt: child z NN ma
+zachować identyfikator pracownika, interval i powiązanie z demandem wcześniej
+PLANNED PRIMARY. Implementacja porównuje obecnie tylko assignment_id oraz
+role/state/code.
+
+Nie ma WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+ŹRÓDŁA KONTRAKTU
+
+- tasks/ROTA-T010/part_d_nn.md;
+- zaakceptowana macierz T010-D w tests_r2.txt;
+- R3-5 w tests_r3.txt;
+- R6-1 i jego warunek zamknięcia w tests_r6.txt.
+
+part_d_nn.md stanowi wprost, że przy oznaczeniu NN:
+
+- wcześniejsza ScheduleVersion pozostaje bez zmian i zachowuje PLANNED;
+- ten sam Assignment w child ma state=CANCELLED i operational_code="NN";
+- Assignment zachowuje identyfikator pracownika, interval i powiązanie z
+  demandem potrzebne do historii i wyświetlenia.
+
+
+ZAMKNIĘTA CZĘŚĆ R6-1 — PASS
+
+validate_nn_provenance() jest wywoływane przez wspólną _validate_content() dla:
+
+- create_schedule_version() bez parent i z parent;
+- replace_working_snapshot();
+- replacementu treści podczas finalize_schedule_version().
+
+Macierz R6 ma 12/12 przejść. Potwierdza to odrzucenie bez mutacji dla:
+
+- nowego assignment_id z NN;
+- wcześniejszego zwykłego CANCELLED PRIMARY;
+- wcześniejszego PLANNED TRAINEE;
+- root bez parent;
+- wprowadzenia NN przez replace_working_snapshot() in-place.
+
+Dodatkowy test R7 potwierdza odrzucenie wprowadzenia NN przez replacement
+podczas finalize(), z zachowaniem WORKING oraz pierwotnego PLANNED po rollbacku.
+Legalne PLANNED PRIMARY -> CANCELLED+NN nadal działa, a istniejące NN może być
+zachowane bez zmiany.
+
+
+FINDING R7-1 — HIGH — TEN SAM assignment_id MOŻE OZNACZAĆ INNĄ ZMIANĘ NN
+
+Ślad wymagania:
+
+- part_d_nn.md wymaga zachowania identyfikatora pracownika, intervalu i
+  powiązania z demandem;
+- dopiero ten niezmieniony Assignment przechodzi z PLANNED do CANCELLED+NN;
+- wymaganie służy zachowaniu prawdziwej historii i poprawnemu wyświetleniu.
+
+Właściciel kontraktu:
+
+- walidacja przejścia NN używana przy tworzeniu child ScheduleVersion.
+
+Obecne zachowanie:
+
+validate_nn_provenance() uznaje NN za legalne, jeżeli w reference istnieje ten
+sam assignment_id z role=PRIMARY i state=PLANNED. Nie porównuje pól, które
+kontrakt nakazuje zachować. apply_manual_correction() tworzy więc child i
+przyjmuje CANCELLED+NN, gdy caller równocześnie zmieni jeden z tych elementów.
+
+Potwierdzona klasa błędu:
+
+1. zmiana employee_id na innego istniejącego pracownika;
+2. zmiana start_datetime;
+3. zmiana end_datetime;
+4. zmiana covers_demand_id na inny istniejący demand.
+
+Każdy wariant zachowuje legalny końcowy kształt i ten sam assignment_id, więc
+przechodzi obecną walidację, tworzy child i staje się bieżącym snapshotem.
+Oryginalny parent pozostaje niezmieniony, ale bieżące NN opisuje inną osobę,
+inny interval albo inną zmianę niż faktycznie wcześniej zaplanowana.
+
+Test:
+
+- test_r7_d_nn_transition_preserves_contracted_assignment_identity_fields
+  [employee_id, start_datetime, end_datetime, covers_demand_id].
+
+Warunek zamknięcia:
+
+Przy pierwszym przejściu tego samego Assignment z PLANNED PRIMARY do
+CANCELLED+NN child musi zachować względem bezpośredniego parent dokładnie pola
+wymienione przez kontrakt:
+
+- employee_id;
+- start_datetime i end_datetime;
+- covers_demand_id.
+
+Zmiana któregokolwiek z nich razem z nadaniem NN ma zostać odrzucona bez
+utworzenia child i bez zmiany bieżącego wskazania. Poprawne przejście zmienia
+state na CANCELLED i operational_code na NN, zachowując te pola. Nie narzuca
+to miejsca ani techniki implementacji i nie rozszerza wymagań na inne pola.
+
+
+WYNIKI TESTÓW
+
+- tests/test_audit_t010_r6_d.py na audytowanym SHA: 12/12 PASS w połączonym
+  przebiegu D;
+- nowa macierz tests/test_audit_t010_r7_d.py: 4 failed, 1 passed;
+- połączone testy T010-D autora, R3-D, R6-D i R7-D: 4 failed, 24 passed,
+  6 deselected;
+- pełny python -m pytest -q: 4 failed, 473 passed;
+- wszystkie 4 porażki są wariantami jednego findingu R7-1;
+- git diff --check: PASS;
+- nowy plik testowy: brak linii ponad 119 znaków i trailing whitespace.
+
+Niezależna próba ruff po testach nie doszła do skutku, ponieważ runner nie
+rozwiązał wtedy polecenia python. To ograniczenie środowiska nie jest
+findingiem produktu ani zastępczym PASS lintera.
+
+
+GOTOWOŚĆ
+
+T010-D wymaga jeszcze jednego wąskiego zamknięcia R7-1. Po jego poprawce
+wystarczy reaudyt tej macierzy i regresja D. Dopiero po PASS części D należy
+wykonać uzgodniony pełny audyt spójności A/B/C/D.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

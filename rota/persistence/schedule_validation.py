@@ -137,6 +137,19 @@ def validate_assignments(conn: sqlite3.Connection, month: date, assignments: lis
     return by_id
 
 
+def _nn_transition_preserves_identity(reference: Assignment, candidate: Assignment) -> bool:
+    """R7-1 (part_d_nn.md): the PLANNED PRIMARY -> CANCELLED+NN transition
+    must represent the SAME shift -- employee_id, the interval, and
+    covers_demand_id ('identyfikator pracownika, interval i powiazanie z
+    demandem') are unchanged; only state and operational_code move."""
+    return (
+        reference.employee_id == candidate.employee_id
+        and reference.start_datetime == candidate.start_datetime
+        and reference.end_datetime == candidate.end_datetime
+        and reference.covers_demand_id == candidate.covers_demand_id
+    )
+
+
 def validate_nn_provenance(
     assignments_by_id: dict[str, Assignment],
     reference_by_id: dict[str, Assignment],
@@ -164,6 +177,7 @@ def validate_nn_provenance(
             and reference is not None
             and reference.role == AssignmentRole.PRIMARY
             and reference.state == AssignmentState.PLANNED
+            and _nn_transition_preserves_identity(reference, assignment)
         ):
             continue
         raise MalformedScheduleSnapshot(
