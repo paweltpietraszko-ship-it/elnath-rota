@@ -8,6 +8,7 @@ writes.
 from __future__ import annotations
 
 import calendar
+from dataclasses import replace
 from datetime import date, time
 
 from rota.application import store
@@ -19,12 +20,13 @@ from rota.application.bootstrap import (
     bootstrap_or_resume_coordinator_context,
 )
 from rota.application.durable_inputs import set_calendar_day, update_employee, update_membership
-from rota.application.manual_edit import mark_not_worked
+from rota.application.manual_edit import apply_manual_correction
 from rota.application.open_month import months_with_schedule
 from rota.application.plan_ops import plan_month, select_candidate
 from rota.application.assembler import assemble_planning_state
 from rota.domain import (
     AssignmentRole,
+    AssignmentState,
     CalendarDay,
     Coordinator,
     CoordinatorSiteAssociation,
@@ -165,6 +167,16 @@ def test_9_months_with_schedule_scoped_to_site(tmp_path) -> None:
     assert months_with_schedule(conn, site_id=SITE_A) == ()
 
 
+def _all_five_reads(conn):
+    return (
+        active_coordinators(conn),
+        all_coordinators(conn),
+        active_sites_for_coordinator(conn, coordinator_id=COORD_A),
+        all_sites_for_coordinator(conn, coordinator_id=COORD_A),
+        months_with_schedule(conn, site_id=SITE_A),
+    )
+
+
 def test_10_restart_yields_the_same_reads(tmp_path) -> None:
     db_path = tmp_path / "rota.db"
     conn = store.open_store(db_path)
@@ -172,12 +184,13 @@ def test_10_restart_yields_the_same_reads(tmp_path) -> None:
     _staff(conn, coordinator_id=COORD_A, site_id=SITE_A)
     _fill_calendar(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH_1)
     _plan_and_select(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH_1)
+
+    before = _all_five_reads(conn)
     conn.close()
 
     reopened = store.open_store(db_path)
-    assert [c.coordinator_id for c in active_coordinators(reopened)] == [COORD_A]
-    assert [s.site_id for s in active_sites_for_coordinator(reopened, coordinator_id=COORD_A)] == [SITE_A]
-    assert months_with_schedule(reopened, site_id=SITE_A) == (MONTH_1,)
+    after = _all_five_reads(reopened)
+    assert after == before
 
 
 def test_11_abandoned_plan_without_select_candidate_is_not_noise(tmp_path) -> None:
@@ -201,16 +214,27 @@ def test_12_nn_does_not_remove_the_month_from_navigation(tmp_path) -> None:
     _fill_calendar(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH_1)
     _plan_and_select(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH_1)
 
-    # One real assignment_id is needed to call mark_not_worked -- obtained
-    # through assemble_planning_state (application layer), the same source
-    # open_month itself reads from.
+    # Real assignment_ids obtained through assemble_planning_state
+    # (application layer), the same source open_month itself reads from.
+    # B-R4-2: EVERY PRIMARY assignment of the month is converted to
+    # CANCELLED/NN in one manual correction, not just one -- otherwise any
+    # of the remaining ordinary PLANNED rows would independently keep the
+    # month qualified, and the test would prove nothing about NN itself.
     state, _ = assemble_planning_state(conn, site_id=SITE_A, month=MONTH_1)
-    target = next(a for a in state.existing_assignments if a.role == AssignmentRole.PRIMARY)
+    primary_assignments = [a for a in state.existing_assignments if a.role == AssignmentRole.PRIMARY]
+    assert primary_assignments  # sanity: there is real coverage to convert
 
-    mark_not_worked(
+    all_nn = [replace(a, state=AssignmentState.CANCELLED, operational_code="NN") for a in primary_assignments]
+    apply_manual_correction(
         conn, site_id=SITE_A, month=MONTH_1, coordinator_id=COORD_A,
-        effective_from=date(MONTH_1.year, MONTH_1.month, 2), assignment_id=target.assignment_id,
+        effective_from=date(MONTH_1.year, MONTH_1.month, 2), upsert_assignments=all_nn,
     )
+
+    state_after, _ = assemble_planning_state(conn, site_id=SITE_A, month=MONTH_1)
+    assert state_after.existing_assignments  # not silently emptied
+    assert all(
+        a.state == AssignmentState.CANCELLED and a.operational_code == "NN" for a in state_after.existing_assignments
+    )  # explicit confirmation: no other Assignment state remains to independently qualify the month
 
     assert months_with_schedule(conn, site_id=SITE_A) == (MONTH_1,)
 

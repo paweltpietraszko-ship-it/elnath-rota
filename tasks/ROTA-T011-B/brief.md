@@ -18,8 +18,11 @@ DEPENDS_ON: ROTA-T011-A (FINDING B-R3-1, round 3: tests/test_t011_b_
 context_discovery.py opens/reopens the store via
 rota.application.store.open_store, T011-A's deliverable -- no persistence
 import permitted, no exception granted). T011-A must be merged and green
-before T011-B implementation; this branch is built on task/ROTA-T011-A
-(commit 5a0cdff), not on bare INTEGRATED_BASE_SHA.
+before T011-B implementation; this branch is rebased onto main@c2dd245
+(merge commit "ROTA-T011-E E2E pipeline proof", which already contains
+T011-A's green merge to main, plus T011-D and T011-E merged in the
+interim -- their content is unrelated to B's own diff), not on bare
+INTEGRATED_BASE_SHA and not on T011-A's own unmerged branch tip.
 
 INTEGRATED_BASE_SHA: 029107be9045d2759e77450a0fb943a04483932c
 BASE_BRANCH_AT_FREEZE: main
