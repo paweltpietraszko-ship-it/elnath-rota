@@ -1,6 +1,9 @@
-STATUS: PASS
-HEAD_SHA: 5a0cdff40f020151d0a514f614abd263a1592c63
+STATUS: WYMAGA_DECYZJI
+HEAD_SHA: 3953bb96eece3a0bb9de643006448111ab4c8dca
 CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+WYMAGA_DECYZJI:
+  - RATIO: 314/1 = 314.0:1 (threshold 5:1)
+  - TOTAL_LINES: 315 lines changed (threshold 150)
 IMPORTERS_FOR_REVIEW:
   - tests\test_audit_t009_r4.py
   - tests\test_audit_t009_r5.py
@@ -70,4 +73,10 @@ IMPORTERS_FOR_REVIEW:
   - .worktrees\t010-doc\rota\persistence\schedule_lifecycle.py
   - .worktrees\t010-doc\rota\persistence\schedule_validation.py
   - .worktrees\t010-doc\rota\persistence\work_balance_repository.py
-EXCLUDED_ARTIFACTS: NONE
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T011-B/brief.md
+  - tasks/ROTA-T011-B/output_backend.txt
+  - tasks/ROTA-T011-B/repo_before.hash
+  - tasks/ROTA-T011-B/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T011-B/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T011-B/round_01/tests/tests_r3.txt
