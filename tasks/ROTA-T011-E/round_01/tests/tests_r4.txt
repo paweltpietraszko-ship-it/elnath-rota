@@ -1,0 +1,143 @@
+WĄSKI REAUDYT IMPLEMENTACJI ROTA-T011-E — ROUND 4
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-E
+
+AUDYTOWANY SHA:
+ab5414fe4c110db33d29954390453e1ce1f4b2f5
+
+SHA KOREKTY TESTÓW:
+e46a338f8db87d530759bfa09272be260770a024
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-E/round_01/tests/tests_r3.txt
+
+ZAKRES REAUDYTU:
+Wyłącznie zamknięcie E-R3-1, E-R3-2 i E-R3-3 oraz potwierdzenie finalnego
+wyniku backendu. Pozostałe części kontraktu nie były ponownie otwierane.
+
+WERDYKT: PASS IMPLEMENTACJI — READY_FOR_FINAL_ARCHITECTURAL_ACCEPTANCE
+
+Wszystkie trzy findings są zamknięte. Kod produktu i brief pozostają
+niezmienione. Do merge pozostaje wyłącznie finalna akceptacja architekta dla
+mechanicznego `TOTAL_LINES: 441`, zgodnie z procesem projektu.
+
+
+SECTION_CHECK 1 — ZAKRES KOREKTY: PASS
+
+Commit `e46a338` zmienia wyłącznie dwa istniejące pliki TASK_SCOPE:
+
+- `tests/test_t011_e_pipeline_e2e_happy_path.py`;
+- `tests/test_t011_e_pipeline_e2e_hard_stop.py`.
+
+Commit `ab5414f` aktualizuje wyłącznie zapisany output backendu. Nie ma zmian
+w `rota/`, briefie ani trzecim pliku testowym.
+
+
+SECTION_CHECK 2 — E-R3-1: ZAMKNIĘTY
+
+Usunięto bezpośredni import:
+
+`from rota.site_memory_types import NewRuleContent`
+
+Test korzysta teraz z `rule_decisions.NewRuleContent`, czyli namespace modułu
+`rota.application.rule_decisions`, który przyjmuje ten typ w swojej publicznej
+funkcji.
+
+Niezależny skan AST obu plików nie znalazł żadnego importu `rota.*` poza:
+
+- `rota.application.*`;
+- `rota.domain`;
+- jedynym dozwolonym wyjątkiem `rota.planning.validator`.
+
+Importów `rota.persistence` nie ma.
+
+
+SECTION_CHECK 3 — E-R3-2: ZAMKNIĘTY
+
+Kandydat testu 5 zawiera teraz Assignment dla każdego demandu miesiąca, więc
+nie ma luk `COVERAGE-01`. Przed próbą select niezależny validator potwierdza:
+
+- `hard_pass is False`;
+- zbiór `violation_details.rule` jest dokładnie równy identyfikatorowi
+  testowanej wersji SiteRule.
+
+Na tak odizolowanym kandydacie `select_candidate` podnosi `CandidateRejected`.
+
+Test zawiera również kontrolę równoważności: po jawnym `rejects` tej samej
+reguły w Decision Ledger ten sam, niezmieniony kandydat uzyskuje
+`hard_pass is True`. Odrzucenie jest więc przypisane testowanej regule, a nie
+niezależnej klasie HARD.
+
+
+SECTION_CHECK 4 — E-R3-3: ZAMKNIĘTY
+
+Restart zachowuje diagnostyczne sprawdzenie obecności bieżącej wersji i statusu
+FINAL, a wiążący dowód stanowi teraz:
+
+`assert view_after_restart == view_before_restart`
+
+Porównanie obejmuje cały `OpenMonthView`, w tym profil, memberships,
+availability, resolved/unresolved rules, historię wersji, work balances i
+warnings, a nie ręcznie wybrany podzbiór pól.
+
+
+SECTION_CHECK 5 — TESTY I BRAMKI: PASS
+
+Uruchomiono oba scenariusze E, ROTA-REG-001 oraz dependency boundary scan.
+
+Wynik: 15/15 PASS.
+
+Pozostałe wyniki:
+
+- pełna suite: 508/508 PASS;
+- ROTA-REG-001 + boundary scan: 8/8 PASS;
+- Ruff na obu plikach TASK_SCOPE: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check`: PASS;
+- brak zmian w `rota/`;
+- brak funkcji przekraczającej 45 linii.
+
+
+SECTION_CHECK 6 — FINALNY BACKEND: POTWIERDZONY
+
+Zapisany `output_backend.txt` wskazuje commit-rodzica `e46a338`, zawierający
+finalne testy przed commitem samego dowodu. Niezależne uruchomienie backendu na
+aktualnym `ab5414f` zwróciło ten sam wynik merytoryczny:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- wyłącznie `TOTAL_LINES: 441` przy progu 150;
+- wszystkie blokujące gate'y zielone.
+
+Po pominięciu nieuniknionej różnicy pola `HEAD_SHA` zapisany output i
+niezależna reprodukcja są identyczne. Plik tymczasowy usunięto po porównaniu.
+
+
+WYMAGA_DECYZJI E-R3-4 — STATUS AKCEPTACJI
+
+Właściciel przekazał pisemną zgodę na ponadlimitową długość T011-E jako
+jednostkowy przypadek, bez zmiany progów backendu i bez precedensu. Finalny
+wzrost z 421 do 441 linii wynika wyłącznie z korekt wymaganych przez E-R3-1..3;
+nie dodaje zakresu ani kodu produkcyjnego. Z perspektywy właściciela ta
+jednorazowa klasa jest zaakceptowana.
+
+Kontrakt wskazuje jednak `FINAL_ARCHITECTURAL_ACCEPTANCE: architekt`, a proces
+merge wymaga PASS Codexa i PASS architekta. Architekt powinien zatem
+zaakceptować dokładny finalny wynik `TOTAL_LINES: 441` przed merge. Nie należy
+zmieniać progów backendu ani skracać dowodu.
+
+
+FINDINGS
+
+Brak otwartych findings implementacyjnych.
+
+
+GOTOWOŚĆ
+
+T011-E ma PASS Codexa dla implementacji na SHA `ab5414f`. Po jednorazowej
+akceptacji architekta dla `TOTAL_LINES: 441` może zostać zmergowane do `main`.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
