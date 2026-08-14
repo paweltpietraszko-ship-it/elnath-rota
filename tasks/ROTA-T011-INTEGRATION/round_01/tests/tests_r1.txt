@@ -1,0 +1,153 @@
+AUDYT SPÓJNOŚCI I REALNEGO PIPELINE'U ROTA-T011 A–E — ROUND 1
+
+AUDYTOWANY MAIN SHA:
+004f8774ce8ac3aa6ff04c69ce8f0733306e6f92
+
+GAŁĄŹ DOWODU:
+audit/ROTA-T011-pipeline
+
+ŹRÓDŁO SCENARIUSZY:
+Jawne polecenie właściciela po zmergowaniu T011 A–E: pełny normalny miesiąc,
+wariant z dodatkowym siedmiodniowym L4 i datowanym wyjątkiem od DAY_ONLY oraz
+niezależny test audytora szukający praktycznej ściany programu.
+
+WERDYKT: PASS — T011 A–E JEST SPÓJNE I DZIAŁA ZGODNIE Z KONTRAKTAMI
+
+Nie znaleziono niespójności między częściami A–E ani błędu produkcyjnego w
+trzech scenariuszach operacyjnych. Dwa pełne miesiące zakończyły się FINAL bez
+HARD violation, odchyleń i ostrzeżeń carry-in. Celowo niewykonalny trzeci
+scenariusz został zatrzymany jako DECISION_REQUIRED z konkretnym demandem i
+przyczynami; program nie stworzył cichego, nielegalnego grafiku.
+
+
+SECTION_CHECK 1 — RZECZYWISTA INTEGRACJA A–E: PASS
+
+Na `main@004f877` są obecne wszystkie pięć części:
+
+- A: aplikacyjne open/migrate store, CalendarDay i historia Availability;
+- B: aktywne/pełne odczyty Coordinator/Site oraz nawigacja miesięcy;
+- C: guarded edycje Site/Coordinator/Association i pełna odwracalność
+  samozablokowania;
+- D: aplikacyjny quarter_balance oraz carry-in w assemblerze;
+- E: ciągły pipeline i brak silent HARD override.
+
+Brakujący wcześniej D jest zintegrowany: istnieją `balance_read.py`, brief D i
+dziewięć testów D. Bazowa suite po realnym merge wyniosła 546/546 PASS.
+
+Nowy harness nie importuje `rota.persistence`. Stan powstaje i jest odczytywany
+przez `rota.application.*`; niezależna walidacja kandydata używa istniejącego
+`rota.planning.validator.validate`, tak jak kontrakt E.
+
+
+SECTION_CHECK 2 — NORMALNY MIESIĄC: PASS
+
+Październik 2026, codziennie jedna D 06:00–18:00 i jedna N 18:00–06:00,
+sześciu pracowników, limit 60 h w ruchomych 7 dniach.
+
+Wejście:
+
+- Anna: LEAVE_GRANTED 05–18.10, dokładnie 14 dni;
+- Bartek: SICK_LEAVE 10–14.10, dokładnie 5 dni;
+- Celina: DAY_SHIFT_OFF 07.10;
+- Damian: DAY_SHIFT_OFF 20.10;
+- Ewa: DAY_SHIFT_OFF 27.10;
+- Filip: Employee.day_only=true, bez wyjątku N.
+
+Wynik:
+
+- PLAN: FEASIBLE;
+- 62/62 demandów pokrytych dokładnie jednym PRIMARY;
+- zero Assignment podczas urlopu lub L4, również dla N wchodzącej w pierwszy
+  dzień nieobecności;
+- zero D na trzech dniach DAY_SHIFT_OFF;
+- zero N dla Filipa bez wyjątku;
+- niezależny validator: HARD PASS;
+- FINAL po select/revalidate, zero odchyleń;
+- pełny OpenMonthView i Assignmenty identyczne po zamknięciu i ponownym
+  `store.open_store`;
+- `months_with_schedule == (2026-10-01,)`;
+- quarter_balance dla wszystkich sześciu osób: trzy miesiące, zero ostrzeżeń;
+- obserwowany czas PLAN około 0,05 s; jest to pomiar, nie nowy próg kontraktowy.
+
+
+SECTION_CHECK 3 — MIESIĄC BRZEGOWY: PASS
+
+Do identycznego wejścia dodano:
+
+- Ewa: SICK_LEAVE 15–21.10, dokładnie 7 dni;
+- Filip: CONFIRMED_EXCEPTION / HARD / RESOLVED
+  EMPLOYEE_DAY_ONLY_N_EXCEPTION obowiązujący 15–21.10.
+
+Po solverze koordynator przez publiczne `manual_edit.apply_manual_correction`
+wykonał HARD-valid swap, aby wynik rzeczywiście korzystał z wyjątku, zamiast
+tylko przechowywać nieużywaną regułę. Filip ma N 16.10; żadna jego N nie
+występuje przed 15.10 ani po 21.10.
+
+Wynik:
+
+- PLAN: FEASIBLE;
+- 62/62 demandów pokrytych;
+- zero naruszeń obu L4, urlopu i trzech DAY_SHIFT_OFF;
+- manualna korekta utworzyła wersjonowanego childa, a revalidate/finalize
+  zakończyły się bez odchyleń;
+- restart zachował pełny widok i Assignmenty;
+- quarter_balance: zero ostrzeżeń;
+- obserwowany czas PLAN około 0,05 s.
+
+
+SECTION_CHECK 4 — WŁASNY TEST „ŚCIANY KOORDYNATORA”: PASS ZACHOWANIA FAIL-CLOSED
+
+Celowo ograniczono roster do Anny, Bartka i day-only Filipa. Anna jest na
+urlopie, a L4 Bartka zaczyna się 14.10. Koordynator wprowadza wyjątek N dla
+Filipa od 14.10.
+
+Program zatrzymuje się na demandzie `2026-10-13-N`. To ważna granica dobowa:
+nocka zaczyna się 13.10 i kończy 14.10, więc:
+
+- urlop Anny już ją przecina — LEAVE_GRANTED-01;
+- L4 Bartka od 14.10 już ją przecina — SICK_LEAVE-01;
+- wyjątek Filipa działa dopiero dla demandów od 14.10, więc N rozpoczęta
+  13.10 nadal podlega DAY_ONLY-01.
+
+Wynik to DECISION_REQUIRED, candidates=[], konkretny blocking demand, komplet
+trzech blockerów i jawne opcje decyzji. To nie jest finding implementacyjny.
+Jest to praktyczna ściana dla koordynatora: wyjątek obejmujący pierwszą datę L4
+może wymagać rozpoczęcia dzień wcześniej, jeżeli ma pokryć nockę wchodzącą w tę
+datę. Program zachowuje się bezpiecznie i nie zgaduje intencji.
+
+
+SECTION_CHECK 5 — ARTEFAKTY GRAFIKÓW: PASS
+
+W `artifacts/t011_pipeline/` zapisano:
+
+- `normal_month.svg`, `.csv`, `.json`;
+- `boundary_month.svg`, `.csv`, `.json`;
+- `coordinator_wall.json`;
+- `README.md` z legendą i poleceniem reprodukcji.
+
+SVG są poprawnym XML i mają po około 25 KB. To celowo prosta macierz
+pracownik × dzień, bez ciężkiej grafiki i bez udawania docelowego arkusza.
+CSV jest źródłem czytelnym maszynowo, a JSON zawiera status, czas, liczbę
+Assignmentów, godziny, ostrzeżenia i blokery.
+
+
+SECTION_CHECK 6 — REGRESJA I BRAMKI: PASS
+
+- bazowa suite po merge A–E: 546/546 PASS;
+- suite z czterema nowymi testami: 550/550 PASS;
+- celowana macierz A–E + oracle + boundary + nowe scenariusze: 65/65 PASS;
+- Ruff na `rota`, `tests` i `benchmarks`: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check`: PASS;
+- dwa SVG: poprawnie sparsowane.
+
+
+FINDINGS
+
+Brak otwartych findings implementacyjnych.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Generator artefaktów pozostaje narzędziem audytowym, nie propozycją
+publicznego eksportu produktu.

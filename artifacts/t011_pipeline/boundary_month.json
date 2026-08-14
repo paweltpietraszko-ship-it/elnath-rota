@@ -1,0 +1,20 @@
+{
+  "scenario": "boundary_month",
+  "status": "FEASIBLE",
+  "plan_seconds": 0.05546,
+  "assignment_count": 62,
+  "worked_hours": {
+    "DAMIAN": 156,
+    "BARTEK": 96,
+    "FILIP": 168,
+    "ANNA": 84,
+    "EWA": 108,
+    "CELINA": 132
+  },
+  "deviation_count": 0,
+  "warnings": [],
+  "quarter_balance_warnings": [],
+  "blocking_demand_ids": [],
+  "blockers": [],
+  "unblocking_options": []
+}
