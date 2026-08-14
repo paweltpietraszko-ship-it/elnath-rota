@@ -1,0 +1,88 @@
+REAUDYT KONTRAKTU ROTA-T011-D — ROUND 2
+
+AUDYTOWANY SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-D/round_01/tests/tests_r1.txt
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+FINDING D-1 i WYMAGA_DECYZJI D-2 z round 1 są zamknięte. Carry-in zerowy jest
+pisemną decyzją właściciela, a kontrakt zachowuje TARGET-01. Nie ma dalszego
+WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+SECTION_CHECK 1 — ZAMKNIĘCIE FINDING D-1: PASS
+
+Round 2 poprawnie rozpoznaje rzeczywiste sprzężenie z solverem:
+
+- solver nie czyta pól salda, ale buduje cele iterując po całym
+  `state.work_balances`;
+- pracownik z normą na planowany miesiąc nie może wypaść z tego zbioru tylko
+  dlatego, że brak normy we wcześniejszym miesiącu;
+- jego bieżący `target_hours` pozostaje niezmieniony i nadal uczestniczy w
+  TARGET-01;
+- test 7 asertuje członkostwo oraz wartość target bezpośrednio;
+- test 8 porównuje pełny zbiór `(employee_id, target_hours)` ze scenariuszem
+  kontrolnym, zamiast wnioskować z samego statusu/liczby kandydatów.
+
+Odrębny, istniejący przypadek braku target w samym planowanym miesiącu pozostaje
+bez zmian i jest wyraźnie oddzielony od nowej degradacji carry-in.
+
+
+SECTION_CHECK 2 — ZAMKNIĘCIE D-2 / DECYZJA LICZBOWA: PASS
+
+Sekcja prosząca audytora o wybór została usunięta. Wiążąca decyzja definiuje:
+
+- `quarter_balance_before = 0` po luce wcześniejszego miesiąca;
+- brak sumowania częściowego ponad luką;
+- zachowanie pracownika i jego target w `work_balances`;
+- ostrzeżenie wskazujące brakujący miesiąc;
+- brak wyjątku blokującego PLAN;
+- `quarter_balance == unresolved_carryover == month_balance` dla tego
+  zdegradowanego pracownika, ponieważ carry-in wynosi zero.
+
+Nie pozostał ślad po odrzuconym wariancie pominięcia pracownika ani po carry-in
+częściowym. Nagłówek `OWNER_ACCEPTANCE_REQUIRED...: no` jest zgodny z treścią.
+
+
+SECTION_CHECK 3 — ODCZYT KWARTAŁU I INWARIANTY: PASS
+
+- pełny `quarter_balance` nadal deleguje do istniejącej rekonstrukcji kwartału;
+- brak dowolnej z trzech norm daje pustą listę i ostrzeżenie, nigdy częściowy
+  raport wyglądający jak pełny;
+- assembler liczy tylko miesiące do planowanego włącznie, nie wymaga norm
+  przyszłych;
+- target_hours pozostaje SOFT i brak normy nie blokuje PLAN;
+- WorkBalance jest rekonstruowany, nie przechowywany jako drugie źródło prawdy;
+- nie ma zmian w planning, balance ani persistence;
+- B-4=W3 pozostaje decyzją „brak restore”, bez kodu.
+
+
+SECTION_CHECK 4 — TESTOWALNOŚĆ I SCOPE: PASS
+
+Scenariusze pełnego kwartału, luki, pierwszego miesiąca, realnego carry-in,
+zerowej degradacji, zachowania targetów i restartu są wykonalne na prawdziwym
+SQLite przez istniejące wejścia. `_assemble_work_balances` może użyć istniejącego
+`reconstruct_month_balance(..., quarter_balance_before=...)`; nie potrzeba nowej
+funkcji persistence ani pętli domenowej w `balance_read`.
+
+- parser backend.py: 3 wpisy TASK_SCOPE;
+- dwa nowe pliki, dokładnie MAX_NEW_FILES=2;
+- `guard.py check arch/spec.md`: PASS;
+- `backend.check_frozen_lock()`: brak blockera;
+- `git diff --check 7239b51..51f3b42`: PASS;
+- diff round 2 nie zawiera kodu produkcyjnego ani testów.
+
+
+GOTOWOŚĆ
+
+T011-D może przejść do implementacji. Reaudyt kodu musi sprawdzić nie tylko
+wartości salda, ale również zachowanie składu `work_balances` i targetów
+wejściowych solvera.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
