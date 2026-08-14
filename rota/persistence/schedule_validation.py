@@ -164,14 +164,23 @@ def validate_nn_provenance(
     True, the one legitimate transition); a root create or an in-place
     replace_working_snapshot/finalize passes the version's own pre-write
     content (allow_new_nn_from_planned_primary=False -- in-place writes may
-    only preserve an already-NN row, never invent one). Either way, an
-    assignment_id already NN in the reference is always preserved."""
+    only preserve an already-NN row, never invent one). An assignment_id
+    already NN in the reference is preserved only while it still represents
+    the same shift (ARCH-1: an already-NN row must not silently be "moved"
+    onto a different employee/interval/demand in a later snapshot either --
+    the same identity requirement R7-1 established for the first
+    transition, applied consistently to this branch too)."""
     for assignment_id, assignment in assignments_by_id.items():
         if assignment.operational_code != "NN":
             continue
         reference = reference_by_id.get(assignment_id)
         if reference is not None and reference.operational_code == "NN":
-            continue
+            if _nn_transition_preserves_identity(reference, assignment):
+                continue
+            raise MalformedScheduleSnapshot(
+                f"assignment {assignment_id!r}: existing operational_code=NN must not change "
+                "employee_id/start_datetime/end_datetime/covers_demand_id in a later snapshot"
+            )
         if (
             allow_new_nn_from_planned_primary
             and reference is not None
