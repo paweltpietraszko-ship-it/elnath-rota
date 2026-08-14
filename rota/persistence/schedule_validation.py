@@ -137,6 +137,41 @@ def validate_assignments(conn: sqlite3.Connection, month: date, assignments: lis
     return by_id
 
 
+def validate_nn_provenance(
+    assignments_by_id: dict[str, Assignment],
+    reference_by_id: dict[str, Assignment],
+    *,
+    allow_new_nn_from_planned_primary: bool,
+) -> None:
+    """R6-1 (part_d_nn.md): a legal CANCELLED PRIMARY + NN *shape* is not by
+    itself proof that NN happened -- it must trace back to the SAME
+    assignment_id being PLANNED PRIMARY in the reference snapshot. Two
+    references are used by the two callers: create_schedule_version(with a
+    parent) passes the parent's content (allow_new_nn_from_planned_primary=
+    True, the one legitimate transition); a root create or an in-place
+    replace_working_snapshot/finalize passes the version's own pre-write
+    content (allow_new_nn_from_planned_primary=False -- in-place writes may
+    only preserve an already-NN row, never invent one). Either way, an
+    assignment_id already NN in the reference is always preserved."""
+    for assignment_id, assignment in assignments_by_id.items():
+        if assignment.operational_code != "NN":
+            continue
+        reference = reference_by_id.get(assignment_id)
+        if reference is not None and reference.operational_code == "NN":
+            continue
+        if (
+            allow_new_nn_from_planned_primary
+            and reference is not None
+            and reference.role == AssignmentRole.PRIMARY
+            and reference.state == AssignmentState.PLANNED
+        ):
+            continue
+        raise MalformedScheduleSnapshot(
+            f"assignment {assignment_id!r}: operational_code=NN has no legitimate PLANNED PRIMARY "
+            "provenance in the reference snapshot"
+        )
+
+
 def validate_deviations(
     conn: sqlite3.Connection, deviations: list[Deviation], assignments_by_id: dict[str, Assignment],
     demands_by_id: dict | None = None,

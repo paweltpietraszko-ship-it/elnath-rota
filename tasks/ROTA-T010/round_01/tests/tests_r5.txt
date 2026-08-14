@@ -1,0 +1,167 @@
+REAUDYT IMPLEMENTACJI ROTA-T010-B — ROUND 5
+
+AUDYTOWANY SHA:
+aa16b989fbcc5d9a1fd40c00e97ec73743fa99aa
+
+GAŁĄŹ:
+task/ROTA-T010
+
+POPRZEDNIE RAPORTY:
+- tasks/ROTA-T010/round_01/tests/tests_r3.txt — findings R3;
+- tasks/ROTA-T010/round_01/tests/tests_r4.txt — osobny PASS części A.
+
+ZAKRES RUNDY:
+
+Wyłącznie T010-B i zamknięcie:
+- R3-3 — category=CONFIRMED_EXCEPTION dla wyjątku day_only;
+- R3-4 — rzeczywiste datowane SiteRuleApplicability w projekcji matrycy.
+
+Sprawdzono także siblingi tych samych invariantów B: inny Employee/Site,
+pozostałe HARD, korektę rodziny, wcześniejsze ✓, niezależny okres, restart oraz
+zgodność eligibility z niezależnym validatorem.
+
+T010-A i T010-D nie były w tej rundzie audytowane merytorycznie. Pełny audyt
+spójności T010 nastąpi dopiero po osobnym reaudycie D.
+
+WERDYKT T010-B: PASS — R3-3 I R3-4 ZAMKNIĘTE
+
+Nie znaleziono nowego defektu kontraktowego w części B.
+
+
+ŹRÓDŁA KONTRAKTU
+
+- tasks/ROTA-T010/part_b_availability.md;
+- arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md;
+- OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md;
+- zaakceptowana macierz implementacyjna w tests_r2.txt;
+- R3-3 i R3-4 w tests_r3.txt.
+
+
+R3-3 — ZAMKNIĘTE
+
+day_only_n_exception_applies() wymaga teraz jednocześnie:
+
+- rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION;
+- category == CONFIRMED_EXCEPTION;
+- employee_id zgodnego z ocenianym pracownikiem.
+
+Funkcja pozostaje używana w dwóch właścicielach tego samego HARD:
+
+- eligibility._common_hard_gate;
+- validator._check_day_only.
+
+Potwierdzone przypadki:
+
+- poprawne CONFIRMED_EXCEPTION uchyla wyłącznie DAY_ONLY-01 dla wskazanego
+  Employee;
+- ta sama reguła dla innego Employee nie uchyla DAY_ONLY-01;
+- LOCAL_RULE z tym samym rule_kind nie uchyla DAY_ONLY-01;
+- CLIENT_REQUIREMENT z tym samym rule_kind nie uchyla DAY_ONLY-01;
+- oba niedozwolone category są blokowane jednakowo przez eligibility i
+  niezależny validator.
+
+Testy:
+
+- test_r3_b_day_only_exception_requires_confirmed_exception_category;
+- test_r5_b_wrong_category_neither_eligibility_nor_validator_grants_exception;
+- test_r5_b_confirmed_exception_applies_only_to_the_named_employee.
+
+Nie wprowadzono ogólnego mechanizmu override. Reguła o poprawnej kategorii
+nadal nie uchyla żadnego innego HARD.
+
+
+MACIERZ INNYCH HARD — PASS
+
+Z prawidłowym wyjątkiem day_only zestawiono reprezentatywne siblingi:
+
+- osobny EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS zakazujący N;
+- SICK_LEAVE;
+- LEAVE_GRANTED;
+- UNAVAILABLE_24H;
+- disabled SiteMembership.
+
+We wszystkich przypadkach:
+
+- DAY_ONLY-01 jest wąsko uchylone;
+- właściwy drugi HARD nadal blokuje;
+- eligibility zwraca właściwy condition/rule code;
+- validator niezależnie zgłasza ten sam obowiązujący HARD.
+
+Testy:
+
+- test_r5_b_other_hard_n_ban_still_blocks_in_eligibility_and_validator;
+- test_r5_b_exception_does_not_lift_blocking_availability_in_either_owner
+  [SICK_LEAVE, LEAVE_GRANTED, UNAVAILABLE_24H];
+- test_r5_b_exception_does_not_lift_disabled_membership_in_either_owner.
+
+Granice effective_from/effective_to, dzień przed/po i powrót DAY_ONLY-01 po
+wygaśnięciu pozostają pokryte przez testy autora i są zielone.
+
+
+R3-4 — ZAMKNIĘTE
+
+EmployeeAvailabilityMatrix zachowuje teraz dwa powiązane elementy:
+
+- odpowiednie SiteRuleVersion;
+- dokładne SiteRuleApplicability wyliczone przez istniejący
+  assemble_monthly_site_rules().
+
+Applicability jest filtrowane przez rule_version_id należące do reguł
+wybranego employee i Site. Projekcja nie próbuje ponownie implementować
+lifecycle T005 ani mutować historycznych effective_from/effective_to.
+
+Potwierdzone przypadki:
+
+1. Zakaz 01–31.10, odwołany decyzją „przywróć ✓ od 15.10”:
+   projekcja zawiera rzeczywisty slice 01–14.10.
+2. Zamknięcie i ponowne otwarcie bazy:
+   cały EmployeeAvailabilityMatrix jest identyczny.
+3. Kolejna wersja tej samej rodziny od 10.10 do 20.10:
+   stara wersja ma slice 01–09.10, nowa 10–20.10 i starsza nie odżywa po
+   wygaśnięciu nowej.
+4. Nowy niezależny okres 25–27.10:
+   pozostaje osobnym, poprawnym slicem.
+5. Reguła innego Employee oraz reguła tego samego Employee na innym Site:
+   nie trafiają do reguł ani applicability zwracanych dla ocenianej pary.
+
+Testy:
+
+- test_r3_b_projection_distinguishes_early_restore_from_unchanged_ban;
+- test_r5_b_early_restore_has_exact_applicability_and_survives_restart;
+- test_r5_b_projection_preserves_correction_and_independent_family_slices;
+- test_r5_b_projection_filters_other_employee_and_other_site_applicability.
+
+To zamyka klasę korekta / wcześniejsze ✓ / niezależna rodzina / restart bez
+mutowania append-only historii.
+
+
+WYNIKI TESTÓW
+
+- tests/test_t010_day_only_n_exception.py: 8 passed;
+- testy R3 dotyczące B: 3 passed;
+- nowa macierz tests/test_audit_t010_r5_b.py: 11 passed;
+- regresja SiteRule execution / integration / decision ledger: 49 passed;
+- połączona macierz B: 22 passed;
+- pełny python -m pytest -q po dodaniu macierzy R5: 460 passed;
+- jawny real-object/stress + ROTA-REG-001: 9 passed;
+- git diff --check: PASS.
+
+Autor podał ruff clean dla SHA. Niezależna próba ponownego uruchomienia ruff
+po testach ponownie nie doszła do skutku, ponieważ runner nie rozwiązał
+polecenia python. Nowy plik audytowy przeszedł wykonanie, kontrolę długości
+linii i kontrolę trailing whitespace. Ograniczenie runnera nie jest findingiem
+produktu ani zastępczym PASS lintera.
+
+
+GOTOWOŚĆ
+
+T010-B jest gotowe do pozostawienia bez dalszej iteracji w tej turze. Następny
+audyt powinien przejść do T010-D. R3-3 i R3-4 należy ponownie otworzyć tylko,
+jeżeli późniejsza zmiana dotknie ich właścicieli.
+
+To nie jest końcowy PASS całego T010.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
