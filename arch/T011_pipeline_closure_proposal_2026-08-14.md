@@ -239,14 +239,15 @@ dostępność vs. pełnia). Przy W3 potrzeba czterech nazwanych odczytów, nie
 dwóch z dwoma trybami:
 
 ```text
-def known_coordinators(conn) -> tuple[Coordinator, ...]
+def active_coordinators(conn) -> tuple[Coordinator, ...]
 def active_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]
 def all_coordinators(conn) -> tuple[Coordinator, ...]
 def all_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]
 ```
 
 (nazwy robocze — architekt pisząc brief może je zmienić; treść, nie etykieta,
-jest tu wiążąca). Zgodnie z własnym argumentem tego dokumentu przeciw flagom
+jest tu wiążąca; poprawione 2026-08-14 na symetryczne `active_*`/`all_*` —
+pierwotny szkic mieszał `known_` z `active_` dla tej samej filtrowanej pary). Zgodnie z własnym argumentem tego dokumentu przeciw flagom
 boolowskim w sygnaturze (patrz B-3/W3 „bez flag boolowskich w sygnaturze") nie
 proponuję jednej funkcji z parametrem `only_active: bool`.
 
@@ -402,14 +403,14 @@ możliwe zwykłym zapisem — zakaz w `activate_association_if_not_already_activ
 in_open_transaction` (`WHERE ... active = 0`) dotyczy wyłącznie ścieżki CAS
 używanej przez bootstrap przy wyścigu dwóch aktywacji, nie jest ogólnym
 zakazem deaktywacji. `save_coordinator_site_association` (zwykły upsert,
-`coordinator_repository.py:51-64`) nie ma żadnego `WHERE` i już dziś fizycznie
+`coordinator_repository.py:77-80`) nie ma żadnego `WHERE` i już dziś fizycznie
 pozwala na `1 → 0` — nowego prymitywu nie trzeba, wystarczy nowy wrapper
 aplikacyjny w kształcie `durable_inputs.update_employee`, wołający ten
 istniejący zapis.
 
 **CONSTRAINT 2026-08-14 (konsekwencja W1, do brief T011-C, nie nowa decyzja
 właściciela).** Zwykły upsert `write_site_in_open_transaction`
-(`site_repository.py:20-36`) nadpisuje `profile_id` i waliduje tylko, że
+(`site_repository.py:21-37`) nadpisuje `profile_id` i waliduje tylko, że
 docelowy profil ISTNIEJE, nie że się nie zmienił. To niesymetryczne wobec
 `durable_inputs.update_site_profile`, który explicite ODRZUCA profil
 nienależący do autoryzowanego Site (`durable_inputs.py:70-73`). Przepięcie
@@ -418,8 +419,10 @@ kwalifikację szkoleń: `training._qualifies_for_readiness` liczy względem
 BIEŻĄCEGO profilu w momencie liczenia, nie profilu z chwili realizacji
 (świadomie przyjęty kompromis R6-4, `training.py:50-56`). Nowy wrapper
 `update_site` (B-2/W1) MUSI odrzucać zmianę `profile_id` przez samego siebie —
-`profile_id` pozostaje ustawiane wyłącznie przy bootstrapie (A-2/`bootstrap.py`),
-tak jak dziś. Jeśli kiedyś powstanie realna potrzeba świadomego przepięcia
+`profile_id` pozostaje ustawiane wyłącznie przy bootstrapie, przez istniejącą
+`bootstrap.bootstrap_or_resume_coordinator_context` (`bootstrap.py:78-125`,
+NIE przez A-2/`open_store` z tego dokumentu, który tylko otwiera magazyn i nie
+pisze żadnej encji), tak jak dziś. Jeśli kiedyś powstanie realna potrzeba świadomego przepięcia
 Site na inny profil, to osobna, jawnie nazwana operacja z własnym pytaniem
 produktowym o retroaktywność szkoleń — nie efekt uboczny zwykłej edycji nazwy.
 
