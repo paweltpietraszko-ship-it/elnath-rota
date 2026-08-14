@@ -1,0 +1,141 @@
+WĄSKI REAUDYT IMPLEMENTACJI ROTA-T011-C — ROUND 5
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-C
+
+AUDYTOWANY SHA:
+5f19d07c88d9be34287e7af035ce5690bf97d5f9
+
+SHA KOREKTY C-R4-1:
+9684784da72c94cb269f56419623abe6376ba920
+
+SHA KOREKTY FORMATOWANIA SIZE_FUNC:
+80ea80787fb7692d3e6a47d379db54a812a94a6e
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-C/round_01/tests/tests_r4.txt
+
+ZAKRES REAUDYTU:
+Wyłącznie zamknięcie C-R4-1, potwierdzenie semantycznej neutralności
+formatowania wymuszonego przez whole-file SIZE_FUNC oraz finalnego backendu.
+C-R3-1..3 i decyzje produktowe nie były ponownie otwierane.
+
+WERDYKT: PASS IMPLEMENTACJI — READY_FOR_FINAL_ARCHITECTURAL_ACCEPTANCE
+
+C-R4-1 jest zamknięty. Wszystkie trzy testy współbieżności ponownie wymuszają
+audytowane okno race na aktywnej ścieżce bootstrapu. Dodatkowa kompresja funkcji
+jest czystym formatowaniem, a wszystkie bramki blokujące są zielone.
+
+Do merge pozostaje finalna akceptacja architekta dla mechanicznych wyników
+`RATIO: 8.5:1` i `TOTAL_LINES: 493`.
+
+
+SECTION_CHECK 1 — ZAKRES KOREKTY: PASS
+
+Commit `9684784` zmienia wyłącznie:
+
+- punkt monkeypatcha w jednym teście `tests/test_audit_t010_r3.py`;
+- punkt monkeypatcha w dwóch testach `tests/test_audit_t010_r4_a.py`;
+- TASK_SCOPE i opis zamknięcia findingu w briefie.
+
+Oba istniejące pliki testowe są jawnie wpisane do TASK_SCOPE. Nie zmieniono
+scenariuszy, oczekiwanych wyników ani kodu produkcyjnego.
+
+Commit `80ea807` kompresuje wieloliniowe wywołania w autoryzowanych plikach,
+aby przejść whole-file `SIZE_FUNC`, oraz dokumentuje przyczynę w briefie.
+Commit `5f19d07` aktualizuje wyłącznie zapisany output backendu.
+
+
+SECTION_CHECK 2 — C-R4-1: ZAMKNIĘTY
+
+Każdy z trzech testów pobiera i patchuje teraz
+`bootstrap_module._has_full_active_context`, czyli helper rzeczywiście
+wywoływany na wejściu `bootstrap_or_resume_coordinator_context` po C-R3-1.
+
+Wrapper synchronizujący:
+
+1. wykonuje prawdziwy pre-check i zapamiętuje jego wynik;
+2. zatrzymuje oba wątki na `threading.Barrier(2)`;
+3. dopiero potem pozwala obu przejść do ścieżki zapisu.
+
+W ten sposób testy ponownie dowodzą pełnej klasy T010:
+
+- dwa bootstrapy tego samego pierwszego kontekstu: jeden sukces, jedna odmowa;
+- dwie reaktywacje tej samej Association: jeden sukces, jedna odmowa;
+- dwa różne Site tego samego Coordinator: oba sukcesy.
+
+Stary `_has_active_association` nie jest już używany jako nieaktywny punkt fault
+injection. Nie zmieniono CAS ani zachowania bootstrapu.
+
+
+SECTION_CHECK 3 — FORMATOWANIE SIZE_FUNC: PASS
+
+Porównano AST obu plików testowych pomiędzy `9684784` i `80ea807`:
+
+- `tests/test_audit_t010_r3.py`: AST_IDENTICAL=True;
+- `tests/test_audit_t010_r4_a.py`: AST_IDENTICAL=True.
+
+Oznacza to brak zmiany wywołań, argumentów, wartości, asercji, kolejności
+operacji i przepływu sterowania. Różnice obejmują wyłącznie układ linii oraz
+skrócenie komentarzy. W szczególności pre-existing
+`test_r3_b_projection_distinguishes_early_restore_from_unchanged_ban` zachowuje
+identyczne drzewo programu i przechodzi samodzielnie.
+
+Backend nie zgłasza już SIZE_FUNC ani innej blokującej bramki. Nie zmieniono
+progów i nie dodano wyjątku narzędziowego.
+
+
+SECTION_CHECK 4 — TESTY I BRAMKI: PASS
+
+Uruchomiono trzy naprawione testy race, formatowany test projekcji, pełny plik
+T011-C, regresję bootstrapu T010, ROTA-REG-001 i dependency boundary scan:
+
+- macierz celowana: 37/37 PASS;
+- pełna suite: 537/537 PASS;
+- Ruff na pięciu plikach TASK_SCOPE: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check`: PASS;
+- brak zmian w kodzie produkcyjnym po round 4.
+
+
+SECTION_CHECK 5 — FINALNY BACKEND: POTWIERDZONY
+
+Zapisany `output_backend.txt` wskazuje `80ea807`, czyli finalne testy i brief
+przed commitem samego dowodu. Niezależny backend na aktualnym `5f19d07`
+odtworzył:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- `RATIO: 441/52 = 8.5:1`;
+- `TOTAL_LINES: 493`;
+- brak SIZE_FUNC FAIL;
+- wszystkie bramki blokujące zielone.
+
+Poza oczekiwaną różnicą HEAD_SHA zapisany output i aktualna reprodukcja są
+merytorycznie identyczne.
+
+
+WYMAGA_DECYZJI C-R5-1 — STATUS AKCEPTACJI METRYK
+
+Implementacja ma PASS Codexa. Kontrakt wskazuje
+`FINAL_ARCHITECTURAL_ACCEPTANCE: architekt`, dlatego przed merge architekt musi
+jednorazowo zaakceptować dokładne finalne wyniki RATIO 8.5:1 i TOTAL_LINES 493.
+Nie należy zmieniać progów ani skracać testów w celu obniżenia tych liczb.
+
+
+FINDINGS
+
+Brak otwartych findings implementacyjnych.
+
+
+GOTOWOŚĆ
+
+T011-C ma PASS Codexa dla implementacji na SHA `5f19d07`. Po finalnej
+akceptacji architekta dla RATIO 8.5:1 i TOTAL_LINES 493 może zostać zmergowane
+do main. Po integracji całej rodziny T011 należy wykonać osobny, uzgodniony
+audyt realnego miesięcznego pipeline'u; nie jest on warunkiem zamknięcia
+samego C-R4-1.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
