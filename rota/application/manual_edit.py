@@ -16,7 +16,7 @@ from rota.application.assembler import assemble_planning_state, resolved_rule_ve
 from rota.application.context import require_active_coordinator_context
 from rota.application.deviation_mapping import materialize_deviations
 from rota.application.errors import NoCurrentScheduleVersion, require_real_date
-from rota.domain import Assignment, ScheduleVersion
+from rota.domain import Assignment, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
@@ -80,6 +80,28 @@ def freeze_or_unfreeze(
     snapshot = get_schedule_snapshot(conn, current_id)
     target = next(a for a in snapshot.assignments if a.assignment_id == assignment_id)
     updated = replace(target, frozen=frozen)
+    return apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
+        upsert_assignments=[updated],
+    )
+
+
+def mark_not_worked(
+    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date, assignment_id: str,
+) -> ScheduleVersion:
+    """ROTA-T010-D (part_d_nn.md): a previously PLANNED PRIMARY the employee
+    did not work becomes state=CANCELLED + operational_code="NN" on the
+    child version; the parent version keeps its original PLANNED row
+    unchanged. Same manual-correction mechanism as freeze_or_unfreeze --
+    the demand is untouched, so a normal REPLAN-free re-validation
+    materializes a COVERAGE Deviation unless the coordinator also supplies
+    a replacement Assignment in a later manual correction."""
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
+    snapshot = get_schedule_snapshot(conn, current_id)
+    target = next(a for a in snapshot.assignments if a.assignment_id == assignment_id)
+    updated = replace(target, state=AssignmentState.CANCELLED, operational_code="NN")
     return apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
         upsert_assignments=[updated],

@@ -46,9 +46,11 @@ def _insert_content(
     )
     conn.executemany(
         "INSERT INTO assignments (schedule_version_id, assignment_id, employee_id, start_datetime, end_datetime, "
-        "role, state, frozen, covers_demand_id, mentor_primary_assignment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "role, state, frozen, covers_demand_id, mentor_primary_assignment_id, operational_code) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(version_id, a.assignment_id, a.employee_id, a.start_datetime.isoformat(), a.end_datetime.isoformat(),
-          a.role.value, a.state.value, int(a.frozen), a.covers_demand_id, a.mentor_primary_assignment_id)
+          a.role.value, a.state.value, int(a.frozen), a.covers_demand_id, a.mentor_primary_assignment_id,
+          a.operational_code)
          for a in _order_assignments_mentor_first(assignments)],
     )
     conn.executemany(

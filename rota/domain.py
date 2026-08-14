@@ -317,6 +317,10 @@ class Assignment:
     # wymagane gdy role=PRIMARY; absent gdy TRAINEE
     mentor_primary_assignment_id: Optional[str]
     # wymagane gdy role=TRAINEE; absent gdy PRIMARY
+    # ROTA-T010-D: jedyna dozwolona wartosc to "NN" -- oznacza wczesniej
+    # PLANNED PRIMARY, ktorego pracownik nie wykonal (state=CANCELLED w
+    # tym samym Assignment). Domyslnie None dla kazdego innego Assignment.
+    operational_code: Optional[str] = None
 
 
 @dataclass
