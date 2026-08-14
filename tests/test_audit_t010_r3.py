@@ -148,14 +148,18 @@ def test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed(
     db_path = tmp_path / "rota.db"
     connect(db_path).close()  # migrate once before starting competing writers
     barrier = threading.Barrier(2)
-    original_check = bootstrap_module._has_active_association
+    # ROTA-T011-C (FINDING C-R4-1): bootstrap_or_resume_coordinator_context's
+    # fast-path check is _has_full_active_context since C-R3-1, not
+    # _has_active_association -- patching the old helper no longer
+    # synchronizes anything on the actual bootstrap entry path.
+    original_check = bootstrap_module._has_full_active_context
 
     def synchronized_check(conn, *, coordinator_id: str, site_id: str) -> bool:
         result = original_check(conn, coordinator_id=coordinator_id, site_id=site_id)
         barrier.wait(timeout=5)
         return result
 
-    monkeypatch.setattr(bootstrap_module, "_has_active_association", synchronized_check)
+    monkeypatch.setattr(bootstrap_module, "_has_full_active_context", synchronized_check)
     outcomes: list[str] = []
 
     def worker(label: str) -> None:

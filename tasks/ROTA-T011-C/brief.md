@@ -20,8 +20,22 @@ TASK_SCOPE:
 - rota/application/durable_inputs.py
 - rota/application/bootstrap.py
 - tests/test_t011_c_site_coordinator_lifecycle.py
+- tests/test_audit_t010_r3.py
+- tests/test_audit_t010_r4_a.py
 
-Powyższa lista jest zamknięta. Plik testowy jest jedynym nowym plikiem.
+Powyższa lista jest zamknięta. `tests/test_t011_c_site_coordinator_lifecycle.py`
+jest jedynym nowym plikiem. `tests/test_audit_t010_r3.py` i
+`tests/test_audit_t010_r4_a.py` dopisane po FINDING C-R4-1 (round 4,
+`tasks/ROTA-T011-C/round_01/tests/tests_r4.txt`): trzy istniejące testy
+wyścigu T010 monkeypatchowały `bootstrap._has_active_association` z
+`threading.Barrier(2)`, a C-R3-1 przeniósł rzeczywisty punkt sprawdzenia w
+`bootstrap_or_resume_coordinator_context` na nową `_has_full_active_context`
+-- stary patch przestał synchronizować cokolwiek na aktywnej ścieżce, więc
+testy wyścigu przestały wymuszać audytowane okno współbieżności. Zmiana w
+obu plikach jest wąska: retarget monkeypatcha z `_has_active_association`
+na `_has_full_active_context` w trzech miejscach, bez zmiany scenariusza,
+asercji ani architektury CAS.
+
 `rota/application/bootstrap.py` dopisany po FINDING C-R3-1 (round 3,
 `tasks/ROTA-T011-C/round_01/tests/tests_r3.txt`) — patrz ROZSTRZYGNIĘCIE
 NIŻEJ. Zmiana w nim jest wąska: jedna nowa funkcja pomocnicza plus zamiana
