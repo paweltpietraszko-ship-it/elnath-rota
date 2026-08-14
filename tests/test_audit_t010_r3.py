@@ -148,14 +148,18 @@ def test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed(
     db_path = tmp_path / "rota.db"
     connect(db_path).close()  # migrate once before starting competing writers
     barrier = threading.Barrier(2)
-    original_check = bootstrap_module._has_active_association
+    # ROTA-T011-C (FINDING C-R4-1): bootstrap_or_resume_coordinator_context's
+    # fast-path check is _has_full_active_context since C-R3-1, not
+    # _has_active_association -- patching the old helper no longer
+    # synchronizes anything on the actual bootstrap entry path.
+    original_check = bootstrap_module._has_full_active_context
 
     def synchronized_check(conn, *, coordinator_id: str, site_id: str) -> bool:
         result = original_check(conn, coordinator_id=coordinator_id, site_id=site_id)
         barrier.wait(timeout=5)
         return result
 
-    monkeypatch.setattr(bootstrap_module, "_has_active_association", synchronized_check)
+    monkeypatch.setattr(bootstrap_module, "_has_full_active_context", synchronized_check)
     outcomes: list[str] = []
 
     def worker(label: str) -> None:
@@ -249,51 +253,26 @@ def test_r3_b_projection_distinguishes_early_restore_from_unchanged_ban(tmp_path
     conn = connect(tmp_path / "rota.db")
     _seed_context(conn)
     content = NewRuleContent(
-        category=RuleCategory.LOCAL_RULE,
-        rule_kind=EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
+        category=RuleCategory.LOCAL_RULE, rule_kind=EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
         structured_parameters={
-            "employee_id": EMPLOYEE_ID,
-            "weekdays": list(range(1, 8)),
-            "forbidden_shift_kinds": ["N"],
+            "employee_id": EMPLOYEE_ID, "weekdays": list(range(1, 8)), "forbidden_shift_kinds": ["N"],
         },
-        enforcement=RuleEnforcement.HARD,
-        resolution_status=RuleResolution.RESOLVED,
-        effective_to=date(2026, 10, 31),
-        description=None,
-        source=None,
-        reason=None,
+        enforcement=RuleEnforcement.HARD, resolution_status=RuleResolution.RESOLVED,
+        effective_to=date(2026, 10, 31), description=None, source=None, reason=None,
     )
     record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-N-BAN",
-        statement="N disabled",
-        coordinator_id=COORDINATOR_ID,
-        recorded_at=datetime(2026, 9, 1, 9),
-        effective_from=date(2026, 10, 1),
-        rel=None,
-        rule_content=content,
+        conn, site_id=SITE_ID, rule_id="R-N-BAN", statement="N disabled", coordinator_id=COORDINATOR_ID,
+        recorded_at=datetime(2026, 9, 1, 9), effective_from=date(2026, 10, 1), rel=None, rule_content=content,
     )
     before_effective = effective_rule_on(conn, SITE_ID, "R-N-BAN", date(2026, 10, 20))
-    before_matrix = employee_availability_matrix(
-        conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH
-    )
+    before_matrix = employee_availability_matrix(conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH)
 
     record_decision(
-        conn,
-        site_id=SITE_ID,
-        rule_id="R-N-BAN",
-        statement="N restored early",
-        coordinator_id=COORDINATOR_ID,
-        recorded_at=datetime(2026, 10, 10, 9),
-        effective_from=date(2026, 10, 15),
-        rel="rejects",
-        rule_content=None,
+        conn, site_id=SITE_ID, rule_id="R-N-BAN", statement="N restored early", coordinator_id=COORDINATOR_ID,
+        recorded_at=datetime(2026, 10, 10, 9), effective_from=date(2026, 10, 15), rel="rejects", rule_content=None,
     )
     after_effective = effective_rule_on(conn, SITE_ID, "R-N-BAN", date(2026, 10, 20))
-    after_matrix = employee_availability_matrix(
-        conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH
-    )
+    after_matrix = employee_availability_matrix(conn, site_id=SITE_ID, employee_id=EMPLOYEE_ID, month=MONTH)
 
     assert isinstance(before_effective, EffectiveRule)
     assert isinstance(after_effective, NoActiveRule)

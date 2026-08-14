@@ -1,0 +1,78 @@
+REAUDYT KONTRAKTU ROTA-T011-C — ROUND 2
+
+AUDYTOWANY SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-C/round_01/tests/tests_r1.txt
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION PO ZMERGOWANIU T011-B
+
+FINDING C-1 z round 1 jest zamknięty. B-2=W1, zakaz zmiany profile_id i świadomy
+brak kontroli tożsamości koordynatora pozostają przyjętym zachowaniem, nie
+findingami. Nie ma WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+SECTION_CHECK 1 — ZAMKNIĘCIE FINDING C-1: PASS
+
+Kontrakt deklaruje teraz twarde `DEPENDS_ON: ROTA-T011-B` i wyjaśnia, dlaczego
+C nie jest wykonalne bez tej części. Nie powstaje duplikat `get_coordinator`.
+
+Weryfikacja zapisów używa publicznych odczytów B:
+
+- `all_coordinators` potwierdza display_name oraz stan inactive;
+- `active_coordinators` potwierdza odfiltrowanie dezaktywowanego Coordinator;
+- `all_sites_for_coordinator` i `active_sites_for_coordinator` rozróżniają pełny
+  oraz aktywny widok Site;
+- `open_month` potwierdza trwałość i czytelność danych Site/grafiku;
+- utrata lub odzyskanie aktywnego Association pozostaje obserwowalne przez
+  guarded operacje durable input i bootstrap resume.
+
+Usunięto odwołanie do persistence-only `get_coordinator` oraz warunkowe
+„jeśli B jest zmergowane”. Kolejność A → B → C uwzględnia również kolizję A/C w
+`durable_inputs.py`.
+
+
+SECTION_CHECK 2 — SEMANTYKA CYKLU ŻYCIA: PASS
+
+- trzy operacje są zwykłymi guarded upsertami istniejących mutable current-state
+  entities;
+- Association 1→0 używa zwykłego save, nie zmienia CAS bootstrapu;
+- Site payload i Association payload są sprawdzane względem autoryzowanego Site;
+- `update_site` musi porównać bieżący profile_id przed zapisem i odrzucić
+  przepięcie bez częściowej mutacji;
+- brak porównania coordinator_id jest dosłowną, uzasadnioną decyzją właściciela;
+- samozablokowanie jest odwracalne przez istniejący bootstrap resume, a
+  bootstrap nadal odmawia przy aktywnym kontekście;
+- historia ScheduleVersion pozostaje czytelna po dezaktywacji.
+
+
+SECTION_CHECK 3 — TESTOWALNOŚĆ I GRANICA: PASS
+
+Scenariusze nazwy, flags active, obcego Site, zakazu profile_id, odebrania
+Association, samozablokowania, resume i restartu mają publiczne wejścia i
+odczyty po spełnieniu zależności B. Testy mogą pozostać całkowicie wolne od
+`rota.persistence` zarówno przy budowie, jak i weryfikacji stanu.
+
+
+SECTION_CHECK 4 — TASK_SCOPE I BRAMKI: PASS
+
+- parser backend.py: 2 wpisy TASK_SCOPE;
+- jeden nowy plik testowy, zero nowych funkcji persistence;
+- `durable_inputs.py` ma wystarczający zapas do limitów size;
+- zależność od B nie rozszerza scope C — korzysta z wcześniej zmergowanego API;
+- `guard.py check arch/spec.md`: PASS;
+- `backend.check_frozen_lock()`: brak blockera;
+- `git diff --check 7239b51..51f3b42`: PASS;
+- diff round 2 nie zawiera kodu produkcyjnego ani testów.
+
+
+GOTOWOŚĆ
+
+T011-C jest gotowe do implementacji dopiero na bazie zawierającej T011-B.
+Implementacja równoległa na samym `029107b` nie spełnia warunku kontraktu.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
