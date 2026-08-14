@@ -44,7 +44,12 @@ from rota.domain import (
     StandardShift,
 )
 from rota.planning.validator import validate
-from rota.site_memory_types import NewRuleContent
+
+# DEPENDENCY BOUNDARY: NewRuleContent is not imported from rota.site_memory_types
+# directly -- rota.application.rule_decisions already has it in its own
+# namespace (it accepts the type in its public function), so this stays
+# within the application-layer surface this file is allowed to call.
+NewRuleContent = rule_decisions.NewRuleContent
 
 COORD = "COORD-E2"
 SITE_ID = "SITE-E2"
@@ -223,23 +228,38 @@ def test_4_route_b_decision_ledger_correction_unblocks_feasible(tmp_path: Path) 
 def test_5_select_candidate_rejects_a_hard_violating_candidate(tmp_path: Path) -> None:
     conn = store.open_store(tmp_path / "rota.db")
     _bootstrap_and_fill(conn, (EMP1,))
-    _record_forbidding_rule(conn)
+    decision = _record_forbidding_rule(conn)
     plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
 
+    # Full coverage everywhere -- EMP1 on every demand, including the one
+    # blocked day -- so the ONLY HARD violation possible is the tested
+    # SiteRule; a candidate that also leaves COVERAGE-01 gaps would get
+    # rejected for an independent reason and would not isolate this rule.
     demands = generate_profile_demands(_profile(), MONTH)
-    blocked_demand = next(d for d in demands if d.demand_id == BLOCKED_DEMAND_ID)
-    hard_violating_candidate = [_assignment(blocked_demand, EMP1)]
+    hard_violating_candidate = [_assignment(demand, EMP1) for demand in demands]
+
+    state, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
+    report = validate(state, hard_violating_candidate)
+    assert report.hard_pass is False
+    assert {vd.rule for vd in report.violation_details} == {decision.rule_version_id}
 
     with pytest.raises(CandidateRejected):
         plan_ops.select_candidate(
             conn, site_id=SITE_ID, month=MONTH, candidate=hard_violating_candidate, coordinator_id=COORD,
         )
 
-    # Independent second opinion, exactly as the existing contract already
-    # uses it elsewhere: the same candidate is HARD FAIL on its own terms.
-    state, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
-    report = validate(state, hard_violating_candidate)
-    assert report.hard_pass is False
+    # Equivalence check: once the SAME rule is explicitly rejected in the
+    # Decision Ledger, the SAME candidate becomes hard_pass=True -- the
+    # rejection above was attributable to this rule, not to some other
+    # independent HARD source.
+    rule_decisions.record_structured_rule_decision(
+        conn, coordinator_id=COORD, site_id=SITE_ID, rule_id=RULE_ID,
+        statement="Wycofanie zakazu D w poniedzialki dla EMP-E2-1 (rownowaznosc E-R3-2).",
+        effective_from=MONTH, rel="rejects", rule_content=None,
+    )
+    state_after, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
+    report_after = validate(state_after, hard_violating_candidate)
+    assert report_after.hard_pass is True
 
 
 def test_6_no_public_application_function_accepts_a_hard_override_parameter() -> None:

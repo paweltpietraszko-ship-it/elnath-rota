@@ -147,12 +147,12 @@ def _step_12_restart_and_compare(conn, db_path: Path) -> None:
     reopened = store.open_store(db_path)
     view_after_restart = open_month.open_month(reopened, site_id=SITE_ID, month=MONTH)
 
+    # Diagnostic asserts kept for a readable failure message, but the real
+    # proof is the full OpenMonthView equality below -- WYMAGANE TESTY pt. 4
+    # requires comparing state, not a hand-picked subset of fields.
     assert view_after_restart.current_version is not None
-    assert view_after_restart.current_version.version_id == view_before_restart.current_version.version_id
-    assert view_after_restart.current_version.status == view_before_restart.current_version.status
     assert view_after_restart.current_version.status.value.startswith("FINAL")
-    assert {e.employee_id for e in view_after_restart.employees} == {e.employee_id for e in view_before_restart.employees}
-    assert view_after_restart.site.site_id == view_before_restart.site.site_id
+    assert view_after_restart == view_before_restart
     reopened.close()
 
 
