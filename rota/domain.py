@@ -216,9 +216,20 @@ class EmployeeForbiddenShiftKindsOnWeekdaysParams(TypedDict):
     forbidden_shift_kinds: list[str]  # non-empty, values in {"D", "N"}
 
 
+class EmployeeDayOnlyNExceptionParams(TypedDict):
+    """ROTA-T010-B rule_kind=EMPLOYEE_DAY_ONLY_N_EXCEPTION
+    (arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md): a single named,
+    narrow exception to DAY_ONLY-01 for one employee -- never a general HARD
+    override. Must be category=CONFIRMED_EXCEPTION, enforcement=HARD,
+    resolution_status=RESOLVED."""
+
+    employee_id: str
+
+
 # CONTRACT_GAP narrowed by ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md)
-# to exactly the three initial executable rule_kind parameter shapes below.
-# A future rule_kind catalog beyond these three remains a separate task.
+# to exactly the three initial executable rule_kind parameter shapes below,
+# extended by ROTA-T010-B (arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md)
+# with the one narrow EMPLOYEE_DAY_ONLY_N_EXCEPTION shape.
 # Persistence (rota/persistence/site_rule_repository.py) stores whatever is
 # JSON-compatible and does not require it to match one of these shapes --
 # execution-time validation (rota/planning/site_rules.py) is what enforces
@@ -227,6 +238,7 @@ RuleParameters = Union[
     EmployeeAllowedShiftKindsParams,
     EmployeeAllowedWeekdaysParams,
     EmployeeForbiddenShiftKindsOnWeekdaysParams,
+    EmployeeDayOnlyNExceptionParams,
 ]
 
 

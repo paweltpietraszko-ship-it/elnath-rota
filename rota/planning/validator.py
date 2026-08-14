@@ -23,7 +23,7 @@ from rota.domain import (
     MembershipKind,
     ShiftKind,
 )
-from rota.planning.site_rules import hard_rules_applicable_on, rule_allows_assignment
+from rota.planning.site_rules import day_only_n_exception_applies, hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rest_hours, rolling_windows
 
@@ -258,6 +258,11 @@ def _check_employee_active(state: PlanningState, assignments: list[Assignment], 
 
 
 def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """ROTA-T010-B: a RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule
+    applicable on the assignment's date exempts only this check (DAY_ONLY-01
+    for N) -- eligibility.py's _common_hard_gate must reach the identical
+    verdict (part_b_availability.md: 'Eligibility i validator muszą byc
+    zgodne')."""
     day_only_ids = {e.employee_id for e in state.employees if e.day_only}
     if not state.profile.day_only_blocks_n:
         return
@@ -265,11 +270,17 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         if assignment.employee_id not in day_only_ids:
             continue
         kind = _assignment_kind(assignment, state)
-        if kind == ShiftKind.N:
-            details.append(ViolationDetail(
-                "DAY_ONLY-01", (assignment.assignment_id,),
-                f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id}",
-            ))
+        if kind != ShiftKind.N:
+            continue
+        applicable = hard_rules_applicable_on(
+            state.site_rules, state.site_rule_applicability, assignment.start_datetime.date()
+        )
+        if day_only_n_exception_applies(applicable, assignment.employee_id):
+            continue
+        details.append(ViolationDetail(
+            "DAY_ONLY-01", (assignment.assignment_id,),
+            f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id}",
+        ))
 
 
 def _assignment_kind(assignment: Assignment, state: PlanningState) -> ShiftKind | None:
