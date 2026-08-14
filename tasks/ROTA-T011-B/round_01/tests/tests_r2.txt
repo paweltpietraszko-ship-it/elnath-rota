@@ -1,0 +1,78 @@
+REAUDYT KONTRAKTU ROTA-T011-B — ROUND 2
+
+AUDYTOWANY SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-B/round_01/tests/tests_r1.txt
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+FINDING B-1 z round 1 jest zamknięty. Definicje odczytów i filtrów pozostają
+zgodne z B-3=W3, B-6=W1 z filtrem obsady oraz B-7=W2. Nie ma WYMAGA_DECYZJI ani
+propozycji architektonicznej.
+
+
+SECTION_CHECK 1 — ZAMKNIĘCIE FINDING B-1: PASS
+
+Round 2 prawidłowo rozdziela dwa poziomy dowodu:
+
+- test aplikacyjny nadal dowodzi publicznego zachowania bez importów
+  `rota.persistence`;
+- nieosiągalny przez application API stan „historyczna wersja z assignmentami,
+  bieżąca wersja pusta” jest budowany w istniejącym
+  `tests/test_local_store_operational_queries.py` przez lifecycle persistence;
+- ten istniejący plik został jawnie dodany do TASK_SCOPE;
+- kontrakt zabrania dodania operacji usuwania assignmentów tylko dla potrzeb
+  fixture’u.
+
+Kontrolowany stan jest wykonalny: lifecycle dopuszcza snapshot z demandami i
+pustą listą assignmentów, a walidacja pełnego COVERAGE należy do
+validatora/PLAN, nie do strukturalnego zapisu ScheduleVersion. W teście można
+użyć historycznej wersji z PLANNED, niezamrożonym assignmentem, więc reguły
+zachowania REALIZED/frozen nie wymuszają przeniesienia go do pustej current.
+
+
+SECTION_CHECK 2 — SEMANTYKA ODCZYTÓW: PASS
+
+- cztery funkcje kontekstu mają rozłączne, literalne znaczenia bez flag bool;
+- aktywne odczyty filtrują odpowiednio Coordinator, Association i Site;
+- pełne odczyty zachowują nieaktywne encje potrzebne panelowi administracyjnemu;
+- wszystkie pozostają bez guardu, co jest konieczne przed wyborem kontekstu;
+- `list_months_with_assignments` kwalifikuje wyłącznie current wersję z co
+  najmniej jednym wierszem Assignment;
+- CANCELLED+NN nadal kwalifikuje miesiąc, a historyczny Assignment sam nie;
+- B-7 pozostaje jawnie przeniesione do T012 i nie tworzy pustej infrastruktury.
+
+
+SECTION_CHECK 3 — TESTOWALNOŚĆ: PASS
+
+Stany inactive Coordinator/Site/Association są osiągalne przez bootstrap z
+`active=False`. Pusta próba PLAN, wybrany kandydat, NN, dwa Site i restart mają
+istniejące ścieżki aplikacyjne. Jedyny sztuczny stan potrzebny do odróżnienia
+current od historii jest świadomie ograniczony do testu repository.
+
+
+SECTION_CHECK 4 — TASK_SCOPE I BRAMKI: PASS
+
+- parser backend.py: 5 wpisów TASK_SCOPE;
+- jeden nowy plik testowy; `tests/test_local_store_operational_queries.py`
+  istnieje i ma 228 linii przed dopisaniem testu, więc limit 600 jest realny;
+- nowy SQL pozostaje wyłącznie w `schedule_repository.py`;
+- application dostaje tylko krótkie odczyty i wrapper;
+- `guard.py check arch/spec.md`: PASS;
+- `backend.check_frozen_lock()`: brak blockera;
+- `git diff --check 7239b51..51f3b42`: PASS;
+- diff round 2 nie zawiera kodu produkcyjnego ani testów.
+
+
+GOTOWOŚĆ
+
+T011-B może przejść do implementacji. Reaudyt implementacji powinien sprawdzić
+obie warstwy testu filtra current oraz brak przypadkowego filtra wykluczającego
+CANCELLED/NN.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

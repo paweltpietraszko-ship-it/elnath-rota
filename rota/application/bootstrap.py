@@ -44,6 +44,7 @@ from rota.persistence.coordinator_repository import (
     activate_association_if_not_already_active_in_open_transaction,
     get_coordinator,
     list_associations_for_coordinator,
+    list_coordinators,
     write_coordinator_in_open_transaction,
 )
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site
@@ -238,3 +239,31 @@ def current_roster(conn, *, site_id: str) -> tuple[Employee, ...]:
     later re-enable of the same membership makes it reappear here."""
     memberships = list_memberships_for_site(conn, site_id)
     return tuple(get_employee(conn, m.employee_id) for m in memberships if m.enabled)
+
+
+def active_coordinators(conn) -> tuple[Coordinator, ...]:
+    """ROTA-T011-B (A-3, B-3=W3): 'w co mogę wejść' -- only Coordinator.active."""
+    return tuple(c for c in list_coordinators(conn) if c.active)
+
+
+def all_coordinators(conn) -> tuple[Coordinator, ...]:
+    """ROTA-T011-B (A-3, B-3=W3): 'co istnieje' -- unfiltered, for T012's
+    administrative panel."""
+    return tuple(list_coordinators(conn))
+
+
+def active_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]:
+    """ROTA-T011-B (A-3, B-3=W3): only associations with active=True, mapped
+    to Site, keeping only Site.active=True. Does not check the coordinator's
+    own active flag -- that is active_coordinators's and
+    require_active_coordinator_context's job."""
+    associations = list_associations_for_coordinator(conn, coordinator_id)
+    sites = (get_site(conn, a.site_id) for a in associations if a.active)
+    return tuple(s for s in sites if s.active)
+
+
+def all_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]:
+    """ROTA-T011-B (A-3, B-3=W3): every association for this coordinator,
+    active or not, mapped to Site without any Site.active filter."""
+    associations = list_associations_for_coordinator(conn, coordinator_id)
+    return tuple(get_site(conn, a.site_id) for a in associations)
