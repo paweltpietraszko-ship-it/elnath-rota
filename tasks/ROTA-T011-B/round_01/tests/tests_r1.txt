@@ -1,0 +1,73 @@
+AUDYT KONTRAKTU ROTA-T011-B — ROUND 1
+
+AUDYTOWANY SHA:
+7670b2d30e4fac54b906a8584030f2139f49b9eb
+
+INTEGRATED_BASE_SHA:
+029107be9045d2759e77450a0fb943a04483932c
+
+WERDYKT: FAIL — KONTRAKT NIE JEST JESZCZE READY_FOR_IMPLEMENTATION
+
+Definicje czterech odczytów kontekstu oraz filtr miesięcy są jednoznaczne i
+zgodne z rozstrzygnięciami B-3/B-6/B-7. TASK_SCOPE jest realny: jeden nowy
+plik, SQL pozostaje w persistence, a application dostaje cienkie wrappery.
+
+Jeden obowiązkowy scenariusz testowy jest jednak nieosiągalny przez granicę,
+którą ten sam brief bezwzględnie narzuca.
+
+
+FINDING B-1 — STAN Z TESTU 13 NIE JEST OSIĄGALNY PRZEZ APPLICATION API
+
+Ślad kontraktu:
+
+- filtr ma uwzględniać wyłącznie assignmenty bieżącej wersji;
+- WYMAGANE TESTY pkt 13 wymaga wersji historycznej z assignmentami i pustej
+  wersji bieżącej;
+- wszystkie testy mają budować stan bez importu `rota.persistence`;
+- sam pkt 13 nakazuje zgłosić finding, jeżeli stan jest nieosiągalny.
+
+Potwierdzenie w kodzie:
+
+- pierwsze `plan_month` tworzy pustą wersję bieżącą, ale nie ma wtedy wersji
+  historycznej z assignmentami;
+- `select_candidate([])` dla wersji z demandami jest odrzucane przez niezależną
+  walidację COVERAGE-01 jako `CandidateRejected`;
+- `replan` tworzy child sklonowany z pełnej treści parent, więc child nie jest
+  pusty;
+- `apply_manual_correction` tylko upsertuje assignmenty do sklonowanej treści,
+  nie usuwa całego zbioru;
+- `mark_not_worked` zachowuje wiersz jako CANCELLED+NN, który według briefu
+  nadal kwalifikuje miesiąc.
+
+Nie ma zatem aplikacyjnej sekwencji tworzącej wymagany stan. CC musiałby użyć
+persistence albo dodać nowy mechanizm usuwania/obejścia HARD, oba poza
+TASK_SCOPE i sprzeczne z kontraktem.
+
+Warunek zamknięcia: kontrakt ma wskazać legalny, istniejący sposób zbudowania
+stanu albo zmienić granicę tego jednego testu (np. jawnie testować repository
+na kontrolowanym fixture). Nie wolno wymagać od implementera wymyślenia nowej
+operacji produkcyjnej tylko po to, aby skonstruować test.
+
+
+POZOSTAŁA WERYFIKACJA — PASS
+
+- `active_coordinators`, `active_sites_for_coordinator`, `all_coordinators` i
+  `all_sites_for_coordinator` mają istniejące list/get i wzorzec
+  `bootstrap.current_roster`;
+- stany inactive Coordinator/Site/Association da się zapisać przez obecny
+  bootstrap bez importowania persistence;
+- `_set_current_reference` jest rzeczywiście wykonywane przy tworzeniu każdej
+  wersji, więc sam warunek current nie usuwa pustej próby PLAN;
+- kryterium SQL „current + co najmniej jeden Assignment” jest wykonalne w
+  `schedule_repository`, a CANCELLED/NN naturalnie pozostaje wierszem;
+- B-7 jest poprawnie odłożone do T012, bez pustego katalogu i bez nowej listy
+  eksportów;
+- `guard.py check arch/spec.md`: PASS;
+- TASK_SCOPE: 4 wpisy, 1 nowy plik; `git diff --check`: PASS.
+
+Nie ma WYMAGA_DECYZJI produktowego. Nie implementowano kodu ani testów.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

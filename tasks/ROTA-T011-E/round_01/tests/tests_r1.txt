@@ -1,0 +1,73 @@
+AUDYT KONTRAKTU ROTA-T011-E — ROUND 1
+
+AUDYTOWANY SHA:
+7670b2d30e4fac54b906a8584030f2139f49b9eb
+
+INTEGRATED_BASE_SHA:
+029107be9045d2759e77450a0fb943a04483932c
+
+WERDYKT: FAIL — KONTRAKT NIE JEST JESZCZE READY_FOR_IMPLEMENTATION
+
+Happy path jest wykonalny po T011-A wyłącznie przez application API, a dwa
+nowe pliki testowe mieszczą się w MAX_NEW_FILES=2. Usunięty
+`arch/T011_architect_brief.md` został merytorycznie przeniesiony i rozszerzony;
+nie znaleziono utraty jego istotnej treści.
+
+Test HARD zawiera jednak nieprawdziwe, zbyt szerokie twierdzenie o dokładnie
+dwóch drogach wyjścia.
+
+
+FINDING E-1 — „ŻADNEJ TRZECIEJ DROGI” PRZECZY ISTNIEJĄCEMU APPLICATION API
+
+Ślad kontraktu:
+
+- tytuł Testu 2 i ACCEPTANCE mówią, że po HARD istnieją wyłącznie dwie drogi:
+  ręczna korekta albo korekta/reject reguły;
+- arch/spec.md DECISION_REQUIRED wymaga pokazać możliwe klasy odblokowania i
+  podaje wiele jawnych zmian PlanningState, nie zamknięty katalog dwóch;
+- T009/T011-A wystawia trwałe wejścia Employee, SiteMembership,
+  ExternalSupportWindow i availability.
+
+Dla przykładowego scenariusza z jedynym dotychczas eligible pracownikiem
+zablokowanym przez regułę istnieje co najmniej jedna legalna trzecia sekwencja:
+koordynator dodaje lub ponownie włącza innego eligible pracownika przez
+`durable_inputs.update_employee` + `update_membership` (ewentualnie poprawia
+jego istniejący trwały warunek), po czym ponownie uruchamia `plan_month`.
+Blokująca reguła pozostaje aktywna, nie ma manualnego Assignment i nie ma
+`corrects`/`rejects`, a solver może legalnie zwrócić FEASIBLE. To nie jest cichy
+bypass HARD — jest to jawna zmiana wejścia, dokładnie model DECISION_REQUIRED.
+
+Brief częściowo zawęża później dowód do prawdziwego inwariantu: brak parametru
+wyłączającego HARD oraz `select_candidate` odrzucający kandydata z HARD FAIL.
+To nie jest jednak równoważne szerokiemu stwierdzeniu „wyłącznie dwie drogi”.
+Test nie może uczciwie dowieść obu zdań naraz.
+
+Warunek zamknięcia: kontrakt ma konsekwentnie ograniczyć dowód do braku
+**cichego bypassu HARD** i nie twierdzić, że katalog legalnych zmian wejścia
+jest zamknięty do dwóch pozycji. Jeżeli intencją naprawdę jest zamknięcie
+wszystkich innych klas odblokowania, wymaga to jawnej decyzji właściciela
+zmieniającej istniejący kontrakt DECISION_REQUIRED.
+
+
+POZOSTAŁA WERYFIKACJA — PASS
+
+- twarda zależność od T011-A jest prawidłowa: daje aplikacyjne `open_store` i
+  `set_calendar_day`;
+- 12 kroków happy path ma istniejące wejścia aplikacyjne, a restart można
+  sprawdzić przez `open_month` bez `get_schedule_snapshot` z persistence;
+- deviations do finalize mogą pochodzić z `assemble_planning_state`;
+- `apply_manual_correction` świadomie zapisuje ręczny stan z widocznymi
+  Deviations, natomiast `select_candidate` sprawdza validator i podnosi
+  `CandidateRejected` dla HARD FAIL;
+- korekta/reject reguły jest widoczna przez `memory_read`;
+- dwa niezależne pliki poniżej limitu 600 linii są realistyczne bez trzeciego
+  helpera;
+- TASK_SCOPE zawiera wyłącznie te dwa nowe testy;
+- `guard.py check arch/spec.md`: PASS; `git diff --check`: PASS.
+
+Nie ma propozycji nowej architektury. Nie implementowano kodu ani testów.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
