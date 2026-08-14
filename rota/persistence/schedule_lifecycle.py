@@ -19,7 +19,7 @@ from rota.persistence.schedule_errors import (
     MalformedScheduleSnapshot,
     NonEditableScheduleVersion,
 )
-from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
+from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
 
 
 def _order_assignments_mentor_first(assignments: list[Assignment]) -> list[Assignment]:
@@ -46,9 +46,11 @@ def _insert_content(
     )
     conn.executemany(
         "INSERT INTO assignments (schedule_version_id, assignment_id, employee_id, start_datetime, end_datetime, "
-        "role, state, frozen, covers_demand_id, mentor_primary_assignment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "role, state, frozen, covers_demand_id, mentor_primary_assignment_id, operational_code) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(version_id, a.assignment_id, a.employee_id, a.start_datetime.isoformat(), a.end_datetime.isoformat(),
-          a.role.value, a.state.value, int(a.frozen), a.covers_demand_id, a.mentor_primary_assignment_id)
+          a.role.value, a.state.value, int(a.frozen), a.covers_demand_id, a.mentor_primary_assignment_id,
+          a.operational_code)
          for a in _order_assignments_mentor_first(assignments)],
     )
     conn.executemany(
@@ -79,16 +81,26 @@ def _set_current_reference(conn: sqlite3.Connection, site_id: str, month: date, 
     )
 
 
+def _nn_reference_by_id(conn: sqlite3.Connection, reference_version_id: str | None) -> dict[str, Assignment]:
+    if reference_version_id is None:
+        return {}
+    return {a.assignment_id: a for a in get_schedule_snapshot(conn, reference_version_id).assignments}
+
+
 def _validate_content(
     conn: sqlite3.Connection, *, site_id: str, month: date, parent_version_id: str | None,
     applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand], assignments: list[Assignment],
-    deviations: list[Deviation],
+    deviations: list[Deviation], nn_reference_version_id: str | None, allow_new_nn_from_planned_primary: bool,
 ) -> ScheduleStatus:
     validation.validate_applied_rules(conn, site_id=site_id, applied_rule_version_ids=applied_rule_version_ids)
     demands_by_id = validation.validate_demands(month, shift_demands)
     assignments_by_id = validation.validate_assignments(conn, month, assignments, demands_by_id)
     validation.validate_deviations(conn, deviations, assignments_by_id, demands_by_id)
     validation.validate_realized_preserved(conn, parent_version_id, assignments_by_id)
+    validation.validate_nn_provenance(
+        assignments_by_id, _nn_reference_by_id(conn, nn_reference_version_id),
+        allow_new_nn_from_planned_primary=allow_new_nn_from_planned_primary,
+    )
     return validation.derive_working_status(deviations)
 
 
@@ -126,7 +138,8 @@ def create_schedule_version(
         status = _validate_content(
             conn, site_id=site_id, month=month, parent_version_id=parent_version_id,
             applied_rule_version_ids=applied_rule_version_ids, shift_demands=shift_demands,
-            assignments=assignments, deviations=deviations,
+            assignments=assignments, deviations=deviations, nn_reference_version_id=parent_version_id,
+            allow_new_nn_from_planned_primary=parent_version_id is not None,
         )
         conn.execute(
             "INSERT INTO schedule_versions (version_id, site_id, month, parent_version_id, created_at, "
@@ -166,6 +179,7 @@ def replace_working_snapshot(
             conn, site_id=header.site_id, month=header.month,
             parent_version_id=header.parent_version_id, applied_rule_version_ids=applied_rule_version_ids,
             shift_demands=shift_demands, assignments=assignments, deviations=deviations,
+            nn_reference_version_id=version_id, allow_new_nn_from_planned_primary=False,
         )
         _delete_content(conn, version_id)
         _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
@@ -184,6 +198,7 @@ def _replace_content_for_finalize(
         conn, site_id=header.site_id, month=header.month, parent_version_id=header.parent_version_id,
         applied_rule_version_ids=applied_rule_version_ids, shift_demands=shift_demands,
         assignments=assignments, deviations=deviations,
+        nn_reference_version_id=version_id, allow_new_nn_from_planned_primary=False,
     )
     _delete_content(conn, version_id)
     _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)

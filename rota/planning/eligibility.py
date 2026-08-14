@@ -40,7 +40,7 @@ from rota.domain import (
     SiteProfile,
 )
 from rota.domain import SiteRuleVersion
-from rota.planning.site_rules import rule_allows_assignment
+from rota.planning.site_rules import day_only_n_exception_applies, rule_allows_assignment
 from rota.planning.timeutil import overlaps_date_range
 
 
@@ -153,7 +153,11 @@ def _common_hard_gate(
     if not _employee_active(employee, demand):
         return EligibilityCheck(False, False, "EMP-02")
     if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
-        return EligibilityCheck(False, False, "DAY_ONLY-01")
+        # ROTA-T010-B (DAY-ONLY-TEMP-N-EXCEPTION-01): a narrow, named
+        # exception may exempt DAY_ONLY-01 specifically -- every other HARD
+        # gate below still applies.
+        if not day_only_n_exception_applies(applicable_hard_rules, employee.employee_id):
+            return EligibilityCheck(False, False, "DAY_ONLY-01")
     reason, leave_plan_collision = _blocked_by_availability(demand, availability_records)
     if reason:
         return EligibilityCheck(False, False, reason)

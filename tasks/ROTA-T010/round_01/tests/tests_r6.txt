@@ -1,0 +1,166 @@
+REAUDYT IMPLEMENTACJI ROTA-T010-D — ROUND 6
+
+AUDYTOWANY SHA:
+aa16b989fbcc5d9a1fd40c00e97ec73743fa99aa
+
+GAŁĄŹ:
+task/ROTA-T010
+
+POPRZEDNIE RAPORTY:
+- tasks/ROTA-T010/round_01/tests/tests_r3.txt — pierwotny finding R3-5;
+- tasks/ROTA-T010/round_01/tests/tests_r4.txt — osobny PASS części A;
+- tasks/ROTA-T010/round_01/tests/tests_r5.txt — osobny PASS części B.
+
+ZAKRES RUNDY:
+
+Wyłącznie T010-D: zamknięcie R3-5 oraz adversarialna macierz całej klasy
+tworzenia i utrzymywania operational_code=NN. T010-A i T010-B nie były w tej
+rundzie ponownie audytowane. Końcowy audyt spójności całego T010 pozostaje
+odłożony do czasu zamknięcia D.
+
+WERDYKT T010-D: FAIL
+
+R3-5 jest zamknięty w zakresie walidacji kształtu pól i named operation, ale
+implementacja nadal nie wymusza kontraktowego pochodzenia NN. Nowy finding
+R6-1 jest jednoznacznie śledzony do istniejącego kontraktu; nie wymaga decyzji
+produktowej ani propozycji architektonicznej.
+
+
+ŹRÓDŁA KONTRAKTU
+
+- tasks/ROTA-T010/part_d_nn.md;
+- zaakceptowana macierz T010-D w tests_r2.txt;
+- decyzje właściciela przywołane w tests_r3.txt;
+- R3-5 i jego warunek zamknięcia w tests_r3.txt.
+
+Kontrakt stanowi, że NN dotyczy wyłącznie wcześniej PLANNED PRIMARY. Ten sam
+Assignment ma pojawić się w child jako CANCELLED+NN, a parent ma pozostać bez
+zmian. Zwykłe CANCELLED+None pozostaje legalne.
+
+
+R3-5 — ZAMKNIĘTE W PIERWOTNIE ZGŁOSZONYM ZAKRESIE
+
+Wspólna schedule_validation odrzuca obecnie:
+
+- operational_code inne niż None albo NN;
+- NN na stanie innym niż CANCELLED;
+- NN na roli innej niż PRIMARY.
+
+mark_not_worked() odmawia dla wskazania innego niż PLANNED PRIMARY i nie tworzy
+child po odmowie. Potwierdzono reprezentatywne siblingi: REALIZED PRIMARY,
+CANCELLED PRIMARY oraz PLANNED TRAINEE. Ponowna próba NN na już anulowanym
+wskazaniu również jest odrzucana.
+
+To zamyka dokładnie przypadki zgłoszone jako R3-5, ale kontrola samego kształtu
+CANCELLED PRIMARY + NN nie dowodzi wymaganej historii tego faktu.
+
+
+FINDING R6-1 — HIGH — NN MOŻNA UTWORZYĆ BEZ WCZEŚNIEJ PLANNED PRIMARY
+
+Ślad wymagania:
+
+- part_d_nn.md: NN dotyczy wyłącznie wcześniej PLANNED PRIMARY;
+- ten sam Assignment przechodzi w child do CANCELLED+NN;
+- parent pozostaje niezmieniony;
+- zaakceptowana macierz opisuje przejście PLANNED PRIMARY -> CANCELLED+NN, a
+  nie samodzielnie legalny końcowy kształt rekordu.
+
+Właściciel kontraktu:
+
+- application operation tworząca ręczną korektę;
+- walidacja przejścia lifecycle dla dróg tworzenia i zastępowania snapshotu.
+
+Obecne zachowanie:
+
+Walidacja sprawdza końcowy kształt Assignment, ale nie sprawdza jego
+bezpośredniego poprzednika ani sposobu utworzenia NN. Publiczne drogi zapisu
+akceptują więc syntetyczne CANCELLED PRIMARY + NN, mimo że wymagane zdarzenie
+„wcześniej PLANNED PRIMARY” nie zaszło.
+
+Potwierdzona klasa błędu:
+
+1. apply_manual_correction() tworzy nowy Assignment od razu jako
+   CANCELLED PRIMARY + NN, bez odpowiednika w parent;
+2. ta sama operacja zmienia wcześniej zwykły CANCELLED PRIMARY na NN;
+3. ta sama operacja zmienia wcześniej PLANNED TRAINEE na CANCELLED PRIMARY
+   + NN;
+4. root ScheduleVersion bez parent może rozpocząć historię od NN;
+5. replace_working_snapshot() może zmienić PLANNED PRIMARY na NN in-place,
+   niszcząc wymagany niezmieniony stan parent zamiast utworzyć child.
+
+W przypadkach 1–3 operacja kończy się sukcesem i tworzy child. W przypadku 4
+zapisuje się syntetyczny root. W przypadku 5 bieżący snapshot zostaje
+zmieniony in-place. Wszystkie pięć przypadków powinno zostać odrzuconych bez
+mutacji, ponieważ nie realizuje kontraktowego przejścia.
+
+Testy reprodukcyjne:
+
+- test_r6_d_generic_manual_correction_cannot_invent_nn_without_planned_primary_parent
+  [brand_new_cancelled_nn, previously_cancelled_primary,
+  previously_planned_trainee];
+- test_r6_d_root_snapshot_cannot_start_with_nn_without_any_parent;
+- test_r6_d_in_place_replace_cannot_introduce_nn_and_destroy_planned_history.
+
+Skutek:
+
+Program może zapisać nieprawdziwą informację „nieobecność nieplanowana” dla
+zmiany, która nigdy nie była zaplanowaną zmianą PRIMARY. Może też utracić
+historyczny dowód PLANNED, mimo że kontrakt wymaga niezmienionego parent.
+
+Warunek zamknięcia:
+
+- nowe NN można wprowadzić wyłącznie dla tego samego Assignment, który w
+  bezpośrednim parent był PLANNED PRIMARY, przez utworzenie child;
+- nowy identyfikator, brak parent, poprzedni zwykły CANCELLED, poprzedni
+  TRAINEE oraz wprowadzenie NN in-place są odrzucane bez mutacji i bez nowego
+  child;
+- istniejące, legalnie utworzone CANCELLED PRIMARY + NN może zostać zachowane
+  bez zmiany w późniejszym snapshotcie;
+- zwykłe CANCELLED+None pozostaje legalne.
+
+Warunek opisuje zachowanie wynikające z kontraktu i nie narzuca miejsca ani
+techniki implementacji.
+
+
+POZYTYWNA MACIERZ REGRESYJNA — PASS
+
+Poza reproduktorami potwierdzono, że:
+
+- mark_not_worked() nadal realizuje poprawne PLANNED PRIMARY -> CANCELLED+NN
+  w child, pozostawiając parent bez zmian (testy autora i R3);
+- named operation odrzuca trzy reprezentatywne niepoprawne stany/role bez
+  utworzenia child;
+- druga próba NN jest odrzucana;
+- już istniejące legalne NN może zostać bez zmiany zachowane w późniejszym
+  snapshotcie;
+- NN nie liczy godzin jako PLANNED ani REALIZED;
+- częściowe zastępstwo pozostawia zwykłą dewiację COVERAGE, a pełne
+  komplementarne zastępstwo ją usuwa;
+- pierwotna pozycja pozostaje CANCELLED+NN w kolejnych child.
+
+
+WYNIKI TESTÓW
+
+- nowa macierz tests/test_audit_t010_r6_d.py: 5 failed, 7 passed;
+- połączone testy T010-D autora, R3-D i R6-D: 5 failed, 18 passed,
+  6 deselected;
+- pełny python -m pytest -q: 5 failed, 467 passed;
+- wszystkie 5 porażek pochodzi wyłącznie z reproduktorów R6-1;
+- git diff --check: PASS;
+- nowy plik audytowy: brak linii ponad 119 znaków i brak trailing whitespace.
+
+Niezależna próba ruff nie doszła do skutku, ponieważ runner po testach nie
+rozwiązał polecenia python. To ograniczenie środowiska nie jest findingiem
+produktu ani zastępczym PASS lintera.
+
+
+GOTOWOŚĆ
+
+T010-D nie jest gotowe do końcowego audytu całego T010. Po zamknięciu R6-1
+należy wykonać kolejny, wąski reaudyt D. Dopiero po jego PASS należy wykonać
+uzgodniony pełny audyt spójności A/B/C/D.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

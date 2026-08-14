@@ -30,10 +30,10 @@ def _row_to_demand(row: tuple) -> ShiftDemand:
 
 def _row_to_assignment(row: tuple) -> Assignment:
     (schedule_version_id, assignment_id, employee_id, start_dt, end_dt, role, state,
-     frozen, covers_demand_id, mentor_id) = row
+     frozen, covers_demand_id, mentor_id, operational_code) = row
     return Assignment(
         assignment_id, schedule_version_id, employee_id, datetime.fromisoformat(start_dt), datetime.fromisoformat(end_dt),
-        AssignmentRole(role), AssignmentState(state), bool(frozen), covers_demand_id, mentor_id,
+        AssignmentRole(role), AssignmentState(state), bool(frozen), covers_demand_id, mentor_id, operational_code,
     )
 
 
@@ -81,7 +81,7 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
     assignments = [
         _row_to_assignment(r) for r in conn.execute(
             "SELECT schedule_version_id, assignment_id, employee_id, start_datetime, end_datetime, role, state, "
-            "frozen, covers_demand_id, mentor_primary_assignment_id FROM assignments "
+            "frozen, covers_demand_id, mentor_primary_assignment_id, operational_code FROM assignments "
             "WHERE schedule_version_id = ? ORDER BY assignment_id",
             (version_id,),
         ).fetchall()
@@ -131,7 +131,7 @@ def get_current_assignments_in_interval(
     non-overlapping-but-relevant REST-01 context alike."""
     rows = conn.execute(
         """SELECT a.schedule_version_id, a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id
+                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code
            FROM assignments a
            JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
            WHERE c.site_id = ? AND a.state != ? AND a.start_datetime < ? AND a.end_datetime > ?
@@ -160,7 +160,7 @@ def get_current_assignments_for_employees(
         params.append(exclude_site_id)
     rows = conn.execute(
         f"""SELECT a.schedule_version_id, a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                   a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id
+                   a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code
             FROM assignments a
             JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
             WHERE a.employee_id IN ({placeholders}) AND a.state != ? AND a.start_datetime < ? AND a.end_datetime > ?
@@ -177,7 +177,7 @@ def get_current_realized_primary_on_holidays(conn: sqlite3.Connection, site_id: 
     Assignment.role == PRIMARY only, on a stored CalendarDay(holiday=true)."""
     rows = conn.execute(
         """SELECT a.schedule_version_id, a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id
+                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code
            FROM assignments a
            JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
            JOIN calendar_days cd ON cd.date = date(a.start_datetime)

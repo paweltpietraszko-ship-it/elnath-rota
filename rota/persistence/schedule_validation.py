@@ -87,6 +87,24 @@ def _validate_assignment_shape(
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: start date not in ScheduleVersion.month")
     if conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (assignment.employee_id,)).fetchone() is None:
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: unknown employee {assignment.employee_id!r}")
+    _validate_operational_code(assignment)
+
+
+def _validate_operational_code(assignment: Assignment) -> None:
+    """R3-5 (part_d_nn.md): every write path -- not just mark_not_worked --
+    must reject an operational_code T010 does not define, or a legal "NN"
+    attached to anything other than a CANCELLED PRIMARY (a TRAINEE, or a
+    still-PLANNED Assignment, are not truthful NN facts)."""
+    if assignment.operational_code is None:
+        return
+    if assignment.operational_code != "NN":
+        raise MalformedScheduleSnapshot(
+            f"assignment {assignment.assignment_id!r}: unsupported operational_code {assignment.operational_code!r}"
+        )
+    if assignment.role != AssignmentRole.PRIMARY or assignment.state != AssignmentState.CANCELLED:
+        raise MalformedScheduleSnapshot(
+            f"assignment {assignment.assignment_id!r}: operational_code=NN requires role=PRIMARY and state=CANCELLED"
+        )
 
 
 def _validate_assignment_references(
@@ -117,6 +135,64 @@ def validate_assignments(conn: sqlite3.Connection, month: date, assignments: lis
     for assignment in assignments:
         _validate_assignment_references(assignment, demands_by_id, by_id)
     return by_id
+
+
+def _nn_transition_preserves_identity(reference: Assignment, candidate: Assignment) -> bool:
+    """R7-1 (part_d_nn.md): the PLANNED PRIMARY -> CANCELLED+NN transition
+    must represent the SAME shift -- employee_id, the interval, and
+    covers_demand_id ('identyfikator pracownika, interval i powiazanie z
+    demandem') are unchanged; only state and operational_code move."""
+    return (
+        reference.employee_id == candidate.employee_id
+        and reference.start_datetime == candidate.start_datetime
+        and reference.end_datetime == candidate.end_datetime
+        and reference.covers_demand_id == candidate.covers_demand_id
+    )
+
+
+def validate_nn_provenance(
+    assignments_by_id: dict[str, Assignment],
+    reference_by_id: dict[str, Assignment],
+    *,
+    allow_new_nn_from_planned_primary: bool,
+) -> None:
+    """R6-1 (part_d_nn.md): a legal CANCELLED PRIMARY + NN *shape* is not by
+    itself proof that NN happened -- it must trace back to the SAME
+    assignment_id being PLANNED PRIMARY in the reference snapshot. Two
+    references are used by the two callers: create_schedule_version(with a
+    parent) passes the parent's content (allow_new_nn_from_planned_primary=
+    True, the one legitimate transition); a root create or an in-place
+    replace_working_snapshot/finalize passes the version's own pre-write
+    content (allow_new_nn_from_planned_primary=False -- in-place writes may
+    only preserve an already-NN row, never invent one). An assignment_id
+    already NN in the reference is preserved only while it still represents
+    the same shift (ARCH-1: an already-NN row must not silently be "moved"
+    onto a different employee/interval/demand in a later snapshot either --
+    the same identity requirement R7-1 established for the first
+    transition, applied consistently to this branch too)."""
+    for assignment_id, assignment in assignments_by_id.items():
+        if assignment.operational_code != "NN":
+            continue
+        reference = reference_by_id.get(assignment_id)
+        if reference is not None and reference.operational_code == "NN":
+            if _nn_transition_preserves_identity(reference, assignment):
+                continue
+            raise MalformedScheduleSnapshot(
+                f"assignment {assignment_id!r}: existing operational_code=NN must not change "
+                "employee_id/start_datetime/end_datetime/covers_demand_id in a later snapshot"
+            )
+        if (
+            allow_new_nn_from_planned_primary
+            and reference is not None
+            and reference.role == AssignmentRole.PRIMARY
+            and reference.state == AssignmentState.PLANNED
+            and _nn_transition_preserves_identity(reference, assignment)
+        ):
+            continue
+        raise MalformedScheduleSnapshot(
+            f"assignment {assignment_id!r}: operational_code=NN has no legitimate PLANNED PRIMARY "
+            "provenance in the reference snapshot"
+        )
 
 
 def validate_deviations(

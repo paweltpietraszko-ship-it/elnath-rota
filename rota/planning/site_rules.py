@@ -12,16 +12,24 @@ from __future__ import annotations
 
 from datetime import date
 
-from rota.domain import RuleEnforcement, ShiftKind, SiteRuleVersion
+from rota.domain import RuleCategory, RuleEnforcement, ShiftKind, SiteRuleVersion
 
 EMPLOYEE_ALLOWED_SHIFT_KINDS = "EMPLOYEE_ALLOWED_SHIFT_KINDS"
 EMPLOYEE_ALLOWED_WEEKDAYS = "EMPLOYEE_ALLOWED_WEEKDAYS"
 EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS = "EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS"
+# ROTA-T010-B (arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md): a
+# single named, narrow exception to DAY_ONLY-01 -- deliberately NOT part of
+# the generic AND-gate below (rule_allows_assignment always returns True for
+# it there); its only effect is via day_only_n_exception_applies, called
+# only from the DAY_ONLY-01 check sites (eligibility._common_hard_gate,
+# validator._check_day_only).
+EMPLOYEE_DAY_ONLY_N_EXCEPTION = "EMPLOYEE_DAY_ONLY_N_EXCEPTION"
 
 SUPPORTED_RULE_KINDS = frozenset({
     EMPLOYEE_ALLOWED_SHIFT_KINDS,
     EMPLOYEE_ALLOWED_WEEKDAYS,
     EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
+    EMPLOYEE_DAY_ONLY_N_EXCEPTION,
 })
 
 _VALID_SHIFT_KIND_VALUES = frozenset({"D", "N"})
@@ -97,10 +105,16 @@ def _validate_forbidden_shift_kinds_on_weekdays(rule_version_id: str, params: ob
     _require_shift_kind_list(rule_version_id, checked, "forbidden_shift_kinds")
 
 
+def _validate_day_only_n_exception(rule_version_id: str, params: object) -> None:
+    checked = _require_keys(rule_version_id, params, {"employee_id"})
+    _require_nonempty_str(rule_version_id, checked, "employee_id")
+
+
 _PARAM_VALIDATORS = {
     EMPLOYEE_ALLOWED_SHIFT_KINDS: _validate_allowed_shift_kinds,
     EMPLOYEE_ALLOWED_WEEKDAYS: _validate_allowed_weekdays,
     EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS: _validate_forbidden_shift_kinds_on_weekdays,
+    EMPLOYEE_DAY_ONLY_N_EXCEPTION: _validate_day_only_n_exception,
 }
 
 
@@ -138,7 +152,30 @@ def rule_allows_assignment(rule: SiteRuleVersion, employee_id: str, demand_start
             and shift_kind.value in params["forbidden_shift_kinds"]
         )
         return not forbidden
+    if rule.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION:
+        # Narrow exception to DAY_ONLY-01 only (see day_only_n_exception_applies)
+        # -- never a generic HARD gate, so it never blocks here.
+        return True
     raise AssertionError(f"unreachable: unvalidated rule_kind {rule.rule_kind!r}")  # pragma: no cover
+
+
+def day_only_n_exception_applies(applicable_hard_rules: list[SiteRuleVersion], employee_id: str) -> bool:
+    """DAY-ONLY-TEMP-N-EXCEPTION-01
+    (arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md): True when an
+    applicable RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule names
+    employee_id. Exempts only DAY_ONLY-01 for N; every other HARD rule
+    still applies via AND -- callers must only consult this at the
+    DAY_ONLY-01 check site, never as a general override.
+
+    R3-3: the addendum requires category=CONFIRMED_EXCEPTION -- a rule of
+    this kind saved under any other category (e.g. an ordinary LOCAL_RULE)
+    must not grant the exception."""
+    return any(
+        r.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION
+        and r.category == RuleCategory.CONFIRMED_EXCEPTION
+        and r.structured_parameters.get("employee_id") == employee_id
+        for r in applicable_hard_rules
+    )
 
 
 def hard_rules_applicable_on(site_rules, applicability, as_of: date) -> list[SiteRuleVersion]:

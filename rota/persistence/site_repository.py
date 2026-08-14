@@ -18,22 +18,28 @@ class UnknownSiteProfile(Exception):
     """Raised when Site.profile_id does not identify an existing SiteProfile."""
 
 
-def save_site(conn: sqlite3.Connection, site: Site) -> None:
+def write_site_in_open_transaction(conn: sqlite3.Connection, site: Site) -> None:
+    """Same write as save_site, without its own `with conn:` (see
+    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
     row = conn.execute(
         "SELECT 1 FROM site_profiles WHERE profile_id = ?", (site.profile_id,)
     ).fetchone()
     if row is None:
         raise UnknownSiteProfile(site.profile_id)
+    conn.execute(
+        """INSERT INTO sites (site_id, profile_id, display_name, active)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(site_id) DO UPDATE SET
+            profile_id=excluded.profile_id,
+            display_name=excluded.display_name,
+            active=excluded.active""",
+        (site.site_id, site.profile_id, site.display_name, int(site.active)),
+    )
+
+
+def save_site(conn: sqlite3.Connection, site: Site) -> None:
     with conn:
-        conn.execute(
-            """INSERT INTO sites (site_id, profile_id, display_name, active)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(site_id) DO UPDATE SET
-                profile_id=excluded.profile_id,
-                display_name=excluded.display_name,
-                active=excluded.active""",
-            (site.site_id, site.profile_id, site.display_name, int(site.active)),
-        )
+        write_site_in_open_transaction(conn, site)
 
 
 def get_site(conn: sqlite3.Connection, site_id: str) -> Site:

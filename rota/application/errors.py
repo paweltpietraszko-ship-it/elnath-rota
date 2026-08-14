@@ -9,6 +9,20 @@ class InvalidCoordinatorContext(Exception):
     not all active for a coordinator-originated write."""
 
 
+class CoordinatorContextAlreadyActive(Exception):
+    """Raised by bootstrap_or_resume_coordinator_context (ROTA-T010-A) when
+    (coordinator_id, site_id) already has an active CoordinatorSiteAssociation
+    -- further writes to that context must go through the T009 authorized
+    edit operations instead of the bootstrap/resume path."""
+
+
+class NotWorkedRequiresPlannedPrimary(Exception):
+    """Raised by mark_not_worked (ROTA-T010-D) when the target Assignment is
+    not currently role=PRIMARY and state=PLANNED -- NN is only ever a fact
+    about a previously PLANNED PRIMARY shift, never a TRAINEE or an
+    Assignment already REALIZED/CANCELLED."""
+
+
 class IncompleteCalendarData(Exception):
     """Raised when a CalendarDay is missing for some date in the target
     month -- brief.md ONE CANONICAL PLANNINGSTATE ASSEMBLER: never guessed

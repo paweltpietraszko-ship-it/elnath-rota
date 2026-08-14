@@ -1,0 +1,107 @@
+REAUDYT IMPLEMENTACJI ROTA-T010-D — ROUND 8
+
+AUDYTOWANY SHA:
+ca43204fa0d4bd09d4e0fe77eff29b8d7292353e
+
+GAŁĄŹ:
+task/ROTA-T010
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T010/round_01/tests/tests_r7.txt
+
+ZAKRES RUNDY:
+
+Wyłącznie wąski reaudyt zamknięcia R7-1 w T010-D. Sprawdzono zachowanie pól
+employee_id, start_datetime, end_datetime i covers_demand_id podczas pierwszego
+przejścia wcześniej PLANNED PRIMARY do CANCELLED+NN, wcześniejszą macierz
+pochodzenia R6 oraz regresję wszystkich zachowań D.
+
+Zgodnie z warunkiem R7-1 nie rozszerzano wymagania na inne pola ani na późniejsze
+przenoszenie istniejącego NN. T010-A i T010-B nie były ponownie audytowane.
+
+WERDYKT T010-D: PASS — R7-1 I R6-1 ZAMKNIĘTE
+
+Nie znaleziono nowego defektu kontraktowego w części D. Nie ma
+WYMAGA_DECYZJI ani propozycji architektonicznej.
+
+
+ŹRÓDŁA KONTRAKTU
+
+- tasks/ROTA-T010/part_d_nn.md;
+- zaakceptowana macierz T010-D w tests_r2.txt;
+- R3-5 w tests_r3.txt;
+- R6-1 w tests_r6.txt;
+- R7-1 i jego warunek zamknięcia w tests_r7.txt.
+
+
+R7-1 — ZAMKNIĘTE
+
+Nowa _nn_transition_preserves_identity() jest częścią gałęzi, która dopuszcza
+nowe NN na podstawie wcześniej PLANNED PRIMARY w referencyjnym snapshotcie.
+Poza zgodnym assignment_id, role=PRIMARY i state=PLANNED wymaga teraz równości:
+
+- employee_id;
+- start_datetime;
+- end_datetime;
+- covers_demand_id.
+
+Każdy z czterech reprezentatywnych siblingów R7 jest odrzucany bez utworzenia
+child, bez zmiany current ScheduleVersion i bez mutacji parent. Poprawne
+przejście, w którym zmieniają się wyłącznie state na CANCELLED oraz
+operational_code na NN, pozostaje legalne.
+
+Test:
+
+- test_r7_d_nn_transition_preserves_contracted_assignment_identity_fields
+  [employee_id, start_datetime, end_datetime, covers_demand_id]: 4/4 PASS.
+
+
+REGRESJA R6 I DRÓG ZAPISU — PASS
+
+Pozostają zamknięte wszystkie klasy R6-1:
+
+- brak odpowiednika w parent;
+- wcześniejszy zwykły CANCELLED PRIMARY;
+- wcześniejszy PLANNED TRAINEE;
+- root bez parent;
+- wprowadzenie NN przez replace_working_snapshot() in-place.
+
+Replacement wykonywany podczas finalize() również odrzuca wprowadzenie NN
+in-place i transakcja zachowuje pierwotne WORKING + PLANNED. Legalne NN może
+być zachowane bez zmiany, ponowna named operation jest odrzucana, a
+operational_code nadal ma prawidłowy kształt.
+
+Macierze godzin, coverage bez zastępstwa, częściowego i pełnego ręcznego
+zastępstwa oraz brak sztucznego REALIZED pozostają zielone.
+
+
+WYNIKI TESTÓW
+
+- tests/test_audit_t010_r7_d.py: 5 passed;
+- połączone testy T010-D autora, R3-D, R6-D i R7-D: 28 passed,
+  6 deselected;
+- pełny python -m pytest -q: 477 passed;
+- tests/test_real_object_benchmark.py: 24 passed;
+- git diff --check: PASS.
+
+Autor podał dla audytowanego SHA: pełny benchmark real-object 55/55 oraz ruff
+clean. Niezależna próba ponownego uruchomienia tych dwóch poleceń po testach
+nie doszła do skutku, ponieważ runner przestał rozwiązywać polecenia python i
+uv. Pełna regresja oraz niezależny moduł testów benchmarku zostały wcześniej
+w tej samej rundzie wykonane poprawnie. Ograniczenie runnera nie jest
+findingiem produktu ani zastępczym PASS lintera.
+
+
+GOTOWOŚĆ
+
+T010-D jest gotowe do pozostawienia bez dalszej iteracji w tej turze. R6-1 i
+R7-1 należy ponownie otworzyć tylko, jeżeli późniejsza zmiana dotknie
+validate_nn_provenance() lub jej integracji ze ścieżkami lifecycle.
+
+To nie jest jeszcze końcowy PASS całego T010. Zgodnie z ustaloną kolejnością
+można teraz wykonać pełny audyt spójności A/B/C/D.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

@@ -1,0 +1,145 @@
+REAUDYT IMPLEMENTACJI ROTA-T010-A — ROUND 4
+
+AUDYTOWANY SHA:
+aa16b989fbcc5d9a1fd40c00e97ec73743fa99aa
+
+GAŁĄŹ:
+task/ROTA-T010
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T010/round_01/tests/tests_r3.txt
+
+ZAKRES RUNDY:
+
+Wyłącznie T010-A i zamknięcie:
+- R3-1 — poprawność StandardShift w odczycie kompletności;
+- R3-2 — równoległy bootstrap tego samego pierwszego kontekstu.
+
+T010-B i T010-D nie były w tej rundzie audytowane merytorycznie. Zielona pełna
+regresja nie stanowi ich cząstkowego ani końcowego PASS. Pełny audyt spójności
+T010 nastąpi dopiero po osobnych reaudytach A, B i D.
+
+WERDYKT T010-A: PASS — R3-1 I R3-2 ZAMKNIĘTE
+
+Nie znaleziono nowego defektu kontraktowego w części A.
+
+
+ŹRÓDŁA KONTRAKTU
+
+- tasks/ROTA-T010/part_a_bootstrap_roster.md;
+- decyzja właściciela T010-A z 2026-08-14, SHA
+  408d439aa87983685f7a717f10d2e28443969b92;
+- zaakceptowana macierz implementacyjna w tests_r2.txt;
+- R3-1 i R3-2 w tests_r3.txt;
+- istniejące invariants ShiftDemand z T008 wyłącznie jako definicja
+  „poprawnej standardowej zmiany”, do której odsyła kontrakt A.
+
+
+R3-1 — ZAMKNIĘTE
+
+Obecna implementacja coordinator_context_completeness() nie traktuje już
+samej obecności wiersza standard_shifts jako dowodu poprawności.
+
+_is_valid_standard_shift() wymaga:
+
+- required_primary_count > 0;
+- end_next_day=true albo end_time > start_time.
+
+Jest to zgodne z istniejącym generate_profile_demands() i walidacją
+ShiftDemand: wygenerowany przedział musi mieć end > start, a wymagane coverage
+musi być dodatnie.
+
+Potwierdzone przypadki:
+
+- required_primary_count=0 — niekompletny;
+- required_primary_count=-1 — niekompletny sibling;
+- end_time==start_time i end_next_day=false — niekompletny;
+- end_time<start_time i end_next_day=false — niekompletny sibling;
+- dodatni przedział same-day — kompletny;
+- równe godziny z end_next_day=true — poprawny dodatni przedział 24 h;
+- pełny CalendarDay nie maskuje niepoprawnej zmiany: miesiąc pozostaje
+  not ready i zwraca brak dotyczący shift.
+
+Testy:
+
+- test_r3_a_context_is_not_complete_with_an_invalid_standard_shift;
+- test_r4_a_standard_shift_validity_boundaries;
+- test_r4_a_invalid_shift_keeps_a_calendar_complete_month_not_ready.
+
+Nie rozszerzano wymagania na nowe pola ani reguły profilu. Testowana jest
+wyłącznie klasa poprawności potrzebna do utworzenia legalnego ShiftDemand.
+
+
+R3-2 — ZAMKNIĘTE
+
+Samo wcześniejsze _has_active_association() pozostaje szybkim komunikatem dla
+przypadku sekwencyjnego, ale nie jest już właścicielem wyłączności.
+
+Wyłączność aktywacji Association jest rozstrzygana przez jeden statement:
+
+INSERT ... ON CONFLICT ... DO UPDATE ... WHERE existing.active = 0
+
+i przez wynik rowcount. Dla tej samej pary (coordinator_id, site_id) dwa
+wywołania, które równocześnie przeszły pre-check, nie mogą oba wygrać zapisu
+active=true. Przegrywający otrzymuje CoordinatorContextAlreadyActive.
+
+Potwierdzone ścieżki:
+
+- dwa równoległe bootstrapy nieistniejącej wcześniej tej samej pary:
+  dokładnie jeden success i jedna kontrolowana odmowa;
+- dwa równoległe wznowienia istniejącego Association active=false:
+  dokładnie jeden success i jedna kontrolowana odmowa;
+- dwa różne site_id dla tego samego koordynatora uruchomione równolegle:
+  oba kończą się success.
+
+Ostatni test potwierdza decyzję właściciela z 2026-08-14: poprawka nie
+wprowadziła trwałego ograniczenia „co najwyżej jeden Site na koordynatora”.
+CAS jest ograniczony do konkretnej pary przekazanej jawnie przez site_id.
+
+Testy:
+
+- test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed;
+- test_r4_a_concurrent_reactivation_of_one_inactive_association_has_one_winner;
+- test_r4_a_concurrent_bootstrap_of_two_different_sites_both_succeeds.
+
+
+REGRESJA REPOZYTORIÓW
+
+Refaktor dodał warianty write_*_in_open_transaction, ale publiczne istniejące
+save_* zachowują poprzednie API i nadal otaczają zapis własną transakcją.
+
+Sprawdzono dotknięte ścieżki SiteProfile/Site/Coordinator i LocalStore:
+
+31 passed.
+
+Obejmuje to między innymi round-trip, kolejność standard_shifts, atomowy zapis
+profilu i dotychczasowy lifecycle LocalStore.
+
+
+WYNIKI TESTÓW
+
+- tests/test_t010_bootstrap_roster.py: 10 passed;
+- testy R3 dotyczące A: 3 passed;
+- nowa macierz tests/test_audit_t010_r4_a.py: 7 passed;
+- regresja repozytoriów dotkniętych refaktorem: 31 passed;
+- pełny python -m pytest -q po dodaniu macierzy R4: 449 passed;
+- git diff --check: PASS.
+
+Autor podał ruff clean dla SHA. Niezależna próba ponownego uruchomienia ruff
+po testach nie doszła do skutku, ponieważ runner przestał rozwiązywać polecenia
+python/uv. Nie wykryto problemu kodu; jest to jawnie odnotowane ograniczenie
+narzędziowe, a nie zastępczy PASS lintera.
+
+
+GOTOWOŚĆ
+
+T010-A jest gotowe do pozostawienia bez dalszej iteracji w tej turze. Następny
+audyt powinien przejść do T010-B, bez ponownego otwierania zamkniętych R3-1 i
+R3-2, chyba że późniejsza zmiana ponownie dotknie ich właścicieli.
+
+To nie jest końcowy PASS całego T010.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

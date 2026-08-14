@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -343,10 +343,22 @@ _MIGRATION_3: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 4 -- ROTA-T010-D: operational_code on Assignment. In T010 the
+# only value is "NN" (a previously PLANNED PRIMARY the employee did not
+# work, recorded as state=CANCELLED + operational_code="NN" on the child
+# version -- never a new table, never a synthetic REALIZED).
+# ---------------------------------------------------------------------------
+_MIGRATION_4: tuple[str, ...] = (
+    "ALTER TABLE assignments ADD COLUMN operational_code TEXT",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
     (3, _MIGRATION_3),
+    (4, _MIGRATION_4),
 )
 
 
