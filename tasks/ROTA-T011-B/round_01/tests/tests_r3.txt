@@ -1,0 +1,99 @@
+REAUDYT KONTRAKTU ROTA-T011-B — ROUND 3
+
+AUDYTOWANY KONTRAKT SHA:
+51f3b42292da145fe0382806ccf09ac74f762e4f
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-B/round_01/tests/tests_r2.txt
+
+WERDYKT: FAIL — BRAKUJĄCA ZALEŻNOŚĆ OD T011-A BLOKUJE IMPLEMENTACJĘ TESTÓW
+
+PASS T011-B z round 2 zostaje cofnięty wyłącznie dla jednego nowego, konkretnego
+findingu zgłoszonego podczas rozpoczęcia implementacji. Pozostałe wyniki round 2
+nie są ponownie otwierane.
+
+Nie ma pytania produktowego ani propozycji nowej architektury. To mechaniczna
+niespójność zależności między już zaakceptowanymi częściami T011.
+
+
+FINDING B-R3-1 — TEST APLIKACYJNY NIE MA LEGALNEJ DROGI OTWARCIA MAGAZYNU
+
+Ślad kontraktu:
+
+- T011-B ma `INTEGRATED_BASE_SHA = 029107b` i nie deklaruje `DEPENDS_ON`;
+- `tests/test_t011_b_context_discovery.py` ma używać prawdziwego tymczasowego
+  SQLite;
+- ten plik nie może importować `rota.persistence` ani do budowy, ani do
+  weryfikacji stanu;
+- scenariusze wymagają bootstrapu na pustym magazynie, zapisów, PLAN oraz
+  zamknięcia i ponownego otwarcia magazynu;
+- `store.open_store`, czyli jedyna aplikacyjna funkcja tworząca połączenie i
+  uruchamiająca migracje, jest deliverable T011-A, nie częścią bazy `029107b`.
+
+Potwierdzenie w kodzie bazowym:
+
+- `rota.persistence.db.connect` jest jedyną istniejącą funkcją otwierającą
+  zmigrowany magazyn;
+- bezpośrednie `sqlite3.connect` zwróciłoby bazę bez schematu, a dodatkowo
+  wprowadziłoby do testu dokładnie tę wiedzę o SQLite, którą granica T011-A/E
+  usuwa;
+- w `rota.application.*` na bazie `029107b` nie ma żadnej funkcji zwracającej
+  działające połączenie.
+
+W rezultacie test nie może nawet wykonać pierwszego bootstrapu. Import
+`rota.persistence.db.connect` byłby literalnym naruszeniem wymogu testowego;
+lokalna migracja, surowe SQL albo dodanie drugiego `open_store` do scope B byłyby
+obejściem i rozszerzeniem kontraktu.
+
+
+WŁAŚCICIEL KONTRAKTU I KLASA BŁĘDU
+
+Właścicielem brakującego warunku jest brief T011-B, nie implementacja
+`bootstrap` ani persistence. Klasa błędu obejmuje każdą część testu wymagającą
+nowego lub ponownie otwartego connection: pusty magazyn, bootstrap, scenariusze
+PLAN i restart. Nie jest to pojedynczy brak fixture’a.
+
+Istnieje też wewnętrzny dowód intencji: T011-C round 2 zapisuje kolejność rodziny
+`A → B → C`, mimo że sam brief B nie deklaruje zależności A. Zależność została
+opisana narracyjnie w C, ale nie stała się wykonalnym warunkiem B.
+
+
+WARUNEK ZAMKNIĘCIA
+
+T011-B powinno jawnie deklarować:
+
+`DEPENDS_ON: ROTA-T011-A`
+
+oraz wskazać, że `tests/test_t011_b_context_discovery.py` otwiera i ponownie
+otwiera magazyn przez `rota.application.store.open_store`. T011-A musi być
+zmergowane i zielone przed implementacją B. Nie potrzeba zmiany TASK_SCOPE B,
+nowej funkcji ani wyjątku od zakazu persistence — test tylko korzysta z
+wcześniej dostarczonego publicznego API.
+
+Alternatywa „pozwól testowi importować persistence wyłącznie do fixture’a”
+zmieniałaby znaczenie dowodu granicy i jest sprzeczna z zapisaną kolejnością
+A → B → C; nie należy jej wybierać po cichu.
+
+
+POZOSTAŁE SECTION_CHECK Z ROUND 2 — NADAL PASS
+
+- przeniesienie sztucznego stanu current/history do istniejącego testu
+  persistence zamyka B-1;
+- cztery odczyty kontekstu mają jednoznaczne filtry;
+- filtr miesięcy używa current wersji i zachowuje CANCELLED/NN;
+- TASK_SCOPE ma jeden nowy plik, a test repository jest istniejący;
+- B-7 pozostaje prawidłowo odłożone do T012;
+- FROZEN.lock i `git diff --check` były zielone dla audytowanego SHA.
+
+
+GOTOWOŚĆ
+
+Nie implementować T011-B na samym `029107b` i nie obchodzić problemu importem
+persistence. Po dodaniu twardej zależności A i wskazaniu `open_store` wystarczy
+wąski reaudyt B-R3-1; nie ma podstaw do trzeciego pełnego przeprojektowania
+briefu ani ponownego otwierania zamkniętych filtrów.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
