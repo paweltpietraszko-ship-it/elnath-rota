@@ -1,0 +1,212 @@
+AUDYT IMPLEMENTACJI ROTA-T011-C — ROUND 3
+
+AUDYTOWANA GAŁĄŹ:
+task/ROTA-T011-C
+
+AUDYTOWANY SHA:
+fc64093b39c15848690d1058511f5db606d3c93d
+
+SHA IMPLEMENTACJI:
+14cad55565ed5c04e387bcdbf964ceba9c8d5bf8
+
+INTEGRATED_BASE_SHA:
+8618922f3fb5b99b9582f088db57aee5aaf805d4
+
+POPRZEDNI RAPORT:
+tasks/ROTA-T011-C/round_01/tests/tests_r2.txt
+
+WERDYKT: WYMAGA_DECYZJI — NIE JEST READY_FOR_MERGE
+
+Trzy nowe wrappery realizują zadeklarowany wzorzec W1, a wszystkie mechaniczne
+bramki blokujące są zielone. Implementacja i wymagane testy nie domykają jednak
+kontraktu cyklu życia. Najważniejszy problem jest wcześniejszy niż wybór
+konkretnej poprawki: kontrakt twierdzi, że samozablokowanie przez każdą z trzech
+encji jest odwracalne przez istniejący bootstrap, podczas gdy bootstrap
+sprawdza wyłącznie aktywność Association. Dla dezaktywowanego Site lub
+Coordinator powstaje trwały lockout z publicznej powierzchni aplikacyjnej.
+
+Ponadto dwa dosłownie wymagane dowody testowe są nieobecne. Zielone 536/536 nie
+zmienia tego werdyktu, ponieważ obecna macierz nie wykonuje tych ścieżek.
+
+
+SECTION_CHECK 1 — BAZA, ZAKRES I TOPOLOGIA: PASS
+
+- branch jest oparty na aktualnym main `8618922`, zawierającym T011-A/B/D/E;
+- twarda zależność od T011-B jest spełniona;
+- diff produkcyjny obejmuje wyłącznie
+  `rota/application/durable_inputs.py`;
+- jedyny nowy plik kodowy to wymagany
+  `tests/test_t011_c_site_coordinator_lifecycle.py`;
+- nie ma zmian persistence, migracji, SQL ani nowego workflow;
+- zachowano zamknięty TASK_SCOPE z dwoma wpisami.
+
+
+SECTION_CHECK 2 — WRAPPERY W1 I CONSTRAINT PROFILE_ID: PASS
+
+`update_site`, `update_coordinator` i `update_association` najpierw wywołują
+`require_active_coordinator_context`, a następnie delegują zapis do istniejących
+repozytoriów. To odpowiada przyjętemu W1 dla mutable current-state entities.
+
+`update_site`:
+
+- odrzuca obcy `site.site_id`;
+- pobiera bieżący Site i porównuje `profile_id` przed `save_site`;
+- przy próbie rebindu nie zapisuje również towarzyszącej zmiany nazwy.
+
+`update_coordinator` nie porównuje coordinator_id, a `update_association`
+porównuje tylko site_id. Jest to dosłowna decyzja właściciela z 2026-08-14 i nie
+jest findingiem ani propozycją hardeningu.
+
+
+WYMAGA_DECYZJI C-R3-1 — KONTRAKTOWA ODWRACALNOŚĆ NIE ISTNIEJE DLA SITE I COORDINATOR
+
+Ślad kontraktu:
+
+- `brief.md`, sekcja „Samozablokowanie jest oczekiwanym, odwracalnym
+  zachowaniem”, wymienia równorzędnie
+  `update_association(active=False)`, `update_coordinator(active=False)` i
+  `update_site(active=False)`;
+- ta sama sekcja stwierdza, że po każdym takim zapisie nie ma aktywnej asocjacji
+  i bootstrap może wznowić kontekst;
+- ACCEPTANCE wymaga, aby wszystkie operacje zmiany aktywności były odwracalne;
+- jednocześnie bootstrap ma nadal odmawiać, dopóki Association jest aktywna.
+
+Rzeczywisty właściciel zachowania:
+
+- `context.require_active_coordinator_context` wymaga aktywnego Coordinator,
+  aktywnego Site i aktywnej Association;
+- `bootstrap._has_active_association` sprawdza wyłącznie
+  `CoordinatorSiteAssociation.active`;
+- `bootstrap_or_resume_coordinator_context` wykonuje ten test przed jakimkolwiek
+  supplied write i przy aktywnej Association podnosi
+  `CoordinatorContextAlreadyActive`.
+
+Niezależne odtworzenie przez publiczne API dało pełną klasę:
+
+| Dezaktywowany rekord | Następny durable input | Bootstrap resume |
+| --- | --- | --- |
+| Association | `InvalidCoordinatorContext` | działa |
+| Coordinator | `InvalidCoordinatorContext` | `CoordinatorContextAlreadyActive` |
+| Site | `InvalidCoordinatorContext` | `CoordinatorContextAlreadyActive` |
+
+Dwa ostatnie przypadki pozostawiają aktywną Association, więc zdanie kontraktu
+„skoro nie ma już aktywnej asocjacji” jest dla nich fałszywe. Po odrzuceniu
+bootstrapu guard nie pozwala również zwykłym wrapperom ponownie aktywować Site
+ani Coordinator. Test 6 pokrywa tylko wariant Association i dlatego nie wykrywa
+obu siblingów tej samej klasy.
+
+To nie jest miejsce na wybór nowej architektury przez audytora. Zamknięcie
+wymaga pisemnego rozstrzygnięcia właściciela, które ujednolici wymaganie
+odwracalności, ochronę aktywnego bootstrapu i TASK_SCOPE. Dopiero po tej decyzji
+macierz musi objąć wszystkie trzy równoległe ścieżki, zgodnie z ostatecznym
+kontraktem.
+
+Brief przeszedł już dwie rundy audytu kontraktu. Zgodnie z granicą roli nie
+zalecam kolejnych iteracji językowych prowadzących do preferowanej przeze mnie
+architektury; dalsza implementacja tego punktu powinna się zatrzymać do decyzji
+właściciela/architekta. Wniosek SECTION_CHECK 2 z tests_r2 o odwracalności
+wszystkich wariantów zostaje niniejszym skorygowany na podstawie wykonanego
+reproducera.
+
+
+FAIL C-R3-2 — SCENARIUSZ 5 NIE DOWODZI DOSTĘPNOŚCI MEMORY_READ
+
+WYMAGANE TESTY pkt 5 mówi koniunkcyjnie, że po dezaktywacji Association nadal
+działają `open_month` i `memory_read`.
+
+`test_5_deactivating_association_locks_out_further_edits_but_not_reads` wywołuje
+`open_month`, ale plik testowy nie importuje ani nie wywołuje żadnej funkcji z
+`rota.application.memory_read`. Test dowodzi tylko połowy wymaganego zachowania.
+
+Warunek zamknięcia: po utracie kontekstu wykonać przez publiczną powierzchnię
+aplikacyjną reprezentatywny odczyt Site Memory i sprawdzić jego wynik. Nie
+wolno zastępować tego importem persistence ani samym brakiem wyjątku bez
+sprawdzenia wyniku.
+
+
+FAIL C-R3-3 — SCENARIUSZ RESTARTU NIE POKRYWA FLAG ACTIVE ANI OPEN_MONTH
+
+WYMAGANE TESTY pkt 9 żąda po restarcie:
+
+- zachowania zmienionych wartości i flag `active`;
+- weryfikacji przez `all_coordinators`, `all_sites_for_coordinator` oraz
+  `open_month`.
+
+`test_9_restart_yields_the_same_lifecycle_state` zmienia wyłącznie dwie nazwy.
+Oba rekordy pozostają `active=True`. Przed i po restarcie porównuje tylko
+`all_coordinators` i `all_sites_for_coordinator`; nie buduje stanu miesiąca i
+nie wywołuje `open_month`.
+
+Warunek zamknięcia: test restartu ma rzeczywiście zmienić co najmniej jedną
+objętą kontraktem flagę active, zebrać wymagane publiczne widoki przed
+zamknięciem połączenia i sprawdzić je po `store.open_store`, włącznie z
+`open_month`. Dobór wariantu dezaktywacji musi być zgodny z decyzją zamykającą
+C-R3-1.
+
+
+SECTION_CHECK 3 — POZOSTAŁA MACIERZ: PASS
+
+Obecne testy poprawnie dowodzą:
+
+- zmiany nazwy Site i Coordinator;
+- odrzucenia obcego site_id dla Site i Association;
+- atomowego z perspektywy wrappera odrzucenia zmiany profile_id;
+- blokady zapisu bez aktywnego kontekstu;
+- Association 1→0, lockoutu i wznowienia tego wariantu;
+- odmowy bootstrapu przy aktywnej Association;
+- czytelności FINAL po dezaktywacji Site;
+- świadomie dozwolonej edycji rekordu innego Coordinator;
+- odebrania innemu Coordinator jego Association;
+- braku importów `rota.persistence` w nowym teście.
+
+Nie zgłaszam braku kontroli tożsamości Coordinator, utraty historii nazw ani
+braku warunku „WORKING” jako usterek — są to zapisane decyzje/out-of-scope.
+
+
+SECTION_CHECK 4 — TESTY I BRAMKI MECHANICZNE: PASS / WYMAGA_AKCEPTACJI
+
+Uruchomione wyniki:
+
+- T011-C + ROTA-REG-001 + dependency boundary scan: 22/22 PASS;
+- pełna suite: 536/536 PASS;
+- Ruff na obu plikach TASK_SCOPE: PASS;
+- niezależny skan AST testu: zero importów `rota.persistence`;
+- `guard.py check arch/spec.md`: STATUS PASS;
+- `git diff --check`: PASS.
+
+Niezależne uruchomienie backendu na aktualnym SHA odtworzyło:
+
+- `STATUS: WYMAGA_DECYZJI`;
+- `RATIO: 338/2 = 169.0:1`;
+- `TOTAL_LINES: 340`;
+- wszystkie gate'y blokujące zielone.
+
+Zapisany `output_backend.txt` prawidłowo wskazuje rodzica `14cad555`, czyli stan
+implementacji przed commitem samego dowodu. Aktualna reprodukcja różni się
+oczekiwanym HEAD_SHA oraz tym, że istniejący już `output_backend.txt` pojawia się
+na liście excluded artifacts; metryki i werdykt mechaniczny są zgodne.
+
+RATIO 169.0:1 i TOTAL_LINES 340 wymagają jednej finalnej akceptacji zgodnie z
+`FINAL_ARCHITECTURAL_ACCEPTANCE: architekt`. Sama akceptacja tych metryk nie
+zamknie C-R3-1..3.
+
+
+FINDINGS
+
+- C-R3-1 — WYMAGA_DECYZJI: sprzeczność odwracalności Site/Coordinator z
+  istniejącą ochroną bootstrapu i zamkniętym TASK_SCOPE;
+- C-R3-2 — FAIL: brak wymaganego dowodu memory_read po lockoucie;
+- C-R3-3 — FAIL: restart nie sprawdza zmienionych flags active ani open_month.
+
+
+GOTOWOŚĆ
+
+T011-C nie ma PASS Codexa i nie powinno być mergowane. Najpierw potrzebna jest
+decyzja właściciela/architekta dla C-R3-1; następnie wąska korekta i reaudyt
+wszystkich trzech findings. Nie należy zmieniać progów backend.py ani rozszerzać
+architektury poza pisemne rozstrzygnięcie.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
