@@ -1,0 +1,69 @@
+AUDYT KONTRAKTU ROTA-T011-C — ROUND 1
+
+AUDYTOWANY SHA:
+7670b2d30e4fac54b906a8584030f2139f49b9eb
+
+INTEGRATED_BASE_SHA:
+029107be9045d2759e77450a0fb943a04483932c
+
+WERDYKT: FAIL — KONTRAKT NIE JEST JESZCZE READY_FOR_IMPLEMENTATION
+
+B-2=W1, świadomy brak kontroli tożsamości koordynatora oraz zakaz zmiany
+Site.profile_id są opisane jednoznacznie. Nie są findingami. Trzy wrappery
+mieszczą się w istniejącym `durable_inputs.py`, a TASK_SCOPE wymaga tylko
+jednego nowego pliku.
+
+Obowiązkowa weryfikacja zmian Coordinator nie jest jednak wykonalna na
+zadeklarowanej bazie i przy zakazie użycia persistence.
+
+
+FINDING C-1 — BRAK APLIKACYJNEGO ODCZYTU COORDINATOR W BAZIE TEGO TASKU
+
+Ślad kontraktu:
+
+- INTEGRATED_BASE_SHA wskazuje main `029107b`;
+- DEPENDS_ON dla T011-B nie jest zadeklarowane;
+- WYMAGANE TESTY pkt 11 wymaga, aby `active_coordinators`/`get_coordinator`
+  zobaczył nową nazwę;
+- pkt 9 wymaga weryfikacji zmienionych wartości po restarcie;
+- testy nie mogą importować persistence ani używać go do weryfikacji.
+
+Na `029107b` nie istnieje żaden odczyt Coordinator w `rota.application.*`.
+`get_coordinator` istnieje tylko w
+`rota.persistence.coordinator_repository`, a `active_coordinators` jest dopiero
+funkcją kontraktowaną przez niezależny T011-B. T011-C nie dodaje odczytu i nie
+deklaruje zależności od B. W efekcie CC może wykonać `update_coordinator`, ale
+nie może przez dozwoloną powierzchnię udowodnić utrwalenia display_name ani
+jego zachowania po restarcie.
+
+To samo dotyczy pełnej weryfikacji scenariusza 12 dla encji innego
+koordynatora. Sam brak wyjątku nie dowodzi, że właściwy rekord został zapisany.
+
+Warunek zamknięcia: kontrakt ma albo zadeklarować twardą zależność od T011-B i
+używać jego `all_coordinators`/`active_coordinators`, albo wskazać istniejący
+aplikacyjny read-model pozwalający sprawdzić wymagane pola. Nie wolno używać
+nieistniejącego aplikacyjnego `get_coordinator` ani sięgać do persistence.
+
+
+POZOSTAŁA WERYFIKACJA — PASS
+
+- `save_site`, `save_coordinator` i zwykły
+  `save_coordinator_site_association` są istniejącymi upsertami;
+- zwykły zapis Association pozwala na 1→0, a CAS z T010-A pozostaje wyłącznie
+  ochroną bootstrapu;
+- samozablokowanie następuje po zapisie, bo guard jest wykonywany przed nim;
+- po wyłączeniu własnej asocjacji bootstrap może ją ponownie aktywować, a przy
+  aktywnej nadal odmawia;
+- porównanie bieżącego `Site.profile_id` przed `save_site` mieści się w scope i
+  realizuje twardy constraint;
+- świadomy brak kontroli coordinator_id nie jest oceniany jako luka;
+- `guard.py check arch/spec.md`: PASS;
+- TASK_SCOPE: 2 wpisy, 1 nowy plik; `git diff --check`: PASS.
+
+Nie ma nowej decyzji produktowej do podjęcia. Nie implementowano kodu ani
+testów.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
