@@ -59,23 +59,25 @@ def _association() -> CoordinatorSiteAssociation:
     return CoordinatorSiteAssociation(coordinator_id=COORD, site_id=SITE_ID, active=True)
 
 
-def test_1_full_happy_path_zero_edge_cases(tmp_path: Path) -> None:
-    db_path = tmp_path / "rota.db"
+# The 12 steps stay ONE continuous scenario (brief.md WYMAGANE TESTY pt. 3)
+# -- split into small helpers only to satisfy SIZE_FUNC, each called in
+# sequence from the single test function below, never as independent tests
+# with their own fixtures.
 
-    # step 1: open a nonexistent store -- creates and migrates it.
-    conn = store.open_store(db_path)
 
-    # step 2: bootstrap in two partial calls, proving resume (not just a
-    # first save).
-    bootstrap.bootstrap_or_resume_coordinator_context(
+def _steps_1_to_2_open_and_bootstrap(db_path: Path):
+    conn = store.open_store(db_path)  # step 1
+    bootstrap.bootstrap_or_resume_coordinator_context(  # step 2, call one of two
         conn, coordinator_id=COORD, site_id=SITE_ID, coordinator=_coordinator(), site_profile=_profile(),
     )
-    bootstrap.bootstrap_or_resume_coordinator_context(
+    bootstrap.bootstrap_or_resume_coordinator_context(  # step 2, call two of two (resume)
         conn, coordinator_id=COORD, site_id=SITE_ID, site=_site(), association=_association(),
     )
+    return conn
 
-    # step 3: a several-person LOCAL roster.
-    for employee_id in EMPLOYEES:
+
+def _steps_3_to_5_roster_targets_calendar(conn) -> None:
+    for employee_id in EMPLOYEES:  # step 3
         durable_inputs.update_employee(
             conn, coordinator_id=COORD, site_id=SITE_ID,
             employee=Employee(employee_id, employee_id, date(2020, 1, 1), None, False),
@@ -87,54 +89,48 @@ def test_1_full_happy_path_zero_edge_cases(tmp_path: Path) -> None:
                 ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
             ),
         )
-
-    # step 4: target_hours for every employee.
-    for employee_id in EMPLOYEES:
+    for employee_id in EMPLOYEES:  # step 4
         durable_inputs.set_target_hours(
             conn, coordinator_id=COORD, site_id=SITE_ID, employee_id=employee_id, month=MONTH, target_hours=80,
         )
-
-    # step 5: full CalendarDay coverage for the planned month.
-    days_in_month = _calendar.monthrange(MONTH.year, MONTH.month)[1]
+    days_in_month = _calendar.monthrange(MONTH.year, MONTH.month)[1]  # step 5
     for day in range(1, days_in_month + 1):
         durable_inputs.set_calendar_day(
             conn, coordinator_id=COORD, site_id=SITE_ID,
             day=CalendarDay(date=date(MONTH.year, MONTH.month, day), holiday=False),
         )
 
-    # step 6: readiness must be true BEFORE PLAN is attempted -- proves the
-    # readiness read reflects exactly what plan_month is about to accept.
-    readiness = bootstrap.month_plan_readiness(conn, coordinator_id=COORD, site_id=SITE_ID, month=MONTH)
+
+def _steps_6_to_9_readiness_plan_select_read(conn):
+    readiness = bootstrap.month_plan_readiness(conn, coordinator_id=COORD, site_id=SITE_ID, month=MONTH)  # step 6
     assert readiness.ready is True
     assert readiness.missing == ()
 
-    # step 7: PLAN.
-    result = plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
+    result = plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)  # 7
     assert result.status == "FEASIBLE"
     candidate = result.candidates[0]
 
-    # step 8: persist the coordinator's chosen candidate.
-    version = plan_ops.select_candidate(
+    version = plan_ops.select_candidate(  # step 8
         conn, site_id=SITE_ID, month=MONTH, candidate=candidate, coordinator_id=COORD,
     )
 
-    # step 9: read back -- confirms the current version and inputs.
-    view = open_month.open_month(conn, site_id=SITE_ID, month=MONTH)
+    view = open_month.open_month(conn, site_id=SITE_ID, month=MONTH)  # step 9
     assert view.current_version is not None
     assert view.current_version.version_id == version.version_id
     assert {e.employee_id for e in view.employees} == set(EMPLOYEES)
+    return candidate
 
-    # step 10: one legal manual correction -- a PLANNED PRIMARY the employee
-    # did not actually work becomes NN.
-    target = next(a for a in candidate if a.role == AssignmentRole.PRIMARY and a.state == AssignmentState.PLANNED)
+
+def _steps_10_to_11_manual_correction_and_finalize(conn, candidate):
+    target = next(  # step 10: NN a PLANNED PRIMARY the employee did not work
+        a for a in candidate if a.role == AssignmentRole.PRIMARY and a.state == AssignmentState.PLANNED
+    )
     manual_edit.mark_not_worked(
         conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH,
         assignment_id=target.assignment_id,
     )
 
-    # step 11: revalidate, then finalize with the exact acknowledged
-    # Deviation set read from the application layer (not fabricated here).
-    lifecycle_ops.revalidate(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD)
+    lifecycle_ops.revalidate(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD)  # step 11
     state, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
     acknowledged_ids = {d.deviation_id for d in state.deviations}
     assert acknowledged_ids  # the NN correction leaves a real coverage gap to acknowledge
@@ -143,7 +139,8 @@ def test_1_full_happy_path_zero_edge_cases(tmp_path: Path) -> None:
     )
     assert final_version.status.value.startswith("FINAL")
 
-    # step 12: restart -- close and reopen the same file, compare state.
+
+def _step_12_restart_and_compare(conn, db_path: Path) -> None:
     view_before_restart = open_month.open_month(conn, site_id=SITE_ID, month=MONTH)
     conn.close()
 
@@ -157,3 +154,12 @@ def test_1_full_happy_path_zero_edge_cases(tmp_path: Path) -> None:
     assert {e.employee_id for e in view_after_restart.employees} == {e.employee_id for e in view_before_restart.employees}
     assert view_after_restart.site.site_id == view_before_restart.site.site_id
     reopened.close()
+
+
+def test_1_full_happy_path_zero_edge_cases(tmp_path: Path) -> None:
+    db_path = tmp_path / "rota.db"
+    conn = _steps_1_to_2_open_and_bootstrap(db_path)
+    _steps_3_to_5_roster_targets_calendar(conn)
+    candidate = _steps_6_to_9_readiness_plan_select_read(conn)
+    _steps_10_to_11_manual_correction_and_finalize(conn, candidate)
+    _step_12_restart_and_compare(conn, db_path)
