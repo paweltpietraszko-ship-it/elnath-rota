@@ -1,0 +1,12 @@
+{
+  "scenario": "shared_employee_rest_collision",
+  "status": "DECISION_REQUIRED",
+  "site_a_final_version": "SV-8280c7fe1c1d4e92901acc4bcdd45135",
+  "site_a_assignment_count": 31,
+  "site_b_assignment_count": 0,
+  "site_b_blocking_demand_count": 31,
+  "site_b_blocker_conditions": [
+    "REST-01"
+  ],
+  "site_b_months_with_schedule": []
+}

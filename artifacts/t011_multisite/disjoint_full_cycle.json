@@ -1,0 +1,61 @@
+{
+  "scenario": "disjoint_full_cycle",
+  "status": "PASS",
+  "active_sites": [
+    "SITE-MS-A",
+    "SITE-MS-B"
+  ],
+  "assignments": {
+    "SITE-MS-A": {
+      "count": 31,
+      "employee_ids": [
+        "EMP-MS-A"
+      ],
+      "version_ids": [
+        "SV-b83d963fbeb842ea96cafddeabdd2598"
+      ]
+    },
+    "SITE-MS-B": {
+      "count": 31,
+      "employee_ids": [
+        "EMP-MS-B"
+      ],
+      "version_ids": [
+        "SV-8fb1e2f9a38b423d81dbd3761d8f7aae"
+      ]
+    }
+  },
+  "current_versions": {
+    "SITE-MS-A": "SV-b83d963fbeb842ea96cafddeabdd2598",
+    "SITE-MS-B": "SV-8fb1e2f9a38b423d81dbd3761d8f7aae"
+  },
+  "applied_rules": {
+    "SITE-MS-A": [
+      "RV-c3cd31d1cd2f44bca83af23ed66707fe"
+    ],
+    "SITE-MS-B": []
+  },
+  "rule_history_keys": {
+    "SITE-MS-A": [
+      "RULE-MULTISITE-SITE-A-ONLY"
+    ],
+    "SITE-MS-B": []
+  },
+  "months_with_schedule": {
+    "SITE-MS-A": [
+      "2026-10-01"
+    ],
+    "SITE-MS-B": [
+      "2026-10-01"
+    ]
+  },
+  "quarter_planned_hours": {
+    "EMP-MS-A": 372,
+    "EMP-MS-B": 372
+  },
+  "warnings": {
+    "SITE-MS-A": [],
+    "SITE-MS-B": []
+  },
+  "site_a_unchanged_after_site_b_cycle": true
+}

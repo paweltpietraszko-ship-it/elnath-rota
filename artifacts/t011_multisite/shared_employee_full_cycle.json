@@ -1,0 +1,51 @@
+{
+  "scenario": "shared_employee_full_cycle",
+  "status": "PASS",
+  "shared_employee_id": "EMP-MS-SHARED",
+  "site_assignment_hours": {
+    "SITE-MS-SHARED-A": 31,
+    "SITE-MS-SHARED-B": 31
+  },
+  "global_quarter_planned_hours": 62,
+  "open_month_planned_hours": {
+    "SITE-MS-SHARED-A": 62,
+    "SITE-MS-SHARED-B": 62
+  },
+  "other_site_assignment_counts": {
+    "SITE-MS-SHARED-A": 31,
+    "SITE-MS-SHARED-B": 31
+  },
+  "global_availability_counts": {
+    "SITE-MS-SHARED-A": 1,
+    "SITE-MS-SHARED-B": 1
+  },
+  "applied_rules": {
+    "SITE-MS-SHARED-A": [
+      "RV-400b7f9fa65442b69fb8cae1c375b801"
+    ],
+    "SITE-MS-SHARED-B": []
+  },
+  "rule_history_keys": {
+    "SITE-MS-SHARED-A": [
+      "RULE-MULTISITE-SITE-A-ONLY"
+    ],
+    "SITE-MS-SHARED-B": []
+  },
+  "current_versions": {
+    "SITE-MS-SHARED-A": "SV-99d2670c4d0d4737af6899741d2ba7d6",
+    "SITE-MS-SHARED-B": "SV-31c6c48e648c4da59df2d37bc61967f6"
+  },
+  "months_with_schedule": {
+    "SITE-MS-SHARED-A": [
+      "2026-10-01"
+    ],
+    "SITE-MS-SHARED-B": [
+      "2026-10-01"
+    ]
+  },
+  "warnings": {
+    "SITE-MS-SHARED-A": [],
+    "SITE-MS-SHARED-B": []
+  },
+  "site_a_assignments_unchanged_after_site_b_cycle": true
+}
