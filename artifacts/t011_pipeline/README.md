@@ -18,6 +18,10 @@ Files:
   `.json` — the same WORKING first stops on that overnight boundary, then
   reaches FEASIBLE after the coordinator corrects the exception start to the
   13th; the final schedule survives store restart.
+- `coordinator_wall_retry_before.json` and `coordinator_wall_retry_after.json`
+  — committed evidence that correcting the same rule in the deliberately
+  understaffed wall triggers a new PLAN: DAY_ONLY-01 disappears and the
+  independent REST-01 staffing wall remains.
 
 Legend: `D` day shift, `N` night shift, `U` approved leave, `L4` sick leave,
 `D-OFF` no day shift (night remains available).  These files are audit

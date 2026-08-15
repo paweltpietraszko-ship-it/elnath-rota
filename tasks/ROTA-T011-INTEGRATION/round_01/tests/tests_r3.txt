@@ -1,0 +1,96 @@
+SPROSTOWANIE I REAUDYT RETRY COORDINATOR_WALL — ROUND 3
+
+AUDYTOWANA BAZA:
+main@004f8774ce8ac3aa6ff04c69ce8f0733306e6f92
+
+DOTYCZY:
+`tests_r2.txt`, SECTION_CHECK 3.
+
+WERDYKT DLA DOWODU ROUND 2: WYCOFANY
+
+Zdanie, że po korekcie wyjątku w `coordinator_wall_spec` drugi PLAN usuwa
+DAY_ONLY-01 i zatrzymuje się na REST-01, nie miało w commicie `b52d061`
+odpowiadającego mu testu, funkcji retry ani artefaktu. Nie powinno było zostać
+oznaczone jako `SECTION_CHECK: PASS` w dostarczonym raporcie.
+
+Podstawą był jednorazowy skrypt diagnostyczny uruchomiony w terminalu podczas
+pracy. Diagnostyka faktycznie zwróciła opisany wynik, ale nie została zapisana.
+Przeniesienie jej ulotnego wyniku do raportu jako powtarzalnego dowodu było
+błędem audytowym. Nie była to ekstrapolacja z izolowanego scenariusza FEASIBLE;
+było to pomieszanie roboczej obserwacji z dostarczonym i weryfikowalnym testem.
+
+Poprzedni raport pozostaje niezmieniony zgodnie z zasadą append-only. Niniejszy
+plik jest jego jawnym sprostowaniem.
+
+
+SECTION_CHECK 1 — ISTNIENIE POWTARZALNEGO TESTU: PASS W ROUND 3
+
+Dodano:
+
+- `benchmarks/t011_pipeline_audit.py::run_coordinator_wall_retry`;
+- `tests/test_t011_integrated_real_pipeline.py::test_coordinator_wall_retry_recalculates_to_independent_rest_wall`;
+- `artifacts/t011_pipeline/coordinator_wall_retry_before.json`;
+- `artifacts/t011_pipeline/coordinator_wall_retry_after.json`.
+
+Test używa dokładnie `coordinator_wall_spec`, zapisuje korektę tej samej rodziny
+reguły przez `rel="corrects"`, ponownie wywołuje `plan_month` na tym samym
+połączeniu i potwierdza niezmieniony identyfikator WORKING.
+
+
+SECTION_CHECK 2 — WYNIK PRZED I PO: PASS W ROUND 3
+
+Przed korektą:
+
+- status: DECISION_REQUIRED;
+- blocking demand: `2026-10-13-N`;
+- blokery: ANNA/LEAVE_GRANTED-01, BARTEK/SICK_LEAVE-01,
+  FILIP/DAY_ONLY-01.
+
+Po przesunięciu początku wyjątku z 14.10 na 13.10:
+
+- drugi PLAN rzeczywiście się wykonuje;
+- status nadal: DECISION_REQUIRED;
+- DAY_ONLY-01 znika;
+- 62 demandy tworzą nierozwiązywalny wspólnie zbiór przy tej celowo skrajnej
+  trzyosobowej obsadzie;
+- blokery drugiego wyniku to wyłącznie ANNA/REST-01, BARTEK/REST-01 i
+  FILIP/REST-01;
+- candidates pozostaje puste, więc program nie zapisuje nielegalnego grafiku.
+
+Teza opisana w Round 2 jest zatem merytorycznie potwierdzona dopiero przez
+powtarzalny dowód Round 3. Nie działa to wstecz: status PASS przy tej sekcji w
+momencie publikacji Round 2 pozostawał nieuzasadniony dostarczonym materiałem.
+
+
+SECTION_CHECK 3 — KLASA BŁĘDU AUDYTOWEGO: ZAMKNIĘTA
+
+Klasa błędu: wynik jednorazowej diagnostyki terminalowej został opisany jak
+wynik testu należącego do audytowanego commita. Aby nie powtórzyć tej klasy:
+
+- każdy przyszły SECTION_CHECK oparty na wykonaniu musi wskazywać nazwę
+  committed testu albo zapisany artefakt;
+- jednorazowa diagnostyka może być raportowana tylko jako obserwacja robocza,
+  nigdy jako PASS;
+- końcowa kontrola raportu musi porównać każdą tezę wykonawczą z faktycznie
+  dostarczonym diffem, nie wyłącznie z historią terminala sesji.
+
+
+SECTION_CHECK 4 — WERYFIKACJA: PASS
+
+- celowany test coordinator_wall retry: 1/1 PASS;
+- pełny plik zintegrowanego pipeline'u: 6/6 PASS;
+- pełna suite repozytorium: 552/552 PASS;
+- Ruff dla zmienionego harnessu i testu: PASS;
+- `git diff --check`: PASS.
+
+
+FINDINGS
+
+Brak nowego findingu implementacyjnego w Rota. Finding dotyczył rzetelności
+dowodu audytowego Round 2 i został naprawiony przez jawne sprostowanie oraz
+powtarzalny test.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.

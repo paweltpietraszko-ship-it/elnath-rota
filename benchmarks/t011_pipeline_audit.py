@@ -452,11 +452,12 @@ def run_scenario(spec: ScenarioSpec, db_path: Path) -> ScenarioOutcome:
     return outcome
 
 
-def run_exception_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome]:
+def _run_exception_retry(
+    spec: ScenarioSpec, db_path: Path, *, outcome_prefix: str, profile: SiteProfile | None = None,
+) -> tuple[ScenarioOutcome, ScenarioOutcome]:
     """Retry PLAN on the same empty WORKING after correcting the dated rule."""
-    spec = exception_retry_spec()
     conn = store.open_store(db_path)
-    _bootstrap_and_roster(conn, spec, _night_only_profile())
+    _bootstrap_and_roster(conn, spec, profile)
     _write_availability_and_exception(conn, spec)
     _assert_discovery_and_inputs(conn, spec)
 
@@ -466,7 +467,7 @@ def run_exception_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome
     )
     first_elapsed = _time.perf_counter() - started
     assert first.status == "DECISION_REQUIRED"
-    before = replace(_decision_outcome(spec, first, first_elapsed), name="exception_retry_before")
+    before = replace(_decision_outcome(spec, first, first_elapsed), name=f"{outcome_prefix}_before")
     working = open_month.open_month(conn, site_id=SITE_ID, month=MONTH).current_version
     assert working is not None
     working_id = working.version_id
@@ -479,14 +480,14 @@ def run_exception_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome
     assert retried is not None
     assert retried.version_id == working_id
     if second.status != "FEASIBLE":
-        after = replace(_decision_outcome(spec, second, second_elapsed), name="exception_retry_after")
+        after = replace(_decision_outcome(spec, second, second_elapsed), name=f"{outcome_prefix}_after")
         conn.close()
         return before, after
 
     assert second.candidates
     reopened, view, state, warnings = _finalize_and_restart(conn, db_path, second.candidates[0], spec)
     after = ScenarioOutcome(
-        name="exception_retry_after",
+        name=f"{outcome_prefix}_after",
         status=second.status,
         plan_seconds=second_elapsed,
         assignments=tuple(state.existing_assignments),
@@ -501,6 +502,19 @@ def run_exception_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome
     )
     reopened.close()
     return before, after
+
+
+def run_exception_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome]:
+    return _run_exception_retry(
+        exception_retry_spec(), db_path,
+        outcome_prefix="exception_retry", profile=_night_only_profile(),
+    )
+
+
+def run_coordinator_wall_retry(db_path: Path) -> tuple[ScenarioOutcome, ScenarioOutcome]:
+    return _run_exception_retry(
+        coordinator_wall_spec(), db_path, outcome_prefix="coordinator_wall_retry",
+    )
 
 
 def _assignment_kind(assignment: Assignment) -> str:
@@ -617,6 +631,10 @@ def run_all(output_dir: Path) -> dict[str, ScenarioOutcome]:
             outcomes[spec.name] = outcome
             write_artifacts(outcome, output_dir)
         before, after = run_exception_retry(Path(temp_dir) / "exception_retry.db")
+        for outcome in (before, after):
+            outcomes[outcome.name] = outcome
+            write_artifacts(outcome, output_dir)
+        before, after = run_coordinator_wall_retry(Path(temp_dir) / "coordinator_wall_retry.db")
         for outcome in (before, after):
             outcomes[outcome.name] = outcome
             write_artifacts(outcome, output_dir)

@@ -1,0 +1,33 @@
+{
+  "scenario": "coordinator_wall_retry_before",
+  "status": "DECISION_REQUIRED",
+  "plan_seconds": 0.01055,
+  "assignment_count": 0,
+  "worked_hours": {},
+  "deviation_count": 0,
+  "warnings": [],
+  "quarter_balance_warnings": [],
+  "blocking_demand_ids": [
+    "2026-10-13-N"
+  ],
+  "blockers": [
+    {
+      "employee_id": "ANNA",
+      "condition": "LEAVE_GRANTED-01"
+    },
+    {
+      "employee_id": "BARTEK",
+      "condition": "SICK_LEAVE-01"
+    },
+    {
+      "employee_id": "FILIP",
+      "condition": "DAY_ONLY-01"
+    }
+  ],
+  "unblocking_options": [
+    "potwierdzenie X/Y",
+    "świadome ściągnięcie pracownika z wolnego",
+    "świadome odwołanie/override urlopu zgodnie z kontraktem",
+    "świadome wyłączenie DAY_ONLY"
+  ]
+}

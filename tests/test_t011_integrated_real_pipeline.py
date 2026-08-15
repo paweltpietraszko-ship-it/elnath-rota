@@ -19,6 +19,7 @@ from benchmarks.t011_pipeline_audit import (
     boundary_spec,
     coordinator_wall_spec,
     normal_spec,
+    run_coordinator_wall_retry,
     run_exception_retry,
     run_scenario,
     write_artifacts,
@@ -138,6 +139,26 @@ def test_coordinator_can_correct_exception_and_retry_same_working(tmp_path: Path
     }
     paths = write_artifacts(after, tmp_path / "artifacts")
     assert {path.suffix for path in paths} == {".json", ".csv", ".svg"}
+
+
+def test_coordinator_wall_retry_recalculates_to_independent_rest_wall(tmp_path: Path) -> None:
+    before, after = run_coordinator_wall_retry(tmp_path / "coordinator-wall-retry.db")
+    assert before.status == "DECISION_REQUIRED"
+    assert "2026-10-13-N" in before.blocking_demand_ids
+    assert {condition for _employee, condition in before.blockers} >= {
+        "LEAVE_GRANTED-01", "SICK_LEAVE-01", "DAY_ONLY-01",
+    }
+
+    assert after.status == "DECISION_REQUIRED"
+    assert after.assignments == ()
+    assert after.blocking_demand_ids
+    assert {condition for _employee, condition in after.blockers} == {"REST-01"}
+    assert {employee for employee, _condition in after.blockers} == {"ANNA", "BARTEK", DAY_ONLY_EMPLOYEE}
+    assert all("DAY_ONLY-01" not in condition for _employee, condition in after.blockers)
+
+    before_paths = write_artifacts(before, tmp_path / "artifacts")
+    after_paths = write_artifacts(after, tmp_path / "artifacts")
+    assert {path.suffix for path in before_paths + after_paths} == {".json"}
 
 
 def test_audit_harness_does_not_import_persistence() -> None:
