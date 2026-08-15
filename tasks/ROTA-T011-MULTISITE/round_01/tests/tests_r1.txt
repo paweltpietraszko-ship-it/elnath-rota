@@ -1,0 +1,186 @@
+AUDYT GOTOWOŚCI ARCHITEKTURY NA WIELE SITE — ROUND 1
+
+AUDYTOWANY KOD PRODUKCYJNY:
+main@004f8774ce8ac3aa6ff04c69ce8f0733306e6f92
+
+COMMIT POWTARZALNEGO DOWODU:
+fc289538fe06a3f82522622834a21abdb4a74b68
+
+GAŁĄŹ:
+audit/ROTA-T011-multisite
+
+ŹRÓDŁO PYTANIA:
+Jawne polecenie właściciela 2026-08-15: empirycznie sprawdzić dwa Site w jednej
+bazie przez pełny pipeline, dla rozłącznej i współdzielonej załogi; findingów
+nie naprawiać. Frozen ownership boundaries: arch/spec.md EMP-03 oraz T008/T009
+cross-Site Assignment/WorkBalance contracts.
+
+WERDYKT: PASS — WIELE SITE DZIAŁA BEZ NIEZAMIERZONEGO PRZECIEKU STANU
+
+Dwa Site pod tym samym Coordinator przeszły niezależne pełne cykle w jednym
+pliku SQLite. Site-owned profile, roster membership, SiteRule, ScheduleVersion,
+Assignment, current pointer, historia i nawigacja miesięcy pozostały poprawnie
+rozdzielone. Nie znaleziono findingu implementacyjnego.
+
+PASS nie oznacza całkowitej izolacji faktów należących do tego samego Employee.
+EMP-03 świadomie łączy Sites dla REST/LOAD, Availability i WorkBalance. Test
+potwierdza zarówno separację Site-owned state, jak i tę zamierzoną
+współzależność; nie klasyfikuje prawidłowego cross-Site context jako przecieku.
+
+
+SECTION_CHECK 1 — TOPOLOGIA 1:N I GOTOWOŚĆ DWÓCH SITE: PASS
+
+Ten sam Coordinator został powiązany aktywnie z dwoma Site. Oba Site mają
+odrębne SiteProfile, a `active_sites_for_coordinator` po restarcie zwraca
+dokładnie oba identyfikatory. `month_plan_readiness` jest zielone osobno dla
+każdego Site.
+
+DOWÓD:
+- commit fc28953;
+- test `test_two_disjoint_sites_complete_interleaved_full_cycles`;
+- artifact `artifacts/t011_multisite/disjoint_full_cycle.json`, pola
+  `active_sites` i `current_versions`.
+
+
+SECTION_CHECK 2 — ROZŁĄCZNA ZAŁOGA, PEŁNY CYKL: PASS
+
+Site A ma własny Employee, profil N 18:00–06:00, LEAVE_PLAN oraz jedną
+RESOLVED/HARD SiteRuleVersion. Site B ma innego Employee, profil D
+06:00–18:00, zero availability i zero reguł.
+
+Oba Site przeszły:
+bootstrap → roster/targets/calendar → readiness → PLAN → select → revalidate
+→ finalize → restart → open_month/months_with_schedule → quarter_balance.
+
+Wynik:
+- oba PLAN: FEASIBLE;
+- po 31 PRIMARY, wyłącznie Employee właściwego Site;
+- różne ScheduleVersion/current pointer;
+- reguła i applied_rule_version_id wyłącznie w Site A;
+- Site B pozostaje bez current version i bez miesiąca do nawigacji aż do
+  własnego PLAN/select;
+- pełny OpenMonthView Site A nie zmienia się po przeprowadzeniu cyklu Site B;
+- po restarcie oba pełne OpenMonthView są identyczne ze stanem przed restartem;
+- months_with_schedule zwraca październik osobno dla obu Site;
+- quarter_balance rozłącznych Employee wynosi po 372 planned_hours;
+- zero ostrzeżeń assemblera.
+
+DOWÓD:
+- commit fc28953;
+- test `test_two_disjoint_sites_complete_interleaved_full_cycles`;
+- artifact `artifacts/t011_multisite/disjoint_full_cycle.json`.
+
+
+SECTION_CHECK 3 — WSPÓLNY EMPLOYEE, DWA PEŁNE CYKLE: PASS
+
+Ten sam `EMP-MS-SHARED` ma LOCAL SiteMembership w obu Site. Site A generuje
+codziennie 06:00–07:00, Site B 18:00–19:00. Odstęp A→B i B→następne A wynosi
+dokładnie kontraktowe minimum 11 h.
+
+Wynik:
+- oba PLAN: FEASIBLE i oba Site kończą jako FINAL;
+- po 31 PRIMARY w każdym Site, w dwóch różnych ScheduleVersion;
+- planowanie Site B widzi 31 Assignment Site A w `other_site_assignments`;
+- po finalizacji Site B Site A widzi analogicznie 31 Assignment Site B;
+- istniejące Assignment Site A nie zmieniają się podczas cyklu Site B;
+- reguła zapisana dla wspólnego Employee w Site A nie pojawia się w
+  effective/history/applied rules Site B;
+- oba Site i oba FINAL round-tripują po restarcie;
+- months_with_schedule pozostaje filtrowane per Site.
+
+DOWÓD:
+- commit fc28953;
+- test
+  `test_shared_employee_full_cycles_keep_site_state_separate_and_global_balance_combined`;
+- artifact `artifacts/t011_multisite/shared_employee_full_cycle.json`.
+
+
+SECTION_CHECK 4 — ZAMIERZONY GLOBALNY KONTEKST EMPLOYEE: PASS
+
+Wspólny Employee wykonał 31 h w Site A i 31 h w Site B. `quarter_balance`
+zwrócił 62 planned_hours, a WorkBalance widoczny w obu OpenMonthView także ma
+62 planned_hours. Jedna LEAVE_PLAN zapisana dla Employee jest widoczna w obu
+PlanningState.
+
+To nie jest przeciek Site. Frozen EMP-03 mówi, że Employee nie jest własnością
+jednego Site, T008 wymaga WorkBalance z current Assignments ze wszystkich Site,
+a AvailabilityRecord nie ma site_id. Również rzeczywista sygnatura T011-D
+`quarter_balance(conn, *, employee_id, quarter_first_month)` nie przyjmuje
+site_id. Założenie z wejściowego opisu, że ten konkretny read jest per-Site,
+było więc faktograficznie nieścisłe; test zachowuje obowiązujący kontrakt.
+
+DOWÓD:
+- commit fc28953;
+- ten sam test shared full cycle;
+- artifact `shared_employee_full_cycle.json`, pola `site_assignment_hours`,
+  `global_quarter_planned_hours`, `open_month_planned_hours`,
+  `global_availability_counts` i `other_site_assignment_counts`.
+
+
+SECTION_CHECK 5 — CROSS-SITE REST FAIL-CLOSED: PASS
+
+W trzecim scenariuszu Site A pozostaje 06:00–07:00, a Site B próbuje
+17:00–18:00. Daje to tylko 10 h odpoczynku między pracą tego samego Employee w
+różnych Site.
+
+Wynik:
+- Site A pozostaje FINAL z 31 Assignment przed próbą, po niej i po restarcie;
+- PLAN Site B zwraca DECISION_REQUIRED, candidates=[];
+- 31 blocking demands, jedyny condition `REST-01`;
+- Site B ma zero Assignment i nie pojawia się w months_with_schedule;
+- pusty WORKING Site B i FINAL Site A round-tripują po restarcie.
+
+DOWÓD:
+- commit fc28953;
+- test `test_shared_employee_illegal_cross_site_rest_stops_only_second_site`;
+- artifact `artifacts/t011_multisite/shared_employee_rest_collision.json`.
+
+
+SECTION_CHECK 6 — GRANICA WARSTWY I BRAMKI: PASS
+
+- test `test_multisite_audit_uses_application_boundary_only`: AST potwierdza
+  zero importów `rota.persistence` w teście i harnessie;
+- nowa macierz multi-Site: 4/4 PASS;
+- pełna suite repozytorium: 556/556 PASS;
+- Ruff `rota tests benchmarks`: PASS;
+- `guard.py check arch/spec.md`: STATUS PASS,
+  SHA256 9f5f6cfce906a0d506c019a4637a59303a190aeaf95c9deccb8cb4dcb4306b97;
+- wszystkie funkcje nowego harnessu: <=50 linii;
+- `git diff --check`: PASS;
+- zero zmian w `rota/` — audyt nie naprawiał ani nie zmieniał produktu.
+
+DOWÓD:
+- commit fc28953;
+- `tests/test_t011_multisite_pipeline.py`;
+- `benchmarks/t011_multisite_audit.py`;
+- trzy JSON-y w `artifacts/t011_multisite/`.
+
+
+ACCEPTED_SHARED_BEHAVIOR — NIE FINDINGS
+
+1. Employee i jego active period/day_only są globalne (EMP-03).
+2. SiteMembership pozostaje per `(employee_id, site_id)`.
+3. AvailabilityRecord jest faktem Employee i nie ma site_id.
+4. target_hours oraz quarter_balance są per Employee/month, nie per Site.
+5. WorkBalance agreguje current Assignments ze wszystkich Site Employee.
+6. other_site_assignments celowo przenosi kontekst REST/LOAD między Site.
+7. CalendarDay jest trwałym faktem daty bez site_id, wspólnym dla obu Site.
+
+
+OGRANICZENIA DOWODU
+
+Dowód obejmuje dwa Site, jeden Coordinator, jeden miesiąc, pełny restart,
+rozłączny i wspólny roster oraz pozytywną i negatywną granicę REST. Nie jest
+benchmarkiem pojemności dla setek Site, testem równoległego PLAN/finalize ani
+fault-injection transakcji. Te nie były wymagane do odpowiedzi na obecne
+pytanie i ich brak nie blokuje tego PASS.
+
+
+FINDINGS
+
+Brak otwartych findings implementacyjnych.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
