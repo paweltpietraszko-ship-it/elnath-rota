@@ -2,18 +2,28 @@
 
 TASK_ID: ROTA-T012
 TITLE: Katalog zmian 24h / 12h / INNY + odpoczynek per okres pracy
-STATUS: DRAFT FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 1
+STATUS: DRAFT FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 2; BLOCKED ON OWNER DECISION T012-R1-3
 DATE: 2026-08-18
 ARCHITECT_ROLE: ChatGPT (architekt)
 IMPLEMENTER_ROLE: CC
 AUDITOR_ROLE: Codex
 FINAL_ARCHITECTURAL_ACCEPTANCE: architekt
-OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: no — decyzje właściciela z 2026-08-15/16 są zamknięte
+OWNER_ACCEPTANCE_REQUIRED_FOR_PRODUCT_DECISIONS: yes — wyłącznie granica emergency 24h na przełomie miesiąca T012-R1-3 pozostaje otwarta; pozostałe decyzje właściciela z 2026-08-15/16 są zamknięte
 
 INTEGRATED_BASE_SHA: 3a389bcbac274566ef6cdc5b7ddd0d66f4873958
 BASE_BRANCH_AT_FREEZE: main
 DEPENDS_ON: ROTA-T016 merged in base
 BLOCKS: ROTA-T013; ROTA-T017 should not be implemented before T012 stabilizes solver semantics
+
+## ROUND 1 AUDIT STATUS
+
+Codex Round 1 na SHA `aba48a4cfcf1ef18aea9bb4bcb12766a08cef191` zakończył się FAIL przed implementacją.
+
+- T012-R1-1: brak literalnego, maszynowo czytelnego `TASK_SCOPE:` — CLOSED w Round 2 przez marker poniżej.
+- T012-R1-2: pięć wymaganych nowych plików przy `backend.py::MAX_NEW_FILES=2` — CLOSED w Round 2. Jedynymi nowymi plikami produkcyjno-testowymi są `rota/planning/work_periods.py` i `tests/test_t012.py`; A–D dopisują testy do tego samego pliku.
+- T012-R1-3: emergency 24h przez granicę dwóch miesięcy — OPEN, wymaga jawnej decyzji właściciela i następnie amendmentu Frozen Product Contract przed implementacją A.
+
+Frozen amendment/lock, guard, diff-check i pełna regresja bazowa były w Round 1 zielone; nie wolno jednak uznać T012 za READY_FOR_IMPLEMENTATION_A przed zamknięciem R1-3 i ponownym PASS Codexa.
 
 ## CEL
 
@@ -49,6 +59,17 @@ T012 NIE implementuje UI. Dostarcza domenę, persistence i application/planning 
 15. Jeżeli LocalStore ma CURRENT Assignment z innego Site, cross-site REST jest sprawdzany automatycznie. Jeżeli takiego rekordu nie ma, program nie zgaduje, nie pyta i nie ostrzega — wykonuje plan na podstawie danych, które posiada.
 16. Manual correction może świadomie naruszyć REST-01. Operacja nie jest blokowana; powstaje Deviation, finalize wymaga dotychczasowego potwierdzenia, a dodatkowo zapisuje się DecisionRecord o override REST.
 17. T015 pozostaje wycofane. Tymczasowy pracownik dodany do bieżącej obsady jest zwykłym nazwanym Employee/SiteMembership i podlega wszystkim REST/LOAD/target/fairness.
+
+### OTWARTA DECYZJA WŁAŚCICIELA T012-R1-3
+
+Punkty 11–12 nie rozstrzygają, czy awaryjne 24h może połączyć dwie bezpośrednio kolejne zwykłe 12h, gdy pierwsza rozpoczyna się w ostatnim dniu jednego miesiąca, a druga w pierwszym dniu następnego, np. N 31.08 17:00–01.09 05:00 + D 01.09 05:00–17:00.
+
+Do czasu decyzji właściciela:
+
+- implementacja A nie startuje;
+- Part C nie może przyjąć domyślnej semantyki;
+- `arch/spec.md` i `arch/FROZEN.lock` pozostają w stanie Round 1, który nie definiuje tej granicy;
+- po decyzji architekt dopisuje literalne TAK/NIE do briefu, Part C i Frozen amendment, recompute lock i kieruje wąski Round 2 do Codexa.
 
 ## ARCHITECTURE DECISIONS — TECHNICZNE, WIĄŻĄCE DLA T012
 
@@ -205,6 +226,8 @@ Drugi przebieg:
 - nie wolno tworzyć 36h/48h chain przez nakładające się pairingi;
 - powstałe dwa Assignment mają wspólny work_period_id i rest = `emergency_24h_rest_hours`.
 
+MONTH-BOUNDARY NOTE: ten punkt nie rozstrzyga T012-R1-3. Do decyzji właściciela implementer nie może założyć, że dwa demandy z różnych `ScheduleVersion.month` mogą albo nie mogą być jedną emergency parą.
+
 CP-SAT nadal wykonuje wyszukiwanie kombinatoryczne. Zakaz własnego backtrackingu/search pozostaje.
 
 LOAD fallback/diagnosis po niepowodzeniu drugiego capped solve musi używać tego samego rozszerzonego emergency mode przy uncapped retry; inaczej silnik mógłby błędnie zgłosić brak rozwiązania, które istnieje po emergency pairing + jawnej decyzji LOAD.
@@ -275,8 +298,9 @@ Każdy checkpoint ma osobny commit/serię commitów i niezależny audit Codexa p
 
 ## UNION TASK_SCOPE
 
-Zamknięty union scope dla całego T012:
+Zamknięty union scope dla całego T012. Poniższy marker jest wejściem maszynowym `backend.py::read_task_scope()`:
 
+TASK_SCOPE:
 - arch/spec.md
 - arch/FROZEN.lock
 - rota/constants.py
@@ -300,12 +324,9 @@ Zamknięty union scope dla całego T012:
 - rota/planning/validator.py
 - rota/planning/engine.py
 - rota/planning/work_periods.py
-- tests/test_t012_a_catalog_persistence.py
-- tests/test_t012_b_work_period_rest.py
-- tests/test_t012_c_emergency_24h.py
-- tests/test_t012_d_manual_override.py
+- tests/test_t012.py
 
-`rota/planning/work_periods.py` oraz cztery testy są jedynymi z góry autoryzowanymi nowymi plikami produkcyjno-testowymi. Task/pipeline artifacts nie liczą się do tej liczby.
+`rota/planning/work_periods.py` oraz `tests/test_t012.py` są dokładnie dwoma z góry autoryzowanymi nowymi plikami produkcyjno-testowymi. Wszystkie testy A–D są dopisywane sekwencyjnie do tego samego `tests/test_t012.py`. Task/pipeline artifacts nie liczą się do `backend.py::MAX_NEW_FILES`.
 
 Plik z union scope może zostać niewykorzystany; CC nie musi go dotykać tylko dlatego, że jest autoryzowany. Każdy plik spoza listy = STOP i amendment kontraktu przed zmianą.
 
@@ -322,15 +343,17 @@ W szczególności poza scope:
 ## REQUIRED TEST PRINCIPLES
 
 1. Wszystkie istniejące 555 testów są nadal regression oracle; kompatybilne defaulty mają zapobiec masowej edycji fixture'ów.
-2. Nowe testy używają public behavior i real persistence tam, gdzie testuje się restart/cross-site/history.
-3. Wymagany migration test z prawdziwej v4 bazy do v5 z non-empty profile/membership/schedule; po reopen provenance/defaulty są zgodne i dane nie znikają.
-4. ROTA-REG-001 nadal PASS; jego fixture nadal semantycznie używa 11 h jako skonfigurowanego/legacy rest dla swoich standardowych zmian.
-5. Każdy FEASIBLE z normalnym/emergency 24 musi przejść independent validate HARD PASS.
-6. Testy muszą odróżniać normalne catalog 24 od emergency 24.
-7. Cross-site test musi zmienić current SiteProfile po zapisaniu wcześniejszego Assignment i udowodnić, że historyczny rest NIE zmienia się retroaktywnie.
-8. Manual override test musi udowodnić atomic DecisionRecord + Deviation i brak executable effect tego recordu.
-9. `git diff --check`, Ruff, dependency-boundary scan, `python guard.py check arch/spec.md` PASS.
-10. Full suite PASS.
+2. Wszystkie nowe testy T012 są w jednym nowym `tests/test_t012.py`; checkpointy A–D rozbudowują ten sam plik zamiast tworzyć cztery pliki testowe.
+3. Nowe testy używają public behavior i real persistence tam, gdzie testuje się restart/cross-site/history.
+4. Wymagany migration test z prawdziwej v4 bazy do v5 z non-empty profile/membership/schedule; po reopen provenance/defaulty są zgodne i dane nie znikają.
+5. ROTA-REG-001 nadal PASS; jego fixture nadal semantycznie używa 11 h jako skonfigurowanego/legacy rest dla swoich standardowych zmian.
+6. Każdy FEASIBLE z normalnym/emergency 24 musi przejść independent validate HARD PASS.
+7. Testy muszą odróżniać normalne catalog 24 od emergency 24.
+8. Cross-site test musi zmienić current SiteProfile po zapisaniu wcześniejszego Assignment i udowodnić, że historyczny rest NIE zmienia się retroaktywnie.
+9. Manual override test musi udowodnić atomic DecisionRecord + Deviation i brak executable effect tego recordu.
+10. Po decyzji T012-R1-3 obowiązkowy jest jawny test granicy miesiąca 31→1 oraz granicy roku 31.12→01.01 zgodny z wybraną semantyką.
+11. `git diff --check`, Ruff, dependency-boundary scan, `python guard.py check arch/spec.md` PASS.
+12. Full suite PASS.
 
 ## FROZEN CONTRACT AMENDMENT
 
@@ -345,7 +368,9 @@ T012 jawnie zmienia `arch/spec.md` i `arch/FROZEN.lock` na branchu kontraktowym 
 - manual REST override + additional DecisionRecord;
 - usunięcie globalnego 11h jako bieżącego prawa systemu, pozostawiając je wyłącznie jako legacy compatibility/default dla danych sprzed T012 oraz konkretny parametr ROTA-REG-001.
 
-Po zmianie:
+Round 1 amendment/lock jest spójny, ale po decyzji T012-R1-3 musi zostać uzupełniony o literalną semantykę granicy miesiąca i ponownie zamrożony.
+
+Po każdej finalnej zmianie canonu:
 
 ```text
 python guard.py freeze --recompute arch/spec.md
@@ -357,6 +382,7 @@ Nie wolno obchodzić FROZEN_LOCK ani zmieniać guard.py/backend.py.
 ## ENGINEERING GATES
 
 - SIZE_FILE <= 600 / SIZE_FUNC <= 50 / Ruff PASS;
+- NEW_FILES <= 2; kontrakt przewiduje dokładnie dwa nowe pliki nie-pipeline: `rota/planning/work_periods.py`, `tests/test_t012.py`;
 - brak własnego search/backtracking poza OR-Tools CP-SAT;
 - żadnej nowej pass-through façade;
 - żadnej równoległej implementacji REST w solver i validator o rozbieżnej semantyce czasu; wspólny pure model work-period jest dozwolony, ale independent validator nadal wykonuje własne przejście po candidate;
@@ -365,12 +391,12 @@ Nie wolno obchodzić FROZEN_LOCK ani zmieniać guard.py/backend.py.
 
 ## PREIMPLEMENTATION GATE
 
-CC NIE zaczyna A przed PASS Codexa dla:
+CC NIE zaczyna A przed:
 
-- tego briefu;
-- czterech part contracts;
-- amendment `arch/spec.md`;
-- nowego `arch/FROZEN.lock`.
+1. jawnej decyzji właściciela T012-R1-3;
+2. wpisaniu jej do briefu, Part C i `arch/spec.md`;
+3. `guard.py freeze --recompute arch/spec.md` + `guard.py check arch/spec.md` PASS;
+4. PASS Codexa Round 2 dla całego poprawionego kontraktu.
 
 Codex ma szczególnie próbować znaleźć:
 
@@ -384,6 +410,8 @@ Codex ma szczególnie próbować znaleźć:
 - LOAD fallback bez emergency mode;
 - DecisionRecord wpływający na future planning;
 - nieatomowy manual correction audit trail;
-- masową zmianę starych testów zamiast compatibility defaults.
+- masową zmianę starych testów zamiast compatibility defaults;
+- granicę miesiąca/roku dla emergency pairing zgodną dokładnie z decyzją T012-R1-3;
+- parseable `TASK_SCOPE:` i finalny new-file count <=2.
 
 Wynik wymagany przed implementacją: `PASS — READY_FOR_IMPLEMENTATION_A`.
