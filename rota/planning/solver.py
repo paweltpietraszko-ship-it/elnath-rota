@@ -25,13 +25,20 @@ from rota.domain import (
     ShiftKind,
 )
 from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
-from rota.planning.constraints import add_load_constraints, add_rest_constraints, build_fixed_intervals
+from rota.planning.constraints import (
+    add_load_constraints,
+    add_rest_constraints,
+    add_same_person_24h_constraints,
+    build_fixed_intervals,
+    build_fixed_periods,
+)
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
 from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.state import PlanningState
+from rota.planning.work_periods import resolve_required_rest
 
 TARGET_DEVIATION_WEIGHT = 100
 SOFT_PENALTY_WEIGHT = 1
@@ -227,6 +234,23 @@ def _build_slots(
     return slots, still_needed, unassignable, reasons, site_rule_exclusions
 
 
+def _evaluate_membership_for_demand(
+    membership, demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
+    employee, records: list, applicable_hard_rules: list, slots: list[SolverSlot],
+) -> tuple[bool, tuple[str, str] | None]:
+    """One membership's worth of _collect_eligible_slots's loop body.
+    SHIFT-24-01 is enforced by check_eligibility itself, not duplicated here."""
+    result = check_eligibility(
+        employee, membership, demand, shift_kind, state.profile, records,
+        list(state.external_windows), state.site.site_id, applicable_hard_rules,
+    )
+    if not result.eligible:
+        return False, (employee.employee_id, result.blocked_reason or "UNKNOWN")
+    day_off_soft = shift_kind == ShiftKind.N and demand.end_datetime.date() in _day_off_dates(state, employee.employee_id)
+    slots.append(SolverSlot(employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft))
+    return True, None
+
+
 def _collect_eligible_slots(
     demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
     employees_by_id: dict, availability_by_employee: dict, slots: list[SolverSlot],
@@ -248,21 +272,12 @@ def _collect_eligible_slots(
         if employee is None:
             continue
         records = availability_by_employee.get(employee.employee_id, [])
-        result = check_eligibility(
-            employee, membership, demand, shift_kind, state.profile, records,
-            list(state.external_windows), state.site.site_id, applicable_hard_rules,
-        )
-        if not result.eligible:
-            reasons.append((employee.employee_id, result.blocked_reason or "UNKNOWN"))
-            continue
-        eligible_count += 1
-        eligible_ids.append(employee.employee_id)
-        day_off_soft = shift_kind == ShiftKind.N and demand.end_datetime.date() in _day_off_dates(
-            state, employee.employee_id
-        )
-        slots.append(
-            SolverSlot(employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft)
-        )
+        became_eligible, reason = _evaluate_membership_for_demand(membership, demand, shift_kind, state, employee, records, applicable_hard_rules, slots)
+        if became_eligible:
+            eligible_count += 1
+            eligible_ids.append(employee.employee_id)
+        elif reason:
+            reasons.append(reason)
     # FINDING R17-2: an Employee with no membership at all for the current
     # site never enters the loop above (the R16-1 site filter skips other-site
     # memberships before check_eligibility is ever called), so no rejection
@@ -407,6 +422,15 @@ def _base_holiday_hours(state: PlanningState, holiday_dates: set) -> dict[str, i
     return base
 
 
+def _solved_work_period_id(state: PlanningState, slot: SolverSlot) -> str:
+    """Every newly-solved PRIMARY gets a non-None, deterministic,
+    site-scoped work_period_id: the demand's shared work_period_template_id
+    when present (24h pair), else a standalone id from its own demand_id --
+    unique, so behaviorally identical to "its own period"."""
+    template_id = slot.demand.work_period_template_id or slot.demand.demand_id
+    return f"{state.site.site_id}:{template_id}"
+
+
 def _extract_assignments(
     solver: cp_model.CpSolver, x: dict, slots: list[SolverSlot], state: PlanningState
 ) -> list[Assignment]:
@@ -426,6 +450,8 @@ def _extract_assignments(
                     frozen=False,
                     covers_demand_id=slot.demand.demand_id,
                     mentor_primary_assignment_id=None,
+                    work_period_id=_solved_work_period_id(state, slot),
+                    required_rest_after_hours=resolve_required_rest(slot.demand.required_rest_hours),
                 )
             )
     return assignments
@@ -519,12 +545,17 @@ def solve(state: PlanningState, enforce_load_cap: bool = True) -> SolverOutcome:
         (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
         for s in slots
     }
-    fixed = build_fixed_intervals(
-        fixed_existing_assignments(state), list(state.boundary_assignments), list(state.other_site_assignments)
-    )
+    fixed_assignments = fixed_existing_assignments(state)
+    fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
+    fixed_periods = build_fixed_periods(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
+    fixed_primary_by_demand: dict[str, set[str]] = {}
+    for a in fixed_assignments:
+        if a.role == AssignmentRole.PRIMARY and a.covers_demand_id:
+            fixed_primary_by_demand.setdefault(a.covers_demand_id, set()).add(a.employee_id)
 
     assumptions = _add_coverage_constraints(model, x, slots, still_needed)
-    add_rest_constraints(model, x, slots, fixed)
+    add_rest_constraints(model, x, slots, fixed_periods, state.site.site_id)
+    add_same_person_24h_constraints(model, x, slots, list(state.shift_demands), fixed_primary_by_demand)
     add_load_constraints(
         model, x, slots, fixed, state.month, state.profile.rolling_7d_decision_threshold_hours, enforce_load_cap
     )

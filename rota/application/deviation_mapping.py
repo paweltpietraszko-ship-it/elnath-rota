@@ -21,6 +21,10 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     "DAY_ONLY-01": DeviationCategory.PREFERENCE,
     "MEMBERSHIP-01": DeviationCategory.PREFERENCE,
     "EXTERNAL-01": DeviationCategory.PREFERENCE,
+    # ROTA-T012 Part B (part_b_work_period_rest.md DEVIATION MAPPING):
+    # frozen categories, activated in B alongside the built-in HARD codes.
+    "SHIFT-24-01": DeviationCategory.PREFERENCE,
+    "SHIFT-24-PAIR-01": DeviationCategory.COVERAGE,
 }
 
 _SITE_RULE_CATEGORY: dict[RuleCategory, DeviationCategory] = {

@@ -1,16 +1,20 @@
 """ROTA-T012: 24h/12h/INNY shift catalog + work-period rest provenance.
 
 Consolidates all T012 checkpoint (A/B/C/D) tests in one file per contract
-(tasks/ROTA-T012/brief.md UNION TASK_SCOPE). This revision adds Part A only
-(tasks/ROTA-T012/part_a_catalog_persistence.md): catalog data model,
-StandardShift/SiteMembership/ShiftDemand/Assignment persistence, and
-generate_catalog_demands. No solver/eligibility/emergency-retry semantics
-are exercised yet -- those are Part B/C/D.
+(tasks/ROTA-T012/brief.md UNION TASK_SCOPE). This revision adds Part A
+(tasks/ROTA-T012/part_a_catalog_persistence.md: catalog data model,
+StandardShift/SiteMembership/ShiftDemand/Assignment persistence,
+generate_catalog_demands) and Part B
+(tasks/ROTA-T012/part_b_work_period_rest.md: per-work-period REST-01 via
+rota.planning.work_periods, NORMAL 24h SAME-PERSON HARD/SHIFT-24-PAIR-01,
+SHIFT-24-01 can_work_24h gating, same-site/cross-site/boundary rest
+provenance). Emergency retry (Part C) and manual REST override (Part D)
+are not exercised yet.
 """
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -36,6 +40,7 @@ from rota.persistence.schedule_errors import MalformedScheduleSnapshot
 from rota.persistence.schedule_validation import validate_assignments, validate_demands
 from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
 from rota.persistence.site_repository import save_site
+from rota.planning.engine import plan
 from rota.planning.shift_catalog import (
     AmbiguousEmergency24hCapability,
     InvalidStandardShift,
@@ -43,6 +48,9 @@ from rota.planning.shift_catalog import (
     generate_catalog_demands,
     normalized_catalog_kind,
 )
+from rota.planning.validator import validate
+from rota.planning.work_periods import resolve_required_rest
+from tests.support.minimal_state import SITE_ID, base_state
 
 MONTH = date(2026, 10, 1)  # 2026-10-01 is a Thursday (ISO weekday 4)
 
@@ -437,6 +445,276 @@ def test_a_valid_month_crossing_24h_assignments_are_persistable_content(tmp_path
     conn = connect(tmp_path / "rota.db")
     save_employee(conn, Employee("E1", "Employee", date(2026, 1, 1), None, False))
     assert len(validate_assignments(conn, month, assignments, demands_by_id)) == 2
+
+
+# --- B: per-work-period REST-01, SHIFT-24-PAIR-01, SHIFT-24-01, cross-site --
+
+
+def _membership(employee_id: str, *, can_work_24h: bool = True) -> SiteMembership:
+    return SiteMembership(
+        employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY,
+        ReadinessSource.DEFAULT, can_work_24h=can_work_24h,
+    )
+
+
+def _demand(demand_id: str, start: datetime, end: datetime, count: int = 1) -> ShiftDemand:
+    return ShiftDemand(demand_id, "test-v1", start, end, count)
+
+
+def _primary(assignment_id: str, employee_id: str, demand: ShiftDemand, *, frozen: bool = False, **kwargs) -> Assignment:
+    return Assignment(
+        assignment_id, "test-v1", employee_id, demand.start_datetime, demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, frozen, demand.demand_id, None, **kwargs,
+    )
+
+
+def _two_day_state_with_rest(rest: int):
+    profile = _profile("B-RESTVAR", [_d(5, rest)])
+    demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() in (date(2026, 10, 1), date(2026, 10, 2)))
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    return base_state(profile=profile, employees=(employee,), memberships=(_membership("A"),), shift_demands=demands)
+
+
+def test_b_12h_rest_threshold_changes_feasibility():
+    assert plan(_two_day_state_with_rest(8)).status == "FEASIBLE"
+    assert plan(_two_day_state_with_rest(16)).status == "DECISION_REQUIRED"
+
+
+def test_b_rest_is_directional_uses_earlier_periods_rest():
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 2, 3, 0), datetime(2026, 10, 2, 15, 0))  # 10h gap
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
+
+    high_then_low = [_primary("A1", "E", d1, required_rest_after_hours=20), _primary("A2", "E", d2, required_rest_after_hours=5)]
+    report = validate(state, high_then_low)
+    assert not report.hard_pass and any("REST-01" in v for v in report.violations)
+
+    low_then_high = [_primary("A1", "E", d1, required_rest_after_hours=5), _primary("A2", "E", d2, required_rest_after_hours=20)]
+    assert validate(state, low_then_high).hard_pass
+
+
+def test_b_period_rest_resolves_from_terminal_component():
+    from rota.planning.work_periods import PeriodComponent, group_into_periods
+
+    c1 = PeriodComponent("c1", "E", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0), "WP", 99)
+    c2 = PeriodComponent("c2", "E", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0), "WP", 14)
+    assert group_into_periods([c1, c2])[0].required_rest_after_hours == 14
+
+
+def _h24_pair_demands(profile_id: str, kind: ShiftKind, rest: int):
+    profile = _profile(profile_id, [_h24(kind, 5, rest)])
+    demands = tuple(sorted(
+        (d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1)),
+        key=lambda d: d.start_datetime,
+    ))
+    return profile, demands
+
+
+def test_b_24h_pair_has_no_internal_rest_and_pair_rest_governs_after():
+    profile, (d1, d2) = _h24_pair_demands("B-H24", ShiftKind.D, 14)
+    a1 = _primary("A1", "E", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
+    a2 = _primary("A2", "E", d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=d2.required_rest_hours)
+    state = base_state(profile=profile, shift_demands=(d1, d2), memberships=(_membership("E"),))
+    assert validate(state, [a1, a2]).hard_pass  # 0h internal gap is legal within one period
+
+    d3 = _demand("d3", d2.end_datetime + timedelta(hours=10), d2.end_datetime + timedelta(hours=22))
+    a3 = _primary("A3", "E", d3, required_rest_after_hours=99)  # irrelevant -- pair's own rest (14h) governs
+    state2 = base_state(profile=profile, shift_demands=(d1, d2, d3), memberships=(_membership("E"),))
+    report = validate(state2, [a1, a2, a3])
+    assert not report.hard_pass and any("REST-01" in v for v in report.violations)
+
+
+def test_b_24h_halves_different_employees_is_hard_fail():
+    profile, (d1, d2) = _h24_pair_demands("B-MISMATCH", ShiftKind.D, 12)
+    a1 = _primary("A1", "E1", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
+    a2 = _primary("A2", "E2", d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=d2.required_rest_hours)
+    state = base_state(profile=profile, shift_demands=(d1, d2), memberships=(_membership("E1"), _membership("E2")))
+    report = validate(state, [a1, a2])
+    assert not report.hard_pass and any("SHIFT-24-PAIR-01" in v for v in report.violations)
+
+
+def test_b_mixed_profile_can_work_24h_false_blocks():
+    profile = _profile("B-MIXED24", [_h24(ShiftKind.D, 5, 12), _d(9, 11)])
+    demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1) and d.catalog_kind == ShiftCatalogKind.H24)
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(profile=profile, employees=(employee,), memberships=(_membership("A", can_work_24h=False),), shift_demands=demands)
+    assert plan(state).status == "DECISION_REQUIRED"
+
+
+def test_b_all_24h_profile_ignores_can_work_24h():
+    profile, demands = _h24_pair_demands("B-ALL24", ShiftKind.D, 12)
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(profile=profile, employees=(employee,), memberships=(_membership("A", can_work_24h=False),), shift_demands=demands)
+    assert plan(state).status == "FEASIBLE"
+
+
+def test_b_inny_uses_its_own_rest():
+    def inny_state(rest):
+        profile = _profile("B-INNY", [_inny(5, 8, rest)])
+        demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() in (date(2026, 10, 1), date(2026, 10, 2)))
+        employee = Employee("A", "A", date(2026, 1, 1), None, False)
+        return base_state(profile=profile, employees=(employee,), memberships=(_membership("A"),), shift_demands=demands)
+
+    assert plan(inny_state(10)).status == "FEASIBLE"
+    assert plan(inny_state(20)).status == "DECISION_REQUIRED"
+
+
+def test_b_same_site_boundary_period_blocks_insufficient_rest():
+    profile = _profile("B-BOUNDARY", [_d(5, 14)])
+    demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1))
+    boundary = Assignment(
+        "BND1", "prev-v1", "A", datetime(2026, 9, 30, 5, 0), datetime(2026, 9, 30, 17, 0),
+        AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None, required_rest_after_hours=14,
+    )
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(
+        profile=profile, employees=(employee,), memberships=(_membership("A"),),
+        shift_demands=demands, boundary_assignments=(boundary,),
+    )
+    assert plan(state).status == "DECISION_REQUIRED"  # 12h gap < 14h boundary rest
+
+
+def test_b_cross_site_persisted_24h_rest_blocks_regardless_of_current_profile():
+    profile = _profile("B-CROSS", [_d(5, 8)])  # current site's own rest (8h) is irrelevant here
+    demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1))
+    other_site_pair = (
+        Assignment("OS1", "other-v1", "A", datetime(2026, 9, 30, 5, 0), datetime(2026, 9, 30, 17, 0),
+                   AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None, work_period_id="OS-WP", required_rest_after_hours=11),
+        Assignment("OS2", "other-v1", "A", datetime(2026, 9, 30, 17, 0), datetime(2026, 10, 1, 5, 0),
+                   AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None, work_period_id="OS-WP", required_rest_after_hours=20),
+    )
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(
+        profile=profile, employees=(employee,), memberships=(_membership("A"),),
+        shift_demands=demands, other_site_assignments=other_site_pair,
+    )
+    assert plan(state).status == "DECISION_REQUIRED"  # merged other-site period ends 05:00, terminal rest=20h, gap=0h
+
+
+def test_b_no_other_site_record_produces_no_invented_blocker():
+    profile = _profile("B-NOOTHER", [_d(5, 11)])
+    demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1))
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(profile=profile, employees=(employee,), memberships=(_membership("A"),), shift_demands=demands)
+    assert plan(state).status == "FEASIBLE"
+
+
+def test_b_legacy_assignment_without_provenance_defaults_to_11h():
+    assert resolve_required_rest(None) == 11
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 2, 1, 0), datetime(2026, 10, 2, 13, 0))  # 8h gap < legacy 11h
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
+    report = validate(state, [_primary("A1", "E", d1), _primary("A2", "E", d2)])
+    assert not report.hard_pass and any("REST-01" in v for v in report.violations)
+
+
+# --- B contract-alignment round 2 (part_b_work_period_rest.md 9f7ff98) ---
+
+
+def test_b_deviation_categories_are_frozen():
+    from rota.application.deviation_mapping import category_for_rule
+    from rota.domain import DeviationCategory
+
+    assert category_for_rule("SHIFT-24-01", {}) == DeviationCategory.PREFERENCE
+    assert category_for_rule("SHIFT-24-PAIR-01", {}) == DeviationCategory.COVERAGE
+
+
+def test_b_mixed_can_work_24h_false_blocks_via_eligibility_directly():
+    from rota.planning.eligibility import check_eligibility
+
+    profile = _profile("B-ELIG24", [_h24(ShiftKind.D, 5, 12), _d(9, 11)])
+    demand = next(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1) and d.catalog_kind == ShiftCatalogKind.H24)
+    membership = _membership("A", can_work_24h=False)
+    result = check_eligibility(Employee("A", "A", date(2026, 1, 1), None, False), membership, demand, demand.shift_kind, profile, [], [], SITE_ID)
+    assert not result.eligible and result.blocked_reason == "SHIFT-24-01"
+
+
+def test_b_fixed_half_forces_same_person_on_open_half():
+    profile, (d1, d2) = _h24_pair_demands("B-FIXEDHALF", ShiftKind.D, 12)
+    fixed = _primary("FIXED1", "E1", d1, work_period_id=f"{SITE_ID}:{d1.work_period_template_id}", required_rest_after_hours=d1.required_rest_hours, frozen=True)
+    employees = (Employee("E1", "E1", date(2026, 1, 1), None, False), Employee("E2", "E2", date(2026, 1, 1), None, False))
+    state = base_state(
+        profile=profile, employees=employees, memberships=(_membership("E1"), _membership("E2")),
+        shift_demands=(d1, d2), existing_assignments=(fixed,),
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    solved_d2 = next(a for a in result.candidates[0] if a.covers_demand_id == d2.demand_id)
+    assert solved_d2.employee_id == "E1"
+
+
+def test_b_target_scoped_rest_ignores_history_vs_history_violation():
+    profile = _profile("B-SCOPED", [_d(5, 11)])
+    demand = next(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1))
+    # Two boundary/other-site periods that violate REST-01 between themselves,
+    # neither touching the target assignment being validated.
+    boundary = Assignment("BND1", "prev-v1", "Z", datetime(2026, 9, 29, 5, 0), datetime(2026, 9, 29, 17, 0), AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None, required_rest_after_hours=11)
+    other_site = Assignment("OS1", "other-v1", "Z", datetime(2026, 9, 29, 18, 0), datetime(2026, 9, 30, 6, 0), AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None, required_rest_after_hours=11)
+    state = base_state(
+        profile=profile, shift_demands=(demand,), memberships=(_membership("Z"),),
+        boundary_assignments=(boundary,), other_site_assignments=(other_site,),
+    )
+    target = [_primary("TGT", "Z", demand, required_rest_after_hours=11)]
+    report = validate(state, target)
+    assert report.hard_pass  # the 1h boundary<->other-site gap is unrelated to the target
+
+
+def test_b_malformed_period_more_than_two_components_fails_closed():
+    d = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 9, 0))
+    a1 = Assignment("A1", "v1", "E", datetime(2026, 10, 1, 0, 0), datetime(2026, 10, 1, 4, 0), AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "d1", None, work_period_id="WP", required_rest_after_hours=11)
+    a2 = Assignment("A2", "v1", "E", datetime(2026, 10, 1, 4, 0), datetime(2026, 10, 1, 8, 0), AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "d1", None, work_period_id="WP", required_rest_after_hours=11)
+    a3 = Assignment("A3", "v1", "E", datetime(2026, 10, 1, 8, 0), datetime(2026, 10, 1, 9, 0), AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "d1", None, work_period_id="WP", required_rest_after_hours=11)
+    state = base_state(shift_demands=(d,), memberships=(_membership("E"),))
+    report = validate(state, [a1, a2, a3])
+    assert not report.hard_pass and any("WORK_PERIOD-01" in v for v in report.violations)
+
+
+def test_b_malformed_period_inconsistent_same_version_rest_fails_closed():
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0))
+    a1 = Assignment("A1", "v1", "E", d1.start_datetime, d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "d1", None, work_period_id="WP", required_rest_after_hours=11)
+    a2 = Assignment("A2", "v1", "E", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "d2", None, work_period_id="WP", required_rest_after_hours=14)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
+    report = validate(state, [a1, a2])
+    assert not report.hard_pass and any("WORK_PERIOD-01" in v for v in report.violations)
+
+
+def test_b_solved_legacy_assignment_gets_explicit_nonnone_provenance():
+    profile = _profile("B-LEGACYPROV", [StandardShift(ShiftKind.D, time(5, 0), time(17, 0), False, 1)])
+    demand = next(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1))
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(profile=profile, employees=(employee,), memberships=(_membership("A"),), shift_demands=(demand,))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    solved = result.candidates[0][0]
+    assert solved.work_period_id is not None and solved.required_rest_after_hours == 11
+
+
+def test_b_work_period_id_is_site_scoped():
+    profile, (d1, _d2) = _h24_pair_demands("B-SITESCOPE", ShiftKind.D, 12)
+    employees = (Employee("A", "A", date(2026, 1, 1), None, False), Employee("B", "B", date(2026, 1, 1), None, False))
+    state = base_state(profile=profile, employees=employees, memberships=(_membership("A"), _membership("B")), shift_demands=(d1, _d2))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    solved = next(a for a in result.candidates[0] if a.covers_demand_id == d1.demand_id)
+    assert solved.work_period_id.startswith(f"{SITE_ID}:")
+
+
+def test_b_solver_feasible_candidate_independently_validates_hard_pass():
+    # H24 occupies the entire day 1, so INNY is drawn from day 2 instead --
+    # both catalog kinds represented without their windows overlapping.
+    profile = _profile("B-CONSISTENCY", [_h24(ShiftKind.D, 5, 12), _inny(9, 6, 10)])
+    all_demands = generate_catalog_demands(profile, MONTH)
+    demands = tuple(
+        d for d in all_demands
+        if (d.start_datetime.date() == date(2026, 10, 1) and d.catalog_kind == ShiftCatalogKind.H24)
+        or (d.start_datetime.date() == date(2026, 10, 2) and d.catalog_kind == ShiftCatalogKind.OTHER)
+    )
+    employees = (Employee("A", "A", date(2026, 1, 1), None, False), Employee("B", "B", date(2026, 1, 1), None, False))
+    state = base_state(profile=profile, employees=employees, memberships=(_membership("A"), _membership("B")), shift_demands=demands)
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert validate(state, result.candidates[0]).hard_pass
 
 
 if __name__ == "__main__":

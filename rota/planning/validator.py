@@ -13,7 +13,6 @@ import calendar
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from rota.constants import REST_MIN_HOURS
 from rota.domain import (
     Assignment,
     AssignmentRole,
@@ -21,11 +20,13 @@ from rota.domain import (
     AvailabilityKind,
     AvailabilityRecord,
     MembershipKind,
+    ShiftCatalogKind,
     ShiftKind,
 )
 from rota.planning.site_rules import day_only_n_exception_applies, hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
-from rota.planning.timeutil import overlap_hours, overlaps_date_range, rest_hours, rolling_windows
+from rota.planning.timeutil import overlap_hours, overlaps_date_range, rolling_windows
+from rota.planning.work_periods import PeriodComponent, find_malformed_periods, group_into_periods, periods_overlap
 
 
 @dataclass(frozen=True)
@@ -449,27 +450,51 @@ def _check_site_rules(state: PlanningState, assignments: list[Assignment], detai
             ))
 
 
+def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s); identity, so REALIZED counts."""
+    demands_by_id = {d.demand_id: d for d in state.shift_demands}
+    by_template: dict[str, dict[str, set[str]]] = {}
+    for a in assignments:
+        demand = demands_by_id.get(a.covers_demand_id)
+        if a.role != AssignmentRole.PRIMARY or demand is None or demand.catalog_kind != ShiftCatalogKind.H24 or not demand.work_period_template_id:
+            continue
+        by_template.setdefault(demand.work_period_template_id, {}).setdefault(demand.demand_id, set()).add(a.employee_id)
+    for template_id, by_demand in by_template.items():
+        if len(by_demand) != 2:
+            continue
+        (d1, emp1), (d2, emp2) = sorted(by_demand.items())
+        if emp1 != emp2:
+            ids = tuple(a.assignment_id for a in assignments if a.covers_demand_id in (d1, d2))
+            details.append(ViolationDetail("SHIFT-24-PAIR-01", ids, f"SHIFT-24-PAIR-01: template {template_id} mismatch {sorted(emp1)} vs {sorted(emp2)}"))
+
+
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
-    """REST-01. boundary_assignments (end of previous month, STATE-02
-    arch/spec.md:330) are included, not only other_site_assignments."""
+    """REST-01, per-work-period via rota.planning.work_periods -- a 24h
+    pair has no internal check; different periods use the earlier one's
+    rest. Only edges touching target `assignments` are reported/counted
+    (not history-vs-history). Also emits WORK_PERIOD-01 for malformed
+    provenance (>2 components, or disagreeing same-version rest)."""
+    target_ids = {a.assignment_id for a in assignments}
     all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
-    grouped = _by_employee(all_assignments)
+    all_components = [PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in all_assignments]
+    for period_key, ids, reasons in find_malformed_periods(all_components):
+        details.append(ViolationDetail("WORK_PERIOD-01", ids, f"WORK_PERIOD-01: period {period_key}: {'; '.join(reasons)}"))
     min_rest = None
-    for employee_id, employee_assignments in grouped.items():
-        ordered = sorted(employee_assignments, key=lambda a: a.start_datetime)
-        for prev, cur in zip(ordered, ordered[1:]):
-            ids = (prev.assignment_id, cur.assignment_id)
-            if prev.end_datetime > cur.start_datetime:
+    for employee_id in {c.employee_id for c in all_components}:
+        components = [c for c in all_components if c.employee_id == employee_id]
+        periods = sorted(group_into_periods(components), key=lambda p: p.start)
+        for prev, cur in zip(periods, periods[1:]):
+            if target_ids.isdisjoint(prev.component_ids) and target_ids.isdisjoint(cur.component_ids):
+                continue
+            ids = (prev.component_ids[-1], cur.component_ids[0])
+            if periods_overlap(prev, cur):
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} overlapping assignments"))
                 continue
-            gap = rest_hours(prev.start_datetime, prev.end_datetime, cur.start_datetime, cur.end_datetime)
+            gap = (cur.start - prev.end).total_seconds() / 3600
             if min_rest is None or gap < min_rest:
                 min_rest = gap
-            if gap < REST_MIN_HOURS:
-                details.append(ViolationDetail(
-                    "REST-01", ids,
-                    f"REST-01: {employee_id} {prev.assignment_id}->{cur.assignment_id}: only {gap:.1f}h",
-                ))
+            if gap < prev.required_rest_after_hours:
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: only {gap:.1f}h"))
     return min_rest
 
 
@@ -554,6 +579,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_leave_plan(state, for_eligibility_checks, warnings)
     _check_external(state, for_eligibility_checks, details)
     _check_site_rules(state, for_eligibility_checks, details)
+    _check_24h_same_person(state, assignments, details)
     min_rest = _check_rest(state, assignments, details)
     max_load, max_window, max_window_datetimes = _check_load(state, assignments, details)
 
