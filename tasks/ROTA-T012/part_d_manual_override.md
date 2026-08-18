@@ -14,7 +14,7 @@ Domknąć świadome ręczne naruszenie nowego REST-01 bez zmiany istniejącej za
 - rota/application/deviation_mapping.py
 - rota/persistence/decision_ledger.py
 - rota/persistence/schedule_lifecycle.py
-- tests/test_t012_d_manual_override.py
+- tests/test_t012.py
 
 Żaden inny plik w D.
 
@@ -69,6 +69,8 @@ Nie wolno tworzyć transaction managera/workflow frameworku.
 Wymagany rollback proof: wymuszony wyjątek podczas DecisionRecord insert pozostawia bez nowej child version, bez current-reference switch i bez częściowego Deviation.
 
 ## TESTY D — MINIMUM
+
+Testy D dopisywane są do wspólnego `tests/test_t012.py` utworzonego w A.
 
 - manual rest violation saves child + REST Deviation + one DecisionRecord;
 - several REST violations in same correction => one record containing all evidence;
