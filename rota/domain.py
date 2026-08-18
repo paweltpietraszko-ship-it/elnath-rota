@@ -89,6 +89,16 @@ class ScheduleStatus(str, Enum):
     FINAL_WITH_DEVIATIONS = "FINAL_WITH_DEVIATIONS"
 
 
+# ROTA-T012: a SiteProfile catalog entry's length category, orthogonal to
+# ShiftKind (D/N) -- no ShiftKind.H24 is added; a 24h occurrence is always
+# two chained 12h D/N StandardShift components of the same PRIMARY
+# (arch/spec.md T012 amendment, owner mandate 2026-08-18).
+class ShiftCatalogKind(str, Enum):
+    H24 = "24h"
+    H12 = "12h"
+    OTHER = "INNY"
+
+
 # --- Value objects ---
 
 
@@ -99,6 +109,14 @@ class StandardShift:
     end_time: time
     end_next_day: bool
     required_primary_count: int
+    # ROTA-T012: appended, compatibility-defaulted fields -- catalog_kind=None
+    # means "legacy row, normalize from actual duration" (see
+    # rota.planning.shift_catalog.normalized_catalog_kind); required_rest_hours=11
+    # is only the legacy-compatible default (REST_MIN_HOURS), never a
+    # program-enforced legal minimum; active_weekdays defaults to every day.
+    catalog_kind: Optional["ShiftCatalogKind"] = None
+    required_rest_hours: int = 11
+    active_weekdays: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7)
 
 
 # --- Entities ---
@@ -157,6 +175,11 @@ class SiteMembership:
     enabled: bool
     readiness_state: ReadinessState
     readiness_source: ReadinessSource
+    # ROTA-T012: per-(employee, site) qualification for 24h occurrences on a
+    # mixed 12h/24h profile, default=True. Ignored on an all-24h profile.
+    # Does not disable membership.enabled, DAY_ONLY, Availability, SiteRule,
+    # EXTERNAL or any other existing HARD gate.
+    can_work_24h: bool = True
 
 
 @dataclass
@@ -301,6 +324,22 @@ class ShiftDemand:
     start_datetime: datetime
     end_datetime: datetime
     required_primary_count: int
+    # ROTA-T012: appended provenance fields, all None for legacy demands
+    # (classify_demand() remains the legacy fallback). T012-generated
+    # demands always set shift_kind explicitly -- current SiteProfile is
+    # never used to reconstruct historical REST from an old demand.
+    shift_kind: Optional["ShiftKind"] = None
+    catalog_kind: Optional["ShiftCatalogKind"] = None
+    required_rest_hours: Optional[int] = None
+    # Shared by both components of one 24h occurrence (normal or same-month
+    # emergency-extended); a plain 12h/INNY demand gets its own unique id.
+    work_period_template_id: Optional[str] = None
+    work_period_component: Optional[int] = None
+    # Snapshotted only when exactly one matching 24h capability exists for
+    # this demand's (kind, start time-of-day) -- see
+    # rota.planning.shift_catalog. None means no emergency 24h rescue is
+    # possible for this demand.
+    emergency_24h_rest_hours: Optional[int] = None
 
 
 @dataclass
@@ -321,6 +360,13 @@ class Assignment:
     # PLANNED PRIMARY, ktorego pracownik nie wykonal (state=CANCELLED w
     # tym samym Assignment). Domyslnie None dla kazdego innego Assignment.
     operational_code: Optional[str] = None
+    # ROTA-T012: appended work-period/rest provenance. Identity for REST-01
+    # purposes is (employee_id, work_period_id); a legacy Assignment with no
+    # work_period_id is its own standalone period. required_rest_after_hours
+    # is the rest owed after THIS work period ends (legacy None means 11h,
+    # the REST_MIN_HOURS compatibility fallback).
+    work_period_id: Optional[str] = None
+    required_rest_after_hours: Optional[int] = None
 
 
 @dataclass

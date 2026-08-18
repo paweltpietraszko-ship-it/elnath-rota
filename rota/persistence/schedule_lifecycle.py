@@ -40,17 +40,20 @@ def _insert_content(
     )
     conn.executemany(
         "INSERT INTO shift_demands (schedule_version_id, demand_id, start_datetime, end_datetime, "
-        "required_primary_count) VALUES (?, ?, ?, ?, ?)",
-        [(version_id, d.demand_id, d.start_datetime.isoformat(), d.end_datetime.isoformat(), d.required_primary_count)
+        "required_primary_count, shift_kind, catalog_kind, required_rest_hours, work_period_template_id, "
+        "work_period_component, emergency_24h_rest_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [(version_id, d.demand_id, d.start_datetime.isoformat(), d.end_datetime.isoformat(), d.required_primary_count,
+          d.shift_kind.value if d.shift_kind else None, d.catalog_kind.value if d.catalog_kind else None,
+          d.required_rest_hours, d.work_period_template_id, d.work_period_component, d.emergency_24h_rest_hours)
          for d in shift_demands],
     )
     conn.executemany(
         "INSERT INTO assignments (schedule_version_id, assignment_id, employee_id, start_datetime, end_datetime, "
-        "role, state, frozen, covers_demand_id, mentor_primary_assignment_id, operational_code) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "role, state, frozen, covers_demand_id, mentor_primary_assignment_id, operational_code, work_period_id, "
+        "required_rest_after_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(version_id, a.assignment_id, a.employee_id, a.start_datetime.isoformat(), a.end_datetime.isoformat(),
           a.role.value, a.state.value, int(a.frozen), a.covers_demand_id, a.mentor_primary_assignment_id,
-          a.operational_code)
+          a.operational_code, a.work_period_id, a.required_rest_after_hours)
          for a in _order_assignments_mentor_first(assignments)],
     )
     conn.executemany(

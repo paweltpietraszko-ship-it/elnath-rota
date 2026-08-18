@@ -28,6 +28,7 @@ from rota.persistence.availability_repository import get_current_availability_fo
 from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site, list_windows_for_site
 from rota.persistence.site_profile_repository import get_site_profile
+from rota.planning.shift_catalog import generate_catalog_demands
 from rota.persistence.site_repository import get_site
 from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
 from rota.persistence.schedule_repository import (
@@ -54,33 +55,14 @@ def resolved_rule_version_ids(conn, site_id: str, month: date) -> list[str]:
 def generate_profile_demands(profile, month: date) -> tuple[ShiftDemand, ...]:
     """INITIAL SHIFTDEMAND GENERATION: pure data expansion from
     SiteProfile.standard_shifts, independent of roster/target_hours/
-    absences/X-Y. One occurrence of every configured StandardShift per
-    calendar day.
+    absences/X-Y.
 
-    R4-8: demand_id stays exactly "{date}-{kind}" for the common case (one
-    StandardShift per ShiftKind), preserving every existing id assumption --
-    a profile with more than one StandardShift of the SAME kind (e.g. two
-    differently-timed D shifts) instead gets a "-{n}" occurrence suffix so
-    each configured shift still gets its own distinct, deterministic demand
-    per day."""
-    days = calendar.monthrange(month.year, month.month)[1]
-    kind_counts: dict = {}
-    for shift in profile.standard_shifts:
-        kind_counts[shift.kind] = kind_counts.get(shift.kind, 0) + 1
-    demands = []
-    for day in range(1, days + 1):
-        current = date(month.year, month.month, day)
-        kind_seen: dict = {}
-        for shift in profile.standard_shifts:
-            start = datetime.combine(current, shift.start_time)
-            end = start + timedelta(days=1 if shift.end_next_day else 0)
-            end = datetime.combine(end.date(), shift.end_time)
-            occurrence = kind_seen.get(shift.kind, 0)
-            kind_seen[shift.kind] = occurrence + 1
-            suffix = f"-{occurrence}" if kind_counts[shift.kind] > 1 else ""
-            demand_id = f"{current.isoformat()}-{shift.kind.value}{suffix}"
-            demands.append(ShiftDemand(demand_id, "", start, end, shift.required_primary_count))
-    return tuple(demands)
+    ROTA-T012: the actual per-day/per-weekday expansion (including 24h ->
+    two chained 12h D/N components, and INNY) now lives in
+    rota.planning.shift_catalog.generate_catalog_demands -- this stays the
+    stable public entry point other callers (bootstrap.py, tests) already
+    import by this name."""
+    return generate_catalog_demands(profile, month)
 
 
 def _assemble_calendar(conn, month: date) -> tuple[CalendarDay, ...]:

@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 4
+LATEST_SCHEMA_VERSION = 5
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -354,11 +354,36 @@ _MIGRATION_4: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 5 -- ROTA-T012 Part A: shift catalog (24h/12h/INNY) + work-period
+# rest provenance. Every new column is nullable/has a legacy-compatible
+# default; existing rows are read back with catalog_kind/required_rest_hours/
+# active_weekdays/can_work_24h/work_period_id normalized at the repository
+# layer (rota.planning.shift_catalog.normalized_catalog_kind and friends),
+# never rewritten here. No FINAL history row is touched.
+# ---------------------------------------------------------------------------
+_MIGRATION_5: tuple[str, ...] = (
+    "ALTER TABLE standard_shifts ADD COLUMN catalog_kind TEXT",
+    "ALTER TABLE standard_shifts ADD COLUMN required_rest_hours INTEGER",
+    "ALTER TABLE standard_shifts ADD COLUMN active_weekdays TEXT",
+    "ALTER TABLE site_memberships ADD COLUMN can_work_24h INTEGER",
+    "ALTER TABLE shift_demands ADD COLUMN shift_kind TEXT",
+    "ALTER TABLE shift_demands ADD COLUMN catalog_kind TEXT",
+    "ALTER TABLE shift_demands ADD COLUMN required_rest_hours INTEGER",
+    "ALTER TABLE shift_demands ADD COLUMN work_period_template_id TEXT",
+    "ALTER TABLE shift_demands ADD COLUMN work_period_component INTEGER",
+    "ALTER TABLE shift_demands ADD COLUMN emergency_24h_rest_hours INTEGER",
+    "ALTER TABLE assignments ADD COLUMN work_period_id TEXT",
+    "ALTER TABLE assignments ADD COLUMN required_rest_after_hours INTEGER",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
     (3, _MIGRATION_3),
     (4, _MIGRATION_4),
+    (5, _MIGRATION_5),
 )
 
 

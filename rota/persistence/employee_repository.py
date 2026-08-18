@@ -87,14 +87,16 @@ def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membersh
         raise UnknownEmployeeOrSite((membership.employee_id, membership.site_id))
     conn.execute(
         """INSERT INTO site_memberships
-           (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source)
-           VALUES (?, ?, ?, ?, ?, ?)
+           (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(employee_id, site_id) DO UPDATE SET
             membership_kind=excluded.membership_kind, enabled=excluded.enabled,
-            readiness_state=excluded.readiness_state, readiness_source=excluded.readiness_source""",
+            readiness_state=excluded.readiness_state, readiness_source=excluded.readiness_source,
+            can_work_24h=excluded.can_work_24h""",
         (
             membership.employee_id, membership.site_id, membership.membership_kind.value,
             int(membership.enabled), membership.readiness_state.value, membership.readiness_source.value,
+            int(membership.can_work_24h),
         ),
     )
 
@@ -105,17 +107,19 @@ def save_site_membership(conn: sqlite3.Connection, membership: SiteMembership) -
 
 
 def _row_to_membership(row: tuple) -> SiteMembership:
-    employee_id, site_id, kind, enabled, readiness_state, readiness_source = row
+    employee_id, site_id, kind, enabled, readiness_state, readiness_source, can_work_24h = row
     return SiteMembership(
         employee_id=employee_id, site_id=site_id, membership_kind=MembershipKind(kind),
         enabled=bool(enabled), readiness_state=ReadinessState(readiness_state),
         readiness_source=ReadinessSource(readiness_source),
+        # Legacy (pre-T012) rows have NULL here: default=True.
+        can_work_24h=bool(can_work_24h) if can_work_24h is not None else True,
     )
 
 
 def list_memberships_for_site(conn: sqlite3.Connection, site_id: str) -> list[SiteMembership]:
     rows = conn.execute(
-        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source "
+        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
         "FROM site_memberships WHERE site_id = ? ORDER BY employee_id",
         (site_id,),
     ).fetchall()
@@ -124,7 +128,7 @@ def list_memberships_for_site(conn: sqlite3.Connection, site_id: str) -> list[Si
 
 def list_memberships_for_employee(conn: sqlite3.Connection, employee_id: str) -> list[SiteMembership]:
     rows = conn.execute(
-        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source "
+        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
         "FROM site_memberships WHERE employee_id = ? ORDER BY site_id",
         (employee_id,),
     ).fetchall()
