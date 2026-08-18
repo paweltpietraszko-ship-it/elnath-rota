@@ -12,6 +12,7 @@ from __future__ import annotations
 import calendar
 from dataclasses import dataclass, field
 from datetime import timedelta
+from itertools import combinations
 
 from rota.domain import (
     Assignment,
@@ -451,7 +452,7 @@ def _check_site_rules(state: PlanningState, assignments: list[Assignment], detai
 
 
 def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s); identity, so REALIZED counts."""
+    """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s) -- identity, REALIZED counts too."""
     demands_by_id = {d.demand_id: d for d in state.shift_demands}
     by_template: dict[str, dict[str, set[str]]] = {}
     for a in assignments:
@@ -469,31 +470,30 @@ def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], 
 
 
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
-    """REST-01, per-work-period via rota.planning.work_periods -- a 24h
-    pair has no internal check; different periods use the earlier one's
-    rest. Only edges touching target `assignments` are reported/counted
-    (not history-vs-history). Also emits WORK_PERIOD-01 for malformed
-    provenance (>2 components, or disagreeing same-version rest)."""
+    """REST-01, per-work-period -- a 24h pair has no internal check, other
+    periods use the earlier one's rest, only target-touching edges count."""
     target_ids = {a.assignment_id for a in assignments}
     all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     all_components = [PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in all_assignments]
-    for period_key, ids, reasons in find_malformed_periods(all_components):
-        details.append(ViolationDetail("WORK_PERIOD-01", ids, f"WORK_PERIOD-01: period {period_key}: {'; '.join(reasons)}"))
+    for key, ids, reasons in find_malformed_periods(all_components):
+        details.append(ViolationDetail("WORK_PERIOD-01", ids, f"WORK_PERIOD-01: period {key}: {'; '.join(reasons)}"))
     min_rest = None
     for employee_id in {c.employee_id for c in all_components}:
         components = [c for c in all_components if c.employee_id == employee_id]
-        periods = sorted(group_into_periods(components), key=lambda p: p.start)
-        for prev, cur in zip(periods, periods[1:]):
-            if target_ids.isdisjoint(prev.component_ids) and target_ids.isdisjoint(cur.component_ids):
-                continue
-            ids = (prev.component_ids[-1], cur.component_ids[0])
-            if periods_overlap(prev, cur):
+        periods = group_into_periods(components)
+        # Every (target, other) pair, not only sorted neighbors (B-R10-3).
+        target_periods = [p for p in periods if not target_ids.isdisjoint(p.component_ids)]
+        history_periods = [p for p in periods if p not in target_periods]
+        pairs = [(tp, h) for tp in target_periods for h in history_periods] + list(combinations(target_periods, 2))
+        for tp, other in pairs:
+            earlier, later = (tp, other) if tp.start <= other.start else (other, tp)
+            ids = (earlier.component_ids[-1], later.component_ids[0])
+            if periods_overlap(earlier, later):
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} overlapping assignments"))
                 continue
-            gap = (cur.start - prev.end).total_seconds() / 3600
-            if min_rest is None or gap < min_rest:
-                min_rest = gap
-            if gap < prev.required_rest_after_hours:
+            gap = (later.start - earlier.end).total_seconds() / 3600
+            min_rest = gap if min_rest is None else min(min_rest, gap)
+            if gap < earlier.required_rest_after_hours:
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: only {gap:.1f}h"))
     return min_rest
 

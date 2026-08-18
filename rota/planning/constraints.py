@@ -57,7 +57,7 @@ def build_fixed_periods(
     period) is one period with its own terminal-component rest, not two
     independent 12h facts."""
     components = [
-        PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours)
+        PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
         for a in (*fixed_assignments, *_not_cancelled(boundary_assignments), *_not_cancelled(other_site_assignments))
     ]
     by_employee: dict[str, list[WorkPeriod]] = {}

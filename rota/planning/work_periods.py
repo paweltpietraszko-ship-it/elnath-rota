@@ -61,7 +61,11 @@ class WorkPeriod:
 def _period_key(component: PeriodComponent) -> tuple[str, str]:
     if component.period_id:
         return (component.employee_id, component.period_id)
-    return (component.employee_id, f"__standalone__{component.component_id}")
+    # Real identity is (schedule_version_id, assignment_id), not the bare
+    # local id alone (tests/test_audit_t009_r6.py: two different
+    # ScheduleVersions can legitimately reuse the same local assignment_id)
+    # -- component_id itself stays the raw assignment_id for reporting.
+    return (component.employee_id, f"__standalone__{component.schedule_version_id}:{component.component_id}")
 
 
 def _group_by_period(components: list[PeriodComponent]) -> dict[tuple[str, str], list[PeriodComponent]]:
@@ -93,26 +97,43 @@ def group_into_periods(components: list[PeriodComponent]) -> list[WorkPeriod]:
 
 
 def find_malformed_periods(components: list[PeriodComponent]) -> list[tuple[str, tuple[str, ...], list[str]]]:
-    """Fail-closed shape check (validator use): a period may not have more
-    than 2 components, and components created together in the SAME
-    ScheduleVersion must agree on required_rest_after_hours -- an explicit
-    mismatch there is corruption, not the legitimate cross-month emergency
-    extension (which spans two different schedule_version_id values and is
-    exempt). Returns (period_key, component_ids, reasons) tuples, empty
-    when nothing is malformed."""
+    """Fail-closed shape check (validator use):
+    - a period may not have more than 2 components;
+    - components sharing a period must form a directly continuous,
+      non-overlapping chain (prev.end == cur.start) -- a gap or overlap
+      between them is corruption, not two rest-checkable periods;
+    - explicit (non-legacy, period_id is not None) T012 provenance must
+      supply a non-negative required_rest_after_hours -- missing/negative
+      is corruption and is NEVER silently defaulted to the legacy 11h
+      fallback (that fallback is legacy-only, i.e. period_id is None);
+    - components created together in the SAME ScheduleVersion must agree
+      on required_rest_after_hours -- an explicit mismatch there is
+      corruption, not the legitimate cross-month emergency extension
+      (which spans two different schedule_version_id values and is
+      exempt). Returns (period_key, component_ids, reasons) tuples, empty
+      when nothing is malformed."""
     findings = []
     for (_employee_id, period_key), members in _group_by_period(components).items():
         reasons = []
         if len(members) > 2:
             reasons.append(f"{len(members)} components (max 2)")
+        ordered = sorted(members, key=lambda m: m.start)
+        for prev, cur in zip(ordered, ordered[1:]):
+            if prev.end != cur.start:
+                reasons.append(f"{prev.component_id}->{cur.component_id} not directly continuous (gap or overlap)")
         by_version: dict[Optional[str], set[int]] = {}
-        for m in members:
-            by_version.setdefault(m.schedule_version_id, set()).add(resolve_required_rest(m.required_rest_after_hours))
+        for m in ordered:
+            if m.period_id is None:
+                continue
+            if m.required_rest_after_hours is None or m.required_rest_after_hours < 0:
+                reasons.append(f"{m.component_id}: explicit work_period_id requires non-negative required_rest_after_hours, got {m.required_rest_after_hours!r}")
+                continue
+            by_version.setdefault(m.schedule_version_id, set()).add(m.required_rest_after_hours)
         for version_id, rests in by_version.items():
             if len(rests) > 1:
                 reasons.append(f"inconsistent rest within schedule_version_id={version_id}: {sorted(rests)}")
         if reasons:
-            findings.append((period_key, tuple(m.component_id for m in members), reasons))
+            findings.append((period_key, tuple(m.component_id for m in ordered), reasons))
     return findings
 
 

@@ -9,7 +9,7 @@ validate a child before it is ever written.
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from rota.application.errors import IncompleteCalendarData, ScheduleVersionContextMismatch
 from rota.balance import MissingTargetHoursError, quarter_start
@@ -151,21 +151,17 @@ def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple
 
 
 def _context_window(month: date) -> tuple[datetime, datetime]:
-    """ROTA-T012 Part B: T012 required_rest_hours has no product-imposed
-    upper bound, so a fixed few-day margin can silently lose a real,
-    longer-than-usual persisted rest requirement for REST-01's boundary/
-    cross-site context. Widened to a full year each direction -- still a
-    fixed, deterministic bound (no new repository query shape / façade,
-    per part_b_work_period_rest.md's "istniejące read API +
-    deterministyczne filtrowanie" option), but comfortably beyond any
-    realistic configured rest value; LOAD-01's own rolling 7-day windows
-    are unaffected since assignments outside them simply contribute 0
-    overlap hours."""
-    days = calendar.monthrange(month.year, month.month)[1]
-    context_start = datetime.combine(month, datetime.min.time()) - timedelta(days=366)
-    month_end = date(month.year, month.month, days)
-    context_end = datetime.combine(month_end, datetime.min.time()) + timedelta(days=366)
-    return context_start, context_end
+    """ROTA-T012 Part B (B-R10-1): T012 required_rest_hours has NO
+    product-imposed upper bound, so ANY fixed-days margin -- no matter how
+    generous -- can still silently lose a real persisted rest requirement.
+    Genuinely unbounded (datetime.min/datetime.max), via the existing
+    interval-query API (no new repository query shape / façade, per
+    part_b_work_period_rest.md's "istniejące read API + deterministyczne
+    filtrowanie" option) -- month is intentionally unused now. LOAD-01's
+    own rolling 7-day windows are unaffected: an assignment outside them
+    simply contributes 0 overlap hours regardless of how wide this query
+    range is."""
+    return datetime.min, datetime.max
 
 
 def _assemble_cross_context(

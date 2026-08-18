@@ -13,15 +13,20 @@ are not exercised yet.
 """
 from __future__ import annotations
 
+import calendar
 import sqlite3
 from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from rota.application import plan_ops
 from rota.domain import (
     Assignment,
     AssignmentRole,
     AssignmentState,
+    CalendarDay,
+    Coordinator,
+    CoordinatorSiteAssociation,
     Employee,
     MembershipKind,
     ReadinessSource,
@@ -34,13 +39,17 @@ from rota.domain import (
     SiteProfile,
     StandardShift,
 )
+from rota.persistence.calendar_repository import save_calendar_day
+from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
 from rota.persistence.db import LATEST_SCHEMA_VERSION, connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_employee, save_site_membership
 from rota.persistence.schedule_errors import MalformedScheduleSnapshot
+from rota.persistence.schedule_lifecycle import create_schedule_version
 from rota.persistence.schedule_validation import validate_assignments, validate_demands
 from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
 from rota.persistence.site_repository import save_site
 from rota.planning.engine import plan
+from rota.planning.eligibility import check_eligibility
 from rota.planning.shift_catalog import (
     AmbiguousEmergency24hCapability,
     InvalidStandardShift,
@@ -49,7 +58,7 @@ from rota.planning.shift_catalog import (
     normalized_catalog_kind,
 )
 from rota.planning.validator import validate
-from rota.planning.work_periods import resolve_required_rest
+from rota.planning.work_periods import PeriodComponent, find_malformed_periods, resolve_required_rest
 from tests.support.minimal_state import SITE_ID, base_state
 
 MONTH = date(2026, 10, 1)  # 2026-10-01 is a Thursday (ISO weekday 4)
@@ -715,6 +724,214 @@ def test_b_solver_feasible_candidate_independently_validates_hard_pass():
     result = plan(state)
     assert result.status == "FEASIBLE"
     assert validate(state, result.candidates[0]).hard_pass
+
+
+# --- B round 10 audit closure (B-R10-1..4) + remaining minimum matrix ---
+
+
+def test_b_r10_rest_context_is_not_capped_below_a_relevant_configured_rest(monkeypatch):
+    import rota.application.assembler as assembler_module
+
+    captured = {}
+
+    def same_site(_conn, _site_id, start, end):
+        captured["same"] = (start, end)
+        return []
+
+    def other_site(_conn, _employee_ids, start, end, **_kwargs):
+        captured["other"] = (start, end)
+        return []
+
+    monkeypatch.setattr(assembler_module, "get_current_assignments_in_interval", same_site)
+    monkeypatch.setattr(assembler_module, "get_current_assignments_for_employees", other_site)
+    month = date(2026, 10, 1)
+    assembler_module._assemble_cross_context(object(), SITE_ID, ["E"], month, frozenset())
+
+    relevant_prior_end = datetime(2026, 10, 1) - timedelta(hours=9_000)
+    relevant_future_start = datetime(2026, 10, 31) + timedelta(hours=9_000)
+    for start, end in captured.values():
+        assert start <= relevant_prior_end
+        assert end >= relevant_future_start
+
+
+@pytest.mark.parametrize(
+    ("first_end", "second_start"),
+    [(datetime(2026, 10, 1, 4), datetime(2026, 10, 1, 5)), (datetime(2026, 10, 1, 6), datetime(2026, 10, 1, 5))],
+)
+def test_b_r10_explicit_period_requires_continuous_nonoverlapping_chain(first_end, second_start):
+    components = [
+        PeriodComponent("A1", "E", datetime(2026, 10, 1, 0), first_end, "WP", 11, "V1"),
+        PeriodComponent("A2", "E", second_start, datetime(2026, 10, 1, 9), "WP", 11, "V1"),
+    ]
+    assert find_malformed_periods(components)
+
+
+@pytest.mark.parametrize("invalid_rest", [None, -1])
+def test_b_r10_new_explicit_provenance_cannot_fall_back_or_accept_negative_rest(invalid_rest):
+    components = [PeriodComponent("A1", "E", datetime(2026, 10, 1, 0), datetime(2026, 10, 1, 4), "EXPLICIT-WP", invalid_rest, "V1")]
+    assert find_malformed_periods(components)
+
+
+def test_b_r10_validator_checks_every_target_relevant_edge_not_only_adjacent_starts():
+    demand = ShiftDemand("D-TARGET", "V1", datetime(2026, 10, 1, 5), datetime(2026, 10, 1, 17), 1)
+    outer_history = _primary("OUTER", "E", ShiftDemand("d", "prev", datetime(2026, 9, 30, 0), datetime(2026, 10, 1, 10), 1))
+    inner_history = _primary("INNER", "E", ShiftDemand("d", "prev", datetime(2026, 9, 30, 5), datetime(2026, 9, 30, 17), 1))
+    target = _primary("TARGET", "E", demand)
+    state = base_state(shift_demands=(demand,), memberships=(_membership("E"),), boundary_assignments=(outer_history, inner_history))
+    codes = [item.rule for item in validate(state, [target]).violation_details]
+    assert "REST-01" in codes
+
+
+def test_b_rest_zero_is_legal():
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0))
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
+    report = validate(state, [_primary("A1", "E", d1, required_rest_after_hours=0), _primary("A2", "E", d2, required_rest_after_hours=0)])
+    assert report.hard_pass
+
+
+def test_b_overlap_of_different_periods_is_hard_fail():
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 1, 10, 0), datetime(2026, 10, 1, 22, 0))
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
+    a1 = _primary("A1", "E", d1, work_period_id="WP1", required_rest_after_hours=11)
+    a2 = _primary("A2", "E", d2, work_period_id="WP2", required_rest_after_hours=11)
+    report = validate(state, [a1, a2])
+    assert not report.hard_pass and any("overlapping" in v for v in report.violations)
+
+
+def test_b_minimum_rest_hours_not_lowered_by_internal_24h_boundary():
+    profile, (d1, d2) = _h24_pair_demands("B-MINREST", ShiftKind.D, 14)
+    d3 = _demand("d3", d2.end_datetime + timedelta(hours=20), d2.end_datetime + timedelta(hours=32))
+    a1 = _primary("A1", "E", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
+    a2 = _primary("A2", "E", d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=d2.required_rest_hours)
+    a3 = _primary("A3", "E", d3, required_rest_after_hours=11)
+    state = base_state(profile=profile, shift_demands=(d1, d2, d3), memberships=(_membership("E"),))
+    report = validate(state, [a1, a2, a3])
+    assert report.hard_pass
+    assert report.minimum_rest_hours == 20  # not 0 from the internal D/N boundary
+
+
+def test_b_normal_24h_n_to_d_count_two_conflicting_fixed_sets_is_hard_fail():
+    shift = StandardShift(ShiftKind.N, time(17), time(17), True, 2, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12)
+    profile = _profile("B-COUNT2", [shift])
+    all_demands = generate_catalog_demands(profile, MONTH)
+    first_template = next(d.work_period_template_id for d in all_demands if d.start_datetime.date() == date(2026, 10, 1))
+    d1, d2 = sorted((d for d in all_demands if d.work_period_template_id == first_template), key=lambda d: d.start_datetime)
+    a1 = [_primary(f"A1-{e}", e, d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=12) for e in ("E1", "E2")]
+    a2 = [_primary(f"A2-{e}", e, d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=12) for e in ("E3", "E4")]
+    state = base_state(profile=profile, shift_demands=(d1, d2), memberships=tuple(_membership(e) for e in ("E1", "E2", "E3", "E4")))
+    report = validate(state, [*a1, *a2])
+    assert not report.hard_pass and any("SHIFT-24-PAIR-01" in v for v in report.violations)
+
+
+def test_b_can_work_24h_false_does_not_block_ordinary_h12_or_inny():
+    profile = _profile("B-ORDINARY24", [_h24(ShiftKind.D, 5, 12), _d(9, 11), _inny(21, 2, 5)])
+    demands = [d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1) and d.catalog_kind != ShiftCatalogKind.H24]
+    membership = _membership("A", can_work_24h=False)
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    for demand in demands:
+        result = check_eligibility(employee, membership, demand, demand.shift_kind, profile, [], [], SITE_ID)
+        assert result.eligible
+
+
+def test_b_day_only_still_blocks_n_component_of_normal_24h():
+    profile, (d1, d2) = _h24_pair_demands("B-DAYONLYN", ShiftKind.D, 12)  # day_only_blocks_n=True via _profile
+    day_only_employee = Employee("A", "A", date(2026, 1, 1), None, True)
+    membership = _membership("A")
+    n_component = d2 if d2.shift_kind == ShiftKind.N else d1
+    result = check_eligibility(day_only_employee, membership, n_component, ShiftKind.N, profile, [], [], SITE_ID)
+    assert not result.eligible and result.blocked_reason == "DAY_ONLY-01"
+
+
+def test_b_both_solved_h24_assignments_share_work_period_id_and_rest():
+    profile, (d1, d2) = _h24_pair_demands("B-SHARED", ShiftKind.D, 15)
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state = base_state(profile=profile, employees=(employee,), memberships=(_membership("A"),), shift_demands=(d1, d2))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    solved = {a.covers_demand_id: a for a in result.candidates[0]}
+    assert solved[d1.demand_id].work_period_id == solved[d2.demand_id].work_period_id
+    assert solved[d1.demand_id].required_rest_after_hours == solved[d2.demand_id].required_rest_after_hours == 15
+
+
+def test_b_cancelled_excluded_from_work_period_rest_normalization():
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 1, 18, 0), datetime(2026, 10, 2, 6, 0))
+    state = base_state(shift_demands=(d2,), memberships=(_membership("E"),))
+    cancelled = Assignment("A1", "test-v1", "E", d1.start_datetime, d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.CANCELLED, False, d1.demand_id, None, required_rest_after_hours=11)
+    a2 = _primary("A2", "E", d2, required_rest_after_hours=11)
+    report = validate(state, [cancelled, a2])
+    assert report.hard_pass  # the CANCELLED 1h-gap sibling must not participate in REST-01
+
+
+def test_b_trainee_without_provenance_keeps_legacy_standalone_rest():
+    d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    d2 = _demand("d2", datetime(2026, 10, 1, 18, 0), datetime(2026, 10, 2, 6, 0))
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
+    mentor = _primary("MENTOR", "E", d1, required_rest_after_hours=11)
+    trainee = Assignment(
+        "TRAINEE", "test-v1", "E", d2.start_datetime, d2.end_datetime, AssignmentRole.TRAINEE,
+        AssignmentState.PLANNED, False, None, "MENTOR",
+    )
+    report = validate(state, [mentor, trainee])
+    assert not report.hard_pass and any("REST-01" in v for v in report.violations)  # 1h gap < legacy 11h
+
+
+def _seed_history_site(conn, *, site_id: str, profile_id: str, employee_id: str) -> None:
+    profile = _profile(profile_id, [_d(5, 11)])
+    save_site_profile(conn, profile)
+    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", site_id, True))
+    save_employee(conn, Employee(employee_id, employee_id, date(2020, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership(employee_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    days_in_month = calendar.monthrange(MONTH.year, MONTH.month)[1]
+    for day in range(1, days_in_month + 1):
+        save_calendar_day(conn, CalendarDay(date(MONTH.year, MONTH.month, day), False))
+
+
+def _write_history_version(conn, *, site_id: str, month: date, employee_id: str, start: datetime, end: datetime, rest: int) -> None:
+    demand_id = f"hist-{start.date().isoformat()}"
+    demand = ShiftDemand(demand_id, "", start, end, 1)
+    assignment = Assignment(
+        f"hist-a-{start.date().isoformat()}", "", employee_id, start, end, AssignmentRole.PRIMARY,
+        AssignmentState.REALIZED, True, demand_id, None, required_rest_after_hours=rest,
+    )
+    create_schedule_version(
+        conn, version_id=f"SV-{start.date().isoformat()}", site_id=site_id, month=month, parent_version_id=None,
+        created_at=datetime(2020, 1, 1), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[demand], assignments=[assignment], deviations=[], effective_from=month,
+    )
+
+
+def test_b_persisted_prior_same_site_period_far_beyond_old_window_blocks_current(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    _seed_history_site(conn, site_id="SITE-HIST-A", profile_id="PROF-HIST-A", employee_id="A")
+    old_month = date(2024, 1, 1)
+    _write_history_version(conn, site_id="SITE-HIST-A", month=old_month, employee_id="A", start=datetime(2024, 1, 1, 5), end=datetime(2024, 1, 1, 17), rest=9000)
+    result = plan_ops.plan_month(conn, site_id="SITE-HIST-A", month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
+    assert result.status == "DECISION_REQUIRED"
+
+
+def test_b_persisted_prior_cross_site_period_far_beyond_old_window_blocks_current(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    _seed_history_site(conn, site_id="SITE-HIST-B1", profile_id="PROF-HIST-B1", employee_id="A")
+    _seed_history_site(conn, site_id="SITE-HIST-B2", profile_id="PROF-HIST-B2", employee_id="A")
+    old_month = date(2024, 1, 1)
+    _write_history_version(conn, site_id="SITE-HIST-B1", month=old_month, employee_id="A", start=datetime(2024, 1, 1, 5), end=datetime(2024, 1, 1, 17), rest=9000)
+    result = plan_ops.plan_month(conn, site_id="SITE-HIST-B2", month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
+    assert result.status == "DECISION_REQUIRED"
+
+
+def test_b_persisted_future_cross_site_period_far_beyond_old_window_blocks_current(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    _seed_history_site(conn, site_id="SITE-HIST-C1", profile_id="PROF-HIST-C1", employee_id="A")
+    _seed_history_site(conn, site_id="SITE-HIST-C2", profile_id="PROF-HIST-C2", employee_id="A")
+    future_month = date(2028, 1, 1)
+    _write_history_version(conn, site_id="SITE-HIST-C2", month=future_month, employee_id="A", start=datetime(2028, 1, 1, 5), end=datetime(2028, 1, 1, 17), rest=11)
+    result = plan_ops.plan_month(conn, site_id="SITE-HIST-C1", month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
+    assert result.status == "DECISION_REQUIRED"
 
 
 if __name__ == "__main__":
