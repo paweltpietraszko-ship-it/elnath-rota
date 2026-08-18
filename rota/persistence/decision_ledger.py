@@ -102,6 +102,54 @@ def _insert_decision_and_relation(
         )
 
 
+def record_decision_no_commit(
+    conn: sqlite3.Connection,
+    *,
+    site_id: str,
+    rule_id: str,
+    statement: str,
+    coordinator_id: str,
+    recorded_at: datetime,
+    effective_from: date,
+    rel: Optional[str],
+    rule_content: Optional[NewRuleContent],
+) -> DecisionRecord:
+    """ROTA-T012-D ATOMICITY: transaction-neutral core of record_decision(),
+    for a caller that must combine this insert with another write (e.g.
+    manual_edit.apply_manual_correction's REST override record) inside an
+    ALREADY-OPEN transaction (create_schedule_version's on_success hook).
+    Never opens or commits its own `with conn:` -- the caller owns that."""
+    ensure_rule_family(conn, rule_id, site_id)
+    end_row = _current_chain_end(conn, site_id, rule_id)
+    predecessor_id, _, predecessor_rule_version_id, chain_seq = _resolve_predecessor(
+        end_row, rel, rule_content
+    )
+    rule_version_id, supersedes_rule_version_id = _new_version_id_and_supersedes(
+        rel, rule_content, predecessor_id, predecessor_rule_version_id
+    )
+    if rule_version_id is not None:
+        version = _build_site_rule_version(
+            rule_version_id=rule_version_id, supersedes_rule_version_id=supersedes_rule_version_id,
+            rule_id=rule_id, site_id=site_id, coordinator_id=coordinator_id,
+            recorded_at=recorded_at, effective_from=effective_from, rule_content=rule_content,
+        )
+        insert_site_rule_version(conn, version)
+
+    decision_id = f"DEC-{uuid.uuid4().hex}"
+    _insert_decision_and_relation(
+        conn, decision_id=decision_id, site_id=site_id, rule_id=rule_id, chain_seq=chain_seq,
+        statement=statement, coordinator_id=coordinator_id, recorded_at=recorded_at,
+        effective_from=effective_from, rule_version_id=rule_version_id, rel=rel,
+        predecessor_id=predecessor_id,
+    )
+    return DecisionRecord(
+        decision_id=decision_id, site_id=site_id, rule_id=rule_id, chain_seq=chain_seq,
+        statement=statement, coordinator_id=coordinator_id, recorded_at=recorded_at,
+        effective_from=effective_from, rule_version_id=rule_version_id, rel=rel,
+        predecessor_decision_id=predecessor_id,
+    )
+
+
 def record_decision(
     conn: sqlite3.Connection,
     *,
@@ -115,36 +163,10 @@ def record_decision(
     rule_content: Optional[NewRuleContent],
 ) -> DecisionRecord:
     with conn:
-        ensure_rule_family(conn, rule_id, site_id)
-        end_row = _current_chain_end(conn, site_id, rule_id)
-        predecessor_id, _, predecessor_rule_version_id, chain_seq = _resolve_predecessor(
-            end_row, rel, rule_content
+        return record_decision_no_commit(
+            conn, site_id=site_id, rule_id=rule_id, statement=statement, coordinator_id=coordinator_id,
+            recorded_at=recorded_at, effective_from=effective_from, rel=rel, rule_content=rule_content,
         )
-        rule_version_id, supersedes_rule_version_id = _new_version_id_and_supersedes(
-            rel, rule_content, predecessor_id, predecessor_rule_version_id
-        )
-        if rule_version_id is not None:
-            version = _build_site_rule_version(
-                rule_version_id=rule_version_id, supersedes_rule_version_id=supersedes_rule_version_id,
-                rule_id=rule_id, site_id=site_id, coordinator_id=coordinator_id,
-                recorded_at=recorded_at, effective_from=effective_from, rule_content=rule_content,
-            )
-            insert_site_rule_version(conn, version)
-
-        decision_id = f"DEC-{uuid.uuid4().hex}"
-        _insert_decision_and_relation(
-            conn, decision_id=decision_id, site_id=site_id, rule_id=rule_id, chain_seq=chain_seq,
-            statement=statement, coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=effective_from, rule_version_id=rule_version_id, rel=rel,
-            predecessor_id=predecessor_id,
-        )
-
-    return DecisionRecord(
-        decision_id=decision_id, site_id=site_id, rule_id=rule_id, chain_seq=chain_seq,
-        statement=statement, coordinator_id=coordinator_id, recorded_at=recorded_at,
-        effective_from=effective_from, rule_version_id=rule_version_id, rel=rel,
-        predecessor_decision_id=predecessor_id,
-    )
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from rota.application import manual_edit
 from rota.domain import (
     Assignment,
     AssignmentRole,
@@ -31,6 +32,9 @@ from rota.domain import (
     MembershipKind,
     ReadinessSource,
     ReadinessState,
+    RuleCategory,
+    RuleEnforcement,
+    RuleResolution,
     ShiftCatalogKind,
     ShiftDemand,
     ShiftKind,
@@ -44,10 +48,14 @@ from rota.persistence.coordinator_repository import save_coordinator, save_coord
 from rota.persistence.db import LATEST_SCHEMA_VERSION, connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_employee, save_site_membership
 from rota.persistence.schedule_errors import MalformedScheduleSnapshot
-from rota.persistence.schedule_lifecycle import create_schedule_version
+from rota.persistence.schedule_lifecycle import create_schedule_version, finalize_schedule_version
+from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.persistence.schedule_validation import validate_assignments, validate_demands
+from rota.persistence.site_memory import rule_history
 from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
 from rota.persistence.site_repository import save_site
+from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
+from rota.persistence.site_rule_repository import get_site_rule_version
 from rota.planning.engine import plan
 from rota.planning.eligibility import check_eligibility
 from rota.planning.shift_catalog import (
@@ -57,6 +65,7 @@ from rota.planning.shift_catalog import (
     generate_catalog_demands,
     normalized_catalog_kind,
 )
+from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.validator import validate
 from rota.planning.work_periods import PeriodComponent, find_malformed_periods, resolve_required_rest
 from tests.support.minimal_state import SITE_ID, base_state
@@ -1411,6 +1420,256 @@ def test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback():
     a = _primary("A1", "A", d)
     report = validate(state, [a])
     assert any(det.rule == "DAY_ONLY-01" for det in report.violation_details)
+
+
+# --- D: manual REST override + audit record (part_d_manual_override.md) ---
+
+
+def _seed_d_site(conn, *, site_id: str, profile_id: str, employees: list[str], month: date) -> None:
+    profile = _profile(profile_id, [_d(5, 11)])
+    save_site_profile(conn, profile)
+    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", site_id, True))
+    for employee_id in employees:
+        save_employee(conn, Employee(employee_id, employee_id, date(2020, 1, 1), None, False))
+        save_site_membership(conn, SiteMembership(employee_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    days_in_month = calendar.monthrange(month.year, month.month)[1]
+    for day in range(1, days_in_month + 1):
+        save_calendar_day(conn, CalendarDay(date(month.year, month.month, day), False))
+
+
+def _rest_demand(demand_id: str, start: datetime, end: datetime, *, catalog_kind=ShiftCatalogKind.H12, **kwargs) -> ShiftDemand:
+    return ShiftDemand(demand_id, "", start, end, 1, shift_kind=ShiftKind.D, catalog_kind=catalog_kind, required_rest_hours=11, **kwargs)
+
+
+def _create_initial_version(conn, *, site_id: str, month: date, demands: list[ShiftDemand], assignments: list[Assignment]) -> str:
+    version_id = f"SV-INIT-{site_id}"
+    create_schedule_version(
+        conn, version_id=version_id, site_id=site_id, month=month, parent_version_id=None,
+        created_at=datetime(2026, 1, 1), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=demands, assignments=assignments, deviations=[], effective_from=month,
+    )
+    return version_id
+
+
+def _two_demand_conflict_fixture(month: date):
+    d1 = _rest_demand("D1", datetime(month.year, month.month, 1, 5, 0), datetime(month.year, month.month, 1, 17, 0))
+    d2 = _rest_demand("D2", datetime(month.year, month.month, 1, 20, 0), datetime(month.year, month.month, 2, 8, 0))
+    a1 = Assignment("A1", "", "A", d1.start_datetime, d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D1", None, work_period_id="wp1", required_rest_after_hours=11)
+    a2 = Assignment("A2", "", "B", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D2", None, work_period_id="wp2", required_rest_after_hours=11)
+    reassigned = Assignment("A2", "", "A", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D2", None, work_period_id="wp2", required_rest_after_hours=11)
+    return d1, d2, a1, a2, reassigned
+
+
+def test_d_manual_rest_violation_saves_child_deviation_and_one_decision_record(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D1", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D1", employees=["A", "B"], month=month)
+    d1, d2, a1, a2, reassigned = _two_demand_conflict_fixture(month)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+
+    v2 = manual_edit.apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned],
+    )
+    snapshot = get_schedule_snapshot(conn, v2.version_id)
+    rest_devs = [d for d in snapshot.deviations if d.source_reference == "REST-01"]
+    assert len(rest_devs) == 1
+
+    records = rule_history(conn, site_id, f"REST-OVERRIDE:{v2.version_id}")
+    assert len(records) == 1
+    version = get_site_rule_version(conn, records[0].rule_version_id)
+    assert version.category == RuleCategory.CONFIRMED_EXCEPTION
+    assert version.rule_kind == "REST_OVERRIDE_RECORD"
+    assert version.enforcement == RuleEnforcement.INFORMATIONAL
+    assert version.resolution_status == RuleResolution.RESOLVED
+    assert version.structured_parameters["child_version_id"] == v2.version_id
+    assert version.structured_parameters["rest_pairs"][0]["employee_id"] == "A"
+    assert version.rule_version_id not in v2.applied_rule_version_ids
+
+
+def test_d_several_rest_violations_one_record_with_all_evidence(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D2", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D2", employees=["A", "B", "C"], month=month)
+    d1 = _rest_demand("D1", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0))
+    d2 = _rest_demand("D2", datetime(2026, 9, 1, 20, 0), datetime(2026, 9, 2, 8, 0))
+    d3 = _rest_demand("D3", datetime(2026, 9, 2, 11, 0), datetime(2026, 9, 2, 23, 0))
+    a1 = Assignment("A1", "", "A", d1.start_datetime, d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D1", None, work_period_id="wp1", required_rest_after_hours=11)
+    a2 = Assignment("A2", "", "B", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D2", None, work_period_id="wp2", required_rest_after_hours=11)
+    a3 = Assignment("A3", "", "C", d3.start_datetime, d3.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D3", None, work_period_id="wp3", required_rest_after_hours=11)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2, d3], assignments=[a1, a2, a3])
+
+    reassign_b = Assignment("A2", "", "A", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D2", None, work_period_id="wp2", required_rest_after_hours=11)
+    reassign_c = Assignment("A3", "", "A", d3.start_datetime, d3.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D3", None, work_period_id="wp3", required_rest_after_hours=11)
+    v2 = manual_edit.apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassign_b, reassign_c],
+    )
+    snapshot = get_schedule_snapshot(conn, v2.version_id)
+    rest_devs = [d for d in snapshot.deviations if d.source_reference == "REST-01"]
+    assert len(rest_devs) >= 2  # D1-D2 gap (3h) and D2-D3 gap (3h) both violate
+
+    records = rule_history(conn, site_id, f"REST-OVERRIDE:{v2.version_id}")
+    assert len(records) == 1
+    version = get_site_rule_version(conn, records[0].rule_version_id)
+    assert len(version.structured_parameters["rest_pairs"]) == len(rest_devs)
+
+
+def test_d_no_rest_violation_no_decision_record(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D3", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D3", employees=["A", "B"], month=month)
+    d1, d2, a1, a2, _reassigned = _two_demand_conflict_fixture(month)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+
+    v2 = manual_edit.freeze_or_unfreeze(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        assignment_id="A1", frozen=True,
+    )
+    assert rule_history(conn, site_id, f"REST-OVERRIDE:{v2.version_id}") == []
+
+
+def test_d_informational_record_ignored_by_planning_engine(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D4", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D4", employees=["A", "B"], month=month)
+    d1, d2, a1, a2, reassigned = _two_demand_conflict_fixture(month)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+    manual_edit.apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned],
+    )
+    resolved, _unresolved, applicability = assemble_monthly_site_rules(conn, site_id, month)
+    override_versions = [r for r in resolved if r.rule_kind == "REST_OVERRIDE_RECORD"]
+    assert len(override_versions) == 1
+    hard_ids = {r.rule_version_id for r in hard_rules_applicable_on(resolved, applicability, d1.start_datetime.date())}
+    assert override_versions[0].rule_version_id not in hard_ids
+
+
+def test_d_finalize_rejects_unacknowledged_then_succeeds_after_acknowledgement(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D5", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D5", employees=["A", "B"], month=month)
+    d1, d2, a1, a2, reassigned = _two_demand_conflict_fixture(month)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+    v2 = manual_edit.apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned],
+    )
+    with pytest.raises(MalformedScheduleSnapshot):
+        finalize_schedule_version(conn, version_id=v2.version_id)
+
+    snapshot = get_schedule_snapshot(conn, v2.version_id)
+    acknowledged = [replace(d, acknowledged=True, acknowledged_by="COORD-1", acknowledged_at=datetime.now()) for d in snapshot.deviations]
+    finalized = finalize_schedule_version(
+        conn, version_id=v2.version_id, applied_rule_version_ids=v2.applied_rule_version_ids,
+        shift_demands=list(snapshot.shift_demands), assignments=list(snapshot.assignments), deviations=acknowledged,
+    )
+    assert finalized.status.value.startswith("FINAL")
+
+
+def test_d_forced_decision_ledger_failure_rolls_back_entire_correction(tmp_path, monkeypatch):
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D6", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D6", employees=["A", "B"], month=month)
+    d1, d2, a1, a2, reassigned = _two_demand_conflict_fixture(month)
+    v1 = _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+    versions_before = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
+    current_before = get_current_version_id(conn, site_id, month)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated decision-ledger failure")
+
+    monkeypatch.setattr("rota.application.manual_edit.record_decision_no_commit", _boom)
+    with pytest.raises(RuntimeError):
+        manual_edit.apply_manual_correction(
+            conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+            upsert_assignments=[reassigned],
+        )
+    assert conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0] == versions_before
+    assert get_current_version_id(conn, site_id, month) == current_before
+    assert conn.execute("SELECT COUNT(*) FROM deviations WHERE schedule_version_id != ?", (v1,)).fetchone()[0] == 0
+
+
+def test_d_restart_preserves_deviation_decision_record_and_work_period_provenance(tmp_path):
+    db_path = tmp_path / "rota.db"
+    conn = connect(db_path)
+    site_id, month = "SITE-D7", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D7", employees=["A", "B"], month=month)
+    d1, d2, a1, a2, reassigned = _two_demand_conflict_fixture(month)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+    v2 = manual_edit.apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned],
+    )
+    conn.close()
+
+    reopened = connect(db_path)
+    snapshot = get_schedule_snapshot(reopened, v2.version_id)
+    rest_devs = [d for d in snapshot.deviations if d.source_reference == "REST-01"]
+    assert len(rest_devs) == 1
+    a2_row = next(a for a in snapshot.assignments if a.assignment_id == "A2")
+    assert a2_row.employee_id == "A" and a2_row.work_period_id == "wp2"
+    records = rule_history(reopened, site_id, f"REST-OVERRIDE:{v2.version_id}")
+    assert len(records) == 1
+
+
+def test_d_final_e2e_normal24_emergency24_inny_cross_site(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    month = date(2026, 9, 1)
+    site_a, site_b = "SITE-D8-A", "SITE-D8-B"
+    _seed_d_site(conn, site_id=site_a, profile_id="PROF-D8A", employees=["A", "B"], month=month)
+    _seed_d_site(conn, site_id=site_b, profile_id="PROF-D8B", employees=["X", "Y"], month=month)
+
+    h24_d = ShiftDemand("H24-D", "", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12, work_period_template_id="H24-WP", work_period_component=1)
+    h24_n = ShiftDemand("H24-N", "", datetime(2026, 9, 1, 17, 0), datetime(2026, 9, 2, 5, 0), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12, work_period_template_id="H24-WP", work_period_component=2)
+    emg_d = ShiftDemand("EMG-D", "", datetime(2026, 9, 10, 5, 0), datetime(2026, 9, 10, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=11, emergency_24h_rest_hours=13)
+    emg_n = ShiftDemand("EMG-N", "", datetime(2026, 9, 10, 17, 0), datetime(2026, 9, 11, 5, 0), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=11)
+    inny = ShiftDemand("INNY-1", "", datetime(2026, 9, 2, 10, 0), datetime(2026, 9, 2, 18, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.OTHER, required_rest_hours=11)
+
+    wp = f"{site_a}:H24-WP"
+    emg_wp = f"{site_a}:emergency:A:EMG-D+EMG-N"
+    assignments = [
+        Assignment("AH1", "", "A", h24_d.start_datetime, h24_d.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "H24-D", None, work_period_id=wp, required_rest_after_hours=12),
+        Assignment("AH2", "", "A", h24_n.start_datetime, h24_n.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "H24-N", None, work_period_id=wp, required_rest_after_hours=12),
+        Assignment("AE1", "", "A", emg_d.start_datetime, emg_d.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "EMG-D", None, work_period_id=emg_wp, required_rest_after_hours=13),
+        Assignment("AE2", "", "A", emg_n.start_datetime, emg_n.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "EMG-N", None, work_period_id=emg_wp, required_rest_after_hours=13),
+        Assignment("AI1", "", "B", inny.start_datetime, inny.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "INNY-1", None, work_period_id=f"{site_a}:INNY-1", required_rest_after_hours=11),
+    ]
+    _create_initial_version(conn, site_id=site_a, month=month, demands=[h24_d, h24_n, emg_d, emg_n, inny], assignments=assignments)
+
+    # Reassign INNY to A: only 5h after the normal 24h pair ends (needs 12h).
+    reassigned_inny = Assignment("AI1", "", "A", inny.start_datetime, inny.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "INNY-1", None, work_period_id=f"{site_a}:INNY-1", required_rest_after_hours=11)
+    v2 = manual_edit.apply_manual_correction(
+        conn, site_id=site_a, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned_inny],
+    )
+    snapshot = get_schedule_snapshot(conn, v2.version_id)
+    assert any(d.source_reference == "REST-01" for d in snapshot.deviations)
+    records_a = rule_history(conn, site_a, f"REST-OVERRIDE:{v2.version_id}")
+    assert len(records_a) == 1
+    by_id = {a.assignment_id: a for a in snapshot.assignments}
+    assert by_id["AH1"].work_period_id == by_id["AH2"].work_period_id == wp
+    assert by_id["AE1"].work_period_id == by_id["AE2"].work_period_id == emg_wp
+
+    # Cross-site isolation: an independent correction on site B never appears
+    # under site A's rule_id, and vice versa.
+    x_d1 = _rest_demand("X-D1", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0))
+    x_d2 = _rest_demand("X-D2", datetime(2026, 9, 1, 20, 0), datetime(2026, 9, 2, 8, 0))
+    xa1 = Assignment("XA1", "", "X", x_d1.start_datetime, x_d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "X-D1", None, work_period_id="xwp1", required_rest_after_hours=11)
+    xa2 = Assignment("XA2", "", "Y", x_d2.start_datetime, x_d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "X-D2", None, work_period_id="xwp2", required_rest_after_hours=11)
+    _create_initial_version(conn, site_id=site_b, month=month, demands=[x_d1, x_d2], assignments=[xa1, xa2])
+    x_reassigned = Assignment("XA2", "", "X", x_d2.start_datetime, x_d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "X-D2", None, work_period_id="xwp2", required_rest_after_hours=11)
+    v2_b = manual_edit.apply_manual_correction(
+        conn, site_id=site_b, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[x_reassigned],
+    )
+    records_b = rule_history(conn, site_b, f"REST-OVERRIDE:{v2_b.version_id}")
+    assert len(records_b) == 1
+    assert rule_history(conn, site_a, f"REST-OVERRIDE:{v2_b.version_id}") == []
+    assert rule_history(conn, site_b, f"REST-OVERRIDE:{v2.version_id}") == []
 
 
 if __name__ == "__main__":
