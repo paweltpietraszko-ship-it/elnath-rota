@@ -47,7 +47,13 @@ class AmbiguousEmergency24hCapability(Exception):
 
 
 def classify_demand(demand: ShiftDemand, profile: SiteProfile) -> ShiftKind:
-    """Return the ShiftKind of demand by matching its start time against profile shifts."""
+    """Return the ShiftKind of demand. ROTA-T012 (A-R4-3): a demand carrying
+    an explicit ShiftDemand.shift_kind (every T012-generated demand does)
+    is authoritative and never needs -- or gets -- reconstructed from the
+    current profile; the profile-matching fallback below is legacy-only
+    (shift_kind=None)."""
+    if demand.shift_kind is not None:
+        return demand.shift_kind
     start_time = demand.start_datetime.time()
     for shift in profile.standard_shifts:
         if shift.start_time == start_time:
@@ -86,9 +92,13 @@ def normalized_catalog_kind(shift: StandardShift) -> ShiftCatalogKind:
     return ShiftCatalogKind.OTHER
 
 
-def validate_standard_shift(shift: StandardShift) -> None:
-    if shift.required_primary_count <= 0:
-        raise InvalidStandardShift(f"required_primary_count must be > 0, got {shift.required_primary_count}")
+def validate_standard_shift_shape(shift: StandardShift) -> None:
+    """A-R4-4: the T012 shape boundaries (rest/weekdays/catalog-kind-vs-
+    duration) a create/update write must reject immediately -- deliberately
+    NOT including required_primary_count, which stays a separate, already-
+    established pre-T012 concern (tests/test_audit_t010_r3.py: an
+    incomplete-but-saved StandardShift is a bootstrap/readiness gate, not a
+    persistence-time rejection)."""
     if shift.required_rest_hours < 0:
         raise InvalidStandardShift(f"required_rest_hours must be >= 0, got {shift.required_rest_hours}")
     if not shift.active_weekdays:
@@ -106,6 +116,15 @@ def validate_standard_shift(shift: StandardShift) -> None:
         raise InvalidStandardShift(f"catalog_kind=12h requires exactly 12h duration, got {hours}h")
     if shift.catalog_kind == ShiftCatalogKind.OTHER and (hours <= 0 or hours in (12, 24)):
         raise InvalidStandardShift(f"catalog_kind=INNY requires a positive duration that is not 12h/24h, got {hours}h")
+
+
+def validate_standard_shift(shift: StandardShift) -> None:
+    """Full PLAN-time validation: the write-time shape boundaries above,
+    plus required_primary_count > 0 (a usable-catalog concern, not a
+    storage-shape one)."""
+    if shift.required_primary_count <= 0:
+        raise InvalidStandardShift(f"required_primary_count must be > 0, got {shift.required_primary_count}")
+    validate_standard_shift_shape(shift)
 
 
 def _opposite(kind: ShiftKind) -> ShiftKind:
@@ -142,18 +161,22 @@ def _components_for_shift(shift: StandardShift, template_id: str, current: date)
 
 def _emergency_rest_lookup(profile: SiteProfile) -> dict[tuple, int]:
     """Maps (kind, start_time_of_day) -> required_rest_hours for every
-    unambiguous matching 24h capability's two halves. AmbiguousEmergency24hCapability
-    is raised eagerly here (at lookup-table build time) so every demand
-    generated from an ambiguous profile fails closed identically."""
+    unambiguous matching 24h capability -- keyed ONLY by the capability's
+    own start (kind, start_time), i.e. where an emergency 24h occurrence
+    would BEGIN (A-R4-2). The derived second-half slot is deliberately not
+    registered: it is not itself a place a new emergency 24h can start, and
+    registering it caused two legitimate, directionally distinct 24h
+    capabilities (e.g. D@05 and N@17) to collide as a false conflict.
+    AmbiguousEmergency24hCapability is raised eagerly here (at lookup-table
+    build time) so every demand generated from a genuinely ambiguous
+    profile -- two 24h capabilities with the same (kind, start_time) but
+    different required_rest_hours -- fails closed identically."""
     by_key: dict[tuple, set[int]] = {}
     for shift in profile.standard_shifts:
         if normalized_catalog_kind(shift) != ShiftCatalogKind.H24:
             continue
-        first_key = (shift.kind, shift.start_time)
-        second_start = (datetime.combine(date(2000, 1, 1), shift.start_time) + timedelta(hours=12)).time()
-        second_key = (_opposite(shift.kind), second_start)
-        by_key.setdefault(first_key, set()).add(shift.required_rest_hours)
-        by_key.setdefault(second_key, set()).add(shift.required_rest_hours)
+        key = (shift.kind, shift.start_time)
+        by_key.setdefault(key, set()).add(shift.required_rest_hours)
     resolved: dict[tuple, int] = {}
     for key, rests in by_key.items():
         if len(rests) > 1:
@@ -180,11 +203,16 @@ def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDe
     days_in_month = calendar.monthrange(month.year, month.month)[1]
     components: list[_Component] = []
     for idx, shift in enumerate(profile.standard_shifts):
-        template_id = f"{profile.profile_id}-shift{idx}"
         for day in range(1, days_in_month + 1):
             current = date(month.year, month.month, day)
             if current.isoweekday() not in shift.active_weekdays:
                 continue
+            # A-R4-1: template_id identifies ONE occurrence (this catalog
+            # entry, on this start day), not the whole catalog entry across
+            # the month -- 12h/INNY forms a group of exactly one demand,
+            # normal 24h a group of exactly the two components of that one
+            # occurrence, never all 31 days' worth.
+            template_id = f"{profile.profile_id}-shift{idx}-{current.isoformat()}"
             components.extend(_components_for_shift(shift, template_id, current))
 
     components.sort(key=lambda c: (c.start, c.kind.value))
@@ -202,7 +230,10 @@ def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDe
         kind_seen[key] = occurrence + 1
         suffix = f"-{occurrence}" if kind_counts[key] > 1 else ""
         demand_id = f"{day.isoformat()}-{c.kind.value}{suffix}"
-        emergency = None if c.catalog_kind == ShiftCatalogKind.H24 else emergency_rest.get((c.kind, c.start.time()))
+        # A-R4-2: only a plain 12h demand may snapshot an emergency rest --
+        # never a 24h component itself (it IS the capability, not a rescue
+        # candidate) and never INNY (excluded from emergency pairing).
+        emergency = emergency_rest.get((c.kind, c.start.time())) if c.catalog_kind == ShiftCatalogKind.H12 else None
         demands.append(ShiftDemand(
             demand_id, "", c.start, c.end, c.required_primary_count,
             shift_kind=c.kind, catalog_kind=c.catalog_kind, required_rest_hours=c.required_rest_hours,

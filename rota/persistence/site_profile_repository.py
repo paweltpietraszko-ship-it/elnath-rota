@@ -13,6 +13,7 @@ import sqlite3
 from datetime import time
 
 from rota.domain import ShiftCatalogKind, ShiftKind, SiteProfile, StandardShift
+from rota.planning.shift_catalog import validate_standard_shift_shape
 
 
 class SiteProfileNotFound(Exception):
@@ -65,12 +66,13 @@ def _write_site_profile_header(conn: sqlite3.Connection, profile: SiteProfile) -
 
 
 def _write_standard_shift(conn: sqlite3.Connection, profile_id: str, seq: int, shift: StandardShift, has_t012_columns: bool) -> None:
-    # T012 shape validation intentionally does NOT run here -- persistence
-    # stays permissive (module docstring: exactly the existing fields, no
-    # new domain rules), matching the pre-T012 precedent that
-    # bootstrap._is_valid_standard_shift, not save, is what flags an
-    # unusable shift. rota.planning.shift_catalog.generate_catalog_demands
-    # validates at actual catalog-generation (PLAN) time instead.
+    # A-R4-4: the T012 shape boundaries (rest/weekdays/catalog-kind-vs-
+    # duration) are rejected here, at create/update write time -- not
+    # deferred to PLAN. required_primary_count stays a separate, deferred
+    # bootstrap/readiness concern (pre-T012 precedent,
+    # tests/test_audit_t010_r3.py) -- see
+    # rota.planning.shift_catalog.validate_standard_shift_shape.
+    validate_standard_shift_shape(shift)
     if not has_t012_columns:
         conn.execute(
             """INSERT INTO standard_shifts

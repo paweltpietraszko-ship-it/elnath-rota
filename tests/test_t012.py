@@ -10,7 +10,7 @@ are exercised yet -- those are Part B/C/D.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, time
+from datetime import date, datetime, time
 
 import pytest
 
@@ -20,6 +20,7 @@ from rota.domain import (
     ReadinessSource,
     ReadinessState,
     ShiftCatalogKind,
+    ShiftDemand,
     ShiftKind,
     Site,
     SiteMembership,
@@ -28,10 +29,13 @@ from rota.domain import (
 )
 from rota.persistence.db import LATEST_SCHEMA_VERSION, connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_employee, save_site_membership
+from rota.persistence.schedule_validation import validate_demands
 from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
 from rota.persistence.site_repository import save_site
 from rota.planning.shift_catalog import (
     AmbiguousEmergency24hCapability,
+    InvalidStandardShift,
+    classify_demand,
     generate_catalog_demands,
     normalized_catalog_kind,
 )
@@ -142,15 +146,21 @@ def test_a_overlapping_same_kind_entries_get_distinct_ids():
     assert len({d.demand_id for d in day_1}) == 2
 
 
-def _first_pair(demands, template_id: str):
-    pair = sorted((d for d in demands if d.work_period_template_id == template_id), key=lambda d: d.start_datetime)
-    return pair[:2]
+def _first_pair(demands):
+    """The earliest-starting occurrence's two components, grouped by their
+    shared work_period_template_id -- not an exact id string, since A-R4-1
+    makes template_id per-occurrence (date-scoped), not per-catalog-entry."""
+    by_template: dict = {}
+    for d in demands:
+        by_template.setdefault(d.work_period_template_id, []).append(d)
+    pair = next(group for group in by_template.values() if len(group) == 2)
+    return sorted(pair, key=lambda d: d.start_datetime)
 
 
 def test_a_24h_d_start_produces_d_then_n_components():
     profile = _profile("H24-D", [_h24(ShiftKind.D, 5, 12)])
     demands = generate_catalog_demands(profile, MONTH)
-    first, second = _first_pair(demands, "H24-D-shift0")
+    first, second = _first_pair(demands)
     assert [first.shift_kind, second.shift_kind] == [ShiftKind.D, ShiftKind.N]
     assert first.work_period_template_id == second.work_period_template_id
     assert (first.work_period_component, second.work_period_component) == (1, 2)
@@ -160,7 +170,7 @@ def test_a_24h_d_start_produces_d_then_n_components():
 def test_a_24h_n_start_produces_n_then_d_components():
     profile = _profile("H24-N", [_h24(ShiftKind.N, 17, 12)])
     demands = generate_catalog_demands(profile, MONTH)
-    first, second = _first_pair(demands, "H24-N-shift0")
+    first, second = _first_pair(demands)
     assert [first.shift_kind, second.shift_kind] == [ShiftKind.N, ShiftKind.D]
 
 
@@ -299,6 +309,83 @@ def test_a_real_nonempty_v4_db_migrates_to_v5_without_data_loss(tmp_path):
     snapshot = get_schedule_snapshot(reopened, "SV-LEGACY")
     assert snapshot.shift_demands[0].shift_kind is None and snapshot.shift_demands[0].work_period_template_id is None
     assert snapshot.assignments[0].work_period_id is None and snapshot.assignments[0].required_rest_after_hours is None
+
+
+# --- A round 4 audit closure (A-R4-1..5): occurrence identity, emergency ---
+# --- snapshot direction, explicit shift_kind precedence, write-time shape ---
+# --- validation, and normal 24h month-boundary persistence.               ---
+
+
+def _shift(kind, start_hour, duration, catalog_kind, *, rest=11, weekdays=(1, 2, 3, 4, 5, 6, 7)) -> StandardShift:
+    end_hour = (start_hour + duration) % 24
+    return StandardShift(kind, time(start_hour), time(end_hour), start_hour + duration >= 24, 1,
+                          catalog_kind=catalog_kind, required_rest_hours=rest, active_weekdays=weekdays)
+
+
+@pytest.mark.parametrize(
+    ("catalog_kind", "duration", "components"),
+    [(ShiftCatalogKind.H12, 12, 1), (ShiftCatalogKind.OTHER, 6, 1), (ShiftCatalogKind.H24, 24, 2)],
+)
+def test_a_each_occurrence_has_its_own_template_id(catalog_kind, duration, components):
+    demands = generate_catalog_demands(_profile("TEMPLATE", [_shift(ShiftKind.D, 5, duration, catalog_kind)]), MONTH)
+    groups: dict = {}
+    for d in demands:
+        groups.setdefault(d.work_period_template_id, []).append(d)
+    assert len(groups) == 31
+    assert {len(g) for g in groups.values()} == {components}
+
+
+def test_a_emergency_snapshot_is_directional_not_ambiguous():
+    profile = _profile("DIRECTION", [
+        _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H12), _shift(ShiftKind.N, 17, 12, ShiftCatalogKind.H12),
+        _shift(ShiftKind.D, 5, 24, ShiftCatalogKind.H24, rest=11), _shift(ShiftKind.N, 17, 24, ShiftCatalogKind.H24, rest=13),
+    ])
+    ordinary = [d for d in generate_catalog_demands(profile, MONTH) if d.catalog_kind == ShiftCatalogKind.H12]
+    rests = {(d.shift_kind, d.start_datetime.time()): d.emergency_24h_rest_hours for d in ordinary}
+    assert rests[(ShiftKind.D, time(5))] == 11
+    assert rests[(ShiftKind.N, time(17))] == 13
+
+
+@pytest.mark.parametrize("ordinary", [
+    _shift(ShiftKind.N, 17, 12, ShiftCatalogKind.H12), _shift(ShiftKind.D, 5, 6, ShiftCatalogKind.OTHER),
+])
+def test_a_second_half_and_inny_do_not_receive_emergency_snapshot(ordinary):
+    profile = _profile("NO-LEAK", [ordinary, _shift(ShiftKind.D, 5, 24, ShiftCatalogKind.H24, rest=14)])
+    demands = generate_catalog_demands(profile, MONTH)
+    ordinary_demand = next(d for d in demands if d.catalog_kind == ordinary.catalog_kind)
+    assert ordinary_demand.emergency_24h_rest_hours is None
+
+
+def test_a_explicit_shift_kind_precedes_legacy_profile_classifier():
+    profile = _profile("CLASSIFY", [_shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H12)])
+    explicit = ShiftDemand(
+        "explicit-N", "SV", datetime(2026, 10, 1, 17), datetime(2026, 10, 2, 5), 1,
+        shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=11,
+        work_period_template_id="WP", work_period_component=2,
+    )
+    assert classify_demand(explicit, profile) == ShiftKind.N
+
+
+@pytest.mark.parametrize("invalid_shift", [
+    _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H12, rest=-1),
+    _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H12, weekdays=()),
+    _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H12, weekdays=(1, 1)),
+    _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H12, weekdays=(0, 7)),
+    _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.H24),
+    _shift(ShiftKind.D, 5, 6, ShiftCatalogKind.H12),
+    _shift(ShiftKind.D, 5, 12, ShiftCatalogKind.OTHER),
+])
+def test_a_new_or_updated_invalid_standard_shift_is_rejected_on_write(tmp_path, invalid_shift):
+    conn = connect(tmp_path / "rota.db")
+    with pytest.raises(InvalidStandardShift):
+        save_site_profile(conn, _profile("INVALID", [invalid_shift]))
+
+
+@pytest.mark.parametrize(("month", "start_hour"), [(date(2026, 10, 1), 17), (date(2026, 12, 1), 17)])
+def test_a_normal_24h_occurrence_crossing_month_is_valid_month_content(month, start_hour):
+    demands = list(generate_catalog_demands(_profile("BOUNDARY", [_shift(ShiftKind.N, start_hour, 24, ShiftCatalogKind.H24)]), month))
+    validated = validate_demands(month, demands)
+    assert validated.keys() == {d.demand_id for d in demands}
 
 
 if __name__ == "__main__":

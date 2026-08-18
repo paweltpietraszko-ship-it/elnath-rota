@@ -10,7 +10,16 @@ import sqlite3
 from dataclasses import replace
 from datetime import date
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, Deviation, DeviationCategory, ScheduleStatus, ShiftDemand
+from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
+    Deviation,
+    DeviationCategory,
+    ScheduleStatus,
+    ShiftCatalogKind,
+    ShiftDemand,
+)
 from rota.persistence.schedule_errors import InvalidScheduleLineage, MalformedScheduleSnapshot, RealizedWorkAltered
 from rota.persistence.schedule_repository import ScheduleVersionNotFound, get_schedule_snapshot, get_schedule_version_header
 
@@ -59,8 +68,28 @@ def validate_applied_rules(conn: sqlite3.Connection, *, site_id: str, applied_ru
             raise MalformedScheduleSnapshot(f"applied rule {rule_version_id!r} belongs to a different Site")
 
 
+def _is_valid_month_crossing_24h_second_half(demand: ShiftDemand, first_by_template: dict[str, ShiftDemand]) -> bool:
+    """A-R4-5: a normal 24h occurrence anchored on the LAST day of
+    ScheduleVersion.month legitimately has its component=2 start in the
+    following month -- weekday anchoring is to the occurrence's start day
+    (component=1), and the pair is still one continuous 24h work period.
+    Narrow: only the exact, directly-consecutive, opposite-kind component=2
+    of a same-template component=1 that IS in this month qualifies. An
+    arbitrary unpaired demand from a foreign month is still rejected."""
+    if demand.catalog_kind != ShiftCatalogKind.H24 or demand.work_period_component != 2:
+        return False
+    first = first_by_template.get(demand.work_period_template_id)
+    return (
+        first is not None
+        and first.catalog_kind == ShiftCatalogKind.H24
+        and first.end_datetime == demand.start_datetime
+        and first.shift_kind != demand.shift_kind
+    )
+
+
 def validate_demands(month: date, shift_demands: list[ShiftDemand]) -> dict[str, ShiftDemand]:
     by_id: dict[str, ShiftDemand] = {}
+    first_by_template: dict[str, ShiftDemand] = {}
     for demand in shift_demands:
         if demand.demand_id in by_id:
             raise MalformedScheduleSnapshot(f"duplicate demand_id {demand.demand_id!r}")
@@ -68,10 +97,16 @@ def validate_demands(month: date, shift_demands: list[ShiftDemand]) -> dict[str,
             raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: end must be after start")
         if demand.required_primary_count <= 0:
             raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: required_primary_count must be > 0")
-        start = demand.start_datetime
-        if (start.year, start.month) != (month.year, month.month):
-            raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: start date not in ScheduleVersion.month")
         by_id[demand.demand_id] = demand
+        if demand.work_period_component == 1 and demand.work_period_template_id:
+            first_by_template[demand.work_period_template_id] = demand
+    for demand in shift_demands:
+        start = demand.start_datetime
+        if (start.year, start.month) == (month.year, month.month):
+            continue
+        if _is_valid_month_crossing_24h_second_half(demand, first_by_template):
+            continue
+        raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: start date not in ScheduleVersion.month")
     return by_id
 
 
