@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import calendar
 import sqlite3
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from rota.application import plan_ops
 from rota.domain import (
     Assignment,
     AssignmentRole,
@@ -879,7 +879,11 @@ def test_b_trainee_without_provenance_keeps_legacy_standalone_rest():
 
 
 def _seed_history_site(conn, *, site_id: str, profile_id: str, employee_id: str) -> None:
-    profile = _profile(profile_id, [_d(5, 11)])
+    # rolling_7d_decision_threshold_hours is raised above a single
+    # employee's worst-case 7*12=84h (one demand every day of the month,
+    # LOAD-01 is not the fact under test here) so a full-month plan_month
+    # control run is FEASIBLE on this fixture alone, with no history.
+    profile = replace(_profile(profile_id, [_d(5, 11)]), rolling_7d_decision_threshold_hours=100)
     save_site_profile(conn, profile)
     save_site(conn, Site(site_id, profile_id, site_id, True))
     save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
@@ -905,33 +909,101 @@ def _write_history_version(conn, *, site_id: str, month: date, employee_id: str,
     )
 
 
-def test_b_persisted_prior_same_site_period_far_beyond_old_window_blocks_current(tmp_path):
+
+# Real elapsed gap Jan 2015 -> Oct 2026 (~103,000h) and Oct 2026 -> Jan 2035
+# (~74,000h) are both smaller than REST_HOURS_BEYOND_GAP, so a REST-01 block
+# is only possible if the persisted period is actually still visible that
+# far away -- proving B-R10-1's unbounded context, not a rest value the
+# real elapsed time would have satisfied anyway (B-R10-4).
+REST_HOURS_BEYOND_GAP = 110_000
+OLD_HISTORY_MONTH = date(2015, 1, 1)
+OLD_HISTORY_START = datetime(2015, 1, 1, 5)
+OLD_HISTORY_END = datetime(2015, 1, 1, 17)
+FUTURE_HISTORY_MONTH = date(2035, 1, 1)
+FUTURE_HISTORY_START = datetime(2035, 1, 1, 5)
+FUTURE_HISTORY_END = datetime(2035, 1, 1, 17)
+
+
+def _plan_single_target_day(conn, *, site_id: str, day: date, rest: int | None = None):
+    from rota.application.assembler import assemble_planning_state
+
+    start, end = datetime.combine(day, time(5, 0)), datetime.combine(day, time(17, 0))
+    kwargs = {"shift_kind": ShiftKind.D, "required_rest_hours": rest} if rest is not None else {}
+    demand = ShiftDemand(f"single-{day.isoformat()}", "", start, end, 1, **kwargs)
+    state, _warnings = assemble_planning_state(conn, site_id=site_id, month=MONTH, shift_demands=(demand,))
+    return plan(state)
+
+
+def test_b_persisted_prior_same_site_period_blocks_current_with_feasible_control(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _seed_history_site(conn, site_id="SITE-HIST-A", profile_id="PROF-HIST-A", employee_id="A")
-    old_month = date(2024, 1, 1)
-    _write_history_version(conn, site_id="SITE-HIST-A", month=old_month, employee_id="A", start=datetime(2024, 1, 1, 5), end=datetime(2024, 1, 1, 17), rest=9000)
-    result = plan_ops.plan_month(conn, site_id="SITE-HIST-A", month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
-    assert result.status == "DECISION_REQUIRED"
+    control = _plan_single_target_day(conn, site_id="SITE-HIST-A", day=date(2026, 10, 1))
+    assert control.status == "FEASIBLE"  # identical fixture, no history yet -- rules out the fixture itself as the cause
+
+    _write_history_version(conn, site_id="SITE-HIST-A", month=OLD_HISTORY_MONTH, employee_id="A", start=OLD_HISTORY_START, end=OLD_HISTORY_END, rest=REST_HOURS_BEYOND_GAP)
+    blocked = _plan_single_target_day(conn, site_id="SITE-HIST-A", day=date(2026, 10, 1))
+    assert blocked.status == "DECISION_REQUIRED"
 
 
-def test_b_persisted_prior_cross_site_period_far_beyond_old_window_blocks_current(tmp_path):
+def test_b_persisted_prior_cross_site_period_blocks_current_with_feasible_control(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _seed_history_site(conn, site_id="SITE-HIST-B1", profile_id="PROF-HIST-B1", employee_id="A")
     _seed_history_site(conn, site_id="SITE-HIST-B2", profile_id="PROF-HIST-B2", employee_id="A")
-    old_month = date(2024, 1, 1)
-    _write_history_version(conn, site_id="SITE-HIST-B1", month=old_month, employee_id="A", start=datetime(2024, 1, 1, 5), end=datetime(2024, 1, 1, 17), rest=9000)
-    result = plan_ops.plan_month(conn, site_id="SITE-HIST-B2", month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
-    assert result.status == "DECISION_REQUIRED"
+    control = _plan_single_target_day(conn, site_id="SITE-HIST-B2", day=date(2026, 10, 1))
+    assert control.status == "FEASIBLE"
+
+    _write_history_version(conn, site_id="SITE-HIST-B1", month=OLD_HISTORY_MONTH, employee_id="A", start=OLD_HISTORY_START, end=OLD_HISTORY_END, rest=REST_HOURS_BEYOND_GAP)
+    blocked = _plan_single_target_day(conn, site_id="SITE-HIST-B2", day=date(2026, 10, 1))
+    assert blocked.status == "DECISION_REQUIRED"
 
 
-def test_b_persisted_future_cross_site_period_far_beyond_old_window_blocks_current(tmp_path):
+def test_b_persisted_future_cross_site_period_blocks_current_with_feasible_control(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _seed_history_site(conn, site_id="SITE-HIST-C1", profile_id="PROF-HIST-C1", employee_id="A")
     _seed_history_site(conn, site_id="SITE-HIST-C2", profile_id="PROF-HIST-C2", employee_id="A")
-    future_month = date(2028, 1, 1)
-    _write_history_version(conn, site_id="SITE-HIST-C2", month=future_month, employee_id="A", start=datetime(2028, 1, 1, 5), end=datetime(2028, 1, 1, 17), rest=11)
-    result = plan_ops.plan_month(conn, site_id="SITE-HIST-C1", month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
-    assert result.status == "DECISION_REQUIRED"
+    # Target's OWN rest governs the wall toward a LATER known period, so it
+    # -- not the future period's rest -- must exceed the real gap.
+    control = _plan_single_target_day(conn, site_id="SITE-HIST-C1", day=date(2026, 10, 1), rest=REST_HOURS_BEYOND_GAP)
+    assert control.status == "FEASIBLE"
+
+    _write_history_version(conn, site_id="SITE-HIST-C2", month=FUTURE_HISTORY_MONTH, employee_id="A", start=FUTURE_HISTORY_START, end=FUTURE_HISTORY_END, rest=11)
+    blocked = _plan_single_target_day(conn, site_id="SITE-HIST-C1", day=date(2026, 10, 1), rest=REST_HOURS_BEYOND_GAP)
+    assert blocked.status == "DECISION_REQUIRED"
+
+
+def test_b_normal_24h_n_to_d_count_two_positive_identical_employee_set():
+    shift = StandardShift(ShiftKind.N, time(17), time(17), True, 2, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12)
+    profile = _profile("B-COUNT2POS", [shift])
+    all_demands = generate_catalog_demands(profile, MONTH)
+    first_template = next(d.work_period_template_id for d in all_demands if d.start_datetime.date() == date(2026, 10, 1))
+    demands = tuple(d for d in all_demands if d.work_period_template_id == first_template)
+    employees = tuple(Employee(e, e, date(2026, 1, 1), None, False) for e in ("E1", "E2", "E3"))
+    state = base_state(profile=profile, employees=employees, memberships=tuple(_membership(e) for e in ("E1", "E2", "E3")), shift_demands=demands)
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand: dict = {}
+    for a in result.candidates[0]:
+        by_demand.setdefault(a.covers_demand_id, set()).add(a.employee_id)
+    d1, d2 = demands
+    assert by_demand[d1.demand_id] == by_demand[d2.demand_id]
+    assert len(by_demand[d1.demand_id]) == 2
+
+
+def test_b_cross_month_normal_24h_normalizes_as_one_period():
+    from rota.planning.work_periods import PeriodComponent, group_into_periods
+
+    profile = _profile("B-CROSSMONTHNORM", [_h24(ShiftKind.N, 17, 13)])
+    demands = list(generate_catalog_demands(profile, MONTH))
+    crossing = sorted((d for d in demands if d.start_datetime >= datetime(2026, 10, 31, 17)), key=lambda d: d.start_datetime)
+    d1, d2 = crossing
+    wp_id = f"{SITE_ID}:{d1.work_period_template_id}"
+    a1 = _primary("A1", "E", d1, work_period_id=wp_id, required_rest_after_hours=13)
+    a2 = _primary("A2", "E", d2, work_period_id=wp_id, required_rest_after_hours=13)
+    components = [PeriodComponent(a.assignment_id, "E", a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in (a1, a2)]
+    periods = group_into_periods(components)
+    assert len(periods) == 1
+    assert periods[0].start == d1.start_datetime and periods[0].end == d2.end_datetime
+    assert periods[0].required_rest_after_hours == 13
 
 
 if __name__ == "__main__":

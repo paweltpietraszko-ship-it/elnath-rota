@@ -56,6 +56,12 @@ class WorkPeriod:
     end: datetime
     required_rest_after_hours: int
     component_ids: tuple[str, ...]
+    # (schedule_version_id, component_id) pairs, parallel to component_ids --
+    # this system's real Assignment identity (tests/test_audit_t009_r6.py),
+    # used for target-vs-history membership tests. component_ids alone
+    # stays the bare local id, since that is what callers report/compare
+    # against real assignment_ids elsewhere (e.g. engine.py).
+    component_keys: tuple[tuple[Optional[str], str], ...] = ()
 
 
 def _period_key(component: PeriodComponent) -> tuple[str, str]:
@@ -92,6 +98,7 @@ def group_into_periods(components: list[PeriodComponent]) -> list[WorkPeriod]:
         periods.append(WorkPeriod(
             employee_id, period_key, ordered[0].start, max(m.end for m in ordered), rest,
             tuple(m.component_id for m in ordered),
+            tuple((m.schedule_version_id, m.component_id) for m in ordered),
         ))
     return periods
 
