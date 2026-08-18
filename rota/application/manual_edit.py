@@ -21,6 +21,7 @@ from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
+from rota.planning.work_periods import resolve_required_rest
 from rota.site_memory_types import NewRuleContent
 
 
@@ -31,30 +32,44 @@ def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: li
     return list(by_id.values())
 
 
-def _rest_override_pairs(state, corrected_assignments: list[Assignment], report) -> list[tuple[Assignment, Assignment, float]]:
+def _rest_override_pairs(state, corrected_assignments: list[Assignment], report) -> list[tuple[Assignment, Assignment, float, int]]:
     """ROTA-T012-D: independently re-derive each REST-01 pair's actual gap
     from the SAME data the validator saw (Assignment.end_datetime/
-    required_rest_after_hours), never by parsing ViolationDetail.message."""
-    pool = {a.assignment_id: a for a in (*corrected_assignments, *state.other_site_assignments, *state.boundary_assignments)}
+    required_rest_after_hours), never by parsing ViolationDetail.message.
+
+    D-R19-2: a ViolationDetail names bare local assignment_ids, and a
+    different valid ScheduleVersion (boundary or another Site) may reuse the
+    same local id -- the TARGET correction's own corrected_assignments is
+    always searched first (a real REST-01 pair always has at least one
+    target-side member, per validator._check_rest's target/history pairing),
+    and only an id absent there falls back to cross-context lookup.
+
+    D-R19-3: the recorded required_rest_hours is the RESOLVED value
+    (resolve_required_rest -- legacy None means the applied REST_MIN_HOURS
+    fallback), matching what the validator actually enforced, not the raw
+    (possibly None) Assignment field."""
+    current_by_id = {a.assignment_id: a for a in corrected_assignments}
+    context_by_id = {a.assignment_id: a for a in (*state.other_site_assignments, *state.boundary_assignments)}
     pairs = []
     for detail in report.violation_details:
         if detail.rule != "REST-01" or len(detail.assignment_ids) != 2:
             continue
-        earlier, later = pool.get(detail.assignment_ids[0]), pool.get(detail.assignment_ids[1])
+        earlier = current_by_id.get(detail.assignment_ids[0]) or context_by_id.get(detail.assignment_ids[0])
+        later = current_by_id.get(detail.assignment_ids[1]) or context_by_id.get(detail.assignment_ids[1])
         if earlier is None or later is None:
             continue
         gap_hours = (later.start_datetime - earlier.end_datetime).total_seconds() / 3600
-        pairs.append((earlier, later, gap_hours))
+        pairs.append((earlier, later, gap_hours, resolve_required_rest(earlier.required_rest_after_hours)))
     return pairs
 
 
-def _rest_override_rule_content(child_id: str, pairs: list[tuple[Assignment, Assignment, float]]) -> tuple[str, str, NewRuleContent, date]:
+def _rest_override_rule_content(child_id: str, pairs: list[tuple[Assignment, Assignment, float, int]]) -> tuple[str, str, NewRuleContent, date]:
     """T012 REST OVERRIDE AUDIT RECORD (arch/spec.md): CONFIRMED_EXCEPTION,
     INFORMATIONAL, RESOLVED -- never executable, never in this child's
     applied_rule_version_ids (created only inside on_success, after that
     list was already computed)."""
-    employee_ids = sorted({earlier.employee_id for earlier, _, _ in pairs})
-    all_members = [a for earlier, later, _ in pairs for a in (earlier, later)]
+    employee_ids = sorted({earlier.employee_id for earlier, _, _, _ in pairs})
+    all_members = [a for earlier, later, _, _ in pairs for a in (earlier, later)]
     structured_parameters = {
         "child_version_id": child_id,
         "affected_employee_ids": employee_ids,
@@ -64,9 +79,9 @@ def _rest_override_rule_content(child_id: str, pairs: list[tuple[Assignment, Ass
             {
                 "employee_id": earlier.employee_id, "earlier_assignment_id": earlier.assignment_id,
                 "later_assignment_id": later.assignment_id, "actual_gap_hours": round(gap_hours, 2),
-                "required_rest_hours": earlier.required_rest_after_hours,
+                "required_rest_hours": required_rest_hours,
             }
-            for earlier, later, gap_hours in pairs
+            for earlier, later, gap_hours, required_rest_hours in pairs
         ],
     }
     statement = (

@@ -20,6 +20,7 @@ from rota.domain import (
     Deviation,
     Employee,
     ExternalSupportWindow,
+    RuleEnforcement,
     ShiftDemand,
     SiteMembership,
     WorkBalance,
@@ -48,9 +49,11 @@ from rota.planning.state import PlanningState
 def resolved_rule_version_ids(conn, site_id: str, month: date) -> list[str]:
     """Shared by every operation that must set applied_rule_version_ids from
     the currently assembled RESOLVED monthly rule versions (brief.md
-    sections 3, 5, 8)."""
+    sections 3, 5, 8). ROTA-T012-D (D-R19-1): an INFORMATIONAL rule version
+    (e.g. a REST OVERRIDE AUDIT RECORD) is audit-only and must never enter
+    applied_rule_version_ids for this or any later PLAN/REPLAN."""
     resolved, _, _ = assemble_monthly_site_rules(conn, site_id, month)
-    return [r.rule_version_id for r in resolved]
+    return [r.rule_version_id for r in resolved if r.enforcement != RuleEnforcement.INFORMATIONAL]
 
 
 def generate_profile_demands(profile, month: date) -> tuple[ShiftDemand, ...]:
