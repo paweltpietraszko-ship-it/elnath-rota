@@ -32,7 +32,7 @@ Assembler generuje poprawny katalogowy demand set, w tym dwie komponenty normaln
 - rota/persistence/schedule_lifecycle.py
 - rota/persistence/schedule_validation.py
 - rota/planning/shift_catalog.py
-- tests/test_t012_a_catalog_persistence.py
+- tests/test_t012.py
 
 Żaden inny plik produkcyjny/testowy w A.
 
@@ -54,6 +54,8 @@ Assembler generuje poprawny katalogowy demand set, w tym dwie komponenty normaln
 10. A nie zmienia jeszcze outcome engine ani nie pozwala solverowi łamać starego globalnego REST.
 
 ## TESTY A — MINIMUM
+
+Wszystkie testy T012 A–D są konsolidowane w jednym nowym pliku `tests/test_t012.py`; checkpoint A dodaje do niego wyłącznie sekcję/testy A.
 
 - enum/value round-trip;
 - mixed profile 12h + INNY + 24h;
