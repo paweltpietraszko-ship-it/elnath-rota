@@ -18,7 +18,6 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     "SICK_LEAVE-01": DeviationCategory.LEAVE_OR_TIME_OFF,
     "LOAD-01": DeviationCategory.HOURS,
     "REST-01": DeviationCategory.LAW,
-    "EMP-02": DeviationCategory.LAW,
     "DAY_ONLY-01": DeviationCategory.PREFERENCE,
     "MEMBERSHIP-01": DeviationCategory.PREFERENCE,
     "EXTERNAL-01": DeviationCategory.PREFERENCE,

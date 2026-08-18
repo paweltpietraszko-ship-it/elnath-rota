@@ -1,18 +1,24 @@
 """Determine which employees may be assigned to a given ShiftDemand.
 
-Implements MEMBERSHIP-01/02, EMP-02, DAY_ONLY-01, DAY_SHIFT_OFF-01,
-UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01 and EXTERNAL-01 eligibility
-checks. Rest (REST-01) and load (LOAD-01) are cross-demand constraints and
-are handled separately in the solver, not here.
+Implements MEMBERSHIP-01/02, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
+LEAVE_GRANTED-01, LEAVE_PLAN-01 and EXTERNAL-01 eligibility checks. Rest
+(REST-01) and load (LOAD-01) are cross-demand constraints and are handled
+separately in the solver, not here.
+
+ROTA-T016 (owner decision 2026-08-16): EMP-02 (Employee.active_from/
+active_to gating eligibility) is retired. The program does not decide
+whether an Employee may work; it plans for the current SiteMembership
+roster the coordinator maintains. MEMBERSHIP-01 (membership.enabled) is the
+sole remaining source of truth for "may this person be assigned here."
 
 Audit round 12 (tests_r12.txt FINDING 2) found that the EXTERNAL_SUPPORT path
-only checked the window and skipped membership.enabled, EMP-02 (active
-period), DAY_ONLY-01 and availability blocks entirely -- i.e. an EXTERNAL
-employee with an active window could be scheduled while on LEAVE_GRANTED.
-EMP-02, MEMBERSHIP.enabled and the availability/DAY_ONLY gates are HARD rules
-that do not carry a membership-kind qualifier in arch/spec.md, so they are
-now applied identically to LOCAL and EXTERNAL; EXTERNAL additionally requires
-a covering ExternalSupportWindow (MEMBERSHIP-02, EXTERNAL-01).
+only checked the window and skipped membership.enabled, DAY_ONLY-01 and
+availability blocks entirely -- i.e. an EXTERNAL employee with an active
+window could be scheduled while on LEAVE_GRANTED. MEMBERSHIP.enabled and the
+availability/DAY_ONLY gates are HARD rules that do not carry a
+membership-kind qualifier in arch/spec.md, so they are applied identically
+to LOCAL and EXTERNAL; EXTERNAL additionally requires a covering
+ExternalSupportWindow (MEMBERSHIP-02, EXTERNAL-01).
 
 ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md): applicable RESOLVED
 HARD SiteRuleVersions ARE interpreted here, via
@@ -54,16 +60,6 @@ class EligibilityCheck:
 def overlaps_availability(demand: ShiftDemand, record: AvailabilityRecord) -> bool:
     """Return True if demand's interval overlaps record's inclusive calendar-date range."""
     return overlaps_date_range(demand.start_datetime, demand.end_datetime, record.start_date, record.end_date)
-
-
-def _employee_active(employee: Employee, demand: ShiftDemand) -> bool:
-    start_date = demand.start_datetime.date()
-    end_date = demand.end_datetime.date()
-    if start_date < employee.active_from:
-        return False
-    if employee.active_to is not None and end_date > employee.active_to:
-        return False
-    return True
 
 
 _BLOCKING_KIND_PRIORITY = (
@@ -145,13 +141,11 @@ def _common_hard_gate(
     availability_records: list[AvailabilityRecord],
     applicable_hard_rules: list[SiteRuleVersion],
 ) -> EligibilityCheck:
-    """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled, EMP-02,
-    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01, LEAVE_PLAN-01,
-    and (ROTA-T007) applicable HARD SiteRules."""
+    """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled,
+    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01,
+    LEAVE_PLAN-01, and (ROTA-T007) applicable HARD SiteRules."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
-    if not _employee_active(employee, demand):
-        return EligibilityCheck(False, False, "EMP-02")
     if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
         # ROTA-T010-B (DAY-ONLY-TEMP-N-EXCEPTION-01): a narrow, named
         # exception may exempt DAY_ONLY-01 specifically -- every other HARD

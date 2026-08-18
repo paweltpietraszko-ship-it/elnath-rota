@@ -108,16 +108,24 @@ def test_r13_2b_cancelled_excluded_from_validator_rest_and_load():
 # FINDING R13-3 ---------------------------------------------------------------
 
 
-def test_r13_3_validator_checks_emp02():
+def test_r13_3_validator_does_not_emit_emp02():
+    """SUPERSEDED by ROTA-T016 (owner decision 2026-08-16): round-13 finding
+    R13-3 originally proved the independent validator was missing an EMP-02
+    check that the solver's own eligibility gate already had. T016 retires
+    EMP-02 from both eligibility and the validator, so the corrected
+    regression is the opposite assertion: an Assignment outside the
+    Employee's (now legacy, non-operational) active period must NOT be
+    reported as an EMP-02 violation. An enabled membership is supplied so
+    the result isn't obscured by MEMBERSHIP-01."""
     employee = Employee("A", "A", date(2026, 10, 2), None, False)
     assignment = Assignment(
         "a1", "test-v1", "A", DEMAND_D.start_datetime, DEMAND_D.end_datetime,
         AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, DEMAND_D.demand_id, None,
     )
-    state = base_state(employees=(employee,), shift_demands=(DEMAND_D,))
+    state = base_state(employees=(employee,), memberships=(_local_membership("A"),), shift_demands=(DEMAND_D,))
     report = validate(state, [assignment])
-    assert not report.hard_pass
-    assert any("EMP-02" in v for v in report.violations)
+    assert report.hard_pass
+    assert not any("EMP-02" in v for v in report.violations)
 
 
 # FINDING R13-4 ---------------------------------------------------------------

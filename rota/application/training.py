@@ -7,12 +7,11 @@ TRAINEE Assignment REALIZED.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from rota.application import manual_edit
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ReadinessSource, ReadinessState, ScheduleVersion
 from rota.persistence.employee_repository import (
-    get_employee,
     list_memberships_for_site,
     write_site_membership_in_open_transaction,
 )
@@ -67,11 +66,15 @@ def _current_qualifying_training_count(conn, *, employee_id: str, profile) -> in
     ScheduleVersions only, so a superseded version (e.g. a re-submitted
     assignment_id cloned into a later child) is naturally not double
     counted, and two distinct months' current versions reusing the same
-    local assignment_id are naturally two distinct rows, not one."""
-    employee = get_employee(conn, employee_id)
-    window_start = datetime.combine(employee.active_from, datetime.min.time())
-    window_end = window_start + timedelta(days=365 * 100)
-    assignments = get_current_assignments_for_employees(conn, [employee_id], window_start, window_end)
+    local assignment_id are naturally two distinct rows, not one.
+
+    ROTA-T016: the query window is a fixed, technical all-time range, not
+    derived from Employee.active_from -- that field is retired legacy
+    metadata after T016 and must not gate which historical training counts
+    (owner decision 2026-08-16: the program does not decide who may work,
+    so it must not silently narrow readiness history off that field
+    either)."""
+    assignments = get_current_assignments_for_employees(conn, [employee_id], datetime.min, datetime.max)
     return sum(
         1 for a in assignments
         if a.role == AssignmentRole.TRAINEE and a.state == AssignmentState.REALIZED

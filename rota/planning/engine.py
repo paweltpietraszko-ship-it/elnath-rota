@@ -242,7 +242,7 @@ def _fixed_non_realized_ids(state: PlanningState) -> set:
 # "explained" by nothing more than matching its own id. That is corruption,
 # not a coordinator decision point, and must stay TECHNICAL_ERROR.
 _FROZEN_BOUNDARY_RULES = frozenset({
-    "MEMBERSHIP-01", "EMP-02", "DAY_ONLY-01", "DAY_SHIFT_OFF-01",
+    "MEMBERSHIP-01", "DAY_ONLY-01", "DAY_SHIFT_OFF-01",
     "UNAVAILABLE-01", "SICK_LEAVE-01", "LEAVE_GRANTED-01", "EXTERNAL-01", "REST-01",
 })
 
