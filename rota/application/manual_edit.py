@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from datetime import date, datetime
+from itertools import combinations
 
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
@@ -21,7 +22,7 @@ from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
-from rota.planning.work_periods import resolve_required_rest
+from rota.planning.work_periods import PeriodComponent, group_into_periods, resolve_required_rest, violates_rest
 from rota.site_memory_types import NewRuleContent
 
 
@@ -32,34 +33,47 @@ def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: li
     return list(by_id.values())
 
 
+def _employee_violating_pairs(employee_id: str, assignments: list[Assignment], target_ids: set[int]) -> list[tuple[Assignment, Assignment, float, int]]:
+    """D-R19-2: group this employee's Assignments into WorkPeriods exactly as
+    validator._check_rest does, but keyed by Python object identity (never a
+    bare assignment_id string) -- a local id reused by a genuinely different
+    ScheduleVersion (boundary or another Site) can never shadow or be
+    shadowed, regardless of which side of the edge it is on."""
+    by_synthetic_id = {str(id(a)): a for a in assignments}
+    components = [
+        PeriodComponent(str(id(a)), employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
+        for a in assignments
+    ]
+    periods = group_into_periods(components)
+    target_periods = [p for p in periods if any(id(by_synthetic_id[cid]) in target_ids for cid in p.component_ids)]
+    history_periods = [p for p in periods if p not in target_periods]
+    candidates = [(tp, h) for tp in target_periods for h in history_periods] + list(combinations(target_periods, 2))
+    pairs = []
+    for tp, other in candidates:
+        earlier, later = (tp, other) if tp.start <= other.start else (other, tp)
+        if not violates_rest(earlier, later):
+            continue
+        earlier_a, later_a = by_synthetic_id[earlier.component_ids[-1]], by_synthetic_id[later.component_ids[0]]
+        gap_hours = (later_a.start_datetime - earlier_a.end_datetime).total_seconds() / 3600
+        pairs.append((earlier_a, later_a, gap_hours, resolve_required_rest(earlier_a.required_rest_after_hours)))
+    return pairs
+
+
 def _rest_override_pairs(state, corrected_assignments: list[Assignment], report) -> list[tuple[Assignment, Assignment, float, int]]:
     """ROTA-T012-D: independently re-derive each REST-01 pair's actual gap
-    from the SAME data the validator saw (Assignment.end_datetime/
-    required_rest_after_hours), never by parsing ViolationDetail.message.
-
-    D-R19-2: a ViolationDetail names bare local assignment_ids, and a
-    different valid ScheduleVersion (boundary or another Site) may reuse the
-    same local id -- the TARGET correction's own corrected_assignments is
-    always searched first (a real REST-01 pair always has at least one
-    target-side member, per validator._check_rest's target/history pairing),
-    and only an id absent there falls back to cross-context lookup.
-
-    D-R19-3: the recorded required_rest_hours is the RESOLVED value
-    (resolve_required_rest -- legacy None means the applied REST_MIN_HOURS
-    fallback), matching what the validator actually enforced, not the raw
-    (possibly None) Assignment field."""
-    current_by_id = {a.assignment_id: a for a in corrected_assignments}
-    context_by_id = {a.assignment_id: a for a in (*state.other_site_assignments, *state.boundary_assignments)}
+    and required rest from the SAME data the validator saw, never by parsing
+    ViolationDetail.message. D-R19-3: required_rest_hours is the RESOLVED
+    value (resolve_required_rest -- legacy None means the applied
+    REST_MIN_HOURS fallback), matching what the validator actually enforced."""
+    if not any(detail.rule == "REST-01" for detail in report.violation_details):
+        return []
+    target_ids = {id(a) for a in corrected_assignments}
+    by_employee: dict[str, list[Assignment]] = {}
+    for assignment in (*corrected_assignments, *state.other_site_assignments, *state.boundary_assignments):
+        by_employee.setdefault(assignment.employee_id, []).append(assignment)
     pairs = []
-    for detail in report.violation_details:
-        if detail.rule != "REST-01" or len(detail.assignment_ids) != 2:
-            continue
-        earlier = current_by_id.get(detail.assignment_ids[0]) or context_by_id.get(detail.assignment_ids[0])
-        later = current_by_id.get(detail.assignment_ids[1]) or context_by_id.get(detail.assignment_ids[1])
-        if earlier is None or later is None:
-            continue
-        gap_hours = (later.start_datetime - earlier.end_datetime).total_seconds() / 3600
-        pairs.append((earlier, later, gap_hours, resolve_required_rest(earlier.required_rest_after_hours)))
+    for employee_id, assignments in by_employee.items():
+        pairs.extend(_employee_violating_pairs(employee_id, assignments, target_ids))
     return pairs
 
 
