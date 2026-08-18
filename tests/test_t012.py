@@ -459,9 +459,9 @@ def test_a_valid_month_crossing_24h_assignments_are_persistable_content(tmp_path
 # --- B: per-work-period REST-01, SHIFT-24-PAIR-01, SHIFT-24-01, cross-site --
 
 
-def _membership(employee_id: str, *, can_work_24h: bool = True) -> SiteMembership:
+def _membership(employee_id: str, *, can_work_24h: bool = True, site_id: str = SITE_ID) -> SiteMembership:
     return SiteMembership(
-        employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY,
+        employee_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY,
         ReadinessSource.DEFAULT, can_work_24h=can_work_24h,
     )
 
@@ -1004,6 +1004,388 @@ def test_b_cross_month_normal_24h_normalizes_as_one_period():
     assert len(periods) == 1
     assert periods[0].start == d1.start_datetime and periods[0].end == d2.end_datetime
     assert periods[0].required_rest_after_hours == 13
+
+
+# --- C: hidden emergency 24h retry (part_c_emergency_24h.md) ---------------
+
+import rota.planning.engine as engine_module  # noqa: E402
+from rota.planning.solver import SolverOutcome  # noqa: E402
+from rota.planning.work_periods import find_cross_month_pair_candidates  # noqa: E402
+
+
+def _same_month_pair(d1_id: str, d2_id: str, start: datetime, *, first_kind: ShiftKind = ShiftKind.D, rest: int = 13, count: int = 1):
+    end1 = start + timedelta(hours=12)
+    end2 = end1 + timedelta(hours=12)
+    second_kind = ShiftKind.N if first_kind == ShiftKind.D else ShiftKind.D
+    d1 = ShiftDemand(d1_id, "test-v1", start, end1, count, shift_kind=first_kind, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=rest)
+    d2 = ShiftDemand(d2_id, "test-v1", end1, end2, count, shift_kind=second_kind, catalog_kind=ShiftCatalogKind.H12)
+    return d1, d2
+
+
+# -- A. Orchestration ---------------------------------------------------
+
+
+def test_c_first_pass_feasible_never_invokes_emergency(monkeypatch):
+    d = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    solved = _primary("solved-1", "A", d, work_period_id="wp", required_rest_after_hours=11)
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+        calls.append(allow_emergency_24h)
+        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(d,), memberships=(_membership("A"),))
+    result = engine_module.plan(state)
+    assert result.status == "FEASIBLE"
+    assert calls == [False]
+
+
+def test_c_first_pass_unknown_status_technical_error_without_emergency_retry(monkeypatch):
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+        calls.append(allow_emergency_24h)
+        return SolverOutcome("UNKNOWN", None, [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(_demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)),))
+    result = engine_module.plan(state)
+    assert result.status == "TECHNICAL_ERROR"
+    assert calls == [False]
+
+
+def test_c_first_pass_infeasible_triggers_exactly_one_capped_emergency_retry(monkeypatch):
+    d = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
+    solved = _primary("solved-1", "A", d, work_period_id="wp", required_rest_after_hours=11)
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_emergency_24h))
+        if len(calls) < 2:
+            return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+        return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(d,), memberships=(_membership("A"),))
+    result = engine_module.plan(state)
+    assert calls == [(True, False), (True, True)]
+    assert result.status == "FEASIBLE"
+
+
+def test_c_emergency_capped_infeasible_falls_to_uncapped_emergency_never_plain_uncapped(monkeypatch):
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_emergency_24h))
+        return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(_demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)),))
+    engine_module.plan(state)
+    assert calls == [(True, False), (True, True), (False, True)]
+    assert (False, False) not in calls
+
+
+def test_c_emergency_capped_technical_status_is_technical_error(monkeypatch):
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_emergency_24h))
+        if len(calls) == 1:
+            return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+        return SolverOutcome("MODEL_INVALID", None, [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(_demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)),))
+    result = engine_module.plan(state)
+    assert result.status == "TECHNICAL_ERROR"
+    assert calls == [(True, False), (True, True)]
+
+
+# -- B. Same-month --------------------------------------------------------
+
+
+def test_c_same_month_d_to_n_rescue_feasible():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), first_kind=ShiftKind.D, rest=13)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand = {a.covers_demand_id: a for a in result.candidates[0]}
+    assert by_demand["D1"].employee_id == by_demand["D2"].employee_id == "A"
+    assert by_demand["D1"].work_period_id == by_demand["D2"].work_period_id
+    assert by_demand["D1"].required_rest_after_hours == 13
+    assert by_demand["D2"].required_rest_after_hours == 13
+
+
+def test_c_same_month_n_to_d_rescue_feasible():
+    d1, d2 = _same_month_pair("N1", "N2", datetime(2026, 10, 1, 17, 0), first_kind=ShiftKind.N, rest=13)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand = {a.covers_demand_id: a for a in result.candidates[0]}
+    assert by_demand["N1"].employee_id == by_demand["N2"].employee_id == "A"
+    assert by_demand["N1"].work_period_id == by_demand["N2"].work_period_id
+
+
+def test_c_same_month_work_period_id_is_site_scoped_for_identical_demand_ids():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    state_a = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(employee,))
+    state_b = base_state(
+        site=Site("SITE-B", state_a.site.profile_id, "Site B", True),
+        shift_demands=(d1, d2), memberships=(_membership("A", site_id="SITE-B"),), employees=(employee,),
+    )
+    result_a, result_b = plan(state_a), plan(state_b)
+    assert result_a.status == result_b.status == "FEASIBLE"
+    wp_a = {a.work_period_id for a in result_a.candidates[0]}
+    wp_b = {a.work_period_id for a in result_b.candidates[0]}
+    assert not (wp_a & wp_b)
+
+
+def test_c_ordinary_h12_stays_standalone_when_pairing_not_needed():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    employees = (Employee("A", "A", date(2026, 1, 1), None, False), Employee("B", "B", date(2026, 1, 1), None, False))
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A"), _membership("B")), employees=employees)
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand = {a.covers_demand_id: a for a in result.candidates[0]}
+    assert by_demand["D1"].work_period_id != by_demand["D2"].work_period_id
+
+
+def test_c_same_month_can_work_24h_false_on_mixed_profile_does_not_pair():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A", can_work_24h=False),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+
+
+@pytest.mark.parametrize(("hours"), [(8, 16), (16, 8), (8, 8, 8)])
+def test_c_inny_pieces_never_pair(hours):
+    start = datetime(2026, 10, 1, 5, 0)
+    demands = []
+    cursor = start
+    for i, h in enumerate(hours):
+        end = cursor + timedelta(hours=h)
+        kind = ShiftKind.D if i % 2 == 0 else ShiftKind.N
+        demands.append(ShiftDemand(f"I{i}", "test-v1", cursor, end, 1, shift_kind=kind, catalog_kind=ShiftCatalogKind.OTHER, required_rest_hours=11))
+        cursor = end
+    state = base_state(shift_demands=tuple(demands), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+
+
+def test_c_no_chain_beyond_two_per_employee():
+    start = datetime(2026, 10, 1, 5, 0)
+    d1 = ShiftDemand("D1", "test-v1", start, start + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    d2 = ShiftDemand("D2", "test-v1", start + timedelta(hours=12), start + timedelta(hours=24), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    d3 = ShiftDemand("D3", "test-v1", start + timedelta(hours=24), start + timedelta(hours=36), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    state = base_state(shift_demands=(d1, d2, d3), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+
+
+def test_c_required_primary_count_gt1_pairing_is_per_employee_not_identical_set():
+    start = datetime(2026, 10, 1, 5, 0)
+    d1 = ShiftDemand("D1", "test-v1", start, start + timedelta(hours=12), 2, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    d2 = ShiftDemand("D2", "test-v1", start + timedelta(hours=12), start + timedelta(hours=24), 2, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    state = base_state(
+        shift_demands=(d1, d2), memberships=tuple(_membership(e) for e in ("A", "B", "C")),
+        employees=tuple(Employee(e, e, date(2026, 1, 1), None, False) for e in ("A", "B", "C")),
+    )
+    wp = f"{SITE_ID}:emergency:A:D1+D2"
+    a_d1 = _primary("A-D1", "A", d1, work_period_id=wp, required_rest_after_hours=13)
+    a_d2 = _primary("A-D2", "A", d2, work_period_id=wp, required_rest_after_hours=13)
+    b_d1 = _primary("B-D1", "B", d1, work_period_id=f"{SITE_ID}:B-D1", required_rest_after_hours=11)
+    c_d2 = _primary("C-D2", "C", d2, work_period_id=f"{SITE_ID}:C-D2", required_rest_after_hours=11)
+    report = validate(state, [a_d1, a_d2, b_d1, c_d2])
+    assert report.hard_pass
+
+
+# -- C. Does not double-count hours ----------------------------------------
+
+
+def test_c_load_for_emergency_pair_counts_as_12_plus_12():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    report = validate(state, result.candidates[0])
+    assert report.monthly_hours["A"] == 24
+
+
+def test_c_emergency_pair_gets_no_extra_soft_warning():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert not any("emergency" in w.lower() for w in result.warnings)
+
+
+def test_c_replan_reshuffle_counts_placements_not_pair_literal():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    employee = Employee("A", "A", date(2026, 1, 1), None, False)
+    existing = _primary("existing-A-D1", "A", d1)
+    state = base_state(
+        shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(employee,),
+        existing_assignments=(existing,),
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand = {a.covers_demand_id: a.employee_id for a in result.candidates[0]}
+    assert by_demand["D1"] == "A" and by_demand["D2"] == "A"
+
+
+# -- D. Cross-month/year real persistence -----------------------------------
+
+
+def _seed_site_for_month(conn, *, site_id: str, profile_id: str, employee_id: str, month: date) -> None:
+    profile = replace(_profile(profile_id, [_d(5, 11)]), rolling_7d_decision_threshold_hours=100)
+    save_site_profile(conn, profile)
+    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", site_id, True))
+    save_employee(conn, Employee(employee_id, employee_id, date(2020, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership(employee_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    days_in_month = calendar.monthrange(month.year, month.month)[1]
+    for day in range(1, days_in_month + 1):
+        save_calendar_day(conn, CalendarDay(date(month.year, month.month, day), False))
+
+
+def _write_boundary_half(conn, *, site_id: str, month: date, employee_id: str, demand_id: str, start: datetime, end: datetime, kind: ShiftKind, emergency_rest: int, wp_id: str) -> None:
+    demand = ShiftDemand(demand_id, "", start, end, 1, shift_kind=kind, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=emergency_rest)
+    assignment = Assignment(
+        f"a-{demand_id}", "", employee_id, start, end, AssignmentRole.PRIMARY, AssignmentState.PLANNED,
+        False, demand_id, None, work_period_id=wp_id, required_rest_after_hours=11,
+    )
+    create_schedule_version(
+        conn, version_id=f"SV-{demand_id}", site_id=site_id, month=month, parent_version_id=None,
+        created_at=datetime(2020, 1, 1), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[demand], assignments=[assignment], deviations=[], effective_from=month,
+    )
+
+
+def _plan_current_month_demand(conn, *, site_id: str, month: date, demand_id: str, start: datetime, end: datetime, kind: ShiftKind):
+    from rota.application.assembler import assemble_planning_state
+
+    demand = ShiftDemand(demand_id, "", start, end, 1, shift_kind=kind, catalog_kind=ShiftCatalogKind.H12)
+    state, _warnings = assemble_planning_state(conn, site_id=site_id, month=month, shift_demands=(demand,))
+    return plan(state), state
+
+
+def test_c_cross_month_n_31_08_plus_d_01_09_rescue(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id = "SITE-XM-1"
+    _seed_site_for_month(conn, site_id=site_id, profile_id="PROF-XM-1", employee_id="A", month=date(2026, 9, 1))
+    boundary_end = datetime(2026, 9, 1, 5, 0)
+    wp_id = f"{site_id}:boundary-N"
+    _write_boundary_half(conn, site_id=site_id, month=date(2026, 8, 1), employee_id="A", demand_id="B-N", start=datetime(2026, 8, 31, 17, 0), end=boundary_end, kind=ShiftKind.N, emergency_rest=13, wp_id=wp_id)
+    result, _state = _plan_current_month_demand(conn, site_id=site_id, month=date(2026, 9, 1), demand_id="CUR-D", start=boundary_end, end=datetime(2026, 9, 1, 17, 0), kind=ShiftKind.D)
+    assert result.status == "FEASIBLE"
+    solved = result.candidates[0][0]
+    assert solved.employee_id == "A"
+    assert solved.work_period_id == wp_id
+    assert solved.required_rest_after_hours == 13
+
+
+def test_c_cross_year_n_31_12_plus_d_01_01_rescue(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id = "SITE-XM-YEAR"
+    _seed_site_for_month(conn, site_id=site_id, profile_id="PROF-XM-YEAR", employee_id="A", month=date(2027, 1, 1))
+    boundary_end = datetime(2027, 1, 1, 5, 0)
+    wp_id = f"{site_id}:boundary-year-N"
+    _write_boundary_half(conn, site_id=site_id, month=date(2026, 12, 1), employee_id="A", demand_id="B-NY", start=datetime(2026, 12, 31, 17, 0), end=boundary_end, kind=ShiftKind.N, emergency_rest=14, wp_id=wp_id)
+    result, _state = _plan_current_month_demand(conn, site_id=site_id, month=date(2027, 1, 1), demand_id="CUR-DY", start=boundary_end, end=datetime(2027, 1, 1, 17, 0), kind=ShiftKind.D)
+    assert result.status == "FEASIBLE"
+    solved = result.candidates[0][0]
+    assert solved.work_period_id == wp_id
+    assert solved.required_rest_after_hours == 14
+
+
+def test_c_earlier_schedule_version_unchanged_after_cross_month_rescue(tmp_path):
+    from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
+
+    conn = connect(tmp_path / "rota.db")
+    site_id = "SITE-XM-PRESERVE"
+    _seed_site_for_month(conn, site_id=site_id, profile_id="PROF-XM-PRESERVE", employee_id="A", month=date(2026, 9, 1))
+    boundary_end = datetime(2026, 9, 1, 5, 0)
+    wp_id = f"{site_id}:boundary-preserve"
+    _write_boundary_half(conn, site_id=site_id, month=date(2026, 8, 1), employee_id="A", demand_id="B-P", start=datetime(2026, 8, 31, 17, 0), end=boundary_end, kind=ShiftKind.N, emergency_rest=13, wp_id=wp_id)
+    _plan_current_month_demand(conn, site_id=site_id, month=date(2026, 9, 1), demand_id="CUR-P", start=boundary_end, end=datetime(2026, 9, 1, 17, 0), kind=ShiftKind.D)
+    version_id = get_current_version_id(conn, site_id, date(2026, 8, 1))
+    snapshot = get_schedule_snapshot(conn, version_id)
+    assert snapshot.assignments[0].work_period_id == wp_id
+    assert snapshot.assignments[0].required_rest_after_hours == 11
+
+
+def test_c_boundary_work_period_with_two_components_cannot_extend_to_third(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    site_id = "SITE-XM-2CHAIN"
+    _seed_site_for_month(conn, site_id=site_id, profile_id="PROF-XM-2CHAIN", employee_id="A", month=date(2026, 9, 1))
+    wp_id = f"{site_id}:boundary-pair"
+    d1 = ShiftDemand("B1", "", datetime(2026, 8, 31, 5, 0), datetime(2026, 8, 31, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    d2 = ShiftDemand("B2", "", datetime(2026, 8, 31, 17, 0), datetime(2026, 9, 1, 5, 0), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    a1 = Assignment("a-B1", "", "A", d1.start_datetime, d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "B1", None, work_period_id=wp_id, required_rest_after_hours=13)
+    a2 = Assignment("a-B2", "", "A", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "B2", None, work_period_id=wp_id, required_rest_after_hours=13)
+    create_schedule_version(
+        conn, version_id="SV-B1B2", site_id=site_id, month=date(2026, 8, 1), parent_version_id=None,
+        created_at=datetime(2020, 1, 1), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d1, d2], assignments=[a1, a2], deviations=[], effective_from=date(2026, 8, 1),
+    )
+    result, _state = _plan_current_month_demand(conn, site_id=site_id, month=date(2026, 9, 1), demand_id="CUR-D", start=d2.end_datetime, end=datetime(2026, 9, 1, 17, 0), kind=ShiftKind.D)
+    assert result.status == "DECISION_REQUIRED"
+
+
+def test_c_cross_month_candidate_detection_fails_closed_on_missing_demand():
+    boundary_assignment = Assignment(
+        "a-orphan", "SV-1", "A", datetime(2026, 8, 31, 17, 0), datetime(2026, 9, 1, 5, 0),
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "GHOST", None,
+        work_period_id="wp-orphan", required_rest_after_hours=11,
+    )
+    current_demand = ShiftDemand("CUR-D", "test-v1", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    assert find_cross_month_pair_candidates([boundary_assignment], [], [current_demand]) == []
+
+
+# -- E. Independent validation ------------------------------------------
+
+
+def test_c_validator_malformed_emergency_three_components_fails():
+    start = datetime(2026, 10, 1, 5, 0)
+    d1 = ShiftDemand("D1", "test-v1", start, start + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    d2 = ShiftDemand("D2", "test-v1", start + timedelta(hours=12), start + timedelta(hours=24), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    d3 = ShiftDemand("D3", "test-v1", start + timedelta(hours=24), start + timedelta(hours=36), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, emergency_24h_rest_hours=13)
+    wp = f"{SITE_ID}:emergency:A:D1+D2"
+    state = base_state(shift_demands=(d1, d2, d3), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    a1 = _primary("A1", "A", d1, work_period_id=wp, required_rest_after_hours=13)
+    a2 = _primary("A2", "A", d2, work_period_id=wp, required_rest_after_hours=13)
+    a3 = _primary("A3", "A", d3, work_period_id=wp, required_rest_after_hours=13)
+    report = validate(state, [a1, a2, a3])
+    assert not report.hard_pass
+    assert any(d.rule == "SHIFT-24-PAIR-01" for d in report.violation_details)
+
+
+def test_c_validator_malformed_inny_pair_fails():
+    start = datetime(2026, 10, 1, 5, 0)
+    d1 = ShiftDemand("D1", "test-v1", start, start + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.OTHER, emergency_24h_rest_hours=13)
+    d2 = ShiftDemand("D2", "test-v1", start + timedelta(hours=12), start + timedelta(hours=24), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.OTHER)
+    wp = f"{SITE_ID}:emergency:A:D1+D2"
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    a1 = _primary("A1", "A", d1, work_period_id=wp, required_rest_after_hours=13)
+    a2 = _primary("A2", "A", d2, work_period_id=wp, required_rest_after_hours=13)
+    report = validate(state, [a1, a2])
+    assert not report.hard_pass
+    assert any(d.rule == "SHIFT-24-PAIR-01" for d in report.violation_details)
+
+
+def test_c_validator_can_work_24h_false_gives_shift_24_01():
+    d1, d2 = _same_month_pair("D1", "D2", datetime(2026, 10, 1, 5, 0), rest=13)
+    wp = f"{SITE_ID}:emergency:A:D1+D2"
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("A", can_work_24h=False),), employees=(Employee("A", "A", date(2026, 1, 1), None, False),))
+    a1 = _primary("A1", "A", d1, work_period_id=wp, required_rest_after_hours=13)
+    a2 = _primary("A2", "A", d2, work_period_id=wp, required_rest_after_hours=13)
+    report = validate(state, [a1, a2])
+    assert not report.hard_pass
+    assert any(d.rule == "SHIFT-24-01" for d in report.violation_details)
 
 
 if __name__ == "__main__":

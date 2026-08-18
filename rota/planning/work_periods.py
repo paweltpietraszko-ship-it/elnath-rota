@@ -19,10 +19,11 @@ WYMAGANIA REST (tasks/ROTA-T012/part_b_work_period_rest.md):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from rota.constants import REST_MIN_HOURS
+from rota.domain import AssignmentRole, AssignmentState, ShiftCatalogKind
 
 
 def resolve_required_rest(value: Optional[int]) -> int:
@@ -157,6 +158,132 @@ def violates_rest(earlier: WorkPeriod, later: WorkPeriod) -> bool:
         return True
     gap_hours = (later.start - earlier.end).total_seconds() / 3600
     return gap_hours < earlier.required_rest_after_hours
+
+
+def _is_plain_12h(demand) -> bool:
+    return (
+        demand.catalog_kind == ShiftCatalogKind.H12
+        and demand.end_datetime - demand.start_datetime == timedelta(hours=12)
+    )
+
+
+@dataclass(frozen=True)
+class EmergencyPairCandidate:
+    first_demand_id: str
+    second_demand_id: str
+    rest_hours: int
+
+
+def find_same_month_pair_candidates(shift_demands) -> list[EmergencyPairCandidate]:
+    """T012 Part C (part_c_emergency_24h.md PAIR CANDIDATE): pure structural
+    detection, no CP-SAT/persistence/eligibility. A same-month emergency pair
+    is two contiguous plain 12h demands with opposite D/N and an explicit
+    emergency_24h_rest_hours snapshot on the earlier one. Which employee(s)
+    may actually use a candidate (base eligibility, can_work_24h) is decided
+    by the caller, not here."""
+    by_start: dict[datetime, list] = {}
+    for demand in shift_demands:
+        by_start.setdefault(demand.start_datetime, []).append(demand)
+    candidates = []
+    for first in shift_demands:
+        if not _is_plain_12h(first) or first.emergency_24h_rest_hours is None:
+            continue
+        for second in by_start.get(first.end_datetime, []):
+            if not _is_plain_12h(second):
+                continue
+            if first.shift_kind is None or second.shift_kind is None or first.shift_kind == second.shift_kind:
+                continue
+            candidates.append(EmergencyPairCandidate(first.demand_id, second.demand_id, first.emergency_24h_rest_hours))
+    return candidates
+
+
+@dataclass(frozen=True)
+class CrossMonthPairCandidate:
+    employee_id: str
+    current_demand_id: str
+    boundary_work_period_id: str
+    rest_hours: int
+
+
+def find_cross_month_pair_candidates(
+    boundary_assignments, boundary_shift_demands, shift_demands,
+) -> list[CrossMonthPairCandidate]:
+    """T012 Part C section 3 (Reprezentacja techniczna): pure structural
+    detection of a persisted boundary Assignment eligible to be the first
+    half of a cross-month emergency pair with a CURRENT-month plain 12h
+    demand. Eligibility/can_work_24h and which employee CP-SAT actually
+    assigns are decided by the caller, not here."""
+    demand_by_key = {(d.schedule_version_id, d.demand_id): d for d in boundary_shift_demands}
+    live = [a for a in boundary_assignments if a.state != AssignmentState.CANCELLED]
+    component_count: dict[tuple[str, str], int] = {}
+    for a in live:
+        if a.work_period_id:
+            key = (a.employee_id, a.work_period_id)
+            component_count[key] = component_count.get(key, 0) + 1
+
+    candidates = []
+    for a in live:
+        if a.role != AssignmentRole.PRIMARY or not a.covers_demand_id or not a.work_period_id:
+            continue
+        boundary_demand = demand_by_key.get((a.schedule_version_id, a.covers_demand_id))
+        if boundary_demand is None or not _is_plain_12h(boundary_demand) or boundary_demand.shift_kind is None:
+            continue
+        if boundary_demand.emergency_24h_rest_hours is None:
+            continue
+        if component_count.get((a.employee_id, a.work_period_id), 0) != 1:
+            continue
+        for demand in shift_demands:
+            if not _is_plain_12h(demand) or demand.start_datetime != a.end_datetime:
+                continue
+            if demand.shift_kind is None or demand.shift_kind == boundary_demand.shift_kind:
+                continue
+            candidates.append(CrossMonthPairCandidate(
+                a.employee_id, demand.demand_id, a.work_period_id, boundary_demand.emergency_24h_rest_hours,
+            ))
+    return candidates
+
+
+@dataclass(frozen=True)
+class EmergencyPeriodFinding:
+    assignment_ids: tuple[str, ...]
+    code: str
+    reason: str
+
+
+def check_emergency_pair_structure(
+    members: list, demand_by_key: dict, can_work_24h: bool, all_24h_profile: bool,
+) -> list[EmergencyPeriodFinding]:
+    """T012 Part C section 11: independent structural re-check of one
+    (employee, work_period_id) group already known to be emergency-shaped
+    (no H24 demand among its components) -- caller decides which groups
+    qualify and never trusts the solver's own pair literals. `members` are
+    Assignment-shaped objects (.assignment_id/.start_datetime/.end_datetime/
+    .required_rest_after_hours/.covers_demand_id/.schedule_version_id)."""
+    ordered = sorted(members, key=lambda m: m.start_datetime)
+    ids = tuple(m.assignment_id for m in ordered)
+    if len(ordered) != 2:
+        return [EmergencyPeriodFinding(ids, "SHIFT-24-PAIR-01", f"{len(ordered)} emergency components (expected 2)")]
+    first, second = ordered
+    first_d = demand_by_key.get((first.schedule_version_id, first.covers_demand_id))
+    second_d = demand_by_key.get((second.schedule_version_id, second.covers_demand_id))
+    if first_d is None or second_d is None:
+        return [EmergencyPeriodFinding(ids, "SHIFT-24-PAIR-01", "missing demand provenance for an emergency component")]
+    problems = []
+    if not _is_plain_12h(first_d) or not _is_plain_12h(second_d):
+        problems.append("not both plain 12h (INNY or mismatched catalog_kind)")
+    if first_d.shift_kind is None or second_d.shift_kind is None or first_d.shift_kind == second_d.shift_kind:
+        problems.append("shift_kind not opposite D/N")
+    if first.end_datetime != second.start_datetime:
+        problems.append("not directly continuous")
+    if first_d.emergency_24h_rest_hours is None:
+        problems.append("first demand has no emergency_24h_rest_hours snapshot")
+    elif second.required_rest_after_hours != first_d.emergency_24h_rest_hours:
+        problems.append(f"terminal rest {second.required_rest_after_hours} != emergency snapshot {first_d.emergency_24h_rest_hours}")
+    if problems:
+        return [EmergencyPeriodFinding(ids, "SHIFT-24-PAIR-01", "; ".join(problems))]
+    if not can_work_24h and not all_24h_profile:
+        return [EmergencyPeriodFinding(ids, "SHIFT-24-01", "employee lacks can_work_24h on a mixed profile")]
+    return []
 
 
 if __name__ == "__main__":

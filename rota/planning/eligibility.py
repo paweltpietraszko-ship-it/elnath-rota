@@ -134,7 +134,7 @@ def _blocked_by_site_rules(
     return None
 
 
-def _is_all_24h_profile(profile: SiteProfile) -> bool:
+def is_all_24h_profile(profile: SiteProfile) -> bool:
     """part_b_work_period_rest.md: an all-24h profile (every StandardShift
     normalizes to catalog_kind=24h) ignores SiteMembership.can_work_24h; a
     mixed profile enforces it. A profile with no standard_shifts is not
@@ -163,7 +163,7 @@ def _common_hard_gate(
     # demand; an all-24h profile ignores the flag. Never a bypass of the
     # other gates below -- e.g. a DAY_ONLY employee still cannot take the N
     # component of a normal 24h occurrence.
-    if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not _is_all_24h_profile(profile):
+    if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not is_all_24h_profile(profile):
         return EligibilityCheck(False, False, "SHIFT-24-01")
     if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
         # ROTA-T010-B (DAY-ONLY-TEMP-N-EXCEPTION-01): a narrow, named

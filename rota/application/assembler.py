@@ -39,6 +39,7 @@ from rota.persistence.schedule_repository import (
     get_current_version_id,
     get_schedule_snapshot,
     get_schedule_version_header,
+    get_shift_demands_by_ids,
 )
 from rota.persistence.work_balance_repository import get_work_balance_target, reconstruct_month_balance
 from rota.planning.state import PlanningState
@@ -232,6 +233,12 @@ def assemble_planning_state(
     current_target_version_id = get_current_version_id(conn, site_id, month)
     exclude_version_ids = frozenset(v for v in (version_id, current_target_version_id) if v)
     boundary, other_site = _assemble_cross_context(conn, site_id, employee_ids, month, exclude_version_ids)
+    # ROTA-T012 Part C: boundary demand provenance, fetched from each
+    # boundary Assignment's OWN schedule_version_id -- never the current
+    # SiteProfile -- for cross-month emergency 24h pair detection.
+    boundary_shift_demands = tuple(get_shift_demands_by_ids(
+        conn, [(a.schedule_version_id, a.covers_demand_id) for a in boundary if a.covers_demand_id]
+    ))
     work_balances, warnings = _assemble_work_balances(conn, employee_ids, month)
     holiday_history_raw = get_current_realized_primary_on_holidays(conn, site_id)
     holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id not in exclude_version_ids)
@@ -243,6 +250,6 @@ def assemble_planning_state(
         site_rules=resolved, unresolved_site_rules=unresolved, site_rule_applicability=applicability,
         shift_demands=demands, existing_assignments=existing, deviations=devs,
         work_balances=work_balances, holiday_history=holiday_history, other_site_assignments=other_site,
-        schedule_version_id=version_id,
+        schedule_version_id=version_id, boundary_shift_demands=boundary_shift_demands,
     )
     return state, warnings

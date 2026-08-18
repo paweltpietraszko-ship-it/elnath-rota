@@ -110,6 +110,27 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
     return ScheduleSnapshot(header.status, header.applied_rule_version_ids, demands, assignments, deviations)
 
 
+def get_shift_demands_by_ids(conn: sqlite3.Connection, version_demand_ids: list[tuple[str, str]]) -> list[ShiftDemand]:
+    """ROTA-T012 Part C: batch-fetch ShiftDemand rows by (schedule_version_id,
+    demand_id) pairs, grouped per version -- used to reconstruct cross-month
+    emergency boundary demand provenance from an OLDER persisted CURRENT
+    ScheduleVersion, never from the current SiteProfile."""
+    by_version: dict[str, list[str]] = {}
+    for version_id, demand_id in version_demand_ids:
+        by_version.setdefault(version_id, []).append(demand_id)
+    demands: list[ShiftDemand] = []
+    for version_id, demand_ids in by_version.items():
+        placeholders = ",".join("?" for _ in demand_ids)
+        rows = conn.execute(
+            "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
+            "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
+            f"emergency_24h_rest_hours FROM shift_demands WHERE schedule_version_id = ? AND demand_id IN ({placeholders})",
+            (version_id, *demand_ids),
+        ).fetchall()
+        demands.extend(_row_to_demand(r) for r in rows)
+    return demands
+
+
 def list_schedule_versions(conn: sqlite3.Connection, site_id: str, month: date) -> list[ScheduleVersion]:
     rows = conn.execute(
         "SELECT version_id FROM schedule_versions WHERE site_id = ? AND month = ? ORDER BY created_at, version_id",

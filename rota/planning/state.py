@@ -80,6 +80,13 @@ class PlanningState:
     # Metadane
     schedule_version_id: str
 
+    # ROTA-T012 Part C: ShiftDemand rows covered by boundary_assignments,
+    # fetched from their OWN persisted schedule_version_id -- never
+    # reconstructed from the current SiteProfile. Used only to detect
+    # cross-month emergency 24h pair candidates. Default () keeps every
+    # pre-T012-C PlanningState construction (tests, other callers) valid.
+    boundary_shift_demands: tuple[ShiftDemand, ...] = ()
+
 
 if __name__ == "__main__":
     state = PlanningState(

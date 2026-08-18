@@ -82,7 +82,7 @@ def test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error(mo
     )
     calls = {"count": 0}
 
-    def _fake_solve(state, enforce_load_cap=True):
+    def _fake_solve(state, enforce_load_cap=True, allow_emergency_24h=False):
         calls["count"] += 1
         if enforce_load_cap:
             return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
@@ -93,7 +93,7 @@ def test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error(mo
     state = base_state(employees=(employee,), memberships=(_local_membership("A"),), shift_demands=(DEMAND_D,))
     result = plan(state)
     assert result.status == "TECHNICAL_ERROR"
-    assert calls["count"] == 2
+    assert calls["count"] == 3
 
 
 if __name__ == "__main__":

@@ -24,8 +24,16 @@ from datetime import datetime
 from ortools.sat.python import cp_model
 
 from rota.domain import Assignment, AssignmentState, ShiftCatalogKind
+from rota.planning.eligibility import is_all_24h_profile
 from rota.planning.timeutil import overlap_hours, rolling_windows
-from rota.planning.work_periods import PeriodComponent, WorkPeriod, group_into_periods, violates_rest
+from rota.planning.work_periods import (
+    PeriodComponent,
+    WorkPeriod,
+    find_cross_month_pair_candidates,
+    find_same_month_pair_candidates,
+    group_into_periods,
+    violates_rest,
+)
 
 
 def _not_cancelled(assignments: list[Assignment]) -> list[Assignment]:
@@ -66,52 +74,168 @@ def build_fixed_periods(
     return by_employee
 
 
-def _demand_periods(employee_id: str, employee_slots: list, site_id: str) -> list[WorkPeriod]:
+def _demand_periods(
+    employee_id: str, employee_slots: list, site_id: str, cross_month_by_demand: dict | None = None,
+) -> list[WorkPeriod]:
     # Site-scoped to match the id a real solved Assignment for this
     # occurrence would get (solver._solved_work_period_id) -- so a
     # prospective period here and an already-fixed period for the SAME
     # occurrence's other half (same site, same template) compare equal and
     # are recognized as one period, not two independently-rest-checked ones.
-    components = [
-        PeriodComponent(s.demand.demand_id, employee_id, s.demand.start_datetime, s.demand.end_datetime,
-                         f"{site_id}:{s.demand.work_period_template_id}" if s.demand.work_period_template_id else None,
-                         s.demand.required_rest_hours)
-        for s in employee_slots
-    ]
+    # ROTA-T012 Part C: a demand named in cross_month_by_demand instead
+    # reuses the persisted boundary work_period_id/terminal rest, so it
+    # compares equal to that FIXED period below and skips its own rest check.
+    cross_month_by_demand = cross_month_by_demand or {}
+    components = []
+    for s in employee_slots:
+        override = cross_month_by_demand.get(s.demand.demand_id)
+        if override is not None:
+            period_id, rest = override.boundary_work_period_id, override.rest_hours
+        else:
+            period_id = f"{site_id}:{s.demand.work_period_template_id}" if s.demand.work_period_template_id else None
+            rest = s.demand.required_rest_hours
+        components.append(PeriodComponent(s.demand.demand_id, employee_id, s.demand.start_datetime, s.demand.end_datetime, period_id, rest))
     return group_into_periods(components)
 
 
 def add_rest_constraints(
     model: cp_model.CpModel, x: dict, slots: list, fixed_periods: dict[str, list[WorkPeriod]], site_id: str,
-) -> None:
+    same_month_by_employee: dict[str, list] | None = None, cross_month_by_employee: dict[str, dict] | None = None,
+) -> dict[tuple[str, str, str], tuple]:
+    """T012 Part C: same_month_by_employee/cross_month_by_employee (from
+    build_emergency_pair_context) name the exact (employee, candidate) pairs
+    allowed to relax REST-01 as an emergency 24h -- absent/empty means no
+    emergency pairing is offered, identical to today's Part B behaviour.
+    Returns pair_vars for the same-month case only (cross-month needs no
+    CP-SAT decision: the boundary half is already a persisted fact)."""
     by_employee: dict[str, list] = {}
     for slot in slots:
         by_employee.setdefault(slot.employee_id, []).append(slot)
 
+    pair_vars: dict[tuple[str, str, str], tuple] = {}
     for employee_id, employee_slots in by_employee.items():
-        periods = _demand_periods(employee_id, employee_slots, site_id)
-        # A period's representative CP-SAT variable is its earliest
-        # component -- add_same_person_24h_constraints (solver.py) already
-        # forces every component of the same period to an identical value
-        # for this employee, so any one component faithfully stands in for
-        # "this occurrence is assigned to employee_id" here.
-        for i in range(len(periods)):
-            for j in range(i + 1, len(periods)):
-                if violates_rest(periods[i], periods[j]):
-                    rep_i, rep_j = periods[i].component_ids[0], periods[j].component_ids[0]
-                    model.add(x[employee_id, rep_i] + x[employee_id, rep_j] <= 1)
-        for period in periods:
-            rep = period.component_ids[0]
-            for fixed_period in fixed_periods.get(employee_id, []):
-                # Same period_key = this prospective period is the still-open
-                # other half of an already-fixed component of the SAME
-                # occurrence -- no rest check between them (WYMAGANIA REST
-                # #3); add_same_person_24h_constraints ties them to the
-                # identical employee instead.
-                if period.period_key == fixed_period.period_key:
-                    continue
-                if violates_rest(period, fixed_period):
-                    model.add(x[employee_id, rep] == 0)
+        cross_month = (cross_month_by_employee or {}).get(employee_id, {})
+        periods = _demand_periods(employee_id, employee_slots, site_id, cross_month)
+        relaxed = {frozenset((c.first_demand_id, c.second_demand_id)): c for c in (same_month_by_employee or {}).get(employee_id, [])}
+        pair_vars.update(_add_one_employee_rest(model, x, employee_id, periods, relaxed, fixed_periods.get(employee_id, [])))
+    _add_no_chain_constraints(model, pair_vars)
+    return pair_vars
+
+
+def _add_no_chain_constraints(model: cp_model.CpModel, pair_vars: dict[tuple[str, str, str], tuple]) -> None:
+    """T012 Part C section 2: for one employee, D1+D2 and D2+D3 may not both
+    be active -- caps every emergency chain at exactly 2 components without
+    blocking a different employee from using either pair (PER EMPLOYEE, not
+    globally per demand)."""
+    touching: dict[tuple[str, str], list] = {}
+    for (employee_id, first_id, second_id), (p, _rest) in pair_vars.items():
+        touching.setdefault((employee_id, first_id), []).append(p)
+        touching.setdefault((employee_id, second_id), []).append(p)
+    for p_list in touching.values():
+        if len(p_list) > 1:
+            model.add(sum(p_list) <= 1)
+
+
+def _add_one_employee_rest(
+    model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], relaxed: dict, fixed_periods_for_employee: list[WorkPeriod],
+) -> dict[tuple[str, str, str], tuple]:
+    # A period's representative CP-SAT variable is its earliest component --
+    # add_same_person_24h_constraints (solver.py) already forces every
+    # component of the same period to an identical value for this employee,
+    # so any one component faithfully stands in for "this occurrence is
+    # assigned to employee_id" here.
+    pair_vars: dict[tuple[str, str, str], tuple] = {}
+    for i in range(len(periods)):
+        for j in range(i + 1, len(periods)):
+            if not violates_rest(periods[i], periods[j]):
+                continue
+            rep_i, rep_j = periods[i].component_ids[0], periods[j].component_ids[0]
+            candidate = relaxed.get(frozenset((rep_i, rep_j)))
+            if candidate is None:
+                model.add(x[employee_id, rep_i] + x[employee_id, rep_j] <= 1)
+                continue
+            # T012-C emergency 24h: relax to an optional pairing instead of
+            # an outright block -- p can only reach 1 when both are assigned
+            # (p <= x_i, p <= x_j), and forces itself to 1 whenever both are.
+            p = model.new_bool_var(f"pair_{employee_id}_{rep_i}_{rep_j}")
+            model.add(p <= x[employee_id, rep_i])
+            model.add(p <= x[employee_id, rep_j])
+            model.add(x[employee_id, rep_i] + x[employee_id, rep_j] <= 1 + p)
+            pair_vars[employee_id, candidate.first_demand_id, candidate.second_demand_id] = (p, candidate.rest_hours)
+    for period in periods:
+        rep = period.component_ids[0]
+        for fixed_period in fixed_periods_for_employee:
+            # Same period_key = this prospective period is the still-open
+            # other half of an already-fixed component of the SAME
+            # occurrence (normal 24h, or a T012-C cross-month pair) -- no
+            # rest check between them (WYMAGANIA REST #3);
+            # add_same_person_24h_constraints ties normal 24h components to
+            # the identical employee instead, and a cross-month pair's
+            # earlier half is already fixed to one employee by definition.
+            if period.period_key == fixed_period.period_key:
+                continue
+            if violates_rest(period, fixed_period):
+                model.add(x[employee_id, rep] == 0)
+    return pair_vars
+
+
+def build_emergency_pair_context(state, slots: list) -> tuple[dict[str, list], dict[str, dict]]:
+    """T012 Part C PAIR CANDIDATE: filters the pure work_periods candidate
+    lists down to (employee, candidate) combinations actually allowed to use
+    them -- base slot-eligibility for every named demand, plus can_work_24h
+    on a mixed profile (an all-24h profile never offers this option)."""
+    if is_all_24h_profile(state.profile):
+        return {}, {}
+    slot_employees_by_demand: dict[str, set] = {}
+    for slot in slots:
+        slot_employees_by_demand.setdefault(slot.demand.demand_id, set()).add(slot.employee_id)
+    can_pair = {m.employee_id for m in state.memberships if m.site_id == state.site.site_id and m.can_work_24h}
+
+    same_month_by_employee: dict[str, list] = {}
+    for candidate in find_same_month_pair_candidates(state.shift_demands):
+        eligible = (
+            slot_employees_by_demand.get(candidate.first_demand_id, set())
+            & slot_employees_by_demand.get(candidate.second_demand_id, set())
+            & can_pair
+        )
+        for employee_id in eligible:
+            same_month_by_employee.setdefault(employee_id, []).append(candidate)
+
+    cross_month_by_employee: dict[str, dict] = {}
+    for candidate in find_cross_month_pair_candidates(
+        list(state.boundary_assignments), list(state.boundary_shift_demands), list(state.shift_demands)
+    ):
+        if candidate.employee_id not in can_pair:
+            continue
+        if candidate.employee_id not in slot_employees_by_demand.get(candidate.current_demand_id, set()):
+            continue
+        cross_month_by_employee.setdefault(candidate.employee_id, {})[candidate.current_demand_id] = candidate
+    return same_month_by_employee, cross_month_by_employee
+
+
+def resolve_emergency_overrides(
+    solver: cp_model.CpSolver, pair_vars: dict[tuple[str, str, str], tuple],
+    cross_month_by_employee: dict[str, dict], site_id: str,
+) -> dict[tuple[str, str], tuple[str, int]]:
+    """After solving: (employee_id, demand_id) -> (work_period_id,
+    required_rest_after_hours) for every Assignment the emergency mechanism
+    actually produced -- same-month only when its pair variable solved to 1,
+    cross-month unconditionally (the boundary half is already a persisted
+    fact, not a decision)."""
+    overrides: dict[tuple[str, str], tuple[str, int]] = {}
+    for (employee_id, first_id, second_id), (p, rest_hours) in pair_vars.items():
+        if not solver.value(p):
+            continue
+        # C-R13-1: identity MUST include site_id + employee_id + the ordered
+        # demand pair -- two Sites with the same profile/date, a shared
+        # employee, and identical local demand ids must never collide.
+        work_period_id = f"{site_id}:emergency:{employee_id}:{first_id}+{second_id}"
+        overrides[employee_id, first_id] = (work_period_id, rest_hours)
+        overrides[employee_id, second_id] = (work_period_id, rest_hours)
+    for employee_id, by_demand in (cross_month_by_employee or {}).items():
+        for demand_id, candidate in by_demand.items():
+            overrides[employee_id, demand_id] = (candidate.boundary_work_period_id, candidate.rest_hours)
+    return overrides
 
 
 def add_load_constraints(
