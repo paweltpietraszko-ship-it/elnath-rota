@@ -17,23 +17,34 @@ from rota.domain import (
     DeviationCategory,
     ScheduleStatus,
     ScheduleVersion,
+    ShiftCatalogKind,
     ShiftDemand,
+    ShiftKind,
 )
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
 from rota.persistence.schedule_types import ScheduleSnapshot
 
 
 def _row_to_demand(row: tuple) -> ShiftDemand:
-    schedule_version_id, demand_id, start_dt, end_dt, count = row
-    return ShiftDemand(demand_id, schedule_version_id, datetime.fromisoformat(start_dt), datetime.fromisoformat(end_dt), count)
+    (schedule_version_id, demand_id, start_dt, end_dt, count,
+     shift_kind, catalog_kind, required_rest_hours, template_id, component, emergency_rest) = row
+    return ShiftDemand(
+        demand_id, schedule_version_id, datetime.fromisoformat(start_dt), datetime.fromisoformat(end_dt), count,
+        shift_kind=ShiftKind(shift_kind) if shift_kind else None,
+        catalog_kind=ShiftCatalogKind(catalog_kind) if catalog_kind else None,
+        required_rest_hours=required_rest_hours,
+        work_period_template_id=template_id, work_period_component=component,
+        emergency_24h_rest_hours=emergency_rest,
+    )
 
 
 def _row_to_assignment(row: tuple) -> Assignment:
     (schedule_version_id, assignment_id, employee_id, start_dt, end_dt, role, state,
-     frozen, covers_demand_id, mentor_id, operational_code) = row
+     frozen, covers_demand_id, mentor_id, operational_code, work_period_id, required_rest_after_hours) = row
     return Assignment(
         assignment_id, schedule_version_id, employee_id, datetime.fromisoformat(start_dt), datetime.fromisoformat(end_dt),
         AssignmentRole(role), AssignmentState(state), bool(frozen), covers_demand_id, mentor_id, operational_code,
+        work_period_id=work_period_id, required_rest_after_hours=required_rest_after_hours,
     )
 
 
@@ -73,15 +84,17 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
     header = get_schedule_version_header(conn, version_id)
     demands = [
         _row_to_demand(r) for r in conn.execute(
-            "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count "
-            "FROM shift_demands WHERE schedule_version_id = ? ORDER BY demand_id",
+            "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
+            "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
+            "emergency_24h_rest_hours FROM shift_demands WHERE schedule_version_id = ? ORDER BY demand_id",
             (version_id,),
         ).fetchall()
     ]
     assignments = [
         _row_to_assignment(r) for r in conn.execute(
             "SELECT schedule_version_id, assignment_id, employee_id, start_datetime, end_datetime, role, state, "
-            "frozen, covers_demand_id, mentor_primary_assignment_id, operational_code FROM assignments "
+            "frozen, covers_demand_id, mentor_primary_assignment_id, operational_code, work_period_id, "
+            "required_rest_after_hours FROM assignments "
             "WHERE schedule_version_id = ? ORDER BY assignment_id",
             (version_id,),
         ).fetchall()
@@ -95,6 +108,27 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
         ).fetchall()
     ]
     return ScheduleSnapshot(header.status, header.applied_rule_version_ids, demands, assignments, deviations)
+
+
+def get_shift_demands_by_ids(conn: sqlite3.Connection, version_demand_ids: list[tuple[str, str]]) -> list[ShiftDemand]:
+    """ROTA-T012 Part C: batch-fetch ShiftDemand rows by (schedule_version_id,
+    demand_id) pairs, grouped per version -- used to reconstruct cross-month
+    emergency boundary demand provenance from an OLDER persisted CURRENT
+    ScheduleVersion, never from the current SiteProfile."""
+    by_version: dict[str, list[str]] = {}
+    for version_id, demand_id in version_demand_ids:
+        by_version.setdefault(version_id, []).append(demand_id)
+    demands: list[ShiftDemand] = []
+    for version_id, demand_ids in by_version.items():
+        placeholders = ",".join("?" for _ in demand_ids)
+        rows = conn.execute(
+            "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
+            "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
+            f"emergency_24h_rest_hours FROM shift_demands WHERE schedule_version_id = ? AND demand_id IN ({placeholders})",
+            (version_id, *demand_ids),
+        ).fetchall()
+        demands.extend(_row_to_demand(r) for r in rows)
+    return demands
 
 
 def list_schedule_versions(conn: sqlite3.Connection, site_id: str, month: date) -> list[ScheduleVersion]:
@@ -131,7 +165,8 @@ def get_current_assignments_in_interval(
     non-overlapping-but-relevant REST-01 context alike."""
     rows = conn.execute(
         """SELECT a.schedule_version_id, a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code
+                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code,
+                  a.work_period_id, a.required_rest_after_hours
            FROM assignments a
            JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
            WHERE c.site_id = ? AND a.state != ? AND a.start_datetime < ? AND a.end_datetime > ?
@@ -160,7 +195,8 @@ def get_current_assignments_for_employees(
         params.append(exclude_site_id)
     rows = conn.execute(
         f"""SELECT a.schedule_version_id, a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                   a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code
+                   a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code,
+                  a.work_period_id, a.required_rest_after_hours
             FROM assignments a
             JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
             WHERE a.employee_id IN ({placeholders}) AND a.state != ? AND a.start_datetime < ? AND a.end_datetime > ?
@@ -196,7 +232,8 @@ def get_current_realized_primary_on_holidays(conn: sqlite3.Connection, site_id: 
     Assignment.role == PRIMARY only, on a stored CalendarDay(holiday=true)."""
     rows = conn.execute(
         """SELECT a.schedule_version_id, a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code
+                  a.role, a.state, a.frozen, a.covers_demand_id, a.mentor_primary_assignment_id, a.operational_code,
+                  a.work_period_id, a.required_rest_after_hours
            FROM assignments a
            JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
            JOIN calendar_days cd ON cd.date = date(a.start_datetime)

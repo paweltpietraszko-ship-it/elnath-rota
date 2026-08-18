@@ -40,12 +40,14 @@ from rota.domain import (
     Employee,
     ExternalSupportWindow,
     MembershipKind,
+    ShiftCatalogKind,
     ShiftDemand,
     ShiftKind,
     SiteMembership,
     SiteProfile,
 )
 from rota.domain import SiteRuleVersion
+from rota.planning.shift_catalog import normalized_catalog_kind
 from rota.planning.site_rules import day_only_n_exception_applies, rule_allows_assignment
 from rota.planning.timeutil import overlaps_date_range
 
@@ -132,6 +134,15 @@ def _blocked_by_site_rules(
     return None
 
 
+def is_all_24h_profile(profile: SiteProfile) -> bool:
+    """part_b_work_period_rest.md: an all-24h profile (every StandardShift
+    normalizes to catalog_kind=24h) ignores SiteMembership.can_work_24h; a
+    mixed profile enforces it. A profile with no standard_shifts is not
+    "all-24h"."""
+    shifts = profile.standard_shifts
+    return bool(shifts) and all(normalized_catalog_kind(s) == ShiftCatalogKind.H24 for s in shifts)
+
+
 def _common_hard_gate(
     employee: Employee,
     membership: SiteMembership,
@@ -142,10 +153,18 @@ def _common_hard_gate(
     applicable_hard_rules: list[SiteRuleVersion],
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled,
-    DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01, LEAVE_GRANTED-01,
-    LEAVE_PLAN-01, and (ROTA-T007) applicable HARD SiteRules."""
+    SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
+    LEAVE_GRANTED-01, LEAVE_PLAN-01, and (ROTA-T007) applicable HARD
+    SiteRules."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
+    # SHIFT-24-01 (NORMAL 24h SAME-PERSON HARD, part_b_work_period_rest.md):
+    # a mixed 12h/24h profile requires can_work_24h for a catalog_kind=24h
+    # demand; an all-24h profile ignores the flag. Never a bypass of the
+    # other gates below -- e.g. a DAY_ONLY employee still cannot take the N
+    # component of a normal 24h occurrence.
+    if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not is_all_24h_profile(profile):
+        return EligibilityCheck(False, False, "SHIFT-24-01")
     if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
         # ROTA-T010-B (DAY-ONLY-TEMP-N-EXCEPTION-01): a narrow, named
         # exception may exempt DAY_ONLY-01 specifically -- every other HARD

@@ -1,9 +1,12 @@
 # ELNATH ROTA — arch/spec.md
-CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10 + amendment EMP-02 2026-08-16
+CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10 + amendment EMP-02 2026-08-16 + amendment T012 2026-08-15/16 + T012-R1-3 2026-08-18
 FROZEN_SOURCE: SONET_HANDOFF_BRIEF + dokumenty 01–07 z
   ELNATH_WARD_HANDOFF_FINAL_2026-08-10.zip +
   decyzje właściciela z sesji 2026-08-10 +
-  decyzja właściciela 2026-08-16 o wycofaniu EMP-02
+  decyzja właściciela 2026-08-16 o wycofaniu EMP-02 +
+  decyzje właściciela 2026-08-15/16 o katalogu 24h/12h/INNY,
+  odpoczynku per okres pracy i awaryjnym 24h +
+  decyzja właściciela 2026-08-18: awaryjne 24h może przekraczać granicę miesiąca i roku
 STATUS: maszynowy wyciąg kanonu produktu dla Ward
   Mechanical Gate i modeli implementujących
 
@@ -39,6 +42,27 @@ REQUIRED:
   - end_time
   - end_next_day: bool
   - required_primary_count: int
+  - catalog_kind: 24h | 12h | INNY
+  - required_rest_hours: int
+  - active_weekdays: non-empty ISO weekday set 1..7
+
+T012 CATALOG SEMANTICS — DECYZJE_WŁAŚCICIELA 2026-08-15/16:
+- catalog_kind jest osobne od ShiftKind D/N; NIE istnieje ShiftKind=24;
+- 24h ma dokładnie 24 h i jest reprezentowane w ScheduleVersion jako dwie
+  kolejne istniejące 12h komponenty D/N tej samej osoby;
+- 12h ma dokładnie 12 h;
+- INNY oznacza dodatnią, reprezentowalną długość inną niż dokładnie 12/24 h;
+- każda pozycja ma wpisywany przez koordynatora required_rest_hours >= 0;
+  program egzekwuje tę wartość, ale nie wyprowadza ani nie waliduje prawa;
+- active_weekdays jest HARD i kotwiczy occurrence do dnia STARTU pozycji;
+- kilka pozycji, kilka INNY i nakładające się occurrence są dozwolone;
+  każda aktywna pozycja generuje osobny demand.
+
+LEGACY COMPATIBILITY:
+- pre-T012 catalog_kind może być nieobecne i jest normalizowane z realnej
+  długości: 24 h -> 24h; 12 h -> 12h; inna dodatnia -> INNY;
+- pre-T012 required_rest_hours = 11;
+- pre-T012 active_weekdays = wszystkie dni 1..7.
 
 - day_only_blocks_n: bool
   (false = profil nie blokuje N dla DAY_ONLY employees)
@@ -74,9 +98,12 @@ MUST NOT own:
 - ScheduleVersion history;
 - WorkBalance identity.
 
-### GLOBAL CONSTANT (not in SiteProfile)
-REST_MIN_HOURS = 11
-(aktualne przepisy prawa pracy; zmiana wymaga zmiany kanonu)
+### LEGACY REST FALLBACK (not current SiteProfile policy)
+REST_MIN_HOURS = 11 MAY remain in code only as compatibility fallback for
+pre-T012 data that has no persisted required-rest provenance.
+
+T012 current planning MUST use configured/persisted required_rest_hours for
+the actual work period. 11 h is NOT a universal current legal rule in Rota.
 
 ### Coordinator
 REQUIRED:
@@ -118,9 +145,21 @@ REQUIRED:
 - enabled
 - readiness_state: NOT_READY | READY_FOR_PRIMARY
 - readiness_source: DEFAULT | COORDINATOR_OVERRIDE
+- can_work_24h: bool
+  (default true; kwalifikacja per Site do 24h na profilu mieszanym)
 
 MEMBERSHIP-01: LOCAL is eligible when: membership enabled; Employee restrictions allow Assignment; AvailabilityRecords allow Assignment; active rules allow Assignment.
 MEMBERSHIP-02: EXTERNAL_SUPPORT is unavailable unless a confirmed ExternalSupportWindow covers the Assignment.
+
+SHIFT-24 MEMBERSHIP SEMANTICS:
+- mixed profile z możliwością 24h: normalne i awaryjne 24h wymagają
+  can_work_24h=true;
+- profil, którego cały niepusty katalog składa się wyłącznie z 24h:
+  can_work_24h jest ignorowane/checkbox jest zbędny;
+- brak kwalifikacji 24h NIE blokuje pojedynczej zwykłej 12h/INNY;
+- built-in condition code dla próby użycia 24h bez kwalifikacji = SHIFT-24-01;
+- żaden wyjątek 24h nie wyłącza DAY_ONLY, Availability, SiteRule,
+  membership.enabled, EXTERNAL ani innych HARD.
 
 ### ExternalSupportWindow
 REQUIRED:
@@ -201,6 +240,16 @@ RULE-05: SOFT MAY be traded according to active profile planning policy.
 RULE-06: Rule version history is immutable.
 RULE-07: Each SiteRule belongs to exactly one Site.
 
+T012 REST OVERRIDE AUDIT RECORD:
+- manual correction that creates >=1 REST-01 violation additionally writes
+  one DecisionRecord for the child ScheduleVersion;
+- its SiteRuleVersion uses category=CONFIRMED_EXCEPTION,
+  rule_kind=REST_OVERRIDE_RECORD, enforcement=INFORMATIONAL,
+  resolution_status=RESOLVED;
+- it is an audit record only: MUST NOT enter applied_rule_version_ids and
+  MUST NOT weaken or constrain future planning;
+- existing Deviation + acknowledgement/finalize behavior remains mandatory.
+
 ### WorkBalance
 KEY:
 - employee_id
@@ -242,6 +291,7 @@ VERSION CONTENT:
 VER-01: A ScheduleVersion represents a complete reconstructable state of one Site/month.
 VER-03: Exactly one current version reference exists for each (site_id, month).
 VER-04: FINAL ScheduleVersion is immutable.
+VER-T012-01: Cross-month emergency 24h MUST NOT move a demand/Assignment into another month or mutate the earlier ScheduleVersion; the later month may extend work-period semantics through persisted boundary context.
 
 ### ShiftDemand
 REQUIRED:
@@ -251,8 +301,41 @@ REQUIRED:
 - end_datetime
 - required_primary_count
 
+T012 SNAPSHOT FIELDS (required for T012-generated demand; nullable only for legacy):
+- shift_kind: D | N
+- catalog_kind: 24h | 12h | INNY
+- required_rest_hours: int
+- work_period_template_id
+- work_period_component: int
+- emergency_24h_rest_hours: int (optional)
+
 DEMAND-01: ShiftDemand is persisted as part of ScheduleVersion.
 DEMAND-02: OCHRONA standard required_primary_count=1.
+DEMAND-T012-01: T012-generated demand MUST carry explicit shift_kind and catalog/rest provenance; current SiteProfile MUST NOT be required to reconstruct historical REST.
+
+NORMAL 12h/INNY:
+- one catalog occurrence = one demand;
+- own work_period_template_id; component=1.
+
+NORMAL 24h:
+- one catalog occurrence = exactly two directly consecutive 12h demands;
+- component 1 has catalog entry ShiftKind; component 2 has opposite D/N;
+- both share work_period_template_id, required_rest_hours and required_primary_count;
+- active_weekdays is evaluated on component-1/start date of the whole 24h occurrence;
+- both components are generated even when component 2 enters a weekday not listed for that catalog entry.
+
+EMERGENCY TEMPLATE SNAPSHOT:
+- ordinary catalog_kind=12h demand MAY carry emergency_24h_rest_hours when a
+  unique matching 24h capability can start at that demand;
+- conflicting matching 24h capabilities with different rest values are
+  model/config ambiguity and MUST fail closed, not choose an arbitrary rest;
+- the 24h catalog entry's weekday mask controls normal 24h demand generation,
+  while emergency capability is a separate second-pass mechanism and MAY be
+  available on another weekday when two ordinary consecutive 12h demands exist.
+
+Legacy ShiftDemand without T012 fields remains readable; missing rest means
+legacy 11 h and missing shift_kind may use the pre-T012 classifier only as
+legacy fallback.
 
 ### Assignment
 REQUIRED:
@@ -272,10 +355,34 @@ TRAINEE:
 - mentor_primary_assignment_id required
 - covers_demand_id absent
 
+T012 OPTIONAL-ONLY-FOR-LEGACY SNAPSHOT:
+- work_period_id
+- required_rest_after_hours
+
+WORK PERIOD SEMANTICS:
+- identity = (employee_id, work_period_id);
+- ordinary 12h/INNY Assignment has its own work_period_id;
+- two components of normal 24h for one employee share work_period_id;
+- two ordinary 12h components joined by emergency 24h for one employee share work_period_id;
+- components created together for one work period carry one consistent required_rest_after_hours;
+- legacy work_period_id absent => each Assignment is its own work period;
+- legacy required_rest_after_hours absent => 11 h.
+
+CROSS-MONTH EMERGENCY EXTENSION — OWNER DECISION A 2026-08-18:
+- the later-month Assignment MAY reuse the persisted boundary Assignment work_period_id;
+- the earlier boundary Assignment/ScheduleVersion MUST NOT be mutated;
+- therefore the earlier component MAY still carry its former standalone rest snapshot;
+- for this exact cross-month extension the terminal/later component's
+  required_rest_after_hours is authoritative for rest after the whole 24h period;
+- the earlier component's rest is ignored internally because work continues without a rest gap;
+- a work period that already has two CURRENT components MUST NOT be extended again.
+
 ASSIGN-01: Site is derived through ScheduleVersion. No Assignment.site_id.
 ASSIGN-03: REALIZED work MUST NOT be changed by REPLAN.
 ASSIGN-04: future frozen Assignment MUST NOT be changed by REPLAN.
 ASSIGN-05: Manual Assignment is NOT automatically frozen.
+ASSIGN-T012-01: persisted Assignment rest/work-period provenance is the source of truth for historical and cross-site REST; changing current SiteProfile MUST NOT retroactively alter it.
+ASSIGN-T012-02: Cross-month emergency pairing changes only the later month's Assignment; the previous Assignment remains immutable even when REALIZED/frozen/final.
 
 ### Deviation
 REQUIRED:
@@ -309,6 +416,9 @@ INCLUDES (frozen=True, wszystkie kolekcje tuple):
 
   calendar_days: tuple[CalendarDay, ...]
   boundary_assignments: tuple[Assignment, ...]
+  boundary_shift_demands: tuple[ShiftDemand, ...]
+    # T012: persisted CURRENT demands covered by boundary_assignments;
+    # preserves original catalog/emergency provenance for cross-month pairing
 
   memberships: tuple[SiteMembership, ...]
   employees: tuple[Employee, ...]
@@ -330,12 +440,15 @@ INCLUDES (frozen=True, wszystkie kolekcje tuple):
     # REALIZED w CalendarDay(holiday=True)
 
   other_site_assignments: tuple[Assignment, ...]
-    # same Employee na innych Site; gdy dane dostępne
+    # same Employee na innych Site; gdy CURRENT persisted dane są dostępne;
+    # T012 Assignment carries work-period/rest provenance
 
   schedule_version_id: str
 
 STATE-01: NEEDS_RESOLUTION SiteRule MUST NOT enter executable rule set.
 STATE-02: Boundary context MUST be sufficient for cross-month validation.
+STATE-T012-01: Brak other_site Assignment w LocalStore nie tworzy syntetycznego warning/blockera ani pytania; gdy persisted CURRENT data istnieją, cross-site REST jest HARD.
+STATE-T012-02: Cross-month emergency 24h MAY use only persisted CURRENT boundary Assignment + matching boundary ShiftDemand provenance. Boundary context MUST be work-period-complete enough to determine whether the boundary work_period_id already has two components; missing boundary demand/history means no cross-month pair, not an invented warning.
 
 ### PlanningEngine (no persistent state)
 COMPONENT PlanningEngine — NO persistent business-state ownership.
@@ -358,26 +471,65 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 ---
 
 ## SECTION 2 — HARD CONSTRAINTS
-Źródło: v0.4 sekcja 6.0. Treść dosłowna za wyjątkiem
-SHIFT-01 i LOAD-01 uogólnionych per decyzja właściciela
-2026-08-10.
+Źródło: v0.4 sekcja 6.0 + decyzje właściciela
+2026-08-10 oraz amendment T012 2026-08-15/16 i T012-R1-3 2026-08-18.
 
 ### SHIFT-01
-- każdy SiteProfile definiuje standard_shifts
-  (kind, start_time, end_time, end_next_day, required_primary_count);
-- godziny i liczba PRIMARY są konfiguracją per profil,
-  wpisywaną ręcznie przez koordynatora w UI;
-- OCHRONA default: D=05:00–17:00, N=17:00–05:00,
-  required_primary_count=1;
-- każda wymagana zmiana ma dokładnie required_primary_count PRIMARY;
+- każdy SiteProfile definiuje katalog standard_shifts;
+- każda pozycja ma ShiftKind D/N ORAZ catalog_kind 24h/12h/INNY;
+- godziny, required_primary_count, required_rest_hours i active_weekdays są
+  konfiguracją per profil wpisywaną przez koordynatora; program nie wyprowadza
+  wymaganej wartości odpoczynku z prawa;
+- OCHRONA legacy/default: D=05:00–17:00, N=17:00–05:00,
+  required_primary_count=1, required_rest_hours=11, active_weekdays=1..7;
+- każda aktywna pozycja katalogu generuje osobny wymagany occurrence; overlap
+  kilku pozycji jest legalny i nie oznacza alternatywy;
+- 12h i INNY generują po jednym demandzie na occurrence;
+- 24h generuje dokładnie dwie kolejne 12h komponenty D→N albo N→D;
+- obie komponenty normalnego 24h mają dokładnie ten sam zbiór PRIMARY;
+  złamanie tego HARD ma code SHIFT-24-PAIR-01;
+- na mixed profile employee użyty do normalnego 24h musi mieć
+  SiteMembership.can_work_24h=true; na all-24h profile flaga jest ignorowana;
+  złamanie kwalifikacji ma code SHIFT-24-01;
 - S nie pokrywa PRIMARY demand.
 
 ### REST-01
-- automatyczny plan musi zapewnić co najmniej 11 godzin nieprzerwanego odpoczynku między końcem jednego Assignment a początkiem następnego Assignment tego samego pracownika;
-- oznacza to między innymi, że N kończąca się o 05:00 nie może być bezpośrednio poprzedzona lub zakończona zmianą D zaczynającą się o 05:00 tego samego dnia;
-- N→N jest dopuszczalne, ponieważ standardowo daje 12 godzin odpoczynku;
-- D→D jest dopuszczalne, ponieważ standardowo daje 12 godzin odpoczynku;
-- żadne SOFT ani target_hours nie mogą naruszyć REST-01.
+- odpoczynek jest liczony pomiędzy kolejnymi work periods tego samego pracownika,
+  nie pomiędzy każdą techniczną komponentą Assignment osobno;
+- po work period A przed późniejszym work period B obowiązuje:
+  `B.start - A.end >= A.required_rest_after_hours`;
+- required_rest_after_hours pochodzi z configured catalog entry, która utworzyła
+  faktyczny work period, i jest snapshotowane w Assignment;
+- rest przyszłego B nie zwiększa ani nie zmniejsza ściany po A;
+- komponenty jednego work period, w tym dwie połówki 24h, stanowią ciągłą pracę
+  i nie wymagają internal rest;
+- dwa różne work periods tego samego pracownika nie mogą się nakładać;
+- normalne 24h i awaryjne 24h wymagają po końcu odpoczynku właściwego dla
+  24h capability, a nie odpoczynku pojedynczej 12h połówki;
+- dla cross-month emergency extension rest po całym 24h okresie pochodzi z
+  terminalnej/later-month komponenty; wcześniejszy standalone rest snapshot
+  boundary Assignment nie tworzy internal wall i nie jest retroaktywnie przepisywany;
+- ta sama kierunkowa semantyka obowiązuje same-site, cross-month i cross-site;
+- cross-site używa persisted provenance poprzedniego Assignment, nie current
+  profilu Site, na którym praca historycznie się odbyła;
+- jeśli program nie posiada persisted CURRENT assignment z innego Site,
+  nie zgaduje i nie tworzy warning/DECISION_REQUIRED tylko z powodu braku danych;
+- żadne SOFT ani target_hours nie mogą naruszyć REST-01 automatycznie;
+- manual correction MAY świadomie zapisać REST-01 violation: operacja nie jest
+  blokowana, powstaje Deviation i wymagane potwierdzenie przy finalize, a T012
+  dodatkowo zapisuje DecisionRecord REST_OVERRIDE_RECORD; ten record nie jest
+  executable exception dla przyszłego solvera.
+
+### SHIFT-24-01
+- dotyczy wyłącznie normalnego lub awaryjnego 24h na profilu mieszanym;
+- employee z can_work_24h=false nie może zostać automatycznie użyty do 24h;
+- nie blokuje pojedynczej zwykłej 12h/INNY;
+- all-24h profile ignoruje tę flagę.
+
+### SHIFT-24-PAIR-01
+- dwie komponenty normalnego katalogowego 24h muszą mieć ten sam zbiór PRIMARY;
+- dla każdego employee tworzą jeden work period;
+- independent validator sprawdza ten HARD niezależnie od CP-SAT.
 
 ### DAY_ONLY-01
 - reguła aktywna tylko gdy SiteProfile.day_only_blocks_n=true;
@@ -435,7 +587,7 @@ SHIFT-01 i LOAD-01 uogólnionych per decyzja właściciela
 ---
 
 ## SECTION 3 — PLANNING OUTCOMES
-Źródło: v0.4 sekcja 6.1–6.6.
+Źródło: v0.4 sekcja 6.1–6.6 + amendment T012 2026-08-16 + T012-R1-3 2026-08-18.
 
 ### FEASIBLE
 Jeżeli istnieją pełne rozwiązania w ramach aktywnego kontraktu:
@@ -468,10 +620,53 @@ Aktywne czynniki SOFT:
 TARGET-01: target_hours jest parametrem SOFT;
 solver nie tworzy pracy ani nie narusza HARD dla targetu.
 
+### INTERNAL EMERGENCY 24h RETRY — T012
+
+Normalne katalogowe 24h jest częścią zwykłego modelu pierwszego przebiegu.
+Osobno istnieje awaryjne łączenie dwóch zwykłych 12h:
+
+1. pierwszy przebieg szuka pełnego grafiku z emergency pairing wyłączonym;
+2. jeżeli pierwszy przebieg daje pełny candidate, solver kończy — nie używa
+   emergency 24h tylko po to, by poprawić SOFT;
+3. dopiero po udowodnionej biznesowej niewykonalności/braku obsady/konflikcie
+   pierwszy capped model jest ponawiany z emergency pairing włączonym;
+4. same-month emergency pair może objąć dokładnie dwa zwykłe catalog_kind=12h demandy,
+   gdy są bezpośrednio kolejne, mają przeciwne D/N, a pierwszy ma snapshot
+   emergency_24h_rest_hours;
+5. OWNER DECISION A 2026-08-18: emergency pair może również przekraczać granicę
+   miesiąca/roku; wtedy pierwszą połową jest persisted CURRENT boundary Assignment
+   wraz z matching boundary ShiftDemand, a drugą połową current-month 12h demand;
+6. cross-month pair powstaje wyłącznie podczas planowania późniejszego miesiąca;
+   wcześniejszy ScheduleVersion/Assignment nie jest mutowany ani przepisywany;
+7. boundary first-half musi być zwykłym 12h PRIMARY, mieć snapshot emergency rest,
+   być bezpośrednio kolejne z current 12h o przeciwnym D/N i należeć do standalone
+   work period z dokładnie jedną CURRENT komponentą;
+8. current Assignment cross-month pair reuse boundary work_period_id i zapisuje
+   required_rest_after_hours z boundary ShiftDemand emergency_24h_rest_hours;
+9. ten sam employee musi być eligible dla obu; na mixed profile musi mieć
+   can_work_24h=true; INNY nigdy nie uczestniczy;
+10. jeden demand/work period nie może należeć do dwóch emergency pairs i nie wolno
+    tworzyć chain >2, także przez kolejne granice miesiąca;
+11. brak persisted boundary Assignment lub matching boundary ShiftDemand oznacza
+    brak cross-month candidate, bez zgadywania i bez osobnego warningu;
+12. dwa Assignment awaryjnej pary tworzą jeden work period i po jego końcu używają
+    rest 24h; w cross-month extension terminalna/later component jest źródłem rest;
+13. jeśli drugi capped model jest INFEASIBLE, LOAD uncapped diagnosis używa
+    również emergency-enabled modelu z tym samym boundary context;
+14. UNKNOWN/MODEL_INVALID/technical status nie może zostać zamaskowany retry
+    i zamieniony na zwykły DECISION_REQUIRED;
+15. koordynator nie widzi stanów/prób pośrednich — tylko końcowy PlanningResult.
+
+Przykłady obowiązkowe cross-boundary: N 31.08→D 01.09 oraz N 31.12→D 01.01.
+
+Emergency pairing jest modelowane w Google OR-Tools CP-SAT; zakaz własnego
+backtrackingu/search pozostaje.
+
 ### DECISION_REQUIRED
 DECISION_REQUIRED nie jest awarią. Oznacza:
 - solver doszedł do granicy swojej autonomii;
-- normalny kontrakt nie pozwala ukończyć bez decyzji koordynatora.
+- normalny kontrakt, łącznie z legalnym wewnętrznym T012 emergency retry,
+  nie pozwala ukończyć bez decyzji koordynatora.
 
 Wynik musi zawierać:
 - nieobsadzony/problematic demand albo constraint powodujący zatrzymanie;
@@ -624,7 +819,7 @@ Te elementy wynikają z Rota Product Contract, nie z Continuity ani starego Elna
 10. Zmiana kanonu wymaga jawnej decyzji właściciela i nowej wersji Frozen Product Contract.
 11. Żaden Task Contract nie może zastąpić literalnej reguły solvera zwrotem typu „zgodnie z zasadami czasu pracy” lub „zgodnie ze Spec”; reguła potrzebna implementacji musi być obecna bezpośrednio albo jednoznacznie referencjonowana identyfikatorem Frozen Product Contract.
 12. Kandydat FEASIBLE musi przejść niezależną walidację wszystkich HARD po wygenerowaniu, nawet jeżeli ten sam constraint był używany podczas wyszukiwania.
-13. Zweryfikowanego PoC CP-SAT nie wolno traktować jako sugestii do ponownego zaprojektowania solvera; jest on technicznym punktem odniesienia dla implementacji.
+13. Zweryfikowanego PoC CP-SAT nie wolno traktować jako sugestii do ponownego zaprojektowania solvera; jest on technicznym punktem odniesienia dla implementacji produkcyjnej.
 14. Jeżeli produkcyjna implementacja daje inny status lub narusza HARD dla referencyjnego scenariusza PoC, domyślnym założeniem jest błąd implementacji lub mapowania kontraktu, nie potrzeba zmiany kanonu.
 15. Zmiana referencyjnego zachowania wymaga najpierw jawnej zmiany Frozen Product Contract, a dopiero potem zmiany kodu i testów.
 
@@ -665,7 +860,7 @@ Najważniejsze warunki:
 - B = LEAVE_GRANTED 12–18;
 - D = UNAVAILABLE_24H 9, 23, 24;
 - brak aktywnego ExternalSupportWindow dla X/Y;
-- minimum odpoczynku = 11 h;
+- dla tego fixture wymagany odpoczynek = 11 h;
 - >60 h w dowolnym ruchomym oknie 7 dni nie może być zwykłym FEASIBLE;
 - S 8 października wymaga A jako PRIMARY D;
 - target_hours: A 156, B 144, C 156, D 144, E 144.
@@ -689,7 +884,7 @@ Implementacja produkcyjna przechodzi ROTA-REG-001 tylko wtedy, gdy:
 - jakikolwiek `HARD FAIL`;
 - użycie X/Y;
 - przekroczenie 60 h / 7 dni;
-- odpoczynek <11 h;
+- odpoczynek <11 h w tym konkretnym fixture;
 - przypisanie B kolidujące z LEAVE_GRANTED;
 - przypisanie D kolidujące z UNAVAILABLE_24H;
 - N dla C;
@@ -727,7 +922,7 @@ CC nie zmienia fixture/oracle.
 ---
 
 ## SECTION 9 — ENGINEERING POLICY
-Źródło: decyzja właściciela 2026-08-10.
+Źródło: decyzja właściciela 2026-08-10 + techniczne dostosowanie T012.
 Nie jest częścią kanonu produktu v0.4.
 Obowiązuje jako standard inżynieryjny repo.
 
@@ -756,8 +951,9 @@ TYPES:
 CONSTANTS:
 - żadnych magic numbers w kodzie
 - stałe domenowe na poziomie modułu z UPPER_SNAKE_CASE
-- REST_MIN_HOURS = 11 importowane z rota.constants,
-  nie definiowane lokalnie
+- wartość 11 h dla REST może istnieć jako legacy compatibility constant;
+  bieżący REST MUST pochodzić z work-period/catalog provenance,
+  nie z globalnej stałej.
 
 FUNCTIONS:
 - max 50 linii (backend.py egzekwuje)
@@ -770,7 +966,7 @@ COMMENTS:
 - docstring na każdej funkcji publicznej: co robi + co zwraca
 - komentarz inline = DLACZEGO, nie CO (kod mówi co)
 - komentarz przy każdym constraint CP-SAT: identyfikator reguły
-  (# REST-01: min 11h between assignments)
+  (# REST-01: configured rest after previous work period)
 
 ERROR HANDLING:
 - żadnego bare except

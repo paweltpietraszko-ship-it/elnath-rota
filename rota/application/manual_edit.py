@@ -11,15 +11,19 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from datetime import date, datetime
+from itertools import combinations
 
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.deviation_mapping import materialize_deviations
 from rota.application.errors import NoCurrentScheduleVersion, NotWorkedRequiresPlannedPrimary, require_real_date
-from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
+from rota.domain import Assignment, AssignmentRole, AssignmentState, RuleCategory, RuleEnforcement, RuleResolution, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
+from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
+from rota.planning.work_periods import PeriodComponent, group_into_periods, resolve_required_rest, violates_rest
+from rota.site_memory_types import NewRuleContent
 
 
 def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: list[Assignment]) -> list[Assignment]:
@@ -27,6 +31,100 @@ def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: li
     for assignment in upsert:
         by_id[assignment.assignment_id] = assignment
     return list(by_id.values())
+
+
+def _employee_violating_pairs(employee_id: str, assignments: list[Assignment], target_ids: set[int]) -> list[tuple[Assignment, Assignment, float, int]]:
+    """D-R19-2: group this employee's Assignments into WorkPeriods exactly as
+    validator._check_rest does, but keyed by Python object identity (never a
+    bare assignment_id string) -- a local id reused by a genuinely different
+    ScheduleVersion (boundary or another Site) can never shadow or be
+    shadowed, regardless of which side of the edge it is on."""
+    by_synthetic_id = {str(id(a)): a for a in assignments}
+    components = [
+        PeriodComponent(str(id(a)), employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
+        for a in assignments
+    ]
+    periods = group_into_periods(components)
+    target_periods = [p for p in periods if any(id(by_synthetic_id[cid]) in target_ids for cid in p.component_ids)]
+    history_periods = [p for p in periods if p not in target_periods]
+    candidates = [(tp, h) for tp in target_periods for h in history_periods] + list(combinations(target_periods, 2))
+    pairs = []
+    for tp, other in candidates:
+        earlier, later = (tp, other) if tp.start <= other.start else (other, tp)
+        if not violates_rest(earlier, later):
+            continue
+        earlier_a, later_a = by_synthetic_id[earlier.component_ids[-1]], by_synthetic_id[later.component_ids[0]]
+        gap_hours = (later_a.start_datetime - earlier_a.end_datetime).total_seconds() / 3600
+        pairs.append((earlier_a, later_a, gap_hours, resolve_required_rest(earlier_a.required_rest_after_hours)))
+    return pairs
+
+
+def _rest_override_pairs(state, corrected_assignments: list[Assignment], report) -> list[tuple[Assignment, Assignment, float, int]]:
+    """ROTA-T012-D: independently re-derive each REST-01 pair's actual gap
+    and required rest from the SAME data the validator saw, never by parsing
+    ViolationDetail.message. D-R19-3: required_rest_hours is the RESOLVED
+    value (resolve_required_rest -- legacy None means the applied
+    REST_MIN_HOURS fallback), matching what the validator actually enforced."""
+    if not any(detail.rule == "REST-01" for detail in report.violation_details):
+        return []
+    target_ids = {id(a) for a in corrected_assignments}
+    by_employee: dict[str, list[Assignment]] = {}
+    for assignment in (*corrected_assignments, *state.other_site_assignments, *state.boundary_assignments):
+        by_employee.setdefault(assignment.employee_id, []).append(assignment)
+    pairs = []
+    for employee_id, assignments in by_employee.items():
+        pairs.extend(_employee_violating_pairs(employee_id, assignments, target_ids))
+    return pairs
+
+
+def _rest_override_rule_content(child_id: str, pairs: list[tuple[Assignment, Assignment, float, int]]) -> tuple[str, str, NewRuleContent, date]:
+    """T012 REST OVERRIDE AUDIT RECORD (arch/spec.md): CONFIRMED_EXCEPTION,
+    INFORMATIONAL, RESOLVED -- never executable, never in this child's
+    applied_rule_version_ids (created only inside on_success, after that
+    list was already computed)."""
+    employee_ids = sorted({earlier.employee_id for earlier, _, _, _ in pairs})
+    all_members = [a for earlier, later, _, _ in pairs for a in (earlier, later)]
+    structured_parameters = {
+        "child_version_id": child_id,
+        "affected_employee_ids": employee_ids,
+        "assignment_ids": sorted({a.assignment_id for a in all_members}),
+        "work_period_ids": sorted({a.work_period_id for a in all_members if a.work_period_id}),
+        "rest_pairs": [
+            {
+                "employee_id": earlier.employee_id, "earlier_assignment_id": earlier.assignment_id,
+                "later_assignment_id": later.assignment_id, "actual_gap_hours": round(gap_hours, 2),
+                "required_rest_hours": required_rest_hours,
+            }
+            for earlier, later, gap_hours, required_rest_hours in pairs
+        ],
+    }
+    statement = (
+        f"Manual correction {child_id} knowingly overrides REST-01 for {len(pairs)} pair(s), "
+        f"employees {', '.join(employee_ids)}."
+    )
+    rule_content = NewRuleContent(
+        category=RuleCategory.CONFIRMED_EXCEPTION, rule_kind="REST_OVERRIDE_RECORD",
+        structured_parameters=structured_parameters, enforcement=RuleEnforcement.INFORMATIONAL,
+        resolution_status=RuleResolution.RESOLVED, effective_to=max(a.end_datetime.date() for a in all_members),
+        description=None, source=None, reason=None,
+    )
+    return f"REST-OVERRIDE:{child_id}", statement, rule_content, min(a.start_datetime.date() for a in all_members)
+
+
+def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, caller_on_success):
+    if rest_override is None:
+        return caller_on_success
+    rule_id, statement, rule_content, earliest_date = rest_override
+
+    def _hook(conn) -> None:
+        record_decision_no_commit(
+            conn, site_id=site_id, rule_id=rule_id, statement=statement, coordinator_id=coordinator_id,
+            recorded_at=datetime.now(), effective_from=earliest_date, rel=None, rule_content=rule_content,
+        )
+        if caller_on_success is not None:
+            caller_on_success(conn)
+
+    return _hook
 
 
 def apply_manual_correction(
@@ -58,12 +156,15 @@ def apply_manual_correction(
     deviations = materialize_deviations(report.violation_details, all_rules)  # step 8
 
     child_id = f"SV-{uuid.uuid4().hex}"
+    rest_pairs = _rest_override_pairs(state, corrected_assignments, report)
+    rest_override = _rest_override_rule_content(child_id, rest_pairs) if rest_pairs else None
     return lifecycle.create_schedule_version(  # steps 9-10
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
         created_at=datetime.now(), created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=parent_snapshot.shift_demands, assignments=corrected_assignments, deviations=deviations,
-        effective_from=effective_from, on_success=on_success,
+        effective_from=effective_from,
+        on_success=_with_rest_override_hook(site_id, coordinator_id, rest_override, on_success),
     )
 
 

@@ -8,9 +8,18 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, Deviation, DeviationCategory, ScheduleStatus, ShiftDemand
+from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
+    Deviation,
+    DeviationCategory,
+    ScheduleStatus,
+    ShiftCatalogKind,
+    ShiftDemand,
+)
 from rota.persistence.schedule_errors import InvalidScheduleLineage, MalformedScheduleSnapshot, RealizedWorkAltered
 from rota.persistence.schedule_repository import ScheduleVersionNotFound, get_schedule_snapshot, get_schedule_version_header
 
@@ -59,8 +68,37 @@ def validate_applied_rules(conn: sqlite3.Connection, *, site_id: str, applied_ru
             raise MalformedScheduleSnapshot(f"applied rule {rule_version_id!r} belongs to a different Site")
 
 
+def _is_valid_month_crossing_24h_second_half(demand: ShiftDemand, first_by_template: dict[str, ShiftDemand]) -> bool:
+    """A-R4-5/A-R5-1: a normal 24h occurrence anchored on the LAST day of
+    ScheduleVersion.month legitimately has its component=2 start in the
+    following month -- weekday anchoring is to the occurrence's start day
+    (component=1), and the pair is still one continuous 24h work period.
+    Narrow: the full frozen NORMAL 24h shape must hold, not just component
+    numbering and adjacency -- both components are exactly 12h, directly
+    consecutive, opposite ShiftKind, and share required_primary_count and
+    required_rest_hours with their component=1 sibling (a same-template
+    component=1 must exist and itself be in this month). An arbitrary
+    unpaired or malformed demand from a foreign month is still rejected."""
+    if demand.catalog_kind != ShiftCatalogKind.H24 or demand.work_period_component != 2:
+        return False
+    first = first_by_template.get(demand.work_period_template_id)
+    if first is None or first.catalog_kind != ShiftCatalogKind.H24:
+        return False
+    if first.end_datetime != demand.start_datetime or first.shift_kind == demand.shift_kind:
+        return False
+    if first.end_datetime - first.start_datetime != timedelta(hours=12):
+        return False
+    if demand.end_datetime - demand.start_datetime != timedelta(hours=12):
+        return False
+    return (
+        first.required_primary_count == demand.required_primary_count
+        and first.required_rest_hours == demand.required_rest_hours
+    )
+
+
 def validate_demands(month: date, shift_demands: list[ShiftDemand]) -> dict[str, ShiftDemand]:
     by_id: dict[str, ShiftDemand] = {}
+    first_by_template: dict[str, ShiftDemand] = {}
     for demand in shift_demands:
         if demand.demand_id in by_id:
             raise MalformedScheduleSnapshot(f"duplicate demand_id {demand.demand_id!r}")
@@ -68,22 +106,44 @@ def validate_demands(month: date, shift_demands: list[ShiftDemand]) -> dict[str,
             raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: end must be after start")
         if demand.required_primary_count <= 0:
             raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: required_primary_count must be > 0")
-        start = demand.start_datetime
-        if (start.year, start.month) != (month.year, month.month):
-            raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: start date not in ScheduleVersion.month")
         by_id[demand.demand_id] = demand
+        if demand.work_period_component == 1 and demand.work_period_template_id:
+            first_by_template[demand.work_period_template_id] = demand
+    for demand in shift_demands:
+        start = demand.start_datetime
+        if (start.year, start.month) == (month.year, month.month):
+            continue
+        if _is_valid_month_crossing_24h_second_half(demand, first_by_template):
+            continue
+        raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: start date not in ScheduleVersion.month")
     return by_id
 
 
+def _is_valid_month_crossing_24h_assignment(assignment: Assignment, demands_by_id: dict) -> bool:
+    """A-R5-1: an Assignment covering an already-accepted (via
+    validate_demands's own narrow month-crossing exception)
+    catalog_kind=24h component=2 demand is exactly as legitimate as that
+    demand -- linked only through covers_demand_id, with an identical
+    interval, never a blanket allowance for any foreign-month Assignment."""
+    demand = demands_by_id.get(assignment.covers_demand_id)
+    return (
+        demand is not None
+        and demand.catalog_kind == ShiftCatalogKind.H24
+        and demand.work_period_component == 2
+        and demand.start_datetime == assignment.start_datetime
+        and demand.end_datetime == assignment.end_datetime
+    )
+
+
 def _validate_assignment_shape(
-    conn: sqlite3.Connection, month: date, assignment: Assignment, seen: dict[str, Assignment]
+    conn: sqlite3.Connection, month: date, assignment: Assignment, seen: dict[str, Assignment], demands_by_id: dict
 ) -> None:
     if assignment.assignment_id in seen:
         raise MalformedScheduleSnapshot(f"duplicate assignment_id {assignment.assignment_id!r}")
     if assignment.end_datetime <= assignment.start_datetime:
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: end must be after start")
     start = assignment.start_datetime
-    if (start.year, start.month) != (month.year, month.month):
+    if (start.year, start.month) != (month.year, month.month) and not _is_valid_month_crossing_24h_assignment(assignment, demands_by_id):
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: start date not in ScheduleVersion.month")
     if conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (assignment.employee_id,)).fetchone() is None:
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: unknown employee {assignment.employee_id!r}")
@@ -130,7 +190,7 @@ def _validate_assignment_references(
 def validate_assignments(conn: sqlite3.Connection, month: date, assignments: list[Assignment], demands_by_id: dict) -> dict[str, Assignment]:
     by_id: dict[str, Assignment] = {}
     for assignment in assignments:
-        _validate_assignment_shape(conn, month, assignment, by_id)
+        _validate_assignment_shape(conn, month, assignment, by_id, demands_by_id)
         by_id[assignment.assignment_id] = assignment
     for assignment in assignments:
         _validate_assignment_references(assignment, demands_by_id, by_id)

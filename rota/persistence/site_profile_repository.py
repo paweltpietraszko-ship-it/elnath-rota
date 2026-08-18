@@ -12,16 +12,29 @@ from __future__ import annotations
 import sqlite3
 from datetime import time
 
-from rota.domain import ShiftKind, SiteProfile, StandardShift
+from rota.domain import ShiftCatalogKind, ShiftKind, SiteProfile, StandardShift
+from rota.planning.shift_catalog import validate_standard_shift_shape
 
 
 class SiteProfileNotFound(Exception):
     """Raised when profile_id has no row in site_profiles."""
 
 
-def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: SiteProfile) -> None:
-    """Same write as save_site_profile, without its own `with conn:` (see
-    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
+def _standard_shifts_has_t012_columns(conn: sqlite3.Connection) -> bool:
+    """R3-5-style legacy migration tests (tests/test_local_store_schema_migration.py)
+    write through this repository against a connection deliberately held at
+    an old PRAGMA user_version (pre-migration-5), before ever calling
+    connect()/migrate(). Detecting the real column set -- instead of
+    assuming the latest schema -- keeps that established testing technique
+    working without weakening it: this repository writes whatever the
+    connection's actual schema supports, and a later connect() migration
+    fills the T012 columns in as NULL/legacy-default on ALTER TABLE, same as
+    any other pre-T012 row."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(standard_shifts)").fetchall()}
+    return "catalog_kind" in columns
+
+
+def _write_site_profile_header(conn: sqlite3.Connection, profile: SiteProfile) -> None:
     conn.execute(
         """INSERT INTO site_profiles
            (profile_id, display_name, active, day_only_blocks_n,
@@ -50,22 +63,55 @@ def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: Si
             profile.rolling_7d_decision_threshold_hours,
         ),
     )
-    conn.execute("DELETE FROM standard_shifts WHERE profile_id = ?", (profile.profile_id,))
-    for seq, shift in enumerate(profile.standard_shifts):
+
+
+def _write_standard_shift(conn: sqlite3.Connection, profile_id: str, seq: int, shift: StandardShift, has_t012_columns: bool) -> None:
+    # A-R4-4: the T012 shape boundaries (rest/weekdays/catalog-kind-vs-
+    # duration) are rejected here, at create/update write time -- not
+    # deferred to PLAN. required_primary_count stays a separate, deferred
+    # bootstrap/readiness concern (pre-T012 precedent,
+    # tests/test_audit_t010_r3.py) -- see
+    # rota.planning.shift_catalog.validate_standard_shift_shape.
+    validate_standard_shift_shape(shift)
+    if not has_t012_columns:
         conn.execute(
             """INSERT INTO standard_shifts
                (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
-                profile.profile_id,
-                seq,
-                shift.kind.value,
-                shift.start_time.isoformat(),
-                shift.end_time.isoformat(),
-                int(shift.end_next_day),
-                shift.required_primary_count,
+                profile_id, seq, shift.kind.value, shift.start_time.isoformat(),
+                shift.end_time.isoformat(), int(shift.end_next_day), shift.required_primary_count,
             ),
         )
+        return
+    conn.execute(
+        """INSERT INTO standard_shifts
+           (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count,
+            catalog_kind, required_rest_hours, active_weekdays)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            profile_id,
+            seq,
+            shift.kind.value,
+            shift.start_time.isoformat(),
+            shift.end_time.isoformat(),
+            int(shift.end_next_day),
+            shift.required_primary_count,
+            shift.catalog_kind.value if shift.catalog_kind else None,
+            shift.required_rest_hours,
+            ",".join(str(w) for w in shift.active_weekdays),
+        ),
+    )
+
+
+def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: SiteProfile) -> None:
+    """Same write as save_site_profile, without its own `with conn:` (see
+    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
+    _write_site_profile_header(conn, profile)
+    conn.execute("DELETE FROM standard_shifts WHERE profile_id = ?", (profile.profile_id,))
+    has_t012_columns = _standard_shifts_has_t012_columns(conn)
+    for seq, shift in enumerate(profile.standard_shifts):
+        _write_standard_shift(conn, profile.profile_id, seq, shift, has_t012_columns)
 
 
 def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
@@ -74,19 +120,28 @@ def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
 
 
 def _row_to_shift(row: tuple) -> StandardShift:
-    kind, start_time, end_time, end_next_day, required_primary_count = row
+    (kind, start_time, end_time, end_next_day, required_primary_count,
+     catalog_kind, required_rest_hours, active_weekdays) = row
     return StandardShift(
         kind=ShiftKind(kind),
         start_time=time.fromisoformat(start_time),
         end_time=time.fromisoformat(end_time),
         end_next_day=bool(end_next_day),
         required_primary_count=required_primary_count,
+        # Legacy (pre-T012) rows have NULL here: catalog_kind stays None
+        # (normalized on demand by rota.planning.shift_catalog), rest
+        # defaults to the legacy REST_MIN_HOURS compatibility value, and
+        # weekdays default to every day.
+        catalog_kind=ShiftCatalogKind(catalog_kind) if catalog_kind else None,
+        required_rest_hours=required_rest_hours if required_rest_hours is not None else 11,
+        active_weekdays=tuple(int(w) for w in active_weekdays.split(",")) if active_weekdays else (1, 2, 3, 4, 5, 6, 7),
     )
 
 
 def _fetch_standard_shifts(conn: sqlite3.Connection, profile_id: str) -> list[StandardShift]:
     rows = conn.execute(
-        """SELECT kind, start_time, end_time, end_next_day, required_primary_count
+        """SELECT kind, start_time, end_time, end_next_day, required_primary_count,
+                  catalog_kind, required_rest_hours, active_weekdays
            FROM standard_shifts WHERE profile_id = ? ORDER BY seq""",
         (profile_id,),
     ).fetchall()

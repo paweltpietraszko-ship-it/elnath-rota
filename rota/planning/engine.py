@@ -66,35 +66,50 @@ def _plan(state: PlanningState) -> PlanningResult:
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
     validate_executable_site_rules(state.site_rules)
     outcome = solve(state, enforce_load_cap=True)
-
-    if outcome.unassignable_demand_ids:
-        return _decision_for_unassignable(state, outcome)
-
-    if outcome.assignments is not None:
-        return _evaluate_candidate(state, outcome)
-
+    result = _dispatch_capped_outcome(state, outcome)
+    if result is not None:
+        return result
     if outcome.status_name != "INFEASIBLE":
         # Round 14 audit (tests_r14.txt FINDING R14-2): only a proven
-        # INFEASIBLE justifies retrying without the LOAD-01 cap to see whether
-        # the cap itself was the cause. UNKNOWN (time limit) or MODEL_INVALID
-        # is a genuine technical failure, not a constraint conflict; retrying
-        # and then guessing a LOAD-01 cause from whatever the uncapped solve
-        # happens to return was producing untyped DECISION_REQUIRED payloads
-        # (load_blocker=None) with no real trigger.
+        # INFEASIBLE justifies retrying. UNKNOWN (time limit) or
+        # MODEL_INVALID is a genuine technical failure, not a constraint
+        # conflict -- never masked by a further retry (T012-C section 9).
         return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+    # T012-C part_c_emergency_24h.md section 9: the first capped solve is
+    # PROVEN infeasible -- try the SAME capped model with emergency 24h
+    # pairing before ever considering the uncapped/LOAD-01 diagnosis. The
+    # old non-emergency uncapped retry never runs from this branch anymore.
+    return _plan_with_emergency(state)
 
+
+def _dispatch_capped_outcome(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
+    """Shared by the normal and the T012-C emergency capped pass: a
+    coverage shortage or a found candidate resolves the pass outright;
+    None means the caller must still classify the remaining (INFEASIBLE /
+    technical) status itself."""
+    if outcome.unassignable_demand_ids:
+        return _decision_for_unassignable(state, outcome)
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    return None
+
+
+def _plan_with_emergency(state: PlanningState) -> PlanningResult:
+    outcome = solve(state, enforce_load_cap=True, allow_emergency_24h=True)
+    result = _dispatch_capped_outcome(state, outcome)
+    if result is not None:
+        return result
+    if outcome.status_name != "INFEASIBLE":
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
     # INFEASIBLE with the LOAD-01 cap enabled is not evidence of a REST-01
-    # conflict by itself: the cap constraint is part of what CP-SAT's
-    # assumption core can implicate. Round 13 audit (tests_r13.txt FINDING
-    # R13-1) found every capped-solve conflict being reported as REST-01 even
-    # when removing the cap alone would resolve it (pure LOAD-01 case). The
-    # cap must be dropped and re-solved before treating this as a genuine
-    # cross-demand conflict.
-    return _resolve_without_load_cap(state)
+    # conflict by itself (round 13 FINDING R13-1) -- drop the cap before
+    # treating this as a genuine cross-demand conflict, still emergency-on
+    # (part_c_emergency_24h.md section 9 point 9: same boundary context).
+    return _resolve_without_load_cap(state, allow_emergency_24h=True)
 
 
-def _resolve_without_load_cap(state: PlanningState) -> PlanningResult:
-    fallback = solve(state, enforce_load_cap=False)
+def _resolve_without_load_cap(state: PlanningState, allow_emergency_24h: bool = False) -> PlanningResult:
+    fallback = solve(state, enforce_load_cap=False, allow_emergency_24h=allow_emergency_24h)
     if fallback.unassignable_demand_ids:
         return _decision_for_unassignable(state, fallback)
     if fallback.assignments is not None:
