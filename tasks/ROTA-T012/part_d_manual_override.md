@@ -16,6 +16,7 @@ Domknąć świadome ręczne naruszenie nowego REST-01 bez zmiany istniejącej za
 - rota/application/manual_edit.py
 - rota/application/rule_decisions.py
 - rota/application/deviation_mapping.py
+- rota/application/assembler.py
 - rota/persistence/decision_ledger.py
 - rota/persistence/schedule_lifecycle.py
 - tests/test_t012.py
