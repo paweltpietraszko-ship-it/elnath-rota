@@ -15,6 +15,7 @@ Normalne katalogowe 24h z B nie jest „emergency” i istnieje już w pierwszym
 - rota/application/assembler.py
 - rota/application/deviation_mapping.py
 - rota/persistence/schedule_repository.py
+- rota/planning/state.py
 - rota/planning/eligibility.py
 - rota/planning/constraints.py
 - rota/planning/solver.py
