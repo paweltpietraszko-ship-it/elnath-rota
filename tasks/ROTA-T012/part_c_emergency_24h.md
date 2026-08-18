@@ -1,6 +1,6 @@
 # ROTA-T012-C — HIDDEN EMERGENCY 24h RETRY
 
-STATUS: BLOCKED UNTIL B PASS
+STATUS: BLOCKED UNTIL B PASS AND T012-R1-3 OWNER DECISION IS FROZEN
 PARENT_CONTRACT: `tasks/ROTA-T012/brief.md`
 
 ## CEL
@@ -18,7 +18,7 @@ Normalne katalogowe 24h z B nie jest „emergency” i istnieje już w pierwszym
 - rota/planning/validator.py
 - rota/planning/engine.py
 - rota/planning/work_periods.py
-- tests/test_t012_c_emergency_24h.py
+- tests/test_t012.py
 
 Żaden inny plik w C.
 
@@ -36,6 +36,17 @@ Awaryjna para istnieje tylko gdy:
 - all-24 profile nie potrzebuje emergency pairingu, bo normalne 24h jest jedynym katalogiem; drugi pass nie ma tworzyć dodatkowej alternatywnej semantyki na takim profilu.
 
 INNY nie jest pair candidate nawet jeśli dwie/trzy pozycje sumują się do 24h.
+
+## T012-R1-3 — MONTH-BOUNDARY PRODUCT BLOCKER
+
+Round 1 wykazał nierozstrzygniętą granicę produktu: powyższe „dwie bezpośrednio kolejne zwykłe 12h” nie określa, czy emergency pair może łączyć demand kończący jeden `ScheduleVersion.month` z demandem rozpoczynającym następny miesiąc, np. N 31.08 + D 01.09.
+
+Do czasu jawnej decyzji właściciela NIE wolno implementować ani testować przypadkowej semantyki tej granicy. Po decyzji:
+
+- `arch/spec.md` musi literalnie wskazać TAK/NIE;
+- `arch/FROZEN.lock` musi zostać ponownie przeliczony;
+- ten Part C musi opisać dokładną reprezentację;
+- `tests/test_t012.py` musi zawierać jawny test 31→1 oraz 31.12→01.01 dla wybranej semantyki.
 
 ## CP-SAT, NIE WŁASNY SEARCH
 
@@ -89,6 +100,8 @@ W drugim przebiegu istniejący objective oraz REPLAN minimal reshuffle nadal dzi
 
 ## TESTY C — MINIMUM
 
+Testy C dopisywane są do wspólnego `tests/test_t012.py` utworzonego w A.
+
 - first pass FEASIBLE => emergency path nie jest wołany/nie jest użyty;
 - first pass infeasible, emergency D→N rescue => FEASIBLE;
 - analogiczny N→D;
@@ -103,6 +116,7 @@ W drugim przebiegu istniejący objective oraz REPLAN minimal reshuffle nadal dzi
 - final DECISION_REQUIRED nie jest intermediate first-pass payload;
 - normal catalog 24 działa już w first pass i nie jest liczone jako emergency;
 - category_for_rule dla obu nowych codes zwraca dokładnie zamrożone kategorie;
+- po decyzji T012-R1-3: jawny month-boundary test 31→1 i year-boundary 31.12→01.01;
 - full candidate validate HARD PASS;
 - full suite + ROTA-REG-001 PASS.
 
