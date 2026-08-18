@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime
 
+from rota.application import plan_ops, training
 from rota.application.deviation_mapping import category_for_rule
 from rota.domain import (
     Assignment,
@@ -33,10 +34,15 @@ from rota.domain import (
     ShiftKind,
     SiteMembership,
 )
+from rota.persistence.db import connect
+from rota.persistence.employee_repository import list_memberships_for_site, save_employee, save_site_membership
+from rota.persistence.schedule_repository import get_schedule_snapshot
+from rota.persistence.site_profile_repository import save_site_profile
 from rota.planning.eligibility import check_eligibility
 from rota.planning.engine import plan
 from rota.planning.validator import validate
 from tests.support.minimal_state import SITE_ID, base_state
+from tests.support.t009_fixtures import seed_real_object
 
 DEMAND_D = ShiftDemand("2026-10-01-D", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0), 1)
 
@@ -176,43 +182,36 @@ def test_category_for_rule_treats_emp02_as_unknown_inactive_source():
 # Scenario 9 -------------------------------------------------------------
 
 
-def test_training_readiness_counts_realized_trainee_before_active_from(tmp_path):
-    """Moving Employee.active_from to AFTER training already happened must
-    not change the historical readiness count or block promotion -- T016
-    forbids active_from from becoming a back door into the same gate it
-    retired."""
-    from rota.application import training
-    from rota.persistence.db import connect
-    from rota.persistence.employee_repository import list_memberships_for_site, save_employee, save_site_membership
-    from rota.persistence.site_profile_repository import save_site_profile
-    from tests.support.t009_fixtures import seed_real_object
-
-    month = date(2026, 8, 1)
-    conn = connect(tmp_path / "rota.db")
+def _seed_training_scenario(conn, month: date):
+    """Plans+selects a real-object month, enables training with threshold=1,
+    and returns (state, mentor, trainee_id) for a training-readiness test."""
     state = seed_real_object(conn, case_id="t016-training-readiness", month=month, seed=1601)
-
-    from rota.application import plan_ops
-
     plan_result = plan_ops.plan_month(conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1", effective_from=month)
     assert plan_result.status == "FEASIBLE"
     version = plan_ops.select_candidate(
         conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1", candidate=plan_result.candidates[0],
     )
-
     save_site_profile(conn, replace(
         state.profile, training_s_enabled=True, training_s_weekdays_only=False, training_s_default_readiness_threshold=1,
     ))
-
-    from rota.persistence.schedule_repository import get_schedule_snapshot
-
     assignments = get_schedule_snapshot(conn, version.version_id).assignments
     mentor = next(a for a in assignments if a.role == AssignmentRole.PRIMARY)
     trainee_id = next(e.employee_id for e in state.employees if e.employee_id != mentor.employee_id)
+    return state, mentor, trainee_id
+
+
+def test_training_readiness_counts_realized_trainee_before_active_from(tmp_path):
+    """Moving Employee.active_from to AFTER training already happened must
+    not change the historical readiness count or block promotion -- T016
+    forbids active_from from becoming a back door into the same gate it
+    retired."""
+    month = date(2026, 8, 1)
+    conn = connect(tmp_path / "rota.db")
+    state, mentor, trainee_id = _seed_training_scenario(conn, month)
     trainee_employee = next(e for e in state.employees if e.employee_id == trainee_id)
 
     # Push active_from to well after the training assignment being recorded.
     save_employee(conn, replace(trainee_employee, active_from=date(2026, 12, 1)))
-
     membership = next(m for m in list_memberships_for_site(conn, state.site.site_id) if m.employee_id == trainee_id)
     save_site_membership(conn, replace(
         membership, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.DEFAULT,
