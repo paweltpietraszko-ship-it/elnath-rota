@@ -19,7 +19,7 @@ Zastąpić bieżące uniwersalne `REST_MIN_HOURS=11` semantyką odpoczynku po fa
 - rota/planning/solver.py
 - rota/planning/validator.py
 - rota/planning/work_periods.py
-- tests/test_t012_b_work_period_rest.py
+- tests/test_t012.py
 
 Żaden inny plik w B.
 
@@ -77,7 +77,11 @@ Brak other-site record = brak cross-site check; bez warning/query do koordynator
 
 Boundary assignment sprzed miesiąca oraz current/frozen facts w miesiącu zachowują provenance. REPLAN nie może przepisać rest/work_period_id REALIZED/frozen tylko dlatego, że current profile się zmienił.
 
+Uwaga: semantyka REST dla już istniejących boundary assignments jest zamknięta w B. Osobne pytanie, czy NOWE emergency pairing może tworzyć jeden 24h work period przez granicę dwóch ScheduleVersion.month, pozostaje blockerem właścicielskim T012-R1-3 i jest rozstrzygane w Part C/Frozen amendment przed implementacją A.
+
 ## TESTY B — MINIMUM
+
+Testy B dopisywane są do wspólnego `tests/test_t012.py` utworzonego w A.
 
 - 12h rest 8 vs 16 daje różny eligibility/FEASIBLE;
 - directional asymmetry A→B używa rest A;
