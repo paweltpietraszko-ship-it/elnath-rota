@@ -224,57 +224,61 @@ def _seed_v4_legacy_db(db_path) -> None:
     not merely old *values* written by new code. Mirrors
     tests/test_local_store_schema_migration.py::_apply_only_migration_1's
     established staged-migration technique, extended through migration 4."""
-    import rota.persistence.db as db_module
-
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
+    _apply_migrations_up_to(conn, 4)
+    with conn:
+        _insert_v4_legacy_rows(conn)
+    conn.close()
+
+
+def _apply_migrations_up_to(conn: sqlite3.Connection, max_version: int) -> None:
+    import rota.persistence.db as db_module
+
     conn.execute("BEGIN")
     for version, statements in db_module.MIGRATIONS:
-        if version > 4:
+        if version > max_version:
             continue
         for statement in statements:
             conn.execute(statement)
-    conn.execute("PRAGMA user_version = 4")
+    conn.execute(f"PRAGMA user_version = {max_version}")
     conn.execute("COMMIT")
-    with conn:
-        conn.execute(
-            "INSERT INTO site_profiles VALUES ('LEGACY-P', 'Legacy', 1, 1, 0, 0, 0, 1, 40)"
-        )
-        conn.execute(
-            "INSERT INTO standard_shifts (profile_id, seq, kind, start_time, end_time, end_next_day, "
-            "required_primary_count) VALUES ('LEGACY-P', 0, 'D', '05:00:00', '17:00:00', 0, 1)"
-        )
-        conn.execute("INSERT INTO sites VALUES ('LEGACY-SITE', 'LEGACY-P', 'Legacy Site', 1)")
-        conn.execute("INSERT INTO coordinators VALUES ('COORD-1', 'Coord', 1)")
-        conn.execute(
-            "INSERT INTO employees (employee_id, display_name, active_from, active_to, day_only) "
-            "VALUES ('LEGACY-E', 'Legacy Emp', '2026-01-01', NULL, 0)"
-        )
-        conn.execute(
-            "INSERT INTO site_memberships (employee_id, site_id, membership_kind, enabled, "
-            "readiness_state, readiness_source) VALUES ('LEGACY-E', 'LEGACY-SITE', 'LOCAL', 1, "
-            "'READY_FOR_PRIMARY', 'DEFAULT')"
-        )
-        conn.execute(
-            "INSERT INTO schedule_versions (version_id, site_id, month, parent_version_id, created_at, "
-            "created_by, status, effective_from) VALUES ('SV-LEGACY', 'LEGACY-SITE', '2026-10-01', NULL, "
-            "'2026-10-01T00:00:00', 'COORD-1', 'WORKING', '2026-10-01')"
-        )
-        conn.execute(
-            "INSERT INTO current_schedule_versions VALUES ('LEGACY-SITE', '2026-10-01', 'SV-LEGACY')"
-        )
-        conn.execute(
-            "INSERT INTO shift_demands (schedule_version_id, demand_id, start_datetime, end_datetime, "
-            "required_primary_count) VALUES ('SV-LEGACY', '2026-10-01-D', '2026-10-01T05:00:00', "
-            "'2026-10-01T17:00:00', 1)"
-        )
-        conn.execute(
-            "INSERT INTO assignments (schedule_version_id, assignment_id, employee_id, start_datetime, "
-            "end_datetime, role, state, frozen, covers_demand_id, mentor_primary_assignment_id, "
-            "operational_code) VALUES ('SV-LEGACY', 'A-LEGACY', 'LEGACY-E', '2026-10-01T05:00:00', "
-            "'2026-10-01T17:00:00', 'PRIMARY', 'REALIZED', 0, '2026-10-01-D', NULL, NULL)"
-        )
-    conn.close()
+
+
+def _insert_v4_legacy_rows(conn: sqlite3.Connection) -> None:
+    conn.execute("INSERT INTO site_profiles VALUES ('LEGACY-P', 'Legacy', 1, 1, 0, 0, 0, 1, 40)")
+    conn.execute(
+        "INSERT INTO standard_shifts (profile_id, seq, kind, start_time, end_time, end_next_day, "
+        "required_primary_count) VALUES ('LEGACY-P', 0, 'D', '05:00:00', '17:00:00', 0, 1)"
+    )
+    conn.execute("INSERT INTO sites VALUES ('LEGACY-SITE', 'LEGACY-P', 'Legacy Site', 1)")
+    conn.execute("INSERT INTO coordinators VALUES ('COORD-1', 'Coord', 1)")
+    conn.execute(
+        "INSERT INTO employees (employee_id, display_name, active_from, active_to, day_only) "
+        "VALUES ('LEGACY-E', 'Legacy Emp', '2026-01-01', NULL, 0)"
+    )
+    conn.execute(
+        "INSERT INTO site_memberships (employee_id, site_id, membership_kind, enabled, "
+        "readiness_state, readiness_source) VALUES ('LEGACY-E', 'LEGACY-SITE', 'LOCAL', 1, "
+        "'READY_FOR_PRIMARY', 'DEFAULT')"
+    )
+    conn.execute(
+        "INSERT INTO schedule_versions (version_id, site_id, month, parent_version_id, created_at, "
+        "created_by, status, effective_from) VALUES ('SV-LEGACY', 'LEGACY-SITE', '2026-10-01', NULL, "
+        "'2026-10-01T00:00:00', 'COORD-1', 'WORKING', '2026-10-01')"
+    )
+    conn.execute("INSERT INTO current_schedule_versions VALUES ('LEGACY-SITE', '2026-10-01', 'SV-LEGACY')")
+    conn.execute(
+        "INSERT INTO shift_demands (schedule_version_id, demand_id, start_datetime, end_datetime, "
+        "required_primary_count) VALUES ('SV-LEGACY', '2026-10-01-D', '2026-10-01T05:00:00', "
+        "'2026-10-01T17:00:00', 1)"
+    )
+    conn.execute(
+        "INSERT INTO assignments (schedule_version_id, assignment_id, employee_id, start_datetime, "
+        "end_datetime, role, state, frozen, covers_demand_id, mentor_primary_assignment_id, "
+        "operational_code) VALUES ('SV-LEGACY', 'A-LEGACY', 'LEGACY-E', '2026-10-01T05:00:00', "
+        "'2026-10-01T17:00:00', 'PRIMARY', 'REALIZED', 0, '2026-10-01-D', NULL, NULL)"
+    )
 
 
 def test_a_real_nonempty_v4_db_migrates_to_v5_without_data_loss(tmp_path):

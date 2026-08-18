@@ -33,9 +33,7 @@ def _standard_shifts_has_t012_columns(conn: sqlite3.Connection) -> bool:
     return "catalog_kind" in columns
 
 
-def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: SiteProfile) -> None:
-    """Same write as save_site_profile, without its own `with conn:` (see
-    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
+def _write_site_profile_header(conn: sqlite3.Connection, profile: SiteProfile) -> None:
     conn.execute(
         """INSERT INTO site_profiles
            (profile_id, display_name, active, day_only_blocks_n,
@@ -64,44 +62,54 @@ def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: Si
             profile.rolling_7d_decision_threshold_hours,
         ),
     )
+
+
+def _write_standard_shift(conn: sqlite3.Connection, profile_id: str, seq: int, shift: StandardShift, has_t012_columns: bool) -> None:
+    # T012 shape validation intentionally does NOT run here -- persistence
+    # stays permissive (module docstring: exactly the existing fields, no
+    # new domain rules), matching the pre-T012 precedent that
+    # bootstrap._is_valid_standard_shift, not save, is what flags an
+    # unusable shift. rota.planning.shift_catalog.generate_catalog_demands
+    # validates at actual catalog-generation (PLAN) time instead.
+    if not has_t012_columns:
+        conn.execute(
+            """INSERT INTO standard_shifts
+               (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                profile_id, seq, shift.kind.value, shift.start_time.isoformat(),
+                shift.end_time.isoformat(), int(shift.end_next_day), shift.required_primary_count,
+            ),
+        )
+        return
+    conn.execute(
+        """INSERT INTO standard_shifts
+           (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count,
+            catalog_kind, required_rest_hours, active_weekdays)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            profile_id,
+            seq,
+            shift.kind.value,
+            shift.start_time.isoformat(),
+            shift.end_time.isoformat(),
+            int(shift.end_next_day),
+            shift.required_primary_count,
+            shift.catalog_kind.value if shift.catalog_kind else None,
+            shift.required_rest_hours,
+            ",".join(str(w) for w in shift.active_weekdays),
+        ),
+    )
+
+
+def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: SiteProfile) -> None:
+    """Same write as save_site_profile, without its own `with conn:` (see
+    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
+    _write_site_profile_header(conn, profile)
     conn.execute("DELETE FROM standard_shifts WHERE profile_id = ?", (profile.profile_id,))
     has_t012_columns = _standard_shifts_has_t012_columns(conn)
     for seq, shift in enumerate(profile.standard_shifts):
-        # T012 shape validation intentionally does NOT run here -- persistence
-        # stays permissive (module docstring: exactly the existing fields,
-        # no new domain rules), matching the pre-T012 precedent that
-        # bootstrap._is_valid_standard_shift, not save, is what flags an
-        # unusable shift. rota.planning.shift_catalog.generate_catalog_demands
-        # validates at actual catalog-generation (PLAN) time instead.
-        if has_t012_columns:
-            conn.execute(
-                """INSERT INTO standard_shifts
-                   (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count,
-                    catalog_kind, required_rest_hours, active_weekdays)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    profile.profile_id,
-                    seq,
-                    shift.kind.value,
-                    shift.start_time.isoformat(),
-                    shift.end_time.isoformat(),
-                    int(shift.end_next_day),
-                    shift.required_primary_count,
-                    shift.catalog_kind.value if shift.catalog_kind else None,
-                    shift.required_rest_hours,
-                    ",".join(str(w) for w in shift.active_weekdays),
-                ),
-            )
-        else:
-            conn.execute(
-                """INSERT INTO standard_shifts
-                   (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    profile.profile_id, seq, shift.kind.value, shift.start_time.isoformat(),
-                    shift.end_time.isoformat(), int(shift.end_next_day), shift.required_primary_count,
-                ),
-            )
+        _write_standard_shift(conn, profile.profile_id, seq, shift, has_t012_columns)
 
 
 def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
