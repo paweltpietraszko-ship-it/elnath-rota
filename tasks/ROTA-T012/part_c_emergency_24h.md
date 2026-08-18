@@ -51,11 +51,24 @@ Jeżeli istniejący kod nie potrzebuje dotknięcia autoryzowanego pliku, nie zmi
 - rota/planning/engine.py
 - rota/planning/work_periods.py
 - tests/test_t012.py
+- tests/test_audit_r14_findings.py
+- tests/test_audit_r15_findings.py
 
 Żaden inny plik w C.
 Nie powstaje żaden nowy plik.
 
 `eligibility.py`, `schedule_repository.py` i `work_periods.py` są w scope tylko wtedy, gdy wymagane jest wąskie reuse/extension istniejącej logiki B. Nie tworzyć równoległej implementacji.
+
+### SCOPE AMENDMENT — LEGACY TEST HARNESS
+
+`tests/test_audit_r14_findings.py` i `tests/test_audit_r15_findings.py` są w scope WYŁĄCZNIE dlatego, że monkeypatchują `engine_module.solve` fake'ami o pre-T012 sygnaturze i muszą mechanicznie śledzić trzyetapową orkiestrację C.
+
+Dozwolone zmiany w tych dwóch plikach są zamknięte do:
+- R14 `_fake_solve`: dodać parametr `allow_emergency_24h=False`;
+- R15 `_fake_solve`: dodać parametr `allow_emergency_24h=False`;
+- R14 `test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error`: `calls["count"] == 2` → `calls["count"] == 3`.
+
+`_fake_solve_always` w R14 nie wymaga zmiany. Wszystkie asercje końcowego `TECHNICAL_ERROR` pozostają bez zmian. Żadnych innych zmian w tych dwóch plikach. To jest adaptacja test harnessu do nowej sygnatury/orkiestracji, nie zmiana produktu ani historycznych findings R14/R15.
 
 ## 1. JEDNA PRAWDA O OBSADZIE
 
@@ -298,7 +311,7 @@ Może jedynie zmienić sposób REST/provenance dla legalnie wybranych placement�
 
 ## 13. TESTY C — MINIMUM
 
-Dopisać wyłącznie do istniejącego `tests/test_t012.py`.
+Nowe testy funkcjonalne C dopisywać wyłącznie do istniejącego `tests/test_t012.py`. Dwa legacy pliki R14/R15 mogą otrzymać tylko mechaniczne zmiany jawnie dozwolone w `SCOPE AMENDMENT — LEGACY TEST HARNESS`.
 
 Obowiązkowe:
 
