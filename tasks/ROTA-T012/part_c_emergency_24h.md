@@ -1,8 +1,10 @@
 # ROTA-T012-C — HIDDEN EMERGENCY 24h RETRY
 
-STATUS: READY FOR IMPLEMENTATION C AFTER B PRODUCT SHA IS PRESENT ON task/ROTA-T012
+STATUS: READY FOR IMPLEMENTATION C
 PARENT_CONTRACT: tasks/ROTA-T012/brief.md
 B_PRODUCT_SHA: 8adb092ec319e27993b844601c30a133a06ccd3f
+B_AUDIT: merytoryczny PASS; 632/632 full suite; 8/8 audit matrix; Ruff/guard/diff-check PASS
+B_ARCHITECT_GATE: RATIO 11.7:1 ACCEPTED; TOTAL_LINES 2336 ACCEPTED; SIZE_FILE tests/test_t012.py=1010 ACCEPTED one-time exception
 DATE: 2026-08-18
 
 ## CEL
@@ -143,7 +145,9 @@ Oba:
 - mają ten sam deterministyczny `work_period_id`;
 - mają `required_rest_after_hours = first.emergency_24h_rest_hours`.
 
-`work_period_id` ma być deterministyczny z employee + uporządkowanej pary demandów, bez losowego UUID i bez nowego persistent bytu.
+`work_period_id` ma być deterministyczny i site-scoped: jego tożsamość MUSI uwzględniać `state.site.site_id` + employee + uporządkowaną parę demandów (lub równoważną, jawnie site-scoped konstrukcję bezkolizyjną). Dwa Site z tym samym profile/date, wspólnym employee i identycznymi lokalnymi demand IDs MUSZĄ dostać różne same-month emergency `work_period_id`. Bez losowego UUID i bez nowego persistent bytu.
+
+Cross-month jest wyjątkiem konstrukcyjnym: NIE tworzy nowego `work_period_id`; current Assignment reuse dokładnie istniejący persisted `boundary.work_period_id`.
 
 Jeżeli pair=0, Assignment zachowuje zwykłe B provenance dla standalone 12h.
 
@@ -310,6 +314,8 @@ B. Same-month
 - N→D rescue;
 - pair używa tego samego employee;
 - shared work_period_id + emergency rest;
+- dwa Site z tym samym profile/date, wspólnym employee i identycznymi lokalnymi demand IDs tworzą różne same-month emergency work_period_id;
+- cross-month nadal reuse dokładnie persisted boundary work_period_id i nie konstruuje nowego ID;
 - ordinary H12 może pozostać standalone gdy pair nie jest wybrany;
 - can_work_24h=false na mixed profile nie pairuje;
 - INNY 8+16 / 16+8 / 8+8+8 nie pairuje;
