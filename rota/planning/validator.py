@@ -235,28 +235,6 @@ def _check_membership_enabled(state: PlanningState, assignments: list[Assignment
             ))
 
 
-def _check_employee_active(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """EMP-02 (arch/spec.md:102): an Assignment interval must lie entirely inside
-    the Employee's active period. Audit round 13 FINDING R13-3: the validator had
-    no EMP-02 check, so the solver's own EMP-02 gate could regress unnoticed
-    (anti-drift rule 12). An assignment for an employee_id with no matching
-    Employee record is not flagged here -- that is a referential-integrity
-    concern outside this experiment's scope, not an EMP-02 violation."""
-    employees_by_id = {e.employee_id: e for e in state.employees}
-    for assignment in assignments:
-        employee = employees_by_id.get(assignment.employee_id)
-        if employee is None:
-            continue
-        start_date = assignment.start_datetime.date()
-        end_date = assignment.end_datetime.date()
-        if start_date < employee.active_from or (employee.active_to is not None and end_date > employee.active_to):
-            details.append(ViolationDetail(
-                "EMP-02", (assignment.assignment_id,),
-                f"EMP-02: {assignment.employee_id} assignment {assignment.assignment_id} "
-                f"outside active period {employee.active_from}-{employee.active_to}",
-            ))
-
-
 def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     """ROTA-T010-B: a RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule
     applicable on the assignment's date exempts only this check (DAY_ONLY-01
@@ -556,7 +534,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
 
     # REPLAN (ASSIGN-03: REALIZED work MUST NOT be changed): a REALIZED
     # Assignment is immutable historical fact, not a currently-decided one.
-    # Eligibility/availability HARD checks (membership, EMP-02, DAY_ONLY,
+    # Eligibility/availability HARD checks (membership, DAY_ONLY,
     # DAY_SHIFT_OFF, LEAVE_GRANTED, UNAVAILABLE_24H, EXTERNAL-01) only make
     # sense going forward -- data recorded after the fact (e.g. a later
     # UNAVAILABLE_24H record) must not retroactively turn already-realized
@@ -570,7 +548,6 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_replan_preserves_fixed(state, assignments, details)
     _check_trainee_mentor_reference(assignments, details)
     _check_membership_enabled(state, for_eligibility_checks, details)
-    _check_employee_active(state, for_eligibility_checks, details)
     _check_day_only(state, for_eligibility_checks, details)
     _check_day_shift_off(state, for_eligibility_checks, details, warnings)
     _check_leave_and_unavailable(state, for_eligibility_checks, details)

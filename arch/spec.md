@@ -1,8 +1,9 @@
 # ELNATH ROTA — arch/spec.md
-CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10
+CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10 + amendment EMP-02 2026-08-16
 FROZEN_SOURCE: SONET_HANDOFF_BRIEF + dokumenty 01–07 z
   ELNATH_WARD_HANDOFF_FINAL_2026-08-10.zip +
-  decyzje właściciela z sesji 2026-08-10
+  decyzje właściciela z sesji 2026-08-10 +
+  decyzja właściciela 2026-08-16 o wycofaniu EMP-02
 STATUS: maszynowy wyciąg kanonu produktu dla Ward
   Mechanical Gate i modeli implementujących
 
@@ -95,11 +96,18 @@ REQUIRED:
 - active_from
 - active_to (optional)
 
+LEGACY INFORMATIONAL METADATA — DECYZJA_WŁAŚCICIELA 2026-08-16:
+- active_from / active_to mogą pozostać przechowywane dla kompatybilności;
+- nie są źródłem decyzji o tym, czy pracownik może pracować;
+- MUST NOT wpływać na planning, Assignment eligibility, independent validation,
+  DECISION_REQUIRED ani Deviation;
+- ich obecność w modelu/storage nie ustanawia obowiązkowego pola UI dla planowania.
+
 EMPLOYEE RESTRICTION:
 - DAY_ONLY enabled=true|false
 
 EMP-01: DAY_ONLY is a stable, toggleable Employee restriction.
-EMP-02: An Employee is eligible for an Assignment only if the complete Assignment interval lies inside Employee active period.
+EMP-02: RETIRED 2026-08-16. Employee active period MUST NOT constrain Assignment eligibility and planning/validation MUST NOT emit condition code EMP-02.
 EMP-03: Employee MUST NOT be structurally owned by exactly one Site.
 
 ### SiteMembership
@@ -111,7 +119,7 @@ REQUIRED:
 - readiness_state: NOT_READY | READY_FOR_PRIMARY
 - readiness_source: DEFAULT | COORDINATOR_OVERRIDE
 
-MEMBERSHIP-01: LOCAL is eligible when: membership enabled; Employee active period covers Assignment; Employee restrictions allow Assignment; AvailabilityRecords allow Assignment; active rules allow Assignment.
+MEMBERSHIP-01: LOCAL is eligible when: membership enabled; Employee restrictions allow Assignment; AvailabilityRecords allow Assignment; active rules allow Assignment.
 MEMBERSHIP-02: EXTERNAL_SUPPORT is unavailable unless a confirmed ExternalSupportWindow covers the Assignment.
 
 ### ExternalSupportWindow

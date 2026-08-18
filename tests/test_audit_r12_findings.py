@@ -78,13 +78,22 @@ def test_finding2_disabled_external_membership_is_not_eligible():
     assert plan(state).status == "DECISION_REQUIRED"
 
 
-def test_finding2_inactive_external_employee_is_not_eligible():
+def test_finding2_external_employee_outside_active_period_is_still_eligible():
+    """SUPERSEDED by ROTA-T016 (owner decision 2026-08-16): round-12 finding 2
+    originally proved EMP-02 blocked this EXTERNAL employee because the
+    demand fell before Employee.active_from. T016 retires EMP-02 entirely --
+    the program does not gate eligibility on Employee active period, only on
+    SiteMembership/MEMBERSHIP-01 and the other still-active HARD rules. The
+    same fixture (enabled EXTERNAL_SUPPORT membership, a covering
+    ExternalSupportWindow, active_from set after the demand date) must now
+    reach FEASIBLE since nothing else blocks it -- this is the corrected
+    regression for the retirement, not a relaxation of a bug."""
     employee = Employee("Y", "Y", date(2026, 10, 2), None, False)
     state = base_state(
         employees=(employee,), memberships=(_external_membership("Y"),),
         external_windows=(_external_window("Y"),), shift_demands=(DEMAND_D,),
     )
-    assert plan(state).status == "DECISION_REQUIRED"
+    assert plan(state).status == "FEASIBLE"
 
 
 def test_finding2_unavailable_external_maps_to_decision_required_not_technical_error():
