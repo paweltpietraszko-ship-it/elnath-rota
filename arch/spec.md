@@ -1,11 +1,12 @@
 # ELNATH ROTA — arch/spec.md
-CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10 + amendment EMP-02 2026-08-16 + amendment T012 2026-08-15/16
+CONTRACT_VERSION: v0.4 + decyzje właściciela 2026-08-10 + amendment EMP-02 2026-08-16 + amendment T012 2026-08-15/16 + T012-R1-3 2026-08-18
 FROZEN_SOURCE: SONET_HANDOFF_BRIEF + dokumenty 01–07 z
   ELNATH_WARD_HANDOFF_FINAL_2026-08-10.zip +
   decyzje właściciela z sesji 2026-08-10 +
   decyzja właściciela 2026-08-16 o wycofaniu EMP-02 +
   decyzje właściciela 2026-08-15/16 o katalogu 24h/12h/INNY,
-  odpoczynku per okres pracy i awaryjnym 24h
+  odpoczynku per okres pracy i awaryjnym 24h +
+  decyzja właściciela 2026-08-18: awaryjne 24h może przekraczać granicę miesiąca i roku
 STATUS: maszynowy wyciąg kanonu produktu dla Ward
   Mechanical Gate i modeli implementujących
 
@@ -290,6 +291,7 @@ VERSION CONTENT:
 VER-01: A ScheduleVersion represents a complete reconstructable state of one Site/month.
 VER-03: Exactly one current version reference exists for each (site_id, month).
 VER-04: FINAL ScheduleVersion is immutable.
+VER-T012-01: Cross-month emergency 24h MUST NOT move a demand/Assignment into another month or mutate the earlier ScheduleVersion; the later month may extend work-period semantics through persisted boundary context.
 
 ### ShiftDemand
 REQUIRED:
@@ -362,15 +364,25 @@ WORK PERIOD SEMANTICS:
 - ordinary 12h/INNY Assignment has its own work_period_id;
 - two components of normal 24h for one employee share work_period_id;
 - two ordinary 12h components joined by emergency 24h for one employee share work_period_id;
-- all components of one work period carry one consistent required_rest_after_hours;
+- components created together for one work period carry one consistent required_rest_after_hours;
 - legacy work_period_id absent => each Assignment is its own work period;
 - legacy required_rest_after_hours absent => 11 h.
+
+CROSS-MONTH EMERGENCY EXTENSION — OWNER DECISION A 2026-08-18:
+- the later-month Assignment MAY reuse the persisted boundary Assignment work_period_id;
+- the earlier boundary Assignment/ScheduleVersion MUST NOT be mutated;
+- therefore the earlier component MAY still carry its former standalone rest snapshot;
+- for this exact cross-month extension the terminal/later component's
+  required_rest_after_hours is authoritative for rest after the whole 24h period;
+- the earlier component's rest is ignored internally because work continues without a rest gap;
+- a work period that already has two CURRENT components MUST NOT be extended again.
 
 ASSIGN-01: Site is derived through ScheduleVersion. No Assignment.site_id.
 ASSIGN-03: REALIZED work MUST NOT be changed by REPLAN.
 ASSIGN-04: future frozen Assignment MUST NOT be changed by REPLAN.
 ASSIGN-05: Manual Assignment is NOT automatically frozen.
 ASSIGN-T012-01: persisted Assignment rest/work-period provenance is the source of truth for historical and cross-site REST; changing current SiteProfile MUST NOT retroactively alter it.
+ASSIGN-T012-02: Cross-month emergency pairing changes only the later month's Assignment; the previous Assignment remains immutable even when REALIZED/frozen/final.
 
 ### Deviation
 REQUIRED:
@@ -404,6 +416,9 @@ INCLUDES (frozen=True, wszystkie kolekcje tuple):
 
   calendar_days: tuple[CalendarDay, ...]
   boundary_assignments: tuple[Assignment, ...]
+  boundary_shift_demands: tuple[ShiftDemand, ...]
+    # T012: persisted CURRENT demands covered by boundary_assignments;
+    # preserves original catalog/emergency provenance for cross-month pairing
 
   memberships: tuple[SiteMembership, ...]
   employees: tuple[Employee, ...]
@@ -433,6 +448,7 @@ INCLUDES (frozen=True, wszystkie kolekcje tuple):
 STATE-01: NEEDS_RESOLUTION SiteRule MUST NOT enter executable rule set.
 STATE-02: Boundary context MUST be sufficient for cross-month validation.
 STATE-T012-01: Brak other_site Assignment w LocalStore nie tworzy syntetycznego warning/blockera ani pytania; gdy persisted CURRENT data istnieją, cross-site REST jest HARD.
+STATE-T012-02: Cross-month emergency 24h MAY use only persisted CURRENT boundary Assignment + matching boundary ShiftDemand provenance. Boundary context MUST be work-period-complete enough to determine whether the boundary work_period_id already has two components; missing boundary demand/history means no cross-month pair, not an invented warning.
 
 ### PlanningEngine (no persistent state)
 COMPONENT PlanningEngine — NO persistent business-state ownership.
@@ -456,7 +472,7 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 
 ## SECTION 2 — HARD CONSTRAINTS
 Źródło: v0.4 sekcja 6.0 + decyzje właściciela
-2026-08-10 oraz amendment T012 2026-08-15/16.
+2026-08-10 oraz amendment T012 2026-08-15/16 i T012-R1-3 2026-08-18.
 
 ### SHIFT-01
 - każdy SiteProfile definiuje katalog standard_shifts;
@@ -490,6 +506,9 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 - dwa różne work periods tego samego pracownika nie mogą się nakładać;
 - normalne 24h i awaryjne 24h wymagają po końcu odpoczynku właściwego dla
   24h capability, a nie odpoczynku pojedynczej 12h połówki;
+- dla cross-month emergency extension rest po całym 24h okresie pochodzi z
+  terminalnej/later-month komponenty; wcześniejszy standalone rest snapshot
+  boundary Assignment nie tworzy internal wall i nie jest retroaktywnie przepisywany;
 - ta sama kierunkowa semantyka obowiązuje same-site, cross-month i cross-site;
 - cross-site używa persisted provenance poprzedniego Assignment, nie current
   profilu Site, na którym praca historycznie się odbyła;
@@ -568,7 +587,7 @@ validate(PlanningState, AssignmentSet | CandidateAssignment) OUTPUT:
 ---
 
 ## SECTION 3 — PLANNING OUTCOMES
-Źródło: v0.4 sekcja 6.1–6.6 + amendment T012 2026-08-16.
+Źródło: v0.4 sekcja 6.1–6.6 + amendment T012 2026-08-16 + T012-R1-3 2026-08-18.
 
 ### FEASIBLE
 Jeżeli istnieją pełne rozwiązania w ramach aktywnego kontraktu:
@@ -611,19 +630,34 @@ Osobno istnieje awaryjne łączenie dwóch zwykłych 12h:
    emergency 24h tylko po to, by poprawić SOFT;
 3. dopiero po udowodnionej biznesowej niewykonalności/braku obsady/konflikcie
    pierwszy capped model jest ponawiany z emergency pairing włączonym;
-4. emergency pair może objąć dokładnie dwa zwykłe catalog_kind=12h demandy,
+4. same-month emergency pair może objąć dokładnie dwa zwykłe catalog_kind=12h demandy,
    gdy są bezpośrednio kolejne, mają przeciwne D/N, a pierwszy ma snapshot
    emergency_24h_rest_hours;
-5. ten sam employee musi być eligible dla obu; na mixed profile musi mieć
+5. OWNER DECISION A 2026-08-18: emergency pair może również przekraczać granicę
+   miesiąca/roku; wtedy pierwszą połową jest persisted CURRENT boundary Assignment
+   wraz z matching boundary ShiftDemand, a drugą połową current-month 12h demand;
+6. cross-month pair powstaje wyłącznie podczas planowania późniejszego miesiąca;
+   wcześniejszy ScheduleVersion/Assignment nie jest mutowany ani przepisywany;
+7. boundary first-half musi być zwykłym 12h PRIMARY, mieć snapshot emergency rest,
+   być bezpośrednio kolejne z current 12h o przeciwnym D/N i należeć do standalone
+   work period z dokładnie jedną CURRENT komponentą;
+8. current Assignment cross-month pair reuse boundary work_period_id i zapisuje
+   required_rest_after_hours z boundary ShiftDemand emergency_24h_rest_hours;
+9. ten sam employee musi być eligible dla obu; na mixed profile musi mieć
    can_work_24h=true; INNY nigdy nie uczestniczy;
-6. jeden demand nie może należeć do dwóch emergency pairs i nie wolno tworzyć
-   chain >2 poprzez nakładające się pairing decisions;
-7. dwa Assignment awaryjnej pary tworzą jeden work period i używają rest 24h;
-8. jeśli drugi capped model jest INFEASIBLE, LOAD uncapped diagnosis używa
-   również emergency-enabled modelu;
-9. UNKNOWN/MODEL_INVALID/technical status nie może zostać zamaskowany retry
-   i zamieniony na zwykły DECISION_REQUIRED;
-10. koordynator nie widzi stanów/prób pośrednich — tylko końcowy PlanningResult.
+10. jeden demand/work period nie może należeć do dwóch emergency pairs i nie wolno
+    tworzyć chain >2, także przez kolejne granice miesiąca;
+11. brak persisted boundary Assignment lub matching boundary ShiftDemand oznacza
+    brak cross-month candidate, bez zgadywania i bez osobnego warningu;
+12. dwa Assignment awaryjnej pary tworzą jeden work period i po jego końcu używają
+    rest 24h; w cross-month extension terminalna/later component jest źródłem rest;
+13. jeśli drugi capped model jest INFEASIBLE, LOAD uncapped diagnosis używa
+    również emergency-enabled modelu z tym samym boundary context;
+14. UNKNOWN/MODEL_INVALID/technical status nie może zostać zamaskowany retry
+    i zamieniony na zwykły DECISION_REQUIRED;
+15. koordynator nie widzi stanów/prób pośrednich — tylko końcowy PlanningResult.
+
+Przykłady obowiązkowe cross-boundary: N 31.08→D 01.09 oraz N 31.12→D 01.01.
 
 Emergency pairing jest modelowane w Google OR-Tools CP-SAT; zakaz własnego
 backtrackingu/search pozostaje.
