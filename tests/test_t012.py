@@ -15,6 +15,9 @@ from datetime import date, datetime, time
 import pytest
 
 from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
     Employee,
     MembershipKind,
     ReadinessSource,
@@ -29,7 +32,8 @@ from rota.domain import (
 )
 from rota.persistence.db import LATEST_SCHEMA_VERSION, connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_employee, save_site_membership
-from rota.persistence.schedule_validation import validate_demands
+from rota.persistence.schedule_errors import MalformedScheduleSnapshot
+from rota.persistence.schedule_validation import validate_assignments, validate_demands
 from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
 from rota.persistence.site_repository import save_site
 from rota.planning.shift_catalog import (
@@ -386,6 +390,53 @@ def test_a_normal_24h_occurrence_crossing_month_is_valid_month_content(month, st
     demands = list(generate_catalog_demands(_profile("BOUNDARY", [_shift(ShiftKind.N, start_hour, 24, ShiftCatalogKind.H24)]), month))
     validated = validate_demands(month, demands)
     assert validated.keys() == {d.demand_id for d in demands}
+
+
+# --- A round 5 audit closure (A-R5-1): the month-boundary exception must ---
+# --- reject malformed "pairs" and admit only the exactly-matching        ---
+# --- Assignment of an accepted crossing demand.                          ---
+
+
+def _boundary_demand(demand_id, start, end, kind, component, *, count=1, rest=11) -> ShiftDemand:
+    return ShiftDemand(
+        demand_id, "SV", start, end, count, shift_kind=kind, catalog_kind=ShiftCatalogKind.H24,
+        required_rest_hours=rest, work_period_template_id="BOUNDARY-WP", work_period_component=component,
+    )
+
+
+@pytest.mark.parametrize(("first_end", "second_end", "second_count", "second_rest"), [
+    (datetime(2026, 11, 1, 1), datetime(2026, 11, 1, 17), 1, 11),
+    (datetime(2026, 11, 1, 5), datetime(2026, 11, 1, 17), 2, 11),
+    (datetime(2026, 11, 1, 5), datetime(2026, 11, 1, 17), 1, 13),
+])
+def test_a_month_boundary_exception_rejects_malformed_24h_pair(first_end, second_end, second_count, second_rest):
+    first = _boundary_demand("D1", datetime(2026, 10, 31, 17), first_end, ShiftKind.N, 1)
+    second = _boundary_demand("D2", first_end, second_end, ShiftKind.D, 2, count=second_count, rest=second_rest)
+    with pytest.raises(MalformedScheduleSnapshot):
+        validate_demands(date(2026, 10, 1), [first, second])
+
+
+def test_a_month_boundary_exception_rejects_unpaired_foreign_demand():
+    foreign = _boundary_demand("D2", datetime(2026, 11, 1, 5), datetime(2026, 11, 1, 17), ShiftKind.D, 2)
+    with pytest.raises(MalformedScheduleSnapshot):
+        validate_demands(date(2026, 10, 1), [foreign])
+
+
+def test_a_valid_month_crossing_24h_assignments_are_persistable_content(tmp_path):
+    month = date(2026, 10, 1)
+    demands = list(generate_catalog_demands(_profile("ASSIGN-BOUNDARY", [_shift(ShiftKind.N, 17, 24, ShiftCatalogKind.H24)]), month))
+    crossing = sorted((d for d in demands if d.start_datetime >= datetime(2026, 10, 31, 17)), key=lambda d: d.start_datetime)
+    demands_by_id = validate_demands(month, crossing)
+    assignments = [
+        Assignment(
+            f"A{i}", "SV", "E1", d.start_datetime, d.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED,
+            False, d.demand_id, None, work_period_id="WP1", required_rest_after_hours=11,
+        )
+        for i, d in enumerate(crossing, start=1)
+    ]
+    conn = connect(tmp_path / "rota.db")
+    save_employee(conn, Employee("E1", "Employee", date(2026, 1, 1), None, False))
+    assert len(validate_assignments(conn, month, assignments, demands_by_id)) == 2
 
 
 if __name__ == "__main__":
