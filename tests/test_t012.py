@@ -1388,5 +1388,30 @@ def test_c_validator_can_work_24h_false_gives_shift_24_01():
     assert any(d.rule == "SHIFT-24-01" for d in report.violation_details)
 
 
+# -- C-R16-3: validator must use authoritative ShiftDemand.shift_kind -------
+
+
+def test_c_validator_uses_explicit_shift_kind_over_profile_start_time_match():
+    """A demand explicitly shift_kind=D at an hour matching the profile's N
+    StandardShift must NOT be misclassified as N (no false DAY_ONLY-01)."""
+    d = ShiftDemand("D-AT-N-HOUR", "test-v1", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0), 1, shift_kind=ShiftKind.D)
+    employee = Employee("A", "A", date(2026, 1, 1), None, True)  # day_only
+    state = base_state(shift_demands=(d,), employees=(employee,), memberships=(_membership("A"),))
+    a = _primary("A1", "A", d)
+    report = validate(state, [a])
+    assert not any(det.rule == "DAY_ONLY-01" for det in report.violation_details)
+
+
+def test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback():
+    """A legacy demand with shift_kind=None keeps the pre-C profile/start-time
+    fallback -- an hour matching the profile's N StandardShift is still N."""
+    d = ShiftDemand("LEGACY-AT-N-HOUR", "test-v1", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0), 1)
+    employee = Employee("A", "A", date(2026, 1, 1), None, True)  # day_only
+    state = base_state(shift_demands=(d,), employees=(employee,), memberships=(_membership("A"),))
+    a = _primary("A1", "A", d)
+    report = validate(state, [a])
+    assert any(det.rule == "DAY_ONLY-01" for det in report.violation_details)
+
+
 if __name__ == "__main__":
     print("test_t012 module OK")

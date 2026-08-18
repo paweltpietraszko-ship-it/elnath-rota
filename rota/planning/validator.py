@@ -109,17 +109,11 @@ def _coverage_violation_detail(demand, bad_segments: list[tuple]) -> ViolationDe
 
 
 def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """COVERAGE-01 (arch/spec.md:405-407), narrowed by
-    tasks/ROTA-T009/review_01_architect_clarification.md to interval-geometric
-    semantics: only PRIMARY counts as coverage, TRAINEE never does
-    (arch/spec.md:260-265). Coverage is derived from each PRIMARY's actual
-    [start_datetime, end_datetime) interval overlapping the demand -- not
-    merely from covers_demand_id tagging -- because a truthful manual
-    correction (e.g. one employee covering the tail of a D shift and the
-    start of the following N) may legitimately span more than one standard
-    demand. Every instant of the demand must have exactly
-    required_primary_count overlapping PRIMARY coverage; sequential pieces
-    are valid when their union covers it exactly."""
+    """COVERAGE-01 (arch/spec.md:405-407): only PRIMARY counts, TRAINEE never
+    does. Coverage is derived from each PRIMARY's actual interval overlapping
+    the demand, not covers_demand_id tagging -- a manual correction may span
+    more than one demand. Every instant needs exactly required_primary_count
+    overlapping PRIMARY coverage; sequential pieces are valid if they union."""
     primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
     for demand in state.shift_demands:
         overlapping = [
@@ -168,11 +162,9 @@ def _check_trainee_mentor_reference(assignments: list[Assignment], details: list
 
 
 def _check_replan_preserves_fixed(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """REPLAN (arch/spec.md SECTION 7, ASSIGN-03/04): REALIZED work and frozen
-    future Assignments must not be changed by REPLAN; TRAINEE (S) is never
-    moved either (arch/spec.md SECTION 8). Independently re-derives this from
-    state.existing_assignments rather than trusting that the solver/engine
-    construction logic preserved them correctly (anti-drift rule 12)."""
+    """REPLAN (arch/spec.md SECTION 7, ASSIGN-03/04): REALIZED work, frozen
+    future Assignments, and TRAINEE (S) must not be changed by REPLAN --
+    re-derived from state.existing_assignments (anti-drift rule 12)."""
     by_id = {a.assignment_id: a for a in assignments}
     for existing in state.existing_assignments:
         if existing.state == AssignmentState.CANCELLED:
@@ -200,9 +192,7 @@ def _check_membership_enabled(state: PlanningState, assignments: list[Assignment
     pre-existing) independently of solver eligibility (R14-1). A missing
     membership for the current site -- none at all, or only for a different
     site (EMP-03) -- is the same absence of authorization (R15-1)."""
-    membership_by_employee = {
-        m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id
-    }
+    membership_by_employee = {m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id}
     for assignment in assignments:
         membership = membership_by_employee.get(assignment.employee_id)
         if membership is None or not membership.enabled:
@@ -216,9 +206,7 @@ def _check_membership_enabled(state: PlanningState, assignments: list[Assignment
 def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     """ROTA-T010-B: a RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule
     applicable on the assignment's date exempts only this check (DAY_ONLY-01
-    for N) -- eligibility.py's _common_hard_gate must reach the identical
-    verdict (part_b_availability.md: 'Eligibility i validator muszą byc
-    zgodne')."""
+    for N) -- must reach eligibility.py's _common_hard_gate verdict."""
     day_only_ids = {e.employee_id for e in state.employees if e.day_only}
     if not state.profile.day_only_blocks_n:
         return
@@ -239,7 +227,22 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         ))
 
 
+def _covering_demand(assignment: Assignment, state: PlanningState):
+    for demand in state.shift_demands:
+        if demand.demand_id == assignment.covers_demand_id:
+            return demand
+    for demand in state.boundary_shift_demands:
+        if demand.demand_id == assignment.covers_demand_id and demand.schedule_version_id == assignment.schedule_version_id:
+            return demand
+    return None
+
+
 def _assignment_kind(assignment: Assignment, state: PlanningState) -> ShiftKind | None:
+    # C-R16-3: ShiftDemand.shift_kind is authoritative when set (A-R4-3); the
+    # profile/start_time fallback below is legacy-only (shift_kind=None).
+    demand = _covering_demand(assignment, state)
+    if demand is not None and demand.shift_kind is not None:
+        return demand.shift_kind
     for shift in state.profile.standard_shifts:
         if shift.start_time == assignment.start_datetime.time():
             return shift.kind
@@ -291,11 +294,9 @@ _CONDITION_CODE = {
 
 
 def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """Owner decision 2026-08-14: when a SICK_LEAVE and a LEAVE_GRANTED
-    record's date ranges actually intersect, only SICK_LEAVE-01 is reported
-    for that Assignment. Every other overlapping kind is reported
-    independently, per-record (not one fixed priority for the whole
-    Assignment, R26-1)."""
+    """Owner decision 2026-08-14: when SICK_LEAVE/LEAVE_GRANTED date ranges
+    intersect, only SICK_LEAVE-01 is reported; other kinds report
+    independently, per-record, not one fixed Assignment priority (R26-1)."""
     records_by_employee: dict[str, list] = {}
     for record in state.availability_records:
         records_by_employee.setdefault(record.employee_id, []).append(record)
@@ -367,8 +368,7 @@ def _check_external(state: PlanningState, assignments: list[Assignment], details
         if membership_kind_by_employee.get(assignment.employee_id) != MembershipKind.EXTERNAL_SUPPORT:
             continue
         if not state.profile.external_support_enabled:
-            # FINDING R16-2: a window does not turn on a capability the
-            # profile has switched off (SITE-01, arch/spec.md:49-50).
+            # FINDING R16-2: a window doesn't turn on a capability the profile switched off (SITE-01).
             details.append(ViolationDetail(
                 "EXTERNAL-01", (assignment.assignment_id,),
                 f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} "
