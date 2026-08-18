@@ -74,10 +74,10 @@ Nie wolno globalnie uznać pracownika `can_work_24h=false` za nieeligible do zwy
 
 Jeżeli końcowa niewykonalność emergency jest spowodowana wyłącznie brakiem checkboxa `24` u konkretnych możliwych pracowników, blocker może zawierać `SHIFT-24-01`. T013 później przetłumaczy go na język Panelu; T012 nie buduje nowej warstwy prezentacji.
 
-`deviation_mapping.py` ma znać nowe aktywne built-in codes:
+`deviation_mapping.py` ma znać dokładnie:
 
-- `SHIFT-24-01` jako restriction/qualification deviation category zgodna z istniejącymi Employee restriction semantics;
-- `SHIFT-24-PAIR-01` jako coverage/structural schedule HARD.
+- `SHIFT-24-01 -> DeviationCategory.PREFERENCE` — kwalifikacja/restriction pracownika analogiczna do DAY_ONLY/MEMBERSHIP;
+- `SHIFT-24-PAIR-01 -> DeviationCategory.COVERAGE` — złamanie wymaganej struktury pokrycia normalnego 24h.
 
 Nie zmieniać istniejących kategorii innych rules.
 
@@ -102,6 +102,7 @@ W drugim przebiegu istniejący objective oraz REPLAN minimal reshuffle nadal dzi
 - second capped infeasible + uncapped emergency-enabled proves LOAD boundary;
 - final DECISION_REQUIRED nie jest intermediate first-pass payload;
 - normal catalog 24 działa już w first pass i nie jest liczone jako emergency;
+- category_for_rule dla obu nowych codes zwraca dokładnie zamrożone kategorie;
 - full candidate validate HARD PASS;
 - full suite + ROTA-REG-001 PASS.
 
