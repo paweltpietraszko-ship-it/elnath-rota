@@ -1616,60 +1616,78 @@ def test_d_restart_preserves_deviation_decision_record_and_work_period_provenanc
     assert len(records) == 1
 
 
-def test_d_final_e2e_normal24_emergency24_inny_cross_site(tmp_path):
-    conn = connect(tmp_path / "rota.db")
-    month = date(2026, 9, 1)
-    site_a, site_b = "SITE-D8-A", "SITE-D8-B"
-    _seed_d_site(conn, site_id=site_a, profile_id="PROF-D8A", employees=["A", "B"], month=month)
-    _seed_d_site(conn, site_id=site_b, profile_id="PROF-D8B", employees=["X", "Y"], month=month)
-
+def _seed_matrix_fixture(conn, *, site_id: str, month: date) -> tuple[str, str]:
+    """One site holding normal 24h, emergency-eligible 12h, and INNY demands
+    side by side, all legally assigned -- returns (h24_work_period_id,
+    emergency_work_period_id) for the caller's own assertions."""
     h24_d = ShiftDemand("H24-D", "", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12, work_period_template_id="H24-WP", work_period_component=1)
     h24_n = ShiftDemand("H24-N", "", datetime(2026, 9, 1, 17, 0), datetime(2026, 9, 2, 5, 0), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12, work_period_template_id="H24-WP", work_period_component=2)
     emg_d = ShiftDemand("EMG-D", "", datetime(2026, 9, 10, 5, 0), datetime(2026, 9, 10, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=11, emergency_24h_rest_hours=13)
     emg_n = ShiftDemand("EMG-N", "", datetime(2026, 9, 10, 17, 0), datetime(2026, 9, 11, 5, 0), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=11)
     inny = ShiftDemand("INNY-1", "", datetime(2026, 9, 2, 10, 0), datetime(2026, 9, 2, 18, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.OTHER, required_rest_hours=11)
-
-    wp = f"{site_a}:H24-WP"
-    emg_wp = f"{site_a}:emergency:A:EMG-D+EMG-N"
+    wp, emg_wp = f"{site_id}:H24-WP", f"{site_id}:emergency:A:EMG-D+EMG-N"
     assignments = [
         Assignment("AH1", "", "A", h24_d.start_datetime, h24_d.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "H24-D", None, work_period_id=wp, required_rest_after_hours=12),
         Assignment("AH2", "", "A", h24_n.start_datetime, h24_n.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "H24-N", None, work_period_id=wp, required_rest_after_hours=12),
         Assignment("AE1", "", "A", emg_d.start_datetime, emg_d.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "EMG-D", None, work_period_id=emg_wp, required_rest_after_hours=13),
         Assignment("AE2", "", "A", emg_n.start_datetime, emg_n.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "EMG-N", None, work_period_id=emg_wp, required_rest_after_hours=13),
-        Assignment("AI1", "", "B", inny.start_datetime, inny.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "INNY-1", None, work_period_id=f"{site_a}:INNY-1", required_rest_after_hours=11),
+        Assignment("AI1", "", "B", inny.start_datetime, inny.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "INNY-1", None, work_period_id=f"{site_id}:INNY-1", required_rest_after_hours=11),
     ]
-    _create_initial_version(conn, site_id=site_a, month=month, demands=[h24_d, h24_n, emg_d, emg_n, inny], assignments=assignments)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[h24_d, h24_n, emg_d, emg_n, inny], assignments=assignments)
+    return wp, emg_wp
+
+
+def test_d_final_e2e_normal24_emergency24_inny_matrix(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    month = date(2026, 9, 1)
+    site_id = "SITE-D8"
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D8", employees=["A", "B"], month=month)
+    wp, emg_wp = _seed_matrix_fixture(conn, site_id=site_id, month=month)
 
     # Reassign INNY to A: only 5h after the normal 24h pair ends (needs 12h).
-    reassigned_inny = Assignment("AI1", "", "A", inny.start_datetime, inny.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "INNY-1", None, work_period_id=f"{site_a}:INNY-1", required_rest_after_hours=11)
+    reassigned_inny = Assignment("AI1", "", "A", datetime(2026, 9, 2, 10, 0), datetime(2026, 9, 2, 18, 0), AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "INNY-1", None, work_period_id=f"{site_id}:INNY-1", required_rest_after_hours=11)
     v2 = manual_edit.apply_manual_correction(
-        conn, site_id=site_a, month=month, coordinator_id="COORD-1", effective_from=month,
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
         upsert_assignments=[reassigned_inny],
     )
     snapshot = get_schedule_snapshot(conn, v2.version_id)
     assert any(d.source_reference == "REST-01" for d in snapshot.deviations)
-    records_a = rule_history(conn, site_a, f"REST-OVERRIDE:{v2.version_id}")
-    assert len(records_a) == 1
+    assert len(rule_history(conn, site_id, f"REST-OVERRIDE:{v2.version_id}")) == 1
     by_id = {a.assignment_id: a for a in snapshot.assignments}
     assert by_id["AH1"].work_period_id == by_id["AH2"].work_period_id == wp
     assert by_id["AE1"].work_period_id == by_id["AE2"].work_period_id == emg_wp
 
-    # Cross-site isolation: an independent correction on site B never appears
-    # under site A's rule_id, and vice versa.
-    x_d1 = _rest_demand("X-D1", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0))
-    x_d2 = _rest_demand("X-D2", datetime(2026, 9, 1, 20, 0), datetime(2026, 9, 2, 8, 0))
-    xa1 = Assignment("XA1", "", "X", x_d1.start_datetime, x_d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "X-D1", None, work_period_id="xwp1", required_rest_after_hours=11)
-    xa2 = Assignment("XA2", "", "Y", x_d2.start_datetime, x_d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "X-D2", None, work_period_id="xwp2", required_rest_after_hours=11)
-    _create_initial_version(conn, site_id=site_b, month=month, demands=[x_d1, x_d2], assignments=[xa1, xa2])
-    x_reassigned = Assignment("XA2", "", "X", x_d2.start_datetime, x_d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "X-D2", None, work_period_id="xwp2", required_rest_after_hours=11)
+
+def test_d_cross_site_decision_records_are_isolated(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    month = date(2026, 9, 1)
+    # X/Y (not A/B): other_site_assignments would otherwise merge site_a's
+    # and site_b's identical literal "wp1"/"wp2" work_period_id strings for
+    # a shared employee_id into one (malformed) cross-site period.
+    site_a, site_b = "SITE-D9-A", "SITE-D9-B"
+    _seed_d_site(conn, site_id=site_a, profile_id="PROF-D9A", employees=["A", "B"], month=month)
+    _seed_d_site(conn, site_id=site_b, profile_id="PROF-D9B", employees=["X", "Y"], month=month)
+
+    da1, da2, aa1, aa2, reassigned_a = _two_demand_conflict_fixture(month)
+    _create_initial_version(conn, site_id=site_a, month=month, demands=[da1, da2], assignments=[aa1, aa2])
+    v2_a = manual_edit.apply_manual_correction(
+        conn, site_id=site_a, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned_a],
+    )
+
+    db1, db2, ab1, ab2, reassigned_b = _two_demand_conflict_fixture(month)
+    ab1, ab2 = replace(ab1, employee_id="X"), replace(ab2, employee_id="Y")
+    reassigned_b = replace(reassigned_b, employee_id="X")
+    _create_initial_version(conn, site_id=site_b, month=month, demands=[db1, db2], assignments=[ab1, ab2])
     v2_b = manual_edit.apply_manual_correction(
         conn, site_id=site_b, month=month, coordinator_id="COORD-1", effective_from=month,
-        upsert_assignments=[x_reassigned],
+        upsert_assignments=[reassigned_b],
     )
-    records_b = rule_history(conn, site_b, f"REST-OVERRIDE:{v2_b.version_id}")
-    assert len(records_b) == 1
+
+    assert len(rule_history(conn, site_a, f"REST-OVERRIDE:{v2_a.version_id}")) == 1
+    assert len(rule_history(conn, site_b, f"REST-OVERRIDE:{v2_b.version_id}")) == 1
     assert rule_history(conn, site_a, f"REST-OVERRIDE:{v2_b.version_id}") == []
-    assert rule_history(conn, site_b, f"REST-OVERRIDE:{v2.version_id}") == []
+    assert rule_history(conn, site_b, f"REST-OVERRIDE:{v2_a.version_id}") == []
 
 
 if __name__ == "__main__":
