@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T016
 TITLE: Wycofanie EMP-02 / active period z eligibility
-STATUS: DRAFT FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 1
+STATUS: READY FOR IMPLEMENTATION — CODEX R1 MECHANICAL BLOCKER CORRECTED
 DATE: 2026-08-18
 ARCHITECT_ROLE: ChatGPT (architekt)
 IMPLEMENTER_ROLE: CC
@@ -111,6 +111,7 @@ TASK_SCOPE:
 - rota/planning/validator.py
 - tests/test_audit_r12_findings.py
 - tests/test_audit_r13_findings.py
+- tests/test_audit_r15_findings.py
 - tests/test_t016_emp02_retirement.py
 
 Powyższa lista jest zamknięta. `tests/test_t016_emp02_retirement.py` jest
@@ -207,7 +208,7 @@ Wymagane zachowanie:
 - zachować dotychczasowe filtry role/state oraz CURRENT-version semantics;
 - readiness pozostaje informacyjne i nadal nie wpływa na eligibility.
 
-### F. Stare testy audytowe, których kontrakt został świadomie zastąpiony
+### F. Stare testy audytowe wymagające aktualizacji po wycofaniu EMP-02
 
 `tests/test_audit_r12_findings.py` zawiera historyczny test
 `test_finding2_inactive_external_employee_is_not_eligible`, który utrwala
@@ -220,9 +221,19 @@ eligible mimo active period, przy braku innych blockerów.
 udowodnić, że validator NIE emituje EMP-02 i że test dostarcza enabled
 membership, żeby wynik nie był zaciemniony przez MEMBERSHIP-01.
 
-Komentarz ma jasno wskazywać, że wcześniejsze findingi były poprawne dla
-starego frozen contract, ale zostały świadomie superseded przez decyzję
-właściciela T016. Nie wolno po prostu usunąć testów bez nowej asercji.
+`tests/test_audit_r15_findings.py::test_r15_2_uncapped_load_fallback_does_not_mask_emp02`
+chroni inny, nadal obowiązujący invariant: uncapped LOAD-01 fallback nie może
+zamaskować współwystępującego aktywnego HARD znalezionego przez independent
+validator. Ten invariant NIE jest superseded przez T016. Mechanicznie należy
+usunąć EMP-02 z fixture'u tego testu i użyć nadal aktywnego `DAY_ONLY-01`:
+DAY_ONLY employee na zmianie N oraz próg LOAD-01 mniejszy niż 12 h. Oczekiwany
+wynik pozostaje `TECHNICAL_ERROR`. Nie wolno usuwać ani osłabiać tej regresji.
+
+Komentarz przy testach R12/R13 ma jasno wskazywać, że wcześniejsze findingi
+były poprawne dla starego frozen contract, ale zostały świadomie superseded
+przez decyzję właściciela T016. Nie wolno po prostu usunąć testów bez nowej
+asercji. R15-2 nie jest superseded — zmienia się wyłącznie wycofany przykład
+HARD użyty do udowodnienia jego istniejącego invariantu.
 
 ## WYMAGANE TESTY T016
 
@@ -297,11 +308,13 @@ Codex po implementacji musi niezależnie potwierdzić co najmniej:
 - to samo dla LOCAL i EXTERNAL_SUPPORT (przy poprawnym window);
 - disabled/missing SiteMembership nadal blokuje;
 - wszystkie pozostałe HARD nadal blokują identycznie jak przed T016;
+- R15-2 nadal dowodzi, że LOAD fallback nie maskuje współwystępującego
+  aktywnego HARD, już bez używania EMP-02 jako fixture'u;
 - historyczny training przed `active_from` nie znika z readiness count;
 - legacy Employee metadata nadal round-tripuje bez migracji;
 - stare ScheduleVersion pozostają odczytywalne;
-- pełna suite PASS po świadomej aktualizacji dwóch superseded regression
-  tests;
+- pełna suite PASS po świadomej aktualizacji superseded regression tests i
+  mechanicznej aktualizacji R15-2;
 - ROTA-REG-001 PASS bez zmiany fixture/oracle;
 - dependency boundary scan PASS;
 - Ruff PASS;
@@ -321,15 +334,10 @@ Codex po implementacji musi niezależnie potwierdzić co najmniej:
 
 ## PREIMPLEMENTATION GATE
 
-CC NIE implementuje produkcji przed audytem Codexa tego kontraktu i zmiany
-frozen canonu.
+Codex R1 wskazał jeden mechaniczny blocker: historyczny R15-2 używał EMP-02
+jako przykładowego drugiego HARD, lecz plik nie był w TASK_SCOPE. Korekta jest
+zamknięta w kontrakcie i teście: plik jest w scope, a fixture R15-2 używa
+DAY_ONLY-01 przy zachowaniu tego samego oczekiwanego `TECHNICAL_ERROR`.
 
-Codex ma odpowiedzieć, czy brief + `arch/spec.md` po amendment:
-
-1. jednoznacznie wycofują EMP-02 bez osłabienia MEMBERSHIP-01 i innych HARD;
-2. nie zostawiają ukrytego wpływu `active_from/active_to` przez training;
-3. zachowują historię bez migracji/destrukcji;
-4. mają wystarczający i zamknięty TASK_SCOPE;
-5. nie wprowadzają drugiego źródła prawdy ani nowego HR modelu.
-
-Wynik wymagany przed implementacją: `PASS — READY_FOR_IMPLEMENTATION`.
+Nie wymaga to nowej decyzji produktowej ani ponownego otwierania Frozen
+Product Contract. Po tej korekcie T016 jest `READY FOR IMPLEMENTATION`.
