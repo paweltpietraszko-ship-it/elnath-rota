@@ -1,21 +1,47 @@
 # ROTA-T012-C — HIDDEN EMERGENCY 24h RETRY
 
-STATUS: BLOCKED UNTIL B PASS; T012-R1-3 CLOSED BY OWNER 2026-08-18
-PARENT_CONTRACT: `tasks/ROTA-T012/brief.md`
+STATUS: READY FOR IMPLEMENTATION C AFTER B PRODUCT SHA IS PRESENT ON task/ROTA-T012
+PARENT_CONTRACT: tasks/ROTA-T012/brief.md
+B_PRODUCT_SHA: 8adb092ec319e27993b844601c30a133a06ccd3f
+DATE: 2026-08-18
 
 ## CEL
 
-Dodać drugi, niewidoczny dla użytkownika przebieg CP-SAT, który może uratować pełny grafik przez potraktowanie dwóch bezpośrednio kolejnych zwykłych 12h jako jednego 24h work period uprawnionego pracownika.
+Domknąć wyłącznie zamrożoną funkcję awaryjnego 24h:
 
-Normalne katalogowe 24h z B nie jest „emergency” i istnieje już w pierwszym przebiegu.
+- normalny solver działa bez zmian jako pierwszy przebieg;
+- dopiero gdy pierwszy capped solve ma PROVEN INFEASIBLE, drugi capped solve może użyć emergency pairing;
+- emergency pairing łączy dokładnie dwie bezpośrednio kolejne zwykłe 12h tego samego employee w jeden work period dla REST/provenance;
+- działa same-month oraz, zgodnie z decyzją właściciela A, przez granicę miesiąca i roku;
+- użytkownik nie widzi prób pośrednich ani nowego workflow.
+
+C NIE dodaje nowych ekranów, pytań, statusów, DecisionRecord, SiteRule, schematu DB ani bytów domenowych.
+C NIE zmienia normalnego katalogowego 24h wdrożonego w B.
+C NIE zmienia zasad LOAD/TARGET/fairness/REPLAN.
+C NIE implementuje T013 komunikacji ani T017 wielu wariantów.
+
+## ANTI-BUREAUCRACY / MINIMALISM
+
+Koordynator nadal dostaje wyłącznie istniejący publiczny PlanningResult:
+FEASIBLE / DECISION_REQUIRED / TECHNICAL_ERROR.
+
+Nie dodawać:
+- flagi „emergency mode” do publicznego API;
+- osobnego „trybu 24h” w PlanningState;
+- dodatkowego approval flow;
+- nowej klasy decyzji;
+- nowego persistent event/audit log;
+- ręcznego wyboru „uruchom drugi pass”;
+- osobnego solvera, backtrackingu ani enumeracji rozwiązań poza CP-SAT;
+- nowej warstwy façade/service tylko dla C.
+
+Jeżeli istniejący kod nie potrzebuje dotknięcia autoryzowanego pliku, nie zmieniać go.
 
 ## PART C SCOPE
 
-- rota/domain.py
-- rota/application/assembler.py
-- rota/application/deviation_mapping.py
-- rota/persistence/schedule_repository.py
 - rota/planning/state.py
+- rota/application/assembler.py
+- rota/persistence/schedule_repository.py
 - rota/planning/eligibility.py
 - rota/planning/constraints.py
 - rota/planning/solver.py
@@ -25,142 +51,334 @@ Normalne katalogowe 24h z B nie jest „emergency” i istnieje już w pierwszym
 - tests/test_t012.py
 
 Żaden inny plik w C.
+Nie powstaje żaden nowy plik.
 
-## PAIR CANDIDATE — TEN SAM MIESIĄC
+`eligibility.py`, `schedule_repository.py` i `work_periods.py` są w scope tylko wtedy, gdy wymagane jest wąskie reuse/extension istniejącej logiki B. Nie tworzyć równoległej implementacji.
 
-Awaryjna para dwóch bieżących demandów istnieje tylko gdy:
+## 1. JEDNA PRAWDA O OBSADZIE
 
-- oba demandy są zwykłym `catalog_kind=12h`, nie normalnymi componentami katalogowego 24h;
-- każdy trwa dokładnie 12h;
+Istniejące CP-SAT `x[employee_id, demand_id]` pozostaje jedyną prawdą o tym, czy employee pokrywa demand.
+
+Emergency pairing NIE może tworzyć drugiej warstwy coverage.
+
+W szczególności:
+- COVERAGE nadal liczy `x`;
+- LOAD nadal liczy realne godziny dwóch 12h jako 12+12;
+- TARGET nadal liczy realne godziny dwóch 12h;
+- weekend/holiday fairness nadal liczy istniejące placementy;
+- REPLAN-MIN-01 nadal liczy zmianę placementów employee↔demand;
+- emergency pair nie dostaje osobnej nagrody/kary SOFT.
+
+Para jest wyłącznie sposobem interpretacji dwóch wybranych placementów jako jednego work period dla REST i Assignment provenance.
+
+## 2. INTERNAL PAIR LITERAL
+
+W drugim przebiegu można dodać wewnętrzny bool:
+
+`pair[e, first_demand_id, second_demand_id]`
+
+dla legalnego candidate.
+
+Pair literal:
+- istnieje tylko gdy `allow_emergency_24h=True`;
+- `pair <= x[e, first]`;
+- `pair <= x[e, second]`;
+- nie może być 1, jeżeli employee nie pokrywa obu demandów;
+- dla jednego `(employee, demand)` suma pair literals obejmujących ten demand <= 1.
+
+Ostatnia reguła jest PER EMPLOYEE, nie globalnie per demand.
+Przy `required_primary_count > 1` różni employees mogą niezależnie użyć pairingu na tej samej parze demandów. Nie wolno przez to wymagać identycznego całego PRIMARY set na obu zwykłych 12h.
+
+Dla danego employee nie może powstać D1+D2 oraz D2+D3. To zamyka 36h/48h chain bez blokowania innych employees.
+
+## 3. STANDALONE VS PAIRED WORK-PERIOD MODE
+
+Nie wolno kodować specjalnych wyjątków REST para-po-parze w kilku miejscach.
+
+Rozszerzyć B-owy model candidate work periods tak, aby każda wybrana zwykła 12h była dla REST:
+
+- standalone, jeśli jej `x=1` i nie bierze udziału w żadnym pair;
+- częścią emergency 24h periodu, jeśli odpowiedni `pair=1`.
+
+Technicznie można użyć wewnętrznego standalone literal:
+`standalone[e,d] = x[e,d] - sum(pair literals involving e,d)`.
+
+REST constraints mają operować na aktywnych work-period modes:
+- ordinary standalone period;
+- istniejący normalny katalogowy 24h period z B;
+- emergency same-month 24h period;
+- emergency cross-month 24h period;
+- fixed persisted periods z B.
+
+Nie budować drugiej funkcji REST obok `work_periods.py`/B semantics.
+
+Po aktywacji pair zwykły component REST nie może nadal równolegle blokować okresu, bo rest po emergency 24h pochodzi z 24h capability, nie z pojedynczej 12h.
+
+## 4. SAME-MONTH PAIR CANDIDATE
+
+Dla employee `e` pair(first, second) może istnieć tylko gdy:
+
+- oba demandy mają `catalog_kind=12h`;
+- oba trwają dokładnie 12h;
+- nie są komponentami normalnego katalogowego 24h;
 - `second.start_datetime == first.end_datetime`;
-- shift_kind są przeciwne D↔N;
-- first.emergency_24h_rest_hours jest jawnie snapshotowane i nie-None;
-- employee może indywidualnie pokryć oba demandy według wszystkich HARD poza internal REST pomiędzy tymi dwoma;
-- mixed profile: membership.can_work_24h=true;
-- all-24 profile nie potrzebuje emergency pairingu, bo normalne 24h jest jedynym katalogiem; drugi pass nie ma tworzyć dodatkowej alternatywnej semantyki na takim profilu.
+- `second.shift_kind` jest przeciwne do `first.shift_kind` (D↔N);
+- `first.emergency_24h_rest_hours is not None`;
+- employee ma zwykły legalny SolverSlot / jest indywidualnie eligible dla first;
+- employee ma zwykły legalny SolverSlot / jest indywidualnie eligible dla second;
+- na mixed profile istniejąca kwalifikacja B `can_work_24h` pozwala na 24h.
 
-INNY nie jest pair candidate nawet jeśli dwie/trzy pozycje sumują się do 24h.
+Nie consultować current SiteProfile w celu wyliczenia emergency rest.
+Źródłem rest jest snapshot `first.emergency_24h_rest_hours` utworzony przez A.
 
-## T012-R1-3 — OWNER DECISION A: CROSS-MONTH EMERGENCY 24h
+INNY nigdy nie jest pair candidate, także 8+16, 16+8, 8+8+8.
 
-**DECYZJA WŁAŚCICIELA 2026-08-18: TAK.** Awaryjne 24h może łączyć dwie bezpośrednio kolejne zwykłe 12h także wtedy, gdy pierwsza należy do poprzedniego `ScheduleVersion.month`, a druga do aktualnie planowanego miesiąca. Dotyczy identycznie granicy roku.
+## 5. SAME-MONTH ASSIGNMENT PROVENANCE
+
+Jeżeli `pair[e, first, second]=1`, solver nadal tworzy dwa zwykłe Assignment, po jednym dla każdego demandu.
+
+Oba:
+- mają tego samego employee;
+- zachowują własny `covers_demand_id`;
+- mają ten sam deterministyczny `work_period_id`;
+- mają `required_rest_after_hours = first.emergency_24h_rest_hours`.
+
+`work_period_id` ma być deterministyczny z employee + uporządkowanej pary demandów, bez losowego UUID i bez nowego persistent bytu.
+
+Jeżeli pair=0, Assignment zachowuje zwykłe B provenance dla standalone 12h.
+
+## 6. CROSS-MONTH / CROSS-YEAR — OWNER DECISION A
+
+Pairing przez granicę powstaje wyłącznie podczas PLAN/REPLAN późniejszego miesiąca.
 
 Przykłady obowiązkowe:
-
 - N 31.08 17:00–01.09 05:00 + D 01.09 05:00–17:00;
 - N 31.12 17:00–01.01 05:00 + D 01.01 05:00–17:00.
 
-### Reprezentacja techniczna
+Wcześniejszy ScheduleVersion i jego Assignment pozostają niezmienione.
 
-T012 NIE rozszerza jednego ScheduleVersion na dwa miesiące i NIE mutuje wcześniejszego ScheduleVersion.
+C dodaje wymagane przez Frozen Product Contract pole:
 
-Cross-month emergency pair jest tworzony podczas PLAN/REPLAN **późniejszego miesiąca**:
+`PlanningState.boundary_shift_demands: tuple[ShiftDemand, ...]`
 
-1. `PlanningState.boundary_assignments` zawiera persisted CURRENT Assignment z poprzedniego miesiąca jak dotychczas.
-2. T012 dodaje `PlanningState.boundary_shift_demands: tuple[ShiftDemand, ...]` dla demandów pokrywanych przez te boundary Assignment. Assembler/repository pobierają je z tego samego persisted CURRENT ScheduleVersion; current SiteProfile nie służy do rekonstrukcji ich catalog/emergency provenance.
-3. Boundary candidate może być pierwszą połową emergency 24h tylko gdy:
-   - jest PRIMARY i nie-CANCELLED;
-   - matching boundary ShiftDemand ma `catalog_kind=12h`, dokładnie 12h, jawny `shift_kind` oraz `emergency_24h_rest_hours is not None`;
-   - boundary work period jest standalone: jego `work_period_id` ma dokładnie jedną CURRENT komponentę w work-period-complete boundary context;
-   - bieżący demand jest zwykłym `catalog_kind=12h`, dokładnie 12h, zaczyna się dokładnie na końcu boundary Assignment i ma przeciwny D/N;
-   - ten sam employee jest eligible do bieżącego demandu i — na mixed profile — ma `can_work_24h=true`.
-4. Jeżeli solver wybiera cross-month pair, tworzy tylko Assignment należący do późniejszego miesiąca. Ten Assignment:
-   - ma tego samego employee co boundary Assignment;
-   - **reuse** `work_period_id` boundary Assignment;
-   - ma `required_rest_after_hours = boundary_shift_demand.emergency_24h_rest_hours`.
-5. Boundary Assignment i jego wcześniejszy ScheduleVersion pozostają byte-for-byte/semantycznie niezmienione; nie wolno przepisywać jego `required_rest_after_hours`, statusu, frozen ani historii.
-6. Dla rozszerzonego cross-month work period wcześniejsza wartość `required_rest_after_hours` na boundary Assignment staje się wartością nieterminalnej komponenty i NIE jest ścianą odpoczynku pomiędzy połówkami. Odpoczynek po całym 24h okresie bierze się z **terminalnej, późniejszej komponenty**.
-7. Work-period normalization musi być boundary-complete: jeżeli boundary Assignment ma `work_period_id`, assembler/repository dołączają wszystkie CURRENT komponenty tego samego employee/work_period_id potrzebne do ustalenia span i liczby komponentów. Work period mający już 2 komponenty nie może zostać ponownie rozszerzony; to zamyka 36h/48h chain także na kolejnej granicy miesiąca.
-8. Jeżeli poprzedniego CURRENT Assignment lub matching boundary ShiftDemand nie ma w LocalStore, program nie zgaduje cross-month emergency capability i nie tworzy z tego osobnego warning/DECISION_REQUIRED; po prostu ta cross-month para nie jest dostępna.
-9. Nie wolno tworzyć future demandu następnego miesiąca podczas PLAN wcześniejszego miesiąca. Cross-month pairing powstaje wyłącznie wtedy, gdy późniejszy demand realnie należy do aktualnie planowanego miesiąca.
+Są to persisted CURRENT ShiftDemand odpowiadające same-site `boundary_assignments`.
+Nie jest to nowa tabela ani nowy persistent model.
 
-Ta reprezentacja jest technicznym wykonaniem decyzji A i zachowuje `ScheduleVersion` jako stan jednego Site/miesiąca.
+Assembler ma złożyć to provenance z istniejącego persisted ScheduleVersion.
+Preferowane jest reuse istniejących snapshot reads; nie tworzyć generic history service.
 
-## CP-SAT, NIE WŁASNY SEARCH
+## 7. CROSS-MONTH PAIR CANDIDATE
 
-Pairing musi być modelowany jako opcjonalne decyzje/constraints w CP-SAT. Nie wolno implementować własnego backtrackingu, permutacji ani zewnętrznego combinatorial search.
+Boundary Assignment może być first half tylko gdy:
 
-Model musi gwarantować:
+- jest PRIMARY;
+- nie jest CANCELLED;
+- należy do poprzedniego CURRENT same-site ScheduleVersion;
+- ma `work_period_id`;
+- matching `boundary_shift_demand` istnieje;
+- boundary demand ma `catalog_kind=12h`;
+- boundary demand trwa dokładnie 12h;
+- ma jawny `shift_kind`;
+- ma `emergency_24h_rest_hours is not None`;
+- work-period-complete persisted context pokazuje, że `(employee_id, work_period_id)` ma dokładnie jedną CURRENT komponentę;
+- current demand ma `catalog_kind=12h`;
+- current demand trwa dokładnie 12h;
+- `current.start == boundary.end`;
+- current shift_kind jest przeciwne D↔N;
+- ten sam employee jest indywidualnie eligible do current demand;
+- na mixed profile istniejąca kwalifikacja B `can_work_24h` pozwala na 24h.
 
-- jeśli employee używa same-month emergency pair, jest PRIMARY na obu demandach;
-- jeśli employee używa cross-month emergency pair, jest już PRIMARY na persisted boundary Assignment i zostaje PRIMARY na bieżącym demandzie;
-- same-month oba Assignment dostają ten sam work_period_id i required_rest_after_hours = emergency_24h_rest_hours;
-- cross-month current Assignment reuse boundary work_period_id i terminalny rest zgodnie z sekcją wyżej;
-- demand nie może jednocześnie należeć do dwóch pairings w jednym solution;
-- nie powstaje chain >2 poprzez D1+D2 oraz D2+D3 ani przez kolejne miesiące;
-- coverage nadal dokładnie required_primary_count;
-- jeżeli required_primary_count >1, pairing jest per employee; nie wolno wymagać, by wszyscy PRIMARY na dwóch niezależnych zwykłych demandach byli identyczni, chyba że konkretny employee używa pairing option.
+Nie rewalidować historycznej boundary połowy przez dzisiejsze DAY_ONLY/availability/profile.
+To jest persisted fact; C jej nie zmienia.
 
-## ENGINE TWO-PASS CONTRACT
+Brak boundary Assignment, matching boundary demand albo kompletnego work-period context = brak candidate.
+Bez warningu, pytania i bez zgadywania.
 
-`plan()` zachowuje trzy public statuses i nie ujawnia próby numer 1/2.
+## 8. CROSS-MONTH REST MODE
+
+Dla cross-month pair istnieje internal pair literal związany z current `x`.
+
+Gdy pair=0:
+- boundary period zachowuje zwykłą B semantykę fixed persisted work period;
+- current 12h jest zwykłym standalone periodem.
+
+Gdy pair=1:
+- boundary standalone REST mode jest wyłączony wyłącznie wewnątrz modelu REST dla tego solve;
+- aktywny jest jeden combined work period od `boundary.start` do `current.end`;
+- combined period ma rest `boundary_shift_demand.emergency_24h_rest_hours`;
+- current Assignment reuse dokładnie persisted `boundary.work_period_id`;
+- current Assignment zapisuje terminalny `required_rest_after_hours` 24h;
+- boundary Assignment nie jest przepisywany.
+
+Persisted boundary record pozostaje niezmieniony.
+Period mający już 2 CURRENT komponenty nie może zostać wydłużony do trzeciej.
+
+## 9. SOLVER TWO-PASS — MINIMAL ORCHESTRATION
+
+Publiczne `plan(state)` nie zmienia sygnatury ani statusów.
+
+Wewnętrzne `solve()` może dostać parametr:
+`allow_emergency_24h: bool = False`.
 
 Sekwencja:
 
-1. capped solve `allow_emergency_24h=False`;
-2. jeśli daje candidate → zwykła independent validation i normalny outcome; NIE uruchamiać emergency tylko po to, żeby znaleźć „lepszy” SOFT;
-3. jeśli pierwszy solve ma PROVEN business INFEASIBLE/shortage/conflict, uruchomić capped solve `allow_emergency_24h=True`;
-4. drugi model zawiera legalne same-month oraz dostępne cross-month pair candidates;
-5. jeśli drugi daje candidate → validate i outcome;
-6. jeśli drugi capped jest INFEASIBLE, diagnoza LOAD przez uncapped retry MUSI również mieć `allow_emergency_24h=True` i ten sam boundary context;
-7. UNKNOWN/MODEL_INVALID/technical status pierwszego lub drugiego przebiegu nie może być maskowany kolejną próbą jako zwykły DECISION_REQUIRED;
-8. finalny DECISION_REQUIRED ma opisywać stan po wyczerpaniu legalnego emergency mechanism, nie intermediate blocker pierwszego przebiegu.
+1. `solve(state, enforce_load_cap=True, allow_emergency_24h=False)`.
+2. Jeżeli jest candidate: zwykła independent validation i obecny outcome. NIE uruchamiać emergency dla lepszego SOFT.
+3. Jeżeli istnieje zwykłe `unassignable_demand_ids`: użyć istniejącego DECISION_REQUIRED.
+4. Jeżeli status nie jest `INFEASIBLE`: TECHNICAL_ERROR. UNKNOWN/MODEL_INVALID nie uruchamia emergency.
+5. Jeżeli pierwszy capped solve jest `INFEASIBLE`: uruchomić `solve(... enforce_load_cap=True, allow_emergency_24h=True)`.
+6. Jeżeli emergency capped daje candidate: independent validation + normalny final outcome.
+7. Jeżeli emergency capped ma technical status: TECHNICAL_ERROR.
+8. Jeżeli emergency capped jest `INFEASIBLE`: uruchomić LOAD diagnosis jako `solve(... enforce_load_cap=False, allow_emergency_24h=True)`.
+9. Uncapped fallback musi używać dokładnie tego samego emergency capability/boundary context co capped emergency solve.
+10. Finalny DECISION_REQUIRED powstaje dopiero po wyczerpaniu tej sekwencji.
 
-Istniejący unassignable/conflict diagnosis może zostać refaktoryzowany tylko tyle, ile potrzeba do zachowania tej sekwencji.
+Nie uruchamiać uncapped non-emergency solve po wejściu w C fallback.
+Nie dodawać trzeciego rodzaju retry.
 
-## ELIGIBILITY / BLOCKERS
+## 10. ENGINE / KOMUNIKACJA
 
-`SHIFT-24-01` jest aktywnym HARD/qualification blockerem tylko w kontekście próby przydzielenia normalnego/emergency 24h na mixed profile.
+C nie implementuje T013.
 
-Nie wolno globalnie uznać pracownika `can_work_24h=false` za nieeligible do zwykłego pojedynczego 12h.
+Nie dodawać:
+- dynamicznych unblocking options;
+- nowych opisów dla koordynatora;
+- komunikatu „spróbowano emergency 24h”;
+- nowego public warning typu emergency-used;
+- przycisku/checkboxa do uruchamiania drugiego passu.
 
-Jeżeli końcowa niewykonalność emergency jest spowodowana wyłącznie brakiem checkboxa `24` u konkretnych możliwych pracowników, blocker może zawierać `SHIFT-24-01`. T013 później przetłumaczy go na język Panelu; T012 nie buduje nowej warstwy prezentacji.
+Jeżeli istniejący dokładny blocker path potrafi już bez heurystyki zachować `SHIFT-24-01`, może go zachować.
+Nie budować w C nowej heurystycznej diagnostyki tylko po to, aby wyświetlić `SHIFT-24-01`.
 
-`deviation_mapping.py` ma znać dokładnie:
+## 11. INDEPENDENT VALIDATOR
 
-- `SHIFT-24-01 -> DeviationCategory.PREFERENCE` — kwalifikacja/restriction pracownika analogiczna do DAY_ONLY/MEMBERSHIP;
-- `SHIFT-24-PAIR-01 -> DeviationCategory.COVERAGE` — złamanie wymaganej struktury pokrycia normalnego 24h.
+Validator musi niezależnie potwierdzić finalne emergency provenance; nie ufa pair vars solvera.
 
-Nie zmieniać istniejących kategorii innych rules.
+Dla same-month emergency period z dwóch ordinary H12:
+- dokładnie 2 komponenty dla employee/work_period_id;
+- przeciwne D/N;
+- bezpośrednia ciągłość;
+- first demand ma emergency rest snapshot;
+- nowo utworzone komponenty niosą poprawny emergency rest;
+- employee ma can_work_24h na mixed profile;
+- INNY nie występuje;
+- trzecia komponenta = HARD fail.
 
-## SOFT / REPLAN
+Dla cross-month:
+- dokładnie jedna persisted boundary komponenta + jedna target komponenta;
+- matching boundary demand provenance istnieje;
+- adjacency i D↔N;
+- terminal target rest == boundary demand emergency rest;
+- target reuse boundary work_period_id;
+- wcześniejszy Assignment nie wymaga przepisania rest;
+- period z >2 CURRENT komponentami = HARD fail.
 
-Emergency 24h jest capability drugiego przebiegu, nie nowym SOFT score. Jeżeli pierwszy przebieg ma pełne rozwiązanie, emergency nie może zastąpić go dlatego, że ma lepsze target/fairness.
+Niepoprawna struktura work period: `SHIFT-24-PAIR-01`.
+Brak kwalifikacji na mixed profile: `SHIFT-24-01`.
 
-W drugim przebiegu istniejący objective oraz REPLAN minimal reshuffle nadal działają wśród rozwiązań dopuszczonych rozszerzonym modelem.
+B-owy REST validator następnie traktuje legalną parę jako jeden work period i sprawdza rest dopiero po jego końcu.
 
-Cross-month emergency nie daje prawa do mutowania boundary REALIZED/frozen/final facts. Zmianie podlega wyłącznie assignment state późniejszego planowanego miesiąca.
+## 12. REPLAN / FIXED FACTS
 
-## TESTY C — MINIMUM
+REPLAN-MIN-01 nadal operuje na employee↔demand placementach `x`.
+Pair literal nie jest osobnym placementem i nie może sztucznie zwiększać/zmniejszać reshuffle count.
 
-Testy C dopisywane są do wspólnego `tests/test_t012.py` utworzonego w A.
+Emergency nie daje prawa do zmiany:
+- REALIZED;
+- frozen;
+- TRAINEE;
+- wcześniejszego ScheduleVersion;
+- persisted boundary Assignment.
 
-- first pass FEASIBLE => emergency path nie jest wołany/nie jest użyty;
-- first pass infeasible, emergency D→N rescue => FEASIBLE;
-- analogiczny N→D;
-- same employee, shared work_period/rest provenance;
-- can_work_24h=false na mixed profile nie rescue'uje;
-- employee eligible tylko do jednej połowy nie pairuje;
-- DAY_ONLY/N restriction nadal działa;
-- INNY 8+16, 8+8+8, 16+8 nie tworzy emergency 24;
-- three consecutive 12h nie tworzy overlapping chain >2;
-- UNKNOWN first pass => TECHNICAL_ERROR bez emergency masking;
-- second capped infeasible + uncapped emergency-enabled proves LOAD boundary;
-- final DECISION_REQUIRED nie jest intermediate first-pass payload;
-- normal catalog 24 działa już w first pass i nie jest liczone jako emergency;
-- category_for_rule dla obu nowych codes zwraca dokładnie zamrożone kategorie;
-- N 31.08 + D 01.09 może rescue'ować wrzesień jako cross-month emergency pair;
-- analogicznie 31.12 + 01.01;
-- wcześniejszy ScheduleVersion/Assignment pozostaje niezmieniony po utworzeniu pair;
-- boundary demand snapshot, nie current profile mutation, decyduje o emergency rest;
-- cross-month terminal component niesie 24h rest i REST po całym okresie używa tej wartości;
-- już dwukomponentowy boundary work period nie może zostać przedłużony do trzeciej 12h;
-- brak boundary demand/history => brak cross-month pair bez sztucznego warningu;
-- full candidate validate HARD PASS;
-- full suite + ROTA-REG-001 PASS.
+Może jedynie zmienić sposób REST/provenance dla legalnie wybranych placementów aktualnie rozwiązywanego miesiąca.
+
+## 13. TESTY C — MINIMUM
+
+Dopisać wyłącznie do istniejącego `tests/test_t012.py`.
+
+Obowiązkowe:
+
+A. Orkiestracja
+- first capped FEASIBLE => emergency solve nie jest wołany;
+- first capped UNKNOWN/MODEL_INVALID => TECHNICAL_ERROR bez retry;
+- first capped INFEASIBLE => exactly one capped emergency retry;
+- emergency capped INFEASIBLE => uncapped retry ma `allow_emergency_24h=True`;
+- uncapped non-emergency fallback po wejściu w C nie występuje.
+
+B. Same-month
+- D→N rescue;
+- N→D rescue;
+- pair używa tego samego employee;
+- shared work_period_id + emergency rest;
+- ordinary H12 może pozostać standalone gdy pair nie jest wybrany;
+- can_work_24h=false na mixed profile nie pairuje;
+- INNY 8+16 / 16+8 / 8+8+8 nie pairuje;
+- per-employee no-chain >2;
+- required_primary_count >1: pairing per employee, bez wymuszania identycznego pełnego PRIMARY set.
+
+C. Nie podwajać logiki godzin
+- coverage nadal exact;
+- LOAD dla pary = 12+12;
+- target/fairness nie dostają dodatkowego emergency term;
+- REPLAN reshuffle liczy placements, nie pair literal.
+
+D. Cross-month/year real persistence
+- N 31.08 + D 01.09 rescue;
+- N 31.12 + D 01.01 rescue;
+- current Assignment reuse boundary work_period_id;
+- terminal rest pochodzi z persisted boundary demand snapshot;
+- zmiana current SiteProfile po zapisie boundary nie zmienia tego rest;
+- wcześniejszy ScheduleVersion/Assignment pozostaje niezmieniony;
+- boundary work period z już 2 komponentami nie może dostać trzeciej;
+- brak matching boundary demand => brak pair bez warningu;
+- missing/incomplete boundary context => fail closed jako brak candidate.
+
+E. Independent validation
+- każdy FEASIBLE emergency candidate => HARD PASS;
+- ręcznie zbudowane malformed emergency 3-component => SHIFT-24-PAIR-01;
+- malformed INNY pair => SHIFT-24-PAIR-01;
+- mixed profile can_work_24h=false => SHIFT-24-01.
+
+F. Regresja
+- wszystkie testy B pozostają PASS;
+- ROTA-REG-001 PASS;
+- full suite PASS;
+- Ruff PASS;
+- `python guard.py check arch/spec.md` PASS;
+- `git diff --check` PASS.
+
+## 14. FORBIDDEN IN C
+
+- nowy plik;
+- nowa tabela / schema v6;
+- nowy ShiftKind;
+- nowy persistent `EmergencyPair` entity;
+- nowy PlanningResult status;
+- nowy user approval;
+- nowy command/service/workflow layer;
+- własny combinatorial search poza CP-SAT;
+- przebudowa B work-period semantics;
+- zmiana SiteProfile/ShiftDemand persistence z A;
+- zmiana normalnego H24 z B;
+- T013 human communication;
+- T017 multi-candidate diversity.
 
 ## GATE C
 
-Codex ma monkeypatch/fault-injection potwierdzić dokładną orkiestrację statusów oraz dwa real-persistence przypadki boundary: 31.08→01.09 i 31.12→01.01. Musi też potwierdzić, że poprzedni ScheduleVersion nie jest mutowany.
+Codex audytuje dokładny PRODUCT SHA C.
 
-Wynik: `PASS — READY_FOR_IMPLEMENTATION_D`.
+Szczególnie:
+- pair jest wyłącznie REST/provenance mode, a nie drugim coverage modelem;
+- first-pass FEASIBLE nigdy nie uruchamia emergency;
+- UNKNOWN/MODEL_INVALID nie są maskowane retry;
+- LOAD fallback jest emergency-enabled;
+- ordinary component REST jest naprawdę wyłączony, gdy pair jest aktywny;
+- cross-month nie mutuje poprzedniego ScheduleVersion;
+- rest pochodzi z persisted boundary demand snapshot, nie current profile;
+- no-chain działa per employee bez błędnego globalnego blokowania required_primary_count>1;
+- nie pojawiła się nowa biurokracja dla koordynatora.
+
+Wymagany wynik:
+`PASS — READY_FOR_IMPLEMENTATION_D`.
+
+RATIO / TOTAL_LINES wracają do jawnej akceptacji dopiero na finalnym audytowanym SHA C, jeżeli backend.py zwróci WYMAGA_DECYZJI.
