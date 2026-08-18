@@ -116,7 +116,16 @@ def add_rest_constraints(
     for employee_id, employee_slots in by_employee.items():
         cross_month = (cross_month_by_employee or {}).get(employee_id, {})
         periods = _demand_periods(employee_id, employee_slots, site_id, cross_month)
-        relaxed = {frozenset((c.first_demand_id, c.second_demand_id)): c for c in (same_month_by_employee or {}).get(employee_id, [])}
+        # C-R16-2: a demand already consumed as a cross-month current half is
+        # never also offered as a same-month pair member for this employee --
+        # cross-month is unconditional (no CP-SAT choice), so the only way to
+        # forbid the resulting 3-component chain is to never create the
+        # competing same-month pair literal in the first place.
+        relaxed = {
+            frozenset((c.first_demand_id, c.second_demand_id)): c
+            for c in (same_month_by_employee or {}).get(employee_id, [])
+            if c.first_demand_id not in cross_month and c.second_demand_id not in cross_month
+        }
         pair_vars.update(_add_one_employee_rest(model, x, employee_id, periods, relaxed, fixed_periods.get(employee_id, [])))
     _add_no_chain_constraints(model, pair_vars)
     return pair_vars
@@ -136,23 +145,19 @@ def _add_no_chain_constraints(model: cp_model.CpModel, pair_vars: dict[tuple[str
             model.add(sum(p_list) <= 1)
 
 
-def _add_one_employee_rest(
-    model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], relaxed: dict, fixed_periods_for_employee: list[WorkPeriod],
-) -> dict[tuple[str, str, str], tuple]:
+def _create_pair_literals(model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], relaxed: dict) -> tuple[dict, dict]:
     # A period's representative CP-SAT variable is its earliest component --
     # add_same_person_24h_constraints (solver.py) already forces every
     # component of the same period to an identical value for this employee,
     # so any one component faithfully stands in for "this occurrence is
     # assigned to employee_id" here.
     pair_vars: dict[tuple[str, str, str], tuple] = {}
+    candidates_by_key: dict[frozenset, tuple] = {}
     for i in range(len(periods)):
         for j in range(i + 1, len(periods)):
-            if not violates_rest(periods[i], periods[j]):
-                continue
             rep_i, rep_j = periods[i].component_ids[0], periods[j].component_ids[0]
             candidate = relaxed.get(frozenset((rep_i, rep_j)))
             if candidate is None:
-                model.add(x[employee_id, rep_i] + x[employee_id, rep_j] <= 1)
                 continue
             # T012-C emergency 24h: relax to an optional pairing instead of
             # an outright block -- p can only reach 1 when both are assigned
@@ -162,8 +167,54 @@ def _add_one_employee_rest(
             model.add(p <= x[employee_id, rep_j])
             model.add(x[employee_id, rep_i] + x[employee_id, rep_j] <= 1 + p)
             pair_vars[employee_id, candidate.first_demand_id, candidate.second_demand_id] = (p, candidate.rest_hours)
+            candidates_by_key[frozenset((rep_i, rep_j))] = (candidate, p)
+    return pair_vars, candidates_by_key
+
+
+def _add_ordinary_period_edges(model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], candidates_by_key: dict, paired_member_p: dict) -> None:
+    """C-R16-1 (part_c_emergency_24h.md section 3): ordinary standalone
+    component REST stays active only while its own pair is NOT chosen. Only
+    the temporally EARLIER side of a comparison ever governs a rest edge
+    (Part B directionality), so only that side's pair status matters here --
+    a fixed/earlier neighbour's own rest into this component is untouched."""
+    for i in range(len(periods)):
+        for j in range(i + 1, len(periods)):
+            rep_i, rep_j = periods[i].component_ids[0], periods[j].component_ids[0]
+            if frozenset((rep_i, rep_j)) in candidates_by_key:
+                continue  # internal edge, already relaxed by the pair literal itself
+            if not violates_rest(periods[i], periods[j]):
+                continue
+            earlier_rep = rep_i if periods[i].start <= periods[j].start else rep_j
+            governing_p = paired_member_p.get(earlier_rep)
+            constraint = model.add(x[employee_id, rep_i] + x[employee_id, rep_j] <= 1)
+            if governing_p is not None:
+                constraint.only_enforce_if(governing_p.Not())
+
+
+def _add_merged_pair_edges(model: cp_model.CpModel, x: dict, employee_id: str, period_by_id: dict, candidates_by_key: dict, periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod]) -> None:
+    """C-R16-1: once pair=1, the two components ARE one 24h work period
+    (first.start -> second.end) whose rest (emergency_24h_rest_hours) governs
+    every external edge -- not either component's own ordinary rest."""
+    for candidate, p in candidates_by_key.values():
+        first_period, second_period = period_by_id[candidate.first_demand_id], period_by_id[candidate.second_demand_id]
+        merged = WorkPeriod(
+            employee_id, f"__merged__{candidate.first_demand_id}+{candidate.second_demand_id}", first_period.start, second_period.end,
+            candidate.rest_hours, (candidate.first_demand_id, candidate.second_demand_id),
+        )
+        member_ids = {candidate.first_demand_id, candidate.second_demand_id}
+        for other in periods:
+            if other.component_ids[0] in member_ids or not violates_rest(merged, other):
+                continue
+            model.add(x[employee_id, other.component_ids[0]] == 0).only_enforce_if(p)
+        for fixed_period in fixed_periods_for_employee:
+            if violates_rest(merged, fixed_period):
+                model.add(x[employee_id, candidate.first_demand_id] + x[employee_id, candidate.second_demand_id] <= 1)
+
+
+def _add_ordinary_fixed_edges(model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod], paired_member_p: dict) -> None:
     for period in periods:
         rep = period.component_ids[0]
+        governing_p = paired_member_p.get(rep)
         for fixed_period in fixed_periods_for_employee:
             # Same period_key = this prospective period is the still-open
             # other half of an already-fixed component of the SAME
@@ -172,10 +223,28 @@ def _add_one_employee_rest(
             # add_same_person_24h_constraints ties normal 24h components to
             # the identical employee instead, and a cross-month pair's
             # earlier half is already fixed to one employee by definition.
-            if period.period_key == fixed_period.period_key:
+            if period.period_key == fixed_period.period_key or not violates_rest(period, fixed_period):
                 continue
-            if violates_rest(period, fixed_period):
-                model.add(x[employee_id, rep] == 0)
+            constraint = model.add(x[employee_id, rep] == 0)
+            if governing_p is not None and period.start <= fixed_period.start:
+                # Only the FORWARD-facing role (period is the earlier side) is
+                # superseded by the merged 24h wall once paired -- a fixed
+                # period BEFORE this component still governs unconditionally.
+                constraint.only_enforce_if(governing_p.Not())
+
+
+def _add_one_employee_rest(
+    model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], relaxed: dict, fixed_periods_for_employee: list[WorkPeriod],
+) -> dict[tuple[str, str, str], tuple]:
+    period_by_id = {p.component_ids[0]: p for p in periods}
+    pair_vars, candidates_by_key = _create_pair_literals(model, x, employee_id, periods, relaxed)
+    paired_member_p: dict[str, object] = {}
+    for candidate, p in candidates_by_key.values():
+        paired_member_p[candidate.first_demand_id] = p
+        paired_member_p[candidate.second_demand_id] = p
+    _add_ordinary_period_edges(model, x, employee_id, periods, candidates_by_key, paired_member_p)
+    _add_merged_pair_edges(model, x, employee_id, period_by_id, candidates_by_key, periods, fixed_periods_for_employee)
+    _add_ordinary_fixed_edges(model, x, employee_id, periods, fixed_periods_for_employee, paired_member_p)
     return pair_vars
 
 
