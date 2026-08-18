@@ -470,11 +470,8 @@ def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], 
 
 
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
-    """REST-01, per-work-period -- a 24h pair has no internal check, other
-    periods use the earlier one's rest, only target-touching edges count."""
-    # B-R10-3: identity is (schedule_version_id, assignment_id), not the
-    # bare local id -- two different ScheduleVersions can legitimately
-    # reuse the same local assignment_id (tests/test_audit_t009_r6.py).
+    """REST-01, per-work-period -- 24h pairs have no internal check, earlier period's rest governs, only target-touching edges count."""
+    # B-R10-3: identity is (schedule_version_id, assignment_id), not the bare local id (tests/test_audit_t009_r6.py).
     target_keys = {(a.schedule_version_id, a.assignment_id) for a in assignments}
     all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     all_components = [PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in all_assignments]
