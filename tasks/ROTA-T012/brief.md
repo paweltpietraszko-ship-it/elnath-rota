@@ -262,8 +262,10 @@ TASK_SCOPE:
 - rota/planning/engine.py
 - rota/planning/work_periods.py
 - tests/test_t012.py
+- tests/test_audit_r14_findings.py
+- tests/test_audit_r15_findings.py
 
-Dokładnie dwa autoryzowane nowe pliki nie-pipeline: `rota/planning/work_periods.py`, `tests/test_t012.py`. Wszystkie testy A–D dopisywane są do tego samego test file. Każdy plik spoza scope = STOP + amendment kontraktu.
+Dokładnie dwa autoryzowane nowe pliki nie-pipeline: `rota/planning/work_periods.py`, `tests/test_t012.py`. Nowe testy A–D są dopisywane do `tests/test_t012.py`. Istniejące pre-T012 `tests/test_audit_r14_findings.py` i `tests/test_audit_r15_findings.py` są autoryzowane wyłącznie do mechanicznej adaptacji fake `solve()` i licznika wywołań określonej w Part C; nie wolno zmieniać ich historycznych assertions ani dodawać tam nowej logiki produktu. Każdy inny plik spoza scope = STOP + amendment kontraktu.
 
 Poza scope m.in.: frontend/UI/bridge; `rota/application/durable_inputs.py`; `rota/application/plan_ops.py`; `rota/planning/site_rules.py`; ROTA-REG-001 fixture/oracle; T013; T017; T015 mechanism.
 
@@ -317,6 +319,16 @@ Nie zmieniać `guard.py` ani `backend.py`.
 - bez pass-through façade / generic workflow framework;
 - `TOTAL_LINES` i `RATIO` podlegają backend.py; `WYMAGA_DECYZJI` wymaga konkretnej finalnej akceptacji, nie jest pre-approved;
 - final acceptance dotyczy dokładnego audited SHA.
+
+### CHECKPOINT C — FINAL MECHANICAL GATE DECISIONS 2026-08-18
+
+Dla dokładnego produktu C `f64eeb9451ac8735b8a9bb66c9bd3f9ea17319fd` architekt jawnie akceptuje:
+
+- `SIZE_FILE tests/test_t012.py = 1392` — ACCEPTED jako jednorazowy wyjątek checkpointu C. Plik jest kumulatywnym, kontraktowo wymaganym oracle A+B+C; nie dzielić/przepisywać testów wyłącznie dla licznika. Ta akceptacja nie pozwala na dalszy wzrost w D bez nowej jawnej decyzji;
+- `RATIO 2944/299 = 9.8:1` — ACCEPTED dla tego exact product SHA;
+- `TOTAL_LINES 3243` — ACCEPTED dla tego exact product SHA.
+
+To są wyłącznie decyzje mechanicznych bramek. Nie zastępują niezależnego audytu merytorycznego C, nie zmieniają limitu `SIZE_FUNC`, `NEW_FILES` ani `DIFF_SCOPE`, nie są blanket waiverem dla D i tracą moc dla zmienionego produktu C bez ponownego przeliczenia gate.
 
 ## PREIMPLEMENTATION GATE ROUND 3
 
