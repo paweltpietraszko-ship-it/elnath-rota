@@ -2,7 +2,7 @@
 
 TASK_ID: ROTA-T012
 TITLE: Katalog zmian 24h / 12h / INNY + odpoczynek per okres pracy
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 2
+STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 3
 DATE: 2026-08-18
 ARCHITECT_ROLE: ChatGPT (architekt)
 IMPLEMENTER_ROLE: CC
@@ -23,7 +23,16 @@ Codex Round 1 na SHA `aba48a4cfcf1ef18aea9bb4bcb12766a08cef191` zakończył się
 - T012-R1-2 — pięć nowych plików przy `MAX_NEW_FILES=2`: CLOSED. T012 ma dokładnie dwa nowe pliki nie-pipeline: `rota/planning/work_periods.py` i `tests/test_t012.py`.
 - T012-R1-3 — emergency 24h przez granicę miesiąca: CLOSED decyzją właściciela **A / TAK** z 2026-08-18. Cross-month i cross-year emergency pairing są wymagane.
 
-Round 1 potwierdził spójność wcześniejszego Frozen amendmentu, `guard.py`, `git diff --check` i bazowej regresji 555/555. Po zamknięciu R1-3 Frozen Product Contract jest ponownie aktualizowany i re-freezowany; implementacja A nie startuje przed PASS Codexa Round 2.
+Round 1 potwierdził spójność wcześniejszego Frozen amendmentu, `guard.py`, `git diff --check` i bazowej regresji 555/555.
+
+## ROUND 2 AUDIT STATUS
+
+Codex Round 2 na SHA `adb96099f37a79c9a06d0388d1a0ba790059f16f` zakończył się FAIL wyłącznie z findingiem mechanicznym T012-R2-1.
+
+- R1-1 / R1-2 / R1-3: pozostają CLOSED.
+- T012-R2-1 — `PlanningState.boundary_shift_demands` wymaga zmiany istniejącego właściciela dataclassy `rota/planning/state.py`, którego brakowało w union TASK_SCOPE i Part C scope: CLOSED w Round 3 przez dopisanie dokładnie tego istniejącego pliku do obu scope.
+
+R2-1 nie zmienia produktu, Frozen Product Contract ani liczby nowych plików. Implementacja A nie startuje przed finalnym PASS Codexa Round 3.
 
 ## CEL
 
@@ -244,6 +253,7 @@ TASK_SCOPE:
 - rota/persistence/schedule_lifecycle.py
 - rota/persistence/schedule_validation.py
 - rota/persistence/decision_ledger.py
+- rota/planning/state.py
 - rota/planning/shift_catalog.py
 - rota/planning/eligibility.py
 - rota/planning/constraints.py
@@ -308,23 +318,10 @@ Nie zmieniać `guard.py` ani `backend.py`.
 - `TOTAL_LINES` i `RATIO` podlegają backend.py; `WYMAGA_DECYZJI` wymaga konkretnej finalnej akceptacji, nie jest pre-approved;
 - final acceptance dotyczy dokładnego audited SHA.
 
-## PREIMPLEMENTATION GATE ROUND 2
+## PREIMPLEMENTATION GATE ROUND 3
 
-CC NIE zaczyna A przed PASS Codexa dla poprawionego briefu, A–D, `arch/spec.md` i `arch/FROZEN.lock`.
+CC NIE zaczyna A przed finalnym PASS Codexa dla T012-R2-1 na poprawionym kontrakcie.
 
-Codex ma szczególnie sprawdzić:
+Round 3 ma być wąski: potwierdzić mechanicznie, że `rota/planning/state.py` występuje zarówno w union `TASK_SCOPE:`, jak i w Part C scope, że jest istniejącym plikiem (więc NEW_FILES nadal <=2), oraz że nie zmieniono `arch/spec.md` / `arch/FROZEN.lock` przy tej korekcie scope.
 
-- literalny `TASK_SCOPE:` i new-file count <=2;
-- 31.08→01.09 i 31.12→01.01 real persistence;
-- brak mutacji wcześniejszego ScheduleVersion;
-- boundary demand snapshot zamiast current profile reconstruction;
-- no chain >2 także przez kolejne miesiące;
-- current SiteProfile nie steruje retroaktywnie REST;
-- INNY nie tworzy 24h;
-- can_work_24h mixed/all-24;
-- normalne 24h ma ten sam PRIMARY na obu komponentach;
-- retry nie maskuje technical status;
-- LOAD fallback ma emergency mode;
-- DecisionRecord nie wpływa na future planning i jest atomowy z manual child.
-
-Wynik wymagany: `PASS — READY_FOR_IMPLEMENTATION_A`.
+Jeżeli to przechodzi, wymagany wynik: `PASS — READY_FOR_IMPLEMENTATION_A`.
