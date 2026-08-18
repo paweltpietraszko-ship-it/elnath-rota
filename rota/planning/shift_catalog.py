@@ -187,19 +187,7 @@ def _emergency_rest_lookup(profile: SiteProfile) -> dict[tuple, int]:
     return resolved
 
 
-def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDemand, ...]:
-    """T012 replacement for the legacy per-day D/N expansion: every active
-    StandardShift (12h/INNY/24h) generates its occurrence(s) for each
-    active_weekdays day in month, anchored to the occurrence's start day.
-    Multiple entries and overlaps are legal and generate independent
-    occurrences; deterministic demand_id assignment matches the legacy
-    "{date}-{kind}[-{n}]" shape, extended to stay collision-free across
-    every occurrence (including both halves of a 24h pair) landing on the
-    same (date, kind)."""
-    for shift in profile.standard_shifts:
-        validate_standard_shift(shift)
-    emergency_rest = _emergency_rest_lookup(profile)
-
+def _all_components(profile: SiteProfile, month: date) -> list[_Component]:
     days_in_month = calendar.monthrange(month.year, month.month)[1]
     components: list[_Component] = []
     for idx, shift in enumerate(profile.standard_shifts):
@@ -214,8 +202,15 @@ def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDe
             # occurrence, never all 31 days' worth.
             template_id = f"{profile.profile_id}-shift{idx}-{current.isoformat()}"
             components.extend(_components_for_shift(shift, template_id, current))
+    return components
 
-    components.sort(key=lambda c: (c.start, c.kind.value))
+
+def _components_to_demands(components: list[_Component], emergency_rest: dict[tuple, int]) -> tuple[ShiftDemand, ...]:
+    """Deterministic demand_id assignment matches the legacy
+    "{date}-{kind}[-{n}]" shape, extended to stay collision-free across
+    every occurrence (including both halves of a 24h pair) landing on the
+    same (date, kind)."""
+    components = sorted(components, key=lambda c: (c.start, c.kind.value))
     kind_counts: dict[tuple, int] = {}
     for c in components:
         key = (c.start.date(), c.kind)
@@ -241,6 +236,19 @@ def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDe
             emergency_24h_rest_hours=emergency,
         ))
     return tuple(demands)
+
+
+def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDemand, ...]:
+    """T012 replacement for the legacy per-day D/N expansion: every active
+    StandardShift (12h/INNY/24h) generates its occurrence(s) for each
+    active_weekdays day in month, anchored to the occurrence's start day.
+    Multiple entries and overlaps are legal and generate independent
+    occurrences."""
+    for shift in profile.standard_shifts:
+        validate_standard_shift(shift)
+    emergency_rest = _emergency_rest_lookup(profile)
+    components = _all_components(profile, month)
+    return _components_to_demands(components, emergency_rest)
 
 
 if __name__ == "__main__":
