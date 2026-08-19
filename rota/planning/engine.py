@@ -68,47 +68,36 @@ def _plan(state: PlanningState) -> PlanningResult:
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
     validate_executable_site_rules(state.site_rules)
-    # T018 A-R4-1: validate calendar completeness eagerly at the public
-    # boundary, before solve() -- a pre-model shortage (NO_ELIGIBLE_EMPLOYEE
-    # from _build_slots, e.g. disabled/missing membership alongside an
-    # active SICK_LEAVE) never reaches _sick_adjusted_targets(), so relying
-    # on that call alone let an incomplete calendar slip through as
-    # DECISION_REQUIRED instead of the required TECHNICAL_ERROR.
+    # T018 A-R4-1: validate calendar completeness eagerly, before solve() --
+    # a pre-model shortage (NO_ELIGIBLE_EMPLOYEE) never reaches
+    # _sick_adjusted_targets(), so relying on that call alone let an
+    # incomplete calendar slip through as DECISION_REQUIRED instead of the
+    # required TECHNICAL_ERROR.
     excused_absence_days_in_month(
         state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
         calendar_days=state.calendar_days,
     )
-    # T018 B6/DAY-ONLY-N-FALLBACK-01: literal 4-stage retry order --
-    # (1) normal capped, no fallbacks; (2) DAY_ONLY N fallback capped, no
-    # emergency; (3) DAY_ONLY fallback + T012 emergency 24h capped;
-    # (4) same fallback capabilities, uncapped LOAD diagnosis. A capped
-    # stage's candidate (FEASIBLE or a validator-derived conflict) is always
-    # terminal; only a proven INFEASIBLE or a pre-model coverage shortage
-    # advances to the next stage -- addendum COMPLETE-GRAPH FAILURE INCLUDES
-    # PRE-MODEL SHORTAGE: normal `unassignable` must NOT end the plan early
-    # while a later fallback pass remains, so stages 1-2 do not dispatch
-    # unassignable_demand_ids as engine._dispatch_capped_outcome used to for
-    # every capped pass (round 14 audit) -- only stage 3 finally treats it as
-    # the terminal shortage, since no uncapped solve can repair a missing
-    # eligible slot (part_c_emergency_24h.md section 9 point 9: same
-    # reasoning T012-C already applied to its own single fallback).
-    outcome_1 = solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False)
-    result = _dispatch_or_continue(state, outcome_1)
-    if result is not None:
-        return result
-
-    outcome_2 = solve(state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=False)
-    result = _dispatch_or_continue(state, outcome_2)
-    if result is not None:
-        return result
+    # T018 B6/DAY-ONLY-N-FALLBACK-01: literal 4-stage retry order (see
+    # module docstring). A capped stage's candidate is always terminal;
+    # only a proven INFEASIBLE or a pre-model coverage shortage advances to
+    # the next stage -- COMPLETE-GRAPH FAILURE INCLUDES PRE-MODEL SHORTAGE:
+    # normal `unassignable` must not end the plan early while a further
+    # fallback stage remains, so stages 1-2 never dispatch it (round 14
+    # audit); only stage 3 finally treats it as the terminal shortage, since
+    # no uncapped solve can repair a missing eligible slot.
+    for allow_day_only_n_fallback, allow_emergency_24h in ((False, False), (True, False)):
+        outcome = solve(
+            state, enforce_load_cap=True, allow_day_only_n_fallback=allow_day_only_n_fallback,
+            allow_emergency_24h=allow_emergency_24h,
+        )
+        result = _dispatch_or_continue(state, outcome)
+        if result is not None:
+            return result
 
     outcome_3 = solve(state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True)
-    if outcome_3.assignments is not None:
-        return _evaluate_candidate(state, outcome_3)
-    if outcome_3.unassignable_demand_ids:
-        return _decision_for_unassignable(state, outcome_3)
-    if outcome_3.status_name != "INFEASIBLE":
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome_3.status_name}", [])
+    result = _dispatch_stage3(state, outcome_3)
+    if result is not None:
+        return result
     # INFEASIBLE with the LOAD-01 cap enabled is not evidence of a REST-01
     # conflict by itself (round 13 FINDING R13-1) -- drop the cap before
     # treating this as a genuine cross-demand conflict, both fallbacks still
@@ -128,6 +117,19 @@ def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> Plann
     if outcome.unassignable_demand_ids or outcome.status_name == "INFEASIBLE":
         return None
     return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+
+
+def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
+    """Stage 3 only: unlike stages 1/2, an unassignable shortage here IS
+    terminal (no uncapped solve can repair a missing eligible slot). None
+    means a proven INFEASIBLE -- the caller must still try Stage 4."""
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    if outcome.unassignable_demand_ids:
+        return _decision_for_unassignable(state, outcome)
+    if outcome.status_name != "INFEASIBLE":
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+    return None
 
 
 def _resolve_without_load_cap(

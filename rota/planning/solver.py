@@ -50,10 +50,7 @@ class SolverSlot:
     shift_kind: ShiftKind
     leave_plan_collision: bool
     day_off_soft_entry: bool
-    # T018 B4: set only when this slot is legal solely thanks to an
-    # applicable EMPLOYEE_DAY_ONLY_N_EXCEPTION consulted in a
-    # fallback-enabled pass -- feeds the exceptional_n_count lexicographic
-    # objective (B5). None in every normal-pass slot.
+    # T018 B4/B5: set only via a fallback-consulted exception; feeds exceptional_n_count.
     day_only_fallback_rule_version_id: str | None = None
 
 
@@ -313,22 +310,11 @@ def _add_coverage_constraints(
 
 
 def _sick_adjusted_targets(state: PlanningState) -> dict[str, int]:
-    """SICK_LEAVE-01 (owner decision 2026-08-12): a sick day counts as
-    EXCUSED_ABSENCE_HOURS_PER_DAY (8h) against target_hours regardless of
-    the employee's actual shift length (12h D/N) -- reduce the expected
-    monthly quota, not the worked-hours side of the deviation. Clamped at 0
-    so a sick period longer than the original target cannot invert it into
-    a negative expectation.
-
-    Deliberately SICK_LEAVE only, not LEAVE_GRANTED too: target_hours is a
-    coordinator input already set with planned leave in mind (leave is known
-    in advance, unlike sudden sick leave), and ROTA-REG-001's frozen
-    reference hours were verified against the original PoC run using raw
-    target_hours. Extending this to LEAVE_GRANTED shifted the exact hours
-    and broke the frozen oracle -- see absence.py's docstring. LEAVE_GRANTED
-    gets the 8h/day treatment only in the separate quarterly balance module
-    (rota/balance.py), a different question the owner answered "yes" to on
-    2026-08-13."""
+    """SICK_LEAVE-01: a qualified workday counts EXCUSED_ABSENCE_HOURS_PER_DAY
+    (8h) against target_hours regardless of shift length, clamped at 0.
+    Deliberately SICK_LEAVE only -- extending this to LEAVE_GRANTED broke
+    ROTA-REG-001's frozen reference hours (see absence.py's docstring);
+    LEAVE_GRANTED gets the 8h/day treatment only in rota/balance.py."""
     absence_days_by_employee = excused_absence_days_in_month(
         state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
         calendar_days=state.calendar_days,
@@ -506,10 +492,8 @@ def _finalize(
 
 
 def _exceptional_n_expr(x: dict, slots: list[SolverSlot]):
-    """T018 B5: sum of x[employee, demand] over every slot legal only via an
-    applicable EMPLOYEE_DAY_ONLY_N_EXCEPTION in this fallback-enabled pass.
-    One assignment = one usage regardless of how many equivalent rule
-    versions authorize it (B4/R1 clarification)."""
+    """T018 B5: sum of x[employee, demand] over slots legal only via a
+    fallback-consulted exception (one assignment = one usage, B4/R1)."""
     return sum(
         x[slot.employee_id, slot.demand.demand_id]
         for slot in slots if slot.day_only_fallback_rule_version_id is not None
@@ -522,33 +506,20 @@ def _solve_lexicographic_phases(
     pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
 ) -> SolverOutcome:
     """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle
-    count, arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md) and T018 B5
-    (exceptional_n_count, arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01.md):
-    each expr in phase_exprs is minimized in order, PROVEN OPTIMAL, then
-    frozen as a hard constraint before the next phase -- so no later phase
-    (including the ordinary TARGET/fairness/SOFT objective) can ever justify
-    one additional unit of an earlier phase's minimized quantity. Order in
-    phase_exprs IS priority order; reshuffle must always precede
-    exceptional_n when both apply (T018 does not invert REPLAN-MIN-01).
-    T012-C: pair_vars is not a placement and never enters any phase expr."""
+    count) and T018 B5 (exceptional_n_count): each phase_exprs entry is
+    minimized in order, PROVEN OPTIMAL, then frozen before the next phase.
+    pair_vars is not a placement, never enters a phase expr (T012-C)."""
     for expr in phase_exprs:
         model.minimize(expr)
         phase_solver, phase_status = _run_solver(model)
         if phase_status == cp_model.INFEASIBLE:
-            # A rigorous proof about the HARD model itself, not an
-            # approximation -- route through the existing infeasibility/
-            # conflict-detection path unchanged (audit round 2 FINDING R2-1
-            # status matrix).
+            # Rigorous proof, not approximation -- existing infeasibility/
+            # conflict path (round 2 FINDING R2-1).
             return _finalize(phase_solver, phase_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
         if phase_status != cp_model.OPTIMAL:
-            # FEASIBLE (an unproven incumbent from hitting the time limit),
-            # UNKNOWN, or MODEL_INVALID: none of these PROVE the minimum this
-            # phase requires. Freezing an unproven incumbent as if it were
-            # the true minimum could silently accept a worse-than-necessary
-            # result -- fail closed to TECHNICAL_ERROR (assignments=None,
-            # status_name != "INFEASIBLE") instead of calling _finalize,
-            # which would otherwise treat FEASIBLE as "good enough" the same
-            # way the ordinary single-phase path legitimately does.
+            # FEASIBLE/UNKNOWN/MODEL_INVALID don't PROVE this phase's
+            # minimum -- fail closed to TECHNICAL_ERROR rather than freeze
+            # an unproven incumbent as if it were the true minimum.
             return SolverOutcome(phase_solver.status_name(phase_status), None, [], [], {}, [], {})
         model.add(expr == round(phase_solver.value(expr)))
 
@@ -590,13 +561,9 @@ def solve(
     )
     model.add_assumptions(list(assumptions.values()))
 
-    # REPLAN-MIN-01 applies only when there is an existing schedule to
-    # preserve (brief.md SCOPE: "Nie dotyczy pierwszego planowania, gdy nie
-    # istnieją baseline placements do zachowania") -- initial planning skips
-    # straight to the exceptional_n phase (if any). T018 B5: reshuffle
-    # minimum always precedes exceptional_n minimum when both apply; when
-    # allow_day_only_n_fallback is False no exceptional slot can ever exist,
-    # so that phase is skipped entirely rather than minimizing a trivial 0.
+    # T018 B5: reshuffle (REPLAN-MIN-01, only when a baseline exists) always
+    # precedes exceptional_n; the exceptional phase is skipped entirely when
+    # allow_day_only_n_fallback is False (no exceptional slot can exist).
     phase_exprs = []
     baseline = redistributable_baseline_assignments(state)
     if baseline:
