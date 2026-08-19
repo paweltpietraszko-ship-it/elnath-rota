@@ -47,7 +47,7 @@ def test_sick_leave_hard_blocks_assignment_on_sick_day():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.employee_id == "A" and b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+    assert any(b.employee_id == "A" and b.condition == "Koliduje z zapisem: Chorobowe" for b in result.decision_payload.blockers)
 
 
 def test_sick_leave_does_not_block_assignment_outside_the_sick_range():

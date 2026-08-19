@@ -27,11 +27,11 @@ from __future__ import annotations
 
 from rota.domain import Assignment, AssignmentState, AvailabilityKind
 from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
+from rota.planning.decision_guidance import build_decision_payload
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
     BlockingDemand,
     Blocker,
-    DecisionRequiredPayload,
     LoadBlocker,
     PlanningResult,
 )
@@ -181,22 +181,12 @@ def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> 
         for demand_id in demand_ids
         if demand_id in by_id
     ]
-    blockers = [
+    raw_blockers = [
         Blocker(employee_id, reason)
         for demand_id in demand_ids
         for employee_id, reason in outcome.unassignable_reasons.get(demand_id, [])
     ]
-    payload = DecisionRequiredPayload(
-        blocking_shift_demands=blocking,
-        blockers=blockers,
-        load_blocker=None,
-        unblocking_options=[
-            "potwierdzenie X/Y",
-            "świadome ściągnięcie pracownika z wolnego",
-            "świadome odwołanie/override urlopu zgodnie z kontraktem",
-            "świadome wyłączenie DAY_ONLY",
-        ],
-    )
+    payload = build_decision_payload(state, blocking, raw_blockers, None)
     return PlanningResult("DECISION_REQUIRED", [], payload, None, [])
 
 
@@ -229,19 +219,14 @@ def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> Plan
         if demand_id in by_id
     ]
     involved_employees = eligible_employees_for_demands(state, demand_ids)
-    blockers = [Blocker(employee_id, "REST-01") for employee_id in involved_employees]
+    raw_blockers = [Blocker(employee_id, "REST-01") for employee_id in involved_employees]
     # ROTA-T007 (audit round 3 FINDING R3-2): a SiteRule can be the necessary
     # cause of this REST-01 conflict (it removed an alternative employee for
     # one of these demands) even though neither demand was unassignable on
     # its own -- its rule_version_id must stay visible here too, not only on
     # the simple single-demand shortage path.
-    blockers += _site_rule_blockers_for(outcome.site_rule_exclusions, demand_ids)
-    payload = DecisionRequiredPayload(
-        blocking_shift_demands=blocking,
-        blockers=blockers,
-        load_blocker=None,
-        unblocking_options=["świadoma ręczna korekta zgodnie z kontraktem"],
-    )
+    raw_blockers += _site_rule_blockers_for(outcome.site_rule_exclusions, demand_ids)
+    payload = build_decision_payload(state, blocking, raw_blockers, None)
     warnings = [
         "REST-01: demands "
         f"{sorted(demand_ids)} cannot be jointly covered by eligible employees; "
@@ -359,21 +344,13 @@ def _decision_for_conflicts(
     threshold = state.profile.rolling_7d_decision_threshold_hours
     over_threshold = {e: h for e, h in report.maximum_rolling_7d_hours.items() if h > threshold}
     warnings = list(extra_warnings) + list(report.warnings)
-    unblocking_options = [
-        "świadome odmrożenie Assignment i ponowne planowanie",
-        "świadoma ręczna korekta frozen Assignment zgodnie z kontraktem",
-    ]
-    load_blocker, load_blockers = (None, [])
+    load_blocker, load_raw_blockers = (None, [])
     if over_threshold:
-        load_blocker, load_blockers = _rank_load_blockers(report, over_threshold, warnings)
-        unblocking_options.append("świadoma akceptacja >" + str(threshold) + "h / 7 kolejnych dni")
+        load_blocker, load_raw_blockers = _rank_load_blockers(report, over_threshold, warnings)
 
-    frozen_blockers, blocking = _frozen_blockers_and_demands(state, full, frozen_details)
-    payload = DecisionRequiredPayload(
-        blocking_shift_demands=blocking,
-        blockers=frozen_blockers + load_blockers,
-        load_blocker=load_blocker,
-        unblocking_options=unblocking_options,
+    frozen_raw_blockers, blocking = _frozen_blockers_and_demands(state, full, frozen_details)
+    payload = build_decision_payload(
+        state, blocking, frozen_raw_blockers + load_raw_blockers, load_blocker, frozen_boundary=True
     )
     return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
@@ -447,15 +424,10 @@ def _load_decision(
             "a LOAD-01 violation was reported but no employee is over threshold; cannot classify", [],
         )
     warnings = list(extra_warnings) + list(report.warnings)
-    load_blocker, blockers = _rank_load_blockers(report, over_threshold, warnings)
+    load_blocker, raw_blockers = _rank_load_blockers(report, over_threshold, warnings)
     relevant_demand_ids = _demand_ids_in_worst_windows(report, full, over_threshold)
-    blockers = blockers + _site_rule_blockers_for(site_rule_exclusions, relevant_demand_ids)
-    payload = DecisionRequiredPayload(
-        blocking_shift_demands=[],
-        blockers=blockers,
-        load_blocker=load_blocker,
-        unblocking_options=["świadoma akceptacja >" + str(threshold) + "h / 7 kolejnych dni"],
-    )
+    raw_blockers = raw_blockers + _site_rule_blockers_for(site_rule_exclusions, relevant_demand_ids)
+    payload = build_decision_payload(state, [], raw_blockers, load_blocker)
     return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 

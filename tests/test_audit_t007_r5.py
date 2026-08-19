@@ -51,6 +51,6 @@ def test_r5_load_provenance_includes_overnight_shift_entering_worst_window() -> 
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker.window_start == date(2026, 10, 2)
     assert any(
-        blocker.condition == "RV-night-cause"
+        blocker.condition == "Koliduje z zapisaną regułą obiektu"
         for blocker in result.decision_payload.blockers
     )

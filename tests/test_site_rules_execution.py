@@ -340,7 +340,7 @@ def test_k_valid_hard_site_rule_shortage_is_decision_required_with_rule_version_
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "RV-1" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisaną regułą obiektu" for b in result.decision_payload.blockers)
 
 
 # L. MULTIPLE RULES -------------------------------------------------------------
@@ -433,7 +433,7 @@ def test_p_frozen_assignment_conflicting_with_hard_site_rule_is_decision_require
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "RV-1" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisaną regułą obiektu" for b in result.decision_payload.blockers)
 
 
 # Q. REALIZED HISTORY -------------------------------------------------------------

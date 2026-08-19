@@ -93,8 +93,8 @@ def test_r22_2a_frozen_conflict_with_concurrent_load01_includes_load_blocker():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "LOAD-01" in conditions
-    assert "SICK_LEAVE-01" in conditions
+    assert "Koliduje z tygodniowym czasem pracy" in conditions
+    assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
 def test_r22_2b_frozen_conflict_with_dangling_reference_is_technical_error():

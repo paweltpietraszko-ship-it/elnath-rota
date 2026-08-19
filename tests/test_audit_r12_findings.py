@@ -119,7 +119,7 @@ def test_finding3_rest01_combination_conflict_is_decision_required():
     assert result.status == "DECISION_REQUIRED"
     blocked_ids = {b.demand_id for b in result.decision_payload.blocking_shift_demands}
     assert blocked_ids == {"2026-10-01-N", "2026-10-02-D"}
-    assert any(b.employee_id == "A" and b.condition == "REST-01" for b in result.decision_payload.blockers)
+    assert any(b.employee_id == "A" and b.condition == "Koliduje z odpoczynkiem dobowym" for b in result.decision_payload.blockers)
 
 
 # FINDING 4 -------------------------------------------------------------------
@@ -136,7 +136,7 @@ def test_finding4_decision_required_has_concrete_blockers():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.blockers
     assert result.decision_payload.blockers[0].employee_id == "B"
-    assert result.decision_payload.blockers[0].condition == "LEAVE_GRANTED-01"
+    assert result.decision_payload.blockers[0].condition == "Koliduje z zapisem: Urlop"
 
 
 # FINDING 5 -------------------------------------------------------------------

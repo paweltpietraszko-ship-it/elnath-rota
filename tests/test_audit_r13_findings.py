@@ -43,7 +43,7 @@ def test_r13_1a_pure_load_conflict_is_load01_not_rest01():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None
     assert result.decision_payload.load_blocker.employee_id == "A"
-    assert all(b.condition == "LOAD-01" for b in result.decision_payload.blockers)
+    assert all(b.condition == "Koliduje z tygodniowym czasem pracy" for b in result.decision_payload.blockers)
 
 
 def test_r13_1b_load_conflict_crossing_month_boundary_is_load01():
@@ -60,7 +60,7 @@ def test_r13_1b_load_conflict_crossing_month_boundary_is_load01():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None
-    assert any(b.condition == "LOAD-01" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z tygodniowym czasem pracy" for b in result.decision_payload.blockers)
 
 
 def test_r13_1c_pure_headcount_shortage_is_not_rest01():
@@ -70,7 +70,7 @@ def test_r13_1c_pure_headcount_shortage_is_not_rest01():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is None
-    assert all(b.condition != "REST-01" for b in result.decision_payload.blockers)
+    assert all(b.condition != "Koliduje z odpoczynkiem dobowym" for b in result.decision_payload.blockers)
 
 
 # FINDING R13-2 ---------------------------------------------------------------

@@ -72,8 +72,8 @@ def test_r26_1a_leave_granted_and_sick_leave_on_different_days_are_both_reported
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "LEAVE_GRANTED-01" in conditions
-    assert "SICK_LEAVE-01" in conditions
+    assert "Koliduje z zapisem: Urlop" in conditions
+    assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
 def test_r26_1a_reversed_record_order_gives_same_result():
@@ -93,8 +93,8 @@ def test_r26_1a_reversed_record_order_gives_same_result():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "LEAVE_GRANTED-01" in conditions
-    assert "SICK_LEAVE-01" in conditions
+    assert "Koliduje z zapisem: Urlop" in conditions
+    assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
 def test_r26_1b_unavailable_24h_and_sick_leave_no_established_priority_both_reported():
@@ -114,8 +114,8 @@ def test_r26_1b_unavailable_24h_and_sick_leave_no_established_priority_both_repo
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "UNAVAILABLE-01" in conditions
-    assert "SICK_LEAVE-01" in conditions
+    assert "Koliduje z checkbox: Ogólna dostępność" in conditions
+    assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
 def test_r26_1_sick_leave_still_wins_over_leave_granted_on_the_actual_shared_day():
@@ -132,7 +132,7 @@ def test_r26_1_sick_leave_still_wins_over_leave_granted_on_the_actual_shared_day
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert all(b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+    assert all(b.condition == "Koliduje z zapisem: Chorobowe" for b in result.decision_payload.blockers)
 
 
 # FINDING R26-2 -------------------------------------------------------------
@@ -153,7 +153,7 @@ def test_r26_2_unavailable_condition_code_is_canonical():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "UNAVAILABLE-01" in conditions
+    assert "Koliduje z checkbox: Ogólna dostępność" in conditions
     assert "UNAVAILABLE_24H-01" not in conditions
 
 
@@ -215,7 +215,7 @@ def test_r26_3_sibling_rest_between_two_fixed_assignments_stays_decision_require
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "REST-01" in conditions
+    assert "Koliduje z odpoczynkiem dobowym" in conditions
 
 
 if __name__ == "__main__":
