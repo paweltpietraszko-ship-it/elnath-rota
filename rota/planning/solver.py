@@ -50,6 +50,11 @@ class SolverSlot:
     shift_kind: ShiftKind
     leave_plan_collision: bool
     day_off_soft_entry: bool
+    # T018 B4: set only when this slot is legal solely thanks to an
+    # applicable EMPLOYEE_DAY_ONLY_N_EXCEPTION consulted in a
+    # fallback-enabled pass -- feeds the exceptional_n_count lexicographic
+    # objective (B5). None in every normal-pass slot.
+    day_only_fallback_rule_version_id: str | None = None
 
 
 @dataclass
@@ -150,7 +155,7 @@ class _DemandSlotResult:
 
 def _process_demand(
     demand: ShiftDemand, state: PlanningState, already_covered: dict[str, int], employees_by_id: dict,
-    availability_by_employee: dict, slots: list[SolverSlot],
+    availability_by_employee: dict, slots: list[SolverSlot], allow_day_only_n_fallback: bool = False,
 ) -> _DemandSlotResult | None:
     """One demand's worth of _build_slots's loop body. Returns None when the
     demand is already fully covered and contributes nothing further."""
@@ -170,12 +175,13 @@ def _process_demand(
     )
     eligible_count, eligible_ids, demand_reasons = _collect_eligible_slots(
         demand, shift_kind, state, employees_by_id, availability_by_employee, slots, applicable_hard_rules,
+        allow_day_only_n_fallback,
     )
     return _DemandSlotResult(needed, eligible_count, eligible_ids, demand_reasons)
 
 
 def _build_slots(
-    state: PlanningState,
+    state: PlanningState, allow_day_only_n_fallback: bool = False,
 ) -> tuple[
     list[SolverSlot], dict[str, int], list[str], dict[str, list[tuple[str, str]]], dict[str, list[tuple[str, str]]]
 ]:
@@ -199,7 +205,10 @@ def _build_slots(
     reasons: dict[str, list[tuple[str, str]]] = {}
 
     for demand in state.shift_demands:
-        result = _process_demand(demand, state, already_covered, employees_by_id, availability_by_employee, slots)
+        result = _process_demand(
+            demand, state, already_covered, employees_by_id, availability_by_employee, slots,
+            allow_day_only_n_fallback,
+        )
         if result is None:
             continue
         still_needed[demand.demand_id] = result.needed
@@ -221,24 +230,29 @@ def _build_slots(
 def _evaluate_membership_for_demand(
     membership, demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
     employee, records: list, applicable_hard_rules: list, slots: list[SolverSlot],
+    allow_day_only_n_fallback: bool = False,
 ) -> tuple[bool, tuple[str, str] | None]:
     """One membership's worth of _collect_eligible_slots's loop body.
     SHIFT-24-01 is enforced by check_eligibility itself, not duplicated here."""
     result = check_eligibility(
         employee, membership, demand, shift_kind, state.profile, records,
         list(state.external_windows), state.site.site_id, applicable_hard_rules,
+        allow_day_only_n_fallback,
     )
     if not result.eligible:
         return False, (employee.employee_id, result.blocked_reason or "UNKNOWN")
     day_off_soft = shift_kind == ShiftKind.N and demand.end_datetime.date() in _day_off_dates(state, employee.employee_id)
-    slots.append(SolverSlot(employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft))
+    slots.append(SolverSlot(
+        employee.employee_id, demand, shift_kind, result.leave_plan_collision, day_off_soft,
+        result.day_only_fallback_rule_version_id,
+    ))
     return True, None
 
 
 def _collect_eligible_slots(
     demand: ShiftDemand, shift_kind: ShiftKind, state: PlanningState,
     employees_by_id: dict, availability_by_employee: dict, slots: list[SolverSlot],
-    applicable_hard_rules: list,
+    applicable_hard_rules: list, allow_day_only_n_fallback: bool = False,
 ) -> tuple[int, list[str], list[tuple[str, str]]]:
     eligible_count = 0
     eligible_ids: list[str] = []
@@ -256,7 +270,10 @@ def _collect_eligible_slots(
         if employee is None:
             continue
         records = availability_by_employee.get(employee.employee_id, [])
-        became_eligible, reason = _evaluate_membership_for_demand(membership, demand, shift_kind, state, employee, records, applicable_hard_rules, slots)
+        became_eligible, reason = _evaluate_membership_for_demand(
+            membership, demand, shift_kind, state, employee, records, applicable_hard_rules, slots,
+            allow_day_only_n_fallback,
+        )
         if became_eligible:
             eligible_count += 1
             eligible_ids.append(employee.employee_id)
@@ -488,48 +505,64 @@ def _finalize(
     return SolverOutcome(status_name, assignments, warnings, [], {}, [], site_rule_exclusions)
 
 
-def _solve_minimal_reshuffle_then_soft(
+def _exceptional_n_expr(x: dict, slots: list[SolverSlot]):
+    """T018 B5: sum of x[employee, demand] over every slot legal only via an
+    applicable EMPLOYEE_DAY_ONLY_N_EXCEPTION in this fallback-enabled pass.
+    One assignment = one usage regardless of how many equivalent rule
+    versions authorize it (B4/R1 clarification)."""
+    return sum(
+        x[slot.employee_id, slot.demand.demand_id]
+        for slot in slots if slot.day_only_fallback_rule_version_id is not None
+    )
+
+
+def _solve_lexicographic_phases(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
-    assumptions: dict[str, object], baseline: list[Assignment], site_rule_exclusions: dict[str, list[tuple[str, str]]],
-    pair_vars: dict | None = None, cross_month_by_employee: dict | None = None,
+    assumptions: dict[str, object], site_rule_exclusions: dict[str, list[tuple[str, str]]],
+    pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
 ) -> SolverOutcome:
-    """REPLAN-MIN-01 (arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md): lexicographic,
-    not weighted -- phase 1 finds the true minimum achievable reshuffle count
-    under the SAME HARD model; phase 2 fixes that count as a hard constraint
-    and only THEN applies the ordinary TARGET/SOFT objective, so no SOFT
-    improvement can ever justify one additional reshuffled placement. T012-C:
-    pair_vars is not a placement and never enters the reshuffle expr."""
-    reshuffle_expr = build_reshuffle_count_expr(x, baseline)
-    model.minimize(reshuffle_expr)
-    phase1_solver, phase1_status = _run_solver(model)
+    """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle
+    count, arch/FROZEN_ADDENDUM_REPLAN_MIN_01.md) and T018 B5
+    (exceptional_n_count, arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01.md):
+    each expr in phase_exprs is minimized in order, PROVEN OPTIMAL, then
+    frozen as a hard constraint before the next phase -- so no later phase
+    (including the ordinary TARGET/fairness/SOFT objective) can ever justify
+    one additional unit of an earlier phase's minimized quantity. Order in
+    phase_exprs IS priority order; reshuffle must always precede
+    exceptional_n when both apply (T018 does not invert REPLAN-MIN-01).
+    T012-C: pair_vars is not a placement and never enters any phase expr."""
+    for expr in phase_exprs:
+        model.minimize(expr)
+        phase_solver, phase_status = _run_solver(model)
+        if phase_status == cp_model.INFEASIBLE:
+            # A rigorous proof about the HARD model itself, not an
+            # approximation -- route through the existing infeasibility/
+            # conflict-detection path unchanged (audit round 2 FINDING R2-1
+            # status matrix).
+            return _finalize(phase_solver, phase_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+        if phase_status != cp_model.OPTIMAL:
+            # FEASIBLE (an unproven incumbent from hitting the time limit),
+            # UNKNOWN, or MODEL_INVALID: none of these PROVE the minimum this
+            # phase requires. Freezing an unproven incumbent as if it were
+            # the true minimum could silently accept a worse-than-necessary
+            # result -- fail closed to TECHNICAL_ERROR (assignments=None,
+            # status_name != "INFEASIBLE") instead of calling _finalize,
+            # which would otherwise treat FEASIBLE as "good enough" the same
+            # way the ordinary single-phase path legitimately does.
+            return SolverOutcome(phase_solver.status_name(phase_status), None, [], [], {}, [], {})
+        model.add(expr == round(phase_solver.value(expr)))
 
-    if phase1_status == cp_model.INFEASIBLE:
-        # A rigorous proof about the HARD model itself, not an approximation
-        # -- route through the existing infeasibility/conflict-detection
-        # path unchanged (audit round 2 FINDING R2-1 status matrix).
-        return _finalize(phase1_solver, phase1_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
-    if phase1_status != cp_model.OPTIMAL:
-        # FEASIBLE (an unproven incumbent from hitting the time limit),
-        # UNKNOWN, or MODEL_INVALID: none of these PROVE the minimum
-        # reshuffle count REPLAN-MIN-01 requires (brief.md ARCHITECTURE
-        # DECISION: "gwarantowane konstrukcyjnie"). Freezing an unproven
-        # incumbent as if it were the true minimum could silently accept a
-        # worse-than-necessary reshuffle -- fail closed to TECHNICAL_ERROR
-        # (assignments=None, status_name != "INFEASIBLE") instead of calling
-        # _finalize, which would otherwise treat FEASIBLE as "good enough"
-        # the same way the ordinary single-phase path legitimately does.
-        return SolverOutcome(phase1_solver.status_name(phase1_status), None, [], [], {}, [], {})
-
-    min_reshuffle_count = round(phase1_solver.value(reshuffle_expr))
-    model.add(reshuffle_expr == min_reshuffle_count)
     _add_objective(model, x, slots, state)
-    phase2_solver, phase2_status = _run_solver(model)
-    return _finalize(phase2_solver, phase2_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    final_solver, final_status = _run_solver(model)
+    return _finalize(final_solver, final_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
 
 
-def solve(state: PlanningState, enforce_load_cap: bool = True, allow_emergency_24h: bool = False) -> SolverOutcome:
+def solve(
+    state: PlanningState, enforce_load_cap: bool = True, allow_emergency_24h: bool = False,
+    allow_day_only_n_fallback: bool = False,
+) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment."""
-    slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state)
+    slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state, allow_day_only_n_fallback)
     if unassignable:
         return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
 
@@ -559,17 +592,21 @@ def solve(state: PlanningState, enforce_load_cap: bool = True, allow_emergency_2
 
     # REPLAN-MIN-01 applies only when there is an existing schedule to
     # preserve (brief.md SCOPE: "Nie dotyczy pierwszego planowania, gdy nie
-    # istnieją baseline placements do zachowania") -- initial planning keeps
-    # today's single-phase SOFT-only behavior unchanged.
+    # istnieją baseline placements do zachowania") -- initial planning skips
+    # straight to the exceptional_n phase (if any). T018 B5: reshuffle
+    # minimum always precedes exceptional_n minimum when both apply; when
+    # allow_day_only_n_fallback is False no exceptional slot can ever exist,
+    # so that phase is skipped entirely rather than minimizing a trivial 0.
+    phase_exprs = []
     baseline = redistributable_baseline_assignments(state)
     if baseline:
-        return _solve_minimal_reshuffle_then_soft(
-            model, x, slots, state, assumptions, baseline, site_rule_exclusions, pair_vars, cross_month_by_employee
-        )
+        phase_exprs.append(build_reshuffle_count_expr(x, baseline))
+    if allow_day_only_n_fallback:
+        phase_exprs.append(_exceptional_n_expr(x, slots))
 
-    _add_objective(model, x, slots, state)
-    solver, status = _run_solver(model)
-    return _finalize(solver, status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    return _solve_lexicographic_phases(
+        model, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee, phase_exprs
+    )
 
 
 def _conflicting_demand_ids(solver: cp_model.CpSolver, status: int, assumptions: dict[str, object]) -> list[str]:

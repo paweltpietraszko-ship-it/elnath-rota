@@ -144,6 +144,7 @@ def _eligibility(
         [],
         SITE_ID,
         rules or [],
+        allow_day_only_n_fallback=True,
     )
 
 

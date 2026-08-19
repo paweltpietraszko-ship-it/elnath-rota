@@ -56,7 +56,7 @@ def test_r14_1_existing_assignment_with_disabled_membership_is_not_feasible():
 
 
 def _fake_solve_always(status_name: str):
-    def _fake(state, enforce_load_cap=True):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
         return SolverOutcome(status_name, None, [], [], {}, [], {})
     return _fake
 
@@ -82,7 +82,7 @@ def test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error(mo
     )
     calls = {"count": 0}
 
-    def _fake_solve(state, enforce_load_cap=True, allow_emergency_24h=False):
+    def _fake_solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
         calls["count"] += 1
         if enforce_load_cap:
             return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
@@ -93,7 +93,10 @@ def test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error(mo
     state = base_state(employees=(employee,), memberships=(_local_membership("A"),), shift_demands=(DEMAND_D,))
     result = plan(state)
     assert result.status == "TECHNICAL_ERROR"
-    assert calls["count"] == 3
+    # T018 B6: Stage 1 (normal) + Stage 2 (DAY_ONLY fallback) + Stage 3
+    # (DAY_ONLY + emergency), all capped/INFEASIBLE, then Stage 4 uncapped
+    # -- one more capped call than before T018's new Stage 2.
+    assert calls["count"] == 4
 
 
 if __name__ == "__main__":

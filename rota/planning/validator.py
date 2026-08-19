@@ -22,7 +22,11 @@ from rota.domain import (
     ShiftKind,
 )
 from rota.planning.eligibility import is_all_24h_profile
-from rota.planning.site_rules import day_only_n_exception_applies, hard_rules_applicable_on, rule_allows_assignment
+from rota.planning.site_rules import (
+    day_only_n_exception_authorizing_rule_version_id,
+    hard_rules_applicable_on,
+    rule_allows_assignment,
+)
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rolling_windows
 from rota.planning.work_periods import (
@@ -203,10 +207,16 @@ def _check_membership_enabled(state: PlanningState, assignments: list[Assignment
             ))
 
 
-def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """ROTA-T010-B: a RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule
-    applicable on the assignment's date exempts only this check (DAY_ONLY-01
-    for N) -- must reach eligibility.py's _common_hard_gate verdict."""
+def _check_day_only(
+    state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]
+) -> None:
+    """ROTA-T010-B / T018 DAY-ONLY-N-FALLBACK-01: a RESOLVED HARD
+    EMPLOYEE_DAY_ONLY_N_EXCEPTION rule applicable on the assignment's date
+    exempts only this check (DAY_ONLY-01 for N) -- must reach eligibility.py's
+    _common_hard_gate verdict. A legally exempted N Assignment still emits a
+    coordinator-facing SOFT provenance warning with the canonical exact
+    authorizing rule_version_id (site_rules.py's single min(rule_version_id)
+    owner, shared with solver slot provenance and durable reconstruction)."""
     day_only_ids = {e.employee_id for e in state.employees if e.day_only}
     if not state.profile.day_only_blocks_n:
         return
@@ -219,12 +229,19 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         applicable = hard_rules_applicable_on(
             state.site_rules, state.site_rule_applicability, assignment.start_datetime.date()
         )
-        if day_only_n_exception_applies(applicable, assignment.employee_id):
+        authorizing_id = day_only_n_exception_authorizing_rule_version_id(applicable, assignment.employee_id)
+        if authorizing_id is None:
+            details.append(ViolationDetail(
+                "DAY_ONLY-01", (assignment.assignment_id,),
+                f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id}",
+            ))
             continue
-        details.append(ViolationDetail(
-            "DAY_ONLY-01", (assignment.assignment_id,),
-            f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id}",
-        ))
+        demand = _covering_demand(assignment, state)
+        demand_id = demand.demand_id if demand is not None else assignment.covers_demand_id
+        warnings.append(
+            f"DAY_ONLY-N-FALLBACK-01 SOFT: employee={assignment.employee_id} demand={demand_id} "
+            f"date={assignment.start_datetime.date()} rule_version_id={authorizing_id}"
+        )
 
 
 def _covering_demand(assignment: Assignment, state: PlanningState):
@@ -571,7 +588,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_replan_preserves_fixed(state, assignments, details)
     _check_trainee_mentor_reference(assignments, details)
     _check_membership_enabled(state, for_eligibility_checks, details)
-    _check_day_only(state, for_eligibility_checks, details)
+    _check_day_only(state, for_eligibility_checks, details, warnings)
     _check_day_shift_off(state, for_eligibility_checks, details, warnings)
     _check_leave_and_unavailable(state, for_eligibility_checks, details)
     _check_leave_plan(state, for_eligibility_checks, warnings)

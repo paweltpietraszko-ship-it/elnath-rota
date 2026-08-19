@@ -185,7 +185,7 @@ def test_r26_3_rest_between_fixed_and_solver_created_assignment_is_technical_err
         AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand_d.demand_id, None,
     )
 
-    def _fake_solve(state, enforce_load_cap=True):
+    def _fake_solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
         return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
 
     monkeypatch.setattr(engine_module, "solve", _fake_solve)

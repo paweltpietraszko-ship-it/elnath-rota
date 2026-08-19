@@ -14,20 +14,35 @@ from datetime import date, datetime
 
 import pytest
 
+import rota.planning.engine as engine_module
 from rota.balance import compute_month_balance
 from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
     AvailabilityKind,
     AvailabilityRecord,
     CalendarDay,
     Employee,
     MembershipKind,
+    RuleCategory,
+    RuleEnforcement,
+    RuleResolution,
     ShiftDemand,
     SiteMembership,
+    SiteRuleVersion,
     WorkBalance,
 )
 from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
 from rota.planning.engine import plan
-from rota.planning.solver import _sick_adjusted_targets
+from rota.planning.site_rules import (
+    EMPLOYEE_DAY_ONLY_N_EXCEPTION,
+    day_only_n_exception_authorizing_rule_version_id,
+    hard_rules_applicable_on,
+)
+from rota.planning.solver import SolverOutcome, _sick_adjusted_targets, solve
+from rota.planning.state import SiteRuleApplicability
+from rota.planning.validator import validate
 from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, base_state
 
 
@@ -215,6 +230,389 @@ def test_a7_12_march_2027_workbalance_target_56_at_target_168():
     sick = _sick("B", date(2027, 3, 2), date(2027, 3, 19))
     balance = compute_month_balance("B", month, 168, [], [sick], calendar_days=_full_month_calendar(month))
     assert balance.month_balance == -56
+
+
+# ============================================================================
+# CHECKPOINT B: DAY_ONLY N FALLBACK
+# (arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01.md +
+#  arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01_R1_CLARIFICATION.md)
+# ============================================================================
+
+B_MONTH = date(2026, 10, 1)
+
+
+def _employee(employee_id: str, *, day_only: bool = False) -> Employee:
+    return Employee(employee_id, employee_id, date(2020, 1, 1), None, day_only)
+
+
+def _membership(employee_id: str, **overrides) -> SiteMembership:
+    return SiteMembership(
+        employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY,
+        ReadinessSource.DEFAULT, **overrides,
+    )
+
+
+def _n_demand(day: int, demand_id: str | None = None) -> ShiftDemand:
+    return ShiftDemand(
+        demand_id or f"N-{day}", "test-v1", datetime(2026, 10, day, 17, 0), datetime(2026, 10, day + 1, 5, 0), 1,
+    )
+
+
+def _d_demand(day: int, demand_id: str | None = None) -> ShiftDemand:
+    return ShiftDemand(demand_id or f"D-{day}", "test-v1", datetime(2026, 10, day, 5, 0), datetime(2026, 10, day, 17, 0), 1)
+
+
+def _exception_rule(
+    rule_version_id: str, employee_id: str, *, rule_id: str | None = None,
+    effective_from: date = date(2026, 10, 1), effective_to: date = date(2026, 10, 31),
+) -> SiteRuleVersion:
+    return SiteRuleVersion(
+        rule_version_id=rule_version_id, rule_id=rule_id or f"R-{rule_version_id}", site_id=SITE_ID,
+        category=RuleCategory.CONFIRMED_EXCEPTION, rule_kind=EMPLOYEE_DAY_ONLY_N_EXCEPTION,
+        structured_parameters={"employee_id": employee_id}, enforcement=RuleEnforcement.HARD,
+        resolution_status=RuleResolution.RESOLVED, effective_from=effective_from, effective_to=effective_to,
+        changed_at=datetime(2026, 9, 1, 9), changed_by="COORD-T018", supersedes_rule_version_id=None,
+        description=None, source=None, reason=None,
+    )
+
+
+def _applicability(rule: SiteRuleVersion) -> SiteRuleApplicability:
+    return SiteRuleApplicability(rule.rule_version_id, rule.effective_from, rule.effective_to)
+
+
+def _tracking_solve(monkeypatch):
+    """Replace engine_module.solve with a pass-through wrapper that records
+    every (allow_day_only_n_fallback, allow_emergency_24h) call, still
+    delegating to the real solver."""
+    real_solve = solve
+    calls: list[tuple] = []
+
+    def _wrapped(state, **kwargs):
+        calls.append((kwargs.get("allow_day_only_n_fallback", False), kwargs.get("allow_emergency_24h", False)))
+        return real_solve(state, **kwargs)
+
+    monkeypatch.setattr(engine_module, "solve", _wrapped)
+    return calls
+
+
+# B10.1 -----------------------------------------------------------------------
+
+
+def test_b10_1_stage1_feasible_ignores_active_exception_and_skips_fallback_stages(monkeypatch):
+    demand = _n_demand(6)
+    a = _employee("A", day_only=True)
+    c = _employee("C")
+    rule = _exception_rule("RV-1", "A")
+    calls = _tracking_solve(monkeypatch)
+    state = base_state(
+        employees=(a, c), memberships=(_membership("A"), _membership("C")),
+        shift_demands=(demand,), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert calls == [(False, False)]
+    assert [a.employee_id for a in result.candidates[0]] == ["C"]
+    assert not any("DAY_ONLY-N-FALLBACK-01" in w for w in result.warnings)
+
+
+# B10.2 -----------------------------------------------------------------------
+
+
+def test_b10_2_exactly_one_exceptional_n_with_warning():
+    demand = _n_demand(6)
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-2", "A")
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(demand,), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert [a.employee_id for a in result.candidates[0]] == ["A"]
+    fallback_warnings = [w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]
+    assert len(fallback_warnings) == 1
+    assert "employee=A" in fallback_warnings[0]
+    assert "rule_version_id=RV-2" in fallback_warnings[0]
+
+
+# B10.3 -----------------------------------------------------------------------
+
+
+def test_b10_3_two_exceptional_n_needed_gives_exactly_two():
+    d1, d2 = _n_demand(6), _n_demand(13)
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-3", "A")
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(d1, d2), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert {a.covers_demand_id for a in result.candidates[0]} == {"N-6", "N-13"}
+    assert len([w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]) == 2
+
+
+# B10.4 / B10.5 -----------------------------------------------------------------
+
+
+def test_b10_4_5_global_minimum_exceptional_n_not_inflated_for_fairness():
+    """Two authorized day_only employees exist, but only ONE of the two N
+    demands genuinely requires the fallback (C covers the other without any
+    exception) -- the lexicographic minimum must stay at 1, never 2, even
+    though giving the first N to a day_only employee too would look more
+    'fair' under the ordinary TARGET/fairness objective."""
+    d1, d2 = _n_demand(6), _n_demand(13)
+    a = _employee("A", day_only=True)
+    b = _employee("B", day_only=True)
+    c = _employee("C")
+    rule_a = _exception_rule("RV-4A", "A")
+    rule_b = _exception_rule("RV-4B", "B")
+    c_leave = AvailabilityRecord("c-leave", "av1", "C", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 13), date(2026, 10, 13), True, None, None)
+    state = base_state(
+        employees=(a, b, c), memberships=(_membership("A"), _membership("B"), _membership("C")),
+        shift_demands=(d1, d2), availability_records=(c_leave,),
+        site_rules=(rule_a, rule_b), site_rule_applicability=(_applicability(rule_a), _applicability(rule_b)),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand = {a.covers_demand_id: a.employee_id for a in result.candidates[0]}
+    assert by_demand["N-6"] == "C"
+    assert by_demand["N-13"] in {"A", "B"}
+    assert len([w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]) == 1
+
+
+# B10.6 -----------------------------------------------------------------------
+
+
+def test_b10_6_effective_date_boundaries():
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-6", "A", effective_from=date(2026, 10, 10), effective_to=date(2026, 10, 15))
+
+    def _plan_for(day: int):
+        state = base_state(
+            employees=(a,), memberships=(_membership("A"),),
+            shift_demands=(_n_demand(day),), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+            month=B_MONTH,
+        )
+        return plan(state)
+
+    assert _plan_for(9).status == "DECISION_REQUIRED"
+    assert _plan_for(10).status == "FEASIBLE"
+    assert _plan_for(15).status == "FEASIBLE"
+    assert _plan_for(16).status == "DECISION_REQUIRED"
+
+
+# B10.7 -----------------------------------------------------------------------
+
+
+def test_b10_7_and_gates_still_enforced_in_fallback_pass():
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-7", "A")
+    sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 6), date(2026, 10, 6), True, None, None)
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(_n_demand(6),), availability_records=(sick,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH, calendar_days=_full_month_calendar(B_MONTH),
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+
+
+# B10.8 -----------------------------------------------------------------------
+
+
+def test_b10_8_stage1_no_eligible_employee_reaches_stage2(monkeypatch):
+    demand = _n_demand(6)
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-8", "A")
+    calls = _tracking_solve(monkeypatch)
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(demand,), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert [c[0] for c in calls] == [False, True]
+
+
+# B10.9 -----------------------------------------------------------------------
+
+
+def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+        calls.append(allow_day_only_n_fallback)
+        return SolverOutcome("UNKNOWN", None, [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(_n_demand(6),), month=B_MONTH)
+    result = plan(state)
+    assert result.status == "TECHNICAL_ERROR"
+    assert calls == [False]
+
+
+# B10.10 ----------------------------------------------------------------------
+
+
+def test_b10_10_stage2_failure_reaches_stage3(monkeypatch):
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+        calls.append((allow_day_only_n_fallback, allow_emergency_24h))
+        return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(_n_demand(6),), month=B_MONTH)
+    plan(state)
+    assert (True, True) in calls
+
+
+# B10.11 ----------------------------------------------------------------------
+
+
+def test_b10_11_day_only_fallback_alone_wins_without_reaching_emergency(monkeypatch):
+    demand = _n_demand(6)
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-11", "A")
+    calls = _tracking_solve(monkeypatch)
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(demand,), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert calls == [(False, False), (True, False)]
+    assert not any("emergency" in (a.work_period_id or "") for a in result.candidates[0])
+
+
+# B10.12 ----------------------------------------------------------------------
+
+
+def test_b10_12_stage3_infeasible_advances_to_uncapped_stage4(monkeypatch):
+    calls = []
+
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
+        return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+
+    monkeypatch.setattr(engine_module, "solve", _fake)
+    state = base_state(shift_demands=(_n_demand(6),), month=B_MONTH)
+    plan(state)
+    assert (False, True, True) in calls
+
+
+# B10.13 ----------------------------------------------------------------------
+
+
+def test_b10_13_replan_reshuffle_and_exceptional_n_coexist_correctly():
+    """Baseline keeps C on D1 (0 reshuffle); C is unavailable on N2's date, so
+    N2 is only coverable by A via the exception (1 exceptional N). Both
+    phases run and neither corrupts the other's result -- REPLAN-MIN-01's own
+    priority over ordinary SOFT is covered unchanged by
+    test_replan_minimal_reshuffle.py."""
+    d1 = _d_demand(6)
+    n2 = _n_demand(13)
+    a = _employee("A", day_only=True)
+    c = _employee("C")
+    rule = _exception_rule("RV-13", "A")
+    c_leave = AvailabilityRecord("c-leave", "av1", "C", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 13), date(2026, 10, 13), True, None, None)
+    baseline = Assignment(
+        "baseline-c-d1", "test-v1", "C", d1.start_datetime, d1.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, d1.demand_id, None,
+    )
+    state = base_state(
+        employees=(a, c), memberships=(_membership("A"), _membership("C")),
+        shift_demands=(d1, n2), existing_assignments=(baseline,), availability_records=(c_leave,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    by_demand = {a.covers_demand_id: a.employee_id for a in result.candidates[0]}
+    assert by_demand[d1.demand_id] == "C"
+    assert by_demand[n2.demand_id] == "A"
+
+
+# B10.14 ----------------------------------------------------------------------
+
+
+def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids():
+    rule = _exception_rule("RV-14", "A")
+    applicable = hard_rules_applicable_on((rule,), (_applicability(rule),), date(2026, 10, 6))
+    original_id = day_only_n_exception_authorizing_rule_version_id(applicable, "A")
+    assert original_id == "RV-14"
+
+    # Reconstruction after select/restart/finalize considers ONLY rule
+    # versions in ScheduleVersion.applied_rule_version_ids (B8) -- reusing
+    # the exact same pure helper, never a second tie-break implementation.
+    applied_rule_version_ids = {"RV-14"}
+    persisted_rules = tuple(r for r in (rule,) if r.rule_version_id in applied_rule_version_ids)
+    reconstructed_applicable = hard_rules_applicable_on(persisted_rules, (_applicability(rule),), date(2026, 10, 6))
+    reconstructed_id = day_only_n_exception_authorizing_rule_version_id(reconstructed_applicable, "A")
+    assert reconstructed_id == original_id
+
+
+# B10.15 ----------------------------------------------------------------------
+
+
+def test_b10_15_validator_independently_catches_unauthorized_day_only_n():
+    demand = _n_demand(6)
+    a = _employee("A", day_only=True)
+    assignment = Assignment(
+        "unauthorized-n", "test-v1", "A", demand.start_datetime, demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand.demand_id, None,
+    )
+    state = base_state(employees=(a,), shift_demands=(demand,), month=B_MONTH)
+    report = validate(state, [assignment])
+    assert not report.hard_pass
+    assert any("DAY_ONLY-01" in v for v in report.violations)
+
+
+# B10.16 ----------------------------------------------------------------------
+
+
+def test_b10_16_two_equivalent_exception_families_give_one_canonical_id_regardless_of_order():
+    rule_a = _exception_rule("RV-16-B", "A", rule_id="R-FAMILY-1")
+    rule_b = _exception_rule("RV-16-A", "A", rule_id="R-FAMILY-2")  # lexicographically smaller
+    assert day_only_n_exception_authorizing_rule_version_id([rule_a, rule_b], "A") == "RV-16-A"
+    assert day_only_n_exception_authorizing_rule_version_id([rule_b, rule_a], "A") == "RV-16-A"
+
+    demand = _n_demand(6)
+    state = base_state(
+        employees=(_employee("A", day_only=True),), memberships=(_membership("A"),),
+        shift_demands=(demand,), site_rules=(rule_a, rule_b),
+        site_rule_applicability=(_applicability(rule_a), _applicability(rule_b)),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    fallback_warnings = [w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]
+    assert len(fallback_warnings) == 1
+    assert "rule_version_id=RV-16-A" in fallback_warnings[0]
+
+
+# B10.17 ----------------------------------------------------------------------
+
+
+def test_b10_17_later_non_applied_rule_does_not_change_historical_reconstruction():
+    original_rule = _exception_rule("RV-17-ORIGINAL", "A")
+    later_rule = _exception_rule("RV-17-A-LATER", "A")  # smaller id, would win if wrongly considered
+    applied_rule_version_ids = {"RV-17-ORIGINAL"}
+    persisted_rules = tuple(r for r in (original_rule, later_rule) if r.rule_version_id in applied_rule_version_ids)
+    applicable = hard_rules_applicable_on(
+        persisted_rules, (_applicability(original_rule), _applicability(later_rule)), date(2026, 10, 6)
+    )
+    reconstructed_id = day_only_n_exception_authorizing_rule_version_id(applicable, "A")
+    assert reconstructed_id == "RV-17-ORIGINAL"
 
 
 if __name__ == "__main__":

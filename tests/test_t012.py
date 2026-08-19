@@ -1039,7 +1039,7 @@ def test_c_first_pass_feasible_never_invokes_emergency(monkeypatch):
     solved = _primary("solved-1", "A", d, work_period_id="wp", required_rest_after_hours=11)
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
         calls.append(allow_emergency_24h)
         return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
 
@@ -1053,7 +1053,7 @@ def test_c_first_pass_feasible_never_invokes_emergency(monkeypatch):
 def test_c_first_pass_unknown_status_technical_error_without_emergency_retry(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
         calls.append(allow_emergency_24h)
         return SolverOutcome("UNKNOWN", None, [], [], {}, [], {})
 
@@ -1069,39 +1069,46 @@ def test_c_first_pass_infeasible_triggers_exactly_one_capped_emergency_retry(mon
     solved = _primary("solved-1", "A", d, work_period_id="wp", required_rest_after_hours=11)
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
-        calls.append((enforce_load_cap, allow_emergency_24h))
-        if len(calls) < 2:
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
+        # T018 B6: Stage 1 and the new Stage 2 (DAY_ONLY fallback, no
+        # emergency) both stay INFEASIBLE so the rescue is still proven to
+        # happen exactly at the emergency stage, not earlier.
+        if len(calls) < 3:
             return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
         return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})
 
     monkeypatch.setattr(engine_module, "solve", _fake)
     state = base_state(shift_demands=(d,), memberships=(_membership("A"),))
     result = engine_module.plan(state)
-    assert calls == [(True, False), (True, True)]
+    assert calls == [(True, False, False), (True, True, False), (True, True, True)]
     assert result.status == "FEASIBLE"
 
 
 def test_c_emergency_capped_infeasible_falls_to_uncapped_emergency_never_plain_uncapped(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
-        calls.append((enforce_load_cap, allow_emergency_24h))
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
         return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
 
     monkeypatch.setattr(engine_module, "solve", _fake)
     state = base_state(shift_demands=(_demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)),))
     engine_module.plan(state)
-    assert calls == [(True, False), (True, True), (False, True)]
-    assert (False, False) not in calls
+    assert calls == [
+        (True, False, False), (True, True, False), (True, True, True), (False, True, True),
+    ]
+    assert not any(not cap and not emergency for cap, _, emergency in calls)
 
 
 def test_c_emergency_capped_technical_status_is_technical_error(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_emergency_24h=False):
-        calls.append((enforce_load_cap, allow_emergency_24h))
-        if len(calls) == 1:
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+        calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
+        # T018 B6: stay INFEASIBLE through Stage 1 and the new Stage 2 so the
+        # technical status is proven to originate at the emergency stage.
+        if len(calls) <= 2:
             return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
         return SolverOutcome("MODEL_INVALID", None, [], [], {}, [], {})
 
@@ -1109,7 +1116,7 @@ def test_c_emergency_capped_technical_status_is_technical_error(monkeypatch):
     state = base_state(shift_demands=(_demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)),))
     result = engine_module.plan(state)
     assert result.status == "TECHNICAL_ERROR"
-    assert calls == [(True, False), (True, True)]
+    assert calls == [(True, False, False), (True, True, False), (True, True, True)]
 
 
 # -- B. Same-month --------------------------------------------------------
