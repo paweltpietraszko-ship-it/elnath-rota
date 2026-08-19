@@ -1,6 +1,6 @@
 # ROTA-T018 — WORKDAY ABSENCE ACCOUNTING + DAY_ONLY N FALLBACK
 
-STATUS: CHECKPOINT B — R9 SCOPE AMENDMENT AUTHORIZED
+STATUS: CHECKPOINT B — MARCH 2027 CALENDAR HARNESS AMENDMENT AUTHORIZED
 DATE: 2026-08-19
 TASK_ID: ROTA-T018
 BASE_SHA: c55722dfa689baa2ae39ba51a0c290f35d7f2112
@@ -18,6 +18,8 @@ PREIMPLEMENTATION_ROUND_2: FAIL — T018-R2-1 only; T018-R1-2 CLOSED; all other 
 CHECKPOINT_A_PRODUCT_SHA_R4: 6ecaab611965f42c5c0fa5d441ac6052df769901
 CHECKPOINT_A_AUDIT_R4: FAIL — A-R4-1 + A-R4-2 + A-R4-3; B BLOCKED
 CHECKPOINT_A_AUDIT_R6: WYMAGA_DECYZJI — A-R6-1 narrow R25 fixture scope; B BLOCKED
+CHECKPOINT_B_R9_SCOPE: RESOLVED — exact two eligibility calls only
+CHECKPOINT_B_MARCH_2027_CONFLICT: RESOLVED — scenario calendar fixture only; A3/A-R4-1 unchanged
 
 ## CEL
 
@@ -37,7 +39,7 @@ Nie zmieniać innych frozen zachowań.
 - `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` — pełny oracle 62 demandów;
 - `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe_result.json` — dowód obecnego błędnego rozkładu A.N=8 i kontroli A.N=0.
 
-Powyższe pliki task-level są źródłami/regresją. Nie zmieniać ich tylko po to, aby test przeszedł, z jedynym wyjątkiem mechanicznej adaptacji A-R4-3 jawnie zamrożonej niżej.
+Powyższe pliki task-level są źródłami/regresją. Nie zmieniać ich tylko po to, aby test przeszedł, z wyłącznie dwoma mechanicznymi wyjątkami jawnie zamrożonymi niżej: A-R4-3 oraz March 2027 calendar-harness amendment. Assertions/oracle nie wolno zmieniać.
 
 ## ARCHITECTURE PRINCIPLES
 
@@ -81,6 +83,7 @@ TASK_SCOPE:
 - tests/test_audit_r25_findings.py
 - tests/test_audit_r26_findings.py
 - tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py
+- tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py
 
 Żaden inny plik bez STOP + amendment architekta.
 
@@ -94,7 +97,10 @@ Nie zmieniać:
 - rota/application/plan_ops.py;
 - rota/application/lifecycle_ops.py;
 - persistence schema;
-- innych task-level T012 source/oracle files pod `tasks/ROTA-T012/`; dla `test_absence_workday_accounting_r23.py` dozwolona jest wyłącznie A-R4-3 adaptacja poniżej, marcowy scenario/probe/result pozostają niezmienne.
+- innych task-level T012 source/oracle files pod `tasks/ROTA-T012/`;
+- `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe_result.json` bez żadnego wyjątku;
+- dla `test_absence_workday_accounting_r23.py` dozwolona jest wyłącznie A-R4-3 adaptacja poniżej;
+- dla `t012_owner_march_2027_probe.py` dozwolona jest wyłącznie March 2027 calendar-harness adaptacja poniżej; wszystkie assertions/oracle scenariusza pozostają niezmienne.
 
 NEW_FILES:
 - contract docs są częścią task pipeline;
@@ -333,6 +339,32 @@ To nie otwiera nowej semantyki produktu. Potwierdza wyłącznie, że direct elig
 
 Po dosynchronizowaniu tego contract commit CC może wykonać dokładnie te dwie adaptacje i kontynuować pozostałą implementację Checkpoint B w już zamrożonym scope.
 
+## CHECKPOINT B — MARCH 2027 FAIL-CLOSED HARNESS AMENDMENT
+
+Podczas implementacji B po raz pierwszy uruchomiono literalny Gate B dla `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py`. Scenariusz zawiera aktywny `SICK_LEAVE` B `2027-03-02..2027-03-19`, ale dotychczas budował `PlanningState(calendar_days=())`. Po zamkniętym Checkpoint A, A3/A-R4-1 prawidłowo fail-closed przed solve i dlatego ten stary harness kończy się `TECHNICAL_ERROR` zanim dotrze do swojego frozen oracle.
+
+Decyzja architektoniczna:
+- **A3/A-R4-1 pozostaje bez zmian**; nie wolno osłabiać eager fail-closed, dodawać fallbacku weekday-only ani specjalnego wyjątku w engine/solver;
+- konflikt rozwiązuje wyłącznie supply danych w scenariuszu, analogicznie do A-R4-3;
+- `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` wchodzi do TASK_SCOPE tylko dla poniższej adaptacji.
+
+Dozwolone są wyłącznie następujące mechaniczne zmiany w `build_scenario()`:
+1. dodać `CalendarDay` do istniejącego importu z `rota.domain`;
+2. zbudować lokalny kompletny tuple dla każdego dnia marca 2027, używając już importowanego `calendar`/`date`, np. semantycznie równoważny:
+   `tuple(CalendarDay(date(2027, 3, day), False) for day in range(1, calendar.monthrange(2027, 3)[1] + 1))`;
+3. przekazać ten tuple do `PlanningState.calendar_days` zamiast obecnego `calendar_days=()`.
+
+Znaczenie fixture:
+- wszystkie dni mają `holiday=False` **wyłącznie jako jawna deklaracja syntetycznego świata tego istniejącego scenario harness**; to nie jest produktowe zgadywanie świąt, lookup prawny ani fallback dla brakujących CalendarDay;
+- nie dodawać calendar service/repository, external lookup ani helpera produkcyjnego;
+- nie zmieniać `AvailabilityRecord`, pracowników, memberships, rules, demands, target_hours, profilu, retry, solvera ani validatora z powodu tego amendmentu;
+- nie zmieniać `run_probe()`, `_result_summary()` ani żadnego assertion w `test_owner_march_2027_scenario()` poza mechanicznym skutkiem dostarczenia kalendarza;
+- frozen oracle pozostaje: generated demand count 62, `with_exception.status == FEASIBLE`, 62 assignments, HARD PASS oraz po T018 `A.N == 0` zgodnie z istniejącymi assertions;
+- control without exception oraz wszystkie constraint checks pozostają takie jak przed amendmentem;
+- `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe_result.json` pozostaje **bezwzględnie niezmieniony**.
+
+Ten amendment nie zmienia produktu ani Checkpoint A. Usuwa wyłącznie sprzeczność między nowym, prawidłowym fail-closed a starym standalone harness, który nie dostarczał wymaganego wejścia. Po dosynchronizowaniu tego contract commit CC może wykonać tę jedną adaptację scenariusza i kontynuować B.
+
 ## CHECKPOINT B — DAY_ONLY N FALLBACK
 
 ### B1. Persisted rule shape unchanged
@@ -478,7 +510,7 @@ Codex audytuje exact PRODUCT SHA B oraz pełny diff BASE_SHA -> HEAD.
 Wymagane:
 - Checkpoint A pozostaje PASS;
 - wszystkie B classes PASS;
-- `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` PASS bez zmiany oracle;
+- `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` PASS bez zmiany oracle assertions;
 - ROTA-REG-001 PASS;
 - pełna suita PASS;
 - Ruff PASS;
