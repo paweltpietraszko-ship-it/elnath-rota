@@ -7,11 +7,12 @@ stored as a second truth.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from rota.balance import MissingTargetHoursError, compute_month_balance, compute_quarter_balance, quarter_start
 from rota.domain import WorkBalance
 from rota.persistence.availability_repository import list_active_overlapping
+from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
 
 
@@ -60,9 +61,13 @@ def reconstruct_month_balance(
     interval_start, interval_end = _month_bounds(month)
     assignments = get_current_assignments_for_employees(conn, [employee_id], interval_start, interval_end)
     availability = list_active_overlapping(conn, employee_id, interval_start.date(), _add_months(month, 1))
+    calendar_days = list_calendar_days(conn, month, _add_months(month, 1) - timedelta(days=1))
     if target_hours is None:
         raise MissingTargetHoursError(f"no work_balance_targets entry for employee {employee_id!r}, month {month}")
-    return compute_month_balance(employee_id, month, target_hours, assignments, availability, quarter_balance_before)
+    return compute_month_balance(
+        employee_id, month, target_hours, assignments, availability, quarter_balance_before,
+        calendar_days=calendar_days,
+    )
 
 
 def reconstruct_quarter_balance(
@@ -74,11 +79,14 @@ def reconstruct_quarter_balance(
     interval_end = datetime.combine(end_of_quarter, datetime.min.time())
     assignments = get_current_assignments_for_employees(conn, [employee_id], interval_start, interval_end)
     availability = list_active_overlapping(conn, employee_id, start_month, end_of_quarter)
+    calendar_days = list_calendar_days(conn, start_month, end_of_quarter - timedelta(days=1))
     target_hours_by_month = {
         month: hours for month, hours in list_work_balance_targets(conn, employee_id).items()
         if start_month <= month < end_of_quarter
     }
-    return compute_quarter_balance(employee_id, start_month, target_hours_by_month, assignments, availability)
+    return compute_quarter_balance(
+        employee_id, start_month, target_hours_by_month, assignments, availability, calendar_days=calendar_days
+    )
 
 
 if __name__ == "__main__":

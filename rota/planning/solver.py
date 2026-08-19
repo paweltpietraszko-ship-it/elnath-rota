@@ -313,7 +313,8 @@ def _sick_adjusted_targets(state: PlanningState) -> dict[str, int]:
     (rota/balance.py), a different question the owner answered "yes" to on
     2026-08-13."""
     absence_days_by_employee = excused_absence_days_in_month(
-        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,)
+        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
+        calendar_days=state.calendar_days,
     )
     return {
         wb.employee_id: max(0, wb.target_hours - EXCUSED_ABSENCE_HOURS_PER_DAY * absence_days_by_employee.get(wb.employee_id, 0))

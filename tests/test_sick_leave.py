@@ -7,6 +7,7 @@ schedules (Grafiki/). Two rules, both clarified directly by the owner:
 """
 from __future__ import annotations
 
+import calendar as calendar_module
 from datetime import date, datetime
 
 from rota.domain import (
@@ -15,6 +16,7 @@ from rota.domain import (
     AssignmentState,
     AvailabilityKind,
     AvailabilityRecord,
+    CalendarDay,
     Employee,
     MembershipKind,
     ShiftDemand,
@@ -29,6 +31,11 @@ def _local_membership(employee_id: str) -> SiteMembership:
     return SiteMembership(employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
 
 
+def _full_month_calendar(month: date) -> tuple[CalendarDay, ...]:
+    last_day = calendar_module.monthrange(month.year, month.month)[1]
+    return tuple(CalendarDay(date(month.year, month.month, day), False) for day in range(1, last_day + 1))
+
+
 def test_sick_leave_hard_blocks_assignment_on_sick_day():
     demand = ShiftDemand("2026-10-02-D", "test-v1", datetime(2026, 10, 2, 5, 0), datetime(2026, 10, 2, 17, 0), 1)
     employee = Employee("A", "A", date(2026, 9, 1), None, False)
@@ -36,6 +43,7 @@ def test_sick_leave_hard_blocks_assignment_on_sick_day():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand,), availability_records=(sick,),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
@@ -49,6 +57,7 @@ def test_sick_leave_does_not_block_assignment_outside_the_sick_range():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand,), availability_records=(sick,),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "FEASIBLE"
@@ -68,6 +77,7 @@ def test_sick_leave_reduces_target_by_8h_per_day_not_shift_length():
     state = base_state(
         employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
         shift_demands=(demand,), availability_records=(sick,), work_balances=work_balances,
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "FEASIBLE"
@@ -114,6 +124,7 @@ def test_sick_leave_replan_redistributes_when_reported_mid_month():
     state = base_state(
         employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
         shift_demands=(demand,), existing_assignments=(original,), availability_records=(reported_sick,),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "FEASIBLE"

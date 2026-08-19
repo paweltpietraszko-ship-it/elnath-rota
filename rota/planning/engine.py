@@ -26,6 +26,7 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 from __future__ import annotations
 
 from rota.domain import Assignment, AssignmentState
+from rota.planning.absence import IncompleteAbsenceCalendarError
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
     BlockingDemand,
@@ -58,6 +59,8 @@ def plan(state: PlanningState) -> PlanningResult:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
     except UnsupportedOrMalformedSiteRule as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
+    except IncompleteAbsenceCalendarError as exc:
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"calendar error: {exc}", [])
 
 
 def _plan(state: PlanningState) -> PlanningResult:

@@ -18,8 +18,9 @@ sites for the month/quarter, not just one PlanningState's worth.
 from __future__ import annotations
 
 from datetime import date
+from typing import Optional
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, AvailabilityRecord, WorkBalance
+from rota.domain import Assignment, AssignmentRole, AssignmentState, AvailabilityRecord, CalendarDay, WorkBalance
 from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
 
 
@@ -54,7 +55,7 @@ def _hours_in_month(assignments: list[Assignment], employee_id: str, month: date
 def compute_month_balance(
     employee_id: str, month: date, target_hours: int,
     assignments: list[Assignment], availability_records: list[AvailabilityRecord],
-    quarter_balance_before: int = 0,
+    quarter_balance_before: int = 0, calendar_days: Optional[tuple[CalendarDay, ...]] = None,
 ) -> WorkBalance:
     """Compute one month's WorkBalance. `quarter_balance_before` is the
     running balance carried in from earlier months of the same calendar
@@ -78,7 +79,9 @@ def compute_month_balance(
     by the coordinator; nothing beyond that is invented here."""
     realized_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.REALIZED)
     planned_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.PLANNED)
-    absence_days = excused_absence_days_in_month(availability_records, month).get(employee_id, 0)
+    absence_days = excused_absence_days_in_month(
+        availability_records, month, calendar_days=calendar_days
+    ).get(employee_id, 0)
     effective_target = max(0, target_hours - EXCUSED_ABSENCE_HOURS_PER_DAY * absence_days)
     month_balance = (realized_hours + planned_hours) - effective_target
     running_quarter_balance = quarter_balance_before + month_balance
@@ -97,6 +100,7 @@ def compute_month_balance(
 def compute_quarter_balance(
     employee_id: str, quarter_first_month: date, target_hours_by_month: dict[date, int],
     assignments: list[Assignment], availability_records: list[AvailabilityRecord],
+    calendar_days: Optional[tuple[CalendarDay, ...]] = None,
 ) -> list[WorkBalance]:
     """Compute WorkBalance for every month of one calendar quarter in order,
     carrying the running balance forward. The last entry's quarter_balance is
@@ -115,7 +119,10 @@ def compute_quarter_balance(
                 f"target_hours_by_month is missing an entry for {month} -- set it manually before computing balance"
             )
         target_hours = target_hours_by_month[month]
-        balance = compute_month_balance(employee_id, month, target_hours, assignments, availability_records, running_balance)
+        balance = compute_month_balance(
+            employee_id, month, target_hours, assignments, availability_records, running_balance,
+            calendar_days=calendar_days,
+        )
         running_balance = balance.quarter_balance
         balances.append(balance)
     return balances
