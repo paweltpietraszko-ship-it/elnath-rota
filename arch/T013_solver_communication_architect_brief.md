@@ -2,198 +2,126 @@
 
 ## Status
 
-**GOTOWE DO PRZEKAZANIA ARCHITEKTOWI po spełnieniu zapisanego niżej
-warunku wejściowego T012 + T016 — decyzje produktowe zamknięte 2026-08-16.**
+**GOTOWE DO PRZEKAZANIA ARCHITEKTOWI — decyzje produktowe właściciela zamknięte 2026-08-15/16.**
 
-Czysto faktograficzny brief, bez proponowanego rozwiązania. Nazwa "T013" to
-robocza etykieta, nie zamrożony identyfikator.
+Warunki wejściowe T012 + T016 są spełnione.
+
+Aktualizacja wejściowa 2026-08-19: architekt projektuje T013 na aktualnym `main` również po zmergowaniu T018. T013 nie może cofnąć nowej kolejności fallbacków ani proponować zmiany DAY_ONLY zanim istniejące automatyczne próby T018 zostaną wyczerpane.
+
+Ten dokument jest faktograficznym owner handoff. Nie proponuje architektury tłumaczenia ani techniki dynamicznego sprawdzania opcji.
 
 ## Skąd to zadanie
 
-Właściciel (Paweł), po analizie realnego audytu T011-INTEGRATION
-2026-08-15: program przy DECISION_REQUIRED ma zachowywać się jak "sfinks"
-— ma realne możliwości (np. wsparcie zewnętrzne), ale koordynator musi już
-znać architekturę systemu, żeby wiedzieć, o co zapytać. Właściciel chce
-programu, który **komunikuje koordynatorowi co zrobić**, gdy solver
-utknie — i zwrócił uwagę, że dzisiejsze komunikaty mogą być zbyt
-"ejajowe" (żargon techniczny), niezrozumiałe dla zwykłego człowieka; ich
-formę trzeba przemyśleć, ewentualnie uprościć.
+Po analizie realnego audytu T011-INTEGRATION właściciel wskazał problem: przy `DECISION_REQUIRED` program ma realne możliwości, ale komunikat wymaga od koordynatora znajomości wewnętrznej architektury i kodów.
 
-To zadanie jest świadomie oddzielone od 24h zmiany (patrz
-`T012_24h_shift_architect_brief.md`) — to zmiana sposobu raportowania
-istniejących opcji, nie nowa reguła produktowa.
+Program ma komunikować koordynatorowi, co może zrobić, gdy solver utknie. Komunikat ma być zrozumiały dla zwykłego użytkownika, bez technicznego żargonu.
 
-**Warunek wejściowy**: T013 powstaje po ukończeniu i zmergowaniu T012 oraz
-T016 (`T016_emp02_active_period_architect_brief.md`). Dzięki temu projektuje
-komunikację na docelowej semantyce 24h i nie musi tłumaczyć ani utrwalać
-wycofywanego kodu `EMP-02`.
+T013 jest świadomie oddzielone od T012 24h. To zmiana sposobu raportowania istniejących opcji, nie nowa reguła planowania.
 
-## Stan dzisiejszego kodu: cztery miejsca, gdzie solver się zatrzymuje
+## Aktualny stan — cztery końcowe ścieżki DECISION_REQUIRED
 
-Wszystkie w `rota/planning/engine.py`, budują `DecisionRequiredPayload`
-(`rota/planning/engine_types.py:30-34`: `blocking_shift_demands`,
-`blockers`, `load_blocker`, `unblocking_options: list[str]`).
+Wszystkie są w `rota/planning/engine.py` i budują istniejący `DecisionRequiredPayload` (`blocking_shift_demands`, `blockers`, `load_blocker`, `unblocking_options`).
 
-1. `_decision_for_unassignable` (linia 132-156) — brak jakiegokolwiek
-   uprawnionego pracownika do demandu. `unblocking_options` (stała lista,
-   zawsze identyczna, niezależna od kontekstu):
-   `["potwierdzenie X/Y", "świadome ściągnięcie pracownika z wolnego",
-   "świadome odwołanie/override urlopu zgodnie z kontraktem", "świadome
-   wyłączenie DAY_ONLY"]`.
-2. `_decision_for_conflict` (linia 176-206) — REST-01, kilka demandów
-   niemożliwych do wspólnego pokrycia. `unblocking_options` zawsze:
-   `["świadoma ręczna korekta zgodnie z kontraktem"]` — jeden, stały,
-   ogólny tekst niezależnie od sytuacji.
-3. `_decision_for_conflicts` (linia 295-334) — konflikt na już zapisanym
-   (frozen) Assignment. `unblocking_options`: `["świadome odmrożenie
-   Assignment i ponowne planowanie", "świadoma ręczna korekta frozen
-   Assignment zgodnie z kontraktem"]`, plus opcjonalnie "świadoma
-   akceptacja >Xh / 7 kolejnych dni" jeśli dotyczy też LOAD-01.
-4. `_load_decision` (linia 386-415) — przekroczenie progu godzin w 7
-   kolejnych dniach. `unblocking_options`: `["świadoma akceptacja >Xh / 7
-   kolejnych dni"]`.
+1. `_decision_for_unassignable` — brak wystarczającej liczby uprawnionych pracowników dla demandu; historycznie statyczne opcje zawierają m.in. `potwierdzenie X/Y`, ściągnięcie pracownika z wolnego, override urlopu i wyłączenie DAY_ONLY.
+2. `_decision_for_conflict` — konflikt REST-01 pomiędzy demandami; historycznie jedna ogólna ręczna korekta.
+3. `_decision_for_conflicts` — konflikt na zachowanym/frozen Assignment; historycznie odmrożenie, ręczna korekta i opcjonalnie akceptacja LOAD.
+4. `_load_decision` — przekroczenie tygodniowego progu godzin; historycznie statyczna akceptacja przekroczenia.
 
-## Fakt (skorygowane): wsparcie zewnętrzne wspomniane w jednej z czterech list, żargonem
+Po T018 te ścieżki są końcowe dopiero po aktualnych automatycznych próbach engine. T013 nie pokazuje wcześniejszych prób jako rozwiązań.
 
-Sprawdzone bezpośrednio w kodzie. Trzy z czterech list (`_decision_for_conflict`,
-`_decision_for_conflicts`, `_load_decision`) rzeczywiście nigdy nie wspominają
-wsparcia zewnętrznego. Ale `_decision_for_unassignable` (punkt 1 powyżej)
-zawiera pozycję `"potwierdzenie X/Y"` — to jest realne odwołanie do
-mechanizmu wsparcia zewnętrznego (`"X/Y"` to termin ze spec —
-`grep "X/Y" arch/spec.md`, dot. `ExternalSupportWindow`/WINDOW-02/03), ale
-zapisane żargonem niezrozumiałym bez znajomości wewnętrznej terminologii
-spec. Mechanizm wsparcia zewnętrznego istnieje i działa
-(`rota/planning/eligibility.py:204-209`, `rota/planning/validator.py:420-428`,
-`SiteProfile.external_support_enabled`, `SiteMembership(kind=EXTERNAL_SUPPORT)`,
-`ExternalSupportWindow`) — solver go **użyje**, jeśli dane wejściowe je
-dają, ale nawet ta jedna wzmianka nie tłumaczy koordynatorowi, co właściwie
-ma zrobić. W pozostałych trzech listach wsparcie zewnętrzne nie pojawia się
-wcale, nawet w tej formie. Te cztery listy są statyczne, przypisane do typu
-reguły, nie liczone dynamicznie względem tego, co faktycznie mogłoby
-zmienić wynik.
+## Wsparcie zewnętrzne — stan faktyczny
 
-## Fakt: `Blocker.condition` to surowy kod reguły, nie zdanie po ludzku
+Mechanizm wsparcia zewnętrznego istnieje (`SiteProfile.external_support_enabled`, `SiteMembership(kind=EXTERNAL_SUPPORT)`, `ExternalSupportWindow`) i solver go używa, jeżeli dane wejściowe go dopuszczają.
 
-`rota/planning/engine_types.py:17-20`:
-```python
-@dataclass
-class Blocker:
-    employee_id: str
-    condition: str
-```
-`condition` przyjmuje dziś wartości takie jak `"REST-01"`, `"DAY_ONLY-01"`,
-`"SICK_LEAVE-01"`, `"LEAVE_GRANTED-01"`, albo (dla SiteRule) dokładny
-`rule_version_id` — wewnętrzny identyfikator reguły, nie zdanie
-wyjaśniające sytuację. Przykład z realnego artefaktu audytu
-(`artifacts/t011_pipeline/coordinator_wall_retry_after.json`):
-```json
-"blockers": [
-  {"employee_id": "ANNA", "condition": "REST-01"},
-  {"employee_id": "BARTEK", "condition": "REST-01"},
-  {"employee_id": "FILIP", "condition": "REST-01"}
-]
-```
-Koordynator widzi kod `"REST-01"` bez tłumaczenia, co to znaczy po ludzku
-("między dwiema zmianami tego pracownika nie ma wystarczającej przerwy na
-odpoczynek").
+Historyczne `potwierdzenie X/Y` jest technicznym żargonem odnoszącym się do wsparcia zewnętrznego. Koordynator nie powinien widzieć nazwy `X/Y`.
 
-## Frozen Product Contract dziś nic nie mówi o formacie komunikatu
+Pozostałe historyczne listy nie wspominają wsparcia zewnętrznego. Wszystkie listy są statyczne, a właściciel chce opcji zależnych od konkretnej sytuacji.
 
-`arch/spec.md` definiuje typy `DECISION_REQUIRED`/`Blocker`/
-`unblocking_options` strukturalnie (jakie pola istnieją), ale nie określa
-wymagań co do języka/zrozumiałości treści tych pól dla człowieka
-nietechnicznego. To realny brak w kontrakcie, nie coś do wywnioskowania.
+## Blocker.condition — stan faktyczny
 
-## DECYZJE WŁAŚCICIELA (2026-08-15/16, rozstrzygnięte)
+`Blocker.condition` jest dziś `str` i może zawierać raw code, np. `REST-01`, `DAY_ONLY-01`, `SICK_LEAVE-01`, `LEAVE_GRANTED-01`, albo dokładny `rule_version_id` SiteRule.
 
-1. **Dynamiczność**: `unblocking_options` mają przestać być statyczną listą
-   per typ reguły. Program ma proponować **tylko to, co realnie pomogłoby**
-   w danej, konkretnej sytuacji — albo wprost poinformować koordynatora,
-   że przy żadnym dostępnym układzie nie da się automatycznie przygotować
-   grafiku. To rozstrzyga wcześniejsze pytanie o statyczność na "nie,
-   ma b{� liczone dynamicznie względem konkretnego blockera".
-   **Doprecyzowanie właściciela 2026-08-16**: koordynatora interesuje
-   kompletny, poprawny grafik, nie droga solvera do wyniku. Solver może
-   wykonywać wewnętrznie kolejne próby, symulacje i ponowne PLAN, ale nie
-   pokazuje etapów pośrednich jako rozwiązań. Na zewnątrz zwraca kompletny
-   poprawny grafik albo końcowe `DECISION_REQUIRED` z konkretną decyzją
-   koordynatora, np. dodaniem nazwanego pracownika wsparcia zewnętrznego do
-   bieżącej obsady lub świadomym ręcznym naruszem HARD zgodnie z
-   istniejącym kontraktem Deviation/finalize.
-2. **Zakres**: wszystkie 4 miejsca (`_decision_for_unassignable`,
-   `_decision_for_conflict`, `_decision_for_conflicts`, `_load_decision`)
-   naraz, nie pilotaż na jednym.
-3. **Odbiorca**: wyłącznie koordynator obiektu lub jego zmiennik. Bez
-   osobnej warstwy technicznej/administracyjnej.
-4. **Logowanie/uprawnienia**: żadnych nowych mechanizmów logowania ani
-   nadawania uprawnień w ramach tego zadania, chyba że pojawi się wyraźne
-   wymaganie w przyszłości.
-5. **Ludzkie zamienniki kodów — ustalone przez właściciela (2026-08-16)**:
+Koordynator nie powinien musieć znać tych technicznych identyfikatorów.
 
-   | Kod | Tekst dla koordynatora |
-   |---|---|
-   | `UNAVAILABLE-01` | "Koliduje z checkbox: Ogólna dostępność" |
-   | `DAY_ONLY-01` | "Koliduje z checkbox: Nocka" |
-   | `SICK_LEAVE-01` | "Koliduje z zapisem: Chorobowe" |
-   | `LEAVE_GRANTED-01` | "Koliduje z zapisem: Urlop" |
-   | `REST-01` | "Koliduje z odpoczynkiem dobowym" |
-   | `LOAD-01` | "Koliduje z tygodniowym czasem pracy" |
-   | `EXTERNAL-01` | "Wsparcie zewnętrzne" |
-   | `EXTERNAL_SUPPORT_DISABLED` | "Wsparcie zewnętrzne" |
-   | `MEMBERSHIP_DISABLED` | **Niewidoczny dla koordynatora** — kandydat odrzucony z tego powodu jest pomijany przy budowaniu komunikatu, choć kod może pozostać używany wewnętrznie. |
-   | `EMP-02` | **Nie dotyczy** — mechanizm wycofywany całkowicie, patrz `T016_emp02_active_period_architect_brief.md`. Kod nie będzie już występował po T016. |
-   | `DAY_SHIFT_OFF-01` | **Odłożone.** Właściciel (2026-08-16): brak dziś ustalonej definicji/nazwy w Panelu Sterowania, a decyzja, czy ta reguła jest w ogóle potrzebna, jest otwarta. Nie blokuje reszty T013 — architekt zostawia ten kod bez tłumaczenia do czasu osobnej decyzji. |
-   | `EXTERNAL-01`/`EXTERNAL_SUPPORT_DISABLED`, kontekst dodatkowy | Właściciel (2026-08-16): sam mechanizm rejestracji z wyprzedzeniem (`ExternalSupportWindow`) jest dziś praktycznie martwy — nikt nie ustala stałego wsparcia zewnętrznego z góry. Zostaje jako opcja dla koordynatora ("może jej użyć"), więc tekst ma go o niej poinformować, ale nie trzeba tego dalej rozbudowywać. |
-   | dowolny `rule_version_id` z SiteRule | Koordynator widzi **opis zapisanej reguły**, nie techniczny `rule_version_id`. Sposób pobrania i reprezentacji opisu pozostaje decyzją techniczną architekta. |
+## Decyzje właściciela — zamknięte
 
-   `MEMBERSHIP-01` (istniejący, ogólny kod obok `MEMBERSHIP_DISABLED`) jest
-   traktowany tak samo: kandydat odrzucony z tego powodu nie pojawia się na
-   liście pokazywanej koordynatorowi. Tylko koordynator decyduje, kto należy
-   do obsady; program nie proponuje mu automatycznego dodawania konkretnego
-   odrzuconego kandydata. Oba kody mogą nadal istnieć i być sprawdzane
-   wewnętrznie.
-6. **Spójność ze słownictwem Panelu Sterowania (2026-08-16)**: tam, gdzie
-   `arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` już ustalił
-   nazwę pola/checkboxa widocznego dla koordynatora, ludzki zamiennik kodu
-   MUSI używać tej samej nazwy, nie nowego sformułowania wymyślonego
-   niezależnie — inaczej koordynator dostaje dwa różne słowa na to samo
-   zjawisko (raz w Panelu przy konfiguracji, raz w komunikacie o blokadzie).
-   Znane dziś powiązania:
-   - `UNAVAILABLE-01` → **"Ogólna dostępność"** (§5 tego dokumentu, checkbox
-     w matrycy dostępności pracownika).
-   - `DAY_ONLY-01` → **"Nocka"** (§6, pole `day_only`).
-   - `SICK_LEAVE-01` → **"choroba"**, `LEAVE_GRANTED-01` → **"urlop"** (§7).
-   Dla kodów bez odpowiednika w tym dokumencie (LOAD-01, EXTERNAL-01,
-   EXTERNAL_SUPPORT_DISABLED) właściciel ustalił nazwę od zera — patrz
-   tabela w punksie 5, gdzie jest już rozstrzygnięte.
+### 1. Dynamiczność
 
-   **To samo dotyczy nowych checkboxów, które dopiero wprowadza T012**
-   (`T012_24h_shift_architect_brief.md`) — tes zamknęte nazwy muszą trzymać:
-   - checkbox **"24"** (poziom pracownika, SOFT) — jeśli komunikat solvera
-     ma kiedykolwiek odnosić się do tej kwalifikacji (np. tłumaczt�c, że
-     grafiku nie dało się ułożyć nawet po sięgnięciu po pracowników z tym
-     checkboxem), ma używać dokładnie nazwy **"24"**, nie innego określenia.
-   - katalog obiektu **24h / 12h / INNY** (poziom obiektu, SiteProfile) —
-     jeśli komunikat odnosi się do tego, jaki typ zmiany obowiązuje dany
-     dzień, ma używać tych samych trzech nazw.
-   REST-01 pozostaje bez ustalonej nazwy checkboxa mimo T012 — wymagany
-   odpoczynek to wartość liczbowa przypisana do pozycji katalogu, nie
-   osobny checkbox; właściciel i tak proponuje dla niego tekst od zera per
-   punkt 5.
+`unblocking_options` mają przestać być statyczną listą per typ ścieżki/reguły.
+
+Program ma proponować tylko to, co jest realnie związane z daną konkretną sytuacją, albo wprost poinformować koordynatora, że przy dostępnej obsadzie/układzie nie da się automatycznie przygotować grafiku.
+
+Właściciel pozostawił architektowi wybór techniki: dodatkowa symulacja lub prostsza heurystyka per blocker.
+
+### 2. Koordynator widzi wynik, nie drogę solvera
+
+Koordynatora interesuje kompletny, poprawny grafik, nie przebieg prób solvera.
+
+Solver może wykonywać wewnętrznie kolejne próby/fallbacki, ale na zewnątrz zwraca:
+- kompletny poprawny grafik, albo
+- końcowe `DECISION_REQUIRED` z konkretną decyzją koordynatora.
+
+Po T018 oznacza to bezwzględnie zachowanie aktualnej kolejności automatycznych fallbacków przed końcowym komunikatem.
+
+### 3. Zakres
+
+T013 obejmuje wszystkie cztery końcowe ścieżki `DECISION_REQUIRED` naraz, nie pilotaż jednej ścieżki.
+
+### 4. Odbiorca / auth
+
+Odbiorcą jest koordynator obiektu lub jego zmiennik.
+
+T013 nie tworzy nowej warstwy technicznej/administracyjnej, logowania ani uprawnień.
+
+### 5. Exact ludzkie zamienniki kodów
+
+| Kod | Tekst dla koordynatora |
+|---|---|
+| `UNAVAILABLE-01` | `Koliduje z checkbox: Ogólna dostępność` |
+| `DAY_ONLY-01` | `Koliduje z checkbox: Nocka` |
+| `SICK_LEAVE-01` | `Koliduje z zapisem: Chorobowe` |
+| `LEAVE_GRANTED-01` | `Koliduje z zapisem: Urlop` |
+| `REST-01` | `Koliduje z odpoczynkiem dobowym` |
+| `LOAD-01` | `Koliduje z tygodniowym czasem pracy` |
+| `EXTERNAL-01` | `Wsparcie zewnętrzne` |
+| `EXTERNAL_SUPPORT_DISABLED` | `Wsparcie zewnętrzne` |
+| `MEMBERSHIP_DISABLED` | niewidoczny dla koordynatora |
+| `EMP-02` | nie dotyczy po T016 |
+| `DAY_SHIFT_OFF-01` | decyzja/nazwa odłożona; T013 zostawia kod bez tłumaczenia |
+| dowolny `rule_version_id` SiteRule | koordynator widzi opis zapisanej reguły, nie techniczny id |
+
+`MEMBERSHIP-01` jest traktowany tak samo jak `MEMBERSHIP_DISABLED`: nie pojawia się na liście pokazywanej koordynatorowi.
+
+Tylko koordynator decyduje, kto należy do bieżącej obsady. Program nie proponuje automatycznego dodawania konkretnego kandydata odrzuconego przez membership.
+
+### 6. Wsparcie zewnętrzne po ludzku
+
+Mechanizm `ExternalSupportWindow` pozostaje dostępny, mimo że w praktyce nie jest dziś często konfigurowany z góry.
+
+Komunikat może informować o możliwości wsparcia zewnętrznego, ale nie ma rozbudowywać nowego subsystemu ani używać żargonu `X/Y`.
+
+### 7. SiteRule
+
+Dla blockera wynikającego z SiteRule koordynator ma widzieć opis zapisanej reguły, nie `rule_version_id`.
+
+Sposób pobrania/reprezentacji opisu jest decyzją techniczną architekta.
+
+### 8. Spójność z Panelem Sterowania
+
+Tam, gdzie Panel Sterowania ma już ustaloną nazwę pola/checkboxa, komunikat solvera używa tej samej nazwy.
+
+Znane nazwy:
+- `UNAVAILABLE-01` -> `Ogólna dostępność`;
+- `DAY_ONLY-01` -> `Nocka`;
+- choroba / urlop zgodnie z ustalonymi zapisami;
+- nowa kwalifikacja T012 -> dokładnie `24`;
+- katalog obiektu T012 -> dokładnie `24h / 12h / INNY`, jeżeli komunikat kiedykolwiek odnosi się do typu zmiany.
+
+REST nie ma checkboxa; używa exact tekstu właściciela z tabeli.
 
 ## Otwarte pytania techniczne pozostawione architektowi
 
-- Czy tłumaczenie kodu reguły na zdanie po ludzku ma być osobną warstwą
-  (np. słownik `RULE_CODE -> szablon zdania` w warstwie aplikacyjnej/UI),
-  czy `unblocking_options`/`condition` mają zostać zmienione u źródła w
-  `rota/planning/engine.py`? Pierwsze nie uszerza zamrożonego kontraktu
-  planningu; drugie tak.
-- Mechanika "dynamicznego liczenia" opcji: czy silnik ma faktycznie
-  próbować symulować, co by się stało połączeniu wsparcia
-  zewnętrznego/zmianie danej reguły (i dopiero wtedy proponować tę opcję),
-  czy wystarczy prostsza heurystyka per typ bloku? To rozstrzygnięcie
-  czysto techniczne, zostawione architektowi.
+1. Gdzie umieścić tłumaczenie raw code -> tekst koordynatora: osobny pure owner czy logika w engine.
+2. Jak realizować dynamiczne opcje: symulacja counterfactual czy prostsza heurystyka per realny blocker.
 
-Decyzje produktowe właściciela są zamknięte. Dokument nie proponuje
-architektury tłumaczenia ani techniki dynamicznego sprawdzania opcji — te
-wybory pozostają architektowi w granicach decyzji zapisanych powyżej.
+Decyzje produktowe są zamknięte. Te dwa wybory są techniczne i należą do architekta, pod warunkiem zachowania wszystkich powyższych granic.
