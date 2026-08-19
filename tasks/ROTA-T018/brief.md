@@ -1,6 +1,6 @@
 # ROTA-T018 — WORKDAY ABSENCE ACCOUNTING + DAY_ONLY N FALLBACK
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 2
+STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 3
 DATE: 2026-08-19
 TASK_ID: ROTA-T018
 BASE_SHA: c55722dfa689baa2ae39ba51a0c290f35d7f2112
@@ -13,7 +13,8 @@ FROZEN_ADDENDA:
 - arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01_R1_CLARIFICATION.md
 DEPENDS_ON: ROTA-T012 integrated on main
 BLOCKS: human-facing follow-ups that depend on stable retry/absence semantics
-PREIMPLEMENTATION_ROUND_1: FAIL — T018-R1-1 + T018-R1-2 only; all other audited sections remain closed for narrow Round 2
+PREIMPLEMENTATION_ROUND_1: FAIL — T018-R1-1 + T018-R1-2 only; all other audited sections remain closed
+PREIMPLEMENTATION_ROUND_2: FAIL — T018-R2-1 only; T018-R1-2 CLOSED; all other audited sections remain closed for narrow Round 3
 
 ## CEL
 
@@ -71,6 +72,10 @@ TASK_SCOPE:
 - tests/test_balance.py
 - tests/test_audit_r20_r21_findings.py
 - tests/test_sick_leave.py
+- tests/test_audit_r22_findings.py
+- tests/test_audit_r23_findings.py
+- tests/test_audit_r25_findings.py
+- tests/test_audit_r26_findings.py
 
 Żaden inny plik bez STOP + amendment architekta.
 
@@ -93,7 +98,7 @@ NEW_FILES:
 
 ## R1 SCOPE AMENDMENT — LEGACY TEST HARNESS / SUPERSEDED EXPECTATIONS
 
-T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych ośmiu istniejących test files. To nie jest zgoda na redesign starych testów. Dozwolone są tylko mechaniczne adaptacje literalnych oczekiwań supersedowanych przez T018:
+T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych ośmiu istniejących test files rozpoznanych w Round 1/Round 2 przygotowaniu. To nie jest zgoda na redesign starych testów. Dozwolone są tylko mechaniczne adaptacje literalnych oczekiwań supersedowanych przez T018:
 
 1. `tests/test_t012.py`
    - stare monkeypatched `solve(...)` fakes mogą dostać `allow_day_only_n_fallback=False`;
@@ -137,11 +142,40 @@ T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych ośmiu is
    - test target-adjustment ma zachować swój pierwotny sens porównawczy przez mechaniczne dostosowanie fixture/expected target do 3*8 h, nie przez powrót do calendar-day counting;
    - HARD SICK blocking, outside-range eligibility, solver-only SICK ownership, LEAVE_GRANTED non-adjustment i REPLAN redistribution pozostają semantycznie bez zmian.
 
-Zakaz:
-- żadnych innych zmian w tych ośmiu plikach;
-- żadnego osłabiania dawnych findings;
+Powyższy R1 amendment pozostaje ważny dla tych ośmiu plików. Jego wcześniejszy licznik/STOP został wykonany przez Round 2 i jest uzupełniony poniższym R2 amendment.
+
+## R2 SCOPE AMENDMENT — FINAL LEGACY TEST ENUMERATION
+
+T018-R2-1 zamyka wyłącznie niepełną enumerację legacy tests. Mechaniczny skan Round 2 wskazał cztery dodatkowe aktywne pliki i nie znalazł kolejnych wymaganych plików. Dopuszczone są wyłącznie następujące adaptacje:
+
+9. `tests/test_audit_r22_findings.py`
+   - wyłącznie `test_r22_2a_frozen_conflict_with_concurrent_load01_includes_load_blocker` oraz `test_r22_2b_frozen_conflict_with_dangling_reference_is_technical_error` dostają kompletny, nieświąteczny October 2026 `CalendarDay` fixture;
+   - fixture ma jedynie zapobiec przechwyceniu testu przez nowy fail-closed calendar `TECHNICAL_ERROR`;
+   - końcowe oracles pozostają dokładnie: R22-2a `DECISION_REQUIRED` z `LOAD-01` i `SICK_LEAVE-01`, R22-2b `TECHNICAL_ERROR` z dangling `does-not-exist`.
+
+10. `tests/test_audit_r23_findings.py`
+   - wyłącznie `test_r23_2_short_frozen_id_does_not_mask_dangling_trainee` dostaje kompletny, nieświąteczny October 2026 `CalendarDay` fixture;
+   - wszystkie trzy warianty frozen_id (`a`, `mentor`, `missing`) nadal muszą kończyć się `TECHNICAL_ERROR` z powodu pierwotnego dangling-trainee oracle, nie z powodu braku kalendarza;
+   - R23-1 i R23-3 nie są otwierane.
+
+11. `tests/test_audit_r25_findings.py`
+   - wyłącznie `test_r25_1a_day_only_does_not_mask_concurrent_sick_leave`, `test_r25_1b_sick_leave_does_not_mask_concurrent_rest01` oraz `test_r25_1_dangling_trainee_still_forces_technical_error` dostają kompletny, nieświąteczny October 2026 `CalendarDay` fixture;
+   - końcowe statusy i blocker conditions pozostają bez zmian: R25-1a `DECISION_REQUIRED` z `DAY_ONLY-01` + `SICK_LEAVE-01`; R25-1b `DECISION_REQUIRED` z `REST-01` + `SICK_LEAVE-01`; dangling sibling `TECHNICAL_ERROR` z pierwotnego referential-integrity oracle;
+   - pozostałe R25 assertions nie są otwierane przez ten amendment.
+
+12. `tests/test_audit_r26_findings.py`
+   - testy R26-1 zawierające aktywny `SICK_LEAVE` i direct `plan(state)` mogą dostać wyłącznie kompletny, nieświąteczny October 2026 `CalendarDay` fixture tam, gdzie brak kalendarza przechwyciłby ich istniejące priority/coexisting-blocker oracle;
+   - ich końcowe statusy oraz conditions pozostają bez zmian;
+   - wyłącznie lokalny `_fake_solve` w `test_r26_3_rest_between_fixed_and_solver_created_assignment_is_technical_error` może dostać parametry `allow_day_only_n_fallback=False` i `allow_emergency_24h=False` zgodne z literalnym Stage 1 T018;
+   - `_fake_solve` nadal zwraca ten sam `SolverOutcome`, a finalny oracle R26-3 pozostaje `TECHNICAL_ERROR` z powodu REST między fixed i solver-created Assignment;
+   - R26-2 oraz sibling REST-between-two-fixed pozostają semantycznie bez zmian.
+
+Zakaz dla całego legacy-test amendment:
+- żadnych innych zmian w tych dwunastu legacy test files;
+- żadnego osłabiania dawnych findings ani zmiany ich końcowych statusów/blocker conditions;
 - żadnego przepisywania task-level T012 oracle;
-- jeżeli implementacja odkryje dziewiąty istniejący test wymagający zmiany oczekiwania, STOP + amendment architekta przed edycją.
+- żadnego helpera produkcyjnego tylko po to, aby ułatwić fixture testowe;
+- jeżeli implementacja odkryje trzynasty istniejący test wymagający zmiany oczekiwania lub sygnatury, STOP + amendment architekta przed edycją.
 
 ## CHECKPOINT A — ABSENCE WORKDAY ACCOUNTING
 
@@ -382,17 +416,16 @@ Dopiero finalny `ARCHITECT FINAL GATE ACCEPTANCE — ROTA-T018: PASS` oznacza RE
 
 ## PREIMPLEMENTATION AUDIT — REQUIRED BEFORE CC
 
-Round 2 jest wąski. Nie otwiera ponownie sekcji, które Round 1 ocenił jako PASS. Codex sprawdza wyłącznie zamknięcie T018-R1-1 i T018-R1-2 oraz mechaniczną czystość nowego contract SHA:
+Round 3 jest finalnym wąskim preimplementation audit. Nie otwiera T018-R1-2 ani żadnej sekcji zaakceptowanej wcześniej. Codex sprawdza wyłącznie zamknięcie T018-R2-1 oraz mechaniczną czystość nowego contract SHA:
 
-1. literalny TASK_SCOPE obejmuje dokładnie osiem legacy test files wymagających adaptacji oraz `tests/test_t018.py`;
-2. SCOPE AMENDMENT ogranicza zmiany legacy tests do sygnatur fake, sekwencji retry, jawnego fallback-enabled eligibility i calendar/workday fixtures/oczekiwań;
-3. canonical authorizing ID przy wielu applicable exceptions = deterministic `min(rule_version_id)`;
-4. dokładnie jeden Assignment = jedno exceptional usage = jeden warning, niezależnie od liczby równoważnych zgód;
-5. live solver/validator i durable reconstruction używają identycznego tie-breaku;
-6. rekonstrukcja nie bierze późniejszych rule versions spoza `ScheduleVersion.applied_rule_version_ids`;
-7. brak zmian produktu poza R1-1/R1-2; absence/retry/lexicographic semantics zaakceptowane w Round 1 pozostają niezmienione;
-8. arch/spec.md i arch/FROZEN.lock pozostają niezmienione;
-9. contract commits nie zawierają implementacji produktu.
+1. literalny TASK_SCOPE obejmuje `tests/test_t018.py` oraz dokładnie dwanaście legacy test files dopuszczonych przez R1+R2 amendments;
+2. cztery pliki z T018-R2-1 są dokładnie: `tests/test_audit_r22_findings.py`, `tests/test_audit_r23_findings.py`, `tests/test_audit_r25_findings.py`, `tests/test_audit_r26_findings.py`;
+3. R22/R23/R25/R26 mogą dostać wyłącznie calendar fixtures wskazane w R2 amendment, a R26-3 dodatkowo wyłącznie dwa default-false argumenty do lokalnego fake `solve()`;
+4. wszystkie końcowe statusy, blocker conditions i pierwotne znaczenie R22/R23/R25/R26 pozostają bez zmian;
+5. T018-R1-2 pozostaje CLOSED; deterministic `min(rule_version_id)` nie jest ponownie audytowane ani modyfikowane;
+6. absence accounting, fail-closed, retry order i lexicographic semantics zaakceptowane wcześniej pozostają bez zmian;
+7. arch/spec.md i arch/FROZEN.lock pozostają niezmienione;
+8. contract commit nie zawiera implementacji produktu ani zmian istniejących testów.
 
 Wymagany wynik:
 `PASS — READY_FOR_IMPLEMENTATION_A`.
