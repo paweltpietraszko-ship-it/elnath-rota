@@ -142,10 +142,9 @@ def test_m4_m5_threshold_formula_boundaries():
 
 
 def test_m4_n20_k3_boundary_rejects_distance_two_accepts_distance_three():
-    """N=20 -> K=3, proven on the real cut formula (not just arithmetic): a
-    signature 2 placements away from a genuine solved candidate violates
-    `sum(x for signature) <= N-K` (correctly rejected); one 3 places away
-    satisfies it exactly at the boundary (correctly admissible)."""
+    """N=20 -> K=3, proven on the real cut (not just arithmetic): distance 2
+    from a genuine candidate violates `sum(x for signature) <= N-K`
+    (rejected); distance 3 satisfies it at the boundary (admissible)."""
     state = _symmetric_pool_state(20)
     result = plan(state)
     assert result.status == "FEASIBLE"
@@ -226,9 +225,8 @@ def test_m10_trainee_cancelled_fixed_facts_absent_from_signature():
 
 
 def test_m11_fixed_realized_fact_never_contributes_to_diversity_and_never_changes():
-    """A genuinely fixed (REALIZED) PRIMARY is never a CP-SAT slot, so it can
-    never be part of the solver-controlled diversity signature and must be
-    identical across every returned candidate."""
+    """A fixed (REALIZED) PRIMARY is never a CP-SAT slot, so it can never be
+    part of the diversity signature and must be identical in every candidate."""
     demands = tuple(_d_demand(f"D{i}", i + 1) for i in range(6))
     employees = tuple(_employee(chr(65 + i)) for i in range(6))
     memberships = tuple(_membership(e.employee_id) for e in employees)
@@ -377,8 +375,7 @@ def test_m18_stage2_first_feasible_variants_stay_in_stage2(monkeypatch):
 
 
 def test_m19_stage3_first_feasible_with_variants_never_reaches_stage4(monkeypatch):
-    """Stage 1/2 proven INFEASIBLE, Stage 3 the first FEASIBLE (with a
-    variant already attached): the uncapped Stage 4 solve must never run."""
+    """Stage 1/2 proven INFEASIBLE, Stage 3 the first FEASIBLE: Stage 4 must never run."""
     demand = _d_demand("D1", 6)
     employees = (_employee("A"), _employee("B"))
     memberships = tuple(_membership(e.employee_id) for e in employees)
@@ -470,10 +467,8 @@ def test_m25_injected_validator_failure_on_candidate2_fails_whole_result_closed(
 
 
 def test_m26_m28_multi_candidate_real_warnings_keep_prefix_order_and_body():
-    """Two DAY_ONLY employees, each with their own exceptional-N fallback --
-    a real (non-vacuous) 2-candidate, 2-warning scenario, proving both
-    prefix ordering (M26) and the full legacy warning body preserved intact
-    under the `candidate=N | ` prefix (M28)."""
+    """A real (non-vacuous) 2-candidate, 2-warning DAY_ONLY scenario, proving
+    prefix ordering (M26) and the full legacy body under the prefix (M28)."""
     n1, n2 = _n_demand("N1", 6), _n_demand("N2", 13)
     a = _employee("A", day_only=True)
     b = _employee("B", day_only=True)
