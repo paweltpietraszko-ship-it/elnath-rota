@@ -1,6 +1,6 @@
 # ROTA-T018 — WORKDAY ABSENCE ACCOUNTING + DAY_ONLY N FALLBACK
 
-STATUS: CHECKPOINT A — R4 FIXES AUTHORIZED; B BLOCKED
+STATUS: CHECKPOINT A — R4/R6 FIXES AUTHORIZED; B BLOCKED
 DATE: 2026-08-19
 TASK_ID: ROTA-T018
 BASE_SHA: c55722dfa689baa2ae39ba51a0c290f35d7f2112
@@ -17,6 +17,7 @@ PREIMPLEMENTATION_ROUND_1: FAIL — T018-R1-1 + T018-R1-2 only; all other audite
 PREIMPLEMENTATION_ROUND_2: FAIL — T018-R2-1 only; T018-R1-2 CLOSED; all other audited sections remain closed for narrow Round 3
 CHECKPOINT_A_PRODUCT_SHA_R4: 6ecaab611965f42c5c0fa5d441ac6052df769901
 CHECKPOINT_A_AUDIT_R4: FAIL — A-R4-1 + A-R4-2 + A-R4-3; B BLOCKED
+CHECKPOINT_A_AUDIT_R6: WYMAGA_DECYZJI — A-R6-1 narrow R25 fixture scope; B BLOCKED
 
 ## CEL
 
@@ -162,9 +163,11 @@ T018-R2-1 zamyka wyłącznie niepełną enumerację legacy tests. Mechaniczny sk
    - R23-1 i R23-3 nie są otwierane.
 
 11. `tests/test_audit_r25_findings.py`
-   - wyłącznie `test_r25_1a_day_only_does_not_mask_concurrent_sick_leave`, `test_r25_1b_sick_leave_does_not_mask_concurrent_rest01` oraz `test_r25_1_dangling_trainee_still_forces_technical_error` dostają kompletny, nieświąteczny October 2026 `CalendarDay` fixture;
-   - końcowe statusy i blocker conditions pozostają bez zmian: R25-1a `DECISION_REQUIRED` z `DAY_ONLY-01` + `SICK_LEAVE-01`; R25-1b `DECISION_REQUIRED` z `REST-01` + `SICK_LEAVE-01`; dangling sibling `TECHNICAL_ERROR` z pierwotnego referential-integrity oracle;
-   - pozostałe R25 assertions nie są otwierane przez ten amendment.
+   - `test_r25_1a_day_only_does_not_mask_concurrent_sick_leave`, `test_r25_1b_sick_leave_does_not_mask_concurrent_rest01` oraz `test_r25_1_dangling_trainee_still_forces_technical_error` dostają kompletny, nieświąteczny October 2026 `CalendarDay` fixture;
+   - dodatkowo, wyłącznie przez Round 6 A-R6-1, `test_sick_leave_wins_over_leave_granted_on_overlapping_day` oraz `test_leave_granted_still_reported_outside_the_sick_range` mogą dostać ten sam istniejący `_full_month_calendar(date(2026, 10, 1))` w `base_state(...)`;
+   - dla tych dwóch Round 6 testów nie zmieniać `AvailabilityRecord`, dat, demandów ani pracownika;
+   - końcowe oracles pozostają bez zmian: R25-1a `DECISION_REQUIRED` z `DAY_ONLY-01` + `SICK_LEAVE-01`; R25-1b `DECISION_REQUIRED` z `REST-01` + `SICK_LEAVE-01`; dangling sibling `TECHNICAL_ERROR`; overlapping-priority test `DECISION_REQUIRED` i wyłącznie `SICK_LEAVE-01`; outside-sick-range test `DECISION_REQUIRED` i wyłącznie `LEAVE_GRANTED-01`;
+   - `test_validator_reports_only_sick_leave_on_overlapping_day` oraz wszystkie inne R25 assertions pozostają nietknięte.
 
 12. `tests/test_audit_r26_findings.py`
    - testy R26-1 zawierające aktywny `SICK_LEAVE` i direct `plan(state)` mogą dostać wyłącznie kompletny, nieświąteczny October 2026 `CalendarDay` fixture tam, gdzie brak kalendarza przechwyciłby ich istniejące priority/coexisting-blocker oracle;
@@ -206,6 +209,25 @@ Mechaniczna zmiana:
 To jest wyłącznie supply kompletnego kalendarza wymaganego przez już zamrożony A3/A5. Nie zmienia produktu, nie osłabia fail-closed i nie redefiniuje Round 23 oracle.
 
 Po tej kontraktowej korekcie CC może naprawić A-R4-1, A-R4-2 i wykonać powyższą jedną adaptację A-R4-3. B pozostaje BLOCKED.
+
+## CHECKPOINT A — ROUND 6 FINDING / SCOPE AMENDMENT
+
+Round 6 wykazał A-R6-1 wyłącznie w dwóch już istniejących testach `tests/test_audit_r25_findings.py`. Plik był już w TASK_SCOPE; brak dotyczył wyłącznie zbyt wąskiego item 11.
+
+Dozwolone są dokładnie dwie dodatkowe edycje testowe:
+1. `test_sick_leave_wins_over_leave_granted_on_overlapping_day` — dodać do istniejącego `base_state(...)` `calendar_days=_full_month_calendar(date(2026, 10, 1))`;
+2. `test_leave_granted_still_reported_outside_the_sick_range` — dodać identyczny `calendar_days=_full_month_calendar(date(2026, 10, 1))`.
+
+Dla obu:
+- istniejący helper `_full_month_calendar` jest jedynym dozwolonym fixture source; nie zmieniać helpera;
+- kalendarz ma być kompletny dla October 2026 i `holiday=False` dla każdego dnia;
+- nie zmieniać AvailabilityRecord, ich zakresów, demandów, employee ani kolejności danych;
+- pierwszy test zachowuje dokładnie `DECISION_REQUIRED` oraz wyłącznie `SICK_LEAVE-01`;
+- drugi zachowuje dokładnie `DECISION_REQUIRED` oraz wyłącznie `LEAVE_GRANTED-01`;
+- `test_validator_reports_only_sick_leave_on_overlapping_day` pozostaje nietknięty;
+- żadnych innych zmian w `tests/test_audit_r25_findings.py` ponad wcześniej autoryzowane R25 fixtures.
+
+A-R6-1 jest po tym amendmentzie mechanicznie zamknięte. CC może dodać dwa fixtures, dokończyć weryfikację A-R4-1/A-R4-2/A-R4-3 i przedstawić nowy exact PRODUCT SHA. Checkpoint B pozostaje BLOCKED do merytorycznego PASS Checkpoint A.
 
 ## CHECKPOINT A — ABSENCE WORKDAY ACCOUNTING
 
