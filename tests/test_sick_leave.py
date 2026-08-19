@@ -68,12 +68,13 @@ def test_sick_leave_reduces_target_by_8h_per_day_not_shift_length():
     demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
     employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
     employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
-    # A sick 5 days -> target drops by 5*8=40h, from 40 to 0: taking this one
-    # 12h shift now costs A a deviation of 12, same math as B starting from
-    # target 0. Without the 8h/day adjustment A would start from target 40
-    # and taking the shift would look like a *better* fit than it should.
+    # T018: Oct 1-5 has 3 qualified workdays (Thu 1, Fri 2, Mon 5) -> target
+    # drops by 3*8=24h, from 24 to 0: taking this one 12h shift now costs A a
+    # deviation of 12, same math as B starting from target 0. Without the
+    # 8h/day adjustment A would start from target 24 and taking the shift
+    # would look like a *better* fit than it should.
     sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
-    work_balances = (WorkBalance("A", MONTH, 40, 0, 0, 0, 0, 0), WorkBalance("B", MONTH, 0, 0, 0, 0, 0, 0))
+    work_balances = (WorkBalance("A", MONTH, 24, 0, 0, 0, 0, 0), WorkBalance("B", MONTH, 0, 0, 0, 0, 0, 0))
     state = base_state(
         employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
         shift_demands=(demand,), availability_records=(sick,), work_balances=work_balances,

@@ -126,6 +126,7 @@ def test_sick_leave_wins_over_leave_granted_on_overlapping_day():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand,), availability_records=(urlop, zwolnienie),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
@@ -140,6 +141,7 @@ def test_leave_granted_still_reported_outside_the_sick_range():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand,), availability_records=(urlop, zwolnienie),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"

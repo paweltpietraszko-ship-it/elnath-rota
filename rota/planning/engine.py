@@ -25,8 +25,8 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 """
 from __future__ import annotations
 
-from rota.domain import Assignment, AssignmentState
-from rota.planning.absence import IncompleteAbsenceCalendarError
+from rota.domain import Assignment, AssignmentState, AvailabilityKind
+from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
     BlockingDemand,
@@ -68,6 +68,16 @@ def _plan(state: PlanningState) -> PlanningResult:
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
     validate_executable_site_rules(state.site_rules)
+    # T018 A-R4-1: validate calendar completeness eagerly at the public
+    # boundary, before solve() -- a pre-model shortage (NO_ELIGIBLE_EMPLOYEE
+    # from _build_slots, e.g. disabled/missing membership alongside an
+    # active SICK_LEAVE) never reaches _sick_adjusted_targets(), so relying
+    # on that call alone let an incomplete calendar slip through as
+    # DECISION_REQUIRED instead of the required TECHNICAL_ERROR.
+    excused_absence_days_in_month(
+        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
+        calendar_days=state.calendar_days,
+    )
     outcome = solve(state, enforce_load_cap=True)
     result = _dispatch_capped_outcome(state, outcome)
     if result is not None:

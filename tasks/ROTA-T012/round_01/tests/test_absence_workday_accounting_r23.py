@@ -40,7 +40,7 @@ def test_solver_l4_2_to_19_march_reduces_target_by_14_workdays_not_18_calendar_d
 def test_quarter_balance_leave_2_to_19_march_reduces_target_by_14_workdays() -> None:
     month = date(2027, 3, 1)
     leave = _absence(AvailabilityKind.LEAVE_GRANTED, month, 2, 19)
-    balance = compute_month_balance("B", month, 168, [], [leave])
+    balance = compute_month_balance("B", month, 168, [], [leave], calendar_days=_calendar(month))
     assert balance.month_balance == -56
 
 
