@@ -10,6 +10,7 @@ month's CalendarDay coverage is incomplete.
 from __future__ import annotations
 
 import calendar as calendar_module
+from dataclasses import replace
 from datetime import date, datetime
 
 import pytest
@@ -37,6 +38,7 @@ from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absenc
 from rota.planning.engine import plan
 from rota.planning.site_rules import (
     EMPLOYEE_DAY_ONLY_N_EXCEPTION,
+    EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
     day_only_n_exception_authorizing_rule_version_id,
     hard_rules_applicable_on,
 )
@@ -245,9 +247,9 @@ def _employee(employee_id: str, *, day_only: bool = False) -> Employee:
     return Employee(employee_id, employee_id, date(2020, 1, 1), None, day_only)
 
 
-def _membership(employee_id: str, **overrides) -> SiteMembership:
+def _membership(employee_id: str, *, enabled: bool = True, **overrides) -> SiteMembership:
     return SiteMembership(
-        employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY,
+        employee_id, SITE_ID, MembershipKind.LOCAL, enabled, ReadinessState.READY_FOR_PRIMARY,
         ReadinessSource.DEFAULT, **overrides,
     )
 
@@ -409,9 +411,9 @@ def test_b10_6_effective_date_boundaries():
 # B10.7 -----------------------------------------------------------------------
 
 
-def test_b10_7_and_gates_still_enforced_in_fallback_pass():
+def test_b10_7a_sick_leave_still_blocks_in_fallback_pass():
     a = _employee("A", day_only=True)
-    rule = _exception_rule("RV-7", "A")
+    rule = _exception_rule("RV-7A", "A")
     sick = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 6), date(2026, 10, 6), True, None, None)
     state = base_state(
         employees=(a,), memberships=(_membership("A"),),
@@ -422,6 +424,110 @@ def test_b10_7_and_gates_still_enforced_in_fallback_pass():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert any(b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+
+
+def test_b10_7b_membership_disabled_still_blocks_in_fallback_pass():
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-7B", "A")
+    state = base_state(
+        employees=(a,), memberships=(_membership("A", enabled=False),),
+        shift_demands=(_n_demand(6),), site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.condition == "MEMBERSHIP_DISABLED" for b in result.decision_payload.blockers)
+
+
+def test_b10_7c_leave_granted_still_blocks_in_fallback_pass():
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-7C", "A")
+    leave = AvailabilityRecord("l1", "l1v1", "A", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 6), date(2026, 10, 6), True, None, None)
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(_n_demand(6),), availability_records=(leave,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.condition == "LEAVE_GRANTED-01" for b in result.decision_payload.blockers)
+
+
+def test_b10_7d_another_site_rule_still_blocks_in_fallback_pass():
+    n_demand = _n_demand(6)
+    weekday = n_demand.start_datetime.isoweekday()
+    exception = _exception_rule("RV-7D-EXC", "A")
+    ban = SiteRuleVersion(
+        rule_version_id="RV-7D-BAN", rule_id="R-7D-BAN", site_id=SITE_ID,
+        category=RuleCategory.LOCAL_RULE, rule_kind=EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
+        structured_parameters={"employee_id": "A", "weekdays": [weekday], "forbidden_shift_kinds": ["N"]},
+        enforcement=RuleEnforcement.HARD, resolution_status=RuleResolution.RESOLVED,
+        effective_from=date(2026, 10, 1), effective_to=date(2026, 10, 31),
+        changed_at=datetime(2026, 9, 1, 9), changed_by="COORD-T018", supersedes_rule_version_id=None,
+        description=None, source=None, reason=None,
+    )
+    state = base_state(
+        employees=(_employee("A", day_only=True),), memberships=(_membership("A"),),
+        shift_demands=(n_demand,), site_rules=(exception, ban),
+        site_rule_applicability=(_applicability(exception), _applicability(ban)),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.condition == "RV-7D-BAN" for b in result.decision_payload.blockers)
+
+
+def test_b10_7e_rest_still_independently_enforced_alongside_active_exception():
+    """Validator-level: a legally exempted DAY_ONLY N Assignment (no
+    DAY_ONLY-01) must still trip REST-01 independently against a too-close
+    fixed Assignment -- the exception composes with REST-01 via AND, it does
+    not short-circuit the rest of validate()."""
+    demand_n = _n_demand(6)
+    a = _employee("A", day_only=True)
+    earlier_fixed = Assignment(
+        "earlier", "test-v1", "A", datetime(2026, 10, 6, 7, 0), datetime(2026, 10, 6, 19, 0),
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, True, None, None,
+    )
+    exceptional_n = Assignment(
+        "exceptional-n", "test-v1", "A", demand_n.start_datetime, demand_n.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand_n.demand_id, None,
+    )
+    rule = _exception_rule("RV-7E", "A")
+    state = base_state(
+        employees=(a,), shift_demands=(demand_n,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),), month=B_MONTH,
+    )
+    report = validate(state, [earlier_fixed, exceptional_n])
+    assert not report.hard_pass
+    assert any(d.rule == "REST-01" for d in report.violation_details)
+    assert not any(d.rule == "DAY_ONLY-01" for d in report.violation_details)
+
+
+def test_b10_7f_load_still_independently_enforced_alongside_active_exception():
+    """Validator-level: LOAD-01 is re-derived independently of DAY_ONLY-01 --
+    a legally exempted N Assignment still counts toward the rolling-window
+    hour total and can still trip LOAD-01."""
+    demand_n = _n_demand(6)
+    a = _employee("A", day_only=True)
+    heavy_fixed = tuple(
+        Assignment(f"heavy-{d}", "test-v1", "A", datetime(2026, 10, d, 5, 0), datetime(2026, 10, d, 17, 0), AssignmentRole.PRIMARY, AssignmentState.PLANNED, True, None, None)
+        for d in (1, 2, 3, 4, 5)
+    )
+    exceptional_n = Assignment(
+        "exceptional-n", "test-v1", "A", demand_n.start_datetime, demand_n.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand_n.demand_id, None,
+    )
+    rule = _exception_rule("RV-7F", "A")
+    state = base_state(
+        employees=(a,), shift_demands=(demand_n,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),), month=B_MONTH,
+    )
+    state = replace(state, profile=replace(state.profile, rolling_7d_decision_threshold_hours=11))
+    report = validate(state, list(heavy_fixed) + [exceptional_n])
+    assert not report.hard_pass
+    assert any(d.rule == "LOAD-01" for d in report.violation_details)
+    assert not any(d.rule == "DAY_ONLY-01" for d in report.violation_details)
 
 
 # B10.8 -----------------------------------------------------------------------
@@ -545,20 +651,64 @@ def test_b10_13_replan_reshuffle_and_exceptional_n_coexist_correctly():
 # B10.14 ----------------------------------------------------------------------
 
 
-def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids():
-    rule = _exception_rule("RV-14", "A")
-    applicable = hard_rules_applicable_on((rule,), (_applicability(rule),), date(2026, 10, 6))
-    original_id = day_only_n_exception_authorizing_rule_version_id(applicable, "A")
-    assert original_id == "RV-14"
+def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids(tmp_path):
+    """B-R11-2: exercise the real persisted path -- open_store -> bootstrap ->
+    PLAN -> select_candidate -> finalize -> close -> reopen -> reconstruct
+    the canonical rule_version_id from ScheduleVersion.applied_rule_version_ids
+    -- not an in-memory surrogate of the same computation."""
+    from rota.application import bootstrap, durable_inputs, lifecycle_ops, memory_read, open_month, plan_ops, rule_decisions, store
+    from rota.application.assembler import assemble_planning_state
+    from rota.domain import Coordinator, CoordinatorSiteAssociation, ShiftKind, Site, SiteProfile, StandardShift
 
-    # Reconstruction after select/restart/finalize considers ONLY rule
-    # versions in ScheduleVersion.applied_rule_version_ids (B8) -- reusing
-    # the exact same pure helper, never a second tie-break implementation.
-    applied_rule_version_ids = {"RV-14"}
-    persisted_rules = tuple(r for r in (rule,) if r.rule_version_id in applied_rule_version_ids)
-    reconstructed_applicable = hard_rules_applicable_on(persisted_rules, (_applicability(rule),), date(2026, 10, 6))
-    reconstructed_id = day_only_n_exception_authorizing_rule_version_id(reconstructed_applicable, "A")
-    assert reconstructed_id == original_id
+    coord, site, profile_id, emp = "B14-COORD", "B14-SITE", "B14-PROFILE", "B14-EMP"
+    month = date(2026, 10, 1)
+
+    conn = store.open_store(tmp_path / "t018-b10-14.db")
+    bootstrap.bootstrap_or_resume_coordinator_context(
+        conn, coordinator_id=coord, site_id=site, coordinator=Coordinator(coord, "B14 coordinator", True),
+        site_profile=SiteProfile(profile_id, "B14 profile", True, [StandardShift(ShiftKind.N, datetime(2026, 10, 1, 17).time(), datetime(2026, 10, 2, 5).time(), True, 1)], True, False, False, False, 1, 999),
+    )
+    bootstrap.bootstrap_or_resume_coordinator_context(
+        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "B14 site", True),
+        association=CoordinatorSiteAssociation(coord, site, True),
+    )
+    durable_inputs.update_employee(conn, coordinator_id=coord, site_id=site, employee=_employee(emp, day_only=True))
+    membership = SiteMembership(emp, site, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+    durable_inputs.update_membership(conn, coordinator_id=coord, site_id=site, membership=membership)
+    durable_inputs.set_target_hours(conn, coordinator_id=coord, site_id=site, employee_id=emp, month=month, target_hours=372)
+    for day in range(1, calendar_module.monthrange(2026, 10)[1] + 1):
+        durable_inputs.set_calendar_day(conn, coordinator_id=coord, site_id=site, day=CalendarDay(date(2026, 10, day), False))
+
+    original = rule_decisions.record_structured_rule_decision(
+        conn, coordinator_id=coord, site_id=site, rule_id="B14-RULE", statement="authorized fallback",
+        effective_from=month, recorded_at=datetime(2026, 9, 1, 9),
+        rule_content=rule_decisions.NewRuleContent(
+            RuleCategory.CONFIRMED_EXCEPTION, EMPLOYEE_DAY_ONLY_N_EXCEPTION, {"employee_id": emp},
+            RuleEnforcement.HARD, RuleResolution.RESOLVED, date(2026, 10, 31), None, None, None,
+        ),
+    )
+
+    result = plan_ops.plan_month(conn, site_id=site, month=month, coordinator_id=coord, effective_from=month)
+    assert result.status == "FEASIBLE"
+    warning = next(w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w)
+    plan_ops.select_candidate(conn, site_id=site, month=month, candidate=result.candidates[0], coordinator_id=coord)
+    lifecycle_ops.finalize(conn, site_id=site, month=month, coordinator_id=coord, acknowledged_deviation_ids=set())
+    conn.close()
+
+    reopened = store.open_store(tmp_path / "t018-b10-14.db")
+    view = open_month.open_month(reopened, site_id=site, month=month)
+    state, _ = assemble_planning_state(reopened, site_id=site, month=month)
+    applied = set(view.current_version.applied_rule_version_ids)
+    assert original.rule_version_id in applied
+    assignment = next(a for a in state.existing_assignments if a.employee_id == emp)
+    demand = next(d for d in state.shift_demands if d.demand_id == assignment.covers_demand_id)
+    resolved, _, applicability = memory_read.effective_rules_for_month(reopened, site_id=site, month=month)
+    applicable = hard_rules_applicable_on([r for r in resolved if r.rule_version_id in applied], applicability, demand.start_datetime.date())
+    reconstructed = day_only_n_exception_authorizing_rule_version_id(applicable, emp)
+    assert reconstructed == original.rule_version_id
+    assert f"demand={demand.demand_id}" in warning
+    assert f"rule_version_id={reconstructed}" in warning
+    reopened.close()
 
 
 # B10.15 ----------------------------------------------------------------------

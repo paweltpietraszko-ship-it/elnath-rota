@@ -217,14 +217,19 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         kind = _assignment_kind(assignment, state)
         if kind != ShiftKind.N:
             continue
-        applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, assignment.start_datetime.date())
+        # B-R11-1: COVERAGE-01 permits a manual PRIMARY to span more than one
+        # demand, so assignment.start_datetime is not a safe date anchor --
+        # applicability, legality and the warning date all use the covering
+        # ShiftDemand's own start date (brief.md B7).
+        demand = _covering_demand(assignment, state)
+        anchor_date = demand.start_datetime.date() if demand is not None else assignment.start_datetime.date()
+        applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)
         authorizing_id = day_only_n_exception_authorizing_rule_version_id(applicable, assignment.employee_id)
         if authorizing_id is None:
             details.append(ViolationDetail("DAY_ONLY-01", (assignment.assignment_id,), f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id}"))
             continue
-        demand = _covering_demand(assignment, state)
         demand_id = demand.demand_id if demand is not None else assignment.covers_demand_id
-        warnings.append(f"DAY_ONLY-N-FALLBACK-01 SOFT: employee={assignment.employee_id} demand={demand_id} date={assignment.start_datetime.date()} rule_version_id={authorizing_id}")
+        warnings.append(f"DAY_ONLY-N-FALLBACK-01 SOFT: employee={assignment.employee_id} demand={demand_id} date={anchor_date} rule_version_id={authorizing_id}")
 
 
 def _covering_demand(assignment: Assignment, state: PlanningState):
