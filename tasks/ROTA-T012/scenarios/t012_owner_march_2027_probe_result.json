@@ -1,0 +1,51 @@
+{
+  "scenario": "owner March 2027 single coverage",
+  "generated_demand_count": 62,
+  "with_day_only_n_exception": {
+    "status": "FEASIBLE",
+    "assignment_count": 62,
+    "hard_pass": true,
+    "violations": [],
+    "warning_count": 0,
+    "shifts_by_employee": {
+      "A": {"D": 6, "N": 8, "hours": 168},
+      "B": {"D": 0, "N": 3, "hours": 36},
+      "C": {"D": 9, "N": 7, "hours": 192},
+      "D": {"D": 6, "N": 9, "hours": 180},
+      "E": {"D": 10, "N": 4, "hours": 168}
+    },
+    "doctor_day_assignments": [
+      ["2027-03-02", "N"],
+      ["2027-03-17", "N"]
+    ],
+    "constraint_checks": {
+      "B_assignments_overlapping_sick_leave": 0,
+      "D_assignments_overlapping_wedding_leave": 0,
+      "E_assignments_overlapping_friday_treatments": 0,
+      "C_day_shifts_starting_on_doctor_days": 0
+    }
+  },
+  "without_day_only_n_exception_control": {
+    "status": "FEASIBLE",
+    "assignment_count": 62,
+    "hard_pass": true,
+    "violations": [],
+    "warning_count": 0,
+    "shifts_by_employee": {
+      "A": {"D": 14, "N": 0, "hours": 168},
+      "B": {"D": 1, "N": 4, "hours": 60},
+      "C": {"D": 5, "N": 10, "hours": 180},
+      "D": {"D": 3, "N": 11, "hours": 168},
+      "E": {"D": 8, "N": 6, "hours": 168}
+    },
+    "doctor_day_assignments": [
+      ["2027-03-17", "N"]
+    ],
+    "constraint_checks": {
+      "B_assignments_overlapping_sick_leave": 0,
+      "D_assignments_overlapping_wedding_leave": 0,
+      "E_assignments_overlapping_friday_treatments": 0,
+      "C_day_shifts_starting_on_doctor_days": 0
+    }
+  }
+}

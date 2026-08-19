@@ -1,0 +1,92 @@
+POST-INTEGRATION DAY_ONLY FALLBACK AUDIT — ROUND 24
+
+AUDYTOWANY STAN:
+main @ 379bff45b006ca4ef35ab640362e42da3abc6fd4
+
+ŹRÓDŁO DECYZJI:
+Owner decision 2026-08-19:
+- zgoda na N dla day_only oznacza awaryjny fallback SOFT;
+- normalny kompletny grafik z zerem takich N zawsze ma pierwszeństwo;
+- jeżeli potrzebny jest fallback, minimalizuje się liczbę wyjątkowych N;
+- wyjątkowa N day_only ma pierwszeństwo przed emergency 24 h na obiekcie
+  o normie 12 h, ponieważ 24 h jest dalej idącym i potencjalnie prawnym
+  naruszeniem stosowanym dopiero przy braku bezpieczniejszej możliwości.
+
+WERDYKT:
+FAIL — OBECNY WYJĄTEK JEST ZWYKŁYM HARD BYPASSEM, NIE FALLBACKIEM SOFT
+
+
+SECTION_CHECK 1 — WIĄŻĄCY SCENARIUSZ MARZEC 2027: FAIL
+
+Pełny scenariusz właściciela generuje 62 demandy D/N dla pięciu osób i
+zachowuje L4, lekarza, urlop ślubny oraz pełną piątkową niedostępność.
+
+Obecny wynik z aktywną zgodą EMPLOYEE_DAY_ONLY_N_EXCEPTION:
+
+- FEASIBLE, 62/62, independent HARD PASS;
+- pracownik A (`day_only`) dostaje 8 N.
+
+Kontrolny wynik po usunięciu samej zgody:
+
+- FEASIBLE, 62/62, independent HARD PASS;
+- pracownik A dostaje 0 N.
+
+Kompletny grafik bez wyjątkowej N istniał, więc użycie ośmiu N narusza nową
+decyzję produktu „tylko w najwyższej konieczności”.
+
+
+SECTION_CHECK 2 — ZWYKŁA WAGA SOFT NIE JEST WYSTARCZAJĄCA: FAIL
+
+Obecny wyjątek usuwa wyłącznie DAY_ONLY-01 z eligibility i nie nadaje użyciu
+N żadnego pierwszeństwa/minimalizacji. Zwykła mała kara SOFT również nie
+zapewni kontraktu: TARGET-01 może ją poświęcić dla lepszego bilansu godzin.
+
+Wymagana jest gwarancja konstrukcyjna:
+
+1. pierwszy przebieg zachowuje DAY_ONLY jako HARD;
+2. jego kompletny wynik kończy PLAN z zerem wyjątkowych N;
+3. dopiero brak kompletnego grafiku otwiera datowane zgody;
+4. liczba wykorzystanych zgód N jest minimalizowana leksykograficznie przed
+   TARGET/fairness/pozostałymi SOFT;
+5. każde użycie jest jawne dla koordynatora.
+
+
+SECTION_CHECK 3 — KOLEJNOŚĆ WZGLĘDEM EMERGENCY 24 H: WYMAGA IMPLEMENTACJI
+
+Zamrożona przez właściciela kolejność ryzyka:
+
+1. normalny PLAN bez obu fallbacków;
+2. minimalna liczba wyjątkowych N day_only, bez emergency 24 h;
+3. dopiero potem emergency 24 h, nadal bez zbędnych N day_only;
+4. następnie istniejąca diagnoza/DECISION_REQUIRED.
+
+Test kontraktowy musi zawierać przypadek, w którym każda z dwóch metod
+osobno daje kompletny grafik. Oczekiwany wybór: wyjątkowa N day_only,
+zero emergency 24 h.
+
+
+SECTION_CHECK 4 — TEST REGRESYJNY: FAIL ZGODNY Z REPRODUKTOREM
+
+Plik:
+`tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py`
+
+Test zachowuje pełny generator katalogu, rzeczywisty engine i independent
+validator. Po decyzji właściciela zawiera oczekiwanie A.N == 0 przy aktywnej
+zgodzie, ponieważ kontrolny normalny przebieg jest FEASIBLE.
+
+Obecny wynik: FAIL, actual A.N == 8, expected 0.
+
+
+FINDING DAY-R24-1 — DAY_ONLY EXCEPTION NIE JEST AWARYJNYM SOFT FALLBACKIEM
+
+Klasa: błędna kolejność/priorytet funkcji celu, nie błąd eligibility pojedynczej
+zmiany. Łatanie tylko marcowej dystrybucji albo dodanie arbitralnej wagi nie
+zamyka klasy.
+
+STATUS: OPEN — BLOCKS ACCEPTANCE OF THE NEW OWNER DECISION.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Retry order i priorytet ryzyka są decyzją właściciela; raport nie
+narzuca modułów, sygnatur ani mechanizmu solvera.

@@ -1,0 +1,99 @@
+POST-INTEGRATION ABSENCE ACCOUNTING AUDIT — ROUND 23
+
+AUDYTOWANY STAN:
+main @ 379bff45b006ca4ef35ab640362e42da3abc6fd4
+
+ŹRÓDŁO DECYZJI:
+Owner decision 2026-08-19:
+- L4 pomniejsza normę wyłącznie za dni robocze;
+- LEAVE_GRANTED pomniejsza normę wyłącznie za dni robocze;
+- soboty, niedziele i święta ustawowe nie są dniami roboczymi.
+
+WERDYKT:
+FAIL — OBECNA IMPLEMENTACJA LICZY DNI KALENDARZOWE ZAMIAST ROBOCZYCH
+
+
+SECTION_CHECK 1 — REPRODUKTOR MARZEC 2027 / L4: FAIL
+
+Zakres L4 pracownika B: 2027-03-02..2027-03-19, inclusive.
+
+- implementacja liczy 18 dni kalendarzowych;
+- prawidłowa liczba dni roboczych wynosi 14;
+- aktualny solver target: 168 - 18*8 = 24 h;
+- target zgodny z decyzją: 168 - 14*8 = 56 h;
+- przy 36 h pracy implementacja widzi +12 h względem targetu, podczas gdy
+  poprawny wynik to -20 h.
+
+Skutek jest decyzyjny: TARGET-01 preferuje inną dystrybucję godzin i dlatego
+pracownik B dostał w scenariuszu za mało godzin z perspektywy koordynatora.
+
+
+SECTION_CHECK 2 — LEAVE_GRANTED / WORKBALANCE: FAIL
+
+`rota.balance.compute_month_balance()` używa tego samego kalendarzowego
+licznika dla LEAVE_GRANTED. Urlop 2027-03-02..2027-03-19 daje obecnie
+effective target 24 h zamiast 56 h. Błąd dotyczy więc nie tylko celu solvera,
+ale również miesięcznego i narastającego bilansu kwartalnego.
+
+
+SECTION_CHECK 3 — ŚWIĘTO W DZIEŃ POWSZEDNI: FAIL
+
+Reproduktor dla 2027-05-01..2027-05-07 zawiera ustawowe święto oznaczone
+`CalendarDay(2027-05-03, holiday=True)`:
+
+- dni robocze w zakresie: 4 (4–7 maja);
+- oczekiwany target: 168 - 4*8 = 136 h;
+- aktualny target: 112 h, ponieważ kod liczy wszystkie 7 dni kalendarzowych;
+- `PlanningState.calendar_days` zawiera potrzebną informację o święcie, ale
+  obecny licznik absencji jej nie używa.
+
+
+SECTION_CHECK 4 — WŁAŚCICIEL KONTRAKTU I GRANICE NAPRAWY: FAIL
+
+`rota/planning/absence.py` jawnie zamraża wcześniejsze zachowanie jako
+„8h per calendar day”. Round 23 nie przedstawia tego jako nieujawnionej
+regresji T012: nowa decyzja właściciela z 2026-08-19 zmienia wcześniejszą
+regułę produktu i musi zostać zapisana w kontrakcie przed implementacją.
+
+Wymagany rezultat, bez narzucania architektury:
+
+1. jeden dzień absencji może pomniejszyć normę najwyżej raz;
+2. liczą się tylko poniedziałek–piątek;
+3. `CalendarDay.holiday=True` wyklucza dzień także wtedy, gdy przypada
+   od poniedziałku do piątku;
+4. reguła obowiązuje SICK_LEAVE oraz LEAVE_GRANTED;
+5. solver TARGET-01, month balance i quarter balance muszą liczyć identyczny
+   zbiór dni dla tego samego rodzaju absencji w zakresie, który konsumują;
+6. HARD blokowanie pracy podczas L4/urlopu pozostaje bez zmian.
+
+
+SECTION_CHECK 5 — WERYFIKACJA: FAIL ZGODNY Z REPRODUKTOREM
+
+Plik:
+`tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py`
+
+Wynik na audytowanym stanie:
+
+- L4 marzec / solver target: FAIL, actual 24, expected 56;
+- urlop marzec / WorkBalance: FAIL, actual -24, expected -56;
+- L4 maj ze świętem / solver target: FAIL, actual 112, expected 136;
+- łącznie: 0/3 PASS, 3/3 oczekiwanych reprodukcji błędu;
+- Ruff reproduktora: PASS.
+
+
+FINDING ABS-R23-1 — LICZENIE KALENDARZOWYCH DNI L4/URLOPU
+
+Klasa: błędna arytmetyka celu i bilansu.
+
+Obecne `excused_absence_days_in_month()` tworzy unię wszystkich dat
+kalendarzowych w zakresie. Nie filtruje weekendów ani CalendarDay.holiday.
+Funkcja jest współdzielona przez solver i WorkBalance, więc błąd ma więcej
+niż jednego konsumenta.
+
+STATUS: OPEN — BLOCKS ACCEPTANCE OF THE NEW OWNER DECISION.
+
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport określa wymagane zachowanie i klasę testów, ale nie narzuca
+sygnatur, nowych modułów ani sposobu przekazania kalendarza.
