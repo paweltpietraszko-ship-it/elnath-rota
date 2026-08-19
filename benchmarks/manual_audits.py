@@ -75,8 +75,10 @@ def verify_feasible_month(state: PlanningState, employees: tuple[str, ...]) -> b
     month = state.month
     result = plan(state)
     print(f"\n=== {month.isoformat()} === STATUS={result.status} CANDIDATES={len(result.candidates)}")
-    if result.status != "FEASIBLE" or len(result.candidates) != 1:
-        print("MANUAL_VERDICT=FAIL (expected exactly one FEASIBLE candidate)")
+    # T017: FEASIBLE legally returns 1-3 pairwise-diverse candidates; the
+    # manual audit still only inspects the first (pre-T017 ground truth).
+    if result.status != "FEASIBLE" or not (1 <= len(result.candidates) <= 3):
+        print("MANUAL_VERDICT=FAIL (expected a legal 1-3 candidate FEASIBLE result)")
         return False
     candidate = result.candidates[0]
     _print_schedule_grid(candidate, month)

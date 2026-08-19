@@ -28,10 +28,12 @@ def _case(case_id: str):
 
 
 def _clean_candidate():
+    # T017: FEASIBLE legally returns 1-3 candidates now; this helper still
+    # freezes the pre-T017 first-candidate ground truth.
     scenario = _case("calendar-28-feb-2027")
     result = plan(build_planning_state(scenario))
     assert result.status == "FEASIBLE"
-    assert len(result.candidates) == 1
+    assert 1 <= len(result.candidates) <= 3
     return scenario, result.candidates[0]
 
 

@@ -381,10 +381,18 @@ def test_b10_4_5_global_minimum_exceptional_n_not_inflated_for_fairness():
     )
     result = plan(state)
     assert result.status == "FEASIBLE"
+    # T017: FEASIBLE may legally return 1-3 diverse candidates; the first
+    # candidate keeps the pre-T017 placement oracle, and exceptional_n_count
+    # (== exactly one DAY_ONLY-N-FALLBACK-01 warning) must hold for EVERY
+    # returned candidate, not just the first.
     by_demand = {a.covers_demand_id: a.employee_id for a in result.candidates[0]}
     assert by_demand["N-6"] == "C"
     assert by_demand["N-13"] in {"A", "B"}
-    assert len([w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]) == 1
+    fallback_warnings = [w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]
+    assert len(fallback_warnings) == len(result.candidates)
+    if len(result.candidates) > 1:
+        for index in range(1, len(result.candidates) + 1):
+            assert len([w for w in fallback_warnings if w.startswith(f"candidate={index} | ")]) == 1
 
 
 # B10.6 -----------------------------------------------------------------------
