@@ -70,6 +70,7 @@ TASK_SCOPE:
 - tests/test_audit_t010_r5_b.py
 - tests/test_balance.py
 - tests/test_audit_r20_r21_findings.py
+- tests/test_sick_leave.py
 
 Żaden inny plik bez STOP + amendment architekta.
 
@@ -92,7 +93,7 @@ NEW_FILES:
 
 ## R1 SCOPE AMENDMENT — LEGACY TEST HARNESS / SUPERSEDED EXPECTATIONS
 
-T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych siedmiu istniejących test files. To nie jest zgoda na redesign starych testów. Dozwolone są tylko mechaniczne adaptacje literalnych oczekiwań supersedowanych przez T018:
+T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych ośmiu istniejących test files. To nie jest zgoda na redesign starych testów. Dozwolone są tylko mechaniczne adaptacje literalnych oczekiwań supersedowanych przez T018:
 
 1. `tests/test_t012.py`
    - stare monkeypatched `solve(...)` fakes mogą dostać `allow_day_only_n_fallback=False`;
@@ -125,15 +126,22 @@ T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych siedmiu i
    - pozostałe WorkBalance assertions pozostają bez zmian.
 
 7. `tests/test_audit_r20_r21_findings.py`
-   - wyłącznie R21-1 direct absence-helper regression dostaje kompletny calendar fixture i oczekuje workday-filtered union;
+   - R21-1 direct absence-helper regression dostaje kompletny calendar fixture i oczekuje workday-filtered union;
    - dla 2026-10-01..2026-10-05 union pozostaje jedną unią dat, ale kwalifikowane są 3 workdays, więc expected count = 3;
-   - R20-1/R20-2/R20-3 assertions nie są otwierane przez ten amendment.
+   - R20-2c SICK_LEAVE frozen-conflict case dostaje kompletny nieświąteczny October `CalendarDay` fixture, aby nowy fail-closed calendar contract nie przechwycił testu przed istniejącym oracle `DECISION_REQUIRED / SICK_LEAVE-01`;
+   - R20-1/R20-2a/b/d/R20-3 statusy i asercje pozostają bez zmian.
+
+8. `tests/test_sick_leave.py`
+   - każdy direct `plan(state)` zawierający aktywny `SICK_LEAVE` dostaje kompletny `CalendarDay` fixture dla miesiąca; nie wyłączać fail-closed;
+   - literalna arytmetyka „2026-10-01..05 = 5 dni = 40 h” jest supersedowana: kwalifikowane są 3 workdays (1,2,5 października) = 24 h;
+   - test target-adjustment ma zachować swój pierwotny sens porównawczy przez mechaniczne dostosowanie fixture/expected target do 3*8 h, nie przez powrót do calendar-day counting;
+   - HARD SICK blocking, outside-range eligibility, solver-only SICK ownership, LEAVE_GRANTED non-adjustment i REPLAN redistribution pozostają semantycznie bez zmian.
 
 Zakaz:
-- żadnych innych zmian w tych siedmiu plikach;
+- żadnych innych zmian w tych ośmiu plikach;
 - żadnego osłabiania dawnych findings;
 - żadnego przepisywania task-level T012 oracle;
-- jeżeli implementacja odkryje ósmy istniejący test wymagający zmiany oczekiwania, STOP + amendment architekta przed edycją.
+- jeżeli implementacja odkryje dziewiąty istniejący test wymagający zmiany oczekiwania, STOP + amendment architekta przed edycją.
 
 ## CHECKPOINT A — ABSENCE WORKDAY ACCOUNTING
 
@@ -164,7 +172,7 @@ Jeżeli brak kwalifikowanej absencji, legacy call bez calendar_days może nadal 
 
 ### A4. Solver TARGET
 
-`_sick_adjusted_targets(state)` przekazuje `state.calendar_days` do canonical helper, gdy istnieje target/WorkBalance wymagający policzenia SICK adjustment; brak targetów nie wymaga bezcelowego wywołania helpera.
+`_sick_adjusted_targets(state)` przekazuje `state.calendar_days` do canonical helper.
 
 Pozostaje tylko `SICK_LEAVE`.
 
@@ -197,7 +205,7 @@ W `tests/test_t018.py`:
 6. cross-month clipping;
 7. absence weekend/holiday nadal HARD-blockuje Assignment;
 8. complete-calendar missing one day -> explicit fail closed;
-9. direct plan with incomplete calendar + sick absence + target context -> TECHNICAL_ERROR;
+9. direct plan with incomplete calendar + sick absence -> TECHNICAL_ERROR;
 10. legacy balance call bez absence i bez calendar_days zachowuje wynik;
 11. existing three Round23 reproducers PASS bez zmiany oracle;
 12. marzec 2027: B target 56 h przy target 168 i L4 2..19 marca.
@@ -376,7 +384,7 @@ Dopiero finalny `ARCHITECT FINAL GATE ACCEPTANCE — ROTA-T018: PASS` oznacza RE
 
 Round 2 jest wąski. Nie otwiera ponownie sekcji, które Round 1 ocenił jako PASS. Codex sprawdza wyłącznie zamknięcie T018-R1-1 i T018-R1-2 oraz mechaniczną czystość nowego contract SHA:
 
-1. literalny TASK_SCOPE obejmuje dokładnie siedem legacy test files wymagających adaptacji oraz `tests/test_t018.py`;
+1. literalny TASK_SCOPE obejmuje dokładnie osiem legacy test files wymagających adaptacji oraz `tests/test_t018.py`;
 2. SCOPE AMENDMENT ogranicza zmiany legacy tests do sygnatur fake, sekwencji retry, jawnego fallback-enabled eligibility i calendar/workday fixtures/oczekiwań;
 3. canonical authorizing ID przy wielu applicable exceptions = deterministic `min(rule_version_id)`;
 4. dokładnie jeden Assignment = jedno exceptional usage = jeden warning, niezależnie od liczby równoważnych zgód;
