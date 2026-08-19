@@ -137,13 +137,8 @@ def build_scenario(*, with_day_only_exception: bool = True) -> PlanningState:
         rules = tuple(rule for rule in rules if rule.rule_version_id != DAY_ONLY_EXCEPTION_ID)
         applicability = tuple(item for item in applicability if item.rule_version_id != DAY_ONLY_EXCEPTION_ID)
     work_balances = tuple(WorkBalance(employee.employee_id, MONTH, 168, 0, 0, 0, 0, 0) for employee in employees)
-    # T018 R10: A-R4-1 fail-closed requires complete CalendarDay coverage
-    # whenever a qualifying SICK_LEAVE (B, above) intersects the month --
-    # this synthetic harness supplies its own complete, non-holiday March
-    # 2027 calendar rather than leaving the fail-closed gate unfed.
-    calendar_days = tuple(
-        CalendarDay(date(2027, 3, day), False) for day in range(1, calendar.monthrange(2027, 3)[1] + 1)
-    )
+    # T018 R10: A-R4-1 fail-closed needs complete CalendarDay coverage for the qualifying SICK_LEAVE (B, above).
+    calendar_days = tuple(CalendarDay(date(2027, 3, day), False) for day in range(1, calendar.monthrange(2027, 3)[1] + 1))
     return PlanningState(
         site=Site(SITE_ID, PROFILE_ID, "Owner March 2027", True),
         profile=profile, month=MONTH, calendar_days=calendar_days, boundary_assignments=(),
