@@ -60,8 +60,8 @@ def test_r25_1a_day_only_does_not_mask_concurrent_sick_leave():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "DAY_ONLY-01" in conditions
-    assert "SICK_LEAVE-01" in conditions
+    assert "Koliduje z checkbox: Nocka" in conditions
+    assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
 def test_r25_1b_sick_leave_does_not_mask_concurrent_rest01():
@@ -85,8 +85,8 @@ def test_r25_1b_sick_leave_does_not_mask_concurrent_rest01():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "REST-01" in conditions
-    assert "SICK_LEAVE-01" in conditions
+    assert "Koliduje z odpoczynkiem dobowym" in conditions
+    assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
 def test_r25_1_dangling_trainee_still_forces_technical_error():
@@ -130,7 +130,7 @@ def test_sick_leave_wins_over_leave_granted_on_overlapping_day():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert all(b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+    assert all(b.condition == "Koliduje z zapisem: Chorobowe" for b in result.decision_payload.blockers)
 
 
 def test_leave_granted_still_reported_outside_the_sick_range():
@@ -145,7 +145,7 @@ def test_leave_granted_still_reported_outside_the_sick_range():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert all(b.condition == "LEAVE_GRANTED-01" for b in result.decision_payload.blockers)
+    assert all(b.condition == "Koliduje z zapisem: Urlop" for b in result.decision_payload.blockers)
 
 
 def test_validator_reports_only_sick_leave_on_overlapping_day():

@@ -64,22 +64,28 @@ def test_r17_1_existing_only_load01_is_decision_required_not_technical_error():
 
 
 def test_r17_2a_missing_membership_gives_concrete_blocker():
+    """T013: MEMBERSHIP-01 is coordinator-invisible and never suggests a
+    roster change -- only the coordinator decides staffing (section E)."""
     employee = Employee("A", "A", date(2026, 9, 1), None, False)
     state = base_state(employees=(employee,), memberships=(), shift_demands=(DEMAND_D,))
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert result.decision_payload.blockers
-    assert any(b.employee_id == "A" and b.condition == "MEMBERSHIP-01" for b in result.decision_payload.blockers)
+    assert result.decision_payload.blocking_shift_demands
+    assert not any(b.employee_id == "A" for b in result.decision_payload.blockers)
+    assert result.decision_payload.unblocking_options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 def test_r17_2b_other_site_only_membership_gives_concrete_blocker():
+    """T013: same invisibility for the other-site-only membership case."""
     employee = Employee("A", "A", date(2026, 9, 1), None, False)
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A", "other-site"),), shift_demands=(DEMAND_D,),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.employee_id == "A" and b.condition == "MEMBERSHIP-01" for b in result.decision_payload.blockers)
+    assert result.decision_payload.blocking_shift_demands
+    assert not any(b.employee_id == "A" for b in result.decision_payload.blockers)
+    assert result.decision_payload.unblocking_options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 # FINDING R17-3 -------------------------------------------------------------

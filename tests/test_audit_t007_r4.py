@@ -30,7 +30,7 @@ def test_r4_load_payload_does_not_attribute_an_unrelated_site_rule() -> None:
         for day in range(1, 7)
     )
     late_demand = _demand("D20", 20)
-    unrelated_rule = _rule("RV-unrelated", "B", ["N"])
+    unrelated_rule = _rule("RV-unrelated", "B", ["N"], description="Zasada B: tylko noce")
     state = base_state(
         employees=(_employee("A"), _employee("B")),
         memberships=(_membership("A"), _membership("B")),
@@ -48,6 +48,6 @@ def test_r4_load_payload_does_not_attribute_an_unrelated_site_rule() -> None:
     assert without_rule.status == "DECISION_REQUIRED"
     assert without_rule.decision_payload.load_blocker is not None
     assert all(
-        blocker.condition != "RV-unrelated"
+        blocker.condition != "Zasada B: tylko noce"
         for blocker in result.decision_payload.blockers
     )

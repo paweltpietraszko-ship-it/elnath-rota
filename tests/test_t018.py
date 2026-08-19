@@ -152,7 +152,7 @@ def test_a7_7_weekend_absence_still_hard_blocks_assignment():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.employee_id == "A" and b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+    assert any(b.employee_id == "A" and b.condition == "Koliduje z zapisem: Chorobowe" for b in result.decision_payload.blockers)
 
 
 # A7.8 -----------------------------------------------------------------------
@@ -423,7 +423,7 @@ def test_b10_7a_sick_leave_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisem: Chorobowe" for b in result.decision_payload.blockers)
 
 
 def test_b10_7b_membership_disabled_still_blocks_in_fallback_pass():
@@ -436,7 +436,9 @@ def test_b10_7b_membership_disabled_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "MEMBERSHIP_DISABLED" for b in result.decision_payload.blockers)
+    # T013: MEMBERSHIP_DISABLED is coordinator-invisible (section E).
+    assert result.decision_payload.blocking_shift_demands
+    assert not any(b.employee_id == "A" for b in result.decision_payload.blockers)
 
 
 def test_b10_7c_leave_granted_still_blocks_in_fallback_pass():
@@ -451,7 +453,7 @@ def test_b10_7c_leave_granted_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "LEAVE_GRANTED-01" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisem: Urlop" for b in result.decision_payload.blockers)
 
 
 def test_b10_7d_another_site_rule_still_blocks_in_fallback_pass():
@@ -475,7 +477,7 @@ def test_b10_7d_another_site_rule_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "RV-7D-BAN" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisaną regułą obiektu" for b in result.decision_payload.blockers)
 
 
 def test_b10_7e_rest_still_independently_enforced_alongside_active_exception():
@@ -557,7 +559,7 @@ def test_b10_7h_unavailable_24h_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "UNAVAILABLE-01" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z checkbox: Ogólna dostępność" for b in result.decision_payload.blockers)
 
 
 # B10.8 -----------------------------------------------------------------------

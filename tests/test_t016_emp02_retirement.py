@@ -127,7 +127,11 @@ def test_disabled_membership_still_blocks_regardless_of_active_period():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "MEMBERSHIP_DISABLED" for b in result.decision_payload.blockers)
+    # T013: MEMBERSHIP_DISABLED is coordinator-invisible (section E) -- the
+    # planning outcome (still blocked) is what T016 guarantees, not the
+    # visibility of the raw code.
+    assert result.decision_payload.blocking_shift_demands
+    assert not any(b.employee_id == "E" for b in result.decision_payload.blockers)
 
 
 # Scenario 6 -------------------------------------------------------------
@@ -147,7 +151,7 @@ def test_availability_hard_still_blocks_employee_outside_active_period():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "LEAVE_GRANTED-01" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisem: Urlop" for b in result.decision_payload.blockers)
 
 
 # Scenario 7 -------------------------------------------------------------

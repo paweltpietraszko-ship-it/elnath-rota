@@ -73,7 +73,7 @@ def _night_demand(demand_id: str, day: int) -> ShiftDemand:
     )
 
 
-def _rule(rule_version_id: str, employee_id: str, allowed: object) -> SiteRuleVersion:
+def _rule(rule_version_id: str, employee_id: str, allowed: object, *, description: str | None = None) -> SiteRuleVersion:
     return SiteRuleVersion(
         rule_version_id,
         f"rule-{rule_version_id}",
@@ -88,7 +88,7 @@ def _rule(rule_version_id: str, employee_id: str, allowed: object) -> SiteRuleVe
         datetime(2026, 9, 1),
         "COORD",
         None,
-        None,
+        description,
         None,
         None,
     )
@@ -128,7 +128,7 @@ def test_r3_profile_scope_does_not_depend_on_profile_id_text(profile_id: str) ->
     result = plan(state)
 
     assert result.status == "DECISION_REQUIRED"
-    assert any(blocker.condition == "RV-profile" for blocker in result.decision_payload.blockers)
+    assert any(blocker.condition == "Koliduje z zapisaną regułą obiektu" for blocker in result.decision_payload.blockers)
 
 
 @pytest.mark.parametrize(
@@ -278,7 +278,7 @@ def test_r3_cross_demand_conflict_preserves_site_rule_provenance(
 
     assert result.status == "DECISION_REQUIRED"
     assert any(
-        blocker.condition == "RV-cross-conflict"
+        blocker.condition == "Koliduje z zapisaną regułą obiektu"
         for blocker in result.decision_payload.blockers
     )
 
@@ -337,7 +337,7 @@ def test_r3_load_fallback_preserves_site_rule_provenance(
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None
     assert any(
-        blocker.condition == "RV-load-cause"
+        blocker.condition == "Koliduje z zapisaną regułą obiektu"
         for blocker in result.decision_payload.blockers
     )
 
