@@ -530,6 +530,36 @@ def test_b10_7f_load_still_independently_enforced_alongside_active_exception():
     assert not any(d.rule == "DAY_ONLY-01" for d in report.violation_details)
 
 
+def test_b10_7g_day_shift_off_still_blocks_in_fallback_pass():
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-7G", "A")
+    day_off = AvailabilityRecord("do1", "do1v1", "A", AvailabilityKind.DAY_SHIFT_OFF, date(2026, 10, 6), date(2026, 10, 6), True, None, None)
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(_n_demand(6),), availability_records=(day_off,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.condition == "DAY_SHIFT_OFF-01" for b in result.decision_payload.blockers)
+
+
+def test_b10_7h_unavailable_24h_still_blocks_in_fallback_pass():
+    a = _employee("A", day_only=True)
+    rule = _exception_rule("RV-7H", "A")
+    unavailable = AvailabilityRecord("u1", "u1v1", "A", AvailabilityKind.UNAVAILABLE_24H, date(2026, 10, 6), date(2026, 10, 6), True, None, None)
+    state = base_state(
+        employees=(a,), memberships=(_membership("A"),),
+        shift_demands=(_n_demand(6),), availability_records=(unavailable,),
+        site_rules=(rule,), site_rule_applicability=(_applicability(rule),),
+        month=B_MONTH,
+    )
+    result = plan(state)
+    assert result.status == "DECISION_REQUIRED"
+    assert any(b.condition == "UNAVAILABLE-01" for b in result.decision_payload.blockers)
+
+
 # B10.8 -----------------------------------------------------------------------
 
 
