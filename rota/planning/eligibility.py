@@ -48,7 +48,7 @@ from rota.domain import (
 )
 from rota.domain import SiteRuleVersion
 from rota.planning.shift_catalog import normalized_catalog_kind
-from rota.planning.site_rules import day_only_n_exception_applies, rule_allows_assignment
+from rota.planning.site_rules import day_only_n_exception_authorizing_rule_version_id, rule_allows_assignment
 from rota.planning.timeutil import overlaps_date_range
 
 
@@ -57,6 +57,11 @@ class EligibilityCheck:
     eligible: bool
     leave_plan_collision: bool
     blocked_reason: Optional[str] = None
+    # T018 B3/B4: set only when this slot's DAY_ONLY-01 gate was bypassed by
+    # an applicable EMPLOYEE_DAY_ONLY_N_EXCEPTION in a fallback-enabled pass
+    # -- the canonical authorizing rule_version_id (site_rules.py's single
+    # min(rule_version_id) owner), for solver exceptional_n_count provenance.
+    day_only_fallback_rule_version_id: Optional[str] = None
 
 
 def overlaps_availability(demand: ShiftDemand, record: AvailabilityRecord) -> bool:
@@ -151,6 +156,7 @@ def _common_hard_gate(
     profile: SiteProfile,
     availability_records: list[AvailabilityRecord],
     applicable_hard_rules: list[SiteRuleVersion],
+    allow_day_only_n_fallback: bool = False,
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled,
     SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
@@ -165,11 +171,17 @@ def _common_hard_gate(
     # component of a normal 24h occurrence.
     if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not is_all_24h_profile(profile):
         return EligibilityCheck(False, False, "SHIFT-24-01")
+    day_only_fallback_rule_version_id = None
     if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
-        # ROTA-T010-B (DAY-ONLY-TEMP-N-EXCEPTION-01): a narrow, named
-        # exception may exempt DAY_ONLY-01 specifically -- every other HARD
-        # gate below still applies.
-        if not day_only_n_exception_applies(applicable_hard_rules, employee.employee_id):
+        # T018 DAY-ONLY-N-FALLBACK-01: the exception NEVER exempts DAY_ONLY-01
+        # in a normal pass anymore -- only a fallback-enabled pass may consult
+        # it, and only then does a legal match lift the block, still leaving
+        # every other HARD gate below in force.
+        if allow_day_only_n_fallback:
+            day_only_fallback_rule_version_id = day_only_n_exception_authorizing_rule_version_id(
+                applicable_hard_rules, employee.employee_id
+            )
+        if day_only_fallback_rule_version_id is None:
             return EligibilityCheck(False, False, "DAY_ONLY-01")
     reason, leave_plan_collision = _blocked_by_availability(demand, availability_records)
     if reason:
@@ -177,7 +189,7 @@ def _common_hard_gate(
     site_rule_block = _blocked_by_site_rules(employee.employee_id, demand, shift_kind, applicable_hard_rules)
     if site_rule_block:
         return EligibilityCheck(False, False, site_rule_block)
-    return EligibilityCheck(True, leave_plan_collision, None)
+    return EligibilityCheck(True, leave_plan_collision, None, day_only_fallback_rule_version_id)
 
 
 def _external_window_covers(
@@ -205,10 +217,12 @@ def check_eligibility(
     external_windows: list[ExternalSupportWindow],
     site_id: str,
     applicable_hard_rules: list[SiteRuleVersion] = (),
+    allow_day_only_n_fallback: bool = False,
 ) -> EligibilityCheck:
     """Return whether employee may cover demand, plus a reason code when blocked."""
     gate = _common_hard_gate(
-        employee, membership, demand, shift_kind, profile, availability_records, applicable_hard_rules
+        employee, membership, demand, shift_kind, profile, availability_records, applicable_hard_rules,
+        allow_day_only_n_fallback,
     )
     if not gate.eligible:
         return gate

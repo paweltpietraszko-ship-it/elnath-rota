@@ -149,6 +149,7 @@ def test_r9_b_c_d_day_only_exception_to_nn_keeps_inputs_and_history_consistent(
         [],
         DAY_ONLY_SITE,
         applicable,
+        allow_day_only_n_fallback=True,
     )
     not_ready = check_eligibility(
         day_only_employee(),
@@ -160,6 +161,7 @@ def test_r9_b_c_d_day_only_exception_to_nn_keeps_inputs_and_history_consistent(
         [],
         DAY_ONLY_SITE,
         applicable,
+        allow_day_only_n_fallback=True,
     )
     assert eligible == not_ready
     assert eligible.eligible

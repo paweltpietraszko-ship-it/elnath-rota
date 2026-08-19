@@ -159,23 +159,39 @@ def rule_allows_assignment(rule: SiteRuleVersion, employee_id: str, demand_start
     raise AssertionError(f"unreachable: unvalidated rule_kind {rule.rule_kind!r}")  # pragma: no cover
 
 
+def day_only_n_exception_authorizing_rule_version_id(
+    applicable_hard_rules: list[SiteRuleVersion], employee_id: str
+) -> str | None:
+    """T018 DAY-ONLY-N-FALLBACK-01 / R1 CLARIFICATION: the single canonical
+    owner of "which EMPLOYEE_DAY_ONLY_N_EXCEPTION authorizes this
+    employee/date" -- used identically by fallback-enabled eligibility,
+    solver slot provenance, independent validator warning, and durable
+    reconstruction, so no two call sites can ever tie-break differently.
+
+    R3-3: the addendum requires category=CONFIRMED_EXCEPTION -- a rule of
+    this kind saved under any other category (e.g. an ordinary LOCAL_RULE)
+    must not grant the exception. When several applicable rule versions
+    (possibly from different rule_id families) all authorize the same
+    employee/date, the canonical id is the lexicographically smallest exact
+    rule_version_id, independent of input order -- a pure tie-break with no
+    product-behavior effect."""
+    matches = [
+        r.rule_version_id for r in applicable_hard_rules
+        if r.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION
+        and r.category == RuleCategory.CONFIRMED_EXCEPTION
+        and r.structured_parameters.get("employee_id") == employee_id
+    ]
+    return min(matches) if matches else None
+
+
 def day_only_n_exception_applies(applicable_hard_rules: list[SiteRuleVersion], employee_id: str) -> bool:
     """DAY-ONLY-TEMP-N-EXCEPTION-01
     (arch/FROZEN_ADDENDUM_DAY_ONLY_TEMP_N_EXCEPTION_01.md): True when an
     applicable RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION rule names
     employee_id. Exempts only DAY_ONLY-01 for N; every other HARD rule
     still applies via AND -- callers must only consult this at the
-    DAY_ONLY-01 check site, never as a general override.
-
-    R3-3: the addendum requires category=CONFIRMED_EXCEPTION -- a rule of
-    this kind saved under any other category (e.g. an ordinary LOCAL_RULE)
-    must not grant the exception."""
-    return any(
-        r.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION
-        and r.category == RuleCategory.CONFIRMED_EXCEPTION
-        and r.structured_parameters.get("employee_id") == employee_id
-        for r in applicable_hard_rules
-    )
+    DAY_ONLY-01 check site, never as a general override."""
+    return day_only_n_exception_authorizing_rule_version_id(applicable_hard_rules, employee_id) is not None
 
 
 def hard_rules_applicable_on(site_rules, applicability, as_of: date) -> list[SiteRuleVersion]:

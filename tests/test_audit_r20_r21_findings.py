@@ -21,6 +21,7 @@ double-counting the shared day(s) against target_hours.
 """
 from __future__ import annotations
 
+import calendar as calendar_module
 from datetime import date, datetime
 
 from rota.domain import (
@@ -44,6 +45,11 @@ DEMAND_D = ShiftDemand("2026-10-01-D", "test-v1", datetime(2026, 10, 1, 5, 0), d
 
 def _local_membership(employee_id: str) -> SiteMembership:
     return SiteMembership(employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+
+
+def _full_month_calendar(month: date) -> tuple[CalendarDay, ...]:
+    last_day = calendar_module.monthrange(month.year, month.month)[1]
+    return tuple(CalendarDay(date(month.year, month.month, day), False) for day in range(1, last_day + 1))
 
 
 # FINDING R20-1 -----------------------------------------------------------
@@ -78,7 +84,7 @@ def test_r20_1_holiday_fairness_finds_the_true_equal_split():
 # FINDING R20-2 -------------------------------------------------------------
 
 
-def _frozen_primary(availability_kind: AvailabilityKind):
+def _frozen_primary(availability_kind: AvailabilityKind, calendar_days: tuple = ()):
     employee = Employee("A", "A", date(2026, 9, 1), None, False)
     frozen = Assignment(
         "frozen-1", "test-v1", "A", DEMAND_D.start_datetime, DEMAND_D.end_datetime,
@@ -88,6 +94,7 @@ def _frozen_primary(availability_kind: AvailabilityKind):
     return base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(DEMAND_D,), existing_assignments=(frozen,), availability_records=(record,),
+        calendar_days=calendar_days,
     )
 
 
@@ -104,7 +111,7 @@ def test_r20_2b_frozen_conflict_with_leave_granted_is_decision_required():
 
 
 def test_r20_2c_frozen_conflict_with_sick_leave_is_decision_required():
-    result = plan(_frozen_primary(AvailabilityKind.SICK_LEAVE))
+    result = plan(_frozen_primary(AvailabilityKind.SICK_LEAVE, calendar_days=_full_month_calendar(date(2026, 10, 1))))
     assert result.status == "DECISION_REQUIRED"
     assert any(b.employee_id == "A" and b.condition == "SICK_LEAVE-01" for b in result.decision_payload.blockers)
 
@@ -178,12 +185,14 @@ def test_r20_3_validator_independently_flags_dangling_trainee_reference():
 def test_r21_1_overlapping_sick_ranges_union_not_sum():
     from rota.planning.absence import excused_absence_days_in_month
 
-    # Two active records both covering Oct 3: union is Oct 1-5 (5 days), not
-    # 3+3=6 days -- the bug summed each record's own day count instead of
-    # unioning per-employee calendar dates.
+    # Two active records both covering Oct 3: union is Oct 1-5 (5 calendar
+    # days), not 3+3=6 days -- the bug summed each record's own day count
+    # instead of unioning per-employee calendar dates. T018: of that union,
+    # only 3 are qualified workdays (Thu 1, Fri 2, Mon 5 -- Sat 3/Sun 4 excluded).
     sick_1 = AvailabilityRecord("s1", "s1v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 1), date(2026, 10, 3), True, None, None)
     sick_2 = AvailabilityRecord("s2", "s2v1", "A", AvailabilityKind.SICK_LEAVE, date(2026, 10, 3), date(2026, 10, 5), True, None, None)
-    assert excused_absence_days_in_month([sick_1, sick_2], date(2026, 10, 1)) == {"A": 5}
+    calendar_days = _full_month_calendar(date(2026, 10, 1))
+    assert excused_absence_days_in_month([sick_1, sick_2], date(2026, 10, 1), calendar_days=calendar_days) == {"A": 3}
 
 
 if __name__ == "__main__":

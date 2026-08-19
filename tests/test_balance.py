@@ -6,6 +6,7 @@ never blocked (e.g. someone hand-assigned 24h/month beyond target).
 """
 from __future__ import annotations
 
+import calendar as calendar_module
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -17,7 +18,13 @@ from rota.domain import (
     AssignmentState,
     AvailabilityKind,
     AvailabilityRecord,
+    CalendarDay,
 )
+
+
+def _full_month_calendar(month: date) -> tuple[CalendarDay, ...]:
+    last_day = calendar_module.monthrange(month.year, month.month)[1]
+    return tuple(CalendarDay(date(month.year, month.month, day), False) for day in range(1, last_day + 1))
 
 
 def _shift(day: int, month: int = 10, year: int = 2026, hours: int = 12, employee_id: str = "A") -> Assignment:
@@ -56,14 +63,15 @@ def test_quarter_balance_accumulates_across_three_months():
 
 
 def test_leave_granted_reduces_effective_target_by_8h_per_day_for_balance():
-    # 5 days LEAVE_GRANTED -> 40h reduction; target 156 -> effective 116.
-    # 116h realized means month_balance == 0, not -40.
-    assignments = [_shift(d, hours=int(116 / 10)) for d in range(6, 16)]
+    # T018: LEAVE_GRANTED 2026-10-01..05 has exactly 3 qualified workdays
+    # (Thu 1, Fri 2, Mon 5 -- Sat 3/Sun 4 excluded) -> 24h reduction;
+    # target 156 -> effective 132.
+    assignments = [_shift(d, hours=int(132 / 10)) for d in range(6, 16)]
     leave = AvailabilityRecord("l1", "l1v1", "A", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
     total_realized = sum(int((a.end_datetime - a.start_datetime).total_seconds() // 3600) for a in assignments)
-    balance = compute_month_balance("A", date(2026, 10, 1), 156, assignments, [leave])
+    balance = compute_month_balance("A", date(2026, 10, 1), 156, assignments, [leave], calendar_days=_full_month_calendar(date(2026, 10, 1)))
     assert balance.realized_hours == total_realized
-    assert balance.month_balance == total_realized - 116
+    assert balance.month_balance == total_realized - 132
 
 
 def test_no_assignments_gives_negative_balance_not_a_crash():

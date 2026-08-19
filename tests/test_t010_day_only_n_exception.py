@@ -85,7 +85,7 @@ def _eligible_for_n(conn, day: int, month: date, availability_records=()) -> boo
     demand = _n_demand(day)
     result = check_eligibility(
         _employee(), _membership(), demand, ShiftKind.N, base_profile(),
-        list(availability_records), [], SITE_ID, applicable,
+        list(availability_records), [], SITE_ID, applicable, allow_day_only_n_fallback=True,
     )
     return result.eligible
 
@@ -177,6 +177,7 @@ def test_disabled_membership_still_blocks_despite_exception(tmp_path: Path) -> N
     disabled_membership = SiteMembership(EMP, SITE_ID, MembershipKind.LOCAL, False, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
     result = check_eligibility(
         _employee(), disabled_membership, _n_demand(12), ShiftKind.N, base_profile(), [], [], SITE_ID, applicable,
+        allow_day_only_n_fallback=True,
     )
     assert not result.eligible
     assert result.blocked_reason == "MEMBERSHIP_DISABLED"

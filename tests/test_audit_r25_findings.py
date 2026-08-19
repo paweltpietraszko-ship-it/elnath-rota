@@ -12,6 +12,7 @@ SICK_LEAVE-01 ("chorobowe"), not LEAVE_GRANTED-01 ("urlop").
 """
 from __future__ import annotations
 
+import calendar as calendar_module
 from datetime import date, datetime
 
 from rota.domain import (
@@ -20,6 +21,7 @@ from rota.domain import (
     AssignmentState,
     AvailabilityKind,
     AvailabilityRecord,
+    CalendarDay,
     Employee,
     MembershipKind,
     ShiftDemand,
@@ -32,6 +34,11 @@ from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID
 
 def _local_membership(employee_id: str) -> SiteMembership:
     return SiteMembership(employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+
+
+def _full_month_calendar(month: date) -> tuple[CalendarDay, ...]:
+    last_day = calendar_module.monthrange(month.year, month.month)[1]
+    return tuple(CalendarDay(date(month.year, month.month, day), False) for day in range(1, last_day + 1))
 
 
 # FINDING R25-1 -----------------------------------------------------------
@@ -48,6 +55,7 @@ def test_r25_1a_day_only_does_not_mask_concurrent_sick_leave():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand_n,), existing_assignments=(frozen,), availability_records=(sick,),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
@@ -72,6 +80,7 @@ def test_r25_1b_sick_leave_does_not_mask_concurrent_rest01():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),), shift_demands=(demand_d,),
         existing_assignments=(earlier_fixed, frozen_d), availability_records=(sick,),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
@@ -100,6 +109,7 @@ def test_r25_1_dangling_trainee_still_forces_technical_error():
     state = base_state(
         employees=(employee, mentee), memberships=(_local_membership("A"), _local_membership("MENTEE")),
         shift_demands=(demand,), existing_assignments=(frozen_conflict, dangling_trainee), availability_records=(sick,),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "TECHNICAL_ERROR"
@@ -116,6 +126,7 @@ def test_sick_leave_wins_over_leave_granted_on_overlapping_day():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand,), availability_records=(urlop, zwolnienie),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
@@ -130,6 +141,7 @@ def test_leave_granted_still_reported_outside_the_sick_range():
     state = base_state(
         employees=(employee,), memberships=(_local_membership("A"),),
         shift_demands=(demand,), availability_records=(urlop, zwolnienie),
+        calendar_days=_full_month_calendar(date(2026, 10, 1)),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"

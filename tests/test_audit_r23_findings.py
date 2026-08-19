@@ -19,6 +19,7 @@ one that didn't cover the full training interval, passed HARD validation.
 """
 from __future__ import annotations
 
+import calendar as calendar_module
 from datetime import date, datetime
 
 from rota.domain import (
@@ -42,6 +43,11 @@ DEMAND_D = ShiftDemand("2026-10-01-D", "test-v1", datetime(2026, 10, 1, 5, 0), d
 
 def _local_membership(employee_id: str) -> SiteMembership:
     return SiteMembership(employee_id, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+
+
+def _full_month_calendar(month: date) -> tuple[CalendarDay, ...]:
+    last_day = calendar_module.monthrange(month.year, month.month)[1]
+    return tuple(CalendarDay(date(month.year, month.month, day), False) for day in range(1, last_day + 1))
 
 
 # FINDING R23-1 -----------------------------------------------------------
@@ -92,6 +98,7 @@ def test_r23_2_short_frozen_id_does_not_mask_dangling_trainee():
         state = base_state(
             employees=(empA, mentee), memberships=(_local_membership("A"), _local_membership("MENTEE")),
             shift_demands=(DEMAND_D,), existing_assignments=(frozen, dangling), availability_records=(sick,),
+            calendar_days=_full_month_calendar(date(2026, 10, 1)),
         )
         result = plan(state)
         assert result.status == "TECHNICAL_ERROR", f"frozen_id={frozen_id!r} masked the dangling reference"
