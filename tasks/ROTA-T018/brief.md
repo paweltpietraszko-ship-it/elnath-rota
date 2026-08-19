@@ -1,6 +1,6 @@
 # ROTA-T018 — WORKDAY ABSENCE ACCOUNTING + DAY_ONLY N FALLBACK
 
-STATUS: CHECKPOINT A — R4/R6 FIXES AUTHORIZED; B BLOCKED
+STATUS: CHECKPOINT B — R9 SCOPE AMENDMENT AUTHORIZED
 DATE: 2026-08-19
 TASK_ID: ROTA-T018
 BASE_SHA: c55722dfa689baa2ae39ba51a0c290f35d7f2112
@@ -72,6 +72,7 @@ TASK_SCOPE:
 - tests/test_audit_r15_findings.py
 - tests/test_t010_day_only_n_exception.py
 - tests/test_audit_t010_r5_b.py
+- tests/test_audit_t010_r9_consistency.py
 - tests/test_balance.py
 - tests/test_audit_r20_r21_findings.py
 - tests/test_sick_leave.py
@@ -181,7 +182,7 @@ Zakaz dla całego legacy-test amendment:
 - żadnego osłabiania dawnych findings ani zmiany ich końcowych statusów/blocker conditions;
 - żadnego przepisywania task-level T012 oracle poza dokładnie A-R4-3 wyjątkiem poniżej;
 - żadnego helpera produkcyjnego tylko po to, aby ułatwić fixture testowe;
-- jeżeli implementacja odkryje trzynasty istniejący plik pod `tests/` wymagający zmiany oczekiwania lub sygnatury, STOP + amendment architekta przed edycją.
+- jeżeli implementacja odkryje kolejny istniejący plik pod `tests/` wymagający zmiany oczekiwania lub sygnatury, STOP + amendment architekta przed edycją.
 
 ## CHECKPOINT A — ROUND 4 FINDINGS / SCOPE AMENDMENT
 
@@ -309,6 +310,28 @@ Musi potwierdzić:
 - relevant tests + full suite + Ruff + guard + diff-check PASS.
 
 Dopiero PASS A pozwala implementować B.
+
+## CHECKPOINT B — R9 CONSISTENCY SCOPE AMENDMENT
+
+Podczas częściowej implementacji B pełna suita wykazała dokładnie jeden dodatkowy legacy test file poza dotychczasowym literalnym TASK_SCOPE: `tests/test_audit_t010_r9_consistency.py`. To jest ten sam mechaniczny wzorzec co R1 amendment item 4/5: stary test autoryzowanego DAY_ONLY N woła `check_eligibility(...)` wprost i musi jawnie wejść w fallback-enabled mode po T018.
+
+Ten amendment wykonuje wymagany STOP i rozszerza finalny legacy-test scope wyłącznie o ten jeden plik. Wcześniejsza liczba 12 legacy test files jest historyczna; finalny scope zawiera teraz 13 legacy test files plus `tests/test_t018.py`.
+
+Dozwolona jest wyłącznie zmiana w:
+`test_r9_b_c_d_day_only_exception_to_nn_keeps_inputs_and_history_consistent`
+
+Dokładnie dwa istniejące wywołania `check_eligibility(...)` — pierwsze z bazowym `membership`, drugie z `replace(membership, readiness_state=ReadinessState.NOT_READY)` — mogą dostać `allow_day_only_n_fallback=True`.
+
+Zakaz:
+- nie zmieniać employee, membership/readiness danych, demandu, `ShiftKind.N`, profilu, availability, Site, applicable rules, persistence ani historii;
+- nie zmieniać liczby ani kolejności tych dwóch eligibility checks;
+- nie zmieniać `assert eligible == not_ready` ani `assert eligible.eligible`;
+- nie zmieniać validator consistency, restart/history/persistence assertions ani żadnej dalszej części R9 testu;
+- żadnych innych zmian w `tests/test_audit_t010_r9_consistency.py`.
+
+To nie otwiera nowej semantyki produktu. Potwierdza wyłącznie, że direct eligibility test historycznej, jawnie zapisanej autoryzacji ma po T018 wywołać ten sam narrow fallback-enabled mode co już autoryzowane testy T010 item 4/5. Jeżeli pełna suita ujawni kolejny istniejący plik wymagający mechanicznej adaptacji, ponownie STOP + amendment architekta przed edycją.
+
+Po dosynchronizowaniu tego contract commit CC może wykonać dokładnie te dwie adaptacje i kontynuować pozostałą implementację Checkpoint B w już zamrożonym scope.
 
 ## CHECKPOINT B — DAY_ONLY N FALLBACK
 
