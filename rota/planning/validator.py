@@ -204,10 +204,8 @@ def _check_membership_enabled(state: PlanningState, assignments: list[Assignment
 
 
 def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
-    """ROTA-T010-B / T018 DAY-ONLY-N-FALLBACK-01: an applicable RESOLVED HARD
-    EMPLOYEE_DAY_ONLY_N_EXCEPTION exempts only DAY_ONLY-01 for N, and emits a
-    SOFT provenance warning with the canonical rule_version_id (site_rules.py's
-    single min() owner, shared with solver slot provenance/reconstruction)."""
+    """ROTA-T010-B / T018: an applicable RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION
+    exempts only DAY_ONLY-01 for N, and emits a SOFT provenance warning with the canonical rule_version_id."""
     day_only_ids = {e.employee_id for e in state.employees if e.day_only}
     if not state.profile.day_only_blocks_n:
         return
@@ -217,10 +215,8 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         kind = _assignment_kind(assignment, state)
         if kind != ShiftKind.N:
             continue
-        # B-R11-1: COVERAGE-01 permits a manual PRIMARY to span more than one
-        # demand, so assignment.start_datetime is not a safe date anchor --
-        # applicability, legality and the warning date all use the covering
-        # ShiftDemand's own start date (brief.md B7).
+        # B-R11-1: COVERAGE-01 permits a spanning manual PRIMARY, so the date
+        # anchor must be the covering ShiftDemand's start, not the Assignment's.
         demand = _covering_demand(assignment, state)
         anchor_date = demand.start_datetime.date() if demand is not None else assignment.start_datetime.date()
         applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)

@@ -651,19 +651,10 @@ def test_b10_13_replan_reshuffle_and_exceptional_n_coexist_correctly():
 # B10.14 ----------------------------------------------------------------------
 
 
-def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids(tmp_path):
-    """B-R11-2: exercise the real persisted path -- open_store -> bootstrap ->
-    PLAN -> select_candidate -> finalize -> close -> reopen -> reconstruct
-    the canonical rule_version_id from ScheduleVersion.applied_rule_version_ids
-    -- not an in-memory surrogate of the same computation."""
-    from rota.application import bootstrap, durable_inputs, lifecycle_ops, memory_read, open_month, plan_ops, rule_decisions, store
-    from rota.application.assembler import assemble_planning_state
+def _b10_14_seed_context(conn, coord: str, site: str, profile_id: str, emp: str, month: date):
+    from rota.application import bootstrap, durable_inputs, rule_decisions
     from rota.domain import Coordinator, CoordinatorSiteAssociation, ShiftKind, Site, SiteProfile, StandardShift
 
-    coord, site, profile_id, emp = "B14-COORD", "B14-SITE", "B14-PROFILE", "B14-EMP"
-    month = date(2026, 10, 1)
-
-    conn = store.open_store(tmp_path / "t018-b10-14.db")
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=coord, site_id=site, coordinator=Coordinator(coord, "B14 coordinator", True),
         site_profile=SiteProfile(profile_id, "B14 profile", True, [StandardShift(ShiftKind.N, datetime(2026, 10, 1, 17).time(), datetime(2026, 10, 2, 5).time(), True, 1)], True, False, False, False, 1, 999),
@@ -678,8 +669,7 @@ def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids
     durable_inputs.set_target_hours(conn, coordinator_id=coord, site_id=site, employee_id=emp, month=month, target_hours=372)
     for day in range(1, calendar_module.monthrange(2026, 10)[1] + 1):
         durable_inputs.set_calendar_day(conn, coordinator_id=coord, site_id=site, day=CalendarDay(date(2026, 10, day), False))
-
-    original = rule_decisions.record_structured_rule_decision(
+    return rule_decisions.record_structured_rule_decision(
         conn, coordinator_id=coord, site_id=site, rule_id="B14-RULE", statement="authorized fallback",
         effective_from=month, recorded_at=datetime(2026, 9, 1, 9),
         rule_content=rule_decisions.NewRuleContent(
@@ -688,6 +678,21 @@ def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids
         ),
     )
 
+
+def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids(tmp_path):
+    """B-R11-2: exercise the real persisted path -- open_store -> bootstrap ->
+    PLAN -> select_candidate -> finalize -> close -> reopen -> reconstruct
+    the canonical rule_version_id from ScheduleVersion.applied_rule_version_ids
+    -- not an in-memory surrogate of the same computation."""
+    from rota.application import lifecycle_ops, memory_read, open_month, plan_ops, store
+    from rota.application.assembler import assemble_planning_state
+
+    coord, site, profile_id, emp = "B14-COORD", "B14-SITE", "B14-PROFILE", "B14-EMP"
+    month = date(2026, 10, 1)
+    db_path = tmp_path / "t018-b10-14.db"
+
+    conn = store.open_store(db_path)
+    original = _b10_14_seed_context(conn, coord, site, profile_id, emp, month)
     result = plan_ops.plan_month(conn, site_id=site, month=month, coordinator_id=coord, effective_from=month)
     assert result.status == "FEASIBLE"
     warning = next(w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w)
@@ -695,7 +700,7 @@ def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids
     lifecycle_ops.finalize(conn, site_id=site, month=month, coordinator_id=coord, acknowledged_deviation_ids=set())
     conn.close()
 
-    reopened = store.open_store(tmp_path / "t018-b10-14.db")
+    reopened = store.open_store(db_path)
     view = open_month.open_month(reopened, site_id=site, month=month)
     state, _ = assemble_planning_state(reopened, site_id=site, month=month)
     applied = set(view.current_version.applied_rule_version_ids)
