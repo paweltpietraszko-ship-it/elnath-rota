@@ -12,7 +12,7 @@ Aktualna baza architektoniczna: `main` po T013, exact SHA `d1a0ec0438718b1b7fd91
 
 Właściciel (Paweł), przy okazji pytania „co się dzieje, jeśli koordynatorowi nie spodoba się wynik PLAN” (2026-08-16), przypomniał wcześniejszy kierunek: solver ma przedstawiać **kilka wariantów** poprawnego grafiku do wyboru, nie jeden.
 
-W referencyjnej, niezamrożonej specyfikacji v0.19 było: solver może zwrócić do 3 pełnych propozycji spełniających HARD; koordynator wybiera ostateczny wariant. Frozen v0.4 i `arch/spec.md` nie zamroziły tej funkcji, dlatego wymaga osobnego addendum.
+W referencyjnej, niezamrożonej specyfikacji v0.19 było: solver może zwrócić do 3 pełnych propozycji spełniających HARD; koordynator wybiera ostateczny wariant. Na exact bazie `d1a0ec0438718b1b7fd91e5c146e67b58c4eb4f9` aktualne `arch/spec.md` już zamraża 1–3 HARD-valid kandydatów i wybór koordynatora. T017 nie rozszerza tej decyzji produktowej; domyka brakującą implementacyjną mechanikę generowania wariantów, kanoniczny próg 15%, pairwise semantics, statusy optional search i warning association.
 
 ## Stan techniczny przed T017
 

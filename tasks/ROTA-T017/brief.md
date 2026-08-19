@@ -1,6 +1,6 @@
 # ROTA-T017 — multi-variant FEASIBLE planning
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — NOT READY FOR CC
+STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 2 — NOT READY FOR CC
 DATE: 2026-08-19
 TASK_ID: ROTA-T017
 BASE_SHA: d1a0ec0438718b1b7fd91e5c146e67b58c4eb4f9
@@ -9,6 +9,7 @@ TASK_BRANCH: task/ROTA-T017
 OWNER_SOURCE: arch/T017_multi_variant_plan_architect_brief.md
 FROZEN_ADDENDUM: arch/FROZEN_ADDENDUM_MULTI_VARIANT_PLAN_01.md
 DEPENDS_ON: T006 + T012 + T013 + T018 merged on main
+PREIMPLEMENTATION_ROUND_1: FAIL — T017-R1-1 legacy consumer scope + T017-R1-2 baseline sentence; SECTION_CHECK 2–8 remain CLOSED/PASS
 
 ## CEL
 
@@ -28,7 +29,9 @@ Ta baza zawiera:
 - T018 workday absence + DAY_ONLY N fallback i literalną 4-stage retry order;
 - T013 coordinator-facing final DECISION_REQUIRED guidance.
 
-T017 ma zachować wszystkie te kontrakty bez redefinicji.
+Na tej exact bazie `arch/spec.md` już literalnie dopuszcza 1–3 HARD-valid kandydatów i wybór koordynatora. T017 nie rozszerza tej decyzji produktowej; domyka mechanikę generowania wariantów, kanoniczną diversity 15%, pairwise semantics, optional-search statuses i warning association.
+
+T017 ma zachować wszystkie wcześniejsze kontrakty bez redefinicji.
 
 ## OWNER DECISIONS — CLOSED
 
@@ -72,6 +75,10 @@ TASK_SCOPE:
 - tasks/ROTA-T017/brief.md
 - rota/planning/solver.py
 - rota/planning/engine.py
+- benchmarks/real_object.py
+- benchmarks/manual_audits.py
+- tests/test_real_object_benchmark.py
+- tests/test_t018.py
 - tests/test_t017.py
 
 Żaden inny plik bez STOP + amendment architekta po preimplementation enumeration albo konkretnym implementacyjnym blockerze.
@@ -349,8 +356,9 @@ Brak dodatkowego wariantu przy FEASIBLE nie generuje żadnego T013 message ani u
 
 T017 może zmienić liczbę solver `_run_solver` calls po FEASIBLE i liczbę publicznych `PlanningResult.candidates`. Może też zmienić warning string tylko w multi-candidate FEASIBLE.
 
-Przed CC Codex musi mechanicznie przeskanować istniejące testy i wyliczyć każdy legacy `tests/*.py` wymagający zmiany wyłącznie dlatego, że:
+Przed CC Codex musi mechanicznie przeskanować istniejące testy i konsumentów i wyliczyć każdy legacy plik wymagający zmiany wyłącznie dlatego, że:
 - asercja wymaga `len(candidates) == 1` albo exact one-candidate list;
+- consumer odrzuca legalne `FEASIBLE` z 2–3 kandydatami;
 - test zakłada dokładną liczbę `_run_solver` wywołań po first FEASIBLE;
 - fake/mock musi tolerować appended default `SolverOutcome` alternatives transport;
 - exact FEASIBLE warning assertion może wejść w multi-candidate path;
@@ -363,31 +371,86 @@ Required output:
 
 Architect nie autoryzuje broad rewrites z góry.
 
-Jeżeli choć jeden legacy test wymaga edycji, STOP po audycie; architect dopisze literalny scope before CC.
+Jeżeli jakikolwiek plik poza literalnym TASK_SCOPE wymaga edycji, STOP + architect amendment before edit.
+
+## N1. ROUND 1 AMENDMENT — T017-R1-1 / T017-R1-2
+
+Round 1 Codex audit na exact contract SHA `477180914603c4a8ce247034f47522445ebbe10c` znalazł dokładnie dwa mechaniczne findings kontraktowe:
+- `T017-R1-1`: cztery legacy consumer/test files poza TASK_SCOPE;
+- `T017-R1-2`: jedna nieprawdziwa baseline sentence w owner source.
+
+SECTION_CHECK 2–8 Round 1 pozostają PASS/CLOSED i nie są ponownie otwierane przez ten amendment.
+
+### N1.1 T017-R1-1 — dokładnie cztery dodatkowe pliki
+
+Literalny TASK_SCOPE obejmuje teraz dokładnie:
+
+1. `benchmarks/real_object.py`
+   - `_feasible_errors`: mechanicznie zaakceptować legalne `FEASIBLE` z `1 <= len(candidates) <= 3` zamiast wymagać dokładnie 1;
+   - `_decision_errors`: false-FEASIBLE diagnostic ma działać dla legalnej kardynalności 1–3;
+   - zachować dotychczasowy first-candidate ground-truth/checker oracle; nie zmieniać scenariusza benchmarku ani kryterium poprawności pierwszego kandydata.
+
+2. `tests/test_real_object_benchmark.py`
+   - tylko `_clean_candidate` i bezpośrednie cardinality expectation zależne od dokładnie jednego kandydata;
+   - zaakceptować 1–3, ale zwracany/sprawdzany `candidates[0]` nadal zamraża dotychczasowy pre-T017 first-candidate oracle;
+   - żadnych zmian scenariusza ani ground truth.
+
+3. `benchmarks/manual_audits.py`
+   - `verify_feasible_month`: legalne 1–3 candidates nie mogą być FAIL tylko z powodu cardinality;
+   - zachować dotychczasową ręczną kontrolę pierwszego kandydata;
+   - nie rozszerzać ani nie osłabiać innych manual-audit checks.
+
+4. `tests/test_t018.py`
+   - tylko `test_b10_4_5_global_minimum_exceptional_n_not_inflated_for_fairness` oraz jego bezpośrednie helper/assertion expectations wymagające multi-candidate warning association;
+   - test ma nadal dowodzić `exceptional_n_count == 1` **dla każdego** zwróconego candidate;
+   - first-candidate placement oracle pozostaje niezmieniony;
+   - przy 2–3 candidates obowiązuje T017 `candidate=N | ` warning prefix, ale body `DAY_ONLY-N-FALLBACK-01` zachowuje code/employee/demand/date/rule_version_id;
+   - nie zmieniać T018 fallback order, minimum, exception legality ani innych testów w tym pliku.
+
+### N1.2 Explicitly not opened
+
+Ten amendment NIE autoryzuje:
+- żadnej zmiany statusów produktu;
+- zmiany metryki 15%, pairwise rule, diversity cut, first-candidate lock ani solver design;
+- zmiany T006 REPLAN minimum;
+- zmiany T018 fallback order lub exceptional-N minimum;
+- zmiany T012 emergency 24h;
+- zmiany T013 DECISION_REQUIRED communication;
+- zmian benchmark scenarios/fixtures/ground truth poza mechaniczną akceptacją legalnej kardynalności 1–3;
+- zmian w 28 legacy test files, które czytają `candidates[0]` i pozostają poprawnymi first-candidate oracles;
+- zmian `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` ani `benchmarks/rota_stress.py`;
+- jakiegokolwiek piątego legacy consumer/test file.
+
+Każdy piąty plik znaleziony podczas implementacji = STOP + architect amendment przed edycją.
+
+### N1.3 T017-R1-2 — baseline correction only
+
+`arch/T017_multi_variant_plan_architect_brief.md` został skorygowany wyłącznie w opisie źródła autoryzacji:
+- na exact BASE_SHA `d1a0ec0438718b1b7fd91e5c146e67b58c4eb4f9` `arch/spec.md` już literalnie dopuszcza 1–3 HARD-valid kandydatów i wybór koordynatora;
+- T017 domyka implementacyjną lukę generowania, kanoniczny próg 15%, pairwise semantics, optional-search statuses i warning association;
+- nie zmieniać `arch/spec.md` ani `arch/FROZEN.lock`.
 
 ## O. PREIMPLEMENTATION CODEX AUDIT
 
-Codex audytuje exact contract SHA i odpowiada:
+Round 1 zamknął SECTION_CHECK 2–8. Round 2 jest deliberately narrow i sprawdza wyłącznie T017-R1-1 / T017-R1-2 oraz exact diff amendmentu.
 
-1. Czy owner decision `up to 3`, 1/2 FEASIBLE i 15% jest odwzorowane bez rozszerzenia produktu?
-2. Czy `N=sum(still_needed)` jest jednoznacznym solver-controlled denominator i nie liczy fixed/TRAINEE/CANCELLED?
-3. Czy distance liczy jedną substitution jako 1 i ignoruje techniczne IDs/order?
-4. Czy candidate3 musi przejść threshold względem każdego wcześniejszego candidate?
-5. Czy first candidate pozostaje pre-T017 result?
-6. Czy REPLAN reshuffle minimum i T018 exceptional_n minimum są zamrożone dla wszystkich variants?
-7. Czy T018 first-FEASIBLE stage jest zamrożony i późniejsze fallbacki nie służą diversity?
-8. Czy optional INFEASIBLE daje fewer FEASIBLE, a technical status pozostaje TECHNICAL_ERROR?
-9. Czy compute budget to max 2 dodatkowe final solves i nie rerunuje lexical phases?
-10. Czy każdy candidate ma independent validation, a dodatkowy invalid candidate fail-closed do TE?
-11. Czy warnings mają jednoznaczne candidate association bez nowego DTO i bez utraty T018 provenance?
-12. Czy application/persistence/engine_types/validator pozostają bez zmian?
-13. Jakie legacy test files wymagają mechanicznego scope amendmentu?
-14. Czy jakikolwiek punkt wymaga nowej decyzji produktowej właściciela? Jeśli tak: FAIL z exact clause.
+### O1. ROUND 2 — NARROW AUDIT ONLY
 
-Required verdict:
+Codex sprawdza:
+1. czy TASK_SCOPE zawiera dokładnie cztery nowe pliki z N1.1;
+2. czy dozwolone zmiany w tych plikach są wyłącznie mechaniczną obsługą legalnej kardynalności/warning association;
+3. czy benchmark/test first-candidate ground truth pozostaje nienaruszony;
+4. czy `tests/test_t018.py` nadal dowodzi exceptional_n minimum per candidate i zachowuje first-candidate placement oracle;
+5. czy żaden piąty legacy plik nie został otwarty;
+6. czy owner source poprawnie opisuje actual `arch/spec.md` baseline na `d1a0ec...`;
+7. czy `arch/spec.md` i `arch/FROZEN.lock` pozostają nietknięte;
+8. czy amendment zawiera tylko dokumentację, bez implementation/test changes;
+9. czy SECTION_CHECK 2–8 Round 1 pozostają CLOSED/PASS.
+
+Required Round 2 verdict:
 `PASS — READY_FOR_IMPLEMENTATION`.
 
-Do tego PASS:
+Do tego exact PASS:
 **CC MUST NOT START T017 IMPLEMENTATION.**
 
 ## P. FINAL IMPLEMENTATION GATE
