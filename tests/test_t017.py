@@ -30,7 +30,6 @@ from rota.domain import (
 )
 from rota.planning.engine import plan
 from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION
-from rota.planning.solver import solve
 from rota.planning.state import SiteRuleApplicability
 from rota.planning.validator import validate as real_validate
 from tests.support.minimal_state import SITE_ID, base_state
@@ -142,6 +141,51 @@ def test_m4_m5_threshold_formula_boundaries():
     assert (15 * 6 + 99) // 100 == 1
 
 
+def test_m4_n20_k3_boundary_rejects_distance_two_accepts_distance_three():
+    """N=20 -> K=3, proven on the real cut formula (not just arithmetic): a
+    signature 2 placements away from a genuine solved candidate violates
+    `sum(x for signature) <= N-K` (correctly rejected); one 3 places away
+    satisfies it exactly at the boundary (correctly admissible)."""
+    state = _symmetric_pool_state(20)
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    n = 20
+    k = (15 * n + 99) // 100
+    assert k == 3
+    first_signature = _signature(result.candidates[0])
+    by_demand = dict(first_signature)
+    demand_ids = sorted(by_demand)
+
+    def _distinct_pair(count):
+        chosen = []
+        for demand_id in demand_ids:
+            if all(by_demand[demand_id] != by_demand[d] for d in chosen):
+                chosen.append(demand_id)
+                if len(chosen) == count:
+                    return chosen
+        raise AssertionError(f"could not find {count} demands with pairwise-distinct employees")
+
+    d0, d1 = _distinct_pair(2)
+    swapped_two = frozenset(
+        {(d0, by_demand[d1]), (d1, by_demand[d0])}
+        | {(d, e) for d, e in first_signature if d not in (d0, d1)}
+    )
+    assert len(first_signature ^ swapped_two) // 2 == 2
+    overlap_two = len(first_signature & swapped_two)
+    assert overlap_two == n - 2
+    assert overlap_two > n - k  # distance 2: cut violated -> correctly rejected
+
+    da, db, dc = _distinct_pair(3)
+    swapped_three = frozenset(
+        {(da, by_demand[db]), (db, by_demand[dc]), (dc, by_demand[da])}
+        | {(d, e) for d, e in first_signature if d not in (da, db, dc)}
+    )
+    assert len(first_signature ^ swapped_three) // 2 == 3
+    overlap_three = len(first_signature & swapped_three)
+    assert overlap_three == n - 3
+    assert overlap_three <= n - k  # distance 3: cut satisfied -> correctly admissible
+
+
 # M6/M7/M8/M9/M10 -- canonical signature semantics -----------------------
 
 
@@ -181,20 +225,68 @@ def test_m10_trainee_cancelled_fixed_facts_absent_from_signature():
     assert _signature([trainee, cancelled]) == frozenset()
 
 
+def test_m11_fixed_realized_fact_never_contributes_to_diversity_and_never_changes():
+    """A genuinely fixed (REALIZED) PRIMARY is never a CP-SAT slot, so it can
+    never be part of the solver-controlled diversity signature and must be
+    identical across every returned candidate."""
+    demands = tuple(_d_demand(f"D{i}", i + 1) for i in range(6))
+    employees = tuple(_employee(chr(65 + i)) for i in range(6))
+    memberships = tuple(_membership(e.employee_id) for e in employees)
+    fixed = Assignment(
+        "fixed-a-d0", "test-v1", "A", demands[0].start_datetime, demands[0].end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, demands[0].demand_id, None,
+    )
+    state = base_state(
+        employees=employees, memberships=memberships, shift_demands=demands,
+        existing_assignments=(fixed,), month=MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    for candidate in result.candidates:
+        by_demand = {a.covers_demand_id: a.employee_id for a in candidate}
+        assert by_demand[demands[0].demand_id] == "A"
+
+
+def test_m11_n_zero_gives_at_most_one_candidate():
+    """N=0 (every demand already covered by a fixed fact): the variant search
+    must not run at all -- at most one candidate."""
+    demand = _d_demand("D1", 6)
+    fixed = Assignment(
+        "fixed-a-d1", "test-v1", "A", demand.start_datetime, demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, demand.demand_id, None,
+    )
+    state = base_state(
+        employees=(_employee("A"),), memberships=(_membership("A"),),
+        shift_demands=(demand,), existing_assignments=(fixed,), month=MONTH,
+    )
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    assert len(result.candidates) == 1
+
+
 # M13 -- first candidate regression lock ---------------------------------
 
 
+# T017-R3-1: literal placement signature captured once from BASE_SHA
+# d1a0ec0438718b1b7fd91e5c146e67b58c4eb4f9 (pre-T017), by running
+# solve(_symmetric_pool_state(6), enforce_load_cap=True,
+# allow_day_only_n_fallback=False, allow_emergency_24h=False) -- the exact
+# Stage 1 capped call plan() makes first -- on that commit and recording its
+# deterministic output (num_search_workers=1, random_seed=0). A real
+# historical oracle, not a second current-code call.
+PRE_T017_STAGE1_SIGNATURE = frozenset({
+    ("D0", "B"), ("D1", "A"), ("D2", "E"), ("D3", "F"), ("D4", "A"), ("D5", "A"),
+})
+
+
 def test_m13_first_candidate_matches_pre_t017_deterministic_result():
-    """The exact same deterministic settings (num_search_workers=1,
-    random_seed=0) mean candidate 1 alone (no alternatives requested) and
-    candidate 1 as part of a multi-variant result must be identical."""
+    """Candidate 1 of a multi-variant plan() result must match the frozen
+    pre-T017 placement oracle for the same state and capability context."""
     state = _symmetric_pool_state(6)
-    baseline_outcome = solve(state, enforce_load_cap=False)  # search_variants=False on this path
-    assert baseline_outcome.assignments is not None
-    multi_result = plan(state)
-    assert multi_result.status == "FEASIBLE"
-    first_full = [a for a in multi_result.candidates[0] if a.covers_demand_id]
-    assert _signature(baseline_outcome.assignments) == _signature(first_full)
+    result = plan(state)
+    assert result.status == "FEASIBLE"
+    first_full = [a for a in result.candidates[0] if a.covers_demand_id]
+    assert _signature(first_full) == PRE_T017_STAGE1_SIGNATURE
 
 
 # M14/M16 -- REPLAN minimum reshuffle preserved across variants ----------
@@ -250,7 +342,7 @@ def test_m15_day_only_fallback_all_candidates_preserve_exceptional_n_minimum():
 
 
 def _tracking_solve(monkeypatch):
-    real_solve = solve
+    real_solve = solver_module.solve
     calls: list[tuple] = []
 
     def _wrapped(state, **kwargs):
@@ -284,6 +376,31 @@ def test_m18_stage2_first_feasible_variants_stay_in_stage2(monkeypatch):
     assert all(not c[2] for c in calls)  # emergency never requested
 
 
+def test_m19_stage3_first_feasible_with_variants_never_reaches_stage4(monkeypatch):
+    """Stage 1/2 proven INFEASIBLE, Stage 3 the first FEASIBLE (with a
+    variant already attached): the uncapped Stage 4 solve must never run."""
+    demand = _d_demand("D1", 6)
+    employees = (_employee("A"), _employee("B"))
+    memberships = tuple(_membership(e.employee_id) for e in employees)
+    state = base_state(employees=employees, memberships=memberships, shift_demands=(demand,), month=MONTH)
+    first = Assignment("first", "test-v1", "A", demand.start_datetime, demand.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand.demand_id, None)
+    second = Assignment("second", "test-v1", "B", demand.start_datetime, demand.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand.demand_id, None)
+    calls: list[tuple[bool, bool, bool]] = []
+
+    def _fake_solve(_state, enforce_load_cap=True, allow_emergency_24h=False, allow_day_only_n_fallback=False):
+        calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
+        if len(calls) < 3:
+            return solver_module.SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
+        return solver_module.SolverOutcome("OPTIMAL", [first], [], [], {}, [], {}, alternatives=[([second], [])])
+
+    monkeypatch.setattr(engine_module, "solve", _fake_solve)
+    result = plan(state)
+
+    assert result.status == "FEASIBLE"
+    assert len(result.candidates) == 2
+    assert calls == [(True, False, False), (True, True, False), (True, True, True)]
+
+
 # M20/M21 -- optional INFEASIBLE stops the search, not an error ----------
 # (already exercised structurally by M2/M3's exact 1/2-candidate results)
 
@@ -291,31 +408,34 @@ def test_m18_stage2_first_feasible_variants_stay_in_stage2(monkeypatch):
 # M22/M23 -- optional technical status fails the whole result closed -----
 
 
-def test_m22_m23_optional_technical_status_fails_whole_result_closed(monkeypatch):
+def _run_solver_forcing_second_call(monkeypatch, forced_status):
     real_run_solver = solver_module._run_solver
     call_count = {"n": 0}
-
-    class _FakeSolver:
-        def __init__(self, real):
-            self._real = real
-
-        def status_name(self, status):
-            return self._real.status_name(status)
-
-        def value(self, var):
-            return self._real.value(var)
 
     def _fake_run_solver(model):
         call_count["n"] += 1
         solver, status = real_run_solver(model)
         if call_count["n"] == 2:
-            from ortools.sat.python import cp_model
-            return solver, cp_model.UNKNOWN
+            return solver, forced_status
         return solver, status
 
     monkeypatch.setattr(solver_module, "_run_solver", _fake_run_solver)
-    state = _symmetric_pool_state(6)
-    result = plan(state)
+
+
+def test_m22_optional_unknown_status_fails_whole_result_closed(monkeypatch):
+    from ortools.sat.python import cp_model
+
+    _run_solver_forcing_second_call(monkeypatch, cp_model.UNKNOWN)
+    result = plan(_symmetric_pool_state(6))
+    assert result.status == "TECHNICAL_ERROR"
+    assert result.candidates == []
+
+
+def test_m23_optional_model_invalid_status_fails_whole_result_closed(monkeypatch):
+    from ortools.sat.python import cp_model
+
+    _run_solver_forcing_second_call(monkeypatch, cp_model.MODEL_INVALID)
+    result = plan(_symmetric_pool_state(6))
     assert result.status == "TECHNICAL_ERROR"
     assert result.candidates == []
 
@@ -349,21 +469,53 @@ def test_m25_injected_validator_failure_on_candidate2_fails_whole_result_closed(
 # M26/M27/M28 -- warning association --------------------------------------
 
 
-def test_m26_multi_candidate_warnings_have_stable_prefixes_and_order():
-    state = _symmetric_pool_state(6)
+def test_m26_m28_multi_candidate_real_warnings_keep_prefix_order_and_body():
+    """Two DAY_ONLY employees, each with their own exceptional-N fallback --
+    a real (non-vacuous) 2-candidate, 2-warning scenario, proving both
+    prefix ordering (M26) and the full legacy warning body preserved intact
+    under the `candidate=N | ` prefix (M28)."""
+    n1, n2 = _n_demand("N1", 6), _n_demand("N2", 13)
+    a = _employee("A", day_only=True)
+    b = _employee("B", day_only=True)
+    c = _employee("C")
+    rule_a, rule_b = _exception_rule("RV-A", "A"), _exception_rule("RV-B", "B")
+    c_leave = AvailabilityRecord("c-leave", "v1", "C", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 13), date(2026, 10, 13), True, None, None)
+    state = base_state(
+        employees=(a, b, c), memberships=tuple(_membership(e) for e in ("A", "B", "C")),
+        shift_demands=(n1, n2), availability_records=(c_leave,),
+        site_rules=(rule_a, rule_b), site_rule_applicability=(_applicability(rule_a), _applicability(rule_b)),
+        month=MONTH,
+    )
+
     result = plan(state)
+
     assert result.status == "FEASIBLE"
-    if len(result.candidates) > 1:
-        seen_prefixes = [w.split(" | ", 1)[0] for w in result.warnings if w.startswith("candidate=")]
-        assert seen_prefixes == sorted(seen_prefixes, key=lambda p: int(p.split("=")[1]))
+    assert len(result.candidates) == 2
+    assert len(result.warnings) == 2
+    seen_prefixes = [w.split(" | ", 1)[0] for w in result.warnings]
+    assert seen_prefixes == sorted(seen_prefixes, key=lambda p: int(p.split("=")[1]))
+    for index, warning in enumerate(result.warnings, start=1):
+        assert warning.startswith(f"candidate={index} | DAY_ONLY-N-FALLBACK-01 SOFT:")
+        for required in ("employee=", "demand=N2", "date=2026-10-13", "rule_version_id=RV-"):
+            assert required in warning
 
 
-def test_m27_single_candidate_warning_shape_is_legacy_unprefixed():
-    state = _symmetric_pool_state(1)
+def test_m27_single_candidate_real_warning_shape_is_legacy_unprefixed():
+    """A real DAY_SHIFT_OFF-01 SOFT warning on a single-candidate result
+    keeps the exact legacy unprefixed body, not just an empty warning list."""
+    n1 = _n_demand("N1", 6)
+    day_off = AvailabilityRecord("a-dayoff", "v1", "A", AvailabilityKind.DAY_SHIFT_OFF, date(2026, 10, 7), date(2026, 10, 7), True, None, None)
+    state = base_state(
+        employees=(_employee("A"),), memberships=(_membership("A"),),
+        shift_demands=(n1,), availability_records=(day_off,), month=MONTH,
+    )
+
     result = plan(state)
+
     assert result.status == "FEASIBLE"
     assert len(result.candidates) == 1
     assert not any(w.startswith("candidate=") for w in result.warnings)
+    assert "DAY_SHIFT_OFF-01 SOFT: A prior N enters day off until 05:00 on 2026-10-07" in result.warnings
 
 
 # M30/M31 -- DECISION_REQUIRED / TECHNICAL_ERROR unchanged ----------------
@@ -430,9 +582,10 @@ def test_m29_select_candidate2_real_persistence_roundtrip(tmp_path):
 
     result = plan_ops.plan_month(conn, site_id=site, month=month, coordinator_id=coord, effective_from=month)
     assert result.status == "FEASIBLE"
-    if len(result.candidates) < 2:
-        conn.close()
-        return  # exact cardinality depends on demand generation; roundtrip still exercised whenever >=2 exist
+    # T017-R3-2: a hard assertion, not a conditional skip -- this fixture must
+    # keep yielding >=2 diverse candidates so the candidate-2 round-trip stays
+    # a live oracle rather than silently degrading into a no-op.
+    assert len(result.candidates) >= 2
     chosen = result.candidates[1]
     plan_ops.select_candidate(conn, site_id=site, month=month, candidate=chosen, coordinator_id=coord)
     lifecycle_ops.finalize(conn, site_id=site, month=month, coordinator_id=coord, acknowledged_deviation_ids=set())
