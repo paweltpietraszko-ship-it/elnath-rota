@@ -1,6 +1,6 @@
 # ROTA-T018 — WORKDAY ABSENCE ACCOUNTING + DAY_ONLY N FALLBACK
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 3
+STATUS: CHECKPOINT A — R4 FIXES AUTHORIZED; B BLOCKED
 DATE: 2026-08-19
 TASK_ID: ROTA-T018
 BASE_SHA: c55722dfa689baa2ae39ba51a0c290f35d7f2112
@@ -15,6 +15,8 @@ DEPENDS_ON: ROTA-T012 integrated on main
 BLOCKS: human-facing follow-ups that depend on stable retry/absence semantics
 PREIMPLEMENTATION_ROUND_1: FAIL — T018-R1-1 + T018-R1-2 only; all other audited sections remain closed
 PREIMPLEMENTATION_ROUND_2: FAIL — T018-R2-1 only; T018-R1-2 CLOSED; all other audited sections remain closed for narrow Round 3
+CHECKPOINT_A_PRODUCT_SHA_R4: 6ecaab611965f42c5c0fa5d441ac6052df769901
+CHECKPOINT_A_AUDIT_R4: FAIL — A-R4-1 + A-R4-2 + A-R4-3; B BLOCKED
 
 ## CEL
 
@@ -34,7 +36,7 @@ Nie zmieniać innych frozen zachowań.
 - `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` — pełny oracle 62 demandów;
 - `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe_result.json` — dowód obecnego błędnego rozkładu A.N=8 i kontroli A.N=0.
 
-Powyższe pliki task-level są źródłami/regresją. Nie zmieniać ich tylko po to, aby test przeszedł.
+Powyższe pliki task-level są źródłami/regresją. Nie zmieniać ich tylko po to, aby test przeszedł, z jedynym wyjątkiem mechanicznej adaptacji A-R4-3 jawnie zamrożonej niżej.
 
 ## ARCHITECTURE PRINCIPLES
 
@@ -76,6 +78,7 @@ TASK_SCOPE:
 - tests/test_audit_r23_findings.py
 - tests/test_audit_r25_findings.py
 - tests/test_audit_r26_findings.py
+- tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py
 
 Żaden inny plik bez STOP + amendment architekta.
 
@@ -89,7 +92,7 @@ Nie zmieniać:
 - rota/application/plan_ops.py;
 - rota/application/lifecycle_ops.py;
 - persistence schema;
-- task-level T012 source/oracle files pod `tasks/ROTA-T012/`, w szczególności Round 23 reproducers oraz marcowy scenario/probe/result.
+- innych task-level T012 source/oracle files pod `tasks/ROTA-T012/`; dla `test_absence_workday_accounting_r23.py` dozwolona jest wyłącznie A-R4-3 adaptacja poniżej, marcowy scenario/probe/result pozostają niezmienne.
 
 NEW_FILES:
 - contract docs są częścią task pipeline;
@@ -173,9 +176,36 @@ T018-R2-1 zamyka wyłącznie niepełną enumerację legacy tests. Mechaniczny sk
 Zakaz dla całego legacy-test amendment:
 - żadnych innych zmian w tych dwunastu legacy test files;
 - żadnego osłabiania dawnych findings ani zmiany ich końcowych statusów/blocker conditions;
-- żadnego przepisywania task-level T012 oracle;
+- żadnego przepisywania task-level T012 oracle poza dokładnie A-R4-3 wyjątkiem poniżej;
 - żadnego helpera produkcyjnego tylko po to, aby ułatwić fixture testowe;
-- jeżeli implementacja odkryje trzynasty istniejący test wymagający zmiany oczekiwania lub sygnatury, STOP + amendment architekta przed edycją.
+- jeżeli implementacja odkryje trzynasty istniejący plik pod `tests/` wymagający zmiany oczekiwania lub sygnatury, STOP + amendment architekta przed edycją.
+
+## CHECKPOINT A — ROUND 4 FINDINGS / SCOPE AMENDMENT
+
+Merytoryczny audyt Checkpoint A na exact PRODUCT SHA `6ecaab611965f42c5c0fa5d441ac6052df769901` zakończył się FAIL. Checkpoint B pozostaje zablokowany do czasu zamknięcia całej trójki A-R4-1/A-R4-2/A-R4-3 i późniejszego PASS Codexa dla Checkpoint A.
+
+A-R4-1 i A-R4-2 mieszczą się już w istniejącym scope i nie wymagają dodatkowej decyzji architektonicznej. Ten amendment zamyka wyłącznie scope gap A-R4-3.
+
+### A-R4-3 — dokładnie jedna dozwolona adaptacja Round 23
+
+Plik:
+`tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py`
+
+Dozwolona jest wyłącznie zmiana w teście:
+`test_quarter_balance_leave_2_to_19_march_reduces_target_by_14_workdays`
+
+Mechaniczna zmiana:
+- przekazać istniejący kompletny fixture `_calendar(month)` do istniejącego `compute_month_balance(...)` przez `calendar_days=_calendar(month)`;
+- nie zmieniać helpera `_calendar`;
+- nie zmieniać rodzaju absencji `LEAVE_GRANTED`;
+- nie zmieniać zakresu `2027-03-02..2027-03-19`;
+- nie zmieniać `target_hours=168`;
+- nie zmieniać assertion/oracle `balance.month_balance == -56`;
+- nie zmieniać pozostałych dwóch reproduktorów w tym pliku.
+
+To jest wyłącznie supply kompletnego kalendarza wymaganego przez już zamrożony A3/A5. Nie zmienia produktu, nie osłabia fail-closed i nie redefiniuje Round 23 oracle.
+
+Po tej kontraktowej korekcie CC może naprawić A-R4-1, A-R4-2 i wykonać powyższą jedną adaptację A-R4-3. B pozostaje BLOCKED.
 
 ## CHECKPOINT A — ABSENCE WORKDAY ACCOUNTING
 
