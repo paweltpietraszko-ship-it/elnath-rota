@@ -1,6 +1,6 @@
 # ROTA-T018 — WORKDAY ABSENCE ACCOUNTING + DAY_ONLY N FALLBACK
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT
+STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 2
 DATE: 2026-08-19
 TASK_ID: ROTA-T018
 BASE_SHA: c55722dfa689baa2ae39ba51a0c290f35d7f2112
@@ -10,8 +10,10 @@ OWNER_SOURCE: arch/ARCHITECT_BRIEF_WORKDAY_ABSENCE_AND_DAY_ONLY_FALLBACK_2026-08
 FROZEN_ADDENDA:
 - arch/FROZEN_ADDENDUM_ABSENCE_WORKDAY_ACCOUNTING_01.md
 - arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01.md
+- arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01_R1_CLARIFICATION.md
 DEPENDS_ON: ROTA-T012 integrated on main
 BLOCKS: human-facing follow-ups that depend on stable retry/absence semantics
+PREIMPLEMENTATION_ROUND_1: FAIL — T018-R1-1 + T018-R1-2 only; all other audited sections remain closed for narrow Round 2
 
 ## CEL
 
@@ -31,7 +33,7 @@ Nie zmieniać innych frozen zachowań.
 - `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe.py` — pełny oracle 62 demandów;
 - `tasks/ROTA-T012/scenarios/t012_owner_march_2027_probe_result.json` — dowód obecnego błędnego rozkładu A.N=8 i kontroli A.N=0.
 
-Powyższe pliki są źródłami/regresją. Nie zmieniać ich tylko po to, aby test przeszedł.
+Powyższe pliki task-level są źródłami/regresją. Nie zmieniać ich tylko po to, aby test przeszedł.
 
 ## ARCHITECTURE PRINCIPLES
 
@@ -50,6 +52,7 @@ Powyższe pliki są źródłami/regresją. Nie zmieniać ich tylko po to, aby te
 TASK_SCOPE:
 - arch/FROZEN_ADDENDUM_ABSENCE_WORKDAY_ACCOUNTING_01.md
 - arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01.md
+- arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01_R1_CLARIFICATION.md
 - tasks/ROTA-T018/brief.md
 - rota/planning/absence.py
 - rota/balance.py
@@ -60,6 +63,13 @@ TASK_SCOPE:
 - rota/planning/engine.py
 - rota/planning/validator.py
 - tests/test_t018.py
+- tests/test_t012.py
+- tests/test_audit_r14_findings.py
+- tests/test_audit_r15_findings.py
+- tests/test_t010_day_only_n_exception.py
+- tests/test_audit_t010_r5_b.py
+- tests/test_balance.py
+- tests/test_audit_r20_r21_findings.py
 
 Żaden inny plik bez STOP + amendment architekta.
 
@@ -73,12 +83,57 @@ Nie zmieniać:
 - rota/application/plan_ops.py;
 - rota/application/lifecycle_ops.py;
 - persistence schema;
-- istniejących T012 audit/scenario plików.
+- task-level T012 source/oracle files pod `tasks/ROTA-T012/`, w szczególności Round 23 reproducers oraz marcowy scenario/probe/result.
 
 NEW_FILES:
 - contract docs są częścią task pipeline;
 - jedyny nowy plik implementacyjno-testowy: `tests/test_t018.py`;
 - zero nowych production modules.
+
+## R1 SCOPE AMENDMENT — LEGACY TEST HARNESS / SUPERSEDED EXPECTATIONS
+
+T018-R1-1 zamyka się przez jawne dopuszczenie wyłącznie powyższych siedmiu istniejących test files. To nie jest zgoda na redesign starych testów. Dozwolone są tylko mechaniczne adaptacje literalnych oczekiwań supersedowanych przez T018:
+
+1. `tests/test_t012.py`
+   - stare monkeypatched `solve(...)` fakes mogą dostać `allow_day_only_n_fallback=False`;
+   - testy sekwencji T012-C muszą uwzględnić nowy Stage 2 DAY_ONLY przed emergency Stage 3;
+   - fake ma zwracać INFEASIBLE/unassignable przez Stage 2, jeżeli intencją starego testu jest dotarcie do emergency;
+   - finalne znaczenie testu T012 (emergency nie uruchamia się po sukcesie, technical status nie jest maskowany, uncapped dopiero po emergency) pozostaje bez zmian.
+
+2. `tests/test_audit_r14_findings.py`
+   - stare fake `solve` mogą dostać nowy default-false argument;
+   - oczekiwana liczba/kolejność wywołań może zostać przesunięta wyłącznie o nowy Stage 2;
+   - istniejące końcowe statusy/oracle R14 pozostają bez zmian.
+
+3. `tests/test_audit_r15_findings.py`
+   - analogicznie: wyłącznie sygnatura fake i mechaniczna sekwencja retry;
+   - istniejące końcowe statusy/oracle R15 pozostają bez zmian.
+
+4. `tests/test_t010_day_only_n_exception.py`
+   - stare testy, których intencją jest sprawdzenie datowanej autoryzacji wyjątku, mogą wywoływać eligibility jawnie w `allow_day_only_n_fallback=True`;
+   - default/normal mode nie może już oczekiwać natychmiastowego bypassu DAY_ONLY;
+   - effective dates, named employee, other-HARD AND gates, availability matrix i restart projection pozostają semantycznie bez zmian.
+
+5. `tests/test_audit_t010_r5_b.py`
+   - analogicznie: testy autoryzacji mogą jawnie używać fallback-enabled eligibility;
+   - wrong category / wrong employee / other HARD / availability / membership oraz validator agreement zachowują dotychczasowy sens;
+   - nie zmieniać projection/effective-selection assertions niezwiązanych z T018.
+
+6. `tests/test_balance.py`
+   - test `LEAVE_GRANTED` musi dostać kompletny `CalendarDay` fixture dla liczonego miesiąca;
+   - zakres 2026-10-01..2026-10-05 ma po T018 dokładnie 3 kwalifikowane workdays (1,2,5 października), więc redukcja = 24 h i effective target = 132 h, nie 116 h;
+   - pozostałe WorkBalance assertions pozostają bez zmian.
+
+7. `tests/test_audit_r20_r21_findings.py`
+   - wyłącznie R21-1 direct absence-helper regression dostaje kompletny calendar fixture i oczekuje workday-filtered union;
+   - dla 2026-10-01..2026-10-05 union pozostaje jedną unią dat, ale kwalifikowane są 3 workdays, więc expected count = 3;
+   - R20-1/R20-2/R20-3 assertions nie są otwierane przez ten amendment.
+
+Zakaz:
+- żadnych innych zmian w tych siedmiu plikach;
+- żadnego osłabiania dawnych findings;
+- żadnego przepisywania task-level T012 oracle;
+- jeżeli implementacja odkryje ósmy istniejący test wymagający zmiany oczekiwania, STOP + amendment architekta przed edycją.
 
 ## CHECKPOINT A — ABSENCE WORKDAY ACCOUNTING
 
@@ -109,7 +164,7 @@ Jeżeli brak kwalifikowanej absencji, legacy call bez calendar_days może nadal 
 
 ### A4. Solver TARGET
 
-`_sick_adjusted_targets(state)` przekazuje `state.calendar_days` do canonical helper.
+`_sick_adjusted_targets(state)` przekazuje `state.calendar_days` do canonical helper, gdy istnieje target/WorkBalance wymagający policzenia SICK adjustment; brak targetów nie wymaga bezcelowego wywołania helpera.
 
 Pozostaje tylko `SICK_LEAVE`.
 
@@ -142,7 +197,7 @@ W `tests/test_t018.py`:
 6. cross-month clipping;
 7. absence weekend/holiday nadal HARD-blockuje Assignment;
 8. complete-calendar missing one day -> explicit fail closed;
-9. direct plan with incomplete calendar + sick absence -> TECHNICAL_ERROR;
+9. direct plan with incomplete calendar + sick absence + target context -> TECHNICAL_ERROR;
 10. legacy balance call bez absence i bez calendar_days zachowuje wynik;
 11. existing three Round23 reproducers PASS bez zmiany oracle;
 12. marzec 2027: B target 56 h przy target 168 i L4 2..19 marca.
@@ -171,9 +226,13 @@ Pozostaje `CONFIRMED_EXCEPTION / HARD / RESOLVED / {employee_id}` jako explicit 
 
 Zmienia się execution semantics: normalny pass nie używa tej zgody jako bypass; fallback-enabled pass może.
 
-### B2. Pure authorization lookup
+### B2. Pure authorization lookup + canonical provenance
 
-W `rota/planning/site_rules.py` zachować wąski helper dla applicable DAY_ONLY exception. Dozwolone jest rozszerzenie go tak, aby zwracał exact authorizing rule_version_id potrzebny do provenance.
+W `rota/planning/site_rules.py` zachować jeden wąski helper dla applicable DAY_ONLY exception i rozszerzyć go tak, aby zwracał canonical exact authorizing `rule_version_id | None`, nie tylko order-dependent bool.
+
+Przy wielu równocześnie applicable, semantycznie równoważnych zgodach dla tego employee/date canonical ID jest dokładnie `min(rule_version_id)` w locale-independent lexicographic/ordinal string order, zgodnie z `arch/FROZEN_ADDENDUM_DAY_ONLY_N_FALLBACK_01_R1_CLARIFICATION.md`.
+
+Input ordering nie może wpływać na ID. Ten tie-break nie zmienia legalności, `exceptional_n_count` ani rankingu.
 
 Nie zmieniać generic `rule_allows_assignment` dla pozostałych rule kinds.
 
@@ -190,9 +249,9 @@ True:
 
 ### B4. Solver slot provenance
 
-Solver musi wiedzieć, które legalne sloty N są wyjątkowe wyłącznie dzięki fallback authorization, oraz exact rule_version_id do walidacji/warning provenance.
+Solver musi wiedzieć, które legalne sloty N są wyjątkowe wyłącznie dzięki fallback authorization, oraz canonical exact rule_version_id z B2 do walidacji/warning provenance.
 
-Nie dodawać tego do persisted Assignment ani PlanningState.
+Jeżeli kilka zgód autoryzuje ten sam slot, slot liczy się raz i niesie jedno canonical ID. Nie dodawać tego do persisted Assignment ani PlanningState.
 
 ### B5. Lexicographic optimization
 
@@ -244,7 +303,9 @@ Validator pozostaje independent od solver variables.
 
 Dla day_only N na blocking profile:
 - brak applicable exception -> DAY_ONLY-01 HARD;
-- legal applicable exception -> HARD pass for DAY_ONLY only + dokładnie jeden warning `DAY_ONLY-N-FALLBACK-01` zawierający employee_id, demand_id, date, exact rule_version_id.
+- legal applicable exception -> HARD pass for DAY_ONLY only + dokładnie jeden warning `DAY_ONLY-N-FALLBACK-01` zawierający employee_id, demand_id, date i canonical exact rule_version_id z B2.
+
+Kilka równoważnych zgód nadal daje dokładnie jeden warning i `min(rule_version_id)`; kolejność listy reguł nie może zmieniać tekstu/provenance.
 
 Nie materializować tego warningu jako Deviation i nie wymagać acknowledgement.
 
@@ -260,7 +321,9 @@ Po select/restart/finalize muszą nadal istnieć wystarczające fakty do determi
 - ScheduleVersion.applied_rule_version_ids;
 - immutable SiteRuleVersion history.
 
-Test nie wymaga nowego warning row. Ma udowodnić, że po round-trip można wskazać ten sam employee/demand/date/rule_version_id dla faktycznie użytej exceptional N.
+Rekonstrukcja rozważa wyłącznie rule versions należące do `ScheduleVersion.applied_rule_version_ids`, odtwarza ich date applicability przez istniejące T005 effective-selection semantics i na resulting applicable authorization set stosuje ten sam `min(rule_version_id)` z B2. Późniejsza reguła nieobecna w applied_rule_version_ids nie może przepisać historycznego warningu.
+
+Test nie wymaga nowego warning row. Ma udowodnić, że po round-trip można wskazać ten sam employee/demand/date/canonical rule_version_id dla faktycznie użytej exceptional N.
 
 ### B9. T012 emergency provenance unchanged
 
@@ -286,8 +349,10 @@ W `tests/test_t018.py`:
 13. REPLAN lexical order: reshuffle before exceptional N before ordinary soft;
 14. persisted round-trip provenance reconstructible after select/restart/finalize;
 15. current validator catches unauthorized day_only N independently;
-16. T012 emergency same/cross-month regressions unchanged;
-17. owner March 2027 scenario: 62/62, A.N=0, HARD PASS.
+16. two simultaneous applicable exception rule families in reversed input order -> one usage, one warning, canonical `min(rule_version_id)`, same after restart;
+17. later non-applied authorization does not change historical reconstructed ID;
+18. T012 emergency same/cross-month regressions unchanged;
+19. owner March 2027 scenario: 62/62, A.N=0, HARD PASS.
 
 ### GATE B / FINAL T018
 
@@ -309,18 +374,17 @@ Dopiero finalny `ARCHITECT FINAL GATE ACCEPTANCE — ROTA-T018: PASS` oznacza RE
 
 ## PREIMPLEMENTATION AUDIT — REQUIRED BEFORE CC
 
-Codex ma przed implementacją sprawdzić:
+Round 2 jest wąski. Nie otwiera ponownie sekcji, które Round 1 ocenił jako PASS. Codex sprawdza wyłącznie zamknięcie T018-R1-1 i T018-R1-2 oraz mechaniczną czystość nowego contract SHA:
 
-1. oba frozen addenda są zgodne z owner brief i nie rozszerzają produktu;
-2. absence addendum nie zmienia 8h, solverowego LEAVE_GRANTED ownership ani HARD availability;
-3. day-only addendum zachowuje persisted rule shape i nie otwiera generic SOFT SiteRule execution;
-4. retry order jest literalnie NORMAL -> DAY_ONLY -> DAY_ONLY+EMERGENCY -> UNCAPPED diagnosis;
-5. NO_ELIGIBLE_EMPLOYEE/unassignable nie zamyka planu przed dozwolonym fallbackiem;
-6. REPLAN-MIN-01 pozostaje przed exceptional_n_count;
-7. warning/provenance nie wymaga nowej persistence;
-8. TASK_SCOPE obejmuje dokładnie istniejących ownerów logiki i jeden nowy test file;
-9. arch/spec.md i arch/FROZEN.lock pozostają niezmienione, a supersession jest jawnie ograniczony w addenda;
-10. brak implementacji produktu w contract commit.
+1. literalny TASK_SCOPE obejmuje dokładnie siedem legacy test files wymagających adaptacji oraz `tests/test_t018.py`;
+2. SCOPE AMENDMENT ogranicza zmiany legacy tests do sygnatur fake, sekwencji retry, jawnego fallback-enabled eligibility i calendar/workday fixtures/oczekiwań;
+3. canonical authorizing ID przy wielu applicable exceptions = deterministic `min(rule_version_id)`;
+4. dokładnie jeden Assignment = jedno exceptional usage = jeden warning, niezależnie od liczby równoważnych zgód;
+5. live solver/validator i durable reconstruction używają identycznego tie-breaku;
+6. rekonstrukcja nie bierze późniejszych rule versions spoza `ScheduleVersion.applied_rule_version_ids`;
+7. brak zmian produktu poza R1-1/R1-2; absence/retry/lexicographic semantics zaakceptowane w Round 1 pozostają niezmienione;
+8. arch/spec.md i arch/FROZEN.lock pozostają niezmienione;
+9. contract commits nie zawierają implementacji produktu.
 
 Wymagany wynik:
 `PASS — READY_FOR_IMPLEMENTATION_A`.
