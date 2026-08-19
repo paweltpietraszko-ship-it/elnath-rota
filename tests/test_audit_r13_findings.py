@@ -70,7 +70,7 @@ def test_r13_1c_pure_headcount_shortage_is_not_rest01():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is None
-    assert all(b.condition != "REST-01" for b in result.decision_payload.blockers)
+    assert all(b.condition != "Koliduje z odpoczynkiem dobowym" for b in result.decision_payload.blockers)
 
 
 # FINDING R13-2 ---------------------------------------------------------------
