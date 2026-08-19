@@ -11,7 +11,7 @@ is hardcoded to October 2026 or to employees A-E.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from ortools.sat.python import cp_model
@@ -69,6 +69,11 @@ class SolverOutcome:
     # LOAD-01 DECISION_REQUIRED payloads can still surface the SiteRule as
     # the conflict's provenance, not just the simple shortage path.
     site_rule_exclusions: dict[str, list[tuple[str, str]]]
+    # T017: additional pairwise->=15%-diverse candidates found on the SAME
+    # model after the first (.assignments/.warnings), each as its own
+    # (solved Assignments, solver warnings) pair. Empty unless this pass
+    # both found a first candidate and ran the variant search.
+    alternatives: list[tuple[list[Assignment], list[str]]] = field(default_factory=list)
 
 
 def _demand_hours(demand: ShiftDemand) -> int:
@@ -500,10 +505,59 @@ def _exceptional_n_expr(x: dict, slots: list[SolverSlot]):
     )
 
 
+def _candidate_signature(solver: cp_model.CpSolver, x: dict, slots: list[SolverSlot]) -> frozenset:
+    """T017 canonical solver-controlled signature S(C): (demand_id,
+    employee_id) pairs actually selected by this solve -- never
+    assignment_id/order/work_period_id/TRAINEE/CANCELLED (those never enter
+    x in the first place)."""
+    return frozenset(
+        (slot.demand.demand_id, slot.employee_id)
+        for slot in slots if solver.value(x[slot.employee_id, slot.demand.demand_id])
+    )
+
+
+def _search_additional_candidates(
+    model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
+    pair_vars: dict | None, cross_month_by_employee: dict | None,
+    first_solver: cp_model.CpSolver, still_needed: dict[str, int],
+) -> tuple[list[tuple[list[Assignment], list[str]]], SolverOutcome | None]:
+    """T017: up to 2 more pairwise->=15%-diverse variants on the SAME model
+    -- frozen lexicographic minima and the ordinary objective already apply,
+    diversity cuts are the only new HARD constraints. Returns
+    (alternatives, override); a non-None override means a technical status
+    was hit during the search and the WHOLE result must fail closed (T017
+    never masks UNKNOWN/MODEL_INVALID as "no more variants")."""
+    n = sum(still_needed.values())
+    if n <= 0:
+        return [], None
+    k = (15 * n + 99) // 100
+    if n - k < 0:
+        return [], None
+    signature = _candidate_signature(first_solver, x, slots)
+    alternatives: list[tuple[list[Assignment], list[str]]] = []
+    for _ in range(2):
+        terms = [x[employee_id, demand_id] for demand_id, employee_id in signature]
+        model.add(sum(terms) <= n - k)
+        solver, status = _run_solver(model)
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
+            assignments = _extract_assignments(solver, x, slots, state, overrides)
+            alternatives.append((assignments, _collect_warnings(assignments, slots)))
+            signature = _candidate_signature(solver, x, slots)
+        elif status == cp_model.INFEASIBLE:
+            # Proof that no further qualifying variant exists in this space
+            # -- the accumulated list is a valid, complete FEASIBLE result.
+            break
+        else:
+            return alternatives, SolverOutcome(solver.status_name(status), None, [], [], {}, [], {})
+    return alternatives, None
+
+
 def _solve_lexicographic_phases(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     assumptions: dict[str, object], site_rule_exclusions: dict[str, list[tuple[str, str]]],
     pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
+    still_needed: dict[str, int], search_variants: bool = False,
 ) -> SolverOutcome:
     """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle
     count) and T018 B5 (exceptional_n_count): each phase_exprs entry is
@@ -525,7 +579,16 @@ def _solve_lexicographic_phases(
 
     _add_objective(model, x, slots, state)
     final_solver, final_status = _run_solver(model)
-    return _finalize(final_solver, final_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    outcome = _finalize(final_solver, final_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    if not search_variants or outcome.assignments is None:
+        return outcome
+    alternatives, override = _search_additional_candidates(
+        model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed,
+    )
+    if override is not None:
+        return override
+    outcome.alternatives = alternatives
+    return outcome
 
 
 def solve(
@@ -571,8 +634,13 @@ def solve(
     if allow_day_only_n_fallback:
         phase_exprs.append(_exceptional_n_expr(x, slots))
 
+    # T017: variants are searched only for a capped pass -- an uncapped
+    # Stage 4 candidate is always routed to LOAD DECISION_REQUIRED, never
+    # used as a multi-candidate FEASIBLE source, so searching there would
+    # only burn compute budget for a result nobody reads.
     return _solve_lexicographic_phases(
-        model, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee, phase_exprs
+        model, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee, phase_exprs,
+        still_needed, search_variants=enforce_load_cap,
     )
 
 

@@ -82,8 +82,10 @@ def _candidate_contains_pair(candidate, employee_id: str, demand_id: str) -> boo
 def _feasible_errors(scenario: ScenarioSpec, result) -> tuple[list[str], dict]:
     if result.status != ExpectedStatus.FEASIBLE.value:
         return [f"expected FEASIBLE, got {result.status}"], {}
-    if len(result.candidates) != 1:
-        return [f"FEASIBLE candidate count must be 1, got {len(result.candidates)}"], {}
+    # T017: FEASIBLE legally returns 1-3 pairwise-diverse candidates; the
+    # benchmark ground truth/checker still only inspects the first.
+    if not (1 <= len(result.candidates) <= 3):
+        return [f"FEASIBLE candidate count must be 1-3, got {len(result.candidates)}"], {}
     candidate = result.candidates[0]
     checked = check_candidate(scenario, candidate)
     errors = list(checked.errors)
@@ -113,7 +115,7 @@ def _decision_errors(scenario: ScenarioSpec, result) -> tuple[list[str], dict]:
         return [f"expected DECISION_REQUIRED, got {result.status}"], {}
     errors = ["controlled shortage/load case returned false FEASIBLE"]
     checker = {}
-    if len(result.candidates) == 1:
+    if 1 <= len(result.candidates) <= 3:
         checked = check_candidate(scenario, result.candidates[0])
         checker = {
             "checker_errors": list(checked.errors),

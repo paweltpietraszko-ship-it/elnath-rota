@@ -162,7 +162,7 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
     if report.hard_pass:
-        return PlanningResult("FEASIBLE", [full], None, None, outcome.warnings + report.warnings)
+        return _feasible_result(state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives)
     if _has_non_load_violations(report):
         return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
@@ -171,6 +171,36 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     # LOAD-01-only violation surfacing here is a genuine boundary, not a
     # solver/mapping bug, and must not become TECHNICAL_ERROR.
     return _load_decision(state, report, list(outcome.warnings), full, outcome.site_rule_exclusions)
+
+
+def _feasible_result(
+    state: PlanningState, first_full: list[Assignment], first_warnings: list[str],
+    alternatives: list[tuple[list[Assignment], list[str]]],
+) -> PlanningResult:
+    """T017: a single candidate keeps the exact legacy unprefixed warning
+    shape. 2-3 candidates each get independently HARD-validated; any
+    additional candidate failing validation fails the WHOLE result closed
+    (anti-drift rule 12, brief.md H2) -- never a silent partial success."""
+    if not alternatives:
+        return PlanningResult("FEASIBLE", [first_full], None, None, first_warnings)
+    candidates = [first_full]
+    per_candidate_warnings = [first_warnings]
+    for solved, solver_warnings in alternatives:
+        full = _full_assignments(state, solved)
+        report = validate(state, full)
+        if not report.hard_pass:
+            return PlanningResult(
+                "TECHNICAL_ERROR", [], None,
+                "independent validator rejected an additional T017 variant candidate", [],
+            )
+        candidates.append(full)
+        per_candidate_warnings.append(list(solver_warnings) + list(report.warnings))
+    warnings = [
+        f"candidate={index} | {warning}"
+        for index, candidate_warnings in enumerate(per_candidate_warnings, start=1)
+        for warning in candidate_warnings
+    ]
+    return PlanningResult("FEASIBLE", candidates, None, None, warnings)
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
