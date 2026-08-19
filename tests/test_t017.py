@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from ortools.sat.python import cp_model
+
 import rota.planning.engine as engine_module
 import rota.planning.solver as solver_module
 from rota.domain import (
@@ -89,8 +91,6 @@ def _pairwise_distances(candidates: list[list[Assignment]]) -> list[int]:
     ]
 
 
-# M1/oracle 1 -----------------------------------------------------------
-
 
 def test_m1_at_least_three_diverse_solutions_gives_exactly_three():
     state = _symmetric_pool_state(6)
@@ -106,8 +106,6 @@ def test_m1_at_least_three_diverse_solutions_gives_exactly_three():
     assert all(distance >= k for distance in _pairwise_distances(result.candidates))
 
 
-# M2 ----------------------------------------------------------------------
-
 
 def test_m2_only_one_legal_solution_gives_feasible_len_one():
     state = _symmetric_pool_state(1)
@@ -115,8 +113,6 @@ def test_m2_only_one_legal_solution_gives_feasible_len_one():
     assert result.status == "FEASIBLE"
     assert len(result.candidates) == 1
 
-
-# M3 ----------------------------------------------------------------------
 
 
 def test_m3_only_two_legal_solutions_gives_feasible_len_two():
@@ -132,8 +128,6 @@ def test_m3_only_two_legal_solutions_gives_feasible_len_two():
     assert _pairwise_distances(result.candidates)[0] >= 1
 
 
-# M4/M5 -- K formula boundaries -----------------------------------------
-
 
 def test_m4_m5_threshold_formula_boundaries():
     assert (15 * 20 + 99) // 100 == 3
@@ -141,51 +135,79 @@ def test_m4_m5_threshold_formula_boundaries():
     assert (15 * 6 + 99) // 100 == 1
 
 
-def test_m4_n20_k3_boundary_rejects_distance_two_accepts_distance_three():
-    """N=20 -> K=3, proven on the real cut (not just arithmetic): distance 2
-    from a genuine candidate violates `sum(x for signature) <= N-K`
-    (rejected); distance 3 satisfies it at the boundary (admissible)."""
-    state = _symmetric_pool_state(20)
+def _distinct_employee_demands(by_demand, demand_ids, count):
+    chosen = []
+    for demand_id in demand_ids:
+        if all(by_demand[demand_id] != by_demand[d] for d in chosen):
+            chosen.append(demand_id)
+            if len(chosen) == count:
+                return chosen
+    raise AssertionError(f"could not find {count} demands with pairwise-distinct employees")
+
+
+def _capture_model_with_single_diversity_cut(monkeypatch, state):
+    """Capture the REAL live plan() CpModel + x right after cut #1 is added
+    (RHS=N-K vs candidate 1), then stop the search -- isolates one real cut."""
+    captured: dict = {}
+    real_candidate_signature = solver_module._candidate_signature
+
+    def _spy_signature(solver, x, slots):
+        captured.setdefault("x", x)
+        return real_candidate_signature(solver, x, slots)
+
+    real_run_solver = solver_module._run_solver
+    call_count = {"n": 0}
+
+    def _spy_run_solver(model):
+        call_count["n"] += 1
+        captured["model"] = model
+        solver, status = real_run_solver(model)
+        if call_count["n"] == 2:
+            return solver, cp_model.INFEASIBLE  # stop the search right after cut #1
+        return solver, status
+
+    monkeypatch.setattr(solver_module, "_candidate_signature", _spy_signature)
+    monkeypatch.setattr(solver_module, "_run_solver", _spy_run_solver)
     result = plan(state)
-    assert result.status == "FEASIBLE"
-    n = 20
-    k = (15 * n + 99) // 100
+    monkeypatch.undo()
+    return result, captured["model"], captured["x"]
+
+
+def test_m4_n20_k3_operational_cut_rejects_distance_two_accepts_distance_three(monkeypatch):
+    """N=20 -> K=3: pin a full distance-2/distance-3 alternate onto the REAL
+    live production model+cut and re-solve -- proves the real cut rejects
+    distance 2, admits distance 3."""
+    n, k = 20, (15 * 20 + 99) // 100
     assert k == 3
+
+    result, model, x = _capture_model_with_single_diversity_cut(monkeypatch, _symmetric_pool_state(n))
+    assert result.status == "FEASIBLE"
     first_signature = _signature(result.candidates[0])
+    assert len(first_signature) == n
     by_demand = dict(first_signature)
     demand_ids = sorted(by_demand)
+    d0, d1 = _distinct_employee_demands(by_demand, demand_ids, 2)
+    swapped_two = {(d0, by_demand[d1]), (d1, by_demand[d0])} | {
+        (d, e) for d, e in first_signature if d not in (d0, d1)
+    }
+    for demand_id, employee_id in swapped_two:
+        model.add(x[employee_id, demand_id] == 1)
+    _, status_two = solver_module._run_solver(model)
+    assert status_two == cp_model.INFEASIBLE
 
-    def _distinct_pair(count):
-        chosen = []
-        for demand_id in demand_ids:
-            if all(by_demand[demand_id] != by_demand[d] for d in chosen):
-                chosen.append(demand_id)
-                if len(chosen) == count:
-                    return chosen
-        raise AssertionError(f"could not find {count} demands with pairwise-distinct employees")
+    result2, model2, x2 = _capture_model_with_single_diversity_cut(monkeypatch, _symmetric_pool_state(n))
+    first_signature2 = _signature(result2.candidates[0])
+    by_demand2 = dict(first_signature2)
+    demand_ids2 = sorted(by_demand2)
+    da, db, dc = _distinct_employee_demands(by_demand2, demand_ids2, 3)
+    swapped_three = {(da, by_demand2[db]), (db, by_demand2[dc]), (dc, by_demand2[da])} | {
+        (d, e) for d, e in first_signature2 if d not in (da, db, dc)
+    }
+    for demand_id, employee_id in swapped_three:
+        model2.add(x2[employee_id, demand_id] == 1)
+    _, status_three = solver_module._run_solver(model2)
+    assert status_three in (cp_model.OPTIMAL, cp_model.FEASIBLE)
 
-    d0, d1 = _distinct_pair(2)
-    swapped_two = frozenset(
-        {(d0, by_demand[d1]), (d1, by_demand[d0])}
-        | {(d, e) for d, e in first_signature if d not in (d0, d1)}
-    )
-    assert len(first_signature ^ swapped_two) // 2 == 2
-    overlap_two = len(first_signature & swapped_two)
-    assert overlap_two == n - 2
-    assert overlap_two > n - k  # distance 2: cut violated -> correctly rejected
-
-    da, db, dc = _distinct_pair(3)
-    swapped_three = frozenset(
-        {(da, by_demand[db]), (db, by_demand[dc]), (dc, by_demand[da])}
-        | {(d, e) for d, e in first_signature if d not in (da, db, dc)}
-    )
-    assert len(first_signature ^ swapped_three) // 2 == 3
-    overlap_three = len(first_signature & swapped_three)
-    assert overlap_three == n - 3
-    assert overlap_three <= n - k  # distance 3: cut satisfied -> correctly admissible
-
-
-# M6/M7/M8/M9/M10 -- canonical signature semantics -----------------------
 
 
 def test_m6_one_employee_substitution_counts_as_one_changed_placement():
@@ -262,8 +284,6 @@ def test_m11_n_zero_gives_at_most_one_candidate():
     assert len(result.candidates) == 1
 
 
-# M13 -- first candidate regression lock ---------------------------------
-
 
 # T017-R3-1: literal placement signature captured once from BASE_SHA
 # d1a0ec0438718b1b7fd91e5c146e67b58c4eb4f9 (pre-T017), by running
@@ -286,8 +306,6 @@ def test_m13_first_candidate_matches_pre_t017_deterministic_result():
     first_full = [a for a in result.candidates[0] if a.covers_demand_id]
     assert _signature(first_full) == PRE_T017_STAGE1_SIGNATURE
 
-
-# M14/M16 -- REPLAN minimum reshuffle preserved across variants ----------
 
 
 def test_m14_m16_replan_all_candidates_preserve_same_minimum_reshuffle():
@@ -312,8 +330,6 @@ def test_m14_m16_replan_all_candidates_preserve_same_minimum_reshuffle():
         assert by_demand[demands[0].demand_id] == "A"
 
 
-# M15 -- DAY_ONLY fallback minimum exceptional_n preserved --------------
-
 
 def test_m15_day_only_fallback_all_candidates_preserve_exceptional_n_minimum():
     n1, n2 = _n_demand("N1", 6), _n_demand("N2", 13)
@@ -335,8 +351,6 @@ def test_m15_day_only_fallback_all_candidates_preserve_exceptional_n_minimum():
         assert by_demand["N1"] == "C"
         assert by_demand["N2"] in {"A", "B"}
 
-
-# M17/M18/M19 -- variants stay inside the first successful T018 stage ----
 
 
 def _tracking_solve(monkeypatch):
@@ -397,12 +411,8 @@ def test_m19_stage3_first_feasible_with_variants_never_reaches_stage4(monkeypatc
     assert len(result.candidates) == 2
     assert calls == [(True, False, False), (True, True, False), (True, True, True)]
 
-
-# M20/M21 -- optional INFEASIBLE stops the search, not an error ----------
 # (already exercised structurally by M2/M3's exact 1/2-candidate results)
 
-
-# M22/M23 -- optional technical status fails the whole result closed -----
 
 
 def _run_solver_forcing_second_call(monkeypatch, forced_status):
@@ -436,12 +446,8 @@ def test_m23_optional_model_invalid_status_fails_whole_result_closed(monkeypatch
     assert result.status == "TECHNICAL_ERROR"
     assert result.candidates == []
 
-
-# M24 -- every returned candidate independent HARD PASS ------------------
 # (already asserted inside M1's test)
 
-
-# M25 -- injected additional-candidate validator failure -----------------
 
 
 def test_m25_injected_validator_failure_on_candidate2_fails_whole_result_closed(monkeypatch):
@@ -462,8 +468,6 @@ def test_m25_injected_validator_failure_on_candidate2_fails_whole_result_closed(
     assert result.status == "TECHNICAL_ERROR"
     assert result.candidates == []
 
-
-# M26/M27/M28 -- warning association --------------------------------------
 
 
 def test_m26_m28_multi_candidate_real_warnings_keep_prefix_order_and_body():
@@ -513,8 +517,6 @@ def test_m27_single_candidate_real_warning_shape_is_legacy_unprefixed():
     assert "DAY_SHIFT_OFF-01 SOFT: A prior N enters day off until 05:00 on 2026-10-07" in result.warnings
 
 
-# M30/M31 -- DECISION_REQUIRED / TECHNICAL_ERROR unchanged ----------------
-
 
 def test_m30_decision_required_still_has_empty_candidates():
     employee = Employee("A", "A", date(2026, 9, 1), None, False)
@@ -532,8 +534,6 @@ def test_m31_technical_error_still_has_empty_candidates():
     assert result.candidates == []
 
 
-# M32 -- determinism -------------------------------------------------------
-
 
 def test_m32_repeated_same_input_gives_same_ordered_signatures():
     state = _symmetric_pool_state(6)
@@ -541,8 +541,6 @@ def test_m32_repeated_same_input_gives_same_ordered_signatures():
     second = plan(state)
     assert [_signature(c) for c in first.candidates] == [_signature(c) for c in second.candidates]
 
-
-# M29 -- real select/persist round-trip for candidate 2 -------------------
 
 
 def test_m29_select_candidate2_real_persistence_roundtrip(tmp_path):
