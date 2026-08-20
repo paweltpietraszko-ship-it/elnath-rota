@@ -12,6 +12,7 @@ import uuid
 from dataclasses import replace
 from datetime import date, datetime
 from itertools import combinations
+from typing import Optional
 
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
@@ -19,11 +20,12 @@ from rota.application.deviation_mapping import materialize_deviations
 from rota.application.errors import NoCurrentScheduleVersion, NotWorkedRequiresPlannedPrimary, require_real_date
 from rota.domain import Assignment, AssignmentRole, AssignmentState, RuleCategory, RuleEnforcement, RuleResolution, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
+from rota.persistence import site_memory
 from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
 from rota.planning.work_periods import PeriodComponent, group_into_periods, resolve_required_rest, violates_rest
-from rota.site_memory_types import NewRuleContent
+from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind, NewRuleContent
 
 
 def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: list[Assignment]) -> list[Assignment]:
@@ -127,9 +129,70 @@ def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, c
     return _hook
 
 
+def _assignment_state(a: Assignment) -> dict:
+    return {
+        "assignment_id": a.assignment_id, "employee_id": a.employee_id, "start_datetime": a.start_datetime,
+        "end_datetime": a.end_datetime, "role": a.role.value, "state": a.state.value, "frozen": a.frozen,
+        "covers_demand_id": a.covers_demand_id, "operational_code": a.operational_code,
+        "work_period_id": a.work_period_id,
+    }
+
+
+def _with_manual_action_hook(
+    *, action_kind: CoordinatorActionKind, site_id: str, month: date, coordinator_id: str,
+    effective_from: date, child_id: str, parent_snapshot_by_id: dict, upsert_assignments: list[Assignment],
+    note: Optional[str], responds_to_decision_required_id: Optional[str], caller_on_success, extra_state=None,
+):
+    """ROTA-T019b: one action per apply_manual_correction call (section 15/
+    6), regardless of any REST_OVERRIDE_RECORD hook already composed in by
+    _with_rest_override_hook. before/after are exactly the caller-supplied
+    changed Assignment facts (brief.md section 7.4) -- never the whole
+    snapshot, never unselected/derived rows. extra_state (used only by
+    training.mark_training_realized) is called AFTER caller_on_success so it
+    can read the just-written derived readiness fact for section 19's
+    training readiness before/after."""
+    recorded_at = datetime.now()
+
+    def _hook(conn) -> None:
+        if caller_on_success is not None:
+            caller_on_success(conn)
+        before_facts = [
+            _assignment_state(parent_snapshot_by_id[a.assignment_id])
+            for a in upsert_assignments if a.assignment_id in parent_snapshot_by_id
+        ]
+        after_facts = [_assignment_state(a) for a in upsert_assignments]
+        entities = sorted({a.employee_id for a in upsert_assignments})
+        before_state = {"assignments": before_facts}
+        after_state = {"assignments": after_facts}
+        if extra_state is not None:
+            extra_before, extra_after = extra_state(conn)
+            if extra_before is not None:
+                before_state.update(extra_before)
+            if extra_after is not None:
+                after_state.update(extra_after)
+        site_memory.record_coordinator_action_no_commit(
+            conn, action_kind=action_kind, origin_site_id=site_id, affected_site_ids=[site_id],
+            coordinator_id=coordinator_id, recorded_at=recorded_at, effective_from=effective_from, month=month,
+            schedule_version_id=child_id,
+            affected_entities=(
+                [AffectedEntity("EMPLOYEE", e) for e in entities]
+                + [AffectedEntity("ASSIGNMENT", a.assignment_id) for a in upsert_assignments]
+            ),
+            before_state=before_state, after_state=after_state,
+            note=note, source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=child_id,
+            responds_to_decision_required_id=responds_to_decision_required_id,
+        )
+        site_memory.invalidate_current_decision_required_no_commit(conn, site_ids=[site_id], months=[month])
+
+    return _hook
+
+
 def apply_manual_correction(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
-    upsert_assignments: list[Assignment], on_success=None,
+    upsert_assignments: list[Assignment], on_success=None, note: Optional[str] = None,
+    responds_to_decision_required_id: Optional[str] = None,
+    _action_kind: CoordinatorActionKind = CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION,
+    _extra_state=None,
 ) -> ScheduleVersion:
     """review_02_architect_clarification.md ATOMIC MANUAL CORRECTION FLOW,
     steps 1-11. Manual state may be saved even with a coordinator-created
@@ -137,13 +200,21 @@ def apply_manual_correction(
     feeds Deviation materialization, it never blocks the save. Everything
     through step 8 is in-memory; step 9 is the single T008 lifecycle call
     that atomically writes the child and switches current. Never calls
-    REPLAN automatically."""
+    REPLAN automatically.
+
+    _action_kind (ROTA-T019b, internal): freeze_or_unfreeze/mark_not_worked/
+    training.mark_training_realized pass their own specific kind through
+    this same mechanism instead of a second, generic action row."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
+    site_memory.validate_decision_required_link_no_commit(
+        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+    )
     current_id = get_current_version_id(conn, site_id, month)  # step 1
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to correct")
     parent_snapshot = get_schedule_snapshot(conn, current_id)
+    parent_snapshot_by_id = {a.assignment_id: a for a in parent_snapshot.assignments}
 
     corrected_assignments = _cloned_and_corrected(parent_snapshot.assignments, upsert_assignments)  # steps 4-5
 
@@ -158,19 +229,27 @@ def apply_manual_correction(
     child_id = f"SV-{uuid.uuid4().hex}"
     rest_pairs = _rest_override_pairs(state, corrected_assignments, report)
     rest_override = _rest_override_rule_content(child_id, rest_pairs) if rest_pairs else None
+    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, on_success)
+    hook = _with_manual_action_hook(
+        action_kind=_action_kind, site_id=site_id, month=month, coordinator_id=coordinator_id,
+        effective_from=effective_from, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
+        upsert_assignments=upsert_assignments, note=note,
+        responds_to_decision_required_id=responds_to_decision_required_id, caller_on_success=hook,
+        extra_state=_extra_state,
+    )
     return lifecycle.create_schedule_version(  # steps 9-10
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
         created_at=datetime.now(), created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=parent_snapshot.shift_demands, assignments=corrected_assignments, deviations=deviations,
-        effective_from=effective_from,
-        on_success=_with_rest_override_hook(site_id, coordinator_id, rest_override, on_success),
+        effective_from=effective_from, on_success=hook,
     )
 
 
 def freeze_or_unfreeze(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
-    assignment_id: str, frozen: bool,
+    assignment_id: str, frozen: bool, note: Optional[str] = None,
+    responds_to_decision_required_id: Optional[str] = None,
 ) -> ScheduleVersion:
     """freeze/unfreeze is the same material-correction mechanism with a
     single field changed; kept as a named entry point for callers rather
@@ -183,12 +262,14 @@ def freeze_or_unfreeze(
     updated = replace(target, frozen=frozen)
     return apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        upsert_assignments=[updated],
+        upsert_assignments=[updated], note=note, responds_to_decision_required_id=responds_to_decision_required_id,
+        _action_kind=CoordinatorActionKind.ASSIGNMENT_FREEZE_CHANGED,
     )
 
 
 def mark_not_worked(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date, assignment_id: str,
+    note: Optional[str] = None, responds_to_decision_required_id: Optional[str] = None,
 ) -> ScheduleVersion:
     """ROTA-T010-D (part_d_nn.md): a previously PLANNED PRIMARY the employee
     did not work becomes state=CANCELLED + operational_code="NN" on the
@@ -210,5 +291,6 @@ def mark_not_worked(
     updated = replace(target, state=AssignmentState.CANCELLED, operational_code="NN")
     return apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        upsert_assignments=[updated],
+        upsert_assignments=[updated], note=note, responds_to_decision_required_id=responds_to_decision_required_id,
+        _action_kind=CoordinatorActionKind.ASSIGNMENT_NOT_WORKED,
     )

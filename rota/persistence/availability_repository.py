@@ -35,46 +35,58 @@ def _current_chain_end(conn: sqlite3.Connection, availability_id: str) -> Option
     ).fetchone()
 
 
-def append_availability_version(
+def append_availability_version_in_open_transaction(
     conn: sqlite3.Connection, *, availability_id: str, employee_id: str, kind: AvailabilityKind,
     start_date: date, end_date: date, active: bool, note: Optional[str] = None,
 ) -> AvailabilityRecord:
+    """Same write as append_availability_version, without its own
+    `with conn:` (ROTA-T019b atomicity)."""
     if end_date < start_date:
         raise ValueError("AvailabilityRecord.end_date must be >= start_date")
     employee_row = conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (employee_id,)).fetchone()
     if employee_row is None:
         raise UnknownEmployeeForAvailability(employee_id)
 
-    with conn:
-        end_row = _current_chain_end(conn, availability_id)
-        if end_row is None:
-            predecessor_id, chain_seq = None, 0
-        else:
-            predecessor_id, predecessor_chain_seq, predecessor_employee_id = end_row
-            if predecessor_employee_id != employee_id:
-                raise InvalidAvailabilityChain(
-                    f"availability_id {availability_id!r} belongs to employee "
-                    f"{predecessor_employee_id!r}, not {employee_id!r}"
-                )
-            chain_seq = predecessor_chain_seq + 1
+    end_row = _current_chain_end(conn, availability_id)
+    if end_row is None:
+        predecessor_id, chain_seq = None, 0
+    else:
+        predecessor_id, predecessor_chain_seq, predecessor_employee_id = end_row
+        if predecessor_employee_id != employee_id:
+            raise InvalidAvailabilityChain(
+                f"availability_id {availability_id!r} belongs to employee "
+                f"{predecessor_employee_id!r}, not {employee_id!r}"
+            )
+        chain_seq = predecessor_chain_seq + 1
 
-        availability_version_id = f"AV-{uuid.uuid4().hex}"
-        conn.execute(
-            """INSERT INTO availability_versions
-               (availability_version_id, availability_id, employee_id, chain_seq, kind,
-                start_date, end_date, active, supersedes_availability_version_id, note)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                availability_version_id, availability_id, employee_id, chain_seq, kind.value,
-                start_date.isoformat(), end_date.isoformat(), int(active), predecessor_id, note,
-            ),
-        )
+    availability_version_id = f"AV-{uuid.uuid4().hex}"
+    conn.execute(
+        """INSERT INTO availability_versions
+           (availability_version_id, availability_id, employee_id, chain_seq, kind,
+            start_date, end_date, active, supersedes_availability_version_id, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            availability_version_id, availability_id, employee_id, chain_seq, kind.value,
+            start_date.isoformat(), end_date.isoformat(), int(active), predecessor_id, note,
+        ),
+    )
 
     return AvailabilityRecord(
         availability_id=availability_id, availability_version_id=availability_version_id,
         employee_id=employee_id, kind=kind, start_date=start_date, end_date=end_date,
         active=active, supersedes_availability_version_id=predecessor_id, note=note,
     )
+
+
+def append_availability_version(
+    conn: sqlite3.Connection, *, availability_id: str, employee_id: str, kind: AvailabilityKind,
+    start_date: date, end_date: date, active: bool, note: Optional[str] = None,
+) -> AvailabilityRecord:
+    with conn:
+        return append_availability_version_in_open_transaction(
+            conn, availability_id=availability_id, employee_id=employee_id, kind=kind,
+            start_date=start_date, end_date=end_date, active=active, note=note,
+        )
 
 
 def _row_to_record(row: tuple) -> AvailabilityRecord:

@@ -18,7 +18,7 @@ MONTH = date(2026, 8, 1)
 def _plan_and_select(conn, site_id: str, month: date = MONTH):
     result = plan_ops.plan_month(conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month)
     assert result.status == "FEASIBLE"
-    version = plan_ops.select_candidate(conn, site_id=site_id, month=month, candidate=result.candidates[0])
+    version = plan_ops.select_candidate(conn, site_id=site_id, month=month, candidate=result.candidates[0], coordinator_id="COORD-1")
     return result, version
 
 
@@ -52,10 +52,10 @@ def test_7_feasible_candidate_not_persisted_until_selected_and_invalid_rejected(
     # leaving its ShiftDemand with zero PRIMARY coverage (COVERAGE-01).
     broken_candidate = list(result.candidates[0])[1:]
     with pytest.raises(CandidateRejected):
-        plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=broken_candidate)
+        plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=broken_candidate, coordinator_id="COORD-1")
     assert len(get_schedule_snapshot(conn, version_id).assignments) == 0  # rejection didn't persist anything
 
-    plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
+    plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
     assert len(get_schedule_snapshot(conn, version_id).assignments) == len(result.candidates[0])
 
 
@@ -104,7 +104,7 @@ def test_9_replan_creates_child_and_preserves_parent_history_and_frozen(tmp_path
 
     replanned = plan_ops.replan(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 2))
     assert replanned.status == "FEASIBLE"
-    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=replanned.candidates[0])
+    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=replanned.candidates[0], coordinator_id="COORD-1")
 
     assert v2.version_id != v1.version_id
     assert v2.parent_version_id == v1.version_id

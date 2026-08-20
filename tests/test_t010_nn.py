@@ -31,7 +31,7 @@ MONTH = date(2026, 8, 1)
 def _plan_and_select(conn, site_id: str):
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
     assert result.status == "FEASIBLE"
-    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
+    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
 
 
 def test_nn_marks_cancelled_and_parent_unchanged(tmp_path) -> None:

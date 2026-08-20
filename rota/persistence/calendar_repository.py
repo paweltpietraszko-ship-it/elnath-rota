@@ -10,13 +10,19 @@ from datetime import date
 from rota.domain import CalendarDay
 
 
+def write_calendar_day_in_open_transaction(conn: sqlite3.Connection, day: CalendarDay) -> None:
+    """Same write as save_calendar_day, without its own `with conn:`
+    (ROTA-T019b atomicity)."""
+    conn.execute(
+        """INSERT INTO calendar_days (date, holiday) VALUES (?, ?)
+           ON CONFLICT(date) DO UPDATE SET holiday=excluded.holiday""",
+        (day.date.isoformat(), int(day.holiday)),
+    )
+
+
 def save_calendar_day(conn: sqlite3.Connection, day: CalendarDay) -> None:
     with conn:
-        conn.execute(
-            """INSERT INTO calendar_days (date, holiday) VALUES (?, ?)
-               ON CONFLICT(date) DO UPDATE SET holiday=excluded.holiday""",
-            (day.date.isoformat(), int(day.holiday)),
-        )
+        write_calendar_day_in_open_transaction(conn, day)
 
 
 def get_calendar_day(conn: sqlite3.Connection, target_date: date) -> CalendarDay:

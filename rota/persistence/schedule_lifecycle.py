@@ -171,11 +171,15 @@ def _require_editable_current(conn: sqlite3.Connection, version_id: str) -> Sche
 def replace_working_snapshot(
     conn: sqlite3.Connection, *, version_id: str, applied_rule_version_ids: list[str],
     shift_demands: list[ShiftDemand], assignments: list[Assignment], deviations: list[Deviation],
+    on_success: Callable[[sqlite3.Connection], None] | None = None,
 ) -> ScheduleVersion:
     """Full in-place snapshot replacement of the current WORKING/
     WORKING_WITH_DEVIATIONS version. FINAL versions and non-current versions
     reject with NonEditableScheduleVersion; use create_schedule_version for a
-    new child instead."""
+    new child instead.
+
+    on_success (ROTA-T019b): same same-transaction hook seam as
+    create_schedule_version -- default None preserves existing behavior."""
     with conn:
         header = _require_editable_current(conn, version_id)
         status = _validate_content(
@@ -187,6 +191,8 @@ def replace_working_snapshot(
         _delete_content(conn, version_id)
         _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
         conn.execute("UPDATE schedule_versions SET status = ? WHERE version_id = ?", (status.value, version_id))
+        if on_success is not None:
+            on_success(conn)
     return get_schedule_version_header(conn, version_id)
 
 
@@ -211,6 +217,7 @@ def finalize_schedule_version(
     conn: sqlite3.Connection, *, version_id: str,
     applied_rule_version_ids: list[str] | None = None, shift_demands: list[ShiftDemand] | None = None,
     assignments: list[Assignment] | None = None, deviations: list[Deviation] | None = None,
+    on_success: Callable[[sqlite3.Connection], None] | None = None,
 ) -> ScheduleVersion:
     """One-way transition WORKING(_WITH_DEVIATIONS) -> FINAL_*; every
     Deviation on the version must already be acknowledged.
@@ -239,10 +246,15 @@ def finalize_schedule_version(
             has_deviations = bool(rows)
         target = ScheduleStatus.FINAL_WITH_DEVIATIONS if has_deviations else ScheduleStatus.FINAL_NO_DEVIATIONS
         conn.execute("UPDATE schedule_versions SET status = ? WHERE version_id = ?", (target.value, version_id))
+        if on_success is not None:
+            on_success(conn)
     return get_schedule_version_header(conn, version_id)
 
 
-def restore_schedule_version(conn: sqlite3.Connection, *, site_id: str, month: date, version_id: str) -> None:
+def restore_schedule_version(
+    conn: sqlite3.Connection, *, site_id: str, month: date, version_id: str,
+    on_success: Callable[[sqlite3.Connection], None] | None = None,
+) -> None:
     """Move the (site_id, month) current reference to version_id (any prior
     version, including a FINAL one already superseded) without deleting or
     altering any ScheduleVersion's content."""
@@ -251,6 +263,8 @@ def restore_schedule_version(conn: sqlite3.Connection, *, site_id: str, month: d
         if header.site_id != site_id or header.month != month:
             raise InvalidCurrentVersionTarget(f"{version_id} does not belong to ({site_id}, {month})")
         _set_current_reference(conn, site_id, month, version_id)
+        if on_success is not None:
+            on_success(conn)
 
 
 if __name__ == "__main__":

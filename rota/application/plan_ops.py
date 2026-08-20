@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from dataclasses import replace
 from datetime import date, datetime
@@ -17,10 +18,51 @@ from rota.application.errors import (
 )
 from rota.domain import Assignment, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
+from rota.persistence import site_memory
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
 from rota.planning.engine import plan
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
+from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
+
+
+class MissingCoordinatorActor(Exception):
+    """ROTA-T019b section 14: select_candidate must be told explicitly who
+    is selecting -- the previous fallback to the ScheduleVersion's own
+    created_by is removed. No other T017 candidate semantics change."""
+
+
+def _persist_decision_readback(
+    conn, *, site_id: str, month: date, coordinator_id: str, schedule_version_id: str, result: PlanningResult,
+) -> PlanningResult:
+    """ROTA-T019b section 11: after plan()'s FINAL public result, persist or
+    clear the current DECISION_REQUIRED readback. Fails closed: a
+    persistence failure here becomes TECHNICAL_ERROR, never an unpersisted
+    DECISION_REQUIRED or a FEASIBLE with a stale pointer left behind."""
+    if result.status == "DECISION_REQUIRED":
+        try:
+            with conn:
+                site_memory.reuse_or_insert_decision_required_snapshot_no_commit(
+                    conn, site_id=site_id, month=month, schedule_version_id=schedule_version_id,
+                    requested_by=coordinator_id, recorded_at=datetime.now(), payload=result.decision_payload,
+                )
+        except sqlite3.Error:
+            return PlanningResult(
+                status="TECHNICAL_ERROR", candidates=[], decision_payload=None,
+                error_message="failed to persist DECISION_REQUIRED readback", warnings=list(result.warnings),
+            )
+        return result
+    if result.status == "FEASIBLE":
+        try:
+            with conn:
+                site_memory.clear_current_decision_required_no_commit(conn, site_id=site_id, month=month)
+        except sqlite3.Error:
+            return PlanningResult(
+                status="TECHNICAL_ERROR", candidates=[], decision_payload=None,
+                error_message="failed to clear stale DECISION_REQUIRED readback pointer", warnings=list(result.warnings),
+            )
+        return result
+    return result  # TECHNICAL_ERROR: previous current pointer is preserved untouched
 
 
 def _require_working_or_absent(conn, site_id: str, month: date) -> str | None:
@@ -79,9 +121,16 @@ def plan_month(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             version_id=version_id, demands=list(demands),
         )
-        return plan(state)
+        result = plan(state)
+        return _persist_decision_readback(
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
+            schedule_version_id=version_id, result=result,
+        )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    return plan(state)
+    result = plan(state)
+    return _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
+    )
 
 
 def _coerce_unproven_realized_to_planned(candidate: list[Assignment], prior_existing: tuple) -> list[Assignment]:
@@ -100,8 +149,41 @@ def _coerce_unproven_realized_to_planned(candidate: list[Assignment], prior_exis
     ]
 
 
+def _assignment_fact(a: Assignment) -> dict:
+    return {
+        "assignment_id": a.assignment_id, "employee_id": a.employee_id, "start_datetime": a.start_datetime,
+        "end_datetime": a.end_datetime, "role": a.role.value, "state": a.state.value, "frozen": a.frozen,
+        "covers_demand_id": a.covers_demand_id, "operational_code": a.operational_code,
+        "work_period_id": a.work_period_id,
+    }
+
+
+def _candidate_delta(prior: tuple, candidate: list[Assignment]) -> tuple[dict, dict]:
+    """ROTA-T019b section 19: only the changed/added/removed selected
+    Assignment facts -- never the unselected T017 candidates, never the
+    whole snapshot."""
+    prior_by_id = {a.assignment_id: a for a in prior}
+    candidate_by_id = {a.assignment_id: a for a in candidate}
+    removed_ids = prior_by_id.keys() - candidate_by_id.keys()
+    added_ids = candidate_by_id.keys() - prior_by_id.keys()
+    changed_ids = {
+        aid for aid in (prior_by_id.keys() & candidate_by_id.keys())
+        if _assignment_fact(prior_by_id[aid]) != _assignment_fact(candidate_by_id[aid])
+    }
+    before_state = {
+        "removed": [_assignment_fact(prior_by_id[aid]) for aid in sorted(removed_ids)],
+        "changed": [_assignment_fact(prior_by_id[aid]) for aid in sorted(changed_ids)],
+    }
+    after_state = {
+        "added": [_assignment_fact(candidate_by_id[aid]) for aid in sorted(added_ids)],
+        "changed": [_assignment_fact(candidate_by_id[aid]) for aid in sorted(changed_ids)],
+    }
+    return before_state, after_state
+
+
 def select_candidate(
-    conn, *, site_id: str, month: date, candidate: list[Assignment], coordinator_id: str | None = None,
+    conn, *, site_id: str, month: date, candidate: list[Assignment], coordinator_id: str,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> ScheduleVersion:
     """Operation 4. Persists a coordinator-chosen FEASIBLE candidate onto
     the current WORKING version in place -- this fills in a version that
@@ -109,29 +191,49 @@ def select_candidate(
     as a real schedule, so it is not the "material correction" the owner
     versioning rule (review_01) targets; that rule governs operation 8.
 
-    R4-3-A/R5-4: the acting coordinator is whoever the caller identifies via
-    coordinator_id; the version's own created_by is only a fallback for
-    callers that don't (yet) supply an actor, since the version creator
-    being active is a necessary but not sufficient proxy for who is
-    actually performing THIS write."""
+    ROTA-T019b section 14: coordinator_id is now required -- the previous
+    fallback to the ScheduleVersion's own created_by is removed. No other
+    T017 candidate semantics change."""
+    if coordinator_id is None:
+        raise MissingCoordinatorActor("select_candidate requires an explicit acting coordinator_id")
     current_id = _require_working_or_absent(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
     header = get_schedule_version_header(conn, current_id)
-    acting_coordinator_id = coordinator_id if coordinator_id is not None else header.created_by
-    require_active_coordinator_context(conn, coordinator_id=acting_coordinator_id, site_id=site_id)
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    site_memory.validate_decision_required_link_no_commit(
+        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+    )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     for_validation = _coerce_unproven_realized_to_planned(candidate, state.existing_assignments)
     report = validate(state, for_validation)
     if not report.hard_pass:
         raise CandidateRejected("; ".join(report.violations))
+    before_state, after_state = _candidate_delta(state.existing_assignments, candidate)
+    recorded_at = datetime.now()
+
+    def _hook(open_conn) -> None:
+        site_memory.record_coordinator_action_no_commit(
+            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=header.effective_from, month=month, schedule_version_id=current_id,
+            affected_entities=[AffectedEntity("SCHEDULE_VERSION", current_id)],
+            before_state=before_state, after_state=after_state, note=note,
+            source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=current_id,
+            responds_to_decision_required_id=responds_to_decision_required_id,
+        )
+        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
+
     return lifecycle.replace_working_snapshot(
         conn, version_id=current_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
-        shift_demands=state.shift_demands, assignments=candidate, deviations=[],
+        shift_demands=state.shift_demands, assignments=candidate, deviations=[], on_success=_hook,
     )
 
 
-def replan(conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date) -> PlanningResult:
+def replan(
+    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
+) -> PlanningResult:
     """Operation 5. Always creates a new WORKING child cloned from the
     current version's complete content before calling plan() -- T008/T006
     invariants (REALIZED preserved, frozen preserved, TRAINEE preserved,
@@ -156,6 +258,9 @@ def replan(conn, *, site_id: str, month: date, coordinator_id: str, effective_fr
     would see every fixed fact as "modified" purely by scope, not content."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
+    site_memory.validate_decision_required_link_no_commit(
+        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+    )
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to REPLAN from")
@@ -169,11 +274,28 @@ def replan(conn, *, site_id: str, month: date, coordinator_id: str, effective_fr
         state, schedule_version_id=child_id, shift_demands=demands,
         existing_assignments=existing, deviations=deviations,
     )
+    recorded_at = datetime.now()
+
+    def _hook(open_conn) -> None:
+        site_memory.record_coordinator_action_no_commit(
+            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_REPLAN_CREATED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=effective_from, month=month, schedule_version_id=child_id,
+            affected_entities=[AffectedEntity("SCHEDULE_VERSION", child_id)],
+            before_state={"current_version_id": current_id}, after_state={"current_version_id": child_id},
+            note=note, source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=child_id,
+            responds_to_decision_required_id=responds_to_decision_required_id,
+        )
+        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
+
     lifecycle.create_schedule_version(
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
         created_at=datetime.now(), created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=list(demands), assignments=list(existing),
-        deviations=list(deviations), effective_from=effective_from,
+        deviations=list(deviations), effective_from=effective_from, on_success=_hook,
     )
-    return plan(state)
+    result = plan(state)
+    return _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
+    )
