@@ -11,6 +11,7 @@ OWNER_SOURCE: arch/T020_schedule_export_architect_brief.md
 FULL_B_CONTRACT: tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md
 R5_AMENDMENT: tasks/ROTA-T020/CHECKPOINT_B_R5_AMENDMENT.md
 R6_AMENDMENT: tasks/ROTA-T020/CHECKPOINT_B_R6_AMENDMENT.md
+SCOPE_AMENDMENT_01: tasks/ROTA-T020/CHECKPOINT_B_SCOPE_AMENDMENT_01.md
 R5_AUDIT_COMMIT: 891013d3ccecf8fdbe8a5772d17be4fdb21ac111
 R6_AUDIT_COMMIT: 501a3c69ee39a1f541a4567aa9c33d3040e83e5a
 FINAL_PREIMPLEMENTATION_AUDIT_COMMIT: 1e02f66e00a48cf7b95de41b6d920900e83d036c
@@ -34,13 +35,16 @@ The normative implementation contract is `tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.
 3. `CHECKPOINT_A_ACCEPTANCE.md` and exact accepted PDF artifacts;
 4. authoritative correction `CHECKPOINT_B_OWNER_DECISIONS_05.md`;
 5. preserved row-population rule in `CHECKPOINT_B_OWNER_DECISIONS_02.md` section 1;
-6. `CHECKPOINT_B_R6_AMENDMENT.md` for the Round-6 closure of remaining R5-1/R5-3/R5-4 findings;
-7. `CHECKPOINT_B_R5_AMENDMENT.md` for R5 refinements not superseded by R6;
-8. `CHECKPOINT_B_CONTRACT.md` for the remaining technical architecture and testable implementation details.
+6. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` solely for the mechanical schema-version assertion scope extension;
+7. `CHECKPOINT_B_R6_AMENDMENT.md` for the Round-6 closure of remaining R5-1/R5-3/R5-4 findings;
+8. `CHECKPOINT_B_R5_AMENDMENT.md` for R5 refinements not superseded by R6;
+9. `CHECKPOINT_B_CONTRACT.md` for the remaining technical architecture and testable implementation details.
 
 `CHECKPOINT_B_OWNER_DECISIONS_03.md` and `_04.md` are superseded. The old absence-allocation interpretation in `_01.md` is superseded by `_05.md`. `ARCHITECT_PLANNING_GAP_01.md` is withdrawn as a blocker. Round 4 remains historical implementation evidence only.
 
 Round 5 found R5-1..R5-4. Round 6 closed R5-2 but correctly found that R5-1 still had one contradictory settings oracle and R5-3/R5-4 still lacked existing T012 cross-month/cross-year 24h semantics/evidence. `CHECKPOINT_B_R6_AMENDMENT.md` answered exactly those remaining findings. Round 7 independently returned `PASS — REMAINING R5 FINDINGS CLOSED — READY_FOR_IMPLEMENTATION` at audit commit `1e02f66e00a48cf7b95de41b6d920900e83d036c`.
+
+After architect acceptance, implementation discovered one purely mechanical scope consequence of migration 7: two existing tests outside the original scope assert `LATEST_SCHEMA_VERSION == 6`. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` adds those files only for the exact assertion change `6 -> 7`; it changes no test meaning and reopens no preimplementation finding.
 
 ## 2. NON-NEGOTIABLE PRODUCT BOUNDARY
 
@@ -78,7 +82,7 @@ Checkpoint B uses exactly two new non-pipeline implementation files:
 - `rota/application/schedule_export.py`;
 - `tests/test_t020.py`.
 
-Existing files modified are limited to persistence/schema/settings support and the ReportLab dependency, exactly as listed in the final `TASK_SCOPE` below.
+Existing files modified are limited to persistence/schema/settings support, the ReportLab dependency, and the two legacy schema-version assertions explicitly authorized by `CHECKPOINT_B_SCOPE_AMENDMENT_01.md`, exactly as listed in the final `TASK_SCOPE` below.
 
 No new repository module, no export-history table, no second schedule model and no generic settings subsystem are authorized.
 
@@ -98,15 +102,17 @@ Final independent audit:
 
 Architect final preimplementation acceptance is recorded separately in `CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md`.
 
-**CC MAY START CHECKPOINT B IMPLEMENTATION ONLY FROM THE FINAL ACCEPTED BRANCH HEAD AND ONLY INSIDE TASK_SCOPE.**
+The later `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` is mechanical only and does not reopen the preimplementation audit.
+
+**CC MAY START / CONTINUE CHECKPOINT B IMPLEMENTATION ONLY FROM THE FINAL AMENDED BRANCH HEAD AND ONLY INSIDE TASK_SCOPE.**
 
 This is authorization to implement the frozen contract, not permission to redesign product behavior.
 
 ## 6. IMPLEMENTATION BACKEND BASE
 
-The backend implementation `before_sha` is the exact branch HEAD after the architect acceptance record is committed, not `main` and not the earlier audited contract SHA.
+Because no implementation commit existed when `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` was recorded, the backend implementation `before_sha` is the exact branch HEAD after that amendment and this `brief.md` scope update are committed.
 
-That keeps owner/architect/audit task artifacts outside the implementation diff and makes NEW_FILES count the actual B implementation only.
+That final amended HEAD supersedes the earlier acceptance SHA only as the mechanical implementation diff base. The product/architecture acceptance itself remains unchanged.
 
 CC must record that exact `before_sha` before the first production implementation commit.
 
@@ -127,3 +133,7 @@ TASK_SCOPE:
 - rota/persistence/site_repository.py
 - rota/persistence/employee_repository.py
 - tests/test_t020.py
+- tests/test_t012.py
+- tests/test_t019b.py
+
+Scope restriction for the last two files is exact: only `LATEST_SCHEMA_VERSION == 6` -> `LATEST_SCHEMA_VERSION == 7` is authorized; no other change in either file is permitted.
