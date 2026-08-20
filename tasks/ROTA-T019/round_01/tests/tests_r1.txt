@@ -1,0 +1,210 @@
+ROTA-T019 — CODEX PREIMPLEMENTATION AUDIT — ROUND 1
+
+AUDITED_BRANCH: origin/task/ROTA-T019
+AUDITED_CONTRACT_SHA: c0f5d2759a9ca232a6263a0c1ffa7ee478481db2
+BASE_SHA: 9618477f6014fad63699a154b04730e2b8ff1db2
+DATE: 2026-08-20
+
+VERDICT: FAIL — NOT READY FOR IMPLEMENTATION
+
+SUMMARY
+
+Kontrakt jest wykonalny i w pozostałych sekcjach zachowuje T019 jako wąski,
+read-only application read model istniejącej prawdy WorkBalance. Jeden zapis
+łamie jednak zamrożony WINDOW-03: włącza EXTERNAL_SUPPORT do bilansu, mimo że
+pilot nie modeluje bilansów ani macierzystego grafiku X/Y. Finding jest wąski;
+nie otwiera pozostałej architektury T019.
+
+SECTION_CHECK 1 — PROVENANCE / TOPOLOGY: PASS
+
+- origin/task/ROTA-T019 wskazuje dokładnie na
+  c0f5d2759a9ca232a6263a0c1ffa7ee478481db2.
+- Merge-base z deklarowanym BASE_SHA jest dokładnie
+  9618477f6014fad63699a154b04730e2b8ff1db2.
+- Branch ma dokładnie dwa commity ponad bazą.
+- BASE_SHA -> HEAD zmienia wyłącznie:
+  - arch/T019_coordinator_analytics_architect_brief.md;
+  - tasks/ROTA-T019/brief.md.
+- Nie ma kodu ani testów implementacyjnych przed preimplementation PASS.
+- git diff --check dla BASE_SHA -> HEAD: PASS.
+
+SECTION_CHECK 2 — ZGODNOŚĆ Z FROZEN SPEC: FAIL
+
+T019 pozostaje zgodny z WB-01/WB-05, EMP-03, wycofaniem EMP-02, brakiem
+payrollu i read-only granicą. Jedyny wyjątek opisuje T019-R1-1 poniżej.
+
+FINDING T019-R1-1 — EXTERNAL_SUPPORT NIE MOŻE DOSTAĆ WORKBALANCE ANALYTICS
+
+Klasyfikacja: FAIL — bezpośrednia sprzeczność z arch/spec.md WINDOW-03.
+
+Ślad kontraktu:
+
+- arch/spec.md:176-178:
+  `WINDOW-03: Pilot does NOT model X/Y home-site HR, balances, or schedule.`
+- tasks/ROTA-T019/brief.md sekcja 5 wymaga, aby oba membership kinds,
+  LOCAL i EXTERNAL_SUPPORT, dawały wiersz analytics po samym `enabled=True`.
+- tasks/ROTA-T019/brief.md test 18 dodatkowo zamraża wiersz dla enabled
+  EXTERNAL_SUPPORT bez ExternalSupportWindow.
+- Ten sam kontrakt oznacza wszystkie wartości `hours_scope=ALL_SITES`.
+
+Dlaczego to jest realna sprzeczność:
+
+EXTERNAL_SUPPORT jest X/Y w frozen spec. Rota nie posiada jego macierzystego
+grafiku ani home-site HR, więc nie może przedstawić jego WorkBalance jako
+globalnej, kompletnej sumy `ALL_SITES`. Sam enabled membership nie zmienia
+WINDOW-03; ExternalSupportWindow określa eligibility konkretnej pracy, ale też
+nie dostarcza brakującego macierzystego bilansu.
+
+Klasa błędu:
+
+- EXTERNAL_SUPPORT bez okna;
+- EXTERNAL_SUPPORT z częściowym lub pełnym oknem;
+- ten sam Employee jako LOCAL na jednym Site i EXTERNAL_SUPPORT na drugim;
+- EXTERNAL_SUPPORT z lokalnymi Assignment, ale bez danych macierzystego Site.
+
+We wszystkich przypadkach membership EXTERNAL_SUPPORT nie może sam ustanowić
+pełnego WorkBalance analytics opisanego jako ALL_SITES.
+
+Minimalne zamknięcie:
+
+1. W sekcji 5 ograniczyć roster analytics WorkBalance do enabled LOCAL
+   membership.
+2. Usunąć/zmienić test 18 tak, aby EXTERNAL_SUPPORT nie tworzył wiersza
+   WorkBalance T019.
+3. Ujednolicić odpowiadające zdania w owner source i minimum matrix, jeżeli
+   nadal można je odczytać jako obejmujące X/Y.
+
+To zamknięcie nie wymaga nowej decyzji produktowej: wynika literalnie z
+WINDOW-03. Jeśli właściciel chce w przyszłości osobny widok wykorzystania
+wsparcia zewnętrznego, wymaga to jawnej zmiany/rozszerzenia produktu i nie może
+zostać przemycone jako istniejący WorkBalance.
+
+SECTION_CHECK 3 — READ-ONLY / NO SECOND TRUTH: PASS
+
+- Jeden nowy application entry point jest read-only.
+- Kontrakt zakazuje tabeli/cache analytics, migracji i zapisów.
+- `effective_target_hours` jest polem pochodnym, nie drugim źródłem prawdy.
+- `open_month()` i `quarter_balance()` zachowują publiczną semantykę.
+- Solver/planning/UI/export pozostają poza scope.
+
+SECTION_CHECK 4 — EFFECTIVE TARGET / T018: PASS
+
+Kod bazowy potwierdza równanie:
+
+`month_balance = planned_hours + realized_hours - effective_target`
+
+Dlatego kontraktowe:
+
+`effective_target_hours = planned_hours + realized_hours - month_balance`
+
+odtwarza dokładnie wartość już używaną przez `rota.balance`, także po
+`max(0, target - excused absence hours)`. Nie powiela filtrowania weekendów i
+świąt oraz nie ustanawia nowej reguły absencji.
+
+SECTION_CHECK 5 — MISSING DATA / STATUS SEMANTICS: PASS
+
+- Requested-month missing target jest odróżniony od legalnego zera.
+- Brak wcześniejszego/późniejszego targetu kwartału nie usuwa prawdziwego
+  odczytu żądanego miesiąca.
+- Sztuczny month-only carry-in od zera nie jest publikowany jako prawdziwy
+  quarter balance.
+- `IncompleteAbsenceCalendarError` pozostaje fail-closed tylko wtedy, gdy
+  canonical absence accounting rzeczywiście potrzebuje kalendarza.
+- Ostrzeżenia są deterministyczne i nie wprowadzają payroll/ZUS.
+
+SECTION_CHECK 6 — CURRENT / CROSS-SITE WORKBALANCE: PASS Z WYŁĄCZENIEM R1-1
+
+- `get_current_assignments_for_employees` na bazie pobiera non-CANCELLED
+  Assignment wyłącznie przez `current_schedule_versions`.
+- Brak `exclude_site_id` daje istniejącą cross-Site semantykę EMP-03.
+- `rota.balance` liczy tylko PRIMARY i osobno PLANNED/REALIZED.
+- Historyczne non-current wersje oraz CANCELLED/NN nie zwiększają godzin.
+- `hours_scope=ALL_SITES` jest poprawne dla modelowanych pracowników LOCAL;
+  nie jest poprawnym twierdzeniem dla X/Y objętych WINDOW-03.
+
+SECTION_CHECK 7 — ROSTER / T016: PASS Z WYŁĄCZENIEM R1-1
+
+- `SiteMembership.enabled` jest właściwym filtrem bieżącej obsady.
+- `Employee.active_from/active_to` nie wracają jako EMP-02.
+- Brak membership lub disabled membership nie daje wiersza.
+- Deterministyczne sortowanie po employee_id jest jawne.
+- Jedyna niezgodność to dodanie EXTERNAL_SUPPORT do WorkBalance, opisane w
+  T019-R1-1.
+
+SECTION_CHECK 8 — BATCHING / TASK_SCOPE / IMPLEMENTABILITY: PASS
+
+- Dwa additive batch reads są możliwe w literalnym scope repozytoriów.
+- Application module może złożyć wynik bez bezpośredniego SQL.
+- Assignment batch już istnieje i ma odpowiednią current/cross-Site semantykę.
+- Availability batch może zachować chain-end + active + inclusive-overlap bez
+  zmiany historii.
+- Target batch może rozróżnić brak wpisu od wartości 0 jednym SELECT.
+- N+1 oracle ma właściwą własność: brak liniowego wzrostu, bez zamrażania
+  kruchej absolutnej liczby SELECT.
+- MAX_NEW_FILES i TASK_SCOPE są konkretne; nie wymagają frameworka, cache ani
+  schema migration.
+
+SECTION_CHECK 9 — TEST MATRIX: FAIL WYŁĄCZNIE PRZEZ TEST 18
+
+Poza testem 18 macierz obejmuje wymagane klasy: complete month/quarter,
+PLANNED vs REALIZED, CURRENT pointer, CANCELLED/NN, restart, missing target,
+calendar fail-closed, T018 workdays, dwa Site, roster isolation, EMP-02,
+determinism, empty roster, no-write i N+1.
+
+Test 18 zamraża zachowanie sprzeczne z WINDOW-03 i musi zostać skorygowany
+razem z T019-R1-1. Nie należy zmieniać pozostałych 27 testów bez nowej,
+konkretnej sprzeczności.
+
+SECTION_CHECK 10 — LEGACY TEST ENUMERATION: PASS — ZERO PLIKÓW DO ADAPTACJI
+
+Mechaniczny skan existing tests/*.py objął:
+
+- importy i użycia `get_current_availability_for_employee` oraz
+  `list_active_overlapping`;
+- importy/użycia `get_work_balance_target` i target reads;
+- użycia/monkeypatch `get_current_assignments_for_employees`;
+- `set_trace_callback`, query-count assertions i `__all__`/module-list
+  expectations.
+
+Wynik: żaden istniejący test file nie wymaga edycji przez additive API T019.
+
+Istniejące testy repozytoriów wywołują niezmieniane publiczne single-employee
+funkcje. `tests/test_t012.py` monkeypatchuje alias Assignment query w
+assemblerze, którego T019 nie zmienia. Kontrakt słusznie nie otwiera żadnego
+legacy test file.
+
+Jeśli implementer zdecyduje się zmienić istniejącą sygnaturę lub semantykę
+zamiast dodać batch helper, będzie to jego scope drift, nie powód do adaptacji
+legacy oracle.
+
+SECTION_CHECK 11 — MECHANICAL BASELINE EVIDENCE: PASS
+
+Uruchomiono na bazowym kodzie obecnego repo (branch contract jest docs-only):
+
+- tests/test_balance.py;
+- tests/test_t011_d_quarter_balance.py;
+- tests/test_t016_emp02_retirement.py;
+- tests/test_t018.py.
+
+Wynik: 63/63 PASS.
+
+`python guard.py check arch/spec.md`: PASS,
+SHA256 569f66f10ccf18fac63567f8bfcbd85ab9fdb06cf87953b69676ccaddc015244.
+
+FINAL GATE
+
+FAIL — NOT READY FOR IMPLEMENTATION.
+
+Wymagany jest jeden wąski amendment T019-R1-1. Po nim Round 2 powinien
+sprawdzić wyłącznie:
+
+- enabled LOCAL jako roster WorkBalance T019;
+- brak wiersza WorkBalance dla EXTERNAL_SUPPORT/X-Y;
+- spójność odpowiadającego testu i owner source z WINDOW-03.
+
+Pozostałe SECTION_CHECK są zamknięte i nie powinny być ponownie otwierane bez
+nowej, konkretnej sprzeczności wprowadzonej przez amendment.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
