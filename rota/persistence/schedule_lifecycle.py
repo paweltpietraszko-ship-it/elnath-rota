@@ -117,24 +117,16 @@ def create_schedule_version(
     """Atomically create a new ScheduleVersion header+content and point the
     (site_id, month) current reference at it. If parent_version_id is set,
     every parent REALIZED Assignment must be preserved byte-for-byte (R1-2).
+    effective_from omitted gets NULL (legacy pre-T009 rows); the T009
+    application layer always supplies a real value on its own writes.
 
-    effective_from (tasks/ROTA-T009/review_01_architect_clarification.md
-    SCHEDULEVERSION DATES) is coordinator-supplied provenance, never derived
-    by this storage primitive -- callers that omit it get NULL, matching
-    legacy pre-T009 rows. The T009 application layer is responsible for
-    always supplying a real value on its own coordinator-facing operations;
-    this lower-level primitive stays permissive for T008-era callers.
-
-    on_success (tasks/ROTA-T009 R4-1): an optional same-transaction hook for
-    a caller that must combine this write with exactly one other write (e.g.
-    training.mark_training_realized's readiness update) so both commit or
-    roll back together -- nested `with conn:` calls each commit
-    independently. At most one hook, called only on the success path.
-
-    pre_check (ROTA-T019b): an optional same-transaction hook called FIRST,
-    before any read/write below -- for a caller validating an explicit
-    DECISION_REQUIRED link is still current inside the exact same isolated
-    transaction as the write it may gate (no TOCTOU window)."""
+    on_success (R4-1): optional same-transaction hook, called last on the
+    success path, for a caller combining this write with exactly one other
+    (e.g. training's readiness update) so both commit or roll back together.
+    pre_check (ROTA-T019b): optional same-transaction hook called FIRST, for
+    a caller validating an explicit DECISION_REQUIRED link is still current
+    inside the exact same isolated transaction as the write it may gate
+    (no TOCTOU window)."""
     with conn:
         if pre_check is not None:
             pre_check(conn)
