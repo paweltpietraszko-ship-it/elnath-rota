@@ -12,6 +12,7 @@ FULL_B_CONTRACT: tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md
 R5_AMENDMENT: tasks/ROTA-T020/CHECKPOINT_B_R5_AMENDMENT.md
 R6_AMENDMENT: tasks/ROTA-T020/CHECKPOINT_B_R6_AMENDMENT.md
 SCOPE_AMENDMENT_01: tasks/ROTA-T020/CHECKPOINT_B_SCOPE_AMENDMENT_01.md
+SCOPE_AMENDMENT_02: tasks/ROTA-T020/CHECKPOINT_B_SCOPE_AMENDMENT_02.md
 R5_AUDIT_COMMIT: 891013d3ccecf8fdbe8a5772d17be4fdb21ac111
 R6_AUDIT_COMMIT: 501a3c69ee39a1f541a4567aa9c33d3040e83e5a
 FINAL_PREIMPLEMENTATION_AUDIT_COMMIT: 1e02f66e00a48cf7b95de41b6d920900e83d036c
@@ -35,16 +36,22 @@ The normative implementation contract is `tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.
 3. `CHECKPOINT_A_ACCEPTANCE.md` and exact accepted PDF artifacts;
 4. authoritative correction `CHECKPOINT_B_OWNER_DECISIONS_05.md`;
 5. preserved row-population rule in `CHECKPOINT_B_OWNER_DECISIONS_02.md` section 1;
-6. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` solely for the mechanical schema-version assertion scope extension;
-7. `CHECKPOINT_B_R6_AMENDMENT.md` for the Round-6 closure of remaining R5-1/R5-3/R5-4 findings;
-8. `CHECKPOINT_B_R5_AMENDMENT.md` for R5 refinements not superseded by R6;
-9. `CHECKPOINT_B_CONTRACT.md` for the remaining technical architecture and testable implementation details.
+6. `CHECKPOINT_B_SCOPE_AMENDMENT_02.md` solely for the second mechanical T019b latest-schema migration-oracle correction;
+7. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` solely for the mechanical schema-version assertion scope extension;
+8. `CHECKPOINT_B_R6_AMENDMENT.md` for the Round-6 closure of remaining R5-1/R5-3/R5-4 findings;
+9. `CHECKPOINT_B_R5_AMENDMENT.md` for R5 refinements not superseded by R6;
+10. `CHECKPOINT_B_CONTRACT.md` for the remaining technical architecture and testable implementation details.
 
 `CHECKPOINT_B_OWNER_DECISIONS_03.md` and `_04.md` are superseded. The old absence-allocation interpretation in `_01.md` is superseded by `_05.md`. `ARCHITECT_PLANNING_GAP_01.md` is withdrawn as a blocker. Round 4 remains historical implementation evidence only.
 
 Round 5 found R5-1..R5-4. Round 6 closed R5-2 but correctly found that R5-1 still had one contradictory settings oracle and R5-3/R5-4 still lacked existing T012 cross-month/cross-year 24h semantics/evidence. `CHECKPOINT_B_R6_AMENDMENT.md` answered exactly those remaining findings. Round 7 independently returned `PASS — REMAINING R5 FINDINGS CLOSED — READY_FOR_IMPLEMENTATION` at audit commit `1e02f66e00a48cf7b95de41b6d920900e83d036c`.
 
-After architect acceptance, implementation discovered one purely mechanical scope consequence of migration 7: two existing tests outside the original scope assert `LATEST_SCHEMA_VERSION == 6`. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` adds those files only for the exact assertion change `6 -> 7`; it changes no test meaning and reopens no preimplementation finding.
+After architect acceptance, implementation discovered two purely mechanical scope consequences of migration 7:
+
+- `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` authorizes the exact `LATEST_SCHEMA_VERSION == 6` -> `== 7` updates in `tests/test_t012.py` and `tests/test_t019b.py`;
+- `CHECKPOINT_B_SCOPE_AMENDMENT_02.md` additionally corrects the existing T019b public-`connect()` latest-schema migration oracle so its name no longer claims v6/three tables and its expected post-v5 table delta includes the T020 `site_print_settings` table.
+
+Neither amendment changes product behavior or reopens a preimplementation finding.
 
 ## 2. NON-NEGOTIABLE PRODUCT BOUNDARY
 
@@ -82,7 +89,7 @@ Checkpoint B uses exactly two new non-pipeline implementation files:
 - `rota/application/schedule_export.py`;
 - `tests/test_t020.py`.
 
-Existing files modified are limited to persistence/schema/settings support, the ReportLab dependency, and the two legacy schema-version assertions explicitly authorized by `CHECKPOINT_B_SCOPE_AMENDMENT_01.md`, exactly as listed in the final `TASK_SCOPE` below.
+Existing files modified are limited to persistence/schema/settings support, the ReportLab dependency, and the exact legacy-test maintenance edits explicitly authorized by Scope Amendments 01 and 02, exactly as listed/restricted below.
 
 No new repository module, no export-history table, no second schedule model and no generic settings subsystem are authorized.
 
@@ -102,17 +109,17 @@ Final independent audit:
 
 Architect final preimplementation acceptance is recorded separately in `CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md`.
 
-The later `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` is mechanical only and does not reopen the preimplementation audit.
+The later Scope Amendments 01 and 02 are mechanical only and do not reopen the preimplementation audit.
 
-**CC MAY START / CONTINUE CHECKPOINT B IMPLEMENTATION ONLY FROM THE FINAL AMENDED BRANCH HEAD AND ONLY INSIDE TASK_SCOPE.**
+**CC MAY START / CONTINUE CHECKPOINT B IMPLEMENTATION ONLY FROM THE FINAL AMENDED BRANCH HEAD AND ONLY INSIDE TASK_SCOPE AND THE PER-FILE RESTRICTIONS BELOW.**
 
 This is authorization to implement the frozen contract, not permission to redesign product behavior.
 
 ## 6. IMPLEMENTATION BACKEND BASE
 
-Because no implementation commit existed when `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` was recorded, the backend implementation `before_sha` is the exact branch HEAD after that amendment and this `brief.md` scope update are committed.
+Because no implementation commit existed on the remote task branch when Scope Amendments 01 and 02 were recorded, the backend implementation `before_sha` is the exact branch HEAD after Scope Amendment 02 and this `brief.md` update are committed.
 
-That final amended HEAD supersedes the earlier acceptance SHA only as the mechanical implementation diff base. The product/architecture acceptance itself remains unchanged.
+That final amended HEAD supersedes the earlier acceptance/amendment SHAs only as the mechanical implementation diff base. The product/architecture acceptance itself remains unchanged.
 
 CC must record that exact `before_sha` before the first production implementation commit.
 
@@ -136,4 +143,20 @@ TASK_SCOPE:
 - tests/test_t012.py
 - tests/test_t019b.py
 
-Scope restriction for the last two files is exact: only `LATEST_SCHEMA_VERSION == 6` -> `LATEST_SCHEMA_VERSION == 7` is authorized; no other change in either file is permitted.
+### `tests/test_t012.py` restriction
+
+The only authorized T020 edit is:
+
+`LATEST_SCHEMA_VERSION == 6` -> `LATEST_SCHEMA_VERSION == 7`.
+
+No other change in `tests/test_t012.py` is permitted.
+
+### `tests/test_t019b.py` restriction
+
+Exactly these T020 edits are authorized, and no others:
+
+1. `LATEST_SCHEMA_VERSION == 6` -> `LATEST_SCHEMA_VERSION == 7`;
+2. rename `test_a1_real_v5_to_v6_migration_preserves_data_and_adds_exactly_three_tables` to `test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables`;
+3. add exactly `site_print_settings` to that test's expected `tables_after - tables_before` set, leaving the three existing T019b tables unchanged.
+
+No fixture/helper, seed procedure, public `connect()` call, preserved-data assertion, migration-loop behavior, action-memory behavior, or any other test/oracle may change under T020.
