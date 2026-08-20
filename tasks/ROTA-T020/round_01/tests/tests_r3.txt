@@ -1,0 +1,102 @@
+WĄSKI REAUDYT — ROTA-T020 CHECKPOINT A — ROUND 3
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+CONTRACT_SHA: f0539e6725b9ead9c3164ed81b868358aa29ee15
+POPRZEDNI_AUDIT_SHA: b1fc1a1
+AUDYTOWANY_PRODUCT_SHA: b45dd08a6d16e705afec74919537ca17b49bcfb1
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+ZAKRES: wyłącznie T020-A-R2-1
+
+WYNIK KOŃCOWY
+
+PASS — T020-A-R2-1 CLOSED / READY FOR OWNER VISUAL GATE A15
+
+Nie otwierano ponownie zaakceptowanych A1–A14 ani pre-design Checkpoint B.
+Sprawdzono wyłącznie definicję symbolu `24`, wynikowy PDF 24h w grayscale
+oraz brak nowych problemów wynikających z tej poprawki.
+
+SECTION_CHECK 1 — EXACT SHA I WĄSKI DIFF — PASS
+
+Exact HEAD: b45dd08a6d16e705afec74919537ca17b49bcfb1.
+
+Diff względem raportu round 2 dotyka wyłącznie:
+
+- tasks/ROTA-T020/checkpoint_a/render_samples.py;
+- tasks/ROTA-T020/checkpoint_a/schedule_12h.pdf;
+- tasks/ROTA-T020/checkpoint_a/schedule_24h.pdf.
+
+Zmiana źródłowa dodaje parametr `show_24_code`, jedną pozycję legendy i
+ustawia ją na false dla próbki 12h oraz true dla próbki 24h. Oba PDF-y
+zostały ponownie wygenerowane; zmiana próbki 12h wynika z regeneracji
+dynamicznego pola `Wygenerowano`, nie z dodania kodu 24 do jej legendy.
+
+git diff --check: PASS.
+
+SECTION_CHECK 2 — DEFINICJA PUBLICZNEGO SYMBOLU `24` — PASS
+
+Próbka 24h zawiera dokładnie jedną widoczną definicję:
+
+`24 = pełny okres 24h w dniu rozpoczęcia (konwencja demo)`
+
+Definicja podaje:
+
+- dokładny symbol używany w komórkach;
+- wartość 24h;
+- znaczenie pełnego okresu w dniu rozpoczęcia;
+- status prototypowej konwencji demo, a nie frozen mappingu B.
+
+Próbka 12h nie pokazuje tej pozycji, zgodnie z reżimem 12h i zakresem
+findingu.
+
+Niezależna ekstrakcja tekstu:
+
+- schedule_12h.pdf: definition_count=0;
+- schedule_24h.pdf: definition_count=1.
+
+SECTION_CHECK 3 — RENDER GRAYSCALE — PASS
+
+schedule_24h.pdf ponownie wyrenderowano bezpośrednio do przestrzeni
+grayscale. Nowa definicja jest czytelna pod kolumną D, nie nachodzi na
+kolumnę N, opis rezerw, instrukcję druku ani footer. Nie ma obciętego tekstu,
+czarnych kwadratów ani zmiany znaczenia w skali szarości.
+
+PDF pozostaje jednostronicowym A3 landscape bez AcroForm i OpenAction.
+
+SECTION_CHECK 4 — KLASA BŁĘDU: KAŻDY SYMBOL SIATKI MA LEGENDĘ — PASS
+
+Jedyny wcześniej niezdefiniowany symbol siatki próbki 24h, `24`, ma teraz
+jawną definicję. D/N/U/C pozostają zdefiniowane przez niezmienioną pełną
+tabelę ownera, a pusty dzień nie jest publicznym kodem wymagającym legendy.
+
+Nie znaleziono innego symbolu użytego w komórkach, którego znaczenie byłoby
+dostępne wyłącznie w rendererze.
+
+SECTION_CHECK 5 — BRAK NOWYCH FINDINGÓW Z POPRAWKI — PASS
+
+Poprawka:
+
+- nie zmienia danych demonstracyjnych ani sum godzin;
+- nie zmienia wariantu wizualnego okresu 24h;
+- nie normalizuje legendy ownera;
+- nie dotyka solvera, rota/**, tests/**, DB ani zależności produkcyjnych;
+- nie otwiera Checkpoint B;
+- nie wprowadza nowej decyzji architektonicznej poza wymaganym opisem
+  istniejącego symbolu.
+
+FINDINGS
+
+Brak. T020-A-R2-1 jest zamknięte.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+WERDYKT
+
+PASS — T020-A-R2-1 CLOSED / READY FOR OWNER VISUAL GATE A15
+
+Oba PDF-y mogą teraz zostać przekazane właścicielowi do formalnej oceny
+papieru/paginacji, gęstości tabeli, PLAN/WYK visual, 24h visual, legendy i
+czytelności grayscale. Checkpoint B pozostaje zablokowany do jawnej
+akceptacji ownera zapisanej w repo.

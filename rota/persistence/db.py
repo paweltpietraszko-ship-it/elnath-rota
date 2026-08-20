@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 6
+LATEST_SCHEMA_VERSION = 7
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -442,6 +442,24 @@ _MIGRATION_6: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 7 -- ROTA-T020 Checkpoint B: Site print settings only (current
+# mutable state, no history table). Saving this never creates a
+# ScheduleVersion and never records a T019b material coordinator action --
+# it changes print presentation, not schedule truth.
+# ---------------------------------------------------------------------------
+_MIGRATION_7: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS site_print_settings (
+        site_id TEXT PRIMARY KEY REFERENCES sites(site_id),
+        company_print_name TEXT NOT NULL,
+        site_print_name TEXT NOT NULL,
+        base_regime TEXT NOT NULL CHECK(base_regime IN ('12h','24h')),
+        work_code_intervals_json TEXT NOT NULL,
+        reserve_hours_json TEXT NOT NULL
+    )""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -449,6 +467,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (4, _MIGRATION_4),
     (5, _MIGRATION_5),
     (6, _MIGRATION_6),
+    (7, _MIGRATION_7),
 )
 
 

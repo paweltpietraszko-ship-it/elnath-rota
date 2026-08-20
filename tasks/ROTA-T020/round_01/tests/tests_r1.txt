@@ -1,0 +1,202 @@
+AUDYT PREIMPLEMENTATION — ROTA-T020 CHECKPOINT A — ROUND 1
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+BASE_SHA: d9c87185e3051aa65df3234c8db2d703fe32c5d8
+CONTRACT_HEAD: f0539e6725b9ead9c3164ed81b868358aa29ee15
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+AUDYTOWANY KONTRAKT: tasks/ROTA-T020/brief.md
+OWNER_SOURCE: arch/T020_schedule_export_architect_brief.md
+
+WYNIK KOŃCOWY
+
+PASS — CHECKPOINT_A_READY_FOR_SAMPLE_GENERATION
+
+Checkpoint A jest wystarczająco jednoznaczny do wygenerowania dwóch
+demonstracyjnych PDF-ów. Nie otwiera Checkpoint B, nie autoryzuje kodu
+produkcyjnego ani nie wymaga kolejnej decyzji właściciela przed stworzeniem
+próbek.
+
+WYKONANE SPRAWDZENIA
+
+- exact worktree HEAD: f0539e6725b9ead9c3164ed81b868358aa29ee15;
+- merge-base z deklarowanym main: d9c87185e3051aa65df3234c8db2d703fe32c5d8;
+- liczba commitów contract branch ponad main: 2;
+- diff main..contract: dokładnie dwa nowe dokumenty:
+  arch/T020_schedule_export_architect_brief.md oraz tasks/ROTA-T020/brief.md;
+- zero zmian w rota/**, tests/**, pyproject.toml, schema/migrations,
+  arch/spec.md i arch/FROZEN.lock;
+- guard.py check arch/spec.md: PASS,
+  SHA256 569f66f10ccf18fac63567f8bfcbd85ab9fdb06cf87953b69676ccaddc015244;
+- git diff --check main..contract: PASS;
+- pełna istniejąca suita na exact contract HEAD: 845/845 PASS.
+
+SECTION_CHECK 1 — EXACT SHA / TOPOLOGIA / DIFF SCOPE — PASS
+
+Deklarowane SHA istnieją i mają prawidłową relację. Contract HEAD jest
+main + 2: pierwszy commit dodaje owner handoff, drugi właściwy brief A.
+Względem main występują wyłącznie te dwa dokumenty. Nie ma przedwczesnej
+implementacji ani zmian frozen spec.
+
+SECTION_CHECK 2 — TWARDY GATE CHECKPOINT A -> B — PASS
+
+Sekcje 1–2 i 19 jednoznacznie ograniczają bieżące wykonanie do próbek PDF.
+Przed owner acceptance zabronione są między innymi:
+
+- produkcyjny generator i read model;
+- migracje/settings persistence;
+- zmiany zależności produkcyjnych;
+- integracja z ScheduleVersion, Availability, WorkBalance i Site;
+- UI eksportu.
+
+Otwarcie B wymaga osobnego repozytoryjnego owner/architect amendmentu,
+który wskaże zaakceptowane artefakty. Nie ma ścieżki domyślnego ani
+milczącego przejścia do B.
+
+SECTION_CHECK 3 — WYMAGANE ARTEFAKTY A — PASS
+
+Kontrakt wymaga dwóch realnych, otwieralnych i drukowalnych PDF-ów oraz
+minimalnego, odseparowanego renderera, requirements i README. Wszystkie
+pliki znajdują się pod tasks/ROTA-T020/checkpoint_a i są jawnie oznaczone
+jako prototype/pipeline artifacts nieimportowane przez rota/**.
+
+Lokalna biblioteka PDF użyta przez próbkę nie staje się przez to
+produkcyjną zależnością. Jest to zgodne z zakazem zmiany pyproject.toml w A.
+
+SECTION_CHECK 4 — KOMPLETNOŚĆ PRÓBEK WIZUALNYCH — PASS
+
+Obie próbki mają miesiąc 31-dniowy, około 10 fikcyjnych pracowników,
+PLAN/WYK, urlop, L4, podwójną obsadę, podsumowania, legendę, nagłówek i
+proweniencję. Próbka 12h oraz próbka 24h są rozdzielone.
+
+Kontrakt nie wykorzystuje realnych nazw z Grafiki/*.jpg. Wymaga również
+przypadku korekty przedstawionego jako końcowa prawidłowa obsada, bez
+drukowania historii winy poprzedniego pracownika. Odpowiada to decyzji
+właściciela, że Rota nie jest systemem kadrowym.
+
+SECTION_CHECK 5 — LEGENDA I WIĄŻĄCE 40H — PASS
+
+Sekcje 9–10 zachowują literalne, niesymetryczne wartości pełnych kodów:
+D1..D5, N1..N5, U1..U5 i C1..C5. Rezerwy pozostają rezerwami. Kontrakt
+zakazuje normalizacji numerów oraz fałszywego założenia, że D2/U2/C2 mają
+wspólną wartość.
+
+Wiążący przykład właściciela jest zachowany dosłownie:
+
+- PLAN D1/D1/N2 = 12+12+16 = 40h;
+- WYK U1/U1/U2 = 12+12+16 = 40h.
+
+Próbka 12h ma jawny zakaz użycia kodu 24h tylko w celu skrócenia zapisu.
+
+SECTION_CHECK 6 — 24H VISUAL / GRANICA SOLVERA — PASS
+
+Próbka 24h ma przedstawić jeden pełny T012 WorkPeriod jako jeden czytelny
+symbol w dniu rozpoczęcia. Brief oznacza to wprost jako prototypową
+konwencję do oceny, a nie zamrożony mapping produkcyjny.
+
+Nie ma importu rota.*, zmiany Assignment/ShiftDemand, nowego ShiftKind ani
+przeniesienia legendy do solvera. Owner może odrzucić lub zmienić ten
+wariant wizualny przed B.
+
+SECTION_CHECK 7 — CZARNO-BIAŁY WYDRUK I OCENIALNOŚĆ — PASS
+
+Kontrakt wymaga, by znaczenie nie zależało wyłącznie od koloru. Wskazuje
+niezależne sygnały: tekst kodu, obramowanie, wypełnienie/pattern,
+typografię i label PLAN/WYK. A9 wymaga zachowania znaczenia po wydruku w
+skali szarości, a A15 pozostawia właścicielowi realną ocenę czytelności,
+papieru i paginacji na prawdziwych PDF-ach.
+
+Jest to właściwie testowalne dla checkpointu wizualnego: kontrola
+strukturalna nie zastępuje jawnego owner visual gate.
+
+SECTION_CHECK 8 — STATIC PDF / BRAK EDYTOWALNEGO OBIEGU — PASS
+
+Sekcja 14 wyklucza formularze, XLSX, import, zapis do Roty, makra i workflow.
+Próbka jest statycznym dokumentem. Wszystkie późniejsze korekty biznesowe
+mają odbywać się w Rocie i skutkować ponownym wygenerowaniem dokumentu;
+Checkpoint A nie implementuje jeszcze tej integracji.
+
+SECTION_CHECK 9 — TASK_SCOPE CHECKPOINT A — PASS
+
+TASK_SCOPE obejmuje wyłącznie dwa dokumenty kontraktowe oraz pięć
+artefaktów pod tasks/ROTA-T020/checkpoint_a. Jawnie wyklucza rota/**,
+tests/**, pyproject.toml, schema/migrations, arch/spec.md i
+arch/FROZEN.lock.
+
+Nie ma autoryzacji legacy-test adaptation ani produkcyjnego kodu ukrytego
+w sample rendererze. A11 wymaga braku importów rota.* i dostępu do bazy.
+
+SECTION_CHECK 10 — FROZEN INVARIANTS — PASS
+
+Checkpoint A nie zapisuje danych i nie dotyka domeny, więc nie narusza:
+
+- kompletności i immutability ScheduleVersion;
+- current-version identity;
+- T012 24h representation w danych produkcyjnych;
+- T018 workday absence accounting;
+- WorkBalance ownership;
+- zakazu SQL w warstwie aplikacyjnej;
+- zakazu workflow engine i systemu kadrowego.
+
+W szczególności próbka nie zmienia wartości solvera ani nie próbuje
+traktować legendy jako wejścia planistycznego.
+
+SECTION_CHECK 11 — B-PD-01 / SITE-LOCAL ABSENCE HOURS — PASS JAKO JAWNIE
+ODŁOŻONA DECYZJA B
+
+Finding jest realny: AvailabilityRecord i T018 liczą absencję dla Employee,
+natomiast wydruk ma podsumowywać dokładnie jeden Site. Dla Employee
+dzielonego między Site nie istnieje jeszcze zamrożona reguła przypisania
+tych samych globalnych 8h do konkretnego wydruku Site.
+
+Kontrakt prawidłowo nie każe implementerowi A ani B zgadywać. Problem nie
+wpływa na kontrolowane, demonstracyjne dane A i musi zostać zamknięty przed
+kontraktem B.
+
+SECTION_CHECK 12 — B-PD-02 / POPULACJA WIERSZY EXTERNAL_SUPPORT — PASS JAKO
+JAWNIE ODŁOŻONA DECYZJA B
+
+Finding jest realny: owner wymaga, by nie pominąć osoby faktycznie
+obsadzonej, lecz nie rozstrzygnął, czy enabled EXTERNAL_SUPPORT bez żadnego
+Assignment ma zajmować pusty wiersz na wydruku. Brief oznacza sugerowaną
+regułę wyłącznie jako kandydata, nie jako wymaganie.
+
+Kontrolowane próbki A nie potrzebują produkcyjnego roster query, więc
+decyzja nie blokuje A i musi zostać zamknięta przed B.
+
+SECTION_CHECK 13 — B-TECH-01..05 — PASS JAKO NIEBINDING PRE-DESIGN
+
+Daily lineage, explicit print regime, interval mapping, full-code absence
+decomposition i deterministic revision są oznaczone jako kandydaci
+techniczni, nie frozen B contract. Żaden z nich nie autoryzuje implementacji
+B ani nie zmienia acceptance A.
+
+To prawidłowo oddziela materiał do przyszłego projektu od bieżącego
+kontraktu próbek.
+
+SECTION_CHECK 14 — CZY A WYMAGA NOWEJ DECYZJI WŁAŚCICIELA — PASS / NIE
+
+A3 landscape, pojedynczy symbol 24h, gęstość tabeli, grayscale, PLAN/WYK
+visual i paginacja są świadomie kandydatami pokazanymi właścicielowi do
+oceny. Ich celem jest umożliwienie decyzji na realnym artefakcie; nie muszą
+być rozstrzygnięte przed stworzeniem próbki.
+
+Nie znaleziono żadnej nierozstrzygniętej semantyki, która uniemożliwia
+wykonawcy narysowanie kontrolowanych PDF-ów zgodnie z A1–A14.
+
+FINDINGS
+
+Brak findingów blokujących i brak WYMAGA_DECYZJI dla Checkpoint A.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Audyt nie rozszerza T020 i nie proponuje alternatywnego formatu,
+generatora ani modelu danych.
+
+WERDYKT
+
+PASS — CHECKPOINT_A_READY_FOR_SAMPLE_GENERATION
+
+CC może wygenerować wyłącznie artefakty Checkpoint A z Section 16.
+Checkpoint B pozostaje zablokowany do czasu obejrzenia obu PDF-ów przez
+właściciela oraz zapisania jawnej akceptacji/amendmentu w repo.

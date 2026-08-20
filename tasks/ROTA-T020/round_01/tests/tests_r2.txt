@@ -1,0 +1,219 @@
+AUDYT WYKONANIA — ROTA-T020 CHECKPOINT A — ROUND 2
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+CONTRACT_SHA: f0539e6725b9ead9c3164ed81b868358aa29ee15
+PREIMPLEMENTATION_AUDIT_SHA: 900f6c3419715198058a69fede1acaf94418e233
+PRODUCT_SHA: 7dc44c8192f228de21b553b8fb436eca73413c8f
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+KONTRAKT: tasks/ROTA-T020/brief.md
+
+WYNIK KOŃCOWY
+
+FAIL — T020-A-R2-1
+
+Checkpoint A jest niemal kompletny. A1–A14 przechodzą poza jednym
+literalnym brakiem w próbce 24h: siatka używa publicznego symbolu `24`, ale
+legenda nie definiuje tego symbolu ani jego wartości/znaczenia, mimo że
+Section 11 wymaga wyjaśnienia użytego kodu 24h w legendzie.
+
+To nie jest propozycja nowej architektury ani zmiana wybranego wariantu
+24h. Jest to zamknięcie brakującej legendy dla symbolu już użytego w
+dostarczonym PDF.
+
+WYKONANE SPRAWDZENIA
+
+- exact detached worktree HEAD: 7dc44c8192f228de21b553b8fb436eca73413c8f;
+- diff 900f6c3..7dc44c8: dokładnie pięć plików autoryzowanych przez Section 16;
+- zero zmian w rota/**, tests/**, pyproject.toml, DB/schema, arch/spec.md i
+  arch/FROZEN.lock;
+- git diff --check: PASS;
+- oba PDF-y: po 1 stronie, landscape A3, MediaBox 1190.551 x 841.8898 pt;
+- oba PDF-y: poprawnie otwarte, tekst wyekstrahowany i wyrenderowany do PNG;
+- oba PDF-y: brak AcroForm, OpenAction, Names/embedded workflow;
+- niezależny render kolorowy oraz wymuszony grayscale: wykonany dla obu;
+- pełna istniejąca suita na exact PRODUCT_SHA: 845/845 PASS;
+- import scan render_samples.py: brak rota.* i brak dostępu do DB.
+
+SECTION_CHECK 1 — DIFF / TASK_SCOPE — PASS
+
+Commit dodaje wyłącznie:
+
+- tasks/ROTA-T020/checkpoint_a/render_samples.py;
+- tasks/ROTA-T020/checkpoint_a/requirements.txt;
+- tasks/ROTA-T020/checkpoint_a/schedule_12h.pdf;
+- tasks/ROTA-T020/checkpoint_a/schedule_24h.pdf;
+- tasks/ROTA-T020/checkpoint_a/README.md.
+
+To dokładny scope Section 4/16. Nie ma integracji produkcyjnej ani
+przedwczesnego Checkpoint B.
+
+SECTION_CHECK 2 — A1 / POPRAWNE I OTWIERALNE PDF — PASS
+
+Oba pliki są jednostronicowymi PDF A3 landscape. Parser odczytuje strony i
+tekst bez błędu, a renderer bitmapowy odtwarza pełną stronę bez czarnych
+kwadratów, uszkodzonych glifów, obcięcia tabeli lub nakładania sekcji.
+
+SECTION_CHECK 3 — A2 / 12H SAMPLE — PASS
+
+Próbka 12h zawiera:
+
+- pełny sierpień 2026 (31 dni);
+- 10 fikcyjnych pracowników;
+- PLAN/WYK dla każdego;
+- wielokrotne dni podwójnej obsady;
+- urlop, L4, podsumowania i legendę.
+
+Nie znaleziono realnych danych osób z Grafiki/*.jpg.
+
+SECTION_CHECK 4 — A3 / 24H SAMPLE — CZĘŚCIOWY PASS
+
+Próbka 24h ma 31 dni, 10 fikcyjnych pracowników, PLAN/WYK, podwójną
+obsadę i pełny 24h okres pokazany jako jeden symbol `24` w kolumnie dnia
+rozpoczęcia.
+
+Sam wizualny wariant 24h został zrealizowany. Brakuje jednak wymaganego
+objaśnienia symbolu `24` w legendzie — patrz T020-A-R2-1.
+
+SECTION_CHECK 5 — A4 / NAGŁÓWEK I PROWENIENCJA — PASS
+
+Oba PDF-y pokazują demonstracyjną nazwę firmy i Site, edytowalny tytuł
+okresu, prawdziwy zakres 2026-08-01 — 2026-08-31, DEMO-SV-LINEAGE,
+Revision oraz Wygenerowano. Wartości są jawnie demonstracyjne, nie udają
+rekordów z bazy.
+
+SECTION_CHECK 6 — A5 / PEŁNA TABELA D/N/U/C — PASS
+
+Legenda zawiera wszystkie D1..D5, N1..N5, U1..U5 i C1..C5 z dokładnymi,
+niesymetrycznymi wartościami właściciela. D4=2h i N4=24h są zachowane.
+U3/U4/U5 i C3/C4/C5 są rezerwami w 12h; U3/C3 w próbce 24h są jawnie
+oznaczone jako `24h (konfiguracja demo)`.
+
+Ten PASS dotyczy wymaganej tabeli kodów ownera. Nie zamyka osobnego braku
+legendy dla dodatkowego symbolu komórki `24`.
+
+SECTION_CHECK 7 — A6 / WIĄŻĄCE 40H — PASS
+
+Pracownik 05, dni 7–9:
+
+- PLAN: D1 / D1 / N2;
+- WYK: U1 / U1 / U2;
+- PLAN sumuje się do 40h;
+- WYK i Urlop sumują się do 40h.
+
+Renderer zawiera również fail-fast assertions dla obu sum.
+
+SECTION_CHECK 8 — A7 / BRAK 24H W DEKOMPOZYCJI 12H — PASS
+
+Przykład 40h w próbce 12h nie korzysta z `24`, D3, D5 ani N3/N4/N5.
+Zachowuje dokładnie D1/D1/N2 i U1/U1/U2.
+
+SECTION_CHECK 9 — A8 / CHOROBOWE I PODSUMOWANIE — PASS
+
+Próbka 12h zawiera PLAN D1 i WYK C1; kolumna L4 pokazuje 12, zgodnie z
+wartością C1 widoczną w legendzie. Próbka 24h zawiera PLAN 24 i WYK C3;
+kolumna L4 pokazuje 24, zgodnie z demo-konfiguracją C3=24h.
+
+Jest to arytmetyczna próbka prezentacyjna A, nie zmiana T018 ani
+WorkBalance.
+
+SECTION_CHECK 10 — A9 / GRAYSCALE — PASS
+
+Niezależne wyrenderowanie obu stron bezpośrednio do przestrzeni grayscale
+zachowuje:
+
+- jasne D;
+- ciemniejsze N;
+- ciemne 24 z białym tekstem;
+- ciągłą obwódkę U;
+- przerywaną obwódkę C;
+- czytelne teksty kodów i label PLAN/WYK.
+
+Znaczenie nie zależy wyłącznie od barwy. Końcowa praktyczna ocena rozmiaru
+fontu, A3 i gęstości pozostaje A15 właściciela.
+
+SECTION_CHECK 11 — A10 / DANE FIKCYJNE — PASS
+
+W PDF występują wyłącznie `Pracownik 01`..`Pracownik 10`, ELNATH DEMO i
+SITE-DEMO-12H/24H. Nie ma nazw pracowników ze zdjęcia źródłowego.
+
+SECTION_CHECK 12 — A11 / BRAK PRODUCTION IMPORTS I DB — PASS
+
+Renderer importuje tylko stdlib oraz reportlab. Nie importuje rota.*,
+sqlite3 ani żadnego repozytorium persistence. Dane powstają lokalnie w
+build_roster_12h/build_roster_24h.
+
+SECTION_CHECK 13 — A12 / STATIC PDF — PASS
+
+Oba dokumenty nie mają AcroForm, OpenAction, JavaScript/Names ani ścieżki
+importu. Nie istnieje XLSX. README i footer jawnie mówią, że dokument nie
+jest źródłem danych i nie zapisuje do Roty.
+
+SECTION_CHECK 14 — A13 / DIFF CHECK — PASS
+
+git diff --check dla commita Checkpoint A przechodzi czysto.
+
+SECTION_CHECK 15 — A14 / REGRESJA PRODUKCJI — PASS
+
+Branch nie zmienia produkcji ani istniejących testów. Pełna suita na exact
+PRODUCT_SHA: 845/845 PASS.
+
+SECTION_CHECK 16 — A15 / OWNER VISUAL GATE — OCZEKUJE
+
+PDF-y są wystarczająco kompletne do praktycznej oceny układu przez
+właściciela, ale formalne A15 nie może zostać wydane przez Codexa.
+
+Przed owner acceptance należy zamknąć T020-A-R2-1 i ponownie wyrenderować
+próbkę 24h, aby właściciel akceptował dokument z kompletną legendą.
+
+FINDING T020-A-R2-1 — FAIL — SYMBOL `24` UŻYTY W SIATCE NIE MA DEFINICJI W
+LEGENDZIE
+
+Ślad kontraktu:
+
+- tasks/ROTA-T020/brief.md Section 11: pełny 24h okres ma być jednym
+  czytelnym symbolem, a legenda musi wyjaśnić wartość użytego kodu 24h;
+- A3 wymaga pełnego 24h work-period symbol;
+- A15 ma umożliwić właścicielowi ocenę 24h visual.
+
+Dowód:
+
+- build_roster_24h używa w PLAN/WYK kodu tekstowego `24`;
+- family() ma dla `24` osobną klasę wizualną `h24`;
+- hours_row() ręcznie dopisuje `values["24"] = 24`;
+- draw_legend() iteruje wyłącznie po D1..D5, N1..N5, U1..U5, C1..C5;
+- niezależna enumeracja kodów użytych w siatce względem legendy:
+  12h undefined=[]; 24h undefined=['24'];
+- ekstrakcja tekstu i render strony potwierdzają brak pozycji `24 = 24h`
+  albo równoważnego objaśnienia.
+
+Klasa błędu:
+
+Każdy publiczny symbol użyty w komórce grafiku musi mieć widoczną definicję
+w legendzie. Nie wystarczy, że jego wartość jest zakodowana wyłącznie w
+rendererze lub wydaje się intuicyjna.
+
+Warunek zamknięcia:
+
+1. Legenda próbki 24h jawnie definiuje użyty symbol `24`, jego wartość 24h
+   i prototypowe znaczenie pełnego okresu 24h w dniu rozpoczęcia.
+2. Objaśnienie jest oznaczone jako konwencja demo/kandydat A, aby nie
+   udawało frozen mappingu B przed owner acceptance.
+3. Ponownie wygenerowany schedule_24h.pdf pozostaje czytelny w grayscale.
+4. Mechaniczna kontrola potwierdza, że każdy niepusty symbol siatki obu
+   próbek ma definicję w legendzie.
+
+Poprawka nie wymaga zmiany układu, solvera, danych produkcyjnych, legendy
+ownerowej D/N/U/C ani otwarcia Checkpoint B.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Audyt nie proponuje innego symbolu 24h ani innej konwencji wydruku;
+wymaga wyłącznie wyjaśnienia symbolu już wybranego przez próbkę.
+
+WERDYKT
+
+FAIL — T020-A-R2-1
+
+Po wąskiej poprawce legendy właściwy będzie reaudyt tylko T020-A-R2-1,
+potem owner visual gate A15. Checkpoint B pozostaje zablokowany.

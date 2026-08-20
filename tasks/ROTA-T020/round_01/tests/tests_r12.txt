@@ -1,0 +1,57 @@
+FINAL NARROW IMPLEMENTATION RE-AUDIT - ROTA-T020 - ROUND 12
+
+DATE: 2026-08-20
+AUDITOR: Codex
+AUDITED_PRODUCT_SHA: 6ea9e09b01d66a9b2837571e4f3d67dd4ec47f9d
+BASE_AUDIT_COMMIT: f5fba9bbc66e6d173b8a2885b94452232d277521
+SCOPE: only T020-R11-1; all earlier accepted sections remain closed
+EVIDENCE: tasks/ROTA-T020/round_01/tests/test_t020_round11_audit.py
+
+RESULT
+
+PASS - R11-1 CLOSED - CHECKPOINT B READY FOR ARCHITECT FINAL GATE
+
+SECTION_CHECK 1 - EXACT SHA AND CHANGE SCOPE - PASS
+
+The audited commit is exactly 6ea9e09b01d66a9b2837571e4f3d67dd4ec47f9d.
+Its diff from f5fba9b changes only rota/application/schedule_export.py:
+4 insertions and 1 deletion.  git diff --check is clean.  The production file
+has exactly 600 lines.  tests_r12.txt did not exist before this audit.
+
+SECTION_CHECK 2 - R11-1 / EXACT NORMAL-H24 COMPONENT DURATIONS - PASS
+
+_is_legitimate_normal_24h now calculates each component duration separately
+and requires component 1 == 12h and component 2 == 12h.  This directly closes
+the remaining R5 Section 4.2 condition without changing emergency linkage.
+
+The committed parameterized reproducer covers both sibling malformed shapes:
+
+- component 1 = 6h, component 2 = 18h;
+- component 1 = 18h, component 2 = 6h.
+
+Result: 2/2 PASS.  Neither malformed pair is classified as legitimate normal
+H24.
+
+SECTION_CHECK 3 - NARROW REGRESSION - PASS
+
+- Round 10 audit matrix excluding the owner-accepted font oracle: 4/4 PASS;
+- full repository suite: 888/888 PASS;
+- Ruff on changed production and the Round 11 reproducer: PASS;
+- guard.py check arch/spec.md: PASS;
+- git diff --check: PASS.
+
+SECTION_CHECK 4 - PREVIOUSLY CLOSED ITEMS - NOT REOPENED
+
+No change in 6ea9e09 creates a direct contradiction with an earlier accepted
+section.  R10-4 remains closed by the owner's explicit acceptance of the
+current font behavior and is not a blocker.  No planning/T012 behavior,
+emergency cross-month linkage, PDF layout, absence semantics or persistence
+contract was reopened.
+
+ARCHITECTURE_PROPOSALS
+
+None.
+
+VERDICT
+
+PASS - R11-1 CLOSED - CHECKPOINT B READY FOR ARCHITECT FINAL GATE

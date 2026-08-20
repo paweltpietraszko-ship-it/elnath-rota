@@ -1,0 +1,185 @@
+WASKI AUDYT PRE-DESIGN — ROTA-T020 CHECKPOINT B — ROUND 4
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+AUDYTOWANY_HEAD: 38b30539955f5793a8a59a274ca3f98c003825dc
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+ZAKRES: wyłącznie zgodność obecnego planning modelu z zamrożoną decyzją
+        CHECKPOINT_B_OWNER_DECISIONS_03.md; bez audytu pełnego kontraktu B
+
+WYNIK KOŃCOWY
+
+FAIL — PLANNING CONTRACT GAP
+
+Obecny planner nie zachowuje niezależnego, pełnego miesięcznego PLAN-u
+pracownika na pozycjach objętych SICK_LEAVE albo LEAVE_GRANTED. Nieobecność
+usuwa pracownika z eligibility dla tych demandów, a rozwiązanie zapisuje
+wyłącznie Assignmenty osób, które faktycznie mają je pokryć. Dla
+SICK_LEAVE solver dodatkowo zmniejsza TARGET używany przez objective.
+
+Renderer T020 nie ma więc kanonicznego, utrwalonego źródła pozwalającego
+ogólnie wydrukować PLAN D1 / WYK C1 albo PLAN D1 / WYK U1. Checkpoint B nie
+może kompensować tej luki przez odtworzenie lub sfabrykowanie PLAN-u w PDF.
+
+SECTION_CHECK 1 — EXACT SHA I ŹRÓDŁO DECYZJI — PASS
+
+Audyt wykonano na exact HEAD:
+38b30539955f5793a8a59a274ca3f98c003825dc.
+
+Wiążący ślad: tasks/ROTA-T020/CHECKPOINT_B_OWNER_DECISIONS_03.md, sekcje
+1–4. Wymaganie mówi, że dla LOCAL nieobecność nie usuwa miesięcznego PLAN-u,
+WYK nanosi U/C na odpowiadające pozycje, T020 nie może wymyślać brakującego
+PLAN-u, a niezgodność modelu planningowego blokuje zamrożenie pełnego B.
+
+Nie audytowano ponownie zaakceptowanego Checkpoint A ani wyglądu PDF.
+
+SECTION_CHECK 2 — SICK_LEAVE / LEAVE_GRANTED W ELIGIBILITY — FAIL
+
+rota/planning/eligibility.py:72–77 umieszcza oba rodzaje nieobecności w
+_BLOCKING_KIND_PRIORITY. _blocked_by_availability() w liniach 103–126
+klasyfikuje każdy nakładający się demand jako blokowany, a
+_common_hard_gate() w liniach 151–192 zwraca eligible=False przed dodaniem
+slotu solvera.
+
+Skutek dotyczy całej klasy demandów zachodzących na zakres nieobecności:
+
+- SICK_LEAVE -> brak slotu pracownika i SICK_LEAVE-01;
+- LEAVE_GRANTED -> brak slotu pracownika i LEAVE_GRANTED-01;
+- nie ma oddzielnej ścieżki tworzącej nominalny Assignment PLAN dla U/C.
+
+Istniejące committed regression tests potwierdzają ten kontrakt:
+
+- tests/test_sick_leave.py::test_sick_leave_hard_blocks_assignment_on_sick_day;
+- tests/test_sick_leave.py::test_sick_leave_replan_redistributes_when_reported_mid_month;
+- tests/test_replan_minimal_reshuffle.py::test_d_minimal_reshuffle_also_applies_to_a_non_absence_trigger.
+
+SECTION_CHECK 3 — TARGET / NORMA — FAIL
+
+WorkBalance przechowuje osobno target_hours, planned_hours i
+realized_hours (rota/domain.py:291–299), ale solver nie traktuje
+target_hours jako niezależnego nominalnego PLAN-u do zachowania.
+
+rota/planning/solver.py:277–289 oblicza _sick_adjusted_targets(): za każdy
+kwalifikowany dzień roboczy SICK_LEAVE odejmuje 8h od target_hours i zaciska
+wynik do zera. Ten zmniejszony target steruje objective w liniach 292–320.
+
+LEAVE_GRANTED nie zmniejsza live TARGET-u solvera, lecz nadal blokuje
+eligibility. To nie ratuje PLAN-u: pracownik zachowuje liczbę target_hours,
+ale nie dostaje Assignmentów na dni urlopu.
+
+rota/balance.py:55–96 również nie tworzy brakujących pozycji PLAN. Jedynie
+sumuje godziny istniejących Assignmentów PLANNED/REALIZED i porównuje je z
+effective_target pomniejszonym o kwalifikowane dni SICK_LEAVE oraz
+LEAVE_GRANTED.
+
+SECTION_CHECK 4 — ASSIGNMENT I SCHEDULEVERSION — FAIL
+
+Assignment ma tylko stany PLANNED, REALIZED i CANCELLED
+(rota/domain.py:21–24) oraz jedyny specjalny operational_code "NN"
+(rota/domain.py:346–369). Nie posiada stanu ani pola U/C. U/C można rozpoznać
+wyłącznie z osobnego AvailabilityRecord, który przechowuje employee_id,
+rodzaj i zakres dat, ale nie wskazuje planowanego demandu, zmiany D/N,
+interwału ani kodu D1/N1.
+
+Solver tworzy Assignment wyłącznie dla wybranego eligible slotu
+(rota/planning/solver.py:381–407). Nie tworzy równoległego nominalnego
+Assignment dla pracownika zablokowanego przez SICK_LEAVE/LEAVE_GRANTED.
+
+ScheduleVersion przechowuje nagłówek, ShiftDemand, Assignment i Deviation.
+Snapshot odczytywany w rota/persistence/schedule_repository.py:83–110 nie
+zawiera oddzielnej warstwy nominalnego PLAN-u ani powiązania Availability
+z planowaną pozycją.
+
+SECTION_CHECK 5 — REPLAN I HISTORIA WERSJI — FAIL
+
+REPLAN klonuje pełną treść rodzica do child, po czym uruchamia planner
+(rota/application/plan_ops.py:250–297). Jednak PLANNED, niefrozen PRIMARY
+jest redistributable (rota/planning/solver.py:79–104). Jeśli po zapisaniu
+choroby/urlopu Assignment stał się nielegalny, kandydat zastępuje go
+Assignmentem innej osoby; potwierdza to committed test
+test_sick_leave_replan_redistributes_when_reported_mid_month.
+
+Starszy parent może przypadkowo zawierać dawną pozycję chorego, jeśli
+nieobecność zgłoszono po utworzeniu pierwotnego planu. Nie jest to jednak
+ogólna reprezentacja wymagania:
+
+- nieobecność znana przed pierwszym PLAN-em nie ma żadnego parenta z taką
+  pozycją;
+- historia nie wskazuje kanonicznie, który dawny Assignment ma być
+  miesięcznym PLAN-em pod bieżące WYK;
+- przy późniejszych zmianach zakresów nieobecności renderer musiałby
+  rekonstruować decyzję planningową z historii zamiast czytać utrwaloną
+  prawdę bieżącego modelu.
+
+SECTION_CHECK 6 — PEŁNOMIESIĘCZNA NIEOBECNOŚĆ — FAIL
+
+Wykonano read-only probe na exact HEAD z:
+
+- LOCAL A, target_hours=168;
+- LOCAL B, target_hours=12;
+- demandem 12h w październiku 2026;
+- pełnym CalendarDay dla miesiąca;
+- aktywną nieobecnością A od 01.10 do 31.10.
+
+Wynik:
+
+SICK_LEAVE FEASIBLE candidates=[B], adjusted_targets={A: 0, B: 12}
+LEAVE_GRANTED FEASIBLE candidates=[B], adjusted_targets={A: 168, B: 12}
+
+W obu przypadkach kandydat ma zero Assignmentów A. Dla SICK_LEAVE znika też
+efektywny cel A; dla LEAVE_GRANTED cel pozostaje, ale nie może wytworzyć
+pozycji PLAN z powodu HARD eligibility. Probe potwierdza klasę wynikającą
+bezpośrednio z kodu, a nie tylko jeden krótszy reproduktor.
+
+Uruchomiono ponadto:
+
+python -m pytest -q tests/test_sick_leave.py tests/test_replan_minimal_reshuffle.py
+
+Wynik: 21 passed.
+
+SECTION_CHECK 7 — CZY DANE WYSTARCZAJĄ DO PLAN D1 / WYK C1 — FAIL
+
+Availability wystarcza do stwierdzenia, że danego dnia pracownik miał
+chorobowe albo urlop. Nie wystarcza do odtworzenia, że nominalnie miał mieć
+konkretną zmianę D1/N1 i konkretny demand. WorkBalance target_hours również
+jest wyłącznie liczbą miesięczną, nie rozkładem godzin na pozycje grafiku.
+
+Dlatego obecny zestaw danych pozwala wydrukować PLAN D1 / WYK C1 tylko w
+szczególnym przypadku, gdy jakiś wcześniejszy snapshot przypadkiem zachował
+D1 i renderer sam wybierze go jako źródło. Nie pozwala zrobić tego poprawnie
+i deterministycznie dla nieobecności znanej przed pierwszym PLAN-em ani dla
+ogólnego cyklu wersji.
+
+FINDINGS
+
+T020-PD-R4-1 — PLANNING CONTRACT GAP — BLOCKING
+
+Brakuje kanonicznie utrwalonej reprezentacji pełnego nominalnego PLAN-u
+pracownika niezależnej od bieżącej wykonalności/obsady oraz związku tej
+pozycji z późniejszym WYK U/C. Obecne eligibility usuwa nieobecnego z
+możliwych Assignmentów, REPLAN redystrybuuje jego PLANNED Assignment, a
+SICK_LEAVE dodatkowo redukuje TARGET solvera.
+
+Zakres luki obejmuje co najmniej:
+
+1. SICK_LEAVE znane przed pierwszym PLAN-em;
+2. LEAVE_GRANTED znane przed pierwszym PLAN-em;
+3. nieobecność dodaną po pierwotnym planie i późniejszy REPLAN;
+4. pełnomiesięczną nieobecność;
+5. brak mapowania planowanej pozycji D/N do wykonanego/rozliczonego U/C.
+
+Osiągnięcie zamrożonej semantyki właściciela wymaga jawnej zmiany kontraktu
+planningowego i implementacji poza rendererem T020. Raport nie przesądza,
+jak ta reprezentacja ma zostać zaprojektowana.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Audyt wskazuje brak względem wiążącej decyzji, nie proponuje
+architektury naprawy.
+
+WERDYKT
+
+FAIL — PLANNING CONTRACT GAP
+
+Pełny Checkpoint B T020 pozostaje zablokowany. Renderer nie może tej luki
+naprawiać ani maskować przez wymyślanie PLAN-u w PDF.

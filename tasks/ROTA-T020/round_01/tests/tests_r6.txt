@@ -1,0 +1,172 @@
+WASKI REAUDYT PREIMPLEMENTATION — ROTA-T020 CHECKPOINT B — ROUND 6
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+AUDYTOWANY_HEAD: 21bb095ec9004c553811a4496f6d40e4630ff1a2
+POPRZEDNI_AUDIT_COMMIT: 891013d3ccecf8fdbe8a5772d17be4fdb21ac111
+ZAKRES: wyłącznie T020-B-R5-1..R5-4 oraz exact-SHA/no-production-diff sanity
+
+WYNIK KONCOWY
+
+FAIL — R5 FINDINGS REMAIN
+
+R5-2 jest zamknięte. R5-1 pozostaje otwarte przez wewnętrznie sprzeczną
+klasyfikację duplicate settings, a R5-3/R5-4 pozostają otwarte dla istniejącej
+klasy T012 24h przekraczającej granicę miesiąca/roku. Nie otwierano ponownie
+żadnej sekcji, która w Round 5 dostała PASS.
+
+SECTION_CHECK 1 — EXACT SHA I WASKI DIFF — PASS
+
+Audytowany HEAD jest dokładnie:
+
+21bb095ec9004c553811a4496f6d40e4630ff1a2.
+
+Zmiana od audytowego commita 891013d3... obejmuje dokładnie dwa pliki:
+
+- nowy tasks/ROTA-T020/CHECKPOINT_B_R5_AMENDMENT.md;
+- tasks/ROTA-T020/brief.md.
+
+Brak zmian w rota/**, tests/**, pyproject.toml, migracjach, Checkpoint A PDF i
+Grafiki/**. `git diff --check` dla 891013d3..21bb095: PASS.
+
+Przed zapisaniem raportu `tests_r6.txt` nie istniał.
+
+SECTION_CHECK 2 — R5-1 SETTINGS / ZERO-ONE-MANY MAPPING — FAIL
+
+Amendment prawidłowo domyka exact JSON shape, canonical time spelling,
+duration, family uniqueness, nowe problem codes oraz zero/one/many cardinality.
+Pozostawia jednak sprzeczność wykonawczą dla jedynego stanu, który może
+uruchomić gałąź `>1`.
+
+Sekcje 2.2 i 2.3 wymagają:
+
+- duplicate non-null signature wewnątrz D albo N jest invalid;
+- settings są ponownie walidowane przy eksporcie;
+- raw/corrupt persisted duplicate zwraca `PRINT_SETTINGS_INVALID`.
+
+Sekcja 2.4 i T20-31 wymagają równocześnie:
+
+- raw/corrupt settings produkujące >1 exact candidates zwracają
+  `WORK_CODE_MAPPING_AMBIGUOUS`.
+
+Validation order z sekcji 6 umieszcza `PRINT_SETTINGS_INVALID` przed lineage i
+work mapping. Po rodzinie, dokładnym signature i frozen duration więcej niż
+jeden kandydat może powstać właśnie przez duplicate same-family signature,
+które wcześniejsza walidacja musi już odrzucić. `WORK_CODE_MAPPING_AMBIGUOUS`
+jest więc nieosiągalne dla wskazanego oracle.
+
+T020-B-R5-1 — REMAINS OPEN
+
+Kontrakt musi wybrać jeden deterministyczny wynik dla corrupt duplicate albo
+zdefiniować inny osiągalny stan `>1`. Raport nie wybiera za architekta, który
+problem code ma obowiązywać.
+
+SECTION_CHECK 3 — R5-2 OVERNIGHT EFFECTIVE_FROM ANCHOR — PASS
+
+Sekcja 3 jednoznacznie ustala dla ordinary non-collapsed Assignment:
+
+`work_item_date = Assignment.start_datetime.date()`.
+
+Ta sama data wybiera daily ScheduleVersion i komórkę. Nocka D->D+1 nie jest
+duplikowana, a child effective od D+1 nie zmienia pracy rozpoczętej dnia D.
+T20-32 wymaga dokładnego pozytywnego/negatywnego boundary oracle.
+
+T020-B-R5-2 — CLOSED
+
+SECTION_CHECK 4 — R5-3 NORMAL/EMERGENCY 24H — FAIL NA GRANICY MIESIACA
+
+Sekcja 4 prawidłowo mechanizuje same-month normal H24 i same-month emergency
+H12: dokładnie dwie połówki, identity, employee, component numbers, D/N,
+ciągłość, duration, interval-vs-demand i emergency-rest provenance.
+
+Nie rozstrzyga jednak istniejącej, utrwalonej klasy T012 cross-month/cross-year:
+
+- tasks/ROTA-T012/part_c_emergency_24h.md:163-175 wymaga pary, której pierwsza
+  połowa pozostaje w poprzednim CURRENT ScheduleVersion, a druga w późniejszym
+  miesiącu reuse dokładnie boundary.work_period_id;
+- ten sam kontrakt:187-230 definiuje persisted boundary Assignment/demand i
+  jeden combined work period bez przepisywania poprzedniej wersji;
+- tests/test_t012.py:1292-1318 utrwala warianty 31.08->01.09 oraz
+  31.12->01.01;
+- tests/test_t012.py:414-465 utrwala też normalny catalog-H24 przekraczający
+  granicę miesiąca jako prawidłową treść.
+
+T020 API eksportuje dokładnie jeden Site/miesiąc, a parent contract Section 9
+rekonstruuje lineage tylko requested Site/month. Amendment jednocześnie mówi:
+
+- valid 24h ma być jednym `24` na dacie pierwszej połówki;
+- komponentów nie wolno dobierać z arbitrary historical/non-current lineage;
+- singleton ordinary H12 pozostaje ordinary;
+- brak połowy asserted 24h ma fail `WORK_PROVENANCE_INCOMPLETE`.
+
+Dla cross-month emergency druga połówka istnieje w innym miesięcznym current
+lineage, a wcześniejsza połowa nie jest przepisywana. Z literalnego amendmentu
+nie wynika więc, czy:
+
+1. eksport wcześniejszego miesiąca ma szukać późniejszego current month i po
+   jego powstaniu zmienić zwykłe N na `24`;
+2. eksport późniejszego miesiąca ma pominąć drugą połowę, bo symbol należy do
+   poprzedniego miesiąca;
+3. obie miesięczne połówki mają wyjątkowo zostać pokazane jako ordinary 12h;
+4. generator ma fail z powodu lokalnie brakującej połowy.
+
+Te wyniki zmieniają widoczne komórki, summary i revision. Same-month definicja
+nie odpowiada na istniejący persisted cross-month shape.
+
+T020-B-R5-3 — REMAINS OPEN
+
+Kontrakt musi jawnie sklasyfikować normal i emergency 24h przekraczające
+granice requested month oraz określić dozwolone źródło boundary truth. To nie
+jest nowa funkcja T012; to obecny, committed kontrakt i stan danych.
+
+SECTION_CHECK 5 — R5-4 NEGATIVE EVIDENCE — FAIL
+
+T20-29..T20-37 dobrze pokrywają wszystkie klasy wymienione w Round 5:
+lineage corruption, settings shape, mapping, overnight effective_from,
+ordinary provenance/cell conflict, malformed same-month H24/emergency,
+accepted-layout content oraz static PDF.
+
+Macierz zawiera jednak sprzeczny oracle T20-31 opisany w Section Check 2 oraz
+nie zawiera żadnego przypadku dla normalnego lub emergency 24h przekraczającego
+month/year boundary opisanego w Section Check 4.
+
+T020-B-R5-4 — REMAINS OPEN
+
+Po rozstrzygnięciu R5-1 i cross-month R5-3 macierz musi utrwalić dokładnie te
+dwie decyzje. Pozostałej części T20-29..T20-37 nie trzeba ponownie projektować.
+
+SECTION_CHECK 6 — MECHANICZNY DOWOD ISTNIENIA CROSS-MONTH KLASY — PASS
+
+Na exact HEAD uruchomiono istniejące committed testy T012:
+
+- normal H24 crossing month (October i December);
+- persistable crossing H24 Assignments;
+- emergency 31.08->01.09;
+- emergency 31.12->01.01.
+
+Wynik: 5 passed in 0.83s.
+
+Pełna suite nie została ponownie uruchomiona, ponieważ 891013d3..21bb095 nie
+zmienia żadnego kodu ani testu; w Round 5 ten sam product/test tree miał
+845/845 PASS.
+
+FINDINGS — PODSUMOWANIE
+
+- R5-1 REMAINS: PRINT_SETTINGS_INVALID kontra WORK_CODE_MAPPING_AMBIGUOUS dla
+  tego samego corrupt duplicate i nieosiągalny T20-31 oracle.
+- R5-2 CLOSED: ordinary overnight ma jednoznaczną start-date anchor.
+- R5-3 REMAINS: brak semantyki istniejącego normal/emergency cross-month 24h.
+- R5-4 REMAINS: macierz dziedziczy konflikt R5-1 i pomija cross-month 24h.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport nie wybiera kodu błędu ani sposobu pobierania boundary truth.
+
+WERDYKT
+
+FAIL — R5 FINDINGS REMAIN
+
+PRODUCTION CC MUST NOT START na 21bb095. Potrzebny jest jeden wąski amendment
+wyłącznie dla konfliktu R5-1 oraz cross-month części R5-3/R5-4. R5-2 i
+pozostałe już zamknięte sekcje nie powinny być ponownie otwierane.

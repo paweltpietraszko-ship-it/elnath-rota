@@ -1,0 +1,153 @@
+WASKI REAUDYT PREIMPLEMENTATION — ROTA-T020 CHECKPOINT B — ROUND 7
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+AUDYTOWANY_HEAD: 71383665d06aed02ce32e452b7a9f85ad9c9559b
+POPRZEDNI_AUDIT_COMMIT: 501a3c69ee39a1f541a4567aa9c33d3040e83e5a
+ZRODLO_CLOSURE: tasks/ROTA-T020/CHECKPOINT_B_R6_AMENDMENT.md
+ZAKRES: wyłącznie pozostały R5-1, cross-month/cross-year część R5-3,
+        odpowiadająca część R5-4 oraz exact-SHA/no-production-diff sanity
+
+WYNIK KONCOWY
+
+PASS — REMAINING R5 FINDINGS CLOSED — READY_FOR_IMPLEMENTATION
+
+R6 amendment usuwa sprzeczność R5-1, jednoznacznie klasyfikuje normal i
+emergency T012 24h na granicy miesiąca/roku oraz dodaje osiągalne oracles
+T20-31 i T20-38..T20-41. Nie tworzy bezpośredniej sprzeczności z R5-2 ani
+żadną wcześniejszą sekcją PASS, więc nie zostały one ponownie otwarte.
+
+SECTION_CHECK 1 — EXACT SHA I BRAK ZMIAN PRODUKCYJNYCH — PASS
+
+Audytowany HEAD jest dokładnie:
+
+71383665d06aed02ce32e452b7a9f85ad9c9559b.
+
+Diff od poprzedniego audytowego commita 501a3c69... obejmuje dokładnie:
+
+- nowy tasks/ROTA-T020/CHECKPOINT_B_R6_AMENDMENT.md;
+- tasks/ROTA-T020/brief.md.
+
+Brak zmian w rota/**, tests/**, pyproject.toml, migracjach, PDF Checkpoint A i
+Grafiki/**. `git diff --check` dla 501a3c6..7138366: PASS.
+
+Przed zapisaniem raportu `tests_r7.txt` nie istniał.
+
+SECTION_CHECK 2 — POZOSTALY R5-1 — PASS
+
+R6 Section 2 rozwiązuje konflikt przez usunięcie nieosiągalnego publicznego
+`WORK_CODE_MAPPING_AMBIGUOUS`.
+
+Po closure istnieją dokładnie osiągalne wyniki:
+
+- invalid duplicate przy write -> odrzucenie przed zapisem;
+- raw/legacy/corrupt same-family duplicate przy export read ->
+  `PRINT_SETTINGS_INVALID`, zanim zacznie się mapping;
+- valid settings + zero exact candidate -> `WORK_CODE_MAPPING_REQUIRED`;
+- valid settings + dokładnie jeden candidate -> ten deterministyczny kod.
+
+Higher-precedence R6 jawnie superseduje sprzeczne fragmenty R5 amendment.
+Validation order jest zgodny z oracles. T20-31 zawiera teraz tylko osiągalne
+przypadki i nie żąda trzeciej publicznej klasy dla niemożliwego validated
+state.
+
+T020-B-R5-1 — CLOSED
+
+SECTION_CHECK 3 — NORMAL CATALOG-H24 CROSS-MONTH/CROSS-YEAR — PASS
+
+R6 Sections 3-4 wiążą kompletny normalny H24 z miesiącem startu component 1:
+
+- obie połówki pochodzą z tego samego efektywnego requested-month snapshot
+  occurrence;
+- component 2 może rozpoczynać się w następnym miesiącu/roku, ponieważ T012
+  utrwala pełny occurrence w miesiącu startu;
+- emitowany jest jeden `24` na dacie startu i 24h jest liczone raz w summary
+  miesiąca startu;
+- następny miesięczny export nie importuje ani nie duplikuje component 2;
+- malformed occurrence pozostaje `WORK_PROVENANCE_INCOMPLETE`.
+
+To odpowiada istniejącemu modelowi potwierdzonemu przez
+tests/test_t012.py:414-465 i nie wymaga adjacent-month repository lookup dla
+normal H24.
+
+SECTION_CHECK 4 — EMERGENCY CROSS-MONTH/CROSS-YEAR — PASS
+
+R6 Section 5 zamyka odmienny persisted shape T012 emergency:
+
+- previous-month first half pozostaje niezmieniona;
+- later-month terminal half reuse tego samego work_period_id;
+- dozwolony jest wyłącznie wąski read-only lookup bezpośrednio sąsiedniego
+  miesiąca tego samego Site przez istniejące schedule_repository APIs;
+- adjacent lineage jest rekonstruowane dla boundary date przez te same
+  current-lineage/effective_from reguły, bez retroaktywnego current-snapshot
+  skrótu;
+- brak adjacent current schedule nie jest błędem requested export i pozostawia
+  nieudowodnioną połówkę ordinary 12h;
+- istniejący same-identity malformed pair failuje zamknięcie;
+- outgoing pair daje jedno `24` w miesiącu startu;
+- incoming continuation nie daje drugiego symbolu ani godzin w summary;
+- unrelated adjacent work nie trafia do roster/cells/U/C/summary;
+- December/January arithmetic jest jawnie objęte;
+- użyte adjacent lineage i boundary facts uczestniczą w revision/provenance.
+
+Regeneracja wcześniejszego miesiąca przed i po powstaniu późniejszej pary ma
+jawnie różny revision, bez mutacji ScheduleVersion i bez export-history table.
+
+Istniejące APIs są wystarczające bez rozszerzenia TASK_SCOPE:
+
+- schedule_repository.get_current_version_id;
+- schedule_repository.get_schedule_version_header;
+- schedule_repository.get_schedule_snapshot.
+
+T020-B-R5-3 — CLOSED
+
+SECTION_CHECK 5 — ODPOWIADAJACA CZESC R5-4 — PASS
+
+R6 Section 6 poprawia T20-31 i dodaje następującą obowiązkową macierz:
+
+- T20-38: normal catalog-H24 month/year boundary, brak duplikacji i malformed;
+- T20-39: outgoing emergency przed/po later PLAN, zmiana wcześniejszego
+  revision i brak importu terminal half;
+- T20-40: incoming emergency suppression, 0 dodatkowych godzin, boundary
+  provenance oraz unrelated prior control;
+- T20-41: malformed same-identity emergency siblings i adjacent-lineage
+  corruption z rozdzieleniem WORK_PROVENANCE_INCOMPLETE od
+  PROVENANCE_INCOMPLETE.
+
+Macierz obejmuje obie strony granicy, month/year, pozytywne i negatywne
+rodzeństwo oraz brak partial PDF. T20-34/T20-35 pozostają same-month oracles,
+więc boundary tests ich nie zastępują.
+
+T020-B-R5-4 — CLOSED
+
+SECTION_CHECK 6 — MECHANICZNA ZGODNOSC Z ISTNIEJACYM T012 — PASS
+
+Na exact HEAD uruchomiono committed dowody istniejącego modelu:
+
+- normal H24 crossing month dla October i December;
+- persistable crossing H24 Assignments;
+- emergency 31.08->01.09;
+- emergency 31.12->01.01.
+
+Wynik: 5 passed in 0.73s.
+
+Pełna suite nie została ponownie uruchomiona, ponieważ 501a3c6..7138366 nie
+zmienia kodu ani testów. Round 5 zweryfikował ten sam product/test tree jako
+845/845 PASS.
+
+FINDINGS
+
+Brak w dozwolonym zakresie Round 7.
+
+ARCHITECTURE_PROPOSALS
+
+Brak.
+
+WERDYKT
+
+PASS — REMAINING R5 FINDINGS CLOSED — READY_FOR_IMPLEMENTATION
+
+Ten PASS zamyka niezależny preimplementation reaudit. Zgodnie z briefem CC
+może rozpocząć Checkpoint B dopiero po osobnej, jawnej akceptacji finalnego
+preimplementation gate przez architekta.

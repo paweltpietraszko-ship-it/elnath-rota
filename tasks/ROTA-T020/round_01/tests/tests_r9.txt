@@ -1,0 +1,111 @@
+NARROW CONTRACT AMENDMENT AUDIT - ROTA-T020 CHECKPOINT B - ROUND 9
+
+DATE: 2026-08-20
+AUDITOR: Codex
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+AUDITED_HEAD: 21a31774812104fdb8448048a659b41bbacc05de
+SOURCE: tasks/ROTA-T020/CHECKPOINT_B_R6_LINKAGE_NARROWING_AMENDMENT.md
+SCOPE: only the R6 Section 5 responsibility narrowing and corrected T20-41
+
+RESULT
+
+PASS - R6 LINKAGE NARROWING IS COHERENT - CC MAY CONTINUE IMPLEMENTATION
+
+This is a contract-amendment PASS only.  It is not an implementation PASS and
+does not close any Round 8 product finding by itself.
+
+SECTION_CHECK 1 - EXACT SHA AND AMENDMENT BINDING - PASS
+
+The audited branch HEAD is exactly:
+
+21a31774812104fdb8448048a659b41bbacc05de
+
+The amendment is committed as
+CHECKPOINT_B_R6_LINKAGE_NARROWING_AMENDMENT.md and brief.md gives it explicit
+higher precedence solely over the conflicting R6 Section 5.4/5.5 and T20-41
+material.  The canonical implementation before SHA remains c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2.
+
+The two amendment commits change only task documentation.  git diff --check:
+PASS.  tests_r9.txt did not exist before this audit.
+
+The branch also contains implementation commit 39d46de made before the
+amendment.  Round 9 does not audit or accept that product code.
+
+SECTION_CHECK 2 - RESPONSIBILITY BOUNDARY - PASS
+
+The amendment now states one owner for each invariant:
+
+- T012 planning/validator owns emergency pair legality: D/N, H12 shape,
+  duration, gap/overlap/contiguity, emergency-rest snapshot and terminal rest;
+- T020 owns only presentation linkage through the exact persisted identity
+  (employee_id, non-null work_period_id) in effective adjacent CURRENT truth;
+- T020 is expressly forbidden from implementing a second emergency structural
+  validator or check_emergency_pair_structure equivalent.
+
+This closes the duplication concern without weakening T012 and without moving
+solver behavior into the PDF layer.
+
+SECTION_CHECK 3 - OUTGOING / INCOMING PRESENTATION - PASS
+
+The amendment deterministically freezes:
+
+- outgoing unique exact identity match -> one 24 on the start side, adjacent
+  continuation is not imported, and 24h is counted once;
+- incoming unique exact identity match -> no ordinary symbol, no second 24 and
+  zero duplicate visible hours;
+- no match / different work_period_id / different Employee -> no linkage and
+  ordinary work;
+- unrelated adjacent work never enters roster, grid, U/C or summaries.
+
+No D/N/rest/gap/H12 structural judgement remains in T020.
+
+SECTION_CHECK 4 - FAIL-CLOSED OWNERSHIP - PASS
+
+The retained failure classes belong to the exporter:
+
+- adjacent CURRENT lineage cannot be reconstructed -> PROVENANCE_INCOMPLETE;
+- more than one candidate or referentially non-unique canonical identity ->
+  WORK_PROVENANCE_INCOMPLETE;
+- no exact match is explicitly not corruption.
+
+The amendment also says these checks cannot grow back into emergency-structure
+validation.  This is sufficiently bounded and testable.
+
+SECTION_CHECK 5 - REVISION / PROVENANCE - PASS
+
+Adjacent lineage and Assignment identity facts actually used for
+collapse/suppression remain revision/provenance inputs.  Unconsulted structural
+fields and unrelated adjacent work remain excluded.  This preserves the
+existing content-sensitive revision rule without recreating T012 validation.
+
+SECTION_CHECK 6 - CORRECTED TEST MATRIX - PASS
+
+T20-39/T20-40 remain as outgoing/incoming month/year presentation evidence.
+T20-41 is replaced with the exporter-owned matrix:
+
+- unique outgoing and incoming matches;
+- no match;
+- different period id;
+- different Employee;
+- unrelated adjacent work;
+- multiple exact candidates;
+- adjacent lineage corruption;
+- month and year boundaries.
+
+The amendment explicitly prohibits T020 tests for same-D/N, malformed rest,
+gap/overlap and INNY/H12 classification already owned by T012.
+
+FINDINGS
+
+None in the narrow Round 9 scope.
+
+ARCHITECTURE_PROPOSALS
+
+None.
+
+VERDICT
+
+PASS - R6 LINKAGE NARROWING IS COHERENT - CC MAY CONTINUE IMPLEMENTATION
+
+The next implementation audit must still verify the amended linkage behavior
+and all remaining R8-1..R8-6 corrections on the final exact product SHA.

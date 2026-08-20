@@ -83,6 +83,21 @@ def list_employees(conn: sqlite3.Connection) -> list[Employee]:
     return [_row_to_employee(row) for row in rows]
 
 
+def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, Employee]:
+    """ROTA-T020: batch-fetch Employee rows for a roster in one SELECT,
+    avoiding one get_employee() call per row when building a printable
+    schedule."""
+    if not employee_ids:
+        return {}
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"SELECT employee_id, display_name, active_from, active_to, day_only "
+        f"FROM employees WHERE employee_id IN ({placeholders})",
+        (*employee_ids,),
+    ).fetchall()
+    return {row[0]: _row_to_employee(row) for row in rows}
+
+
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
     """Same write as save_site_membership, without its own `with conn:` --
     for a caller (e.g. rota/application/training.py) that must combine this
@@ -141,6 +156,25 @@ def list_memberships_for_employee(conn: sqlite3.Connection, employee_id: str) ->
         (employee_id,),
     ).fetchall()
     return [_row_to_membership(row) for row in rows]
+
+
+def list_memberships_for_employees(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, list[SiteMembership]]:
+    """ROTA-T020: batch membership read across a whole roster in one SELECT,
+    avoiding one list_memberships_for_employee() call per Employee needing
+    an ABSENCE_SITE_AMBIGUOUS check."""
+    if not employee_ids:
+        return {}
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
+        f"FROM site_memberships WHERE employee_id IN ({placeholders}) ORDER BY employee_id, site_id",
+        (*employee_ids,),
+    ).fetchall()
+    by_employee: dict[str, list[SiteMembership]] = {employee_id: [] for employee_id in employee_ids}
+    for row in rows:
+        membership = _row_to_membership(row)
+        by_employee[membership.employee_id].append(membership)
+    return by_employee
 
 
 def write_external_support_window_in_open_transaction(conn: sqlite3.Connection, window: ExternalSupportWindow) -> None:

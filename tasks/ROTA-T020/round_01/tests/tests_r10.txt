@@ -1,0 +1,234 @@
+NARROW IMPLEMENTATION RE-AUDIT - ROTA-T020 CHECKPOINT B - ROUND 10
+
+DATE: 2026-08-20
+AUDITOR: Codex
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+AUDITED_PRODUCT_SHA: 2ba338b3a65666b42c155df13ba520e939885bcd
+CONTRACT_AMENDMENT_HEAD: 21a31774812104fdb8448048a659b41bbacc05de
+EVIDENCE: tasks/ROTA-T020/round_01/tests/test_t020_round10_audit.py
+
+RESULT
+
+FAIL - LINKAGE CORE IMPLEMENTED, CHECKPOINT B STILL NOT CONTRACT-COMPLETE
+
+The narrowed emergency responsibility itself is implemented without a second
+T012 structural validator, and the three delivered linkage examples pass.
+However, the mandatory amended matrix is incomplete and five committed
+contract siblings still fail.  Several are unresolved Round 8 classes rather
+than consequences of the narrowing amendment.
+
+SECTION_CHECK 1 - EXACT SHA AND CHANGE SCOPE - PASS
+
+The audited product is exactly:
+
+2ba338b3a65666b42c155df13ba520e939885bcd
+
+The implementation change after the Round 9 audit commit modifies only:
+
+- rota/application/schedule_export.py;
+- tests/test_t020.py.
+
+Both files are in TASK_SCOPE.  No planning/T012 production path was changed.
+git diff --check: PASS.  tests_r10.txt did not exist before this audit.
+
+SECTION_CHECK 2 - REGRESSION AND PRIOR REPRODUCERS - PASS
+
+On the exact product SHA:
+
+- full suite: 882/882 PASS in 87.00 s;
+- Round 8 independent matrix: 7/7 PASS;
+- Ruff: PASS;
+- guard.py check arch/spec.md: PASS;
+- git diff --check: PASS.
+
+backend.py still requires separate architect decisions and reports:
+
+STATUS: FAIL
+REASON:
+  - SIZE_FILE: tests/test_t012.py = 1701
+  - SIZE_FILE: tests/test_t019b.py = 899
+WYMAGA_DECYZJI:
+  - RATIO: 1383/6 = 230.5:1
+  - TOTAL_LINES: 1389
+
+These mechanical items are not the basis of the behavioral FAIL below.
+
+SECTION_CHECK 3 - NARROWED EMERGENCY RESPONSIBILITY - PASS
+
+The product no longer revalidates emergency D/N, H12 shape, gap/overlap,
+emergency rest or terminal rest.  Cross-boundary grouping uses persisted
+(employee_id, work_period_id), and the delivered tests prove:
+
+- outgoing unique match -> one 24 on the start side;
+- incoming unique match -> continuation suppressed and zero duplicate hours;
+- multiple adjacent candidates -> WORK_PROVENANCE_INCOMPLETE.
+
+No exporter-owned check_emergency_pair_structure equivalent was found.  The
+core owner/architect narrowing is respected.
+
+SECTION_CHECK 4 - NORMAL H24 STRUCTURAL VALIDATION - FAIL
+
+The narrowing amendment explicitly leaves R5 normal catalog-H24 validation
+unchanged.  R5 4.2 requires component numbers exactly {1,2}, once each, in
+addition to the other normal-H24 predicates.
+
+schedule_export._is_legitimate_normal_24h checks only:
+
+- outer span equals 24h;
+- both demands have catalog H24;
+- explicit opposite shift kinds;
+- equal non-null template id.
+
+It does not inspect work_period_component at all, nor does it implement the
+full employee-set/component shape frozen in R5 4.2.  Two H24 demands both
+claiming component=1 are classified as legitimate.
+
+Independent reproducer:
+
+test_round10_normal_h24_repeated_component_number_is_malformed - FAIL;
+actual _is_legitimate_normal_24h result: True.
+
+T020-R10-1 - NORMAL H24 FULL STRUCTURAL VALIDATION REMAINS INCOMPLETE
+
+SECTION_CHECK 5 - CANONICAL CROSS-VERSION IDENTITY - FAIL
+
+The amended linkage identity is (employee_id, work_period_id).  Assignment
+identity elsewhere in Rota is (schedule_version_id, assignment_id); local
+assignment_id may legally repeat in different ScheduleVersions, as already
+recorded in rota/planning/work_periods.py and tests/test_audit_t009_r6.py.
+
+schedule_export stores demand_by_assignment and assignment_by_id under bare
+assignment_id.  At line 203 it discards an adjacent Assignment whenever its
+bare id already exists in the requested month.  A valid outgoing pair with the
+same local assignment id in August and September is therefore not linked and
+prints N1 instead of 24, even though employee_id/work_period_id match exactly.
+
+Independent reproducer:
+
+test_round10_cross_month_linkage_allows_reused_local_assignment_id - FAIL;
+actual cell: N1.
+
+T020-R10-2 - BARE ASSIGNMENT_ID COLLISION HIDES A VALID ADJACENT LINK
+
+SECTION_CHECK 6 - ADJACENT PROVENANCE - FAIL
+
+The narrowing amendment Section 7 requires displayed provenance to cover the
+requested lineage plus adjacent lineage/identity facts actually used for
+collapse or suppression.  It also requires ordered adjacent
+(version_id,effective_from) metadata in revision/provenance.
+
+The implementation adds a short adjacent_facts tuple to document revision,
+but _provenance_text is still computed only from the requested-month lineage.
+It receives no adjacent facts.  The tuple also contains only the selected
+adjacent version id, not the ordered adjacent lineage/effective_from metadata.
+
+The independent reproducer generates August before and after September creates
+the valid outgoing link.  August changes from N1 to 24, but the displayed
+schedule_provenance string remains byte-for-byte identical.
+
+Independent reproducer:
+
+test_round10_displayed_provenance_changes_when_adjacent_link_is_used - FAIL.
+
+T020-R10-3 - DISPLAYED PROVENANCE OMITS THE ADJACENT TRUTH USED FOR LINKAGE
+
+SECTION_CHECK 7 - PATH-INDEPENDENT PRODUCTION FONT - FAIL
+
+CHECKPOINT_B_CONTRACT.md Section 4 explicitly prohibits dependence on a
+machine-specific path such as C:\Windows\Fonts and requires path-independent
+runtime resolution.
+
+The new _font_candidates hardcodes:
+
+- C:\Windows\Fonts;
+- /usr/share/fonts/truetype/dejavu;
+- /usr/share/fonts/truetype/liberation;
+- /Library/Fonts.
+
+On the audited Windows environment the PDF succeeds specifically because the
+implementation finds Arial under C:\Windows\Fonts; the ReportLab Vera fallback
+still lacks the required Polish glyph set.  Thus the old no-PDF reproducer is
+green by violating the frozen portability boundary rather than by closing it.
+
+Independent reproducer:
+
+test_round10_font_resolution_has_no_machine_specific_os_paths - FAIL;
+18 font candidate paths lie outside the installed ReportLab package.
+
+T020-R10-4 - FONT FIX DEPENDS ON FORBIDDEN MACHINE-SPECIFIC PATHS
+
+SECTION_CHECK 8 - ACCEPTED LAYOUT CONTENT BOUNDARY - FAIL
+
+The ordinary ten-person PDF now contains day headers, grid, summaries,
+weekend cues and the full legend; this materially closes the visual omissions
+reported in Round 8.
+
+T20-36 nevertheless also requires long company name, Site name and period
+label to fit at the accepted readability floor, or to return
+ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT without clipping.  _check_fits checks only
+the number of employee rows.  Header strings are drawn at fixed sizes without
+measurement, fitting or overflow rejection.
+
+With 500-character values in all three durable/editable header fields, the
+public generator returns ExportReady and draws text beyond the page.
+
+Independent reproducer:
+
+test_round10_long_header_content_fails_before_clipping - FAIL;
+actual result: ExportReady.
+
+T020-R10-5 - HEADER CONTENT OVERFLOW IS NOT FAIL-CLOSED
+
+SECTION_CHECK 9 - AMENDED T20-39/T20-40/T20-41 MATRIX - FAIL
+
+The linkage-narrowing amendment Section 8 requires at least nine classes:
+
+1. outgoing unique match;
+2. incoming unique match;
+3. no match;
+4. different work_period_id;
+5. same work_period_id but different Employee;
+6. unrelated adjacent work;
+7. multiple exact candidates;
+8. adjacent lineage corruption;
+9. both month and year boundaries.
+
+The delivery adds only three tests: items 1, 2 and 7, all for ordinary month
+boundaries.  It also omits the required explicit revision/provenance oracle.
+This is not equivalent parameterization; six named responsibility classes and
+the year boundary are absent.
+
+T020-R10-6 - MANDATORY LINKAGE MATRIX IS INCOMPLETE
+
+INDEPENDENT ROUND 10 MATRIX
+
+Command:
+
+python -m pytest -q tasks/ROTA-T020/round_01/tests/test_t020_round10_audit.py
+
+Result:
+
+5 failed in 0.20 s
+
+FINDINGS SUMMARY
+
+- T020-R10-1: normal H24 structural validation is incomplete;
+- T020-R10-2: bare assignment_id collision hides valid adjacent linkage;
+- T020-R10-3: displayed provenance omits adjacent linkage truth;
+- T020-R10-4: font resolution uses forbidden machine-specific paths;
+- T020-R10-5: long header content clips instead of failing closed;
+- T020-R10-6: corrected mandatory linkage matrix is incomplete.
+
+ARCHITECTURE_PROPOSALS
+
+None.  Every finding is directly traceable to the current frozen contract or
+the accepted cross-version Assignment identity.  No new product behavior is
+proposed.
+
+VERDICT
+
+FAIL - LINKAGE CORE IMPLEMENTED, CHECKPOINT B STILL NOT CONTRACT-COMPLETE
+
+The next re-audit should verify R10-1..R10-6 on one exact corrected product
+SHA.  It need not reopen absence semantics, basic outgoing/incoming meaning or
+the decision not to duplicate T012 emergency structural validation.
