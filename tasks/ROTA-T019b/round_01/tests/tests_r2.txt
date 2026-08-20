@@ -1,0 +1,123 @@
+ROTA-T019b — CODEX PREIMPLEMENTATION AUDIT — ROUND 2
+
+AUDITED_BRANCH: origin/task/T019b
+AUDITED_AMENDMENT_SHA: 49461b599cdb05ffaa255cbfaac9cfc6cc6a30fa
+ROUND_01_AUDIT_SHA: 40bc84fecdf7d6773fccef37d5ee4a17f37463c0
+PARENT_CONTRACT_SHA: 8c881f6999711dc00434a83f3ec617f95cb11837
+BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
+DATE: 2026-08-20
+
+VERDICT: FAIL — TASK_SCOPE AMENDMENT IS NOT MECHANICALLY EFFECTIVE — NOT READY_FOR_IMPLEMENTATION
+
+SCOPE OF THIS ROUND
+
+Round 2 sprawdza wyłącznie zamknięcie T019b-R1-1, T019b-R1-2 i
+T019b-R1-3 oraz bezpośrednią mechaniczną skuteczność amendmentu. Pozostałe
+SECTION_CHECK Round 1 pozostają CLOSED/PASS i nie zostały ponownie otwarte.
+
+SECTION_CHECK 1 — AMENDMENT PROVENANCE: PASS
+
+- origin/task/T019b wskazuje dokładnie na audytowany amendment SHA.
+- 40bc84f -> 49461b5 to jeden commit.
+- Zmieniono wyłącznie dwa pipeline documents:
+  - tasks/ROTA-T019b/amendment_r1.md — nowy;
+  - tasks/ROTA-T019b/operation_audit.md — zmieniony.
+- Nie zmieniono produktu, testów implementacyjnych, owner briefu,
+  arch/spec.md ani arch/FROZEN.lock.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — T019b-R1-1 INTERNAL TRAINING SEAM: PASS
+
+operation_audit.md jawnie klasyfikuje teraz
+training.save_site_membership(conn, membership) jako:
+
+- internal/derived transaction hook;
+- NO independent coordinator action;
+- bez osobnego action kind/action row;
+- część pojedynczego TRAINING_REALIZED before/after;
+- istniejący module-level monkeypatch seam, który musi zostać zachowany.
+
+Klasyfikacja występuje zarówno w frozen matrix, jak i w regule
+one-operation/one-action. Nie zmienia produktu.
+
+T019b-R1-1: CLOSED.
+
+SECTION_CHECK 3 — T019b-R1-2 SELECT_CANDIDATE AUTHORIZATION: FAIL
+
+amendment_r1.md tekstowo wymienia poprawne sześć plików, wszystkie czternaście
+call sites oraz poprawnie ogranicza adaptację do jawnego coordinator_id bez
+zmiany candidate/oracles.
+
+Jednak tasks/ROTA-T019b/brief.md nie został zmieniony. Jego literalny blok
+zaczynający się od `TASK_SCOPE:` nadal nie zawiera żadnego z sześciu plików.
+
+backend.py::read_task_scope() czyta wyłącznie plik brief przekazany na wejściu i
+wyłącznie linie z jego bloku `TASK_SCOPE:`. Nie czyta dokumentów amendment ani
+normatywnych odwołań. Mechaniczne wykonanie parsera na obecnym brief.md zwraca:
+
+- tests/test_audit_t009_r4.py — False;
+- tests/test_audit_t009_r5.py — False;
+- tests/test_t009_lifecycle_memory_backup_boundary.py — False;
+- tests/test_t009_manual_edit.py — False;
+- tests/test_t009_plan_select_replan.py — False;
+- tests/test_t010_nn.py — False.
+
+W efekcie każda autoryzowana adaptacja dostałaby `DIFF_SCOPE: file outside
+TASK_SCOPE`. Tekstowa autoryzacja nie zamknęła mechanicznej bramki wymaganej
+przez ten sam kontrakt.
+
+T019b-R1-2: REMAINS OPEN.
+
+SECTION_CHECK 4 — T019b-R1-3 SCHEMA ASSERTION AUTHORIZATION: FAIL
+
+amendment_r1.md poprawnie ogranicza tests/test_t012.py do jednej zmiany
+literalnego `LATEST_SCHEMA_VERSION == 5` na `== 6`, bez otwierania pozostałych
+oracles T012.
+
+Jednak tests/test_t012.py również nie został dodany do parsowanego bloku
+`TASK_SCOPE:` w brief.md. backend.py::read_task_scope() zwraca dla niego False,
+więc dozwolona zmiana również dostałaby DIFF_SCOPE FAIL.
+
+T019b-R1-3: REMAINS OPEN.
+
+SECTION_CHECK 5 — DIRECT CONTRADICTION / REQUIRED CLOSURE: FAIL
+
+amendment mówi, że sekcja 21 briefu jest normatywnie rozszerzona przez osobny
+plik, natomiast mechaniczny gate kontraktu nie interpretuje takiego rozszerzenia.
+To bezpośrednia sprzeczność wykonawcza w zakresie trzech audytowanych findings,
+nie nowy problem architektoniczny.
+
+Jedyna wymagana korekta:
+
+- dopisać siedem już zaakceptowanych ścieżek bezpośrednio do istniejącego bloku
+  `TASK_SCOPE:` w tasks/ROTA-T019b/brief.md.
+
+amendment_r1.md może pozostać normatywnym ograniczeniem dozwolonych zmian.
+Nie trzeba zmieniać operation matrix, produktu, testów, owner decisions ani
+pozostałych klauzul briefu.
+
+FINDINGS
+
+T019b-R1-1 — CLOSED / PASS.
+
+T019b-R1-2 — OPEN / FAIL — sześć testów nie jest widocznych dla literalnego
+backend TASK_SCOPE parsera.
+
+T019b-R1-3 — OPEN / FAIL — tests/test_t012.py nie jest widoczny dla literalnego
+backend TASK_SCOPE parsera.
+
+T019b-R2-1 — FAIL — osobny amendment_r1.md nie modyfikuje mechanicznego zakresu
+odczytywanego wyłącznie z tasks/ROTA-T019b/brief.md.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+FAIL — NOT READY_FOR_IMPLEMENTATION.
+
+To jest druga runda i jedyna pozostała korekta jest całkowicie mechaniczna.
+Nie należy dalej iterować języka architektury: następny reaudyt powinien
+sprawdzić wyłącznie, że exact siedem ścieżek dopisano do parsowanego bloku
+brief.md, parser zwraca dla nich True oraz nie zmieniono niczego innego.
