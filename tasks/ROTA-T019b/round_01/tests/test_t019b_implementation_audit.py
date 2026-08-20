@@ -353,11 +353,28 @@ def test_manual_action_snapshot_has_lineage_and_complete_assignment_fact(tmp_pat
     assert detail.before_state["parent_version_id"] == selected.version_id
     assert detail.after_state["child_version_id"] == child.version_id
     fact = detail.after_state["assignments"][0]
-    # The after fact describes what was persisted in the child, not the
-    # caller's parent-owned input object.
-    assert fact["schedule_version_id"] == child.version_id
-    assert "mentor_primary_assignment_id" in fact
-    assert fact["required_rest_after_hours"] == target.required_rest_after_hours
+    persisted = next(
+        assignment for assignment in get_schedule_snapshot(conn, child.version_id).assignments
+        if assignment.assignment_id == fact["assignment_id"]
+    )
+    # Compare against the row actually read back from the child. In
+    # particular, a trainee's explicit required_rest_after_hours=None stays
+    # None; it is not inherited from the mentor.
+    assert fact == {
+        "schedule_version_id": persisted.schedule_version_id,
+        "assignment_id": persisted.assignment_id,
+        "employee_id": persisted.employee_id,
+        "start_datetime": persisted.start_datetime.isoformat(),
+        "end_datetime": persisted.end_datetime.isoformat(),
+        "role": persisted.role.value,
+        "state": persisted.state.value,
+        "frozen": persisted.frozen,
+        "covers_demand_id": persisted.covers_demand_id,
+        "mentor_primary_assignment_id": persisted.mentor_primary_assignment_id,
+        "operational_code": persisted.operational_code,
+        "work_period_id": persisted.work_period_id,
+        "required_rest_after_hours": persisted.required_rest_after_hours,
+    }
 
 
 def test_candidate_selection_snapshot_uses_complete_assignment_facts(tmp_path) -> None:
