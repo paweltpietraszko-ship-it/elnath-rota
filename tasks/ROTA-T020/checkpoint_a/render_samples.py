@@ -342,10 +342,14 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
                 x += sum_w
             y -= row_h
 
-        c.setStrokeColor(HexColor("#bbbbbb"))
-        c.setLineWidth(0.5)
-        c.line(x0, y, x0 + name_w + n_days * day_w + 4 * sum_w, y)
+        # Owner correction 2026-08-20: "wiersze miedzy pracownikami musza
+        # miec grubsze linie, bo wzrok nie wie ktorej linii ma pilnowac" --
+        # a light 0.5pt rule was the same weight as the ordinary cell grid,
+        # so the eye couldn't tell "next employee" from "next day". This is
+        # now clearly the heaviest horizontal rule on the page.
         c.setStrokeColor(black)
+        c.setLineWidth(1.6)
+        c.line(x0, y, x0 + name_w + n_days * day_w + 4 * sum_w, y)
 
     return y
 
