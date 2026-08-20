@@ -187,6 +187,20 @@ def _with_manual_action_hook(
     return _hook
 
 
+def _build_correction_hook(
+    *, site_id, month, coordinator_id, effective_from, child_id, parent_snapshot_by_id, upsert_assignments,
+    note, responds_to_decision_required_id, action_kind, extra_state, rest_override, on_success,
+):
+    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, on_success)
+    return _with_manual_action_hook(
+        action_kind=action_kind, site_id=site_id, month=month, coordinator_id=coordinator_id,
+        effective_from=effective_from, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
+        upsert_assignments=upsert_assignments, note=note,
+        responds_to_decision_required_id=responds_to_decision_required_id, caller_on_success=hook,
+        extra_state=extra_state,
+    )
+
+
 def apply_manual_correction(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
     upsert_assignments: list[Assignment], on_success=None, note: Optional[str] = None,
@@ -196,11 +210,8 @@ def apply_manual_correction(
 ) -> ScheduleVersion:
     """review_02_architect_clarification.md ATOMIC MANUAL CORRECTION FLOW,
     steps 1-11. Manual state may be saved even with a coordinator-created
-    HARD violation the solver would never produce -- validation here only
-    feeds Deviation materialization, it never blocks the save. Everything
-    through step 8 is in-memory; step 9 is the single T008 lifecycle call
-    that atomically writes the child and switches current. Never calls
-    REPLAN automatically.
+    HARD violation; validation here only feeds Deviation materialization,
+    never blocks the save. Never calls REPLAN automatically.
 
     _action_kind (ROTA-T019b, internal): freeze_or_unfreeze/mark_not_worked/
     training.mark_training_realized pass their own specific kind through
@@ -229,13 +240,11 @@ def apply_manual_correction(
     child_id = f"SV-{uuid.uuid4().hex}"
     rest_pairs = _rest_override_pairs(state, corrected_assignments, report)
     rest_override = _rest_override_rule_content(child_id, rest_pairs) if rest_pairs else None
-    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, on_success)
-    hook = _with_manual_action_hook(
-        action_kind=_action_kind, site_id=site_id, month=month, coordinator_id=coordinator_id,
-        effective_from=effective_from, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
-        upsert_assignments=upsert_assignments, note=note,
-        responds_to_decision_required_id=responds_to_decision_required_id, caller_on_success=hook,
-        extra_state=_extra_state,
+    hook = _build_correction_hook(
+        site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
+        child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id, upsert_assignments=upsert_assignments,
+        note=note, responds_to_decision_required_id=responds_to_decision_required_id, action_kind=_action_kind,
+        extra_state=_extra_state, rest_override=rest_override, on_success=on_success,
     )
     return lifecycle.create_schedule_version(  # steps 9-10
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,

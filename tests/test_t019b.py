@@ -665,7 +665,7 @@ def _boom_action_insert(monkeypatch, target: str) -> None:
     monkeypatch.setattr(target, lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("injected")))
 
 
-def test_g50_58_action_insert_failure_rolls_back_every_material_write(tmp_path, monkeypatch) -> None:
+def test_g50_52_current_state_and_rule_rollback(tmp_path, monkeypatch) -> None:
     """One scenario per MATERIAL command family: injecting a failure into
     the action-index insert must roll back the paired domain write too --
     history must never lag a successful human write (section 13)."""
@@ -694,6 +694,8 @@ def test_g50_58_action_insert_failure_rolls_back_every_material_write(tmp_path, 
         record_structured_rule_decision(conn, coordinator_id=COORD, site_id=SITE, rule_id="R1", statement="s", effective_from=date(2026, 8, 1), rule_content=_rule_content())
     assert conn.execute("SELECT COUNT(*) FROM decision_records").fetchone()[0] == 0
 
+
+def test_g53_54_candidate_and_manual_child_rollback(tmp_path, monkeypatch) -> None:
     conn = connect(tmp_path / "rota4.db")
     sel = _seed_feasible_and_select(conn)
     target = get_schedule_snapshot(conn, sel.version_id).assignments[0]
@@ -702,6 +704,19 @@ def test_g50_58_action_insert_failure_rolls_back_every_material_write(tmp_path, 
         manual_edit.apply_manual_correction(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH, upsert_assignments=[replace(target, frozen=True)])
     assert conn.execute("SELECT COUNT(*) FROM schedule_versions WHERE site_id=?", (SITE,)).fetchone()[0] == 1
 
+    conn = connect(tmp_path / "rota9.db")
+    _bootstrap(conn)
+    _employee(conn)
+    _fill_calendar(conn)
+    result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
+    current = get_current_version_id(conn, SITE, MONTH)
+    with monkeypatch.context() as mp, pytest.raises(RuntimeError):
+        _boom_action_insert(mp, "rota.application.plan_ops.site_memory.record_coordinator_action_no_commit")
+        plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=COORD)
+    assert get_schedule_snapshot(conn, current).assignments == []
+
+
+def test_g55_58_training_finalize_restore_replan_rollback(tmp_path, monkeypatch) -> None:
     conn = connect(tmp_path / "rota5.db")
     _bootstrap(conn)
     _employee(conn, "E1")
@@ -742,17 +757,6 @@ def test_g50_58_action_insert_failure_rolls_back_every_material_write(tmp_path, 
         plan_ops.replan(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 2))
     assert conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0] == count_before
     assert get_current_version_id(conn, SITE, MONTH) == sel.version_id
-
-    conn = connect(tmp_path / "rota9.db")
-    _bootstrap(conn)
-    _employee(conn)
-    _fill_calendar(conn)
-    result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
-    current = get_current_version_id(conn, SITE, MONTH)
-    with monkeypatch.context() as mp, pytest.raises(RuntimeError):
-        _boom_action_insert(mp, "rota.application.plan_ops.site_memory.record_coordinator_action_no_commit")
-        plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=COORD)
-    assert get_schedule_snapshot(conn, current).assignments == []
 
 # ---------------------------------------------------------------------------
 # H. Read API / filters / determinism

@@ -56,41 +56,7 @@ def revalidate(conn, *, site_id: str, month: date, coordinator_id: str | None = 
     )
 
 
-def finalize(
-    conn, *, site_id: str, month: date, coordinator_id: str, acknowledged_deviation_ids: set[str],
-    acknowledged_at: datetime | None = None, reason: str | None = None,
-    responds_to_decision_required_id: str | None = None,
-) -> ScheduleVersion:
-    """Finalize always revalidates fresh first. Succeeds only when the
-    caller acknowledges the exact current (freshly re-derived, not
-    necessarily previously persisted) Deviation set -- not more, not fewer.
-
-    R4-1: everything through the acknowledgement check happens in memory;
-    the ONLY persisting call is the single atomic
-    finalize_schedule_version(..., shift_demands=..., deviations=...), which
-    replaces the snapshot with the acknowledged Deviations AND transitions
-    to FINAL in one transaction. A prior two-call sequence (persist
-    acknowledgement, then flip status) left a persisted-but-unfinalized
-    acknowledgement if the second call failed.
-
-    ROTA-T019b: `reason` remains the optional Deviation acknowledgement
-    reason AND is exposed as this one SCHEDULE_FINALIZED action's note
-    (brief.md section 9) -- one action regardless of Deviation count."""
-    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
-    header = _require_current_working(conn, site_id, month)
-    state, fresh_deviations = _fresh_deviations(conn, site_id, month, header)
-    current_ids = {d.deviation_id for d in fresh_deviations}
-    if current_ids != set(acknowledged_deviation_ids):
-        raise ValueError(f"acknowledged_deviation_ids must exactly match the current Deviation set {current_ids}")
-    stamp = acknowledged_at or datetime.now()
-    acknowledged = [
-        replace(d, acknowledged=True, acknowledged_by=coordinator_id, acknowledged_at=stamp, reason=reason)
-        for d in fresh_deviations
-    ]
-    recorded_at = datetime.now()
+def _finalize_action_hook(*, site_id, month, coordinator_id, header, acknowledged, acknowledged_deviation_ids, reason, responds_to_decision_required_id, recorded_at):
     target_status = "FINAL_WITH_DEVIATIONS" if acknowledged else "FINAL_NO_DEVIATIONS"
 
     def _hook(open_conn) -> None:
@@ -109,10 +75,47 @@ def finalize(
         )
         site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
 
+    return _hook
+
+
+def finalize(
+    conn, *, site_id: str, month: date, coordinator_id: str, acknowledged_deviation_ids: set[str],
+    acknowledged_at: datetime | None = None, reason: str | None = None,
+    responds_to_decision_required_id: str | None = None,
+) -> ScheduleVersion:
+    """Finalize always revalidates fresh first. Succeeds only when the
+    caller acknowledges the exact current (freshly re-derived) Deviation
+    set. R4-1: the ONLY persisting call is the single atomic
+    finalize_schedule_version(..., deviations=...), replacing the snapshot
+    with acknowledged Deviations AND transitioning to FINAL in one
+    transaction -- a prior two-call sequence could leave a persisted-but-
+    unfinalized acknowledgement if the second call failed.
+
+    ROTA-T019b: `reason` is also this one SCHEDULE_FINALIZED action's note
+    (brief.md section 9) -- one action regardless of Deviation count."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    site_memory.validate_decision_required_link_no_commit(
+        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+    )
+    header = _require_current_working(conn, site_id, month)
+    state, fresh_deviations = _fresh_deviations(conn, site_id, month, header)
+    current_ids = {d.deviation_id for d in fresh_deviations}
+    if current_ids != set(acknowledged_deviation_ids):
+        raise ValueError(f"acknowledged_deviation_ids must exactly match the current Deviation set {current_ids}")
+    stamp = acknowledged_at or datetime.now()
+    acknowledged = [
+        replace(d, acknowledged=True, acknowledged_by=coordinator_id, acknowledged_at=stamp, reason=reason)
+        for d in fresh_deviations
+    ]
+    hook = _finalize_action_hook(
+        site_id=site_id, month=month, coordinator_id=coordinator_id, header=header, acknowledged=acknowledged,
+        acknowledged_deviation_ids=acknowledged_deviation_ids, reason=reason,
+        responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=datetime.now(),
+    )
     return lifecycle.finalize_schedule_version(
         conn, version_id=header.version_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=state.shift_demands, assignments=list(state.existing_assignments), deviations=acknowledged,
-        on_success=_hook,
+        on_success=hook,
     )
 
 

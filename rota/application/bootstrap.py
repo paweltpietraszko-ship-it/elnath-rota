@@ -152,6 +152,33 @@ def _record_context_configuration_no_commit(
     site_memory.invalidate_current_decision_required_no_commit(conn, site_ids=[site_id], months=None)
 
 
+def _material_config_change(conn, *, site_id: str, site_profile, site):
+    """ROTA-T019b: whether this bootstrap call's site_profile/site pieces
+    are a planning-relevant change worth one CONTEXT_CONFIGURATION_SAVED
+    action, and their before-state for it. origin_site_id is a hard FK to
+    sites.site_id: a config action cannot be attributed to a Site row that
+    does not exist yet -- if this call itself creates the Site that's fine
+    (written earlier in the same transaction), otherwise the action is
+    deferred until a later call actually establishes the Site."""
+    before_profile = None
+    if site_profile is not None:
+        try:
+            before_profile = get_site_profile(conn, site_profile.profile_id)
+        except SiteProfileNotFound:
+            before_profile = None
+    try:
+        before_site = get_site(conn, site_id)
+    except SiteNotFound:
+        before_site = None
+    profile_changed = site_profile is not None and (
+        before_profile is None or _planning_fields(before_profile) != _planning_fields(site_profile)
+    )
+    site_changed = site is not None and (before_site is None or _planning_fields(before_site) != _planning_fields(site))
+    site_exists_or_created = site is not None or before_site is not None
+    material = (profile_changed or site_changed) and site_exists_or_created
+    return material, before_profile, before_site
+
+
 def bootstrap_or_resume_coordinator_context(
     conn,
     *,
@@ -167,24 +194,17 @@ def bootstrap_or_resume_coordinator_context(
     a partial context over several calls by re-supplying the same
     coordinator_id/site_id with more pieces filled in each time.
 
-    R3-2: the upfront _has_active_association check is a fast, friendly
-    rejection for the common case (already active, don't even try), but two
-    concurrent callers can both pass it before either has written anything.
-    The real exclusivity guard is
+    R3-2/C-R3-1: the upfront _has_full_active_context check is a fast,
+    friendly rejection; the real exclusivity guard is
     activate_association_if_not_already_active_in_open_transaction's atomic
-    UPSERT...WHERE, called last: only one of two racing calls that both
-    reach it can actually flip the row to active, and the loser is refused
-    here -- after coordinator/profile/site writes (idempotent resume data,
-    harmless either way), never before the association decision itself.
-    C-R3-1: the check itself is _has_full_active_context now, not
-    _has_active_association -- see that function's docstring.
+    UPSERT...WHERE, called last -- after coordinator/profile/site writes
+    (idempotent resume data, harmless either way).
 
     ROTA-T019b: coordinator/site_profile/site writes plus the one conditional
-    CONTEXT_CONFIGURATION_SAVED action (only when a planning-relevant
-    site_profile/site field actually changed) commit as a single transaction.
-    Association activation stays its own separate transaction, unchanged --
-    it carries no material action of its own and must keep its existing
-    idempotent-resume-data-survives-a-lost-race behavior."""
+    CONTEXT_CONFIGURATION_SAVED action commit as a single transaction.
+    Association activation stays its own separate transaction (no material
+    action of its own; must keep its idempotent-resume-survives-a-lost-race
+    behavior)."""
     if _has_full_active_context(conn, coordinator_id=coordinator_id, site_id=site_id):
         raise CoordinatorContextAlreadyActive(
             f"({coordinator_id!r}, {site_id!r}) already has an active context; "
@@ -196,27 +216,7 @@ def bootstrap_or_resume_coordinator_context(
         _require_id_match("site.site_id", (site.site_id,), (site_id,))
 
     recorded_at = datetime.now()
-    before_profile = None
-    if site_profile is not None:
-        try:
-            before_profile = get_site_profile(conn, site_profile.profile_id)
-        except SiteProfileNotFound:
-            before_profile = None
-    try:
-        before_site = get_site(conn, site_id)
-    except SiteNotFound:
-        before_site = None
-    profile_changed = site_profile is not None and (
-        before_profile is None or _planning_fields(before_profile) != _planning_fields(site_profile)
-    )
-    site_changed = site is not None and (before_site is None or _planning_fields(before_site) != _planning_fields(site))
-    # origin_site_id is a hard FK to sites.site_id (brief.md section 5.1): a
-    # config action cannot be attributed to a Site row that does not exist
-    # yet -- if this call is the one CREATING the Site, that's fine (it's
-    # written earlier in this same transaction); otherwise the action is
-    # deferred until a later call actually establishes the Site.
-    site_exists_or_created = site is not None or before_site is not None
-    material = (profile_changed or site_changed) and site_exists_or_created
+    material, before_profile, before_site = _material_config_change(conn, site_id=site_id, site_profile=site_profile, site=site)
 
     with conn:
         if coordinator is not None:

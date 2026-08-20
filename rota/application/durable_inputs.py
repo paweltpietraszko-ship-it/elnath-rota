@@ -319,6 +319,35 @@ def set_calendar_day(
             )
 
 
+def _profile_planning_fields(p):
+    return (
+        p.active, tuple(p.standard_shifts), p.day_only_blocks_n, p.external_support_enabled,
+        p.training_s_enabled, p.training_s_weekdays_only, p.training_s_default_readiness_threshold,
+        p.rolling_7d_decision_threshold_hours,
+    )
+
+
+def _profile_state(p):
+    if p is None:
+        return None
+    return {
+        "profile_id": p.profile_id, "active": p.active,
+        "standard_shifts": [
+            {
+                "kind": s.kind.value, "start_time": s.start_time.isoformat(), "end_time": s.end_time.isoformat(),
+                "end_next_day": s.end_next_day, "required_primary_count": s.required_primary_count,
+                "catalog_kind": s.catalog_kind.value if s.catalog_kind else None,
+                "required_rest_hours": s.required_rest_hours, "active_weekdays": list(s.active_weekdays),
+            }
+            for s in p.standard_shifts
+        ],
+        "day_only_blocks_n": p.day_only_blocks_n, "external_support_enabled": p.external_support_enabled,
+        "training_s_enabled": p.training_s_enabled, "training_s_weekdays_only": p.training_s_weekdays_only,
+        "training_s_default_readiness_threshold": p.training_s_default_readiness_threshold,
+        "rolling_7d_decision_threshold_hours": p.rolling_7d_decision_threshold_hours,
+    }
+
+
 def update_site_profile(
     conn, *, coordinator_id: str, site_id: str, profile: SiteProfile,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
@@ -333,41 +362,14 @@ def update_site_profile(
         conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
     )
     recorded_at = datetime.now()
-
-    def _planning_fields(p):
-        return (
-            p.active, tuple(p.standard_shifts), p.day_only_blocks_n, p.external_support_enabled,
-            p.training_s_enabled, p.training_s_weekdays_only, p.training_s_default_readiness_threshold,
-            p.rolling_7d_decision_threshold_hours,
-        )
-
     try:
         before = get_site_profile(conn, profile.profile_id)
     except SiteProfileNotFound:
         before = None
-    material = before is None or _planning_fields(before) != _planning_fields(profile)
+    material = before is None or _profile_planning_fields(before) != _profile_planning_fields(profile)
     with conn:
         write_site_profile_in_open_transaction(conn, profile)
         if material:
-
-            def _profile_state(p):
-                return None if p is None else {
-                    "profile_id": p.profile_id, "active": p.active,
-                    "standard_shifts": [
-                        {
-                            "kind": s.kind.value, "start_time": s.start_time.isoformat(), "end_time": s.end_time.isoformat(),
-                            "end_next_day": s.end_next_day, "required_primary_count": s.required_primary_count,
-                            "catalog_kind": s.catalog_kind.value if s.catalog_kind else None,
-                            "required_rest_hours": s.required_rest_hours, "active_weekdays": list(s.active_weekdays),
-                        }
-                        for s in p.standard_shifts
-                    ],
-                    "day_only_blocks_n": p.day_only_blocks_n, "external_support_enabled": p.external_support_enabled,
-                    "training_s_enabled": p.training_s_enabled, "training_s_weekdays_only": p.training_s_weekdays_only,
-                    "training_s_default_readiness_threshold": p.training_s_default_readiness_threshold,
-                    "rolling_7d_decision_threshold_hours": p.rolling_7d_decision_threshold_hours,
-                }
-
             affected_site_ids = _sites_bound_to_profile(conn, profile.profile_id)
             _record_action_and_invalidate_no_commit(
                 conn, action_kind=CoordinatorActionKind.SITE_PROFILE_CHANGED, origin_site_id=site_id,

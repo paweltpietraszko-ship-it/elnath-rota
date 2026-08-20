@@ -230,32 +230,37 @@ def select_candidate(
     )
 
 
+def _replan_action_hook(*, site_id, month, coordinator_id, effective_from, current_id, child_id, note, responds_to_decision_required_id, recorded_at):
+    def _hook(open_conn) -> None:
+        site_memory.record_coordinator_action_no_commit(
+            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_REPLAN_CREATED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=effective_from, month=month, schedule_version_id=child_id,
+            affected_entities=[AffectedEntity("SCHEDULE_VERSION", child_id)],
+            before_state={"current_version_id": current_id}, after_state={"current_version_id": child_id},
+            note=note, source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=child_id,
+            responds_to_decision_required_id=responds_to_decision_required_id,
+        )
+        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
+
+    return _hook
+
+
 def replan(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> PlanningResult:
     """Operation 5. Always creates a new WORKING child cloned from the
-    current version's complete content before calling plan() -- T008/T006
-    invariants (REALIZED preserved, frozen preserved, TRAINEE preserved,
-    FINAL parent immutable, minimum-reshuffle ranking) are then enforced by
-    create_schedule_version()/plan() themselves. Never auto-saves the
-    returned candidate.
+    current version's complete content before calling plan(); T008/T006
+    invariants are then enforced by create_schedule_version()/plan()
+    themselves. Never auto-saves the returned candidate.
 
-    R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
-    trigger), so every assemble_planning_state read this needs -- including
-    the one that produces the state handed to plan() -- must happen BEFORE
-    create_schedule_version writes the child; a failure discovered only
-    afterward could never be undone.
-
-    R6-1: the pre-write read is necessarily scoped to the still-current
-    PARENT (the child doesn't exist yet) -- state.shift_demands/
-    existing_assignments/deviations are re-stamped in memory to the child's
-    real id before either persisting or planning, so a frozen/REALIZED/
-    TRAINEE fixed fact carried into the child, and the demands the
-    candidate references, both already match what create_schedule_version
-    is about to persist. Without this, a later ASSIGN-03/04 check comparing
-    the candidate to a freshly-read (child-scoped) existing_assignments
-    would see every fixed fact as "modified" purely by scope, not content."""
+    R4-1/R6-1: every assemble_planning_state read must happen BEFORE
+    create_schedule_version writes the child (rows can never be physically
+    deleted), and its shift_demands/existing_assignments/deviations are
+    re-stamped in memory to the child's real id first, so a later
+    ASSIGN-03/04 check does not see every fixed fact as "modified" purely
+    by scope."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
     site_memory.validate_decision_required_link_no_commit(
@@ -274,26 +279,17 @@ def replan(
         state, schedule_version_id=child_id, shift_demands=demands,
         existing_assignments=existing, deviations=deviations,
     )
-    recorded_at = datetime.now()
-
-    def _hook(open_conn) -> None:
-        site_memory.record_coordinator_action_no_commit(
-            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_REPLAN_CREATED, origin_site_id=site_id,
-            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=effective_from, month=month, schedule_version_id=child_id,
-            affected_entities=[AffectedEntity("SCHEDULE_VERSION", child_id)],
-            before_state={"current_version_id": current_id}, after_state={"current_version_id": child_id},
-            note=note, source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=child_id,
-            responds_to_decision_required_id=responds_to_decision_required_id,
-        )
-        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
-
+    hook = _replan_action_hook(
+        site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
+        current_id=current_id, child_id=child_id, note=note,
+        responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=datetime.now(),
+    )
     lifecycle.create_schedule_version(
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
         created_at=datetime.now(), created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=list(demands), assignments=list(existing),
-        deviations=list(deviations), effective_from=effective_from, on_success=_hook,
+        deviations=list(deviations), effective_from=effective_from, on_success=hook,
     )
     result = plan(state)
     return _persist_decision_readback(
