@@ -587,6 +587,13 @@ TASK_SCOPE:
 - rota/application/manual_edit.py
 - rota/application/training.py
 - rota/application/lifecycle_ops.py
+- tests/test_audit_t009_r4.py
+- tests/test_audit_t009_r5.py
+- tests/test_t009_lifecycle_memory_backup_boundary.py
+- tests/test_t009_manual_edit.py
+- tests/test_t009_plan_select_replan.py
+- tests/test_t010_nn.py
+- tests/test_t012.py
 - tests/test_t019b.py
 
 No other file without STOP + architect amendment after preimplementation audit.
