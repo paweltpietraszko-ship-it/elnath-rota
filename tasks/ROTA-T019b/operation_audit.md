@@ -1,6 +1,6 @@
 # ROTA-T019b — predesign audit of coordinator-facing application mutations
 
-STATUS: FROZEN INPUT TO T019b ARCHITECT CONTRACT
+STATUS: FROZEN INPUT TO T019b ARCHITECT CONTRACT — AMENDED AFTER PREIMPLEMENTATION ROUND 1
 DATE: 2026-08-20
 BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
 OWNER_SOURCE: arch/T019b_decision_guidance_readback_architect_brief.md
@@ -40,6 +40,7 @@ Columns:
 | `manual_edit.apply_manual_correction` | YES | append-only child ScheduleVersion, parent link, actor/time/effective_from, derived Deviation | action kind/note/link and compact changed-fact readback absent | YES | existing `effective_from` |
 | `manual_edit.freeze_or_unfreeze` | YES; exactly one action, not an extra action plus generic manual-correction action | same child-version mechanism | named intent/note/link absent | YES | existing `effective_from` |
 | `manual_edit.mark_not_worked` | YES; exactly one action | same child-version mechanism, NN persisted on child | named intent/note/link absent | YES | existing `effective_from` |
+| `training.save_site_membership` | NO independent action; internal transaction hook/test seam used by `mark_training_realized`; it remains module-level so existing monkeypatch fault-injection seams keep working | writes the derived SiteMembership readiness state inside the caller-owned schedule transaction | no independent human intent; MUST NOT create a coordinator-action row or action kind | NO | n/a |
 | `training.mark_training_realized` | YES; exactly one action | manual-correction child + derived DEFAULT readiness update in same transaction | named intent/note/link absent; derived readiness must not become a second human action | YES | existing `effective_from` |
 | `lifecycle_ops.revalidate` | NO | deterministic in-place refresh of Deviations/applied rules | this is a system recomputation, not a coordinator decision | NO | n/a |
 | `lifecycle_ops.finalize` | YES, including the exact Deviation acknowledgements performed by this operation | FINAL status + Deviation `acknowledged_by/at/reason` survive; transition itself has no unified action entry | one action entry/link/filterable provenance absent | YES | ScheduleVersion `effective_from`; `recorded_at` separately says when finalization occurred |
@@ -47,6 +48,10 @@ Columns:
 | `backup.backup_database` | NO | writes external backup file only | not a scheduling decision | NO | n/a |
 | `backup.build_diagnostic_zip` | NO | writes diagnostic artifact only | not a scheduling decision | NO | n/a |
 | `store.open_store` | NO | may perform schema migration as system maintenance | not a coordinator decision | NO | n/a |
+
+### 2.1 Round-1 closure: internal training seam
+
+`training.save_site_membership` is contractually an internal/derived transaction seam, not a coordinator-facing command. T019b must preserve its module-level monkeypatch seam because existing atomicity tests patch it, but must not instrument it independently. A successful `mark_training_realized` invocation produces exactly one `TRAINING_REALIZED` action; the nested membership readiness write is represented only inside that action's before/after when it changes.
 
 ## 3. Read-only / pure application modules checked
 
@@ -114,6 +119,7 @@ The following wrappers MUST NOT double-log:
 - `freeze_or_unfreeze` -> one `ASSIGNMENT_FREEZE_CHANGED`, not also `MANUAL_SCHEDULE_CORRECTION`;
 - `mark_not_worked` -> one `ASSIGNMENT_NOT_WORKED`;
 - `mark_training_realized` -> one `TRAINING_REALIZED`; derived readiness is part of its after-state when it changes;
+- `training.save_site_membership` -> NO independent action; it is the nested write seam for the preceding `TRAINING_REALIZED` command;
 - manual correction that also writes REST_OVERRIDE_RECORD -> one `MANUAL_SCHEDULE_CORRECTION`; the rule audit record remains in Decision Ledger but is not a second human action;
 - finalize with N acknowledged Deviations -> one `SCHEDULE_FINALIZED`, not N action entries.
 
