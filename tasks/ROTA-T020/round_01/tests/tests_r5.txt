@@ -1,0 +1,276 @@
+PELNY AUDYT PREIMPLEMENTATION — ROTA-T020 CHECKPOINT B — ROUND 5
+
+DATA: 2026-08-20
+AUDYTOR: Codex
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+AUDYTOWANY_HEAD: d05410afad336b146b9ff808566fa60030367978
+BASE_MAIN: d9c87185e3051aa65df3234c8db2d703fe32c5d8
+ZAKRES: brief.md + CHECKPOINT_B_CONTRACT.md przeciwko owner briefowi,
+        CHECKPOINT_A_ACCEPTANCE.md, CHECKPOINT_B_OWNER_DECISIONS_05.md
+        i kodowi obecnego main; bez zmian kodu produktu
+
+WYNIK KONCOWY
+
+FAIL — CONTRACT/IMPACT FINDINGS
+
+Korekta właściciela z OWNER_DECISIONS_05 jest prawidłowo przeniesiona do
+kontraktu: solver nadal tworzy wyłącznie realną obsadę, a U/C jest syntetyczną
+prezentacją w pustych komórkach wydruku. Dawny finding Round 4 nie jest
+blockerem i nie został ponownie otwarty.
+
+Checkpoint B nie jest jednak jeszcze jednoznacznie implementowalny. Znaleziono
+trzy luki kontraktu oraz jedną lukę obowiązkowej macierzy dowodowej. Wszystkie
+findings tej pełnej rundy są zapisane poniżej; kolejna runda powinna być wąskim
+reaudytem wyłącznie R5-1..R5-4.
+
+SECTION_CHECK 1 — EXACT SHA, BASE I CHARAKTER BRANCHA — PASS
+
+HEAD worktree i origin:
+d05410afad336b146b9ff808566fa60030367978.
+
+Merge-base z main jest dokładnie:
+d9c87185e3051aa65df3234c8db2d703fe32c5d8.
+
+Branch względem main zawiera dokumenty kontraktowe/audytowe i zaakceptowane
+artefakty Checkpoint A. Nie zawiera produkcyjnej implementacji Checkpoint B.
+Przed zapisaniem raportu worktree był czysty. `git diff --check` dla
+main..HEAD: PASS.
+
+Docelowy plik `tests_r5.txt` nie istniał i żaden wcześniejszy raport nie został
+nadpisany.
+
+SECTION_CHECK 2 — OWNER BOUNDARY I WYCOFANIE BLEDNEGO PLANNING GAP — PASS
+
+brief.md:34 oraz CHECKPOINT_B_CONTRACT.md:17-34 prawidłowo unieważniają
+OWNER_DECISIONS_03/_04 i ARCHITECT_PLANNING_GAP_01 jako blocker.
+
+CHECKPOINT_B_CONTRACT.md:227-241 czyta tylko efektywne, nie-CANCELLED PRIMARY
+Assignments jako realną pracę. Linie 328-346 definiują U/C jako syntetyczną
+parę PLAN/WYK, która nie tworzy Assignment, nie pokrywa ShiftDemand i nie jest
+zapisywana w ScheduleVersion. Jest to dokładnie granica
+CHECKPOINT_B_OWNER_DECISIONS_05.md:16-28, 44-62 i 122-128.
+
+Nie ma ukrytej zmiany solvera, WorkBalance, T018 ani znaczenia Assignment.
+
+SECTION_CHECK 3 — CHECKPOINT A I ARTEFAKTY PDF — PASS
+
+Na audytowanym HEAD oba PDF-y są byte-for-byte tymi samymi blobami, które
+zamrożono w CHECKPOINT_A_ACCEPTANCE.md:
+
+- schedule_12h.pdf: 91d617c32b96296814debc7696f5a621cde40973;
+- schedule_24h.pdf: 2a0f6a706142eaa77f8992c98dd1cc98d2ebf1ba.
+
+Kontrakt B zachowuje A3 landscape, PLAN/WYK, 24h na dacie rozpoczęcia,
+asymetryczną legendę, grayscale cues, header/provenance i minimalną wysokość
+wiersza (CHECKPOINT_B_CONTRACT.md:38-61, 456-478). Nie wykonywano nowej decyzji
+wizualnej; zgodność Checkpoint A wynika z identyczności zaakceptowanych bajtów
+i z normatywnego odwołania kontraktu.
+
+SECTION_CHECK 4 — TASK_SCOPE, MIGRACJA I DOSTEPNOSC DANYCH — PASS
+
+Canonical TASK_SCOPE w brief.md:117-125 odpowiada zakresowi kontraktu:
+
+- pyproject.toml;
+- rota/application/schedule_export.py;
+- rota/persistence/db.py;
+- rota/persistence/site_repository.py;
+- rota/persistence/employee_repository.py;
+- tests/test_t020.py.
+
+Obecny main ma LATEST_SCHEMA_VERSION=6 i transakcyjny, uporządkowany mechanizm
+migracji (rota/persistence/db.py:23, 464-492), więc dodanie migracji 7 jest
+zgodne z istniejącym mechanizmem. Istniejące repository APIs dostarczają
+current version/header/snapshot (schedule_repository.py:60-110, 142-155),
+CalendarDay (calendar_repository.py:36), batch Availability
+(availability_repository.py:144) oraz pracowników/membership Site
+(employee_repository.py:69-79, 128). Autoryzowany batch helper membership
+zamyka odczyt potrzebny do sprawdzenia wielo-Site bez N+1.
+
+Nie znaleziono konieczności zmiany rota/planning/**, rota/balance.py,
+rota/domain.py ani schedule_lifecycle.py. Publiczne T018
+excused_absence_days_in_month (rota/planning/absence.py:85-109) dostarcza
+kanoniczną liczbę kwalifikowanych dni; Availability i CalendarDay dostarczają
+daty potrzebne wyłącznie do rozmieszczenia prezentacji.
+
+SECTION_CHECK 5 — SETTINGS I JEDNOZNACZNE MAPOWANIE REALNEJ PRACY — FAIL
+
+CHECKPOINT_B_CONTRACT.md:128-145 zamraża wartości kodów i definiuje JSON
+interwałów, a linie 245-252 wymagają zgodności rodziny, interwału i czasu
+trwania. Nie zamykają jednak przypadku zero/jeden/wiele dopasowań.
+
+To nie jest przypadek hipotetyczny spoza legendy. Zamrożone wartości zawierają
+D3=24 i D5=24 oraz N3=N4=N5=24 (linie 130-133). Kontrakt nie zabrania, aby dwa
+kody tej samej rodziny miały identyczne start/end/end_next_day. Wtedy jeden
+realny WorkPeriod spełnia wszystkie cztery warunki mapowania dla kilku kodów.
+Priorytet z linii 354-362 dotyczy wyłącznie syntetycznej dekompozycji absencji,
+nie mapowania realnej pracy.
+
+Brakuje również zamknięcia kształtu work_code_intervals_json: dozwolonych i
+wymaganych kluczy D/N, walidacji formatu/czasu oraz zasady unikalności
+sygnatury wewnątrz rodziny. Dwie zgodne z literalnym kontraktem implementacje
+mogą więc wydrukować inny symbol i policzyć inny revision dla tego samego
+stanu.
+
+FINDING T020-B-R5-1 — CONTRACT AMBIGUITY — BLOCKING
+
+Kontrakt musi jednoznacznie sklasyfikować zero i wiele dopasowań realnego
+interwału oraz domknąć walidację work_code_intervals_json. Nie jest to prośba
+o konkretny model ustawień; bez tej decyzji wynik wydruku nie jest
+deterministyczny.
+
+SECTION_CHECK 6 — LINEAGE / EFFECTIVE_FROM — FAIL
+
+Algorytm wyboru snapshotu dla daty jest zasadniczo poprawny i uwzględnia
+restored current lineage (CHECKPOINT_B_CONTRACT.md:203-223). Brakuje jednak
+kotwicy daty dla zwykłego Assignment przekraczającego północ.
+
+Assignment ma pełny start_datetime/end_datetime (rota/domain.py:346-355), a
+typowa nocka zaczyna się dnia D i kończy dnia D+1. Kontrakt mówi „dla każdej
+daty wybierz wersję” (linia 217), lecz nie mówi, czy taki work item należy do
+daty rozpoczęcia, zakończenia czy każdej daty przecięcia. Kotwica start-date
+jest zapisana wyłącznie dla złożonego okresu 24h (linia 265), nie dla zwykłej
+nocki.
+
+Na granicy effective_from różnica jest materialna: nocka 10->11 i child
+obowiązujący od 11 może zostać pobrana z parenta, childa, obu albo żadnego,
+zależnie od przyjętej interpretacji. Owner brief:69-76 określa dni przed/od
+effective_from, ale nie rozstrzyga zmiany przecinającej północ. T20-06 nie
+zawiera overnight boundary.
+
+FINDING T020-B-R5-2 — CONTRACT AMBIGUITY — BLOCKING
+
+Kontrakt musi jawnie wskazać datę kotwiczącą zwykły spanning Assignment dla
+wyboru efektywnego snapshotu i komórki oraz objąć tę granicę testem.
+
+SECTION_CHECK 7 — U/C PRESENTATION I SITE BOUNDARY — PASS
+
+Kontrakt zachowuje właściwe źródła i odpowiedzialności:
+
+- tylko aktywne LEAVE_GRANTED/SICK_LEAVE (linie 301-320);
+- osobna suma każdego rodzaju i konflikt overlap (linie 316-326);
+- 8h za kwalifikowany dzień roboczy z T018;
+- brak WorkBalance jako źródła Site print (linie 322, 394-418);
+- tylko enabled LOCAL i fail-closed przy wielu LOCAL Sites (linie 283-299);
+- żadnego U/C dla pustego EXTERNAL_SUPPORT;
+- dokładna, minimalna, deterministyczna dekompozycja (linie 348-392);
+- reżim 12h ma pierwszeństwo przed can_work_24h.
+
+Wiążący przypadek 40h D1/D1/N2 -> U1/U1/U2 jest przeniesiony bez zmiany.
+Nie znaleziono impact gap wymagającego zmiany solvera lub modelu Assignment.
+
+SECTION_CHECK 8 — 24H PROVENANCE — FAIL
+
+CHECKPOINT_B_CONTRACT.md:254-269 wymaga „real T012 provenance” i „coherent
+components”, ale nie definiuje mechanicznie kompletności dla dwóch istniejących
+kształtów T012:
+
+- normalnej pary catalog_kind=24h z component 1/2;
+- emergency pair dwóch plain-12h demandów z emergency rest snapshotem.
+
+Obecny kod pokazuje, że są to różne klasy. ShiftDemand ma osobne
+work_period_template_id/work_period_component/emergency_24h_rest_hours
+(rota/domain.py:321-342), a check_emergency_pair_structure ma dodatkowe
+warunki: dokładnie dwa komponenty, dwa demandy plain-12h, przeciwne D/N,
+ciągłość i zgodność terminal rest z snapshotem
+(rota/planning/work_periods.py:253-286).
+
+Samo „shared identity + same Employee + coherent + contiguous + 24h” nie
+przesądza m.in. wymaganych component numbers/catalog kinds, kompletności
+normalnej pary ani kryteriów emergency pair. Implementacja eksportu nie może
+uznać dowolnego dwuelementowego 24h łańcucha za prawdziwy okres T012.
+
+T20-12 dowodzi tylko jednego valid WorkPeriod i tego, że dwa całkiem
+niepowiązane 12h nie są scalane. Nie pokrywa siblingów: brak komponentu,
+powtórzony/zły component number, różny Employee, gap/overlap, >2 komponenty,
+sprzeczny demand/work_period identity ani malformed emergency provenance.
+
+FINDING T020-B-R5-3 — CONTRACT/TEST GAP — BLOCKING
+
+Kontrakt musi zamknąć pojęcie „complete/coherent T012 WorkPeriod” dla normal i
+emergency 24h i wymagać parametrycznej negatywnej macierzy tej klasy. Nie jest
+to rozszerzenie T012; to konieczne rozpoznanie już istniejącego provenance.
+
+SECTION_CHECK 9 — REVISION — PASS
+
+CHECKPOINT_B_CONTRACT.md:420-454 prawidłowo oddziela current ScheduleVersion,
+lineage provenance, pełny content hash i generated_at. Hash finalnego
+kanonicznego read modelu rozwiązuje przypadek WORKING replacement bez zmiany
+version_id. Ustawienia, roster, komórki i summary należą do revision, a ścieżka
+pliku/PDF metadata nie.
+
+Nie znaleziono wymogu nowej tabeli historii ani drugiego systemu rewizji.
+
+SECTION_CHECK 10 — PDF — PASS Z LUKA DOWODOWA W R5-4
+
+Section 18 zachowuje zaakceptowaną kompozycję, minimalną czytelność, A3
+landscape, grayscale cues i statyczny PDF. Linia 476 obejmuje roster/content,
+więc także niemożliwy do zmieszczenia nagłówek może zakończyć się stabilnym
+`ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT`; nie jest potrzebna nowa decyzja
+produktu. Brakuje natomiast testu tej granicy i statyczności PDF, co należy do
+R5-4 poniżej.
+
+SECTION_CHECK 11 — WYMAGANA MACIERZ TESTOW — FAIL
+
+Macierz T20-01..T20-28 ma dobre happy paths i główne decyzje ownera, ale nie
+dowodzi kilku jawnie normatywnych klas błędu:
+
+1. PROVENANCE_INCOMPLETE z sekcji 9: missing parent, cycle, Site/month
+   mismatch i wymagane effective_from=None;
+2. WORK_PROVENANCE_INCOMPLETE/MULTIPLE_WORK_ITEMS_PER_CELL z sekcji 10;
+3. malformed normal/emergency 24h z R5-3;
+4. niejednoznaczne/niepoprawne work-code settings z R5-1;
+5. overnight effective_from boundary z R5-2;
+6. graniczne pola nagłówka objęte `content` overflow w sekcji 18;
+7. statyczność PDF z owner brief minimal matrix item 16 (brak AcroForm/
+   wspieranego mechanizmu edycji), a nie tylko `%PDF` i page size.
+
+T20-27 „full suite remains PASS” nie zastępuje nowych negatywnych oracles.
+Istniejąca suite nie zawiera schedule_export, ponieważ plik jeszcze nie
+istnieje.
+
+FINDING T020-B-R5-4 — TEST MATRIX INCOMPLETE — BLOCKING
+
+Minimalna macierz musi objąć powyższe normatywne klasy, najlepiej
+parametrycznie. Wymaganie nie dodaje nowej semantyki; egzekwuje zachowania już
+zadeklarowane przez kontrakt i findings R5-1..R5-3.
+
+SECTION_CHECK 12 — MECHANICZNA REGRESJA MAIN — PASS
+
+Uruchomiono na exact HEAD:
+
+`python -m pytest -q`
+
+Wynik: 845 passed in 84.20s.
+
+ReportLab nie jest jeszcze dependency obecnego main, zgodnie z tym, że
+Checkpoint B nie został zaimplementowany; kontrakt jawnie dodaje
+reportlab==5.0.1 w pyproject.toml. Nie jest to finding.
+
+FINDINGS — PODSUMOWANIE
+
+T020-B-R5-1 — niejednoznaczne real-work code mapping i niezamknięty schema
+work_code_intervals_json.
+
+T020-B-R5-2 — brak daty kotwiczącej zwykły overnight Assignment na granicy
+effective_from.
+
+T020-B-R5-3 — niezamknięta mechaniczna definicja complete/coherent normal i
+emergency T012 24h provenance.
+
+T020-B-R5-4 — obowiązkowa macierz nie pokrywa normatywnych klas fail-closed.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. Raport nie wybiera struktury tabel, DTO ani algorytmu renderera; wskazuje
+wyłącznie miejsca, w których dwie różne implementacje mogą dziś spełnić
+literalny tekst i dać różny wynik albo gdzie wymagane fail-closed nie ma
+committed oracle.
+
+WERDYKT
+
+FAIL — CONTRACT/IMPACT FINDINGS
+
+PRODUCTION CC MUST NOT START CHECKPOINT B na d05410a. Po jednym amendmencie
+zamykającym R5-1..R5-4 właściwy jest wąski reaudyt tych czterech findingów, bez
+ponownego otwierania zaakceptowanego Checkpoint A, owner correction 05 ani
+solver/T018/WorkBalance semantics.
