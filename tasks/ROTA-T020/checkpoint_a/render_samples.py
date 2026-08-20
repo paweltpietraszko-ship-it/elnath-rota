@@ -94,6 +94,27 @@ def month_dates(year: int, month: int) -> list[dt.date]:
     return [dt.date(year, month, d) for d in range(1, n + 1)]
 
 
+def leave_span(days: list[dt.date], *, search_from: int, business_days_needed: int) -> tuple[list[int], list[int]]:
+    """A leave period is a continuous CALENDAR span (weekends included, per
+    owner correction 2026-08-20: "urlop 40h to 5 dni roboczych ... od
+    srody do wtorku wyszarzasz pola jako urlopowe"), not a set of isolated
+    business-day cells. Returns (full_span_indices, symbol_bearing_indices)
+    -- every index in the span must be shaded as "on leave"; only the
+    business days actually needed to reach the owed hour total (the first
+    three here) carry a printed hour symbol, the rest of the span (the
+    weekend plus any leftover business days) is shaded but blank.
+    """
+    start = next(i for i in range(search_from, len(days)) if days[i].weekday() == 2)  # Wednesday
+    business: list[int] = []
+    i = start
+    while len(business) < business_days_needed and i < len(days):
+        if days[i].weekday() < 5:
+            business.append(i)
+        i += 1
+    span = list(range(start, business[-1] + 1))
+    return span, business[:3]
+
+
 def build_roster_12h(days: list[dt.date]) -> list[Employee]:
     """10 fictional employees, paired so each pair mirrors the other --
     a direct, easy-to-see demonstration of double-primary staffing
@@ -107,13 +128,27 @@ def build_roster_12h(days: list[dt.date]) -> list[Employee]:
         wyk = list(plan)
         roster.append(Employee(f"Pracownik {i + 1:02d}", plan, wyk))
 
-    # Section 10 -- literal, binding 40h leave example (D1/D1/N2 -> U1/U1/U2)
-    # on the first three qualifying days for one employee.
+    # Section 10 -- literal, binding 40h leave example (D1/D1/N2 -> U1/U1/U2).
+    # 40h at 8h/qualifying-workday (T018) is 5 BUSINESS days, but the
+    # employee is unavailable for the whole continuous calendar span
+    # including any weekend inside it (owner correction 2026-08-20). The
+    # printed hour symbols only need to occupy as many cells as are
+    # required to reach the total (3 here); every other day in the span
+    # -- weekend or business day -- is shaded as "on leave" but blank.
     leave_emp = roster[4]
-    leave_emp.plan[6:9] = ["D1", "D1", "N2"]
-    leave_emp.wyk[6:9] = ["U1", "U1", "U2"]
-    assert sum(BASE_LEGEND[c] for c in leave_emp.plan[6:9]) == 40
-    assert sum(BASE_LEGEND[c] for c in leave_emp.wyk[6:9]) == 40
+    span, symbol_days = leave_span(days, search_from=3, business_days_needed=5)
+    codes_plan = ["D1", "D1", "N2"]
+    codes_wyk = ["U1", "U1", "U2"]
+    assert sum(BASE_LEGEND[c] for c in codes_plan) == 40
+    assert sum(BASE_LEGEND[c] for c in codes_wyk) == 40
+    for i in span:
+        if i in symbol_days:
+            k = symbol_days.index(i)
+            leave_emp.plan[i] = codes_plan[k]
+            leave_emp.wyk[i] = codes_wyk[k]
+        else:
+            leave_emp.plan[i] = "U~"
+            leave_emp.wyk[i] = "U~"
 
     # One-day sick (chorobowe) example.
     sick_emp = roster[6]
@@ -278,7 +313,7 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
                     c.setDash()
                 c.setFillColor(TEXT[fam])
                 c.setFont(FONT_BOLD if fam != "off" else FONT, 6)
-                label = "" if code == "–" else code
+                label = "" if code == "–" or code.endswith("~") else code
                 c.drawCentredString(x + day_w / 2, y - row_h + 3.5, label)
                 c.setFillColor(black)
                 x += day_w
@@ -333,6 +368,12 @@ def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots
         MARGIN, y,
         "Rezerwa = zdefiniowany slot bez przypisanej wartości, nie usunięty kod. "
         "Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h).",
+    )
+    y -= 11
+    c.drawString(
+        MARGIN, y,
+        "Wyszarzone pole urlopu bez symbolu = dzień w ciągłym okresie nieobecności "
+        "(np. weekend w środku urlopu), który nie wymaga osobnej wartości godzinowej.",
     )
     y -= 11
     c.drawString(
