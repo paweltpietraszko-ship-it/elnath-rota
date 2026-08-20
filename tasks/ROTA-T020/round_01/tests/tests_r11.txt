@@ -1,0 +1,99 @@
+FINAL NARROW IMPLEMENTATION RE-AUDIT - ROTA-T020 - ROUND 11
+
+DATE: 2026-08-20
+AUDITOR: Codex
+AUDITED_PRODUCT_SHA: 6872f6e1a9ebb0fbc52052b3766455bbb8284ee7
+BASE_AUDIT_COMMIT: c30fb41c1c989e8a17617d1df174e4412db5f99b
+SCOPE: only R10-1/R10-2/R10-3/R10-5/R10-6; R10-4 owner-accepted
+EVIDENCE: tasks/ROTA-T020/round_01/tests/test_t020_round11_audit.py
+
+RESULT
+
+FAIL - ONE MATERIAL NORMAL-H24 CONDITION REMAINS
+
+R10-2, R10-3, R10-5 and R10-6 are closed.  R10-4 is closed by the owner's
+explicit decision accepting system-font lookup plus ReportLab fallback.  It is
+not reopened here.  R10-1 is only partially closed: normal H24 now validates
+component numbers, but still accepts components whose individual durations are
+not 12h.
+
+SECTION_CHECK 1 - EXACT SHA AND SCOPE - PASS
+
+The audited commit is exactly 6872f6e1a9ebb0fbc52052b3766455bbb8284ee7.
+Its diff from c30fb41 changes only schedule_export.py and tests/test_t020.py,
+both in TASK_SCOPE.  No planning/T012 production code changed.  git diff
+--check: PASS.  tests_r11.txt did not exist before this audit.
+
+SECTION_CHECK 2 - REGRESSION / MECHANICAL - PASS
+
+- full suite: 888/888 PASS;
+- Ruff: PASS;
+- guard.py check arch/spec.md: PASS;
+- amended T20-39..T20-47 linkage matrix: 9/9 PASS;
+- Round 10 audit matrix excluding the owner-accepted font oracle: 4/4 PASS.
+
+SECTION_CHECK 3 - R10-2 / CROSS-VERSION IDENTITY - PASS
+
+Internal Assignment keys now include schedule_version_id and assignment_id.
+The existing Round 10 reproducer with a repeated local assignment_id in two
+ScheduleVersions passes and the outgoing pair prints 24.
+
+SECTION_CHECK 4 - R10-3 / ADJACENT PROVENANCE - PASS
+
+Displayed provenance now hashes adjacent facts actually used for linkage,
+including selected adjacent version/effective_from and Assignment linkage
+identity.  The before/after adjacent-link reproducer passes and document
+revision also changes.
+
+SECTION_CHECK 5 - R10-5 / HEADER CONTENT BOUNDARY - PASS
+
+Header content is measured before rendering.  The Round 10 long-company,
+long-Site and long-period reproducer now returns
+ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT instead of a clipped READY PDF.
+
+SECTION_CHECK 6 - R10-6 / LINKAGE MATRIX - PASS
+
+tests/test_t020.py now covers all nine named amendment classes: outgoing,
+incoming, no match, different period id, different Employee, unrelated work,
+multiple candidates, adjacent-lineage corruption, and month/year boundaries.
+
+SECTION_CHECK 7 - R10-4 / FONT PATH - OWNER ACCEPTED
+
+The owner explicitly accepts the current system-path lookup plus ReportLab
+fallback because the PDF renders Polish characters correctly.  R10-4 is
+CLOSED by owner decision and is not a blocker.
+
+SECTION_CHECK 8 - R10-1 / NORMAL H24 EXACT COMPONENT DURATIONS - FAIL
+
+R5 Amendment Section 4.2 requires normal catalog-H24 component 1 and component
+2 to be exactly 12h each.  The narrowing amendment explicitly did not reopen
+or remove this normal-H24 rule.
+
+_is_legitimate_normal_24h now checks the {1,2} component-number set, but checks
+only the outer period span for 24h.  It does not check each demand duration.
+Consequently both malformed shapes are accepted as legitimate normal H24:
+
+- component 1 = 6h, component 2 = 18h;
+- component 1 = 18h, component 2 = 6h.
+
+Independent parameterized reproducer:
+
+test_round11_normal_h24_requires_two_exact_12h_components - 2/2 FAIL;
+actual result in both cases: _is_legitimate_normal_24h(...) == True.
+
+T020-R11-1 - NORMAL H24 MUST REQUIRE EXACTLY 12H PER COMPONENT
+
+This is the only implementation finding in Round 11.  It requires no owner or
+architecture decision and does not reopen emergency linkage, fonts, layout,
+absence semantics or any other accepted section.
+
+ARCHITECTURE_PROPOSALS
+
+None.
+
+VERDICT
+
+FAIL - ONE MATERIAL NORMAL-H24 CONDITION REMAINS
+
+After R11-1 is corrected, the next re-audit should check only the two duration
+siblings and the full regression suite.
