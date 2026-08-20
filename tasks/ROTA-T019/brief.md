@@ -1,6 +1,6 @@
 # ROTA-T019 — coordinator analytics read model
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — NOT READY FOR CC
+STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — ROUND 2 — NOT READY FOR CC
 DATE: 2026-08-20
 TASK_ID: ROTA-T019
 BASE_SHA: 9618477f6014fad63699a154b04730e2b8ff1db2
@@ -10,11 +10,15 @@ OWNER_SOURCE: arch/T019_coordinator_analytics_architect_brief.md
 DEPENDS_ON: T011-D + T014 + T016 + T017 + T018 merged on main
 FOLLOWED_BY: T020 print/export; T021 UI
 
+PREIMPLEMENTATION_ROUND_1: FAIL — T019-R1-1 EXTERNAL_SUPPORT / WINDOW-03; all other Round 1 sections CLOSED/PASS
+
 ## 1. CEL
 
 Dostarczyć jeden read-only application-level odczyt dla przyszłego ekranu „Analityka”.
 
-Dla wybranego `site_id` i miesiąca odczyt pokazuje wyłącznie członków aktualnej obsady tego Site, ale ich godziny i saldo są globalne — z CURRENT ScheduleVersion wszystkich Site — zgodnie z istniejącą semantyką WorkBalance/EMP-03.
+Dla wybranego `site_id` i miesiąca odczyt pokazuje wyłącznie **enabled LOCAL members** żądanego Site. Dla tych modelowanych pracowników LOCAL godziny i saldo są globalne — z CURRENT ScheduleVersion wszystkich modelowanych Site — zgodnie z istniejącą semantyką WorkBalance/EMP-03.
+
+`EXTERNAL_SUPPORT` / X-Y nie tworzy wiersza WorkBalance analytics T019, zgodnie z frozen `WINDOW-03: Pilot does NOT model X/Y home-site HR, balances, or schedule.`
 
 T019 nie tworzy nowego subsystemu analitycznego. Nie dodaje nowych wskaźników, payrollu, formalnej kwalifikacji nadgodzin, UI, wykresów ani eksportu.
 
@@ -24,7 +28,7 @@ Na exact BASE_SHA `9618477f6014fad63699a154b04730e2b8ff1db2`:
 
 - `WorkBalance` jest pochodnym read modelem: `target_hours`, `planned_hours`, `realized_hours`, `month_balance`, `unresolved_carryover`, `quarter_balance`;
 - tylko `target_hours` jest persistowanym wejściem koordynatora;
-- WorkBalance liczy wyłącznie Assignment z CURRENT ScheduleVersion każdego relewantnego Site;
+- WorkBalance liczy wyłącznie Assignment z CURRENT ScheduleVersion każdego relewantnego modelowanego Site;
 - Employee nie należy strukturalnie do jednego Site;
 - `planned_hours` i `realized_hours` są rozłączne i pozostają osobnymi wartościami;
 - CANCELLED/NN nie są pracą;
@@ -32,7 +36,8 @@ Na exact BASE_SHA `9618477f6014fad63699a154b04730e2b8ff1db2`:
 - T018 `SICK_LEAVE` + `LEAVE_GRANTED` zmniejszają normę WorkBalance tylko za kwalifikujące się dni robocze przy użyciu istniejącego `CalendarDay`;
 - brak wymaganej normy nie oznacza zera;
 - `balance_read.quarter_balance()` jest fail-closed dla brakującego `target_hours` w którymkolwiek miesiącu kwartału;
-- T016 wycofał EMP-02: `Employee.active_from/active_to` są legacy metadata i nie decydują o aktualnej obsadzie; dla planowania źródłem roster authorization jest `SiteMembership.enabled`.
+- T016 wycofał EMP-02: `Employee.active_from/active_to` są legacy metadata i nie decydują o rosterze;
+- WINDOW-03 wyłącza X/Y / EXTERNAL_SUPPORT z modelowania home-site HR, balances i schedule.
 
 T019 musi zachować wszystkie te znaczenia bez redefinicji.
 
@@ -47,12 +52,12 @@ Nie rozszerzać `balance_read.py` do ogólnego agregatora. `balance_read.py` poz
 Nowy moduł:
 
 - jest jedynym publicznym entry point T019;
-- składa dane roster + target + CURRENT assignments + current availability + CalendarDay;
+- składa LOCAL roster + target + CURRENT assignments + current availability + CalendarDay;
 - nie wykonuje SQL bezpośrednio;
 - nie importuje solvera ani PlanningEngine;
 - deleguje rachunek wyłącznie do istniejących pure funkcji `rota.balance`;
 - nie zapisuje niczego;
-- zwraca jeden deterministyczny read model całej obsady.
+- zwraca jeden deterministyczny read model całego eligible LOCAL rosteru.
 
 Publiczny entry point:
 
@@ -80,7 +85,7 @@ Jedyna dozwolona wartość T019:
 
 - `ALL_SITES`
 
-Pole jest obowiązkowe na top-level view i jest jawnym kontraktem dla T021: liczby godzin nie są site-local.
+Pole jest obowiązkowe na top-level view i jest jawnym kontraktem dla T021: dla wierszy LOCAL liczby godzin nie są site-local.
 
 Nie dodawać trybu `CURRENT_SITE`, filtra Site ani alternatywnej kalkulacji lokalnej.
 
@@ -127,28 +132,37 @@ Frozen fields:
 
 Nie dodawać top-level KPI, sum obiektu, średnich, trendów ani osobnej sekcji „nadgodziny”.
 
-## 5. ROSTER FILTER — T016 MUST NOT REGRESS
+## 5. ROSTER FILTER — T016 + WINDOW-03 MUST NOT REGRESS
 
-„Aktywny członek obsady Site” w T019 oznacza:
+Wiersz WorkBalance analytics T019 powstaje wyłącznie, gdy dla żądanego Site istnieje:
 
-`SiteMembership.site_id == requested site_id AND SiteMembership.enabled == True`.
+`SiteMembership.site_id == requested site_id`
 
-Wchodzą oba istniejące membership kinds, jeżeli membership jest enabled:
+AND
 
-- LOCAL;
-- EXTERNAL_SUPPORT.
+`SiteMembership.enabled == True`
+
+AND
+
+`SiteMembership.membership_kind == LOCAL`.
+
+Frozen consequences:
+
+- enabled LOCAL -> może dać jeden wiersz analytics;
+- disabled LOCAL -> brak wiersza;
+- EXTERNAL_SUPPORT -> brak wiersza niezależnie od `enabled`;
+- ExternalSupportWindow nie zmienia tej reguły; okno jest eligibility do pracy X/Y, nie źródłem WorkBalance analytics;
+- lokalne Assignment wykonane przez X/Y nie ustanawiają kompletnego `ALL_SITES` WorkBalance dla X/Y i nie tworzą wiersza;
+- Employee globalnie istniejący, ale bez enabled LOCAL membership na żądanym Site, nie daje wiersza nawet jeśli ma godziny gdzie indziej;
+- jeżeli ten sam Employee ma enabled LOCAL na żądanym Site i EXTERNAL_SUPPORT na innym Site, ma dokładnie jeden wiersz z powodu LOCAL membership na żądanym Site; EXTERNAL membership nie dodaje drugiego wiersza i nie jest osobnym uprawnieniem do analytics.
 
 T019 NIE używa `Employee.active_from/active_to` do filtrowania. T016 wycofał EMP-02 i analytics nie może go bocznymi drzwiami przywrócić.
 
-Disabled membership nie daje wiersza.
-
-Employee istniejący globalnie, ale bez enabled membership na otwartym Site, nie daje wiersza nawet wtedy, gdy ma godziny na innym Site.
-
 Kolejność `rows`: rosnąco po `employee_id`. Nie polegać na przypadkowej kolejności SQL.
 
-## 6. HOURS SCOPE — GLOBAL ACROSS SITES
+## 6. HOURS SCOPE — GLOBAL ACROSS MODELED SITES FOR LOCAL ROWS
 
-Dla roster employee IDs Assignment do WorkBalance pobierać jednym istniejącym batchem:
+Dla employee IDs wybranych przez sekcję 5 Assignment do WorkBalance pobierać jednym istniejącym batchem:
 
 `get_current_assignments_for_employees(conn, employee_ids, quarter_start_dt, quarter_end_dt)`
 
@@ -157,13 +171,13 @@ bez `exclude_site_id` i bez site-local filtra.
 To zachowuje:
 
 - CURRENT-version-only;
-- cross-Site sumę;
+- cross-Site sumę dla modelowanego Employee LOCAL;
 - CANCELLED exclusion istniejącego repo;
 - brak historycznego double count.
 
 T019 nie może rekonstruować site_id z Assignment i odejmować pracy innych Site.
 
-`hours_scope == ALL_SITES` jest zawsze prawdą dla całego wyniku.
+`hours_scope == ALL_SITES` oznacza wszystkie Site modelowane przez Rotę dla pracownika, który wszedł do T019 przez enabled LOCAL membership. Nie wolno używać tego pola do twierdzenia o kompletności home-site danych X/Y; X/Y nie ma wiersza T019.
 
 ## 7. EFFECTIVE TARGET — ZERO DUPLICATION OF T018
 
@@ -187,7 +201,7 @@ Warunki:
 
 ## 8. BATCH READS — NO N+1
 
-T019 nie może implementować całej obsady przez pętlę `open_month(employee)` / `quarter_balance(employee)` / `reconstruct_month_balance(employee)`.
+T019 nie może implementować całej LOCAL obsady przez pętlę `open_month(employee)` / `quarter_balance(employee)` / `reconstruct_month_balance(employee)`.
 
 Application-level odczyt używa stałej liczby batched persistence reads niezależnej od liczby pracowników.
 
@@ -208,7 +222,7 @@ W `rota/persistence/work_balance_repository.py` dodać jeden minimalny read, np.
 
 Wymagania:
 
-- jeden SELECT dla całej obsady/kwartału;
+- jeden SELECT dla całego LOCAL rosteru/kwartału;
 - tylko podane employee IDs;
 - miesiące w `[start, end)`;
 - brak wpisu pozostaje brakiem, nigdy zerem;
@@ -225,7 +239,7 @@ W `rota/persistence/availability_repository.py` dodać minimalny batched odpowie
 
 Wymagania:
 
-- jeden SELECT dla całej obsady/kwartału;
+- jeden SELECT dla całego LOCAL rosteru/kwartału;
 - dokładnie obecna semantyka current chain-end per `availability_id`;
 - active only;
 - inclusive date overlap jak `list_active_overlapping`;
@@ -237,7 +251,7 @@ Można bezpiecznie współdzielić prywatny row mapper/helper, ale nie przepisyw
 
 ### 8.4 N+1 oracle
 
-`tests/test_t019.py` ma użyć `sqlite3.Connection.set_trace_callback` albo równoważnego mechanicznego licznika SELECT i dowieść, że zwiększenie rosteru z 1 do wielu employees nie zwiększa liczby SELECT proporcjonalnie do liczby employees.
+`tests/test_t019.py` ma użyć `sqlite3.Connection.set_trace_callback` albo równoważnego mechanicznego licznika SELECT i dowieść, że zwiększenie LOCAL rosteru z 1 do wielu employees nie zwiększa liczby SELECT proporcjonalnie do liczby employees.
 
 Nie zamrażać kruchej dokładnej liczby wszystkich SELECT, jeżeli nie jest to potrzebne; zamrozić brak zależności liniowej od rozmiaru rosteru.
 
@@ -249,22 +263,22 @@ Minimalny przepływ:
 
 1. zwaliduj first-day `month`;
 2. wyznacz `quarter_first_month = rota.balance.quarter_start(month)` i 3 miesiące kwartału;
-3. pobierz memberships Site i wybierz tylko enabled;
+3. pobierz memberships Site i wybierz wyłącznie `enabled=True AND membership_kind=LOCAL`;
 4. pobierz employees jednym existing read, zbuduj mapę i rozwiąż roster names;
-5. dla roster IDs pobierz jednym batchem targets całego kwartału;
-6. jednym batchem pobierz CURRENT assignments całego kwartału ze wszystkich Site;
+5. dla LOCAL roster IDs pobierz jednym batchem targets całego kwartału;
+6. jednym batchem pobierz CURRENT assignments całego kwartału ze wszystkich modelowanych Site;
 7. jednym batchem pobierz current active overlapping availability całego kwartału;
 8. jednym read pobierz CalendarDay dla całego kwartału;
 9. pogrupuj w pamięci per employee;
 10. zbuduj wiersze deterministycznie.
 
-Brak roster members -> poprawny `CoordinatorAnalyticsView(..., rows=())`; nie jest błędem i nie wymaga fikcyjnego KPI.
+Brak enabled LOCAL roster members -> poprawny `CoordinatorAnalyticsView(..., rows=())`; nie jest błędem i nie wymaga fikcyjnego KPI.
 
 T019 nie otwiera transakcji write i nie materializuje cache.
 
 ## 10. MONTH VS QUARTER AVAILABILITY
 
-Każdy employee row jest oceniany niezależnie. Brak danych jednego pracownika nie blokuje poprawnych wierszy pozostałych.
+Każdy LOCAL employee row jest oceniany niezależnie. Brak danych jednego pracownika nie blokuje poprawnych wierszy pozostałych.
 
 ### 10.1 Requested month target missing -> UNAVAILABLE
 
@@ -357,6 +371,8 @@ Przy wielu brakujących targetach quarter warning wskazuje pierwszy brakujący m
 
 T019 nie emituje tekstu `nadgodziny`, `overtime`, `wynagrodzenie`, `payroll`, `ZUS` ani kwalifikacji prawnej salda.
 
+EXTERNAL_SUPPORT nie dostaje warningu „analytics unavailable”; nie ma wiersza T019, więc brak WorkBalance analytics X/Y jest filtrem scope, nie stanem `UNAVAILABLE`.
+
 ## 12. OPEN_MONTH / QUARTER_BALANCE — NO SEMANTIC CHANGE
 
 Nie zmieniać publicznego shape ani zachowania:
@@ -367,7 +383,7 @@ Nie zmieniać publicznego shape ani zachowania:
 
 T019 może współdzielić niższe canonical owners (`rota.balance`, persistence reads), ale nie przepakowuje istniejących API i nie wymusza ich migracji.
 
-Nowe batch repo functions są additive. Existing tests dla single-employee reconstruction mają pozostać zielone bez mechanicznych zmian, o ile preimplementation audit nie wykaże konkretnej konieczności.
+Nowe batch repo functions są additive. Existing tests dla single-employee reconstruction pozostają zielone bez mechanicznych zmian; Round 1 legacy enumeration wykazała ZERO plików wymagających adaptacji.
 
 ## 13. READ-ONLY / NO SECOND TRUTH
 
@@ -380,6 +396,7 @@ T019 MUST NOT:
 - zmieniać ScheduleVersion/current pointer/Assignment/Availability/CalendarDay;
 - uruchamiać PLAN/REPLAN;
 - tworzyć Deviation/DecisionRecord;
+- tworzyć WorkBalance analytics dla EXTERNAL_SUPPORT/X-Y;
 - zapisywać niewybrane dane dla T020/T021.
 
 Dedicated test porównuje business-table snapshot przed i po wywołaniu analytics i wymaga bit-for-bit identycznych danych.
@@ -395,6 +412,8 @@ TASK_SCOPE:
 - tests/test_t019.py
 
 Żaden inny plik bez STOP + architect amendment.
+
+Round 1 audit artifact `tasks/ROTA-T019/round_01/tests/tests_r1.txt` jest evidence sprzed implementation stage; nie otwiera implementation TASK_SCOPE i nie jest plikiem do edycji przez CC.
 
 ## 15. EXPLICITLY OUT OF SCOPE
 
@@ -422,19 +441,16 @@ Jeżeli implementacja wymaga zmiany któregokolwiek z tych plików, STOP przed e
 
 Dozwolone nowe pliki po contract stage:
 
-- `tasks/ROTA-T019/brief.md`;
 - `rota/application/analytics_read.py`;
 - `tests/test_t019.py`.
 
-Owner brief już istnieje na branchu i nie jest implementacyjnym new file.
-
-Nie tworzyć `analytics_repository.py`, query bus, dashboard framework, report engine ani generic DTO package.
+Owner brief i task brief już istnieją na branchu. Nie tworzyć `analytics_repository.py`, query bus, dashboard framework, report engine ani generic DTO package.
 
 ## 17. MINIMUM TEST MATRIX — tests/test_t019.py
 
 Dedykowana macierz musi zawierać co najmniej:
 
-1. complete one-employee month: id/name + wszystkie existing WorkBalance month fields + effective target;
+1. complete one-employee enabled LOCAL month: id/name + wszystkie existing WorkBalance month fields + effective target;
 2. complete quarter: dokładnie 3 chronologiczne month rows i poprawne running `quarter_balance`/`unresolved_carryover`;
 3. planned i realized są osobne i sumują się tylko w istniejącym month_balance — bez double count;
 4. CANCELLED z operational_code NN nie zwiększa planned/realized;
@@ -448,73 +464,86 @@ Dedykowana macierz musi zawierać co najmniej:
 12. SICK_LEAVE obejmujące weekend/holiday -> effective target obniżony wyłącznie o canonical qualified workdays;
 13. LEAVE_GRANTED obejmujące weekend/holiday -> ta sama WorkBalance/T018 workday accounting semantics;
 14. `effective_target_hours == planned + realized - month_balance` dla każdego dostępnego month row; test nie rekonstruuje własnej alternate absence rule;
-15. jeden employee ma CURRENT work na dwóch Site -> jedna globalna suma, bez duplikacji, `hours_scope=ALL_SITES`;
-16. employee pracujący globalnie, ale bez enabled membership otwartego Site -> brak wiersza;
-17. disabled membership otwartego Site -> brak wiersza;
-18. enabled EXTERNAL_SUPPORT membership -> wiersz jest obecny; analytics nie wymaga ExternalSupportWindow do samego roster read;
-19. T016 regression: active_from w przyszłości / active_to w przeszłości nie usuwa enabled roster member z analytics;
+15. jeden enabled LOCAL employee ma CURRENT work na dwóch modelowanych Site -> jedna globalna suma, bez duplikacji, `hours_scope=ALL_SITES`;
+16. employee pracujący globalnie, ale bez enabled LOCAL membership otwartego Site -> brak wiersza;
+17. disabled LOCAL membership otwartego Site -> brak wiersza;
+18. enabled EXTERNAL_SUPPORT membership -> **brak wiersza WorkBalance analytics**, zarówno bez ExternalSupportWindow, jak i z oknem; lokalne Assignment X/Y nie zmieniają tej reguły. Jeżeli ten sam Employee ma enabled LOCAL membership na żądanym Site, pojawia się dokładnie jeden LOCAL row — z powodu LOCAL membership, nie EXTERNAL;
+19. T016 regression: active_from w przyszłości / active_to w przeszłości nie usuwa enabled LOCAL roster member z analytics;
 20. employee rows deterministycznie po employee_id, quarter months chronologicznie;
-21. empty enabled roster -> poprawny view z `rows=()`;
+21. empty enabled LOCAL roster -> poprawny view z `rows=()`;
 22. read-only: business-table snapshots przed/po identyczne;
-23. N+1 oracle: SELECT count/query pattern nie rośnie liniowo wraz z liczbą roster employees;
+23. N+1 oracle: SELECT count/query pattern nie rośnie liniowo wraz z liczbą LOCAL roster employees;
 24. nie ma field/message nazywającego saldo „nadgodziny”/`overtime` ani żadnej kwoty wynagrodzenia/payroll;
 25. existing `open_month()` behavior regression PASS na tych samych danych;
 26. existing `quarter_balance()` behavior regression PASS, w tym empty+warning przy missing target;
 27. zero planned/realized przy istniejącym target jest legalnym zerem i nie jest mylone z missing data;
 28. brak qualifying SICK/LEAVE nie tworzy nowego blanket calendar requirement ponad istniejącą semantykę `rota.balance`.
 
-## 18. LEGACY TEST ENUMERATION — PREIMPLEMENTATION REQUIRED
+Pozostałych 27 oracles Round 1 nie otwiera się przez T019-R1-1.
 
-T019 dodaje API i batch reads, więc istniejące testy powinny co do zasady pozostać bez zmian. Nie zakładać tego bez audytu.
+## 18. LEGACY TEST ENUMERATION — ROUND 1 CLOSED
 
-Przed CC Codex ma mechanicznie przeskanować existing `tests/*.py` i wskazać każdy plik wymagający edycji wyłącznie dlatego, że:
+Round 1 wykonał obowiązkową mechaniczną enumerację existing `tests/*.py` dla:
 
-- additive batch helper zmienia prywatny/helper shape używany przez test monkeypatch/fake;
-- test zamraża dokładną liczbę SQL queries w repozytorium, które teraz może współdzielić helper;
-- test importuje `__all__`/public module list, jeśli taka istnieje;
-- test ma expectation sprzeczne z nowym, ale już owner-frozen analytics read contract.
+- availability single/batch helper compatibility;
+- target read compatibility;
+- `get_current_assignments_for_employees` monkeypatch/imports;
+- exact SQL query count expectations;
+- `__all__` / public module-list expectations.
 
-Required output:
+Wynik frozen dla contract stage:
 
-- exact file list;
-- exact tests/assertions;
-- classification: mechanical compatibility vs semantic conflict.
+`LEGACY_TEST_ADAPTATIONS: NONE`
 
-Jeżeli choć jeden legacy test file wymaga edit, architect dopisuje go literalnie do TASK_SCOPE przed CC.
+Żaden istniejący test file nie jest dopisywany do TASK_SCOPE. Jeśli implementer zdecyduje się zmienić istniejącą publiczną sygnaturę/semantykę zamiast dodać additive batch helper, jest to scope drift i musi STOP — nie jest to powód do mechanicznej adaptacji legacy testu.
 
-Nie autoryzować broad rewrites `test_balance.py`, T011-D, T016 ani T018 tylko dlatego, że są regression gates.
+## 19. ROUND 1 AMENDMENT — T019-R1-1
 
-## 19. CODEX PREIMPLEMENTATION AUDIT
+Audyt exact contract SHA `c0f5d2759a9ca232a6263a0c1ffa7ee478481db2` wykazał dokładnie jeden blocker:
 
-Codex audytuje exact contract SHA i odpowiada:
+`T019-R1-1 — EXTERNAL_SUPPORT NIE MOŻE DOSTAĆ WORKBALANCE ANALYTICS`.
 
-1. Czy T019 pozostaje read-only projection istniejącej prawdy, bez nowych KPI/payroll/UI/export?
-2. Czy enabled SiteMembership jest jedynym roster filtrem i nie wraca EMP-02?
-3. Czy godziny są jawnie ALL_SITES i current-version-only?
-4. Czy `effective_target_hours = planned + realized - month_balance` ujawnia dokładnie canonical effective target bez duplikowania T018?
-5. Czy month-vs-quarter status semantics rozróżniają missing month truth od missing quarter truth i nigdy nie używają zera jako missing?
-6. Czy calendar failure zachowuje dokładne fail-closed `IncompleteAbsenceCalendarError` bez blanket nowej reguły kalendarza?
-7. Czy batch architecture ma query count niezależny od roster size i nie potrzebuje nowego cache/table?
-8. Czy application module nie wykonuje SQL bezpośrednio i nie importuje UI/persistence internals poza jawne repo APIs?
-9. Czy istniejące `open_month()` i `quarter_balance()` public semantics pozostają bez zmian?
-10. Czy domain/balance/assembler/schedule repo/planning pozostają poza scope?
-11. Czy test matrix dowodzi CURRENT pointer, cross-Site, restart, read-only i T018 adjustment?
-12. Jakie dokładnie legacy test files, jeśli jakiekolwiek, potrzebują mechanical scope amendment?
-13. Czy którykolwiek clause wymaga nowej decyzji produktowej właściciela? Jeśli tak: FAIL z exact clause, bez zgadywania.
+Zamknięcie jest wyłącznie kontraktowe:
 
-Required verdict:
+- sekcja 5 została zawężona do enabled LOCAL;
+- EXTERNAL_SUPPORT/X-Y nie tworzy wiersza niezależnie od enabled/window/Assignment;
+- `ALL_SITES` dotyczy tylko modelowanego Employee, który wszedł do widoku przez enabled LOCAL membership;
+- owner source został znormalizowany do WINDOW-03;
+- test 18 został odwrócony na obowiązkowy brak wiersza X/Y;
+- pozostałe 27 testów i wszystkie inne Round 1 SECTION_CHECK pozostają CLOSED/PASS;
+- brak legacy adaptations pozostaje CLOSED/PASS;
+- nie ma nowej decyzji produktowej.
+
+## 20. CODEX PREIMPLEMENTATION AUDIT — ROUND 2 NARROW ONLY
+
+Round 2 audytuje exact amendment SHA i sprawdza wyłącznie T019-R1-1:
+
+1. Czy roster WorkBalance T019 jest dokładnie `enabled=True AND membership_kind=LOCAL` na żądanym Site?
+2. Czy EXTERNAL_SUPPORT/X-Y nie tworzy wiersza niezależnie od ExternalSupportWindow i lokalnych Assignment?
+3. Czy przypadek mixed membership jest jednoznaczny: LOCAL na żądanym Site może utworzyć jeden row; EXTERNAL gdzie indziej nie tworzy drugiego row ani osobnego uprawnienia?
+4. Czy `hours_scope=ALL_SITES` nie jest już używane jako twierdzenie o kompletności home-site X/Y?
+5. Czy test 18 dowodzi nowej frozen reguły bez zmiany pozostałych 27 oracles?
+6. Czy owner source jest spójny z WINDOW-03?
+7. Czy amendment nie zmienił DTO, effective target, missing-data semantics, batch architecture, TASK_SCOPE implementacji ani read-only granic?
+8. Czy między `8e34530477c78d4b53694e7b86a4dcbcbbca0a3e` a amendment HEAD nie ma kodu ani testów implementacyjnych?
+
+Wymagany werdykt:
 
 `PASS — READY_FOR_IMPLEMENTATION`
+
+Pozostałych Round 1 SECTION_CHECK nie otwierać ponownie bez nowej, konkretnej sprzeczności wprowadzonej przez amendment.
 
 Do tego PASS:
 
 **CC MUST NOT START T019 IMPLEMENTATION.**
 
-## 20. IMPLEMENTATION RULES FOR CC
+## 21. IMPLEMENTATION RULES FOR CC
 
 Po preimplementation PASS:
 
-- implementować wyłącznie literalny TASK_SCOPE po ewentualnym narrow amendment;
+- implementować wyłącznie literalny TASK_SCOPE;
+- analytics roster filter = enabled LOCAL only;
+- EXTERNAL_SUPPORT nie tworzy row ani `UNAVAILABLE` warning;
 - żadnego SQL w `analytics_read.py`;
 - żadnej zmiany `rota.balance` ani `domain.WorkBalance`;
 - żadnego per-employee repository call w pętli dla target/availability/assignments;
@@ -523,14 +552,13 @@ Po preimplementation PASS:
 - nie refaktoryzować unrelated code przy okazji;
 - każdy scope blocker -> STOP do architekta.
 
-## 21. FINAL IMPLEMENTATION GATE
+## 22. FINAL IMPLEMENTATION GATE
 
 Po implementacji Codex audytuje exact PRODUCT SHA i pełny `BASE_SHA -> HEAD` diff.
 
 Wymagane:
 
 - `tests/test_t019.py` full dedicated matrix PASS;
-- wszystkie ewentualnie autoryzowane legacy adaptations PASS;
 - full `tests/` PASS;
 - `tests/test_balance.py` PASS;
 - `tests/test_t011_d_quarter_balance.py` PASS;
@@ -545,7 +573,8 @@ Wymagane:
 - backend.py literal TASK_SCOPE / NEW_FILES / DIFF_SCOPE PASS albo każdy mechanical `WYMAGA_DECYZJI` wraca do architekta z exact PRODUCT SHA;
 - brak schema migration/new table/cache;
 - brak nowych writes z analytics path;
-- query-count oracle PASS.
+- query-count oracle PASS;
+- EXTERNAL_SUPPORT/X-Y exclusion oracle PASS.
 
 Dopiero po Codex implementation PASS i finalnej akceptacji architekta:
 

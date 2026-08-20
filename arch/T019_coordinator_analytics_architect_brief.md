@@ -1,6 +1,6 @@
 # Handoff brief dla architekta — ROTA-T019 Analityka koordynatora
 
-STATUS: OWNER INTENT CLOSED — READY FOR ARCHITECT CONTRACT
+STATUS: OWNER INTENT CLOSED — ARCHITECT NORMALIZATION T019-R1-1 APPLIED
 
 DATE: 2026-08-20
 
@@ -16,6 +16,21 @@ FOLLOWED_BY:
 
 - T020 — wydruk/eksport grafiku;
 - T021 — właściwy interfejs użytkownika.
+
+## 0. ARCHITECT NORMALIZATION — T019-R1-1 / WINDOW-03
+
+Round 1 preimplementation audit wykazał jedną sprzeczność interpretacyjną z zamrożonym `arch/spec.md` WINDOW-03:
+
+`WINDOW-03: Pilot does NOT model X/Y home-site HR, balances, or schedule.`
+
+Dlatego wszystkie niższe sformułowania o „obsadzie Site” w kontekście WorkBalance analytics należy czytać jako **enabled LOCAL membership na żądanym Site**.
+
+- `membership_kind=LOCAL AND enabled=True` -> pracownik może mieć wiersz T019;
+- `membership_kind=EXTERNAL_SUPPORT` -> nie tworzy wiersza WorkBalance analytics T019, niezależnie od `enabled`, ExternalSupportWindow lub lokalnych Assignment;
+- jeśli ten sam Employee ma enabled LOCAL na żądanym Site i EXTERNAL_SUPPORT na innym Site, wiersz istnieje z powodu LOCAL membership na żądanym Site; EXTERNAL membership nie jest osobnym źródłem uprawnienia do analytics ani osobnym wierszem;
+- T019 nie tworzy osobnego widoku użycia X/Y. Taki widok wymagałby osobnej decyzji/rozszerzenia produktu.
+
+To nie jest nowa decyzja produktowa; jest to literalne zastosowanie już zamrożonego WINDOW-03 do T019.
 
 ## 1. Intencja właściciela
 
@@ -99,13 +114,11 @@ odrębnymi wartościami.
 ### 2.5 Semantyka wielu Site
 
 `WorkBalance` nie ma `site_id`. Employee nie jest własnością jednego Site.
-Godziny pracownika są rekonstruowane z jego bieżących Assignment ze wszystkich
-Site.
+Dla pracownika objętego WorkBalance godziny są rekonstruowane z jego bieżących Assignment ze wszystkich modelowanych Site.
 
-Dlatego ekran otwarty z kontekstu Site może użyć obsady tego Site do wybrania
-pracowników, ale pokazywane godziny i saldo pracownika są globalne — łącznie ze
-wszystkich obiektów. UI musi to później nazwać wprost. Nie wolno przedstawiać
-tych wartości jako godzin wyłącznie na aktualnie otwartym obiekcie.
+Dlatego ekran otwarty z kontekstu Site może użyć **enabled LOCAL obsady tego Site** do wybrania pracowników, ale pokazywane godziny i saldo pracownika są globalne — łącznie ze wszystkich modelowanych obiektów. UI musi to później nazwać wprost. Nie wolno przedstawiać tych wartości jako godzin wyłącznie na aktualnie otwartym obiekcie.
+
+EXTERNAL_SUPPORT/X-Y nie jest przez sam membership pracownikiem objętym tym WorkBalance analytics, zgodnie z WINDOW-03.
 
 ## 3. Zamrożony zakres produktu T019
 
@@ -118,7 +131,7 @@ Dla wybranego:
 - miesiąca;
 - wynikającego z niego kwartału;
 
-odczyt ma umożliwić pokazanie dla każdego aktywnego członka obsady Site:
+odczyt ma umożliwić pokazanie dla każdego **enabled LOCAL członka obsady Site**:
 
 1. identyfikatora i nazwy pracownika;
 2. miesiąca;
@@ -129,8 +142,9 @@ odczyt ma umożliwić pokazanie dla każdego aktywnego członka obsady Site:
 7. `quarter_balance` / narastającego salda;
 8. `unresolved_carryover` w jego obecnej semantyce;
 9. stanu dostępności danych oraz warningów o brakującej normie/kalendarzu;
-10. jasnej informacji, że liczby godzin są łączne dla pracownika ze wszystkich
-    Site.
+10. jasnej informacji, że liczby godzin są łączne dla pracownika ze wszystkich modelowanych Site.
+
+EXTERNAL_SUPPORT nie tworzy wiersza WorkBalance analytics T019. ExternalSupportWindow pozostaje mechanizmem eligibility pracy, nie źródłem bilansu X/Y.
 
 Read model może zawierać trzy miesięczne pozycje kwartału albo równoważną,
 jednoznaczną strukturę. Architekt wybiera minimalny kształt bez tworzenia
@@ -191,6 +205,7 @@ Nie wolno:
 - automatycznie kwalifikować dodatniego salda jako nadgodziny;
 - tworzyć rozliczeń płacowych, dodatków nocnych albo absencyjnych;
 - tworzyć site-local WorkBalance przez odjęcie pracy na innych Site;
+- tworzyć WorkBalance analytics dla EXTERNAL_SUPPORT/X-Y;
 - zmieniać solver, jego objective albo wyniki PLAN/REPLAN;
 - dodawać wykresów, eksportu Excel/PDF lub wydruku;
 - implementować UI.
@@ -203,7 +218,7 @@ Architekt ma określić najmniejszy application read model, który:
 
 - korzysta z istniejących repozytoriów/odczytów zamiast powielać SQL;
 - może być wywołany przez T021 bez importu `rota.persistence` w UI;
-- zwraca wszystkie wiersze obsady jednym spójnym wynikiem;
+- zwraca wszystkie wiersze **enabled LOCAL obsady** jednym spójnym wynikiem;
 - nie wykonuje częściowych zapisów ani ukrytych migracji;
 - ma deterministyczną kolejność pracowników i miesięcy;
 - nie wprowadza ogólnego query bus, dashboard framework ani report engine;
@@ -219,7 +234,7 @@ decyzja produktowa.
 
 Kontrakt architekta powinien wymagać co najmniej:
 
-1. jeden pracownik, kompletny miesiąc — wszystkie istniejące pola WorkBalance;
+1. jeden LOCAL pracownik, kompletny miesiąc — wszystkie istniejące pola WorkBalance;
 2. trzy miesiące kwartału — poprawne saldo narastające;
 3. planned i realized pokazane oddzielnie, bez podwójnego liczenia;
 4. NN/CANCELLED nie zwiększa godzin;
@@ -231,14 +246,15 @@ Kontrakt architekta powinien wymagać co najmniej:
    niedostępny z warningiem;
 10. SICK_LEAVE/LEAVE_GRANTED obejmujące weekend — adjustment wyłącznie za dni
     robocze i zgodność z T018;
-11. wspólny pracownik na dwóch Site — jedna globalna suma godzin, bez
+11. wspólny modelowany LOCAL pracownik na dwóch Site — jedna globalna suma godzin, bez
     duplikacji, z jawną etykietą cross-Site;
-12. dwóch różnych pracowników/roster filter — brak wycieku wiersza osoby
-    nienależącej do obsady otwartego Site;
+12. dwóch różnych pracowników/LOCAL roster filter — brak wycieku wiersza osoby
+    nienależącej do enabled LOCAL obsady otwartego Site;
 13. read jest bez zapisu — snapshot tabel przed/po identyczny;
 14. brak formalnego pola/komunikatu „nadgodziny” lub wyliczenia wynagrodzenia;
 15. `open_month()` i `quarter_balance()` dotychczasowe regresje pozostają
-    zielone.
+    zielone;
+16. enabled EXTERNAL_SUPPORT/X-Y nie tworzy wiersza WorkBalance analytics niezależnie od ExternalSupportWindow; sam LOCAL membership na żądanym Site pozostaje wystarczającym roster filtrem nawet, gdy ten sam Employee ma EXTERNAL_SUPPORT gdzie indziej.
 
 ## 9. Pytania dla architekta — wyłącznie techniczne
 
@@ -246,7 +262,7 @@ Kontrakt architekta powinien wymagać co najmniej:
 2. Jak bez powielenia obliczenia ujawnić adjustment efektywnej normy.
 3. Jak złożyć miesięczny odczyt tolerujący brak wcześniejszej normy z pełnym,
    fail-closed odczytem kwartału.
-4. Jak wykonać odczyt całej obsady bez N+1 SQL i bez nowego cache/persistence.
+4. Jak wykonać odczyt całej enabled LOCAL obsady bez N+1 SQL i bez nowego cache/persistence.
 5. Literalny TASK_SCOPE i lista istniejących testów wymagających wyłącznie
    mechanicznej adaptacji.
 
