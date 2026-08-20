@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 5
+LATEST_SCHEMA_VERSION = 6
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -378,12 +378,77 @@ _MIGRATION_5: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 6 -- ROTA-T019b: durable memory of material coordinator actions
+# (append-only index) + immutable final DECISION_REQUIRED snapshots + a
+# mutable current-question pointer. Historical/readback only -- never read
+# by PlanningState assembly, the solver, the validator or WorkBalance.
+# ---------------------------------------------------------------------------
+_MIGRATION_6: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS coordinator_action_records (
+        action_id TEXT PRIMARY KEY,
+        action_kind TEXT NOT NULL,
+        origin_site_id TEXT NOT NULL REFERENCES sites(site_id),
+        affected_site_ids_json TEXT NOT NULL,
+        coordinator_id TEXT NOT NULL REFERENCES coordinators(coordinator_id),
+        recorded_at TEXT NOT NULL,
+        effective_from TEXT,
+        month TEXT,
+        schedule_version_id TEXT,
+        affected_entities_json TEXT NOT NULL,
+        before_state_json TEXT,
+        after_state_json TEXT,
+        note TEXT,
+        source_kind TEXT NOT NULL,
+        source_id TEXT,
+        responds_to_decision_required_id TEXT REFERENCES decision_required_snapshots(decision_required_id)
+    )""",
+    """CREATE TRIGGER IF NOT EXISTS coordinator_action_records_no_update
+       BEFORE UPDATE ON coordinator_action_records
+       BEGIN SELECT RAISE(ABORT, 'coordinator_action_records is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS coordinator_action_records_no_delete
+       BEFORE DELETE ON coordinator_action_records
+       BEGIN SELECT RAISE(ABORT, 'coordinator_action_records is append-only: DELETE forbidden'); END""",
+    """CREATE TABLE IF NOT EXISTS decision_required_snapshots (
+        decision_required_id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        schedule_version_id TEXT,
+        requested_by TEXT NOT NULL REFERENCES coordinators(coordinator_id),
+        recorded_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+    """CREATE TRIGGER IF NOT EXISTS decision_required_snapshots_no_update
+       BEFORE UPDATE ON decision_required_snapshots
+       BEGIN SELECT RAISE(ABORT, 'decision_required_snapshots is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS decision_required_snapshots_no_delete
+       BEFORE DELETE ON decision_required_snapshots
+       BEGIN SELECT RAISE(ABORT, 'decision_required_snapshots is append-only: DELETE forbidden'); END""",
+    """CREATE TABLE IF NOT EXISTS current_decision_required (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        decision_required_id TEXT NOT NULL REFERENCES decision_required_snapshots(decision_required_id),
+        PRIMARY KEY (site_id, month)
+    )""",
+    """CREATE INDEX IF NOT EXISTS coordinator_action_records_by_recorded_at
+       ON coordinator_action_records(recorded_at)""",
+    """CREATE INDEX IF NOT EXISTS coordinator_action_records_by_coordinator
+       ON coordinator_action_records(coordinator_id, recorded_at)""",
+    """CREATE INDEX IF NOT EXISTS coordinator_action_records_by_kind
+       ON coordinator_action_records(action_kind, recorded_at)""",
+    """CREATE INDEX IF NOT EXISTS decision_required_snapshots_by_site_month
+       ON decision_required_snapshots(site_id, month, recorded_at)""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
     (3, _MIGRATION_3),
     (4, _MIGRATION_4),
     (5, _MIGRATION_5),
+    (6, _MIGRATION_6),
 )
 
 

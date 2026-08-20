@@ -1,0 +1,140 @@
+ROTA-T019b — CODEX NARROW IMPLEMENTATION REAUDIT — ROUND 6
+
+AUDITED_BRANCH: origin/task/T019b
+AUDITED_PRODUCT_SHA: 47681caa6034b2c1b4dc004a255696888839899d
+PREVIOUS_AUDIT_SHA: edba2830af0a931cae48716da7d709627db513f6
+CONTRACT_SHA: c9101abae8b35ca1a72d7b8cd3975fa54d8c39cc
+SIZEFILE_AMENDMENT_SHA: 7db97318ca6bfc864f9ee96f7556a4da20b99281
+BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
+DATE: 2026-08-20
+
+VERDICT: PASS — T019b-R5-1 CLOSED / READY FOR ARCHITECT FINAL GATE
+
+SCOPE OF THIS ROUND
+
+Wyłącznie wąski reaudyt T019b-R5-1 na exact PRODUCT SHA 47681ca… oraz
+mechaniczne sprawdzenie, czy poprawka nie tworzy nowej sprzeczności. Zamknięte
+R4-1/R4-2/R4-4/R4-5 i zaakceptowana architektura T019b nie zostały ponownie
+otwarte.
+
+SECTION_CHECK 1 — PROVENANCE / EXACT DIFF: PASS
+
+- origin/task/T019b wskazywał dokładnie na 47681ca… w chwili audytu.
+- edba283…→47681ca… to dokładnie dwa commity:
+  - bc068ed — wąska poprawka R5-1;
+  - 47681ca — wyłącznie skrócenie docstringa dla SIZE_FUNC.
+- Zmieniono wyłącznie rota/application/manual_edit.py.
+- Frozen spec, kontrakt, amendment oraz testy produktu nie zostały zmienione.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — R5-1 CHILD ASSIGNMENT PROVENANCE: PASS / CLOSED
+
+`_with_manual_action_hook` nadal zachowuje before facts dokładnie z parent
+snapshot. Przy budowie after facts tworzy wyłącznie serializacyjną kopię
+każdego caller-supplied Assignment z `schedule_version_id=child_id`.
+
+Jest to zgodne z rzeczywistym persistence ownerem:
+`schedule_lifecycle._insert_content` zapisuje wszystkie przekazane Assignment
+rows pod argumentem `version_id=child_id`, niezależnie od parent-owned pola na
+obiekcie wejściowym. Action snapshot nie zmienia danych produktu; odzwierciedla
+fakt faktycznie utrwalony w child.
+
+Niezależny oracle porównuje teraz pełny after Assignment dict z Assignment
+odczytanym z utrwalonego child snapshotu, pole po polu:
+
+- schedule_version_id;
+- assignment_id;
+- employee_id;
+- start/end datetime;
+- role/state/frozen;
+- covers_demand_id;
+- mentor_primary_assignment_id;
+- operational_code;
+- work_period_id;
+- required_rest_after_hours.
+
+Wyniki reprezentatywnych siblingów wspólnego hooka:
+
+- generic manual correction: PASS;
+- freeze/unfreeze: PASS;
+- NN mark_not_worked: PASS;
+- training.mark_training_realized: PASS.
+
+T019b-R5-1: CLOSED.
+T019b-R4-3: CLOSED.
+
+SECTION_CHECK 3 — CORRECTION OF ROUND-5 AUDIT ORACLE: PASS
+
+Round-5 oracle błędnie porównywał `required_rest_after_hours` każdego after
+Assignment do wartości mentora/targetu. Był to fałszywy pozytyw dla training:
+trainee wejściowo i w bazie ma jawne None, a kontrakt nie nakazuje dziedziczenia
+resta z mentora.
+
+Oracle został poprawiony, aby nie zgadywać wartości: źródłem oczekiwania jest
+Assignment rzeczywiście odczytany z child. W training potwierdza zarówno
+`schedule_version_id=child_id`, jak i prawidłowo zachowane
+`required_rest_after_hours=None`.
+
+Nie jest to zmiana kontraktu ani produktu; to korekta błędu w niezależnym teście
+Codexa.
+
+SECTION_CHECK 4 — REGRESSION / QUALITY GATES: PASS
+
+- Pełna suite: 845/845 PASS.
+- Dedykowana macierz produktu tests/test_t019b.py: 60/60 PASS.
+- Skorygowana i poszerzona niezależna macierz: 15/15 PASS.
+- Ruff: PASS.
+- guard.py check arch/spec.md: PASS.
+- git diff --check: PASS.
+- SIZE_FUNC: według dostarczonego backend.py zamknięty.
+
+Committed evidence:
+tasks/ROTA-T019b/round_01/tests/test_t019b_implementation_audit.py
+
+SECTION_CHECK 5 — BACKEND / MECHANICAL DECISIONS: WYMAGA_DECYZJI
+
+Dostarczony i wcześniej reprodukowany backend output dla exact PRODUCT SHA:
+
+STATUS: FAIL
+HEAD_SHA: 47681caa6034b2c1b4dc004a255696888839899d
+REASON:
+- SIZE_FILE tests/test_t012.py = 1701 > 600;
+- SIZE_FILE tests/test_t019b.py = 897 > global 600.
+WYMAGA_DECYZJI:
+- RATIO 2818/227 = 12.4:1;
+- TOTAL_LINES 3045.
+
+Klasyfikacja:
+- tests/test_t019b.py=897 jest CLOSED przez wiążący amendment <=900;
+- tests/test_t012.py=1701 jest pre-existing whole-file gate po autoryzowanej
+  jednoliniowej adaptacji schema version;
+- RATIO i TOTAL_LINES są metrykami, nie findings zachowania;
+- trzy ostatnie wartości wymagają formalnej exact-SHA akceptacji architekta.
+
+Nie blokują merytorycznego PASS Codexa, ale do czasu formalnego zamknięcia nie
+wydaję READY FOR MERGE w imieniu architekta.
+
+FINDINGS SUMMARY
+
+T019b-R4-1 — CLOSED.
+T019b-R4-2 — CLOSED.
+T019b-R4-3 — CLOSED.
+T019b-R4-4 — CLOSED.
+T019b-R4-5 — CLOSED.
+T019b-R5-1 — CLOSED.
+
+NEW FINDINGS
+
+NONE.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+PASS — T019b-R5-1 CLOSED / READY FOR ARCHITECT FINAL GATE.
+
+Kod produktu nie wymaga kolejnej poprawki Codexa. Architekt może teraz podjąć
+exact-SHA decyzję mechaniczną i, jeśli ją zaakceptuje, wydać finalny
+PASS — READY FOR MERGE.

@@ -38,7 +38,7 @@ def _plan_select(conn, site_id: str):
         conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH,
     )
     assert result.status == "FEASIBLE"
-    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
+    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
 
 
 def _training_setup(conn, *, threshold: int, weekdays_only: bool):
@@ -314,7 +314,7 @@ def test_r5_write_requires_the_acting_coordinator_context(tmp_path, operation):
         assert selected.version_id == get_current_version_id(conn, state.site.site_id, MONTH)
     else:
         plan_ops.select_candidate(
-            conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0],
+            conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1",
         )
         from rota.application import lifecycle_ops
 

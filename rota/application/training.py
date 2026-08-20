@@ -18,6 +18,7 @@ from rota.persistence.employee_repository import (
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_repository import get_site
+from rota.site_memory_types import CoordinatorActionKind
 
 
 def save_site_membership(conn, membership) -> None:
@@ -113,18 +114,39 @@ def _build_readiness_hook(conn, *, site_id: str, trainee_assignment: Assignment,
     return _apply
 
 
+def _readiness_for(conn, *, site_id: str, employee_id: str) -> str | None:
+    membership = next((m for m in list_memberships_for_site(conn, site_id) if m.employee_id == employee_id), None)
+    return membership.readiness_state.value if membership else None
+
+
 def mark_training_realized(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date, trainee_assignment: Assignment,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> ScheduleVersion:
     """Marks one TRAINEE Assignment REALIZED via the manual correction
     mechanism (mentor/weekday/profile rules stay whatever they already are
     -- unchanged), then atomically resaves membership readiness, promoting
     it only if the profile's threshold is reached and readiness_source is
-    still DEFAULT."""
+    still DEFAULT.
+
+    ROTA-T019b: exactly one TRAINING_REALIZED action (never a second,
+    independent action for the derived readiness write -- section 6).
+    Readiness before/after is included in the action's state only when it
+    actually changes (section 19)."""
     _require_qualifying_shape(trainee_assignment)
     profile = get_site_profile(conn, get_site(conn, site_id).profile_id)
+    before_readiness = _readiness_for(conn, site_id=site_id, employee_id=trainee_assignment.employee_id)
     on_success = _build_readiness_hook(conn, site_id=site_id, trainee_assignment=trainee_assignment, profile=profile)
+
+    def _extra_state(open_conn):
+        after_readiness = _readiness_for(open_conn, site_id=site_id, employee_id=trainee_assignment.employee_id)
+        if before_readiness == after_readiness:
+            return None, None
+        return {"readiness_state": before_readiness}, {"readiness_state": after_readiness}
+
     return manual_edit.apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        upsert_assignments=[trainee_assignment], on_success=on_success,
+        upsert_assignments=[trainee_assignment], on_success=on_success, note=note,
+        responds_to_decision_required_id=responds_to_decision_required_id,
+        _action_kind=CoordinatorActionKind.TRAINING_REALIZED, _extra_state=_extra_state,
     )

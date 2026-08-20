@@ -37,7 +37,7 @@ def _plan_select(conn, site_id):
         conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH,
     )
     assert result.status == "FEASIBLE"
-    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
+    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
 
 
 def _seed_two_sites(conn):
@@ -108,11 +108,11 @@ def test_r4_every_coordinator_write_requires_active_context(tmp_path, operation)
         conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH,
     )
     if operation == "revalidate":
-        plan_ops.select_candidate(conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0])
+        plan_ops.select_candidate(conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
     save_coordinator(conn, Coordinator("COORD-1", "Coord", False))
     with pytest.raises(InvalidCoordinatorContext):
         if operation == "select":
-            plan_ops.select_candidate(conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0])
+            plan_ops.select_candidate(conn, site_id=state.site.site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
         else:
             lifecycle_ops.revalidate(conn, site_id=state.site.site_id, month=MONTH)
 
@@ -526,7 +526,7 @@ def test_r4_select_candidate_does_not_trust_caller_fabricated_realized(tmp_path,
 
     with pytest.raises(CandidateRejected):
         plan_ops.select_candidate(
-            conn, site_id=state.site.site_id, month=MONTH, candidate=candidate,
+            conn, site_id=state.site.site_id, month=MONTH, candidate=candidate, coordinator_id="COORD-1",
         )
     current = get_current_version_id(conn, state.site.site_id, MONTH)
     assert get_schedule_snapshot(conn, current).assignments == []

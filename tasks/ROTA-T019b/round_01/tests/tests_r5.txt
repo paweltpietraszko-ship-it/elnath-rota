@@ -1,0 +1,184 @@
+ROTA-T019b — CODEX FINAL IMPLEMENTATION REAUDIT — ROUND 5
+
+AUDITED_BRANCH: origin/task/T019b
+AUDITED_PRODUCT_SHA: aded13c6235e39f51eb30ffc5fa9e59e9db8b4fc
+PREVIOUS_AUDIT_SHA: 5b50812d3f8e748a541afefd2322b3c42fbf4962
+CONTRACT_SHA: c9101abae8b35ca1a72d7b8cd3975fa54d8c39cc
+SIZEFILE_AMENDMENT_SHA: 7db97318ca6bfc864f9ee96f7556a4da20b99281
+BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
+DATE: 2026-08-20
+
+VERDICT: FAIL — NOT READY FOR MERGE
+
+SCOPE OF THIS ROUND
+
+Wąski reaudyt zamknięcia T019b-R4-1…R4-5 na exact PRODUCT SHA aded13c….
+Wcześniej zaakceptowana architektura storage/read model, klasyfikacja operacji,
+limit tests/test_t019b.py <=900 i pozostałe zamknięte sekcje nie były ponownie
+otwierane bez konkretnej sprzeczności.
+
+SECTION_CHECK 1 — PROVENANCE / DIFF SCOPE: PASS
+
+- origin/task/T019b wskazywał dokładnie na aded13c… w chwili audytu.
+- 5b50812…→aded13c… zawiera trzy commity:
+  - 38f6a79 — poprawki R4-1…R4-5;
+  - 0f81172 i aded13c — wyłącznie redukcja docstringa create_schedule_version
+    dla SIZE_FUNC.
+- Zmieniono dziewięć plików należących do TASK_SCOPE. Nie zmieniono frozen
+  spec, kontraktu ani amendmentu.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — R4-1 EXTERNAL SUPPORT WINDOW NO-OP: PASS / CLOSED
+
+- add_external_support_window porównuje pełne business before/after.
+- Identyczny UPSERT nadal wykonuje dozwolony current-state write, ale nie tworzy
+  EXTERNAL_SUPPORT_WINDOW_CHANGED i nie invaliduje bieżącego DR.
+- Realna zmiana nadal zapisuje jedną akcję i invaliduje miesiące zakresu.
+- Niezależny reproduktor R4-1: PASS.
+
+T019b-R4-1: CLOSED.
+
+SECTION_CHECK 3 — R4-2 BOOTSTRAP ATOMICITY: PASS / CLOSED
+
+- Walidacja association ids odbywa się przed rozpoczęciem zapisu.
+- Coordinator/Profile/Site, warunkowa CONTEXT_CONFIGURATION_SAVED i CAS
+  Association wykonują się w jednym `with conn:`.
+- CAS=False rzuca wewnątrz tej samej transakcji, więc cofa całą jedną
+  inwokację, zachowując możliwość resume przez wcześniejsze osobne wywołania.
+- Fault injection po błędzie potwierdza (Coordinator, Profile, Site, action) =
+  (0,0,0,0).
+
+T019b-R4-2: CLOSED.
+
+SECTION_CHECK 4 — R4-3 STRUCTURED SNAPSHOTS: FAIL / PARTIALLY CLOSED
+
+Zamknięte siblingi §19:
+
+- CONTEXT_CONFIGURATION_SAVED zawiera catalog_kind, required_rest_hours i
+  active_weekdays każdego StandardShift;
+- RULE_DECISION_RECORDED zawiera realne predecessor decision/rule refs oraz
+  pełną nową treść reguły;
+- AVAILABILITY_CHANGED zawiera tożsamość obu rekordów łańcucha i supersedes id;
+- candidate selection zawiera komplet wymaganych pól Assignment;
+- SCHEDULE_FINALIZED zawiera pełne stany Deviation acknowledgement przed/po;
+- manual/freeze/NN/training zawierają jawne parent_version_id/child_version_id.
+
+T019b-R5-1 — after Assignment fact w każdej child-creating manual family nadal
+podaje version id rodzica, nie faktycznie utrwalonego dziecka.
+
+Trace kontraktowy:
+- brief.md §7.4: before/after są historycznymi snapshotami faktów zmienionych
+  przez akcję;
+- brief.md §19: manual/freeze/NN/training zapisują parent/child ids oraz changed
+  Assignment facts; canonical Assignment snapshot zawiera business/provenance
+  fields już utrwalone na Assignment.
+
+Przyczyna:
+- `_with_manual_action_hook` buduje after facts z `upsert_assignments`;
+- obiekty te nadal mają `schedule_version_id` rodzica;
+- `schedule_lifecycle._insert_content` faktycznie zapisuje je pod przekazanym
+  `child_id`, niezależnie od pola obiektu;
+- action detail ma więc poprawny `child_version_id`, lecz wewnętrzny Assignment
+  fact twierdzi, że ten sam after Assignment należy do rodzica.
+
+Niezależna macierz została skorygowana, aby porównywać snapshot akcji z faktem
+rzeczywiście utrwalonym, a nie z parent-owned input object. Reprezentatywne
+siblingi:
+
+- generic manual correction — FAIL;
+- freeze/unfreeze — FAIL;
+- NN mark_not_worked — FAIL;
+- training.mark_training_realized — FAIL.
+
+Wszystkie cztery przechodzą przez wspólny serializer/hook, więc jest to jedna
+klasa błędu, nie cztery osobne findings.
+
+Warunek zamknięcia: Assignment w after_state każdej child-creating rodziny musi
+mieć `schedule_version_id == child_version_id`, zgodny z rekordem faktycznie
+zapisanym w tabeli assignments. Before fact nadal wskazuje parent version.
+Pozostałe pola i kompaktowy zakres snapshotu pozostają bez zmian.
+
+T019b-R4-3: OPEN wyłącznie przez T019b-R5-1.
+
+SECTION_CHECK 5 — R4-4 EXPLICIT DR LINK / TOCTOU: PASS / CLOSED
+
+- Wszystkie current-state material writes walidują link wewnątrz własnej
+  transakcji przed business mutation.
+- Decision Ledger robi to samo.
+- Cztery schedule lifecycle write paths dostały wąski `pre_check`, wykonywany
+  jako pierwszy krok wewnątrz ich istniejącej transakcji.
+- Currentness check używa warunkowego samo-przypisującego UPDATE. Uzyskuje
+  SQLite RESERVED lock, a rowcount=1 potwierdza, że dokładnie wskazany snapshot
+  nadal jest current przed dalszym zapisem.
+- Deterministyczny interleave R4-4 oraz sequential known-noncurrent sibling:
+  PASS.
+
+T019b-R4-4: CLOSED.
+
+SECTION_CHECK 6 — R4-5 REQUIRED DEDICATED EVIDENCE: PASS / CLOSED
+
+- test A1 tworzy realny schemat v5, zachowuje istniejący CalendarDay, migruje
+  przez public connect() i dowodzi dokładnie trzech nowych tabel.
+- F44 wykonuje unknown, wrong-Site i znany noncurrent snapshot; wszystkie
+  odrzucają przed business mutation.
+- tests/test_t019b.py ma 897 linii, zatem mieści się w exact-SHA amendment
+  <=900. Nie utworzono drugiego dedicated test file ani nie usunięto oracles.
+
+T019b-R4-5: CLOSED.
+
+SECTION_CHECK 7 — REGRESSION / INDEPENDENT EVIDENCE: FAIL
+
+- Pełna suite produktu: 845/845 PASS.
+- Dedykowana macierz produktu: 60/60 PASS.
+- Oryginalna niezależna macierz bez korekty wadliwego oracle: 12/12 PASS.
+- Skorygowana i poszerzona niezależna macierz: 11 PASS / 4 FAIL; cztery FAIL
+  są parametryzacją jednego R5-1 przez generic/freeze/NN/training.
+- Ruff: PASS.
+- guard.py check arch/spec.md: PASS.
+- real-object benchmark: 31/31 PASS; manual audits: 3/3 PASS.
+
+Committed evidence:
+tasks/ROTA-T019b/round_01/tests/test_t019b_implementation_audit.py
+
+SECTION_CHECK 8 — BACKEND / MECHANICAL GATES: FAIL + WYMAGA_DECYZJI
+
+backend.py dla contract BASE_SHA→exact PRODUCT SHA reprodukuje:
+
+STATUS: FAIL
+HEAD_SHA: aded13c6235e39f51eb30ffc5fa9e59e9db8b4fc
+REASON:
+- SIZE_FILE tests/test_t012.py = 1701 > 600;
+- SIZE_FILE tests/test_t019b.py = 897 > global 600.
+WYMAGA_DECYZJI:
+- RATIO 2818/227 = 12.4:1;
+- TOTAL_LINES 3045.
+
+Klasyfikacja:
+- tests/test_t019b.py=897 jest objęty wiążącym amendmentem <=900 i jest CLOSED;
+- tests/test_t012.py=1701, RATIO 12.4:1 oraz TOTAL_LINES 3045 są mechanicznymi
+  decyzjami, nie defektami kodu. W audytowanym exact HEAD brak ich formalnej,
+  exact-SHA akceptacji; wymagają zamknięcia przez architekta po nowym produkcie.
+
+FINDINGS SUMMARY
+
+T019b-R4-1 — CLOSED.
+T019b-R4-2 — CLOSED.
+T019b-R4-3 — OPEN wyłącznie jako T019b-R5-1.
+T019b-R4-4 — CLOSED.
+T019b-R4-5 — CLOSED.
+
+T019b-R5-1 — FAIL — after Assignment snapshots dla generic manual,
+freeze/unfreeze, NN i training przechowują parent schedule_version_id zamiast
+utrwalonego child schedule_version_id.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+FAIL — T019b NOT READY FOR MERGE.
+
+Wymagana jest jedna wąska poprawka wspólnego serializera/hooka R5-1, bez
+ponownego otwierania innych sekcji. Po nowym exact product SHA: wąski reaudyt
+R5-1, pełna regresja oraz formalna decyzja mechaniczna dla aktualnych wartości.

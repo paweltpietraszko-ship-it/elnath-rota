@@ -96,7 +96,7 @@ def _plan_and_select(conn, site_id: str):
     from rota.application import plan_ops
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
     assert result.status == "FEASIBLE"
-    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
+    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
 
 
 def test_10_manual_coverage_gap_stored_and_validates_no_implicit_replan(tmp_path) -> None:

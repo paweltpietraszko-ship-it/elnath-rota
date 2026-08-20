@@ -25,7 +25,7 @@ MONTH = date(2026, 8, 1)
 def _plan_and_select(conn, site_id: str):
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
     assert result.status == "FEASIBLE"
-    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0])
+    return plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
 
 
 def _realize_training_n_times(conn, *, site_id: str, mentor, trainee_id: str, n: int, label: str) -> None:
@@ -106,7 +106,7 @@ def test_15_restore_moves_only_current_reference(tmp_path) -> None:
         conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", acknowledged_deviation_ids=set(),
     )
     replanned = plan_ops.replan(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 2))
-    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=replanned.candidates[0])
+    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=replanned.candidates[0], coordinator_id="COORD-1")
     assert get_current_version_id(conn, site_id, MONTH) == v2.version_id
 
     lifecycle_ops.restore(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", version_id=finalized.version_id)

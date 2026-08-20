@@ -16,17 +16,25 @@ from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
 
 
-def save_work_balance_target(conn: sqlite3.Connection, *, employee_id: str, month: date, target_hours: int) -> None:
+def write_work_balance_target_in_open_transaction(
+    conn: sqlite3.Connection, *, employee_id: str, month: date, target_hours: int,
+) -> None:
+    """Same write as save_work_balance_target, without its own `with conn:`
+    (ROTA-T019b atomicity)."""
     if month.day != 1:
         raise ValueError(f"month {month} is not the first day of its month")
     if conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (employee_id,)).fetchone() is None:
         raise KeyError(f"unknown employee {employee_id!r}")
+    conn.execute(
+        """INSERT INTO work_balance_targets (employee_id, month, target_hours) VALUES (?, ?, ?)
+           ON CONFLICT(employee_id, month) DO UPDATE SET target_hours = excluded.target_hours""",
+        (employee_id, month.isoformat(), target_hours),
+    )
+
+
+def save_work_balance_target(conn: sqlite3.Connection, *, employee_id: str, month: date, target_hours: int) -> None:
     with conn:
-        conn.execute(
-            """INSERT INTO work_balance_targets (employee_id, month, target_hours) VALUES (?, ?, ?)
-               ON CONFLICT(employee_id, month) DO UPDATE SET target_hours = excluded.target_hours""",
-            (employee_id, month.isoformat(), target_hours),
-        )
+        write_work_balance_target_in_open_transaction(conn, employee_id=employee_id, month=month, target_hours=target_hours)
 
 
 def get_work_balance_target(conn: sqlite3.Connection, employee_id: str, month: date) -> int | None:

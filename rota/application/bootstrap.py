@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import calendar as _calendar
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from rota.application.context import require_active_coordinator_context
 from rota.application.errors import CoordinatorContextAlreadyActive, InvalidCoordinatorContext
@@ -39,6 +39,7 @@ from rota.domain import (
     SiteProfile,
     StandardShift,
 )
+from rota.persistence import site_memory
 from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.coordinator_repository import (
     CoordinatorNotFound,
@@ -49,9 +50,10 @@ from rota.persistence.coordinator_repository import (
     write_coordinator_in_open_transaction,
 )
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site
-from rota.persistence.site_profile_repository import get_site_profile, write_site_profile_in_open_transaction
+from rota.persistence.site_profile_repository import SiteProfileNotFound, get_site_profile, write_site_profile_in_open_transaction
 from rota.persistence.site_repository import SiteNotFound, get_site, write_site_in_open_transaction
 from rota.persistence.work_balance_repository import get_work_balance_target
+from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
 
 
 def _is_valid_standard_shift(shift: StandardShift) -> bool:
@@ -95,6 +97,90 @@ def _require_id_match(label: str, actual: tuple[str, ...], expected: tuple[str, 
         raise ValueError(f"{label} {actual!r} != {expected!r}")
 
 
+def _planning_fields(p) -> tuple:
+    if isinstance(p, SiteProfile):
+        return (
+            p.active, tuple(p.standard_shifts), p.day_only_blocks_n, p.external_support_enabled,
+            p.training_s_enabled, p.training_s_weekdays_only, p.training_s_default_readiness_threshold,
+            p.rolling_7d_decision_threshold_hours,
+        )
+    return (p.profile_id, p.active)  # Site: profile_id/active are the planning-relevant fields
+
+
+def _profile_state(p: SiteProfile | None) -> dict | None:
+    if p is None:
+        return None
+    return {
+        "profile_id": p.profile_id, "active": p.active,
+        "standard_shifts": [
+            {
+                "kind": s.kind.value, "start_time": s.start_time.isoformat(), "end_time": s.end_time.isoformat(),
+                "end_next_day": s.end_next_day, "required_primary_count": s.required_primary_count,
+                "catalog_kind": s.catalog_kind.value if s.catalog_kind else None,
+                "required_rest_hours": s.required_rest_hours, "active_weekdays": list(s.active_weekdays),
+            }
+            for s in p.standard_shifts
+        ],
+        "day_only_blocks_n": p.day_only_blocks_n, "external_support_enabled": p.external_support_enabled,
+        "training_s_enabled": p.training_s_enabled, "training_s_weekdays_only": p.training_s_weekdays_only,
+        "training_s_default_readiness_threshold": p.training_s_default_readiness_threshold,
+        "rolling_7d_decision_threshold_hours": p.rolling_7d_decision_threshold_hours,
+    }
+
+
+def _site_state(s: Site | None) -> dict | None:
+    return None if s is None else {"site_id": s.site_id, "profile_id": s.profile_id, "active": s.active}
+
+
+def _record_context_configuration_no_commit(
+    conn, *, coordinator_id: str, site_id: str, recorded_at: datetime,
+    before_profile: SiteProfile | None, site_profile: SiteProfile | None,
+    before_site: Site | None, site: Site | None,
+) -> None:
+    entities = []
+    if site_profile is not None:
+        entities.append(AffectedEntity("SITE_PROFILE", site_profile.profile_id))
+    if site is not None:
+        entities.append(AffectedEntity("SITE", site.site_id))
+    site_memory.record_coordinator_action_no_commit(
+        conn, action_kind=CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED, origin_site_id=site_id,
+        affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+        effective_from=recorded_at.date(), month=None, schedule_version_id=None, affected_entities=entities,
+        before_state={"site_profile": _profile_state(before_profile), "site": _site_state(before_site)},
+        after_state={"site_profile": _profile_state(site_profile), "site": _site_state(site)},
+        note=None, source_kind=ActionSourceKind.CURRENT_STATE, source_id=site_id,
+        responds_to_decision_required_id=None,
+    )
+    site_memory.invalidate_current_decision_required_no_commit(conn, site_ids=[site_id], months=None)
+
+
+def _material_config_change(conn, *, site_id: str, site_profile, site):
+    """ROTA-T019b: whether this bootstrap call's site_profile/site pieces
+    are a planning-relevant change worth one CONTEXT_CONFIGURATION_SAVED
+    action, and their before-state for it. origin_site_id is a hard FK to
+    sites.site_id: a config action cannot be attributed to a Site row that
+    does not exist yet -- if this call itself creates the Site that's fine
+    (written earlier in the same transaction), otherwise the action is
+    deferred until a later call actually establishes the Site."""
+    before_profile = None
+    if site_profile is not None:
+        try:
+            before_profile = get_site_profile(conn, site_profile.profile_id)
+        except SiteProfileNotFound:
+            before_profile = None
+    try:
+        before_site = get_site(conn, site_id)
+    except SiteNotFound:
+        before_site = None
+    profile_changed = site_profile is not None and (
+        before_profile is None or _planning_fields(before_profile) != _planning_fields(site_profile)
+    )
+    site_changed = site is not None and (before_site is None or _planning_fields(before_site) != _planning_fields(site))
+    site_exists_or_created = site is not None or before_site is not None
+    material = (profile_changed or site_changed) and site_exists_or_created
+    return material, before_profile, before_site
+
+
 def bootstrap_or_resume_coordinator_context(
     conn,
     *,
@@ -107,48 +193,55 @@ def bootstrap_or_resume_coordinator_context(
 ) -> None:
     """The one small write operation from part_a_bootstrap_roster.md. Persists
     whichever of the four entities are supplied this call -- callers resume
-    a partial context over several calls by re-supplying the same
-    coordinator_id/site_id with more pieces filled in each time.
+    a partial context over several calls. R3-2/C-R3-1: the real exclusivity
+    guard is activate_association_if_not_already_active_in_open_transaction's
+    atomic UPSERT...WHERE, called last, after idempotent-either-way writes.
 
-    R3-2: the upfront _has_active_association check is a fast, friendly
-    rejection for the common case (already active, don't even try), but two
-    concurrent callers can both pass it before either has written anything.
-    The real exclusivity guard is
-    activate_association_if_not_already_active_in_open_transaction's atomic
-    UPSERT...WHERE, called last: only one of two racing calls that both
-    reach it can actually flip the row to active, and the loser is refused
-    here -- after coordinator/profile/site writes (idempotent resume data,
-    harmless either way), never before the association decision itself.
-    C-R3-1: the check itself is _has_full_active_context now, not
-    _has_active_association -- see that function's docstring."""
+    ROTA-T019b: coordinator/site_profile/site writes plus one conditional
+    CONTEXT_CONFIGURATION_SAVED action commit as a single transaction;
+    association activation stays its own separate transaction."""
     if _has_full_active_context(conn, coordinator_id=coordinator_id, site_id=site_id):
         raise CoordinatorContextAlreadyActive(
-            f"({coordinator_id!r}, {site_id!r}) already has an active context; "
-            "use the T009 authorized edit operations instead"
+            f"({coordinator_id!r}, {site_id!r}) already has an active context; use the T009 authorized edit operations instead"
         )
-
     if coordinator is not None:
         _require_id_match("coordinator.coordinator_id", (coordinator.coordinator_id,), (coordinator_id,))
-        with conn:
-            write_coordinator_in_open_transaction(conn, coordinator)
-    if site_profile is not None:
-        with conn:
-            write_site_profile_in_open_transaction(conn, site_profile)
     if site is not None:
         _require_id_match("site.site_id", (site.site_id,), (site_id,))
-        with conn:
-            write_site_in_open_transaction(conn, site)
     if association is not None:
         _require_id_match(
             "association (coordinator_id, site_id)",
             (association.coordinator_id, association.site_id), (coordinator_id, site_id),
         )
-        _activate_association_or_raise(conn, coordinator_id=coordinator_id, site_id=site_id, association=association)
-
-
-def _activate_association_or_raise(conn, *, coordinator_id: str, site_id: str, association: CoordinatorSiteAssociation) -> None:
+    recorded_at = datetime.now()
+    material, before_profile, before_site = _material_config_change(conn, site_id=site_id, site_profile=site_profile, site=site)
     with conn:
-        won = activate_association_if_not_already_active_in_open_transaction(conn, association)
+        if coordinator is not None:
+            write_coordinator_in_open_transaction(conn, coordinator)
+        if site_profile is not None:
+            write_site_profile_in_open_transaction(conn, site_profile)
+        if site is not None:
+            write_site_in_open_transaction(conn, site)
+        if material:
+            _record_context_configuration_no_commit(
+                conn, coordinator_id=coordinator_id, site_id=site_id, recorded_at=recorded_at,
+                before_profile=before_profile, site_profile=site_profile, before_site=before_site, site=site,
+            )
+        if association is not None:
+            _activate_association_or_raise_in_open_transaction(
+                conn, coordinator_id=coordinator_id, site_id=site_id, association=association,
+            )
+
+
+def _activate_association_or_raise_in_open_transaction(
+    conn, *, coordinator_id: str, site_id: str, association: CoordinatorSiteAssociation,
+) -> None:
+    """ROTA-T019b: called INSIDE the caller's own `with conn:` -- if the CAS
+    UPSERT...WHERE loses the race, raising here rolls back every write this
+    same bootstrap invocation already made (coordinator/profile/site/action),
+    not just the association itself (brief.md section 13: one invocation is
+    one atomic unit)."""
+    won = activate_association_if_not_already_active_in_open_transaction(conn, association)
     if not won:
         raise CoordinatorContextAlreadyActive(
             f"({coordinator_id!r}, {site_id!r}) was activated by a concurrent bootstrap first"
