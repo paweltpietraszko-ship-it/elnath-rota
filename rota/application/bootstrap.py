@@ -191,20 +191,13 @@ def bootstrap_or_resume_coordinator_context(
 ) -> None:
     """The one small write operation from part_a_bootstrap_roster.md. Persists
     whichever of the four entities are supplied this call -- callers resume
-    a partial context over several calls by re-supplying the same
-    coordinator_id/site_id with more pieces filled in each time.
+    a partial context over several calls. R3-2/C-R3-1: the real exclusivity
+    guard is activate_association_if_not_already_active_in_open_transaction's
+    atomic UPSERT...WHERE, called last, after idempotent-either-way writes.
 
-    R3-2/C-R3-1: the upfront _has_full_active_context check is a fast,
-    friendly rejection; the real exclusivity guard is
-    activate_association_if_not_already_active_in_open_transaction's atomic
-    UPSERT...WHERE, called last -- after coordinator/profile/site writes
-    (idempotent resume data, harmless either way).
-
-    ROTA-T019b: coordinator/site_profile/site writes plus the one conditional
-    CONTEXT_CONFIGURATION_SAVED action commit as a single transaction.
-    Association activation stays its own separate transaction (no material
-    action of its own; must keep its idempotent-resume-survives-a-lost-race
-    behavior)."""
+    ROTA-T019b: coordinator/site_profile/site writes plus one conditional
+    CONTEXT_CONFIGURATION_SAVED action commit as a single transaction;
+    association activation stays its own separate transaction."""
     if _has_full_active_context(conn, coordinator_id=coordinator_id, site_id=site_id):
         raise CoordinatorContextAlreadyActive(
             f"({coordinator_id!r}, {site_id!r}) already has an active context; "

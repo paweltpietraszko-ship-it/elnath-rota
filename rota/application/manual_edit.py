@@ -209,13 +209,11 @@ def apply_manual_correction(
     _extra_state=None,
 ) -> ScheduleVersion:
     """review_02_architect_clarification.md ATOMIC MANUAL CORRECTION FLOW,
-    steps 1-11. Manual state may be saved even with a coordinator-created
-    HARD violation; validation here only feeds Deviation materialization,
-    never blocks the save. Never calls REPLAN automatically.
-
+    steps 1-11: a coordinator-created HARD violation only feeds Deviation
+    materialization, never blocks the save. Never calls REPLAN automatically.
     _action_kind (ROTA-T019b, internal): freeze_or_unfreeze/mark_not_worked/
-    training.mark_training_realized pass their own specific kind through
-    this same mechanism instead of a second, generic action row."""
+    training.mark_training_realized pass their own kind through this same
+    mechanism instead of a second, generic action row."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
     site_memory.validate_decision_required_link_no_commit(
@@ -226,9 +224,7 @@ def apply_manual_correction(
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to correct")
     parent_snapshot = get_schedule_snapshot(conn, current_id)
     parent_snapshot_by_id = {a.assignment_id: a for a in parent_snapshot.assignments}
-
     corrected_assignments = _cloned_and_corrected(parent_snapshot.assignments, upsert_assignments)  # steps 4-5
-
     state, _ = assemble_planning_state(  # step 6
         conn, site_id=site_id, month=month, schedule_version_id=current_id,
         shift_demands=list(parent_snapshot.shift_demands), assignments=corrected_assignments, deviations=[],
