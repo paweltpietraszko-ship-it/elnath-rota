@@ -78,46 +78,20 @@ def _to_analytics_month_data(wb) -> AnalyticsMonthData:
     )
 
 
-def _row_for_employee(
-    employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
-    targets: dict[date, int], assignments, availability, calendar_days,
-) -> EmployeeAnalyticsRow:
-    requested_target = targets.get(month)
-    if requested_target is None:
-        warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: missing target_hours"
-        return EmployeeAnalyticsRow(
-            employee_id=employee_id, display_name=display_name, status=AnalyticsDataStatus.UNAVAILABLE,
-            month_data=None, quarter_months=(), warnings=(warning,),
-        )
-
-    try:
-        month_only = compute_month_balance(
-            employee_id, month, requested_target, assignments, availability,
-            quarter_balance_before=0, calendar_days=calendar_days,
-        )
-    except IncompleteAbsenceCalendarError as exc:
-        warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: {exc}"
-        return EmployeeAnalyticsRow(
-            employee_id=employee_id, display_name=display_name, status=AnalyticsDataStatus.UNAVAILABLE,
-            month_data=None, quarter_months=(), warnings=(warning,),
-        )
-
-    month_data_only = AnalyticsMonthData(
-        month=month, target_hours=requested_target,
-        effective_target_hours=month_only.planned_hours + month_only.realized_hours - month_only.month_balance,
-        planned_hours=month_only.planned_hours, realized_hours=month_only.realized_hours,
-        month_balance=month_only.month_balance, quarter_balance=None, unresolved_carryover=None,
+def _degraded_row(employee_id, display_name, status, month_data, warning) -> EmployeeAnalyticsRow:
+    return EmployeeAnalyticsRow(
+        employee_id=employee_id, display_name=display_name, status=status,
+        month_data=month_data, quarter_months=(), warnings=(warning,),
     )
 
-    missing_month = next((m for m in quarter_months_list if m not in targets), None)
-    if missing_month is not None:
-        warning = f"quarter analytics unavailable for employee '{employee_id}': missing target_hours for {missing_month.isoformat()}"
-        return EmployeeAnalyticsRow(
-            employee_id=employee_id, display_name=display_name,
-            status=AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
-            month_data=month_data_only, quarter_months=(), warnings=(warning,),
-        )
 
+def _quarter_row(
+    employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
+    targets: dict[date, int], assignments, availability, calendar_days, month_data_only: AnalyticsMonthData,
+) -> EmployeeAnalyticsRow:
+    """Full-quarter attempt, only reached once the requested month is
+    already known computable and every quarter month has a target_hours
+    entry (section 10.3/10.4)."""
     running_balance = 0
     quarter_rows = []
     for quarter_month in quarter_months_list:
@@ -131,10 +105,9 @@ def _row_for_employee(
                 f"quarter analytics unavailable for employee '{employee_id}', "
                 f"month {quarter_month.isoformat()}: {exc}"
             )
-            return EmployeeAnalyticsRow(
-                employee_id=employee_id, display_name=display_name,
-                status=AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
-                month_data=month_data_only, quarter_months=(), warnings=(warning,),
+            return _degraded_row(
+                employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
+                month_data_only, warning,
             )
         running_balance = wb.quarter_balance
         quarter_rows.append(wb)
@@ -144,6 +117,45 @@ def _row_for_employee(
     return EmployeeAnalyticsRow(
         employee_id=employee_id, display_name=display_name, status=AnalyticsDataStatus.AVAILABLE,
         month_data=quarter_months_tuple[requested_index], quarter_months=quarter_months_tuple, warnings=(),
+    )
+
+
+def _row_for_employee(
+    employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
+    targets: dict[date, int], assignments, availability, calendar_days,
+) -> EmployeeAnalyticsRow:
+    requested_target = targets.get(month)
+    if requested_target is None:
+        warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: missing target_hours"
+        return _degraded_row(employee_id, display_name, AnalyticsDataStatus.UNAVAILABLE, None, warning)
+
+    try:
+        month_only = compute_month_balance(
+            employee_id, month, requested_target, assignments, availability,
+            quarter_balance_before=0, calendar_days=calendar_days,
+        )
+    except IncompleteAbsenceCalendarError as exc:
+        warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: {exc}"
+        return _degraded_row(employee_id, display_name, AnalyticsDataStatus.UNAVAILABLE, None, warning)
+
+    month_data_only = AnalyticsMonthData(
+        month=month, target_hours=requested_target,
+        effective_target_hours=month_only.planned_hours + month_only.realized_hours - month_only.month_balance,
+        planned_hours=month_only.planned_hours, realized_hours=month_only.realized_hours,
+        month_balance=month_only.month_balance, quarter_balance=None, unresolved_carryover=None,
+    )
+
+    missing_month = next((m for m in quarter_months_list if m not in targets), None)
+    if missing_month is not None:
+        warning = f"quarter analytics unavailable for employee '{employee_id}': missing target_hours for {missing_month.isoformat()}"
+        return _degraded_row(
+            employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
+            month_data_only, warning,
+        )
+
+    return _quarter_row(
+        employee_id, display_name, month, quarter_months_list, targets, assignments, availability,
+        calendar_days, month_data_only,
     )
 
 
