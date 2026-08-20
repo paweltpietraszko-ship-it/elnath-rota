@@ -200,17 +200,14 @@ def bootstrap_or_resume_coordinator_context(
     association activation stays its own separate transaction."""
     if _has_full_active_context(conn, coordinator_id=coordinator_id, site_id=site_id):
         raise CoordinatorContextAlreadyActive(
-            f"({coordinator_id!r}, {site_id!r}) already has an active context; "
-            "use the T009 authorized edit operations instead"
+            f"({coordinator_id!r}, {site_id!r}) already has an active context; use the T009 authorized edit operations instead"
         )
     if coordinator is not None:
         _require_id_match("coordinator.coordinator_id", (coordinator.coordinator_id,), (coordinator_id,))
     if site is not None:
         _require_id_match("site.site_id", (site.site_id,), (site_id,))
-
     recorded_at = datetime.now()
     material, before_profile, before_site = _material_config_change(conn, site_id=site_id, site_profile=site_profile, site=site)
-
     with conn:
         if coordinator is not None:
             write_coordinator_in_open_transaction(conn, coordinator)
