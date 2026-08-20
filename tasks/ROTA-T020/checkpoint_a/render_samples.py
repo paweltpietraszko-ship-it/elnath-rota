@@ -227,37 +227,43 @@ def absence_hours(row: list[str], legend: dict[str, "int | None"], letter: str) 
 # ---------------------------------------------------------------------------
 
 def draw_header(c: canvas.Canvas, *, site_id: str, date_from: dt.date, date_to: dt.date, revision: str, y: float) -> float:
-    c.setFont(FONT_BOLD, 16)
+    c.setFont(FONT_BOLD, 18)
     c.drawString(MARGIN, y, "ELNATH ROTA — wydruk grafiku (CHECKPOINT A, PROTOTYP)")
-    y -= 20
-    c.setFont(FONT, 10)
+    y -= 22
+    c.setFont(FONT, 11.5)
     c.drawString(MARGIN, y, f"Firma: ELNATH DEMO      Obiekt: {site_id}      Okres: Sierpień 2026 — DEMO")
-    y -= 13
+    y -= 15
     c.drawString(MARGIN, y, f"Zakres dat: {date_from.isoformat()} — {date_to.isoformat()}")
-    y -= 13
+    y -= 15
     c.drawString(MARGIN, y, f"Schedule provenance: DEMO-SV-LINEAGE-{site_id}-0001      {revision}")
-    y -= 13
+    y -= 15
+    c.setFont(FONT, 9.5)
     c.setFillColor(HexColor("#555555"))
     c.drawString(MARGIN, y, f"Wygenerowano: {dt.datetime.now().isoformat(timespec='seconds')}  —  dane wyłącznie demonstracyjne, nie z bazy Roty")
     c.setFillColor(black)
-    return y - 16
+    return y - 17
 
 
 def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee], legend: dict[str, "int | None"], top_y: float) -> float:
-    name_w = 108.0
-    sum_w = 40.0
+    # Owner correction 2026-08-20: readability for older/low-vision users
+    # comes first, and the schedule grid itself (not the legend) is what
+    # gets read every day -- so the grid gets the generous dimensions and
+    # the largest type on the page; nothing below was picked to save
+    # space, this A3 sheet has plenty to spare.
+    name_w = 130.0
+    sum_w = 48.0
     n_days = len(days)
     day_w = (PAGE_W - 2 * MARGIN - name_w - 4 * sum_w) / n_days
 
     dow_labels = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
-    header_h1, header_h2 = 13.0, 15.0
-    row_h = 13.0
+    header_h1, header_h2 = 16.0, 19.0
+    row_h = 19.0
 
     x0 = MARGIN
     y = top_y
 
     # header row 1: day-of-week
-    c.setFont(FONT, 7)
+    c.setFont(FONT, 9.5)
     x = x0 + name_w
     for d in days:
         weekend = d.weekday() >= 5
@@ -265,19 +271,19 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
             c.setFillColor(HexColor("#e2e2e2"))
             c.rect(x, y - header_h1 - header_h2, day_w, header_h1 + header_h2, stroke=0, fill=1)
             c.setFillColor(black)
-        c.drawCentredString(x + day_w / 2, y - header_h1 + 3, dow_labels[d.weekday()])
+        c.drawCentredString(x + day_w / 2, y - header_h1 + 4, dow_labels[d.weekday()])
         x += day_w
     y -= header_h1
 
     # header row 2: day-of-month + summary column labels
-    c.setFont(FONT_BOLD, 8)
+    c.setFont(FONT_BOLD, 11)
     x = x0 + name_w
     for d in days:
-        c.drawCentredString(x + day_w / 2, y - header_h2 + 4, str(d.day))
+        c.drawCentredString(x + day_w / 2, y - header_h2 + 5, str(d.day))
         x += day_w
-    c.setFont(FONT_BOLD, 6.5)
+    c.setFont(FONT_BOLD, 8.5)
     for label in ("Plan g.", "Wyk. g.", "Urlop g.", "L4 g."):
-        c.drawCentredString(x + sum_w / 2, y - header_h2 + 4, label)
+        c.drawCentredString(x + sum_w / 2, y - header_h2 + 5, label)
         x += sum_w
     y -= header_h2
 
@@ -295,12 +301,12 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
             ("WYK", emp.wyk, ["", f"{wyk_h}", f"{urlop_h}", f"{l4_h}"]),
         ):
             x = x0
-            c.setFont(FONT, 6.5)
+            c.setFont(FONT, 8.5)
             label_text = emp.name if sub_label == "PLAN" else ""
-            c.drawString(x + 3, y - row_h + 3.5, label_text)
-            c.setFont(FONT_ITALIC, 5.5)
+            c.drawString(x + 4, y - row_h + 5, label_text)
+            c.setFont(FONT_ITALIC, 7)
             c.setFillColor(HexColor("#777777"))
-            c.drawRightString(x + name_w - 3, y - row_h + 3.5, sub_label)
+            c.drawRightString(x + name_w - 4, y - row_h + 5, sub_label)
             c.setFillColor(black)
             x += name_w
 
@@ -330,15 +336,15 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
                     c.rect(x + 1.5, y - row_h + 1.5, day_w - 3, row_h - 3, stroke=1, fill=0)
                     c.setDash()
                 c.setFillColor(TEXT[fam])
-                c.setFont(FONT_BOLD if fam != "off" else FONT, 6)
+                c.setFont(FONT_BOLD if fam != "off" else FONT, 8.5)
                 label = "" if code == "–" or code.endswith("~") else code
-                c.drawCentredString(x + day_w / 2, y - row_h + 3.5, label)
+                c.drawCentredString(x + day_w / 2, y - row_h + 5, label)
                 c.setFillColor(black)
                 x += day_w
 
             for val in extra:
-                c.setFont(FONT, 6.5)
-                c.drawCentredString(x + sum_w / 2, y - row_h + 3.5, val)
+                c.setFont(FONT, 8.5)
+                c.drawCentredString(x + sum_w / 2, y - row_h + 5, val)
                 x += sum_w
             y -= row_h
 
@@ -355,17 +361,21 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
 
 
 def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots: set[str], show_24_code: bool, y: float) -> float:
-    c.setFont(FONT_BOLD, 9)
+    # Owner correction 2026-08-20: the grid, not the legend, must dominate
+    # the page and carry the largest type -- the legend grows too (still
+    # readable for older/low-vision users) but stays visually secondary
+    # and compact relative to the now much larger schedule grid above it.
+    c.setFont(FONT_BOLD, 11)
     c.drawString(MARGIN, y, "Legenda — tabela wartości godzinowych (wartości właściciela, nie normalizowane)")
-    y -= 14
+    y -= 17
 
     col_w = (PAGE_W - 2 * MARGIN) / 4
-    c.setFont(FONT_BOLD, 7.5)
+    c.setFont(FONT_BOLD, 9.5)
     for i, letter in enumerate("DNUC"):
         c.drawString(MARGIN + i * col_w, y, LETTER_LABELS[letter])
-    y -= 12
+    y -= 14
 
-    c.setFont(FONT, 7.5)
+    c.setFont(FONT, 9.5)
     for slot in "12345":
         for i, letter in enumerate(("D", "N", "U", "C")):
             code = f"{letter}{slot}"
@@ -377,27 +387,27 @@ def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots
             else:
                 text = f"{code} = {value}h"
             c.drawString(MARGIN + i * col_w, y, text)
-        y -= 11
+        y -= 13
 
     if show_24_code:
-        c.setFont(FONT, 7.5)
+        c.setFont(FONT, 9.5)
         c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia (konwencja demo)")
-        y -= 11
+        y -= 13
 
-    y -= 4
-    c.setFont(FONT_ITALIC, 7)
+    y -= 5
+    c.setFont(FONT_ITALIC, 8.5)
     c.drawString(
         MARGIN, y,
         "Rezerwa = zdefiniowany slot bez przypisanej wartości, nie usunięty kod. "
         "Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h).",
     )
-    y -= 11
+    y -= 13
     c.drawString(
         MARGIN, y,
         "Wyszarzone pole urlopu bez symbolu = dzień w ciągłym okresie nieobecności "
         "(np. weekend w środku urlopu), który nie wymaga osobnej wartości godzinowej.",
     )
-    y -= 11
+    y -= 13
     c.drawString(
         MARGIN, y,
         "Druk czarno-biały: D/N/24 rozróżnia gęstość wypełnienia (jasne → ciemne), "
@@ -407,7 +417,7 @@ def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots
 
 
 def draw_footer(c: canvas.Canvas, y: float) -> None:
-    c.setFont(FONT_ITALIC, 6.5)
+    c.setFont(FONT_ITALIC, 8.5)
     c.setFillColor(HexColor("#777777"))
     c.drawString(
         MARGIN, y,
