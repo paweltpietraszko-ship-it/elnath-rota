@@ -1,6 +1,6 @@
 # ROTA-T020 — printable schedule PDF — CHECKPOINT B master brief
 
-STATUS: ARCHITECT PREIMPLEMENTATION ACCEPTED — READY FOR CC IMPLEMENTATION
+STATUS: ARCHITECT PREIMPLEMENTATION ACCEPTED — IMPLEMENTATION IN PROGRESS — R6 LINKAGE NARROWING BINDING
 DATE: 2026-08-20
 TASK_ID: ROTA-T020
 BASE_BRANCH: main
@@ -11,6 +11,7 @@ OWNER_SOURCE: arch/T020_schedule_export_architect_brief.md
 FULL_B_CONTRACT: tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md
 R5_AMENDMENT: tasks/ROTA-T020/CHECKPOINT_B_R5_AMENDMENT.md
 R6_AMENDMENT: tasks/ROTA-T020/CHECKPOINT_B_R6_AMENDMENT.md
+R6_LINKAGE_NARROWING: tasks/ROTA-T020/CHECKPOINT_B_R6_LINKAGE_NARROWING_AMENDMENT.md
 SCOPE_AMENDMENT_01: tasks/ROTA-T020/CHECKPOINT_B_SCOPE_AMENDMENT_01.md
 SCOPE_AMENDMENT_02: tasks/ROTA-T020/CHECKPOINT_B_SCOPE_AMENDMENT_02.md
 R5_AUDIT_COMMIT: 891013d3ccecf8fdbe8a5772d17be4fdb21ac111
@@ -36,22 +37,23 @@ The normative implementation contract is `tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.
 3. `CHECKPOINT_A_ACCEPTANCE.md` and exact accepted PDF artifacts;
 4. authoritative correction `CHECKPOINT_B_OWNER_DECISIONS_05.md`;
 5. preserved row-population rule in `CHECKPOINT_B_OWNER_DECISIONS_02.md` section 1;
-6. `CHECKPOINT_B_SCOPE_AMENDMENT_02.md` solely for the second mechanical T019b latest-schema migration-oracle correction;
-7. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` solely for the mechanical schema-version assertion scope extension;
-8. `CHECKPOINT_B_R6_AMENDMENT.md` for the Round-6 closure of remaining R5-1/R5-3/R5-4 findings;
-9. `CHECKPOINT_B_R5_AMENDMENT.md` for R5 refinements not superseded by R6;
-10. `CHECKPOINT_B_CONTRACT.md` for the remaining technical architecture and testable implementation details.
+6. `CHECKPOINT_B_R6_LINKAGE_NARROWING_AMENDMENT.md` solely for the R6 Section 5 emergency cross-month/cross-year responsibility boundary and corrected T20-41 oracle;
+7. `CHECKPOINT_B_SCOPE_AMENDMENT_02.md` solely for the second mechanical T019b latest-schema migration-oracle correction;
+8. `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` solely for the mechanical schema-version assertion scope extension;
+9. `CHECKPOINT_B_R6_AMENDMENT.md` for the Round-6 closure of remaining R5-1/R5-3/R5-4 findings except where narrowed by item 6;
+10. `CHECKPOINT_B_R5_AMENDMENT.md` for R5 refinements not superseded by R6/later narrowing;
+11. `CHECKPOINT_B_CONTRACT.md` for the remaining technical architecture and testable implementation details.
 
 `CHECKPOINT_B_OWNER_DECISIONS_03.md` and `_04.md` are superseded. The old absence-allocation interpretation in `_01.md` is superseded by `_05.md`. `ARCHITECT_PLANNING_GAP_01.md` is withdrawn as a blocker. Round 4 remains historical implementation evidence only.
 
-Round 5 found R5-1..R5-4. Round 6 closed R5-2 but correctly found that R5-1 still had one contradictory settings oracle and R5-3/R5-4 still lacked existing T012 cross-month/cross-year 24h semantics/evidence. `CHECKPOINT_B_R6_AMENDMENT.md` answered exactly those remaining findings. Round 7 independently returned `PASS — REMAINING R5 FINDINGS CLOSED — READY_FOR_IMPLEMENTATION` at audit commit `1e02f66e00a48cf7b95de41b6d920900e83d036c`.
+Round 5 found R5-1..R5-4. Round 6/7 closed them for preimplementation. During implementation review, the architect then narrowed R6 Section 5 because re-validating T012 emergency WorkPeriod legality inside the exporter would duplicate canonical planning/validator logic. The linkage narrowing changes no product behavior: it removes duplicate validation responsibility from T020 and leaves only adjacent persisted `(employee_id, work_period_id)` linkage plus lineage/provenance handling.
 
-After architect acceptance, implementation discovered two purely mechanical scope consequences of migration 7:
+After architect acceptance, implementation also discovered two purely mechanical scope consequences of migration 7:
 
 - `CHECKPOINT_B_SCOPE_AMENDMENT_01.md` authorizes the exact `LATEST_SCHEMA_VERSION == 6` -> `== 7` updates in `tests/test_t012.py` and `tests/test_t019b.py`;
 - `CHECKPOINT_B_SCOPE_AMENDMENT_02.md` additionally corrects the existing T019b public-`connect()` latest-schema migration oracle so its name no longer claims v6/three tables and its expected post-v5 table delta includes the T020 `site_print_settings` table.
 
-Neither amendment changes product behavior or reopens a preimplementation finding.
+These amendments do not change owner product behavior or reopen the completed preimplementation product gate.
 
 ## 2. NON-NEGOTIABLE PRODUCT BOUNDARY
 
@@ -93,11 +95,23 @@ Existing files modified are limited to persistence/schema/settings support, the 
 
 No new repository module, no export-history table, no second schedule model and no generic settings subsystem are authorized.
 
+### 4.1 No duplicate T012 emergency validator in export
+
+For R6 Section 5 cross-month/cross-year emergency presentation, `schedule_export.py` must trust already-validated persisted WorkPeriod provenance and check only unambiguous adjacent `(employee_id, work_period_id)` linkage from effective CURRENT truth.
+
+T020 must not duplicate T012 checks for D/N kind, H12 classification, gap/overlap/contiguity, emergency rest snapshot or terminal rest equality, and must not contain an exporter-owned equivalent of `check_emergency_pair_structure()`.
+
+Outgoing exact linkage -> one `24` on the start side. Incoming exact linkage -> continuation suppressed. No match / different work_period_id / different Employee -> no linkage, ordinary work. Ambiguous or referentially incomplete linkage remains fail-closed. Adjacent lineage corruption remains `PROVENANCE_INCOMPLETE`.
+
+Adjacent facts actually used to decide collapse/suppression remain part of revision/provenance because they affect visible content.
+
+R6 T20-41 is superseded by the exporter-linkage responsibility matrix in `CHECKPOINT_B_R6_LINKAGE_NARROWING_AMENDMENT.md`. T20-39/T20-40 remain without re-testing T012 structural legality.
+
 ## 5. PREIMPLEMENTATION GATE — CLOSED
 
-Independent audit sequence is complete.
+Independent preimplementation audit sequence is complete.
 
-Final independent audit:
+Final independent preimplementation audit:
 
 - audited contract HEAD: `71383665d06aed02ce32e452b7a9f85ad9c9559b`;
 - audit commit: `1e02f66e00a48cf7b95de41b6d920900e83d036c`;
@@ -109,19 +123,21 @@ Final independent audit:
 
 Architect final preimplementation acceptance is recorded separately in `CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md`.
 
-The later Scope Amendments 01 and 02 are mechanical only and do not reopen the preimplementation audit.
+The later scope amendments and R6 linkage narrowing are implementation-time architecture corrections and do not reopen the product gate.
 
-**CC MAY START / CONTINUE CHECKPOINT B IMPLEMENTATION ONLY FROM THE FINAL AMENDED BRANCH HEAD AND ONLY INSIDE TASK_SCOPE AND THE PER-FILE RESTRICTIONS BELOW.**
+**CC MAY CONTINUE CHECKPOINT B IMPLEMENTATION ONLY INSIDE TASK_SCOPE, THE PER-FILE RESTRICTIONS BELOW, AND THE R6 LINKAGE NARROWING.**
 
-This is authorization to implement the frozen contract, not permission to redesign product behavior.
+This is authorization to implement/correct the frozen contract, not permission to redesign product behavior.
 
 ## 6. IMPLEMENTATION BACKEND BASE
 
-Because no implementation commit existed on the remote task branch when Scope Amendments 01 and 02 were recorded, the backend implementation `before_sha` is the exact branch HEAD after Scope Amendment 02 and this `brief.md` update are committed.
+The implementation backend/diff base remains the exact amended preimplementation/scope HEAD recorded before the first production implementation commit:
 
-That final amended HEAD supersedes the earlier acceptance/amendment SHAs only as the mechanical implementation diff base. The product/architecture acceptance itself remains unchanged.
+`c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2`
 
-CC must record that exact `before_sha` before the first production implementation commit.
+The later R6 linkage narrowing was recorded after implementation had begun and therefore does NOT reset or replace this mechanical `before_sha`.
+
+Implementation and subsequent audit diffs must continue to be measured from `c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2`.
 
 ## 7. FORBIDDEN IMPLEMENTATION PATHS
 
@@ -130,6 +146,8 @@ The following remain explicitly out of implementation scope:
 `rota/planning/**`, `rota/balance.py`, `rota/domain.py`, `rota/persistence/schedule_lifecycle.py`, `arch/spec.md`, `arch/FROZEN.lock`, `Grafiki/**`, Checkpoint A PDFs/renderer.
 
 Any implementation-discovered need to change one of these requires an architect amendment before CC touches it.
+
+In particular, T020 must not modify T012/planning production code merely to support export linkage. The existing planning validator remains canonical.
 
 ## 8. CANONICAL IMPLEMENTATION TASK_SCOPE
 
