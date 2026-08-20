@@ -317,14 +317,16 @@ def test_12_sick_leave_weekend_holiday_workday_only(tmp_path) -> None:
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
+    # 2026-08-03 is a Monday (workday) INSIDE the absence range, marked as a
+    # holiday: must be excluded from the qualifying-workday count, not just
+    # the weekend edges (T019-R3-4).
     for d in range(1, 32):
-        save_calendar_day(conn, CalendarDay(date(2026, 8, d), holiday=(d == 15)))
-    # Sat 2026-08-01, Sun 08-02, workdays 08-03..08-06, holiday 08-15 (Sat anyway); use 08-03..08-07 (Mon-Fri) incl weekend edges 08-01,08-02,08-08,08-09
+        save_calendar_day(conn, CalendarDay(date(2026, 8, d), holiday=(d == 3)))
     _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 8, 1), end=date(2026, 8, 9))
     view = analytics_for_site_month(conn, site_id=SITE, month=AUG)
     md = view.rows[0].month_data
-    # 2026-08-01=Sat,02=Sun,03..07=Mon-Fri(5 workdays),08=Sat,09=Sun -> 5 qualifying workdays
-    assert md.effective_target_hours == 100 - 8 * 5
+    # 01=Sat,02=Sun,03=Mon(holiday, excluded),04..07=Tue-Fri(4 workdays),08=Sat,09=Sun -> 4 qualifying workdays
+    assert md.effective_target_hours == 100 - 8 * 4
 
 
 def test_13_leave_granted_weekend_holiday_same_semantics(tmp_path) -> None:
@@ -332,12 +334,13 @@ def test_13_leave_granted_weekend_holiday_same_semantics(tmp_path) -> None:
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
+    # Same weekday-holiday-inside-absence oracle as test_12, for LEAVE_GRANTED.
     for d in range(1, 32):
-        save_calendar_day(conn, CalendarDay(date(2026, 8, d), holiday=False))
+        save_calendar_day(conn, CalendarDay(date(2026, 8, d), holiday=(d == 3)))
     _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.LEAVE_GRANTED, start=date(2026, 8, 1), end=date(2026, 8, 9))
     view = analytics_for_site_month(conn, site_id=SITE, month=AUG)
     md = view.rows[0].month_data
-    assert md.effective_target_hours == 100 - 8 * 5
+    assert md.effective_target_hours == 100 - 8 * 4
 
 
 def test_14_effective_target_algebra_holds(tmp_path) -> None:
@@ -390,11 +393,17 @@ def test_18_external_support_never_gets_a_row(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A, kind=MembershipKind.EXTERNAL_SUPPORT)
+    _seed_month(conn, site_id=SITE, month=AUG, entries=[(EMP_A, 1, 40)])
+
+    # T019-R3-3: the no-window variant must actually run, not just the
+    # with-window one -- assert it BEFORE any ExternalSupportWindow exists.
+    view_no_window = analytics_for_site_month(conn, site_id=SITE, month=AUG)
+    assert view_no_window.rows == ()
+
     add_external_support_window(
         conn, coordinator_id=COORD, site_id=SITE,
         window=ExternalSupportWindow("WIN-1", EMP_A, SITE, datetime(2026, 8, 1), datetime(2026, 8, 31), True, None),
     )
-    _seed_month(conn, site_id=SITE, month=AUG, entries=[(EMP_A, 1, 40)])
     view_no_local = analytics_for_site_month(conn, site_id=SITE, month=AUG)
     assert view_no_local.rows == ()
 

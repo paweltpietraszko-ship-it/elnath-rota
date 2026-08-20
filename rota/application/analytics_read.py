@@ -12,14 +12,14 @@ from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Optional
 
-from rota.balance import compute_month_balance, quarter_start
+from rota.balance import compute_month_balance, compute_quarter_balance, quarter_start
 from rota.domain import MembershipKind
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
 from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.employee_repository import list_employees, list_memberships_for_site
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
 from rota.persistence.work_balance_repository import list_work_balance_targets_for_employees
-from rota.planning.absence import IncompleteAbsenceCalendarError
+from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
 
 
 class AnalyticsDataStatus(str, Enum):
@@ -85,34 +85,43 @@ def _degraded_row(employee_id, display_name, status, month_data, warning) -> Emp
     )
 
 
+def _first_blocking_quarter_month(quarter_months_list: list[date], availability, calendar_days):
+    """Attribution-only pass over the same shared absence.py primitive
+    compute_month_balance already calls internally -- never recomputes
+    hours/balance. Used solely to name which quarter month blocks the
+    warning text (T019-R3-2: the balance itself stays fully delegated to
+    rota.balance.compute_quarter_balance)."""
+    for quarter_month in quarter_months_list:
+        try:
+            excused_absence_days_in_month(availability, quarter_month, calendar_days=calendar_days)
+        except IncompleteAbsenceCalendarError as exc:
+            return quarter_month, str(exc)
+    return quarter_months_list[0], ""
+
+
 def _quarter_row(
     employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
     targets: dict[date, int], assignments, availability, calendar_days, month_data_only: AnalyticsMonthData,
 ) -> EmployeeAnalyticsRow:
     """Full-quarter attempt, only reached once the requested month is
     already known computable and every quarter month has a target_hours
-    entry (section 10.3/10.4)."""
-    running_balance = 0
-    quarter_rows = []
-    for quarter_month in quarter_months_list:
-        try:
-            wb = compute_month_balance(
-                employee_id, quarter_month, targets[quarter_month], assignments, availability,
-                running_balance, calendar_days=calendar_days,
-            )
-        except IncompleteAbsenceCalendarError as exc:
-            warning = (
-                f"quarter analytics unavailable for employee '{employee_id}', "
-                f"month {quarter_month.isoformat()}: {exc}"
-            )
-            return _degraded_row(
-                employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
-                month_data_only, warning,
-            )
-        running_balance = wb.quarter_balance
-        quarter_rows.append(wb)
+    entry (section 10.3/10.4). Delegates the entire running-balance
+    computation to the canonical rota.balance.compute_quarter_balance."""
+    target_by_month = {quarter_month: targets[quarter_month] for quarter_month in quarter_months_list}
+    try:
+        quarter_balances = compute_quarter_balance(
+            employee_id, quarter_months_list[0], target_by_month, assignments, availability,
+            calendar_days=calendar_days,
+        )
+    except IncompleteAbsenceCalendarError:
+        blocking_month, error_text = _first_blocking_quarter_month(quarter_months_list, availability, calendar_days)
+        warning = f"quarter analytics unavailable for employee '{employee_id}', month {blocking_month.isoformat()}: {error_text}"
+        return _degraded_row(
+            employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
+            month_data_only, warning,
+        )
 
-    quarter_months_tuple = tuple(_to_analytics_month_data(wb) for wb in quarter_rows)
+    quarter_months_tuple = tuple(_to_analytics_month_data(wb) for wb in quarter_balances)
     requested_index = quarter_months_list.index(month)
     return EmployeeAnalyticsRow(
         employee_id=employee_id, display_name=display_name, status=AnalyticsDataStatus.AVAILABLE,
