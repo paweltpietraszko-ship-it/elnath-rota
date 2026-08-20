@@ -1,0 +1,273 @@
+ROTA-T019b — CODEX PREIMPLEMENTATION AUDIT — ROUND 1
+
+AUDITED_BRANCH: origin/task/T019b
+AUDITED_CONTRACT_SHA: 8c881f6999711dc00434a83f3ec617f95cb11837
+BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
+DATE: 2026-08-20
+
+VERDICT: FAIL — CONTRACT AMENDMENT REQUIRED — NOT READY_FOR_IMPLEMENTATION
+
+SCOPE OF THIS ROUND
+
+Pełny preimplementation audit wymagany przez sekcje 24 i 26 briefu, ze
+szczególnym naciskiem na:
+
+- mechaniczną kompletność operation_audit.md względem wszystkich publicznych,
+  write-capable entry points rota.application.* na BASE_SHA;
+- MATERIAL/NO oraz one-operation/one-action mapping;
+- literalną enumerację legacy callers/tests dla zmian sygnatur, migracji,
+  transakcji, lifecycle hooks, repository siblings i memory_read surface;
+- zgodność TASK_SCOPE z plikami, które rzeczywiście muszą zostać zmienione.
+
+SECTION_CHECK 1 — CONTRACT PROVENANCE / FROZEN BOUNDARY: PASS
+
+- origin/task/T019b wskazuje dokładnie na audytowany SHA.
+- BASE_SHA istnieje i odpowiada post-T019 main.
+- BASE_SHA -> contract SHA zawiera wyłącznie trzy nowe dokumenty:
+  - arch/T019b_decision_guidance_readback_architect_brief.md;
+  - tasks/ROTA-T019b/brief.md;
+  - tasks/ROTA-T019b/operation_audit.md.
+- Nie ma kodu produktu ani testów implementacyjnych.
+- arch/spec.md i arch/FROZEN.lock są nietknięte.
+- git diff --check: PASS.
+- python guard.py check arch/spec.md: PASS.
+- Bazowe Ruff: PASS; pełna bazowa suite: 785/785 PASS.
+
+SECTION_CHECK 2 — MATERIAL/NO PRODUCT CLASSIFICATION: PASS
+
+Klasyfikacja odpowiada zapisanej intencji właściciela:
+
+- current planning inputs oraz jawne schedule lifecycle actions są MATERIAL;
+- display-name/retired metadata/no-op nie tworzą historii materialnej;
+- update_coordinator/update_association są access/identity metadata, nie
+  schedule-content decisions;
+- PLAN i REVALIDATE nie są działaniami człowieka do action journal;
+- końcowy DECISION_REQUIRED jest pytaniem/readbackiem, nie decyzją systemu;
+- backup/store/system migration oraz read-only application modules nie tworzą
+  coordinator-action entries;
+- REST_OVERRIDE_RECORD pozostaje regułowym provenance Decision Ledger, a
+  materialna manual correction pozostaje jednym działaniem.
+
+Nie znaleziono klasyfikacji wymagającej nowej decyzji właściciela.
+
+SECTION_CHECK 3 — OPERATION MATRIX EXHAUSTIVENESS: FAIL
+
+T019b-R1-1 — WRITE-CAPABLE APPLICATION FUNCTION OMITTED
+
+Mechaniczna enumeracja wszystkich modułów rota/application/*.py wykazała jeden
+publicznie nazwany, write-capable function pominięty przez frozen matrix:
+
+  rota.application.training.save_site_membership(conn, membership)
+
+Funkcja wywołuje write_site_membership_in_open_transaction i jest używana jako
+nested transaction hook przez mark_training_realized. Jest również celowo
+module-level test seam, monkeypatchowany w:
+
+- tests/test_audit_t009_r4.py:281;
+- tests/test_audit_t009_r5.py:205.
+
+Nie jest to osobny coordinator-facing command i nie powinien tworzyć własnego
+action row. Jednak pytanie 26.1 wymaga kompletności dla każdego publicznego,
+write-capable operation, a operation_audit.md nie wymienia ani funkcji, ani jej
+jawnej klasyfikacji jako internal/derived NO.
+
+Wąskie zamknięcie: dopisać do operation_audit.md jednoznaczną pozycję/sekcję:
+internal transaction hook/test seam, NO independent action, callable wyłącznie
+w ramach mark_training_realized, istniejący monkeypatch seam zachowany. Nie
+wymaga to nowego action kind ani zmiany produktu.
+
+Pozostałe publiczne write-capable entry points są ujęte. Publiczne funkcje w
+assembler/availability_matrix/balance_read/context/deviation_mapping/
+memory_read/open_month/precheck są read-only albo pure zgodnie z sekcją 3
+operation_audit.md.
+
+SECTION_CHECK 4 — DECISION LEDGER / STORAGE BOUNDARY: PASS
+
+- Decision Ledger pozostaje ownerem SiteRule/DecisionRecord i nie jest
+  przeciążany fikcyjnymi rule chains.
+- Jeden action index, immutable final-DR snapshots i mutable current pointer są
+  spójnym minimalnym modelem dla dwóch odmiennych bytów: działania człowieka i
+  bieżącego pytania.
+- Nowe tabele są history/readback only; kontrakt jawnie zabrania użycia ich w
+  PlanningState, solverze, validatorze i WorkBalance.
+- Brak nowego production module, generic event/command bus, workflow engine lub
+  per-action files.
+
+SECTION_CHECK 5 — EFFECTIVE_FROM / NOTE / EXPLICIT LINK: PASS
+
+- Existing effective-dated facts zachowują istniejące daty.
+- Current-state booleans/configuration dostają recorded_at.date(), bez
+  udawania future-effective wersjonowania.
+- Restore zapisuje datę działania, nie przepisuje historycznej effective_from
+  restored ScheduleVersion.
+- Note jest zawsze opcjonalna; availability.note i finalize.reason są
+  prawidłowo re-używane.
+- responds_to_decision_required_id jest wyłącznie jawny i walidowany przed
+  mutacją; nie ma inferencji czasowej ani inferencji po kolejnym PLAN.
+
+SECTION_CHECK 6 — ONE OPERATION / ATOMICITY / FINAL DR: PASS
+
+- Wrapper kinds dla freeze/NN/training przechodzą przez jedną manual-correction
+  transaction seam bez generic duplicate.
+- Finalize ma jeden action niezależnie od liczby Deviation.
+- REPLAN ma jeden action; PLAN i retry/fallback stages nie mają action rows.
+- Business mutation + action insert + stale-pointer invalidation są wymagane w
+  jednej transakcji dla każdej MATERIAL operation.
+- Final DECISION_REQUIRED jest przechwytywany dopiero po istniejącym finalnym
+  T018/T013 result; FEASIBLE clear i persistence-failure TECHNICAL_ERROR są
+  fail-closed.
+- TECHNICAL_ERROR solvera zachowuje wcześniejszy pointer, a immutable snapshots
+  nigdy nie są kasowane.
+
+SECTION_CHECK 7 — AFFECTED SITES / READ API / T021 BOUNDARY: PASS
+
+- affected_site_ids modeluje shared Employee, global CalendarDay i shared
+  SiteProfile bez duplikowania action rows.
+- Site filter opiera się na affected_site_ids, origin_site_id pozostaje osobnym
+  provenance context.
+- Read API zapewnia list/detail, deterministyczne sortowanie, site/entity/kind/
+  coordinator/date filters, current final-question readback i explicit link.
+- T021 może konsumować DTO wyłącznie przez rota.application.memory_read bez
+  importów persistence/planning oraz bez składania historii z surowego tekstu.
+
+SECTION_CHECK 8 — LEGACY ENUMERATION: SELECT_CANDIDATE: FAIL
+
+T019b-R1-2 — REQUIRED ACTOR ADAPTATIONS ARE OUTSIDE TASK_SCOPE
+
+AST enumeration wykazała 25 istniejących call sites select_candidate. Jedenaście
+już przekazuje coordinator_id. Czternaście wywołań w sześciu plikach korzysta z
+legacy fallbacku i po zaostrzeniu sygnatury musi dostać jawnego aktora:
+
+- tests/test_audit_t009_r4.py:40, 111, 115, 528;
+- tests/test_audit_t009_r5.py:41, 316;
+- tests/test_t009_lifecycle_memory_backup_boundary.py:28, 109;
+- tests/test_t009_manual_edit.py:99;
+- tests/test_t009_plan_select_replan.py:21, 55, 58, 107;
+- tests/test_t010_nn.py:34.
+
+To adaptacje mechaniczne: przekazanie koordynatora już ustanowionego przez
+fixture/context; bez zmiany candidate-selection semantics i bez zmiany oracles.
+
+Żaden z tych sześciu plików nie znajduje się w TASK_SCOPE. Sekcja 24 wprost
+zabrania CC ich edycji bez literalnego amendmentu architekta. Przed implementacją
+wszystkie sześć muszą zostać dopisane do TASK_SCOPE wraz z zamrożeniem wyłącznie
+tej mechanicznej adaptacji.
+
+SECTION_CHECK 9 — LEGACY ENUMERATION: SCHEMA VERSION: FAIL
+
+T019b-R1-3 — EXACT VERSION ASSERTION IS OUTSIDE TASK_SCOPE
+
+tests/test_t012.py:256 zawiera:
+
+  assert ... == LATEST_SCHEMA_VERSION == 5
+
+Migration 6 prawidłowo zmieni wynik na 6, więc test wymaga mechanicznej zmiany
+literalnego 5 -> 6. tests/test_t012.py nie znajduje się w TASK_SCOPE.
+
+tests/test_local_store_schema_migration.py używa symbolicznego
+LATEST_SCHEMA_VERSION i nie wymaga adaptacji; dedykowany test T019b ma osobno
+dowieść v5 -> v6. Wąskie zamknięcie R1-3 to dopisanie tests/test_t012.py do
+TASK_SCOPE z autoryzacją wyłącznie tej jednej liczby. Inne oracles T012 pozostają
+zamknięte.
+
+SECTION_CHECK 10 — LEGACY ENUMERATION: OTHER FIVE CLASSES: PASS
+
+OPTIONAL NOTE / DR LINK SIGNATURES
+
+- Nie ma exact inspect.signature/default/argcount assertions dla mutatorów.
+- tests/test_t011_e_pipeline_e2e_hard_stop.py:273 skanuje parametry pod kątem
+  obchodzenia HARD; note/responds_to_decision_required_id nie spełniają
+  zakazanego wzorca i nie wymagają adaptacji.
+- Wszystkie nowe parametry poza wymaganym select_candidate actor są addytywne.
+
+BOOTSTRAP TRANSACTION COMPOSITION
+
+Existing bootstrap callers występują w dokładnie 12 plikach:
+
+- tests/test_audit_t010_r3.py;
+- tests/test_audit_t010_r4_a.py;
+- tests/test_t010_bootstrap_roster.py;
+- tests/test_t011_a_application_entry_points.py;
+- tests/test_t011_b_context_discovery.py;
+- tests/test_t011_c_site_coordinator_lifecycle.py;
+- tests/test_t011_d_quarter_balance.py;
+- tests/test_t011_e_pipeline_e2e_happy_path.py;
+- tests/test_t011_e_pipeline_e2e_hard_stop.py;
+- tests/test_t017.py;
+- tests/test_t018.py;
+- tests/test_t019.py.
+
+Żaden nie wymaga częściowego commitu wewnątrz jednego failing invocation.
+test_resume_partial_context_without_duplication wymaga wyłącznie zachowania
+resume pomiędzy osobnymi udanymi wywołaniami, co kontrakt zachowuje. Race/CAS
+oracles nie wymagają zmiany sygnatury lub wyniku. LEGACY ADAPTATION: NONE.
+
+SCHEDULE LIFECYCLE HOOKS
+
+- replace_working_snapshot/finalize_schedule_version/restore_schedule_version
+  dostają optional on_success=None; direct callers pozostają kompatybilni.
+- Jedyny odpowiedni lifecycle monkeypatch fake,
+  tests/test_audit_t009_r4.py:240–243, przyjmuje *args/**kwargs.
+- Existing create_schedule_version on_success contract pozostaje bez zmiany.
+- LEGACY ADAPTATION: NONE.
+
+TRANSACTION-NEUTRAL REPOSITORY SIBLINGS
+
+- Kontrakt zachowuje istniejące public repository wrappers i ich transakcje.
+- Nie ma exact repository signature assertions ani fakes wymagających nowego
+  argumentu.
+- training.save_site_membership jest monkeypatchowane w R4/R5; seam musi zostać
+  zachowane zgodnie z R1-1, bez adaptacji tych oracles z tego powodu.
+- LEGACY ADAPTATION: NONE.
+
+MEMORY_READ PUBLIC SURFACE
+
+Existing application memory_read callers/importers:
+
+- tests/test_t009_lifecycle_memory_backup_boundary.py;
+- tests/test_t011_c_site_coordinator_lifecycle.py;
+- tests/test_t011_e_pipeline_e2e_hard_stop.py;
+- tests/test_t018.py.
+
+T019b dodaje nowe DTO/reads i zachowuje stare funkcje; brak __all__/exact surface
+assertion. LEGACY ADAPTATION: NONE.
+
+SECTION_CHECK 11 — NEW FILES / IMPLEMENTABILITY AFTER AMENDMENT: PASS
+
+- Full BASE design ma dokładnie dwa dozwolone nowe non-pipeline files: owner
+  brief i przyszły tests/test_t019b.py.
+- Nie jest potrzebny nowy production module.
+- Findings wymagają wyłącznie uzupełnienia operation audit oraz literalnego
+  dopuszczenia siedmiu istniejących test files; nie wymagają nowej decyzji
+  produktowej ani nowej architektury.
+
+FINDINGS
+
+T019b-R1-1 — FAIL — operation matrix pomija write-capable
+training.save_site_membership; jawnie sklasyfikować internal/derived NO.
+
+T019b-R1-2 — FAIL — sześć plików z czternastoma legacy select_candidate calls
+bez coordinator_id nie znajduje się w TASK_SCOPE.
+
+T019b-R1-3 — FAIL — tests/test_t012.py literalnie oczekuje schema version 5,
+ale nie znajduje się w TASK_SCOPE.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+FAIL — CONTRACT AMENDMENT REQUIRED — NOT READY_FOR_IMPLEMENTATION.
+
+CC nie może rozpocząć implementacji. Round 2 powinien być wąski i sprawdzić
+wyłącznie:
+
+1. zamknięcie klasyfikacji training.save_site_membership;
+2. literalne dodanie sześciu select_candidate test files do TASK_SCOPE z
+   ograniczeniem zmian do coordinator_id;
+3. literalne dodanie tests/test_t012.py z ograniczeniem do wersji 5 -> 6;
+4. brak innych zmian kontraktu, kodu i testów.
+
+Po ich zamknięciu nie ma otwartego pytania właścicielskiego; możliwy wymagany
+werdykt Round 2 to PASS — READY_FOR_IMPLEMENTATION.
