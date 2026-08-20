@@ -297,7 +297,7 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
     return y
 
 
-def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots: set[str], y: float) -> float:
+def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots: set[str], show_24_code: bool, y: float) -> float:
     c.setFont(FONT_BOLD, 9)
     c.drawString(MARGIN, y, "Legenda — tabela wartości godzinowych (wartości właściciela, nie normalizowane)")
     y -= 14
@@ -320,6 +320,11 @@ def draw_legend(c: canvas.Canvas, *, legend: dict[str, "int | None"], demo_slots
             else:
                 text = f"{code} = {value}h"
             c.drawString(MARGIN + i * col_w, y, text)
+        y -= 11
+
+    if show_24_code:
+        c.setFont(FONT, 7.5)
+        c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia (konwencja demo)")
         y -= 11
 
     y -= 4
@@ -350,14 +355,14 @@ def draw_footer(c: canvas.Canvas, y: float) -> None:
     c.setFillColor(black)
 
 
-def render_sample(*, site_id: str, days: list[dt.date], roster: list[Employee], legend: dict[str, "int | None"], demo_slots: set[str], revision: str, out_path: Path) -> None:
+def render_sample(*, site_id: str, days: list[dt.date], roster: list[Employee], legend: dict[str, "int | None"], demo_slots: set[str], show_24_code: bool, revision: str, out_path: Path) -> None:
     c = canvas.Canvas(str(out_path), pagesize=landscape(A3))
     y = PAGE_H - MARGIN
     y = draw_header(c, site_id=site_id, date_from=days[0], date_to=days[-1], revision=revision, y=y)
     y -= 6
     y = draw_table(c, days=days, roster=roster, legend=legend, top_y=y)
     y -= 10
-    y = draw_legend(c, legend=legend, demo_slots=demo_slots, y=y)
+    y = draw_legend(c, legend=legend, demo_slots=demo_slots, show_24_code=show_24_code, y=y)
     draw_footer(c, y - 4)
     c.showPage()
     c.save()
@@ -368,13 +373,13 @@ def main() -> None:
 
     roster_12h = build_roster_12h(days)
     render_sample(
-        site_id="SITE-DEMO-12H", days=days, roster=roster_12h, legend=BASE_LEGEND, demo_slots=set(),
+        site_id="SITE-DEMO-12H", days=days, roster=roster_12h, legend=BASE_LEGEND, demo_slots=set(), show_24_code=False,
         revision="Revision: DEMO-REV-12H-2026-08-20-A", out_path=OUT_DIR / "schedule_12h.pdf",
     )
 
     roster_24h, legend_24h = build_roster_24h(days)
     render_sample(
-        site_id="SITE-DEMO-24H", days=days, roster=roster_24h, legend=legend_24h, demo_slots={"U3", "C3"},
+        site_id="SITE-DEMO-24H", days=days, roster=roster_24h, legend=legend_24h, demo_slots={"U3", "C3"}, show_24_code=True,
         revision="Revision: DEMO-REV-24H-2026-08-20-A", out_path=OUT_DIR / "schedule_24h.pdf",
     )
 
