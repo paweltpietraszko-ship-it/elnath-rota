@@ -1,6 +1,6 @@
 # ROTA-T020 — printable schedule PDF — CHECKPOINT B master brief
 
-STATUS: ARCHITECT PREIMPLEMENTATION ACCEPTED — IMPLEMENTATION IN PROGRESS — R6 LINKAGE NARROWING BINDING
+STATUS: ARCHITECT FINAL GATE ACCEPTED — READY FOR MERGE
 DATE: 2026-08-20
 TASK_ID: ROTA-T020
 BASE_BRANCH: main
@@ -18,7 +18,11 @@ R5_AUDIT_COMMIT: 891013d3ccecf8fdbe8a5772d17be4fdb21ac111
 R6_AUDIT_COMMIT: 501a3c69ee39a1f541a4567aa9c33d3040e83e5a
 FINAL_PREIMPLEMENTATION_AUDIT_COMMIT: 1e02f66e00a48cf7b95de41b6d920900e83d036c
 FINAL_PREIMPLEMENTATION_AUDIT_REPORT: tasks/ROTA-T020/round_01/tests/tests_r7.txt
-ARCHITECT_ACCEPTANCE: tasks/ROTA-T020/CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md
+ARCHITECT_PREIMPLEMENTATION_ACCEPTANCE: tasks/ROTA-T020/CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md
+FINAL_IMPLEMENTATION_PRODUCT_SHA: 6ea9e09b01d66a9b2837571e4f3d67dd4ec47f9d
+FINAL_IMPLEMENTATION_AUDIT_COMMIT: 0cb6c0e93a9bd0443cf184ea3331a5c272c56570
+FINAL_IMPLEMENTATION_AUDIT_REPORT: tasks/ROTA-T020/round_01/tests/tests_r12.txt
+ARCHITECT_FINAL_ACCEPTANCE: tasks/ROTA-T020/CHECKPOINT_B_FINAL_ACCEPTANCE.md
 AUTHORITATIVE_ABSENCE_DECISION: tasks/ROTA-T020/CHECKPOINT_B_OWNER_DECISIONS_05.md
 ROW_POPULATION_DECISION: tasks/ROTA-T020/CHECKPOINT_B_OWNER_DECISIONS_02.md section 1
 CHECKPOINT_A_ACCEPTANCE: tasks/ROTA-T020/CHECKPOINT_A_ACCEPTANCE.md
@@ -54,6 +58,8 @@ After architect acceptance, implementation also discovered two purely mechanical
 - `CHECKPOINT_B_SCOPE_AMENDMENT_02.md` additionally corrects the existing T019b public-`connect()` latest-schema migration oracle so its name no longer claims v6/three tables and its expected post-v5 table delta includes the T020 `site_print_settings` table.
 
 These amendments do not change owner product behavior or reopen the completed preimplementation product gate.
+
+Final implementation audit through Round 12 is complete. Exact product SHA `6ea9e09b01d66a9b2837571e4f3d67dd4ec47f9d` is architect-accepted by `CHECKPOINT_B_FINAL_ACCEPTANCE.md`. No further implementation/audit round is required unless the product SHA changes.
 
 ## 2. NON-NEGOTIABLE PRODUCT BOUNDARY
 
@@ -97,9 +103,9 @@ No new repository module, no export-history table, no second schedule model and 
 
 ### 4.1 No duplicate T012 emergency validator in export
 
-For R6 Section 5 cross-month/cross-year emergency presentation, `schedule_export.py` must trust already-validated persisted WorkPeriod provenance and check only unambiguous adjacent `(employee_id, work_period_id)` linkage from effective CURRENT truth.
+For R6 Section 5 cross-month/cross-year emergency presentation, `schedule_export.py` trusts already-validated persisted WorkPeriod provenance and checks only unambiguous adjacent `(employee_id, work_period_id)` linkage from effective CURRENT truth.
 
-T020 must not duplicate T012 checks for D/N kind, H12 classification, gap/overlap/contiguity, emergency rest snapshot or terminal rest equality, and must not contain an exporter-owned equivalent of `check_emergency_pair_structure()`.
+T020 does not duplicate T012 checks for D/N kind, H12 classification, gap/overlap/contiguity, emergency rest snapshot or terminal rest equality, and does not contain an exporter-owned equivalent of `check_emergency_pair_structure()`.
 
 Outgoing exact linkage -> one `24` on the start side. Incoming exact linkage -> continuation suppressed. No match / different work_period_id / different Employee -> no linkage, ordinary work. Ambiguous or referentially incomplete linkage remains fail-closed. Adjacent lineage corruption remains `PROVENANCE_INCOMPLETE`.
 
@@ -119,17 +125,35 @@ Final independent preimplementation audit:
 - verdict: `PASS — REMAINING R5 FINDINGS CLOSED — READY_FOR_IMPLEMENTATION`;
 - exact-SHA/no-production-diff sanity: PASS;
 - committed T012 cross-boundary mechanics: 5/5 PASS;
-- latest full-suite evidence on the unchanged product/test tree: 845/845 PASS from Round 5.
+- full-suite evidence on the unchanged preimplementation product/test tree: 845/845 PASS from Round 5.
 
-Architect final preimplementation acceptance is recorded separately in `CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md`.
+Architect preimplementation acceptance is recorded in `CHECKPOINT_B_PREIMPLEMENTATION_ACCEPTANCE.md`.
 
-The later scope amendments and R6 linkage narrowing are implementation-time architecture corrections and do not reopen the product gate.
+## 6. IMPLEMENTATION FINAL GATE — CLOSED
 
-**CC MAY CONTINUE CHECKPOINT B IMPLEMENTATION ONLY INSIDE TASK_SCOPE, THE PER-FILE RESTRICTIONS BELOW, AND THE R6 LINKAGE NARROWING.**
+Accepted exact product SHA:
 
-This is authorization to implement/correct the frozen contract, not permission to redesign product behavior.
+`6ea9e09b01d66a9b2837571e4f3d67dd4ec47f9d`
 
-## 6. IMPLEMENTATION BACKEND BASE
+Final independent audit:
+
+- audit commit: `0cb6c0e93a9bd0443cf184ea3331a5c272c56570`;
+- report: `tasks/ROTA-T020/round_01/tests/tests_r12.txt`;
+- verdict: `PASS — R11-1 CLOSED — CHECKPOINT B READY FOR ARCHITECT FINAL GATE`;
+- R11 reproducer: 2/2 PASS;
+- full suite: 888/888 PASS;
+- Ruff / guard / `git diff --check`: PASS;
+- `schedule_export.py`: exactly 600 lines.
+
+The owner-accepted font item is CLOSED and is not reopened by final acceptance.
+
+Architect final acceptance is recorded in `CHECKPOINT_B_FINAL_ACCEPTANCE.md`, including exact mechanical size/diff exceptions for this SHA only.
+
+**ROTA-T020 CHECKPOINT B: PASS — READY FOR MERGE.**
+
+No merge is performed or implied by this brief. Merge to `main` remains an explicit owner action.
+
+## 7. IMPLEMENTATION BACKEND BASE
 
 The implementation backend/diff base remains the exact amended preimplementation/scope HEAD recorded before the first production implementation commit:
 
@@ -137,19 +161,17 @@ The implementation backend/diff base remains the exact amended preimplementation
 
 The later R6 linkage narrowing was recorded after implementation had begun and therefore does NOT reset or replace this mechanical `before_sha`.
 
-Implementation and subsequent audit diffs must continue to be measured from `c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2`.
+Implementation and audit diffs are measured from `c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2`.
 
-## 7. FORBIDDEN IMPLEMENTATION PATHS
+## 8. FORBIDDEN IMPLEMENTATION PATHS
 
-The following remain explicitly out of implementation scope:
+The following remain explicitly out of scope:
 
 `rota/planning/**`, `rota/balance.py`, `rota/domain.py`, `rota/persistence/schedule_lifecycle.py`, `arch/spec.md`, `arch/FROZEN.lock`, `Grafiki/**`, Checkpoint A PDFs/renderer.
 
-Any implementation-discovered need to change one of these requires an architect amendment before CC touches it.
+In particular, T020 does not modify T012/planning production code merely to support export linkage. The existing planning validator remains canonical.
 
-In particular, T020 must not modify T012/planning production code merely to support export linkage. The existing planning validator remains canonical.
-
-## 8. CANONICAL IMPLEMENTATION TASK_SCOPE
+## 9. CANONICAL IMPLEMENTATION TASK_SCOPE
 
 TASK_SCOPE:
 - pyproject.toml
