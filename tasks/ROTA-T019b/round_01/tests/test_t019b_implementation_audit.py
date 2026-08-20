@@ -8,7 +8,7 @@ import sqlite3
 import pytest
 
 import rota.application.bootstrap as bootstrap_module
-from rota.application import lifecycle_ops, manual_edit, memory_read, plan_ops
+from rota.application import lifecycle_ops, manual_edit, memory_read, plan_ops, training
 from rota.application.bootstrap import bootstrap_or_resume_coordinator_context
 from rota.application.durable_inputs import (
     add_external_support_window,
@@ -21,6 +21,8 @@ from rota.application.errors import CoordinatorContextAlreadyActive
 from rota.application.rule_decisions import record_structured_rule_decision
 from rota.domain import (
     AvailabilityKind,
+    AssignmentRole,
+    AssignmentState,
     CalendarDay,
     Coordinator,
     CoordinatorSiteAssociation,
@@ -287,10 +289,23 @@ def test_availability_snapshot_contains_chain_record_identity(tmp_path) -> None:
     assert detail.after_state["supersedes_availability_version_id"] == first.availability_version_id
 
 
-def test_manual_action_snapshot_has_lineage_and_complete_assignment_fact(tmp_path) -> None:
+@pytest.mark.parametrize("mode", ["generic", "freeze", "nn", "training"])
+def test_manual_action_snapshot_has_lineage_and_complete_assignment_fact(tmp_path, mode) -> None:
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     _employee(conn)
+    if mode == "training":
+        update_employee(
+            conn, coordinator_id=COORD, site_id=SITE,
+            employee=Employee("E2", "Trainee", date(2020, 1, 1), None, False),
+        )
+        update_membership(
+            conn, coordinator_id=COORD, site_id=SITE,
+            membership=SiteMembership(
+                "E2", SITE, MembershipKind.LOCAL, True,
+                ReadinessState.NOT_READY, ReadinessSource.DEFAULT,
+            ),
+        )
     _calendar(conn)
     plan = plan_ops.plan_month(
         conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH,
@@ -299,24 +314,48 @@ def test_manual_action_snapshot_has_lineage_and_complete_assignment_fact(tmp_pat
         conn, site_id=SITE, month=MONTH, candidate=plan.candidates[0], coordinator_id=COORD,
     )
     target = get_schedule_snapshot(conn, selected.version_id).assignments[0]
-    child = manual_edit.apply_manual_correction(
-        conn,
-        site_id=SITE,
-        month=MONTH,
-        coordinator_id=COORD,
+    common = dict(
+        conn=conn, site_id=SITE, month=MONTH, coordinator_id=COORD,
         effective_from=MONTH,
-        upsert_assignments=[replace(target, frozen=True)],
     )
+    if mode == "generic":
+        child = manual_edit.apply_manual_correction(
+            **common, upsert_assignments=[replace(target, frozen=True)],
+        )
+        expected_kind = CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION
+    elif mode == "freeze":
+        child = manual_edit.freeze_or_unfreeze(
+            **common, assignment_id=target.assignment_id, frozen=True,
+        )
+        expected_kind = CoordinatorActionKind.ASSIGNMENT_FREEZE_CHANGED
+    elif mode == "nn":
+        child = manual_edit.mark_not_worked(
+            **common, assignment_id=target.assignment_id,
+        )
+        expected_kind = CoordinatorActionKind.ASSIGNMENT_NOT_WORKED
+    else:
+        trainee = replace(
+            target, assignment_id="AUDIT-TRAINEE", employee_id="E2",
+            role=AssignmentRole.TRAINEE, state=AssignmentState.REALIZED,
+            covers_demand_id=None, mentor_primary_assignment_id=target.assignment_id,
+            work_period_id=None, required_rest_after_hours=None,
+        )
+        child = training.mark_training_realized(
+            **common, trainee_assignment=trainee,
+        )
+        expected_kind = CoordinatorActionKind.TRAINING_REALIZED
     action = next(
         action for action in memory_read.material_action_history(conn)
-        if action.action_kind == CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION
+        if action.action_kind == expected_kind
     )
     detail = memory_read.material_action_detail(conn, action_id=action.action_id)
 
     assert detail.before_state["parent_version_id"] == selected.version_id
     assert detail.after_state["child_version_id"] == child.version_id
     fact = detail.after_state["assignments"][0]
-    assert fact["schedule_version_id"] == target.schedule_version_id
+    # The after fact describes what was persisted in the child, not the
+    # caller's parent-owned input object.
+    assert fact["schedule_version_id"] == child.version_id
     assert "mentor_primary_assignment_id" in fact
     assert fact["required_rest_after_hours"] == target.required_rest_after_hours
 
