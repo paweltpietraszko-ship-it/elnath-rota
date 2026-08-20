@@ -129,16 +129,12 @@ def create_schedule_version(
     a caller that must combine this write with exactly one other write (e.g.
     training.mark_training_realized's readiness update) so both commit or
     roll back together -- nested `with conn:` calls each commit
-    independently in Python's sqlite3 module, so composing two already-
-    wrapped writes cannot achieve this by nesting alone. Not a general
-    workflow mechanism: at most one hook, called only on the success path,
-    inside the same transaction as everything above.
+    independently. At most one hook, called only on the success path.
 
     pre_check (ROTA-T019b): an optional same-transaction hook called FIRST,
-    before any read/write below -- for a caller that must validate an
-    explicit DECISION_REQUIRED link is still current inside the exact same
-    isolated transaction as the write it may end up gating (brief.md
-    section 10: no TOCTOU window between the check and the mutation)."""
+    before any read/write below -- for a caller validating an explicit
+    DECISION_REQUIRED link is still current inside the exact same isolated
+    transaction as the write it may gate (no TOCTOU window)."""
     with conn:
         if pre_check is not None:
             pre_check(conn)
