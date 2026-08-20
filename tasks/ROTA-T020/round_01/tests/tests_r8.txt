@@ -1,0 +1,303 @@
+IMPLEMENTATION AUDIT - ROTA-T020 CHECKPOINT B - ROUND 8
+
+DATE: 2026-08-20
+AUDITOR: Codex
+BRANCH: arch/rota-t020-schedule-export-2026-08-20
+CONTRACT_BEFORE_SHA: c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2
+AUDITED_PRODUCT_SHA: 5445b233bce463f1c78fcd1dd95feab2670a01b9
+EVIDENCE: tasks/ROTA-T020/round_01/tests/test_t020_implementation_audit.py
+
+FINAL RESULT
+
+FAIL - CHECKPOINT B CONTRACT NOT SATISFIED - NOT READY FOR ARCHITECT FINAL GATE
+
+The existing suite is green, but the mandatory T020 matrix is only a
+representative subset and misses the classes in which the implementation
+violates the frozen contract.  The independent seven-case audit matrix fails
+7/7.  In the pinned production environment the public entry point cannot
+produce any PDF at all because its selected font lacks the required Polish
+glyphs.  After isolating that font failure, the renderer is also materially
+different from the accepted Checkpoint A PDF.
+
+SECTION_CHECK 1 - EXACT SHA, DIFF AND TASK SCOPE - PASS
+
+The audited commit is exactly:
+
+5445b233bce463f1c78fcd1dd95feab2670a01b9
+
+The implementation diff against the canonical before SHA contains exactly:
+
+- pyproject.toml;
+- new rota/application/schedule_export.py;
+- rota/persistence/db.py;
+- rota/persistence/employee_repository.py;
+- rota/persistence/site_repository.py;
+- tests/test_t012.py;
+- tests/test_t019b.py;
+- new tests/test_t020.py.
+
+The two legacy files contain only the changes authorized by Scope Amendments
+01 and 02: schema 6 -> 7 in both files, and in test_t019b.py the exact rename
+plus site_print_settings in the expected migration table set.  Forbidden
+production paths, arch/spec.md, arch/FROZEN.lock, Grafiki/** and accepted
+Checkpoint A artifacts are unchanged.  git diff --check: PASS.
+
+Before writing this report, tests_r8.txt did not exist.
+
+SECTION_CHECK 2 - REGRESSION AND MECHANICAL CHECKS - PARTIAL PASS / DECISIONS REMAIN
+
+Commands executed on the exact product SHA:
+
+- full suite: 871/871 PASS in 85.45 s;
+- tests/test_t020.py: 26/26 PASS;
+- Ruff on the complete implementation scope: PASS;
+- guard.py check arch/spec.md: PASS, frozen SHA unchanged;
+- git diff --check: PASS.
+
+backend.py with the canonical before SHA reports:
+
+STATUS: FAIL
+REASON:
+  - SIZE_FILE: tests/test_t012.py has 1701 lines (max 600)
+  - SIZE_FILE: tests/test_t019b.py has 899 lines (max 600)
+WYMAGA_DECYZJI:
+  - RATIO: 1193/6 = 198.8:1
+  - TOTAL_LINES: 1199
+
+The legacy-file sizes and metrics require their own exact-SHA architect
+decision.  They are not treated below as product defects and are not the
+basis of this implementation FAIL.
+
+SECTION_CHECK 3 - PRODUCTION PDF AND UNICODE FONT - FAIL
+
+Trace:
+
+- CHECKPOINT_B_CONTRACT.md 4 and T20-03/T20-04 require the pinned production
+  ReportLab import to produce READY PDF bytes and resolve a path-independent
+  Unicode TTF that renders Polish diacritics;
+- schedule_export.py:495-507 selects Vera.ttf/VeraBd.ttf/VeraIt.ttf from the
+  installed reportlab package and rejects the font when required glyphs are
+  missing;
+- generate_schedule_pdf catches that as PRINT_FONT_UNAVAILABLE.
+
+On reportlab==5.0.1 installed from the production dependency, Bitstream Vera
+does not contain the required Polish Latin Extended glyph set.  A real call to
+generate_schedule_pdf therefore returns PRINT_FONT_UNAVAILABLE, not
+ExportReady.  The shipped test at tests/test_t020.py:130-141 explicitly accepts
+either READY or PRINT_FONT_UNAVAILABLE, so it is vacuous against the required
+production-success oracle.
+
+Independent reproducer:
+
+test_audit_pinned_production_reportlab_can_render_ready_pdf - FAIL;
+actual result: ExportProblem(PRINT_FONT_UNAVAILABLE).
+
+T020-R8-1 - PRODUCT FONT PATH CANNOT GENERATE THE REQUIRED PDF
+
+SECTION_CHECK 4 - ACCEPTED PDF COMPOSITION AND LAYOUT BOUNDARY - FAIL
+
+Trace:
+
+- CHECKPOINT_A_ACCEPTANCE.md A15-2/A15-3/A15-6/A15-7/A15-8 freezes the exact
+  schedule_12h.pdf/schedule_24h.pdf visual artifacts and their table, full
+  asymmetric legend, grayscale cues, long-name fitting and provenance block;
+- CHECKPOINT_B_CONTRACT.md 18 and T20-25/T20-36 require that composition,
+  weekend/holiday cues and fail-closed overflow;
+- schedule_export.py:565-593 is the complete production renderer.
+
+Visual inspection was performed by rendering the accepted schedule_12h.pdf
+and a current product PDF at original page resolution.  The product font was
+replaced only inside the diagnostic harness with Helvetica so that the
+renderer below the independent R8-1 font failure could be inspected.  That
+isolation is not a product workaround and does not affect this verdict.
+
+The current renderer omits:
+
+- weekday and day-number headers;
+- the table grid and Employee-row separators;
+- Plan g./Wyk. g./Urlop g./L4 g. headers;
+- the full frozen D1..D5/N1..N5/U1..U5/C1..C5 legend and values;
+- weekend/holiday cues;
+- the accepted long-name fitting behavior.
+
+Instead, employee names are silently sliced to 32 characters at
+schedule_export.py:537 and the legend is one short sentence at line 590.
+ExportModel does not carry CalendarDay holiday truth into the renderer, so the
+required holiday cue cannot be drawn.  There is no layout-fit check: for 30
+LOCAL rows, the 60 subrows extend below the A3 page at the 22-point floor, yet
+the public entry point returns ExportReady rather than
+ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT.
+
+Independent reproducer:
+
+test_audit_large_roster_fails_before_clipping_single_sheet - FAIL;
+actual result: ExportReady.
+
+T020-R8-2 - ACCEPTED CHECKPOINT A PDF COMPOSITION IS NOT IMPLEMENTED
+
+SECTION_CHECK 5 - T012 24H PROVENANCE AND BOUNDARY OWNERSHIP - FAIL
+
+Trace:
+
+- R5 Amendment 4.1-4.4 freezes the complete normal-H24 and emergency-H24
+  structural predicates and requires WORK_PROVENANCE_INCOMPLETE for malformed
+  asserted periods;
+- R6 Amendment 4-5 freezes normal and emergency month/year boundary behavior,
+  including adjacent lineage reads and revision input;
+- T20-34..T20-35 and T20-38..T20-41 are mandatory evidence.
+
+schedule_export.py:196-227 records only Assignment-derived PeriodComponent
+objects.  It discards the demand facts required to distinguish normal H24 from
+emergency H12.  Lines 230-241 collapse any group having two component ids and
+a 24-hour outer span.  They do not verify:
+
+- Assignment interval equals covered-demand interval;
+- catalog kind;
+- template identity or component numbers;
+- opposite D/N demands;
+- emergency_24h_rest_hours and terminal rest snapshot;
+- required employee sets or third-component contradictions.
+
+The independent malformed-emergency reproducer gives two H12 Assignments one
+shared work_period_id but no emergency marker.  The contract requires
+WORK_PROVENANCE_INCOMPLETE; the implementation silently emits 24.
+
+Normal cross-month H24 also fails.  _collect_real_work_cells iterates only the
+requested month's dates and drops every Assignment whose start date lies
+outside that loop (line 212).  A valid 31.08 18:00 -> 01.09 18:00 normal H24
+therefore prints N1/12h on 31 August instead of one 24/24h.
+
+There is no adjacent-month read anywhere in schedule_export.py.  Its only
+schedule reads are requested-month get_current_version_id, lineage headers and
+requested snapshots at lines 156, 165 and 208.  Consequently the entire R6
+emergency outgoing recognition, incoming suppression, adjacent fail-closed
+lineage handling and adjacent revision input are absent.
+
+Independent reproducers:
+
+- test_audit_malformed_h12_pair_is_not_collapsed_as_t012_24h - FAIL, no
+  ExportProblemError raised;
+- test_audit_normal_h24_cross_month_is_owned_by_start_month - FAIL, actual
+  cell N1 rather than 24.
+
+T020-R8-3 - 24H RECOGNITION IS OVER-BROAD IN-MONTH AND ABSENT AT BOUNDARIES
+
+SECTION_CHECK 6 - ORDINARY ASSIGNMENT/DEMAND PROVENANCE - FAIL
+
+R5 Amendment 4.1 and T20-33 require every displayed Assignment actual interval
+to equal its covered ShiftDemand interval.  schedule_export.py:216-220 checks
+only that the demand id resolves and is not INNY.  _map_work_code then compares
+the configured signature with the Assignment, not with the covered demand.
+
+The independent reproducer persists a D demand at 06:00-18:00 and an
+Assignment claiming to cover it at 07:00-19:00, with a valid matching D1 print
+setting.  The contract requires WORK_PROVENANCE_INCOMPLETE.  The implementation
+accepts the incoherent link and emits D1.
+
+Independent reproducer:
+
+test_audit_assignment_interval_must_equal_covered_demand_interval - FAIL;
+actual result: no ExportProblemError.
+
+T020-R8-4 - CONTRADICTORY ASSIGNMENT/DEMAND INTERVAL IS PRINTED AS REAL WORK
+
+SECTION_CHECK 7 - CORRUPT SETTINGS FAIL-CLOSED CONTRACT - FAIL
+
+Trace:
+
+- R5 Amendment 2.1-2.3 and R6 Amendment 2 require malformed JSON/wrong type/
+  duplicate signatures discovered at export to return PRINT_SETTINGS_INVALID;
+- R6 explicitly removes WORK_CODE_MAPPING_AMBIGUOUS and says it MUST NOT be
+  implemented merely as an unreachable branch.
+
+Problems found:
+
+- site_repository._intervals_from_json assumes decoded JSON has .items(); a
+  valid JSON list raises AttributeError;
+- nested values are not type-checked before set/index operations;
+- end_next_day is coerced with bool(...) rather than required to be a JSON
+  boolean;
+- reserve JSON likewise has no decoded-container type check;
+- get_site_print_settings raises InvalidSitePrintSettings, but
+  generate_schedule_pdf catches only ExportProblemError, so even validation
+  errors escape instead of becoming PRINT_SETTINGS_INVALID;
+- schedule_export.py:273-274 still implements the explicitly removed public
+  WORK_CODE_MAPPING_AMBIGUOUS branch.
+
+Independent reproducer:
+
+test_audit_corrupt_persisted_settings_return_stable_problem - FAIL;
+actual result: uncaught AttributeError for a JSON list.
+
+T020-R8-5 - CORRUPT SETTINGS ESCAPE THE STABLE APPLICATION RESULT CONTRACT
+
+SECTION_CHECK 8 - REQUIRED EVIDENCE MATRIX AND BATCH READ INVARIANT - FAIL
+
+tests/test_t020.py describes itself at lines 1-4 as a "representative subset".
+The frozen contract does not authorize a representative subset: parent
+T20-01..T20-28 plus R5 T20-29..T20-37 and R6 T20-38..T20-41 are mandatory.
+
+The delivered file has 21 test functions / 26 pytest cases and no committed
+oracles for substantial required classes, including T20-15, T20-24..T20-26,
+T20-29..T20-41.  In particular, it has no malformed normal/emergency H24
+matrix, no month/year boundary cases, no adjacent lineage cases, no real
+layout overflow test and no actual READY-font requirement.  The missing
+evidence allowed R8-1..R8-5 to pass the delivered suite.
+
+The implementation also violates CHECKPOINT_B_CONTRACT.md:565.  Availability
+is read in one batch, but _absence_pairs_for_employee calls
+list_memberships_for_employee once per absent LOCAL Employee at
+schedule_export.py:398.  With three absent local Employees, the independent
+counter observes exactly three membership reads rather than one batch read.
+
+Independent reproducer:
+
+test_audit_membership_ambiguity_check_is_batched - FAIL; actual calls: 3.
+
+T020-R8-6 - MANDATORY CONTRACT MATRIX IS NOT DELIVERED AND MEMBERSHIP READ IS N+1
+
+INDEPENDENT AUDIT MATRIX RESULT
+
+Command:
+
+python -m pytest -q tasks/ROTA-T020/round_01/tests/test_t020_implementation_audit.py
+
+Result:
+
+7 failed in 0.25 s
+
+The seven failures are independent contract oracles for:
+
+1. malformed same-month emergency H24;
+2. normal H24 crossing month boundary;
+3. Assignment/demand interval contradiction;
+4. corrupt persisted print settings;
+5. accepted-layout roster overflow;
+6. pinned production font/READY PDF;
+7. batch membership ambiguity reads.
+
+FINDINGS SUMMARY
+
+- T020-R8-1: production font path cannot generate the required PDF;
+- T020-R8-2: accepted Checkpoint A PDF composition is not implemented;
+- T020-R8-3: 24h recognition is over-broad in-month and absent at boundaries;
+- T020-R8-4: contradictory Assignment/demand interval is printed;
+- T020-R8-5: corrupt settings escape the stable problem contract and a removed
+  problem-code branch remains;
+- T020-R8-6: mandatory T20 matrix is missing and membership ambiguity reads are
+  N+1.
+
+ARCHITECTURE_PROPOSALS
+
+None.  This report does not prescribe a renderer, font source, 24h algorithm,
+settings parser design or repository helper.  It only verifies the frozen
+contract and records reproducible violations.
+
+VERDICT
+
+FAIL - CHECKPOINT B CONTRACT NOT SATISFIED - NOT READY FOR ARCHITECT FINAL GATE
+
+CC should close R8-1..R8-6 against the current contract.  No architecture or
+owner decision is needed for the behavioral findings above.  Backend size/
+ratio/total-line metrics remain separate exact-SHA architect decisions after
+the product findings are closed.
