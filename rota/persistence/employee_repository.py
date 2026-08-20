@@ -83,6 +83,21 @@ def list_employees(conn: sqlite3.Connection) -> list[Employee]:
     return [_row_to_employee(row) for row in rows]
 
 
+def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, Employee]:
+    """ROTA-T020: batch-fetch Employee rows for a roster in one SELECT,
+    avoiding one get_employee() call per row when building a printable
+    schedule."""
+    if not employee_ids:
+        return {}
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"SELECT employee_id, display_name, active_from, active_to, day_only "
+        f"FROM employees WHERE employee_id IN ({placeholders})",
+        (*employee_ids,),
+    ).fetchall()
+    return {row[0]: _row_to_employee(row) for row in rows}
+
+
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
     """Same write as save_site_membership, without its own `with conn:` --
     for a caller (e.g. rota/application/training.py) that must combine this

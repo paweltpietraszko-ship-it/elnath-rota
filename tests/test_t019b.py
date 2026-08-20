@@ -112,7 +112,7 @@ def _seed_feasible_and_select(conn):
 # A. Schema / append-only / restart
 # ---------------------------------------------------------------------------
 
-def test_a1_real_v5_to_v6_migration_preserves_data_and_adds_exactly_three_tables(tmp_path) -> None:
+def test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables(tmp_path) -> None:
     db_path = tmp_path / "rota.db"
     legacy = sqlite3.connect(db_path)
     for version, statements in MIGRATIONS:
@@ -130,9 +130,11 @@ def test_a1_real_v5_to_v6_migration_preserves_data_and_adds_exactly_three_tables
 
     conn = connect(db_path)
     tables_after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 6
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 7
     assert conn.execute("SELECT holiday FROM calendar_days WHERE date='2026-08-03'").fetchone() == (1,)
-    assert tables_after - tables_before == {"coordinator_action_records", "decision_required_snapshots", "current_decision_required"}
+    assert tables_after - tables_before == {
+        "coordinator_action_records", "decision_required_snapshots", "current_decision_required", "site_print_settings",
+    }
 
 def test_a2_a5_action_and_snapshot_update_delete_rejected(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
