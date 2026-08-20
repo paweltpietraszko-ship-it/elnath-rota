@@ -216,7 +216,10 @@ def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
         return False
     if not (d0.work_period_template_id) or d0.work_period_template_id != d1.work_period_template_id:
         return False
-    return {d0.work_period_component, d1.work_period_component} == {1, 2}
+    if {d0.work_period_component, d1.work_period_component} != {1, 2}:
+        return False
+    hours0, hours1 = (d0.end_datetime - d0.start_datetime).total_seconds() / 3600, (d1.end_datetime - d1.start_datetime).total_seconds() / 3600
+    return hours0 == 12 and hours1 == 12
 def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> Optional[str]:
     """'normal' (R5 4.2, re-derived) or 'linked' (cross-boundary pair -- trusts persisted (employee_id, work_period_id) only, per R6 Linkage Narrowing). None -> caller fails closed if asserted."""
     if len(period.component_ids) != 2:
