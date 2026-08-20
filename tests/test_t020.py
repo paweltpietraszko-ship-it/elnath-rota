@@ -27,16 +27,12 @@ from rota.persistence.site_repository import (
 from tests.support.t008_fixtures import seed_base_entities
 
 MONTH = date(2026, 8, 1)
-
-
 def _default_intervals() -> dict:
     return {
         "D1": WorkCodeInterval("06:00", "18:00", False), "D2": None, "D3": None, "D4": None, "D5": None,
         "N1": WorkCodeInterval("18:00", "06:00", True), "N2": WorkCodeInterval("00:00", "16:00", False),
         "N3": None, "N4": None, "N5": None,
     }
-
-
 def _settings(**overrides) -> SitePrintSettings:
     base = dict(
         site_id="SITE-1", company_print_name="ELNATH DEMO", site_print_name="SITE-DEMO", base_regime="12h",
@@ -44,8 +40,6 @@ def _settings(**overrides) -> SitePrintSettings:
     )
     base.update(overrides)
     return SitePrintSettings(**base)
-
-
 def _seed(conn, *, employees: tuple[str, ...] = ("EMP-1",), full_calendar: bool = True):
     seed_base_entities(conn, site_id="SITE-1", employee_id=employees[0])
     for emp in employees[1:]:
@@ -58,8 +52,6 @@ def _seed(conn, *, employees: tuple[str, ...] = ("EMP-1",), full_calendar: bool 
         n_days = _cal.monthrange(MONTH.year, MONTH.month)[1]
         for i in range(n_days):
             save_calendar_day(conn, CalendarDay(MONTH + timedelta(days=i), False))
-
-
 def _work_item(day: int, start_h: int, end_h: int, *, kind: ShiftKind, employee_id: str = "EMP-1", suffix: str = "", state=AssignmentState.REALIZED):
     d0 = date(2026, 8, day)
     start = datetime.combine(d0, datetime.min.time()).replace(hour=start_h)
@@ -69,28 +61,21 @@ def _work_item(day: int, start_h: int, end_h: int, *, kind: ShiftKind, employee_
     demand = ShiftDemand(demand_id, "", start, end, 1, shift_kind=kind, catalog_kind=ShiftCatalogKind.H12)
     assignment = Assignment(f"ASG-{day}{suffix}", "", employee_id, start, end, AssignmentRole.PRIMARY, state, False, demand_id, None)
     return demand, assignment
-
-
 def _create_version(conn, demands, assignments, *, version_id="SV-1", parent=None, effective_from=date(2026, 7, 25), created_at=datetime(2026, 7, 25, 8)):
     return lifecycle.create_schedule_version(
         conn, version_id=version_id, site_id="SITE-1", month=MONTH, parent_version_id=parent,
         created_at=created_at, created_by="COORD-1", applied_rule_version_ids=[],
         shift_demands=demands, assignments=assignments, deviations=[], effective_from=effective_from,
     )
-
-
 def _grant_leave(conn, employee_id, *, start, end, kind=AvailabilityKind.LEAVE_GRANTED, av_id="AV-1"):
     append_availability_version(conn, availability_id=av_id, employee_id=employee_id, kind=kind, start_date=start, end_date=end, active=True)
 
 
 # --- T20-01: migration ------------------------------------------------------
-
 def test_t20_01_fresh_db_migrates_to_schema_7():
     conn = connect(":memory:")
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 7
     conn.execute("SELECT site_id, company_print_name, base_regime FROM site_print_settings")
-
-
 def test_t20_01b_schema_6_migrates_without_rewriting_history():
     conn = connect(":memory:")
     conn.execute("PRAGMA user_version = 6")
@@ -101,7 +86,6 @@ def test_t20_01b_schema_6_migrates_without_rewriting_history():
 
 
 # --- T20-02: settings persistence -------------------------------------------
-
 def test_t20_02_settings_save_read_survive_reconnect_and_create_no_schedule_version():
     conn = connect(":memory:")
     _seed(conn)
@@ -111,8 +95,6 @@ def test_t20_02_settings_save_read_survive_reconnect_and_create_no_schedule_vers
     assert loaded.work_code_intervals["D1"] == WorkCodeInterval("06:00", "18:00", False)
     assert conn.execute("SELECT current_id FROM current_schedule_versions").fetchall() == [] if False else True
     assert conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0] == 0
-
-
 @pytest.mark.parametrize("bad", [
     dict(base_regime="8h"),
     dict(work_code_intervals={**_default_intervals(), "D1": WorkCodeInterval("06:00", "19:00", False)}),
@@ -127,7 +109,6 @@ def test_t20_02b_invalid_settings_rejected_at_write(bad):
 
 
 # --- T20-03/04: PDF bytes + font fail-closed --------------------------------
-
 def test_t20_03_04_ready_or_explicit_font_problem_never_broken_glyphs():
     conn = connect(":memory:")
     _seed(conn)
@@ -142,7 +123,6 @@ def test_t20_03_04_ready_or_explicit_font_problem_never_broken_glyphs():
 
 
 # --- T20-05: revision determinism -------------------------------------------
-
 def test_t20_05_revision_stable_across_generated_at_changes_with_content():
     conn = connect(":memory:")
     _seed(conn)
@@ -157,7 +137,6 @@ def test_t20_05_revision_stable_across_generated_at_changes_with_content():
 
 
 # --- T20-06/07: lineage reconstruction --------------------------------------
-
 def test_t20_06_effective_from_lineage_selects_correct_version_per_day():
     conn = connect(":memory:")
     _seed(conn)
@@ -173,8 +152,6 @@ def test_t20_06_effective_from_lineage_selects_correct_version_per_day():
     row = model.rows[0]
     assert row.plan[4] == "D1"  # day 5, from parent lineage (still in effect before correction)
     assert row.plan[19] == "D1"  # day 20, only in the corrected child
-
-
 def test_t20_07_no_current_schedule_is_explicit_problem():
     conn = connect(":memory:")
     _seed(conn)
@@ -184,7 +161,6 @@ def test_t20_07_no_current_schedule_is_explicit_problem():
 
 
 # --- T20-08: roster population ----------------------------------------------
-
 def test_t20_08_local_zero_assignment_gets_row_external_support_needs_assignment():
     conn = connect(":memory:")
     _seed(conn, employees=("EMP-1",))
@@ -197,8 +173,6 @@ def test_t20_08_local_zero_assignment_gets_row_external_support_needs_assignment
     ids = {r.employee_id for r in model.rows}
     assert "EMP-1" in ids  # LOCAL, zero assignments, still a row
     assert "EMP-EXT" in ids  # EXTERNAL_SUPPORT with a real assignment
-
-
 def test_t20_08b_external_support_without_assignment_omitted():
     conn = connect(":memory:")
     _seed(conn, employees=("EMP-1",))
@@ -212,7 +186,6 @@ def test_t20_08b_external_support_without_assignment_omitted():
 
 
 # --- T20-09: no public blame ------------------------------------------------
-
 def test_t20_09_cancelled_nn_not_printed():
     from rota.application.manual_edit import mark_not_worked
     from rota.domain import CoordinatorSiteAssociation
@@ -232,7 +205,6 @@ def test_t20_09_cancelled_nn_not_printed():
 
 
 # --- T20-10/13: TRAINEE / INNY fail closed ----------------------------------
-
 def test_t20_10_effective_trainee_is_unsupported():
     conn = connect(":memory:")
     _seed(conn)
@@ -244,8 +216,6 @@ def test_t20_10_effective_trainee_is_unsupported():
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "UNSUPPORTED_TRAINEE_PRINT"
-
-
 def test_t20_13_inny_catalog_kind_is_unsupported():
     conn = connect(":memory:")
     _seed(conn)
@@ -259,7 +229,6 @@ def test_t20_13_inny_catalog_kind_is_unsupported():
 
 
 # --- T20-11: exact interval mapping -----------------------------------------
-
 def test_t20_11_wrong_interval_same_duration_fails_mapping():
     conn = connect(":memory:")
     _seed(conn)
@@ -272,7 +241,6 @@ def test_t20_11_wrong_interval_same_duration_fails_mapping():
 
 
 # --- T20-12: T012 24h WorkPeriod ---------------------------------------------
-
 def test_t20_12_valid_24h_workperiod_is_one_start_date_symbol():
     conn = connect(":memory:")
     _seed(conn)
@@ -292,7 +260,6 @@ def test_t20_12_valid_24h_workperiod_is_one_start_date_symbol():
 
 
 # --- T20-14: the frozen 40h example -----------------------------------------
-
 def test_t20_14_frozen_40h_leave_decomposition():
     conn = connect(":memory:")
     _seed(conn)
@@ -307,7 +274,6 @@ def test_t20_14_frozen_40h_leave_decomposition():
 
 
 # --- T20-19/20/21: conflicts and ambiguity ----------------------------------
-
 def test_t20_19_overlapping_leave_and_sick_conflict():
     conn = connect(":memory:")
     _seed(conn)
@@ -318,8 +284,6 @@ def test_t20_19_overlapping_leave_and_sick_conflict():
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "ABSENCE_KIND_CONFLICT"
-
-
 def test_t20_20_assignment_on_active_absence_day_conflicts():
     conn = connect(":memory:")
     _seed(conn)
@@ -330,8 +294,6 @@ def test_t20_20_assignment_on_active_absence_day_conflicts():
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "ASSIGNMENT_ABSENCE_CONFLICT"
-
-
 def test_t20_21_multi_site_local_employee_absence_is_ambiguous():
     conn = connect(":memory:")
     _seed(conn)
@@ -351,7 +313,6 @@ def test_t20_21_multi_site_local_employee_absence_is_ambiguous():
 
 
 # --- T20-16/18: regime boundary + non-decomposable ---------------------------
-
 def test_t20_16_12h_regime_forbids_24h_denominations_even_with_can_work_24h():
     conn = connect(":memory:")
     _seed(conn)
@@ -361,8 +322,6 @@ def test_t20_16_12h_regime_forbids_24h_denominations_even_with_can_work_24h():
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "ABSENCE_DECOMPOSITION_REQUIRED"
-
-
 def test_t20_17_reserve_configuration_used_when_it_forms_legal_pair():
     conn = connect(":memory:")
     _seed(conn)
@@ -375,7 +334,6 @@ def test_t20_17_reserve_configuration_used_when_it_forms_legal_pair():
 
 
 # --- T20-22/23: site-only summaries -----------------------------------------
-
 def test_t20_22_23_summaries_ignore_other_sites_and_match_visible_cells():
     conn = connect(":memory:")
     _seed(conn)
@@ -389,7 +347,6 @@ def test_t20_22_23_summaries_ignore_other_sites_and_match_visible_cells():
 
 
 # --- T20-27: full existing suite is unaffected ------------------------------
-
 def test_t20_27_no_diff_in_forbidden_paths():
     import subprocess
     out = subprocess.run(
@@ -399,8 +356,6 @@ def test_t20_27_no_diff_in_forbidden_paths():
         cwd=__file__.rsplit("tests", 1)[0], capture_output=True, text=True,
     )
     assert out.stdout.strip() == "", out.stdout
-
-
 def _leg(assignment_id, employee_id, start, end, demand_id, work_period_id=None):
     return Assignment(
         assignment_id, "", employee_id, start, end, AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, demand_id, None,
@@ -409,7 +364,6 @@ def _leg(assignment_id, employee_id, start, end, demand_id, work_period_id=None)
 
 
 # --- T20-29/T20-35: malformed shared work_period is not silently collapsed --
-
 def test_t20_29_malformed_h12_pair_sharing_work_period_id_fails_closed():
     conn = connect(":memory:")
     _seed(conn)
@@ -428,7 +382,6 @@ def test_t20_29_malformed_h12_pair_sharing_work_period_id_fails_closed():
 
 
 # --- T20-38: normal H24 crossing the month boundary is owned by start month -
-
 def test_t20_38_normal_h24_cross_month_owned_by_start_month():
     conn = connect(":memory:")
     _seed(conn)
@@ -447,7 +400,6 @@ def test_t20_38_normal_h24_cross_month_owned_by_start_month():
 
 
 # --- T20-33: Assignment interval must equal its covered ShiftDemand interval
-
 def test_t20_33_assignment_interval_must_equal_covered_demand_interval():
     conn = connect(":memory:")
     _seed(conn)
@@ -465,7 +417,6 @@ def test_t20_33_assignment_interval_must_equal_covered_demand_interval():
 
 
 # --- T20-30: corrupt persisted settings return a stable problem, never raise
-
 def test_t20_30_corrupt_persisted_settings_return_stable_problem():
     conn = connect(":memory:")
     _seed(conn)
@@ -474,8 +425,6 @@ def test_t20_30_corrupt_persisted_settings_return_stable_problem():
     conn.execute("UPDATE site_print_settings SET work_code_intervals_json = ? WHERE site_id = ?", ('["not", "an", "object"]', "SITE-1"))
     result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert isinstance(result, SE.ExportProblem) and result.problem_code == "PRINT_SETTINGS_INVALID"
-
-
 def test_t20_30b_corrupt_reserve_json_returns_stable_problem():
     conn = connect(":memory:")
     _seed(conn)
@@ -487,7 +436,6 @@ def test_t20_30b_corrupt_reserve_json_returns_stable_problem():
 
 
 # --- T20-25/T20-36: a roster that cannot fit the accepted layout fails explicitly, never silently overflows
-
 def test_t20_25_large_roster_fails_before_overflowing_the_sheet():
     employee_ids = tuple(f"EMP-{i:02d}" for i in range(30))
     conn = connect(":memory:")
@@ -499,7 +447,6 @@ def test_t20_25_large_roster_fails_before_overflowing_the_sheet():
 
 
 # --- T20-03/04: the pinned production ReportLab dependency renders a real PDF with Polish diacritics, or fails explicitly
-
 def test_t20_03_pinned_production_reportlab_renders_ready_pdf():
     conn = connect(":memory:")
     _seed(conn)
@@ -511,7 +458,6 @@ def test_t20_03_pinned_production_reportlab_renders_ready_pdf():
 
 
 # --- Section 20 regression: membership-ambiguity check must be one batch read, not N
-
 def test_t20_membership_ambiguity_check_is_batched(monkeypatch):
     from rota.persistence import employee_repository
     employee_ids = ("EMP-1", "EMP-2", "EMP-3")
@@ -532,3 +478,80 @@ def test_t20_membership_ambiguity_check_is_batched(monkeypatch):
     monkeypatch.setattr(employee_repository, "list_memberships_for_employees", counted)
     SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert calls == 1, "membership ambiguity must use one batch read, not one query per absent employee"
+
+
+# --- R6 Linkage Narrowing Amendment: T020 owns only persisted (employee_id, work_period_id)
+# identity across a month boundary, never T012's internal emergency-pair legitimacy.
+def _emergency_leg(assignment_id, employee_id, start, end, demand_id, work_period_id):
+    return Assignment(assignment_id, "", employee_id, start, end, AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, demand_id, None, work_period_id=work_period_id, required_rest_after_hours=None)
+def test_t20_39_emergency_outgoing_linkage_renders_24_on_start_side():
+    """No emergency_24h_rest_hours snapshot is set anywhere -- T020 must not care; only the persisted
+    (employee_id, work_period_id) identity across the boundary matters (R6 Linkage Narrowing 2.2/3)."""
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-X")
+    _create_version(conn, [d_aug], [a_aug])
+
+    sep = date(2026, 9, 1)
+    d_sep = ShiftDemand("D-SEP", "", middle, middle + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    a_sep = _emergency_leg("A-SEP", "EMP-1", middle, middle + timedelta(hours=12), "D-SEP", "WP-X")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-SEP", site_id="SITE-1", month=sep, parent_version_id=None,
+        created_at=datetime(2026, 9, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_sep], assignments=[a_sep], deviations=[], effective_from=sep,
+    )
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.plan[30] == "24"
+    assert row.plan_hours == 24
+def test_t20_40_emergency_incoming_linkage_suppresses_continuation():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    july = date(2026, 7, 1)
+    start = datetime(2026, 7, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_jul = ShiftDemand("N-JUL", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_jul = _emergency_leg("A-JUL", "EMP-1", start, middle, "N-JUL", "WP-Y")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-JUL", site_id="SITE-1", month=july, parent_version_id=None,
+        created_at=datetime(2026, 7, 30, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_jul], assignments=[a_jul], deviations=[], effective_from=july,
+    )
+    d_aug = ShiftDemand("D-AUG", "", middle, middle + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", middle, middle + timedelta(hours=12), "D-AUG", "WP-Y")
+    _create_version(conn, [d_aug], [a_aug])
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.plan[0] == SE.BLANK
+    assert row.wyk[0] == SE.BLANK
+    assert row.plan_hours == 0
+def test_t20_41_multiple_adjacent_candidates_for_same_identity_fails_closed():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-Z")
+    _create_version(conn, [d_aug], [a_aug])
+    sep = date(2026, 9, 1)
+    end2 = middle + timedelta(hours=12)
+    d_sep1 = ShiftDemand("D-SEP1", "", middle, end2, 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    d_sep2 = ShiftDemand("D-SEP2", "", end2, end2 + timedelta(hours=12), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_sep1 = _emergency_leg("A-SEP1", "EMP-1", middle, end2, "D-SEP1", "WP-Z")
+    a_sep2 = _emergency_leg("A-SEP2", "EMP-1", end2, end2 + timedelta(hours=12), "D-SEP2", "WP-Z")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-SEP", site_id="SITE-1", month=sep, parent_version_id=None,
+        created_at=datetime(2026, 9, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_sep1, d_sep2], assignments=[a_sep1, a_sep2], deviations=[], effective_from=sep,
+    )
+    with pytest.raises(SE.ExportProblemError) as exc:
+        SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert exc.value.code == "WORK_PROVENANCE_INCOMPLETE"

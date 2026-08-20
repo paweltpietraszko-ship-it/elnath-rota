@@ -48,7 +48,7 @@ class ExportModel:
     site_id: str; month: date; period_label: str; company_print_name: str; site_print_name: str  # noqa: E702
     base_regime: str; work_code_intervals: dict; reserve_hours: dict; current_version_id: str  # noqa: E702
     lineage: list[tuple[str, Optional[str]]]; days: list[date]; rows: list[RowCells]  # noqa: E702
-    provenance_text: str; holiday_by_date: dict  # noqa: E702
+    provenance_text: str; holiday_by_date: dict; adjacent_facts: list  # noqa: E702
 # Entry point
 def generate_schedule_pdf(
     conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str, generated_at: Optional[datetime] = None,
@@ -68,26 +68,20 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     settings = site_repository.get_site_print_settings(conn, site_id)
     if settings is None:
         raise ExportProblemError("PRINT_SETTINGS_MISSING", f"no print settings saved for {site_id}")
-
     lineage = _reconstruct_lineage(conn, site_id, month)
     days = _month_days(month)
     snapshots: dict[str, "schedule_repository.ScheduleSnapshot"] = {}
     daily_version = {d: _version_for_date(lineage, d) for d in days}
-
     memberships = employee_repository.list_memberships_for_site(conn, site_id)
     local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
-
     collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings)
     seen_employee_ids = collected[2]
-    work_cells = _apply_24h_periods(collected, settings, days)
-
+    work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days)
     calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
     holiday_by_date = {c.date: c.holiday for c in calendar_days}
-
     roster_ids = set(local_ids) | seen_employee_ids
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
     absence_by_employee = _collect_absence(conn, month, days, local_ids, work_cells, settings, calendar_days, holiday_by_date)
-
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
     provenance = _provenance_text(lineage)
     return ExportModel(
@@ -96,7 +90,7 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
         base_regime=settings.base_regime, work_code_intervals=settings.work_code_intervals,
         reserve_hours=settings.reserve_hours, current_version_id=lineage[-1].version_id,
         lineage=[(h.version_id, h.effective_from.isoformat() if h.effective_from else None) for h in lineage],
-        days=days, rows=rows, provenance_text=provenance, holiday_by_date=holiday_by_date,
+        days=days, rows=rows, provenance_text=provenance, holiday_by_date=holiday_by_date, adjacent_facts=adjacent_facts,
     )
 def _month_days(month: date) -> list[date]:
     import calendar as _cal
@@ -135,10 +129,14 @@ def _provenance_text(lineage: list) -> str:
     return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
 # Real work cells (Section 10)
 def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
-    """A 24h period's second leg may start in an adjacent month's own
-    ScheduleVersion; fetched only to complete/detect it, never rendered."""
+    """Adjacent-month leg for linkage detection only, never its own cell;
+    reconstructed under the same lineage rules -- a broken adjacent lineage
+    fails PROVENANCE_INCOMPLETE (R6 Linkage Narrowing Amendment 2.2)."""
     other_month = date(target_day.year, target_day.month, 1)
-    version_id = schedule_repository.get_current_version_id(conn, site_id, other_month)
+    if schedule_repository.get_current_version_id(conn, site_id, other_month) is None:
+        return []
+    lineage = _reconstruct_lineage(conn, site_id, other_month)
+    version_id = _version_for_date(lineage, target_day)
     if version_id is None:
         return []
     snapshot = schedule_repository.get_schedule_snapshot(conn, version_id)
@@ -149,7 +147,7 @@ def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
             continue
         demand = demands_by_id.get(a.covers_demand_id)
         if demand is not None:
-            items.append((a, demand))
+            items.append((a, demand, version_id))
     return items
 def _validate_item(a, demand) -> None:
     if a.role == AssignmentRole.TRAINEE:
@@ -163,11 +161,12 @@ def _validate_item(a, demand) -> None:
 def _component(a) -> PeriodComponent:
     return PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
 def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
-    """raw_items/components/seen_employee_ids/demand_by_assignment. Raises on
-    any TRAINEE/INNY/missing-or-contradictory-provenance item."""
+    """raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/
+    boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance."""
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
     demand_by_assignment: dict = {}
+    assignment_by_id: dict = {}
     seen_employee_ids: set[str] = set()
     for day in days:
         version_id = daily_version[day]
@@ -185,6 +184,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
             seen_employee_ids.add(a.employee_id)
             raw_items.setdefault((a.employee_id, day), []).append((a, demand))
             demand_by_assignment[a.assignment_id] = demand
+            assignment_by_id[a.assignment_id] = a
             components.append(_component(a))
     boundary_days = (days[0] - timedelta(days=1), days[-1] + timedelta(days=1))
     boundary_items = []
@@ -194,44 +194,65 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
             if a.start_datetime.date() in boundary_days and a.role == AssignmentRole.PRIMARY and a.state != AssignmentState.CANCELLED:
                 demand = demands_by_id.get(a.covers_demand_id)
                 if demand is not None:
-                    boundary_items.append((a, demand))
+                    boundary_items.append((a, demand, a.schedule_version_id))
     for boundary_day in boundary_days:  # or it may live in a genuinely different month's own ScheduleVersion
         boundary_items.extend(_adjacent_day_items(conn, site_id, boundary_day))
-    for a, demand in boundary_items:
+    boundary_ids: set[str] = set()
+    adjacent_versions: dict = {}
+    for a, demand, version_id in boundary_items:
         if a.work_period_id is None or a.assignment_id in demand_by_assignment:
             continue
         demand_by_assignment[a.assignment_id] = demand
+        assignment_by_id[a.assignment_id] = a
+        boundary_ids.add(a.assignment_id)
+        adjacent_versions[a.assignment_id] = version_id
         components.append(_component(a))
-    return raw_items, components, seen_employee_ids, demand_by_assignment
-def _is_legitimate_24h(period, demand_by_assignment: dict) -> bool:
-    if len(period.component_ids) != 2:
-        return False
-    total_hours = (period.end - period.start).total_seconds() / 3600
-    d0 = demand_by_assignment.get(period.component_ids[0])
-    d1 = demand_by_assignment.get(period.component_ids[1])
-    if d0 is None or d1 is None or total_hours != 24:
-        return False
-    if d0.catalog_kind != ShiftCatalogKind.H24 or d1.catalog_kind != ShiftCatalogKind.H24:
+    return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions
+def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
+    """R5 Amendment Section 4.2 -- unchanged, still owned/re-derived by T020."""
+    if total_hours != 24 or d0.catalog_kind != ShiftCatalogKind.H24 or d1.catalog_kind != ShiftCatalogKind.H24:
         return False
     if d0.shift_kind is None or d0.shift_kind == d1.shift_kind:
         return False
     return bool(d0.work_period_template_id) and d0.work_period_template_id == d1.work_period_template_id
+def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> Optional[str]:
+    """'normal' (R5 4.2, T020 re-derives structure) or 'linked' (cross-
+    boundary emergency pair -- T020 trusts persisted (employee_id,
+    work_period_id) identity alone, never T012's internal legitimacy,
+    per R6 Linkage Narrowing). None -> caller fails closed if asserted."""
+    if len(period.component_ids) != 2:
+        return None
+    d0 = demand_by_assignment.get(period.component_ids[0])
+    d1 = demand_by_assignment.get(period.component_ids[1])
+    if d0 is None or d1 is None:
+        return None
+    total_hours = (period.end - period.start).total_seconds() / 3600
+    if _is_legitimate_normal_24h(d0, d1, total_hours):
+        return "normal"
+    crosses_boundary = any(cid in boundary_ids for cid in period.component_ids)
+    if crosses_boundary and d0.catalog_kind != ShiftCatalogKind.H24 and d1.catalog_kind != ShiftCatalogKind.H24:
+        return "linked"
+    return None
 def _apply_24h_periods(collected, settings, days: list[date]):
-    raw_items, components, seen_employee_ids, demand_by_assignment = collected
+    raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions = collected
     work_cells: dict[str, dict[date, str]] = {}
     consumed: set[str] = set()
+    adjacent_facts: list[tuple] = []
     for period in group_into_periods(components):
         if len(period.component_ids) < 2:
             continue
-        if _is_legitimate_24h(period, demand_by_assignment):
-            consumed.update(period.component_ids)
-            if period.start.date() in days:
-                work_cells.setdefault(period.employee_id, {})[period.start.date()] = "24"
-        else:
-            offending = [cid for cid in period.component_ids if cid in demand_by_assignment]
-            if offending:
-                raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{period.employee_id}: malformed shared work_period {period.period_key} ({offending})")
-
+        kind = _classify_period(period, demand_by_assignment, boundary_ids)
+        if kind is None:
+            if [cid for cid in period.component_ids if cid in demand_by_assignment]:
+                raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{period.employee_id}: malformed shared work_period {period.period_key}")
+            continue
+        consumed.update(period.component_ids)
+        if period.start.date() in days:
+            work_cells.setdefault(period.employee_id, {})[period.start.date()] = "24"
+        if kind == "linked":
+            boundary_cid = next(cid for cid in period.component_ids if cid in boundary_ids)
+            a = assignment_by_id[boundary_cid]
+            adjacent_facts.append((a.employee_id, a.work_period_id, a.assignment_id, adjacent_versions[boundary_cid]))
     for (employee_id, day), items in raw_items.items():
         remaining = [(a, d) for a, d in items if a.assignment_id not in consumed]
         if not remaining:
@@ -240,7 +261,7 @@ def _apply_24h_periods(collected, settings, days: list[date]):
             raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has {len(remaining)} independent work items")
         assignment, demand = remaining[0]
         work_cells.setdefault(employee_id, {})[day] = _map_work_code(assignment, demand, settings)
-    return work_cells
+    return work_cells, sorted(adjacent_facts)
 def _map_work_code(assignment, demand, settings) -> str:
     duration_hours = (assignment.end_datetime - assignment.start_datetime).total_seconds() / 3600
     family = demand.shift_kind.value if demand.shift_kind else None
@@ -328,9 +349,7 @@ def _collect_absence(conn, month, days, local_ids, work_cells, settings, calenda
     by_employee: dict[str, list] = {}
     for r in records:
         by_employee.setdefault(r.employee_id, []).append(r)
-
     memberships_by_employee = employee_repository.list_memberships_for_employees(conn, sorted(by_employee))
-
     result: dict[str, list[tuple]] = {}
     for employee_id in sorted(local_ids):
         emp_records = by_employee.get(employee_id, [])
@@ -404,7 +423,7 @@ def _document_revision(model: ExportModel) -> str:
         "base_regime": model.base_regime,
         "work_code_intervals": {k: (None if v is None else [v.start_time, v.end_time, v.end_next_day]) for k, v in sorted(model.work_code_intervals.items())},
         "reserve_hours": dict(sorted(model.reserve_hours.items())),
-        "current_version_id": model.current_version_id, "lineage": model.lineage,
+        "current_version_id": model.current_version_id, "lineage": model.lineage, "adjacent_facts": model.adjacent_facts,
         "rows": [
             {"employee_id": r.employee_id, "display_name": r.display_name, "plan": r.plan, "wyk": r.wyk,
              "plan_hours": r.plan_hours, "wyk_hours": r.wyk_hours, "urlop_hours": r.urlop_hours, "l4_hours": r.l4_hours}
