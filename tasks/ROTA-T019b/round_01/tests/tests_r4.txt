@@ -1,0 +1,292 @@
+ROTA-T019b — CODEX FINAL IMPLEMENTATION AUDIT — ROUND 4
+
+AUDITED_BRANCH: origin/task/T019b
+AUDITED_PRODUCT_CODE_SHA: 67c6536df21d03c81656cbe472e255f2aa3b770e
+AUDITED_AMENDMENT_HEAD: 7db97318ca6bfc864f9ee96f7556a4da20b99281
+CONTRACT_SHA: c9101abae8b35ca1a72d7b8cd3975fa54d8c39cc
+BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
+DATE: 2026-08-20
+
+VERDICT: FAIL — NOT READY FOR MERGE
+
+SCOPE OF THIS ROUND
+
+Pełny finalny audyt niezmienionego product code 67c6536… względem kontraktu
+c9101ab… oraz wąskiego amendmentu 7db9731…. Zweryfikowano provenance i scope,
+pełną regresję, całą dedykowaną macierz, migrację v5→v6, klasyfikację operacji,
+atomowość, minimalną treść historycznych snapshotów, jawne linki do bieżącego
+DECISION_REQUIRED, readback/restart, granice planowania oraz backend.py.
+
+Amendment `tests/test_t019b.py <=900` został zastosowany zgodnie z jego literalnym
+zakresem. Rozmiar 873 linii nie jest findingiem i nie jest ponownie otwierany.
+
+SECTION_CHECK 1 — PROVENANCE / EXACT PRODUCT / SCOPE: PASS
+
+- origin/task/T019b i lokalny audytowany HEAD wskazywały dokładnie 7db9731….
+- 7db9731… ma jednego rodzica: product code 67c6536….
+- Amendment zmienia wyłącznie
+  tasks/ROTA-T019b/architect_amendment_sizefile_01.md; nie zmienia produktu ani
+  testów.
+- Produkt powstał po preimplementation PASS w jednym commicie funkcjonalnym
+  1da3461 oraz trzech deklarowanych mechanicznych poprawkach SIZE_FUNC:
+  326249c, f0a518b, 67c6536.
+- Produkcyjny i legacy-test diff mieści się w TASK_SCOPE. Siedem legacy test
+  files zawiera wyłącznie autoryzowane `coordinator_id`, a tests/test_t012.py
+  wyłącznie literalne `LATEST_SCHEMA_VERSION 5 -> 6`.
+- arch/spec.md i arch/FROZEN.lock nie zostały zmienione.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — SCHEMA / MIGRATION / APPEND-ONLY / RESTART: PASS
+
+- Migracja 6 tworzy trzy kontraktowe tabele, wymagane triggery i indeksy.
+- UPDATE/DELETE historii akcji i snapshotów DR są odrzucane.
+- Current pointer pozostaje jedynym mutowalnym elementem pamięci pytania.
+- Dedykowany test A1 otwiera jedynie świeżą bazę, dlatego audyt dodał realny
+  reproduktor v5→v6: utworzenie pełnego schematu v5, zapis istniejącego
+  CalendarDay, ponowne otwarcie przez `connect()`, kontrola zachowania danych i
+  dokładnie trzech nowych tabel. Reproduktor: PASS.
+- Restart/readback i jawne historyczne linki przechodzą w macierzy produktu.
+
+SECTION_CHECK 3 — MATERIAL / NO-OP CLASSIFICATION: FAIL
+
+T019b-R4-1 — identyczny UPSERT ExternalSupportWindow jest fałszywie zapisywany
+jako nowa materialna decyzja i kasuje bieżące pytanie DR.
+
+Trace kontraktowy:
+- brief.md §7.5: mutable current-state no-op ma wykonać istniejący zapis, lecz
+  nie tworzyć action row i nie invalidować finalnego DR;
+- operation_audit.md klasyfikuje ExternalSupportWindow jako mutable current-state
+  UPSERT;
+- brief.md test 17 wymaga tej wspólnej własności no-op.
+
+Kod `durable_inputs.add_external_support_window()` odczytuje before_state, ale
+bez porównania zawsze wywołuje `_record_action_and_invalidate_no_commit`.
+Dedykowany test B17 sprawdza wyłącznie Employee.day_only, więc łatka jednej
+gałęzi nie pokryła całej klasy.
+
+Niezależny reproduktor zapisuje ten sam Window drugi raz przy istniejącym
+current DR. Wynik: liczba akcji rośnie 5→6, a pointer zmienia się z istniejącego
+snapshotu na None. Oczekiwane: brak nowej akcji i niezmieniony pointer.
+
+Warunek zamknięcia: identyczne business fields istniejącego okna nie mogą
+tworzyć `EXTERNAL_SUPPORT_WINDOW_CHANGED` ani invalidować DR; realna zmiana
+któregokolwiek business field nadal tworzy dokładnie jedną akcję i invaliduje
+wszystkie miesiące właściwego zakresu.
+
+SECTION_CHECK 4 — ATOMICITY OF ONE HUMAN INVOCATION: FAIL
+
+T019b-R4-2 — bootstrap może zgłosić błąd po trwałym commicie konfiguracji i jej
+akcji.
+
+Trace kontraktowy:
+- brief.md §13: business mutation + action INSERT + invalidation mają commitować
+  albo cofać się razem;
+- §13.2 dopuszcza kompozycję całej jednej inwokacji bootstrapu w jednej
+  transakcji przy zachowaniu resume osobnych wywołań;
+- final audit question 9 wymaga atomowości każdej MATERIAL operation.
+
+`bootstrap_or_resume_coordinator_context()` zapisuje Coordinator/Profile/Site i
+`CONTEXT_CONFIGURATION_SAVED` w pierwszym `with conn:` (bootstrap.py:211), a
+Association CAS w drugim `with conn:` (bootstrap.py:233). Gdy CAS zwróci False,
+publiczna operacja rzuca `CoordinatorContextAlreadyActive`, ale pierwszy commit
+pozostaje.
+
+Niezależna fault injection CAS=False: publiczne wywołanie zgłasza błąd, lecz w
+bazie pozostają Coordinator=1, SiteProfile=1, Site=1 i action=1. Oczekiwane
+liczności po rollbacku całej nieudanej inwokacji: (0,0,0,0).
+
+Warunek zamknięcia: wszystkie elementy dostarczone w jednym wywołaniu oraz jego
+jedna warunkowa akcja muszą należeć do tej samej granicy transakcyjnej, także gdy
+końcowa aktywacja Association przegrywa CAS. Resume przez osobne wcześniejsze
+wywołania pozostaje bez zmian.
+
+SECTION_CHECK 5 — STRUCTURED BEFORE/AFTER MINIMUM CONTENT: FAIL
+
+T019b-R4-3 — serializery kilku sąsiednich rodzin zapisują jedynie część
+literalnie wymaganej historii.
+
+Trace kontraktowy: brief.md §7.4 i szczególnie §19 określają minimalną treść,
+nie dowolny format kluczy. Niezależne reproduktory potwierdzają całą klasę:
+
+1. CONTEXT_CONFIGURATION_SAVED
+   - bootstrap `_profile_state()` pomija planning-relevant StandardShift fields
+     `catalog_kind`, `required_rest_hours`, `active_weekdays`;
+   - reproduktor z niestandardowymi wartościami kończy się KeyError.
+
+2. RULE_DECISION_RECORDED
+   - before hardkoduje `predecessor_rule_version_id=None`, nawet gdy poprzednik
+     ma RuleVersion;
+   - after zawiera tylko decision_id/rule_version_id/rel, bez nowego rule
+     content wymaganego przez §19;
+   - oba sibling reproduktory: FAIL.
+
+3. AVAILABILITY_CHANGED
+   - snapshot „previous chain-end record -> new AvailabilityRecord” pomija
+     `availability_id`, `availability_version_id`, `employee_id` i
+     `supersedes_availability_version_id`;
+   - dwu-elementowy chain reproducer: FAIL.
+
+4. Assignment facts w selection/manual/freeze/NN/training
+   - oba prywatne serializery pomijają utrwalone pola
+     `schedule_version_id`, `mentor_primary_assignment_id` i
+     `required_rest_after_hours`;
+   - manual action dodatkowo nie umieszcza wymaganych parent/child ids w
+     before/after (id child istnieje tylko w nagłówku action record);
+   - niezależny candidate-selection reproducer i manual-child reproducer: FAIL.
+
+5. SCHEDULE_FINALIZED
+   - before zawiera tylko status, after status + listę deviation ids;
+   - brakuje wymaganych stanów acknowledgement przed/po, mimo że operacja
+     utrwala `acknowledged`, `acknowledged_by`, `acknowledged_at`, `reason`;
+   - niewakuitywny reproduktor z realnym COVERAGE-01: FAIL.
+
+To jeden finding wspólnej klasy „historyczny snapshot nie zawiera kontraktowego
+minimum”, nie pięć propozycji architektury. Warunek zamknięcia: uzupełnić każdy
+wymieniony sibling zgodnie z §19 i zachować kompaktowość — bez całej bazy,
+kandydatów nie wybranych oraz danych solvera.
+
+SECTION_CHECK 6 — EXPLICIT DECISION_REQUIRED LINK: FAIL
+
+T019b-R4-4 — walidacja „snapshot nadal jest current” jest oddzielona od
+transakcji mutacji, więc link może stać się nieaktualny między checkiem a write.
+
+Trace kontraktowy:
+- brief.md §10 wymaga przed mutacją: snapshot istnieje, jest current dla swojej
+  pary i należy do origin Site; inaczej business mutation nie może wystąpić;
+- §12 wymaga validate/capture link, append action i clear pointer w tej samej
+  transakcji;
+- §13 wymaga atomowości write/action/invalidation.
+
+W materialnych entry points `validate_decision_required_link_no_commit()` jest
+wywoływane przed `with conn:`/lifecycle transaction. Deterministyczny interleave
+po poprawnej walidacji, w którym drugie połączenie usuwa current pointer, nadal
+pozwala `set_target_hours()` zapisać target i akcję linkującą immutable, ale już
+nie-current snapshot. Reproducer oczekujący fail-before-mutation: FAIL.
+
+Sekwencyjny sibling „znany, lecz już noncurrent snapshot” jest poprawnie
+odrzucany i niezależny reproduktor przechodzi. Defekt dotyczy okna
+check→transaction, nie podstawowej klasyfikacji ID.
+
+Warunek zamknięcia: dla wszystkich materialnych entry points bieżącość jawnego
+linku musi zostać sprawdzona/captured w tej samej izolowanej transakcji co
+business mutation, action INSERT i invalidation. Wąski test na target jest
+reprezentantem wspólnego helpera/inwariantu, nie zgodą na punktową łatkę tylko
+tej funkcji.
+
+SECTION_CHECK 7 — FINAL DR READBACK / STALENESS / READ API: PASS
+
+Poza R4-1 i R4-4:
+- przechowywany jest wyłącznie finalny, wyrenderowany T013 payload;
+- identyczny PLAN reuse'uje snapshot; zmiana tworzy nowy; FEASIBLE czyści tylko
+  current pointer; TECHNICAL_ERROR zachowuje poprzedni pointer;
+- persistence failure finalnego DR/clear fail-closed do TECHNICAL_ERROR;
+- target/calendar/availability/profile/rule/schedule invalidation granularity
+  przechodzi istniejącą macierz;
+- action history/detail/current question mają wymagane filtry, walidację
+  pierwszego dnia miesiąca, deterministyczne sortowanie i restart durability;
+- brak raw list API historycznych, niepodpiętych pytań.
+
+SECTION_CHECK 8 — ONE OPERATION = ONE ACTION / DOMAIN OWNERS: PASS
+
+- Decision Ledger pozostaje właścicielem SiteRule history; action index go nie
+  zastępuje.
+- freeze, NN, generic manual, training, REST override, finalize, selection,
+  replan i restore nie tworzą podwójnych human-action rows w kontraktowych
+  scenariuszach.
+- revalidate, plan attempts, retries/fallbacki i derived training readiness nie
+  dostały osobnej akcji.
+- failure injection dla już objętych dziewięciu mutation/lifecycle ścieżek
+  cofa business write razem z action (bootstrap exception: R4-2).
+
+SECTION_CHECK 9 — NO SECOND TRUTH / PLANNING NON-REGRESSION: PASS
+
+- `rota.planning.*` nie importuje persistence ani coordinator-action memory.
+- Nowe tabele nie są czytane przez assembler/solver/validator/balance.
+- Nie dodano action fields do Domain ani odtwarzania grafiku z JSON historii.
+- Pełna regresja produktu: 845/845 PASS.
+- Dedykowana macierz produktu: 60/60 PASS.
+- Ruff całego `rota tests`: PASS.
+- guard.py check arch/spec.md: PASS.
+
+SECTION_CHECK 10 — REQUIRED TEST EVIDENCE: FAIL
+
+T019b-R4-5 — dwa literalne warianty minimum §25 nie są dowiedzione przez
+dedykowany `tests/test_t019b.py`:
+
+- A1 nazywa się migracją, lecz otwiera wyłącznie nową bazę już migrowaną do v6;
+  nie dowodzi zachowania danych z realnego v5 ani „dokładnie trzech” nowych
+  tabel. Niezależny pełny v5→v6 oracle: PASS, więc jest to luka dowodu, nie
+  finding zachowania produkcji.
+- F44 wymaga noncurrent/unknown/wrong-Site. Test produktu wykonuje unknown i
+  wrong-Site, lecz nie wykonuje znanego noncurrent snapshotu. Niezależny
+  sekwencyjny noncurrent oracle: PASS. Race window pozostaje osobnym realnym
+  R4-4.
+
+Warunek zamknięcia: przenieść równoważne niewakuitywne oracles do jednego
+autoryzowanego tests/test_t019b.py bez usuwania istniejących siblingów i bez
+drugiego dedykowanego pliku. Amendment pozwala do 900 linii; obecne 873 oznacza,
+że ewentualne przekroczenie 900 wymaga jawnej decyzji, a nie redukcji oracles.
+
+SECTION_CHECK 11 — INDEPENDENT MATRIX: FAIL
+
+Committed audit matrix:
+tasks/ROTA-T019b/round_01/tests/test_t019b_implementation_audit.py
+
+Wynik: 10 FAIL / 2 PASS.
+
+FAIL pokrywają R4-1, R4-2, wszystkie wymienione siblingi R4-3 i interleave
+R4-4. PASS dowodzą realnej migracji v5→v6 oraz sekwencyjnego odrzucenia znanego
+noncurrent DR linku.
+
+SECTION_CHECK 12 — BACKEND / MECHANICAL FINAL GATE: FAIL + WYMAGA_DECYZJI
+
+backend.py dla BASE_SHA→amendment HEAD:
+
+STATUS: FAIL
+HEAD_SHA: 7db97318ca6bfc864f9ee96f7556a4da20b99281
+REASON:
+- SIZE_FILE tests/test_t012.py = 1701 > 600;
+- SIZE_FILE tests/test_t019b.py = 873 > global 600.
+WYMAGA_DECYZJI:
+- RATIO 2703/204 = 13.2:1;
+- TOTAL_LINES 2907.
+
+Klasyfikacja:
+- tests/test_t019b.py=873 jest CLOSED/ACCEPTED przez exact-SHA amendment i nie
+  blokuje merytorycznie;
+- tests/test_t012.py=1701 nie jest objęty tym amendmentem. Plik został
+  autoryzowanie dotknięty jedną zmianą `5→6`, ale whole-file gate nadal wymaga
+  jawnego waivera dla finalnego SHA albo innego formalnego zamknięcia;
+- w dostarczonych dokumentach finalnego HEAD nie ma exact-SHA zapisu akceptacji
+  RATIO 13.2:1 i TOTAL_LINES 2907. Pozostają WYMAGA_DECYZJI; nie są traktowane
+  jako defekty produktu.
+
+FINDINGS SUMMARY
+
+T019b-R4-1 — FAIL — ExternalSupportWindow no-op tworzy akcję i invaliduje DR.
+T019b-R4-2 — FAIL — nieudany bootstrap pozostawia częściowy commit + action.
+T019b-R4-3 — FAIL — kontraktowe minimum structured snapshots jest niepełne w
+                    sąsiednich rodzinach wymienionych w SECTION_CHECK 5.
+T019b-R4-4 — FAIL — current-DR link ma TOCTOU między walidacją a transakcją.
+T019b-R4-5 — FAIL (test evidence) — A1 i noncurrent część F44 są wakuitywne/
+                    nieobecne w wymaganej dedykowanej macierzy.
+
+MECHANICAL DECISIONS STILL REQUIRED
+
+- SIZE_FILE tests/test_t012.py = 1701 dla finalnego SHA;
+- RATIO 13.2:1;
+- TOTAL_LINES 2907.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+FAIL — T019b NOT READY FOR MERGE.
+
+CC może dostać wyłącznie wąskie zlecenie zamknięcia R4-1..R4-5. Nie ma podstaw
+do ponownego otwierania zaakceptowanej architektury storage/read model ani
+amendmentu 873 linii bez nowej konkretnej sprzeczności. Po poprawkach wymagane
+są: nowy exact product SHA, pełna regresja, 12/12 niniejszej macierzy oraz
+formalnie zamknięte pozostałe bramki mechaniczne.
