@@ -1,0 +1,86 @@
+ROTA-T019b — CODEX PREIMPLEMENTATION AUDIT — ROUND 3
+
+AUDITED_BRANCH: origin/task/T019b
+AUDITED_AMENDMENT_SHA: c9101abae8b35ca1a72d7b8cd3975fa54d8c39cc
+ROUND_02_AUDIT_SHA: b5dd6b1
+PREVIOUS_AMENDMENT_SHA: 49461b599cdb05ffaa255cbfaac9cfc6cc6a30fa
+BASE_SHA: 102273b553783b5a083a60d5ee9964e9ec67221a
+DATE: 2026-08-20
+
+VERDICT: PASS — READY_FOR_IMPLEMENTATION
+
+SCOPE OF THIS ROUND
+
+Round 3 sprawdza wyłącznie mechaniczne zamknięcie T019b-R1-2,
+T019b-R1-3 i T019b-R2-1. T019b-R1-1 został zamknięty w Round 2.
+Pozostała architektura i wcześniejsze SECTION_CHECK pozostają CLOSED/PASS.
+
+SECTION_CHECK 1 — PROVENANCE / EXACT DIFF: PASS
+
+- origin/task/T019b wskazuje dokładnie na audytowany SHA.
+- b5dd6b1 -> c9101ab to dokładnie jeden commit.
+- Zmieniono wyłącznie tasks/ROTA-T019b/brief.md.
+- Diff zawiera dokładnie siedem insertions i zero deletions.
+- Nie zmieniono produktu, testów, operation matrix, owner decisions,
+  arch/spec.md ani arch/FROZEN.lock.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — BACKEND-VISIBLE SELECT_CANDIDATE SCOPE: PASS
+
+Do literalnego bloku `TASK_SCOPE:` w brief.md dopisano dokładnie raz:
+
+- tests/test_audit_t009_r4.py;
+- tests/test_audit_t009_r5.py;
+- tests/test_t009_lifecycle_memory_backup_boundary.py;
+- tests/test_t009_manual_edit.py;
+- tests/test_t009_plan_select_replan.py;
+- tests/test_t010_nn.py.
+
+Rzeczywiste wykonanie backend.py::read_task_scope() zwraca dla każdego pliku
+True i count=1. Ograniczenia amendment_r1.md pozostają wiążące: wyłącznie
+mechaniczne dodanie explicit coordinator_id do czternastu wyliczonych call
+sites, bez zmiany candidate contents, kolejności, T017 semantics i oracles.
+
+T019b-R1-2: CLOSED.
+
+SECTION_CHECK 3 — BACKEND-VISIBLE SCHEMA TEST SCOPE: PASS
+
+tests/test_t012.py został dopisany dokładnie raz do literalnego bloku
+`TASK_SCOPE:`. Rzeczywiste wykonanie backend.py::read_task_scope() zwraca True
+i count=1.
+
+Autoryzacja pozostaje ograniczona do jednej mechanicznej zmiany literalnego
+LATEST_SCHEMA_VERSION 5 -> 6; pozostałe oracles T012 nie są otwarte.
+
+T019b-R1-3: CLOSED.
+
+SECTION_CHECK 4 — ROUND 2 MECHANICAL CONTRADICTION: PASS
+
+Główny brief, który backend.py otrzymuje jako wejście, zawiera teraz pełny
+amended scope. Osobny amendment_r1.md nadal definiuje precyzyjne granice zmian,
+ale gate nie musi go interpretować, aby rozpoznać dozwolone ścieżki.
+
+T019b-R2-1: CLOSED.
+
+FINDINGS
+
+T019b-R1-1 — CLOSED / PASS.
+T019b-R1-2 — CLOSED / PASS.
+T019b-R1-3 — CLOSED / PASS.
+T019b-R2-1 — CLOSED / PASS.
+
+NEW FINDINGS
+
+NONE.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+PASS — READY_FOR_IMPLEMENTATION
+
+CC może rozpocząć implementację na exact contract SHA
+c9101abae8b35ca1a72d7b8cd3975fa54d8c39cc, wyłącznie w literalnym TASK_SCOPE
+brief.md i z mechanicznymi ograniczeniami amendment_r1.md.
