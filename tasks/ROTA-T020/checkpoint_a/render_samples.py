@@ -45,6 +45,25 @@ FONT = "Sample-Regular"
 FONT_BOLD = "Sample-Bold"
 FONT_ITALIC = "Sample-Italic"
 
+# Owner questions 2026-08-20 (round 3): (1) will the name column hold a
+# long Polish surname, and (2) if a site has fewer employees, can the
+# rows grow so N employees still fill the same vertical block that 10
+# employees fill today. BASE_* below is the 10-employee layout already
+# accepted; row height (and everything derived from it) scales inversely
+# with roster size around that baseline.
+BASE_ROW_H = 22.0
+BASE_EMPLOYEE_COUNT = 10
+TARGET_BODY_HEIGHT = BASE_ROW_H * 2 * BASE_EMPLOYEE_COUNT
+
+
+def fit_font_size(text: str, font: str, size: float, max_width: float, min_size: float = 6.5) -> float:
+    """Shrink size until text fits max_width, down to a hard floor -- a
+    real Polish surname (double-barreled, or just long) can be wider than
+    a fixed-width name column allows at the "normal" size."""
+    while size > min_size and pdfmetrics.stringWidth(text, font, size) > max_width:
+        size -= 0.5
+    return size
+
 # ---------------------------------------------------------------------------
 # Section 9 -- owner-frozen legend. Exact, non-normalized values: the same
 # slot number does NOT carry the same hour value across letters (D4=2h but
@@ -250,14 +269,29 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
     # gets read every day -- so the grid gets the generous dimensions and
     # the largest type on the page; nothing below was picked to save
     # space, this A3 sheet has plenty to spare.
-    name_w = 130.0
+    name_w = 170.0
     sum_w = 48.0
     n_days = len(days)
     day_w = (PAGE_W - 2 * MARGIN - name_w - 4 * sum_w) / n_days
 
     dow_labels = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
     header_h1, header_h2 = 19.0, 23.0
-    row_h = 22.0
+
+    # Row height scales so N employees occupy the same total block that
+    # BASE_EMPLOYEE_COUNT employees occupy today -- a 5-employee Site gets
+    # visibly bigger rows, not a half-empty page. Clamped: never smaller
+    # than the original baseline (a very large roster shouldn't shrink
+    # rows below what's already been accepted as readable), and capped
+    # so cell text can never grow wide enough to collide with its
+    # neighbour (day_w does not grow with fewer employees -- day count
+    # sets it, not employee count).
+    row_h = max(BASE_ROW_H, min(46.0, TARGET_BODY_HEIGHT / (2 * len(roster))))
+    scale = row_h / BASE_ROW_H
+    name_font = min(16.0, 10.5 * scale)
+    sub_label_font = min(12.5, 8.5 * scale)
+    cell_font = min(16.0, 11.0 * scale)
+    summary_font = min(14.0, 10.5 * scale)
+    row_text_offset = round(row_h * 0.273, 1)
 
     x0 = MARGIN
     y = top_y
@@ -301,12 +335,20 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
             ("WYK", emp.wyk, ["", f"{wyk_h}", f"{urlop_h}", f"{l4_h}"]),
         ):
             x = x0
-            c.setFont(FONT, 10.5)
-            label_text = emp.name if sub_label == "PLAN" else ""
-            c.drawString(x + 4, y - row_h + 6, label_text)
-            c.setFont(FONT_ITALIC, 8.5)
+            if label_text := (emp.name if sub_label == "PLAN" else ""):
+                # Reserve room for the "PLAN"/"WYK" tag on the right so a
+                # long name can never run under it; shrink the name itself
+                # if it still doesn't fit at the row's normal name size
+                # (owner question 2026-08-20: does the name column hold a
+                # long Polish surname? Not always at a fixed size -- so
+                # make it fit instead of assuming).
+                max_name_w = name_w - 8 - 40
+                fitted = fit_font_size(label_text, FONT, name_font, max_name_w)
+                c.setFont(FONT, fitted)
+                c.drawString(x + 4, y - row_h + row_text_offset, label_text)
+            c.setFont(FONT_ITALIC, sub_label_font)
             c.setFillColor(HexColor("#777777"))
-            c.drawRightString(x + name_w - 4, y - row_h + 6, sub_label)
+            c.drawRightString(x + name_w - 4, y - row_h + row_text_offset, sub_label)
             c.setFillColor(black)
             x += name_w
 
@@ -336,15 +378,15 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
                     c.rect(x + 1.5, y - row_h + 1.5, day_w - 3, row_h - 3, stroke=1, fill=0)
                     c.setDash()
                 c.setFillColor(TEXT[fam])
-                c.setFont(FONT_BOLD if fam != "off" else FONT, 11)
+                c.setFont(FONT_BOLD if fam != "off" else FONT, cell_font)
                 label = "" if code == "–" or code.endswith("~") else code
-                c.drawCentredString(x + day_w / 2, y - row_h + 6, label)
+                c.drawCentredString(x + day_w / 2, y - row_h + row_text_offset, label)
                 c.setFillColor(black)
                 x += day_w
 
             for val in extra:
-                c.setFont(FONT, 10.5)
-                c.drawCentredString(x + sum_w / 2, y - row_h + 6, val)
+                c.setFont(FONT, summary_font)
+                c.drawCentredString(x + sum_w / 2, y - row_h + row_text_offset, val)
                 x += sum_w
             y -= row_h
 
