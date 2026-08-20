@@ -145,14 +145,11 @@ def _with_manual_action_hook(
     upsert_assignments: list[Assignment],
     note: Optional[str], responds_to_decision_required_id: Optional[str], caller_on_success, extra_state=None,
 ):
-    """ROTA-T019b: one action per apply_manual_correction call (section 15/
-    6), regardless of any REST_OVERRIDE_RECORD hook already composed in by
-    _with_rest_override_hook. before/after are exactly the caller-supplied
-    changed Assignment facts (brief.md section 7.4) -- never the whole
-    snapshot, never unselected/derived rows. extra_state (used only by
-    training.mark_training_realized) is called AFTER caller_on_success so it
-    can read the just-written derived readiness fact for section 19's
-    training readiness before/after."""
+    """ROTA-T019b: one action per apply_manual_correction call, regardless of
+    any REST_OVERRIDE_RECORD hook already composed in. before/after are the
+    caller-supplied changed Assignment facts (section 7.4) -- never the whole
+    snapshot. extra_state (training only) runs AFTER caller_on_success so it
+    can read the just-written derived readiness fact (section 19)."""
     recorded_at = datetime.now()
 
     def _hook(conn) -> None:
@@ -162,11 +159,9 @@ def _with_manual_action_hook(
             _assignment_state(parent_snapshot_by_id[a.assignment_id])
             for a in upsert_assignments if a.assignment_id in parent_snapshot_by_id
         ]
-        # T019b-R5-1: upsert_assignments still carry the PARENT's
-        # schedule_version_id (callers build them via replace() off the
-        # parent snapshot); _insert_content persists them under child_id
-        # regardless of that field, so the after fact must reflect what was
-        # actually written, not the caller's parent-scoped input object.
+        # R5-1: upsert_assignments still carry the PARENT's schedule_version_id
+        # (built via replace() off the parent snapshot); _insert_content
+        # persists them under child_id regardless, so after must reflect that.
         after_facts = [_assignment_state(replace(a, schedule_version_id=child_id)) for a in upsert_assignments]
         entities = sorted({a.employee_id for a in upsert_assignments})
         before_state = {"parent_version_id": parent_id, "assignments": before_facts}
