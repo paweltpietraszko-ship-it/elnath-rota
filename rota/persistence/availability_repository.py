@@ -129,5 +129,30 @@ def list_active_overlapping(
     ]
 
 
+def list_active_overlapping_for_employees(
+    conn: sqlite3.Connection, employee_ids: list[str], range_start: date, range_end: date
+) -> list[AvailabilityRecord]:
+    """ROTA-T019: current chain-end records, active and overlapping
+    [range_start, range_end], for a whole roster in one SELECT instead of
+    one list_active_overlapping() call per employee."""
+    if not employee_ids:
+        return []
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"""SELECT {_COLUMNS} FROM availability_versions v
+            WHERE employee_id IN ({placeholders}) AND chain_seq = (
+                SELECT MAX(chain_seq) FROM availability_versions
+                WHERE availability_id = v.availability_id
+            )
+            ORDER BY employee_id, availability_id""",
+        (*employee_ids,),
+    ).fetchall()
+    current = [_row_to_record(row) for row in rows]
+    return [
+        record for record in current
+        if record.active and record.start_date <= range_end and record.end_date >= range_start
+    ]
+
+
 if __name__ == "__main__":
     print("persistence.availability_repository module OK")

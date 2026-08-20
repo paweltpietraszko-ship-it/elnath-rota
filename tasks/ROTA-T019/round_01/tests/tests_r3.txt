@@ -1,0 +1,167 @@
+ROTA-T019 — CODEX IMPLEMENTATION AUDIT — ROUND 3
+
+AUDITED_BRANCH: origin/task/ROTA-T019
+AUDITED_PRODUCT_SHA: 68ce4cf09a3a8b2ca1368e89d2d14693c8b2b635
+CONTRACT_SHA: 08879e9af837dbedf37a6cefbb9384bab2f58c7a
+PREIMPLEMENTATION_PASS_SHA: ca02832761f3f4f3da449d6e92ce082888509d91
+BASE_SHA: 9618477f6014fad63699a154b04730e2b8ff1db2
+DATE: 2026-08-20
+
+VERDICT: FAIL — NOT READY FOR ARCHITECT FINAL GATE / MERGE
+
+SCOPE OF THIS ROUND
+
+Pełny audyt implementacji exact PRODUCT SHA. Weryfikacja obejmuje literalny
+TASK_SCOPE, kontraktową macierz 1–28, zachowanie read-only/batch, kanonicznych
+ownerów rachunku, regresję całego repo oraz mechaniczne bramki backend.py.
+
+SECTION_CHECK 1 — PROVENANCE / DIFF SCOPE: PASS
+
+- origin/task/ROTA-T019 wskazywał dokładnie na audytowany PRODUCT SHA.
+- Produkt powstał w dwóch commitach po zatwierdzonym contract stage:
+  - 746ff19 — implementacja analytics read model;
+  - 68ce4cf — wyłącznie podział helpera dla SIZE_FUNC.
+- arch/spec.md i arch/FROZEN.lock nie zostały zmienione.
+- Produkcyjny diff mieści się w merytorycznym TASK_SCOPE.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — PUBLIC READ MODEL / DTO / ROSTER: PASS
+
+- analytics_for_site_month(conn, site_id, month) jest publicznym, read-only
+  wejściem aplikacyjnym.
+- Miesiąc inny niż pierwszy dzień miesiąca jest odrzucany.
+- Roster jest filtrowany przez requested Site, enabled=True i LOCAL.
+- disabled LOCAL oraz wyłącznie EXTERNAL_SUPPORT nie tworzą wiersza ani
+  ostrzeżenia UNAVAILABLE.
+- Mixed LOCAL na requested Site + EXTERNAL gdzie indziej daje jeden wiersz.
+- Employee.active_from/active_to nie staje się dodatkowym filtrem rosteru.
+- Kolejność employee_id i miesięcy kwartału jest deterministyczna.
+
+SECTION_CHECK 3 — MONTH DATA / MISSING DATA / EFFECTIVE TARGET: PASS
+
+- planned i realized są pobierane wyłącznie z CURRENT ScheduleVersion i nie są
+  podwójnie liczone.
+- CANCELLED/NN nie zwiększa planned ani realized.
+- effective_target_hours jest wyprowadzane algebraicznie z kanonicznego
+  WorkBalance, bez drugiej implementacji rachunku nieobecności.
+- Brak targetu planowanego miesiąca daje UNAVAILABLE, month_data=None i warning;
+  legalne zero nie jest mylone z brakiem danych.
+- Brak targetu lub niekompletny kalendarz w innym miesiącu kwartału zachowuje
+  miesiąc planowany i degraduje wyłącznie kwartał.
+- Nieobecność kwalifikująca przy niepełnym kalendarzu fail-closed; brak takiej
+  nieobecności nie tworzy blanket calendar requirement.
+
+SECTION_CHECK 4 — GLOBAL HOURS / CURRENT POINTER / DURABILITY: PASS
+
+- Dla pracownika zakwalifikowanego przez LOCAL na requested Site godziny są
+  sumowane globalnie po modelowanych Site, zgodnie z ALL_SITES.
+- Pracownik bez LOCAL na requested Site nie wchodzi do widoku, nawet jeżeli ma
+  globalne Assignment.
+- Restore/select current pointer zmienia wynik bez uwzględniania historycznej
+  wersji.
+- Trwały close/reopen zwraca identyczny read model.
+- open_month() i quarter_balance() zachowują dotychczasowe publiczne zachowanie.
+
+SECTION_CHECK 5 — READ-ONLY / BATCH / N+1: PASS
+
+- analytics_read.py nie zawiera SQL i nie tworzy write path, cache, tabeli ani
+  migracji.
+- Repozytoria dostały addytywne batch reads; istniejące single APIs zachowano.
+- Targety, availability i current assignments nie są pobierane zapytaniem
+  per employee.
+- Kontraktowy query-count oracle nie rośnie liniowo wraz z rosterem.
+- Snapshoty business tables przed/po pozostają identyczne.
+
+SECTION_CHECK 6 — CANONICAL QUARTER OWNER: FAIL
+
+T019-R3-2
+
+Kontrakt wskazuje compute_month_balance() i compute_quarter_balance() jako
+kanonicznych ownerów rachunku, a sekcja 10.4 wiąże dostępny pełny kwartał z
+poprawnym zakończeniem compute_quarter_balance(). Implementacja importuje tylko
+compute_month_balance i w _quarter_row ręcznie odtwarza pętlę trzech miesięcy,
+running_balance oraz append wyniku. Jest to równoległa orkiestracja dokładnie tej
+odpowiedzialności, którą rota.balance.compute_quarter_balance() już posiada.
+
+Niezależny oracle AST:
+test_full_quarter_uses_canonical_compute_quarter_balance_owner — FAIL.
+
+To finding granicy ownera, nie teza o błędnych liczbach w obecnym przykładzie.
+Zamknięcie wymaga delegacji pełnego, dostępnego kwartału do kanonicznego ownera.
+Jeżeli kontraktowe mapowanie błędu na konkretny miesiąc uniemożliwia to w obecnym
+scope/API, implementer powinien STOP i zgłosić blocker, zamiast utrwalać duplikat.
+
+SECTION_CHECK 7 — REQUIRED TEST MATRIX / NON-VACUOUS ORACLES: FAIL
+
+T019-R3-3 — EXTERNAL_SUPPORT bez okna nie jest zapisanym oracle.
+
+Kontraktowy test 18 wymaga braku wiersza zarówno bez ExternalSupportWindow, jak
+i z oknem. test_18_external_support_never_gets_a_row tworzy WIN-1 przed pierwszym
+wywołaniem analytics, więc oba jego odczyty odbywają się ze stanem zawierającym
+okno. Wariant bez okna nie jest wykonywany.
+
+Niezależny reproduktor bez okna: PASS. Kod zachowuje się poprawnie, lecz
+obowiązkowy dowód dostawy jest niekompletny. Należy dodać odczyt/asercję przed
+utworzeniem okna, zachowując istniejące siblingi z oknem, Assignment i mixed
+membership.
+
+T019-R3-4 — holiday część testów 12/13 jest wakuitywna.
+
+test_12 oznacza jako holiday 2026-08-15, ale jest to sobota poza zakresem
+nieobecności 2026-08-01..09. test_13 nie oznacza żadnego dnia jako holiday.
+Testy dowodzą filtrowania weekendu, ale nie dowodzą wymaganego wykluczenia
+święta przypadającego w dzień roboczy wewnątrz nieobecności.
+
+Niezależny reproduktor z poniedziałkiem 2026-08-03 jako holiday wewnątrz
+SICK_LEAVE: PASS. Kod zachowuje się poprawnie, lecz macierz musi dostać
+niewakuitywny weekday-holiday oracle dla obu kontraktowych rodzajów nieobecności
+albo równoważną parametryzację wspólnej reguły.
+
+SECTION_CHECK 8 — MECHANICAL / REGRESSION GATES: FAIL
+
+- Full tests/: 785/785 PASS.
+- Ruff: PASS.
+- python guard.py check arch/spec.md: PASS; frozen SHA bez zmiany.
+- git diff --check: PASS.
+- Niezależna macierz audytowa: 2/3 PASS; jedyny FAIL to T019-R3-2.
+- backend.py: STATUS FAIL.
+
+T019-R3-1 — NEW_FILES hard gate:
+
+  NEW_FILES: 3 new files (max 2)
+
+Pełny BASE_SHA -> PRODUCT_SHA obejmuje trzy nowe pliki liczone przez backend:
+owner brief w arch/, analytics_read.py i tests/test_t019.py. Sekcja NEW_FILES
+opisuje dwa przyszłe pliki po contract stage, lecz finalny gate audytuje pełny
+diff od main. To nie jest WYMAGA_DECYZJI ani wartość, którą można zaakceptować
+ustnie; obecny kontrakt i mechaniczny gate są niespójne. Potrzebny jest wąski
+amendment mechanicznie dopuszczający rzeczywisty full-diff count, bez zmiany
+scope produktu.
+
+backend.py zgłasza także:
+
+  TOTAL_LINES: 1088 lines changed (threshold 150) — WYMAGA_DECYZJI
+
+Ta metryka wymaga finalnej, jednorazowej akceptacji dla nowego exact PRODUCT SHA
+dopiero po zamknięciu findings; obecna wartość nie jest przedmiotem blankietowej
+akceptacji.
+
+FINDINGS
+
+T019-R3-1 — FAIL — backend NEW_FILES=3 przy MAX=2; contract/gate amendment.
+T019-R3-2 — FAIL — pełny kwartał omija canonical compute_quarter_balance owner.
+T019-R3-3 — FAIL — wymagany wariant EXTERNAL_SUPPORT bez okna nie jest uruchamiany.
+T019-R3-4 — FAIL — wymagany holiday oracle jest wakuitywny w testach 12/13.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+FAIL — NOT READY FOR ARCHITECT FINAL GATE / MERGE.
+
+Kod produkcyjny przechodzi pełną suitę i dwa niezależne brakujące przypadki
+zachowania. PASS wymaga jednak zamknięcia kanonicznego ownera, zapisania dwóch
+obowiązkowych niewakuitywnych oracles oraz usunięcia twardego NEW_FILES FAIL na
+nowym exact PRODUCT SHA.

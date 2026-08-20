@@ -45,6 +45,27 @@ def list_work_balance_targets(conn: sqlite3.Connection, employee_id: str) -> dic
     return {date.fromisoformat(month): target_hours for month, target_hours in rows}
 
 
+def list_work_balance_targets_for_employees(
+    conn: sqlite3.Connection, employee_ids: list[str], range_start_month: date, range_end_month_exclusive: date,
+) -> dict[str, dict[date, int]]:
+    """ROTA-T019: one SELECT for a whole roster/quarter instead of one
+    list_work_balance_targets() call per employee. A missing entry stays
+    absent from the result, never a manufactured 0."""
+    if not employee_ids:
+        return {}
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"""SELECT employee_id, month, target_hours FROM work_balance_targets
+            WHERE employee_id IN ({placeholders}) AND month >= ? AND month < ?
+            ORDER BY employee_id, month""",
+        (*employee_ids, range_start_month.isoformat(), range_end_month_exclusive.isoformat()),
+    ).fetchall()
+    result: dict[str, dict[date, int]] = {}
+    for employee_id, month, target_hours in rows:
+        result.setdefault(employee_id, {})[date.fromisoformat(month)] = target_hours
+    return result
+
+
 def _add_months(month: date, count: int) -> date:
     zero_based = month.month - 1 + count
     return date(month.year + zero_based // 12, zero_based % 12 + 1, 1)
