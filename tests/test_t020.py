@@ -555,3 +555,135 @@ def test_t20_41_multiple_adjacent_candidates_for_same_identity_fails_closed():
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "WORK_PROVENANCE_INCOMPLETE"
+
+
+# --- R6 Linkage Narrowing Amendment Section 8.2: remaining exporter-linkage classes (R10-6)
+def test_t20_42_no_adjacent_match_remains_ordinary_work():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-NOMATCH")
+    _create_version(conn, [d_aug], [a_aug])
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.plan[30] == "N1"
+    assert row.plan_hours == 12
+def test_t20_43_different_work_period_id_does_not_link():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-AUG-SIDE")
+    _create_version(conn, [d_aug], [a_aug])
+    sep = date(2026, 9, 1)
+    d_sep = ShiftDemand("D-SEP", "", middle, middle + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    a_sep = _emergency_leg("A-SEP", "EMP-1", middle, middle + timedelta(hours=12), "D-SEP", "WP-SEP-SIDE")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-SEP", site_id="SITE-1", month=sep, parent_version_id=None,
+        created_at=datetime(2026, 9, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_sep], assignments=[a_sep], deviations=[], effective_from=sep,
+    )
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.plan[30] == "N1"
+    assert row.plan_hours == 12
+def test_t20_44_same_work_period_id_different_employee_does_not_link():
+    conn = connect(":memory:")
+    _seed(conn, employees=("EMP-1", "EMP-2"))
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-SHARED")
+    _create_version(conn, [d_aug], [a_aug])
+    sep = date(2026, 9, 1)
+    d_sep = ShiftDemand("D-SEP", "", middle, middle + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    a_sep = _emergency_leg("A-SEP", "EMP-2", middle, middle + timedelta(hours=12), "D-SEP", "WP-SHARED")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-SEP", site_id="SITE-1", month=sep, parent_version_id=None,
+        created_at=datetime(2026, 9, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_sep], assignments=[a_sep], deviations=[], effective_from=sep,
+    )
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.plan[30] == "N1"
+    assert row.plan_hours == 12
+def test_t20_45_unrelated_adjacent_work_is_ignored():
+    conn = connect(":memory:")
+    _seed(conn, employees=("EMP-1", "EMP-2"))
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-X")
+    _create_version(conn, [d_aug], [a_aug])
+    sep = date(2026, 9, 1)
+    d_sep = ShiftDemand("D-SEP", "", middle, middle + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    a_sep = _emergency_leg("A-SEP", "EMP-2", middle, middle + timedelta(hours=12), "D-SEP", "WP-UNRELATED")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-SEP", site_id="SITE-1", month=sep, parent_version_id=None,
+        created_at=datetime(2026, 9, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_sep], assignments=[a_sep], deviations=[], effective_from=sep,
+    )
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = next(r for r in model.rows if r.employee_id == "EMP-1")
+    assert row.plan[30] == "N1"
+    assert row.plan_hours == 12
+def test_t20_46_adjacent_lineage_corruption_fails_closed(monkeypatch):
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_aug = ShiftDemand("N-AUG", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_aug = _emergency_leg("A-AUG", "EMP-1", start, middle, "N-AUG", "WP-CORRUPT")
+    _create_version(conn, [d_aug], [a_aug])
+
+    original = SE.schedule_repository.get_current_version_id
+    sep = date(2026, 9, 1)
+
+    def corrupted(conn_, site_id, month):
+        if month == sep:
+            return "SV-GHOST-DOES-NOT-EXIST"
+        return original(conn_, site_id, month)
+
+    monkeypatch.setattr(SE.schedule_repository, "get_current_version_id", corrupted)
+    with pytest.raises(SE.ExportProblemError) as exc:
+        SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert exc.value.code == "PROVENANCE_INCOMPLETE"
+def test_t20_47_emergency_linkage_across_a_year_boundary():
+    conn = connect(":memory:")
+    _seed(conn, full_calendar=False)
+    save_site_print_settings(conn, _settings())
+    december = date(2026, 12, 1)
+    start = datetime(2026, 12, 31, 18)
+    middle = start + timedelta(hours=12)
+    d_dec = ShiftDemand("N-DEC", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12)
+    a_dec = _emergency_leg("A-DEC", "EMP-1", start, middle, "N-DEC", "WP-YEAR")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-DEC", site_id="SITE-1", month=december, parent_version_id=None,
+        created_at=datetime(2026, 12, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_dec], assignments=[a_dec], deviations=[], effective_from=december,
+    )
+    january = date(2027, 1, 1)
+    d_jan = ShiftDemand("D-JAN", "", middle, middle + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    a_jan = _emergency_leg("A-JAN", "EMP-1", middle, middle + timedelta(hours=12), "D-JAN", "WP-YEAR")
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-JAN", site_id="SITE-1", month=january, parent_version_id=None,
+        created_at=datetime(2027, 1, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[d_jan], assignments=[a_jan], deviations=[], effective_from=january,
+    )
+
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=december, period_label="x")
+    row = model.rows[0]
+    assert row.plan[30] == "24"
+    assert row.plan_hours == 24

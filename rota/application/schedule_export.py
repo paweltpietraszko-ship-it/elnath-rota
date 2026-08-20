@@ -1,6 +1,4 @@
-"""ROTA-T020 Checkpoint B -- printable schedule PDF export (READ/PRESENTATION
-only; never touches solver/Assignment/Availability/T018/WorkBalance/
-ScheduleVersion lifecycle). No SQL here -- only existing repositories."""
+"""ROTA-T020 Checkpoint B -- printable schedule PDF export (READ/PRESENTATION only; never touches solver/lifecycle write paths). No SQL here -- only existing repositories."""
 from __future__ import annotations
 import hashlib
 import io
@@ -83,7 +81,7 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
     absence_by_employee = _collect_absence(conn, month, days, local_ids, work_cells, settings, calendar_days, holiday_by_date)
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
-    provenance = _provenance_text(lineage)
+    provenance = _provenance_text(lineage, adjacent_facts)
     return ExportModel(
         site_id=site_id, month=month, period_label=period_label,
         company_print_name=settings.company_print_name, site_print_name=settings.site_print_name,
@@ -123,15 +121,14 @@ def _version_for_date(lineage: list, target: date) -> Optional[str]:
         if header.effective_from <= target:
             selected = header.version_id
     return selected
-def _provenance_text(lineage: list) -> str:
+def _provenance_text(lineage: list, adjacent_facts: list) -> str:
+    """Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3)."""
     ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
-    digest = hashlib.sha256(json.dumps(ordered, sort_keys=True).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
     return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
 # Real work cells (Section 10)
 def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
-    """Adjacent-month leg for linkage detection only, never its own cell;
-    reconstructed under the same lineage rules -- a broken adjacent lineage
-    fails PROVENANCE_INCOMPLETE (R6 Linkage Narrowing Amendment 2.2)."""
+    """Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2)."""
     other_month = date(target_day.year, target_day.month, 1)
     if schedule_repository.get_current_version_id(conn, site_id, other_month) is None:
         return []
@@ -139,6 +136,7 @@ def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
     version_id = _version_for_date(lineage, target_day)
     if version_id is None:
         return []
+    effective_from = next(h.effective_from for h in lineage if h.version_id == version_id)
     snapshot = schedule_repository.get_schedule_snapshot(conn, version_id)
     demands_by_id = {d.demand_id: d for d in snapshot.shift_demands}
     items = []
@@ -147,7 +145,7 @@ def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
             continue
         demand = demands_by_id.get(a.covers_demand_id)
         if demand is not None:
-            items.append((a, demand, version_id))
+            items.append((a, demand, version_id, effective_from))
     return items
 def _validate_item(a, demand) -> None:
     if a.role == AssignmentRole.TRAINEE:
@@ -158,11 +156,13 @@ def _validate_item(a, demand) -> None:
         raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id}: actual interval contradicts its covered demand")
     if demand.catalog_kind == ShiftCatalogKind.OTHER:
         raise ExportProblemError("UNSUPPORTED_SHIFT_KIND", f"{a.assignment_id} covers an INNY demand")
+def _ckey(a) -> str:
+    """Assignment identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)."""
+    return f"{a.schedule_version_id}::{a.assignment_id}"
 def _component(a) -> PeriodComponent:
-    return PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
+    return PeriodComponent(_ckey(a), a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
 def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
-    """raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/
-    boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance."""
+    """raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance."""
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
     demand_by_assignment: dict = {}
@@ -183,8 +183,8 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
             _validate_item(a, demand)
             seen_employee_ids.add(a.employee_id)
             raw_items.setdefault((a.employee_id, day), []).append((a, demand))
-            demand_by_assignment[a.assignment_id] = demand
-            assignment_by_id[a.assignment_id] = a
+            demand_by_assignment[_ckey(a)] = demand
+            assignment_by_id[_ckey(a)] = a
             components.append(_component(a))
     boundary_days = (days[0] - timedelta(days=1), days[-1] + timedelta(days=1))
     boundary_items = []
@@ -194,18 +194,18 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
             if a.start_datetime.date() in boundary_days and a.role == AssignmentRole.PRIMARY and a.state != AssignmentState.CANCELLED:
                 demand = demands_by_id.get(a.covers_demand_id)
                 if demand is not None:
-                    boundary_items.append((a, demand, a.schedule_version_id))
+                    boundary_items.append((a, demand, a.schedule_version_id, None))
     for boundary_day in boundary_days:  # or it may live in a genuinely different month's own ScheduleVersion
         boundary_items.extend(_adjacent_day_items(conn, site_id, boundary_day))
     boundary_ids: set[str] = set()
     adjacent_versions: dict = {}
-    for a, demand, version_id in boundary_items:
-        if a.work_period_id is None or a.assignment_id in demand_by_assignment:
+    for a, demand, version_id, effective_from in boundary_items:
+        if a.work_period_id is None or _ckey(a) in demand_by_assignment:
             continue
-        demand_by_assignment[a.assignment_id] = demand
-        assignment_by_id[a.assignment_id] = a
-        boundary_ids.add(a.assignment_id)
-        adjacent_versions[a.assignment_id] = version_id
+        demand_by_assignment[_ckey(a)] = demand
+        assignment_by_id[_ckey(a)] = a
+        boundary_ids.add(_ckey(a))
+        adjacent_versions[_ckey(a)] = (version_id, effective_from.isoformat() if effective_from else None)
         components.append(_component(a))
     return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions
 def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
@@ -214,12 +214,11 @@ def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
         return False
     if d0.shift_kind is None or d0.shift_kind == d1.shift_kind:
         return False
-    return bool(d0.work_period_template_id) and d0.work_period_template_id == d1.work_period_template_id
+    if not (d0.work_period_template_id) or d0.work_period_template_id != d1.work_period_template_id:
+        return False
+    return {d0.work_period_component, d1.work_period_component} == {1, 2}
 def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> Optional[str]:
-    """'normal' (R5 4.2, T020 re-derives structure) or 'linked' (cross-
-    boundary emergency pair -- T020 trusts persisted (employee_id,
-    work_period_id) identity alone, never T012's internal legitimacy,
-    per R6 Linkage Narrowing). None -> caller fails closed if asserted."""
+    """'normal' (R5 4.2, re-derived) or 'linked' (cross-boundary pair -- trusts persisted (employee_id, work_period_id) only, per R6 Linkage Narrowing). None -> caller fails closed if asserted."""
     if len(period.component_ids) != 2:
         return None
     d0 = demand_by_assignment.get(period.component_ids[0])
@@ -252,9 +251,10 @@ def _apply_24h_periods(collected, settings, days: list[date]):
         if kind == "linked":
             boundary_cid = next(cid for cid in period.component_ids if cid in boundary_ids)
             a = assignment_by_id[boundary_cid]
-            adjacent_facts.append((a.employee_id, a.work_period_id, a.assignment_id, adjacent_versions[boundary_cid]))
+            version_id, effective_from = adjacent_versions[boundary_cid]
+            adjacent_facts.append((a.employee_id, a.work_period_id, version_id, a.assignment_id, effective_from))
     for (employee_id, day), items in raw_items.items():
-        remaining = [(a, d) for a, d in items if a.assignment_id not in consumed]
+        remaining = [(a, d) for a, d in items if _ckey(a) not in consumed]
         if not remaining:
             continue
         if len(remaining) > 1:
@@ -466,8 +466,7 @@ def _resolve_unicode_font() -> tuple[str, str, str]:
         if _covers_polish(_FONT_REGULAR):
             return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
     raise ExportProblemError("PRINT_FONT_UNAVAILABLE", "no runtime-resolvable font covers the required Polish glyph set")
-# PDF rendering (Section 18) -- accepted Checkpoint A visual baseline: A3 landscape, weekday+day-number headers, per-day
-# grid, weekend/holiday cue, full asymmetric D1..C5 legend, grayscale-safe density/border-only cues.
+# PDF rendering (Section 18) -- accepted Checkpoint A visual baseline: A3 landscape, headers, grid, weekend cue, full legend.
 _FILL = {"d": HexColor("#dcdcdc"), "n": HexColor("#a6a6a6"), "h24": HexColor("#595959"), "u": white, "c": white}
 _TEXT = {"d": black, "n": black, "h24": white, "u": black, "c": black, "off": HexColor("#8a8a8a")}
 _WEEKEND_BG = HexColor("#e2e2e2")
@@ -490,6 +489,15 @@ def _check_fits(n_rows: int, row_h: float) -> None:
     available = landscape(A3)[1] - 2 * MARGIN - HEADER_H - LEGEND_H - FOOTER_H
     if n_rows * 2 * row_h > available:
         raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"{n_rows} rows do not fit the accepted single sheet at the {row_h}pt floor")
+def _check_header_fits(model: ExportModel, regular: str, bold: str) -> None:
+    """T20-36 -- header/period text must fit at a readable floor size or fail closed, never draw clipped/overflowing text (R10-5)."""
+    available = landscape(A3)[0] - 2 * MARGIN
+    title = f"{model.company_print_name} — {model.site_print_name}"
+    period = f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"
+    if pdfmetrics.stringWidth(title, bold, 10.0) > available:
+        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", "company/site header exceeds the accepted readability floor")
+    if pdfmetrics.stringWidth(period, regular, 7.0) > available:
+        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", "period label exceeds the accepted readability floor")
 def _draw_day_headers(c, day_w, days, holiday_by_date, bold, y) -> float:
     x = MARGIN + NAME_W
     for d in days:
@@ -550,9 +558,7 @@ def _legend_value(letter: str, slot: int, reserve_hours: dict) -> tuple:
     value = base if base is not None else reserve_hours.get(f"{letter}{slot}")
     return value, base is None and value is not None
 def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> float:
-    c.setFont(bold, 10)
-    c.drawString(MARGIN, y, "Legenda — tabela wartości godzinowych (wartości właściciela, nie normalizowane)")
-    y -= 15
+    c.setFont(bold, 10); c.drawString(MARGIN, y, "Legenda — tabela wartości godzinowych (wartości właściciela, nie normalizowane)"); y -= 15  # noqa: E702
     col_w = (landscape(A3)[0] - 2 * MARGIN) / 2
     sub_w = col_w / 2
     for slot in range(1, 6):
@@ -561,12 +567,8 @@ def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> floa
             c.setFont(regular, 9)
             c.drawString(MARGIN + (j // 2) * col_w + (j % 2) * sub_w, y, _legend_line(letter, slot, value, demo))
         y -= 12
-    c.setFont(regular, 9)
-    c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia")
-    y -= 14
-    c.setFont(italic, 8)
-    c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h).")
-    y -= 12
+    c.setFont(regular, 9); c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia"); y -= 14  # noqa: E702
+    c.setFont(italic, 8); c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h)."); y -= 12  # noqa: E702
     c.drawString(MARGIN, y, "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana — czytelne bez koloru.")
     return y - 12
 def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
@@ -575,19 +577,14 @@ def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     day_w = (page_w - 2 * MARGIN - NAME_W - 4 * SUM_W) / len(model.days)
     row_h = _row_height(len(model.rows))
     _check_fits(len(model.rows), row_h)
+    _check_header_fits(model, regular, bold)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=landscape(A3))
     y = page_h - MARGIN
-    c.setFont(bold, 16)
-    c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}")
-    y -= 18
-    c.setFont(regular, 9.5)
-    c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}")
-    y -= 12
-    c.drawString(MARGIN, y, model.provenance_text)
-    y -= 12
-    c.drawString(MARGIN, y, f"Revision: {_document_revision(model)}   Wygenerowano: {generated_at.isoformat()}")
-    y -= 16
+    c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
+    c.setFont(regular, 9.5); c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, model.provenance_text); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, f"Revision: {_document_revision(model)}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
     y = _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
     for row in model.rows:
         for label, cells in (("PLAN", row.plan), ("WYK", row.wyk)):
