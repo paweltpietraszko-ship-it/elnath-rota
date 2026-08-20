@@ -112,6 +112,7 @@ def create_schedule_version(
     created_at: datetime, created_by: str, applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand],
     assignments: list[Assignment], deviations: list[Deviation], effective_from: date | None = None,
     on_success: Callable[[sqlite3.Connection], None] | None = None,
+    pre_check: Callable[[sqlite3.Connection], None] | None = None,
 ) -> ScheduleVersion:
     """Atomically create a new ScheduleVersion header+content and point the
     (site_id, month) current reference at it. If parent_version_id is set,
@@ -131,8 +132,16 @@ def create_schedule_version(
     independently in Python's sqlite3 module, so composing two already-
     wrapped writes cannot achieve this by nesting alone. Not a general
     workflow mechanism: at most one hook, called only on the success path,
-    inside the same transaction as everything above."""
+    inside the same transaction as everything above.
+
+    pre_check (ROTA-T019b): an optional same-transaction hook called FIRST,
+    before any read/write below -- for a caller that must validate an
+    explicit DECISION_REQUIRED link is still current inside the exact same
+    isolated transaction as the write it may end up gating (brief.md
+    section 10: no TOCTOU window between the check and the mutation)."""
     with conn:
+        if pre_check is not None:
+            pre_check(conn)
         if conn.execute("SELECT 1 FROM schedule_versions WHERE version_id = ?", (version_id,)).fetchone():
             raise DuplicateScheduleVersionId(version_id)
         validation.validate_month_is_first_of_month(month)
@@ -172,15 +181,18 @@ def replace_working_snapshot(
     conn: sqlite3.Connection, *, version_id: str, applied_rule_version_ids: list[str],
     shift_demands: list[ShiftDemand], assignments: list[Assignment], deviations: list[Deviation],
     on_success: Callable[[sqlite3.Connection], None] | None = None,
+    pre_check: Callable[[sqlite3.Connection], None] | None = None,
 ) -> ScheduleVersion:
     """Full in-place snapshot replacement of the current WORKING/
     WORKING_WITH_DEVIATIONS version. FINAL versions and non-current versions
     reject with NonEditableScheduleVersion; use create_schedule_version for a
     new child instead.
 
-    on_success (ROTA-T019b): same same-transaction hook seam as
+    on_success/pre_check (ROTA-T019b): same same-transaction hook seams as
     create_schedule_version -- default None preserves existing behavior."""
     with conn:
+        if pre_check is not None:
+            pre_check(conn)
         header = _require_editable_current(conn, version_id)
         status = _validate_content(
             conn, site_id=header.site_id, month=header.month,
@@ -218,6 +230,7 @@ def finalize_schedule_version(
     applied_rule_version_ids: list[str] | None = None, shift_demands: list[ShiftDemand] | None = None,
     assignments: list[Assignment] | None = None, deviations: list[Deviation] | None = None,
     on_success: Callable[[sqlite3.Connection], None] | None = None,
+    pre_check: Callable[[sqlite3.Connection], None] | None = None,
 ) -> ScheduleVersion:
     """One-way transition WORKING(_WITH_DEVIATIONS) -> FINAL_*; every
     Deviation on the version must already be acknowledged.
@@ -231,6 +244,8 @@ def finalize_schedule_version(
     transition; omitting them preserves the original single-purpose
     behavior (deviations already acknowledged in storage)."""
     with conn:
+        if pre_check is not None:
+            pre_check(conn)
         header = _require_editable_current(conn, version_id)
         if shift_demands is not None:
             _replace_content_for_finalize(
@@ -254,11 +269,14 @@ def finalize_schedule_version(
 def restore_schedule_version(
     conn: sqlite3.Connection, *, site_id: str, month: date, version_id: str,
     on_success: Callable[[sqlite3.Connection], None] | None = None,
+    pre_check: Callable[[sqlite3.Connection], None] | None = None,
 ) -> None:
     """Move the (site_id, month) current reference to version_id (any prior
     version, including a FINAL one already superseded) without deleting or
     altering any ScheduleVersion's content."""
     with conn:
+        if pre_check is not None:
+            pre_check(conn)
         header = get_schedule_version_header(conn, version_id)
         if header.site_id != site_id or header.month != month:
             raise InvalidCurrentVersionTarget(f"{version_id} does not belong to ({site_id}, {month})")

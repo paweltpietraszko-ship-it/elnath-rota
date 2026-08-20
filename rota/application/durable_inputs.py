@@ -106,9 +106,6 @@ def add_external_support_window(
 ) -> None:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     _require_payload_belongs_to_site(window.site_id, site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     try:
         before = get_external_support_window(conn, window.window_id)
@@ -120,26 +117,30 @@ def add_external_support_window(
     except KeyError:
         before_state = None
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_external_support_window_in_open_transaction(conn, window)
         after_state = {
             "employee_id": window.employee_id, "site_id": window.site_id,
             "start_datetime": window.start_datetime, "end_datetime": window.end_datetime,
             "active": window.active, "allowed_shift_kind": window.allowed_shift_kind.value if window.allowed_shift_kind else None,
         }
-        _record_action_and_invalidate_no_commit(
-            conn, action_kind=CoordinatorActionKind.EXTERNAL_SUPPORT_WINDOW_CHANGED, origin_site_id=site_id,
-            affected_site_ids=[window.site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=window.start_datetime.date(), month=None,
-            affected_entities=[
-                AffectedEntity("EMPLOYEE", window.employee_id),
-                AffectedEntity("EXTERNAL_SUPPORT_WINDOW", window.window_id),
-                AffectedEntity("SITE", window.site_id),
-            ],
-            before_state=before_state, after_state=after_state, note=_normalize_note(note),
-            source_kind=ActionSourceKind.CURRENT_STATE, source_id=window.window_id,
-            responds_to_decision_required_id=responds_to_decision_required_id,
-            invalidate_months=_months_overlapped(window.start_datetime.date(), window.end_datetime.date()),
-        )
+        if before_state != after_state:
+            _record_action_and_invalidate_no_commit(
+                conn, action_kind=CoordinatorActionKind.EXTERNAL_SUPPORT_WINDOW_CHANGED, origin_site_id=site_id,
+                affected_site_ids=[window.site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+                effective_from=window.start_datetime.date(), month=None,
+                affected_entities=[
+                    AffectedEntity("EMPLOYEE", window.employee_id),
+                    AffectedEntity("EXTERNAL_SUPPORT_WINDOW", window.window_id),
+                    AffectedEntity("SITE", window.site_id),
+                ],
+                before_state=before_state, after_state=after_state, note=_normalize_note(note),
+                source_kind=ActionSourceKind.CURRENT_STATE, source_id=window.window_id,
+                responds_to_decision_required_id=responds_to_decision_required_id,
+                invalidate_months=_months_overlapped(window.start_datetime.date(), window.end_datetime.date()),
+            )
 
 
 def append_availability(
@@ -152,25 +153,29 @@ def append_availability(
     already models all three as one operation. `note` is both the
     AvailabilityRecord note and the T019b action note (brief.md section 9)."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     history = get_availability_history(conn, availability_id)
     before = history[-1] if history else None
     before_state = None if before is None else {
-        "kind": before.kind.value, "start_date": before.start_date, "end_date": before.end_date,
-        "active": before.active, "note": before.note,
+        "availability_id": before.availability_id, "availability_version_id": before.availability_version_id,
+        "employee_id": before.employee_id, "kind": before.kind.value, "start_date": before.start_date,
+        "end_date": before.end_date, "active": before.active,
+        "supersedes_availability_version_id": before.supersedes_availability_version_id, "note": before.note,
     }
     normalized_note = _normalize_note(note)
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         record = append_availability_version_in_open_transaction(
             conn, availability_id=availability_id, employee_id=employee_id, kind=kind,
             start_date=start_date, end_date=end_date, active=active, note=normalized_note,
         )
         after_state = {
-            "kind": record.kind.value, "start_date": record.start_date, "end_date": record.end_date,
-            "active": record.active, "note": record.note,
+            "availability_id": record.availability_id, "availability_version_id": record.availability_version_id,
+            "employee_id": record.employee_id, "kind": record.kind.value, "start_date": record.start_date,
+            "end_date": record.end_date, "active": record.active,
+            "supersedes_availability_version_id": record.supersedes_availability_version_id, "note": record.note,
         }
         affected_site_ids = _employee_affected_site_ids(conn, employee_id, site_id)
         _record_action_and_invalidate_no_commit(
@@ -191,9 +196,6 @@ def update_employee(
     note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> None:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     try:
         before = get_employee(conn, employee.employee_id)
@@ -201,6 +203,9 @@ def update_employee(
         before = None
     material = before is None or before.day_only != employee.day_only
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_employee_in_open_transaction(conn, employee)
         if material:
             affected_site_ids = _employee_affected_site_ids(conn, employee.employee_id, site_id)
@@ -222,9 +227,6 @@ def update_membership(
 ) -> None:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     _require_payload_belongs_to_site(membership.site_id, site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     before = next(
         (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == membership.employee_id), None,
@@ -236,6 +238,9 @@ def update_membership(
         membership.can_work_24h,
     )
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_site_membership_in_open_transaction(conn, membership)
         if material:
 
@@ -263,12 +268,12 @@ def set_target_hours(
     note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> None:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     before = get_work_balance_target(conn, employee_id, month)
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_work_balance_target_in_open_transaction(conn, employee_id=employee_id, month=month, target_hours=target_hours)
         if before != target_hours:
             affected_site_ids = _employee_affected_site_ids(conn, employee_id, site_id)
@@ -293,9 +298,6 @@ def set_calendar_day(
     a Site -- site_id here authorizes the coordinator's write, exactly like
     set_target_hours, and is never itself persisted."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     try:
         before = get_calendar_day(conn, day.date)
@@ -303,6 +305,9 @@ def set_calendar_day(
     except KeyError:
         before_holiday = None
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_calendar_day_in_open_transaction(conn, day)
         if before_holiday != day.holiday:
             affected_site_ids = [s.site_id for s in list_sites(conn)]
@@ -358,9 +363,6 @@ def update_site_profile(
         raise InvalidCoordinatorContext(
             f"profile {profile.profile_id!r} does not belong to the authorized site {site_id!r}"
         )
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     try:
         before = get_site_profile(conn, profile.profile_id)
@@ -368,6 +370,9 @@ def update_site_profile(
         before = None
     material = before is None or _profile_planning_fields(before) != _profile_planning_fields(profile)
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_site_profile_in_open_transaction(conn, profile)
         if material:
             affected_site_ids = _sites_bound_to_profile(conn, profile.profile_id)
@@ -404,9 +409,6 @@ def update_site(
             f"update_site must not rebind profile_id ({owning_site.profile_id!r} -> {site.profile_id!r}); "
             "changing a Site's profile is a separate, explicit operation"
         )
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     recorded_at = datetime.now()
     try:
         before = get_site(conn, site.site_id)
@@ -414,6 +416,9 @@ def update_site(
         before = None
     material = before is None or before.active != site.active
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
         write_site_in_open_transaction(conn, site)
         if material:
             _record_action_and_invalidate_no_commit(

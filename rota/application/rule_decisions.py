@@ -11,7 +11,20 @@ from rota.application.context import require_active_coordinator_context
 from rota.application.errors import require_real_date
 from rota.persistence import site_memory
 from rota.persistence.decision_ledger import record_decision_no_commit
+from rota.persistence.site_memory import rule_history
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind, DecisionRecord, NewRuleContent
+
+
+def _rule_content_state(rule_content: Optional[NewRuleContent]) -> Optional[dict]:
+    if rule_content is None:
+        return None
+    return {
+        "category": rule_content.category.value, "rule_kind": rule_content.rule_kind,
+        "structured_parameters": rule_content.structured_parameters,
+        "enforcement": rule_content.enforcement.value, "resolution_status": rule_content.resolution_status.value,
+        "effective_to": rule_content.effective_to, "description": rule_content.description,
+        "source": rule_content.source, "reason": rule_content.reason,
+    }
 
 
 def _add_month(d: date) -> date:
@@ -33,11 +46,13 @@ def record_structured_rule_decision(
 ) -> DecisionRecord:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     stamp = recorded_at or datetime.now()
     with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        predecessor_chain = rule_history(conn, site_id, rule_id)
+        predecessor = predecessor_chain[-1] if predecessor_chain else None
         decision = record_decision_no_commit(
             conn, site_id=site_id, rule_id=rule_id, statement=statement, coordinator_id=coordinator_id,
             recorded_at=stamp, effective_from=effective_from, rel=rel, rule_content=rule_content,
@@ -47,8 +62,14 @@ def record_structured_rule_decision(
             affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=stamp,
             effective_from=effective_from, month=None, schedule_version_id=None,
             affected_entities=[AffectedEntity("SITE_RULE", rule_id)],
-            before_state={"predecessor_decision_id": decision.predecessor_decision_id, "predecessor_rule_version_id": None},
-            after_state={"decision_id": decision.decision_id, "rule_version_id": decision.rule_version_id, "rel": decision.rel},
+            before_state={
+                "predecessor_decision_id": None if predecessor is None else predecessor.decision_id,
+                "predecessor_rule_version_id": None if predecessor is None else predecessor.rule_version_id,
+            },
+            after_state={
+                "decision_id": decision.decision_id, "rule_version_id": decision.rule_version_id,
+                "rel": decision.rel, "content": _rule_content_state(rule_content),
+            },
             note=note, source_kind=ActionSourceKind.DECISION_RECORD, source_id=decision.decision_id,
             responds_to_decision_required_id=responds_to_decision_required_id,
         )

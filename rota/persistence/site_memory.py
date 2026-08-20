@@ -185,10 +185,18 @@ def _payload_from_dict(data: dict) -> DecisionRequiredPayload:
 def validate_decision_required_link_no_commit(
     conn: sqlite3.Connection, *, responds_to_decision_required_id: Optional[str], origin_site_id: str,
 ) -> None:
-    """brief.md section 10: called BEFORE any business mutation. A None link
-    is always valid (most commands don't answer a question). A non-None link
-    must name an existing snapshot that is still the current pointer for its
-    own (site_id, month) and whose site_id matches origin_site_id."""
+    """brief.md section 10: called INSIDE the same transaction as the
+    business mutation it may gate, BEFORE any write. A None link is always
+    valid (most commands don't answer a question). A non-None link must name
+    an existing snapshot that is still the current pointer for its own
+    (site_id, month) and whose site_id matches origin_site_id.
+
+    The final currency check is a self-assigning UPDATE, not a SELECT: any
+    UPDATE statement makes SQLite escalate to a RESERVED lock immediately,
+    so a concurrent connection cannot change current_decision_required for
+    this (site_id, month) between this check and the caller's own write in
+    the same transaction -- closing the TOCTOU window a read-only SELECT
+    would leave open under SQLite's deferred-transaction default."""
     if responds_to_decision_required_id is None:
         return
     row = conn.execute(
@@ -202,11 +210,12 @@ def validate_decision_required_link_no_commit(
         raise DecisionRequiredLinkMismatch(
             f"{responds_to_decision_required_id!r} belongs to site {site_id!r}, not {origin_site_id!r}"
         )
-    current = conn.execute(
-        "SELECT decision_required_id FROM current_decision_required WHERE site_id = ? AND month = ?",
-        (site_id, month),
-    ).fetchone()
-    if current is None or current[0] != responds_to_decision_required_id:
+    cursor = conn.execute(
+        "UPDATE current_decision_required SET decision_required_id = decision_required_id "
+        "WHERE site_id = ? AND month = ? AND decision_required_id = ?",
+        (site_id, month, responds_to_decision_required_id),
+    )
+    if cursor.rowcount != 1:
         raise DecisionRequiredLinkMismatch(
             f"{responds_to_decision_required_id!r} is not the current question for ({site_id!r}, {month!r})"
         )

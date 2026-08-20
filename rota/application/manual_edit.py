@@ -131,16 +131,18 @@ def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, c
 
 def _assignment_state(a: Assignment) -> dict:
     return {
-        "assignment_id": a.assignment_id, "employee_id": a.employee_id, "start_datetime": a.start_datetime,
-        "end_datetime": a.end_datetime, "role": a.role.value, "state": a.state.value, "frozen": a.frozen,
-        "covers_demand_id": a.covers_demand_id, "operational_code": a.operational_code,
-        "work_period_id": a.work_period_id,
+        "schedule_version_id": a.schedule_version_id, "assignment_id": a.assignment_id, "employee_id": a.employee_id,
+        "start_datetime": a.start_datetime, "end_datetime": a.end_datetime, "role": a.role.value,
+        "state": a.state.value, "frozen": a.frozen, "covers_demand_id": a.covers_demand_id,
+        "mentor_primary_assignment_id": a.mentor_primary_assignment_id, "operational_code": a.operational_code,
+        "work_period_id": a.work_period_id, "required_rest_after_hours": a.required_rest_after_hours,
     }
 
 
 def _with_manual_action_hook(
     *, action_kind: CoordinatorActionKind, site_id: str, month: date, coordinator_id: str,
-    effective_from: date, child_id: str, parent_snapshot_by_id: dict, upsert_assignments: list[Assignment],
+    effective_from: date, parent_id: str, child_id: str, parent_snapshot_by_id: dict,
+    upsert_assignments: list[Assignment],
     note: Optional[str], responds_to_decision_required_id: Optional[str], caller_on_success, extra_state=None,
 ):
     """ROTA-T019b: one action per apply_manual_correction call (section 15/
@@ -162,8 +164,8 @@ def _with_manual_action_hook(
         ]
         after_facts = [_assignment_state(a) for a in upsert_assignments]
         entities = sorted({a.employee_id for a in upsert_assignments})
-        before_state = {"assignments": before_facts}
-        after_state = {"assignments": after_facts}
+        before_state = {"parent_version_id": parent_id, "assignments": before_facts}
+        after_state = {"child_version_id": child_id, "assignments": after_facts}
         if extra_state is not None:
             extra_before, extra_after = extra_state(conn)
             if extra_before is not None:
@@ -188,13 +190,14 @@ def _with_manual_action_hook(
 
 
 def _build_correction_hook(
-    *, site_id, month, coordinator_id, effective_from, child_id, parent_snapshot_by_id, upsert_assignments,
+    *, site_id, month, coordinator_id, effective_from, parent_id, child_id, parent_snapshot_by_id, upsert_assignments,
     note, responds_to_decision_required_id, action_kind, extra_state, rest_override, on_success,
 ):
     hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, on_success)
     return _with_manual_action_hook(
         action_kind=action_kind, site_id=site_id, month=month, coordinator_id=coordinator_id,
-        effective_from=effective_from, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
+        effective_from=effective_from, parent_id=parent_id, child_id=child_id,
+        parent_snapshot_by_id=parent_snapshot_by_id,
         upsert_assignments=upsert_assignments, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, caller_on_success=hook,
         extra_state=extra_state,
@@ -216,9 +219,6 @@ def apply_manual_correction(
     mechanism instead of a second, generic action row."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     current_id = get_current_version_id(conn, site_id, month)  # step 1
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to correct")
@@ -238,7 +238,8 @@ def apply_manual_correction(
     rest_override = _rest_override_rule_content(child_id, rest_pairs) if rest_pairs else None
     hook = _build_correction_hook(
         site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id, upsert_assignments=upsert_assignments,
+        parent_id=current_id, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
+        upsert_assignments=upsert_assignments,
         note=note, responds_to_decision_required_id=responds_to_decision_required_id, action_kind=_action_kind,
         extra_state=_extra_state, rest_override=rest_override, on_success=on_success,
     )
@@ -248,6 +249,9 @@ def apply_manual_correction(
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=parent_snapshot.shift_demands, assignments=corrected_assignments, deviations=deviations,
         effective_from=effective_from, on_success=hook,
+        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
+            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        ),
     )
 
 

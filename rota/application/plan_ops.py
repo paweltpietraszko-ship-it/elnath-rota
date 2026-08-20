@@ -151,10 +151,11 @@ def _coerce_unproven_realized_to_planned(candidate: list[Assignment], prior_exis
 
 def _assignment_fact(a: Assignment) -> dict:
     return {
-        "assignment_id": a.assignment_id, "employee_id": a.employee_id, "start_datetime": a.start_datetime,
-        "end_datetime": a.end_datetime, "role": a.role.value, "state": a.state.value, "frozen": a.frozen,
-        "covers_demand_id": a.covers_demand_id, "operational_code": a.operational_code,
-        "work_period_id": a.work_period_id,
+        "schedule_version_id": a.schedule_version_id, "assignment_id": a.assignment_id, "employee_id": a.employee_id,
+        "start_datetime": a.start_datetime, "end_datetime": a.end_datetime, "role": a.role.value,
+        "state": a.state.value, "frozen": a.frozen, "covers_demand_id": a.covers_demand_id,
+        "mentor_primary_assignment_id": a.mentor_primary_assignment_id, "operational_code": a.operational_code,
+        "work_period_id": a.work_period_id, "required_rest_after_hours": a.required_rest_after_hours,
     }
 
 
@@ -201,9 +202,6 @@ def select_candidate(
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
     header = get_schedule_version_header(conn, current_id)
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     for_validation = _coerce_unproven_realized_to_planned(candidate, state.existing_assignments)
     report = validate(state, for_validation)
@@ -227,6 +225,9 @@ def select_candidate(
     return lifecycle.replace_working_snapshot(
         conn, version_id=current_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=state.shift_demands, assignments=candidate, deviations=[], on_success=_hook,
+        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
+            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        ),
     )
 
 
@@ -263,9 +264,6 @@ def replan(
     by scope."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     require_real_date(effective_from)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to REPLAN from")
@@ -290,6 +288,9 @@ def replan(
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=list(demands), assignments=list(existing),
         deviations=list(deviations), effective_from=effective_from, on_success=hook,
+        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
+            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        ),
     )
     result = plan(state)
     return _persist_decision_readback(

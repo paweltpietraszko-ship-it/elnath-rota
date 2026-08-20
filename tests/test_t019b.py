@@ -48,7 +48,7 @@ from rota.domain import (
 from rota.persistence import site_memory
 from rota.persistence.availability_repository import get_availability_history
 from rota.persistence.calendar_repository import save_calendar_day
-from rota.persistence.db import LATEST_SCHEMA_VERSION, connect
+from rota.persistence.db import LATEST_SCHEMA_VERSION, MIGRATIONS, connect
 from rota.persistence.employee_repository import EmployeeNotFound, get_employee
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.site_memory_types import CoordinatorActionKind, NewRuleContent
@@ -112,11 +112,27 @@ def _seed_feasible_and_select(conn):
 # A. Schema / append-only / restart
 # ---------------------------------------------------------------------------
 
-def test_a1_migration_creates_exactly_three_tables(tmp_path) -> None:
-    conn = connect(tmp_path / "rota.db")
+def test_a1_real_v5_to_v6_migration_preserves_data_and_adds_exactly_three_tables(tmp_path) -> None:
+    db_path = tmp_path / "rota.db"
+    legacy = sqlite3.connect(db_path)
+    for version, statements in MIGRATIONS:
+        if version > 5:
+            break
+        legacy.execute("BEGIN")
+        for statement in statements:
+            legacy.execute(statement)
+        legacy.execute(f"PRAGMA user_version = {version}")
+        legacy.execute("COMMIT")
+    legacy.execute("INSERT INTO calendar_days (date, holiday) VALUES ('2026-08-03', 1)")
+    legacy.commit()
+    tables_before = {r[0] for r in legacy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+    legacy.close()
+
+    conn = connect(db_path)
+    tables_after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 6
-    for table in ("coordinator_action_records", "decision_required_snapshots", "current_decision_required"):
-        assert conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+    assert conn.execute("SELECT holiday FROM calendar_days WHERE date='2026-08-03'").fetchone() == (1,)
+    assert tables_after - tables_before == {"coordinator_action_records", "decision_required_snapshots", "current_decision_required"}
 
 def test_a2_a5_action_and_snapshot_update_delete_rejected(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
@@ -596,6 +612,14 @@ def test_f44_link_to_unknown_or_wrong_site_fails_before_mutation(tmp_path) -> No
     dr_id = site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH).decision_required_id
     with pytest.raises(site_memory.DecisionRequiredLinkMismatch):
         set_target_hours(conn, coordinator_id=COORD, site_id="S2", employee_id="E1", month=MONTH, target_hours=999, responds_to_decision_required_id=dr_id)
+
+    # known, but no longer current (superseded by a later FEASIBLE plan)
+    old_dr_id = dr_id
+    _unblock_employee(conn)
+    feasible = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
+    assert feasible.status == "FEASIBLE"
+    with pytest.raises(site_memory.DecisionRequiredLinkMismatch):
+        set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id="E1", month=MONTH, target_hours=999, responds_to_decision_required_id=old_dr_id)
 
 def test_f45_material_action_invalidates_without_claiming_solved(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")

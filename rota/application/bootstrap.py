@@ -116,6 +116,8 @@ def _profile_state(p: SiteProfile | None) -> dict | None:
             {
                 "kind": s.kind.value, "start_time": s.start_time.isoformat(), "end_time": s.end_time.isoformat(),
                 "end_next_day": s.end_next_day, "required_primary_count": s.required_primary_count,
+                "catalog_kind": s.catalog_kind.value if s.catalog_kind else None,
+                "required_rest_hours": s.required_rest_hours, "active_weekdays": list(s.active_weekdays),
             }
             for s in p.standard_shifts
         ],
@@ -206,6 +208,11 @@ def bootstrap_or_resume_coordinator_context(
         _require_id_match("coordinator.coordinator_id", (coordinator.coordinator_id,), (coordinator_id,))
     if site is not None:
         _require_id_match("site.site_id", (site.site_id,), (site_id,))
+    if association is not None:
+        _require_id_match(
+            "association (coordinator_id, site_id)",
+            (association.coordinator_id, association.site_id), (coordinator_id, site_id),
+        )
     recorded_at = datetime.now()
     material, before_profile, before_site = _material_config_change(conn, site_id=site_id, site_profile=site_profile, site=site)
     with conn:
@@ -220,18 +227,21 @@ def bootstrap_or_resume_coordinator_context(
                 conn, coordinator_id=coordinator_id, site_id=site_id, recorded_at=recorded_at,
                 before_profile=before_profile, site_profile=site_profile, before_site=before_site, site=site,
             )
-
-    if association is not None:
-        _require_id_match(
-            "association (coordinator_id, site_id)",
-            (association.coordinator_id, association.site_id), (coordinator_id, site_id),
-        )
-        _activate_association_or_raise(conn, coordinator_id=coordinator_id, site_id=site_id, association=association)
+        if association is not None:
+            _activate_association_or_raise_in_open_transaction(
+                conn, coordinator_id=coordinator_id, site_id=site_id, association=association,
+            )
 
 
-def _activate_association_or_raise(conn, *, coordinator_id: str, site_id: str, association: CoordinatorSiteAssociation) -> None:
-    with conn:
-        won = activate_association_if_not_already_active_in_open_transaction(conn, association)
+def _activate_association_or_raise_in_open_transaction(
+    conn, *, coordinator_id: str, site_id: str, association: CoordinatorSiteAssociation,
+) -> None:
+    """ROTA-T019b: called INSIDE the caller's own `with conn:` -- if the CAS
+    UPSERT...WHERE loses the race, raising here rolls back every write this
+    same bootstrap invocation already made (coordinator/profile/site/action),
+    not just the association itself (brief.md section 13: one invocation is
+    one atomic unit)."""
+    won = activate_association_if_not_already_active_in_open_transaction(conn, association)
     if not won:
         raise CoordinatorContextAlreadyActive(
             f"({coordinator_id!r}, {site_id!r}) was activated by a concurrent bootstrap first"

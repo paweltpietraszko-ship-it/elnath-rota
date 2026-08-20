@@ -56,7 +56,15 @@ def revalidate(conn, *, site_id: str, month: date, coordinator_id: str | None = 
     )
 
 
-def _finalize_action_hook(*, site_id, month, coordinator_id, header, acknowledged, acknowledged_deviation_ids, reason, responds_to_decision_required_id, recorded_at):
+def _deviation_fact(d) -> dict:
+    return {
+        "deviation_id": d.deviation_id, "category": d.category.value, "source_reference": d.source_reference,
+        "affected_assignment_or_employee": d.affected_assignment_or_employee, "acknowledged": d.acknowledged,
+        "acknowledged_by": d.acknowledged_by, "acknowledged_at": d.acknowledged_at, "reason": d.reason,
+    }
+
+
+def _finalize_action_hook(*, site_id, month, coordinator_id, header, fresh_deviations, acknowledged, reason, responds_to_decision_required_id, recorded_at):
     target_status = "FINAL_WITH_DEVIATIONS" if acknowledged else "FINAL_NO_DEVIATIONS"
 
     def _hook(open_conn) -> None:
@@ -68,8 +76,10 @@ def _finalize_action_hook(*, site_id, month, coordinator_id, header, acknowledge
                 [AffectedEntity("SCHEDULE_VERSION", header.version_id)]
                 + [AffectedEntity("DEVIATION", d.deviation_id) for d in acknowledged]
             ),
-            before_state={"status": header.status.value},
-            after_state={"status": target_status, "acknowledged_deviation_ids": sorted(acknowledged_deviation_ids)},
+            before_state={
+                "status": header.status.value, "deviations": [_deviation_fact(d) for d in fresh_deviations],
+            },
+            after_state={"status": target_status, "deviations": [_deviation_fact(d) for d in acknowledged]},
             note=reason, source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=header.version_id,
             responds_to_decision_required_id=responds_to_decision_required_id,
         )
@@ -94,9 +104,6 @@ def finalize(
     ROTA-T019b: `reason` is also this one SCHEDULE_FINALIZED action's note
     (brief.md section 9) -- one action regardless of Deviation count."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     header = _require_current_working(conn, site_id, month)
     state, fresh_deviations = _fresh_deviations(conn, site_id, month, header)
     current_ids = {d.deviation_id for d in fresh_deviations}
@@ -108,14 +115,17 @@ def finalize(
         for d in fresh_deviations
     ]
     hook = _finalize_action_hook(
-        site_id=site_id, month=month, coordinator_id=coordinator_id, header=header, acknowledged=acknowledged,
-        acknowledged_deviation_ids=acknowledged_deviation_ids, reason=reason,
+        site_id=site_id, month=month, coordinator_id=coordinator_id, header=header,
+        fresh_deviations=fresh_deviations, acknowledged=acknowledged, reason=reason,
         responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=datetime.now(),
     )
     return lifecycle.finalize_schedule_version(
         conn, version_id=header.version_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=state.shift_demands, assignments=list(state.existing_assignments), deviations=acknowledged,
         on_success=hook,
+        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
+            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        ),
     )
 
 
@@ -128,9 +138,6 @@ def restore(
     normal manual-correction/REPLAN entry points, which never require the
     current version to be WORKING before starting a child."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    site_memory.validate_decision_required_link_no_commit(
-        conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-    )
     previous_current_id = get_current_version_id(conn, site_id, month)
     recorded_at = datetime.now()
 
@@ -146,4 +153,9 @@ def restore(
         )
         site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
 
-    lifecycle.restore_schedule_version(conn, site_id=site_id, month=month, version_id=version_id, on_success=_hook)
+    lifecycle.restore_schedule_version(
+        conn, site_id=site_id, month=month, version_id=version_id, on_success=_hook,
+        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
+            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        ),
+    )
