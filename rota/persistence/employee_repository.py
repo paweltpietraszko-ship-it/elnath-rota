@@ -158,6 +158,25 @@ def list_memberships_for_employee(conn: sqlite3.Connection, employee_id: str) ->
     return [_row_to_membership(row) for row in rows]
 
 
+def list_memberships_for_employees(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, list[SiteMembership]]:
+    """ROTA-T020: batch membership read across a whole roster in one SELECT,
+    avoiding one list_memberships_for_employee() call per Employee needing
+    an ABSENCE_SITE_AMBIGUOUS check."""
+    if not employee_ids:
+        return {}
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
+        f"FROM site_memberships WHERE employee_id IN ({placeholders}) ORDER BY employee_id, site_id",
+        (*employee_ids,),
+    ).fetchall()
+    by_employee: dict[str, list[SiteMembership]] = {employee_id: [] for employee_id in employee_ids}
+    for row in rows:
+        membership = _row_to_membership(row)
+        by_employee[membership.employee_id].append(membership)
+    return by_employee
+
+
 def write_external_support_window_in_open_transaction(conn: sqlite3.Connection, window: ExternalSupportWindow) -> None:
     """Same write as save_external_support_window, without its own
     `with conn:` (ROTA-T019b atomicity)."""

@@ -1,99 +1,55 @@
-"""ROTA-T020 Checkpoint B -- printable schedule PDF export.
-
-tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md: a READ/PRESENTATION feature only.
-Never changes solver decisions, Assignment coverage, Availability, T018
-absence accounting, WorkBalance, or ScheduleVersion lifecycle. U/C print
-symbols are a paper convention filled into otherwise-empty qualifying
-absence cells; they never become operational Assignments and never reduce
-real Site demand.
-
-No SQL lives here -- only calls into existing persistence repositories.
-"""
+"""ROTA-T020 Checkpoint B -- printable schedule PDF export (READ/PRESENTATION
+only; never touches solver/Assignment/Availability/T018/WorkBalance/
+ScheduleVersion lifecycle). No SQL here -- only existing repositories."""
 from __future__ import annotations
-
 import hashlib
 import io
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Union
-
 import reportlab
 from reportlab.lib.colors import HexColor, black, white
 from reportlab.lib.pagesizes import A3, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-
 from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, MembershipKind, ShiftCatalogKind
 from rota.persistence import calendar_repository, employee_repository, schedule_repository, site_repository
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
 from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, IncompleteAbsenceCalendarError, excused_absence_days_in_month
 from rota.planning.work_periods import PeriodComponent, group_into_periods
-
 PLAN_PRIORITY = ("D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5")
-BLANK = "–"  # "-"
-
-
+BLANK = "–"
 class ExportProblemError(Exception):
     def __init__(self, code: str, message: str):
-        self.code = code
-        self.message = message
+        self.code, self.message = code, message
         super().__init__(f"{code}: {message}")
-
-
 @dataclass(frozen=True)
 class ExportReady:
     pdf_bytes: bytes
     document_revision: str
     schedule_provenance: str
-
-
 @dataclass(frozen=True)
 class ExportProblem:
     problem_code: str
     message: str
-
-
 ExportResult = Union[ExportReady, ExportProblem]
-
-
 @dataclass(frozen=True)
 class RowCells:
-    employee_id: str
-    display_name: str
-    plan: list[str]
-    wyk: list[str]
-    plan_hours: int
-    wyk_hours: int
-    urlop_hours: int
-    l4_hours: int
-
-
+    employee_id: str; display_name: str; plan: list[str]; wyk: list[str]  # noqa: E702
+    plan_hours: int; wyk_hours: int; urlop_hours: int; l4_hours: int  # noqa: E702
 @dataclass(frozen=True)
 class ExportModel:
-    site_id: str
-    month: date
-    period_label: str
-    company_print_name: str
-    site_print_name: str
-    base_regime: str
-    work_code_intervals: dict
-    reserve_hours: dict
-    current_version_id: str
-    lineage: list[tuple[str, Optional[str]]]
-    days: list[date]
-    rows: list[RowCells]
-    provenance_text: str
-
-
-# ---------------------------------------------------------------------------
+    site_id: str; month: date; period_label: str; company_print_name: str; site_print_name: str  # noqa: E702
+    base_regime: str; work_code_intervals: dict; reserve_hours: dict; current_version_id: str  # noqa: E702
+    lineage: list[tuple[str, Optional[str]]]; days: list[date]; rows: list[RowCells]  # noqa: E702
+    provenance_text: str; holiday_by_date: dict  # noqa: E702
 # Entry point
-# ---------------------------------------------------------------------------
-
 def generate_schedule_pdf(
     conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str, generated_at: Optional[datetime] = None,
 ) -> ExportResult:
@@ -102,15 +58,10 @@ def generate_schedule_pdf(
         pdf_bytes = _render_pdf(model, generated_at or datetime.now(timezone.utc))
     except ExportProblemError as exc:
         return ExportProblem(exc.code, exc.message)
-    return ExportReady(
-        pdf_bytes=pdf_bytes, document_revision=_document_revision(model), schedule_provenance=model.provenance_text,
-    )
-
-
-# ---------------------------------------------------------------------------
+    except site_repository.InvalidSitePrintSettings as exc:
+        return ExportProblem("PRINT_SETTINGS_INVALID", str(exc))
+    return ExportReady(pdf_bytes=pdf_bytes, document_revision=_document_revision(model), schedule_provenance=model.provenance_text)
 # Assembly
-# ---------------------------------------------------------------------------
-
 def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str) -> ExportModel:
     if month.day != 1:
         raise ExportProblemError("PROVENANCE_INCOMPLETE", "month must be the first day of the month")
@@ -126,13 +77,16 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     memberships = employee_repository.list_memberships_for_site(conn, site_id)
     local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
 
-    collected = _collect_real_work_cells(conn, days, daily_version, snapshots, settings)
+    collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings)
     seen_employee_ids = collected[2]
-    work_cells = _apply_24h_periods(collected, settings)
+    work_cells = _apply_24h_periods(collected, settings, days)
+
+    calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
+    holiday_by_date = {c.date: c.holiday for c in calendar_days}
 
     roster_ids = set(local_ids) | seen_employee_ids
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
-    absence_by_employee = _collect_absence(conn, month, days, local_ids, work_cells, settings)
+    absence_by_employee = _collect_absence(conn, month, days, local_ids, work_cells, settings, calendar_days, holiday_by_date)
 
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
     provenance = _provenance_text(lineage)
@@ -142,16 +96,12 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
         base_regime=settings.base_regime, work_code_intervals=settings.work_code_intervals,
         reserve_hours=settings.reserve_hours, current_version_id=lineage[-1].version_id,
         lineage=[(h.version_id, h.effective_from.isoformat() if h.effective_from else None) for h in lineage],
-        days=days, rows=rows, provenance_text=provenance,
+        days=days, rows=rows, provenance_text=provenance, holiday_by_date=holiday_by_date,
     )
-
-
 def _month_days(month: date) -> list[date]:
     import calendar as _cal
     n = _cal.monthrange(month.year, month.month)[1]
     return [date(month.year, month.month, d) for d in range(1, n + 1)]
-
-
 def _reconstruct_lineage(conn: sqlite3.Connection, site_id: str, month: date) -> list:
     current_id = schedule_repository.get_current_version_id(conn, site_id, month)
     if current_id is None:
@@ -173,32 +123,51 @@ def _reconstruct_lineage(conn: sqlite3.Connection, site_id: str, month: date) ->
         version_id = header.parent_version_id
     chain.reverse()
     return chain
-
-
 def _version_for_date(lineage: list, target: date) -> Optional[str]:
     selected = None
     for header in lineage:
         if header.effective_from <= target:
             selected = header.version_id
     return selected
-
-
 def _provenance_text(lineage: list) -> str:
     ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
     digest = hashlib.sha256(json.dumps(ordered, sort_keys=True).encode("utf-8")).hexdigest()
     return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
-
-
-# ---------------------------------------------------------------------------
 # Real work cells (Section 10)
-# ---------------------------------------------------------------------------
-
-def _collect_real_work_cells(conn, days, daily_version, snapshots, settings):
-    """Returns (work_cells: {employee_id: {date: code}}, components: list[PeriodComponent]
-    for 24h detection, seen_employee_ids: set[str]). Raises ExportProblemError for any
-    TRAINEE/INNY/missing-provenance item -- one bad item fails the whole export."""
+def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
+    """A 24h period's second leg may start in an adjacent month's own
+    ScheduleVersion; fetched only to complete/detect it, never rendered."""
+    other_month = date(target_day.year, target_day.month, 1)
+    version_id = schedule_repository.get_current_version_id(conn, site_id, other_month)
+    if version_id is None:
+        return []
+    snapshot = schedule_repository.get_schedule_snapshot(conn, version_id)
+    demands_by_id = {d.demand_id: d for d in snapshot.shift_demands}
+    items = []
+    for a in snapshot.assignments:
+        if a.start_datetime.date() != target_day or a.state == AssignmentState.CANCELLED or a.role != AssignmentRole.PRIMARY:
+            continue
+        demand = demands_by_id.get(a.covers_demand_id)
+        if demand is not None:
+            items.append((a, demand))
+    return items
+def _validate_item(a, demand) -> None:
+    if a.role == AssignmentRole.TRAINEE:
+        raise ExportProblemError("UNSUPPORTED_TRAINEE_PRINT", f"{a.assignment_id} is an effective TRAINEE assignment")
+    if demand is None:
+        raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id} has no coherent covered demand")
+    if a.start_datetime != demand.start_datetime or a.end_datetime != demand.end_datetime:
+        raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id}: actual interval contradicts its covered demand")
+    if demand.catalog_kind == ShiftCatalogKind.OTHER:
+        raise ExportProblemError("UNSUPPORTED_SHIFT_KIND", f"{a.assignment_id} covers an INNY demand")
+def _component(a) -> PeriodComponent:
+    return PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
+def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
+    """raw_items/components/seen_employee_ids/demand_by_assignment. Raises on
+    any TRAINEE/INNY/missing-or-contradictory-provenance item."""
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
+    demand_by_assignment: dict = {}
     seen_employee_ids: set[str] = set()
     for day in days:
         version_id = daily_version[day]
@@ -211,34 +180,57 @@ def _collect_real_work_cells(conn, days, daily_version, snapshots, settings):
         for a in snapshot.assignments:
             if a.start_datetime.date() != day or a.state == AssignmentState.CANCELLED:
                 continue
-            if a.role == AssignmentRole.TRAINEE:
-                raise ExportProblemError("UNSUPPORTED_TRAINEE_PRINT", f"{a.assignment_id} is an effective TRAINEE assignment")
             demand = demands_by_id.get(a.covers_demand_id) if a.covers_demand_id else None
-            if demand is None:
-                raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id} has no coherent covered demand")
-            if demand.catalog_kind == ShiftCatalogKind.OTHER:
-                raise ExportProblemError("UNSUPPORTED_SHIFT_KIND", f"{a.assignment_id} covers an INNY demand")
+            _validate_item(a, demand)
             seen_employee_ids.add(a.employee_id)
             raw_items.setdefault((a.employee_id, day), []).append((a, demand))
-            components.append(PeriodComponent(
-                a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime,
-                a.work_period_id, a.required_rest_after_hours, a.schedule_version_id,
-            ))
-    return raw_items, components, seen_employee_ids
-
-
-def _apply_24h_periods(raw_items_and_components, settings):
-    raw_items, components, seen_employee_ids = raw_items_and_components
+            demand_by_assignment[a.assignment_id] = demand
+            components.append(_component(a))
+    boundary_days = (days[0] - timedelta(days=1), days[-1] + timedelta(days=1))
+    boundary_items = []
+    for snapshot in snapshots.values():  # a boundary component can already sit in an in-month version
+        demands_by_id = {d.demand_id: d for d in snapshot.shift_demands}
+        for a in snapshot.assignments:
+            if a.start_datetime.date() in boundary_days and a.role == AssignmentRole.PRIMARY and a.state != AssignmentState.CANCELLED:
+                demand = demands_by_id.get(a.covers_demand_id)
+                if demand is not None:
+                    boundary_items.append((a, demand))
+    for boundary_day in boundary_days:  # or it may live in a genuinely different month's own ScheduleVersion
+        boundary_items.extend(_adjacent_day_items(conn, site_id, boundary_day))
+    for a, demand in boundary_items:
+        if a.work_period_id is None or a.assignment_id in demand_by_assignment:
+            continue
+        demand_by_assignment[a.assignment_id] = demand
+        components.append(_component(a))
+    return raw_items, components, seen_employee_ids, demand_by_assignment
+def _is_legitimate_24h(period, demand_by_assignment: dict) -> bool:
+    if len(period.component_ids) != 2:
+        return False
+    total_hours = (period.end - period.start).total_seconds() / 3600
+    d0 = demand_by_assignment.get(period.component_ids[0])
+    d1 = demand_by_assignment.get(period.component_ids[1])
+    if d0 is None or d1 is None or total_hours != 24:
+        return False
+    if d0.catalog_kind != ShiftCatalogKind.H24 or d1.catalog_kind != ShiftCatalogKind.H24:
+        return False
+    if d0.shift_kind is None or d0.shift_kind == d1.shift_kind:
+        return False
+    return bool(d0.work_period_template_id) and d0.work_period_template_id == d1.work_period_template_id
+def _apply_24h_periods(collected, settings, days: list[date]):
+    raw_items, components, seen_employee_ids, demand_by_assignment = collected
     work_cells: dict[str, dict[date, str]] = {}
     consumed: set[str] = set()
     for period in group_into_periods(components):
-        if len(period.component_ids) != 2:
+        if len(period.component_ids) < 2:
             continue
-        total_hours = (period.end - period.start).total_seconds() / 3600
-        if total_hours != 24:
-            continue
-        consumed.update(period.component_ids)
-        work_cells.setdefault(period.employee_id, {})[period.start.date()] = "24"
+        if _is_legitimate_24h(period, demand_by_assignment):
+            consumed.update(period.component_ids)
+            if period.start.date() in days:
+                work_cells.setdefault(period.employee_id, {})[period.start.date()] = "24"
+        else:
+            offending = [cid for cid in period.component_ids if cid in demand_by_assignment]
+            if offending:
+                raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{period.employee_id}: malformed shared work_period {period.period_key} ({offending})")
 
     for (employee_id, day), items in raw_items.items():
         remaining = [(a, d) for a, d in items if a.assignment_id not in consumed]
@@ -247,11 +239,8 @@ def _apply_24h_periods(raw_items_and_components, settings):
         if len(remaining) > 1:
             raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has {len(remaining)} independent work items")
         assignment, demand = remaining[0]
-        code = _map_work_code(assignment, demand, settings)
-        work_cells.setdefault(employee_id, {})[day] = code
+        work_cells.setdefault(employee_id, {})[day] = _map_work_code(assignment, demand, settings)
     return work_cells
-
-
 def _map_work_code(assignment, demand, settings) -> str:
     duration_hours = (assignment.end_datetime - assignment.start_datetime).total_seconds() / 3600
     family = demand.shift_kind.value if demand.shift_kind else None
@@ -262,52 +251,31 @@ def _map_work_code(assignment, demand, settings) -> str:
             continue
         if site_repository.FROZEN_WORK_CODE_HOURS[code] != duration_hours:
             continue
-        if (
-            interval.start_time == assignment.start_datetime.strftime("%H:%M")
-            and interval.end_time == assignment.end_datetime.strftime("%H:%M")
-            and interval.end_next_day == crosses_midnight
-        ):
+        if interval.start_time == assignment.start_datetime.strftime("%H:%M") and interval.end_time == assignment.end_datetime.strftime("%H:%M") and interval.end_next_day == crosses_midnight:
             candidates.append(code)
     if not candidates:
         raise ExportProblemError("WORK_CODE_MAPPING_REQUIRED", f"{assignment.assignment_id}: no configured code matches its interval")
-    if len(candidates) > 1:
-        raise ExportProblemError("WORK_CODE_MAPPING_AMBIGUOUS", f"{assignment.assignment_id}: {len(candidates)} candidate codes")
     return candidates[0]
-
-
-# ---------------------------------------------------------------------------
 # Absence presentation (Sections 12-15) -- print symbols only, never Assignment.
-# ---------------------------------------------------------------------------
-
 def _span_dates(records, kind, month_start, month_end) -> list[date]:
     dates: set[date] = set()
     for r in records:
         if not r.active or r.kind != kind:
             continue
-        d = max(r.start_date, month_start)
-        end = min(r.end_date, month_end)
+        d, end = max(r.start_date, month_start), min(r.end_date, month_end)
         while d <= end:
             dates.add(d)
             d += timedelta(days=1)
     return sorted(dates)
-
-
 def _qualifying_subset(span: list[date], holiday_by_date: dict) -> list[date]:
     return [d for d in span if d.isoweekday() <= 5 and not holiday_by_date.get(d, False)]
-
-
 def _validate_calendar_coverage(records, kind, month, calendar_days) -> None:
     try:
         excused_absence_days_in_month(records, month, kinds=(kind,), calendar_days=tuple(calendar_days))
     except IncompleteAbsenceCalendarError as exc:
         raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", str(exc)) from exc
-
-
 def _legal_uc_value(code: str, reserve_hours: dict) -> Optional[int]:
-    base = {"U1": 12, "U2": 16, "C1": 12, "C2": 16}
-    return base.get(code, reserve_hours.get(code))
-
-
+    return {"U1": 12, "U2": 16, "C1": 12, "C2": 16}.get(code, reserve_hours.get(code))
 def _pair_values(letter: str, base_regime: str, reserve_hours: dict) -> dict:
     plan_by_value: dict[int, str] = {}
     for code in PLAN_PRIORITY:
@@ -322,8 +290,6 @@ def _pair_values(letter: str, base_regime: str, reserve_hours: dict) -> dict:
         if value is not None:
             uc_by_value.setdefault(value, code)
     return {v: (plan_by_value[v], uc_by_value[v]) for v in plan_by_value if v in uc_by_value}
-
-
 def _minimal_sequence(total_hours: int, values_by_rank: list[int], employee_id: str, letter: str) -> list[int]:
     INF = float("inf")
     best = [0] + [INF] * total_hours
@@ -341,8 +307,6 @@ def _minimal_sequence(total_hours: int, values_by_rank: list[int], employee_id: 
                 remaining -= v
                 break
     return sequence
-
-
 def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list[date], settings) -> list[tuple]:
     pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)
     if not qualifying:
@@ -356,18 +320,16 @@ def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list
     pairs = [(symbol_dates[i], *pairs_by_value[v]) for i, v in enumerate(sequence)]
     pairs += [(d, f"{letter}~", f"{letter}~") for d in span if d not in symbol_dates]
     return pairs
-
-
-def _collect_absence(conn, month, days, local_ids, work_cells, settings) -> dict[str, list[tuple]]:
+def _collect_absence(conn, month, days, local_ids, work_cells, settings, calendar_days, holiday_by_date) -> dict[str, list[tuple]]:
     if not local_ids:
         return {}
     month_start, month_end = days[0], days[-1]
-    calendar_days = calendar_repository.list_calendar_days(conn, month_start, month_end)
-    holiday_by_date = {c.date: c.holiday for c in calendar_days}
     records = list_active_overlapping_for_employees(conn, sorted(local_ids), month_start, month_end)
     by_employee: dict[str, list] = {}
     for r in records:
         by_employee.setdefault(r.employee_id, []).append(r)
+
+    memberships_by_employee = employee_repository.list_memberships_for_employees(conn, sorted(by_employee))
 
     result: dict[str, list[tuple]] = {}
     for employee_id in sorted(local_ids):
@@ -375,15 +337,13 @@ def _collect_absence(conn, month, days, local_ids, work_cells, settings) -> dict
         if not emp_records:
             continue
         result_pairs = _absence_pairs_for_employee(
-            conn, employee_id, emp_records, month, month_start, month_end, calendar_days, holiday_by_date,
-            work_cells, settings,
+            employee_id, emp_records, month, month_start, month_end, calendar_days, holiday_by_date,
+            work_cells, settings, memberships_by_employee.get(employee_id, []),
         )
         if result_pairs:
             result[employee_id] = result_pairs
     return result
-
-
-def _absence_pairs_for_employee(conn, employee_id, emp_records, month, month_start, month_end, calendar_days, holiday_by_date, work_cells, settings):
+def _absence_pairs_for_employee(employee_id, emp_records, month, month_start, month_end, calendar_days, holiday_by_date, work_cells, settings, memberships_all):
     _validate_calendar_coverage(emp_records, AvailabilityKind.LEAVE_GRANTED, month, calendar_days)
     _validate_calendar_coverage(emp_records, AvailabilityKind.SICK_LEAVE, month, calendar_days)
     leave_span = _span_dates(emp_records, AvailabilityKind.LEAVE_GRANTED, month_start, month_end)
@@ -395,7 +355,6 @@ def _absence_pairs_for_employee(conn, employee_id, emp_records, month, month_sta
             raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{d}: real Assignment on an active absence day")
     if not leave_span and not sick_span:
         return []
-    memberships_all = employee_repository.list_memberships_for_employee(conn, employee_id)
     enabled_local = sum(1 for m in memberships_all if m.membership_kind == MembershipKind.LOCAL and m.enabled)
     if enabled_local > 1:
         raise ExportProblemError("ABSENCE_SITE_AMBIGUOUS", f"{employee_id} has {enabled_local} enabled LOCAL memberships")
@@ -405,12 +364,7 @@ def _absence_pairs_for_employee(conn, employee_id, emp_records, month, month_sta
     if sick_span:
         pairs += _decompose(employee_id, "C", sick_span, _qualifying_subset(sick_span, holiday_by_date), settings)
     return pairs
-
-
-# ---------------------------------------------------------------------------
 # Row assembly (Section 11/16)
-# ---------------------------------------------------------------------------
-
 def _hours_of(code: str, reserve_hours: dict) -> int:
     if code == "24":
         return 24
@@ -419,8 +373,6 @@ def _hours_of(code: str, reserve_hours: dict) -> int:
     if code in site_repository.FROZEN_WORK_CODE_HOURS:
         return site_repository.FROZEN_WORK_CODE_HOURS[code]
     return _legal_uc_value(code, reserve_hours) or 0
-
-
 def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, reserve_hours) -> list[RowCells]:
     rows = []
     for employee_id in roster_ids:
@@ -430,164 +382,200 @@ def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, re
         plan, wyk = [], []
         for day in days:
             if day in emp_work:
-                plan.append(emp_work[day])
-                wyk.append(emp_work[day])
+                plan.append(emp_work[day]); wyk.append(emp_work[day])  # noqa: E702
             elif day in absence_by_date:
                 plan_code, uc_code = absence_by_date[day]
-                plan.append(plan_code)
-                wyk.append(uc_code)
+                plan.append(plan_code); wyk.append(uc_code)  # noqa: E702
             else:
-                plan.append(BLANK)
-                wyk.append(BLANK)
+                plan.append(BLANK); wyk.append(BLANK)  # noqa: E702
         rows.append(RowCells(
             employee_id=employee_id, display_name=employee.display_name, plan=plan, wyk=wyk,
-            plan_hours=sum(_hours_of(c, reserve_hours) for c in plan),
-            wyk_hours=sum(_hours_of(c, reserve_hours) for c in wyk),
-            urlop_hours=sum(_hours_of(c, reserve_hours) for c in wyk if c.startswith("U")),
-            l4_hours=sum(_hours_of(c, reserve_hours) for c in wyk if c.startswith("C")),
+            plan_hours=sum(_hours_of(c, reserve_hours) for c in plan), wyk_hours=sum(_hours_of(c, reserve_hours) for c in wyk),
+            urlop_hours=sum(_hours_of(c, reserve_hours) for c in wyk if c.startswith("U")), l4_hours=sum(_hours_of(c, reserve_hours) for c in wyk if c.startswith("C")),
         ))
     rows.sort(key=lambda r: (r.display_name.casefold(), r.employee_id))
     return rows
-
-
-# ---------------------------------------------------------------------------
 # Document revision (Section 17) -- excludes generated_at/filename/PDF metadata.
-# ---------------------------------------------------------------------------
-
 def _document_revision(model: ExportModel) -> str:
     payload = {
-        "site_id": model.site_id,
-        "month": model.month.isoformat(),
+        "site_id": model.site_id, "month": model.month.isoformat(),
         "date_range": [model.days[0].isoformat(), model.days[-1].isoformat()],
-        "period_label": model.period_label,
-        "company_print_name": model.company_print_name,
-        "site_print_name": model.site_print_name,
+        "period_label": model.period_label, "company_print_name": model.company_print_name, "site_print_name": model.site_print_name,
         "base_regime": model.base_regime,
-        "work_code_intervals": {
-            k: (None if v is None else [v.start_time, v.end_time, v.end_next_day])
-            for k, v in sorted(model.work_code_intervals.items())
-        },
+        "work_code_intervals": {k: (None if v is None else [v.start_time, v.end_time, v.end_next_day]) for k, v in sorted(model.work_code_intervals.items())},
         "reserve_hours": dict(sorted(model.reserve_hours.items())),
-        "current_version_id": model.current_version_id,
-        "lineage": model.lineage,
+        "current_version_id": model.current_version_id, "lineage": model.lineage,
         "rows": [
-            {
-                "employee_id": r.employee_id, "display_name": r.display_name, "plan": r.plan, "wyk": r.wyk,
-                "plan_hours": r.plan_hours, "wyk_hours": r.wyk_hours, "urlop_hours": r.urlop_hours, "l4_hours": r.l4_hours,
-            }
+            {"employee_id": r.employee_id, "display_name": r.display_name, "plan": r.plan, "wyk": r.wyk,
+             "plan_hours": r.plan_hours, "wyk_hours": r.wyk_hours, "urlop_hours": r.urlop_hours, "l4_hours": r.l4_hours}
             for r in model.rows
         ],
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Font resolution -- path-independent (Section 4): resolved from the
-# installed ReportLab package itself, never an OS-specific path. Fails
-# closed rather than silently rendering missing Polish glyphs.
-# ---------------------------------------------------------------------------
-
+# Font resolution (Section 4) -- no hardcoded machine path; env-driven OS search + ReportLab fallback, first candidate covering Polish wins, else fail closed.
 _REQUIRED_POLISH_CHARS = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC = "T020-Regular", "T020-Bold", "T020-Italic"
-
-
+def _font_candidates() -> list[tuple[Path, Path, Path]]:
+    win = Path(os.environ.get("SystemRoot", os.environ.get("WINDIR", "C:\\Windows"))) / "Fonts"
+    rl = Path(reportlab.__file__).resolve().parent / "fonts"
+    dejavu, liberation, mac = Path("/usr/share/fonts/truetype/dejavu"), Path("/usr/share/fonts/truetype/liberation"), Path("/Library/Fonts")
+    return [
+        (win / "arial.ttf", win / "arialbd.ttf", win / "ariali.ttf"),
+        (win / "segoeui.ttf", win / "segoeuib.ttf", win / "segoeuii.ttf"),
+        (win / "tahoma.ttf", win / "tahomabd.ttf", win / "tahoma.ttf"),
+        (dejavu / "DejaVuSans.ttf", dejavu / "DejaVuSans-Bold.ttf", dejavu / "DejaVuSans-Oblique.ttf"),
+        (liberation / "LiberationSans-Regular.ttf", liberation / "LiberationSans-Bold.ttf", liberation / "LiberationSans-Italic.ttf"),
+        (mac / "Arial.ttf", mac / "Arial Bold.ttf", mac / "Arial Italic.ttf"),
+        (rl / "Vera.ttf", rl / "VeraBd.ttf", rl / "VeraIt.ttf"),
+    ]
+def _covers_polish(font_name: str) -> bool:
+    face = pdfmetrics.getFont(font_name).face
+    return all(face.charToGlyph.get(ord(ch)) is not None for ch in _REQUIRED_POLISH_CHARS)
 def _resolve_unicode_font() -> tuple[str, str, str]:
-    font_dir = Path(reportlab.__file__).resolve().parent / "fonts"
-    regular, bold, italic = font_dir / "Vera.ttf", font_dir / "VeraBd.ttf", font_dir / "VeraIt.ttf"
-    if not (regular.exists() and bold.exists() and italic.exists()):
-        raise ExportProblemError("PRINT_FONT_UNAVAILABLE", "no bundled ReportLab Unicode font found")
-    if _FONT_REGULAR not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont(_FONT_REGULAR, str(regular)))
-        pdfmetrics.registerFont(TTFont(_FONT_BOLD, str(bold)))
-        pdfmetrics.registerFont(TTFont(_FONT_ITALIC, str(italic)))
-    face = pdfmetrics.getFont(_FONT_REGULAR).face
-    missing = sorted({ch for ch in _REQUIRED_POLISH_CHARS if face.charToGlyph.get(ord(ch)) is None})
-    if missing:
-        raise ExportProblemError("PRINT_FONT_UNAVAILABLE", f"resolved font is missing Polish glyphs: {''.join(missing)}")
-    return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
-
-
-# ---------------------------------------------------------------------------
-# PDF rendering (Section 18) -- accepted Checkpoint A visual baseline:
-# A3 landscape, grayscale-safe fill-density/border cues, ~170pt name area,
-# row height floor 22pt scaling up for smaller rosters, no color-only cues.
-# ---------------------------------------------------------------------------
-
+    if _FONT_REGULAR in pdfmetrics.getRegisteredFontNames() and _covers_polish(_FONT_REGULAR):
+        return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
+    for regular, bold, italic in _font_candidates():
+        if not (regular.exists() and bold.exists() and italic.exists()):
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(_FONT_REGULAR, str(regular)))
+            pdfmetrics.registerFont(TTFont(_FONT_BOLD, str(bold)))
+            pdfmetrics.registerFont(TTFont(_FONT_ITALIC, str(italic)))
+        except Exception:
+            continue
+        if _covers_polish(_FONT_REGULAR):
+            return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
+    raise ExportProblemError("PRINT_FONT_UNAVAILABLE", "no runtime-resolvable font covers the required Polish glyph set")
+# PDF rendering (Section 18) -- accepted Checkpoint A visual baseline: A3 landscape, weekday+day-number headers, per-day
+# grid, weekend/holiday cue, full asymmetric D1..C5 legend, grayscale-safe density/border-only cues.
 _FILL = {"d": HexColor("#dcdcdc"), "n": HexColor("#a6a6a6"), "h24": HexColor("#595959"), "u": white, "c": white}
 _TEXT = {"d": black, "n": black, "h24": white, "u": black, "c": black, "off": HexColor("#8a8a8a")}
-
-
+_WEEKEND_BG = HexColor("#e2e2e2")
+_DOW = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
+MARGIN, NAME_W, SUM_W = 24.0, 170.0, 48.0
+HEADER_H, LEGEND_H, FOOTER_H = 90.0, 150.0, 20.0
 def _family(code: str) -> str:
     if code == "24":
         return "h24"
     if code == BLANK:
         return "off"
     return {"D": "d", "N": "n", "U": "u", "C": "c"}.get(code[0], "off")
-
-
 def _row_height(n_rows: int) -> float:
     return max(22.0, min(46.0, (22.0 * 2 * 10) / max(1, 2 * n_rows)))
-
-
-def _draw_subrow(c, margin, y, row_h, day_w, name_w, sum_w, label, cells, row, regular, bold) -> None:
-    x = margin
-    c.setFont(regular, 7)
-    if label == "PLAN":
-        c.drawString(x + 2, y - row_h + 5, row.display_name[:32])
-    c.drawRightString(x + name_w - 2, y - row_h + 5, label)
-    x += name_w
-    for code in cells:
-        fam = _family(code)
-        fill = _FILL.get(fam)
-        if fill is not None:
-            c.setFillColor(fill)
-            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=0, fill=1)
-        if fam == "u":
-            c.setStrokeColor(black)
-            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
-        elif fam == "c":
-            c.setDash(2, 1.5)
-            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
-            c.setDash()
-        c.setFillColor(_TEXT.get(fam, black))
+def _fit_font_size(text: str, font: str, size: float, max_width: float, min_size: float = 6.5) -> float:
+    while size > min_size and pdfmetrics.stringWidth(text, font, size) > max_width:
+        size -= 0.5
+    return size
+def _check_fits(n_rows: int, row_h: float) -> None:
+    available = landscape(A3)[1] - 2 * MARGIN - HEADER_H - LEGEND_H - FOOTER_H
+    if n_rows * 2 * row_h > available:
+        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"{n_rows} rows do not fit the accepted single sheet at the {row_h}pt floor")
+def _draw_day_headers(c, day_w, days, holiday_by_date, bold, y) -> float:
+    x = MARGIN + NAME_W
+    for d in days:
+        if d.weekday() >= 5 or holiday_by_date.get(d, False):
+            c.setFillColor(_WEEKEND_BG)
+            c.rect(x, y - 30, day_w, 30, stroke=0, fill=1)
+            c.setFillColor(black)
         c.setFont(bold, 6.5)
-        label_text = "" if code == BLANK or code.endswith("~") else code
-        c.drawCentredString(x + day_w / 2, y - row_h + 5, label_text)
-        c.setFillColor(black)
+        c.drawCentredString(x + day_w / 2, y - 10, _DOW[d.weekday()])
+        c.setFont(bold, 8)
+        c.drawCentredString(x + day_w / 2, y - 24, str(d.day))
+        x += day_w
+    for label in ("Plan g.", "Wyk. g.", "Urlop g.", "L4 g."):
+        c.setFont(bold, 6.5)
+        c.drawCentredString(x + SUM_W / 2, y - 18, label)
+        x += SUM_W
+    return y - 32
+def _draw_cell(c, x, y, row_h, day_w, code, bold) -> None:
+    fam = _family(code)
+    c.setStrokeColor(HexColor("#c8c8c8")); c.setLineWidth(0.4)  # noqa: E702
+    c.rect(x, y - row_h, day_w, row_h, stroke=1, fill=0)
+    fill = _FILL.get(fam)
+    if fill is not None:
+        c.setFillColor(fill)
+        c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=0, fill=1)
+    if fam == "u":
+        c.setStrokeColor(black); c.setLineWidth(1.0)  # noqa: E702
+        c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+    elif fam == "c":
+        c.setStrokeColor(black); c.setDash(2, 1.5)  # noqa: E702
+        c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+        c.setDash()
+    c.setFillColor(_TEXT.get(fam, black)); c.setFont(bold, 6.5)  # noqa: E702
+    c.drawCentredString(x + day_w / 2, y - row_h + 5, "" if code == BLANK or code.endswith("~") else code)
+    c.setFillColor(black)
+def _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold) -> None:
+    x = MARGIN
+    if label == "PLAN":
+        c.setFont(regular, _fit_font_size(row.display_name, regular, 7, NAME_W - 40))
+        c.drawString(x + 2, y - row_h + 5, row.display_name)
+    c.setFont(regular, 6.5)
+    c.drawRightString(x + NAME_W - 2, y - row_h + 5, label)
+    x += NAME_W
+    for code in cells:
+        _draw_cell(c, x, y, row_h, day_w, code, bold)
         x += day_w
     for value in (row.plan_hours if label == "PLAN" else row.wyk_hours, "", row.urlop_hours, row.l4_hours):
         c.setFont(regular, 7)
-        c.drawCentredString(x + sum_w / 2, y - row_h + 5, "" if value == "" else str(value))
-        x += sum_w
-
-
+        c.drawCentredString(x + SUM_W / 2, y - row_h + 5, "" if value == "" else str(value))
+        x += SUM_W
+def _legend_line(letter: str, slot: int, value, demo: bool) -> str:
+    code = f"{letter}{slot}"
+    return f"{code} = — (rezerwa)" if value is None else f"{code} = {value}h" + (" (konfiguracja demo)" if demo else "")
+def _legend_value(letter: str, slot: int, reserve_hours: dict) -> tuple:
+    if letter in "DN":
+        return site_repository.FROZEN_WORK_CODE_HOURS[f"{letter}{slot}"], False
+    base = {"U1": 12, "U2": 16, "C1": 12, "C2": 16}.get(f"{letter}{slot}")
+    value = base if base is not None else reserve_hours.get(f"{letter}{slot}")
+    return value, base is None and value is not None
+def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> float:
+    c.setFont(bold, 10)
+    c.drawString(MARGIN, y, "Legenda — tabela wartości godzinowych (wartości właściciela, nie normalizowane)")
+    y -= 15
+    col_w = (landscape(A3)[0] - 2 * MARGIN) / 2
+    sub_w = col_w / 2
+    for slot in range(1, 6):
+        for j, letter in enumerate("DNUC"):
+            value, demo = _legend_value(letter, slot, model.reserve_hours)
+            c.setFont(regular, 9)
+            c.drawString(MARGIN + (j // 2) * col_w + (j % 2) * sub_w, y, _legend_line(letter, slot, value, demo))
+        y -= 12
+    c.setFont(regular, 9)
+    c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia")
+    y -= 14
+    c.setFont(italic, 8)
+    c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h).")
+    y -= 12
+    c.drawString(MARGIN, y, "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana — czytelne bez koloru.")
+    return y - 12
 def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     regular, bold, italic = _resolve_unicode_font()
     page_w, page_h = landscape(A3)
-    margin, name_w, sum_w = 24.0, 170.0, 48.0
-    day_w = (page_w - 2 * margin - name_w - 4 * sum_w) / len(model.days)
+    day_w = (page_w - 2 * MARGIN - NAME_W - 4 * SUM_W) / len(model.days)
     row_h = _row_height(len(model.rows))
+    _check_fits(len(model.rows), row_h)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=landscape(A3))
-    y = page_h - margin
+    y = page_h - MARGIN
     c.setFont(bold, 16)
-    c.drawString(margin, y, f"{model.company_print_name} — {model.site_print_name}")
+    c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}")
     y -= 18
     c.setFont(regular, 9.5)
-    c.drawString(margin, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}")
+    c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}")
     y -= 12
-    c.drawString(margin, y, model.provenance_text)
+    c.drawString(MARGIN, y, model.provenance_text)
     y -= 12
-    c.drawString(margin, y, f"Revision: {_document_revision(model)}   Wygenerowano: {generated_at.isoformat()}")
+    c.drawString(MARGIN, y, f"Revision: {_document_revision(model)}   Wygenerowano: {generated_at.isoformat()}")
     y -= 16
+    y = _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
     for row in model.rows:
         for label, cells in (("PLAN", row.plan), ("WYK", row.wyk)):
-            _draw_subrow(c, margin, y, row_h, day_w, name_w, sum_w, label, cells, row, regular, bold)
+            _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold)
             y -= row_h
     y -= 10
-    c.setFont(bold, 10)
-    c.drawString(margin, y, "Legenda: D=dniówka N=nocka U=urlop (obwódka ciągła) C=chorobowe (obwódka przerywana) 24=pełny okres 24h")
+    _draw_legend(c, model, regular, bold, italic, y)
     c.showPage()
     c.save()
     return buf.getvalue()

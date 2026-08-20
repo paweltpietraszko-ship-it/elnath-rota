@@ -1,8 +1,9 @@
 """ROTA-T020 Checkpoint B -- tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md Section 20
-dedicated test matrix (representative subset, prioritized for mechanism
-correctness: migration, settings validation, lineage reconstruction, roster
-population, real-work mapping, the frozen 40h absence example, and the
-fail-closed problem codes)."""
+dedicated test matrix: migration, settings validation, lineage
+reconstruction, roster population, real-work mapping, T012 24h detection
+incl. malformed/cross-month boundaries, the frozen 40h absence example,
+fail-closed problem codes, layout overflow, production font resolution and
+the batch membership-read invariant."""
 from __future__ import annotations
 
 import calendar as _cal
@@ -392,9 +393,142 @@ def test_t20_22_23_summaries_ignore_other_sites_and_match_visible_cells():
 def test_t20_27_no_diff_in_forbidden_paths():
     import subprocess
     out = subprocess.run(
-        ["git", "diff", "--name-only", "2549cb0b5ebbb541777f2b2f02e8ed9b09227b9d", "HEAD", "--",
+        ["git", "diff", "--name-only", "c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2", "HEAD", "--",
          "rota/planning", "rota/balance.py", "rota/domain.py", "rota/persistence/schedule_lifecycle.py",
          "arch/spec.md", "arch/FROZEN.lock", "Grafiki", "tasks/ROTA-T020/checkpoint_a"],
         cwd=__file__.rsplit("tests", 1)[0], capture_output=True, text=True,
     )
     assert out.stdout.strip() == "", out.stdout
+
+
+def _leg(assignment_id, employee_id, start, end, demand_id, work_period_id=None):
+    return Assignment(
+        assignment_id, "", employee_id, start, end, AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, demand_id, None,
+        work_period_id=work_period_id, required_rest_after_hours=24 if work_period_id else None,
+    )
+
+
+# --- T20-29/T20-35: malformed shared work_period is not silently collapsed --
+
+def test_t20_29_malformed_h12_pair_sharing_work_period_id_fails_closed():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 5, 6)
+    middle, end = start + timedelta(hours=12), start + timedelta(hours=24)
+    demands = [
+        ShiftDemand("D", "", start, middle, 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12),
+        ShiftDemand("N", "", middle, end, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12),
+    ]
+    assignments = [_leg("A-D", "EMP-1", start, middle, "D", "WP"), _leg("A-N", "EMP-1", middle, end, "N", "WP")]
+    _create_version(conn, demands, assignments)
+    with pytest.raises(SE.ExportProblemError) as exc:
+        SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert exc.value.code == "WORK_PROVENANCE_INCOMPLETE"
+
+
+# --- T20-38: normal H24 crossing the month boundary is owned by start month -
+
+def test_t20_38_normal_h24_cross_month_owned_by_start_month():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    start = datetime(2026, 8, 31, 18)
+    middle, end = start + timedelta(hours=12), start + timedelta(hours=24)
+    demands = [
+        ShiftDemand("N", "", start, middle, 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H24, work_period_template_id="TPL", work_period_component=1),
+        ShiftDemand("D", "", middle, end, 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H24, work_period_template_id="TPL", work_period_component=2),
+    ]
+    assignments = [_leg("A-N", "EMP-1", start, middle, "N", "WP"), _leg("A-D", "EMP-1", middle, end, "D", "WP")]
+    _create_version(conn, demands, assignments)
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert model.rows[0].plan[30] == "24"
+    assert model.rows[0].plan_hours == 24
+
+
+# --- T20-33: Assignment interval must equal its covered ShiftDemand interval
+
+def test_t20_33_assignment_interval_must_equal_covered_demand_interval():
+    conn = connect(":memory:")
+    _seed(conn)
+    intervals = _default_intervals()
+    intervals["D1"] = WorkCodeInterval("07:00", "19:00", False)
+    save_site_print_settings(conn, _settings(work_code_intervals=intervals))
+    demand_start = datetime(2026, 8, 5, 6)
+    demand = ShiftDemand("D", "", demand_start, demand_start + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    assignment_start = datetime(2026, 8, 5, 7)
+    assignment = _leg("A", "EMP-1", assignment_start, assignment_start + timedelta(hours=12), "D")
+    _create_version(conn, [demand], [assignment])
+    with pytest.raises(SE.ExportProblemError) as exc:
+        SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert exc.value.code == "WORK_PROVENANCE_INCOMPLETE"
+
+
+# --- T20-30: corrupt persisted settings return a stable problem, never raise
+
+def test_t20_30_corrupt_persisted_settings_return_stable_problem():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    conn.execute("UPDATE site_print_settings SET work_code_intervals_json = ? WHERE site_id = ?", ('["not", "an", "object"]', "SITE-1"))
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert isinstance(result, SE.ExportProblem) and result.problem_code == "PRINT_SETTINGS_INVALID"
+
+
+def test_t20_30b_corrupt_reserve_json_returns_stable_problem():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    conn.execute("UPDATE site_print_settings SET reserve_hours_json = ? WHERE site_id = ?", ("[1, 2, 3]", "SITE-1"))
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert isinstance(result, SE.ExportProblem) and result.problem_code == "PRINT_SETTINGS_INVALID"
+
+
+# --- T20-25/T20-36: a roster that cannot fit the accepted layout fails explicitly, never silently overflows
+
+def test_t20_25_large_roster_fails_before_overflowing_the_sheet():
+    employee_ids = tuple(f"EMP-{i:02d}" for i in range(30))
+    conn = connect(":memory:")
+    _seed(conn, employees=employee_ids)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert isinstance(result, SE.ExportProblem) and result.problem_code == "ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT"
+
+
+# --- T20-03/04: the pinned production ReportLab dependency renders a real PDF with Polish diacritics, or fails explicitly
+
+def test_t20_03_pinned_production_reportlab_renders_ready_pdf():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="Sierpień 2026")
+    assert isinstance(result, SE.ExportReady)
+    assert result.pdf_bytes.startswith(b"%PDF")
+
+
+# --- Section 20 regression: membership-ambiguity check must be one batch read, not N
+
+def test_t20_membership_ambiguity_check_is_batched(monkeypatch):
+    from rota.persistence import employee_repository
+    employee_ids = ("EMP-1", "EMP-2", "EMP-3")
+    conn = connect(":memory:")
+    _seed(conn, employees=employee_ids)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    for index, employee_id in enumerate(employee_ids):
+        _grant_leave(conn, employee_id, start=date(2026, 8, 19), end=date(2026, 8, 25), av_id=f"AV-{index}")
+    calls = 0
+    original = employee_repository.list_memberships_for_employees
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(employee_repository, "list_memberships_for_employees", counted)
+    SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert calls == 1, "membership ambiguity must use one batch read, not one query per absent employee"

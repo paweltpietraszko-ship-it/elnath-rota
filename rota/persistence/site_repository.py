@@ -159,20 +159,25 @@ def _intervals_to_json(intervals: dict[str, Optional[WorkCodeInterval]]) -> str:
     return json.dumps(payload, sort_keys=True)
 
 
+def _interval_from_value(code: str, value) -> Optional[WorkCodeInterval]:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"start_time", "end_time", "end_next_day"}:
+        raise InvalidSitePrintSettings(f"{code}: work-code interval must be an object with exactly start_time/end_time/end_next_day")
+    start_time, end_time, end_next_day = value["start_time"], value["end_time"], value["end_next_day"]
+    if not isinstance(start_time, str) or not isinstance(end_time, str) or not isinstance(end_next_day, bool):
+        raise InvalidSitePrintSettings(f"{code}: start_time/end_time must be strings and end_next_day a JSON boolean")
+    return WorkCodeInterval(start_time, end_time, end_next_day)
+
+
 def _intervals_from_json(raw: str) -> dict[str, Optional[WorkCodeInterval]]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise InvalidSitePrintSettings(f"malformed work_code_intervals_json: {exc}") from exc
-    result: dict[str, Optional[WorkCodeInterval]] = {}
-    for code, value in payload.items():
-        if value is None:
-            result[code] = None
-            continue
-        if set(value) != {"start_time", "end_time", "end_next_day"}:
-            raise InvalidSitePrintSettings(f"{code}: work-code interval must have exactly start_time/end_time/end_next_day")
-        result[code] = WorkCodeInterval(value["start_time"], value["end_time"], bool(value["end_next_day"]))
-    return result
+    if not isinstance(payload, dict):
+        raise InvalidSitePrintSettings("work_code_intervals_json must decode to a JSON object")
+    return {code: _interval_from_value(code, value) for code, value in payload.items()}
 
 
 def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettings) -> None:
@@ -212,6 +217,8 @@ def get_site_print_settings(conn: sqlite3.Connection, site_id: str) -> Optional[
         reserve = json.loads(reserve_json)
     except json.JSONDecodeError as exc:
         raise InvalidSitePrintSettings(f"malformed reserve_hours_json: {exc}") from exc
+    if not isinstance(reserve, dict):
+        raise InvalidSitePrintSettings("reserve_hours_json must decode to a JSON object")
     settings = SitePrintSettings(
         site_id=site_id_, company_print_name=company, site_print_name=site_name, base_regime=regime,
         work_code_intervals=_intervals_from_json(intervals_json), reserve_hours=reserve,
