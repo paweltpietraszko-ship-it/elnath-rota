@@ -306,6 +306,15 @@ def draw_table(c: canvas.Canvas, *, days: list[dt.date], roster: list[Employee],
 
             for d, code in zip(days, row):
                 fam = family(code)
+                # Every day gets a visible cell grid line, like an Excel
+                # sheet -- an unfilled "off" cell with no border at all is
+                # indistinguishable from a blank/unfilled mistake, which is
+                # exactly what confused the owner reading the 24h sample
+                # (owner correction 2026-08-20: "ciezko zobaczyc te wolne
+                # dni ... u ciebie to sie zlewa").
+                c.setLineWidth(0.4)
+                c.setStrokeColor(HexColor("#c8c8c8"))
+                c.rect(x, y - row_h, day_w, row_h, stroke=1, fill=0)
                 fill = FILL[fam]
                 if fill is not None:
                     c.setFillColor(fill)
