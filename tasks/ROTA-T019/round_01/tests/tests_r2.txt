@@ -1,0 +1,114 @@
+ROTA-T019 — CODEX PREIMPLEMENTATION AUDIT — ROUND 2
+
+AUDITED_BRANCH: origin/task/ROTA-T019
+AUDITED_AMENDMENT_SHA: 08879e9af837dbedf37a6cefbb9384bab2f58c7a
+PREVIOUS_AUDIT_SHA: 8e34530477c78d4b53694e7b86a4dcbcbbca0a3e
+BASE_SHA: 9618477f6014fad63699a154b04730e2b8ff1db2
+DATE: 2026-08-20
+
+VERDICT: PASS — READY_FOR_IMPLEMENTATION
+
+SCOPE OF THIS ROUND
+
+Round 2 jest celowo wąski. Sprawdza wyłącznie zamknięcie T019-R1-1
+(EXTERNAL_SUPPORT / WINDOW-03) oraz brak nowej sprzeczności wprowadzonej przez
+amendment. Pozostałe SECTION_CHECK Round 1 pozostają CLOSED/PASS.
+
+SECTION_CHECK 1 — AMENDMENT PROVENANCE: PASS
+
+- origin/task/ROTA-T019 wskazuje dokładnie na
+  08879e9af837dbedf37a6cefbb9384bab2f58c7a.
+- 8e345304... -> 08879e9a... to dokładnie jeden commit.
+- Zmienione są wyłącznie dwa dokumenty:
+  - arch/T019_coordinator_analytics_architect_brief.md;
+  - tasks/ROTA-T019/brief.md.
+- Nie dodano ani nie zmieniono kodu produktu lub testów implementacyjnych.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — ENABLED LOCAL ROSTER: PASS
+
+Kontrakt definiuje filtr wprost jako:
+
+`membership.site_id == requested site_id`
+`AND membership.membership_kind == LOCAL`
+`AND membership.enabled == True`.
+
+`Employee.active_from/active_to`, readiness i ExternalSupportWindow nie są
+dodatkowymi filtrami LOCAL roster. T016/EMP-02 pozostaje zamknięte.
+
+SECTION_CHECK 3 — EXTERNAL_SUPPORT / X-Y EXCLUSION: PASS
+
+Owner source i task contract są zgodne z WINDOW-03:
+
+- EXTERNAL_SUPPORT nie tworzy wiersza WorkBalance analytics;
+- wynik jest taki sam przy enabled/disabled membership;
+- wynik jest taki sam bez ExternalSupportWindow i z aktywnym oknem;
+- lokalne Assignment X/Y nie tworzą wiersza T019;
+- wykluczenie jest filtrem zakresu, nie statusem `UNAVAILABLE` i nie generuje
+  mylącego warningu o brakujących danych.
+
+T019 nie tworzy osobnego widoku wykorzystania wsparcia zewnętrznego.
+
+SECTION_CHECK 4 — MIXED MEMBERSHIP / NO DUPLICATE: PASS
+
+Jeżeli Employee ma enabled LOCAL na żądanym Site i EXTERNAL_SUPPORT gdzie
+indziej, powstaje dokładnie jeden wiersz z powodu LOCAL membership na żądanym
+Site. EXTERNAL_SUPPORT nie tworzy drugiego wiersza ani osobnego uprawnienia do
+analytics.
+
+To zamyka sibling case wskazany w Round 1 bez zawężania legalnej cross-Site
+sumy Assignment modelowanego pracownika LOCAL.
+
+SECTION_CHECK 5 — HOURS_SCOPE: PASS
+
+`AnalyticsHoursScope.ALL_SITES` jest teraz opisane wyłącznie dla pracowników,
+którzy weszli do widoku przez enabled LOCAL membership. Tekst mówi o wszystkich
+modelowanych Site i nie twierdzi już, że Rota zna home-site HR/balance X/Y.
+
+SECTION_CHECK 6 — TEST 18 / EQUIVALENCE CLASS: PASS
+
+Test 18 został odwrócony z błędnego „EXTERNAL_SUPPORT daje wiersz” na:
+
+- brak wiersza bez ExternalSupportWindow;
+- brak wiersza z oknem;
+- brak wiersza mimo lokalnych Assignment X/Y;
+- dokładnie jeden wiersz, gdy ten sam Employee ma enabled LOCAL na żądanym
+  Site, przy czym źródłem wiersza jest LOCAL.
+
+To pokrywa całą klasę T019-R1-1, a nie tylko pierwotny przykład. Pozostałych
+27 oracles Round 1 nie zmieniono semantycznie.
+
+SECTION_CHECK 7 — CLOSED ROUND 1 SECTIONS UNCHANGED: PASS
+
+Amendment nie zmienia:
+
+- DTO i statusów missing-data;
+- algebraicznego `effective_target_hours`;
+- T018 calendar/absence fail-closed semantics;
+- CURRENT-version-only i cross-Site sumy dla modelowanych LOCAL employees;
+- batch/N+1 architektury;
+- read-only/no-second-truth granic;
+- literalnego implementation TASK_SCOPE;
+- braku legacy test adaptations;
+- publicznej semantyki `open_month()` i `quarter_balance()`.
+
+Korekta sekcji NEW_FILES usuwa task brief z listy przyszłych nowych plików,
+ponieważ istnieje już na contract branchu; jest to prawidłowa mechaniczna
+normalizacja, nie rozszerzenie scope.
+
+FINDINGS
+
+NONE.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+PASS — READY_FOR_IMPLEMENTATION
+
+T019-R1-1: CLOSED.
+
+CC może rozpocząć implementację od dokładnego contract SHA
+08879e9af837dbedf37a6cefbb9384bab2f58c7a, wyłącznie w literalnym TASK_SCOPE.
