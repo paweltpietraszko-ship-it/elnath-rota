@@ -136,7 +136,16 @@ def build_roster_12h(days: list[dt.date]) -> list[Employee]:
     # required to reach the total (3 here); every other day in the span
     # -- weekend or business day -- is shaded as "on leave" but blank.
     leave_emp = roster[4]
-    span, symbol_days = leave_span(days, search_from=3, business_days_needed=5)
+    # search_from=15 lands the span on a week where this employee's base
+    # cycle already has a rest day immediately before and after the leave
+    # -- a Wednesday start where the preceding Tuesday is "N1" would print
+    # a night shift directly followed by a day-shift-valued leave symbol,
+    # i.e. look like a zero-rest violation that never actually happened
+    # (owner-caught bug, 2026-08-20: "Pracownik 5 ma bledy typu dniowka po
+    # nocce").
+    span, symbol_days = leave_span(days, search_from=15, business_days_needed=5)
+    assert leave_emp.plan[span[0] - 1] == "–", "leave must start right after a natural rest day"
+    assert leave_emp.plan[span[-1] + 1] == "–", "leave must end right before a natural rest day"
     codes_plan = ["D1", "D1", "N2"]
     codes_wyk = ["U1", "U1", "U2"]
     assert sum(BASE_LEGEND[c] for c in codes_plan) == 40
