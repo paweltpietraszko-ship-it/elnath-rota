@@ -162,7 +162,12 @@ def _with_manual_action_hook(
             _assignment_state(parent_snapshot_by_id[a.assignment_id])
             for a in upsert_assignments if a.assignment_id in parent_snapshot_by_id
         ]
-        after_facts = [_assignment_state(a) for a in upsert_assignments]
+        # T019b-R5-1: upsert_assignments still carry the PARENT's
+        # schedule_version_id (callers build them via replace() off the
+        # parent snapshot); _insert_content persists them under child_id
+        # regardless of that field, so the after fact must reflect what was
+        # actually written, not the caller's parent-scoped input object.
+        after_facts = [_assignment_state(replace(a, schedule_version_id=child_id)) for a in upsert_assignments]
         entities = sorted({a.employee_id for a in upsert_assignments})
         before_state = {"parent_version_id": parent_id, "assignments": before_facts}
         after_state = {"child_version_id": child_id, "assignments": after_facts}
