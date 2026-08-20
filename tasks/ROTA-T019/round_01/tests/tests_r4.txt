@@ -1,0 +1,128 @@
+ROTA-T019 — CODEX IMPLEMENTATION REAUDIT — ROUND 4
+
+AUDITED_BRANCH: origin/task/ROTA-T019
+AUDITED_PRODUCT_SHA: 62e2d55ec97f057d2a3f82fa4747efa2a13ae4c7
+PREVIOUS_PRODUCT_SHA: 68ce4cf09a3a8b2ca1368e89d2d14693c8b2b635
+PREVIOUS_AUDIT_SHA: 3e99e8c
+CONTRACT_SHA: 08879e9af837dbedf37a6cefbb9384bab2f58c7a
+BASE_SHA: 9618477f6014fad63699a154b04730e2b8ff1db2
+DATE: 2026-08-20
+
+VERDICT: FAIL — R3-2/R3-3/R3-4 CLOSED; R3-1 REMAINS OPEN
+
+SCOPE OF THIS ROUND
+
+Round 4 jest wąskim reaudytorem zamknięcia T019-R3-2, T019-R3-3 i
+T019-R3-4 oraz sprawdzeniem, czy ich zmiany wprowadziły nową konkretną
+sprzeczność. T019-R3-1 jest sprawdzany wyłącznie mechanicznie. Pozostałe
+SECTION_CHECK Round 3 pozostają CLOSED/PASS.
+
+SECTION_CHECK 1 — PROVENANCE / CHANGE SCOPE: PASS
+
+- origin/task/ROTA-T019 wskazywał dokładnie na audytowany PRODUCT SHA.
+- 3e99e8c -> 62e2d55 zmienia wyłącznie:
+  - rota/application/analytics_read.py;
+  - tests/test_t019.py.
+- Diff ma 49 insertions / 31 deletions i odpowiada wyłącznie trzem findingom.
+- Nie zmieniono kontraktu, repozytoriów, schema, arch/spec.md ani FROZEN.lock.
+- git diff --check: PASS.
+
+SECTION_CHECK 2 — T019-R3-2 CANONICAL QUARTER OWNER: PASS
+
+_quarter_row deleguje cały rachunek pełnego kwartału do
+rota.balance.compute_quarter_balance(): przekazuje pierwszy miesiąc kwartału,
+kompletny target_by_month, wspólne assignments, availability i calendar_days.
+Nie utrzymuje już własnej pętli running_balance ani własnej arytmetyki salda.
+
+Po IncompleteAbsenceCalendarError helper _first_blocking_quarter_month służy
+wyłącznie atrybucji miesiąca w warningu. Korzysta z istniejącego
+excused_absence_days_in_month, czyli tego samego współdzielonego budulca co
+compute_month_balance; nie liczy planned, realized, month_balance,
+quarter_balance ani carryover.
+
+Niezależny oracle
+test_full_quarter_uses_canonical_compute_quarter_balance_owner: PASS.
+
+T019-R3-2: CLOSED.
+
+SECTION_CHECK 3 — T019-R3-3 EXTERNAL SUPPORT WITHOUT WINDOW: PASS
+
+test_18_external_support_never_gets_a_row wykonuje teraz pierwszy odczyt i
+asercję rows == () przed utworzeniem ExternalSupportWindow. Następnie zachowuje
+wariant z aktywnym oknem, lokalnym Assignment X/Y oraz mixed roster.
+
+Wymagane siblingi „bez okna” i „z oknem” są zatem osobnymi, niewakuitywnymi
+stanami. Niezależny reproduktor Codexa również przechodzi.
+
+T019-R3-3: CLOSED.
+
+SECTION_CHECK 4 — T019-R3-4 WEEKDAY HOLIDAY: PASS
+
+Testy 12 i 13 oznaczają 2026-08-03 jako holiday. Jest to poniedziałek wewnątrz
+zakresu nieobecności 2026-08-01..09. Oczekiwane obniżenie targetu obejmuje cztery
+zwykłe dni robocze, pomijając weekendy oraz to święto.
+
+Oracle jest niewakuitywny dla obu kontraktowych siblingów: SICK_LEAVE i
+LEAVE_GRANTED. Niezależny reproduktor Codexa również przechodzi.
+
+T019-R3-4: CLOSED.
+
+SECTION_CHECK 5 — REGRESSION / QUALITY: PASS
+
+- tests/test_t019.py + niezależna macierz Codexa: 31/31 PASS.
+- Niezależna macierz Codexa samodzielnie: 3/3 PASS.
+- Pełna suite: 785/785 PASS.
+- Ruff dla zmienionych plików i macierzy audytowej: PASS.
+- python guard.py check arch/spec.md: PASS.
+- git diff --check: PASS.
+- Nie znaleziono nowego findingu wynikającego z poprawek R3-2/R3-3/R3-4.
+
+SECTION_CHECK 6 — T019-R3-1 FULL BASE BACKEND GATE: FAIL
+
+Kontrakt sekcja FINAL IMPLEMENTATION GATE wymaga audytu pełnego
+BASE_SHA -> PRODUCT_SHA diffu. Niezależne wykonanie:
+
+backend.py tasks/ROTA-T019/brief.md
+  9618477f6014fad63699a154b04730e2b8ff1db2
+  62e2d55ec97f057d2a3f82fa4747efa2a13ae4c7
+
+zwraca:
+
+STATUS: FAIL
+REASON:
+  - NEW_FILES: 3 new files (max 2)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 1106 lines changed (threshold 150)
+
+Wynik „contract stage -> product” nie zastępuje wymaganego w briefie pełnego
+BASE_SHA -> PRODUCT_SHA gate. Owner brief w arch/ nadal jest trzecim nowym
+plikiem pełnego diffu. T019-R3-1 nie został zmieniony w tym produkcie i pozostaje
+otwarty dokładnie w pierwotnej klasie.
+
+Zamknięcie wymaga wąskiego amendmentu architekta, który mechanicznie dopuszcza
+rzeczywiste trzy nowe pliki pełnego diffu bez rozszerzenia scope produktu.
+TOTAL_LINES wymaga osobnej jednorazowej akceptacji dla finalnego exact SHA po
+amendmencie; nie jest twardym defektem kodu.
+
+FINDINGS
+
+T019-R3-1 — OPEN / FAIL — full BASE backend NEW_FILES=3 przy max 2.
+T019-R3-2 — CLOSED / PASS.
+T019-R3-3 — CLOSED / PASS.
+T019-R3-4 — CLOSED / PASS.
+
+NEW FINDINGS
+
+NONE.
+
+ARCHITECTURE_PROPOSALS
+
+NONE.
+
+FINAL GATE
+
+FAIL — NOT READY FOR ARCHITECT FINAL GATE / MERGE.
+
+Produkt merytorycznie zamyka wszystkie trzy findings kodu/testów. Jedynym
+pozostałym blockerem jest wcześniej zgłoszone T019-R3-1, czyli niespójność
+mechanicznego limitu NEW_FILES dla pełnego diffu.
