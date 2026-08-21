@@ -160,6 +160,20 @@ def violates_rest(earlier: WorkPeriod, later: WorkPeriod) -> bool:
     return gap_hours < earlier.required_rest_after_hours
 
 
+def forms_illegal_continuous_pair(a: WorkPeriod, b: WorkPeriod) -> bool:
+    """T022-F4/OWNER-T022-02: two SEPARATE 12h WorkPeriods abutting with zero gap silently total 24h -- illegal
+    regardless of required_rest_after_hours=0 (a legitimate pair always shares one work_period_id and merges into
+    a single WorkPeriod already). Scoped to exactly the H12+H12 class -- each period is itself exactly 12h, not
+    merely a 24h combined span -- so a legal whole-hour INNY combination (e.g. 8h+16h) is not swept in. Single
+    shared implementation for solver/validator/manual-edit re-derivation (was duplicated in three places)."""
+    earlier, later = (a, b) if a.start <= b.start else (b, a)
+    return (
+        earlier.end == later.start
+        and (earlier.end - earlier.start) == timedelta(hours=12)
+        and (later.end - later.start) == timedelta(hours=12)
+    )
+
+
 def _is_plain_12h(demand) -> bool:
     return (
         demand.catalog_kind == ShiftCatalogKind.H12

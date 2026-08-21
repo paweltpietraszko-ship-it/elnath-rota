@@ -24,7 +24,7 @@ from rota.persistence import site_memory
 from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
-from rota.planning.work_periods import PeriodComponent, group_into_periods, resolve_required_rest, violates_rest
+from rota.planning.work_periods import PeriodComponent, forms_illegal_continuous_pair, group_into_periods, resolve_required_rest, violates_rest
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind, NewRuleContent
 
 
@@ -35,12 +35,15 @@ def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: li
     return list(by_id.values())
 
 
-def _employee_violating_pairs(employee_id: str, assignments: list[Assignment], target_ids: set[int]) -> list[tuple[Assignment, Assignment, float, int]]:
+def _employee_violating_pairs(employee_id: str, assignments: list[Assignment], target_ids: set[int], other_site_ids: set[int]) -> list[tuple[Assignment, Assignment, float, int]]:
     """D-R19-2: group this employee's Assignments into WorkPeriods exactly as
     validator._check_rest does, but keyed by Python object identity (never a
     bare assignment_id string) -- a local id reused by a genuinely different
     ScheduleVersion (boundary or another Site) can never shadow or be
-    shadowed, regardless of which side of the edge it is on."""
+    shadowed, regardless of which side of the edge it is on. T022 (PH-1):
+    also catches the H12+H12 zero-gap continuous-pair shape and a
+    cross-Site zero-gap abutment, not only violates_rest's gap<rest test --
+    mirrors validator._check_rest's own additional REST-01 triggers."""
     by_synthetic_id = {str(id(a)): a for a in assignments}
     components = [
         PeriodComponent(str(id(a)), employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
@@ -53,7 +56,9 @@ def _employee_violating_pairs(employee_id: str, assignments: list[Assignment], t
     pairs = []
     for tp, other in candidates:
         earlier, later = (tp, other) if tp.start <= other.start else (other, tp)
-        if not violates_rest(earlier, later):
+        cross_site = any(id(by_synthetic_id[cid]) in other_site_ids for cid in earlier.component_ids) != any(id(by_synthetic_id[cid]) in other_site_ids for cid in later.component_ids)
+        zero_gap_violation = (cross_site and earlier.end == later.start) or forms_illegal_continuous_pair(earlier, later)
+        if not violates_rest(earlier, later) and not zero_gap_violation:
             continue
         earlier_a, later_a = by_synthetic_id[earlier.component_ids[-1]], by_synthetic_id[later.component_ids[0]]
         gap_hours = (later_a.start_datetime - earlier_a.end_datetime).total_seconds() / 3600
@@ -70,12 +75,13 @@ def _rest_override_pairs(state, corrected_assignments: list[Assignment], report)
     if not any(detail.rule == "REST-01" for detail in report.violation_details):
         return []
     target_ids = {id(a) for a in corrected_assignments}
+    other_site_ids = {id(a) for a in state.other_site_assignments}
     by_employee: dict[str, list[Assignment]] = {}
     for assignment in (*corrected_assignments, *state.other_site_assignments, *state.boundary_assignments):
         by_employee.setdefault(assignment.employee_id, []).append(assignment)
     pairs = []
     for employee_id, assignments in by_employee.items():
-        pairs.extend(_employee_violating_pairs(employee_id, assignments, target_ids))
+        pairs.extend(_employee_violating_pairs(employee_id, assignments, target_ids, other_site_ids))
     return pairs
 
 

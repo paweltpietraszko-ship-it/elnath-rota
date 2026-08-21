@@ -19,7 +19,7 @@ sum to the correct real worked hours without merging.
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from ortools.sat.python import cp_model
 
@@ -31,6 +31,7 @@ from rota.planning.work_periods import (
     WorkPeriod,
     find_cross_month_pair_candidates,
     find_same_month_pair_candidates,
+    forms_illegal_continuous_pair,
     group_into_periods,
     violates_rest,
 )
@@ -189,22 +190,6 @@ def _periods_abut(a: WorkPeriod, b: WorkPeriod) -> bool:
     return earlier.end == later.start
 
 
-def _forms_illegal_continuous_pair(a: WorkPeriod, b: WorkPeriod) -> bool:
-    """T022-F4/OWNER-T022-02: two ORDINARY (non-emergency-candidate) 12h
-    periods that abut with a zero gap silently total 24h continuous work
-    for one employee -- illegal in a normal pass regardless of configured
-    rest=0. The T012 emergency mechanism (pair literals) remains the only
-    automatic route to join them; overlap is REST-01's own concern via
-    violates_rest. Scoped to exactly the H12+H12 class -- each period is itself exactly 12h, not merely a 24h
-    combined span -- so a legal whole-hour INNY combination (e.g. 8h+16h) is not swept in (T022-R1-4)."""
-    earlier, later = (a, b) if a.start <= b.start else (b, a)
-    return (
-        earlier.end == later.start
-        and (earlier.end - earlier.start) == timedelta(hours=12)
-        and (later.end - later.start) == timedelta(hours=12)
-    )
-
-
 def _add_ordinary_period_edges(model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], candidates_by_key: dict, paired_member_p: dict) -> None:
     """C-R16-1 (part_c_emergency_24h.md section 3): ordinary standalone
     component REST stays active only while its own pair is NOT chosen. Only
@@ -216,7 +201,7 @@ def _add_ordinary_period_edges(model: cp_model.CpModel, x: dict, employee_id: st
             rep_i, rep_j = periods[i].component_ids[0], periods[j].component_ids[0]
             if frozenset((rep_i, rep_j)) in candidates_by_key:
                 continue  # internal edge, already relaxed by the pair literal itself
-            if not violates_rest(periods[i], periods[j]) and not _forms_illegal_continuous_pair(periods[i], periods[j]):
+            if not violates_rest(periods[i], periods[j]) and not forms_illegal_continuous_pair(periods[i], periods[j]):
                 continue
             earlier_rep = rep_i if periods[i].start <= periods[j].start else rep_j
             governing_p = paired_member_p.get(earlier_rep)
