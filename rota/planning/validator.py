@@ -298,7 +298,13 @@ def _check_external(state: PlanningState, assignments: list[Assignment], details
             details.append(ViolationDetail("EXTERNAL-01", (assignment.assignment_id,), f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} uses EXTERNAL_SUPPORT but profile.external_support_enabled is false"))
             continue
         # T022-F1: a window must cover EVERY kind the Assignment's actual interval touches, not just the tagged demand's kind.
-        kinds = {_demand_kind(d, state.profile) for d in _covered_demands(assignment, state)} or {None}
+        covered_demands = _covered_demands(assignment, state)
+        kinds = {_demand_kind(d, state.profile) for d in covered_demands}
+        if None in kinds:
+            # T022-R2-1: an unclassifiable covered demand cannot be verified against any window, restricted or not.
+            details.append(ViolationDetail("EXTERNAL-01", (assignment.assignment_id,), f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} covers an unclassifiable demand"))
+            continue
+        kinds = kinds or {None}
         covered = any(
             w.active and w.site_id == state.site.site_id
             and w.employee_id == assignment.employee_id
@@ -522,7 +528,7 @@ def _check_full_hour(state: PlanningState, assignments: list[Assignment], detail
     for demand in (*state.shift_demands, *state.boundary_shift_demands):
         if not _is_full_hour(demand.start_datetime) or not _is_full_hour(demand.end_datetime):
             details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: demand {demand.demand_id} start/end is not a full clock hour", demand_ids=(demand.demand_id,)))
-    for assignment in (*assignments, *state.boundary_assignments, *state.other_site_assignments):
+    for assignment in (*assignments, *state.existing_assignments, *state.boundary_assignments, *state.other_site_assignments):
         if not _is_full_hour(assignment.start_datetime) or not _is_full_hour(assignment.end_datetime):
             details.append(ViolationDetail("FULL_HOUR-01", (assignment.assignment_id,), f"FULL_HOUR-01: assignment {assignment.assignment_id} start/end is not a full clock hour"))
     for shift in state.profile.standard_shifts:
@@ -532,10 +538,12 @@ def _check_full_hour(state: PlanningState, assignments: list[Assignment], detail
 
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
     """Recheck every HARD rule from scratch against the final Assignment set."""
-    assignments = _not_cancelled(assignments)
     details: list[ViolationDetail] = []
     warnings: list[str] = []
+    # T022-R2-2: full-hour is a structural input-shape check, not a real-work check -- it must see every Assignment
+    # including CANCELLED, before state-based filtering makes a malformed boundary invisible.
     _check_full_hour(state, assignments, details)
+    assignments = _not_cancelled(assignments)
 
     # REPLAN (ASSIGN-03: REALIZED work MUST NOT be changed): eligibility/availability HARD checks (membership,
     # DAY_ONLY, DAY_SHIFT_OFF, LEAVE_GRANTED, UNAVAILABLE_24H, EXTERNAL-01) only make sense going forward -- data
