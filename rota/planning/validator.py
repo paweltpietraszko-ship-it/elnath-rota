@@ -18,6 +18,7 @@ from rota.domain import (
     ShiftKind,
 )
 from rota.planning.eligibility import is_all_24h_profile
+from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand
 from rota.planning.site_rules import day_only_n_exception_authorizing_rule_version_id, hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rolling_windows
@@ -208,13 +209,11 @@ def _covered_demands(assignment: Assignment, state: PlanningState) -> list:
 
 
 def _demand_kind(demand, profile) -> ShiftKind | None:
-    # C-R16-3: ShiftDemand.shift_kind is authoritative when set; the profile/start_time fallback is legacy-only.
-    if demand.shift_kind is not None:
-        return demand.shift_kind
-    for shift in profile.standard_shifts:
-        if shift.start_time == demand.start_datetime.time():
-            return shift.kind
-    return None
+    # T022-R3-1: classify_demand is the frozen, single legacy-fallback implementation (brief.md:124-126) -- no local duplicate.
+    try:
+        return classify_demand(demand, profile)
+    except UnclassifiedShiftError:
+        return None
 
 
 def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
