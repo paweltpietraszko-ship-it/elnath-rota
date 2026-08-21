@@ -43,6 +43,7 @@ from rota.persistence.employee_repository import save_employee
 from rota.persistence.schedule_errors import MalformedScheduleSnapshot
 from rota.persistence.schedule_validation import validate_assignments, validate_demands
 from rota.planning.engine import plan
+from rota.planning import solver as _solver
 from rota.planning.shift_catalog import (
     InvalidStandardShift,
     generate_catalog_demands,
@@ -435,6 +436,22 @@ def test_d_ordinary_normal_pass_different_employees_remains_legal():
     a2 = _primary("A2", "E2", d2, required_rest_after_hours=0)
     state = base_state(shift_demands=(d1, d2), memberships=(_membership("E1"), _membership("E2")))
     assert validate(state, [a1, a2]).hard_pass
+
+
+def test_d_solver_itself_never_proposes_h12_h12_same_employee():
+    """Mutation-testing gap closed 2026-08-21: engine.plan()'s final
+    validate() call is a safety net that masks a broken solver-side
+    constraint (both still report non-FEASIBLE either way). Call
+    rota.planning.solver.solve() directly -- bypassing that safety net --
+    to prove the CP-SAT model itself, not just the independent validator,
+    rejects assigning both H12 halves to the one eligible employee."""
+    d1 = _demand("D1", datetime(2026, 10, 5, 5, 0), datetime(2026, 10, 5, 17, 0), shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=0)
+    d2 = _demand("D2", datetime(2026, 10, 5, 17, 0), datetime(2026, 10, 6, 5, 0), shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=0)
+    state = base_state(shift_demands=(d1, d2), employees=(_employee("E1"),), memberships=(_membership("E1", can_work_24h=True),))
+    outcome = _solver.solve(state)
+    if outcome.assignments:
+        covered_by_e1 = {a.covers_demand_id for a in outcome.assignments if a.employee_id == "E1"}
+        assert not {"D1", "D2"}.issubset(covered_by_e1)
 
 
 @pytest.mark.parametrize("first_hours,second_hours", [(6, 18), (8, 16), (10, 14)])
