@@ -64,6 +64,10 @@ def _is_valid_standard_shift(shift: StandardShift) -> bool:
     > 0). end_next_day always yields end > start regardless of the times."""
     if shift.required_primary_count <= 0:
         return False
+    if shift.start_time.minute or shift.start_time.second or shift.start_time.microsecond:
+        return False
+    if shift.end_time.minute or shift.end_time.second or shift.end_time.microsecond:
+        return False
     return shift.end_next_day or shift.end_time > shift.start_time
 
 

@@ -107,6 +107,11 @@ def validate_standard_shift_shape(shift: StandardShift) -> None:
         raise InvalidStandardShift(f"active_weekdays must not contain duplicates: {shift.active_weekdays}")
     if any(w < 1 or w > 7 for w in shift.active_weekdays):
         raise InvalidStandardShift(f"active_weekdays must be ISO 1..7: {shift.active_weekdays}")
+    # OWNER-T022-01: no partial-hour work -- start/end must land on a full clock hour.
+    if shift.start_time.minute or shift.start_time.second or shift.start_time.microsecond:
+        raise InvalidStandardShift(f"start_time must be a full hour, got {shift.start_time}")
+    if shift.end_time.minute or shift.end_time.second or shift.end_time.microsecond:
+        raise InvalidStandardShift(f"end_time must be a full hour, got {shift.end_time}")
     if shift.catalog_kind is None:
         return
     hours = shift_duration_hours(shift)

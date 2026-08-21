@@ -449,6 +449,8 @@ an owner-approved amendment is committed before editing:
 - `rota/persistence/schedule_validation.py`
 - `tests/test_audit_t010_r4_a.py` (existing; exactly the line-bounded oracle
   amendment stated below)
+- `tests/test_t012.py` (existing; SCOPE AMENDMENT 03 below -- exactly one
+  line-bounded oracle flip, owner-approved 2026-08-21)
 - `tests/test_t022_planning_integrity.py` (new)
 
 Expected limits:
@@ -544,6 +546,32 @@ Other non-full-hour hits are metadata timestamps or benchmark mechanics and
 remain closed. Any newly discovered legacy oracle collision still requires a
 new named, line-bounded amendment; it is not permission for CC to edit tests
 freely.
+
+### SCOPE AMENDMENT 03 — test_t012.py::test_b_rest_zero_is_legal (owner-approved 2026-08-21, discovered during implementation)
+
+Discovered by CC while implementing T022-F4: `tests/test_t012.py:794-799`
+(`test_b_rest_zero_is_legal`) persists two directly consecutive plain 12h
+demands (05:00-17:00, 17:00-05:00) to the same employee with
+`required_rest_after_hours=0` on both, and asserts `report.hard_pass is
+True`. This is the exact pre-T022 behavior OWNER-T022-02 overturns: it was
+not part of Cursor's non-full-hour sweep (this is a zero-gap/rest-legality
+oracle, not a partial-hour-boundary oracle), so it was not caught by the
+"Known collision" section above. CC stopped implementation and reported
+this rather than editing a file outside TASK_SCOPE; the owner has now
+approved the fix directly (2026-08-21, verbal instruction to CC, not a
+Codex/Cursor round). T022 authorizes exactly:
+
+- `tests/test_t012.py:794-799`, function `test_b_rest_zero_is_legal`:
+  flip the final assertion from `assert report.hard_pass` to
+  `assert not report.hard_pass` and rename the function to
+  `test_b_rest_zero_does_not_authorize_silent_24h`, per OWNER-T022-02 --
+  two ordinary H12 periods abutting with a configured rest of `0` must now
+  produce a REST-01 violation, not `hard_pass=True`;
+- no other assertion, parameter, or function in `tests/test_t012.py` is
+  opened by this amendment;
+- this does not reopen T012 rest directionality, fallback order, or any
+  other T012 Part B/C behavior -- it corrects exactly one oracle that
+  encoded the bug T022-F4 exists to close.
 
 ## 8. Implementation and review chain
 

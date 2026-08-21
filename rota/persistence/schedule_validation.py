@@ -24,6 +24,10 @@ from rota.persistence.schedule_errors import InvalidScheduleLineage, MalformedSc
 from rota.persistence.schedule_repository import ScheduleVersionNotFound, get_schedule_snapshot, get_schedule_version_header
 
 
+def _is_full_hour(dt) -> bool:
+    return dt.minute == 0 and dt.second == 0 and dt.microsecond == 0
+
+
 def validate_site_and_coordinator(conn: sqlite3.Connection, site_id: str, coordinator_id: str) -> None:
     if conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (site_id,)).fetchone() is None:
         raise MalformedScheduleSnapshot(f"unknown site {site_id!r}")
@@ -96,19 +100,52 @@ def _is_valid_month_crossing_24h_second_half(demand: ShiftDemand, first_by_templ
     )
 
 
+def _h24_template_group_is_malformed(group: list[ShiftDemand]) -> bool:
+    """T022-F3: fail-closed shape check for one work_period_template_id's
+    explicit T012 normal-H24 provenance -- exactly two demands, components 1
+    and 2, each exactly 12h, directly consecutive, opposite D/N, matching
+    required_primary_count/required_rest_hours."""
+    if len(group) != 2:
+        return True
+    d1, d2 = group
+    if {d1.work_period_component, d2.work_period_component} != {1, 2}:
+        return True
+    first, second = (d1, d2) if d1.work_period_component == 1 else (d2, d1)
+    if first.shift_kind is None or second.shift_kind is None or first.shift_kind == second.shift_kind:
+        return True
+    if first.end_datetime != second.start_datetime:
+        return True
+    if first.end_datetime - first.start_datetime != timedelta(hours=12):
+        return True
+    if second.end_datetime - second.start_datetime != timedelta(hours=12):
+        return True
+    if first.required_primary_count != second.required_primary_count or first.required_rest_hours != second.required_rest_hours:
+        return True
+    return False
+
+
 def validate_demands(month: date, shift_demands: list[ShiftDemand]) -> dict[str, ShiftDemand]:
     by_id: dict[str, ShiftDemand] = {}
     first_by_template: dict[str, ShiftDemand] = {}
+    by_h24_template: dict[str, list[ShiftDemand]] = {}
     for demand in shift_demands:
         if demand.demand_id in by_id:
             raise MalformedScheduleSnapshot(f"duplicate demand_id {demand.demand_id!r}")
         if demand.end_datetime <= demand.start_datetime:
             raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: end must be after start")
+        # OWNER-T022-01: no partial-hour work.
+        if not _is_full_hour(demand.start_datetime) or not _is_full_hour(demand.end_datetime):
+            raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: start/end must be a full clock hour")
         if demand.required_primary_count <= 0:
             raise MalformedScheduleSnapshot(f"demand {demand.demand_id!r}: required_primary_count must be > 0")
         by_id[demand.demand_id] = demand
         if demand.work_period_component == 1 and demand.work_period_template_id:
             first_by_template[demand.work_period_template_id] = demand
+        if demand.catalog_kind == ShiftCatalogKind.H24 and demand.work_period_template_id:
+            by_h24_template.setdefault(demand.work_period_template_id, []).append(demand)
+    for template_id, group in by_h24_template.items():
+        if _h24_template_group_is_malformed(group):
+            raise MalformedScheduleSnapshot(f"template {template_id!r}: malformed normal-H24 provenance ({len(group)} component(s))")
     for demand in shift_demands:
         start = demand.start_datetime
         if (start.year, start.month) == (month.year, month.month):
@@ -142,6 +179,9 @@ def _validate_assignment_shape(
         raise MalformedScheduleSnapshot(f"duplicate assignment_id {assignment.assignment_id!r}")
     if assignment.end_datetime <= assignment.start_datetime:
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: end must be after start")
+    # OWNER-T022-01: no partial-hour work.
+    if not _is_full_hour(assignment.start_datetime) or not _is_full_hour(assignment.end_datetime):
+        raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: start/end must be a full clock hour")
     start = assignment.start_datetime
     if (start.year, start.month) != (month.year, month.month) and not _is_valid_month_crossing_24h_assignment(assignment, demands_by_id):
         raise MalformedScheduleSnapshot(f"assignment {assignment.assignment_id!r}: start date not in ScheduleVersion.month")

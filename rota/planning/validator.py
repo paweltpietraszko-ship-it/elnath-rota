@@ -1,9 +1,5 @@
 """Independent HARD validator (anti-drift rule 12, arch/spec.md SECTION 2/5).
-
-Re-derives every HARD violation from PlanningState + a final Assignment list,
-from scratch, without reusing the solver's CP-SAT variables/bookkeeping. Does
-not use CP-SAT.
-"""
+Re-derives every HARD violation from PlanningState + a final Assignment list, from scratch, without CP-SAT."""
 from __future__ import annotations
 
 import calendar
@@ -36,23 +32,13 @@ from rota.planning.work_periods import (
 
 @dataclass(frozen=True)
 class ViolationDetail:
-    """A HARD violation tagged with the rule and the exact Assignment(s) it is
-    about. FINDING R23-2 (tests_r23.txt): a caller (engine._decision_for_conflicts)
-    that needs to know whether a violation is explained by a specific
-    Assignment must not rely on assignment_id appearing as a substring of a
-    human-readable message -- assignment_id has no contractual format or
-    minimum length, so short/common IDs ("a", "mentor") can coincidentally
-    match unrelated text. assignment_ids is the authoritative, exact set;
-    message is for display/logging only."""
+    """A HARD violation tagged with the rule and exact Assignment(s) it is about (R23-2: assignment_ids is
+    authoritative, never parsed back out of message text -- assignment_id has no contractual format/length)."""
 
     rule: str
     assignment_ids: tuple[str, ...]
     message: str
-    # tasks/ROTA-T009/review_01_architect_clarification.md COVERAGE GAP
-    # DEVIATION TARGET: a coverage gap/excess has no employee/Assignment to
-    # blame when nothing at all covers the gap -- the demand itself is the
-    # only truthful target. Empty for every other rule.
-    demand_ids: tuple[str, ...] = ()
+    demand_ids: tuple[str, ...] = ()  # COVERAGE-01 gap/excess: only the demand can be blamed, no Assignment exists
 
 
 @dataclass
@@ -77,15 +63,12 @@ def _by_employee(assignments: list[Assignment]) -> dict[str, list[Assignment]]:
 
 
 def _not_cancelled(assignments) -> list[Assignment]:
-    """CANCELLED Assignments are not actual work (arch/spec.md:257) and must
-    not participate in any HARD check (audit round 13 FINDING R13-2)."""
+    """CANCELLED Assignments are not actual work (arch/spec.md:257) and must not participate in any HARD check (R13-2)."""
     return [a for a in assignments if a.state != AssignmentState.CANCELLED]
 
 
 def _coverage_segments(demand_start, demand_end, overlapping: list[tuple]) -> list[tuple]:
-    """Sweep-line over [demand_start, demand_end): breakpoints are the demand
-    bounds plus every (already demand-clipped) PRIMARY interval's own bounds.
-    Each resulting sub-segment has a single, well-defined coverage count."""
+    """Sweep-line over [demand_start, demand_end): each resulting sub-segment has one well-defined coverage count."""
     points = sorted({demand_start, demand_end, *(p for iv in overlapping for p in iv)})
     segments = []
     for a, b in zip(points, points[1:]):
@@ -109,11 +92,7 @@ def _coverage_violation_detail(demand, bad_segments: list[tuple]) -> ViolationDe
 
 
 def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """COVERAGE-01 (arch/spec.md:405-407): only PRIMARY counts, TRAINEE never
-    does. Coverage is derived from each PRIMARY's actual interval overlapping
-    the demand, not covers_demand_id tagging -- a manual correction may span
-    more than one demand. Every instant needs exactly required_primary_count
-    overlapping PRIMARY coverage; sequential pieces are valid if they union."""
+    """COVERAGE-01: only PRIMARY counts, derived from each PRIMARY's actual interval overlap, not covers_demand_id tagging."""
     primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
     for demand in state.shift_demands:
         overlapping = [
@@ -128,10 +107,7 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], details
 
 
 def _check_trainee_mentor_reference(assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """TRAINEE.mentor_primary_assignment_id must resolve, inside this same
-    candidate, to a PRIMARY whose interval fully contains the TRAINEE's own
-    (arch/spec.md:263-265 SECTION 8) -- re-derived independently, not from
-    solver bookkeeping (anti-drift rule 12; findings R20-3/R22-3/R23-3)."""
+    """TRAINEE.mentor_primary_assignment_id must resolve to a same-candidate PRIMARY whose interval contains it (SECTION 8)."""
     by_id = {a.assignment_id: a for a in assignments}
     for assignment in assignments:
         if assignment.role != AssignmentRole.TRAINEE:
@@ -142,90 +118,68 @@ def _check_trainee_mentor_reference(assignments: list[Assignment], details: list
         target = by_id.get(mentor_id)
         ids = (assignment.assignment_id, mentor_id)
         if target is None:
-            details.append(ViolationDetail(
-                "ASSIGN", ids,
-                f"ASSIGN: {assignment.assignment_id} (TRAINEE) references missing "
-                f"mentor_primary_assignment_id {mentor_id}",
-            ))
+            details.append(ViolationDetail("ASSIGN", ids, f"ASSIGN: {assignment.assignment_id} (TRAINEE) references missing mentor_primary_assignment_id {mentor_id}"))
         elif target.role != AssignmentRole.PRIMARY:
-            details.append(ViolationDetail(
-                "ASSIGN", ids,
-                f"ASSIGN: {assignment.assignment_id} (TRAINEE) mentor_primary_assignment_id {mentor_id} "
-                f"is not PRIMARY (role={target.role.value})",
-            ))
+            details.append(ViolationDetail("ASSIGN", ids, f"ASSIGN: {assignment.assignment_id} (TRAINEE) mentor_primary_assignment_id {mentor_id} is not PRIMARY (role={target.role.value})"))
         elif assignment.start_datetime < target.start_datetime or assignment.end_datetime > target.end_datetime:
-            details.append(ViolationDetail(
-                "ASSIGN", ids,
-                f"ASSIGN: {assignment.assignment_id} (TRAINEE) interval is not inside mentor "
-                f"{mentor_id}'s interval ({target.start_datetime}-{target.end_datetime})",
-            ))
+            details.append(ViolationDetail("ASSIGN", ids, f"ASSIGN: {assignment.assignment_id} (TRAINEE) interval is not inside mentor {mentor_id}'s interval ({target.start_datetime}-{target.end_datetime})"))
 
 
 def _check_replan_preserves_fixed(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """REPLAN (arch/spec.md SECTION 7, ASSIGN-03/04): REALIZED work, frozen
-    future Assignments, and TRAINEE (S) must not be changed by REPLAN --
-    re-derived from state.existing_assignments (anti-drift rule 12)."""
+    """REPLAN (SECTION 7, ASSIGN-03/04): REALIZED, frozen, TRAINEE, and any mentor-linked PRIMARY must not change --
+    mirrors solver.fixed_existing_assignments/replan_reshuffle's mentor-linked-PRIMARY protection (T022-F5)."""
     by_id = {a.assignment_id: a for a in assignments}
+    mentor_linked_ids = {
+        a.mentor_primary_assignment_id
+        for a in state.existing_assignments
+        if a.role == AssignmentRole.TRAINEE and a.state != AssignmentState.CANCELLED and a.mentor_primary_assignment_id
+    }
     for existing in state.existing_assignments:
         if existing.state == AssignmentState.CANCELLED:
             continue
-        must_preserve = existing.state == AssignmentState.REALIZED or existing.frozen or existing.role == AssignmentRole.TRAINEE
+        must_preserve = (
+            existing.state == AssignmentState.REALIZED or existing.frozen
+            or existing.role == AssignmentRole.TRAINEE or existing.assignment_id in mentor_linked_ids
+        )
         if not must_preserve:
             continue
         candidate = by_id.get(existing.assignment_id)
         ids = (existing.assignment_id,)
         if candidate is None:
-            details.append(ViolationDetail(
-                "ASSIGN-03/04", ids,
-                f"ASSIGN-03/04: {existing.assignment_id} (REALIZED/frozen/TRAINEE) missing from candidate",
-            ))
+            details.append(ViolationDetail("ASSIGN-03/04", ids, f"ASSIGN-03/04: {existing.assignment_id} (REALIZED/frozen/TRAINEE/mentor-linked) missing from candidate"))
         elif candidate != existing:
-            details.append(ViolationDetail(
-                "ASSIGN-03/04", ids,
-                f"ASSIGN-03/04: {existing.assignment_id} (REALIZED/frozen/TRAINEE) was modified",
-            ))
+            details.append(ViolationDetail("ASSIGN-03/04", ids, f"ASSIGN-03/04: {existing.assignment_id} (REALIZED/frozen/TRAINEE/mentor-linked) was modified"))
 
 
 def _check_membership_enabled(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """MEMBERSHIP-01 (arch/spec.md:114): LOCAL is eligible only when
-    membership.enabled, checked here for every Assignment (incl.
-    pre-existing) independently of solver eligibility (R14-1). A missing
-    membership for the current site -- none at all, or only for a different
-    site (EMP-03) -- is the same absence of authorization (R15-1)."""
+    """MEMBERSHIP-01: LOCAL is eligible only when membership.enabled -- no membership at all, or only for a different site, is the same absence of authorization (R15-1)."""
     membership_by_employee = {m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id}
     for assignment in assignments:
         membership = membership_by_employee.get(assignment.employee_id)
         if membership is None or not membership.enabled:
-            details.append(ViolationDetail(
-                "MEMBERSHIP-01", (assignment.assignment_id,),
-                f"MEMBERSHIP-01: {assignment.employee_id} assignment {assignment.assignment_id} "
-                "has no enabled membership for this site",
-            ))
+            details.append(ViolationDetail("MEMBERSHIP-01", (assignment.assignment_id,), f"MEMBERSHIP-01: {assignment.employee_id} assignment {assignment.assignment_id} has no enabled membership for this site"))
 
 
 def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
-    """ROTA-T010-B / T018: an applicable RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION
-    exempts only DAY_ONLY-01 for N, and emits a SOFT provenance warning with the canonical rule_version_id."""
+    """T010-B/T018: an applicable RESOLVED HARD EMPLOYEE_DAY_ONLY_N_EXCEPTION exempts only DAY_ONLY-01 for N, with a SOFT provenance warning."""
     day_only_ids = {e.employee_id for e in state.employees if e.day_only}
     if not state.profile.day_only_blocks_n:
         return
     for assignment in assignments:
         if assignment.employee_id not in day_only_ids:
             continue
-        kind = _assignment_kind(assignment, state)
-        if kind != ShiftKind.N:
-            continue
-        # B-R11-1: COVERAGE-01 permits a spanning manual PRIMARY, so the date
-        # anchor must be the covering ShiftDemand's start, not the Assignment's.
-        demand = _covering_demand(assignment, state)
-        anchor_date = demand.start_datetime.date() if demand is not None else assignment.start_datetime.date()
-        applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)
-        authorizing_id = day_only_n_exception_authorizing_rule_version_id(applicable, assignment.employee_id)
-        if authorizing_id is None:
-            details.append(ViolationDetail("DAY_ONLY-01", (assignment.assignment_id,), f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id}"))
-            continue
-        demand_id = demand.demand_id if demand is not None else assignment.covers_demand_id
-        warnings.append(f"DAY_ONLY-N-FALLBACK-01 SOFT: employee={assignment.employee_id} demand={demand_id} date={anchor_date} rule_version_id={authorizing_id}")
+        for demand in _covered_demands(assignment, state):
+            kind = _demand_kind(demand, state.profile)
+            if kind != ShiftKind.N:
+                continue
+            # B-R11-1/T022-F1: anchor is the covered ShiftDemand's own start, never the Assignment's -- a spanning PRIMARY cannot hide N behind a different tag.
+            anchor_date = demand.start_datetime.date()
+            applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)
+            authorizing_id = day_only_n_exception_authorizing_rule_version_id(applicable, assignment.employee_id)
+            if authorizing_id is None:
+                details.append(ViolationDetail("DAY_ONLY-01", (assignment.assignment_id,), f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id} (demand {demand.demand_id})"))
+                continue
+            warnings.append(f"DAY_ONLY-N-FALLBACK-01 SOFT: employee={assignment.employee_id} demand={demand.demand_id} date={anchor_date} rule_version_id={authorizing_id}")
 
 
 def _covering_demand(assignment: Assignment, state: PlanningState):
@@ -238,21 +192,28 @@ def _covering_demand(assignment: Assignment, state: PlanningState):
     return None
 
 
-def _assignment_kind(assignment: Assignment, state: PlanningState) -> ShiftKind | None:
-    # C-R16-3: ShiftDemand.shift_kind is authoritative when set (A-R4-3); the
-    # profile/start_time fallback below is legacy-only (shift_kind=None).
+def _covered_demands(assignment: Assignment, state: PlanningState) -> list:
+    """T022-F1: every state.shift_demands whose interval actually overlaps this Assignment (same interval-truth
+    COVERAGE-01 uses) -- a spanning PRIMARY cannot hide a covered demand behind a different covers_demand_id tag.
+    Falls back to the tagged demand only when the interval overlaps no current-month demand at all."""
+    overlapping = [d for d in state.shift_demands if assignment.start_datetime < d.end_datetime and assignment.end_datetime > d.start_datetime]
+    if overlapping:
+        return overlapping
     demand = _covering_demand(assignment, state)
-    if demand is not None and demand.shift_kind is not None:
+    return [demand] if demand is not None else []
+
+
+def _demand_kind(demand, profile) -> ShiftKind | None:
+    # C-R16-3: ShiftDemand.shift_kind is authoritative when set; the profile/start_time fallback is legacy-only.
+    if demand.shift_kind is not None:
         return demand.shift_kind
-    for shift in state.profile.standard_shifts:
-        if shift.start_time == assignment.start_datetime.time():
+    for shift in profile.standard_shifts:
+        if shift.start_time == demand.start_datetime.time():
             return shift.kind
     return None
 
 
-def _check_day_shift_off(
-    state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]
-) -> None:
+def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
     off_dates_by_employee: dict[str, set] = {}
     for record in state.availability_records:
         if record.kind != AvailabilityKind.DAY_SHIFT_OFF or not record.active:
@@ -264,29 +225,15 @@ def _check_day_shift_off(
         start_date = assignment.start_datetime.date()
         for lo, hi in ranges:
             if lo <= start_date <= hi:
-                details.append(ViolationDetail(
-                    "DAY_SHIFT_OFF-01", (assignment.assignment_id,),
-                    f"DAY_SHIFT_OFF-01: {assignment.employee_id} starts assignment {assignment.assignment_id} "
-                    f"on day off {start_date}",
-                ))
+                details.append(ViolationDetail("DAY_SHIFT_OFF-01", (assignment.assignment_id,), f"DAY_SHIFT_OFF-01: {assignment.employee_id} starts assignment {assignment.assignment_id} on day off {start_date}"))
             end_date = assignment.end_datetime.date()
             if end_date != start_date and lo <= end_date <= hi:
-                warnings.append(
-                    f"DAY_SHIFT_OFF-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} "
-                    f"enters day off {end_date}"
-                )
+                warnings.append(f"DAY_SHIFT_OFF-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} enters day off {end_date}")
 
 
-_RELEVANT_UNAVAILABILITY_KINDS = (
-    AvailabilityKind.UNAVAILABLE_24H,
-    AvailabilityKind.SICK_LEAVE,
-    AvailabilityKind.LEAVE_GRANTED,
-)
+_RELEVANT_UNAVAILABILITY_KINDS = (AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)
 
-# arch/spec.md:393-394 freezes the condition code for UNAVAILABLE_24H as
-# "UNAVAILABLE-01", not "UNAVAILABLE_24H-01" -- the AvailabilityKind enum
-# value and the frozen rule code intentionally differ here (audit round 26,
-# FINDING R26-2). Every other kind's code matches its enum value.
+# arch/spec.md:393-394 freezes UNAVAILABLE_24H's code as "UNAVAILABLE-01" (not "UNAVAILABLE_24H-01", R26-2); every other kind's code matches its enum value.
 _CONDITION_CODE = {
     AvailabilityKind.UNAVAILABLE_24H: "UNAVAILABLE-01",
     AvailabilityKind.SICK_LEAVE: "SICK_LEAVE-01",
@@ -295,9 +242,7 @@ _CONDITION_CODE = {
 
 
 def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """Owner decision 2026-08-14: when SICK_LEAVE/LEAVE_GRANTED date ranges
-    intersect, only SICK_LEAVE-01 is reported; other kinds report
-    independently, per-record, not one fixed Assignment priority (R26-1)."""
+    """Owner decision 2026-08-14: when SICK_LEAVE/LEAVE_GRANTED intersect, only SICK_LEAVE-01 is reported; other kinds report independently (R26-1)."""
     records_by_employee: dict[str, list] = {}
     for record in state.availability_records:
         records_by_employee.setdefault(record.employee_id, []).append(record)
@@ -307,18 +252,12 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
         for record in records_by_employee.get(assignment.employee_id, []):
             if not record.active or record.kind not in _RELEVANT_UNAVAILABILITY_KINDS:
                 continue
-            overlaps = overlaps_date_range(
-                assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date
-            )
-            if overlaps:
+            if overlaps_date_range(assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date):
                 overlapping_by_kind.setdefault(record.kind, record)
 
         sick = overlapping_by_kind.get(AvailabilityKind.SICK_LEAVE)
         leave = overlapping_by_kind.get(AvailabilityKind.LEAVE_GRANTED)
-        suppress_leave_granted = (
-            sick is not None and leave is not None
-            and max(sick.start_date, leave.start_date) <= min(sick.end_date, leave.end_date)
-        )
+        suppress_leave_granted = sick is not None and leave is not None and max(sick.start_date, leave.start_date) <= min(sick.end_date, leave.end_date)
 
         for kind in _RELEVANT_UNAVAILABILITY_KINDS:
             record = overlapping_by_kind.get(kind)
@@ -327,20 +266,11 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
             if kind == AvailabilityKind.LEAVE_GRANTED and suppress_leave_granted:
                 continue
             code = _CONDITION_CODE[kind]
-            details.append(ViolationDetail(
-                code, (assignment.assignment_id,),
-                f"{code}: {assignment.employee_id} assignment {assignment.assignment_id} "
-                f"overlaps {kind.value} {record.start_date}-{record.end_date}",
-            ))
+            details.append(ViolationDetail(code, (assignment.assignment_id,), f"{code}: {assignment.employee_id} assignment {assignment.assignment_id} overlaps {kind.value} {record.start_date}-{record.end_date}"))
 
 
 def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warnings: list[str]) -> None:
-    """LEAVE_PLAN-01 (arch/spec.md:400-403): a collision does not block the
-    Assignment but must be visible as a warning. FINDING R17-4: this was only
-    ever emitted by the solver for newly-solved slots, so an existing
-    Assignment colliding with LEAVE_PLAN produced no warning at all in the
-    public plan() result. Covering it here reaches both existing and solved
-    Assignments uniformly, since validate() always sees the full candidate."""
+    """LEAVE_PLAN-01: a collision doesn't block the Assignment but must be visible as a warning (R17-4: reaches both existing and solved Assignments uniformly)."""
     records_by_employee: dict[str, list] = {}
     for record in state.availability_records:
         records_by_employee.setdefault(record.employee_id, []).append(record)
@@ -349,98 +279,100 @@ def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warni
         for record in records_by_employee.get(assignment.employee_id, []):
             if not record.active or record.kind != AvailabilityKind.LEAVE_PLAN:
                 continue
-            overlaps = overlaps_date_range(
-                assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date
-            )
-            if overlaps:
-                warnings.append(
-                    f"LEAVE_PLAN-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} "
-                    f"overlaps LEAVE_PLAN {record.start_date}-{record.end_date}"
-                )
+            if overlaps_date_range(assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date):
+                warnings.append(f"LEAVE_PLAN-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} overlaps LEAVE_PLAN {record.start_date}-{record.end_date}")
 
 
 def _check_external(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """EXTERNAL-01: X/Y need an active, confirmed ExternalSupportWindow for the
-    right employee and, when restricted, the right ShiftKind (R13-4)."""
-    membership_kind_by_employee = {
-        m.employee_id: m.membership_kind for m in state.memberships if m.site_id == state.site.site_id
-    }
+    """EXTERNAL-01: X/Y need an active, confirmed ExternalSupportWindow for the right employee and, when restricted, the right ShiftKind (R13-4)."""
+    membership_kind_by_employee = {m.employee_id: m.membership_kind for m in state.memberships if m.site_id == state.site.site_id}
     for assignment in assignments:
         if membership_kind_by_employee.get(assignment.employee_id) != MembershipKind.EXTERNAL_SUPPORT:
             continue
         if not state.profile.external_support_enabled:
-            # FINDING R16-2: a window doesn't turn on a capability the profile switched off (SITE-01).
-            details.append(ViolationDetail(
-                "EXTERNAL-01", (assignment.assignment_id,),
-                f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} "
-                "uses EXTERNAL_SUPPORT but profile.external_support_enabled is false",
-            ))
+            # R16-2: a window doesn't turn on a capability the profile switched off (SITE-01).
+            details.append(ViolationDetail("EXTERNAL-01", (assignment.assignment_id,), f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} uses EXTERNAL_SUPPORT but profile.external_support_enabled is false"))
             continue
-        kind = _assignment_kind(assignment, state)
+        # T022-F1: a window must cover EVERY kind the Assignment's actual interval touches, not just the tagged demand's kind.
+        kinds = {_demand_kind(d, state.profile) for d in _covered_demands(assignment, state)} or {None}
         covered = any(
             w.active and w.site_id == state.site.site_id
             and w.employee_id == assignment.employee_id
             and w.start_datetime <= assignment.start_datetime
             and w.end_datetime >= assignment.end_datetime
-            and (w.allowed_shift_kind is None or w.allowed_shift_kind == kind)
+            and all(w.allowed_shift_kind is None or w.allowed_shift_kind == k for k in kinds)
             for w in state.external_windows
         )
         if not covered:
-            details.append(ViolationDetail(
-                "EXTERNAL-01", (assignment.assignment_id,),
-                f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} "
-                "has no covering active ExternalSupportWindow",
-            ))
+            details.append(ViolationDetail("EXTERNAL-01", (assignment.assignment_id,), f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} has no covering active ExternalSupportWindow"))
 
 
 def _check_site_rules(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """ROTA-T007 INDEPENDENT VALIDATION: re-checks every applicable HARD
-    SiteRule against every PRIMARY, independently of solver filtering. The
-    violation code IS the exact rule_version_id (flows into Blocker.condition
-    unchanged)."""
+    """ROTA-T007: re-checks every applicable HARD SiteRule against every PRIMARY. Violation code IS the exact rule_version_id.
+    T022-F1: every actually-covered ShiftDemand gets its own weekday anchor/kind, never the Assignment's own start date."""
     for assignment in assignments:
         if assignment.role != AssignmentRole.PRIMARY:
             continue
-        shift_kind = _assignment_kind(assignment, state)
-        if shift_kind is None:
-            continue
-        applicable = hard_rules_applicable_on(
-            state.site_rules, state.site_rule_applicability, assignment.start_datetime.date()
-        )
-        for rule in applicable:
-            if rule_allows_assignment(rule, assignment.employee_id, assignment.start_datetime.date(), shift_kind):
+        for demand in _covered_demands(assignment, state):
+            shift_kind = _demand_kind(demand, state.profile)
+            if shift_kind is None:
                 continue
-            details.append(ViolationDetail(
-                rule.rule_version_id, (assignment.assignment_id,),
-                f"{rule.rule_version_id}: {assignment.employee_id} assignment {assignment.assignment_id} "
-                f"violates {rule.rule_kind}",
-            ))
+            anchor_date = demand.start_datetime.date()
+            applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)
+            for rule in applicable:
+                if rule_allows_assignment(rule, assignment.employee_id, anchor_date, shift_kind):
+                    continue
+                details.append(ViolationDetail(rule.rule_version_id, (assignment.assignment_id,), f"{rule.rule_version_id}: {assignment.employee_id} assignment {assignment.assignment_id} violates {rule.rule_kind} (demand {demand.demand_id})"))
+
+
+def _is_well_formed_normal_h24_pair(d1, d2) -> bool:
+    """T022-F3: fail-closed shape check -- components 1 and 2, each exactly 12h, directly consecutive, opposite D/N, matching template id."""
+    if {d1.work_period_component, d2.work_period_component} != {1, 2}:
+        return False
+    first, second = (d1, d2) if d1.work_period_component == 1 else (d2, d1)
+    if first.shift_kind is None or second.shift_kind is None or first.shift_kind == second.shift_kind:
+        return False
+    if first.end_datetime != second.start_datetime:
+        return False
+    hours1 = (first.end_datetime - first.start_datetime).total_seconds() / 3600
+    hours2 = (second.end_datetime - second.start_datetime).total_seconds() / 3600
+    return hours1 == 12 and hours2 == 12
 
 
 def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s) -- identity, REALIZED counts too."""
-    demands_by_id = {d.demand_id: d for d in state.shift_demands}
-    by_template: dict[str, dict[str, set[str]]] = {}
-    for a in assignments:
-        demand = demands_by_id.get(a.covers_demand_id)
-        if a.role != AssignmentRole.PRIMARY or demand is None or demand.catalog_kind != ShiftCatalogKind.H24 or not demand.work_period_template_id:
+    """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s). Employee sets are derived
+    from actual interval coverage, not covers_demand_id tags (T022-F2); malformed/wrong-cardinality provenance fails
+    closed instead of being skipped (T022-F3). Only catalog_kind=H24 with a work_period_template_id is considered."""
+    primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
+    by_template: dict[str, list] = {}
+    for d in state.shift_demands:
+        if d.catalog_kind == ShiftCatalogKind.H24 and d.work_period_template_id:
+            by_template.setdefault(d.work_period_template_id, []).append(d)
+    for template_id, demands in by_template.items():
+        member_ids = {d.demand_id for d in demands}
+        ids = tuple(a.assignment_id for a in primary if a.covers_demand_id in member_ids)
+        if len(demands) != 2:
+            details.append(ViolationDetail("SHIFT-24-PAIR-01", ids, f"SHIFT-24-PAIR-01: template {template_id} has {len(demands)} H24 demand(s) (expected 2)"))
             continue
-        by_template.setdefault(demand.work_period_template_id, {}).setdefault(demand.demand_id, set()).add(a.employee_id)
-    for template_id, by_demand in by_template.items():
-        if len(by_demand) != 2:
+        d1, d2 = demands
+        if not _is_well_formed_normal_h24_pair(d1, d2):
+            details.append(ViolationDetail("SHIFT-24-PAIR-01", ids, f"SHIFT-24-PAIR-01: template {template_id} malformed normal-H24 provenance"))
             continue
-        (d1, emp1), (d2, emp2) = sorted(by_demand.items())
+        emp1 = {a.employee_id for a in primary if a.start_datetime < d1.end_datetime and a.end_datetime > d1.start_datetime}
+        emp2 = {a.employee_id for a in primary if a.start_datetime < d2.end_datetime and a.end_datetime > d2.start_datetime}
         if emp1 != emp2:
-            ids = tuple(a.assignment_id for a in assignments if a.covers_demand_id in (d1, d2))
-            details.append(ViolationDetail("SHIFT-24-PAIR-01", ids, f"SHIFT-24-PAIR-01: template {template_id} mismatch {sorted(emp1)} vs {sorted(emp2)}"))
+            coverage_ids = tuple(
+                a.assignment_id for a in primary
+                if (a.start_datetime < d1.end_datetime and a.end_datetime > d1.start_datetime)
+                or (a.start_datetime < d2.end_datetime and a.end_datetime > d2.start_datetime)
+            )
+            details.append(ViolationDetail("SHIFT-24-PAIR-01", coverage_ids, f"SHIFT-24-PAIR-01: template {template_id} mismatch {sorted(emp1)} vs {sorted(emp2)}"))
 
 
 def _check_emergency_pairs(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """T012-C section 11: independently confirm every emergency-shaped work
-    period (plain-12h pair, never katalog 24h) -- never trusts solver pair
-    literals. Malformed -> SHIFT-24-PAIR-01; missing can_work_24h -> SHIFT-24-01."""
-    # A not-yet-persisted ShiftDemand's own schedule_version_id can be "" even
-    # though its Assignment carries the real one -- key by the ASSIGNMENT's id.
+    """T012-C section 11: independently confirm every emergency-shaped work period (plain-12h pair, never katalog 24h),
+    never trusting solver pair literals. Malformed -> SHIFT-24-PAIR-01; missing can_work_24h -> SHIFT-24-01."""
+    # A not-yet-persisted ShiftDemand's schedule_version_id can be "" even though its Assignment carries the real one -- key by the ASSIGNMENT's id.
     all_target_assignments = list(assignments) + _not_cancelled(state.boundary_assignments)
     current_by_id = {d.demand_id: d for d in state.shift_demands}
     demand_by_key = {(d.schedule_version_id, d.demand_id): d for d in state.boundary_shift_demands}
@@ -463,16 +395,23 @@ def _check_emergency_pairs(state: PlanningState, assignments: list[Assignment], 
         membership = membership_by_employee.get(employee_id)
         can_work_24h = membership.can_work_24h if membership is not None else True
         for finding in check_emergency_pair_structure(members, demand_by_key, can_work_24h, all_24h):
-            details.append(ViolationDetail(
-                finding.code, finding.assignment_ids, f"{finding.code}: {work_period_id}: {finding.reason}",
-            ))
+            details.append(ViolationDetail(finding.code, finding.assignment_ids, f"{finding.code}: {work_period_id}: {finding.reason}"))
+
+
+def _forms_illegal_continuous_pair(earlier, later) -> bool:
+    """T022-F4/OWNER-T022-02: two SEPARATE 12h WorkPeriods abutting with zero gap silently total 24h -- illegal
+    regardless of required_rest_after_hours=0 (a legitimate pair always shares one work_period_id and merges into
+    a single WorkPeriod already). Scoped to an exact 24h combined span so an unrelated transition isn't swept in."""
+    return earlier.end == later.start and (later.end - earlier.start) == timedelta(hours=24)
 
 
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
     """REST-01, per-work-period -- 24h pairs have no internal check, earlier period's rest governs, only target-touching edges count."""
     # B-R10-3: identity is (schedule_version_id, assignment_id), not the bare local id (tests/test_audit_t009_r6.py).
     target_keys = {(a.schedule_version_id, a.assignment_id) for a in assignments}
-    all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
+    other_site_list = _not_cancelled(state.other_site_assignments)
+    other_site_keys = {(a.schedule_version_id, a.assignment_id) for a in other_site_list}
+    all_assignments = list(assignments) + other_site_list + _not_cancelled(state.boundary_assignments)
     all_components = [PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in all_assignments]
     for key, ids, reasons in find_malformed_periods(all_components):
         details.append(ViolationDetail("WORK_PERIOD-01", ids, f"WORK_PERIOD-01: period {key}: {'; '.join(reasons)}"))
@@ -490,6 +429,12 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
             if periods_overlap(earlier, later):
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} overlapping assignments"))
                 continue
+            # CROSS-SITE-ZERO-GAP-01 (T022, OWNER-T022-03): zero-time continuation onto a different Site is illegal regardless of configured rest/can_work_24h.
+            cross_site = any(k in other_site_keys for k in earlier.component_keys) != any(k in other_site_keys for k in later.component_keys)
+            if (cross_site and earlier.end == later.start) or _forms_illegal_continuous_pair(earlier, later):
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: zero-gap continuous work is not permitted"))
+                min_rest = 0.0 if min_rest is None else min(min_rest, 0.0)
+                continue
             gap = (later.start - earlier.end).total_seconds() / 3600
             min_rest = gap if min_rest is None else min(min_rest, gap)
             if gap < earlier.required_rest_after_hours:
@@ -497,9 +442,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
     return min_rest
 
 
-def _check_load(
-    state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]
-) -> tuple[dict[str, float], dict[str, tuple], dict[str, tuple]]:
+def _check_load(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> tuple[dict[str, float], dict[str, tuple], dict[str, tuple]]:
     all_assignments = list(assignments) + _not_cancelled(state.other_site_assignments) + _not_cancelled(state.boundary_assignments)
     grouped = _by_employee(all_assignments)
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
@@ -507,12 +450,7 @@ def _check_load(
     threshold = state.profile.rolling_7d_decision_threshold_hours
     max_load: dict[str, float] = {}
     max_window: dict[str, tuple] = {}
-    # ROTA-T007 (audit round 5 FINDING R5-1): the display-friendly max_window
-    # (calendar dates only) can't answer "does this Assignment overlap the
-    # actual worst window" correctly for an overnight shift that starts the
-    # day before the window but still contributes hours to it -- callers
-    # that need real relevance (engine._load_decision) need the original
-    # datetime boundaries, not their date()-rounded display form.
+    # R5-1: display-friendly max_window (calendar dates) can't answer real overlap for an overnight shift -- callers needing real relevance (engine._load_decision) use the datetime form below.
     max_window_datetimes: dict[str, tuple] = {}
     for employee_id, employee_assignments in grouped.items():
         worst = 0.0
@@ -520,19 +458,13 @@ def _check_load(
         worst_window_datetimes = None
         ids = tuple(a.assignment_id for a in employee_assignments)
         for window_start, window_end in windows:
-            hours = sum(
-                overlap_hours(a.start_datetime, a.end_datetime, window_start, window_end)
-                for a in employee_assignments
-            )
+            hours = sum(overlap_hours(a.start_datetime, a.end_datetime, window_start, window_end) for a in employee_assignments)
             if hours > worst:
                 worst = hours
                 worst_window = (window_start.date(), (window_end - timedelta(days=1)).date())
                 worst_window_datetimes = (window_start, window_end)
             if hours > threshold:
-                details.append(ViolationDetail(
-                    "LOAD-01", ids,
-                    f"LOAD-01: {employee_id} has {hours}h in window {window_start.date()}-{window_end.date()}",
-                ))
+                details.append(ViolationDetail("LOAD-01", ids, f"LOAD-01: {employee_id} has {hours}h in window {window_start.date()}-{window_end.date()}"))
         max_load[employee_id] = worst
         if worst_window is not None:
             max_window[employee_id] = worst_window
@@ -550,22 +482,33 @@ def _monthly_hours(state: PlanningState, assignments: list[Assignment]) -> dict[
     return hours
 
 
+def _is_full_hour(dt) -> bool:
+    return dt.minute == 0 and dt.second == 0 and dt.microsecond == 0
+
+
+def _check_full_hour(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """OWNER-T022-01: no partial-hour work anywhere. Defense-in-depth for malformed in-memory/legacy state reaching
+    plan()/validate() without having passed the persistence-layer write-time guard. Checked against every Assignment
+    including REALIZED -- a pre-T022 fractional-hour historical row is still invalid and must fail closed."""
+    for demand in state.shift_demands:
+        if not _is_full_hour(demand.start_datetime) or not _is_full_hour(demand.end_datetime):
+            details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: demand {demand.demand_id} start/end is not a full clock hour", demand_ids=(demand.demand_id,)))
+    for assignment in assignments:
+        if not _is_full_hour(assignment.start_datetime) or not _is_full_hour(assignment.end_datetime):
+            details.append(ViolationDetail("FULL_HOUR-01", (assignment.assignment_id,), f"FULL_HOUR-01: assignment {assignment.assignment_id} start/end is not a full clock hour"))
+
+
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
     """Recheck every HARD rule from scratch against the final Assignment set."""
     assignments = _not_cancelled(assignments)
     details: list[ViolationDetail] = []
     warnings: list[str] = []
+    _check_full_hour(state, assignments, details)
 
-    # REPLAN (ASSIGN-03: REALIZED work MUST NOT be changed): a REALIZED
-    # Assignment is immutable historical fact, not a currently-decided one.
-    # Eligibility/availability HARD checks (membership, DAY_ONLY,
-    # DAY_SHIFT_OFF, LEAVE_GRANTED, UNAVAILABLE_24H, EXTERNAL-01) only make
-    # sense going forward -- data recorded after the fact (e.g. a later
-    # UNAVAILABLE_24H record) must not retroactively turn already-realized
-    # work into a HARD violation and break FEASIBLE for something REPLAN is
-    # required to leave untouched anyway. COVERAGE-01, ASSIGN-03/04
-    # preservation, REST-01 and LOAD-01 still consider every assignment,
-    # since those are about real elapsed time and identity, not eligibility.
+    # REPLAN (ASSIGN-03: REALIZED work MUST NOT be changed): eligibility/availability HARD checks (membership,
+    # DAY_ONLY, DAY_SHIFT_OFF, LEAVE_GRANTED, UNAVAILABLE_24H, EXTERNAL-01) only make sense going forward -- data
+    # recorded after the fact must not retroactively break FEASIBLE for something REPLAN must leave untouched.
+    # COVERAGE-01, ASSIGN-03/04, REST-01 and LOAD-01 still consider every assignment (real elapsed time/identity).
     for_eligibility_checks = [a for a in assignments if a.state != AssignmentState.REALIZED]
 
     _check_coverage(state, assignments, details)
