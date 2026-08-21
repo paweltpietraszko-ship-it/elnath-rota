@@ -26,6 +26,7 @@ from rota.planning.work_periods import (
     PeriodComponent,
     check_emergency_pair_structure,
     find_malformed_periods,
+    forms_illegal_continuous_pair,
     group_into_periods,
     periods_overlap,
 )
@@ -414,18 +415,6 @@ def _check_emergency_pairs(state: PlanningState, assignments: list[Assignment], 
             details.append(ViolationDetail(finding.code, finding.assignment_ids, f"{finding.code}: {work_period_id}: {finding.reason}"))
 
 
-def _forms_illegal_continuous_pair(earlier, later) -> bool:
-    """T022-F4/OWNER-T022-02: two SEPARATE 12h WorkPeriods abutting with zero gap silently total 24h -- illegal
-    regardless of required_rest_after_hours=0 (a legitimate pair always shares one work_period_id and merges into
-    a single WorkPeriod already). Scoped to exactly the H12+H12 class -- each period is itself exactly 12h, not
-    merely a 24h combined span -- so a legal whole-hour INNY combination (e.g. 8h+16h) is not swept in (T022-R1-4)."""
-    return (
-        earlier.end == later.start
-        and (earlier.end - earlier.start) == timedelta(hours=12)
-        and (later.end - later.start) == timedelta(hours=12)
-    )
-
-
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
     """REST-01, per-work-period -- 24h pairs have no internal check, earlier period's rest governs, only target-touching edges count."""
     # B-R10-3: identity is (schedule_version_id, assignment_id), not the bare local id (tests/test_audit_t009_r6.py).
@@ -464,7 +453,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
                 continue
             # CROSS-SITE-ZERO-GAP-01 (T022, OWNER-T022-03): zero-time continuation onto a different Site is illegal regardless of configured rest/can_work_24h.
             cross_site = any(k in other_site_keys for k in earlier.component_keys) != any(k in other_site_keys for k in later.component_keys)
-            if (cross_site and earlier.end == later.start) or _forms_illegal_continuous_pair(earlier, later):
+            if (cross_site and earlier.end == later.start) or forms_illegal_continuous_pair(earlier, later):
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: zero-gap continuous work is not permitted"))
                 min_rest = 0.0 if min_rest is None else min(min_rest, 0.0)
                 continue
@@ -527,7 +516,7 @@ def _check_full_hour(state: PlanningState, assignments: list[Assignment], detail
     for demand in (*state.shift_demands, *state.boundary_shift_demands):
         if not _is_full_hour(demand.start_datetime) or not _is_full_hour(demand.end_datetime):
             details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: demand {demand.demand_id} start/end is not a full clock hour", demand_ids=(demand.demand_id,)))
-    for assignment in (*assignments, *state.existing_assignments, *state.boundary_assignments, *state.other_site_assignments):
+    for assignment in (*assignments, *state.existing_assignments, *state.boundary_assignments, *state.other_site_assignments, *state.holiday_history):
         if not _is_full_hour(assignment.start_datetime) or not _is_full_hour(assignment.end_datetime):
             details.append(ViolationDetail("FULL_HOUR-01", (assignment.assignment_id,), f"FULL_HOUR-01: assignment {assignment.assignment_id} start/end is not a full clock hour"))
     for shift in state.profile.standard_shifts:

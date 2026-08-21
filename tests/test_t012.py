@@ -1541,6 +1541,36 @@ def test_d_no_rest_violation_no_decision_record(tmp_path):
     assert rule_history(conn, site_id, f"REST-OVERRIDE:{v2.version_id}") == []
 
 
+def test_d_manual_zero_gap_h12_pair_saves_rest_override_record(tmp_path):
+    """T022 PH-1 (Cursor post-merge audit, confirmed 2026-08-21): a manual
+    reassignment that creates the new T022-F4 zero-gap H12+H12 REST-01
+    shape (gap=0, configured rest=0) must produce the same REST_OVERRIDE_RECORD
+    ledger entry as an ordinary gap<rest violation, not just the Deviation."""
+    conn = connect(tmp_path / "rota.db")
+    site_id, month = "SITE-D5", date(2026, 9, 1)
+    _seed_d_site(conn, site_id=site_id, profile_id="PROF-D5", employees=["A", "B"], month=month)
+    d1 = ShiftDemand("D1", "", datetime(2026, 9, 1, 5, 0), datetime(2026, 9, 1, 17, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=0)
+    d2 = ShiftDemand("D2", "", datetime(2026, 9, 1, 17, 0), datetime(2026, 9, 2, 5, 0), 1, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=0)
+    a1 = Assignment("A1", "", "A", d1.start_datetime, d1.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D1", None, required_rest_after_hours=0)
+    a2 = Assignment("A2", "", "B", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D2", None, required_rest_after_hours=0)
+    _create_initial_version(conn, site_id=site_id, month=month, demands=[d1, d2], assignments=[a1, a2])
+
+    reassigned = Assignment("A2", "", "A", d2.start_datetime, d2.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D2", None, required_rest_after_hours=0)
+    v2 = manual_edit.apply_manual_correction(
+        conn, site_id=site_id, month=month, coordinator_id="COORD-1", effective_from=month,
+        upsert_assignments=[reassigned],
+    )
+    snapshot = get_schedule_snapshot(conn, v2.version_id)
+    rest_devs = [d for d in snapshot.deviations if d.source_reference == "REST-01"]
+    assert len(rest_devs) == 1
+
+    records = rule_history(conn, site_id, f"REST-OVERRIDE:{v2.version_id}")
+    assert len(records) == 1
+    version = get_site_rule_version(conn, records[0].rule_version_id)
+    assert version.rule_kind == "REST_OVERRIDE_RECORD"
+    assert version.structured_parameters["rest_pairs"][0]["employee_id"] == "A"
+
+
 def test_d_informational_record_ignored_by_planning_engine(tmp_path):
     conn = connect(tmp_path / "rota.db")
     site_id, month = "SITE-D4", date(2026, 9, 1)
