@@ -251,6 +251,24 @@ Required enforcement:
 7. LOAD-01 retains its integer threshold and is regression-tested at exact
    whole-hour boundaries (60 passes; 61 requires decision for threshold 60).
 
+### Why this closes the reproduced fractional-LOAD case (C4)
+
+T022 does not change the arithmetic of `overlap_hours()`. The reproduced loss
+of a sub-hour overlap becomes unreachable only if **every** work interval that
+can enter LOAD-01 has first passed OWNER-T022-01 and every LOAD window boundary
+is itself aligned to a full hour. The intersection of two such intervals has
+an integer-hour duration, so `int(seconds // 3600)` cannot discard any valid
+work time.
+
+This is a proof obligation for the preimplementation review, not an assumption:
+CC and Cursor must enumerate solver-created, persisted, fixed/history,
+cross-Site, boundary-context, manual and direct in-memory inputs consumed by
+LOAD-01, and must verify that no path can reach LOAD arithmetic with a
+non-full-hour boundary. They must also verify the alignment of every rolling
+window boundary. If any bypass exists, OWNER-T022-01 is not mechanically
+complete and the reviewer reports a scope finding; it must not silently treat
+the existing truncation as harmless.
+
 Use existing dedicated error boundaries where they already own the input:
 `InvalidStandardShift` for catalog shape and `MalformedScheduleSnapshot` for
 schedule snapshot writes. Public PLAN must map malformed in-memory/catalog
@@ -339,6 +357,19 @@ T022 must not include:
 - changes to absence accounting, T019 analytics, T019b memory or T020 PDF;
 - reopening T012 rest directionality or T018 fallback order;
 - changing T013 coordinator wording/raw conflict heuristics;
+- changing `engine._decision_for_conflict()` so that its assumption-core
+  blockers use a condition other than the current
+  `eligible_employees_for_demands + REST-01`. The observed case in which an
+  H24 same-person constraint contributes to infeasibility but the raw blocker
+  is still labelled `REST-01` is a real diagnostic limitation (C6), but T013
+  section `B. RAW FACTS MUST NOT BE REDEFINED` explicitly froze that raw source.
+  Changing it requires a separate owner-authorized diagnostic contract and is
+  not an implementation finding against T022;
+- refactoring `validator._check_rest()` to call
+  `work_periods.violates_rest()`. Their present gap/overlap predicates are
+  behaviorally equivalent for current full-hour inputs, so the duplication is
+  a maintenance-drift risk (C3), not a reproduced wrong result authorized for
+  repair here;
 - changing bootstrap's intentionally narrower completeness gate unless a
   mechanically unavoidable contradiction is reported before implementation;
 - removing dead functions or refactoring duplication merely for cleanup;
@@ -401,6 +432,15 @@ Each report must answer:
 9. Check whether one new test file can remain <=600 lines without deleting
    required oracles. If not, report the exact estimated matrix size before any
    implementation.
+10. Prove mechanically that every interval and rolling-window boundary used by
+    LOAD-01 is full-hour aligned after the proposed guards, including
+    solver-created, persisted, fixed/history, cross-Site, boundary-context,
+    manual and direct in-memory paths. If one path bypasses the guard, report
+    the missing file/call site and do not claim C4 closed.
+11. Acknowledge explicitly that C3 is a nonblocking duplication/drift risk and
+    C6 is a known diagnostic limitation frozen by T013's raw-facts contract.
+    Neither may be converted into a T022 code change or blocking finding without
+    a separate owner decision.
 
 Required verdict from each reviewer:
 
