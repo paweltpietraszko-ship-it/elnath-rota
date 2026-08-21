@@ -1,0 +1,63 @@
+ROTA-T022 / IMPLEMENTATION AUDIT / ROUND 3
+
+AUDIT_SCOPE: R2-1,R2-2,R2-3 only
+PRODUCT_SHA: 41611c95986fd50458006a820a69ce4f3f1a2ed4
+DOC_HEAD: 9fb5665
+VERDICT: FAIL — R2-1 NOT CONTRACT-CLOSED
+
+CHECK R2-1
+STATUS: FAIL
+CONTRACT:
+- tasks/ROTA-T022/brief.md:124-126
+- ShiftDemand.shift_kind authoritative
+- classify_demand(demand, profile) = only legacy fallback
+EVIDENCE:
+- rota/planning/validator.py:210-217 retains local _demand_kind implementation
+- local fallback returns None
+- validator.py does not import/call shift_catalog.classify_demand
+- R2 EXTERNAL reproducer now passes only because _check_external adds a
+  consumer-local None branch
+RESULT:
+- observed EXTERNAL bug fixed
+- frozen shared-fallback invariant still not implemented
+CLOSURE:
+- validator legacy classification uses classify_demand(demand, profile)
+- no local duplicate fallback returning None
+- existing DAY_ONLY/SiteRule/EXTERNAL fail-closed results remain green
+
+CHECK R2-2
+STATUS: PASS — CLOSED
+EVIDENCE:
+- _check_full_hour executes before _not_cancelled
+- current candidate + state.existing_assignments checked
+- reproducer: fractional CANCELLED Assignment =>
+  validate.hard_pass=False, plan.status=TECHNICAL_ERROR
+
+CHECK R2-3
+STATUS: PASS — CLOSED
+EVIDENCE:
+- final diff in tests/test_t020.py against pre-amendment state = exactly one
+  argument change:
+  HEAD -> d50a9aa4dfb35ed479470bb7fb83ffca18ecc346
+- extra comment/docstring removed
+
+TESTS:
+- narrow R2 + official T022: 57/57 PASS
+- full suite: 932/932 PASS
+- Ruff: PASS
+- guard.py check arch/spec.md: PASS
+- git diff --check: PASS
+
+MECHANICAL_GATES:
+STATUS: ACCEPTED for exact PRODUCT_SHA
+- test_t012.py=1704
+- test_t020.py=689
+- test_t022_planning_integrity.py=605
+- TOTAL_LINES=1209
+SOURCE: tasks/ROTA-T022/round_01/implementation/MECHANICAL_GATES_ACCEPTED_R2.md
+
+OPEN_FINDINGS:
+- T022-R3-1: R2-1 behavioral reproducer patched per-consumer; mandatory
+  classify_demand-only legacy fallback remains duplicated/unimplemented.
+
+ARCHITECTURE_PROPOSALS: NONE
