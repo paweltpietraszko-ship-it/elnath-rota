@@ -435,7 +435,27 @@ HEAD containing this addendum.
 
 This list is authorized for implementation. Files not listed here remain
 closed unless a new, mechanically unavoidable contradiction is reported and
-an owner-approved amendment is committed before editing:
+an owner-approved amendment is committed before editing.
+
+Machine-readable form for backend.py (must stay in exact sync with the
+annotated list below):
+
+TASK_SCOPE:
+- tasks/ROTA-T022/brief.md
+- rota/application/bootstrap.py
+- rota/planning/shift_catalog.py
+- rota/planning/eligibility.py
+- rota/planning/solver.py
+- rota/planning/constraints.py
+- rota/planning/work_periods.py
+- rota/planning/validator.py
+- rota/planning/engine.py
+- rota/persistence/schedule_validation.py
+- tests/test_audit_t010_r4_a.py
+- tests/test_t012.py
+- tests/test_t022_planning_integrity.py
+
+Annotated (same set, with the exact-amendment notes from Sections 7-8):
 
 - `tasks/ROTA-T022/brief.md`
 - `rota/application/bootstrap.py`
