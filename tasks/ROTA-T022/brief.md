@@ -453,6 +453,7 @@ TASK_SCOPE:
 - rota/persistence/schedule_validation.py
 - tests/test_audit_t010_r4_a.py
 - tests/test_t012.py
+- tests/test_t020.py
 - tests/test_t022_planning_integrity.py
 
 Annotated (same set, with the exact-amendment notes from Sections 7-8):
@@ -471,6 +472,8 @@ Annotated (same set, with the exact-amendment notes from Sections 7-8):
   amendment stated below)
 - `tests/test_t012.py` (existing; SCOPE AMENDMENT 03 below -- exactly one
   line-bounded oracle flip, owner-approved 2026-08-21)
+- `tests/test_t020.py` (existing; SCOPE AMENDMENT 04 below -- T022-R1-6,
+  exactly one line-bounded oracle anchor fix, owner-approved 2026-08-21)
 - `tests/test_t022_planning_integrity.py` (new)
 
 Expected limits:
@@ -592,6 +595,36 @@ Codex/Cursor round). T022 authorizes exactly:
 - this does not reopen T012 rest directionality, fallback order, or any
   other T012 Part B/C behavior -- it corrects exactly one oracle that
   encoded the bug T022-F4 exists to close.
+
+### SCOPE AMENDMENT 04 — test_t020.py::test_t20_27_no_diff_in_forbidden_paths (T022-R1-6, owner-approved 2026-08-21)
+
+Codex's round-1 implementation audit (tasks/ROTA-T022/round_01/tests/tests_r1.txt,
+SECTION_CHECK 9) found `tests/test_t020.py:350-358`
+(`test_t20_27_no_diff_in_forbidden_paths`) compares `git diff
+c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2 HEAD` against a forbidden-path
+list -- i.e. T020's OWN before/after boundary check is anchored to the
+ever-moving repository `HEAD` instead of T020's own accepted final state.
+Any later, separately authorized task that legitimately touches
+`rota/planning/**` (T022 itself) now fails this T020-owned oracle, even
+though it is not a T020 regression. The audit correctly classified this as
+`WYMAGA_DECYZJI`/scope, not a T022 product defect, and required a named
+owner-approved amendment per Section 8 before CC could touch the test.
+
+Owner ruling (2026-08-21): fix it, anchored to T020's own accepted SHA.
+T022 authorizes exactly:
+
+- `tests/test_t020.py:350-358`, function `test_t20_27_no_diff_in_forbidden_paths`:
+  replace the second `git diff` argument from the literal string `"HEAD"`
+  to the literal string `"d50a9aa4dfb35ed479470bb7fb83ffca18ecc346"` (T020
+  Checkpoint B's own merge commit into `main`) -- the diff range now
+  measures exactly T020's own before/after change, not whatever the
+  repository HEAD happens to be at test-run time;
+- no other assertion, parameter, or function in `tests/test_t020.py` is
+  opened by this amendment;
+- this does not reopen any other T020 Checkpoint A/B acceptance, contract,
+  or behavior -- it corrects exactly one self-referential oracle whose
+  original anchor choice did not anticipate a later, authorized task
+  touching the same forbidden-path list.
 
 ## 8. Implementation and review chain
 

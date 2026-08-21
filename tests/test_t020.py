@@ -346,11 +346,16 @@ def test_t20_22_23_summaries_ignore_other_sites_and_match_visible_cells():
     assert row.plan_hours == row.wyk_hours == 12 + 12
 
 
-# --- T20-27: full existing suite is unaffected ------------------------------
+# --- T20-27: T020's own implementation touched no forbidden path ------------
 def test_t20_27_no_diff_in_forbidden_paths():
+    """T022-R1-6 (owner-approved 2026-08-21): this must compare T020's own
+    before/after boundary, not a moving HEAD -- a later, separately
+    authorized task (e.g. ROTA-T022) legitimately touching rota/planning is
+    not a T020 regression. `d50a9aa` is T020 Checkpoint B's own merge commit
+    into main, frozen here in place of `HEAD`."""
     import subprocess
     out = subprocess.run(
-        ["git", "diff", "--name-only", "c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2", "HEAD", "--",
+        ["git", "diff", "--name-only", "c5b7bfa85f4db9d7f9cf6fe67f94af133e4bb8c2", "d50a9aa4dfb35ed479470bb7fb83ffca18ecc346", "--",
          "rota/planning", "rota/balance.py", "rota/domain.py", "rota/persistence/schedule_lifecycle.py",
          "arch/spec.md", "arch/FROZEN.lock", "Grafiki", "tasks/ROTA-T020/checkpoint_a"],
         cwd=__file__.rsplit("tests", 1)[0], capture_output=True, text=True,
