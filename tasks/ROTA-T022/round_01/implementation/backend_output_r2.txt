@@ -1,0 +1,87 @@
+STATUS: FAIL
+HEAD_SHA: 41611c95986fd50458006a820a69ce4f3f1a2ed4
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FILE: tests/test_t012.py has 1704 lines (max 600)
+  - SIZE_FILE: tests/test_t020.py has 689 lines (max 600)
+  - SIZE_FILE: tests/test_t022_planning_integrity.py has 605 lines (max 600)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 1209 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - benchmarks\manual_audits.py
+  - benchmarks\real_object.py
+  - benchmarks\rota_stress.py
+  - tests\test_audit_r12_findings.py
+  - tests\test_audit_r13_findings.py
+  - tests\test_audit_r14_findings.py
+  - tests\test_audit_r15_findings.py
+  - tests\test_audit_r16_findings.py
+  - tests\test_audit_r17_findings.py
+  - tests\test_audit_r20_r21_findings.py
+  - tests\test_audit_r22_findings.py
+  - tests\test_audit_r23_findings.py
+  - tests\test_audit_r25_findings.py
+  - tests\test_audit_r26_findings.py
+  - tests\test_audit_t007_r3.py
+  - tests\test_audit_t007_r4.py
+  - tests\test_audit_t007_r5.py
+  - tests\test_audit_t009_r4.py
+  - tests\test_audit_t009_r5.py
+  - tests\test_audit_t010_r3.py
+  - tests\test_audit_t010_r4_a.py
+  - tests\test_audit_t010_r5_b.py
+  - tests\test_audit_t010_r9_consistency.py
+  - tests\test_eligibility_matrix.py
+  - tests\test_real_object_benchmark.py
+  - tests\test_replan_and_soft_ranking.py
+  - tests\test_replan_minimal_reshuffle.py
+  - tests\test_rota_generic_month.py
+  - tests\test_rota_reg_001.py
+  - tests\test_sick_leave.py
+  - tests\test_site_rules_execution.py
+  - tests\test_site_rule_execution_integration.py
+  - tests\test_t009_manual_edit.py
+  - tests\test_t010_bootstrap_roster.py
+  - tests\test_t010_c_readiness_regression.py
+  - tests\test_t010_day_only_n_exception.py
+  - tests\test_t011_a_application_entry_points.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t011_e_pipeline_e2e_hard_stop.py
+  - tests\test_t012.py
+  - tests\test_t013.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t017.py
+  - tests\test_t018.py
+  - tests\test_t019.py
+  - tests\test_t019b.py
+  - tests\test_t022_planning_integrity.py
+  - tasks\ROTA-T022\round_01\tests\test_t022_r1_audit.py
+  - tasks\ROTA-T020\round_01\tests\test_t020_implementation_audit.py
+  - tasks\ROTA-T020\round_01\tests\test_t020_round10_audit.py
+  - tasks\ROTA-T019b\round_01\tests\test_t019b_implementation_audit.py
+  - tasks\ROTA-T019\round_01\tests\test_t019_implementation_audit.py
+  - tasks\ROTA-T012\scenarios\t012_owner_march_2027_probe.py
+  - tasks\ROTA-T012\round_01\tests\test_absence_workday_accounting_r23.py
+  - tasks\ROTA-T003\round_01\implementation\rota_stress_edge_generator.py
+  - rota\application\assembler.py
+  - rota\application\deviation_mapping.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+  - rota\application\plan_ops.py
+  - rota\application\precheck.py
+  - rota\application\schedule_export.py
+  - rota\persistence\site_profile_repository.py
+  - rota\planning\constraints.py
+  - rota\planning\eligibility.py
+  - rota\planning\engine.py
+  - rota\planning\solver.py
+  - rota\planning\validator.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T022/round_01/implementation/MECHANICAL_GATES_ACCEPTED.md
+  - tasks/ROTA-T022/round_01/implementation/backend_output.txt
+  - tasks/ROTA-T022/round_01/tests/test_t022_r1_audit.py
+  - tasks/ROTA-T022/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T022/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T022/brief.md
