@@ -195,10 +195,14 @@ def _forms_illegal_continuous_pair(a: WorkPeriod, b: WorkPeriod) -> bool:
     for one employee -- illegal in a normal pass regardless of configured
     rest=0. The T012 emergency mechanism (pair literals) remains the only
     automatic route to join them; overlap is REST-01's own concern via
-    violates_rest. Scoped to an exact 24h combined span so an unrelated
-    zero-gap transition (e.g. INNY/other durations) is not swept in."""
+    violates_rest. Scoped to exactly the H12+H12 class -- each period is itself exactly 12h, not merely a 24h
+    combined span -- so a legal whole-hour INNY combination (e.g. 8h+16h) is not swept in (T022-R1-4)."""
     earlier, later = (a, b) if a.start <= b.start else (b, a)
-    return earlier.end == later.start and (later.end - earlier.start) == timedelta(hours=24)
+    return (
+        earlier.end == later.start
+        and (earlier.end - earlier.start) == timedelta(hours=12)
+        and (later.end - later.start) == timedelta(hours=12)
+    )
 
 
 def _add_ordinary_period_edges(model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], candidates_by_key: dict, paired_member_p: dict) -> None:

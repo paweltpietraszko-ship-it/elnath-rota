@@ -141,8 +141,10 @@ def validate_demands(month: date, shift_demands: list[ShiftDemand]) -> dict[str,
         by_id[demand.demand_id] = demand
         if demand.work_period_component == 1 and demand.work_period_template_id:
             first_by_template[demand.work_period_template_id] = demand
-        if demand.catalog_kind == ShiftCatalogKind.H24 and demand.work_period_template_id:
-            by_h24_template.setdefault(demand.work_period_template_id, []).append(demand)
+        if demand.catalog_kind == ShiftCatalogKind.H24:
+            # T022-R1-3: a missing work_period_template_id is itself malformed explicit H24 provenance, not exempt from the check.
+            key = demand.work_period_template_id or f"__no_template__{demand.demand_id}"
+            by_h24_template.setdefault(key, []).append(demand)
     for template_id, group in by_h24_template.items():
         if _h24_template_group_is_malformed(group):
             raise MalformedScheduleSnapshot(f"template {template_id!r}: malformed normal-H24 provenance ({len(group)} component(s))")

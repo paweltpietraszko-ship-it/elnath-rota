@@ -170,6 +170,10 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
             continue
         for demand in _covered_demands(assignment, state):
             kind = _demand_kind(demand, state.profile)
+            if kind is None:
+                # T022-R1-2: an unclassifiable covered demand cannot be ruled out as N -- fail closed rather than silently skip.
+                details.append(ViolationDetail("DAY_ONLY-01", (assignment.assignment_id,), f"DAY_ONLY-01: {assignment.employee_id} covers unclassifiable demand {demand.demand_id}, cannot verify not-N"))
+                continue
             if kind != ShiftKind.N:
                 continue
             # B-R11-1/T022-F1: anchor is the covered ShiftDemand's own start, never the Assignment's -- a spanning PRIMARY cannot hide N behind a different tag.
@@ -315,10 +319,13 @@ def _check_site_rules(state: PlanningState, assignments: list[Assignment], detai
             continue
         for demand in _covered_demands(assignment, state):
             shift_kind = _demand_kind(demand, state.profile)
-            if shift_kind is None:
-                continue
             anchor_date = demand.start_datetime.date()
             applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)
+            if shift_kind is None:
+                # T022-R1-2: an applicable HARD rule's compliance cannot be verified for an unclassifiable demand -- fail closed rather than silently skip.
+                if applicable:
+                    details.append(ViolationDetail("SITE_RULE-01", (assignment.assignment_id,), f"SITE_RULE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers unclassifiable demand {demand.demand_id} with applicable HARD SiteRules"))
+                continue
             for rule in applicable:
                 if rule_allows_assignment(rule, assignment.employee_id, anchor_date, shift_kind):
                     continue
@@ -326,13 +333,16 @@ def _check_site_rules(state: PlanningState, assignments: list[Assignment], detai
 
 
 def _is_well_formed_normal_h24_pair(d1, d2) -> bool:
-    """T022-F3: fail-closed shape check -- components 1 and 2, each exactly 12h, directly consecutive, opposite D/N, matching template id."""
+    """T022-F3: fail-closed shape check -- components 1 and 2, each exactly 12h, directly consecutive, opposite D/N,
+    matching template id, and matching required_rest_hours/required_primary_count (T022-R1-3)."""
     if {d1.work_period_component, d2.work_period_component} != {1, 2}:
         return False
     first, second = (d1, d2) if d1.work_period_component == 1 else (d2, d1)
     if first.shift_kind is None or second.shift_kind is None or first.shift_kind == second.shift_kind:
         return False
     if first.end_datetime != second.start_datetime:
+        return False
+    if first.required_rest_hours != second.required_rest_hours or first.required_primary_count != second.required_primary_count:
         return False
     hours1 = (first.end_datetime - first.start_datetime).total_seconds() / 3600
     hours2 = (second.end_datetime - second.start_datetime).total_seconds() / 3600
@@ -342,12 +352,13 @@ def _is_well_formed_normal_h24_pair(d1, d2) -> bool:
 def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s). Employee sets are derived
     from actual interval coverage, not covers_demand_id tags (T022-F2); malformed/wrong-cardinality provenance fails
-    closed instead of being skipped (T022-F3). Only catalog_kind=H24 with a work_period_template_id is considered."""
+    closed instead of being skipped (T022-F3), including a missing work_period_template_id itself (T022-R1-3)."""
     primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
     by_template: dict[str, list] = {}
     for d in state.shift_demands:
-        if d.catalog_kind == ShiftCatalogKind.H24 and d.work_period_template_id:
-            by_template.setdefault(d.work_period_template_id, []).append(d)
+        if d.catalog_kind == ShiftCatalogKind.H24:
+            key = d.work_period_template_id or f"__no_template__{d.demand_id}"
+            by_template.setdefault(key, []).append(d)
     for template_id, demands in by_template.items():
         member_ids = {d.demand_id for d in demands}
         ids = tuple(a.assignment_id for a in primary if a.covers_demand_id in member_ids)
@@ -401,8 +412,13 @@ def _check_emergency_pairs(state: PlanningState, assignments: list[Assignment], 
 def _forms_illegal_continuous_pair(earlier, later) -> bool:
     """T022-F4/OWNER-T022-02: two SEPARATE 12h WorkPeriods abutting with zero gap silently total 24h -- illegal
     regardless of required_rest_after_hours=0 (a legitimate pair always shares one work_period_id and merges into
-    a single WorkPeriod already). Scoped to an exact 24h combined span so an unrelated transition isn't swept in."""
-    return earlier.end == later.start and (later.end - earlier.start) == timedelta(hours=24)
+    a single WorkPeriod already). Scoped to exactly the H12+H12 class -- each period is itself exactly 12h, not
+    merely a 24h combined span -- so a legal whole-hour INNY combination (e.g. 8h+16h) is not swept in (T022-R1-4)."""
+    return (
+        earlier.end == later.start
+        and (earlier.end - earlier.start) == timedelta(hours=12)
+        and (later.end - later.start) == timedelta(hours=12)
+    )
 
 
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
@@ -418,6 +434,18 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
     min_rest = None
     for employee_id in {c.employee_id for c in all_components}:
         components = [c for c in all_components if c.employee_id == employee_id]
+        # CROSS-SITE-ZERO-GAP-01 (T022-R1-5): a persisted period_id shared between a current/boundary component and
+        # an other-Site component must fail closed BEFORE group_into_periods merges them into one WorkPeriod and
+        # erases Site identity -- otherwise no cross-Site pair remains for the check below to see at all.
+        by_period_id: dict[str, list] = {}
+        for c in components:
+            if c.period_id:
+                by_period_id.setdefault(c.period_id, []).append(c)
+        for period_id, members in by_period_id.items():
+            member_keys = {(m.schedule_version_id, m.component_id) for m in members}
+            if any(k in other_site_keys for k in member_keys) and any(k not in other_site_keys for k in member_keys):
+                ids = tuple(m.component_id for m in members)
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} work_period_id {period_id!r} is shared across different Sites"))
         periods = group_into_periods(components)
         # Every (target, other) pair, not only sorted neighbors (B-R10-3).
         target_periods = [p for p in periods if not target_keys.isdisjoint(p.component_keys)]
@@ -488,14 +516,18 @@ def _is_full_hour(dt) -> bool:
 
 def _check_full_hour(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     """OWNER-T022-01: no partial-hour work anywhere. Defense-in-depth for malformed in-memory/legacy state reaching
-    plan()/validate() without having passed the persistence-layer write-time guard. Checked against every Assignment
-    including REALIZED -- a pre-T022 fractional-hour historical row is still invalid and must fail closed."""
-    for demand in state.shift_demands:
+    plan()/validate() without having passed the persistence-layer write-time guard. Covers every work boundary named
+    by the contract -- current/boundary demands, current/boundary/other-Site Assignments (incl. REALIZED, since a
+    pre-T022 fractional-hour historical row is still invalid) and the profile catalog itself (T022-R1-1)."""
+    for demand in (*state.shift_demands, *state.boundary_shift_demands):
         if not _is_full_hour(demand.start_datetime) or not _is_full_hour(demand.end_datetime):
             details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: demand {demand.demand_id} start/end is not a full clock hour", demand_ids=(demand.demand_id,)))
-    for assignment in assignments:
+    for assignment in (*assignments, *state.boundary_assignments, *state.other_site_assignments):
         if not _is_full_hour(assignment.start_datetime) or not _is_full_hour(assignment.end_datetime):
             details.append(ViolationDetail("FULL_HOUR-01", (assignment.assignment_id,), f"FULL_HOUR-01: assignment {assignment.assignment_id} start/end is not a full clock hour"))
+    for shift in state.profile.standard_shifts:
+        if not _is_full_hour(shift.start_time) or not _is_full_hour(shift.end_time):
+            details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: profile StandardShift kind={shift.kind.value} start/end is not a full clock hour"))
 
 
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
