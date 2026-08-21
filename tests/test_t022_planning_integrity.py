@@ -15,7 +15,7 @@ scope (brief.md SECTION 5) and are not exercised here.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -182,6 +182,26 @@ def test_a_direct_plan_malformed_state_never_feasible():
     assert result.status != "FEASIBLE"
 
 
+def test_a_fractional_profile_catalog_fails_closed():
+    """T022-R1-1: a fractional-hour StandardShift already present in the
+    profile catalog (not just a demand/Assignment) must fail closed."""
+    from dataclasses import replace as _replace
+    profile = _replace(base_profile(), standard_shifts=[StandardShift(ShiftKind.D, time(5, 30), time(17, 0), False, 1)])
+    d = _demand("D1", datetime(2026, 10, 5, 5, 0), datetime(2026, 10, 5, 17, 0), shift_kind=ShiftKind.D)
+    a = _primary("A1", "E1", d)
+    state = base_state(profile=profile, shift_demands=(d,), employees=(_employee("E1"),), memberships=(_membership("E1"),))
+    assert not validate(state, [a]).hard_pass
+
+
+def test_a_fractional_other_site_assignment_fails_closed():
+    """T022-R1-1: a fractional-hour other-Site Assignment must also fail
+    closed -- it is exactly the LOAD-01/REST-01 input class C4's proof
+    obligation named."""
+    other = Assignment("OTHER-A", "other-v1", "E1", datetime(2026, 10, 5, 5, 0), datetime(2026, 10, 5, 17, 30), AssignmentRole.PRIMARY, AssignmentState.PLANNED, True, "OTHER-D", None)
+    state = base_state(other_site_assignments=(other,))
+    assert not validate(state, []).hard_pass
+
+
 # --- B: demand anchor and kind (T022-F1) ----------------------------------
 
 
@@ -274,6 +294,16 @@ def test_b_every_applicable_site_rule_remains_and():
     assert any("R-BAD" in v for v in report.violations)
 
 
+def test_b_unclassifiable_legacy_demand_fails_closed_for_day_only():
+    """T022-R1-2: a legacy demand with no shift_kind and no matching
+    StandardShift start time cannot be ruled out as N -- must fail closed
+    for a DAY_ONLY employee, not silently skip DAY_ONLY-01."""
+    demand = _demand("LEGACY", datetime(2026, 10, 5, 6, 0), datetime(2026, 10, 5, 18, 0))  # no shift_kind; base_profile's D/N start at 5:00/17:00
+    a = _primary("A1", "E1", demand)
+    state = base_state(shift_demands=(demand,), employees=(_employee("E1", day_only=True),), memberships=(_membership("E1"),))
+    assert not validate(state, [a]).hard_pass
+
+
 # --- C: normal H24 (T022-F2/F3) -------------------------------------------
 
 
@@ -353,6 +383,19 @@ def test_c_valid_generated_pair_passes():
     assert validate(state, [a1, a2]).hard_pass
 
 
+def test_c_h24_demand_without_template_id_fails_closed():
+    """T022-R1-3: explicit catalog_kind=H24 provenance with no
+    work_period_template_id is malformed, not exempt from the check."""
+    d = _demand("H24-ONLY", datetime(2026, 10, 5, 5, 0), datetime(2026, 10, 5, 17, 0), catalog_kind=ShiftCatalogKind.H24, work_period_component=1)
+    a = _primary("A1", "E1", d)
+    state = base_state(shift_demands=(d,), memberships=(_membership("E1"),))
+    report = validate(state, [a])
+    assert not report.hard_pass
+    assert any("SHIFT-24-PAIR-01" in v for v in report.violations)
+    with pytest.raises(MalformedScheduleSnapshot):
+        validate_demands(MONTH, [d])
+
+
 def test_c_month_end_boundary_pair_remains_valid():
     profile, (d1, d2) = _h24_demands([_h24_shift(ShiftKind.D, 17, 12)], day=31)
     a1 = _primary("A1", "E1", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
@@ -391,6 +434,22 @@ def test_d_ordinary_normal_pass_different_employees_remains_legal():
     a1 = _primary("A1", "E1", d1, required_rest_after_hours=0)
     a2 = _primary("A2", "E2", d2, required_rest_after_hours=0)
     state = base_state(shift_demands=(d1, d2), memberships=(_membership("E1"), _membership("E2")))
+    assert validate(state, [a1, a2]).hard_pass
+
+
+@pytest.mark.parametrize("first_hours,second_hours", [(6, 18), (8, 16), (10, 14)])
+def test_d_zero_rest_inny_pairs_totalling_24h_remain_legal(first_hours: int, second_hours: int):
+    """T022-R1-4: OWNER-T022-02 is scoped to exactly H12+H12 -- a whole-hour
+    INNY combination with rest=0 must remain legal even though it also
+    totals 24h."""
+    start = datetime(2026, 10, 5, 5, 0)
+    middle = start + timedelta(hours=first_hours)
+    end = middle + timedelta(hours=second_hours)
+    d1 = _demand("I1", start, middle, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.OTHER, required_rest_hours=0)
+    d2 = _demand("I2", middle, end, shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.OTHER, required_rest_hours=0)
+    a1 = _primary("A1", "E1", d1, required_rest_after_hours=0)
+    a2 = _primary("A2", "E1", d2, required_rest_after_hours=0)
+    state = base_state(shift_demands=(d1, d2), memberships=(_membership("E1"),))
     assert validate(state, [a1, a2]).hard_pass
 
 
@@ -437,6 +496,25 @@ def test_d_cross_site_work_period_ids_are_naturally_distinct():
     )
     d = _demand("D1", site_b_end, datetime(2026, 10, 6, 5, 0), shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=0)
     a = _primary("A1", "E1", d, work_period_id=f"{SITE_ID}:wp", required_rest_after_hours=0)
+    state = base_state(shift_demands=(d,), memberships=(_membership("E1", can_work_24h=True),), other_site_assignments=(other_site_assignment,))
+    report = validate(state, [a])
+    assert not report.hard_pass
+    assert any("REST-01" in v for v in report.violations)
+
+
+def test_d_cross_site_shared_work_period_id_fails_closed():
+    """T022-R1-5: if a current-Site component and an other-Site component
+    somehow share the same persisted work_period_id, that must fail closed
+    BEFORE grouping merges them into one WorkPeriod and erases Site
+    identity -- not silently pass because no separate pair remains to check."""
+    site_b_end = datetime(2026, 10, 5, 17, 0)
+    other_site_assignment = Assignment(
+        "OTHER-A1", "other-v1", "E1", datetime(2026, 10, 5, 5, 0), site_b_end,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, True, "OTHER-D1", None,
+        work_period_id="COLLISION", required_rest_after_hours=0,
+    )
+    d = _demand("D1", site_b_end, datetime(2026, 10, 6, 5, 0), shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12, required_rest_hours=0)
+    a = _primary("A1", "E1", d, work_period_id="COLLISION", required_rest_after_hours=0)
     state = base_state(shift_demands=(d,), memberships=(_membership("E1", can_work_24h=True),), other_site_assignments=(other_site_assignment,))
     report = validate(state, [a])
     assert not report.hard_pass
