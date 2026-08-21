@@ -5,7 +5,7 @@ STATUS: DRAFT FOR INDEPENDENT CC/CURSOR IMPACT ANALYSIS — NOT READY FOR IMPLEM
 BASE_SHA: `d50a9aa4dfb35ed479470bb7fb83ffca18ecc346` (`main`, after merged ROTA-T020)
 
 This is a corrective task, not a redesign of the planning architecture. It
-collects defects mechanically reproduced against the current code and two
+collects defects mechanically reproduced against the current code and three
 explicit owner decisions dated 2026-08-21. CC and Cursor must first review the
 impact and completeness of the proposed scope. They must not implement while
 this status remains DRAFT.
@@ -67,6 +67,25 @@ because their configured rest is `0`. Emergency use still requires:
 
 `required_rest_hours=0` remains a legal configuration. It does not authorize a
 hidden 24h assignment and does not bypass `can_work_24h`.
+
+### OWNER-T022-03 — immediate cross-Site continuation is not 24h work
+
+The 24h mechanism applies only to two consecutive H12 components performed on
+the same Site. An Assignment ending on Site A and another Assignment starting
+at exactly the same time on a different Site B cannot form one normal or
+emergency 24h WorkPeriod: the employee cannot move between Sites with zero
+time.
+
+Automatic planning must reject that immediate cross-Site continuation even
+when the earlier persisted `required_rest_after_hours=0` and even when the
+employee has `can_work_24h=true` on either Site. Those values do not authorize
+zero-time travel and the two Assignments must never be joined under one 24h
+`work_period_id`.
+
+This decision does not introduce distances, travel-time configuration or a
+new cross-Site routing model. A positive gap continues to be governed by the
+existing directional cross-Site REST contract. Existing explicit manual
+REST-deviation recording/finalization semantics are not reopened by T022.
 
 ## 2. Mechanically reproduced defects
 
@@ -191,11 +210,13 @@ Required behavior follows OWNER-T022-02:
 - no third automatic retry and no new override are introduced;
 - existing all-24h profile semantics remain unchanged.
 
-Cross-Site REST remains unchanged. Impact reviewers must report, without
-inventing policy, whether any current cross-Site data path can create the same
-continuous-H12 shape but lacks enough persisted qualification provenance. If
-so, that is a scope/contract question before implementation, not permission
-for CC to guess.
+Cross-Site work follows OWNER-T022-03: it is never joined into a 24h WorkPeriod.
+The automatic pipeline must reject zero-gap work between different Sites even
+when the previous persisted rest snapshot is `0`; positive gaps retain the
+existing directional persisted-provenance REST semantics. Reviewers must
+enumerate the cross-Site solver and independent-validation paths needed to
+enforce that boundary without adding demand/catalog provenance for the other
+Site.
 
 ### T022-F5 — independent REPLAN validator omits mentor-linked PRIMARY
 
@@ -325,6 +346,12 @@ The original reproducer remains in every class, plus these siblings.
 - ordinary normal pass with different employees remains legal;
 - fallback produces one shared emergency work_period_id/rest snapshot;
 - same-month, cross-month and cross-year;
+- same-Site is required for every normal/emergency 24h pair;
+- Site A ending exactly when Site B starts is rejected automatically for both
+  `can_work_24h=false` and `true`, including earlier persisted rest `0`;
+- cross-Site Assignments never receive one shared 24h `work_period_id`;
+- a positive cross-Site gap continues to use existing directional persisted
+  rest provenance and is not replaced by a travel-time model;
 - DAY_ONLY, availability, SiteRules, EXTERNAL, REST and LOAD remain AND.
 
 ### E. REPLAN mentor pinning
@@ -354,6 +381,7 @@ T022 must not include:
 - a new planning architecture, solver, workflow engine, schema or domain DTO;
 - a fractional/minute-based work model or changes to coordinator-facing hour
   presentation;
+- a Site-distance table, configurable travel time or routing engine;
 - changes to absence accounting, T019 analytics, T019b memory or T020 PDF;
 - reopening T012 rest directionality or T018 fallback order;
 - changing T013 coordinator wording/raw conflict heuristics;
@@ -380,6 +408,15 @@ T022 must not include:
 The Cursor claim about fractional LOAD is not closed by ignoring malformed
 input. It is closed only when malformed partial-hour work cannot enter or pass
 the planning pipeline and valid whole-hour LOAD boundaries remain correct.
+
+### Freeze prerequisite for OWNER-T022-03
+
+Current `arch/spec.md` says directional REST applies cross-Site and permits a
+persisted earlier rest snapshot of `0`. OWNER-T022-03 adds a narrower
+cross-Site zero-gap prohibition, so the final owner freeze must record an
+authoritative addendum before implementation. This draft does not silently
+reinterpret the frozen REST text and does not authorize CC to implement the
+new boundary until that addendum and its exact TASK_SCOPE are present.
 
 ## 6. Candidate TASK_SCOPE for impact review
 
@@ -427,8 +464,11 @@ Each report must answer:
    with the exact unavoidable call path.
 7. Verify no requested outcome requires a schema/public-DTO change or a new
    stable condition code. If it does, report `WYMAGA_DECYZJI`; do not design it.
-8. Analyze the cross-Site continuous-H12 question noted in F4 and state whether
-   existing persisted provenance is sufficient. Do not infer a policy.
+8. Enumerate the existing cross-Site solver and independent-validation paths
+   needed to enforce OWNER-T022-03. Confirm that zero-gap work on different
+   Sites is rejected without treating it as a 24h pair, while positive-gap
+   directional REST and manual-deviation semantics remain unchanged. Identify
+   any unavoidable missing file in TASK_SCOPE; do not design travel metadata.
 9. Check whether one new test file can remain <=600 lines without deleting
    required oracles. If not, report the exact estimated matrix size before any
    implementation.
