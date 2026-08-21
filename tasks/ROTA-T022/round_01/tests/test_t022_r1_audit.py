@@ -17,6 +17,7 @@ from rota.domain import (
     AssignmentRole,
     AssignmentState,
     Employee,
+    ExternalSupportWindow,
     MembershipKind,
     ReadinessSource,
     ReadinessState,
@@ -120,6 +121,42 @@ def test_r1_unclassifiable_legacy_demand_must_not_skip_hard_validation():
     assert not validate(state, [assignment]).hard_pass
 
 
+def test_r2_unclassifiable_legacy_demand_must_not_pass_external_kind_validation():
+    """T022-F1 names EXTERNAL as a live kind consumer too.
+
+    An unrestricted support window must not turn failure to classify a legacy
+    demand into permission to continue: classify_demand is the frozen fallback
+    and an unclassifiable work item must fail closed.
+    """
+    demand = _demand(
+        "LEGACY-EXTERNAL",
+        datetime(2026, 10, 5, 6),
+        datetime(2026, 10, 5, 18),
+        shift_kind=None,
+        catalog_kind=None,
+        required_rest_hours=None,
+    )
+    assignment = _primary("A-EXTERNAL", "X", demand, required_rest_after_hours=None)
+    membership = replace(_membership("X"), membership_kind=MembershipKind.EXTERNAL_SUPPORT)
+    window = ExternalSupportWindow(
+        "W-EXTERNAL",
+        "X",
+        SITE_ID,
+        datetime(2026, 10, 5),
+        datetime(2026, 10, 6),
+        True,
+        None,
+    )
+    state = base_state(
+        shift_demands=(demand,),
+        employees=(_employee("X"),),
+        memberships=(membership,),
+        external_windows=(window,),
+    )
+
+    assert not validate(state, [assignment]).hard_pass
+
+
 def test_r1_direct_plan_and_validation_reject_fractional_profile_catalog():
     profile = replace(
         base_profile(),
@@ -133,6 +170,16 @@ def test_r1_direct_plan_and_validation_reject_fractional_profile_catalog():
         employees=(_employee("E"),),
         memberships=(_membership("E"),),
     )
+
+    observed = (validate(state, [assignment]).hard_pass, plan(state).status)
+    assert observed == (False, "TECHNICAL_ERROR")
+
+
+def test_r2_fractional_cancelled_assignment_still_fails_input_boundary():
+    """OWNER-T022-01 applies to Assignment boundaries, not only worked state."""
+    demand = _demand("D-CANCELLED", datetime(2026, 10, 5, 5, 30), datetime(2026, 10, 5, 17))
+    assignment = replace(_primary("A-CANCELLED", "E", demand), state=AssignmentState.CANCELLED)
+    state = base_state(existing_assignments=(assignment,))
 
     observed = (validate(state, [assignment]).hard_pass, plan(state).status)
     assert observed == (False, "TECHNICAL_ERROR")
