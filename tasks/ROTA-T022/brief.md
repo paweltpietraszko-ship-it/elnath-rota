@@ -1,13 +1,16 @@
 # ROTA-T022 — planning integrity repair after independent cross-cutting audit
 
-STATUS: CURSOR PREIMPLEMENTATION REVIEW PASS — CROSS-SITE ADDENDUM RECORDED — AWAITING OWNER READY_FOR_IMPLEMENTATION
+STATUS: READY_FOR_IMPLEMENTATION
+
+OWNER_GATE: READY_FOR_IMPLEMENTATION — 2026-08-21
 
 BASE_SHA: `d50a9aa4dfb35ed479470bb7fb83ffca18ecc346` (`main`, after merged ROTA-T020)
 
 This is a corrective task, not a redesign of the planning architecture. It
 collects defects mechanically reproduced against the current code and three
 explicit owner decisions dated 2026-08-21. CC must not implement until the
-owner issues `READY_FOR_IMPLEMENTATION`.
+owner issues `READY_FOR_IMPLEMENTATION`. That gate is now recorded above; CC
+may implement only the final TASK_SCOPE and requirements in this contract.
 
 ## 1. Sources of truth
 
@@ -425,12 +428,14 @@ permits a persisted earlier rest snapshot of `0`. OWNER-T022-03 is now
 recorded as `arch/FROZEN_ADDENDUM_CROSS_SITE_ZERO_GAP_01.md`, which
 supersedes only the zero-gap cross-Site reading of that REST text. T022
 implementation still must not edit `arch/spec.md` or `arch/FROZEN.lock`.
-CC must not start coding until the owner issues `READY_FOR_IMPLEMENTATION`.
+The owner has issued `READY_FOR_IMPLEMENTATION` for the canonical contract
+HEAD containing this addendum.
 
-## 6. Candidate TASK_SCOPE for impact review
+## 6. Final TASK_SCOPE
 
-This list is not authorized for implementation until CC/Cursor complete the
-mechanical call-site review below:
+This list is authorized for implementation. Files not listed here remain
+closed unless a new, mechanically unavoidable contradiction is reported and
+an owner-approved amendment is committed before editing:
 
 - `tasks/ROTA-T022/brief.md`
 - `rota/application/bootstrap.py`
@@ -459,11 +464,16 @@ Expected limits:
   `arch/FROZEN_ADDENDUM_CROSS_SITE_ZERO_GAP_01.md` change;
 - no production file outside the reviewed final TASK_SCOPE;
 - no existing test oracle change without a named, line-bounded amendment;
-- engineering metrics are not pre-accepted by this draft.
+- engineering metrics are not pre-accepted by this contract.
 
-## 7. Required CC/Cursor preimplementation analysis
+## 7. Preimplementation analysis record — closed
 
-CC and Cursor analyze independently. Neither edits product code.
+CC's independent analysis is committed as
+`tasks/ROTA-T022/CC_PREIMPLEMENTATION_ANALYSIS.md`. Cursor independently
+returned `PASS — REPAIR CONTRACT COMPLETE / READY FOR OWNER FREEZE` and
+committed the cross-Site addendum. Neither review changed product code.
+
+The completed reviews answered the following required questions:
 
 Each report must answer:
 
@@ -528,19 +538,20 @@ supersedes that older positive-interval expectation. T022 authorizes exactly:
 - no other assertion, parameter or function in
   `tests/test_audit_t010_r4_a.py` is opened by this amendment.
 
-Before implementation, Cursor must still complete the repo-wide mechanical
-sweep for other non-full-hour **work** boundaries. Metadata timestamps are not
-work boundaries. Any additional legacy oracle collision requires a new named,
-line-bounded amendment; it is not permission for CC to edit tests freely.
+Cursor completed the repo-wide mechanical sweep. The `05:00–05:01`
+StandardShift case above is the only existing non-full-hour **work** oracle.
+Other non-full-hour hits are metadata timestamps or benchmark mechanics and
+remain closed. Any newly discovered legacy oracle collision still requires a
+new named, line-bounded amendment; it is not permission for CC to edit tests
+freely.
 
-## 8. Implementation and review chain after analysis
+## 8. Implementation and review chain
 
-1. Owner receives both independent analyses.
-2. Any mechanical scope amendment is recorded before implementation.
-3. The owner freezes the final scope after reviewing both analyses. Codex does
-   not self-approve the draft it prepared.
-4. Only the owner's `READY_FOR_IMPLEMENTATION` opens CC implementation.
-5. CC runs backend gates and full verification on an exact product SHA.
-6. Codex performs implementation audit with committed adversarial
+1. The owner has reviewed the analyses and issued `READY_FOR_IMPLEMENTATION`.
+2. CC implements only Section 6 against the exact canonical contract SHA.
+3. Any newly discovered out-of-scope legacy collision requires STOP and a
+   named owner-approved amendment before editing.
+4. CC runs backend gates and full verification on an exact product SHA.
+5. Codex performs implementation audit with committed adversarial
    tests against the classes above.
-7. Merge requires the owner's explicit instruction after all gates pass.
+6. Merge requires the owner's explicit instruction after all gates pass.
