@@ -1,14 +1,13 @@
 # ROTA-T022 — planning integrity repair after independent cross-cutting audit
 
-STATUS: READY FOR INDEPENDENT CURSOR PREIMPLEMENTATION REVIEW — NOT READY FOR IMPLEMENTATION
+STATUS: CURSOR PREIMPLEMENTATION REVIEW PASS — CROSS-SITE ADDENDUM RECORDED — AWAITING OWNER READY_FOR_IMPLEMENTATION
 
 BASE_SHA: `d50a9aa4dfb35ed479470bb7fb83ffca18ecc346` (`main`, after merged ROTA-T020)
 
 This is a corrective task, not a redesign of the planning architecture. It
 collects defects mechanically reproduced against the current code and three
-explicit owner decisions dated 2026-08-21. CC and Cursor must first review the
-impact and completeness of the proposed scope. They must not implement while
-this status remains DRAFT.
+explicit owner decisions dated 2026-08-21. CC must not implement until the
+owner issues `READY_FOR_IMPLEMENTATION`.
 
 ## 1. Sources of truth
 
@@ -16,6 +15,9 @@ Existing frozen/product contracts remain authoritative:
 
 - `arch/spec.md`, especially HARD validation, COVERAGE-01, LOAD-01,
   ASSIGN-03/04, DAY_ONLY-01 and DAY_SHIFT_OFF-01;
+- `arch/FROZEN_ADDENDUM_CROSS_SITE_ZERO_GAP_01.md` (OWNER-T022-03): zero-gap
+  cross-Site work is REST-01 and is never a 24h WorkPeriod; positive-gap
+  directional REST is unchanged;
 - `arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md`, especially `DAY ANCHOR`:
   weekday SiteRules use the calendar date on which the `ShiftDemand` starts;
 - `tasks/ROTA-T012/brief.md`;
@@ -405,8 +407,8 @@ T022 must not include:
   behaviorally equivalent for current full-hour inputs, so the duplication is
   a maintenance-drift risk (C3), not a reproduced wrong result authorized for
   repair here;
-- changing bootstrap's intentionally narrower completeness gate unless a
-  mechanically unavoidable contradiction is reported before implementation;
+- changing bootstrap completeness beyond the one whole-hour StandardShift
+  predicate already authorized in the known-collision section;
 - removing dead functions or refactoring duplication merely for cleanup;
 - changing ExternalSupportWindow granularity when it does not create a work
   interval;
@@ -416,14 +418,14 @@ The Cursor claim about fractional LOAD is not closed by ignoring malformed
 input. It is closed only when malformed partial-hour work cannot enter or pass
 the planning pipeline and valid whole-hour LOAD boundaries remain correct.
 
-### Freeze prerequisite for OWNER-T022-03
+### Freeze record for OWNER-T022-03
 
-Current `arch/spec.md` says directional REST applies cross-Site and permits a
-persisted earlier rest snapshot of `0`. OWNER-T022-03 adds a narrower
-cross-Site zero-gap prohibition, so the final owner freeze must record an
-authoritative addendum before implementation. This draft does not silently
-reinterpret the frozen REST text and does not authorize CC to implement the
-new boundary until that addendum and its exact TASK_SCOPE are present.
+Current `arch/spec.md` still says directional REST applies cross-Site and
+permits a persisted earlier rest snapshot of `0`. OWNER-T022-03 is now
+recorded as `arch/FROZEN_ADDENDUM_CROSS_SITE_ZERO_GAP_01.md`, which
+supersedes only the zero-gap cross-Site reading of that REST text. T022
+implementation still must not edit `arch/spec.md` or `arch/FROZEN.lock`.
+CC must not start coding until the owner issues `READY_FOR_IMPLEMENTATION`.
 
 ## 6. Candidate TASK_SCOPE for impact review
 
@@ -453,7 +455,8 @@ Expected limits:
   evade this ceiling;
 - no deletion;
 - no migration;
-- no `arch/spec.md` or `arch/FROZEN.lock` change;
+- no `arch/spec.md`, `arch/FROZEN.lock`, or
+  `arch/FROZEN_ADDENDUM_CROSS_SITE_ZERO_GAP_01.md` change;
 - no production file outside the reviewed final TASK_SCOPE;
 - no existing test oracle change without a named, line-bounded amendment;
 - engineering metrics are not pre-accepted by this draft.
