@@ -1,0 +1,226 @@
+ROTA-T022 — IMPLEMENTATION AUDIT ROUND 2
+DATE: 2026-08-21
+AUDITOR: Codex (independent implementation auditor)
+BRANCH: task/ROTA-T022
+AUDITED PRODUCT SHA: 35fd490ccfc7f77a70f5db4ce927a5cefa810d78
+CONTRACT BASE SHA: ecbf3ee11515464cf42b5a93dbc58e59f9513291
+
+FINAL VERDICT: FAIL — IMPLEMENTATION/SCOPE FINDINGS
+
+This is the narrow Round 2 reaudit of R1-1 through R1-6. Previously passing
+T022 sections were not reopened without a concrete contradiction. The
+standard suite remains green, but two contract-traceable siblings of the
+Round 1 bug classes still return HARD PASS/FEASIBLE. The owner-authorized
+T020 oracle correction also contains edits beyond the exact one-line
+amendment.
+
+
+SECTION_CHECK 1 — EXACT SHA AND REVIEW DELTA
+RESULT: PASS
+
+HEAD and origin/task/ROTA-T022 both resolve to
+35fd490ccfc7f77a70f5db4ce927a5cefa810d78.
+
+The implementation delta after the Round 1 audit consists of:
+
+- dc5c708 — product fixes for R1-1 through R1-5;
+- 50d0882 — additions to the official T022 regression matrix;
+- 35fd490 — T020 forbidden-path oracle amendment for R1-6.
+
+No production change outside the T022 TASK_SCOPE was found in that delta.
+
+
+SECTION_CHECK 2 — R1-1 FULL-HOUR INPUT CLASS
+RESULT: FAIL — T022-R2-2
+
+Closed siblings:
+
+- profile StandardShift with a fractional boundary;
+- boundary ShiftDemand with a fractional boundary;
+- boundary Assignment with a fractional boundary;
+- other-Site Assignment with a fractional boundary.
+
+For each of those cases independent validation now returns hard_pass=False
+and public plan() returns TECHNICAL_ERROR. The official and independent
+reproducers pass.
+
+Still-open sibling:
+
+- rota/planning/validator.py:535 removes CANCELLED rows with _not_cancelled()
+  before rota/planning/validator.py:538 invokes _check_full_hour();
+- therefore a direct/in-memory legacy CANCELLED Assignment with a 05:30 work
+  boundary is invisible to the full-hour guard;
+- independent validate() returns hard_pass=True and public plan() returns
+  FEASIBLE.
+
+Contract trace:
+
+- tasks/ROTA-T022/brief.md:41-51 says the program must not accept, solve or
+  report FEASIBLE for a partial-hour work interval and expressly includes
+  persisted/solver/manual Assignment.start_datetime/end_datetime;
+- the accepted preimplementation analysis also freezes old fractional rows
+  as fail-closed rather than rounded or silently ignored.
+
+Committed reproducer:
+
+- tasks/ROTA-T022/round_01/tests/test_t022_r1_audit.py::
+  test_r2_fractional_cancelled_assignment_still_fails_input_boundary
+
+Closure condition:
+
+Every Assignment boundary entering validate()/plan(), including a CANCELLED
+legacy/in-memory row, is checked before state-based filtering. The reproducer
+must yield (hard_pass=False, TECHNICAL_ERROR). This does not require CANCELLED
+rows to count as coverage, REST or LOAD.
+
+
+SECTION_CHECK 3 — R1-2 LEGACY DEMAND CLASSIFICATION
+RESULT: FAIL — T022-R2-1
+
+Closed siblings:
+
+- an unclassifiable legacy demand covered by a DAY_ONLY employee now fails
+  closed;
+- an unclassifiable demand with applicable SiteRules now fails closed;
+- explicit ShiftDemand.shift_kind remains authoritative.
+
+Still-open EXTERNAL sibling:
+
+- rota/planning/validator.py:210-217 still reimplements the legacy lookup and
+  returns None instead of using classify_demand(demand, profile), despite the
+  contract naming classify_demand as the only legacy fallback;
+- rota/planning/validator.py:301 builds kinds={None};
+- an active unrestricted ExternalSupportWindow has allowed_shift_kind=None,
+  so the all(...) predicate at lines 302-309 treats the unknown kind as
+  permitted;
+- independent validate() returns hard_pass=True.
+
+Contract trace:
+
+- tasks/ROTA-T022/brief.md:124-139 explicitly names DAY_ONLY, SiteRules and
+  EXTERNAL as live consumers and requires classify_demand(the demand,
+  profile) as the only legacy fallback;
+- Round 1 closure condition required the whole legacy-fallback equivalence
+  class to classify or fail closed, with no consumer interpreting an
+  unclassifiable covered demand as permission.
+
+Committed reproducer:
+
+- tasks/ROTA-T022/round_01/tests/test_t022_r1_audit.py::
+  test_r2_unclassifiable_legacy_demand_must_not_pass_external_kind_validation
+
+Closure condition:
+
+The EXTERNAL path must not obtain permission from an unclassifiable legacy
+demand, including when a covering window has no allowed_shift_kind
+restriction. The implementation must follow the frozen classify_demand
+fallback contract; no new stable condition code is authorized by T022.
+
+
+SECTION_CHECK 4 — R1-3 NORMAL-H24 MALFORMED PROVENANCE
+RESULT: PASS — CLOSED
+
+Both persistence validation and independent validation now fail closed for:
+
+- explicit H24 with a missing work_period_template_id;
+- wrong component cardinality;
+- component/rest/required-count mismatch;
+- the original malformed-pair siblings.
+
+The existing SHIFT-24-PAIR-01/malformed-snapshot boundaries are retained.
+The independent missing-template and rest-mismatch reproducers pass.
+
+
+SECTION_CHECK 5 — R1-4 ORDINARY H12+H12 VS UNRELATED DURATIONS
+RESULT: PASS — CLOSED
+
+The ordinary continuous-pair predicate now requires each separate WorkPeriod
+to be exactly 12 hours. The original H12+H12/rest=0 class remains rejected,
+while the 6h+18h, 8h+16h and 10h+14h whole-hour INNY siblings remain legal.
+The solver constraint and independent validator use the same duration shape.
+
+
+SECTION_CHECK 6 — R1-5 CROSS-SITE SHARED WORK-PERIOD ID
+RESULT: PASS — CLOSED
+
+The validator checks current/boundary versus other-Site membership before
+group_into_periods can erase Site identity. A shared work_period_id across
+Sites now produces REST-01 and never becomes one legal 24h WorkPeriod. The
+original zero-gap and shared-id adversarial cases pass.
+
+
+SECTION_CHECK 7 — R1-6 T020 MOVING-HEAD ORACLE
+RESULT: FAIL — T022-R2-3 (SCOPE ONLY; PRODUCT BEHAVIOR CLOSED)
+
+The functional correction is correct: test_t20_27_no_diff_in_forbidden_paths
+now compares T020's own before SHA with the accepted T020 merge SHA
+d50a9aa4dfb35ed479470bb7fb83ffca18ecc346, and the test passes after T022.
+
+However SCOPE AMENDMENT 04 authorizes exactly one changed argument:
+
+  "HEAD" -> "d50a9aa4dfb35ed479470bb7fb83ffca18ecc346"
+
+The actual tests/test_t020.py diff is +7/-2, not the promised one-line token
+replacement. It also:
+
+- rewrites the section-heading comment at line 349;
+- adds the six-line function docstring at lines 351-356.
+
+These edits do not change the oracle, but they contradict the amendment's
+literal restriction that no other part of the function/test is opened. No
+product or architecture decision is needed: the unauthorized explanatory
+edits must be removed, leaving only the accepted SHA substitution.
+
+
+SECTION_CHECK 8 — REGRESSION AND ADVERSARIAL TESTS
+RESULT: MIXED
+
+- standard repository suite: 932/932 PASS;
+- official tests/test_t022_planning_integrity.py: 44/44 PASS;
+- independent Round 2 matrix: 11 PASS / 2 FAIL;
+- Ruff, including the committed independent audit matrix: PASS;
+- guard.py check arch/spec.md: PASS, frozen SHA unchanged;
+- git diff --check: PASS.
+
+The two independent failures are exactly T022-R2-1 and T022-R2-2 above.
+No unrelated standard-suite regression was observed.
+
+
+SECTION_CHECK 9 — BACKEND/MECHANICAL GATES FOR THE NEW EXACT SHA
+RESULT: FAIL / REQUIRES FRESH EXACT-SHA ACCEPTANCE AFTER PRODUCT FIXES
+
+backend.py was rerun against contract base ecbf3ee11515464cf42b5a93dbc58e59f9513291
+and product SHA 35fd490ccfc7f77a70f5db4ce927a5cefa810d78.
+It reports:
+
+STATUS: FAIL
+REASON:
+  - SIZE_FILE: tests/test_t012.py has 1704 lines (max 600)
+  - SIZE_FILE: tests/test_t020.py has 694 lines (max 600)
+  - SIZE_FILE: tests/test_t022_planning_integrity.py has 605 lines (max 600)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 1206 lines changed (threshold 150)
+
+The prior acceptance document is expressly limited to d87855c and accepted
+only tests/test_t012.py=1704 and TOTAL_LINES=1081. It therefore does not
+mechanically cover 35fd490, the newly in-scope inherited T020 file, the
+expanded T022 matrix, or TOTAL_LINES=1206. These values should be recalculated
+and accepted only on the next exact product SHA after R2-1/R2-2/R2-3 are
+closed; no threshold change is requested by this audit.
+
+
+FINDINGS SUMMARY
+
+T022-R2-1 — PRODUCT / T022-F1
+Unclassifiable legacy demand still passes EXTERNAL validation under an
+unrestricted support window.
+
+T022-R2-2 — PRODUCT / OWNER-T022-01
+A fractional CANCELLED Assignment is filtered before full-hour validation;
+validate() returns hard_pass=True and plan() returns FEASIBLE.
+
+T022-R2-3 — SCOPE / SCOPE AMENDMENT 04
+The correct T020 SHA substitution is accompanied by seven unauthorized
+comment/docstring lines. Retain only the line-bounded owner-approved change.
+
+No ARCHITECTURE_PROPOSALS are made in this round.

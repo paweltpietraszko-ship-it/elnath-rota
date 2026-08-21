@@ -791,12 +791,15 @@ def test_b_r10_validator_checks_every_target_relevant_edge_not_only_adjacent_sta
     assert "REST-01" in codes
 
 
-def test_b_rest_zero_is_legal():
+def test_b_rest_zero_does_not_authorize_silent_24h():
+    """OWNER-T022-02 (ROTA-T022, SCOPE AMENDMENT 03): two ordinary H12
+    periods abutting with a configured rest of 0 must not silently form 24h
+    continuous work -- supersedes the pre-T022 expectation that this was legal."""
     d1 = _demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0))
     d2 = _demand("d2", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0))
     state = base_state(shift_demands=(d1, d2), memberships=(_membership("E"),))
     report = validate(state, [_primary("A1", "E", d1, required_rest_after_hours=0), _primary("A2", "E", d2, required_rest_after_hours=0)])
-    assert report.hard_pass
+    assert not report.hard_pass
 
 
 def test_b_overlap_of_different_periods_is_hard_fail():

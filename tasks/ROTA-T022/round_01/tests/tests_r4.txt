@@ -1,0 +1,41 @@
+ROTA-T022 / IMPLEMENTATION AUDIT / ROUND 4
+
+SCOPE: T022-R3-1 only
+PRODUCT_SHA: 958c6f19f1f4c5c3c41276be4441f5e0dd4d46b3
+VERDICT: PASS — T022-R3-1 CLOSED
+
+CONTRACT_CHECK:
+- validator imports shift_catalog.classify_demand
+- _demand_kind delegates to classify_demand
+- local profile/start-time reconstruction removed
+- UnclassifiedShiftError maps to existing per-consumer fail-closed handling
+- DAY_ONLY/SiteRule/EXTERNAL behavior unchanged and green
+
+DIFF_SCOPE:
+- rota/planning/validator.py only
+- +6/-7
+- no unrelated behavior change found
+
+TESTS:
+- narrow audit + official T022: 57/57 PASS
+- full suite: 932/932 PASS
+- Ruff: PASS
+- guard.py check arch/spec.md: PASS
+- git diff --check: PASS
+
+OPEN_PRODUCT_FINDINGS: NONE
+
+BACKEND_EXACT_SHA:
+STATUS: requires fresh owner acceptance for 958c6f1
+- SIZE_FILE tests/test_t012.py=1704
+- SIZE_FILE tests/test_t020.py=689
+- SIZE_FILE tests/test_t022_planning_integrity.py=605
+- TOTAL_LINES=1214
+
+Previous mechanical acceptance is SHA-bound to 41611c9. No threshold change
+requested.
+
+NEXT_GATE:
+OWNER/ARCHITECT exact-SHA mechanical acceptance, then final merge gate.
+
+ARCHITECTURE_PROPOSALS: NONE

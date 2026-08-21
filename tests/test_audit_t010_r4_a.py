@@ -32,6 +32,7 @@ from rota.domain import (
     SiteProfile,
     StandardShift,
 )
+from rota.planning.shift_catalog import InvalidStandardShift
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.coordinator_repository import (
     save_coordinator,
@@ -100,11 +101,6 @@ def _seed_complete_context(
             id="same_day_end_before_start",
         ),
         pytest.param(
-            StandardShift(ShiftKind.D, time(5), time(5, 1), False, 1),
-            True,
-            id="smallest_representative_positive_same_day_interval",
-        ),
-        pytest.param(
             StandardShift(ShiftKind.N, time(5), time(5), True, 1),
             True,
             id="equal_clock_times_are_positive_when_end_is_next_day",
@@ -121,6 +117,23 @@ def test_r4_a_standard_shift_validity_boundaries(tmp_path, shift, expected_compl
 
     assert result.complete is expected_complete
     assert any("shift" in item.lower() for item in result.missing) is (not expected_complete)
+
+
+def test_r4_a_sub_hour_interval_is_not_complete(tmp_path) -> None:
+    """OWNER-T022-01 (ROTA-T022): no partial-hour work anywhere in this
+    product. A StandardShift with a sub-hour start/end can no longer be
+    persisted at all (rota.planning.shift_catalog.validate_standard_shift_shape
+    rejects it), so it can never reach coordinator_context_completeness() as
+    a saved-but-incomplete row. This supersedes the pre-T022
+    "smallest_representative_positive_same_day_interval" case, which
+    asserted expected_complete=True for a 5:00-5:01 shift -- that premise is
+    no longer physically reachable and was judged wrong by the owner
+    (2026-08-21): such a shift is not a narrower "incomplete" observation,
+    it is an invalid configuration, full stop."""
+    conn = connect(tmp_path / "rota.db")
+    shift = StandardShift(ShiftKind.D, time(5), time(5, 1), False, 1)
+    with pytest.raises(InvalidStandardShift):
+        save_site_profile(conn, _profile("PROFILE-SUBHOUR", shift))
 
 
 def test_r4_a_invalid_shift_keeps_a_calendar_complete_month_not_ready(tmp_path) -> None:

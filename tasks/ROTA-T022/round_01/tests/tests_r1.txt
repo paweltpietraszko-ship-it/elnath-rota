@@ -1,0 +1,242 @@
+ROTA-T022 — INDEPENDENT IMPLEMENTATION AUDIT — ROUND 1
+
+AUDITED_PRODUCT_SHA: d87855c58323501a1cd07abfb86d135804574626
+DOC_ONLY_BRANCH_HEAD: dc64d807d078297f3b7466bc59d6c1c4d2891622
+FINAL_CONTRACT_SHA: ecbf3ee11515464cf42b5a93dbc58e59f9513291
+DATE: 2026-08-21
+
+VERDICT: FAIL — IMPLEMENTATION FINDINGS
+
+The official T022/T012 matrix is green, but the independent adversarial matrix
+reproduces five contract-owned defect classes (11 failing cases). In addition,
+the claimed full-suite result is not reproducible because one pre-existing T020
+repository-scope oracle compares its historical task boundary to the future
+repository HEAD. That sixth item is a narrow scope-amendment question, not a
+T022 product defect.
+
+AUDIT EVIDENCE
+
+- Committed matrix: tasks/ROTA-T022/round_01/tests/test_t022_r1_audit.py
+- Independent matrix: 0/11 PASS, 11/11 contract regressions reproduced.
+- Official focused matrix:
+  tests/test_t022_planning_integrity.py + tests/test_audit_t010_r4_a.py +
+  tests/test_t012.py: 157/157 PASS.
+- Full repository suite: 923 PASS / 1 FAIL in 106.31s.
+- Ruff: PASS.
+- guard.py check arch/spec.md: PASS,
+  SHA256 569f66f10ccf18fac63567f8bfcbd85ab9fdb06cf87953b69676ccaddc015244.
+- git diff --check: PASS.
+- Mechanical SIZE_FILE/TOTAL_LINES decisions are already accepted for the
+  exact product SHA and are not reopened here.
+
+SECTION_CHECK 1 — SCOPE, NON-GOALS AND PRODUCT IDENTITY
+RESULT: PASS
+
+The audited production content is exactly d87855c. The later dc64d80 commit is
+documentation-only. Product changes remain inside the final TASK_SCOPE. C3,
+C6, dead-code cleanup, LOAD arithmetic redesign, travel modelling and public
+DTO/schema changes were not introduced and are not reopened by this audit.
+
+SECTION_CHECK 2 — OWNER-T022-01 FULL-HOUR FAIL-CLOSED BOUNDARY
+RESULT: FAIL — T022-R1-1
+
+Contract trace:
+
+- brief.md OWNER-T022-01;
+- brief.md Section 3 items 4-5: direct planning/validation of malformed
+  legacy/in-memory state must fail closed; old fractional work is never rounded
+  and cannot reach a valid PLAN/LOAD result;
+- Section 3 proof obligation explicitly names fixed/history, cross-Site and
+  boundary-context inputs.
+
+Evidence:
+
+- rota/planning/validator.py::_check_full_hour checks only
+  state.shift_demands and the candidate assignments argument.
+- It does not check state.profile.standard_shifts,
+  state.boundary_shift_demands, state.boundary_assignments or
+  state.other_site_assignments.
+- A profile containing a 05:30 StandardShift returns
+  (validate.hard_pass=True, plan.status=FEASIBLE).
+- Fractional boundary Assignment, other-Site Assignment and boundary demand
+  siblings each return the same observed tuple: (True, FEASIBLE).
+
+Impact:
+
+Malformed legacy/cross-Site data can still reach REST/LOAD. In particular, a
+fractional other-Site Assignment reopens the exact truncation path that the C4
+proof was required to make unreachable.
+
+Closure condition:
+
+Every work boundary named by the contract, including profile catalog,
+boundary and other-Site collections, fails closed in both independent
+validation and public PLAN. Valid whole-hour historical context remains green.
+
+SECTION_CHECK 3 — T022-F1 DEMAND KIND AND DAY ANCHOR
+RESULT: FAIL — T022-R1-2
+
+Contract trace:
+
+T022-F1 requires explicit ShiftDemand.shift_kind to be authoritative and
+classify_demand(demand, profile) to be the only legacy fallback. An
+unclassifiable legacy demand must not silently skip DAY_ONLY/SiteRule/EXTERNAL
+HARD checks.
+
+Evidence:
+
+- rota/planning/validator.py::_demand_kind reimplements the catalog lookup and
+  returns None when no StandardShift start matches.
+- _check_day_only, _check_external and _check_site_rules consequently perform
+  no kind-dependent rejection for that demand.
+- A full-hour legacy demand 06:00-18:00, day-only employee and covering PRIMARY
+  produces IndependentValidationReport.hard_pass=True with no violation.
+
+Closure condition:
+
+The full legacy-fallback equivalence class must either yield the classified
+kind or fail closed; no consumer may treat an unclassifiable covered demand as
+permission to continue.
+
+SECTION_CHECK 4 — T022-F2 INTERVAL-TRUTH NORMAL H24 COVERAGE
+RESULT: PASS
+
+The independent validator derives employee sets for both normal-H24 components
+from actual interval overlap. The original hidden-tag reproducer and ordinary
+tag mismatch pass the official negative matrix; a valid generated pair and the
+month-end boundary sibling remain green.
+
+SECTION_CHECK 5 — T022-F3 MALFORMED NORMAL-H24 PROVENANCE
+RESULT: FAIL — T022-R1-3
+
+Contract trace:
+
+T022-F3 requires explicit normal-H24 provenance to contain exactly components
+1 and 2, both 12h, consecutive, opposite D/N, with matching template id, rest
+and required count. Persistence must reject it and independent validation must
+never return HARD PASS.
+
+Evidence:
+
+1. Missing template identity:
+   - schedule_validation.validate_demands adds a demand to
+     by_h24_template only when work_period_template_id is truthy;
+   - validator._check_24h_same_person has the same filter;
+   - an explicit catalog_kind=H24 component with no template id is accepted by
+     validate_demands and returns validation hard_pass=True.
+2. Rest mismatch:
+   - validator._is_well_formed_normal_h24_pair checks component numbers,
+     D/N, adjacency and duration, but not demand required_rest_hours or
+     required_primary_count equivalence;
+   - a two-component H24 demand pair with rest 11 vs 12 returns
+     hard_pass=True when Assignment snapshots happen to carry equal rest.
+
+Closure condition:
+
+Persistence and direct independent validation reject the full malformed-H24
+class, including missing template identity and every cross-component field
+whose equality is required by F3. Legacy catalog_kind=None rows remain outside
+retroactive H24 guessing.
+
+SECTION_CHECK 6 — T022-F4 / OWNER-T022-02 SAME-SITE H12+H12
+RESULT: FAIL — T022-R1-4
+
+The original rest=0 H12+H12 hole is blocked, but the replacement predicate is
+broader than the contract.
+
+Evidence:
+
+- constraints._forms_illegal_continuous_pair and
+  validator._forms_illegal_continuous_pair check only zero-gap adjacency and
+  a combined 24-hour span.
+- They do not require each period to be exactly 12 hours or to represent the
+  H12 case owned by OWNER-T022-02.
+- Three legal, whole-hour INNY siblings (6h+18h, 8h+16h and 10h+14h), each with
+  configured rest=0, are all rejected as REST-01 solely because their combined
+  span is 24h.
+- brief.md Section 4.A explicitly requires positive whole-hour INNY to remain
+  legal; T022 is not permission to redefine all zero-gap INNY combinations.
+
+Closure condition:
+
+The new continuous-work boundary applies to exactly the two-12h class frozen
+by OWNER-T022-02. Non-H12 whole-hour work retains its existing directional
+REST behavior.
+
+SECTION_CHECK 7 — OWNER-T022-03 CROSS-SITE ZERO GAP
+RESULT: FAIL — T022-R1-5
+
+The ordinary distinct-work_period_id zero-gap reproducer is rejected, and a
+positive cross-Site gap retains directional REST. The fail-closed shared-id
+sibling required by the frozen addendum is not closed.
+
+Contract trace:
+
+FROZEN_ADDENDUM_CROSS_SITE_ZERO_GAP_01 states that different-Site intervals
+must never share a 24h work_period_id; such an attempt must fail closed.
+
+Evidence:
+
+- work_periods._period_key groups solely by (employee_id, period_id).
+- _check_rest determines cross-Site identity only after group_into_periods.
+- A current Assignment and an other_site_assignment with the same employee,
+  the same work_period_id and directly adjacent 12h intervals collapse into
+  one WorkPeriod. No cross-Site pair remains to check.
+- Observed result: IndependentValidationReport.hard_pass=True.
+- The official test named
+  test_d_cross_site_work_period_ids_are_naturally_distinct uses two different
+  IDs; it does not exercise the collision its docstring discusses.
+
+Closure condition:
+
+Every current/other-Site shared-period-id collision fails closed before it can
+erase Site identity through grouping. Ordinary distinct IDs, positive gaps and
+missing-other-Site-data silence remain unchanged.
+
+SECTION_CHECK 8 — T022-F5 MENTOR-LINKED PRIMARY REPLAN PINNING
+RESULT: PASS
+
+validator._check_replan_preserves_fixed derives active mentor-linked PRIMARY
+IDs from existing non-CANCELLED TRAINEEs and compares the full Assignment
+value. Removal or any field mutation fails; unchanged identity passes; a
+CANCELLED TRAINEE does not pin. This is consistent with solver/reshuffle fixed
+semantics.
+
+SECTION_CHECK 9 — FULL REPOSITORY REGRESSION
+RESULT: WYMAGA_DECYZJI — T022-R1-6 (LEGACY TEST SCOPE, NOT PRODUCT CODE)
+
+The reported 924/924 result is not reproducible on product d87855c.
+
+Observed failure:
+
+tests/test_t020.py::test_t20_27_no_diff_in_forbidden_paths invokes
+`git diff c5b7bfa... HEAD` and asserts that no rota/planning file changed.
+T022 is a later, explicitly authorized planning repair, so the test now reports
+constraints.py, shift_catalog.py, solver.py and validator.py and fails.
+
+This does not show a T022 behavioral regression. It is a T020 task-local scope
+oracle incorrectly anchored to every future repository HEAD. Nevertheless,
+brief.md Section 8 requires STOP plus a named owner-approved amendment for any
+newly discovered out-of-scope legacy collision. CC must not edit this test
+without that amendment.
+
+Closure condition:
+
+Record a narrow amendment for this single T020 oracle so it verifies T020's own
+historical change boundary rather than forbidding authorized future planning
+tasks. No other T020 assertion is opened. Then reproduce the complete suite on
+the exact repaired product SHA.
+
+FINAL ROUND-1 DISPOSITION
+
+- Product findings requiring correction: T022-R1-1 through T022-R1-5.
+- Separate owner scope amendment required: T022-R1-6.
+- Sections already closed and not to be reopened without new evidence:
+  DIFF_SCOPE/mechanical metrics, F2, F5, C3, C6, schema/DTO non-goals.
+- ROTA-T022 is NOT READY FOR MERGE and not ready for the broader post-T022
+  pipeline audits until these findings pass a narrow re-audit.
+
+ARCHITECTURE_PROPOSALS
+
+NONE. This report requires only behavior already frozen by T022 and its
+cross-Site addendum.
