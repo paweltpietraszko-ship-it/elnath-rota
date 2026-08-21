@@ -1,6 +1,6 @@
 # ROTA-T022 — planning integrity repair after independent cross-cutting audit
 
-STATUS: DRAFT FOR INDEPENDENT CC/CURSOR IMPACT ANALYSIS — NOT READY FOR IMPLEMENTATION
+STATUS: READY FOR INDEPENDENT CURSOR PREIMPLEMENTATION REVIEW — NOT READY FOR IMPLEMENTATION
 
 BASE_SHA: `d50a9aa4dfb35ed479470bb7fb83ffca18ecc346` (`main`, after merged ROTA-T020)
 
@@ -260,16 +260,21 @@ Required enforcement:
 
 1. create/update of `StandardShift` rejects any non-zero minute, second or
    microsecond on start/end;
-2. every schedule-content write path rejects non-full-hour ShiftDemand and
+2. bootstrap completeness applies the same whole-hour predicate and cannot
+   report a Site ready when its configured StandardShift would be rejected by
+   the write/PLAN boundary;
+3. every schedule-content write path rejects non-full-hour ShiftDemand and
    Assignment boundaries before mutation/child creation where atomicity is
    currently guaranteed;
-3. direct planning/validation of malformed legacy/in-memory state fails closed
+4. direct planning/validation of malformed legacy/in-memory state fails closed
    and can never return FEASIBLE/HARD PASS;
-4. valid historical whole-hour data remains readable;
-5. metadata timestamps are unaffected;
-6. no schema migration, new field, rounding mode or fractional-hours UI is
+5. valid historical whole-hour data remains readable; any pre-T022 persisted
+   fractional work interval is invalid, is never rounded or migrated silently,
+   and fails closed before planning/LOAD can report a valid result;
+6. metadata timestamps are unaffected;
+7. no schema migration, new field, rounding mode or fractional-hours UI is
    introduced;
-7. LOAD-01 retains its integer threshold and is regression-tested at exact
+8. LOAD-01 retains its integer threshold and is regression-tested at exact
    whole-hour boundaries (60 passes; 61 requires decision for threshold 60).
 
 ### Why this closes the reproduced fractional-LOAD case (C4)
@@ -303,6 +308,8 @@ The original reproducer remains in every class, plus these siblings.
 ### A. Full-hour boundary
 
 - StandardShift start `05:30`; end `17:30`; seconds/microseconds non-zero;
+- bootstrap completeness is false for a configured non-full-hour
+  StandardShift and remains unchanged for valid whole-hour configuration;
 - 30-minute and 12h30 INNY;
 - ShiftDemand start/end at `:30` through root and child schedule writes;
 - Assignment start/end at `:30` through create child, replace working
@@ -424,6 +431,7 @@ This list is not authorized for implementation until CC/Cursor complete the
 mechanical call-site review below:
 
 - `tasks/ROTA-T022/brief.md`
+- `rota/application/bootstrap.py`
 - `rota/planning/shift_catalog.py`
 - `rota/planning/eligibility.py`
 - `rota/planning/solver.py`
@@ -432,11 +440,17 @@ mechanical call-site review below:
 - `rota/planning/validator.py`
 - `rota/planning/engine.py`
 - `rota/persistence/schedule_validation.py`
+- `tests/test_audit_t010_r4_a.py` (existing; exactly the line-bounded oracle
+  amendment stated below)
 - `tests/test_t022_planning_integrity.py` (new)
 
 Expected limits:
 
 - `MAX_NEW_FILES=1`, exactly the consolidated T022 regression file;
+- `tests/test_t022_planning_integrity.py` may contain at most 900 lines as a
+  one-time T022 test-only ceiling; required equivalence-class oracles may not
+  be deleted for SIZE_FILE and a second test file may not be created solely to
+  evade this ceiling;
 - no deletion;
 - no migration;
 - no `arch/spec.md` or `arch/FROZEN.lock` change;
@@ -450,7 +464,7 @@ CC and Cursor analyze independently. Neither edits product code.
 
 Each report must answer:
 
-1. Does every required behavior above trace to an existing contract or the two
+1. Does every required behavior above trace to an existing contract or the three
    owner decisions, without an invented requirement?
 2. Enumerate all live call sites that write or validate StandardShift,
    ShiftDemand and Assignment work boundaries.
@@ -469,9 +483,10 @@ Each report must answer:
    Sites is rejected without treating it as a 24h pair, while positive-gap
    directional REST and manual-deviation semantics remain unchanged. Identify
    any unavoidable missing file in TASK_SCOPE; do not design travel metadata.
-9. Check whether one new test file can remain <=600 lines without deleting
-   required oracles. If not, report the exact estimated matrix size before any
-   implementation.
+9. Verify that the one-time <=900-line ceiling for the consolidated T022 test
+   file is sufficient without deleting required oracles. If not, report the
+   exact estimated matrix size before any implementation; do not create a
+   second file merely to evade the ceiling.
 10. Prove mechanically that every interval and rolling-window boundary used by
     LOAD-01 is full-hour aligned after the proposed guards, including
     solver-created, persisted, fixed/history, cross-Site, boundary-context,
@@ -493,15 +508,27 @@ Required verdict from each reviewer:
 More general cleanup suggestions must be placed once in a separate,
   non-blocking `ARCHITECTURE_PROPOSALS` section. They must not expand T022.
 
-One collision is already known and must appear in both analyses:
+### Known collision — resolved by owner decision
 
-- `tests/test_audit_t010_r4_a.py::test_r4_a_standard_shift_validity_boundaries`
-  contains the case `05:00–05:01` with `expected_complete=True`, documenting
-  the older bootstrap-only positive-interval boundary. OWNER-T022-01 now says
-  such a work shift is invalid. This draft does not silently authorize editing
-  that oracle. Reviewers must state whether the test needs a narrow amendment,
-  can remain a deliberately narrower bootstrap observation while writes/PLAN
-  fail closed, or exposes a genuine contradiction requiring owner confirmation.
+`tests/test_audit_t010_r4_a.py::test_r4_a_standard_shift_validity_boundaries`
+contains the case `05:00–05:01` with `expected_complete=True`. OWNER-T022-01
+supersedes that older positive-interval expectation. T022 authorizes exactly:
+
+- `rota/application/bootstrap.py::_is_valid_standard_shift` gains the same
+  full-hour start/end predicate required at the catalog boundary;
+- in the single pytest parameter currently identified as
+  `smallest_representative_positive_same_day_interval`, change
+  `expected_complete=True` to `False` and rename only that case to
+  `sub_hour_interval_is_not_complete`;
+- the existing assertion that an incomplete shift is named in `missing`
+  remains active;
+- no other assertion, parameter or function in
+  `tests/test_audit_t010_r4_a.py` is opened by this amendment.
+
+Before implementation, Cursor must still complete the repo-wide mechanical
+sweep for other non-full-hour **work** boundaries. Metadata timestamps are not
+work boundaries. Any additional legacy oracle collision requires a new named,
+line-bounded amendment; it is not permission for CC to edit tests freely.
 
 ## 8. Implementation and review chain after analysis
 
