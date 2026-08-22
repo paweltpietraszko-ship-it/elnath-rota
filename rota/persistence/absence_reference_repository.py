@@ -172,19 +172,9 @@ def _overall_status(days: list[DayReference]) -> str:
     return STATUS_BOUND
 
 
-def _resolve_day(
-    conn: sqlite3.Connection, *, employee_id: str, kind: AvailabilityKind, the_date: date,
-    site_versions: dict[str, str], snapshot_cache: dict[str, object],
-) -> DayReference:
-    if not site_versions:
-        if kind == AvailabilityKind.LEAVE_GRANTED:
-            # Frozen addendum section 2.1: lack of a prior Employee schedule
-            # is not MISSING for a granted-leave request made before PLAN.
-            return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, 0, ())
-        # SICK_LEAVE has no pre-PLAN path (frozen addendum section 2): with
-        # no accepted plan anywhere in scope, the reference is incomplete.
-        return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
-
+def _collect_primary_periods(
+    conn: sqlite3.Connection, *, employee_id: str, site_versions: dict[str, str], snapshot_cache: dict[str, object],
+) -> list[PeriodFact]:
     periods: list[PeriodFact] = []
     for site_id, version_id in site_versions.items():
         if version_id not in snapshot_cache:
@@ -201,7 +191,23 @@ def _resolve_day(
                 assignment.assignment_id, version_id, site_id, assignment.covers_demand_id,
                 assignment.work_period_id, assignment.start_datetime, assignment.end_datetime,
             ))
+    return periods
 
+
+def _resolve_day(
+    conn: sqlite3.Connection, *, employee_id: str, kind: AvailabilityKind, the_date: date,
+    site_versions: dict[str, str], snapshot_cache: dict[str, object],
+) -> DayReference:
+    if not site_versions:
+        if kind == AvailabilityKind.LEAVE_GRANTED:
+            # Frozen addendum section 2.1: lack of a prior Employee schedule
+            # is not MISSING for a granted-leave request made before PLAN.
+            return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, 0, ())
+        # SICK_LEAVE has no pre-PLAN path (frozen addendum section 2): with
+        # no accepted plan anywhere in scope, the reference is incomplete.
+        return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
+
+    periods = _collect_primary_periods(conn, employee_id=employee_id, site_versions=site_versions, snapshot_cache=snapshot_cache)
     by_id = {p.assignment_id: p for p in periods}
     grouped = group_into_periods([
         PeriodComponent(p.assignment_id, employee_id, p.start_datetime, p.end_datetime, p.work_period_id, None, p.schedule_version_id)
