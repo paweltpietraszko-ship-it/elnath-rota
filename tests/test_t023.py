@@ -1,16 +1,11 @@
 """ROTA-T023 Checkpoint A test matrix (brief.md section 17 subset for "A --
 provenance + write-time timing core"): migration/immutability/atomicity,
-R5-1 accepted-plan action proof, PRE_PLAN vs POST_PLAN provenance, R5-2
-retroactivity guard, the shared coverage helper (R3-6), and multi-Site/
-weekly reference invariance.
-
-NOT covered here (Checkpoint B/C's own allowed-file scope, section 16):
-consumer-equality (T23-30..35), R5-3 REPLAN cutover (needs plan_ops.py),
-T020 presentation (T23-40..47, needs schedule_export.py) and the HARD/
-regression tests depending on those (T23-50..54). T23-PRE-01..03 assert
-the canonical HOUR TOTAL for the binding 40h example, not the literal
-D1/D1/N2 print codes -- that's T23-40..47's job in Checkpoint C.
-"""
+R5-1 accepted-plan proof, PRE_PLAN vs POST_PLAN provenance, R5-2
+retroactivity guard, the shared coverage helper (R3-6), multi-Site/weekly
+reference invariance. NOT covered (Checkpoint B/C's own scope, section 16):
+consumer-equality, R5-3 REPLAN cutover, T020 presentation, and the HARD/
+regression tests depending on those. T23-PRE-01..03 assert the canonical
+HOUR TOTAL, not the literal D1/D1/N2 print codes (Checkpoint C's job)."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -108,7 +103,9 @@ def _accept_version(
     )
 
 
-def _leave(conn, *, employee_id: str, kind: AvailabilityKind, start_date: date, end_date: date, active: bool = True, availability_id: str | None = None, site_id: str = SITE, coordinator_id: str = COORDINATOR):
+def _leave(conn, *, employee_id: str, kind: AvailabilityKind, start_date: date, end_date: date, active: bool = True, availability_id: str | None = None, site_id: str = SITE, coordinator_id: str = COORDINATOR, seed_calendar: bool = False):
+    if seed_calendar:
+        _seed_calendar_range(conn, start_date, end_date)
     return append_availability(
         conn, coordinator_id=coordinator_id, site_id=site_id, availability_id=availability_id or f"AV-{employee_id}-{start_date}",
         employee_id=employee_id, kind=kind, start_date=start_date, end_date=end_date, active=active,
@@ -123,18 +120,14 @@ def _accept_one(conn, demand_id, assignment_id, employee_id, start, end, *, vers
 
 
 def _accept_two(conn, pair_a, pair_b, *, version_id="SV-1", accepted_at=datetime(2020, 3, 1, 8, 0), effective_from=date(2027, 3, 1), work_period_id=None, **kw) -> None:
-    """Two-PRIMARY-pair shorthand: pair_a/pair_b are (demand_id, assignment_id, employee_id, start, end) tuples;
-    work_period_id (shared by both, when given) groups them into one legal 24h WorkPeriod."""
+    """Two-PRIMARY-pair shorthand; a shared work_period_id groups both into one legal 24h WorkPeriod."""
     pairs = [_primary(*p, version_id=version_id, work_period_id=work_period_id) for p in (pair_a, pair_b)]
     _accept_version(conn, version_id=version_id, pairs=pairs, effective_from=effective_from, accepted_at=accepted_at, **kw)
 
 
 def _seed_calendar_range(conn, start: date, end: date) -> None:
-    """A-R8-1: rota.planning.absence.workday_holiday_map fails closed on any
-    gap in the exact requested range -- callers that exercise a LEAVE_GRANTED
-    write must seed the dates they touch explicitly (never auto-seeded by
-    _setup, which would defeat the round-8 "genuinely incomplete calendar"
-    reproducer that relies on _setup NOT doing this)."""
+    """A-R8-1: workday_holiday_map fails closed on gaps -- seed explicitly
+    per test (never in _setup, which would defeat the round-8 reproducer)."""
     current = start
     while current <= end:
         save_calendar_day(conn, CalendarDay(current, False))
@@ -172,8 +165,7 @@ def test_t23_01_migration_adds_exactly_absence_reference_snapshots(tmp_path) -> 
 
 def test_t23_02_snapshot_append_only_update_delete_rejected(tmp_path) -> None:
     conn = _setup(tmp_path)
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), seed_calendar=True)
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert snapshot is not None
     with pytest.raises(Exception):
@@ -196,8 +188,7 @@ def test_t23_03_availability_snapshot_action_atomic_on_forced_failure(tmp_path) 
 
 def test_t23_04_availability_changed_carries_no_schedule_version_id(tmp_path) -> None:
     conn = _setup(tmp_path)
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), seed_calendar=True)
     actions = site_memory.list_coordinator_actions(conn, action_kind=CoordinatorActionKind.AVAILABILITY_CHANGED)
     assert actions and actions[0].schedule_version_id is None
     assert actions[0].source_id == record.availability_version_id
@@ -254,8 +245,7 @@ def test_t23_08_same_chain_extension_preserves_bound_blocks_new_blocks_use_autho
 def test_t23_09_later_sick_overlapping_bound_leave_reuses_compatible_facts(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime(2020, 3, 1, 9, 0))
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
-    leave = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-LEAVE")
+    leave = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-LEAVE", seed_calendar=True)
     sick = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-SICK")
     leave_snapshot = get_absence_reference_snapshot(conn, leave.availability_version_id)
     sick_snapshot = get_absence_reference_snapshot(conn, sick.availability_version_id)
@@ -269,8 +259,7 @@ def test_t23_09_later_sick_overlapping_bound_leave_reuses_compatible_facts(tmp_p
 def test_t23_r5_1a_technical_current_working_before_select_is_not_accepted(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_version(conn, version_id="SV-1", pairs=[], effective_from=date(2027, 3, 1), accepted_at=datetime(2020, 3, 1, 8, 0), record_action=False)
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), seed_calendar=True)
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert snapshot.days[0].source_mode == "PRE_PLAN_LEAVE"
 
@@ -298,16 +287,14 @@ def test_t23_r5_1c_unselected_replan_child_does_not_hide_accepted_parent(tmp_pat
 
 def test_t23_r5_1d_acceptance_after_recorded_at_is_not_used(tmp_path) -> None:
     conn = _setup(tmp_path)
-    # Accepted far in the future relative to real "now" -- must not be honored. SICK never
-    _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime.now() + timedelta(days=3650))  # falls back to PRE_PLAN, so a wrongly-honored future acceptance would read BOUND=12h.
+    _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime.now() + timedelta(days=3650))  # accepted far in the future -- must not be honored; SICK never falls back to PRE_PLAN, so a wrongly-honored future acceptance would read BOUND=12h
     record = append_availability(conn, coordinator_id=COORDINATOR, site_id=SITE, availability_id="AV-A-EARLY", employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), active=True)
     assert get_absence_reference_snapshot(conn, record.availability_version_id).days[0].status == "MISSING"
 
 
 def test_t23_r5_1e_leave_before_vs_after_accepted_plan(tmp_path) -> None:
     conn = _setup(tmp_path)
-    _seed_calendar_range(conn, date(2027, 4, 1), date(2027, 4, 1))
-    before_record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 4, 1), end_date=date(2027, 4, 1), availability_id="AV-A-1")
+    before_record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 4, 1), end_date=date(2027, 4, 1), availability_id="AV-A-1", seed_calendar=True)
     assert get_absence_reference_snapshot(conn, before_record.availability_version_id).days[0].source_mode == "PRE_PLAN_LEAVE"
     _accept_one(conn, "D-1", "A-1", "A", datetime(2027, 4, 1, 5, 0), datetime(2027, 4, 1, 17, 0), version_id="SV-APR", effective_from=date(2027, 4, 1), accepted_at=datetime(2020, 3, 25, 9, 0), month=date(2027, 4, 1))
     after_record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 4, 1), end_date=date(2027, 4, 1), availability_id="AV-A-2")
@@ -321,8 +308,7 @@ def test_t23_r5_1e_leave_before_vs_after_accepted_plan(tmp_path) -> None:
 
 def test_t23_pre_01_binding_40h_leave_hour_total(tmp_path) -> None:
     conn = _setup(tmp_path)
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 12))
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 12))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 12), seed_calendar=True)
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert all(d.source_mode == "PRE_PLAN_LEAVE" and d.status == "BOUND" for d in snapshot.days)
     assert snapshot.days[0].periods == ()
@@ -331,8 +317,7 @@ def test_t23_pre_01_binding_40h_leave_hour_total(tmp_path) -> None:
 
 def test_t23_pre_02_later_plan_creation_does_not_reclassify_persisted_pre_plan(tmp_path) -> None:
     conn = _setup(tmp_path)
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), seed_calendar=True)
     assert get_absence_reference_snapshot(conn, record.availability_version_id).days[0].source_mode == "PRE_PLAN_LEAVE"
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime(2020, 3, 5, 9, 0))
     after = get_absence_reference_snapshot(conn, record.availability_version_id)
@@ -442,8 +427,7 @@ def test_t23_19_leave_plan_creates_no_reference_row(tmp_path) -> None:
 def test_t23_20_sick_over_leave_one_result_no_double_hours(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0))
-    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
-    leave = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-L")
+    leave = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-L", seed_calendar=True)
     sick = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-S")
     leave_snap = get_absence_reference_snapshot(conn, leave.availability_version_id)
     sick_snap = get_absence_reference_snapshot(conn, sick.availability_version_id)
@@ -473,10 +457,7 @@ def test_t23_22_trainee_does_not_add_hours_or_create_ambiguity(tmp_path) -> None
     assert len(snapshot.days[0].periods) == 1  # only the PRIMARY fact, TRAINEE excluded
 
 
-# --- R5-2 retroactivity guard ------------------------------------------------
-# Wall-clock-relative (append_availability always uses datetime.now()), so this
-# block uses TODAY-relative dates; _accept_current_months seeds an accepted
-# ScheduleVersion for whichever real month(s) [start, end] actually touches.
+# --- R5-2 retroactivity guard (wall-clock-relative -- TODAY-relative dates) -
 
 TODAY = date.today()
 YESTERDAY = TODAY - timedelta(days=1)
@@ -536,8 +517,7 @@ def test_t23_r5_2e_extension_rejects_only_newly_introduced_coverage_deactivation
     d1, a1 = _primary("D-Y", "A-Y", "A", datetime(YESTERDAY.year, YESTERDAY.month, YESTERDAY.day, 5, 0), datetime(YESTERDAY.year, YESTERDAY.month, YESTERDAY.day, 17, 0), version_id="dummy", state=AssignmentState.PLANNED)
     _accept_current_months(conn, site_id=SITE, pairs_by_date={YESTERDAY: [(d1, a1)]}, accepted_at=datetime(2020, 1, 1))
     append_availability(conn, coordinator_id=COORDINATOR, site_id=SITE, availability_id="AV-A-EXT", employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=TOMORROW, end_date=TOMORROW, active=True)  # active leave over TOMORROW only, no conflict yet
-    # Extending BACKWARD to also cover YESTERDAY (a real PLANNED PRIMARY that already started) is the new coverage -- rejected.
-    with pytest.raises(RetroactiveAbsenceRejected):
+    with pytest.raises(RetroactiveAbsenceRejected):  # extending BACKWARD to also cover YESTERDAY (a real PLANNED PRIMARY that already started) is the new coverage -- rejected
         append_availability(conn, coordinator_id=COORDINATOR, site_id=SITE, availability_id="AV-A-EXT", employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=YESTERDAY, end_date=TOMORROW, active=True)
     deactivated = append_availability(conn, coordinator_id=COORDINATOR, site_id=SITE, availability_id="AV-A-EXT", employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=TOMORROW, end_date=TOMORROW, active=False)  # Deactivating the original (TOMORROW-only) leave never rejects, even though YESTERDAY has a real PLANNED PRIMARY.
     assert deactivated is not None
