@@ -1,0 +1,55 @@
+ROTA-T023 — NARROW PREIMPLEMENTATION AUDIT — ROUND 4
+AUDITED_HEAD: 958c840a40f28d6195dd40bf2862d98e1a84c1a0
+PARENT_AUDIT: cb585591fbfec2a5619450ad13b13ab3758036dd
+SCOPE: R3-1...R3-6 ONLY
+VERDICT: WYMAGA_DECYZJI — R3-3/R3-5 OPEN / NOT READY FOR CC
+
+SECTION_CHECK 1 — DELIVERY: PASS
+- cb585591...958c840 = dokładnie 1 nowy plik dokumentacyjny, 292 linie.
+- Zero zmian produkcji, testów, arch/spec.md i FROZEN.lock.
+- Precedence ograniczone wyłącznie do R3-1...R3-6.
+
+SECTION_CHECK 2 — R3-1 EXTERNAL SUPPORT: CLOSED
+- Sam enabled EXTERNAL_SUPPORT nie dodaje Site do scope i nie może tworzyć MISSING.
+- Liczy się rzeczywisty non-CANCELLED PRIMARY na danym Site.
+- WINDOW-03 oraz rzeczywiste cross-Site hours pozostają spójne.
+
+SECTION_CHECK 3 — R3-2 WEEKLY TOTAL: CLOSED
+- Jeden kanoniczny API przyjmuje jawny inclusive date range.
+- Tydzień jest zakresem podanym przez caller; brak wymyślonego kalendarza tygodniowego, tabeli lub osobnej arytmetyki.
+- Oracle wiąże week/month z tymi samymi period facts i start-date anchor.
+
+SECTION_CHECK 4 — R3-3 MISSING LIFECYCLE: OPEN / OWNER DECISION REQUIRED
+- Wycofano nieautoryzowane dziedziczenie MISSING jako trwałego business fact.
+- BOUND pozostaje immutable; MISSING nadal nie może być zgadywane jako 0/8/12/24.
+- Kontrakt poprawnie nie wybiera sam sposobu ustanowienia reference, gdy absencja powstała przed pierwszym adopted schedule.
+- Bez decyzji właściciela capture lifecycle i Checkpoint A są nieimplementowalne.
+
+SECTION_CHECK 5 — R3-4 TRAINEE: CLOSED
+- Nieautoryzowane TRAINEE => AMBIGUOUS zostało usunięte.
+- PRIMARY pozostaje źródłem godzin; TRAINEE nie dodaje godzin i nie blokuje poprawnego reference.
+- Existing trainee/mentor validation pozostaje u obecnego właściciela.
+
+SECTION_CHECK 6 — R3-5 REALIZED NUMERIC EFFECT: OPEN / OWNER DECISION REQUIRED
+- REALIZED pozostaje WYK; konflikt jest widoczny; brak automatycznej korekty.
+- Wycofano nieautoryzowaną blokadę całego numerical scope.
+- Kontrakt poprawnie nie wybiera sam, czy konfliktowy period liczyć, pominąć czy oznaczyć jako numerycznie niedostępny.
+- Bez decyzji właściciela canonical arithmetic i Checkpoint B/C są nieimplementowalne.
+
+SECTION_CHECK 7 — R3-6 SHARED VALIDATION: CLOSED
+- Repository ograniczone do I/O.
+- Coverage używa jednego pure helpera wydzielonego z canonical validator; validator sam używa tego samego helpera.
+- 24h używa istniejących work_periods helpers; brak T023-owned kopii.
+- TASK_SCOPE legalnie otwiera validator.py tylko dla extraction/reuse; work_periods.py pozostaje bez zmian bez konkretnego findingu.
+
+SECTION_CHECK 8 — READINESS
+- R3-1: CLOSED.
+- R3-2: CLOSED.
+- R3-3: OWNER DECISION REQUIRED.
+- R3-4: CLOSED.
+- R3-5: OWNER DECISION REQUIRED.
+- R3-6: CLOSED.
+- CC NIE zaczyna implementacji.
+- Po zapisaniu decyzji R3-3/R3-5 następny audit jest wąski wyłącznie do ich konsekwencji.
+
+TESTS: NOT RUN — documentation-only narrow contract audit.
