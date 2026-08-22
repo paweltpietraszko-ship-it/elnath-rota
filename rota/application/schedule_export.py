@@ -25,17 +25,13 @@ PLAN_PRIORITY = ("D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5")
 BLANK = "–"
 class ExportProblemError(Exception):
     def __init__(self, code: str, message: str):
-        self.code, self.message = code, message
-        super().__init__(f"{code}: {message}")
+        self.code, self.message = code, message; super().__init__(f"{code}: {message}")  # noqa: E702
 @dataclass(frozen=True)
 class ExportReady:
-    pdf_bytes: bytes
-    document_revision: str
-    schedule_provenance: str
+    pdf_bytes: bytes; document_revision: str; schedule_provenance: str  # noqa: E702
 @dataclass(frozen=True)
 class ExportProblem:
-    problem_code: str
-    message: str
+    problem_code: str; message: str  # noqa: E702
 ExportResult = Union[ExportReady, ExportProblem]
 @dataclass(frozen=True)
 class RowCells:
@@ -72,14 +68,15 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     daily_version = {d: _version_for_date(lineage, d) for d in days}
     memberships = employee_repository.list_memberships_for_site(conn, site_id)
     local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
+    external_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.EXTERNAL_SUPPORT and m.enabled}
     collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings)
     seen_employee_ids = collected[2]
     work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days)
     calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
     holiday_by_date = {c.date: c.holiday for c in calendar_days}
-    roster_ids = set(local_ids) | seen_employee_ids
+    absence_by_employee = _collect_absence(conn, days, local_ids, external_ids, work_cells, settings, site_id)
+    roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)  # C-R15-3: a bound Site period keeps an Employee here after REPLAN
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
-    absence_by_employee = _collect_absence(conn, days, local_ids, work_cells, settings, site_id)
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
     provenance = _provenance_text(lineage, adjacent_facts)
     return ExportModel(
@@ -92,8 +89,7 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     )
 def _month_days(month: date) -> list[date]:
     import calendar as _cal
-    n = _cal.monthrange(month.year, month.month)[1]
-    return [date(month.year, month.month, d) for d in range(1, n + 1)]
+    n = _cal.monthrange(month.year, month.month)[1]; return [date(month.year, month.month, d) for d in range(1, n + 1)]  # noqa: E702
 def _reconstruct_lineage(conn: sqlite3.Connection, site_id: str, month: date) -> list:
     current_id = schedule_repository.get_current_version_id(conn, site_id, month)
     if current_id is None:
@@ -165,9 +161,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
     """raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance."""
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
-    demand_by_assignment: dict = {}
-    assignment_by_id: dict = {}
-    seen_employee_ids: set[str] = set()
+    demand_by_assignment: dict = {}; assignment_by_id: dict = {}; seen_employee_ids: set[str] = set()  # noqa: E702
     for day in days:
         version_id = daily_version[day]
         if version_id is None:
@@ -202,9 +196,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
     for a, demand, version_id, effective_from in boundary_items:
         if a.work_period_id is None or _ckey(a) in demand_by_assignment:
             continue
-        demand_by_assignment[_ckey(a)] = demand
-        assignment_by_id[_ckey(a)] = a
-        boundary_ids.add(_ckey(a))
+        demand_by_assignment[_ckey(a)] = demand; assignment_by_id[_ckey(a)] = a; boundary_ids.add(_ckey(a))  # noqa: E702
         adjacent_versions[_ckey(a)] = (version_id, effective_from.isoformat() if effective_from else None)
         components.append(_component(a))
     return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions
@@ -330,10 +322,12 @@ def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list
 def _decompose_pre_plan(employee_id, pre_plan_days, settings) -> list[tuple]:
     span, qualifying = [d for d, _ in pre_plan_days], [(d, day.hours) for d, day in pre_plan_days if day.hours]
     return _decompose(employee_id, "U", span, [d for d, _ in qualifying], sum(h for _, h in qualifying), settings)
-def _winning_days(snapshots) -> dict[date, tuple]:
+def _winning_days(snapshots, month_start: date, month_end: date) -> dict[date, tuple]:
     winner: dict[date, tuple] = {}  # SICK wins over LEAVE_GRANTED same-date, count once, present C (frozen addendum sec.4, T23-45)
     for record, snapshot in snapshots:
         for day in snapshot.days:
+            if not (month_start <= day.the_date <= month_end):  # C-R15-1: never let an adjacent-month day alter or poison this month's projection
+                continue
             existing = winner.get(day.the_date)
             if existing is None or (record.kind == AvailabilityKind.SICK_LEAVE and existing[0] != AvailabilityKind.SICK_LEAVE):
                 winner[day.the_date] = (record.kind, day)
@@ -347,25 +341,39 @@ def _post_plan_pair(employee_id, the_date, kind, day, settings, site_id) -> list
     pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)
     if site_hours not in pairs_by_value:
         raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h POST_PLAN code")
-    return [(the_date, *pairs_by_value[site_hours])]
-def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
-    if not local_ids:
+    plan_code, uc_code = pairs_by_value[site_hours]
+    shift_kinds = {p.shift_kind for p in matching if p.shift_kind}
+    if len(shift_kinds) == 1:  # C-R15-2: the immutable bound shift_kind owns D/N presentation, not duration alone
+        kind_letter = next(iter(shift_kinds))
+        family_codes = [c for c in PLAN_PRIORITY if c.startswith(kind_letter) and site_repository.FROZEN_WORK_CODE_HOURS[c] == site_hours and not (settings.base_regime == "12h" and site_hours == 24)]
+        if not family_codes:
+            raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h {kind_letter}-family POST_PLAN code")
+        plan_code = family_codes[0]
+    return [(the_date, plan_code, uc_code)]
+def _collect_absence(conn, days, local_ids, external_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
+    all_ids = local_ids | external_ids
+    if not all_ids:
         return {}
     month_start, month_end = days[0], days[-1]
-    records = list_active_overlapping_for_employees(conn, sorted(local_ids), month_start, month_end)
+    records = list_active_overlapping_for_employees(conn, sorted(all_ids), month_start, month_end)
     by_employee: dict[str, list] = {}
     for r in records:
         by_employee.setdefault(r.employee_id, []).append(r)
     memberships_by_employee = employee_repository.list_memberships_for_employees(conn, sorted(by_employee))
     result: dict[str, list[tuple]] = {}
-    for employee_id in sorted(local_ids):
+    for employee_id in sorted(all_ids):
         emp_records = [r for r in by_employee.get(employee_id, []) if r.kind in (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)]
+        if not emp_records:
+            continue
         snapshots = [(r, get_absence_reference_snapshot(conn, r.availability_version_id)) for r in emp_records]
-        for r, snapshot in snapshots:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
-            if snapshot is None:
+        bound_here = any(p.site_id == site_id for _, snap in snapshots if snap for day in snap.days for p in day.periods)
+        if employee_id not in local_ids and not bound_here:
+            continue  # C-R15-3: dormant EXTERNAL_SUPPORT with no bound period at this Site never creates a row or MISSING
+        for r, snapshot in snapshots:
+            if snapshot is None:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
                 raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: legacy active {r.kind.value} has no captured reference snapshot")
         enabled_local = sum(1 for m in memberships_by_employee.get(employee_id, []) if m.membership_kind == MembershipKind.LOCAL and m.enabled)
-        pairs = _absence_pairs_for_employee(employee_id, _winning_days(snapshots), work_cells, settings, site_id, enabled_local)
+        pairs = _absence_pairs_for_employee(employee_id, _winning_days(snapshots, month_start, month_end), work_cells, settings, site_id, enabled_local)
         if pairs:
             result[employee_id] = pairs
     return result
@@ -461,9 +469,8 @@ def _resolve_unicode_font() -> tuple[str, str, str]:
         if not (regular.exists() and bold.exists() and italic.exists()):
             continue
         try:
-            pdfmetrics.registerFont(TTFont(_FONT_REGULAR, str(regular)))
-            pdfmetrics.registerFont(TTFont(_FONT_BOLD, str(bold)))
-            pdfmetrics.registerFont(TTFont(_FONT_ITALIC, str(italic)))
+            for name, path in zip((_FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC), (regular, bold, italic)):
+                pdfmetrics.registerFont(TTFont(name, str(path)))
         except Exception:
             continue
         if _covers_polish(_FONT_REGULAR):
@@ -505,17 +512,12 @@ def _draw_day_headers(c, day_w, days, holiday_by_date, bold, y) -> float:
     x = MARGIN + NAME_W
     for d in days:
         if d.weekday() >= 5 or holiday_by_date.get(d, False):
-            c.setFillColor(_WEEKEND_BG)
-            c.rect(x, y - 30, day_w, 30, stroke=0, fill=1)
-            c.setFillColor(black)
-        c.setFont(bold, 6.5)
-        c.drawCentredString(x + day_w / 2, y - 10, _DOW[d.weekday()])
-        c.setFont(bold, 8)
-        c.drawCentredString(x + day_w / 2, y - 24, str(d.day))
+            c.setFillColor(_WEEKEND_BG); c.rect(x, y - 30, day_w, 30, stroke=0, fill=1); c.setFillColor(black)  # noqa: E702
+        c.setFont(bold, 6.5); c.drawCentredString(x + day_w / 2, y - 10, _DOW[d.weekday()])  # noqa: E702
+        c.setFont(bold, 8); c.drawCentredString(x + day_w / 2, y - 24, str(d.day))  # noqa: E702
         x += day_w
     for label in ("Plan g.", "Wyk. g.", "Urlop g.", "L4 g."):
-        c.setFont(bold, 6.5)
-        c.drawCentredString(x + SUM_W / 2, y - 18, label)
+        c.setFont(bold, 6.5); c.drawCentredString(x + SUM_W / 2, y - 18, label)  # noqa: E702
         x += SUM_W
     return y - 32
 def _draw_cell(c, x, y, row_h, day_w, code, bold) -> None:
@@ -541,15 +543,13 @@ def _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold) -> None:
     if label == "PLAN":
         c.setFont(regular, _fit_font_size(row.display_name, regular, 7, NAME_W - 40))
         c.drawString(x + 2, y - row_h + 5, row.display_name)
-    c.setFont(regular, 6.5)
-    c.drawRightString(x + NAME_W - 2, y - row_h + 5, label)
+    c.setFont(regular, 6.5); c.drawRightString(x + NAME_W - 2, y - row_h + 5, label)  # noqa: E702
     x += NAME_W
     for code in cells:
         _draw_cell(c, x, y, row_h, day_w, code, bold)
         x += day_w
     for value in (row.plan_hours if label == "PLAN" else row.wyk_hours, "", row.urlop_hours, row.l4_hours):
-        c.setFont(regular, 7)
-        c.drawCentredString(x + SUM_W / 2, y - row_h + 5, "" if value == "" else str(value))
+        c.setFont(regular, 7); c.drawCentredString(x + SUM_W / 2, y - row_h + 5, "" if value == "" else str(value))  # noqa: E702
         x += SUM_W
 def _legend_line(letter: str, slot: int, value, demo: bool) -> str:
     code = f"{letter}{slot}"
@@ -567,8 +567,7 @@ def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> floa
     for slot in range(1, 6):
         for j, letter in enumerate("DNUC"):
             value, demo = _legend_value(letter, slot, model.reserve_hours)
-            c.setFont(regular, 9)
-            c.drawString(MARGIN + (j // 2) * col_w + (j % 2) * sub_w, y, _legend_line(letter, slot, value, demo))
+            c.setFont(regular, 9); c.drawString(MARGIN + (j // 2) * col_w + (j % 2) * sub_w, y, _legend_line(letter, slot, value, demo))  # noqa: E702
         y -= 12
     c.setFont(regular, 9); c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia"); y -= 14  # noqa: E702
     c.setFont(italic, 8); c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h)."); y -= 12  # noqa: E702

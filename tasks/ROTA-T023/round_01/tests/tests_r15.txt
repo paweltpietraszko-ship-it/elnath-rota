@@ -1,0 +1,80 @@
+ROTA-T023 - CHECKPOINT C IMPLEMENTATION AUDIT - ROUND 15
+AUDITED_HEAD: c65afc3a91abe8b04d36bbc8164479c0dd5302b8
+IMPLEMENTATION_SHA: 93d40a41d9d5a28bd8e89b34fb11cda67cd4923a
+VERDICT: FAIL - CHECKPOINT C CONTRACT NOT CLOSED / FINAL ACCEPTANCE BLOCKED
+
+SECTION_CHECK 1 - BASELINE / MECHANICS
+- Exact branch HEAD matches the handed-off c65afc3; its parent 93d40a4 contains the Checkpoint C implementation and c65afc3 adds only backend_output_checkpointC.txt.
+- Checkpoint C + T020 matrices: 53/53 PASS.
+- Checkpoint A/B/C/T020 targeted set: 111/111 PASS.
+- Repository suite (the repository's configured tests/ collection): 1006/1006 PASS.
+- Ruff on affected production/tests plus the independent audit matrix: PASS.
+- git diff --check for a1726b1..c65afc3: PASS.
+- The four inherited SIZE_FILE findings and accepted TOTAL_LINES exception reported by backend_output_checkpointC.txt are previously owner-accepted mechanical exceptions and are not reopened.
+
+SECTION_CHECK 2 - INDEPENDENT ADVERSARIAL MATRIX
+- File: tasks/ROTA-T023/round_01/tests/test_t023_checkpoint_c_audit.py
+- Result: 2/8 PASS, 6/8 FAIL.
+- Passing controls: day-shift D presentation; LOCAL employee retained after REPLAN.
+- Failing equivalence classes: both month boundaries for PRE_PLAN projection, both month boundaries for out-of-range MISSING provenance, N presentation, and EXTERNAL_SUPPORT bound-Site presentation.
+
+SECTION_CHECK 3 - C-R15-1 - OUT-OF-RANGE SNAPSHOT DAYS ALTER OR POISON THE MONTH PROJECTION
+STATUS: FAIL
+CONTRACT_TRACE:
+- brief.md:222 requires explicit inclusive date-range projection for month/Site consumers.
+- brief.md:263 and T23-35 at 491 require T020 to consume the same canonical source-mode result.
+- frozen addendum:207-214 requires the same result to feed T020 and forbids consumers from reimplementing range/Site semantics.
+CODE_EVIDENCE:
+- schedule_export.py:351-368 selects records overlapping the month, but passes each complete snapshot to _winning_days without clipping snapshot days to days[0]..days[-1].
+- schedule_export.py:372-385 validates and decomposes every winning snapshot day. PRE_PLAN totals therefore include days from adjacent months, and an adjacent-month MISSING day fails the current-month export.
+AUDIT_EVIDENCE:
+- test_c_audit_pre_plan_decomposition_is_clipped_to_export_month[starts_in_previous_month]: printed March Urlop is 16h; canonical March projection is 40h.
+- test_c_audit_pre_plan_decomposition_is_clipped_to_export_month[ends_in_next_month]: printed March Urlop is 48h; canonical March projection is 24h.
+- test_c_audit_out_of_month_missing_reference_does_not_poison_month_projection[missing_before_month].
+- test_c_audit_out_of_month_missing_reference_does_not_poison_month_projection[missing_after_month].
+- Both MISSING probes raise ABSENCE_REFERENCE_INCOMPLETE for the adjacent month although the canonical in-range March projection is complete and equals 12h.
+CLOSURE_CONDITION:
+- Scope all T020 absence status checks, precedence and PRE_PLAN decomposition inputs to the requested export range before presentation arithmetic.
+- Retain regression coverage for leading/trailing month boundaries and for both BOUND-hour allocation and out-of-range MISSING status.
+
+SECTION_CHECK 4 - C-R15-2 - POST_PLAN NIGHT SHIFT IS PRINTED AS DAY PLAN
+STATUS: FAIL
+CONTRACT_TRACE:
+- frozen addendum:216-230 requires PLAN at the exact preserved period anchor with equal-hour U/C beneath it.
+- brief.md T23-40 at 502 explicitly requires POST_PLAN 12h D/N presentation on the exact anchored PLAN date.
+- brief.md:124 requires immutable bound assignment/demand interval provenance; PeriodFact already persists shift_kind for the T020 D/N presentation purpose.
+CODE_EVIDENCE:
+- schedule_export.py:341-349 calculates only Site duration and then calls _pair_values.
+- schedule_export.py:24 and 286-299 rank all D codes before N codes and do not consult day.periods[*].shift_kind. Equal 12h D and N references therefore both select D1.
+AUDIT_EVIDENCE:
+- test_c_audit_post_plan_preserves_bound_shift_family[day]: PASS (D1/C1).
+- test_c_audit_post_plan_preserves_bound_shift_family[night]: FAIL; bound N 18:00-06:00 is printed as D1/C1 instead of N1/C1.
+CLOSURE_CONDITION:
+- Derive the POST_PLAN PLAN family from the immutable bound period provenance rather than duration alone, while keeping equal-hour U/C and the start-date anchor.
+- Retain a parameterized D/N regression so a duration-only fix cannot collapse both families again.
+
+SECTION_CHECK 5 - C-R15-3 - BOUND EXTERNAL-SITE EMPLOYEE DISAPPEARS AFTER REPLAN
+STATUS: FAIL
+CONTRACT_TRACE:
+- brief.md:183-185 includes actual accepted external-site PRIMARY work in reference provenance.
+- brief.md:285-289 and frozen addendum:225-230 require POST_PLAN Site ownership to come from bound period provenance; membership multiplicity alone is not ambiguity.
+- The current frozen contract supersedes the old pre-T023 flat/global Site-attribution rule for POST_PLAN_REFERENCE; dormant EXTERNAL_SUPPORT still must not create a row or MISSING.
+CODE_EVIDENCE:
+- schedule_export.py:76-80 builds roster_ids only from enabled LOCAL memberships and Employees still present in CURRENT work cells.
+- schedule_export.py:351-368 reads absence records only for local_ids.
+- After absence-driven REPLAN removes the absent Employee's operational Assignment, an EXTERNAL_SUPPORT Employee with an immutable bound period for this Site is therefore absent from both sets and no PLAN/C row is emitted.
+AUDIT_EVIDENCE:
+- test_c_audit_bound_site_period_keeps_employee_in_site_export_after_replan[local]: PASS.
+- test_c_audit_bound_site_period_keeps_employee_in_site_export_after_replan[external_support]: FAIL; SITE-B export contains no Employee A row despite A's bound SITE-B period.
+CLOSURE_CONDITION:
+- Include Employees whose active POST_PLAN snapshot has a bound period owned by the printed Site in that Site's absence candidates/roster, independent of LOCAL versus EXTERNAL_SUPPORT membership and independent of CURRENT after REPLAN.
+- Retain LOCAL/EXTERNAL_SUPPORT sibling coverage and preserve the existing dormant-external/no-duplication guarantees.
+
+SECTION_CHECK 6 - GATE
+- C-R15-1: OPEN.
+- C-R15-2: OPEN.
+- C-R15-3: OPEN.
+- Checkpoint C: FAIL.
+- Required re-audit scope: only C-R15-1..C-R15-3 and their stated closure conditions, plus regression verification for the narrow fixes.
+
+ARCHITECTURE_PROPOSALS: NONE.
