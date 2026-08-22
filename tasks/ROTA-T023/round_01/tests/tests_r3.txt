@@ -1,0 +1,90 @@
+ROTA-T023 — CODEX PREIMPLEMENTATION AUDIT — ROUND 3
+AUDITED_HEAD: 7fbf2455b45a5372ec7b11c0426c5e4afd463998
+BASE: e05dfb7dd4463370bf8174db7ae58a9b984cf99e
+VERDICT: FAIL — CONTRACT FINDINGS / NOT READY FOR CC
+
+SECTION_CHECK 1 — OWNER INTENT: PASS
+- Jedna reguła: godziny nieobecności wynikają z przyjętego grafiku referencyjnego.
+- Brak nominalnych Assignmentów U/C i brak podwójnego coverage.
+- SICK_LEAVE oraz LEAVE_GRANTED korzystają z jednego rachunku; LEAVE_PLAN nie.
+- N 17:00–05:00 i legalne 24h należą w całości do daty rozpoczęcia.
+- PLAN/WYK, REALIZED, multi-Site, brak payroll/HR i jedna kanoniczna arytmetyka są zrozumiane poprawnie.
+
+SECTION_CHECK 2 — MINIMAL DURABLE PROVENANCE: PASS
+- Sam trwały snapshot nie jest zbędną architekturą.
+- CURRENT WORKING może być nadpisany in-place pod tym samym schedule_version_id, więc sam identyfikator wersji nie zachowa podstawy U/C.
+- Jedna tabela append-only oraz brak workflow engine/event bus/WorkBalance history mieszczą się w najmniejszym uzasadnionym change surface.
+
+SECTION_CHECK 3 — T023-R3-1 EXTERNAL SUPPORT CAPTURE: FAIL
+EVIDENCE:
+- tasks/ROTA-T023/brief.md:163 obejmuje każdy enabled Site membership „regardless of LOCAL/EXTERNAL_SUPPORT kind”.
+- arch/spec.md:178 WINDOW-03: pilot nie modeluje home-site HR, balances ani schedule X/Y.
+- Owner wymaga sumowania faktycznych referencyjnych zmian między Site, nie uznania samego EXTERNAL_SUPPORT membership za wymagany Site grafiku.
+IMPACT:
+- Puste/nieaktywne wsparcie zewnętrzne może wytworzyć MISSING i zablokować poprawny lokalny PLAN/WorkBalance/PDF.
+- To nowa logika produktu i rozszerzenie odpowiedzialności, nie konieczna konsekwencja owner briefu.
+REQUIRED CONTRACT CORRECTION:
+- Capture scope musi być wywiedziony z istniejącego kontraktu operational schedule, bez modelowania nieistniejącego home-site schedule EXTERNAL_SUPPORT.
+
+SECTION_CHECK 4 — T023-R3-2 WEEKLY COORDINATOR TOTAL: FAIL
+EVIDENCE:
+- arch/T023_absence_hours_architect_brief.md: product boundary wymaga coordinator-facing weekly/monthly/quarterly totals.
+- Kontrakt definiuje WorkBalance monthly, AnalyticsMonthData i quarter reads; brak weekly read/output oraz testu tygodniowego.
+IMPACT:
+- Jeden jawny element owner scope zniknął z kontraktu.
+REQUIRED CONTRACT CORRECTION:
+- Jawnie objąć istniejący tygodniowy consumer, albo jawnie wykazać, że kanoniczny API już dostarcza tygodniowy wynik i dodać oracle. Nie projektować nowej analityki bez potrzeby.
+
+SECTION_CHECK 5 — T023-R3-3 PERMANENT MISSING STATE: WYMAGA_DECYZJI
+EVIDENCE:
+- Addendum:79 i brief:83 zabraniają backfillu; legacy absence bez snapshotu fail-closed.
+- brief:174 oraz T23-08 zamrażają pełny miesiąc i zachowują go w tej samej Availability chain.
+- No CURRENT schedule przy append daje MISSING (brief:188).
+IMPACT:
+- Nieobecność wpisana przed pierwszym przyjętym grafikiem może pozostać MISSING również po powstaniu grafiku; kontrakt nie wskazuje dozwolonej ścieżki odzyskania.
+- To może utworzyć trwałą blokadę PLAN/WorkBalance/PDF. Fail-closed jest decyzją właściciela; trwała nierozwiązywalność nie jest.
+REQUIRED DECISION:
+- Kontrakt musi wskazać istniejącą, audytowalną operację koordynatora zamykającą MISSING albo jawnie uzyskać zgodę właściciela na trwałą blokadę. Codex nie wybiera mechanizmu.
+
+SECTION_CHECK 6 — T023-R3-4 TRAINEE AS GLOBAL AMBIGUITY: WYMAGA_DECYZJI
+EVIDENCE:
+- brief:202 / T23-22: dowolny effective TRAINEE czyni dzień AMBIGUOUS.
+- Owner input nie ustanawia tej reguły; obecny WorkBalance nie zalicza TRAINEE do godzin PRIMARY.
+IMPACT:
+- Sam udział w szkoleniu może zablokować rachunek nieobecności, solver TARGET, analitykę i PDF.
+- Jest to nowa semantyka produktu, a nie mechaniczna konsekwencja snapshotu.
+REQUIRED DECISION:
+- Architekt musi wskazać źródło tej reguły albo przekazać ją właścicielowi do jawnej decyzji. Nie może zostać zamrożona jako domysł.
+
+SECTION_CHECK 7 — T023-R3-5 REALIZED CONFLICT SCOPE: WYMAGA_DECYZJI
+EVIDENCE:
+- Owner input wymaga: REALIZED pozostaje WYK, konflikt jest widoczny.
+- Addendum:125 / brief:377 rozszerza to do niedostępności liczbowego absence accounting dla całego konfliktowego scope.
+IMPACT:
+- Widoczny konflikt staje się blokadą WorkBalance/analytics/solver/PDF; owner tego skutku nie zatwierdził.
+REQUIRED DECISION:
+- Zachować dwa zatwierdzone fakty (REALIZED bez zmian + widoczny konflikt). Zakres blokady liczbowej wymaga osobnej decyzji właściciela.
+
+SECTION_CHECK 8 — T023-R3-6 DUPLICATED PLANNING VALIDATION RISK: FAIL
+EVIDENCE:
+- Addendum §3 wymaga ponownej oceny kompletności coverage, Assignment/Demand provenance i struktury 24h przy capture.
+- Canonical owners tych invariantów są w planning validator/work_periods/schedule validation, które brief §15 wyłącza z TASK_SCOPE.
+- Nowy persistence repository ma sam rozstrzygać te same klasy poprawności bez wskazanego, istniejącego wyniku/adopted proof do użycia.
+IMPACT:
+- Kontrakt wymusza drugi zestaw reguł coverage/24h w persistence; może dryfować względem solvera i validatora.
+REQUIRED CONTRACT CORRECTION:
+- Określić istniejący kanoniczny dowód/read model, któremu capture ufa, albo legalnie objąć współdzielenie istniejącego predykatu. Nie wymagać niezależnej reimplementacji validatora w repozytorium.
+
+SECTION_CHECK 9 — DELIVERY MECHANICS: PASS WITH CORRECTION
+- Commit nie zmienia kodu ani testów.
+- Deklaracja „dodałem wyłącznie addendum” jest nieścisła: commit dodaje addendum i tasks/ROTA-T023/brief.md (2 pliki, 972 linie).
+- To nie jest finding produktowy, ale następne delivery musi podawać rzeczywisty diff.
+
+SECTION_CHECK 10 — READINESS
+- Core accounting direction: poprawna.
+- Architektura trwałego snapshotu: uzasadniona.
+- Kontrakt zawiera 3 materialne nieautoryzowane decyzje/gapy (R3-1, R3-4, R3-5), brak weekly scope (R3-2), nierozwiązany lifecycle MISSING (R3-3) i ryzyko duplikacji walidatora (R3-6).
+- CC NIE powinien implementować na HEAD 7fbf2455….
+- Następna runda ma być wąska: wyłącznie R3-1…R3-6. Nie otwierać ponownie sekcji 1–2.
+
+TESTS: NOT RUN — contract/impact audit; repository inspected read-only.
