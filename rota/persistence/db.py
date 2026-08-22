@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 7
+LATEST_SCHEMA_VERSION = 8
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -460,6 +460,29 @@ _MIGRATION_7: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 8 -- ROTA-T023: durable absence-reference provenance. One
+# append-only row per AvailabilityVersion that actually requires captured
+# reference facts (active SICK_LEAVE/LEAVE_GRANTED writes only -- see
+# rota/persistence/absence_reference_repository.py). No current pointer, no
+# WorkBalance history table, no second Assignment table, no second ledger.
+# ---------------------------------------------------------------------------
+_MIGRATION_8: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS absence_reference_snapshots (
+        availability_version_id TEXT PRIMARY KEY REFERENCES availability_versions(availability_version_id),
+        captured_at TEXT NOT NULL,
+        reference_status TEXT NOT NULL CHECK (reference_status IN ('BOUND', 'MISSING', 'AMBIGUOUS')),
+        snapshot_json TEXT NOT NULL
+    )""",
+    """CREATE TRIGGER IF NOT EXISTS absence_reference_snapshots_no_update
+       BEFORE UPDATE ON absence_reference_snapshots
+       BEGIN SELECT RAISE(ABORT, 'absence_reference_snapshots is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS absence_reference_snapshots_no_delete
+       BEFORE DELETE ON absence_reference_snapshots
+       BEGIN SELECT RAISE(ABORT, 'absence_reference_snapshots is append-only: DELETE forbidden'); END""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -468,6 +491,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (5, _MIGRATION_5),
     (6, _MIGRATION_6),
     (7, _MIGRATION_7),
+    (8, _MIGRATION_8),
 )
 
 

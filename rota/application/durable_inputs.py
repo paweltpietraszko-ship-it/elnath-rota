@@ -25,6 +25,7 @@ from rota.domain import (
     SiteProfile,
 )
 from rota.persistence import site_memory
+from rota.persistence.absence_reference_repository import capture_and_check_in_open_transaction
 from rota.persistence.availability_repository import append_availability_version_in_open_transaction, get_availability_history
 from rota.persistence.calendar_repository import get_calendar_day, write_calendar_day_in_open_transaction
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
@@ -163,6 +164,14 @@ def append_availability(
         "supersedes_availability_version_id": before.supersedes_availability_version_id, "note": before.note,
     }
     normalized_note = _normalize_note(note)
+    # ROTA-T023: coverage of the immediately-previous version in this SAME
+    # chain, only when it was itself active and of the same kind -- passed
+    # to the R5-2 retroactivity guard as "already-covered" (extension/
+    # correction), never blanket-empty, so extending an existing leave/sick
+    # range only rejects on genuinely NEWLY introduced coverage.
+    previous_active_range = (
+        (before.start_date, before.end_date) if before is not None and before.active and before.kind == kind else None
+    )
     with conn:
         site_memory.validate_decision_required_link_no_commit(
             conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
@@ -170,6 +179,11 @@ def append_availability(
         record = append_availability_version_in_open_transaction(
             conn, availability_id=availability_id, employee_id=employee_id, kind=kind,
             start_date=start_date, end_date=end_date, active=active, note=normalized_note,
+        )
+        capture_and_check_in_open_transaction(
+            conn, availability_version_id=record.availability_version_id, employee_id=employee_id, kind=kind,
+            start_date=start_date, end_date=end_date, active=active, recorded_at=recorded_at,
+            previous_active_range=previous_active_range,
         )
         after_state = {
             "availability_id": record.availability_id, "availability_version_id": record.availability_version_id,

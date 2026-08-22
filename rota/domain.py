@@ -298,6 +298,11 @@ class WorkBalance:
     month_balance: int
     unresolved_carryover: int
     quarter_balance: int
+    # ROTA-T023: canonical absence hours for this employee/month (source-mode
+    # aware, see rota/planning/absence.py) -- appended for positional
+    # compatibility, not persisted directly (WorkBalance itself has no
+    # storage table; this is a computed/composed field like the others).
+    absence_hours: int = 0
 
 
 @dataclass

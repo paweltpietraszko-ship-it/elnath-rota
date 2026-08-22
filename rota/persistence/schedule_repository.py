@@ -226,6 +226,51 @@ def list_months_with_assignments(conn: sqlite3.Connection, site_id: str) -> list
     return [date.fromisoformat(row[0]) for row in rows]
 
 
+class InvalidScheduleVersionLineage(Exception):
+    """Raised by reconstruct_lineage on a cyclic chain, a missing parent, a
+    site/month context mismatch, or a version lacking effective_from."""
+
+
+def reconstruct_lineage(conn: sqlite3.Connection, site_id: str, month: date) -> list[ScheduleVersion]:
+    """ROTA-T023 (brief.md section 3.3 / frozen addendum section 3): walk
+    CURRENT for (site_id, month) toward the root via parent_version_id,
+    oldest first. Fails closed (InvalidScheduleVersionLineage) on a cycle, a
+    missing parent, a site/month mismatch, or a version with no real
+    effective_from -- callers must not use such a version as accepted-plan
+    provenance.
+
+    Shares its walking rule with `rota.application.schedule_export.
+    _reconstruct_lineage` (T020), which predates this shared helper and
+    still has its own copy for its own ExportProblemError shape; T023 does
+    not touch schedule_export.py (out of Checkpoint A scope) and does not
+    duplicate its lineage-walk decisions -- only reuses the same rule
+    against this module's own exception type."""
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        return []
+    chain: list[ScheduleVersion] = []
+    seen: set[str] = set()
+    version_id: Optional[str] = current_id
+    while version_id is not None:
+        if version_id in seen:
+            raise InvalidScheduleVersionLineage(f"cyclic ScheduleVersion lineage at {version_id!r}")
+        seen.add(version_id)
+        try:
+            header = get_schedule_version_header(conn, version_id)
+        except ScheduleVersionNotFound as exc:
+            raise InvalidScheduleVersionLineage(f"missing lineage version {version_id!r}") from exc
+        if header.site_id != site_id or header.month != month:
+            raise InvalidScheduleVersionLineage(
+                f"{version_id!r} does not belong to ({site_id}, {month})"
+            )
+        if header.effective_from is None:
+            raise InvalidScheduleVersionLineage(f"{version_id!r} has no effective_from")
+        chain.append(header)
+        version_id = header.parent_version_id
+    chain.reverse()
+    return chain
+
+
 def get_current_realized_primary_on_holidays(conn: sqlite3.Connection, site_id: str) -> list[Assignment]:
     """ROTA-T008 HOLIDAY HISTORY SUPPORT (R1-4 clarification): CURRENT
     ScheduleVersions only, Assignment.state == REALIZED only,

@@ -69,9 +69,16 @@ def _not_cancelled(assignments) -> list[Assignment]:
     return [a for a in assignments if a.state != AssignmentState.CANCELLED]
 
 
-def _coverage_segments(demand_start, demand_end, overlapping: list[tuple]) -> list[tuple]:
-    """Sweep-line over [demand_start, demand_end): each resulting sub-segment has one well-defined coverage count."""
-    points = sorted({demand_start, demand_end, *(p for iv in overlapping for p in iv)})
+def coverage_segments(window_start, window_end, overlapping: list[tuple]) -> list[tuple]:
+    """Sweep-line over [window_start, window_end): each resulting sub-segment
+    has one well-defined coverage count -- how many of `overlapping`
+    intervals fully contain it. Pure, general-purpose; the single shared
+    coverage-overlap algorithm (R3-6, ROTA-T023 tests/test_t023.py T23-55):
+    COVERAGE-01 below uses it for ShiftDemand-vs-PRIMARY-count coverage, the
+    absence-reference repository module reuses it unchanged for
+    per-employee-per-date PRIMARY overlap/ambiguity detection. Do not
+    reimplement this sweep anywhere else -- import and call this."""
+    points = sorted({window_start, window_end, *(p for iv in overlapping for p in iv)})
     segments = []
     for a, b in zip(points, points[1:]):
         if a >= b:
@@ -102,7 +109,7 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], details
             for a in primary
             if a.start_datetime < demand.end_datetime and a.end_datetime > demand.start_datetime
         ]
-        segments = _coverage_segments(demand.start_datetime, demand.end_datetime, overlapping)
+        segments = coverage_segments(demand.start_datetime, demand.end_datetime, overlapping)
         bad_segments = [s for s in segments if s[2] != demand.required_primary_count]
         if bad_segments:
             details.append(_coverage_violation_detail(demand, bad_segments))

@@ -74,14 +74,14 @@ def _grant_leave(conn, employee_id, *, start, end, kind=AvailabilityKind.LEAVE_G
 # --- T20-01: migration ------------------------------------------------------
 def test_t20_01_fresh_db_migrates_to_schema_7():
     conn = connect(":memory:")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 7
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 8
     conn.execute("SELECT site_id, company_print_name, base_regime FROM site_print_settings")
 def test_t20_01b_schema_6_migrates_without_rewriting_history():
     conn = connect(":memory:")
     conn.execute("PRAGMA user_version = 6")
     _seed(conn)
     migrate(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION
     assert get_site_print_settings(conn, "SITE-1") is None
 
 

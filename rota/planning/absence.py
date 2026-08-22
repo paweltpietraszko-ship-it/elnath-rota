@@ -25,6 +25,7 @@ answered yes to (rota/balance.py uses both kinds).
 from __future__ import annotations
 
 import calendar
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
@@ -107,6 +108,77 @@ def excused_absence_days_in_month(
         employee_id: sum(1 for d in dates if d.isoweekday() <= 5 and not holiday_by_date[d])
         for employee_id, dates in dates_by_employee.items()
     }
+
+
+
+# ---------------------------------------------------------------------------
+# ROTA-T023: canonical POST_PLAN_REFERENCE/PRE_PLAN_LEAVE accounting owner
+# (frozen addendum section 13 / brief.md section 8/12). Pure/persistence-
+# free: callers (the new absence-reference repository module, and from
+# Checkpoint B onward rota.balance/rota.planning.solver) decode persisted
+# absence_reference_snapshots rows into DailyAbsenceFact themselves -- this
+# module imports nothing from the persistence layer (that would be a
+# layering cycle, since the repository module already imports
+# rota.planning.validator/work_periods).
+#
+# Deliberately NOT wired into rota.balance / rota.planning.solver /
+# rota.application.schedule_export yet -- those are Checkpoint B/C's own
+# allowed-file scope (brief.md section 16). The flat EXCUSED_ABSENCE_*
+# functions above stay exactly as they are for those consumers until that
+# checkpoint switches them over (section 18's deliberate supersession).
+# ---------------------------------------------------------------------------
+
+
+class IncompleteAbsenceReferenceError(Exception):
+    """T023 frozen addendum section 4: a POST_PLAN_REFERENCE date whose
+    winning DailyAbsenceFact is MISSING or AMBIGUOUS. Canonical hours must
+    fail closed here -- never guessed as 0/8/12/24."""
+
+
+@dataclass(frozen=True)
+class DailyAbsenceFact:
+    """Pure shape a caller decodes one persisted DayReference into (see the
+    absence-reference repository module's DayReference) -- same fields, no
+    persistence import."""
+
+    the_date: date
+    kind: AvailabilityKind  # SICK_LEAVE | LEAVE_GRANTED
+    source_mode: str  # "PRE_PLAN_LEAVE" | "POST_PLAN_REFERENCE"
+    status: str  # "BOUND" | "MISSING" | "AMBIGUOUS"
+    hours: Optional[int]  # None when status != "BOUND"
+
+
+def canonical_daily_hours(facts: list[DailyAbsenceFact]) -> dict[date, int]:
+    """Collapses possibly-multiple DailyAbsenceFact entries for the same
+    date (an Employee can in principle carry more than one active
+    SICK_LEAVE/LEAVE_GRANTED family) into one canonical per-date hour
+    total. SICK_LEAVE wins over LEAVE_GRANTED on the same date -- counted
+    once, never doubled (frozen addendum section 4 "SICK wins overlap with
+    LEAVE_GRANTED; count once and present C"). Raises
+    IncompleteAbsenceReferenceError if the winning fact for any date is not
+    BOUND -- never guesses 0/8/12/24."""
+    winner_by_date: dict[date, DailyAbsenceFact] = {}
+    for fact in facts:
+        existing = winner_by_date.get(fact.the_date)
+        if existing is None or (fact.kind == AvailabilityKind.SICK_LEAVE and existing.kind != AvailabilityKind.SICK_LEAVE):
+            winner_by_date[fact.the_date] = fact
+    hours: dict[date, int] = {}
+    for the_date, fact in winner_by_date.items():
+        if fact.status != "BOUND":
+            raise IncompleteAbsenceReferenceError(
+                f"{the_date}: {fact.status} accepted reference for {fact.kind.value} ({fact.source_mode})"
+            )
+        hours[the_date] = fact.hours or 0
+    return hours
+
+
+def canonical_hours_in_range(facts: list[DailyAbsenceFact], range_start: date, range_end: date) -> int:
+    """Frozen addendum section 12 / brief.md section 8: the canonical API
+    accepts an explicit inclusive date range and returns the same canonical
+    result for any caller-supplied window (seven-day/month/quarter alike) --
+    no separate weekly convention, no persisted weekly row."""
+    in_range = [f for f in facts if range_start <= f.the_date <= range_end]
+    return sum(canonical_daily_hours(in_range).values())
 
 
 if __name__ == "__main__":
