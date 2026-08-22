@@ -1,0 +1,44 @@
+ROTA-T023 — CHECKPOINT A NARROW IMPLEMENTATION REAUDIT — ROUND 9
+AUDITED_HEAD: c3ac92b780b9072c7f1ea1c84e41e5a1b4d55478
+IMPLEMENTATION_SHA: cf355ab3a98991356c98627dd9fd61d41890f501
+VERDICT: FAIL — A-R8-1/A-R8-2 CLOSED ONLY FOR ORIGINAL REPRODUCERS / CHECKPOINT B BLOCKED
+
+SECTION_CHECK 1 — RETAINED EVIDENCE
+- Round 7 matrix: 8/8 PASS.
+- Round 8 matrix: 2/2 PASS.
+- Existing repository suite: 978/978 PASS.
+- Authorized T011 fixture adaptation: exact test only; tested Availability-history assertions unchanged.
+- Accepted SIZE_FILE exceptions: not reopened.
+
+SECTION_CHECK 2 — A-R9-1 PRE_PLAN MONTH CALENDAR COMPLETENESS: FAIL
+TRACE:
+- T023 brief §9 preserves the previously approved PRE_PLAN weekday/holiday behavior.
+- FROZEN_ADDENDUM_ABSENCE_WORKDAY_ACCOUNTING_01 §4 requires complete CalendarDay for every day of an affected month and fail-closed on missing/partial calendar.
+EVIDENCE:
+- _pre_plan_holiday_map calls workday_holiday_map with the Availability start/end dates, not month boundaries.
+- A complete five-day leave range with the rest of March missing is accepted, although the inherited contract requires complete March CalendarDay.
+REPRODUCER:
+- test_t023_round9_audit.py::test_r9_pre_plan_leave_requires_complete_month_calendar.
+CLASS CLOSURE:
+- Validate every touched calendar month, including cross-month leave; retain range-only hour counting after calendar completeness succeeds.
+
+SECTION_CHECK 3 — A-R9-2 RESTORED-AWAY EXTERNAL WORK ENTERS SCOPE: FAIL
+TRACE:
+- T023 brief §7.1 permits external Site scope only from actual PRIMARY work in accepted effective schedule facts.
+- Acceptance proof alone is insufficient: §3.3 resolves accepted versions through the CURRENT lineage, and restore/current movement is contractual behavior.
+EVIDENCE:
+- _work_derived_sites_by_month selects assignments from every version named by any candidate-selected action.
+- It does not restrict those versions to the Site/month CURRENT lineage/effective version.
+- After restoring SITE-B from an accepted work child to its accepted empty parent, the removed child still adds SITE-B to a new Employee reference scope.
+REPRODUCER:
+- test_t023_round9_audit.py::test_r9_restored_away_external_work_is_not_effective_reference_work.
+CLASS CLOSURE:
+- Derive external work-added scope from accepted versions that are applicable in the current lineage for the affected date/month; cover restore and superseded accepted descendants.
+
+SECTION_CHECK 4 — GATE
+- Checkpoint A: FAIL.
+- Checkpoint B: BLOCKED.
+- Next re-audit: A-R9-1/A-R9-2 only; retain 8 Round 7 + 2 Round 8 + 2 Round 9 probes.
+- No product redesign or new architecture requested.
+
+ARCHITECTURE_PROPOSALS: NONE.
