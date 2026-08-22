@@ -537,6 +537,7 @@ def test_t23_24_actual_accepted_schedules_on_two_sites_global_once(tmp_path) -> 
 def test_t23_25_site_projection_contains_only_that_sites_periods(tmp_path) -> None:
     conn = _setup_two_sites(tmp_path)
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 13, 0), version_id="SV-A", site_id="SITE-A")
+    _accept_version(conn, version_id="SV-B", pairs=[], effective_from=date(2027, 3, 1), accepted_at=datetime(2020, 3, 1, 8, 0), site_id="SITE-B")
     record = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), site_id="SITE-A")
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert len([p for p in snapshot.days[0].periods if p.site_id == "SITE-A"]) == 1
