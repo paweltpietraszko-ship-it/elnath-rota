@@ -1,0 +1,84 @@
+ROTA-T023 — CHECKPOINT A IMPLEMENTATION AUDIT — ROUND 7
+AUDITED_PRODUCT_SHA: f92c8b7ad807cea208b0ffcc49a9fa115ed4fbfc
+DELIVERY_HEAD: f2e473978d370fcc38fd79bfa29dc9caf298aec7
+CONTRACT_SHA: 0e3ffae3d6d751259783056667295e2cc8b4243c
+VERDICT: FAIL — CHECKPOINT A CONTRACT NOT CLOSED / CHECKPOINT B BLOCKED
+
+SECTION_CHECK 1 — BASELINE / MECHANICS
+- Existing suite: 978/978 PASS.
+- git diff --check: PASS.
+- Owner accepted test-file line overages.
+- backend_output.txt correctly identifies product SHA f92c8b7; f2e4739 adds only backend output.
+- origin/task/ROTA-T023 was still 50f43fc at audit start; f92c8b7/f2e4739 existed only locally.
+
+SECTION_CHECK 2 — INDEPENDENT MATRIX
+- File: tasks/ROTA-T023/round_01/tests/test_t023_checkpoint_a_audit.py
+- Result: 1/8 PASS, 7/8 FAIL.
+- PASS: real forced snapshot-insert failure rolls back AvailabilityVersion/snapshot/action atomically.
+
+SECTION_CHECK 3 — A-R7-1 PRE_PLAN 40H ORACLE IS VACUOUS: FAIL
+TRACE: owner timing decision §2; brief T23-PRE-01.
+EVIDENCE:
+- absence_reference_repository._resolve_day stores every PRE_PLAN_LEAVE day as BOUND hours=0.
+- planning.absence.canonical_hours_in_range therefore returns 0 for Mon-Fri 2027-03-08..12, not 40.
+- tests/test_t023.py::test_t23_pre_01... asserts only len(days)==5; despite its name/docstring it never asserts the canonical total.
+REPRODUCER: test_a1_pre_plan_owner_example_is_really_40_hours.
+
+SECTION_CHECK 4 — A-R7-2 SAME-CHAIN BOUND FACTS ARE RECAPTURED: FAIL
+TRACE: brief T23-08; immutable predecessor blocks.
+EVIDENCE:
+- previous_active_range is used only by retroactivity checking.
+- capture_reference always rebuilds every day from current schedule facts; it never reads the predecessor snapshot.
+- After CURRENT in-place replacement, extending the same chain changes old day from 12h/A to 0h.
+REPRODUCER: test_a2_same_chain_extension_keeps_predecessor_bound_day_after_current_mutation.
+
+SECTION_CHECK 5 — A-R7-3 OVERLAPPING CHAINS LOSE ORIGINAL REFERENCE: FAIL
+TRACE: brief T23-09; later SICK must reuse compatible pre-leave facts after leave-driven REPLAN.
+EVIDENCE:
+- capture_reference never loads snapshots of other active overlapping SICK/LEAVE chains.
+- Existing test T23-09 records leave and sickness without intervening schedule mutation, so it cannot expose the class.
+- After replacement CURRENT removes A, later SICK captures 0h instead of original 12h/A.
+REPRODUCER: test_a3_new_sick_chain_reuses_pre_replan_leave_reference.
+
+SECTION_CHECK 6 — A-R7-4 BROKEN LINEAGE BECOMES PRE_PLAN: FAIL
+TRACE: brief §3.3 steps 1-3; cycle/missing-parent/context/effective_from must fail closed.
+EVIDENCE:
+- _accepted_version_for catches InvalidScheduleVersionLineage and replaces it with an empty lineage.
+- LEAVE_GRANTED then routes to PRE_PLAN_LEAVE BOUND instead of surfacing invalid accepted provenance.
+REPRODUCER: test_a4_broken_accepted_lineage_is_not_downgraded_to_pre_plan_leave.
+
+SECTION_CHECK 7 — A-R7-5 REQUIRED LOCAL SITE IS SILENTLY OMITTED: FAIL
+TRACE: frozen addendum §7; enabled LOCAL Site belongs to reference scope; missing required POST_PLAN provenance fails closed.
+EVIDENCE:
+- capture_reference builds site_versions only from successfully resolved Sites.
+- _resolve_day receives no record of required Sites that failed resolution.
+- With accepted Site A and unselected/missing Site B, SICK result is BOUND 12h instead of MISSING.
+REPRODUCER: test_a5_missing_required_local_site_is_not_silently_ignored.
+
+SECTION_CHECK 8 — A-R7-6 EXTERNAL SITE SCOPE IS NOT DATE/ACCEPTANCE SCOPED: FAIL
+TRACE: R3-1 closure; only actual external-site PRIMARY in accepted effective facts being captured may enter scope.
+EVIDENCE:
+- _reference_site_scope selects every CURRENT non-CANCELLED PRIMARY for the Employee, without absence month/date or accepted-action filtering.
+- An unrelated January external assignment adds SITE-B to a March reference scope.
+REPRODUCER: test_a6_unrelated_old_external_work_does_not_expand_march_reference_scope.
+
+SECTION_CHECK 9 — A-R7-7 SNAPSHOT OMITS REQUIRED IMMUTABLE PROVENANCE: FAIL
+TRACE: brief §4.1 deterministic JSON minimum; Checkpoint C must render from bound facts after source snapshot mutation.
+EVIDENCE:
+- PeriodFact/JSON stores ids, Site, work_period_id and interval only.
+- It omits persisted ShiftDemand shift_kind/catalog_kind/required_rest_hours/work_period_template_id/work_period_component.
+- T020 cannot later distinguish/freeze D/N/normal-24 provenance from the immutable snapshot without consulting mutable current data.
+REPRODUCER: test_a7_snapshot_freezes_demand_and_work_period_component_provenance.
+
+SECTION_CHECK 10 — TEST QUALITY FINDING
+- Existing T23-03 is named forced snapshot failure but actually supplies end_date < start_date; failure occurs in Availability validation before snapshot insertion.
+- Independent test_a8 performs a real post-Availability snapshot-insert failure and passes, proving product atomic rollback despite the original oracle gap.
+- Existing T23-08 and T23-09 lack the intervening CURRENT mutation required by their own invariance claims.
+
+SECTION_CHECK 11 — GATE
+- Checkpoint A: FAIL.
+- Checkpoint B: BLOCKED.
+- Required re-audit scope: A-R7-1...A-R7-7 only, with all eight independent tests retained.
+- No architecture redesign requested; findings trace directly to current T023 contract.
+
+ARCHITECTURE_PROPOSALS: NONE.
