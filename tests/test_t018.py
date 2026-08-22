@@ -183,9 +183,14 @@ def test_a7_8_incomplete_calendar_with_qualifying_absence_fails_closed():
 # A7.9 -----------------------------------------------------------------------
 
 
-def test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical_error():
-    # Two employees so demand coverage is still reachable (no unassignable
-    # short-circuit before the objective, where the calendar is consumed).
+def test_a7_9_direct_plan_no_longer_calendar_gated_for_sick_absence():
+    """ROTA-T026 supersedes the old oracle here: direct plan() must not
+    become TECHNICAL_ERROR merely because raw CalendarDay data cannot
+    support the retired flat-8 recount -- absence-hour TARGET accounting is
+    authoritative via PlanningState.work_balances, and CalendarDay is no
+    longer consulted for SICK_LEAVE hours at all (frozen addendum section 2:
+    SICK_LEAVE has no PRE_PLAN path). Two employees so demand coverage is
+    still reachable; A stays HARD unavailable regardless (T26-03)."""
     demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
     employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
     employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
@@ -195,7 +200,8 @@ def test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical
         shift_demands=(demand,), availability_records=(sick,),
     )
     result = plan(state)
-    assert result.status == "TECHNICAL_ERROR"
+    assert result.status == "FEASIBLE"
+    assert result.candidates[0][0].employee_id == "B"
 
 
 # A7.10 ----------------------------------------------------------------------

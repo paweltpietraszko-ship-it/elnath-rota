@@ -25,8 +25,7 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 """
 from __future__ import annotations
 
-from rota.domain import Assignment, AssignmentState, AvailabilityKind
-from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
+from rota.domain import Assignment, AssignmentState
 from rota.planning.decision_guidance import build_decision_payload
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
@@ -59,8 +58,6 @@ def plan(state: PlanningState) -> PlanningResult:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
     except UnsupportedOrMalformedSiteRule as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
-    except IncompleteAbsenceCalendarError as exc:
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"calendar error: {exc}", [])
 
 
 def _plan(state: PlanningState) -> PlanningResult:
@@ -68,15 +65,6 @@ def _plan(state: PlanningState) -> PlanningResult:
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
     validate_executable_site_rules(state.site_rules)
-    # T018 A-R4-1: validate calendar completeness eagerly, before solve() --
-    # a pre-model shortage (NO_ELIGIBLE_EMPLOYEE) never reaches
-    # _sick_adjusted_targets(), so relying on that call alone let an
-    # incomplete calendar slip through as DECISION_REQUIRED instead of the
-    # required TECHNICAL_ERROR.
-    excused_absence_days_in_month(
-        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
-        calendar_days=state.calendar_days,
-    )
     # T018 B6/DAY-ONLY-N-FALLBACK-01: literal 4-stage retry order (see
     # module docstring). A capped stage's candidate is always terminal;
     # only a proven INFEASIBLE or a pre-model coverage shortage advances to

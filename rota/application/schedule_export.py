@@ -20,6 +20,7 @@ from rota.persistence import calendar_repository, employee_repository, schedule_
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
+from rota.planning.absence import DetailedAbsencePeriodFact, DetailedDailyAbsenceFact, IncompleteAbsenceReferenceError, canonical_site_absence_days
 from rota.planning.work_periods import PeriodComponent, group_into_periods
 PLAN_PRIORITY = ("D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5")
 BLANK = "–"
@@ -117,13 +118,13 @@ def _version_for_date(lineage: list, target: date) -> Optional[str]:
             selected = header.version_id
     return selected
 def _provenance_text(lineage: list, adjacent_facts: list) -> str:
-    """Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3)."""
+    # Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3).
     ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
     digest = hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
     return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
 # Real work cells (Section 10)
 def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
-    """Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2)."""
+    # Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2).
     other_month = date(target_day.year, target_day.month, 1)
     if schedule_repository.get_current_version_id(conn, site_id, other_month) is None:
         return []
@@ -152,12 +153,11 @@ def _validate_item(a, demand) -> None:
     if demand.catalog_kind == ShiftCatalogKind.OTHER:
         raise ExportProblemError("UNSUPPORTED_SHIFT_KIND", f"{a.assignment_id} covers an INNY demand")
 def _ckey(a) -> str:
-    """Assignment identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)."""
-    return f"{a.schedule_version_id}::{a.assignment_id}"
+    return f"{a.schedule_version_id}::{a.assignment_id}"  # identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)
 def _component(a) -> PeriodComponent:
     return PeriodComponent(_ckey(a), a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
 def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
-    """raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance."""
+    # raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance.
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
     demand_by_assignment: dict = {}; assignment_by_id: dict = {}; seen_employee_ids: set[str] = set()  # noqa: E702
@@ -190,8 +190,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
                     boundary_items.append((a, demand, a.schedule_version_id, None))
     for boundary_day in boundary_days:  # or it may live in a genuinely different month's own ScheduleVersion
         boundary_items.extend(_adjacent_day_items(conn, site_id, boundary_day))
-    boundary_ids: set[str] = set()
-    adjacent_versions: dict = {}
+    boundary_ids: set[str] = set(); adjacent_versions: dict = {}  # noqa: E702
     for a, demand, version_id, effective_from in boundary_items:
         if a.work_period_id is None or _ckey(a) in demand_by_assignment:
             continue
@@ -200,7 +199,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
         components.append(_component(a))
     return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions
 def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
-    """R5 Amendment Section 4.2 -- unchanged, still owned/re-derived by T020."""
+    # R5 Amendment Section 4.2 -- unchanged, still owned/re-derived by T020.
     if total_hours != 24 or d0.catalog_kind != ShiftCatalogKind.H24 or d1.catalog_kind != ShiftCatalogKind.H24:
         return False
     if d0.shift_kind is None or d0.shift_kind == d1.shift_kind:
@@ -212,11 +211,10 @@ def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
     hours0, hours1 = (d0.end_datetime - d0.start_datetime).total_seconds() / 3600, (d1.end_datetime - d1.start_datetime).total_seconds() / 3600
     return hours0 == 12 and hours1 == 12
 def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> Optional[str]:
-    """'normal' (R5 4.2, re-derived) or 'linked' (cross-boundary pair -- trusts persisted (employee_id, work_period_id) only, per R6 Linkage Narrowing). None -> caller fails closed if asserted."""
+    # 'normal' (R5 4.2, re-derived) or 'linked' (cross-boundary pair -- trusts persisted (employee_id, work_period_id) only, per R6 Linkage Narrowing). None -> caller fails closed if asserted.
     if len(period.component_ids) != 2:
         return None
-    d0 = demand_by_assignment.get(period.component_ids[0])
-    d1 = demand_by_assignment.get(period.component_ids[1])
+    d0, d1 = demand_by_assignment.get(period.component_ids[0]), demand_by_assignment.get(period.component_ids[1])
     if d0 is None or d1 is None:
         return None
     total_hours = (period.end - period.start).total_seconds() / 3600
@@ -228,9 +226,7 @@ def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> O
     return None
 def _apply_24h_periods(collected, settings, days: list[date]):
     raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions = collected
-    work_cells: dict[str, dict[date, str]] = {}
-    consumed: set[str] = set()
-    adjacent_facts: list[tuple] = []
+    work_cells: dict[str, dict[date, str]] = {}; consumed: set[str] = set(); adjacent_facts: list[tuple] = []  # noqa: E702
     for period in group_into_periods(components):
         if len(period.component_ids) < 2:
             continue
@@ -319,40 +315,41 @@ def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list
     pairs += [(d, f"{letter}~", f"{letter}~") for d in span if d not in symbol_dates]
     return pairs
 def _decompose_pre_plan(employee_id, pre_plan_days, settings) -> list[tuple]:
-    span, qualifying = [d for d, _ in pre_plan_days], [(d, day.hours) for d, day in pre_plan_days if day.hours]
+    span, qualifying = [d for d, _ in pre_plan_days], [(d, day.canonical_hours) for d, day in pre_plan_days if day.canonical_hours]
     return _decompose(employee_id, "U", span, [d for d, _ in qualifying], sum(h for _, h in qualifying), settings)
-def _winning_days(snapshots, month_start: date, month_end: date) -> dict[date, tuple]:
-    winner: dict[date, tuple] = {}  # SICK wins over LEAVE_GRANTED same-date, count once, present C (frozen addendum sec.4, T23-45)
+def _detailed_facts(snapshots) -> list[DetailedDailyAbsenceFact]:
+    # T026-2: mechanical persisted-to-pure mapping only -- no precedence/range/arithmetic; canonical_site_absence_days owns that.
+    facts = []
     for record, snapshot in snapshots:
         for day in snapshot.days:
-            if not (month_start <= day.the_date <= month_end):  # C-R15-1: never let an adjacent-month day alter or poison this month's projection
-                continue
-            existing = winner.get(day.the_date)
-            if existing is None or (record.kind == AvailabilityKind.SICK_LEAVE and existing[0] != AvailabilityKind.SICK_LEAVE):
-                winner[day.the_date] = (record.kind, day)
-    return winner
-def _post_plan_pair(employee_id, the_date, kind, day, settings, site_id) -> list[tuple]:
-    matching = [p for p in day.periods if p.site_id == site_id]  # T23-25/T20: only this Site's own bound periods count
-    site_hours = sum(int((p.end_datetime - p.start_datetime).total_seconds() // 3600) for p in matching)
-    if site_hours == 0:
-        return []  # accepted rest, no synthetic U/C (T23-42)
-    letter = "C" if kind == AvailabilityKind.SICK_LEAVE else "U"
+            periods = tuple(
+                DetailedAbsencePeriodFact(
+                    p.assignment_id, p.schedule_version_id, p.site_id, p.covers_demand_id, p.work_period_id,
+                    p.start_datetime, p.end_datetime, p.shift_kind, p.catalog_kind, p.required_rest_hours,
+                    p.work_period_template_id, p.work_period_component,
+                )
+                for p in day.periods
+            )
+            facts.append(DetailedDailyAbsenceFact(day.the_date, record.kind, day.source_mode, day.status, day.hours, periods))
+    return facts
+def _post_plan_pair(employee_id, day, settings) -> list[tuple]:
+    if day.site_hours == 0:
+        return []  # accepted rest, or no bound period at this Site -- no synthetic U/C (T23-42)
+    letter = "C" if day.kind == AvailabilityKind.SICK_LEAVE else "U"
     pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)
-    if site_hours not in pairs_by_value:
-        raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h POST_PLAN code")
-    plan_code, uc_code = pairs_by_value[site_hours]
-    shift_kinds = {p.shift_kind for p in matching if p.shift_kind}
+    if day.site_hours not in pairs_by_value:
+        raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{day.the_date}: no exact {day.site_hours}h POST_PLAN code")
+    plan_code, uc_code = pairs_by_value[day.site_hours]
+    shift_kinds = {p.shift_kind for p in day.site_periods if p.shift_kind}
     if len(shift_kinds) == 1:  # C-R15-2: the immutable bound shift_kind owns D/N presentation, not duration alone
         kind_letter = next(iter(shift_kinds))
-        family_codes = [c for c in PLAN_PRIORITY if c.startswith(kind_letter) and site_repository.FROZEN_WORK_CODE_HOURS[c] == site_hours and not (settings.base_regime == "12h" and site_hours == 24)]
+        family_codes = [c for c in PLAN_PRIORITY if c.startswith(kind_letter) and site_repository.FROZEN_WORK_CODE_HOURS[c] == day.site_hours and not (settings.base_regime == "12h" and day.site_hours == 24)]
         if not family_codes:
-            raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h {kind_letter}-family POST_PLAN code")
+            raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{day.the_date}: no exact {day.site_hours}h {kind_letter}-family POST_PLAN code")
         plan_code = family_codes[0]
-    return [(the_date, plan_code, uc_code)]
+    return [(day.the_date, plan_code, uc_code)]
 def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
-    # C-R15-3 (round 16): discovery must never be gated on currently-enabled Site membership -- an immutable bound period
-    # at this Site keeps an Employee here even after that membership is later disabled. So every Employee with an active,
-    # in-range SICK/LEAVE record is a candidate; local_ids only decides PRE_PLAN's own fail-closed attribution below.
+    # C-R15-3: discovery is never gated on currently-enabled Site membership -- a bound period keeps an Employee here even after that membership is later disabled; local_ids only decides PRE_PLAN's own fail-closed attribution below.
     month_start, month_end = days[0], days[-1]
     all_employee_ids = [e.employee_id for e in employee_repository.list_employees(conn)]
     records = list_active_overlapping_for_employees(conn, all_employee_ids, month_start, month_end)
@@ -369,30 +366,31 @@ def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> di
         bound_here = any(p.site_id == site_id for _, snap in snapshots if snap for day in snap.days for p in day.periods)
         if employee_id not in local_ids and not bound_here:
             continue  # dormant/unrelated: not this Site's business, never creates a row or MISSING
-        for r, snapshot in snapshots:
-            if snapshot is None:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
+        for r, snapshot in snapshots:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
+            if snapshot is None:
                 raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: legacy active {r.kind.value} has no captured reference snapshot")
         enabled_local = sum(1 for m in memberships_by_employee.get(employee_id, []) if m.membership_kind == MembershipKind.LOCAL and m.enabled)
-        pairs = _absence_pairs_for_employee(employee_id, _winning_days(snapshots, month_start, month_end), work_cells, settings, site_id, enabled_local)
+        try:
+            canonical_days = canonical_site_absence_days(_detailed_facts(snapshots), range_start=month_start, range_end=month_end, site_id=site_id)
+        except IncompleteAbsenceReferenceError as exc:
+            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: {exc}") from exc
+        pairs = _absence_pairs_for_employee(employee_id, canonical_days, work_cells, settings, enabled_local)
         if pairs:
             result[employee_id] = pairs
     return result
-def _absence_pairs_for_employee(employee_id, winner_by_date, work_cells, settings, site_id, enabled_local) -> list[tuple]:
-    for the_date in winner_by_date:
-        if the_date in work_cells.get(employee_id, {}):
-            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{the_date}: real Assignment on an active absence day")
-    pre_plan_days, post_plan_days = [], []
-    for the_date, (kind, day) in sorted(winner_by_date.items()):
-        if day.status != "BOUND":
-            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}/{the_date}: {day.status} accepted reference")
-        (pre_plan_days if day.source_mode == "PRE_PLAN_LEAVE" else post_plan_days).append((the_date, kind, day))
+def _absence_pairs_for_employee(employee_id, canonical_days, work_cells, settings, enabled_local) -> list[tuple]:
+    for day in canonical_days:
+        if day.the_date in work_cells.get(employee_id, {}):
+            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day.the_date}: real Assignment on an active absence day")
+    pre_plan_days = [(d.the_date, d) for d in canonical_days if d.source_mode == "PRE_PLAN_LEAVE"]
+    post_plan_days = [d for d in canonical_days if d.source_mode != "PRE_PLAN_LEAVE"]
     pairs = []
     if pre_plan_days:
         if enabled_local > 1:  # T23-46: keeps the existing fail-closed Site-attribution boundary, else duplicates the global total
             raise ExportProblemError("ABSENCE_SITE_AMBIGUOUS", f"{employee_id} has {enabled_local} enabled LOCAL memberships")
-        pairs += _decompose_pre_plan(employee_id, [(d, day) for d, _, day in pre_plan_days], settings)
-    for the_date, kind, day in post_plan_days:
-        pairs += _post_plan_pair(employee_id, the_date, kind, day, settings, site_id)
+        pairs += _decompose_pre_plan(employee_id, pre_plan_days, settings)
+    for day in post_plan_days:
+        pairs += _post_plan_pair(employee_id, day, settings)
     return pairs
 # Row assembly (Section 11/16)
 def _hours_of(code: str, reserve_hours: dict) -> int:
@@ -500,7 +498,7 @@ def _check_fits(n_rows: int, row_h: float) -> None:
     if n_rows * 2 * row_h > available:
         raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"{n_rows} rows do not fit the accepted single sheet at the {row_h}pt floor")
 def _check_header_fits(model: ExportModel, regular: str, bold: str) -> None:
-    """T20-36 -- header/period text must fit at a readable floor size or fail closed, never draw clipped/overflowing text (R10-5)."""
+    # T20-36 -- header/period text must fit at a readable floor size or fail closed, never draw clipped/overflowing text (R10-5).
     available = landscape(A3)[0] - 2 * MARGIN
     title = f"{model.company_print_name} — {model.site_print_name}"
     period = f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"
@@ -541,8 +539,7 @@ def _draw_cell(c, x, y, row_h, day_w, code, bold) -> None:
 def _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold) -> None:
     x = MARGIN
     if label == "PLAN":
-        c.setFont(regular, _fit_font_size(row.display_name, regular, 7, NAME_W - 40))
-        c.drawString(x + 2, y - row_h + 5, row.display_name)
+        c.setFont(regular, _fit_font_size(row.display_name, regular, 7, NAME_W - 40)); c.drawString(x + 2, y - row_h + 5, row.display_name)  # noqa: E702
     c.setFont(regular, 6.5); c.drawRightString(x + NAME_W - 2, y - row_h + 5, label)  # noqa: E702
     x += NAME_W
     for code in cells:

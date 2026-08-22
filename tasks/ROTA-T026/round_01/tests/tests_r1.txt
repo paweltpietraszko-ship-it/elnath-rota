@@ -1,0 +1,43 @@
+ROTA-T026 - PREIMPLEMENTATION CONTRACT AUDIT - ROUND 1
+AUDITED_HEAD: 30467345c7cd61cd0a6553236b0e76d9fd7dc8d8
+BASE_PRODUCT_SHA: 3d2c2dce52af9e48f28d86b8160249f2040d405c
+ARCHITECT_INPUT_SHA: 64774715ecb1cfb56dc7cd69a2192761e0eba335
+VERDICT: PASS - READY_FOR_IMPLEMENTATION
+
+SECTION_CHECK 1 - DELIVERY / PRECEDENCE
+STATUS: PASS.
+- 6477471..3046734 is exactly one commit and adds exactly tasks/ROTA-T026/brief.md; no product or test code changed.
+- The contract keeps the frozen T023 addendum and preserved T023 decisions controlling. It authorizes no frozen amendment and introduces no new absence-hour value rule.
+- T026-1 and T026-2 receive separate explicit dispositions; T026-3 is documentation-only cleanup.
+
+SECTION_CHECK 2 - T026-1 ENGINE TRUST BOUNDARY
+STATUS: PASS.
+- PlanningState.work_balances is explicitly authoritative only for absence-hour/TARGET accounting at plan(PlanningState); raw Availability remains authoritative for existing HARD eligibility and validator behavior.
+- The retired SICK-only CalendarDay gate, its import/catch and obsolete explanatory comment are removed narrowly. No replacement raw recount or invented WorkBalance completeness invariant is authorized.
+- The supported plan_month()/replan() assembly boundary and upstream reconstruct_month_balance() fail-closed path are named; select_candidate() is correctly classified as candidate validation rather than a plan() caller.
+- The old direct-plan T018 oracle is superseded exactly, while the retained PRE_PLAN helper tests and unrelated planning-model TECHNICAL_ERROR mappings remain preserved.
+- T26-01..05 cover the original reproducer, CalendarDay sibling variation, HARD SICK/LEAVE behavior, both application assembly paths and adjacent engine error mappings.
+
+SECTION_CHECK 3 - T026-2 CANONICAL SITE PROJECTION
+STATUS: PASS.
+- rota/planning/absence.py remains the single pure, persistence-free owner of range clipping, winner/status classification and Site-hour projection.
+- schedule_export.py is limited to mechanical persisted-to-pure mapping and presentation-only checks/code selection; it may own neither SICK/LEAVE precedence nor POST_PLAN Site-duration summation.
+- The detailed pure shapes carry the immutable period provenance needed for Site filtering and D/N/24h presentation without reading CURRENT.
+- CanonicalSiteAbsenceDay preserves the Employee-global winning canonical hours and separately exposes the requested Site slice; PRE_PLAN deliberately returns no Site attribution.
+- canonical_daily_hours() and canonical_site_absence_days() must share one internal winner/status path, preventing a same-module duplicate of the original defect class.
+- T26-10..19 cover range boundaries, overlapping kinds, single-/multi-Site arithmetic, accepted rest, D/N/24h provenance, PRE_PLAN decomposition/ambiguity, MISSING/AMBIGUOUS failure, consumer ownership and the persistence-import boundary.
+
+SECTION_CHECK 4 - PRESERVATION / SCOPE
+STATUS: PASS.
+- T023/T020 HARD availability, SICK precedence, PRE_PLAN capture/decomposition, POST_PLAN anchoring and exact scheduled hours, cross-Site global accounting, T020 Site presentation, fail-closed provenance and SOFT TARGET semantics remain explicit.
+- Labor-law work, Cursor C1/C2, UX degradation policy, persistence/schema, balance reconstruction and unrelated planning legality remain explicitly OUT OF SCOPE.
+- Production and test files are bounded. Historical oracles are classified narrowly, and unrelated tests may not be weakened.
+- The implementation matrix requires retained T018/T020/T023 suites, the full configured suite, Ruff, diff check and repository guards.
+
+SECTION_CHECK 5 - TESTABILITY / NEXT GATE
+STATUS: PASS.
+- Every authorized behavior has a named owner, observable result/error boundary and traceable regression case.
+- No implementation matrix was run: the audited delivery is contract-only and contains no product/test implementation.
+- CC may implement only the exact T026 scope after this PASS. Final acceptance still requires the full gates, an independent implementation audit on the exact implementation SHA and architect review.
+
+ARCHITECTURE_PROPOSALS: NONE.

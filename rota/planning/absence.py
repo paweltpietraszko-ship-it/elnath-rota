@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from rota.domain import AvailabilityKind, AvailabilityRecord, CalendarDay
@@ -111,20 +111,20 @@ def excused_absence_days_in_month(
 
 
 # ---------------------------------------------------------------------------
-# ROTA-T023: canonical POST_PLAN_REFERENCE/PRE_PLAN_LEAVE accounting owner
-# (frozen addendum section 13 / brief.md section 8/12). Pure/persistence-
-# free: callers (the new absence-reference repository module, and from
-# Checkpoint B onward rota.balance/rota.planning.solver) decode persisted
-# absence_reference_snapshots rows into DailyAbsenceFact themselves -- this
-# module imports nothing from the persistence layer (that would be a
-# layering cycle, since the repository module already imports
-# rota.planning.validator/work_periods).
+# ROTA-T023/T026: canonical POST_PLAN_REFERENCE/PRE_PLAN_LEAVE accounting
+# owner (frozen addendum section 13 / brief.md section 8/12). Pure/
+# persistence-free: callers in the persistence and application layers
+# (the absence-reference repository module, rota.balance, rota.planning.
+# solver, rota.application.analytics_read, rota.application.schedule_export)
+# decode persisted absence_reference_snapshots rows into DailyAbsenceFact/
+# DetailedDailyAbsenceFact themselves -- this module imports nothing from
+# the persistence layer (that would be a layering cycle, since the
+# repository module already imports rota.planning.validator/work_periods).
 #
-# Deliberately NOT wired into rota.balance / rota.planning.solver /
-# rota.application.schedule_export yet -- those are Checkpoint B/C's own
-# allowed-file scope (brief.md section 16). The flat EXCUSED_ABSENCE_*
-# functions above stay exactly as they are for those consumers until that
-# checkpoint switches them over (section 18's deliberate supersession).
+# The flat EXCUSED_ABSENCE_* functions above are retired for POST_PLAN/live
+# TARGET accounting (T026); `excused_absence_days_in_month` remains only as
+# the direct-call PRE_PLAN_LEAVE source and its own retained regression
+# tests (frozen addendum section 2.1 / T018 helper history).
 # ---------------------------------------------------------------------------
 
 
@@ -147,26 +147,39 @@ class DailyAbsenceFact:
     hours: Optional[int]  # None when status != "BOUND"
 
 
-def canonical_daily_hours(facts: list[DailyAbsenceFact]) -> dict[date, int]:
-    """Collapses possibly-multiple DailyAbsenceFact entries for the same
-    date (an Employee can in principle carry more than one active
-    SICK_LEAVE/LEAVE_GRANTED family) into one canonical per-date hour
-    total. SICK_LEAVE wins over LEAVE_GRANTED on the same date -- counted
-    once, never doubled (frozen addendum section 4 "SICK wins overlap with
-    LEAVE_GRANTED; count once and present C"). Raises
-    IncompleteAbsenceReferenceError if the winning fact for any date is not
-    BOUND -- never guesses 0/8/12/24."""
-    winner_by_date: dict[date, DailyAbsenceFact] = {}
+def _winning_facts(facts) -> dict:
+    """ROTA-T026: the one shared SICK-over-LEAVE_GRANTED same-date winner
+    rule (frozen addendum section 4). Structural over any sequence of
+    objects exposing `.the_date`/`.kind` -- both `DailyAbsenceFact` and
+    `DetailedDailyAbsenceFact` qualify, so `canonical_daily_hours` and
+    `canonical_site_absence_days` apply exactly one precedence path,
+    never two independent implementations in this module."""
+    winner_by_date: dict = {}
     for fact in facts:
         existing = winner_by_date.get(fact.the_date)
         if existing is None or (fact.kind == AvailabilityKind.SICK_LEAVE and existing.kind != AvailabilityKind.SICK_LEAVE):
             winner_by_date[fact.the_date] = fact
+    return winner_by_date
+
+
+def _require_bound(fact) -> None:
+    """Shared status gate: never guess 0/8/12/24 for a MISSING/AMBIGUOUS winner."""
+    if fact.status != "BOUND":
+        raise IncompleteAbsenceReferenceError(
+            f"{fact.the_date}: {fact.status} accepted reference for {fact.kind.value} ({fact.source_mode})"
+        )
+
+
+def canonical_daily_hours(facts: list[DailyAbsenceFact]) -> dict[date, int]:
+    """Collapses possibly-multiple DailyAbsenceFact entries for the same
+    date (an Employee can in principle carry more than one active
+    SICK_LEAVE/LEAVE_GRANTED family) into one canonical per-date hour
+    total. Raises IncompleteAbsenceReferenceError if the winning fact for
+    any date is not BOUND -- never guesses 0/8/12/24."""
+    winner_by_date = _winning_facts(facts)
     hours: dict[date, int] = {}
     for the_date, fact in winner_by_date.items():
-        if fact.status != "BOUND":
-            raise IncompleteAbsenceReferenceError(
-                f"{the_date}: {fact.status} accepted reference for {fact.kind.value} ({fact.source_mode})"
-            )
+        _require_bound(fact)
         hours[the_date] = fact.hours or 0
     return hours
 
@@ -178,6 +191,90 @@ def canonical_hours_in_range(facts: list[DailyAbsenceFact], range_start: date, r
     no separate weekly convention, no persisted weekly row."""
     in_range = [f for f in facts if range_start <= f.the_date <= range_end]
     return sum(canonical_daily_hours(in_range).values())
+
+
+# --- ROTA-T026: canonical Site-aware presentation projection (T020's own owner) ---
+
+
+@dataclass(frozen=True)
+class DetailedAbsencePeriodFact:
+    """Pure mirror of the persistence-layer PeriodFact -- same fields, no
+    persistence import (T026-2 layering: schedule_export.py mechanically
+    maps persisted PeriodFact rows into this shape)."""
+
+    assignment_id: str
+    schedule_version_id: str
+    site_id: str
+    covers_demand_id: Optional[str]
+    work_period_id: Optional[str]
+    start_datetime: datetime
+    end_datetime: datetime
+    shift_kind: Optional[str] = None
+    catalog_kind: Optional[str] = None
+    required_rest_hours: Optional[int] = None
+    work_period_template_id: Optional[str] = None
+    work_period_component: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class DetailedDailyAbsenceFact:
+    """Pure mirror of the persistence-layer DayReference plus the owning
+    AvailabilityRecord's kind -- same shape as DailyAbsenceFact, with the
+    immutable bound-period detail T020 needs (D/N/24h/Site) that the
+    WorkBalance-facing DailyAbsenceFact deliberately omits."""
+
+    the_date: date
+    kind: AvailabilityKind
+    source_mode: str
+    status: str
+    hours: Optional[int]
+    periods: tuple[DetailedAbsencePeriodFact, ...] = ()
+
+
+@dataclass(frozen=True)
+class CanonicalSiteAbsenceDay:
+    """One winning day's canonical result plus its Site-scoped presentation
+    slice. `canonical_hours` is the same Employee-global winning-day value
+    `DailyAbsenceFact.hours`/`canonical_daily_hours` would produce for this
+    date. `site_hours`/`site_periods` are POST_PLAN_REFERENCE-only: `None`/
+    `()` for PRE_PLAN_LEAVE, which has no schedule Site provenance (T020's
+    own already-frozen fail-closed multi-LOCAL attribution boundary)."""
+
+    the_date: date
+    kind: AvailabilityKind
+    source_mode: str
+    canonical_hours: int
+    site_hours: Optional[int]
+    site_periods: tuple[DetailedAbsencePeriodFact, ...]
+
+
+def _site_period_hours(periods: tuple[DetailedAbsencePeriodFact, ...]) -> int:
+    return sum(int((p.end_datetime - p.start_datetime).total_seconds() // 3600) for p in periods)
+
+
+def canonical_site_absence_days(
+    facts: list[DetailedDailyAbsenceFact], *, range_start: date, range_end: date, site_id: str,
+) -> tuple[CanonicalSiteAbsenceDay, ...]:
+    """T026-2: the one canonical, Site-aware presentation projection --
+    range clipping, SICK/LEAVE precedence and fail-closed status all reuse
+    `_winning_facts`/`_require_bound` (the same path `canonical_daily_hours`
+    uses), so this module never carries two independent implementations of
+    either rule. Callers (schedule_export.py) must not reimplement
+    precedence or sum POST_PLAN period durations themselves."""
+    in_range = [f for f in facts if range_start <= f.the_date <= range_end]
+    winner_by_date = _winning_facts(in_range)
+    days = []
+    for the_date in sorted(winner_by_date):
+        fact = winner_by_date[the_date]
+        _require_bound(fact)
+        if fact.source_mode == "PRE_PLAN_LEAVE":
+            days.append(CanonicalSiteAbsenceDay(the_date, fact.kind, fact.source_mode, fact.hours or 0, None, ()))
+            continue
+        site_periods = tuple(p for p in fact.periods if p.site_id == site_id)
+        days.append(CanonicalSiteAbsenceDay(
+            the_date, fact.kind, fact.source_mode, fact.hours or 0, _site_period_hours(site_periods), site_periods,
+        ))
+    return tuple(days)
 
 
 if __name__ == "__main__":
