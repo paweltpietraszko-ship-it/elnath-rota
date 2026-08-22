@@ -1,0 +1,48 @@
+ROTA-T023 — FINAL NARROW PREIMPLEMENTATION AUDIT — ROUND 6
+AUDITED_HEAD: 0e3ffae3d6d751259783056667295e2cc8b4243c
+PARENT_AUDIT: 382c7b4
+SCOPE: R5-1 / R5-2 / R5-3 ONLY
+VERDICT: PASS — READY_FOR_IMPLEMENTATION
+
+SECTION_CHECK 1 — CONSOLIDATION: PASS
+- 382c7b4...0e3ffae = 1 commit, 2 zmodyfikowane canonical documents, zero kodu/testów/new clarification files.
+- Kontrakt skrócony netto o 187 linii.
+- Frozen addendum + brief.md są jedynym implementation contract; wcześniejsze ARCHITECT_R3_* pozostają historią.
+
+SECTION_CHECK 2 — R5-1 ACCEPTED PLAN: CLOSED
+- Jedyny acceptance proof: trwały SCHEDULE_CANDIDATE_SELECTED zapisany atomowo z wybranym snapshotem.
+- CURRENT/status/existence/non-empty Assignments jawnie nie są proof.
+- Selection wymaga action.recorded_at <= Availability recorded_at.
+- Current lineage pomija unselected technical root/child i może wybrać najgłębszego accepted applicable parenta.
+- Test matrix zawiera technical root, empty accepted schedule, unselected child i action-after-availability cases.
+
+SECTION_CHECK 3 — R5-2 RETROACTIVITY: CLOSED
+- Elapsed date alone nie jest rejection reason.
+- Guard działa na newly covered non-CANCELLED PRIMARY started before recorded_at oraz REALIZED PRIMARY.
+- Known past rest może pozostać 0; incomplete provenance nadal fail-closed.
+- Extension/correction sprawdza tylko newly introduced coverage; deactivation nie jest retroactive creation.
+- Rejection pozostaje atomowe i nie przycina silently zakresu.
+
+SECTION_CHECK 4 — R5-3 REPLAN CUTOVER: CLOSED
+- Cutover_at pochodzi z successful REPLAN-child select_candidate i jest tym samym recorded_at akcji acceptance.
+- ScheduleVersion.effective_from nie jest używany jako sub-day timestamp.
+- Pre-cutover non-CANCELLED PRIMARY set musi pozostać dokładnie niezmieniony.
+- Zakazane: removal, mutation oraz added replacement przed cutover.
+- Check jest w atomic select_candidate/replace_working_snapshot boundary; nie tworzy nowego version model ani sztucznego solver HARD.
+- Initial PLAN selection jest jawnie wyłączony z REPLAN-child cutover guard.
+
+SECTION_CHECK 5 — DIRECT OWNER CONSEQUENCES: PASS
+- PRE_PLAN_LEAVE zachowuje owner-approved 40h D1/D1/N2 + U1/U1/U2 bez operational coverage.
+- POST_PLAN_REFERENCE zachowuje wcześniejszy PLAN; U/C jest presentation, replacement PRIMARY pokrywa demand.
+- Leave może powstać przed PLAN albo podczas aktywnego PLAN dla przyszłej zmiany.
+- Valid T023 write nie tworzy normalnego REALIZED/absence conflict state.
+
+SECTION_CHECK 6 — GATE
+- R5-1: CLOSED.
+- R5-2: CLOSED.
+- R5-3: CLOSED.
+- R3-1...R3-6: CLOSED.
+- PASS — READY_FOR_IMPLEMENTATION.
+- Implementacja zachowuje checkpoint order A -> B -> C; każdy checkpoint podlega własnemu audytowi produktu.
+
+TESTS: NOT RUN — documentation/code-impact preimplementation audit.
