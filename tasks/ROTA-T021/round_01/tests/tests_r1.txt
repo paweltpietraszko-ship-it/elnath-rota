@@ -1,0 +1,118 @@
+ROTA-T021 / MOCKUP FACT AUDIT / ROUND 1
+
+MAIN_SHA: e05dfb7dd4463370bf8174db7ae58a9b984cf99e
+INPUT:
+- arch/T021_ui_facts_2026-08-21.md §7
+- Grafiki/Zrzut ekranu (631).png
+SCOPE_EXCLUDED: light/dark toggle defect
+VERDICT: FAIL — MOCKUP NOT YET COMPLETE/CODE-FAITHFUL
+
+A1 NAV/SCREEN INVENTORY
+STATUS: PASS
+OBSERVED:
+- workspace Site grid present
+- room sidebar: 8 items
+- built content: Przegląd, Panel sterowania, Planowanie miesiąca
+- nav-only: Decyzje, Ręczna korekta, Historia, Analityka, Eksport PDF
+
+A2 BACKEND SURFACE COVERAGE
+STATUS: FAIL / INCOMPLETE
+
+ABSENT:
+- backup.backup_database
+- backup.build_diagnostic_zip
+- training.save_site_membership / mark_training_realized surface
+
+NAV-ONLY / NOT AUDITABLE:
+- current_decision_required blockers/unblocking_options
+- apply_manual_correction
+- freeze_or_unfreeze
+- mark_not_worked
+- material/rule history
+- analytics/quarter balance
+- PDF preview/export screen
+
+ADDITIONAL UNREPRESENTED FUNCTIONS FROM §2:
+- add_external_support_window
+- set_target_hours
+- set_calendar_day / holiday configuration
+- explicit L4/urlop/availability entry + availability history
+- revalidate / restore / schedule-version history operation
+
+CLASSIFICATION:
+- backup placement: WYMAGA_DECYZJI (owner decision unresolved)
+- training inclusion: WYMAGA_DECYZJI (excluded only from checkbox matrix,
+  not explicitly from T021)
+- nav-only domains: incomplete mockup, not backend defects
+
+B1 PLAN CANDIDATE COUNT/SHAPE
+STATUS: FAIL
+CODE:
+- solver._search_additional_candidates: first + up to 2 alternatives
+- engine._feasible_result: PlanningResult.candidates count = 1..3
+- engine_types.PlanningResult fields: status,candidates,decision_payload,
+  error_message,warnings
+MISMATCH:
+- mockup fixed display = 2 candidates
+- 2 is a valid example, not a guaranteed count
+- backend provides no candidate strategy/name field
+- backend provides no per-candidate Deviation count field
+- labels such as "Równomierne obciążenie" / "Mniej zmian nocnych" and
+  candidate-specific "odchylenia" are not PlanningResult facts
+REQUIRED_FIDELITY:
+- implementation must handle 1,2,3 candidates
+- sample-only names/counts must not become backend claims
+
+B2 DATE-RANGE AUTO-REVERT
+STATUS: PASS
+CODE:
+- eligibility._blocked_by_availability applies records only inside inclusive
+  start_date..end_date
+- site_memory.effective_rule_on stops bounded rule after effective_to
+- site_rule_assembly builds dated applicability slices
+- day-only N exception uses the same bounded applicability
+RESULT:
+- after date "do", restriction/exception ceases without a second action
+- no persisted checkbox mutation/revert is required
+NOTE:
+- T021 still needs application helpers for checkbox writes; this was already
+  recorded in §6 and is not a contradiction of automatic expiry
+
+B3 SOLVER CITATION
+STATUS: PASS
+CODE:
+- rota/planning/solver.py:209 calls check_eligibility for membership+demand
+- eligibility checks availability, SiteRules and DAY_ONLY fallback
+
+B4 SITE PRINT SETTINGS
+STATUS: FAIL / PARTIAL MATCH
+ACTUAL SitePrintSettings:
+- company_print_name
+- site_print_name
+- base_regime: 12h|24h
+- work_code_intervals: exactly D1..D5,N1..N5
+- reserve_hours: exactly U3,U4,U5,C3,C4,C5
+CONSUMER:
+- schedule_export.generate_schedule_pdf -> get_site_print_settings
+MOCKUP/DOCUMENT MATCH:
+- company name: valid
+- base regime: valid
+- U3/U4/C3/C4 reserve values: valid subset
+MISSING/NOT PROVEN:
+- separate site_print_name
+- work-code interval configuration D1..D5,N1..N5
+- reserve U5,C5
+RESULT:
+- shown names are not invented
+- shown configuration is not the full required DTO
+
+FINAL BLOCKERS BEFORE UI IMPLEMENTATION CONTRACT:
+- decide backup surface/placement
+- decide training surface inclusion
+- make candidate selector/data factual for 1..3 candidates
+- remove or label non-backend candidate names/deviation counts as mock data
+- expose complete SitePrintSettings shape
+- provide auditable content/mapping for nav-only screens before claiming full
+  backend coverage
+
+ARCHITECTURE_PROPOSALS: NONE
