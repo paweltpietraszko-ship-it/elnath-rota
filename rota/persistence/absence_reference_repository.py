@@ -268,40 +268,25 @@ def _prior_bound_post_plan_facts(conn: sqlite3.Connection, *, employee_id: str, 
     return found
 
 
-def _resolve_day(
-    conn: sqlite3.Connection, *, employee_id: str, kind: AvailabilityKind, the_date: date,
-    required_sites: set[str], site_versions: dict[str, str], snapshot_cache: dict[str, object],
-    holiday_by_date: dict[date, bool],
+def _resolve_no_accepted_plan_day(kind: AvailabilityKind, the_date: date, holiday_by_date: dict[date, bool]) -> DayReference:
+    """No required Site resolved an accepted plan at all -- whether because
+    there is no required Site yet, or because every required Site (e.g. an
+    enabled LOCAL membership with no schedule ever created) failed to
+    resolve. Frozen addendum section 2.1: this is legitimate PRE_PLAN
+    territory for LEAVE_GRANTED, never MISSING. SICK_LEAVE has no pre-PLAN
+    path (frozen addendum section 2): with no accepted plan anywhere in
+    scope, the reference is incomplete."""
+    if kind == AvailabilityKind.LEAVE_GRANTED:
+        is_workday = the_date.isoweekday() <= 5 and not holiday_by_date.get(the_date, False)
+        hours = _PRE_PLAN_HOURS_PER_WORKDAY if is_workday else 0
+        return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, hours, ())
+    return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
+
+
+def _resolve_from_accepted_periods(
+    conn: sqlite3.Connection, *, employee_id: str, the_date: date,
+    site_versions: dict[str, str], snapshot_cache: dict[str, object],
 ) -> DayReference:
-    prior = _prior_bound_post_plan_facts(conn, employee_id=employee_id, the_date=the_date)
-    if prior:
-        distinct = set(prior)
-        if len(distinct) > 1:
-            return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_AMBIGUOUS, None, ())
-        return prior[0]
-
-    if not site_versions:
-        # No required Site resolved an accepted plan at all -- whether
-        # because there is no required Site yet, or because every required
-        # Site (e.g. an enabled LOCAL membership with no schedule ever
-        # created) failed to resolve. Frozen addendum section 2.1: this is
-        # legitimate PRE_PLAN territory for LEAVE_GRANTED, never MISSING.
-        if kind == AvailabilityKind.LEAVE_GRANTED:
-            is_workday = the_date.isoweekday() <= 5 and not holiday_by_date.get(the_date, False)
-            hours = _PRE_PLAN_HOURS_PER_WORKDAY if is_workday else 0
-            return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, hours, ())
-        # SICK_LEAVE has no pre-PLAN path (frozen addendum section 2): with
-        # no accepted plan anywhere in scope, the reference is incomplete.
-        return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
-
-    if required_sites - site_versions.keys():
-        # A-R7-5: SOME required Site resolved but at least one other
-        # required Site (enabled LOCAL, or actually worked this month)
-        # failed to -- the day cannot be silently computed from whichever
-        # Sites happened to resolve, since real accepted-plan machinery
-        # clearly already exists for this Employee.
-        return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
-
     periods = _collect_primary_periods(conn, employee_id=employee_id, site_versions=site_versions, snapshot_cache=snapshot_cache)
     by_id = {p.assignment_id: p for p in periods}
     grouped = group_into_periods([
@@ -324,6 +309,34 @@ def _resolve_day(
         return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_AMBIGUOUS, None, facts)
     hours = sum(int((wp.end - wp.start).total_seconds() // 3600) for wp in anchored)
     return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_BOUND, hours, facts)
+
+
+def _resolve_day(
+    conn: sqlite3.Connection, *, employee_id: str, kind: AvailabilityKind, the_date: date,
+    required_sites: set[str], site_versions: dict[str, str], snapshot_cache: dict[str, object],
+    holiday_by_date: dict[date, bool],
+) -> DayReference:
+    prior = _prior_bound_post_plan_facts(conn, employee_id=employee_id, the_date=the_date)
+    if prior:
+        distinct = set(prior)
+        if len(distinct) > 1:
+            return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_AMBIGUOUS, None, ())
+        return prior[0]
+
+    if not site_versions:
+        return _resolve_no_accepted_plan_day(kind, the_date, holiday_by_date)
+
+    if required_sites - site_versions.keys():
+        # A-R7-5: SOME required Site resolved but at least one other
+        # required Site (enabled LOCAL, or actually worked this month)
+        # failed to -- the day cannot be silently computed from whichever
+        # Sites happened to resolve, since real accepted-plan machinery
+        # clearly already exists for this Employee.
+        return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
+
+    return _resolve_from_accepted_periods(
+        conn, employee_id=employee_id, the_date=the_date, site_versions=site_versions, snapshot_cache=snapshot_cache,
+    )
 
 
 def _fetch_accepted_version_ids(conn: sqlite3.Connection, recorded_at: datetime) -> set[str]:
