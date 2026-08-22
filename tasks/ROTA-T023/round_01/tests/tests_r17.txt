@@ -1,0 +1,35 @@
+ROTA-T023 - CHECKPOINT C ROUND-16 FIX FINAL NARROW REAUDIT - ROUND 17
+AUDITED_HEAD: 33a1220fed2fba944a4919f9063c18a0c6e9b0fd
+IMPLEMENTATION_SHA: 838212cfd66ad8981948c3245cd25aafd315699e
+VERDICT: PASS - CHECKPOINT C CONTRACT CLOSED / READY_FOR_ARCHITECT_FINAL_ACCEPTANCE
+
+SECTION_CHECK 1 - SCOPE / DELIVERY
+- Reaudit scope was limited to the only open finding C-R15-3 and its Round-16 closure condition.
+- Delivery contains the same four expected files: schedule_export.py, retained Round-16 audit test, tests_r16.txt and backend_output_r16fix.txt.
+- 838212c contains the product fix and retained audit artifacts; 33a1220 adds only backend_output_r16fix.txt.
+- No new product interpretation, finding or architecture proposal was introduced.
+
+SECTION_CHECK 2 - C-R15-3
+STATUS: CLOSED.
+- schedule_export.py:352-358 discovers active in-range SICK/LEAVE records across Employees before applying any current Site-membership filter.
+- schedule_export.py:368-371 then uses immutable bound period Site provenance to retain a non-LOCAL/disabled Employee and omits dormant/unrelated Employees without a bound period at the printed Site.
+- local_ids remains limited to PRE_PLAN's existing fail-closed Site-attribution rule; it no longer gates POST_PLAN snapshot discovery.
+- The absent Employee is added to roster_ids from absence_by_employee after REPLAN removes the operational CURRENT Assignment.
+
+SECTION_CHECK 3 - EVIDENCE
+- Original Round-15 enabled LOCAL/EXTERNAL_SUPPORT sibling variants: PASS.
+- Round-16 later-disabled LOCAL/EXTERNAL_SUPPORT variants: 2/2 PASS.
+- Retained Round-15/Round-16 + Checkpoint A/B/C + T020 targeted matrix: 121/121 PASS.
+- Repository suite (configured tests/ collection): 1006/1006 PASS.
+- Ruff on affected production and retained audit files: PASS.
+- git diff --check for 4f8d2aa..33a1220: PASS.
+- backend_output_r16fix.txt reports only the four inherited, owner-accepted SIZE_FILE findings; they are not reopened.
+
+SECTION_CHECK 4 - PRIOR FINDINGS / GATE
+- C-R15-1: CLOSED, retained range-boundary regressions PASS.
+- C-R15-2: CLOSED, retained D/N regressions PASS.
+- C-R15-3: CLOSED.
+- Checkpoint C: PASS - CONTRACT CLOSED.
+- Next gate: architect final acceptance. Merge remains an explicit owner action.
+
+ARCHITECTURE_PROPOSALS: NONE.
