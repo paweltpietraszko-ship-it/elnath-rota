@@ -1,0 +1,55 @@
+ROTA-T026 - IMPLEMENTATION AUDIT - ROUND 2
+AUDITED_HEAD: 3b043aedfb91917115dcf7523fdfa99c46fef301
+IMPLEMENTATION_AND_BACKEND_SHA: 6515625568473463162b33670076ea8548e21f41
+PRODUCT_IMPLEMENTATION_SHA: 7d740decaccb2ea103ef4f98cad742241e7b0970
+BASE_CONTRACT_SHA: 30467345c7cd61cd0a6553236b0e76d9fd7dc8d8
+VERDICT: WYMAGA_DECYZJI - IMPLEMENTATION CONTRACT PASS; EXACT TOTAL_LINES=459 REQUIRES ARCHITECT ACCEPTANCE
+
+SECTION_CHECK 1 - DELIVERY / SCOPE
+STATUS: PASS.
+- 3046734..3b043ae contains three ordered commits: product/tests, mechanical TASK_SCOPE formatting, then backend output.
+- Production changes are limited to engine.py, absence.py and schedule_export.py. Test changes are limited to the narrowly superseded T018 oracle and new T026 matrix.
+- The brief change only exposes the already-authorized paths in backend.py's literal TASK_SCOPE syntax; it does not change contract meaning.
+- Final 3b043ae adds only backend_output.txt. No out-of-scope product or frozen-spec file changed.
+
+SECTION_CHECK 2 - T026-1 ENGINE TRUST BOUNDARY
+STATUS: PASS.
+- engine.py removes only the retired SICK CalendarDay helper import/call, IncompleteAbsenceCalendarError catch and obsolete comment.
+- Solver TARGET remains authoritative from PlanningState.work_balances; no replacement raw recount or invented completeness invariant was added.
+- Raw Availability remains present in solver/eligibility/validator paths and continues to HARD-block both SICK_LEAVE and LEAVE_GRANTED.
+- The direct T018 oracle is replaced narrowly; retained helper behavior and unrelated TECHNICAL_ERROR mappings remain green.
+- plan_month() and replan() both still fail closed upstream on incomplete canonical absence reference; the independent replan probe also proves failure occurs before child ScheduleVersion creation.
+
+SECTION_CHECK 3 - T026-2 CANONICAL SITE PROJECTION
+STATUS: PASS.
+- absence.py owns the pure detailed input/output shapes, range clipping, shared SICK-over-LEAVE winner/status path and POST_PLAN Site-duration arithmetic.
+- absence.py imports no persistence module. canonical_daily_hours() and canonical_site_absence_days() share _winning_facts() and _require_bound().
+- Canonical output preserves global winning hours and requested-Site hours/periods separately; PRE_PLAN retains canonical hours with no invented Site provenance.
+- schedule_export.py performs mechanical snapshot mapping, catches the canonical incomplete-reference error and retains only presentation/decomposition/code responsibilities.
+- No local _winning_days implementation or local POST_PLAN duration sum remains in schedule_export.py.
+- Existing range, SICK precedence, cross-Site, disabled-membership, D/N/24h/rest, PRE_PLAN decomposition/ambiguity and presentation-integrity regressions remain green.
+
+SECTION_CHECK 4 - ADVERSARIAL / REGRESSION EVIDENCE
+STATUS: PASS.
+- Required targeted matrix: 163/163 PASS.
+- Full configured repository suite: 1021/1021 PASS.
+- Independent Round-2 equivalence probes: 7/7 PASS.
+- Independent probes cover both SICK/LEAVE HARD kinds, both plan_month/replan application boundaries, both MISSING/AMBIGUOUS statuses, and both in-range fail-closed/out-of-range non-poisoning paths.
+- Ruff on all affected production/implementation-test files: PASS.
+- Ruff on the Round-2 audit probe: PASS.
+- git diff --check for 3046734..3b043ae: PASS.
+- guard.py check arch/spec.md: PASS (SHA256 569f66f10ccf18fac63567f8bfcbd85ab9fdb06cf87953b69676ccaddc015244).
+
+SECTION_CHECK 5 - BACKEND MECHANICAL GATES
+STATUS: WYMAGA_DECYZJI.
+- SIZE_FILE tests/test_t018.py=831 is the inherited exception explicitly preserved by T026 section 4. The file was already 825 lines at the audited base and grew only for the narrow oracle replacement; this finding is not reopened.
+- TOTAL_LINES=459 exceeds the mechanical threshold 150. T026 did not pre-accept an exact TOTAL_LINES value, and project process returns every such final value to the architect with the exact SHA.
+- The 459-line delta is traceable to the contract-required detailed pure projection shapes, canonical owner implementation and closure matrix; review found no unrelated product behavior or test weakening. It is a process decision, not a functional defect.
+- Required architect decision: accept TOTAL_LINES=459 for exact implementation/backend SHA 6515625568473463162b33670076ea8548e21f41 (delivery HEAD 3b043ae adds only backend output), or request a reduced implementation diff. Do not change backend thresholds.
+
+SECTION_CHECK 6 - GATE
+- Functional/contract findings: NONE.
+- CC correction round: NOT REQUIRED unless the architect declines the exact TOTAL_LINES waiver.
+- Next gate: architect decision on TOTAL_LINES=459, followed by exact-SHA final acceptance. Merge remains an explicit owner action.
+
+ARCHITECTURE_PROPOSALS: NONE.
