@@ -144,6 +144,28 @@ def add_external_support_window(
             )
 
 
+def _availability_state(record) -> dict | None:
+    if record is None:
+        return None
+    return {
+        "availability_id": record.availability_id, "availability_version_id": record.availability_version_id,
+        "employee_id": record.employee_id, "kind": record.kind.value, "start_date": record.start_date,
+        "end_date": record.end_date, "active": record.active,
+        "supersedes_availability_version_id": record.supersedes_availability_version_id, "note": record.note,
+    }
+
+
+def _previous_active_range(before, kind: AvailabilityKind) -> tuple[date, date] | None:
+    """ROTA-T023: coverage of the immediately-previous version in this SAME
+    chain, only when it was itself active and of the same kind -- passed to
+    the R5-2 retroactivity guard as "already-covered" (extension/correction),
+    never blanket-empty, so extending an existing leave/sick range only
+    rejects on genuinely NEWLY introduced coverage."""
+    if before is not None and before.active and before.kind == kind:
+        return (before.start_date, before.end_date)
+    return None
+
+
 def append_availability(
     conn, *, coordinator_id: str, site_id: str, availability_id: str, employee_id: str, kind: AvailabilityKind,
     start_date: date, end_date: date, active: bool, note: str | None = None,
@@ -157,21 +179,9 @@ def append_availability(
     recorded_at = datetime.now()
     history = get_availability_history(conn, availability_id)
     before = history[-1] if history else None
-    before_state = None if before is None else {
-        "availability_id": before.availability_id, "availability_version_id": before.availability_version_id,
-        "employee_id": before.employee_id, "kind": before.kind.value, "start_date": before.start_date,
-        "end_date": before.end_date, "active": before.active,
-        "supersedes_availability_version_id": before.supersedes_availability_version_id, "note": before.note,
-    }
+    before_state = _availability_state(before)
     normalized_note = _normalize_note(note)
-    # ROTA-T023: coverage of the immediately-previous version in this SAME
-    # chain, only when it was itself active and of the same kind -- passed
-    # to the R5-2 retroactivity guard as "already-covered" (extension/
-    # correction), never blanket-empty, so extending an existing leave/sick
-    # range only rejects on genuinely NEWLY introduced coverage.
-    previous_active_range = (
-        (before.start_date, before.end_date) if before is not None and before.active and before.kind == kind else None
-    )
+    previous_active_range = _previous_active_range(before, kind)
     with conn:
         site_memory.validate_decision_required_link_no_commit(
             conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
@@ -185,12 +195,7 @@ def append_availability(
             start_date=start_date, end_date=end_date, active=active, recorded_at=recorded_at,
             previous_active_range=previous_active_range,
         )
-        after_state = {
-            "availability_id": record.availability_id, "availability_version_id": record.availability_version_id,
-            "employee_id": record.employee_id, "kind": record.kind.value, "start_date": record.start_date,
-            "end_date": record.end_date, "active": record.active,
-            "supersedes_availability_version_id": record.supersedes_availability_version_id, "note": record.note,
-        }
+        after_state = _availability_state(record)
         affected_site_ids = _employee_affected_site_ids(conn, employee_id, site_id)
         _record_action_and_invalidate_no_commit(
             conn, action_kind=CoordinatorActionKind.AVAILABILITY_CHANGED, origin_site_id=site_id,

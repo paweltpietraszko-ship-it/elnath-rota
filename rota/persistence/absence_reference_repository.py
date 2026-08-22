@@ -225,6 +225,42 @@ def _resolve_day(
     return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_BOUND, hours, facts)
 
 
+def _fetch_accepted_version_ids(conn: sqlite3.Connection, recorded_at: datetime) -> set[str]:
+    return {
+        action.schedule_version_id
+        for action in site_memory.list_coordinator_actions(
+            conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, recorded_to=recorded_at,
+        )
+        if action.schedule_version_id
+    }
+
+
+def _accepted_version_for(
+    conn: sqlite3.Connection, *, site_id: str, anchor_date: date, accepted_version_ids: set[str],
+    lineage_cache: dict[tuple[str, date], list],
+) -> Optional[str]:
+    month = date(anchor_date.year, anchor_date.month, 1)
+    key = (site_id, month)
+    if key not in lineage_cache:
+        try:
+            lineage_cache[key] = reconstruct_lineage(conn, site_id, month)
+        except InvalidScheduleVersionLineage:
+            lineage_cache[key] = []
+    lineage = lineage_cache[key]
+    applicable = [
+        header for header in lineage
+        if header.effective_from is not None
+        and header.effective_from <= anchor_date
+        and header.version_id in accepted_version_ids
+    ]
+    if not applicable:
+        return None
+    # Lineage is root..CURRENT (oldest first); the deepest applicable entry
+    # is the one with the highest index -- an unselected technical child is
+    # simply absent from `applicable` and does not hide it.
+    return max(applicable, key=lineage.index).version_id
+
+
 def capture_reference(
     conn: sqlite3.Connection, *, availability_version_id: str, employee_id: str, kind: AvailabilityKind,
     start_date: date, end_date: date, recorded_at: datetime, captured_at: datetime,
@@ -234,37 +270,8 @@ def capture_reference(
     SELECTED proof, recorded_at <= this write's recorded_at) for every Site
     in the Employee's reference scope, then capture bound PRIMARY periods."""
     reference_sites = _reference_site_scope(conn, employee_id)
-    accepted_version_ids = {
-        action.schedule_version_id
-        for action in site_memory.list_coordinator_actions(
-            conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, recorded_to=recorded_at,
-        )
-        if action.schedule_version_id
-    }
+    accepted_version_ids = _fetch_accepted_version_ids(conn, recorded_at)
     lineage_cache: dict[tuple[str, date], list] = {}
-
-    def _accepted_version_for(site_id: str, anchor_date: date) -> Optional[str]:
-        month = date(anchor_date.year, anchor_date.month, 1)
-        key = (site_id, month)
-        if key not in lineage_cache:
-            try:
-                lineage_cache[key] = reconstruct_lineage(conn, site_id, month)
-            except InvalidScheduleVersionLineage:
-                lineage_cache[key] = []
-        lineage = lineage_cache[key]
-        applicable = [
-            header for header in lineage
-            if header.effective_from is not None
-            and header.effective_from <= anchor_date
-            and header.version_id in accepted_version_ids
-        ]
-        if not applicable:
-            return None
-        # Lineage is root..CURRENT (oldest first); the deepest applicable
-        # entry is the one with the highest index -- an unselected technical
-        # child is simply absent from `applicable` and does not hide it.
-        return max(applicable, key=lineage.index).version_id
-
     snapshot_cache: dict[str, object] = {}
     days: list[DayReference] = []
     current = start_date
@@ -272,7 +279,10 @@ def capture_reference(
         site_versions = {
             site_id: version_id
             for site_id in reference_sites
-            if (version_id := _accepted_version_for(site_id, current)) is not None
+            if (version_id := _accepted_version_for(
+                conn, site_id=site_id, anchor_date=current,
+                accepted_version_ids=accepted_version_ids, lineage_cache=lineage_cache,
+            )) is not None
         }
         days.append(_resolve_day(
             conn, employee_id=employee_id, kind=kind, the_date=current,
