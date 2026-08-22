@@ -12,19 +12,21 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from rota.application import schedule_export as SE
+from rota.application.durable_inputs import append_availability
 from rota.domain import (
-    Assignment, AssignmentRole, AssignmentState, AvailabilityKind, CalendarDay, Employee,
+    Assignment, AssignmentRole, AssignmentState, AvailabilityKind, CalendarDay, CoordinatorSiteAssociation, Employee,
     MembershipKind, ReadinessSource, ReadinessState, ShiftCatalogKind, ShiftDemand, ShiftKind, SiteMembership,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
-from rota.persistence.availability_repository import append_availability_version
 from rota.persistence.calendar_repository import save_calendar_day
+from rota.persistence.coordinator_repository import save_coordinator_site_association
 from rota.persistence.db import LATEST_SCHEMA_VERSION, connect, migrate
 from rota.persistence.employee_repository import save_employee, save_site_membership
 from rota.persistence.site_repository import (
     InvalidSitePrintSettings, SitePrintSettings, WorkCodeInterval, get_site_print_settings, save_site_print_settings,
 )
 from tests.support.t008_fixtures import seed_base_entities
+from tests.test_t023 import _accept_version
 
 MONTH = date(2026, 8, 1)
 def _default_intervals() -> dict:
@@ -42,6 +44,7 @@ def _settings(**overrides) -> SitePrintSettings:
     return SitePrintSettings(**base)
 def _seed(conn, *, employees: tuple[str, ...] = ("EMP-1",), full_calendar: bool = True):
     seed_base_entities(conn, site_id="SITE-1", employee_id=employees[0])
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", "SITE-1", True))
     for emp in employees[1:]:
         save_employee(conn, Employee(emp, f"Pracownik {emp}", date(2026, 1, 1), None, False))
     for emp in employees:
@@ -68,7 +71,8 @@ def _create_version(conn, demands, assignments, *, version_id="SV-1", parent=Non
         shift_demands=demands, assignments=assignments, deviations=[], effective_from=effective_from,
     )
 def _grant_leave(conn, employee_id, *, start, end, kind=AvailabilityKind.LEAVE_GRANTED, av_id="AV-1"):
-    append_availability_version(conn, availability_id=av_id, employee_id=employee_id, kind=kind, start_date=start, end_date=end, active=True)
+    # ROTA-T023 Checkpoint C: routed through the durable_inputs entry point so absence_reference capture runs, same as production coordinator writes.
+    append_availability(conn, coordinator_id="COORD-1", site_id="SITE-1", availability_id=av_id, employee_id=employee_id, kind=kind, start_date=start, end_date=end, active=True)
 
 
 # --- T20-01: migration ------------------------------------------------------
@@ -274,23 +278,42 @@ def test_t20_14_frozen_40h_leave_decomposition():
 
 
 # --- T20-19/20/21: conflicts and ambiguity ----------------------------------
-def test_t20_19_overlapping_leave_and_sick_conflict():
+def test_t20_19_overlapping_leave_and_sick_prints_c_only():
+    """ROTA-T023 brief.md section 18: superseded by SICK/C precedence --
+    SICK wins over LEAVE_GRANTED on the same date, one C, no conflict error
+    (frozen addendum section 4). Uses a deterministic future month (the
+    file's shared Aug-2026 MONTH is now in the real past) so R5-2's
+    retroactivity guard does not block writing SICK over an accepted plan's
+    own PLANNED work item -- SICK has no PRE_PLAN path, so a real accepted
+    plan is required for it to resolve BOUND with actual hours at all."""
     conn = connect(":memory:")
     _seed(conn)
     save_site_print_settings(conn, _settings())
-    _create_version(conn, [], [])
-    _grant_leave(conn, "EMP-1", start=date(2026, 8, 5), end=date(2026, 8, 6), av_id="AV-U")
-    _grant_leave(conn, "EMP-1", start=date(2026, 8, 6), end=date(2026, 8, 7), kind=AvailabilityKind.SICK_LEAVE, av_id="AV-C")
-    with pytest.raises(SE.ExportProblemError) as exc:
-        SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
-    assert exc.value.code == "ABSENCE_KIND_CONFLICT"
+    future_month = date(2027, 3, 1)
+    demand = ShiftDemand("DEM-F", "", datetime(2027, 3, 6, 6, 0), datetime(2027, 3, 6, 18, 0), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12)
+    assignment = Assignment("ASG-F", "", "EMP-1", datetime(2027, 3, 6, 6, 0), datetime(2027, 3, 6, 18, 0), AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "DEM-F", None)
+    _accept_version(conn, version_id="SV-F", pairs=[(demand, assignment)], effective_from=date(2027, 3, 1), accepted_at=datetime(2020, 3, 1, 9, 0), site_id="SITE-1", month=future_month)
+    _grant_leave(conn, "EMP-1", start=date(2027, 3, 6), end=date(2027, 3, 6), av_id="AV-U")
+    _grant_leave(conn, "EMP-1", start=date(2027, 3, 6), end=date(2027, 3, 6), kind=AvailabilityKind.SICK_LEAVE, av_id="AV-C")
+    # A real REPLAN would redistribute the now-excused shift away from EMP-1; simulate that so CURRENT work_cells no longer conflicts with the frozen POST_PLAN reference (already captured, immutable).
+    lifecycle.replace_working_snapshot(conn, version_id="SV-F", applied_rule_version_ids=[], shift_demands=[demand], assignments=[], deviations=[])
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=future_month, period_label="x")
+    row = model.rows[0]
+    assert row.plan[5] == "D1"
+    assert row.wyk[5] == "C1"
 def test_t20_20_assignment_on_active_absence_day_conflicts():
+    """Order matters: the absence is granted BEFORE the conflicting
+    Assignment is created, since R5-2's retroactivity guard would otherwise
+    reject writing a new absence over an already-existing PRIMARY -- this
+    test's whole point is the defensive legacy/corrupt-data detection
+    brief.md section 12 says may remain for a state valid writes now
+    prevent, not a state a normal write sequence would ever construct."""
     conn = connect(":memory:")
     _seed(conn)
     save_site_print_settings(conn, _settings())
+    _grant_leave(conn, "EMP-1", start=date(2026, 8, 5), end=date(2026, 8, 5))
     d1, a1 = _work_item(5, 6, 18, kind=ShiftKind.D)
     _create_version(conn, [d1], [a1])
-    _grant_leave(conn, "EMP-1", start=date(2026, 8, 5), end=date(2026, 8, 5))
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "ASSIGNMENT_ABSENCE_CONFLICT"

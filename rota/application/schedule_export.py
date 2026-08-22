@@ -17,9 +17,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, MembershipKind, ShiftCatalogKind
 from rota.persistence import calendar_repository, employee_repository, schedule_repository, site_repository
+from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
-from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, IncompleteAbsenceCalendarError, excused_absence_days_in_month
 from rota.planning.work_periods import PeriodComponent, group_into_periods
 PLAN_PRIORITY = ("D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5")
 BLANK = "–"
@@ -79,7 +79,7 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     holiday_by_date = {c.date: c.holiday for c in calendar_days}
     roster_ids = set(local_ids) | seen_employee_ids
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
-    absence_by_employee = _collect_absence(conn, month, days, local_ids, work_cells, settings, calendar_days, holiday_by_date)
+    absence_by_employee = _collect_absence(conn, days, local_ids, work_cells, settings, site_id)
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
     provenance = _provenance_text(lineage, adjacent_facts)
     return ExportModel(
@@ -281,23 +281,7 @@ def _map_work_code(assignment, demand, settings) -> str:
         raise ExportProblemError("WORK_CODE_MAPPING_REQUIRED", f"{assignment.assignment_id}: no configured code matches its interval")
     return candidates[0]
 # Absence presentation (Sections 12-15) -- print symbols only, never Assignment.
-def _span_dates(records, kind, month_start, month_end) -> list[date]:
-    dates: set[date] = set()
-    for r in records:
-        if not r.active or r.kind != kind:
-            continue
-        d, end = max(r.start_date, month_start), min(r.end_date, month_end)
-        while d <= end:
-            dates.add(d)
-            d += timedelta(days=1)
-    return sorted(dates)
-def _qualifying_subset(span: list[date], holiday_by_date: dict) -> list[date]:
-    return [d for d in span if d.isoweekday() <= 5 and not holiday_by_date.get(d, False)]
-def _validate_calendar_coverage(records, kind, month, calendar_days) -> None:
-    try:
-        excused_absence_days_in_month(records, month, kinds=(kind,), calendar_days=tuple(calendar_days))
-    except IncompleteAbsenceCalendarError as exc:
-        raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", str(exc)) from exc
+# T23-35: reads the same canonical absence_reference_snapshots WorkBalance/analytics/solver already consume, never its own recount.
 def _legal_uc_value(code: str, reserve_hours: dict) -> Optional[int]:
     return {"U1": 12, "U2": 16, "C1": 12, "C2": 16}.get(code, reserve_hours.get(code))
 def _pair_values(letter: str, base_regime: str, reserve_hours: dict) -> dict:
@@ -331,12 +315,11 @@ def _minimal_sequence(total_hours: int, values_by_rank: list[int], employee_id: 
                 remaining -= v
                 break
     return sequence
-def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list[date], settings) -> list[tuple]:
-    pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)
+def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list[date], total_hours: int, settings) -> list[tuple]:
+    pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)  # PRE_PLAN_LEAVE only (T23-43), coin-change unchanged
     if not qualifying:
         return [(d, f"{letter}~", f"{letter}~") for d in span]
     values_by_rank = sorted(pairs_by_value, key=lambda v: PLAN_PRIORITY.index(pairs_by_value[v][0]))
-    total_hours = len(qualifying) * EXCUSED_ABSENCE_HOURS_PER_DAY
     sequence = _minimal_sequence(total_hours, values_by_rank, employee_id, letter)
     if len(sequence) > len(qualifying):
         raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}: decomposition needs more cells than available")
@@ -344,7 +327,28 @@ def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list
     pairs = [(symbol_dates[i], *pairs_by_value[v]) for i, v in enumerate(sequence)]
     pairs += [(d, f"{letter}~", f"{letter}~") for d in span if d not in symbol_dates]
     return pairs
-def _collect_absence(conn, month, days, local_ids, work_cells, settings, calendar_days, holiday_by_date) -> dict[str, list[tuple]]:
+def _decompose_pre_plan(employee_id, pre_plan_days, settings) -> list[tuple]:
+    span, qualifying = [d for d, _ in pre_plan_days], [(d, day.hours) for d, day in pre_plan_days if day.hours]
+    return _decompose(employee_id, "U", span, [d for d, _ in qualifying], sum(h for _, h in qualifying), settings)
+def _winning_days(snapshots) -> dict[date, tuple]:
+    winner: dict[date, tuple] = {}  # SICK wins over LEAVE_GRANTED same-date, count once, present C (frozen addendum sec.4, T23-45)
+    for record, snapshot in snapshots:
+        for day in snapshot.days:
+            existing = winner.get(day.the_date)
+            if existing is None or (record.kind == AvailabilityKind.SICK_LEAVE and existing[0] != AvailabilityKind.SICK_LEAVE):
+                winner[day.the_date] = (record.kind, day)
+    return winner
+def _post_plan_pair(employee_id, the_date, kind, day, settings, site_id) -> list[tuple]:
+    matching = [p for p in day.periods if p.site_id == site_id]  # T23-25/T20: only this Site's own bound periods count
+    site_hours = sum(int((p.end_datetime - p.start_datetime).total_seconds() // 3600) for p in matching)
+    if site_hours == 0:
+        return []  # accepted rest, no synthetic U/C (T23-42)
+    letter = "C" if kind == AvailabilityKind.SICK_LEAVE else "U"
+    pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)
+    if site_hours not in pairs_by_value:
+        raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h POST_PLAN code")
+    return [(the_date, *pairs_by_value[site_hours])]
+def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
     if not local_ids:
         return {}
     month_start, month_end = days[0], days[-1]
@@ -355,36 +359,32 @@ def _collect_absence(conn, month, days, local_ids, work_cells, settings, calenda
     memberships_by_employee = employee_repository.list_memberships_for_employees(conn, sorted(by_employee))
     result: dict[str, list[tuple]] = {}
     for employee_id in sorted(local_ids):
-        emp_records = by_employee.get(employee_id, [])
-        if not emp_records:
-            continue
-        result_pairs = _absence_pairs_for_employee(
-            employee_id, emp_records, month, month_start, month_end, calendar_days, holiday_by_date,
-            work_cells, settings, memberships_by_employee.get(employee_id, []),
-        )
-        if result_pairs:
-            result[employee_id] = result_pairs
+        emp_records = [r for r in by_employee.get(employee_id, []) if r.kind in (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)]
+        snapshots = [(r, get_absence_reference_snapshot(conn, r.availability_version_id)) for r in emp_records]
+        for r, snapshot in snapshots:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
+            if snapshot is None:
+                raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: legacy active {r.kind.value} has no captured reference snapshot")
+        enabled_local = sum(1 for m in memberships_by_employee.get(employee_id, []) if m.membership_kind == MembershipKind.LOCAL and m.enabled)
+        pairs = _absence_pairs_for_employee(employee_id, _winning_days(snapshots), work_cells, settings, site_id, enabled_local)
+        if pairs:
+            result[employee_id] = pairs
     return result
-def _absence_pairs_for_employee(employee_id, emp_records, month, month_start, month_end, calendar_days, holiday_by_date, work_cells, settings, memberships_all):
-    _validate_calendar_coverage(emp_records, AvailabilityKind.LEAVE_GRANTED, month, calendar_days)
-    _validate_calendar_coverage(emp_records, AvailabilityKind.SICK_LEAVE, month, calendar_days)
-    leave_span = _span_dates(emp_records, AvailabilityKind.LEAVE_GRANTED, month_start, month_end)
-    sick_span = _span_dates(emp_records, AvailabilityKind.SICK_LEAVE, month_start, month_end)
-    if set(leave_span) & set(sick_span):
-        raise ExportProblemError("ABSENCE_KIND_CONFLICT", f"{employee_id}: LEAVE_GRANTED/SICK_LEAVE overlap")
-    for d in (*leave_span, *sick_span):
-        if d in work_cells.get(employee_id, {}):
-            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{d}: real Assignment on an active absence day")
-    if not leave_span and not sick_span:
-        return []
-    enabled_local = sum(1 for m in memberships_all if m.membership_kind == MembershipKind.LOCAL and m.enabled)
-    if enabled_local > 1:
-        raise ExportProblemError("ABSENCE_SITE_AMBIGUOUS", f"{employee_id} has {enabled_local} enabled LOCAL memberships")
+def _absence_pairs_for_employee(employee_id, winner_by_date, work_cells, settings, site_id, enabled_local) -> list[tuple]:
+    for the_date in winner_by_date:
+        if the_date in work_cells.get(employee_id, {}):
+            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{the_date}: real Assignment on an active absence day")
+    pre_plan_days, post_plan_days = [], []
+    for the_date, (kind, day) in sorted(winner_by_date.items()):
+        if day.status != "BOUND":
+            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}/{the_date}: {day.status} accepted reference")
+        (pre_plan_days if day.source_mode == "PRE_PLAN_LEAVE" else post_plan_days).append((the_date, kind, day))
     pairs = []
-    if leave_span:
-        pairs += _decompose(employee_id, "U", leave_span, _qualifying_subset(leave_span, holiday_by_date), settings)
-    if sick_span:
-        pairs += _decompose(employee_id, "C", sick_span, _qualifying_subset(sick_span, holiday_by_date), settings)
+    if pre_plan_days:
+        if enabled_local > 1:  # T23-46: keeps the existing fail-closed Site-attribution boundary, else duplicates the global total
+            raise ExportProblemError("ABSENCE_SITE_AMBIGUOUS", f"{employee_id} has {enabled_local} enabled LOCAL memberships")
+        pairs += _decompose_pre_plan(employee_id, [(d, day) for d, _, day in pre_plan_days], settings)
+    for the_date, kind, day in post_plan_days:
+        pairs += _post_plan_pair(employee_id, the_date, kind, day, settings, site_id)
     return pairs
 # Row assembly (Section 11/16)
 def _hours_of(code: str, reserve_hours: dict) -> int:

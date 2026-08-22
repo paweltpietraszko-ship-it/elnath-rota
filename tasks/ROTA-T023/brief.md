@@ -343,6 +343,15 @@ TASK_SCOPE:
 - tests/test_t011_a_application_entry_points.py
 - tests/test_audit_t009_r6.py
 - tests/test_t023_checkpoint_b.py
+- tests/test_t023_checkpoint_c.py
+
+Owner-authorized narrow amendment (2026-08-22, Checkpoint C own test matrix):
+tests/test_t023_checkpoint_c.py is a new file, in scope ONLY for T23-35 and
+T23-40..47 (brief.md section 17). Checkpoint A/B tests in tests/test_t023.py
+and tests/test_t023_checkpoint_b.py must not be moved, removed or duplicated
+here. Same one-time exact-SHA exception to backend.py's global
+MAX_NEW_FILES=2 as Checkpoint B's own amendment below -- backend.py's global
+constant is unchanged.
 
 Owner-authorized narrow amendment (2026-08-22, Checkpoint B own test matrix):
 tests/test_t023_checkpoint_b.py is a new file, in scope ONLY for T23-30..34,
@@ -382,6 +391,8 @@ NEW_FILES relative to task base:
 - tasks/ROTA-T023/brief.md
 - rota/persistence/absence_reference_repository.py
 - tests/test_t023.py
+- tests/test_t023_checkpoint_b.py
+- tests/test_t023_checkpoint_c.py
 
 Explicitly OUT OF SCOPE for modification unless a concrete implementation/audit finding requires an architect scope amendment:
 - arch/spec.md
