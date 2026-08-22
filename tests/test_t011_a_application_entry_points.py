@@ -158,6 +158,11 @@ def test_7_restart_without_touching_persistence(tmp_path) -> None:
 def test_8_availability_history_returns_full_chain_in_order(tmp_path) -> None:
     conn = store.open_store(tmp_path / "rota.db")
     _bootstrap_context(conn)
+    # ROTA-T023 A-R8-1 (owner-authorized narrow TASK_SCOPE amendment,
+    # 2026-08-22): LEAVE_GRANTED now fails closed on an incomplete
+    # CalendarDay range instead of guessing -- seed the exact required days.
+    for d in (10, 11, 12):
+        set_calendar_day(conn, coordinator_id=COORD, site_id=SITE, day=CalendarDay(date(2026, 9, d), False))
 
     first = append_availability(
         conn, coordinator_id=COORD, site_id=SITE, availability_id="AV-CHAIN-1", employee_id=EMP,
