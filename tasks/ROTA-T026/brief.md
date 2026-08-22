@@ -150,17 +150,28 @@ T026 fixes ownership, not values.
 
 ## 4. TASK_SCOPE — FILES CC MAY MODIFY
 
-Production:
-- `rota/planning/engine.py`
-- `rota/planning/absence.py`
-- `rota/application/schedule_export.py`
+TASK_SCOPE:
+- rota/planning/engine.py
+- rota/planning/absence.py
+- rota/application/schedule_export.py
+- tests/test_t018.py
+- tests/test_t026.py
+- tasks/ROTA-T026/brief.md
 
-Tests:
-- `tests/test_t018.py` — only the exact superseded direct-plan CalendarDay/SICK oracle and mechanical imports/fixture edits required by that replacement;
-- `tests/test_t026.py` — new T026 closure matrix.
+Mechanical formatting note (2026-08-22, CC): the list above is the literal
+`TASK_SCOPE:` block `backend.py::read_task_scope()` parses (bare paths, no
+Markdown formatting) -- the original Production/Tests/Contract-process
+grouping and per-file annotations below are preserved as prose, unchanged
+in meaning.
 
-Contract/process:
-- `tasks/ROTA-T026/brief.md`
+Production: `rota/planning/engine.py`, `rota/planning/absence.py`,
+`rota/application/schedule_export.py`.
+
+Tests: `tests/test_t018.py` — only the exact superseded direct-plan
+CalendarDay/SICK oracle and mechanical imports/fixture edits required by
+that replacement; `tests/test_t026.py` — new T026 closure matrix.
+
+Contract/process: `tasks/ROTA-T026/brief.md`.
 
 No other product/test file may be modified without a concrete independent-audit finding proving it is required to close this contract.
 
