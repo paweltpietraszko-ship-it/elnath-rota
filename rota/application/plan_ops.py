@@ -16,7 +16,7 @@ from rota.application.errors import (
     ScheduleVersionNotWorking,
     require_real_date,
 )
-from rota.domain import Assignment, AssignmentState, ScheduleVersion
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
@@ -182,6 +182,64 @@ def _candidate_delta(prior: tuple, candidate: list[Assignment]) -> tuple[dict, d
     return before_state, after_state
 
 
+def _replan_cutover_violations(
+    prior: tuple[Assignment, ...], candidate: list[Assignment], cutover_at: datetime,
+) -> list[str]:
+    """ROTA-T023 R5-3/brief.md section 10.2: on a REPLAN child, every
+    non-CANCELLED PRIMARY Assignment that started before cutover_at is
+    frozen for this selection -- no removal, no field mutation, and no new
+    replacement PRIMARY may start before cutover_at either. `prior` is the
+    REPLAN child's own current snapshot (cloned from the parent by
+    replan()), so this compares within one schedule_version_id, no
+    cross-version identity model needed."""
+    prior_by_id = {a.assignment_id: a for a in prior}
+    candidate_by_id = {a.assignment_id: a for a in candidate}
+    pre_cutover_prior = {
+        aid: a for aid, a in prior_by_id.items()
+        if a.role == AssignmentRole.PRIMARY and a.state != AssignmentState.CANCELLED and a.start_datetime < cutover_at
+    }
+    violations = []
+    for aid, prior_a in pre_cutover_prior.items():
+        cand_a = candidate_by_id.get(aid)
+        if cand_a is None:
+            violations.append(f"REPLAN cutover: pre-cutover PRIMARY {aid} removed")
+        elif _assignment_fact(prior_a) != _assignment_fact(cand_a):
+            violations.append(f"REPLAN cutover: pre-cutover PRIMARY {aid} mutated")
+    for aid, cand_a in candidate_by_id.items():
+        if aid in prior_by_id:
+            continue
+        if cand_a.role == AssignmentRole.PRIMARY and cand_a.state != AssignmentState.CANCELLED and cand_a.start_datetime < cutover_at:
+            violations.append(f"REPLAN cutover: new pre-cutover PRIMARY {aid} added")
+    return violations
+
+
+def _enforce_replan_cutover(header: ScheduleVersion, prior: tuple, candidate: list[Assignment], cutover_at: datetime) -> None:
+    if header.parent_version_id is None:
+        return
+    cutover_violations = _replan_cutover_violations(prior, candidate, cutover_at)
+    if cutover_violations:
+        raise CandidateRejected("; ".join(cutover_violations))
+
+
+def _select_candidate_hook(
+    *, site_id, month, coordinator_id, header, current_id, before_state, after_state, note,
+    responds_to_decision_required_id, recorded_at,
+):
+    def _hook(open_conn) -> None:
+        site_memory.record_coordinator_action_no_commit(
+            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=header.effective_from, month=month, schedule_version_id=current_id,
+            affected_entities=[AffectedEntity("SCHEDULE_VERSION", current_id)],
+            before_state=before_state, after_state=after_state, note=note,
+            source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=current_id,
+            responds_to_decision_required_id=responds_to_decision_required_id,
+        )
+        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
+
+    return _hook
+
+
 def select_candidate(
     conn, *, site_id: str, month: date, candidate: list[Assignment], coordinator_id: str,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
@@ -208,23 +266,20 @@ def select_candidate(
     if not report.hard_pass:
         raise CandidateRejected("; ".join(report.violations))
     before_state, after_state = _candidate_delta(state.existing_assignments, candidate)
-    recorded_at = datetime.now()
-
-    def _hook(open_conn) -> None:
-        site_memory.record_coordinator_action_no_commit(
-            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, origin_site_id=site_id,
-            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=header.effective_from, month=month, schedule_version_id=current_id,
-            affected_entities=[AffectedEntity("SCHEDULE_VERSION", current_id)],
-            before_state=before_state, after_state=after_state, note=note,
-            source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=current_id,
-            responds_to_decision_required_id=responds_to_decision_required_id,
-        )
-        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
-
+    # R5-3/section 10.1: cutover_at is captured once, immediately before the
+    # cutover-preservation check and the snapshot replacement it guards, and
+    # the same value becomes SCHEDULE_CANDIDATE_SELECTED.recorded_at below.
+    cutover_at = datetime.now()
+    _enforce_replan_cutover(header, state.existing_assignments, candidate, cutover_at)
+    recorded_at = cutover_at
+    hook = _select_candidate_hook(
+        site_id=site_id, month=month, coordinator_id=coordinator_id, header=header, current_id=current_id,
+        before_state=before_state, after_state=after_state, note=note,
+        responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=recorded_at,
+    )
     return lifecycle.replace_working_snapshot(
         conn, version_id=current_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
-        shift_demands=state.shift_demands, assignments=candidate, deviations=[], on_success=_hook,
+        shift_demands=state.shift_demands, assignments=candidate, deviations=[], on_success=hook,
         pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
             c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         ),

@@ -5,8 +5,8 @@ BOUNDARY: "WorkBalance śledzi godziny narastająco w kwartale, w tym saldo
 nadgodzin do oddania w następnym okresie (unresolved_carryover) -- to
 odpowiedzialność koordynatora, w zakresie Rota. Rota NIE oblicza rozliczeń
 kadrowych ani list płac." This module computes the running balance signal
-from Assignment + AvailabilityRecord data; it does not block anything (HARD
-or otherwise) and produces no report/UI. A caller decides how to surface the
+from Assignment + absence data; it does not block anything (HARD or
+otherwise) and produces no report/UI. A caller decides how to surface the
 resulting number (owner instruction 2026-08-13: "jak najprościej ... czerwone
 podsumowanie z liczbą" -- that display decision belongs to whatever consumes
 WorkBalance, not to this module).
@@ -14,14 +14,24 @@ WorkBalance, not to this module).
 WorkBalance has no site_id (EMP-03: an Employee is not owned by one Site),
 so callers must supply every relevant Assignment for the employee across all
 sites for the month/quarter, not just one PlanningState's worth.
+
+ROTA-T023 Checkpoint B (brief.md section 11 / frozen addendum section 13):
+the flat EXCUSED_ABSENCE_HOURS_PER_DAY/excused_absence_days_in_month path
+(T018) is superseded here -- absence_hours now comes from the canonical
+source-mode-aware result (rota.planning.absence.canonical_hours_in_range),
+fed by decoded DailyAbsenceFact rows the caller assembles from persisted
+absence_reference_snapshots. SICK_LEAVE and LEAVE_GRANTED reduce the
+effective target identically, through the same canonical result consumed
+by solver TARGET-01, analytics and T020 alike (section 11: "SICK and
+granted leave reduce live TARGET through the same canonical result").
 """
 from __future__ import annotations
 
+import calendar
 from datetime import date
-from typing import Optional
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, AvailabilityRecord, CalendarDay, WorkBalance
-from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
+from rota.domain import Assignment, AssignmentRole, AssignmentState, WorkBalance
+from rota.planning.absence import DailyAbsenceFact, canonical_hours_in_range
 
 
 class MissingTargetHoursError(Exception):
@@ -52,20 +62,23 @@ def _hours_in_month(assignments: list[Assignment], employee_id: str, month: date
     return hours
 
 
+def _month_end(month: date) -> date:
+    return date(month.year, month.month, calendar.monthrange(month.year, month.month)[1])
+
+
 def compute_month_balance(
     employee_id: str, month: date, target_hours: int,
-    assignments: list[Assignment], availability_records: list[AvailabilityRecord],
-    quarter_balance_before: int = 0, calendar_days: Optional[tuple[CalendarDay, ...]] = None,
+    assignments: list[Assignment], absence_facts: list[DailyAbsenceFact],
+    quarter_balance_before: int = 0,
 ) -> WorkBalance:
     """Compute one month's WorkBalance. `quarter_balance_before` is the
     running balance carried in from earlier months of the same calendar
     quarter (0 for the quarter's first month, or when computing a single
-    month in isolation).
-
-    Owner decision 2026-08-13: both SICK_LEAVE and LEAVE_GRANTED reduce the
-    expected monthly quota by EXCUSED_ABSENCE_HOURS_PER_DAY (8h) per day here
-    -- distinct from solver.py's live TARGET-01 objective, which stays
-    SICK_LEAVE-only (see absence.py docstring for why).
+    month in isolation). `absence_facts` is this employee's decoded
+    DailyAbsenceFact rows (SICK_LEAVE + LEAVE_GRANTED) for at least this
+    month's range -- the caller assembles them from persisted
+    absence_reference_snapshots (rota.persistence.work_balance_repository);
+    this module stays pure/persistence-free.
 
     Owner decision 2026-08-14: the balance must fire on already-scheduled
     (PLANNED) hours, not only on hours that have already happened (REALIZED)
@@ -76,13 +89,15 @@ def compute_month_balance(
 
     unresolved_carryover: arch/spec.md marks its exact lifecycle OPEN. This
     computes it as the running quarter_balance not yet explicitly resolved
-    by the coordinator; nothing beyond that is invented here."""
+    by the coordinator; nothing beyond that is invented here.
+
+    Raises rota.planning.absence.IncompleteAbsenceReferenceError (propagated
+    from canonical_hours_in_range) if any date's winning absence fact this
+    month is MISSING/AMBIGUOUS -- never guessed."""
     realized_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.REALIZED)
     planned_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.PLANNED)
-    absence_days = excused_absence_days_in_month(
-        availability_records, month, calendar_days=calendar_days
-    ).get(employee_id, 0)
-    effective_target = max(0, target_hours - EXCUSED_ABSENCE_HOURS_PER_DAY * absence_days)
+    absence_hours = canonical_hours_in_range(absence_facts, month, _month_end(month))
+    effective_target = max(0, target_hours - absence_hours)
     month_balance = (realized_hours + planned_hours) - effective_target
     running_quarter_balance = quarter_balance_before + month_balance
     return WorkBalance(
@@ -94,18 +109,19 @@ def compute_month_balance(
         month_balance=month_balance,
         unresolved_carryover=running_quarter_balance,
         quarter_balance=running_quarter_balance,
+        absence_hours=absence_hours,
     )
 
 
 def compute_quarter_balance(
     employee_id: str, quarter_first_month: date, target_hours_by_month: dict[date, int],
-    assignments: list[Assignment], availability_records: list[AvailabilityRecord],
-    calendar_days: Optional[tuple[CalendarDay, ...]] = None,
+    assignments: list[Assignment], absence_facts: list[DailyAbsenceFact],
 ) -> list[WorkBalance]:
     """Compute WorkBalance for every month of one calendar quarter in order,
     carrying the running balance forward. The last entry's quarter_balance is
     the number to surface at quarter end; each entry's own month_balance is
-    the number to surface at that month's end.
+    the number to surface at that month's end. `absence_facts` should cover
+    at least the whole quarter's range.
 
     Raises MissingTargetHoursError if any of the quarter's three months has
     no entry in target_hours_by_month -- a missing statutory norm is not the
@@ -120,8 +136,7 @@ def compute_quarter_balance(
             )
         target_hours = target_hours_by_month[month]
         balance = compute_month_balance(
-            employee_id, month, target_hours, assignments, availability_records, running_balance,
-            calendar_days=calendar_days,
+            employee_id, month, target_hours, assignments, absence_facts, running_balance,
         )
         running_balance = balance.quarter_balance
         balances.append(balance)

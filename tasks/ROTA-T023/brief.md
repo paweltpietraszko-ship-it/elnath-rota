@@ -341,12 +341,41 @@ TASK_SCOPE:
 - tests/test_audit_r20_r21_findings.py
 - tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py
 - tests/test_t011_a_application_entry_points.py
+- tests/test_audit_t009_r6.py
+- tests/test_t023_checkpoint_b.py
+
+Owner-authorized narrow amendment (2026-08-22, Checkpoint B own test matrix):
+tests/test_t023_checkpoint_b.py is a new file, in scope ONLY for T23-30..34,
+T23-R5-3A..F and T23-50..54 (brief.md section 17). Checkpoint A tests in
+tests/test_t023.py must not be moved, removed or duplicated here. T23-35
+("T020 totals equal canonical source-mode projection") is explicitly
+DEFERRED TO CHECKPOINT C per section 16 (schedule_export.py is Checkpoint
+C's own allowed production subset and is not yet rewired) -- not tested in
+Checkpoint B, not a Checkpoint B gap or FAIL. This is a one-time,
+exact-SHA exception to backend.py's global MAX_NEW_FILES=2: the mechanical
+gate is expected to report NEW_FILES: 3 new files (max 2) for this task,
+and that specific finding is pre-accepted by the owner for this SHA --
+backend.py's global constant is unchanged.
 
 Owner-authorized narrow amendment (2026-08-22, Round 8 A-R8-1 fallout):
 tests/test_t011_a_application_entry_points.py is in scope only for
 test_8_availability_history_returns_full_chain_in_order -- fixture-only
 CalendarDay seeding, no change to the tested Availability chain or its
 assertions.
+
+Owner-authorized narrow amendment (2026-08-22, Checkpoint B R5-3 fallout):
+tests/test_audit_t009_r6.py is in scope only for the "trainee" parametrization
+of test_r6_replan_candidate_with_fixed_facts_can_be_selected. Its month
+(2026-08, already elapsed relative to real wall-clock capture of
+select_candidate's cutover_at) puts every shift in that month before
+cutover_at, so the new R5-3 guard blocks the solver's ordinary
+redistribution of a non-fixed PRIMARY it was never meant to protect there.
+Allowed change: move only this parametrization's scenario to a deterministic
+future month, and shift its manual-correction/REPLAN effective_from
+accordingly, so the guard is not spuriously triggered by wall-clock elapse.
+Must keep TRAINEE creation, the real solver, selecting its candidate, and the
+existing absence of CandidateRejected. No change to frozen/realized
+parametrizations, assertions, or any other test in the file.
 
 NEW_FILES relative to task base:
 - arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md

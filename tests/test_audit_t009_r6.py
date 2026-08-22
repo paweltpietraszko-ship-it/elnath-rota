@@ -66,10 +66,23 @@ def test_r6_engine_state_names_the_current_version_it_is_planning(tmp_path, monk
 
 @pytest.mark.parametrize("fixed_kind", ["frozen", "realized", "trainee"])
 def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_kind):
-    """All T006 fixed-fact branches must survive the new child identity."""
+    """All T006 fixed-fact branches must survive the new child identity.
+
+    ROTA-T023 Checkpoint B (owner-authorized narrow TASK_SCOPE amendment,
+    2026-08-22): the "trainee" case alone runs in a deterministic future
+    month. MONTH (2026-08) is already elapsed relative to real wall-clock
+    "now", so select_candidate's R5-3 cutover_at (captured at call time) is
+    later than every shift in MONTH -- the solver's ordinary, unprotected
+    redistribution of the non-fixed PRIMARY it swaps for the TRAINEE's
+    mentor then spuriously trips the pre-cutover-PRIMARY guard. A future
+    month keeps every shift after cutover_at, matching what R5-3 actually
+    protects (accepted-plan facts, not merely elapsed ones)."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-r6-fixed-{fixed_kind}", month=MONTH, seed=902)
-    selected = _plan_and_select(conn, state.site.site_id)
+    month = date(2027, 2, 1) if fixed_kind == "trainee" else MONTH
+    correction_effective_from = date(month.year, month.month, 2)
+    replan_effective_from = date(month.year, month.month, 3)
+    state = seed_real_object(conn, case_id=f"audit-r6-fixed-{fixed_kind}", month=month, seed=902)
+    selected = _plan_and_select(conn, state.site.site_id, month)
     snapshot = get_schedule_snapshot(conn, selected.version_id)
     mentor = snapshot.assignments[0]
 
@@ -86,16 +99,16 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
         )]
 
     manual_edit.apply_manual_correction(
-        conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1",
-        effective_from=date(2026, 8, 2), upsert_assignments=upsert,
+        conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1",
+        effective_from=correction_effective_from, upsert_assignments=upsert,
     )
     replanned = plan_ops.replan(
-        conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1",
-        effective_from=date(2026, 8, 3),
+        conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1",
+        effective_from=replan_effective_from,
     )
     assert replanned.status == "FEASIBLE"
     plan_ops.select_candidate(
-        conn, site_id=state.site.site_id, month=MONTH,
+        conn, site_id=state.site.site_id, month=month,
         coordinator_id="COORD-1", candidate=replanned.candidates[0],
     )
 

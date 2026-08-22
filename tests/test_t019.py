@@ -15,6 +15,7 @@ from rota.application.analytics_read import (
 from rota.application.bootstrap import bootstrap_or_resume_coordinator_context
 from rota.application.durable_inputs import (
     add_external_support_window,
+    append_availability,
     set_target_hours,
     update_employee,
     update_membership,
@@ -41,7 +42,6 @@ from rota.domain import (
     StandardShift,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
-from rota.persistence.availability_repository import append_availability_version
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import connect
 from rota.domain import AvailabilityKind
@@ -130,9 +130,13 @@ def _seed_month(
 
 
 def _absence(conn, *, employee_id: str, kind: AvailabilityKind, start: date, end: date) -> None:
-    append_availability_version(
-        conn, availability_id=f"AV-{employee_id}-{start.isoformat()}", employee_id=employee_id, kind=kind,
-        start_date=start, end_date=end, active=True,
+    """ROTA-T023 Checkpoint B: routed through the durable_inputs entry point
+    (not the raw repository call) so absence_reference capture runs -- the
+    canonical DailyAbsenceFact snapshot WorkBalance/analytics now consume is
+    populated only via this path, same as production coordinator writes."""
+    append_availability(
+        conn, coordinator_id=COORD, site_id=SITE, availability_id=f"AV-{employee_id}-{start.isoformat()}",
+        employee_id=employee_id, kind=kind, start_date=start, end_date=end, active=True,
     )
 
 
@@ -292,18 +296,25 @@ def test_10_requested_month_incomplete_calendar_with_qualifying_absence(tmp_path
     assert row.status == AnalyticsDataStatus.UNAVAILABLE
     assert row.month_data is None
     assert row.warnings[0].startswith(f"analytics unavailable for employee '{EMP_A}', month {AUG.isoformat()}: ")
-    assert "CalendarDay" in row.warnings[0]
+    # ROTA-T023 Checkpoint B: SICK_LEAVE has no PRE_PLAN_LEAVE path (frozen
+    # addendum section 2) -- with no accepted plan anywhere, the reference is
+    # MISSING (POST_PLAN_REFERENCE), not a CalendarDay-completeness gap.
+    assert "MISSING accepted reference for SICK_LEAVE" in row.warnings[0]
 
 
-def test_11_other_quarter_month_incomplete_calendar_blocks_quarter_only(tmp_path) -> None:
+def test_11_other_quarter_month_incomplete_reference_blocks_quarter_only(tmp_path) -> None:
+    """ROTA-T023 Checkpoint B: JUL's qualifying SICK_LEAVE has no accepted
+    plan anywhere -- MISSING POST_PLAN_REFERENCE, discovered lazily at read
+    time (capture itself needs no CalendarDay for this branch), same
+    month-available/quarter-unavailable shape as the superseded
+    CalendarDay-completeness oracle this replaces (brief.md section 18)."""
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
     for month in (JUL, AUG, SEP):
         set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=month, target_hours=100)
     _fill_calendar(conn, AUG)
-    # JUL has a qualifying absence but no CalendarDay coverage.
-    _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.LEAVE_GRANTED, start=date(2026, 7, 3), end=date(2026, 7, 3))
+    _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 7, 3), end=date(2026, 7, 3))
     view = analytics_for_site_month(conn, site_id=SITE, month=AUG)
     row = view.rows[0]
     assert row.status == AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE
@@ -312,21 +323,24 @@ def test_11_other_quarter_month_incomplete_calendar_blocks_quarter_only(tmp_path
     assert row.warnings[0].startswith(f"quarter analytics unavailable for employee '{EMP_A}', month {JUL.isoformat()}: ")
 
 
-def test_12_sick_leave_weekend_holiday_workday_only(tmp_path) -> None:
+def test_12_sick_leave_with_no_accepted_plan_is_missing_reference(tmp_path) -> None:
+    """ROTA-T023 Checkpoint B: the T018/T019 flat weekday/holiday-exclusion
+    arithmetic for SICK_LEAVE is superseded (brief.md section 18) -- SICK_LEAVE
+    has no PRE_PLAN_LEAVE path, so with no accepted plan the reference is
+    MISSING regardless of CalendarDay completeness, and the row degrades to
+    UNAVAILABLE rather than producing a weekday-derived effective_target."""
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
-    # 2026-08-03 is a Monday (workday) INSIDE the absence range, marked as a
-    # holiday: must be excluded from the qualifying-workday count, not just
-    # the weekend edges (T019-R3-4).
     for d in range(1, 32):
         save_calendar_day(conn, CalendarDay(date(2026, 8, d), holiday=(d == 3)))
     _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 8, 1), end=date(2026, 8, 9))
     view = analytics_for_site_month(conn, site_id=SITE, month=AUG)
-    md = view.rows[0].month_data
-    # 01=Sat,02=Sun,03=Mon(holiday, excluded),04..07=Tue-Fri(4 workdays),08=Sat,09=Sun -> 4 qualifying workdays
-    assert md.effective_target_hours == 100 - 8 * 4
+    row = view.rows[0]
+    assert row.status == AnalyticsDataStatus.UNAVAILABLE
+    assert row.month_data is None
+    assert "MISSING accepted reference for SICK_LEAVE" in row.warnings[0]
 
 
 def test_13_leave_granted_weekend_holiday_same_semantics(tmp_path) -> None:
@@ -344,12 +358,15 @@ def test_13_leave_granted_weekend_holiday_same_semantics(tmp_path) -> None:
 
 
 def test_14_effective_target_algebra_holds(tmp_path) -> None:
+    """ROTA-T023 Checkpoint B: uses LEAVE_GRANTED (PRE_PLAN_LEAVE), since
+    SICK_LEAVE has no accepted plan in this fixture and would degrade the row
+    to UNAVAILABLE (test_12) rather than exercising the algebra identity."""
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
     _fill_calendar(conn, AUG)
-    _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 8, 3), end=date(2026, 8, 3))
+    _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.LEAVE_GRANTED, start=date(2026, 8, 3), end=date(2026, 8, 3))
     _seed_month(conn, site_id=SITE, month=AUG, entries=[(EMP_A, 4, 40)])
     md = analytics_for_site_month(conn, site_id=SITE, month=AUG).rows[0].month_data
     assert md.effective_target_hours == md.planned_hours + md.realized_hours - md.month_balance

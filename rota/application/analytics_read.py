@@ -14,12 +14,10 @@ from typing import Optional
 
 from rota.balance import compute_month_balance, compute_quarter_balance, quarter_start
 from rota.domain import MembershipKind
-from rota.persistence.availability_repository import list_active_overlapping_for_employees
-from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.employee_repository import list_employees, list_memberships_for_site
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
-from rota.persistence.work_balance_repository import list_work_balance_targets_for_employees
-from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
+from rota.persistence.work_balance_repository import absence_facts_for_employees, list_work_balance_targets_for_employees
+from rota.planning.absence import IncompleteAbsenceReferenceError, canonical_hours_in_range
 
 
 class AnalyticsDataStatus(str, Enum):
@@ -85,23 +83,24 @@ def _degraded_row(employee_id, display_name, status, month_data, warning) -> Emp
     )
 
 
-def _first_blocking_quarter_month(quarter_months_list: list[date], availability, calendar_days):
-    """Attribution-only pass over the same shared absence.py primitive
-    compute_month_balance already calls internally -- never recomputes
-    hours/balance. Used solely to name which quarter month blocks the
-    warning text (T019-R3-2: the balance itself stays fully delegated to
-    rota.balance.compute_quarter_balance)."""
+def _first_blocking_quarter_month(quarter_months_list: list[date], absence_facts):
+    """Attribution-only pass over the same shared canonical_hours_in_range
+    primitive compute_month_balance already calls internally -- never
+    recomputes hours/balance. Used solely to name which quarter month
+    blocks the warning text (T019-R3-2: the balance itself stays fully
+    delegated to rota.balance.compute_quarter_balance)."""
     for quarter_month in quarter_months_list:
+        month_end = _add_months(quarter_month, 1) - timedelta(days=1)
         try:
-            excused_absence_days_in_month(availability, quarter_month, calendar_days=calendar_days)
-        except IncompleteAbsenceCalendarError as exc:
+            canonical_hours_in_range(absence_facts, quarter_month, month_end)
+        except IncompleteAbsenceReferenceError as exc:
             return quarter_month, str(exc)
     return quarter_months_list[0], ""
 
 
 def _quarter_row(
     employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
-    targets: dict[date, int], assignments, availability, calendar_days, month_data_only: AnalyticsMonthData,
+    targets: dict[date, int], assignments, absence_facts, month_data_only: AnalyticsMonthData,
 ) -> EmployeeAnalyticsRow:
     """Full-quarter attempt, only reached once the requested month is
     already known computable and every quarter month has a target_hours
@@ -110,11 +109,10 @@ def _quarter_row(
     target_by_month = {quarter_month: targets[quarter_month] for quarter_month in quarter_months_list}
     try:
         quarter_balances = compute_quarter_balance(
-            employee_id, quarter_months_list[0], target_by_month, assignments, availability,
-            calendar_days=calendar_days,
+            employee_id, quarter_months_list[0], target_by_month, assignments, absence_facts,
         )
-    except IncompleteAbsenceCalendarError:
-        blocking_month, error_text = _first_blocking_quarter_month(quarter_months_list, availability, calendar_days)
+    except IncompleteAbsenceReferenceError:
+        blocking_month, error_text = _first_blocking_quarter_month(quarter_months_list, absence_facts)
         warning = f"quarter analytics unavailable for employee '{employee_id}', month {blocking_month.isoformat()}: {error_text}"
         return _degraded_row(
             employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
@@ -131,7 +129,7 @@ def _quarter_row(
 
 def _row_for_employee(
     employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
-    targets: dict[date, int], assignments, availability, calendar_days,
+    targets: dict[date, int], assignments, absence_facts,
 ) -> EmployeeAnalyticsRow:
     requested_target = targets.get(month)
     if requested_target is None:
@@ -140,10 +138,9 @@ def _row_for_employee(
 
     try:
         month_only = compute_month_balance(
-            employee_id, month, requested_target, assignments, availability,
-            quarter_balance_before=0, calendar_days=calendar_days,
+            employee_id, month, requested_target, assignments, absence_facts, quarter_balance_before=0,
         )
-    except IncompleteAbsenceCalendarError as exc:
+    except IncompleteAbsenceReferenceError as exc:
         warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: {exc}"
         return _degraded_row(employee_id, display_name, AnalyticsDataStatus.UNAVAILABLE, None, warning)
 
@@ -163,8 +160,7 @@ def _row_for_employee(
         )
 
     return _quarter_row(
-        employee_id, display_name, month, quarter_months_list, targets, assignments, availability,
-        calendar_days, month_data_only,
+        employee_id, display_name, month, quarter_months_list, targets, assignments, absence_facts, month_data_only,
     )
 
 
@@ -194,23 +190,19 @@ def analytics_for_site_month(conn, *, site_id: str, month: date) -> CoordinatorA
     interval_start = datetime.combine(quarter_first_month, datetime.min.time())
     interval_end = datetime.combine(quarter_end_exclusive, datetime.min.time())
     assignments = get_current_assignments_for_employees(conn, roster_ids, interval_start, interval_end)
-    availability = list_active_overlapping_for_employees(
-        conn, roster_ids, quarter_first_month, quarter_end_exclusive
+    absence_facts_by_employee = absence_facts_for_employees(
+        conn, roster_ids, quarter_first_month, quarter_end_exclusive - timedelta(days=1)
     )
-    calendar_days = list_calendar_days(conn, quarter_first_month, quarter_end_exclusive - timedelta(days=1))
 
     assignments_by_employee: dict[str, list] = {}
     for assignment in assignments:
         assignments_by_employee.setdefault(assignment.employee_id, []).append(assignment)
-    availability_by_employee: dict[str, list] = {}
-    for record in availability:
-        availability_by_employee.setdefault(record.employee_id, []).append(record)
 
     rows = tuple(
         _row_for_employee(
             employee_id, display_names.get(employee_id, employee_id), month, quarter_months_list,
             targets_by_employee.get(employee_id, {}), assignments_by_employee.get(employee_id, []),
-            availability_by_employee.get(employee_id, []), calendar_days,
+            absence_facts_by_employee.get(employee_id, []),
         )
         for employee_id in roster_ids
     )

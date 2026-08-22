@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import calendar as calendar_module
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -34,7 +34,7 @@ from rota.domain import (
     SiteRuleVersion,
     WorkBalance,
 )
-from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
+from rota.planning.absence import DailyAbsenceFact, IncompleteAbsenceCalendarError, excused_absence_days_in_month
 from rota.planning.engine import plan
 from rota.planning.site_rules import (
     EMPLOYEE_DAY_ONLY_N_EXCEPTION,
@@ -42,7 +42,7 @@ from rota.planning.site_rules import (
     day_only_n_exception_authorizing_rule_version_id,
     hard_rules_applicable_on,
 )
-from rota.planning.solver import SolverOutcome, _sick_adjusted_targets, solve
+from rota.planning.solver import SolverOutcome, _effective_targets, solve
 from rota.planning.state import SiteRuleApplicability
 from rota.planning.validator import validate
 from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, base_state
@@ -68,6 +68,19 @@ def _leave(employee_id: str, start: date, end: date) -> AvailabilityRecord:
     return AvailabilityRecord(f"leave-{employee_id}-{start}", "v1", employee_id, AvailabilityKind.LEAVE_GRANTED, start, end, True, None, None)
 
 
+def _pre_plan_facts(kind, start: date, end: date, holidays: frozenset = frozenset()) -> list[DailyAbsenceFact]:
+    """ROTA-T023 Checkpoint B: these T018 oracle numbers are PRESERVED as the
+    PRE_PLAN_LEAVE source (brief.md section 9) -- built directly as the
+    canonical DailyAbsenceFact shape rota.balance now consumes, replicating
+    T018's own qualified-workday rule (ISO weekday 1..5, not a holiday)."""
+    facts, current = [], start
+    while current <= end:
+        if current.isoweekday() <= 5 and current not in holidays:
+            facts.append(DailyAbsenceFact(current, kind, "PRE_PLAN_LEAVE", "BOUND", 8))
+        current += timedelta(days=1)
+    return facts
+
+
 # A7.1 -----------------------------------------------------------------------
 
 
@@ -84,8 +97,8 @@ def test_a7_1_sick_leave_across_two_weekends_counts_only_weekdays():
 
 def test_a7_2_leave_granted_gets_identical_workday_filter_in_workbalance():
     month = date(2026, 10, 1)
-    leave = _leave("A", date(2026, 10, 1), date(2026, 10, 12))
-    balance = compute_month_balance("A", month, 168, [], [leave], calendar_days=_full_month_calendar(month))
+    facts = _pre_plan_facts(AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 1), date(2026, 10, 12))
+    balance = compute_month_balance("A", month, 168, [], facts)
     assert balance.month_balance == -(168 - 8 * 8)
 
 
@@ -198,30 +211,28 @@ def test_a7_10_legacy_balance_call_without_absence_or_calendar_keeps_result():
 
 def test_a7_11a_round23_solver_l4_march_2027_reduces_target_to_56():
     month = date(2027, 3, 1)
-    sick = _sick("B", date(2027, 3, 2), date(2027, 3, 19))
     state = base_state(
         employees=(), memberships=(), month=month, calendar_days=_full_month_calendar(month),
-        availability_records=(sick,), work_balances=(WorkBalance("B", month, 168, 0, 0, 0, 0, 0),),
+        availability_records=(), work_balances=(WorkBalance("B", month, 168, 0, 0, 0, 0, 0, absence_hours=112),),
     )
-    assert _sick_adjusted_targets(state)["B"] == 56
+    assert _effective_targets(state)["B"] == 56
 
 
 def test_a7_11b_round23_quarter_balance_leave_march_2027_reduces_target_to_56():
     month = date(2027, 3, 1)
-    leave = _leave("B", date(2027, 3, 2), date(2027, 3, 19))
-    balance = compute_month_balance("B", month, 168, [], [leave], calendar_days=_full_month_calendar(month))
+    facts = _pre_plan_facts(AvailabilityKind.LEAVE_GRANTED, date(2027, 3, 2), date(2027, 3, 19))
+    balance = compute_month_balance("B", month, 168, [], facts)
     assert balance.month_balance == -56
 
 
 def test_a7_11c_round23_solver_l4_excludes_weekday_public_holiday():
     month = date(2027, 5, 1)
-    sick = _sick("B", date(2027, 5, 1), date(2027, 5, 7))
     state = base_state(
         employees=(), memberships=(), month=month,
         calendar_days=_full_month_calendar(month, holidays=frozenset({date(2027, 5, 3)})),
-        availability_records=(sick,), work_balances=(WorkBalance("B", month, 168, 0, 0, 0, 0, 0),),
+        availability_records=(), work_balances=(WorkBalance("B", month, 168, 0, 0, 0, 0, 0, absence_hours=32),),
     )
-    assert _sick_adjusted_targets(state)["B"] == 136
+    assert _effective_targets(state)["B"] == 136
 
 
 # A7.12 -----------------------------------------------------------------------
@@ -229,8 +240,8 @@ def test_a7_11c_round23_solver_l4_excludes_weekday_public_holiday():
 
 def test_a7_12_march_2027_workbalance_target_56_at_target_168():
     month = date(2027, 3, 1)
-    sick = _sick("B", date(2027, 3, 2), date(2027, 3, 19))
-    balance = compute_month_balance("B", month, 168, [], [sick], calendar_days=_full_month_calendar(month))
+    facts = _pre_plan_facts(AvailabilityKind.SICK_LEAVE, date(2027, 3, 2), date(2027, 3, 19))
+    balance = compute_month_balance("B", month, 168, [], facts)
     assert balance.month_balance == -56
 
 

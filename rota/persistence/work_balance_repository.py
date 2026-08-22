@@ -1,8 +1,9 @@
 """WorkBalance target-hours CRUD + reconstruction (tasks/ROTA-T008/brief.md
 WORKBALANCE -- RECONSTRUCTED, NOT STORED). Only target_hours is persisted;
 the balance itself is always recomputed from CURRENT-version Assignment data
-(cross-Site, EMP-03) and AvailabilityRecord history via rota.balance, never
-stored as a second truth.
+(cross-Site, EMP-03) and, since ROTA-T023 Checkpoint B, decoded
+absence_reference_snapshots via rota.balance, never stored as a second
+truth.
 """
 from __future__ import annotations
 
@@ -10,10 +11,59 @@ import sqlite3
 from datetime import date, datetime, timedelta
 
 from rota.balance import MissingTargetHoursError, compute_month_balance, compute_quarter_balance, quarter_start
-from rota.domain import WorkBalance
-from rota.persistence.availability_repository import list_active_overlapping
-from rota.persistence.calendar_repository import list_calendar_days
+from rota.domain import AvailabilityKind, WorkBalance
+from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
+from rota.persistence.availability_repository import get_current_availability_for_employee, list_active_overlapping_for_employees
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
+from rota.planning.absence import DailyAbsenceFact
+
+_BALANCE_ABSENCE_KINDS = (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)
+
+
+def absence_facts_for_employee(conn: sqlite3.Connection, employee_id: str, range_start: date, range_end: date) -> list[DailyAbsenceFact]:
+    """ROTA-T023 Checkpoint B: decode this Employee's persisted
+    absence_reference_snapshots (owner decision 2026-08-13: both
+    SICK_LEAVE and LEAVE_GRANTED) into the pure DailyAbsenceFact shape
+    rota.balance/rota.planning.solver consume, clipped to [range_start,
+    range_end]. One current chain-end AvailabilityRecord per family
+    (get_current_availability_for_employee) is enough: capture_reference
+    already fixed the persisted snapshot once, at write time, per
+    availability_version_id -- superseding versions get their own row."""
+    facts: list[DailyAbsenceFact] = []
+    for record in get_current_availability_for_employee(conn, employee_id):
+        if not record.active or record.kind not in _BALANCE_ABSENCE_KINDS:
+            continue
+        if record.end_date < range_start or record.start_date > range_end:
+            continue
+        snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
+        if snapshot is None:
+            continue
+        for day in snapshot.days:
+            if range_start <= day.the_date <= range_end:
+                facts.append(DailyAbsenceFact(day.the_date, record.kind, day.source_mode, day.status, day.hours))
+    return facts
+
+
+def absence_facts_for_employees(
+    conn: sqlite3.Connection, employee_ids: list[str], range_start: date, range_end: date,
+) -> dict[str, list[DailyAbsenceFact]]:
+    """Batch form of absence_facts_for_employee for a whole roster (ROTA-T019
+    analytics): one SELECT for the roster's active overlapping records
+    instead of one get_current_availability_for_employee() call per
+    Employee."""
+    facts_by_employee: dict[str, list[DailyAbsenceFact]] = {}
+    for record in list_active_overlapping_for_employees(conn, employee_ids, range_start, range_end):
+        if record.kind not in _BALANCE_ABSENCE_KINDS:
+            continue
+        snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
+        if snapshot is None:
+            continue
+        for day in snapshot.days:
+            if range_start <= day.the_date <= range_end:
+                facts_by_employee.setdefault(record.employee_id, []).append(
+                    DailyAbsenceFact(day.the_date, record.kind, day.source_mode, day.status, day.hours)
+                )
+    return facts_by_employee
 
 
 def write_work_balance_target_in_open_transaction(
@@ -89,14 +139,11 @@ def reconstruct_month_balance(
     target_hours = get_work_balance_target(conn, employee_id, month)
     interval_start, interval_end = _month_bounds(month)
     assignments = get_current_assignments_for_employees(conn, [employee_id], interval_start, interval_end)
-    availability = list_active_overlapping(conn, employee_id, interval_start.date(), _add_months(month, 1))
-    calendar_days = list_calendar_days(conn, month, _add_months(month, 1) - timedelta(days=1))
+    month_end = _add_months(month, 1) - timedelta(days=1)
+    absence_facts = absence_facts_for_employee(conn, employee_id, month, month_end)
     if target_hours is None:
         raise MissingTargetHoursError(f"no work_balance_targets entry for employee {employee_id!r}, month {month}")
-    return compute_month_balance(
-        employee_id, month, target_hours, assignments, availability, quarter_balance_before,
-        calendar_days=calendar_days,
-    )
+    return compute_month_balance(employee_id, month, target_hours, assignments, absence_facts, quarter_balance_before)
 
 
 def reconstruct_quarter_balance(
@@ -107,15 +154,12 @@ def reconstruct_quarter_balance(
     interval_start = datetime.combine(start_month, datetime.min.time())
     interval_end = datetime.combine(end_of_quarter, datetime.min.time())
     assignments = get_current_assignments_for_employees(conn, [employee_id], interval_start, interval_end)
-    availability = list_active_overlapping(conn, employee_id, start_month, end_of_quarter)
-    calendar_days = list_calendar_days(conn, start_month, end_of_quarter - timedelta(days=1))
+    absence_facts = absence_facts_for_employee(conn, employee_id, start_month, end_of_quarter - timedelta(days=1))
     target_hours_by_month = {
         month: hours for month, hours in list_work_balance_targets(conn, employee_id).items()
         if start_month <= month < end_of_quarter
     }
-    return compute_quarter_balance(
-        employee_id, start_month, target_hours_by_month, assignments, availability, calendar_days=calendar_days
-    )
+    return compute_quarter_balance(employee_id, start_month, target_hours_by_month, assignments, absence_facts)
 
 
 if __name__ == "__main__":

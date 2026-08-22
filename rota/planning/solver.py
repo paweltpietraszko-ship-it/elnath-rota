@@ -24,7 +24,6 @@ from rota.domain import (
     ShiftDemand,
     ShiftKind,
 )
-from rota.planning.absence import EXCUSED_ABSENCE_HOURS_PER_DAY, excused_absence_days_in_month
 from rota.planning.constraints import (
     add_load_constraints, add_rest_constraints, add_same_person_24h_constraints,
     build_emergency_pair_context, build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
@@ -274,23 +273,22 @@ def _add_coverage_constraints(
     return assumptions
 
 
-def _sick_adjusted_targets(state: PlanningState) -> dict[str, int]:
-    """SICK_LEAVE-01: a qualified workday counts 8h against target_hours
-    regardless of shift length, clamped at 0. SICK_LEAVE only -- extending to
-    LEAVE_GRANTED broke ROTA-REG-001's frozen hours; LEAVE_GRANTED gets the
-    8h/day treatment only in rota/balance.py."""
-    absence_days_by_employee = excused_absence_days_in_month(
-        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
-        calendar_days=state.calendar_days,
-    )
-    return {
-        wb.employee_id: max(0, wb.target_hours - EXCUSED_ABSENCE_HOURS_PER_DAY * absence_days_by_employee.get(wb.employee_id, 0))
-        for wb in state.work_balances
-    }
+def _effective_targets(state: PlanningState) -> dict[str, int]:
+    """ROTA-T023 Checkpoint B (brief.md section 11): the solver consumes
+    WorkBalance.absence_hours as-is -- it does not recount Availability,
+    CalendarDay or source mode itself. SICK_LEAVE and LEAVE_GRANTED reduce
+    the live TARGET-01 objective identically now, through the same
+    canonical result WorkBalance/analytics/T020 all consume (superseding
+    the old SICK_LEAVE-only carve-out this function used to apply --
+    ROTA-REG-001's fixture carries no availability_records, so it is
+    unaffected). PlanningState.work_balances is assembled by the
+    application layer (out of Checkpoint B's own file scope), which
+    already computes absence_hours through this same canonical path."""
+    return {wb.employee_id: max(0, wb.target_hours - wb.absence_hours) for wb in state.work_balances}
 
 
 def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState) -> None:
-    target_by_employee = _sick_adjusted_targets(state)
+    target_by_employee = _effective_targets(state)
     # FINDING R17-5: a CANCELLED existing Assignment is not actual work
     # (arch/spec.md:257) and must not count toward the TARGET-01 objective,
     # consistent with coverage/REST-01/LOAD-01/validator filtering already
