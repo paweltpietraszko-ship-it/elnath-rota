@@ -1,0 +1,67 @@
+STATUS: FAIL
+HEAD_SHA: 6515625568473463162b33670076ea8548e21f41
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FILE: tests/test_t018.py has 831 lines (max 600)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 459 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - benchmarks\manual_audits.py
+  - benchmarks\real_object.py
+  - benchmarks\rota_stress.py
+  - rota\balance.py
+  - tests\test_audit_r12_findings.py
+  - tests\test_audit_r13_findings.py
+  - tests\test_audit_r14_findings.py
+  - tests\test_audit_r15_findings.py
+  - tests\test_audit_r16_findings.py
+  - tests\test_audit_r17_findings.py
+  - tests\test_audit_r20_r21_findings.py
+  - tests\test_audit_r22_findings.py
+  - tests\test_audit_r23_findings.py
+  - tests\test_audit_r25_findings.py
+  - tests\test_audit_r26_findings.py
+  - tests\test_audit_t007_r3.py
+  - tests\test_audit_t007_r4.py
+  - tests\test_audit_t007_r5.py
+  - tests\test_audit_t010_r3.py
+  - tests\test_balance.py
+  - tests\test_eligibility_matrix.py
+  - tests\test_real_object_benchmark.py
+  - tests\test_replan_and_soft_ranking.py
+  - tests\test_replan_minimal_reshuffle.py
+  - tests\test_rota_generic_month.py
+  - tests\test_rota_reg_001.py
+  - tests\test_sick_leave.py
+  - tests\test_site_rules_execution.py
+  - tests\test_site_rule_execution_integration.py
+  - tests\test_t010_c_readiness_regression.py
+  - tests\test_t012.py
+  - tests\test_t013.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t017.py
+  - tests\test_t018.py
+  - tests\test_t022_planning_integrity.py
+  - tests\test_t023_checkpoint_b.py
+  - tests\test_t023_checkpoint_c.py
+  - tests\test_t026.py
+  - tests\test_vertical_full_stack.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_a_audit.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_b_audit.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_c_audit.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_round8_audit.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_round9_audit.py
+  - tasks\ROTA-T022\round_01\tests\test_t022_r1_audit.py
+  - tasks\ROTA-T012\scenarios\t012_owner_march_2027_probe.py
+  - tasks\ROTA-T003\round_01\implementation\rota_stress_edge_generator.py
+  - rota\application\analytics_read.py
+  - rota\application\balance_read.py
+  - rota\application\plan_ops.py
+  - rota\application\schedule_export.py
+  - rota\persistence\absence_reference_repository.py
+  - rota\persistence\work_balance_repository.py
+  - .venv\Lib\site-packages\pandas\io\sql.py
+  - .venv\Lib\site-packages\pandas\tests\io\test_sql.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T026/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T026/brief.md
