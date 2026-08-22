@@ -7,14 +7,11 @@ SCOPE: every public function in `rota/application/*.py` (name not starting with 
 
 ## 0. Wejścia, których nie ma w tym środowisku
 
-W repozytorium, na `origin/main` i na pozostałych zdalnych gałęziach **nie ma**:
+`REQUEST.md` jest w tym folderze (wgrany 2026-08-22). Siedem już znalezionych punktów z REQUEST jest potwierdzone jako przeczytane w `FINDINGS.md` — nie są ponownie zgłaszane.
 
-- `arch/T021_spec.md`
-- `tasks/CURSOR_AUDIT_2026-08-22_ui_coverage/REQUEST.md`
+W repozytorium, na `origin/main` i na pozostałych zdalnych gałęziach **nadal nie ma** `arch/T021_spec.md`. A/B/C z REQUEST są w `FINDINGS.md` oznaczone jako zablokowane.
 
-Nie zgaduję treści T021. Sekcje „co pominęliśmy / co opisaliśmy niedokładnie” względem T021 są **zablokowane**. Poniżej jest to, co da się stwierdzić z kodu i z już zamrożonych briefów, które T021 ma konsumować (T010 Panel, T011 ekran startowy, T019 Analityka, T019b pamięć, T020 PDF, T009 operacje miesiąca).
-
-Listy „już znalezione przez Pawła” nie było — znaleziska niżej mają ID, żeby dało się je odjąć po dostarczeniu `REQUEST.md`. **Nie traktować ich automatycznie jako nowych odkryć T021.**
+Nie zgaduję treści T021. Poniżej jest inwentarz kodu i powiązań po stronie application — nie wynik skanu względem T021.
 
 UI w repo nie istnieje (brak `ui/`, Streamlit, desktop). „Ekran” poniżej = zamrożone wejście, które T021 ma złożyć z application API. Powiązania między ekranami istnieją tylko jako wspólne klucze i różne definicje tych samych pojęć w kodzie.
 
