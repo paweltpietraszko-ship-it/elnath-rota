@@ -7,11 +7,7 @@ SCOPE: every public function in `rota/application/*.py` (name not starting with 
 
 ## 0. Wejścia, których nie ma w tym środowisku
 
-`REQUEST.md` jest w tym folderze (wgrany 2026-08-22). Siedem już znalezionych punktów z REQUEST jest potwierdzone jako przeczytane w `FINDINGS.md` — nie są ponownie zgłaszane.
-
-W repozytorium, na `origin/main` i na pozostałych zdalnych gałęziach **nadal nie ma** `arch/T021_spec.md`. A/B/C z REQUEST są w `FINDINGS.md` oznaczone jako zablokowane.
-
-Nie zgaduję treści T021. Poniżej jest inwentarz kodu i powiązań po stronie application — nie wynik skanu względem T021.
+Skan A/B/C względem wgranego `T021_spec.md` jest w `FINDINGS.md`. Ten plik to tylko inwentarz 56 funkcji i powiązań po stronie kodu. Siedem punktów z REQUEST nie jest ponownie zgłaszanych.
 
 UI w repo nie istnieje (brak `ui/`, Streamlit, desktop). „Ekran” poniżej = zamrożone wejście, które T021 ma złożyć z application API. Powiązania między ekranami istnieją tylko jako wspólne klucze i różne definicje tych samych pojęć w kodzie.
 
