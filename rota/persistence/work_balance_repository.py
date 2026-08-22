@@ -15,7 +15,7 @@ from rota.domain import AvailabilityKind, WorkBalance
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import get_current_availability_for_employee, list_active_overlapping_for_employees
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
-from rota.planning.absence import DailyAbsenceFact
+from rota.planning.absence import DailyAbsenceFact, IncompleteAbsenceReferenceError
 
 _BALANCE_ABSENCE_KINDS = (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)
 
@@ -37,7 +37,13 @@ def absence_facts_for_employee(conn: sqlite3.Connection, employee_id: str, range
             continue
         snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
         if snapshot is None:
-            continue
+            # brief.md section 14 (NO LEGACY BACKFILL): a pre-T023 active
+            # AvailabilityVersion never got a captured reference -- reference-
+            # incomplete until separately authorized remediation, never
+            # silently omitted from arithmetic as an implicit zero.
+            raise IncompleteAbsenceReferenceError(
+                f"{record.availability_version_id}: legacy active {record.kind.value} has no captured reference snapshot"
+            )
         for day in snapshot.days:
             if range_start <= day.the_date <= range_end:
                 facts.append(DailyAbsenceFact(day.the_date, record.kind, day.source_mode, day.status, day.hours))
@@ -57,7 +63,9 @@ def absence_facts_for_employees(
             continue
         snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
         if snapshot is None:
-            continue
+            raise IncompleteAbsenceReferenceError(
+                f"{record.availability_version_id}: legacy active {record.kind.value} has no captured reference snapshot"
+            )
         for day in snapshot.days:
             if range_start <= day.the_date <= range_end:
                 facts_by_employee.setdefault(record.employee_id, []).append(

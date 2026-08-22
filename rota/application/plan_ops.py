@@ -19,7 +19,7 @@ from rota.application.errors import (
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
-from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
+from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
 from rota.planning.engine import plan
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
@@ -221,6 +221,24 @@ def _enforce_replan_cutover(header: ScheduleVersion, prior: tuple, candidate: li
         raise CandidateRejected("; ".join(cutover_violations))
 
 
+def _replan_cutover_pre_check(
+    *, current_id, header, candidate, cutover_at, site_id, responds_to_decision_required_id,
+):
+    """B-R12-2: the cutover comparison must run against the child snapshot
+    CURRENT inside the same atomic replace_working_snapshot transaction it
+    guards, not against a `state.existing_assignments` read taken earlier --
+    otherwise a concurrent write between that read and this transaction can
+    make the checked snapshot stale."""
+    def _check(open_conn) -> None:
+        site_memory.validate_decision_required_link_no_commit(
+            open_conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        current_snapshot = get_schedule_snapshot(open_conn, current_id)
+        _enforce_replan_cutover(header, tuple(current_snapshot.assignments), candidate, cutover_at)
+
+    return _check
+
+
 def _select_candidate_hook(
     *, site_id, month, coordinator_id, header, current_id, before_state, after_state, note,
     responds_to_decision_required_id, recorded_at,
@@ -269,20 +287,23 @@ def select_candidate(
     # R5-3/section 10.1: cutover_at is captured once, immediately before the
     # cutover-preservation check and the snapshot replacement it guards, and
     # the same value becomes SCHEDULE_CANDIDATE_SELECTED.recorded_at below.
+    # B-R12-2: the actual comparison runs inside pre_check, against the
+    # snapshot current in that same atomic transaction -- not here.
     cutover_at = datetime.now()
-    _enforce_replan_cutover(header, state.existing_assignments, candidate, cutover_at)
     recorded_at = cutover_at
     hook = _select_candidate_hook(
         site_id=site_id, month=month, coordinator_id=coordinator_id, header=header, current_id=current_id,
         before_state=before_state, after_state=after_state, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=recorded_at,
     )
+    pre_check = _replan_cutover_pre_check(
+        current_id=current_id, header=header, candidate=candidate, cutover_at=cutover_at,
+        site_id=site_id, responds_to_decision_required_id=responds_to_decision_required_id,
+    )
     return lifecycle.replace_working_snapshot(
         conn, version_id=current_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=state.shift_demands, assignments=candidate, deviations=[], on_success=hook,
-        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
-            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-        ),
+        pre_check=pre_check,
     )
 
 
