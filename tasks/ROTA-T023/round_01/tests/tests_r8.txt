@@ -1,0 +1,53 @@
+ROTA-T023 — CHECKPOINT A NARROW IMPLEMENTATION REAUDIT — ROUND 8
+AUDITED_HEAD: 9664fee62d4715cacdab8dfbffa374af5fda6947
+PRODUCT_CODE_SHA: 8b1d957de6daa62b4c77be72696b5144bebd0337
+PREVIOUS_AUDIT_SHA: 0cc9052
+VERDICT: FAIL — A-R7-1 AND A-R7-6 NOT CLOSED AS BUG CLASSES / CHECKPOINT B BLOCKED
+
+SECTION_CHECK 1 — DECLARED ROUND 7 CLOSURES
+- Original independent matrix: 8/8 PASS.
+- A-R7-2, A-R7-3, A-R7-4, A-R7-5 and A-R7-7: CLOSED on their retained reproducers and reviewed implementation paths.
+- A-R7-1 and A-R7-6: original reproducers PASS, but sibling cases from the same contractual classes FAIL.
+
+SECTION_CHECK 2 — BASELINE / MECHANICS
+- Existing repository suite: 978/978 PASS.
+- Ruff on changed production module and Round 8 probe: PASS.
+- git diff --check: PASS.
+- Four SIZE_FILE failures are the already owner-accepted mechanical exceptions; they do not affect this verdict.
+- Local task/ROTA-T023 is three commits ahead of origin/task/ROTA-T023 at audit time.
+
+SECTION_CHECK 3 — A-R8-1 PRE_PLAN CALENDAR FAIL-CLOSED REGRESSION: FAIL
+TRACE:
+- brief §9 requires preservation of the previously approved PRE_PLAN weekday/holiday qualification.
+- FROZEN_ADDENDUM_ABSENCE_WORKDAY_ACCOUNTING_01 §4 requires complete CalendarDay and IncompleteAbsenceCalendarError; CalendarDay is the sole holiday truth.
+EVIDENCE:
+- absence_reference_repository._holiday_map returns only present rows.
+- _resolve_no_accepted_plan_day uses holiday_by_date.get(date, False), silently converting a missing CalendarDay into “not a holiday” and 8h.
+- This is a direct effect of the A-R7-1 implementation; it guesses the binding 40h total when calendar evidence is incomplete.
+REPRODUCER:
+- test_t023_round8_audit.py::test_r8_pre_plan_leave_does_not_guess_missing_calendar_day.
+- Four known non-holidays plus one missing weekday: expected fail-closed; actual write succeeds and stores 8h for the missing date.
+CLASS CLOSURE REQUIRED:
+- Preserve the inherited complete-calendar/fail-closed rule for PRE_PLAN_LEAVE, including missing and partial calendar inputs; do not change POST_PLAN arithmetic.
+
+SECTION_CHECK 4 — A-R8-2 UNSELECTED EXTERNAL CURRENT ENTERS REFERENCE SCOPE: FAIL
+TRACE:
+- brief §7.1 and frozen addendum §7 permit external Site scope only from actual non-CANCELLED PRIMARY work in accepted effective schedule facts.
+- brief §3.2 makes SCHEDULE_CANDIDATE_SELECTED the acceptance proof; technical CURRENT is insufficient.
+EVIDENCE:
+- absence_reference_repository._work_derived_sites_by_month queries assignments joined to current_schedule_versions only.
+- It does not filter through the accepted-action/lineage resolution used later by _accepted_version_for.
+- Therefore an unselected technical CURRENT on an EXTERNAL_SUPPORT Site expands reference_site_scope and changes an otherwise known accepted 0h day into MISSING.
+REPRODUCER:
+- test_t023_round8_audit.py::test_r8_unselected_external_current_is_not_accepted_reference_work.
+- SITE-A has accepted empty PLAN; SITE-B has unselected CURRENT with PRIMARY A. Expected scope=(SITE-A), BOUND 0h; actual scope=(SITE-A,SITE-B), MISSING.
+CLASS CLOSURE REQUIRED:
+- Derive work-added Site scope from accepted effective facts, not CURRENT assignment presence. Cover unselected root/child and accepted-parent-hidden-by-unselected-child siblings.
+
+SECTION_CHECK 5 — GATE
+- Checkpoint A: FAIL.
+- Checkpoint B: BLOCKED.
+- Required next re-audit: A-R8-1 and A-R8-2 only; retain both Round 8 reproducers and all eight Round 7 reproducers.
+- No architecture redesign requested.
+
+ARCHITECTURE_PROPOSALS: NONE.
