@@ -564,3 +564,33 @@ After preimplementation PASS:
 ## 21. ARCHITECT OUTPUT STATUS
 
 READY FOR CODEX PREIMPLEMENTATION AUDIT — NOT READY FOR CC
+
+## 22. OWNER RULING — B-R12-2 ROUND 13 (2026-08-22)
+
+OWNER_DECISION: the round-13 elaboration of B-R12-2 (real cross-connection
+SQLite write-lock/TOCTOU serialization, i.e. two independent sqlite3
+connections racing to write the same REPLAN-child row) is OUT OF SCOPE for
+ROTA-T023 and CLOSED-BY-OWNER-RULING, not implemented.
+
+TRACE: section 10.2 and frozen addendum section 10 both state the cutover
+check "belongs in the existing atomic select_candidate() /
+replace_working_snapshot(pre_check=...) path" and must compare "against the
+current child snapshot cloned from the previously accepted schedule." The
+round-12 fix (rota/application/plan_ops.py::_replan_cutover_pre_check,
+reading via get_schedule_snapshot(open_conn, current_id) inside pre_check)
+satisfies this literal text. Neither this brief nor the frozen addendum
+names cross-connection locking, SQLite writer-lock reservation, or any
+multi-connection serialization guarantee anywhere.
+
+REASON: the underlying concern is real only for a genuinely concurrent-
+writer deployment (relevant to the future ROTA-T025 PWA/hosting pivot, not
+today's single-coordinator-session usage), and no other write path anywhere
+in rota/persistence/ defends against this same class of race today. Closing
+it only for this one call site, inside a file explicitly OUT OF SCOPE for
+T023 (schedule_lifecycle.py), would be an asymmetric, T023-local patch for
+a systemic SQLite-concurrency-model decision that belongs to a dedicated
+architecture task, not this Checkpoint.
+
+STATUS: B-R12-1 CLOSED. B-R12-2 CLOSED AS OUT-OF-SCOPE BY OWNER RULING
+(round-12 fix stands, unchanged). Checkpoint B is READY FOR RE-AUDIT on
+this basis.
