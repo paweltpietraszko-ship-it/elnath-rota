@@ -340,6 +340,7 @@ TASK_SCOPE:
 - tests/test_t012.py
 - tests/test_audit_r20_r21_findings.py
 - tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py
+- tests/test_t011_a_application_entry_points.py (owner-authorized narrow amendment, 2026-08-22, Round 8 A-R8-1 fallout: test_8_availability_history_returns_full_chain_in_order only, fixture-only CalendarDay seeding, no oracle change)
 
 NEW_FILES relative to task base:
 - arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md
