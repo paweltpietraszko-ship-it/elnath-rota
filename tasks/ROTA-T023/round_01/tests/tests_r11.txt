@@ -1,0 +1,32 @@
+ROTA-T023 — CHECKPOINT A NARROW IMPLEMENTATION REAUDIT — ROUND 11
+AUDITED_HEAD: 8b20cc6b61ba6d0bfc55e27bfa9d03a83afd352f
+IMPLEMENTATION_SHA: 495e90b
+VERDICT: PASS — CHECKPOINT A CONTRACT CLOSED / READY_FOR_IMPLEMENTATION_B
+
+SECTION_CHECK 1 — RETAINED FINDINGS
+- Round 7/8/9/10 matrices: 14/14 PASS.
+- A-R10-1: CLOSED. Calendar validation is lazy and month-complete only when a date resolves to PRE_PLAN_LEAVE; POST_PLAN does not consult CalendarDay.
+- A-R10-2: CLOSED. External work enters scope only when its own ScheduleVersion is the deepest accepted applicable version on that work's anchor date.
+
+SECTION_CHECK 2 — BOUNDARY EVIDENCE
+- File: test_t023_round11_audit.py.
+- 2/2 PASS.
+- Mixed Mar POST_PLAN + Apr PRE_PLAN succeeds without March CalendarDay, validates April, and preserves [12h, 8h].
+- Same-month accepted effective_from cutover preserves real pre-cutover external work and uses the empty accepted child after cutover.
+
+SECTION_CHECK 3 — REGRESSION / MECHANICS
+- Existing repository suite: 978/978 PASS.
+- Independent matrices total: 16/16 PASS.
+- Ruff: PASS.
+- git diff --check: PASS.
+- Backend has only the four owner-accepted SIZE_FILE exceptions; not reopened.
+
+SECTION_CHECK 4 — GATE
+- A-R7-1…A-R7-7: CLOSED.
+- A-R8-1/A-R8-2: CLOSED.
+- A-R9-1/A-R9-2: CLOSED.
+- A-R10-1/A-R10-2: CLOSED.
+- Checkpoint A: PASS.
+- Checkpoint B: READY_FOR_IMPLEMENTATION_B.
+
+ARCHITECTURE_PROPOSALS: NONE.
