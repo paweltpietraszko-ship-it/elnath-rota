@@ -1,0 +1,54 @@
+ROTA-T023 - CHECKPOINT C ROUND-15 FIX NARROW REAUDIT - ROUND 16
+AUDITED_HEAD: 4f8d2aa435f24a1a2b1260b0fb787e6de0e0e9b4
+IMPLEMENTATION_SHA: 44236d3ec30d7edbba98d3e6da5f726dda1ea929
+VERDICT: FAIL - CHECKPOINT C CONTRACT NOT CLOSED / FINAL ACCEPTANCE BLOCKED
+
+SECTION_CHECK 1 - SCOPE / BASELINE
+- Reaudit scope is limited to C-R15-1..C-R15-3 and their recorded closure conditions. No new product rule is introduced.
+- 44236d3 changes only rota/application/schedule_export.py and records the Round-15 audit artifacts; 4f8d2aa adds only backend_output_r15fix.txt.
+- Retained Round-15 audit + Checkpoint C + T020 matrices: 61/61 PASS.
+- Repository suite (configured tests/ collection): 1006/1006 PASS.
+- Ruff on affected production and audit files: PASS.
+- git diff --check for c65afc3..4f8d2aa: PASS.
+- Previously owner-accepted SIZE_FILE findings are not reopened.
+
+SECTION_CHECK 2 - C-R15-1 - MONTH RANGE ISOLATION
+STATUS: CLOSED.
+- schedule_export.py:325-334 clips every snapshot DayReference to the requested month before precedence, status validation and PRE_PLAN decomposition.
+- Both leading/trailing PRE_PLAN boundary probes now equal the canonical monthly result.
+- Both leading/trailing out-of-range MISSING probes no longer poison the complete in-range projection.
+- Retained evidence: 4/4 Round-15 C-R15-1 parameterizations PASS.
+
+SECTION_CHECK 3 - C-R15-2 - POST_PLAN D/N FAMILY
+STATUS: CLOSED.
+- schedule_export.py:335-352 derives a coherent single D/N family from immutable bound PeriodFact.shift_kind and selects an equal-hour code from that family.
+- Retained day/night evidence: 2/2 Round-15 C-R15-2 parameterizations PASS (D1/C1 and N1/C1).
+
+SECTION_CHECK 4 - C-R15-3 - BOUND SITE PERIOD AS ROSTER SOURCE
+STATUS: OPEN - LITERAL REPRODUCER FIXED, RECORDED CLOSURE CONDITION NOT SATISFIED.
+CONTRACT_AND_CLOSURE_TRACE:
+- brief.md:285-289 and frozen addendum:225-230 make bound period provenance, not current membership, the POST_PLAN Site owner.
+- tests_r15.txt closure requires Employees whose active POST_PLAN snapshot has a bound period owned by the printed Site to be included independently of LOCAL versus EXTERNAL_SUPPORT membership and independently of CURRENT after REPLAN.
+CODE_EVIDENCE:
+- schedule_export.py:69-72 derives local_ids/external_ids only from currently enabled memberships.
+- schedule_export.py:353-358 then limits all absence-record discovery to all_ids = local_ids | external_ids.
+- The bound_here check at 368-371 runs only after that membership filter. It can retain an enabled EXTERNAL_SUPPORT Employee, but it cannot discover the same still-active bound snapshot after that membership is later disabled.
+AUDIT_EVIDENCE:
+- Original retained LOCAL and enabled EXTERNAL_SUPPORT Round-15 variants: 2/2 PASS.
+- test_t023_checkpoint_c_r16_audit.py::test_r16_bound_site_period_not_discarded_by_later_membership_disable[local_disabled_after_capture]: FAIL; no Employee row.
+- test_t023_checkpoint_c_r16_audit.py::test_r16_bound_site_period_not_discarded_by_later_membership_disable[external_disabled_after_capture]: FAIL; no Employee row.
+- Result: 0/2. In both cases the active absence snapshot still owns a bound SITE-B period and CURRENT no longer contains the absent Employee after REPLAN; only current membership enabled changed.
+- This is the same C-R15-3 equivalence class (roster discovery uses current membership instead of bound Site provenance), not a new finding or architecture request.
+CLOSURE_CONDITION:
+- Discover active POST_PLAN candidates with in-range bound periods for the printed Site without first restricting discovery to currently enabled Site memberships.
+- Preserve the passing enabled LOCAL/EXTERNAL_SUPPORT cases, dormant-external/no-bound-period omission and no-duplication behavior.
+- Retain both later-disabled LOCAL and EXTERNAL_SUPPORT reproductions so the fix cannot patch only one membership kind.
+
+SECTION_CHECK 5 - GATE
+- C-R15-1: CLOSED.
+- C-R15-2: CLOSED.
+- C-R15-3: OPEN.
+- Checkpoint C: FAIL.
+- Required next re-audit scope: C-R15-3 only, using the recorded closure condition above; C-R15-1/C-R15-2 stay closed unless that narrow fix causes a direct regression.
+
+ARCHITECTURE_PROPOSALS: NONE.

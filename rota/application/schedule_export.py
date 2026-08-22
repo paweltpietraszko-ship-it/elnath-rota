@@ -68,13 +68,12 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     daily_version = {d: _version_for_date(lineage, d) for d in days}
     memberships = employee_repository.list_memberships_for_site(conn, site_id)
     local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
-    external_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.EXTERNAL_SUPPORT and m.enabled}
     collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings)
     seen_employee_ids = collected[2]
     work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days)
     calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
     holiday_by_date = {c.date: c.holiday for c in calendar_days}
-    absence_by_employee = _collect_absence(conn, days, local_ids, external_ids, work_cells, settings, site_id)
+    absence_by_employee = _collect_absence(conn, days, local_ids, work_cells, settings, site_id)
     roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)  # C-R15-3: a bound Site period keeps an Employee here after REPLAN
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
@@ -350,25 +349,26 @@ def _post_plan_pair(employee_id, the_date, kind, day, settings, site_id) -> list
             raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h {kind_letter}-family POST_PLAN code")
         plan_code = family_codes[0]
     return [(the_date, plan_code, uc_code)]
-def _collect_absence(conn, days, local_ids, external_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
-    all_ids = local_ids | external_ids
-    if not all_ids:
-        return {}
+def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
+    # C-R15-3 (round 16): discovery must never be gated on currently-enabled Site membership -- an immutable bound period
+    # at this Site keeps an Employee here even after that membership is later disabled. So every Employee with an active,
+    # in-range SICK/LEAVE record is a candidate; local_ids only decides PRE_PLAN's own fail-closed attribution below.
     month_start, month_end = days[0], days[-1]
-    records = list_active_overlapping_for_employees(conn, sorted(all_ids), month_start, month_end)
+    all_employee_ids = [e.employee_id for e in employee_repository.list_employees(conn)]
+    records = list_active_overlapping_for_employees(conn, all_employee_ids, month_start, month_end)
     by_employee: dict[str, list] = {}
     for r in records:
         by_employee.setdefault(r.employee_id, []).append(r)
     memberships_by_employee = employee_repository.list_memberships_for_employees(conn, sorted(by_employee))
     result: dict[str, list[tuple]] = {}
-    for employee_id in sorted(all_ids):
-        emp_records = [r for r in by_employee.get(employee_id, []) if r.kind in (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)]
+    for employee_id in sorted(by_employee):
+        emp_records = [r for r in by_employee[employee_id] if r.kind in (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)]
         if not emp_records:
             continue
         snapshots = [(r, get_absence_reference_snapshot(conn, r.availability_version_id)) for r in emp_records]
         bound_here = any(p.site_id == site_id for _, snap in snapshots if snap for day in snap.days for p in day.periods)
         if employee_id not in local_ids and not bound_here:
-            continue  # C-R15-3: dormant EXTERNAL_SUPPORT with no bound period at this Site never creates a row or MISSING
+            continue  # dormant/unrelated: not this Site's business, never creates a row or MISSING
         for r, snapshot in snapshots:
             if snapshot is None:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
                 raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: legacy active {r.kind.value} has no captured reference snapshot")
