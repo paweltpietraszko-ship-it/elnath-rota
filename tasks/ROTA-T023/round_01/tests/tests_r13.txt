@@ -1,0 +1,48 @@
+ROTA-T023 - CHECKPOINT B NARROW IMPLEMENTATION REAUDIT - ROUND 13
+AUDITED_HEAD: 89d407790611ffd3d0dfd38ac0c6adfc46eba25c
+IMPLEMENTATION_SHA: eccc2a8334289bc58a7df80d1508c99215b40c4f
+VERDICT: FAIL - B-R12-2 NOT CLOSED / CHECKPOINT C BLOCKED
+
+SECTION_CHECK 1 - RETAINED EVIDENCE / MECHANICS
+- Checkpoint B matrix + original Round 12 reproducer matrix: 21/21 PASS.
+- Repository suite: 996/996 PASS.
+- Ruff (audit + two changed production files): PASS.
+- git diff --check: PASS.
+- Four owner-accepted inherited SIZE_FILE findings: not reopened.
+
+SECTION_CHECK 2 - B-R12-1
+STATUS: CLOSED.
+- Single and batch absence readers now raise IncompleteAbsenceReferenceError for an active, in-range SICK_LEAVE/LEAVE_GRANTED without its required snapshot.
+- Both retained Round 12 sibling probes PASS.
+- No silent zero remains in the two canonical repository read paths audited by this finding.
+
+SECTION_CHECK 3 - B-R12-2
+STATUS: FAIL - INCOMPLETE CLOSURE.
+CONTRACT_TRACE:
+- tasks/ROTA-T023/brief.md:238-251 and frozen addendum:172-179 require the final comparison against the current child snapshot inside the atomic replacement boundary.
+CODE_EVIDENCE:
+- plan_ops._replan_cutover_pre_check now reads the child in pre_check, but a read alone does not reserve the SQLite writer boundary.
+- schedule_lifecycle.replace_working_snapshot uses `with conn`; db.py:521-525 records that sqlite3 implicit transactions begin for DML, not read-only work.
+- site_memory.validate_decision_required_link_no_commit returns immediately for a None link (site_memory.py:200-201), so this common selection path performs no DML before get_schedule_snapshot.
+- A second connection can therefore replace the child after get_schedule_snapshot returns and before the guarded connection's first write. The stale returned snapshot passes comparison and the candidate overwrites the concurrent pre-cutover change.
+AUDIT_EVIDENCE:
+- test_t023_checkpoint_b_audit.py::test_b_audit_cutover_read_cannot_go_stale_before_first_write
+- Real second SQLite connection changes the child A->B after the pre_check read. select_candidate then succeeds instead of raising CandidateRejected.
+CLOSURE_CONDITION:
+- The writer/serialization boundary must exist before reading the child used by the cutover comparison, or an equivalent atomic current-snapshot check must reject a changed child before replacement.
+- Retain the two-connection reproducer. If satisfying this requires a file outside current TASK_SCOPE, obtain a narrow scope amendment before editing it.
+
+SECTION_CHECK 4 - ASSEMBLER NOTE FROM DELIVERY
+STATUS: NOT A FINDING.
+- T023 requires missing/ambiguous accepted absence provenance to fail closed explicitly (brief.md:216,230,310; frozen addendum:88-89).
+- Propagating IncompleteAbsenceReferenceError from reconstruct_month_balance through assemble_planning_state prevents PLAN/select/replan from continuing with invented 0h. That is the required safety behavior.
+- No current T023 contract requires assembler.py to catch, downgrade or translate this exception. Do not change it under this audit.
+
+SECTION_CHECK 5 - GATE
+- B-R12-1: CLOSED.
+- B-R12-2: OPEN (atomicity/TOCTOU sibling above).
+- Checkpoint B: FAIL.
+- Checkpoint C: BLOCKED.
+- Next audit: only the B-R12-2 serialization closure and regressions caused directly by that fix.
+
+ARCHITECTURE_PROPOSALS: NONE.
