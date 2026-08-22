@@ -44,7 +44,7 @@ class IncompleteAbsenceCalendarError(Exception):
     sole source of truth for holidays."""
 
 
-def _workday_holiday_map(calendar_days: tuple, month_start: date, month_end: date) -> dict:
+def workday_holiday_map(calendar_days: tuple, month_start: date, month_end: date) -> dict:
     holiday_by_date: dict[date, bool] = {}
     for entry in calendar_days:
         if entry.date < month_start or entry.date > month_end:
@@ -103,12 +103,11 @@ def excused_absence_days_in_month(
     dates_by_employee = _absence_dates_by_employee(records, kinds, month_start, month_end)
     if not dates_by_employee:
         return {}
-    holiday_by_date = _workday_holiday_map(calendar_days or (), month_start, month_end)
+    holiday_by_date = workday_holiday_map(calendar_days or (), month_start, month_end)
     return {
         employee_id: sum(1 for d in dates if d.isoweekday() <= 5 and not holiday_by_date[d])
         for employee_id, dates in dates_by_employee.items()
     }
-
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,7 @@ from rota.persistence.schedule_repository import (
     get_schedule_snapshot,
     reconstruct_lineage,
 )
+from rota.planning.absence import workday_holiday_map
 from rota.planning.validator import coverage_segments
 from rota.planning.work_periods import PeriodComponent, group_into_periods
 from rota.site_memory_types import CoordinatorActionKind
@@ -182,17 +183,23 @@ def _local_site_scope(conn: sqlite3.Connection, employee_id: str) -> set[str]:
     }
 
 
-def _work_derived_sites_by_month(conn: sqlite3.Connection, employee_id: str) -> dict[date, set[str]]:
-    """A-R7-6 (R3-1 closure): Sites where the Employee has actual non-
-    CANCELLED PRIMARY work in a CURRENT ScheduleVersion, keyed by that
-    ScheduleVersion's own month -- never the Employee's whole history. An
-    unrelated Site from a different month must never enter a request's
-    reference scope merely because the Employee once worked there."""
+def _work_derived_sites_by_month(conn: sqlite3.Connection, employee_id: str, accepted_version_ids: set[str]) -> dict[date, set[str]]:
+    """A-R7-6/A-R8-2: Sites where the Employee has actual non-CANCELLED
+    PRIMARY work in an ACCEPTED (SCHEDULE_CANDIDATE_SELECTED-proven)
+    ScheduleVersion, keyed by that version's own month -- never the
+    Employee's whole history (A-R7-6), and never a merely-technical CURRENT
+    that was never actually selected (A-R8-2). Joins to schedule_versions
+    directly (not current_schedule_versions): an accepted PARENT's own real
+    work still counts even when an unselected WORKING child now sits
+    CURRENT and would otherwise hide it."""
+    if not accepted_version_ids:
+        return {}
+    placeholders = ",".join("?" for _ in accepted_version_ids)
     rows = conn.execute(
-        """SELECT DISTINCT c.site_id, c.month FROM assignments a
-           JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
-           WHERE a.employee_id = ? AND a.role = ? AND a.state != ?""",
-        (employee_id, AssignmentRole.PRIMARY.value, AssignmentState.CANCELLED.value),
+        f"""SELECT DISTINCT sv.site_id, sv.month FROM assignments a
+            JOIN schedule_versions sv ON sv.version_id = a.schedule_version_id
+            WHERE a.employee_id = ? AND a.role = ? AND a.state != ? AND a.schedule_version_id IN ({placeholders})""",
+        (employee_id, AssignmentRole.PRIMARY.value, AssignmentState.CANCELLED.value, *accepted_version_ids),
     ).fetchall()
     by_month: dict[date, set[str]] = {}
     for site_id, month in rows:
@@ -204,8 +211,16 @@ def _required_sites_for_month(local_sites: set[str], work_derived: dict[date, se
     return local_sites | work_derived.get(month, set())
 
 
-def _holiday_map(conn: sqlite3.Connection, start_date: date, end_date: date) -> dict[date, bool]:
-    return {day.date: day.holiday for day in list_calendar_days(conn, start_date, end_date)}
+def _pre_plan_holiday_map(conn: sqlite3.Connection, kind: AvailabilityKind, start_date: date, end_date: date) -> dict[date, bool]:
+    """A-R8-1: reuses the existing T018 fail-closed rule
+    (rota.planning.absence.workday_holiday_map) verbatim -- an incomplete
+    CalendarDay range raises IncompleteAbsenceCalendarError rather than
+    silently treating a missing entry as "not a holiday". Only LEAVE_GRANTED
+    can ever reach the PRE_PLAN_LEAVE branch that consults this map."""
+    if kind != AvailabilityKind.LEAVE_GRANTED:
+        return {}
+    calendar_days = tuple(list_calendar_days(conn, start_date, end_date))
+    return workday_holiday_map(calendar_days, start_date, end_date)
 
 
 def _overall_status(days: list[DayReference]) -> str:
@@ -387,9 +402,9 @@ def capture_reference(
     SELECTED proof, recorded_at <= this write's recorded_at) for every Site
     required that date, then capture bound PRIMARY periods."""
     local_sites = _local_site_scope(conn, employee_id)
-    work_derived = _work_derived_sites_by_month(conn, employee_id)
     accepted_version_ids = _fetch_accepted_version_ids(conn, recorded_at)
-    holiday_by_date = _holiday_map(conn, start_date, end_date)
+    work_derived = _work_derived_sites_by_month(conn, employee_id, accepted_version_ids)
+    holiday_by_date = _pre_plan_holiday_map(conn, kind, start_date, end_date)
     lineage_cache: dict[tuple[str, date], list] = {}
     snapshot_cache: dict[str, object] = {}
 

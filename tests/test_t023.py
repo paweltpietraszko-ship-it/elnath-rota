@@ -23,6 +23,7 @@ from rota.domain import (
     AssignmentRole,
     AssignmentState,
     AvailabilityKind,
+    CalendarDay,
     Coordinator,
     CoordinatorSiteAssociation,
     Employee,
@@ -40,6 +41,7 @@ from rota.persistence.absence_reference_repository import (
     RetroactiveAbsenceRejected,
     get_absence_reference_snapshot,
 )
+from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
 from rota.persistence.db import LATEST_SCHEMA_VERSION, connect
 from rota.persistence.employee_repository import save_employee, save_site_membership
@@ -127,6 +129,18 @@ def _accept_two(conn, pair_a, pair_b, *, version_id="SV-1", accepted_at=datetime
     _accept_version(conn, version_id=version_id, pairs=pairs, effective_from=effective_from, accepted_at=accepted_at, **kw)
 
 
+def _seed_calendar_range(conn, start: date, end: date) -> None:
+    """A-R8-1: rota.planning.absence.workday_holiday_map fails closed on any
+    gap in the exact requested range -- callers that exercise a LEAVE_GRANTED
+    write must seed the dates they touch explicitly (never auto-seeded by
+    _setup, which would defeat the round-8 "genuinely incomplete calendar"
+    reproducer that relies on _setup NOT doing this)."""
+    current = start
+    while current <= end:
+        save_calendar_day(conn, CalendarDay(current, False))
+        current += timedelta(days=1)
+
+
 def _setup(tmp_path, *, db_name: str = "rota.db"):
     """Fresh DB with the standard Site/Profile/Coordinator + Employee "A"."""
     conn = connect(tmp_path / db_name)
@@ -158,6 +172,7 @@ def test_t23_01_migration_adds_exactly_absence_reference_snapshots(tmp_path) -> 
 
 def test_t23_02_snapshot_append_only_update_delete_rejected(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert snapshot is not None
@@ -181,6 +196,7 @@ def test_t23_03_availability_snapshot_action_atomic_on_forced_failure(tmp_path) 
 
 def test_t23_04_availability_changed_carries_no_schedule_version_id(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
     actions = site_memory.list_coordinator_actions(conn, action_kind=CoordinatorActionKind.AVAILABILITY_CHANGED)
     assert actions and actions[0].schedule_version_id is None
@@ -238,6 +254,7 @@ def test_t23_08_same_chain_extension_preserves_bound_blocks_new_blocks_use_autho
 def test_t23_09_later_sick_overlapping_bound_leave_reuses_compatible_facts(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime(2020, 3, 1, 9, 0))
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     leave = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-LEAVE")
     sick = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-SICK")
     leave_snapshot = get_absence_reference_snapshot(conn, leave.availability_version_id)
@@ -252,6 +269,7 @@ def test_t23_09_later_sick_overlapping_bound_leave_reuses_compatible_facts(tmp_p
 def test_t23_r5_1a_technical_current_working_before_select_is_not_accepted(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_version(conn, version_id="SV-1", pairs=[], effective_from=date(2027, 3, 1), accepted_at=datetime(2020, 3, 1, 8, 0), record_action=False)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert snapshot.days[0].source_mode == "PRE_PLAN_LEAVE"
@@ -288,6 +306,7 @@ def test_t23_r5_1d_acceptance_after_recorded_at_is_not_used(tmp_path) -> None:
 
 def test_t23_r5_1e_leave_before_vs_after_accepted_plan(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 4, 1), date(2027, 4, 1))
     before_record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 4, 1), end_date=date(2027, 4, 1), availability_id="AV-A-1")
     assert get_absence_reference_snapshot(conn, before_record.availability_version_id).days[0].source_mode == "PRE_PLAN_LEAVE"
     _accept_one(conn, "D-1", "A-1", "A", datetime(2027, 4, 1, 5, 0), datetime(2027, 4, 1, 17, 0), version_id="SV-APR", effective_from=date(2027, 4, 1), accepted_at=datetime(2020, 3, 25, 9, 0), month=date(2027, 4, 1))
@@ -302,6 +321,7 @@ def test_t23_r5_1e_leave_before_vs_after_accepted_plan(tmp_path) -> None:
 
 def test_t23_pre_01_binding_40h_leave_hour_total(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 12))
     record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 12))
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert all(d.source_mode == "PRE_PLAN_LEAVE" and d.status == "BOUND" for d in snapshot.days)
@@ -311,6 +331,7 @@ def test_t23_pre_01_binding_40h_leave_hour_total(tmp_path) -> None:
 
 def test_t23_pre_02_later_plan_creation_does_not_reclassify_persisted_pre_plan(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     record = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
     assert get_absence_reference_snapshot(conn, record.availability_version_id).days[0].source_mode == "PRE_PLAN_LEAVE"
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime(2020, 3, 5, 9, 0))
@@ -421,6 +442,7 @@ def test_t23_19_leave_plan_creates_no_reference_row(tmp_path) -> None:
 def test_t23_20_sick_over_leave_one_result_no_double_hours(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0))
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     leave = _leave(conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-L")
     sick = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-A-S")
     leave_snap = get_absence_reference_snapshot(conn, leave.availability_version_id)

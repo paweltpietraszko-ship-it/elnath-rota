@@ -18,6 +18,7 @@ from tests.test_t023 import (
     _employee,
     _leave,
     _primary,
+    _seed_calendar_range,
     _setup,
     _setup_two_sites,
 )
@@ -33,6 +34,7 @@ def _canonical_total(snapshot, kind: AvailabilityKind) -> int:
 
 def test_a1_pre_plan_owner_example_is_really_40_hours(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 12))
     record = _leave(
         conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED,
         start_date=date(2027, 3, 8), end_date=date(2027, 3, 12),
@@ -72,6 +74,7 @@ def test_a3_new_sick_chain_reuses_pre_replan_leave_reference(tmp_path) -> None:
     conn = _setup(tmp_path)
     _employee(conn, "B")
     _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5), datetime(2027, 3, 8, 17))
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     leave = _leave(
         conn, employee_id="A", kind=AvailabilityKind.LEAVE_GRANTED,
         start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), availability_id="AV-LEAVE",
@@ -94,6 +97,7 @@ def test_a3_new_sick_chain_reuses_pre_replan_leave_reference(tmp_path) -> None:
 
 def test_a4_broken_accepted_lineage_is_not_downgraded_to_pre_plan_leave(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
     _accept_version(
         conn, version_id="SV-BROKEN", pairs=[], effective_from=None,
         accepted_at=datetime(2020, 3, 1, 8),
@@ -174,6 +178,7 @@ def test_a7_snapshot_freezes_demand_and_work_period_component_provenance(tmp_pat
 
 def test_a8_real_snapshot_insert_failure_rolls_back_entire_command(tmp_path, monkeypatch) -> None:
     conn = _setup(tmp_path)
+    _seed_calendar_range(conn, date(2027, 3, 8), date(2027, 3, 8))
 
     def fail_snapshot_insert(*_args, **_kwargs):
         raise RuntimeError("forced snapshot insert failure")
