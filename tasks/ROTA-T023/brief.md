@@ -1,4 +1,4 @@
-# ROTA-T023 — SCHEDULE-BASED ABSENCE HOURS — ARCHITECT IMPLEMENTATION CONTRACT
+# ROTA-T023 — ABSENCE TIMING / HOURS — CONSOLIDATED IMPLEMENTATION CONTRACT
 
 STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — NOT READY FOR CC
 DATE: 2026-08-22
@@ -6,404 +6,308 @@ TASK_ID: ROTA-T023
 BASE_BRANCH: main
 BASE_SHA: e05dfb7dd4463370bf8174db7ae58a9b984cf99e
 TASK_BRANCH: task/ROTA-T023
-ARCHITECT_INPUT_HEAD: 7483712ce66a42606cb31562bb5f62aa51bc91a8
 OWNER_SOURCE: arch/T023_absence_hours_architect_brief.md
 OWNER_NIGHT_DECISION: tasks/ROTA-T023/round_01/OWNER_DECISION_NIGHT_SHIFT_ANCHOR.md
+OWNER_TIMING_DECISION: tasks/ROTA-T023/round_01/OWNER_DECISION_ABSENCE_TIMING_PLAN_WYK.md
 FROZEN_ADDENDUM: arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md
-SUPERSEDES_IN_PART:
-- arch/FROZEN_ADDENDUM_ABSENCE_WORKDAY_ACCOUNTING_01.md
-- tasks/ROTA-T018/brief.md
-- tasks/ROTA-T020/CHECKPOINT_B_OWNER_DECISIONS_05.md
-- tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md
+LAST_AUDIT: tasks/ROTA-T023/round_01/tests/tests_r5.txt
 
-CC_GATE: BLOCKED UNTIL INDEPENDENT CODEX PREIMPLEMENTATION PASS ON THE EXACT ARCHITECT CONTRACT SHA
+CC_GATE: BLOCKED UNTIL INDEPENDENT CODEX PREIMPLEMENTATION PASS ON THIS EXACT CONTRACT SHA
 
-## 1. GOAL
+## 1. CONSOLIDATION / PRECEDENCE
 
-Replace T018/T020 flat workday absence accounting with one durable schedule-based absence truth:
+This brief and the frozen addendum are the complete architect implementation contract for T023.
 
-`absence_hours = hours scheduled for the Employee in the adopted reference schedule during the granted absence`
+Earlier round documents under `tasks/ROTA-T023/round_01/ARCHITECT_R3_*.md` are historical review artifacts. They do not override this consolidated pair.
 
-The implementation must bind the pre-absence schedule fact before absence-driven replacement can erase it, then make solver TARGET, WorkBalance/analytics and T020 PDF consume the same canonical result.
+This consolidation incorporates the already-closed R3-1/R3-2/R3-4/R3-6 corrections and closes only the outstanding R5-1/R5-2/R5-3 findings. It does not reopen Round-3 PASS foundations.
 
-No payroll/HR scope and no new operational absence Assignment layer.
+No new product rule may be introduced merely for architectural tidiness. Where this brief recommends an implementation placement, it states why and which concrete failure it prevents.
 
-## 2. NON-NEGOTIABLE PRODUCT RULES
+## 2. PRODUCT MODEL
 
-1. One algorithm for every Site/profile: scheduled reference hours, never profile-specific flat hours.
-2. 8h -> 8h; 12h -> 12h; legal 24h WorkPeriod -> 24h once.
-3. Weekend/holiday scheduled work counts; known reference rest = 0.
-4. Missing/ambiguous/unreadable reference fails closed.
-5. `SICK_LEAVE` and `LEAVE_GRANTED` both consume the canonical hours in WorkBalance and live solver TARGET.
-6. `LEAVE_PLAN` contributes 0 actual absence hours.
-7. SICK wins overlap with LEAVE_GRANTED: one C, no U+C.
-8. N `17:00-05:00` belongs wholly to its start date.
-9. Persisted legal 24h WorkPeriod uses the same start-date anchor, including month/year boundaries.
-10. Later REPLAN/finalize/restore/restart/CURRENT movement must not change a bound reference.
-11. REALIZED work is never rewritten to U/C; overlap is a visible fail-closed conflict.
-12. Multi-Site aggregate is Employee-global; Site PDF is a local projection of the same bound facts, with no duplicate membership allocation.
-13. Absent Employees remain operationally ineligible and never cover Site demand through nominal U/C data.
-14. T023 does not define new D/N/U/C legend values.
+There is one consumer-facing absence result but two owner-authorized prospective provenance modes plus one rejected class.
 
-## 3. MECHANICAL FINDINGS THAT DRIVE THE DESIGN
+### 2.1 PRE_PLAN_LEAVE
 
-Verified at architect input HEAD:
+`LEAVE_GRANTED` for a date/block with no mechanically accepted applicable PLAN at Availability write time.
 
-- `AvailabilityRecord` has no schedule reference/capture timestamp.
-- availability history is append-only.
-- `AVAILABILITY_CHANGED` is written atomically with the availability mutation, but its coordinator-action `schedule_version_id` is currently `None`.
-- coordinator-action rows can carry one schedule id, but T023 reference can span multiple Sites/months/versions, so that field is not the canonical provenance surface.
-- CURRENT ScheduleVersion is Site/month scoped.
-- FINAL ScheduleVersion content is immutable.
-- a current WORKING ScheduleVersion can be replaced in place under the same `version_id`; therefore persisting only `schedule_version_id` is insufficient.
-- WorkBalance rows are not persisted; only target_hours is stored.
-- T020 already reconstructs current lineage by `effective_from`, but its absence path separately recounts flat-8 workdays.
-- `PlanningState` carries WorkBalance, so solver can consume canonical `WorkBalance.absence_hours` without adding a second absence calculation to the solver.
+- no prior Employee schedule is required;
+- absence is not `MISSING` merely because PLAN does not yet exist;
+- HARD eligibility excludes the Employee on leave dates;
+- no nominal operational Assignment is created;
+- preserve the owner-approved pre-PLAN canonical leave-total path and configured T020 exact-sum decomposition;
+- binding 40h example remains PLAN `D1 / D1 / N2` and WYK `U1 / U1 / U2`;
+- presentation does not cover ShiftDemand.
+
+This is a timing/provenance exception, not a SiteProfile strategy. The pre-PLAN arithmetic must never be used as fallback for a post-PLAN absence.
+
+### 2.2 POST_PLAN_REFERENCE
+
+A prospective `SICK_LEAVE` or `LEAVE_GRANTED` for a date/block where a mechanically accepted applicable PLAN exists at Availability write time.
+
+- preserve the accepted pre-REPLAN Employee PRIMARY plan as immutable PLAN/accounting provenance;
+- exact scheduled period hours are the absence-hour source;
+- later REPLAN assigns real coverage to another eligible PRIMARY but cannot erase the bound PLAN fact;
+- T020 prints C for sickness or U for granted leave below the preserved period;
+- preserved PLAN/U/C presentation is not operational coverage.
+
+### 2.3 RETROACTIVE — REJECTED
+
+A new/expanded active absence may not newly cover an Employee PRIMARY work fact that already started or is REALIZED. The invalid write is rejected before AvailabilityVersion/snapshot/action persistence.
+
+A minioną date alone is not retroactivity. A past known rest day contains no started Employee work fact to rewrite.
+
+## 3. R5-1 — MECHANICAL ACCEPTED PLAN PROOF
+
+### 3.1 What is NOT proof
+
+Do not infer acceptance from:
+- CURRENT pointer alone;
+- `WORKING`, `WORKING_WITH_DEVIATIONS` or FINAL status alone;
+- ScheduleVersion existence;
+- non-empty Assignment list.
+
+`plan_month()` creates a technical CURRENT WORKING container before the coordinator selects a candidate, so those signals are insufficient.
+
+### 3.2 Existing durable proof
+
+The mechanical acceptance event is the existing `CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED` recorded by `rota/application/plan_ops.py::select_candidate()` in the same successful transaction as the selected snapshot.
+
+For an Availability command timestamp `recorded_at`, a ScheduleVersion is accepted only if a durable `SCHEDULE_CANDIDATE_SELECTED` action:
+- names that `schedule_version_id`; and
+- has `action.recorded_at <= recorded_at`.
+
+Existing `site_memory.list_coordinator_actions(...)` is sufficient to read this fact. No new acceptance table/event is added.
+
+Why recommended: this is the durable fact already emitted exactly when the coordinator chooses a candidate.
+
+Problem solved: a technical empty WORKING root/child cannot be mistaken for accepted PLAN, while a legitimately selected empty schedule remains mechanically accepted because acceptance does not depend on Assignment count.
+
+### 3.3 Accepted applicable version for a Site/date
+
+Use the current Site/month lineage at the Availability write boundary:
+1. start at CURRENT and walk parent links to root using the shared lineage helper in `schedule_repository`;
+2. reject cycle/missing-parent/site-month mismatch;
+3. require real `effective_from` for a version used on the date;
+4. filter to `effective_from <= anchored_date`;
+5. filter to versions with the durable candidate-selected proof above;
+6. choose the deepest remaining version.
+
+An unselected technical REPLAN child is skipped; its accepted applicable parent remains eligible. If no accepted version exists:
+- `LEAVE_GRANTED` uses PRE_PLAN_LEAVE for that date/block;
+- supported post-PLAN sickness must not silently fall back to PRE_PLAN_LEAVE; absent required accepted provenance is reference-incomplete.
+
+One AvailabilityVersion may contain different date/month provenance blocks if accepted PLAN exists for only part of its range.
 
 ## 4. PERSISTENCE — MIGRATION 8
 
-Advance `LATEST_SCHEMA_VERSION` from 7 to 8.
-
-Migration 8 adds exactly one table:
+Advance schema 7 -> 8 and add exactly one production table:
 
 `absence_reference_snapshots`
-
-Required columns:
-
-- `availability_version_id TEXT PRIMARY KEY`
-  - references the persisted AvailabilityVersion identity;
+- `availability_version_id TEXT PRIMARY KEY`;
 - `captured_at TEXT NOT NULL`;
-- `reference_status TEXT NOT NULL`
-  - exact values `BOUND`, `MISSING`, `AMBIGUOUS`;
-- `snapshot_json TEXT NOT NULL`
-  - deterministic canonical JSON described below.
+- `reference_status TEXT NOT NULL` (`BOUND`, `MISSING`, `AMBIGUOUS`);
+- `snapshot_json TEXT NOT NULL`.
 
-Add append-only triggers rejecting UPDATE and DELETE.
+Add append-only UPDATE/DELETE rejection triggers. Do not add a current pointer, WorkBalance history table, second Assignment table or second absence ledger.
 
-No historical backfill is performed.
+No migration-time guessed historical backfill.
 
-No current-pointer table is added. No WorkBalance history table is added. No second Assignment table is added.
+### 4.1 Deterministic snapshot JSON
 
-### 4.1 Snapshot JSON contract
+The JSON is deterministic and contains at minimum:
+- persisted `source_mode` per relevant date/month block: `PRE_PLAN_LEAVE` or `POST_PLAN_REFERENCE`;
+- captured Site scope/projection provenance;
+- accepted source ScheduleVersion id/action proof where POST_PLAN_REFERENCE applies;
+- ordered day/period/component facts;
+- source assignment/demand ids and exact start/end intervals for bound post-PLAN periods;
+- work-period/template/component provenance needed for legal 24h grouping;
+- explicit MISSING/AMBIGUOUS diagnostic when applicable.
 
-The JSON is deterministic (`sort_keys=True` plus deterministic list ordering) and contains:
+Do not persist only a derived flat total as the sole truth. PRE_PLAN_LEAVE may persist the canonical pre-PLAN input/provenance needed to reproduce its authorized total without fabricating Assignments. POST_PLAN_REFERENCE must persist exact period facts because WORKING content can later mutate in place under the same version id.
 
-- `scope_site_ids`: sorted unique Site ids considered at capture;
-- `months`: sorted by Site id then calendar month;
-- each Site/month block:
-  - `site_id`;
-  - `month`;
-  - `status` = `BOUND` / `MISSING` / `AMBIGUOUS`;
-  - `days`, sorted by date;
-- each day:
-  - `date`;
-  - `status`;
-  - selected source ScheduleVersion id when one coherent version owns that day;
-  - zero or more normalized reference periods anchored on that date;
-  - an explicit diagnostic reason when not BOUND;
-- each reference period:
-  - `site_id`;
-  - `anchor_date`;
-  - ordered component facts;
-- each component fact preserves at least:
-  - source `schedule_version_id`;
-  - source `assignment_id`;
-  - source `demand_id`;
-  - start/end datetime;
-  - Assignment state;
-  - ShiftDemand `shift_kind`;
-  - ShiftDemand `catalog_kind`;
-  - `work_period_id`;
-  - `work_period_template_id`;
-  - `work_period_component`.
+`WorkBalance` gains non-persisted `absence_hours: int = 0` at the end for positional compatibility.
 
-The snapshot may retain ids whose mutable WORKING child rows later disappear. They are historical provenance labels, not pointers that must be re-read to recompute hours.
+## 5. AVAILABILITY WRITE BOUNDARY
 
-Do not persist a derived flat `absence_hours` as the only source fact. Canonical hours are recalculated deterministically from the immutable captured period intervals/components.
+`rota/application/durable_inputs.py::append_availability` is the canonical coordinator command boundary because it already owns coordinator context, `recorded_at`, the Availability transaction and `AVAILABILITY_CHANGED` action/invalidation.
 
-### 4.2 Shared value types
+For active SICK/LEAVE:
+1. capture one `recorded_at` for the command;
+2. obtain/hold the existing SQLite write transaction boundary;
+3. validate retroactivity against newly introduced/expanded coverage;
+4. determine source mode/accepted-plan provenance using facts that existed before any absence-driven REPLAN;
+5. append AvailabilityVersion;
+6. persist its immutable absence-reference provenance in the same transaction;
+7. record the existing coordinator action/invalidation in that same transaction.
 
-The narrow immutable DTO/enums required to represent a decoded snapshot belong in `rota/domain.py`; they must contain no repository/service behavior.
+Any validation/persistence failure rolls the whole write back.
 
-`WorkBalance` gains `absence_hours: int = 0` as a non-persisted computed field. Existing positional callers must remain mechanically compatible by adding the field at the end with a default.
+`availability_repository.py` remains the append-only chain primitive and does not independently invent coordinator-time policy.
 
-## 5. REFERENCE CAPTURE BOUNDARY
+`AVAILABILITY_CHANGED.schedule_version_id` remains `None`; one absence may span multiple Site/version provenance facts, which belong in the snapshot JSON.
 
-`rota/persistence/absence_reference_repository.py` is the one new production repository module.
+Why this placement is recommended: the command already has the timestamp and atomic mutation boundary.
 
-It owns:
-- deterministic snapshot encode/decode;
-- batch reads by AvailabilityVersion id;
-- reference capture from schedule history/current pointers;
-- same-chain inheritance/overlap reuse;
-- no accounting arithmetic.
+Problem solved: no partial Availability/snapshot/action and no duplicate clock/policy in persistence.
 
-`rota/persistence/availability_repository.py` remains the owner of AvailabilityVersion append.
+## 6. R5-2 — RETROACTIVITY GUARD
 
-For active `SICK_LEAVE` / `LEAVE_GRANTED`:
-1. append the AvailabilityVersion inside the existing open transaction;
-2. the write obtains the SQLite write lock before reference capture;
-3. capture the reference snapshot in the same transaction;
-4. persist the immutable snapshot row;
-5. the existing application-level coordinator action/invalidation completes in that same outer transaction where applicable.
+For a new/superseding active SICK/LEAVE, inspect only coverage newly introduced/expanded by that version.
 
-Missing/ambiguous schedule truth is encoded as `MISSING`/`AMBIGUOUS`; it is not converted to 0 and does not cause the availability fact itself to be omitted.
+Reject when newly covered range would include:
+- a non-CANCELLED PRIMARY work period for the Employee with `start_datetime < recorded_at`; or
+- a REALIZED PRIMARY Assignment for the Employee.
 
-Unexpected persistence failure rolls the transaction back normally.
+Do not reject solely because `start_date < recorded_at.date()`.
 
-For inactive versions and other AvailabilityKind values, no reference snapshot is required.
+A past date proven by accepted plan to contain no Employee PRIMARY work is allowed and contributes 0h on POST_PLAN_REFERENCE. A past date with incomplete provenance is handled by normal reference-completeness rules, not elapsed-date rejection.
 
-The existing coordinator-action `schedule_version_id` MUST remain `None` for `AVAILABILITY_CHANGED`; do not stuff one arbitrary version id into a fact that can span several Sites/versions. The canonical linkage is `absence_reference_snapshots`.
+Do not silently clip invalid input to future dates.
 
-## 6. REFERENCE SCOPE AND READABILITY
+A same-day future period may remain prospective if no covered Employee work fact on that date/range has already started; if newly requested date coverage would also cover an earlier started Employee PRIMARY fact, the write is rejected rather than rewriting it.
 
-### 6.1 Site scope at capture
+Inactive/deactivation operations removing coverage are not retroactive creation.
 
-For the Employee, reference scope is the deterministic union of:
-- all currently enabled Site memberships, regardless of LOCAL/EXTERNAL_SUPPORT kind; and
-- Sites owning any current non-CANCELLED Assignment for that Employee overlapping the captured month range/boundary context.
+Why recommended: it matches the owner rule at the level of the work fact that must not be rewritten.
 
-If the union is empty for an active granted absence, global reference status is `MISSING`, not known 0h.
+Problem solved: L4 may include yesterday's known rest day plus a future planned shift without false rejection merely because yesterday elapsed.
 
-This scope is captured and does not change when memberships change later.
+## 7. POST_PLAN REFERENCE CAPTURE
 
-### 6.2 Month horizon
+### 7.1 Site scope — R3-1
 
-For every active granted AvailabilityVersion, capture complete reference Site/month blocks for every calendar month intersecting its inclusive range.
+Reference Site scope is the deterministic union of:
+- enabled LOCAL Site memberships; and
+- Sites on which the Employee has actual non-CANCELLED PRIMARY work in the accepted effective schedule facts.
 
-Capturing the full intersecting month, not only currently absent dates, is required so a later correction/extension in the same Availability chain cannot rebind newly included days to a post-absence REPLAN.
+An EXTERNAL_SUPPORT membership alone never adds a required Site and cannot create MISSING. Real accepted external-site PRIMARY work enters the Employee-global reference once.
 
-Adjacent date/month facts required to prove a 24h WorkPeriod are captured with the anchored period even when a component is outside the absence range.
+### 7.2 Accepted readable day
 
-### 6.3 Effective schedule selection
+A POST_PLAN_REFERENCE day is BOUND only if the accepted selected schedule facts can prove the Employee's PRIMARY plan/rest.
 
-Extract the existing T020 lineage/date-selection mechanics into reusable read helpers in `rota/persistence/schedule_repository.py`; both T020 real-work reconstruction and T023 reference capture must use the same helper rather than two drifting lineage algorithms.
+Coverage completeness must reuse the canonical coverage algorithm from `planning.validator`; structural Assignment/Demand checks stay with existing schedule validation; 24h grouping/legality reuses `planning.work_periods`.
 
-For each Site/date:
-- follow CURRENT lineage to root;
-- reject cycle/missing parent/context mismatch;
-- every used version needs real `effective_from`;
-- select the deepest lineage version with `effective_from <= date`.
+A BOUND accepted day with zero Employee PRIMARY periods is known 0h.
 
-No CURRENT schedule / no applicable version is `MISSING`.
+TRAINEE is not counted as PRIMARY and does not itself make the day ambiguous.
 
-### 6.4 Readable adopted day
+Contradictory/overlapping Employee PRIMARY periods are ambiguous. Disjoint periods may sum exact duration.
 
-A selected Site/day is BOUND only if persisted operational schedule truth is coherent enough to prove that day's plan:
-- ShiftDemand/PRIMARY coverage for the selected day is complete;
-- assignment-to-demand provenance is coherent;
-- the Employee's non-CANCELLED PRIMARY reference items are unambiguous;
-- a referenced 24h WorkPeriod has coherent linked components.
+### 7.3 Same-chain / overlap invariance
 
-An unfinished/unselected schedule with uncovered demand is not evidence that the Employee rests.
+Bound post-PLAN facts are immutable across same Availability chain correction/extension, later WORKING replacement, REPLAN, FINAL, restore, restart and CURRENT movement.
 
-A BOUND day with zero reference periods for the Employee is known 0h.
+A later sickness overlapping already-bound leave must reuse compatible original facts; disagreement between bound candidates is ambiguous rather than choosing today's CURRENT.
 
-An effective TRAINEE item for the absent Employee has no frozen T023 absence-accounting presentation semantics and therefore makes that reference day `AMBIGUOUS`; do not count it as PRIMARY and do not silently ignore it.
+## 8. POST_PLAN CANONICAL ARITHMETIC
 
-Disjoint independent PRIMARY periods anchored on the same date may contribute their exact summed hours to accounting; overlapping/contradictory periods are `AMBIGUOUS`. T020 may still fail its existing one-cell presentation boundary if more than one period must occupy one cell.
+`rota/planning/absence.py` is pure/persistence-free and remains the single accounting/precedence owner.
 
-## 7. INHERITANCE / OVERLAP RULES
+For POST_PLAN_REFERENCE:
+- 8h period -> 8h;
+- 12h D/N -> 12h;
+- legal persisted 24h WorkPeriod -> 24h once;
+- scheduled weekend/holiday -> scheduled hours;
+- accepted known rest -> 0h;
+- no weekday/nonholiday filter;
+- missing/ambiguous accepted reference -> explicit failure, never guessed 0/8/12/24.
 
-### 7.1 Same Availability chain
+N `17:00-05:00` belongs wholly to start date. Owner examples remain binding. Legal 24h uses the same start-date anchor including cross-month/year.
 
-When appending a new active version of an existing `availability_id`:
-- copy every already-captured Site/month block from the latest predecessor snapshot when that Site/month remains relevant;
-- do not recapture that month from CURRENT;
-- capture only newly required Site/month blocks not present in the predecessor baseline.
+SICK wins overlap with LEAVE_GRANTED; count once and present C. LEAVE_PLAN contributes no actual absence hours.
 
-This preserves the original pre-absence month schedule across date corrections/extensions.
+The canonical API supports explicit inclusive date-range projection for weekly totals and month/Site projections. T023 does not invent a separate weekly arithmetic or week-boundary convention.
 
-### 7.2 Different granted-absence chains
+## 9. PRE_PLAN_LEAVE CANONICAL PATH
 
-When capturing a day that overlaps another currently active granted absence for the same Employee:
-- reuse compatible already-bound day facts from the other active granted record;
-- if more than one candidate bound reference disagrees, persist `AMBIGUOUS`;
-- never choose the newest CURRENT snapshot merely because it is available.
+For PRE_PLAN_LEAVE only, preserve the previously owner-approved canonical leave-total behavior consumed by T020 before an Employee PLAN exists. Do not silently redesign its legacy weekday/holiday qualification inside T023 timing consolidation.
 
-This is mandatory for SICK-over-LEAVE after a leave-driven REPLAN.
+The binding 40h owner example remains an oracle.
 
-## 8. CANONICAL ACCOUNTING API
+No post-PLAN consumer may use this source as fallback when accepted schedule provenance is missing.
 
-`rota/planning/absence.py` remains pure and persistence-free.
+## 10. R5-3 — REPLAN ACCEPTANCE CUTOVER
 
-Remove the governing use of:
-- `EXCUSED_ABSENCE_HOURS_PER_DAY`;
-- `excused_absence_days_in_month`;
-- weekday/nonholiday filtering;
-- `IncompleteAbsenceCalendarError` as an absence-accounting error.
+Owner rule: accepted REPLAN applies prospectively from coordinator acceptance; earlier work facts remain unchanged.
 
-Provide one canonical reference-period calculation that accepts:
-- active AvailabilityRecords;
-- decoded AbsenceReferenceSnapshots;
-- requested month/date scope;
-- optional `site_id` projection;
-- current REALIZED assignments when the consumer has them for conflict detection.
+### 10.1 Mechanical cutover timestamp
 
-Required result contains at least:
-- total `absence_hours`;
-- `leave_hours`;
-- `sick_hours`;
-- ordered period-level facts used for presentation;
-- kind (U/C) after precedence.
+For candidate selection on a REPLAN child (`header.parent_version_id != None`), `select_candidate()` captures one `cutover_at` immediately before the final cutover-preservation check and snapshot replacement. The successful `SCHEDULE_CANDIDATE_SELECTED.recorded_at` MUST use that same timestamp.
 
-Required fail-closed errors:
-- incomplete reference;
-- ambiguous reference;
-- REALIZED-vs-absence conflict.
+`ScheduleVersion.effective_from` is date-only and is not used as the sub-day cutover proof.
 
-No consumer reimplements precedence, anchoring, period duration or Site filtering.
+### 10.2 Required preservation invariant
 
-### 8.1 Kind precedence
+Inside the existing atomic `replace_working_snapshot(pre_check=...)` selection boundary, compare the candidate with the current REPLAN-child snapshot cloned from the previous schedule.
 
-For each anchored reference period:
-1. if any active SICK_LEAVE covers the anchor date -> C/SICK;
-2. else if any active LEAVE_GRANTED covers the anchor date -> U/LEAVE;
-3. else it is not an absence period.
+Require exact set preservation of every non-CANCELLED PRIMARY Assignment whose `start_datetime < cutover_at`:
+- no removal;
+- no employee/interval/demand/role/state/frozen/work-period/operational-code mutation;
+- no newly added replacement PRIMARY starting before cutover.
 
-Multiple active records of the selected kind must resolve to the same bound reference fact; disagreement is ambiguous.
+The candidate and current child snapshot already share the child `schedule_version_id`; comparison does not need a new cross-version identity model.
 
-LEAVE_PLAN is ignored by actual-hours accounting.
+This is a selection-time lifecycle invariant. Do not add it as a solver HARD constraint merely to make generated candidates pretty: the solver may propose redistribution, but selection cannot commit a candidate that rewrites pre-cutover work.
 
-### 8.2 Period duration and anchors
+Why this location is recommended: only `select_candidate()` has both the real acceptance timestamp and the exact snapshot about to be committed.
 
-Duration is exact persisted scheduled interval duration from bound reference components.
+Problem solved: earlier PLANNED non-frozen PRIMARY shifts cannot be redistributed as collateral damage of a future-absence REPLAN.
 
-A linked legal 24h WorkPeriod is one 24h period anchored at the WorkPeriod start.
+No new ScheduleVersion timestamp/effective-from model is introduced.
 
-An ordinary overnight N `17:00-05:00` is one period anchored at its start date.
+## 11. WORKBALANCE / ANALYTICS / SOLVER
 
-No midnight splitting.
-
-## 9. WORKBALANCE / ANALYTICS
-
-`rota/balance.py` calls only the canonical T023 absence primitive.
+Canonical result for the persisted source mode feeds every consumer.
 
 `compute_month_balance`:
-- keeps PRIMARY PLANNED/REALIZED operational Assignment sums unchanged;
-- computes canonical Employee-global absence hours from bound references;
+- planned/realized PRIMARY work sums remain operational facts;
 - sets `WorkBalance.absence_hours`;
-- uses `effective_target_hours = target_hours - absence_hours`;
-- keeps `month_balance = realized_hours + planned_hours - effective_target_hours`.
+- `effective_target = max(0, target_hours - absence_hours)`;
+- month/quarter balances continue from that effective target.
 
-`calendar_days` may remain temporarily accepted as a compatibility argument, but it MUST NOT influence T023 absence hours.
+Analytics exposes the same absence/effective-target values and keeps Employee-global ALL_SITES semantics. Explicit weekly range uses the same canonical API. Quarter reads do not return guessed partial numeric results when required provenance is incomplete.
 
-`rota/persistence/work_balance_repository.py`:
-- loads current assignments exactly as today;
-- loads current active availability;
-- loads their reference snapshots in batch;
-- does not load CalendarDay for absence arithmetic;
-- never persists computed balance rows.
+Solver consumes `WorkBalance.absence_hours`; it does not recount Availability, CalendarDay or source mode. SICK and granted leave reduce live TARGET through the same canonical result. TARGET stays SOFT; HARD eligibility remains authoritative.
 
-`rota/application/analytics_read.py`:
-- uses the same canonical snapshots/arithmetic;
-- adds `absence_hours` to `AnalyticsMonthData`;
-- derives `effective_target_hours` directly as `target_hours - absence_hours`;
-- replaces CalendarDay-specific absence warnings with stable reference-incomplete/reference-ambiguous/REALIZED-conflict degradation;
-- keeps `AnalyticsHoursScope.ALL_SITES`.
+## 12. T020 PRESENTATION
 
-`rota/application/balance_read.py` must degrade expected T023 reference errors to an explicit unavailable warning rather than returning a guessed/partial quarter.
+T020 never creates operational Assignments.
 
-No new analytics screen or payroll field is added.
+PRE_PLAN_LEAVE:
+- retain deterministic configured exact-sum allocation/decomposition;
+- preserve 40h `D1/D1/N2` + `U1/U1/U2`;
+- no rounding/invented legend;
+- where no schedule provenance exists to allocate one global pre-PLAN leave across multiple LOCAL Sites, preserve the existing fail-closed Site-attribution boundary rather than duplicate the global total.
 
-## 10. SOLVER TARGET
+POST_PLAN_REFERENCE:
+- place PLAN at exact preserved period anchor;
+- WYK U/C has equal exact hours;
+- Site ownership comes from bound period provenance;
+- multiple memberships alone are not ambiguity;
+- no aggregate monthly coin-change relocation.
 
-Rename/replace the SICK-only helper with absence-generic target adjustment.
+SICK+LEAVE overlap prints one C. Existing real-work/24h presentation behavior unrelated to absence stays unchanged.
 
-The solver MUST consume the `absence_hours` already present on the assembled WorkBalance for that Employee/month. It MUST NOT:
-- recount AvailabilityRecords;
-- read CalendarDay;
-- call a separate flat-8 helper;
-- treat LEAVE_GRANTED differently from SICK_LEAVE.
+The existing `ASSIGNMENT_ABSENCE_CONFLICT` may remain only as defensive detection for legacy/corrupt data; T023 valid writes must prevent creating that state.
 
-Adjusted target:
+## 13. VALIDATION OWNERSHIP — R3-6
 
-`max(0, work_balance.target_hours - work_balance.absence_hours)`
+`absence_reference_repository.py` owns deterministic encode/decode, immutable snapshot persistence/batch reads and provenance assembly only. It must not implement its own COVERAGE-01, Assignment/Demand, trainee/mentor or 24h legality algorithms.
 
-Use the same lower-bound behavior the current solver uses for SICK adjustment; do not create a negative TARGET.
+Implementation may refactor the existing private coverage calculation in `rota/planning/validator.py` into a reusable pure helper; the main validator and T023 capture must call the same helper.
 
-TARGET remains SOFT. No HARD eligibility rule changes.
+T023 calls existing `rota/planning/work_periods.py` functions for grouping/24h semantics without modifying that module unless a concrete compile/test/audit finding proves a callable gap.
 
-`rota/planning/engine.py` removes T018's eager CalendarDay-based absence validation. Reference incompleteness is detected before/while WorkBalance is assembled and through the canonical T023 errors, not by checking a holiday calendar.
+Why recommended: one existing invariant has one code owner.
 
-Public PLAN/REPLAN application boundaries must return/fail closed as TECHNICAL_ERROR for a reference-accounting failure; they must not continue with `absence_hours=0`.
-
-## 11. T020 PDF
-
-T020 remains a presentation feature and never creates operational Assignments.
-
-Replace `_collect_absence` flat-day/month-total logic with canonical site-projected reference periods.
-
-For each printed LOCAL Employee:
-- ask canonical T023 accounting for the printed Site/month;
-- only reference periods with `period.site_id == printed site_id` may produce U/C;
-- a Site absent from the bound scope contributes 0h to that Site;
-- more than one LOCAL membership is not `ABSENCE_SITE_AMBIGUOUS`.
-
-Placement is 1:1 with reference periods:
-- anchor at reference period start date;
-- PLAN code maps the exact bound reference period interval/kind or existing 24h rule;
-- WYK code is U/C of exactly equal hours;
-- no monthly total coin-change movement to unrelated dates.
-
-SICK+LEAVE overlap prints one C.
-
-`ASSIGNMENT_ABSENCE_CONFLICT` remains the explicit T020 problem for actual REALIZED/current work overlapping granted absence. A planned nominal reference period is not itself this conflict.
-
-Add/make available stable provenance problems:
-- `ABSENCE_REFERENCE_INCOMPLETE`;
-- `ABSENCE_REFERENCE_AMBIGUOUS`.
-
-The old `ABSENCE_SITE_AMBIGUOUS` and SICK+LEAVE `ABSENCE_KIND_CONFLICT` behavior is superseded and must not be triggered for those old conditions.
-
-Existing exact print-code fail-closed rules remain:
-- no rounding;
-- no invented D/N/U/C code;
-- no combining unrelated reference days to manufacture a representable total;
-- if an exact reference period has no legal PLAN/WYK presentation pair, return the existing explicit presentation problem.
-
-Real-work lineage/24h behavior unrelated to absence remains unchanged.
-
-`schedule_export.py` must stay within the repository size gate by deleting/replacing the superseded flat-8/coin-change absence path, not by layering a second path on top.
-
-## 12. REALIZED CONFLICT
-
-Canonical accounting must detect both:
-- a bound reference component already REALIZED when the later/retroactive absence is recorded; and
-- a current REALIZED PRIMARY Assignment whose start-date anchor overlaps an active granted absence.
-
-On conflict:
-- underlying Assignment state remains REALIZED;
-- WorkBalance/analytics numerical absence result for the affected scope is unavailable/fail-closed;
-- solver planning does not silently reduce TARGET from an unresolved conflicting absence;
-- T020 surfaces `ASSIGNMENT_ABSENCE_CONFLICT` and does not replace the worked cell with U/C.
-
-No automatic correction is authorized.
-
-## 13. MULTI-SITE
-
-Global WorkBalance/analytics:
-- use all Site reference periods in the captured scope;
-- deduplicate by canonical bound period identity;
-- require complete/consistent global reference scope.
-
-T020:
-- projects only the printed Site;
-- does not duplicate global hours on every membership;
-- does not infer Site ownership from readiness/target/current distribution.
-
-A reference Site not present in the captured scope contributes 0 to that Site projection; a Site present in scope but MISSING/AMBIGUOUS fails that Site projection.
+Problem solved: no validator drift between planning and absence capture.
 
 ## 14. NO LEGACY BACKFILL
 
-Migration 8 MUST NOT create guessed snapshots for pre-T023 AvailabilityVersions.
-
-For an active pre-migration SICK_LEAVE/LEAVE_GRANTED with no snapshot:
-- canonical accounting raises reference-incomplete;
-- WorkBalance/analytics/PDF/solver target do not substitute old flat 8;
-- CURRENT is not used as a historical reconstruction fallback.
-
-A future explicit remediation feature is outside T023.
+Migration 8 does not synthesize provenance for pre-T023 active AvailabilityVersions from today's CURRENT. Such legacy records without T023 provenance are reference-incomplete until a separately authorized remediation exists.
 
 ## 15. EXACT TASK_SCOPE
 
@@ -418,12 +322,14 @@ TASK_SCOPE:
 - rota/planning/absence.py
 - rota/planning/solver.py
 - rota/planning/engine.py
+- rota/planning/validator.py
 - rota/balance.py
 - rota/persistence/work_balance_repository.py
 - rota/application/analytics_read.py
 - rota/application/balance_read.py
 - rota/application/schedule_export.py
 - rota/application/plan_ops.py
+- rota/application/durable_inputs.py
 - tests/test_t023.py
 - tests/test_t018.py
 - tests/test_sick_leave.py
@@ -435,318 +341,189 @@ TASK_SCOPE:
 - tests/test_audit_r20_r21_findings.py
 - tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py
 
-NEW_FILES:
+NEW_FILES relative to task base:
 - arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md
 - tasks/ROTA-T023/brief.md
 - rota/persistence/absence_reference_repository.py
 - tests/test_t023.py
 
-No other file may change without STOP + architect scope amendment based on a concrete compiler/test/audit finding.
-
-Explicitly OUT OF SCOPE:
+Explicitly OUT OF SCOPE for modification unless a concrete implementation/audit finding requires an architect scope amendment:
 - arch/spec.md
 - arch/FROZEN.lock
 - rota/planning/eligibility.py
-- rota/planning/validator.py
 - rota/planning/constraints.py
 - rota/planning/work_periods.py
 - rota/persistence/schedule_lifecycle.py
 - rota/persistence/site_memory.py
+- rota/site_memory_types.py
 - SiteProfile absence strategy/configuration
-- T020 print-settings schema/legend values
+- T020 legend/settings schema
 - payroll/HR modules
+
+Reading/calling existing out-of-scope APIs is allowed; modifying them is not.
 
 ## 16. CHECKPOINT ORDER
 
-T023 is too cross-cutting to review safely as one undifferentiated implementation diff. Use one task branch and three ordered implementation checkpoints; do not merge an intermediate checkpoint to main.
+### A — provenance + write-time timing core
+Allowed production subset: domain, db, absence_reference_repository, availability_repository, schedule_repository, durable_inputs, planning.absence, planning.validator, targeted tests.
 
-### Checkpoint A — provenance + canonical core
+Must prove migration/immutability/atomicity, accepted-plan action proof, PRE_PLAN vs POST_PLAN provenance, R5-2 work-fact retro guard, shared coverage owner, reference invariance and canonical core.
 
-Allowed production subset:
-- rota/domain.py
-- rota/persistence/db.py
-- rota/persistence/absence_reference_repository.py
-- rota/persistence/availability_repository.py
-- rota/persistence/schedule_repository.py
-- rota/planning/absence.py
-- dedicated/migration tests needed for A
+### B — WorkBalance + solver + analytics + REPLAN cutover
+Allowed production subset: balance, work_balance_repository, solver, engine, analytics_read, balance_read, plan_ops, related tests.
 
-Must prove:
-- migration 8;
-- append-only snapshot;
-- atomic AvailabilityVersion + snapshot;
-- same-chain inheritance;
-- WORKING in-place mutation cannot change bound facts;
-- REPLAN/restore/restart invariants;
-- 8/12/N/24/rest/weekend/holiday/start-date/missing/ambiguous/multi-Site canonical core.
+Must prove consumer equality, both SICK/LEAVE target adjustment, weekly/month/quarter consistency and R5-3 selection cutover preservation.
 
-No solver/balance/export behavior switch before A passes targeted audit.
+### C — T020 + regression closure
+Allowed production subset: schedule_export plus related T020/T018/regression tests.
 
-### Checkpoint B — WorkBalance + solver + analytics
+Must prove both presentation paths, one C, Site attribution/no duplication, no nominal coverage, no invented legend and unchanged real-work/T012 behavior.
 
-Allowed production subset:
-- rota/balance.py
-- rota/persistence/work_balance_repository.py
-- rota/planning/solver.py
-- rota/planning/engine.py
-- rota/application/analytics_read.py
-- rota/application/balance_read.py
-- rota/application/plan_ops.py
-- related tests
+No intermediate checkpoint is merged to main.
 
-Must prove one canonical `absence_hours` reaches:
-- WorkBalance;
-- analytics;
-- both SICK and LEAVE_GRANTED live TARGET;
-- quarter reads;
-- reference failures remain fail-closed.
+## 17. REQUIRED TEST MATRIX
 
-HARD availability behavior must stay unchanged.
+### Persistence / timing provenance
+T23-01 — v7->v8 preserves data and adds exactly `absence_reference_snapshots`.
+T23-02 — snapshot UPDATE/DELETE rejected; deterministic restart round-trip.
+T23-03 — AvailabilityVersion + provenance + coordinator action are atomic; forced failure leaves no partial write.
+T23-04 — `AVAILABILITY_CHANGED.schedule_version_id` remains None; snapshot carries multi-version provenance.
+T23-05 — POST_PLAN bound facts survive in-place WORKING replacement under same version id.
+T23-06 — bind -> replacement REPLAN -> finalize -> restart preserves post-PLAN reference.
+T23-07 — restore/current movement after bind does not change bound hours.
+T23-08 — same Availability chain preserves already-bound blocks; new blocks use authorized timing provenance.
+T23-09 — later SICK overlapping bound leave reuses compatible original facts; disagreement is ambiguous.
 
-### Checkpoint C — T020 presentation + regression closure
+### R5-1 accepted PLAN
+T23-R5-1A — `plan_month()` technical CURRENT WORKING before `select_candidate()` is NOT accepted PLAN.
+T23-R5-1B — successful `SCHEDULE_CANDIDATE_SELECTED` is accepted proof even if selected schedule has zero Employee periods / valid empty schedule.
+T23-R5-1C — unselected REPLAN child does not hide an accepted applicable parent.
+T23-R5-1D — acceptance action after Availability `recorded_at` cannot be used retroactively to choose POST_PLAN_REFERENCE.
+T23-R5-1E — leave before accepted PLAN -> PRE_PLAN_LEAVE; same future leave after accepted PLAN -> POST_PLAN_REFERENCE.
 
-Allowed production subset:
-- rota/application/schedule_export.py
-- related T020/T018/regression tests
+### PRE_PLAN_LEAVE
+T23-PRE-01 — binding 40h leave preserves exact `D1/D1/N2` + `U1/U1/U2` presentation and no demand coverage.
+T23-PRE-02 — later PLAN creation does not reclassify persisted PRE_PLAN_LEAVE.
+T23-PRE-03 — PRE_PLAN source is never used as fallback for missing POST_PLAN_REFERENCE.
 
-Must prove:
-- exact reference-period placement;
-- one C for SICK-over-LEAVE;
-- Site-local projection/no duplication;
-- REALIZED conflict;
-- no aggregate coin-change;
-- no new legend;
-- real-work/T012 presentation regressions unchanged.
-
-### Final gate
-
-After C:
-- full suite;
-- Ruff/format/lint guards used by repository;
-- `git diff --check`;
-- size/function guards;
-- independent Codex implementation audit against the final product SHA;
-- architect final acceptance before merge.
-
-## 17. REQUIRED T023 TEST MATRIX
-
-### Persistence / invariance
-
-T23-01 — v7 -> v8 migration preserves all prior data and adds exactly `absence_reference_snapshots`.
-
-T23-02 — snapshot UPDATE/DELETE rejected; deterministic encode/decode survives restart.
-
-T23-03 — active SICK/LEAVE append writes AvailabilityVersion + reference snapshot atomically; forced snapshot insert failure leaves neither partial reference nor partial availability write.
-
-T23-04 — `AVAILABILITY_CHANGED` action remains one logical action and keeps `schedule_version_id=None`; snapshot contains actual multi-version provenance.
-
-T23-05 — reference captured from a WORKING schedule remains unchanged after `replace_working_snapshot()` mutates the same `version_id`.
-
-T23-06 — bind after PLAN, replacement REPLAN, finalize, restart: canonical periods/hours identical.
-
-T23-07 — restore CURRENT to older version after bind: canonical periods/hours identical.
-
-T23-08 — same Availability chain extension within an already-captured month reuses predecessor month facts; new month is captured separately.
-
-T23-09 — SICK added after LEAVE-driven REPLAN reuses the pre-leave overlapping reference; disagreement between candidate inherited references is AMBIGUOUS.
-
-### Canonical arithmetic
-
-T23-10 — scheduled 8h -> 8 absence_hours.
-
-T23-11 — 12h D -> 12; equivalent 12h N -> 12.
-
-T23-12 — `2027-03-01 17:00 -> 2027-03-02 05:00`, absence starts Mar 2 -> 0.
-
-T23-13 — same N, absence includes Mar 1 -> full 12 on Mar 1.
-
-T23-14 — legal persisted 24h WorkPeriod -> 24 once on start date.
-
-T23-15 — 24h cross-month and cross-year component -> 24 once, no second-month double count.
-
-T23-16 — BOUND readable day with no Employee period -> 0.
-
-T23-17 — scheduled Saturday/Sunday and `CalendarDay.holiday=True` -> scheduled hours unchanged.
-
-T23-18 — MISSING/AMBIGUOUS reference -> explicit fail-closed error, never 0/8.
-
+### POST_PLAN arithmetic
+T23-10 — scheduled 8h -> 8.
+T23-11 — 12h D/N -> 12.
+T23-12 — Mar1 17:00-Mar2 05:00 + absence starts Mar2 -> 0 for that shift.
+T23-13 — same N + absence includes Mar1 -> full 12 on Mar1.
+T23-14 — legal persisted 24h -> 24 once on start date.
+T23-15 — 24h cross-month/year -> once, no double count.
+T23-16 — accepted readable rest -> 0.
+T23-17 — scheduled weekend/holiday -> scheduled hours unchanged.
+T23-18 — missing/ambiguous accepted reference -> explicit failure, never guessed 0/8.
 T23-19 — LEAVE_PLAN -> 0 actual absence.
+T23-20 — SICK+LEAVE -> one SICK/C period, no double hours.
+T23-21 — disjoint same-day PRIMARY periods sum exact; contradictory overlap ambiguous.
+T23-22 — valid TRAINEE does not change PRIMARY absence hours and is not an extra period.
 
-T23-20 — SICK+LEAVE overlap -> one period, SICK/C classification, no double hours.
+### R5-2 retroactivity
+T23-R5-2A — requested range begins yesterday on accepted known rest and includes future shift: write accepted; rest contributes 0.
+T23-R5-2B — new coverage over PRIMARY with start before command `recorded_at` is rejected atomically even if Assignment still PLANNED.
+T23-R5-2C — new coverage over REALIZED PRIMARY rejected atomically; REALIZED remains WYK.
+T23-R5-2D — elapsed calendar date alone with no started Employee work fact is not rejection reason.
+T23-R5-2E — range extension rejects only when newly introduced coverage adds started/REALIZED work; deactivation/removal is not retroactive creation.
 
-T23-21 — disjoint same-day PRIMARY periods sum exact non-overlapping duration; overlapping contradictory periods -> AMBIGUOUS.
-
-T23-22 — effective TRAINEE reference -> AMBIGUOUS/fail closed, not silently counted/ignored.
-
-T23-23 — REALIZED-at-bind or current REALIZED overlap -> explicit conflict; Assignment remains REALIZED.
-
-### Multi-Site
-
-T23-24 — Employee has schedules on Site A and B: global total = A+B once.
-
-T23-25 — Site A projection = only A; Site B projection = only B; membership count causes no duplication.
-
-T23-26 — printed Site absent from captured reference scope -> 0 local absence.
-
-T23-27 — Site in captured scope with missing reference -> Site projection fails; global projection also fails.
+### Multi-Site / weekly
+T23-24 — actual accepted schedules on A+B -> global A+B once.
+T23-25 — Site projection contains only that Site's bound post-PLAN periods.
+T23-26 — dormant EXTERNAL_SUPPORT membership cannot create MISSING.
+T23-27 — actual external-support Site PRIMARY reference work enters global total once.
+T23-28 — explicit seven-day caller range equals sum of canonical anchored facts; month partition reproduces monthly total.
 
 ### Consumer equality
+T23-30 — WorkBalance.absence_hours equals canonical result; effective target target-absence.
+T23-31 — equal canonical SICK/LEAVE results reduce live solver TARGET equally.
+T23-32 — solver consumes WorkBalance field; no CalendarDay/flat recount/source-mode choice.
+T23-33 — analytics absence/effective target equal WorkBalance.
+T23-34 — quarter uses same month results and does not guess around incomplete required provenance.
+T23-35 — T020 totals equal canonical source-mode projection.
 
-T23-30 — WorkBalance.absence_hours equals canonical global result and effective target is target-absence.
+### R5-3 REPLAN cutover
+T23-R5-3A — REPLAN candidate may change future PRIMARY starting at/after cutover.
+T23-R5-3B — candidate removing an existing non-CANCELLED PRIMARY started before cutover is rejected.
+T23-R5-3C — candidate changing employee/interval/demand/state/frozen/work-period/code of pre-cutover PRIMARY is rejected.
+T23-R5-3D — candidate adding a replacement PRIMARY starting before cutover is rejected.
+T23-R5-3E — the same timestamp is used for cutover validation and successful `SCHEDULE_CANDIDATE_SELECTED.recorded_at`.
+T23-R5-3F — ordinary initial PLAN candidate selection is not subjected to REPLAN-child cutover preservation.
 
-T23-31 — SICK and LEAVE_GRANTED with equal reference schedule reduce solver TARGET identically.
+### T020
+T23-40 — POST_PLAN 12h D/N appears on exact anchored PLAN date with equal U/C WYK.
+T23-41 — POST_PLAN legal 24h prints once when existing equal-hour U/C code exists.
+T23-42 — POST_PLAN accepted rest produces no synthetic U/C.
+T23-43 — PRE_PLAN 40h owner allocation remains valid; POST_PLAN does not use that coin-change path.
+T23-44 — exact unrepresentable post-PLAN period returns presentation problem; no invented code.
+T23-45 — SICK+LEAVE prints C only.
+T23-46 — multiple LOCAL memberships alone do not make POST_PLAN reference ambiguous; PRE_PLAN without Site provenance keeps existing fail-closed attribution.
+T23-47 — defensive legacy work/absence conflict leaves actual work untouched and surfaces integrity problem.
 
-T23-32 — solver uses WorkBalance.absence_hours and does not call a CalendarDay/flat-day counter.
+### HARD / regressions
+T23-50 — valid SICK remains HARD unavailable across inclusive range.
+T23-51 — valid LEAVE_GRANTED remains HARD unavailable; outside range eligible.
+T23-52 — absent Employee never covers ShiftDemand; replacement eligible PRIMARY covers it or normal DECISION_REQUIRED remains.
+T23-53 — CalendarDay no longer changes POST_PLAN absence hours but unrelated calendar rules unchanged.
+T23-54 — T012 normal/emergency 24h legality/rest semantics unchanged.
+T23-55 — shared coverage helper is used by validator and T023 capture; no duplicate coverage algorithm in persistence.
 
-T23-33 — AnalyticsMonthData.absence_hours and effective_target_hours equal WorkBalance.
+## 18. DELIBERATE SUPERSESSION / PRESERVATION
 
-T23-34 — quarter analytics/read uses the same month canonical results; one bad reference month degrades quarter without partial numeric guess.
+Historical docs/tests are not rewritten merely for cleanliness. Only these meanings change:
 
-T23-35 — T020 `urlop_hours` / `l4_hours` equals canonical Site projection for same bound periods.
+- T018 flat weekday/nonholiday arithmetic is no longer universal. It may remain only as the preserved PRE_PLAN_LEAVE source; sickness/post-PLAN leave tests that assert flat-8 regardless of accepted schedule are superseded.
+- T018 HARD SICK/LEAVE blocking and DAY_ONLY behavior remain preserved.
+- `tests/test_sick_leave.py` SICK flat-8 target oracle and "LEAVE does not reduce live TARGET" are superseded for POST_PLAN canonical behavior; HARD/outside/replan eligibility meaning remains.
+- `tests/test_balance.py` flat-8 granted-leave expectation is superseded except where an explicit PRE_PLAN_LEAVE fixture intentionally exercises the preserved pre-PLAN source.
+- T019 CalendarDay-specific absence degradation and weekend/holiday flat-workday oracles are superseded by source-mode/provenance semantics; unrelated analytics/current/restore/cross-Site behavior remains.
+- T020 owner decision that U/C is presentation only, row population, exact legend/fail-closed and real-work lineage remain preserved.
+- `test_t20_14_frozen_40h_leave_decomposition` is PRESERVED for PRE_PLAN_LEAVE and must not be deleted as an obsolete synthetic example.
+- `test_t20_19_overlapping_leave_and_sick_conflict` is superseded by SICK/C precedence.
+- old multi-LOCAL ambiguity is superseded for POST_PLAN_REFERENCE, but PRE_PLAN_LEAVE without schedule Site provenance preserves the existing fail-closed attribution rather than duplicating global hours.
+- Schema literal expectations move latest 7 -> 8 and add exactly `absence_reference_snapshots`; migration-7 T020 settings behavior remains.
+- R21-1 and old task-level R23 flat workday assertions are superseded only where they claim the flat rule is universal.
 
-### T020 presentation
+No unrelated oracle may be weakened to make implementation pass.
 
-T23-40 — reference 12h D/N appears on exact anchored PLAN date with equal U/C WYK code.
+## 19. PREIMPLEMENTATION AUDIT — NEXT ROUND ONLY R5-1..R5-3
 
-T23-41 — reference 24h period prints once on start date when existing legal equal-hour U/C code is configured.
+The next independent Codex audit must inspect this exact consolidated HEAD and answer only:
 
-T23-42 — no-reference rest day creates no synthetic U/C symbol.
+R5-1:
+- Is `SCHEDULE_CANDIDATE_SELECTED` the sole mechanical accepted-PLAN proof?
+- Can a technical unselected root/child be mistaken for accepted?
+- Can an unselected child hide its accepted applicable parent?
 
-T23-43 — old 40h empty-schedule synthetic `D1/D1/N2` allocation is gone: empty BOUND reference = 0.
+R5-2:
+- Is elapsed date alone NOT a rejection reason?
+- Are newly covered started/REALIZED PRIMARY facts rejected atomically?
+- Does known past rest remain allowed/0 without weakening provenance checks?
 
-T23-44 — one-day correct 8h accounting with no legal existing PLAN/WYK 8h pair remains explicit presentation failure; no invented code.
+R5-3:
+- Is successful REPLAN candidate acceptance cut over at the exact candidate-selection timestamp?
+- Can any non-CANCELLED PRIMARY started before cutover be removed/changed/replaced/added by the accepted candidate?
+- Is the check placed on the existing selection/write boundary without inventing a new version system?
 
-T23-45 — SICK+LEAVE overlap prints C only; no `ABSENCE_KIND_CONFLICT`.
+R3-1/R3-2/R3-4/R3-6 and Round-3 PASS foundations are not to be reopened unless an R5 finding directly proves a contradiction.
 
-T23-46 — two LOCAL memberships do not cause `ABSENCE_SITE_AMBIGUOUS`; each Site sees only its bound periods.
-
-T23-47 — REALIZED overlap returns `ASSIGNMENT_ABSENCE_CONFLICT`; actual work fact is untouched.
-
-### HARD / coverage regression
-
-T23-50 — SICK_LEAVE still HARD-blocks operational Assignment on every calendar date in its inclusive range.
-
-T23-51 — LEAVE_GRANTED still HARD-blocks operational Assignment; outside range remains eligible.
-
-T23-52 — absent Employee never covers ShiftDemand; another eligible PRIMARY covers it or existing DECISION_REQUIRED remains.
-
-T23-53 — CalendarDay holiday/weekend no longer changes absence hours but still affects unrelated frozen rules that consume CalendarDay.
-
-T23-54 — T012 emergency/normal 24h legality and rest semantics unchanged.
-
-## 18. DELIBERATE SUPERSESSION / IMPACT LIST
-
-Historical documents are not rewritten. The following oracles are deliberately superseded only in the named sense.
-
-### 18.1 T018 frozen addendum / direct T018 tests
-
-`arch/FROZEN_ADDENDUM_ABSENCE_WORKDAY_ACCOUNTING_01.md`
-- superseded: Monday-Friday/nonholiday + 8h arithmetic and calendar-completeness requirement as absence-hour source;
-- preserved: HARD SICK/LEAVE blocking and unrelated T018 DAY_ONLY fallback.
-
-`tests/test_t018.py`
-- `test_a7_1_sick_leave_across_two_weekends_counts_only_weekdays` — superseded.
-- `test_a7_2_leave_granted_gets_identical_workday_filter_in_workbalance` — superseded.
-- `test_a7_3_weekday_holiday_excluded_from_workday_count` — superseded; scheduled holiday now counts.
-- `test_a7_4_weekend_holiday_still_zero_no_double_effect` — superseded as an accounting oracle; reference schedule decides 0 vs scheduled hours.
-- `test_a7_5_overlapping_sick_and_leave_dedup_before_workday_filter` — superseded by reference-period dedup + SICK precedence.
-- `test_a7_6_cross_month_range_clips_and_filters_workdays` — superseded by start-date anchored periods.
-- `test_a7_7_weekend_absence_still_hard_blocks_assignment` — PRESERVED.
-- `test_a7_8_incomplete_calendar_with_qualifying_absence_fails_closed` — superseded by reference-completeness fail-closed; missing CalendarDay alone is no longer the absence error.
-- `test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical_error` — superseded only where CalendarDay absence validation caused the status.
-- `test_a7_10_legacy_balance_call_without_absence_or_calendar_keeps_result` — PRESERVED.
-- `test_a7_11a_round23_solver_l4_march_2027_reduces_target_to_56` — superseded numeric oracle.
-- `test_a7_11b_round23_quarter_balance_leave_march_2027_reduces_target_to_56` — superseded numeric oracle.
-- `test_a7_11c_round23_solver_l4_excludes_weekday_public_holiday` — superseded.
-- `test_a7_12_march_2027_workbalance_target_56_at_target_168` — superseded numeric oracle.
-- all Checkpoint-B DAY_ONLY fallback tests are outside the T023 semantic change and must remain unchanged.
-
-`tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py`
-- all three flat workday/public-holiday arithmetic oracles are superseded.
-
-`tests/test_audit_r20_r21_findings.py`
-- R21-1 direct flat-workday absence-helper expectation is superseded;
-- unrelated R20/R21 conflict/status oracles remain unchanged.
-
-### 18.2 SICK/WorkBalance
-
-`tests/test_sick_leave.py`
-- module flat-8 accounting statement is superseded;
-- `test_sick_leave_reduces_target_by_8h_per_day_not_shift_length` — superseded;
-- `test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave` — explicitly superseded: LEAVE_GRANTED now consumes canonical absence_hours in live TARGET too;
-- HARD blocking, outside-range eligibility and REPLAN redistribution meaning remain preserved, with new reference fixtures where required.
-
-`tests/test_balance.py`
-- `test_leave_granted_reduces_effective_target_by_8h_per_day_for_balance` — superseded by reference-schedule hours;
-- non-absence PLANNED/REALIZED/quarter tests preserved.
-
-### 18.3 T019 analytics
-
-`tests/test_t019.py`
-- `test_10_requested_month_incomplete_calendar_with_qualifying_absence` — CalendarDay-specific failure reason superseded by reference status.
-- `test_11_other_quarter_month_incomplete_calendar_blocks_quarter_only` — same.
-- `test_12_sick_leave_weekend_holiday_workday_only` — superseded.
-- `test_13_leave_granted_weekend_holiday_same_semantics` — superseded.
-- non-absence analytics/current/restore/cross-Site row oracles preserved.
-
-### 18.4 T020
-
-`tasks/ROTA-T020/CHECKPOINT_B_OWNER_DECISIONS_05.md` and `CHECKPOINT_B_CONTRACT.md`
-- superseded only for flat T018 hours, monthly synthetic absence decomposition, multi-LOCAL `ABSENCE_SITE_AMBIGUOUS`, and SICK+LEAVE `ABSENCE_KIND_CONFLICT`;
-- preserved: U/C is presentation not operational coverage, row population, exact legend mapping/fail-closed, real work lineage, 24h real-work presentation, no duplicate demand.
-
-`tests/test_t020.py`
-- `test_t20_14_frozen_40h_leave_decomposition` — superseded: an empty readable reference schedule is 0h, not synthetic 40h.
-- `test_t20_19_overlapping_leave_and_sick_conflict` — superseded by one C.
-- `test_t20_21_multi_site_local_employee_absence_is_ambiguous` — superseded by reference Site projection/no duplication.
-- one-day/non-decomposable exact-code tests remain valid where they assert no invented legend; their accounting setup must use a real reference period rather than flat-day synthesis.
-- `ASSIGNMENT_ABSENCE_CONFLICT` remains for actual REALIZED/current-work conflict, not for a planned nominal reference period.
-- all real-work, roster, font, revision, lineage and T012 linkage oracles remain unchanged unless a mechanical fixture must provide T023 reference provenance.
-
-### 18.5 Schema literals
-
-Mechanical only:
-- `tests/test_t012.py::test_a_current_schema_reconnect_is_idempotent`: latest schema literal 7 -> 8.
-- `tests/test_t019b.py::test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables`: latest 7 -> 8 and expected delta adds exactly `absence_reference_snapshots`.
-- T020 migration tests that assert latest schema 7 must assert latest 8 while still proving migration-7 `site_print_settings` behavior.
-
-No other historical oracle may be weakened merely to make the suite pass.
-
-## 19. PREIMPLEMENTATION AUDIT GATE
-
-Independent Codex must audit the exact architect contract HEAD before CC writes production code.
-
-Audit questions:
-1. Does the contract implement every owner rule in `arch/T023_absence_hours_architect_brief.md`, including 17:00-05:00?
-2. Can any later WORKING in-place replacement/REPLAN/restore/restart alter bound hours?
-3. Can a missing schedule become false 0h?
-4. Can SICK-over-LEAVE after prior REPLAN accidentally capture replacement-worker/current truth?
-5. Can multi-Site hours duplicate through memberships?
-6. Do solver, WorkBalance/analytics and T020 have exactly one arithmetic/precedence owner?
-7. Is REALIZED work preserved and conflict surfaced?
-8. Does T020 still avoid nominal operational Assignments and invented legend values?
-9. Are all known superseded oracles explicitly enumerated?
-10. Does TASK_SCOPE contain every required implementation/test file and no unrelated redesign?
-
-Required audit verdict:
+Required verdict:
 `PASS — READY_FOR_IMPLEMENTATION`
-or a concrete finding list.
+or concrete R5-1..R5-3 findings.
 
-Until PASS:
-`NOT READY FOR CC`.
+Until PASS: `NOT READY FOR CC`.
 
 ## 20. IMPLEMENTATION / FINAL GATES
 
 After preimplementation PASS:
-1. CC implements only the current checkpoint scope.
-2. Targeted tests for that checkpoint pass.
-3. Architect reviews exact product SHA/diff before advancing checkpoint.
-4. After Checkpoint C, independent Codex audits final implementation SHA.
-5. Full suite + repository guards pass.
-6. Architect issues final acceptance or concrete findings.
-7. Merge remains an explicit owner action.
-
-No implementation commit is authorized by this architect-document commit itself.
+1. CC implements only current checkpoint scope.
+2. Targeted checkpoint tests pass.
+3. Architect reviews exact checkpoint SHA/diff.
+4. After C: full suite, Ruff/repository guards, `git diff --check`, size/function guards.
+5. Independent Codex implementation audit on exact final SHA.
+6. Architect final acceptance.
+7. Merge remains explicit owner action.
 
 ## 21. ARCHITECT OUTPUT STATUS
 
