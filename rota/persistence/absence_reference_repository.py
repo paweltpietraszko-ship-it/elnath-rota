@@ -188,33 +188,36 @@ def _work_derived_sites_by_month(
     conn: sqlite3.Connection, employee_id: str, accepted_version_ids: set[str],
     lineage_cache: dict[tuple[str, date], list],
 ) -> dict[date, set[str]]:
-    """A-R7-6/A-R8-2/A-R9-2: Sites where the Employee has actual non-
-    CANCELLED PRIMARY work in an ACCEPTED (SCHEDULE_CANDIDATE_SELECTED-
-    proven) ScheduleVersion that is STILL EFFECTIVE in the Site/month's
-    CURRENT lineage, keyed by that version's own month. Never the
+    """A-R7-6/A-R8-2/A-R9-2/A-R10-2: Sites where the Employee has actual
+    non-CANCELLED PRIMARY work whose OWN ScheduleVersion is still the
+    deepest applicable accepted version for that exact work's own date --
+    the same per-date resolution R5-1 (_accepted_version_for) already
+    uses, not merely "reachable somewhere in the lineage". Never the
     Employee's whole history (A-R7-6); never a merely-technical CURRENT
     that was never actually selected (A-R8-2); never a version later
-    restored/superseded away, even though it once had real accepted work
-    (A-R9-2) -- "accepted effective schedule facts" means still reachable
-    from CURRENT, the same notion R5-1 resolution already uses."""
+    restored away (A-R9-2) or superseded in place by a later effective_from
+    cutover within the SAME lineage (A-R10-2) -- "accepted effective
+    schedule facts" means still the winning version for that date, not
+    just any accepted ancestor CURRENT still happens to reach."""
     if not accepted_version_ids:
         return {}
     placeholders = ",".join("?" for _ in accepted_version_ids)
     rows = conn.execute(
-        f"""SELECT DISTINCT sv.site_id, sv.month, a.schedule_version_id FROM assignments a
+        f"""SELECT DISTINCT sv.site_id, sv.month, a.schedule_version_id, a.start_datetime FROM assignments a
             JOIN schedule_versions sv ON sv.version_id = a.schedule_version_id
             WHERE a.employee_id = ? AND a.role = ? AND a.state != ? AND a.schedule_version_id IN ({placeholders})""",
         (employee_id, AssignmentRole.PRIMARY.value, AssignmentState.CANCELLED.value, *accepted_version_ids),
     ).fetchall()
     by_month: dict[date, set[str]] = {}
-    for site_id, month_str, version_id in rows:
-        month = date.fromisoformat(month_str)
-        key = (site_id, month)
-        if key not in lineage_cache:
-            lineage_cache[key] = reconstruct_lineage(conn, site_id, month)
-        if version_id not in {header.version_id for header in lineage_cache[key]}:
+    for site_id, month_str, version_id, start_dt in rows:
+        anchor_date = datetime.fromisoformat(start_dt).date()
+        effective_version = _accepted_version_for(
+            conn, site_id=site_id, anchor_date=anchor_date,
+            accepted_version_ids=accepted_version_ids, lineage_cache=lineage_cache,
+        )
+        if effective_version != version_id:
             continue
-        by_month.setdefault(month, set()).add(site_id)
+        by_month.setdefault(date.fromisoformat(month_str), set()).add(site_id)
     return by_month
 
 
@@ -226,27 +229,22 @@ def _month_bounds(month_start: date) -> date:
     return date(month_start.year, month_start.month, calendar.monthrange(month_start.year, month_start.month)[1])
 
 
-def _pre_plan_holiday_map(conn: sqlite3.Connection, kind: AvailabilityKind, start_date: date, end_date: date) -> dict[date, bool]:
-    """A-R8-1/A-R9-1: reuses the existing T018 fail-closed rule
+def _month_holiday_map(conn: sqlite3.Connection, month_start: date, month_cache: dict[date, dict[date, bool]]) -> dict[date, bool]:
+    """A-R8-1/A-R9-1/A-R10-1: reuses the existing T018 fail-closed rule
     (rota.planning.absence.workday_holiday_map) verbatim, at its own
     inherited MONTH granularity (frozen addendum ABSENCE-WORKDAY-
-    ACCOUNTING-01 section "CALENDAR COMPLETENESS/FAIL CLOSED": complete
-    CalendarDay for every day of the affected month, not just the
-    requested range) -- an incomplete month raises
-    IncompleteAbsenceCalendarError rather than silently treating a missing
-    entry as "not a holiday". Only LEAVE_GRANTED can ever reach the
-    PRE_PLAN_LEAVE branch that consults this map."""
-    if kind != AvailabilityKind.LEAVE_GRANTED:
-        return {}
-    holiday_by_date: dict[date, bool] = {}
-    month_start = date(start_date.year, start_date.month, 1)
-    end_marker = date(end_date.year, end_date.month, 1)
-    while month_start <= end_marker:
+    ACCOUNTING-01 "CALENDAR COMPLETENESS/FAIL CLOSED": complete CalendarDay
+    for every day of the affected month) -- an incomplete month raises
+    IncompleteAbsenceCalendarError. Called LAZILY, only from
+    _resolve_no_accepted_plan_day's own LEAVE_GRANTED/PRE_PLAN branch: a
+    POST_PLAN_REFERENCE day's hours never depend on CalendarDay (frozen
+    addendum section 4), so a purely/partially POST_PLAN request must never
+    require calendar data for months it never actually needs it for."""
+    if month_start not in month_cache:
         month_end = _month_bounds(month_start)
         calendar_days = tuple(list_calendar_days(conn, month_start, month_end))
-        holiday_by_date.update(workday_holiday_map(calendar_days, month_start, month_end))
-        month_start = date(month_start.year + 1, 1, 1) if month_start.month == 12 else date(month_start.year, month_start.month + 1, 1)
-    return holiday_by_date
+        month_cache[month_start] = workday_holiday_map(calendar_days, month_start, month_end)
+    return month_cache[month_start]
 
 
 def _overall_status(days: list[DayReference]) -> str:
@@ -309,7 +307,9 @@ def _prior_bound_post_plan_facts(conn: sqlite3.Connection, *, employee_id: str, 
     return found
 
 
-def _resolve_no_accepted_plan_day(kind: AvailabilityKind, the_date: date, holiday_by_date: dict[date, bool]) -> DayReference:
+def _resolve_no_accepted_plan_day(
+    conn: sqlite3.Connection, kind: AvailabilityKind, the_date: date, month_cache: dict[date, dict[date, bool]],
+) -> DayReference:
     """No required Site resolved an accepted plan at all -- whether because
     there is no required Site yet, or because every required Site (e.g. an
     enabled LOCAL membership with no schedule ever created) failed to
@@ -318,6 +318,8 @@ def _resolve_no_accepted_plan_day(kind: AvailabilityKind, the_date: date, holida
     path (frozen addendum section 2): with no accepted plan anywhere in
     scope, the reference is incomplete."""
     if kind == AvailabilityKind.LEAVE_GRANTED:
+        month_start = date(the_date.year, the_date.month, 1)
+        holiday_by_date = _month_holiday_map(conn, month_start, month_cache)
         is_workday = the_date.isoweekday() <= 5 and not holiday_by_date.get(the_date, False)
         hours = _PRE_PLAN_HOURS_PER_WORKDAY if is_workday else 0
         return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, hours, ())
@@ -355,7 +357,7 @@ def _resolve_from_accepted_periods(
 def _resolve_day(
     conn: sqlite3.Connection, *, employee_id: str, kind: AvailabilityKind, the_date: date,
     required_sites: set[str], site_versions: dict[str, str], snapshot_cache: dict[str, object],
-    holiday_by_date: dict[date, bool],
+    month_cache: dict[date, dict[date, bool]],
 ) -> DayReference:
     prior = _prior_bound_post_plan_facts(conn, employee_id=employee_id, the_date=the_date)
     if prior:
@@ -365,7 +367,7 @@ def _resolve_day(
         return prior[0]
 
     if not site_versions:
-        return _resolve_no_accepted_plan_day(kind, the_date, holiday_by_date)
+        return _resolve_no_accepted_plan_day(conn, kind, the_date, month_cache)
 
     if required_sites - site_versions.keys():
         # A-R7-5: SOME required Site resolved but at least one other
@@ -431,7 +433,7 @@ def capture_reference(
     accepted_version_ids = _fetch_accepted_version_ids(conn, recorded_at)
     lineage_cache: dict[tuple[str, date], list] = {}
     work_derived = _work_derived_sites_by_month(conn, employee_id, accepted_version_ids, lineage_cache)
-    holiday_by_date = _pre_plan_holiday_map(conn, kind, start_date, end_date)
+    month_cache: dict[date, dict[date, bool]] = {}
     snapshot_cache: dict[str, object] = {}
 
     days: list[DayReference] = []
@@ -451,7 +453,7 @@ def capture_reference(
         }
         days.append(_resolve_day(
             conn, employee_id=employee_id, kind=kind, the_date=current, required_sites=required_sites,
-            site_versions=site_versions, snapshot_cache=snapshot_cache, holiday_by_date=holiday_by_date,
+            site_versions=site_versions, snapshot_cache=snapshot_cache, month_cache=month_cache,
         ))
         current += timedelta(days=1)
 
