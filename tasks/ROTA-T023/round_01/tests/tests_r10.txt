@@ -1,0 +1,41 @@
+ROTA-T023 — CHECKPOINT A NARROW IMPLEMENTATION REAUDIT — ROUND 10
+AUDITED_HEAD: 5f939d692b1efdf216740eb20bebc6da71ccd882
+IMPLEMENTATION_SHA: 1790109
+VERDICT: FAIL — A-R9-1/A-R9-2 NOT CLOSED AS BUG CLASSES / CHECKPOINT B BLOCKED
+
+SECTION_CHECK 1 — RETAINED EVIDENCE
+- Round 7/8/9 matrices: 12/12 PASS.
+- Existing repository suite: 978/978 PASS.
+- Accepted SIZE_FILE exceptions: not reopened.
+
+SECTION_CHECK 2 — A-R10-1 POST_PLAN LEAVE INCORRECTLY REQUIRES CALENDAR: FAIL
+TRACE:
+- T023 brief §8 and frozen addendum §4: CalendarDay does not alter POST_PLAN_REFERENCE hours.
+- Round 9 closure required full-month calendar validation for PRE_PLAN_LEAVE, while retaining source-mode separation.
+EVIDENCE:
+- capture_reference calls _pre_plan_holiday_map for every LEAVE_GRANTED before resolving any day as PRE_PLAN or POST_PLAN.
+- A fully accepted POST_PLAN leave therefore raises IncompleteAbsenceCalendarError when no CalendarDay exists, although its exact hours come solely from bound schedule periods.
+REPRODUCER:
+- test_t023_round10_audit.py::test_r10_post_plan_leave_does_not_require_calendar.
+CLASS CLOSURE:
+- Calendar completeness applies only to touched months containing PRE_PLAN_LEAVE dates. Pure POST_PLAN and mixed ranges must not require CalendarDay for their POST_PLAN-only months/dates.
+
+SECTION_CHECK 3 — A-R10-2 SUPERSEDED ACCEPTED PARENT WORK ENTERS EXTERNAL SCOPE: FAIL
+TRACE:
+- brief §7.1: external Site enters scope only through actual work in accepted effective schedule facts.
+- brief §3.3: for a Site/date, the deepest applicable accepted version is effective.
+EVIDENCE:
+- _work_derived_sites_by_month treats every accepted version reachable in CURRENT lineage as still effective.
+- After an accepted empty child supersedes an accepted parent containing Employee work, the parent's obsolete work still adds that external Site to reference_site_scope.
+REPRODUCER:
+- test_t023_round10_audit.py::test_r10_superseded_accepted_external_parent_work_is_not_effective.
+CLASS CLOSURE:
+- Work-derived Site scope must use the accepted effective version for the affected date, not every accepted ancestor reachable from CURRENT. Cover effective_from cutovers within one month.
+
+SECTION_CHECK 4 — GATE
+- Checkpoint A: FAIL.
+- Checkpoint B: BLOCKED.
+- Next re-audit: A-R10-1/A-R10-2 only; retain all 14 independent probes.
+- No architecture change requested.
+
+ARCHITECTURE_PROPOSALS: NONE.
