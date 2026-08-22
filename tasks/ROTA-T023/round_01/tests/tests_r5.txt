@@ -1,0 +1,58 @@
+ROTA-T023 — TIMING INCORPORATION AUDIT — ROUND 5
+AUDITED_HEAD: ddac825890cc0310a066c0db0d913309638de69c
+OWNER_DECISION_HEAD: 92542647761eb3a7b7aeb02b3d6c36e82b7fcd4e
+SCOPE: R3-3 / R3-5 DIRECT CONSEQUENCES ONLY
+VERDICT: FAIL — CONTRACT/IMPACT FINDINGS / NOT READY FOR CC
+
+SECTION_CHECK 1 — DELIVERY: PASS
+- 9254264...ddac825 = 1 commit, 1 nowy dokument, 397 linii.
+- Zero zmian produkcji, testów, arch/spec.md i FROZEN.lock.
+
+SECTION_CHECK 2 — OWNER TIMING MODEL: PASS
+- PRE_PLAN_LEAVE: HARD unavailable, brak nominalnego operational Assignment, zachowany T020 40h U1/U1/U2 path.
+- POST_PLAN_REFERENCE: zachowany wcześniejszy PLAN fact, U/C tylko presentation, zastępca pokrywa demand.
+- Retroaktywna zmiana REALIZED nie jest wspieranym stanem biznesowym.
+- Dwa źródła są provenance/timing modes, nie nową opcją SiteProfile.
+
+SECTION_CHECK 3 — T023-R5-1 "ACCEPTED PLAN" IS UNDEFINED: FAIL
+EVIDENCE:
+- Incorporation:39/54/156-157 wybiera mode według istnienia "accepted applicable PLAN".
+- plan_month() tworzy CURRENT WORKING ScheduleVersion z demandami i pustą listą Assignmentów przed zwróceniem kandydatów.
+- Dopiero select_candidate() zapisuje wybrany grafik in-place; ScheduleStatus nadal jest WORKING/WORKING_WITH_DEVIATIONS.
+- Sam CURRENT/header/status nie odróżnia technicznego pustego kontenera od planu zaakceptowanego przez koordynatora.
+IMPACT:
+- Leave zapisany między plan_month() a select_candidate() może zostać błędnie zaklasyfikowany jako POST_PLAN_REFERENCE/MISSING zamiast PRE_PLAN_LEAVE.
+REQUIRED CONTRACT CORRECTION:
+- Nazwać istniejący trwały fakt/event, który mechanicznie oznacza zaakceptowany PLAN. CC nie może zgadywać z CURRENT, statusu ani niepustej listy Assignmentów.
+
+SECTION_CHECK 4 — T023-R5-2 ELAPSED REST DAY OVERREJECTION: FAIL
+EVIDENCE:
+- Owner zakazał zastosowania L4/urlopu do zmiany, która już się odbyła.
+- Incorporation:218 nakazuje odrzucić całą nową absence family już dlatego, że requested coverage zaczyna się w minionej dacie.
+COUNTEREXAMPLE:
+- L4 zgłoszone dziś obejmuje wczorajszy znany dzień wolny oraz przyszłą zaplanowaną zmianę.
+- Nie istnieje wczorajsza zmiana do zmiany wstecz, lecz kontrakt odrzuca również poprawną przyszłą niedostępność.
+IMPACT:
+- Architekt rozszerzył zakaz z "odbytej/rozpoczętej/REALIZED zmiany" na każdą minioną datę.
+REQUIRED CONTRACT CORRECTION:
+- Retroactivity guard musi odpowiadać dokładnie owner decision i nie odrzucać wyłącznie z powodu minionej daty bez odbytego/rozpoczętego work fact.
+
+SECTION_CHECK 5 — T023-R5-3 ACCEPTANCE-MOMENT CUTOVER NOT ENFORCED: FAIL
+EVIDENCE:
+- Owner: REPLAN obowiązuje od akceptacji; wcześniejsze zmiany pozostają bez zmian.
+- replan() klonuje cały miesiąc, a solver.fixed_existing_assignments() pozwala redystrybuować każdy PLANNED non-frozen PRIMARY (poza mentor-linked).
+- Validator ASSIGN-03/04 chroni REALIZED/frozen/TRAINEE/mentor-linked, nie wszystkie Assignmenty rozpoczęte przed akceptacją.
+- ScheduleVersion.effective_from ma typ date, nie timestamp.
+- Incorporation testuje odrzucenie absence nad started shift, ale nie wymaga zachowania wszystkich wcześniejszych Assignmentów podczas samego REPLAN.
+IMPACT:
+- Poprawne L4 dla przyszłej nocnej zmiany może uruchomić REPLAN, który przy okazji zmieni wcześniejszą PLANNED zmianę tego samego dnia/miesiąca.
+REQUIRED CONTRACT CORRECTION:
+- Zamrozić invariant i oracle: REPLAN nie może zmienić żadnego work fact rozpoczętego przed momentem akceptacji/cutover, niezależnie od jego późnego oznaczenia REALIZED. Wskazać minimalny istniejący write/validation boundary; nie projektować nowego systemu wersji bez dowodu konieczności.
+
+SECTION_CHECK 6 — R3-3/R3-5 STATUS
+- R3-3 pozostaje OPEN przez R5-1.
+- R3-5 pozostaje OPEN przez R5-2/R5-3.
+- R3-1/R3-2/R3-4/R3-6 nie zostały ponownie otwarte.
+- Następny audit wyłącznie R5-1...R5-3.
+
+TESTS: NOT RUN — documentation/code-impact audit only.
