@@ -1,0 +1,51 @@
+ROTA-T023 - CHECKPOINT B IMPLEMENTATION AUDIT - ROUND 12
+AUDITED_HEAD: ac15def504139c0d1443c3f33d9247d7351e6136
+IMPLEMENTATION_SHA: 5ae3f48
+VERDICT: FAIL - CHECKPOINT B CONTRACT NOT CLOSED / CHECKPOINT C BLOCKED
+
+SECTION_CHECK 1 - CONTRACT MATRIX / REGRESSION
+- Checkpoint B matrix tests/test_t023_checkpoint_b.py: 18/18 PASS.
+- Repository suite: 996/996 PASS.
+- Ruff (audit + affected production files): PASS.
+- git diff --check: PASS.
+- Owner-accepted SIZE_FILE/TOTAL_LINES exceptions: not reopened.
+- T23-35 remains deferred to Checkpoint C by the current contract.
+
+SECTION_CHECK 2 - B-R12-1 - LEGACY ABSENCE WITHOUT SNAPSHOT IS SILENTLY ZEROED
+STATUS: FAIL
+CONTRACT_TRACE:
+- tasks/ROTA-T023/brief.md:310: migration does not synthesize provenance; a pre-T023 active AvailabilityVersion without T023 provenance is reference-incomplete until authorized remediation.
+- tasks/ROTA-T023/brief.md:99,480: required provenance must not silently fall back/guess; quarter must not guess around incomplete required provenance.
+CODE_EVIDENCE:
+- rota/persistence/work_balance_repository.py:38-40 and 58-60 use `if snapshot is None: continue`.
+- Both the single-employee and batch read paths therefore omit an active SICK_LEAVE/LEAVE_GRANTED record and return zero absence instead of failing closed.
+AUDIT_EVIDENCE:
+- test_t023_checkpoint_b_audit.py::test_b_audit_legacy_active_absence_without_snapshot_fails_closed[False]
+- test_t023_checkpoint_b_audit.py::test_b_audit_legacy_active_absence_without_snapshot_fails_closed[True]
+- Result: 2/2 FAIL with `DID NOT RAISE IncompleteAbsenceReferenceError`.
+CLOSURE_CONDITION:
+- Every canonical absence read path must classify an active in-range balance absence lacking its required snapshot as reference-incomplete; it may not omit it from arithmetic.
+- Add retained regression coverage for both single and batch paths.
+
+SECTION_CHECK 3 - B-R12-2 - REPLAN CUTOVER CHECK IS OUTSIDE THE ATOMIC REPLACEMENT
+STATUS: FAIL
+CONTRACT_TRACE:
+- tasks/ROTA-T023/brief.md:238-251 and frozen addendum:172-179 require comparison against the current REPLAN-child snapshot inside the existing atomic replace_working_snapshot(pre_check=...) boundary.
+CODE_EVIDENCE:
+- rota/application/plan_ops.py:272-273 captures cutover_at and checks state.existing_assignments before replace_working_snapshot starts.
+- rota/application/plan_ops.py:280-285 uses pre_check only for Decision Ledger linkage; it does not reload/check the current child snapshot for cutover preservation.
+- A concurrent/interleaved child replacement after line 273 can make the checked snapshot stale, after which the candidate overwrites changed pre-cutover PRIMARY facts.
+AUDIT_EVIDENCE:
+- test_t023_checkpoint_b_audit.py::test_b_audit_cutover_check_uses_snapshot_inside_atomic_write
+- The reproducer replaces the child snapshot between the external check and the real replacement. Selection succeeds; expected CandidateRejected is not raised.
+CLOSURE_CONDITION:
+- The final cutover comparison must execute in the atomic replacement boundary against the child snapshot current in that transaction, using the same captured cutover_at as the successful action.
+- Retain a regression that interleaves a child change at that boundary and proves rejection/rollback.
+
+SECTION_CHECK 4 - GATE
+- B-R12-1: OPEN.
+- B-R12-2: OPEN.
+- Checkpoint B: FAIL.
+- Checkpoint C: BLOCKED until a narrow re-audit closes only B-R12-1/B-R12-2 and verifies no regression caused by their fixes.
+
+ARCHITECTURE_PROPOSALS: NONE.
