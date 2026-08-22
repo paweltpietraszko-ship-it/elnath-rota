@@ -1,13 +1,12 @@
-"""ROTA-T023 Checkpoint A test matrix (brief.md section 17 subset for "A --
-provenance + write-time timing core"): migration/immutability/atomicity,
-R5-1 accepted-plan proof, PRE_PLAN vs POST_PLAN provenance, R5-2
-retroactivity guard, the shared coverage helper (R3-6), multi-Site/weekly
-reference invariance. NOT covered (Checkpoint B/C's own scope, section 16):
-consumer-equality, R5-3 REPLAN cutover, T020 presentation, and the HARD/
-regression tests depending on those. T23-PRE-01..03 assert the canonical
-HOUR TOTAL, not the literal D1/D1/N2 print codes (Checkpoint C's job)."""
+"""ROTA-T023 Checkpoint A test matrix (brief.md section 17 subset): migration/
+immutability, R5-1 accepted-plan proof, PRE_PLAN vs POST_PLAN provenance,
+R5-2 retroactivity, the shared coverage helper (R3-6), multi-Site/weekly
+reference invariance. NOT covered (Checkpoint B/C scope, section 16):
+consumer-equality, R5-3 REPLAN cutover, T020 presentation. T23-PRE-01..03
+assert the canonical HOUR TOTAL, not the literal D1/D1/N2 codes (Checkpoint C)."""
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -82,30 +81,24 @@ def _accept_version(
     site_id: str = SITE, month: date = MONTH, parent_version_id: str | None = None, coordinator_id: str = COORDINATOR,
     record_action: bool = True,
 ) -> None:
-    """Creates+accepts a ScheduleVersion directly (no solver): storage-layer
-    structural validation still applies, business-HARD validation does not."""
+    """Creates+accepts a ScheduleVersion directly (no solver, structural validation only)."""
     def _hook(open_conn) -> None:
         site_memory.record_coordinator_action_no_commit(
             open_conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, origin_site_id=site_id,
-            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=accepted_at,
-            effective_from=effective_from, month=month, schedule_version_id=version_id,
-            affected_entities=[AffectedEntity("SCHEDULE_VERSION", version_id)],
-            before_state=None, after_state=None, note=None,
-            source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=version_id,
-            responds_to_decision_required_id=None,
-        )
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=accepted_at, effective_from=effective_from,
+            month=month, schedule_version_id=version_id, affected_entities=[AffectedEntity("SCHEDULE_VERSION", version_id)],
+            before_state=None, after_state=None, note=None, source_kind=ActionSourceKind.SCHEDULE_VERSION,
+            source_id=version_id, responds_to_decision_required_id=None)
 
     lifecycle.create_schedule_version(
-        conn, version_id=version_id, site_id=site_id, month=month, parent_version_id=parent_version_id,
-        created_at=accepted_at, created_by=coordinator_id, applied_rule_version_ids=[],
-        shift_demands=[p[0] for p in pairs], assignments=[p[1] for p in pairs], deviations=[],
-        effective_from=effective_from, on_success=_hook if record_action else None,
-    )
+        conn, version_id=version_id, site_id=site_id, month=month, parent_version_id=parent_version_id, created_at=accepted_at,
+        created_by=coordinator_id, applied_rule_version_ids=[], shift_demands=[p[0] for p in pairs], assignments=[p[1] for p in pairs],
+        deviations=[], effective_from=effective_from, on_success=_hook if record_action else None)
 
 
 def _leave(conn, *, employee_id: str, kind: AvailabilityKind, start_date: date, end_date: date, active: bool = True, availability_id: str | None = None, site_id: str = SITE, coordinator_id: str = COORDINATOR, seed_calendar: bool = False):
     if seed_calendar:
-        _seed_calendar_range(conn, start_date, end_date)
+        _seed_full_month_calendar(conn, start_date, end_date)
     return append_availability(
         conn, coordinator_id=coordinator_id, site_id=site_id, availability_id=availability_id or f"AV-{employee_id}-{start_date}",
         employee_id=employee_id, kind=kind, start_date=start_date, end_date=end_date, active=active,
@@ -126,12 +119,21 @@ def _accept_two(conn, pair_a, pair_b, *, version_id="SV-1", accepted_at=datetime
 
 
 def _seed_calendar_range(conn, start: date, end: date) -> None:
-    """A-R8-1: workday_holiday_map fails closed on gaps -- seed explicitly
-    per test (never in _setup, which would defeat the round-8 reproducer)."""
+    """Never in _setup (would defeat the round-8/9 incomplete-calendar reproducers) -- seed explicitly per test."""
     current = start
     while current <= end:
         save_calendar_day(conn, CalendarDay(current, False))
         current += timedelta(days=1)
+
+
+def _seed_full_month_calendar(conn, start: date, end: date) -> None:
+    """A-R9-1: completeness is MONTH-granular, not range-granular -- seed every month touched by [start, end]."""
+    month = date(start.year, start.month, 1)
+    end_marker = date(end.year, end.month, 1)
+    while month <= end_marker:
+        last_day = calendar.monthrange(month.year, month.month)[1]
+        _seed_calendar_range(conn, month, date(month.year, month.month, last_day))
+        month = date(month.year + 1, 1, 1) if month.month == 12 else date(month.year, month.month + 1, 1)
 
 
 def _setup(tmp_path, *, db_name: str = "rota.db"):
@@ -352,8 +354,7 @@ def test_t23_11_scheduled_12h_d_and_n(tmp_path) -> None:
 
 
 def test_t23_12_13_night_shift_date_anchor_owner_examples(tmp_path) -> None:
-    """Owner NIGHT_SHIFT_ANCHOR: 03-01 17:00->03-02 05:00. Example 1: absence
-    starts 03-02 -> 0h. Example 2: absence includes 03-01 -> full 12h on 03-01."""
+    """NIGHT_SHIFT_ANCHOR 03-01 17:00->03-02 05:00: absence starts 03-02 -> 0h; absence includes 03-01 -> full 12h."""
     conn = _setup(tmp_path)
     _accept_one(conn, "N-1", "A-1", "A", datetime(2027, 3, 1, 17, 0), datetime(2027, 3, 2, 5, 0))
     example1 = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 2), end_date=date(2027, 3, 2), availability_id="AV-A-EX1")
@@ -579,8 +580,7 @@ def test_t23_28_explicit_range_equals_sum_of_anchored_facts(tmp_path) -> None:
 
 
 def test_t23_55_shared_coverage_helper_used_by_validator_and_t023_capture() -> None:
-    """No duplicate coverage/overlap-sweep algorithm exists in the persistence
-    layer -- both callers import and use the exact same coverage_segments."""
+    """No duplicate coverage/overlap-sweep algorithm in persistence -- both callers use the exact same coverage_segments."""
     import inspect
 
     import rota.persistence.absence_reference_repository as arr_module

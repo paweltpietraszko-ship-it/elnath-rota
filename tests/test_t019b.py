@@ -650,9 +650,11 @@ def test_f47_availability_invalidates_overlapped_months(tmp_path) -> None:
     dr_id = site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH).decision_required_id
     site_memory.set_current_decision_required_no_commit(conn, site_id=SITE, month=date(2026, 9, 1), decision_required_id=dr_id)
     conn.commit()
-    for d in range(20, 32):
+    # ROTA-T023 A-R9-1: workday_holiday_map's completeness check is
+    # MONTH-granular, not range-granular -- seed both full months touched.
+    for d in range(1, 32):
         save_calendar_day(conn, CalendarDay(date(2026, 8, d), False))
-    for d in range(1, 6):
+    for d in range(1, 31):
         save_calendar_day(conn, CalendarDay(date(2026, 9, d), False))
     append_availability(
         conn, coordinator_id=COORD, site_id=SITE, availability_id="AV-SPAN", employee_id="E1",
