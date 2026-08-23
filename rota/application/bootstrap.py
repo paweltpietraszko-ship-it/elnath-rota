@@ -108,7 +108,9 @@ def _planning_fields(p) -> tuple:
             p.training_s_enabled, p.training_s_weekdays_only, p.training_s_default_readiness_threshold,
             p.rolling_7d_decision_threshold_hours,
         )
-    return (p.profile_id, p.active)  # Site: profile_id/active are the planning-relevant fields
+    # Site: profile_id/active/planning_regime are the planning-relevant fields
+    # (ROTA-T023b: regime is a Site classification fact, belongs here).
+    return (p.profile_id, p.active, p.planning_regime)
 
 
 def _profile_state(p: SiteProfile | None) -> dict | None:
@@ -133,7 +135,10 @@ def _profile_state(p: SiteProfile | None) -> dict | None:
 
 
 def _site_state(s: Site | None) -> dict | None:
-    return None if s is None else {"site_id": s.site_id, "profile_id": s.profile_id, "active": s.active}
+    return None if s is None else {
+        "site_id": s.site_id, "profile_id": s.profile_id, "active": s.active,
+        "planning_regime": s.planning_regime.value,
+    }
 
 
 def _record_context_configuration_no_commit(

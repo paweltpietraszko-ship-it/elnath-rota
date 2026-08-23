@@ -7,6 +7,7 @@ the batch membership-read invariant."""
 from __future__ import annotations
 
 import calendar as _cal
+import sqlite3
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -20,7 +21,7 @@ from rota.domain import (
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.coordinator_repository import save_coordinator_site_association
-from rota.persistence.db import LATEST_SCHEMA_VERSION, connect, migrate
+from rota.persistence.db import LATEST_SCHEMA_VERSION, MIGRATIONS, connect, migrate
 from rota.persistence.employee_repository import save_employee, save_site_membership
 from rota.persistence.site_repository import (
     InvalidSitePrintSettings, SitePrintSettings, WorkCodeInterval, get_site_print_settings, save_site_print_settings,
@@ -78,14 +79,41 @@ def _grant_leave(conn, employee_id, *, start, end, kind=AvailabilityKind.LEAVE_G
 # --- T20-01: migration ------------------------------------------------------
 def test_t20_01_fresh_db_migrates_to_schema_7():
     conn = connect(":memory:")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 8
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 9
     conn.execute("SELECT site_id, company_print_name, base_regime FROM site_print_settings")
 def test_t20_01b_schema_6_migrates_without_rewriting_history():
-    conn = connect(":memory:")
-    conn.execute("PRAGMA user_version = 6")
-    _seed(conn)
+    # ROTA-T023b: a genuine schema-6-only connection, not a fully-migrated
+    # one with its version pragma rolled back -- migration 9 adds a plain
+    # ALTER TABLE ADD COLUMN step (like migrations 3/4/5 before it), which
+    # is not safe to blindly re-run against a connection whose columns
+    # already exist. Seeded with raw SQL matching the genuine v6 shape
+    # (site_repository.save_site now requires the v9 planning_regime
+    # column and cannot write against this schema) -- same test intent
+    # (migrate() brings a stale-pragma DB to latest without rewriting/
+    # duplicating already-seeded history), correct mechanism.
+    conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA foreign_keys = ON")
+    for version, statements in MIGRATIONS:
+        if version > 6:
+            break
+        conn.execute("BEGIN")
+        for statement in statements:
+            conn.execute(statement)
+        conn.execute(f"PRAGMA user_version = {version}")
+        conn.execute("COMMIT")
+    with conn:
+        conn.execute(
+            "INSERT INTO site_profiles (profile_id, display_name, active, day_only_blocks_n, "
+            "external_support_enabled, training_s_enabled, training_s_weekdays_only, "
+            "training_s_default_readiness_threshold, rolling_7d_decision_threshold_hours) "
+            "VALUES ('PROF-1', 'Profile One', 1, 0, 1, 0, 0, 2, 60)"
+        )
+        conn.execute(
+            "INSERT INTO sites (site_id, profile_id, display_name, active) VALUES ('SITE-1', 'PROF-1', 'Site One', 1)"
+        )
     migrate(conn)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION
+    assert conn.execute("SELECT planning_regime FROM sites WHERE site_id = 'SITE-1'").fetchone() == ("ORDINARY",)
     assert get_site_print_settings(conn, "SITE-1") is None
 
 

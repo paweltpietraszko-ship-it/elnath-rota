@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import combinations
 from typing import Optional
 
@@ -24,7 +24,16 @@ from rota.persistence import site_memory
 from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.planning.validator import validate
-from rota.planning.work_periods import PeriodComponent, forms_illegal_continuous_pair, group_into_periods, resolve_required_rest, violates_rest
+from rota.planning.work_periods import (
+    WEEKLY_REST_REQUIRED_HOURS,
+    PeriodComponent,
+    forms_illegal_continuous_pair,
+    group_into_periods,
+    max_uninterrupted_free_hours,
+    resolve_required_rest,
+    violates_rest,
+    weekly_settlement_windows,
+)
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind, NewRuleContent
 
 
@@ -85,12 +94,47 @@ def _rest_override_pairs(state, corrected_assignments: list[Assignment], report)
     return pairs
 
 
-def _rest_override_rule_content(child_id: str, pairs: list[tuple[Assignment, Assignment, float, int]]) -> tuple[str, str, NewRuleContent, date]:
-    """T012 REST OVERRIDE AUDIT RECORD (arch/spec.md): CONFIRMED_EXCEPTION,
+def _weekly_rest_override_facts(state, corrected_assignments: list[Assignment], report) -> list[dict]:
+    """ROTA-T023b: independently re-derive each WEEKLY-REST-01 violation's
+    observed facts from the SAME data the validator saw, via the shared
+    pure oracle (work_periods.weekly_settlement_windows/
+    max_uninterrupted_free_hours) -- never a second weekly calculation,
+    never parsed out of ViolationDetail.message. Mirrors
+    _rest_override_pairs's own reconstruction discipline. Target-Site
+    non-CANCELLED work only, matching validator._check_weekly_rest
+    exactly (corrected_assignments is exactly what validate() saw)."""
+    if not any(detail.rule == "WEEKLY-REST-01" for detail in report.violation_details):
+        return []
+    windows = weekly_settlement_windows(state.month)
+    by_employee: dict[str, list[tuple[datetime, datetime]]] = {}
+    for a in corrected_assignments:
+        if a.state != AssignmentState.CANCELLED:
+            by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
+    facts = []
+    for employee_id, intervals in by_employee.items():
+        for window_start, window_end in windows:
+            free = max_uninterrupted_free_hours(window_start, window_end, intervals)
+            if free < WEEKLY_REST_REQUIRED_HOURS:
+                facts.append({
+                    "employee_id": employee_id,
+                    "week_start": window_start.date().isoformat(),
+                    "week_end": (window_end - timedelta(days=1)).date().isoformat(),
+                    "observed_max_uninterrupted_rest_hours": round(free, 2),
+                    "required_rest_hours": WEEKLY_REST_REQUIRED_HOURS,
+                })
+    return facts
+
+
+def _rest_override_rule_content(
+    child_id: str, pairs: list[tuple[Assignment, Assignment, float, int]], weekly_facts: list[dict],
+) -> tuple[str, str, NewRuleContent, date]:
+    """T012/T023b REST OVERRIDE AUDIT RECORD (arch/spec.md +
+    FROZEN_ADDENDUM_OCHRONA_REST_RULES_01 section 8): CONFIRMED_EXCEPTION,
     INFORMATIONAL, RESOLVED -- never executable, never in this child's
-    applied_rule_version_ids (created only inside on_success, after that
-    list was already computed)."""
-    employee_ids = sorted({earlier.employee_id for earlier, _, _, _ in pairs})
+    applied_rule_version_ids. One logical child correction produces at
+    most ONE such record even when it overrides both REST-01 pairs and
+    WEEKLY-REST-01 facts."""
+    employee_ids = sorted({earlier.employee_id for earlier, _, _, _ in pairs} | {f["employee_id"] for f in weekly_facts})
     all_members = [a for earlier, later, _, _ in pairs for a in (earlier, later)]
     structured_parameters = {
         "child_version_id": child_id,
@@ -105,18 +149,23 @@ def _rest_override_rule_content(child_id: str, pairs: list[tuple[Assignment, Ass
             }
             for earlier, later, gap_hours, required_rest_hours in pairs
         ],
+        "weekly_rest_facts": weekly_facts,
     }
-    statement = (
-        f"Manual correction {child_id} knowingly overrides REST-01 for {len(pairs)} pair(s), "
-        f"employees {', '.join(employee_ids)}."
-    )
+    parts = []
+    if pairs:
+        parts.append(f"REST-01 for {len(pairs)} pair(s)")
+    if weekly_facts:
+        parts.append(f"WEEKLY-REST-01 for {len(weekly_facts)} employee-week(s)")
+    statement = f"Manual correction {child_id} knowingly overrides " + " and ".join(parts) + f", employees {', '.join(employee_ids)}."
+    end_dates = [a.end_datetime.date() for a in all_members] + [date.fromisoformat(f["week_end"]) for f in weekly_facts]
+    start_dates = [a.start_datetime.date() for a in all_members] + [date.fromisoformat(f["week_start"]) for f in weekly_facts]
     rule_content = NewRuleContent(
         category=RuleCategory.CONFIRMED_EXCEPTION, rule_kind="REST_OVERRIDE_RECORD",
         structured_parameters=structured_parameters, enforcement=RuleEnforcement.INFORMATIONAL,
-        resolution_status=RuleResolution.RESOLVED, effective_to=max(a.end_datetime.date() for a in all_members),
+        resolution_status=RuleResolution.RESOLVED, effective_to=max(end_dates),
         description=None, source=None, reason=None,
     )
-    return f"REST-OVERRIDE:{child_id}", statement, rule_content, min(a.start_datetime.date() for a in all_members)
+    return f"REST-OVERRIDE:{child_id}", statement, rule_content, min(start_dates)
 
 
 def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, caller_on_success):
@@ -241,7 +290,8 @@ def apply_manual_correction(
 
     child_id = f"SV-{uuid.uuid4().hex}"
     rest_pairs = _rest_override_pairs(state, corrected_assignments, report)
-    rest_override = _rest_override_rule_content(child_id, rest_pairs) if rest_pairs else None
+    weekly_facts = _weekly_rest_override_facts(state, corrected_assignments, report)
+    rest_override = _rest_override_rule_content(child_id, rest_pairs, weekly_facts) if (rest_pairs or weekly_facts) else None
     hook = _build_correction_hook(
         site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
         parent_id=current_id, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,

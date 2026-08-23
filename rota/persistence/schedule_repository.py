@@ -20,6 +20,7 @@ from rota.domain import (
     ShiftCatalogKind,
     ShiftDemand,
     ShiftKind,
+    SitePlanningRegime,
 )
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
 from rota.persistence.schedule_types import ScheduleSnapshot
@@ -59,13 +60,13 @@ def _row_to_deviation(row: tuple) -> Deviation:
 
 def get_schedule_version_header(conn: sqlite3.Connection, version_id: str) -> ScheduleVersion:
     row = conn.execute(
-        "SELECT version_id, site_id, month, parent_version_id, created_at, created_by, status, effective_from "
-        "FROM schedule_versions WHERE version_id = ?",
+        "SELECT version_id, site_id, month, parent_version_id, created_at, created_by, status, effective_from, "
+        "planning_regime FROM schedule_versions WHERE version_id = ?",
         (version_id,),
     ).fetchone()
     if row is None:
         raise ScheduleVersionNotFound(version_id)
-    version_id_, site_id, month, parent_id, created_at, created_by, status, effective_from = row
+    version_id_, site_id, month, parent_id, created_at, created_by, status, effective_from, planning_regime = row
     applied_rules = [
         r[0] for r in conn.execute(
             "SELECT rule_version_id FROM schedule_version_applied_rules WHERE version_id = ? ORDER BY seq",
@@ -77,6 +78,7 @@ def get_schedule_version_header(conn: sqlite3.Connection, version_id: str) -> Sc
         created_at=datetime.fromisoformat(created_at), created_by=created_by, status=ScheduleStatus(status),
         applied_rule_version_ids=applied_rules,
         effective_from=date.fromisoformat(effective_from) if effective_from else None,
+        planning_regime=SitePlanningRegime(planning_regime),
     )
 
 
@@ -269,6 +271,60 @@ def reconstruct_lineage(conn: sqlite3.Connection, site_id: str, month: date) -> 
         version_id = header.parent_version_id
     chain.reverse()
     return chain
+
+
+def version_requires_regime_replan(conn: sqlite3.Connection, version_id: str) -> bool:
+    """ROTA-T023b (frozen addendum section 3): the single durable-after-
+    restart owner of the regime-replan obligation. True exactly when this
+    ScheduleVersion contains at least one PLANNED Assignment AND its own
+    persisted planning_regime differs from its Site's CURRENT
+    planning_regime. REALIZED/CANCELLED-only history is never blocked.
+    Both inputs are persisted facts (ScheduleVersion.planning_regime,
+    Site.planning_regime) -- never derived from an in-memory command
+    result or by parsing coordinator-action JSON."""
+    header = get_schedule_version_header(conn, version_id)
+    has_planned = conn.execute(
+        "SELECT 1 FROM assignments WHERE schedule_version_id = ? AND state = ? LIMIT 1",
+        (version_id, AssignmentState.PLANNED.value),
+    ).fetchone() is not None
+    if not has_planned:
+        return False
+    site_row = conn.execute("SELECT planning_regime FROM sites WHERE site_id = ?", (header.site_id,)).fetchone()
+    if site_row is None:
+        return False
+    return header.planning_regime != SitePlanningRegime(site_row[0])
+
+
+def list_regime_replan_required_months(conn: sqlite3.Connection, site_id: str) -> tuple[date, ...]:
+    """ROTA-T023b: sorted months whose CURRENT ScheduleVersion satisfies
+    version_requires_regime_replan -- a UI convenience for routing
+    correction fallout to existing REPLAN, never the enforcement boundary
+    itself (that is version_requires_regime_replan, re-derived from
+    persisted facts by every enforcement call site)."""
+    rows = conn.execute(
+        "SELECT month, version_id FROM current_schedule_versions WHERE site_id = ? ORDER BY month",
+        (site_id,),
+    ).fetchall()
+    return tuple(
+        date.fromisoformat(month_str) for month_str, version_id in rows
+        if version_requires_regime_replan(conn, version_id)
+    )
+
+
+def set_schedule_version_planning_regime_in_open_transaction(
+    conn: sqlite3.Connection, *, version_id: str, planning_regime: SitePlanningRegime,
+) -> None:
+    """ROTA-T023b (frozen addendum section 3, 'provenance adoption on
+    selected candidate'): the one narrowly named primitive that updates
+    ONLY a ScheduleVersion's planning_regime provenance. Only
+    plan_ops.select_candidate's on_success hook (inside the same atomic
+    replace_working_snapshot transaction as the accepted-candidate write)
+    calls this -- revalidate/finalize/restore/manual child creation must
+    never call it."""
+    conn.execute(
+        "UPDATE schedule_versions SET planning_regime = ? WHERE version_id = ?",
+        (planning_regime.value, version_id),
+    )
 
 
 def get_current_realized_primary_on_holidays(conn: sqlite3.Connection, site_id: str) -> list[Assignment]:

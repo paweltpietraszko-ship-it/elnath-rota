@@ -16,6 +16,7 @@ from rota.domain import (
     MembershipKind,
     ShiftCatalogKind,
     ShiftKind,
+    SitePlanningRegime,
 )
 from rota.planning.eligibility import is_all_24h_profile
 from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand
@@ -23,12 +24,16 @@ from rota.planning.site_rules import day_only_n_exception_authorizing_rule_versi
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rolling_windows
 from rota.planning.work_periods import (
+    WEEKLY_REST_REQUIRED_HOURS,
     PeriodComponent,
     check_emergency_pair_structure,
+    effective_required_rest_after_hours,
     find_malformed_periods,
     forms_illegal_continuous_pair,
     group_into_periods,
+    max_uninterrupted_free_hours,
     periods_overlap,
+    weekly_settlement_windows,
 )
 
 
@@ -423,7 +428,15 @@ def _check_emergency_pairs(state: PlanningState, assignments: list[Assignment], 
 
 
 def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
-    """REST-01, per-work-period -- 24h pairs have no internal check, earlier period's rest governs, only target-touching edges count."""
+    """REST-01, per-work-period -- 24h pairs have no internal check, earlier period's rest governs, only target-touching edges count.
+
+    ROTA-T023b (frozen addendum section 6/7): under OCHRONA, the
+    effective floor after an exact 24h target-Site WorkPeriod rises to
+    >=24h -- covers both existing T012 24h forms (Catalog H24, emergency
+    H12+H12) since both already merge into one 24h WorkPeriod here.
+    Never applied to state.other_site_assignments (section 7): existing
+    T012/T022 cross-Site behaviour is retained, not redesigned."""
+    ochrona = state.site.planning_regime == SitePlanningRegime.OCHRONA
     # B-R10-3: identity is (schedule_version_id, assignment_id), not the bare local id (tests/test_audit_t009_r6.py).
     target_keys = {(a.schedule_version_id, a.assignment_id) for a in assignments}
     other_site_list = _not_cancelled(state.other_site_assignments)
@@ -466,7 +479,9 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
                 continue
             gap = (later.start - earlier.end).total_seconds() / 3600
             min_rest = gap if min_rest is None else min(min_rest, gap)
-            if gap < earlier.required_rest_after_hours:
+            earlier_is_other_site = any(k in other_site_keys for k in earlier.component_keys)
+            required_rest = effective_required_rest_after_hours(earlier, ochrona=ochrona and not earlier_is_other_site)
+            if gap < required_rest:
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: only {gap:.1f}h"))
     return min_rest
 
@@ -531,6 +546,39 @@ def _check_full_hour(state: PlanningState, assignments: list[Assignment], detail
             details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: profile StandardShift kind={shift.kind.value} start/end is not a full clock hour"))
 
 
+def _check_weekly_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """WEEKLY-REST-01 (ROTA-T023b, frozen addendum section 6/7). OCHRONA
+    only -- ORDINARY Sites skip this check entirely. Per employee and per
+    complete settlement-week window (weekly_settlement_windows: only full
+    7-day blocks starting on day 1, wholly inside the month -- a trailing
+    partial week never creates a window), occupied time is only recorded
+    target-Site non-CANCELLED work (state.other_site_assignments never
+    enter this calculation); PRIMARY and TRAINEE both count. PASS
+    requires at least one uninterrupted free interval of
+    WEEKLY_REST_REQUIRED_HOURS (35h) or more inside the window."""
+    if state.site.planning_regime != SitePlanningRegime.OCHRONA:
+        return
+    windows = weekly_settlement_windows(state.month)
+    if not windows:
+        return
+    by_employee: dict[str, list[tuple]] = {}
+    for a in assignments:
+        by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
+    for employee_id, intervals in by_employee.items():
+        for window_start, window_end in windows:
+            free = max_uninterrupted_free_hours(window_start, window_end, intervals)
+            if free < WEEKLY_REST_REQUIRED_HOURS:
+                ids = tuple(
+                    a.assignment_id for a in assignments
+                    if a.employee_id == employee_id and a.start_datetime < window_end and a.end_datetime > window_start
+                )
+                details.append(ViolationDetail(
+                    "WEEKLY-REST-01", ids,
+                    f"WEEKLY-REST-01: {employee_id} only {free:.1f}h uninterrupted rest in week "
+                    f"{window_start.date()}-{(window_end - timedelta(days=1)).date()}",
+                ))
+
+
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
     """Recheck every HARD rule from scratch against the final Assignment set."""
     details: list[ViolationDetail] = []
@@ -559,6 +607,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_24h_same_person(state, assignments, details)
     _check_emergency_pairs(state, assignments, details)
     min_rest = _check_rest(state, assignments, details)
+    _check_weekly_rest(state, assignments, details)
     max_load, max_window, max_window_datetimes = _check_load(state, assignments, details)
 
     return IndependentValidationReport(

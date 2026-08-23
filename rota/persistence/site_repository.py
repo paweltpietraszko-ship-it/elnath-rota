@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from rota.domain import Site
+from rota.domain import Site, SitePlanningRegime
 
 
 class SiteNotFound(Exception):
@@ -26,6 +26,18 @@ class SiteNotFound(Exception):
 
 class UnknownSiteProfile(Exception):
     """Raised when Site.profile_id does not identify an existing SiteProfile."""
+
+
+class SiteRegimeChangeRejected(Exception):
+    """ROTA-T023b: raised when a normal Site write attempts to change
+    planning_regime -- only the dedicated correction primitive may do
+    that (frozen addendum section 3: "ordinary Site editing cannot
+    change the regime")."""
+
+
+class UnsupportedSitePlanningRegime(Exception):
+    """ROTA-T023b: raised when a stored planning_regime value is not a
+    recognized SitePlanningRegime -- reads fail closed, never guess."""
 
 
 class InvalidSitePrintSettings(Exception):
@@ -107,23 +119,56 @@ def validate_site_print_settings(settings: SitePrintSettings) -> None:
     _validate_reserve_hours(settings.reserve_hours)
 
 
+def _regime_from_value(value: str) -> SitePlanningRegime:
+    try:
+        return SitePlanningRegime(value)
+    except ValueError as exc:
+        raise UnsupportedSitePlanningRegime(f"unsupported stored planning_regime {value!r}") from exc
+
+
 def write_site_in_open_transaction(conn: sqlite3.Connection, site: Site) -> None:
     """Same write as save_site, without its own `with conn:` (see
-    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction)."""
+    rota.persistence.coordinator_repository.write_coordinator_in_open_transaction).
+
+    ROTA-T023b: rejects any attempt to change an existing Site's
+    planning_regime -- the UPDATE SET clause below never touches that
+    column, and this check raises explicitly rather than silently
+    ignoring the caller's requested value. Only
+    correct_site_planning_regime_in_open_transaction may change it."""
     row = conn.execute(
         "SELECT 1 FROM site_profiles WHERE profile_id = ?", (site.profile_id,)
     ).fetchone()
     if row is None:
         raise UnknownSiteProfile(site.profile_id)
+    existing = conn.execute("SELECT planning_regime FROM sites WHERE site_id = ?", (site.site_id,)).fetchone()
+    if existing is not None and existing[0] != site.planning_regime.value:
+        raise SiteRegimeChangeRejected(
+            f"{site.site_id}: ordinary Site write cannot change planning_regime "
+            f"({existing[0]} -> {site.planning_regime.value}); "
+            f"use correct_site_planning_regime_in_open_transaction"
+        )
     conn.execute(
-        """INSERT INTO sites (site_id, profile_id, display_name, active)
-           VALUES (?, ?, ?, ?)
+        """INSERT INTO sites (site_id, profile_id, display_name, active, planning_regime)
+           VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(site_id) DO UPDATE SET
             profile_id=excluded.profile_id,
             display_name=excluded.display_name,
             active=excluded.active""",
-        (site.site_id, site.profile_id, site.display_name, int(site.active)),
+        (site.site_id, site.profile_id, site.display_name, int(site.active), site.planning_regime.value),
     )
+
+
+def correct_site_planning_regime_in_open_transaction(
+    conn: sqlite3.Connection, *, site_id: str, planning_regime: SitePlanningRegime,
+) -> None:
+    """ROTA-T023b: the one narrowly named primitive allowed to change an
+    EXISTING Site's planning_regime -- updates only that column. Only
+    rota.application.durable_inputs.correct_site_planning_regime calls
+    this; ordinary Site writes above reject any regime change."""
+    row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (site_id,)).fetchone()
+    if row is None:
+        raise SiteNotFound(site_id)
+    conn.execute("UPDATE sites SET planning_regime = ? WHERE site_id = ?", (planning_regime.value, site_id))
 
 
 def save_site(conn: sqlite3.Connection, site: Site) -> None:
@@ -133,21 +178,27 @@ def save_site(conn: sqlite3.Connection, site: Site) -> None:
 
 def get_site(conn: sqlite3.Connection, site_id: str) -> Site:
     row = conn.execute(
-        "SELECT site_id, profile_id, display_name, active FROM sites WHERE site_id = ?", (site_id,)
+        "SELECT site_id, profile_id, display_name, active, planning_regime FROM sites WHERE site_id = ?", (site_id,)
     ).fetchone()
     if row is None:
         raise SiteNotFound(site_id)
-    site_id_, profile_id, display_name, active = row
-    return Site(site_id=site_id_, profile_id=profile_id, display_name=display_name, active=bool(active))
+    site_id_, profile_id, display_name, active, regime = row
+    return Site(
+        site_id=site_id_, profile_id=profile_id, display_name=display_name, active=bool(active),
+        planning_regime=_regime_from_value(regime),
+    )
 
 
 def list_sites(conn: sqlite3.Connection) -> list[Site]:
     rows = conn.execute(
-        "SELECT site_id, profile_id, display_name, active FROM sites ORDER BY site_id"
+        "SELECT site_id, profile_id, display_name, active, planning_regime FROM sites ORDER BY site_id"
     ).fetchall()
     return [
-        Site(site_id=site_id, profile_id=profile_id, display_name=display_name, active=bool(active))
-        for site_id, profile_id, display_name, active in rows
+        Site(
+            site_id=site_id, profile_id=profile_id, display_name=display_name, active=bool(active),
+            planning_regime=_regime_from_value(regime),
+        )
+        for site_id, profile_id, display_name, active, regime in rows
     ]
 
 

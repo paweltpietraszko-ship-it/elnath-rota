@@ -23,9 +23,10 @@ from rota.domain import (
     AvailabilityKind,
     ShiftDemand,
     ShiftKind,
+    SitePlanningRegime,
 )
 from rota.planning.constraints import (
-    add_load_constraints, add_rest_constraints, add_same_person_24h_constraints,
+    add_load_constraints, add_rest_constraints, add_same_person_24h_constraints, add_weekly_rest_constraints,
     build_emergency_pair_context, build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
 )
 from rota.planning.eligibility import check_eligibility
@@ -541,6 +542,11 @@ def solve(
     fixed_assignments = fixed_existing_assignments(state)
     fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
     fixed_periods, other_site_keys = build_fixed_periods(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
+    ochrona = state.site.planning_regime == SitePlanningRegime.OCHRONA
+    # ROTA-T023b (frozen addendum section 7): WEEKLY-REST-01 only ever sees
+    # target-Site occupied time -- built with an empty other_site_assignments
+    # list, unlike `fixed` above (LOAD-01 stays unchanged, cross-Site-aware).
+    target_fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), [])
     fixed_primary_by_demand: dict[str, set[str]] = {}
     for a in fixed_assignments:
         if a.role == AssignmentRole.PRIMARY and a.covers_demand_id:
@@ -550,7 +556,11 @@ def solve(
     # emergency 24h -- the first (normal) capped pass never even builds them.
     same_month_by_employee, cross_month_by_employee = build_emergency_pair_context(state, slots) if allow_emergency_24h else ({}, {})
     assumptions = _add_coverage_constraints(model, x, slots, still_needed)
-    pair_vars = add_rest_constraints(model, x, slots, fixed_periods, state.site.site_id, same_month_by_employee, cross_month_by_employee, other_site_keys)
+    pair_vars = add_rest_constraints(
+        model, x, slots, fixed_periods, state.site.site_id, same_month_by_employee, cross_month_by_employee,
+        other_site_keys, ochrona=ochrona,
+    )
+    add_weekly_rest_constraints(model, x, slots, target_fixed, state.month, ochrona)
     add_same_person_24h_constraints(model, x, slots, list(state.shift_demands), fixed_primary_by_demand)
     add_load_constraints(
         model, x, slots, fixed, state.month, state.profile.rolling_7d_decision_threshold_hours, enforce_load_cap

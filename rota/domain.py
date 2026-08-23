@@ -99,6 +99,17 @@ class ShiftCatalogKind(str, Enum):
     OTHER = "INNY"
 
 
+# ROTA-T023b: Site is a planning/service unit, not a physical-object
+# aggregate -- one real location may have separate Sites for protection
+# (OCHRONA) and cleaning or another service. ORDINARY preserves
+# pre-T023b behaviour; OCHRONA enables the two T023b HARD rest
+# protections (frozen addendum section 3). Not a boolean: CLEANING/
+# SPRZATANIE semantics are explicitly not added by this task.
+class SitePlanningRegime(str, Enum):
+    ORDINARY = "ORDINARY"
+    OCHRONA = "OCHRONA"
+
+
 # --- Value objects ---
 
 
@@ -142,6 +153,13 @@ class Site:
     profile_id: str
     display_name: str
     active: bool
+    # ROTA-T023b: required Site classification (frozen addendum section 3).
+    # Defaulted here only for positional/constructor compatibility with
+    # existing call sites (same pattern as WorkBalance.absence_hours in
+    # T023) -- application write paths (site_repository, bootstrap
+    # creation) must always supply an explicit value, never rely on this
+    # default; a missing regime must fail before a new real Site persists.
+    planning_regime: SitePlanningRegime = SitePlanningRegime.ORDINARY
 
 
 @dataclass
@@ -320,6 +338,14 @@ class ScheduleVersion:
     # coordinator-supplied for a new version and never derived. None only
     # for legacy pre-T009 rows, where it is genuinely unknown.
     effective_from: Optional[date] = None
+    # ROTA-T023b: provenance of this ScheduleVersion's persisted planning
+    # content -- the regime it was accepted/created under, NOT a second
+    # mutable Site setting (frozen addendum section 3). Defaulted here only
+    # for positional/constructor compatibility; write paths always supply
+    # an explicit/derived value (root inherits current Site regime, child
+    # inherits parent provenance, a freshly-selected candidate adopts
+    # current Site regime -- see schedule_lifecycle/plan_ops).
+    planning_regime: SitePlanningRegime = SitePlanningRegime.ORDINARY
 
 
 @dataclass

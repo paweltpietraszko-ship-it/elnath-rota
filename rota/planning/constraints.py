@@ -19,7 +19,8 @@ sum to the correct real worked hours without merging.
 from __future__ import annotations
 
 import calendar
-from datetime import datetime
+from dataclasses import replace
+from datetime import date, datetime
 
 from ortools.sat.python import cp_model
 
@@ -27,13 +28,16 @@ from rota.domain import Assignment, AssignmentState, ShiftCatalogKind
 from rota.planning.eligibility import is_all_24h_profile
 from rota.planning.timeutil import overlap_hours, rolling_windows
 from rota.planning.work_periods import (
+    WEEKLY_REST_REQUIRED_HOURS,
     PeriodComponent,
     WorkPeriod,
+    effective_required_rest_after_hours,
     find_cross_month_pair_candidates,
     find_same_month_pair_candidates,
     forms_illegal_continuous_pair,
     group_into_periods,
     violates_rest,
+    weekly_settlement_windows,
 )
 
 
@@ -111,7 +115,7 @@ def _demand_periods(
 def add_rest_constraints(
     model: cp_model.CpModel, x: dict, slots: list, fixed_periods: dict[str, list[WorkPeriod]], site_id: str,
     same_month_by_employee: dict[str, list] | None = None, cross_month_by_employee: dict[str, dict] | None = None,
-    other_site_keys: frozenset = frozenset(),
+    other_site_keys: frozenset = frozenset(), ochrona: bool = False,
 ) -> dict[tuple[str, str, str], tuple]:
     """T012 Part C: same_month_by_employee/cross_month_by_employee (from
     build_emergency_pair_context) name the exact (employee, candidate) pairs
@@ -121,7 +125,12 @@ def add_rest_constraints(
     CP-SAT decision: the boundary half is already a persisted fact).
     other_site_keys (T022, OWNER-T022-03) names which fixed_periods entries
     come from a different Site, so a zero-gap continuation onto them can be
-    rejected unconditionally, never relaxed by can_work_24h or rest=0."""
+    rejected unconditionally, never relaxed by can_work_24h or rest=0.
+
+    ochrona (ROTA-T023b, frozen addendum section 6/7): raises the
+    effective rest floor to >=24h after an exact 24h target-Site
+    WorkPeriod (both existing T012 forms). Never applied to an
+    other-Site fixed period."""
     by_employee: dict[str, list] = {}
     for slot in slots:
         by_employee.setdefault(slot.employee_id, []).append(slot)
@@ -140,9 +149,26 @@ def add_rest_constraints(
             for c in (same_month_by_employee or {}).get(employee_id, [])
             if c.first_demand_id not in cross_month and c.second_demand_id not in cross_month
         }
-        pair_vars.update(_add_one_employee_rest(model, x, employee_id, periods, relaxed, fixed_periods.get(employee_id, []), other_site_keys))
+        pair_vars.update(_add_one_employee_rest(
+            model, x, employee_id, periods, relaxed, fixed_periods.get(employee_id, []), other_site_keys, ochrona=ochrona,
+        ))
     _add_no_chain_constraints(model, pair_vars)
     return pair_vars
+
+
+def _apply_ochrona_floor(
+    periods: list[WorkPeriod], *, ochrona: bool, other_site_keys: frozenset = frozenset(),
+) -> list[WorkPeriod]:
+    """ROTA-T023b (frozen addendum section 6/7): raises each target-Site
+    exact-24h period's effective rest to >=24h under OCHRONA. An
+    other-Site period is left untouched (section 7)."""
+    if not ochrona:
+        return periods
+    return [
+        p if _is_other_site_period(p, other_site_keys)
+        else replace(p, required_rest_after_hours=effective_required_rest_after_hours(p, ochrona=True))
+        for p in periods
+    ]
 
 
 def _add_no_chain_constraints(model: cp_model.CpModel, pair_vars: dict[tuple[str, str, str], tuple]) -> None:
@@ -210,16 +236,24 @@ def _add_ordinary_period_edges(model: cp_model.CpModel, x: dict, employee_id: st
                 constraint.only_enforce_if(governing_p.Not())
 
 
-def _add_merged_pair_edges(model: cp_model.CpModel, x: dict, employee_id: str, period_by_id: dict, candidates_by_key: dict, periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod], other_site_keys: frozenset) -> None:
+def _add_merged_pair_edges(
+    model: cp_model.CpModel, x: dict, employee_id: str, period_by_id: dict, candidates_by_key: dict,
+    periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod], other_site_keys: frozenset,
+    ochrona: bool = False,
+) -> None:
     """C-R16-1: once pair=1, the two components ARE one 24h work period
     (first.start -> second.end) whose rest (emergency_24h_rest_hours) governs
-    every external edge -- not either component's own ordinary rest."""
+    every external edge -- not either component's own ordinary rest.
+
+    ochrona (ROTA-T023b): the merged pair is exactly a 24h target-Site
+    period, so its effective rest also gets the >=24h floor."""
     for candidate, p in candidates_by_key.values():
         first_period, second_period = period_by_id[candidate.first_demand_id], period_by_id[candidate.second_demand_id]
         merged = WorkPeriod(
             employee_id, f"__merged__{candidate.first_demand_id}+{candidate.second_demand_id}", first_period.start, second_period.end,
             candidate.rest_hours, (candidate.first_demand_id, candidate.second_demand_id),
         )
+        merged = replace(merged, required_rest_after_hours=effective_required_rest_after_hours(merged, ochrona=ochrona))
         member_ids = {candidate.first_demand_id, candidate.second_demand_id}
         for other in periods:
             if other.component_ids[0] in member_ids or not violates_rest(merged, other):
@@ -269,8 +303,10 @@ def _add_ordinary_fixed_edges(model: cp_model.CpModel, x: dict, employee_id: str
 
 def _add_one_employee_rest(
     model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], relaxed: dict, fixed_periods_for_employee: list[WorkPeriod],
-    other_site_keys: frozenset = frozenset(),
+    other_site_keys: frozenset = frozenset(), ochrona: bool = False,
 ) -> dict[tuple[str, str, str], tuple]:
+    periods = _apply_ochrona_floor(periods, ochrona=ochrona)  # always target-Site (prospective demand periods)
+    fixed_periods_for_employee = _apply_ochrona_floor(fixed_periods_for_employee, ochrona=ochrona, other_site_keys=other_site_keys)
     period_by_id = {p.component_ids[0]: p for p in periods}
     pair_vars, candidates_by_key = _create_pair_literals(model, x, employee_id, periods, relaxed)
     paired_member_p: dict[str, object] = {}
@@ -278,7 +314,7 @@ def _add_one_employee_rest(
         paired_member_p[candidate.first_demand_id] = p
         paired_member_p[candidate.second_demand_id] = p
     _add_ordinary_period_edges(model, x, employee_id, periods, candidates_by_key, paired_member_p)
-    _add_merged_pair_edges(model, x, employee_id, period_by_id, candidates_by_key, periods, fixed_periods_for_employee, other_site_keys)
+    _add_merged_pair_edges(model, x, employee_id, period_by_id, candidates_by_key, periods, fixed_periods_for_employee, other_site_keys, ochrona=ochrona)
     _add_ordinary_fixed_edges(model, x, employee_id, periods, fixed_periods_for_employee, paired_member_p, other_site_keys)
     return pair_vars
 
@@ -340,6 +376,81 @@ def resolve_emergency_overrides(
         for demand_id, candidate in by_demand.items():
             overrides[employee_id, demand_id] = (candidate.boundary_work_period_id, candidate.rest_hours)
     return overrides
+
+
+def _clip_to_window(start: datetime, end: datetime, window_start: datetime, window_end: datetime):
+    s, e = max(start, window_start), min(end, window_end)
+    return (s, e) if s < e else None
+
+
+def _add_one_employee_weekly_rest(
+    model: cp_model.CpModel, x: dict, employee_id: str, employee_slots: list,
+    fixed_intervals: list[tuple[datetime, datetime]], window_start: datetime, window_end: datetime,
+) -> None:
+    """One (employee, week window) instance of WEEKLY-REST-01 -- exact CP-SAT
+    encoding of the pure oracle (work_periods.max_uninterrupted_free_hours):
+    at least one candidate maximal gap between anchor points (window
+    boundaries + every clipped slot start/end) must be >=35h AND overlap no
+    already-fixed occupied interval AND have every overlapping PROSPECTIVE
+    slot unassigned."""
+    fixed_clipped = [c for c in (_clip_to_window(s, e, window_start, window_end) for s, e in fixed_intervals) if c is not None]
+    decision_clipped: list[tuple[datetime, datetime, str]] = []
+    for slot in employee_slots:
+        c = _clip_to_window(slot.demand.start_datetime, slot.demand.end_datetime, window_start, window_end)
+        if c is not None:
+            decision_clipped.append((c[0], c[1], slot.demand.demand_id))
+    if not decision_clipped and not fixed_clipped:
+        return  # nothing can occupy this window at all -- trivially satisfied
+    anchors = {window_start, window_end}
+    for s, e in fixed_clipped:
+        anchors.add(s); anchors.add(e)  # noqa: E702
+    for s, e, _ in decision_clipped:
+        anchors.add(s); anchors.add(e)  # noqa: E702
+    ordered_anchors = sorted(anchors)
+    gap_vars = []
+    for a, b in zip(ordered_anchors, ordered_anchors[1:]):
+        if (b - a).total_seconds() / 3600 < WEEKLY_REST_REQUIRED_HOURS:
+            continue
+        if any(s < b and a < e for s, e in fixed_clipped):
+            continue  # permanently blocked by already-fixed target-Site work
+        overlapping_demand_ids = [demand_id for s, e, demand_id in decision_clipped if s < b and a < e]
+        if not overlapping_demand_ids:
+            return  # this gap is free regardless of any decision -- trivially satisfied
+        gap_ok = model.new_bool_var(f"weekly_gap_{employee_id}_{a.isoformat()}_{b.isoformat()}")
+        occ_vars = [x[employee_id, demand_id] for demand_id in overlapping_demand_ids]
+        model.add(sum(occ_vars) == 0).only_enforce_if(gap_ok)
+        model.add(sum(occ_vars) >= 1).only_enforce_if(gap_ok.Not())
+        gap_vars.append(gap_ok)
+    # An empty gap_vars list makes add_bool_or([]) UNSAT -- correct: no
+    # candidate gap of >=35h exists at all for this employee/window, so no
+    # decision can ever satisfy WEEKLY-REST-01 here (already-fixed work alone
+    # violates it).
+    model.add_bool_or(gap_vars)
+
+
+def add_weekly_rest_constraints(
+    model: cp_model.CpModel, x: dict, slots: list, target_fixed: dict[str, list[tuple[datetime, datetime]]],
+    month: date, ochrona: bool,
+) -> None:
+    """WEEKLY-REST-01 (ROTA-T023b, frozen addendum section 6/7): OCHRONA
+    only -- ORDINARY Sites skip entirely. Per employee and per complete
+    settlement-week window (weekly_settlement_windows), occupied time is
+    only target-Site work -- target_fixed must already exclude
+    state.other_site_assignments (build_fixed_intervals called with an
+    empty other_site_assignments list); slots are already target-Site
+    prospective decisions."""
+    if not ochrona:
+        return
+    windows = weekly_settlement_windows(month)
+    if not windows:
+        return
+    by_employee: dict[str, list] = {}
+    for slot in slots:
+        by_employee.setdefault(slot.employee_id, []).append(slot)
+    for employee_id, employee_slots in by_employee.items():
+        fixed_intervals = target_fixed.get(employee_id, [])
+        for window_start, window_end in windows:
+            _add_one_employee_weekly_rest(model, x, employee_id, employee_slots, fixed_intervals, window_start, window_end)
 
 
 def add_load_constraints(
