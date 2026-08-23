@@ -60,12 +60,6 @@ export const api = {
       body: JSON.stringify({ date, holiday, site_id }),
     }),
 
-  bulkGenerateCalendar: (start: string, end: string, site_id: string) =>
-    req<void>("/workspace/calendar/bulk-generate", {
-      method: "POST",
-      body: JSON.stringify({ start, end, site_id }),
-    }),
-
   downloadBackup: () => downloadPost("/workspace/backup"),
   downloadDiagnostics: () => downloadPost("/workspace/diagnostics"),
 };

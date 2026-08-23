@@ -446,7 +446,10 @@ function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onCl
 
   const generate = async () => {
     try {
-      await api.bulkGenerateCalendar(iso(monthStart), iso(monthEnd), siteIdForAuth);
+      const missingDates = dates.map(iso).filter((d) => !days.has(d));
+      for (const dateIso of missingDates) {
+        await api.setCalendarDay(dateIso, false, siteIdForAuth);
+      }
       load();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
