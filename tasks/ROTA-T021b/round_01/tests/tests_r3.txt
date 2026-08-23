@@ -1,0 +1,83 @@
+ROTA-T021b / PREIMPLEMENTATION CONTRACT FINAL VERIFY / ROUND 3
+
+AUDITED_SHA: 55b1c084daf1dbfc23c62a0fd36cb6ada8d7c4f7
+AUDITED_CONTRACT: tasks/ROTA-T021b/brief.md
+RE-AUDITED_FINDING: R2-1 only
+PRESERVED_CLOSURE:
+- R1-1 existing-Employee identity boundary
+- R1-2 bounded/open-ended early-return date table
+- canonical representation, family identity, relations and generic write seam
+
+VERDICT: PASS - READY_FOR_IMPLEMENTATION
+
+R2-1 is closed. The contract now distinguishes effective Screen-2 state from
+append-only Decision Ledger history and gives the unchanged monthly projection
+an executable expectation for every create/update/reject case.
+
+R2-1 EFFECTIVE PROJECTION / HISTORY DISTINCTION
+STATUS: PASS / CLOSED
+EVIDENCE:
+- brief.md Section 8 identifies employee_availability_matrix() as the
+  effective-state read owner and Decision Ledger as the historical owner
+- create/update requires a SiteRuleVersion and applicability slices only on
+  dates where T005 selects that version as effective
+- reject requires the preceding version only before rejecting effective_from;
+  from that date the family contributes no effective rule or slice
+- equal-start reject explicitly produces a callable projection with no
+  relevant rule and no applicability for the cancelled family, immediately
+  and after restart
+- absence from the effective projection is explicitly distinguished from loss
+  of append-only create/update/reject history
+- minimum test 11 mirrors all of those outcomes, including interior/equal-end
+  and equal-start rejection
+
+CONSISTENCY WITH EXISTING OWNERS
+- effective_rule_on() returns NoActiveRule when the selected rejects decision
+  has no rule_version_id
+- assemble_monthly_site_rules() includes only versions selected as
+  EffectiveRule on at least one projected day; zero-day cancellation therefore
+  correctly yields no version and no applicability slice
+- the corrected wording requires no modification to SiteMemory, monthly
+  assembly or employee_availability_matrix()
+
+PRESERVATION CHECK
+- R1-1 remains unchanged: every successful create/update/end resolves an
+  existing Employee, without inventing a membership/enabled policy
+- R1-2 remains unchanged: bounded before/equal/inside/equal-end/after cases and
+  pre-existing open-ended cases retain their exact accepted outcomes
+- canonical forbidden-rule and narrow day-only exception representations,
+  new-versus-same family semantics, supersedes/rejects relations, atomic
+  generic writer and production-file scope are unchanged
+- no duplicate DTO, persistence owner, rule engine or generalized editor was
+  introduced
+
+CONCISION CHECK
+- the Section-8 correction is longer than the replaced absolute sentence but
+  each clause maps directly to an existing effective-selection boundary and
+  removes the only remaining contradiction
+- no further contract iteration is warranted
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  55b1c084daf1dbfc23c62a0fd36cb6ada8d7c4f7
+- 55b1c08^..55b1c08 changes only tasks/ROTA-T021b/brief.md
+- target tasks/ROTA-T021b/round_01/tests/tests_r3.txt did not exist before
+  this report was written
+- git diff --check 55b1c08^..55b1c08: PASS
+
+TESTS
+- product suite not run: the audited commit changes only the contract
+- exact-SHA T005 effective selection, monthly assembly and unchanged matrix
+  projection were inspected directly
+- this PASS authorizes implementation; it is not an implementation verdict
+
+ARCHITECTURE_PROPOSALS: NONE
+
+NEXT GATE
+- CC may implement exact contract SHA
+  55b1c084daf1dbfc23c62a0fd36cb6ada8d7c4f7
+- next Codex pass is an independent exact-SHA implementation audit with the
+  focused T021b module, retained T005/T007/T010-B regressions, full task tests
+  and a vertical write-restart-read check
+- do not reopen this contract during implementation; a literal implementation
+  blocker must be returned instead of widening scope
