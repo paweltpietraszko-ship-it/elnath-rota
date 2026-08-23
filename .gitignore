@@ -39,6 +39,9 @@ yarn-error.log*
 pnpm-debug.log*
 dist/
 build/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # OS
 .DS_Store
