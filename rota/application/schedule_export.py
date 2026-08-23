@@ -94,17 +94,10 @@ def _reconstruct_lineage(conn: sqlite3.Connection, site_id: str, month: date) ->
     current_id = schedule_repository.get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise ExportProblemError("NO_CURRENT_SCHEDULE", f"no current ScheduleVersion for ({site_id}, {month})")
-    # ROTA-T023b (frozen addendum section 4, presentation/export enforcement):
-    # one pre-render gate using the shared schedule-repository predicate --
-    # never reimplemented here. A missing/corrupt current_id falls through
-    # to the existing lineage walk below, which already raises its own
-    # PROVENANCE_INCOMPLETE for that case.
-    try:
-        requires_regime_replan = schedule_repository.version_requires_regime_replan(conn, current_id)
-    except ScheduleVersionNotFound:
-        requires_regime_replan = False
-    if requires_regime_replan:
-        raise ExportProblemError("REGIME_REPLAN_REQUIRED", f"{current_id}: regime replan required before export")
+    try:  # ROTA-T023b sec.4: pre-render gate; missing/corrupt current_id falls through to PROVENANCE_INCOMPLETE below.
+        if schedule_repository.version_requires_regime_replan(conn, current_id):
+            raise ExportProblemError("REGIME_REPLAN_REQUIRED", f"{current_id}: regime replan required before export")
+    except ScheduleVersionNotFound: pass  # noqa: E701
     chain, seen, version_id = [], set(), current_id
     while version_id is not None:
         if version_id in seen:
