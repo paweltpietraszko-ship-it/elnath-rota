@@ -41,6 +41,52 @@ touches a public Railway URL. This does not have to block T021 UI-
 screen-building work itself (which can proceed against a local/dev
 backend), but it must block deployment to a publicly reachable URL.
 
+**UPDATE 2026-08-23 (2)** — Paweł asked directly whether the whole
+Railway-hosting concept is even RODO-compliant, or whether the
+direction should be abandoned. Researched (web search + Railway's own
+published docs/DPA, 2026-08-23) rather than answered from prior
+knowledge, since this carries real legal exposure:
+
+- Railway offers a genuine EU-West (Amsterdam) region on dedicated
+  infrastructure, launched 2025 — data CAN be stored physically in the
+  EU, but this must be explicitly selected; it is not the default.
+  (https://docs.railway.com/deployments/regions)
+- Railway (a US corporation, San Francisco) is certified under the
+  EU-U.S. Data Privacy Framework and offers a self-service Data
+  Processing Agreement incorporating EU Standard Contractual Clauses —
+  the standard, legally-recognized mechanism for an EU company to use a
+  US cloud processor post-Schrems II.
+  (https://railway.com/legal/dpa, https://docs.railway.com/enterprise/compliance)
+- Subprocessors (Stripe, Cloudflare, Google Cloud) are published at
+  trust.railway.com per the DPA.
+
+**Conclusion: hosting this program's personal data on Railway is not
+inherently incompatible with RODO — but nothing required to make it
+compliant has been done yet.** Not a reason to abandon the direction;
+a punch list before real data ever goes live:
+
+1. Railway's DPA is not yet executed (self-service, nobody has accepted
+   it).
+2. EU-West (Amsterdam) region is not yet explicitly selected for the
+   deployment or its database — defaults are not guaranteed EU.
+3. Zero authentication (this document's first 2026-08-23 update) is
+   independently an art. 32 RODO violation ("odpowiednie środki
+   techniczne i organizacyjne") regardless of server location — likely
+   the single most material gap today.
+4. L4/sick-leave data (`AvailabilityKind.SICK_LEAVE`) is plausibly
+   RODO art. 9 special-category (health) data. Not prohibited from
+   living in an IT system — ordinary for HR/payroll software — but
+   needs an explicit lawful-basis analysis (art. 9(2)(b), pracownicze/
+   ubezpieczeniowe obowiązki, fits directly) and likely a DPIA at real
+   scale.
+
+CC's authority boundary: the above is verified factual research
+(Railway's own published terms + how RODO's international-transfer
+mechanism generally works), NOT legal advice. Item 4 specifically —
+real employees' health-adjacent data, real controller liability —
+needs an actual lawyer/IOD (Inspektor Ochrony Danych) sign-off before
+production data goes live, not just an engineering read of the rules.
+
 STATUS: finding + direction, NOT a design doc, NOT frozen. Architect-
 input material (same role as `arch/T004_T005_architect_brief.md`,
 `arch/FINDING_2026-08-22_ABSENCE_HOURS_ACCOUNTING.md`,
