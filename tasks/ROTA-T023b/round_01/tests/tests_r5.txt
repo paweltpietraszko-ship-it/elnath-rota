@@ -1,0 +1,114 @@
+ROTA-T023b — IMPLEMENTATION AUDIT, ROUND 5
+
+AUDITED_HEAD: 6cbed65e5cde3489a7a98d597452267c17e07c90
+AUDITED_BRANCH: origin/task/ROTA-T023b
+AUDITED_CONTRACT_HEAD: 50ac0cb1c6b09661dbd16d15c3bad8228f995507
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+DATE: 2026-08-23
+
+VERDICT: FAIL — NOT READY FOR ARCHITECT REVIEW OR MERGE
+
+The reported existing-suite result is reproducible: 1050 passed, 1 failed.
+The one existing failure is NOT A PRODUCT FINDING:
+
+- tests/test_t023_checkpoint_b.py::test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b
+
+That test is a historical source-diff proof that T023 Checkpoint B did not
+modify constraints.py/work_periods.py. T023b explicitly authorizes and requires
+both files to change, so the proof's repository-wide HEAD assumption expired.
+It does not demonstrate a T023b behavioural regression. The obsolete assertion
+must not hide the independent failures below.
+
+Independent commands/results:
+
+- full existing suite: 1050 passed, 1 obsolete source-diff failure;
+- tests/test_t023b.py: 30 passed;
+- tasks/ROTA-T023b/round_01/tests/test_t023b_r5_audit.py:
+  1 passed, 4 failed;
+- Ruff on the new audit tests: PASS;
+- git diff --check for the implementation range: PASS.
+
+FINDING R5-1 — FAIL — solver WEEKLY-REST-01 is not logically equivalent to
+the frozen weekly-rest oracle.
+
+Contract trace:
+- frozen addendum section 6 counts only actual non-CANCELLED target-Site work
+  and accepts any uninterrupted free interval of at least 35h;
+- task brief section 7 requires solver logic equivalent to the pure oracle;
+- T23b-30 requires solver/validator agreement for both protections.
+
+Observed sibling failures:
+
+1. constraints._add_one_employee_weekly_rest creates anchors from every
+   prospective slot and considers only gaps between adjacent anchors. An
+   unselected slot occupies no time, but its endpoints still split a genuinely
+   longer free interval. Seven daily candidate slots forced unselected leave
+   168h free according to the oracle, yet the CP-SAT model is INFEASIBLE.
+2. add_weekly_rest_constraints iterates only employees present in prospective
+   slots. An employee represented only by fixed target-Site work is skipped;
+   seven fixed daily duties with no 35h rest leave the model OPTIMAL rather
+   than INFEASIBLE.
+
+These are two adjacent paths of the same invariant, not edge-case preferences:
+prospective-but-unselected boundaries must not occupy time, and fixed-only work
+must not disappear. The production test file contains validator/oracle tests but
+no solver test exercising T23b-30, which is why both classes passed unnoticed.
+
+Reproducers:
+- test_r5_solver_allows_free_gap_spanning_unselected_slot_boundaries
+- test_r5_solver_checks_employee_with_only_fixed_target_work
+
+FINDING R5-2 — FAIL — a manual violation caused only by the new OCHRONA 24h
+rest floor does not create the required existing REST_OVERRIDE_RECORD.
+
+Contract trace:
+- frozen addendum section 7 permits manual persistence of either T023b HARD
+  violation only through the existing audited REST-override precedent;
+- task brief section 8 requires configured/resolved and effective rest facts;
+- T23b-31 requires the manual REST-01 and WEEKLY-REST-01 paths.
+
+manual_edit._employee_violating_pairs still decides REST pairs with
+violates_rest()/resolve_required_rest(), i.e. the configured value. It does not
+use effective_required_rest_after_hours under the current Site regime. For an
+OCHRONA 24h WorkPeriod configured at 11h followed by a duty after 20h, validator
+correctly reports REST-01 (effective requirement 24h), but manual_edit derives
+no rest pair and writes no REST_OVERRIDE_RECORD. The entire sibling interval
+configured_rest <= actual_gap < 24h has the same defect. The shipped manual test
+covers weekly rest only, not the immediate-rest half of T23b-31.
+
+Reproducer:
+- test_r5_manual_24h_floor_violation_records_rest_override
+
+FINDING R5-3 — FAIL — omission of a new Site regime silently becomes ORDINARY.
+
+Contract trace:
+- frozen addendum section 3 defines Site.planning_regime as required and says
+  omission must never silently become ORDINARY;
+- task brief sections 1/2 repeat that a missing regime must fail before a new
+  real Site is persisted;
+- T23b-01 requires application creation not to rely on a default.
+
+Site.planning_regime has a dataclass default of SitePlanningRegime.ORDINARY.
+Therefore Site(site_id, profile_id, display_name, active) is accepted and the
+repository writes ORDINARY without any way to distinguish an explicit owner
+choice from omission. This is the exact mistake-prevention boundary the owner
+froze; a source comment saying the default is only for compatibility does not
+enforce it. Mechanical fixture updates were expressly allowed by the contract.
+
+Reproducer:
+- test_r5_required_site_regime_cannot_be_omitted
+
+DELIVERY GATE
+
+The committed backend_output.txt also records STATUS: FAIL at implementation
+HEAD 233ea930ec0fe0b67c3d12134ea3565ac16c5831: NEW_FILES and SIZE_FILE fail,
+with RATIO and TOTAL_LINES under WYMAGA_DECYZJI. Later commits trim product
+files but do not contain a newer successful backend run. Independently of the
+three behavioural findings, this is not a green delivery gate. The mechanical
+large-test-file fallout may be non-product work, but it needs an explicit gate
+resolution; it cannot be reported as backend PASS.
+
+ARCHITECTURE_PROPOSALS
+
+None. These are implementation defects against already-frozen requirements;
+no new product or architecture decision is needed.
