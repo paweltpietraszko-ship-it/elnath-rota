@@ -268,6 +268,98 @@ need, matching Paweł's established per-screen method
 expansion must additionally cover the T023b regime-correction UI (§3.4)
 when it's reached.
 
+## 5.1 SCREEN 2 — Panel sterowania → Obsada → per-employee (IN PROGRESS)
+
+Source: `T021_spec.md:516-559` (roster matrix + per-employee screen),
+`arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` §5 (frozen
+matrix decision).
+
+**BLOCKED ON A SEPARATE BACKEND TASK, NOT PART OF T021**: 3 of the
+5 matrix column-groups (Dniówka, Nocka, 7× weekday) have no ready
+application-layer function — only the raw `rule_decisions.
+record_structured_rule_decision` primitive exists, and choosing how to
+wrap it (rule_id continuity, statement text, function shape) is a real
+design decision, not an implementation detail. Facts handed to the
+architect: `arch/T021_screen2_rule_wrapper_architect_brief_2026-08-23.md`.
+**Do not build those 3 column-groups until that task lands and this
+brief is updated with the real function names/signatures** — per
+Paweł's explicit ruling 2026-08-23: no half-working screens shipped for
+review, the small backend piece comes first.
+
+### What CAN be built now (real functions exist, verified against source)
+
+- **Employee list** (Obsada tab, v1 — a plain list, not the full
+  scanning matrix; the matrix-overview is deferred, see Out of scope):
+  `employee_repository.list_memberships_for_site(conn, site_id) ->
+  list[SiteMembership]` + `employee_repository.list_employees_by_ids`
+  for display names. Each row links to the per-employee screen below.
+- **"+ Dodaj osobę"**: picker over two paths, per owner decision
+  2026-08-23 (EXTERNAL_SUPPORT requires a support-window, which lives
+  on the per-employee screen — deferred; this control only creates
+  **LOCAL** memberships for now):
+  - *Nowy pracownik*: form (display_name, day_only checkbox) →
+    `durable_inputs.update_employee(conn, *, coordinator_id, site_id,
+    employee: Employee, ...)` with a generated `employee_id` (API-layer
+    `uuid.uuid4().hex`, same pattern as Screen 1's site_id/profile_id) —
+    then `durable_inputs.update_membership(conn, *, coordinator_id,
+    site_id, membership: SiteMembership, ...)` with `membership_kind=
+    LOCAL, enabled=True, readiness_state=NOT_READY, readiness_source=
+    DEFAULT, can_work_24h=True`.
+  - *Istniejący pracownik*: `employee_repository.list_employees(conn) ->
+    list[Employee]`, filtered client- or API-side to exclude
+    `employee_id`s already in `list_memberships_for_site` for this
+    site, then the same `update_membership` call with the picked
+    `employee_id`.
+- **Per-employee screen — "Ogólna dostępność" toggle**:
+  `durable_inputs.append_availability(conn, *, coordinator_id, site_id,
+  availability_id, employee_id, kind=AvailabilityKind.UNAVAILABLE_24H,
+  start_date, end_date, active=True, note=None,
+  responds_to_decision_required_id=None)`. `availability_id` generated
+  fresh (`uuid.uuid4().hex`) per new date-range block — it is the
+  append-only family id, not reused across unrelated blocks.
+- **Per-employee screen — "24h" toggle**: same `update_membership` call
+  as above, flipping only `can_work_24h`. Plain persistent bool, no
+  date range, no auto-revert (`T021_spec.md:524-529` — do not build a
+  date picker for this one).
+- **Per-employee screen — "Zgłoś nieobecność"**: one form, all 5
+  `AvailabilityKind` values (`DAY_SHIFT_OFF`/`UNAVAILABLE_24H`/
+  `LEAVE_PLAN`/`LEAVE_GRANTED`/`SICK_LEAVE`) + date range, same
+  `append_availability` call as the matrix toggle above (this is the
+  SAME underlying mechanism, not a separate one — the matrix toggle is
+  a shortcut for `UNAVAILABLE_24H` specifically). Lives on the
+  per-employee screen, shown as a log of past/current entries
+  (`availability_repository.get_current_availability_for_employee(conn,
+  employee_id) -> list[AvailabilityRecord]` — persistence-layer, no
+  application wrapper, call directly per the same already-accepted
+  missing-wrapper pattern as Screen 1's calendar read).
+- **Per-employee screen — godziny docelowe/miesiąc**:
+  `durable_inputs.set_target_hours(conn, *, coordinator_id, site_id,
+  employee_id, month, target_hours, ...)`. Read side:
+  `work_balance_repository.get_work_balance_target(conn, employee_id,
+  month)` (persistence-layer, no wrapper — call directly).
+- **Per-employee screen — day_only flag**: same `update_employee` call
+  as employee creation, toggling `Employee.day_only`.
+- **Per-employee screen — S/szkolenie**: read-only badge only
+  (`SiteMembership.readiness_state`) — per `T021_spec.md:92-98`, NOT
+  editable in this increment (confirm with Paweł before making it
+  editable; `readiness_source=COORDINATOR_OVERRIDE` override path
+  exists in `update_membership` but has no UI yet).
+
+### Out of scope for this increment
+
+- Dniówka/Nocka/weekday matrix columns — blocked, see above.
+- The full roster-overview matrix (all employees, all columns at a
+  glance) — the per-employee screen is the primary surface for now; the
+  scanning grid is a later addition once the blocked columns exist too
+  (building it now would show mostly non-functional columns).
+- EXTERNAL_SUPPORT membership creation and support-window management —
+  needs the per-employee screen's window-list UI, itself gated on
+  nothing backend-missing but not yet designed; do together as one
+  follow-up, not half-built now.
+- `membership_kind` editing (LOCAL↔EXTERNAL_SUPPORT after creation) —
+  `T021_spec.md:100-102` confirms this isn't editable anywhere in the
+  mockup either; out of scope until asked for.
+
 **Known open items from `T021_spec.md`'s own completeness audit
 (lines 30-198) that must not get silently dropped when their screen is
 reached** — carried forward explicitly so re-verifying each screen
