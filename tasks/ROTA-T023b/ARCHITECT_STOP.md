@@ -16,27 +16,37 @@ Those Sites have independent planning scope, memberships, schedules and coordina
 
 T023b concerns only the protection-service Site. Cleaning has a different legal/HARD regime and remains a separate future task; T023b must not infer, implement or reuse cleaning rules.
 
+## CLOSED OWNER RULING — REGIME IS NOT A NORMAL EDIT
+
+The Site planning/service regime is a classification of that Site, not an ordinary mutable planning setting.
+
+- the regime is selected when the Site is created and requires explicit confirmation before the initial save;
+- ordinary Site editing must not expose a simple regime toggle;
+- after creation, the regime is normally immutable;
+- correcting an erroneous initial classification is a separate exceptional operation, not a normal edit path;
+- T023b does not define a general `ORDINARY <-> OCHRONA` transition workflow and does not need retroactive ScheduleVersion semantics for a routine toggle, because such a toggle is not part of the product.
+
+This closes the previously open question about temporal effects of a normal regime change: there is no normal regime-change command in T023b.
+
 ## ARCHITECT CORRECTION — BOOLEAN MODE IS TOO NARROW
 
 The earlier proposal `Site.ochrona_mode: bool` is retracted.
 
-Reason: the known domain now contains at least three distinct service regimes conceptually (`OCHRONA`, `ORDINARY`, `SPRZATANIE`). Therefore `False = ordinary` is not a valid long-term domain statement.
+Reason: the known domain contains more than the binary distinction `OCHRONA` vs `ORDINARY`; cleaning is a separate service regime with its own future HARD rules. Therefore `False = ordinary` is not a valid domain model.
 
-The consolidated T023b contract will use an explicit Site planning/service-regime value rather than a boolean checkbox. T023b will implement only the regimes actually required by this task; adding cleaning HARD semantics is forbidden here and belongs to its own task.
+The consolidated T023b contract must use an explicit Site planning/service-regime classification rather than a boolean checkbox. T023b must not implement cleaning HARD semantics.
 
-This is an architect-owned representation correction. It does not create a cleaning feature.
+## STILL OPEN — EXISTING-SITE MIGRATION
 
-## STILL OPEN — CHANGE OF AN EXISTING SITE REGIME
+One product decision remains before the single final consolidation.
 
-One product decision remains.
+Existing persisted Sites predate the new explicit regime classification. They cannot all be truthfully migrated to `ORDINARY`, because some real Sites may represent protection or cleaning services, and current persisted data does not contain a canonical regime fact from which the classification can be reconstructed safely.
 
-If an existing Site is deliberately changed from `ORDINARY` to `OCHRONA`, what is the temporal effect on already-persisted/current ScheduleVersions?
+The architect will not infer regime from SiteProfile name, shift pattern, coordinator, employees or any other heuristic.
 
-Choose one product semantics:
+Owner must choose the migration semantics for existing Sites:
 
-1. **Immediate** — after the regime change, existing/current schedules are subject to the OCHRONA HARD rules on the next validation/finalize/restore path; or
-2. **Prospective** — the new regime applies only to schedules created/replanned after the change, so persisted ScheduleVersions must retain the regime under which they were created.
+1. **Explicit reclassification required** — existing Sites migrate to an `UNCLASSIFIED`/equivalent state and must be explicitly classified before planning under the new regime-aware contract; or
+2. another explicit owner-provided migration rule that identifies the correct regime without heuristic inference.
 
-This is not about accidental clicks. The separate UI/write-path question (double confirmation / blocking ordinary edit) can be frozen once the temporal semantics is selected.
-
-Do not implement until this final owner decision is closed and the architect emits one consolidated replacement contract. CC remains read-only.
+Until this is closed, do not implement schema migration or regime-aware planning. CC remains read-only.
