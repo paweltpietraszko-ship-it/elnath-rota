@@ -1,0 +1,152 @@
+ROTA-T023b — PREIMPLEMENTATION AUDIT, ROUND 2
+
+AUDITED_HEAD: b1e585979bb6f98d66920181705dcd7c075327fd
+AUDITED_BRANCH: origin/task/ROTA-T023b
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+CONTRACT:
+- arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md
+- tasks/ROTA-T023b/brief.md
+DATE: 2026-08-23
+
+VERDICT: WYMAGA_DECYZJI — CC READ-ONLY / NOT READY FOR IMPLEMENTATION A
+
+No product code or tests were changed at the audited SHA. The test matrix was
+not run because this is a preimplementation contract audit.
+
+The contract is substantially testable and correctly closes many earlier
+gaps: per-Site persistence with ordinary migration default, dynamic rather
+than persisted 24h floor, coverage of both 24h mechanisms, a pure semantic
+owner, exact 35h boundary tests, cross-context input, a combined atomic audit
+record and explicit ordinary-mode regression protection. Four blockers remain.
+
+FINDINGS
+
+R2-1 — FAIL — the declared sole override path can be bypassed by existing
+lifecycle paths that the task forbids changing.
+
+Contract trace:
+- frozen addendum §9: apply_manual_correction is the only supported explicit
+  override path and every T023b rest override requires one REST_OVERRIDE_RECORD;
+- §10: switching ordinary -> ochrona may make an existing current schedule
+  fail the new HARD validation;
+- task brief §§8/11: the same exclusivity is repeated while lifecycle_ops.py
+  and schedule_lifecycle.py are outside modification scope.
+
+Current owned behaviour:
+- lifecycle_ops.revalidate() freshly validates and replaces the current
+  WORKING snapshot with materialized deviations, without a REST override
+  DecisionRecord;
+- lifecycle_ops.finalize() freshly validates and permits FINAL_WITH_DEVIATIONS
+  when the coordinator acknowledges the exact deviation set, also without a
+  REST override DecisionRecord;
+- lifecycle_ops.restore() moves CURRENT to an older version without validation.
+
+Reproducer class: create/finalize an ordinary-mode schedule that violates a
+new T023b rule, switch the Site to ochrona, then revalidate/finalize or restore
+that version. The current/final schedule can carry or reactivate the HARD
+violation without the contract's only authorized manual-correction audit
+record. This is not the already-covered apply_manual_correction path.
+
+Before implementation the contract must state how mode-change, revalidate,
+finalize and restore preserve the one-override invariant. If they require a
+code change, the owning file must be in TASK_SCOPE. Merely testing
+apply_manual_correction does not cover this equivalence class.
+
+R2-2 — FAIL — the frozen hook order contradicts retained TRAINING_REALIZED
+action semantics.
+
+Frozen addendum §9.4 and task brief §8 require this exact success-hook order:
+1) write the material coordinator action and obtain action_id;
+2) write the REST override using action_id;
+3) run caller-specific success state.
+
+Current manual_edit._with_manual_action_hook intentionally runs
+caller_on_success before _extra_state and before writing the action. The only
+extra_state caller is training.mark_training_realized: its on_success hook
+writes derived membership readiness, then _extra_state reads that new value so
+the single TRAINING_REALIZED action contains the real readiness before/after.
+This is the retained T019b one-action contract and is directly tested by
+tests/test_t019b.py::test_c23_training_realized_one_action_with_readiness.
+
+Writing the action first makes its required after-state unavailable. Changing
+training.py or its contract is outside TASK_SCOPE. The architect contract must
+freeze an ordering that provides coordinator_action_id to the override while
+preserving caller-derived state in the same one material action; CC cannot
+choose which frozen requirement to violate.
+
+R2-3 — WYMAGA_DECYZJI — mixed ochrona/ordinary cross-Site precedence was
+selected by the architect, not resolved by an owner decision.
+
+Frozen addendum §2.1 makes only the target PlanningState Site's mode gate both
+rules. Once the target is ochrona, work on every Site counts; when the target
+is ordinary, both new checks are skipped.
+
+That makes legality depend on planning order. Example:
+- an employee completes a 24h WorkPeriod on ochrona Site A;
+- 12h later ordinary Site B plans the employee.
+
+Planning B skips the 24h floor, although the rest is owed after A's period.
+Planning the same facts from A would enforce it. The inverse case applies the
+ochrona floor to an earlier 24h period from an ordinary Site. Weekly rest has
+the same asymmetry: later ordinary-site planning may destroy the rest of an
+already-planned ochrona employee without running WEEKLY-REST-01.
+
+The current model cannot recover the governing mode inside the pure owner:
+Assignment has no site_id; PlanningState contains one target Site and plain
+boundary_assignments/other_site_assignments, without the source Site mode for
+each WorkPeriod. The owner decided per-Site mode, ordinary compatibility and
+employee-wide cross-Site facts, but did not decide which Site's mode governs a
+mixed-Site edge/week.
+
+This must return to the owner. The contract may not silently choose target
+Site, earlier-work Site, any-ochrona-in-week or another precedence rule. The
+answer may alter the required state/provenance surface and TASK_SCOPE.
+
+R2-4 — WYMAGA_DECYZJI — the contract adds overlapping statutory weeks not
+contained in O3.
+
+O3 fixes a calendar-month settlement period and a day-1 anchor. Frozen
+addendum §6 additionally generates a seven-day week for every start still
+inside the month, lets the final one extend beyond that settlement period, and
+starts a second sequence on the next month's day 1.
+
+For example this creates both [29 March, 5 April) and [1 April, 8 April) as
+statutory weeks. The same work is therefore tested against two overlapping
+settlement-period windows. O3 did not explicitly approve that additional
+double-window rule.
+
+The official Code defines a week as seven consecutive calendar days beginning
+on the first day of the settlement period. PIP materials describe full weeks
+inside the settlement period and days remaining at its end, but do not support
+the contract's explicit overlapping final/next-period construction. Because
+this is legal/product semantics rather than a storage or CP-SAT detail, the
+architect cannot settle it mechanically. The owner, with legal confirmation
+if desired, must choose the treatment of the final partial settlement-period
+days and whether overlapping windows are intentionally required.
+
+Official sources checked:
+- https://eli.gov.pl/api/acts/DU/2025/277/text/U/D20250277Lj.pdf
+- https://www.pip.gov.pl/dla-pracownikow/porady-prawne/czas-pracy
+- https://www.pip.gov.pl/files/127/Dla-pracodawcow/395/Legalnosc-zatrudnienia---poradnik-dla-pracodawcow-i-pracownikow-1.pdf
+
+NON-BLOCKING FACTUAL CORRECTION
+
+The architect input labels O3 as a Codex legal-provenance finding derived from
+art. 137's settlement-period cap. Art. 137 says no longer than one month; it
+does not itself select a calendar month. O3 is valid because Paweł explicitly
+confirmed the calendar-month product convention, not because that convention
+follows uniquely from art. 137. Correcting the attribution does not reopen O3.
+
+ARCHITECTURE_PROPOSALS
+
+None. Every finding above concerns a contradiction or an owner decision
+needed by the current contract; none is an optional hardening proposal.
+
+REQUIRED NEXT STATUS
+
+Keep:
+`CC READ-ONLY / NOT READY FOR IMPLEMENTATION`
+
+After the two contract contradictions are repaired and R2-3/R2-4 receive
+owner rulings, submit the next exact contract HEAD for one reaudit. Do not
+start Checkpoint A from b1e585979bb6f98d66920181705dcd7c075327fd.
