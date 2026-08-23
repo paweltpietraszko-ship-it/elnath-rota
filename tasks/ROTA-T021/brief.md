@@ -389,43 +389,60 @@ follow-up, not partially now.
     EXTERNAL_SUPPORT` (enabled or not) are **not shown in this picker at
     all** — out of scope per the boundary above, this flow must never
     read or write their row.
-- **Per-employee screen — "Ogólna dostępność" toggle — BLOCKED,
-  corrected 2026-08-23 (round-9 R9-2, replaces the round-8 text
-  entirely)**: the round-8 attempt (API layer looks up any existing
-  current/future `UNAVAILABLE_24H` family and reuses or creates one) is
-  itself real business logic — a family-selection/uniqueness decision —
-  which T021's `api/` may not invent, and which isn't even atomic as a
-  read-then-write across two requests. Whether a single-family invariant
-  should exist at all, and if so its atomic backend implementation, is
-  an architect decision: facts handed over in
-  `arch/T021_screen2_availability_singularity_architect_brief_2026-08-23.md`.
-  **Do not build this control until that task lands and this brief is
-  updated with the real function name/signature** — same rule as the
-  Dniówka/Nocka/weekday columns above.
+- **Per-employee screen — "Ogólna dostępność" — UNBLOCKED, corrected
+  2026-08-23 (architect resolution on
+  `arch/T021_screen2_availability_singularity_architect_brief_2026-08-23.md`,
+  replaces every round-8/round-9 text on this control)**: no
+  single-family invariant exists or is wanted. An employee may have
+  multiple independent `UNAVAILABLE_24H` periods at once; nothing merges
+  or deduplicates them. This makes "Ogólna dostępność" work exactly like
+  the other 4 `AvailabilityKind` values below — same list, same form, no
+  special case:
+  - **Checked/unchecked for a given day `d`** is a pure display
+    computation, never written or read as its own field:
+    `not any(r.active and r.kind == UNAVAILABLE_24H and r.start_date <=
+    d <= r.end_date for r in records)`. The per-employee screen's own
+    "current status" indicator uses today's date; the deferred
+    roster-overview matrix (Out of scope) would use whichever day it's
+    scanning.
+  - **New period**: fresh `availability_id` (`uuid.uuid4().hex`),
+    `durable_inputs.append_availability(conn, *, coordinator_id,
+    site_id, availability_id, employee_id, kind, start_date, end_date,
+    active=True, ...)`. Always a new family — never looks for an
+    existing one to reuse.
+  - **Edit an existing period** (shown in the log below): the SAME
+    `availability_id` as that specific log entry, new `start_date`/
+    `end_date`, `active=True` — a new version in that one family. The
+    coordinator picks WHICH period to edit directly from the list (each
+    entry is its own row with its own edit action); there is no
+    lookup/selection logic anywhere in `api/` or `rota/**` — the
+    frontend already has the full list loaded for display and the
+    coordinator's click supplies the `availability_id` directly.
+  - **End a period early**: same `availability_id`, `active=False`.
+  - `AvailabilityRecord.active=True` on an already-past `end_date` is
+    normal and permanent (no auto-expiry) — the day-`d` computation
+    above already treats it as not-blocking once `d > end_date`; nothing
+    needs to change `active` for that.
 - **Per-employee screen — "24h" toggle**: same `update_membership` call
   as remove-from-roster, flipping only `can_work_24h`, every other field
   carried over unchanged. Plain persistent bool, no date range, no
   auto-revert (`T021_spec.md:524-529` — do not build a date picker for
   this one).
-- **Per-employee screen — "Zgłoś nieobecność"** — **narrowed 2026-08-23
-  (round-9 R9-2)**: covers 4 of the 5 `AvailabilityKind` values
-  (`DAY_SHIFT_OFF`/`LEAVE_PLAN`/`LEAVE_GRANTED`/`SICK_LEAVE`) + date
-  range for this increment. `UNAVAILABLE_24H` is excluded from this
-  form too — it is the SAME mechanism as the blocked matrix toggle
-  above, not a separate path, so it waits on the same architect
-  decision. Each of the 4 buildable kinds has no singularity rule (only
-  `UNAVAILABLE_24H` is the matrix's own column) — always a fresh
-  `availability_id` on creation; correcting/ending an entry already
-  shown in the log reuses that entry's own `availability_id`, same
-  append/deactivate rule as `append_availability` already documents.
-  Shown as a log of every family's current state:
+- **Per-employee screen — "Zgłoś nieobecność"** — **corrected 2026-08-23
+  (architect resolution above removes the round-9 R9-2 restriction)**:
+  one form, all 5 `AvailabilityKind` values
+  (`DAY_SHIFT_OFF`/`UNAVAILABLE_24H`/`LEAVE_PLAN`/`LEAVE_GRANTED`/
+  `SICK_LEAVE`) + date range — this IS "Ogólna dostępność"'s own
+  mechanism for `UNAVAILABLE_24H` (not a separate path): new entry =
+  fresh `availability_id`; editing/ending an entry already in the log
+  reuses that entry's own `availability_id`. Shown as a log of every
+  family's current state, all 5 kinds together:
   `availability_repository.get_current_availability_for_employee(conn,
   employee_id) -> list[AvailabilityRecord]` (persistence-layer, no
   application wrapper, call directly per the same already-accepted
-  missing-wrapper pattern as Screen 1's calendar read), filtered to
-  exclude `kind == UNAVAILABLE_24H` entries for now (they belong to the
-  blocked control above) — includes `active=False` chain-ends for the 4
-  shown kinds, displayed as past/ended entries, not filtered out.
+  missing-wrapper pattern as Screen 1's calendar read) — includes
+  `active=False` chain-ends, shown as past/ended entries, not filtered
+  out.
 - **Per-employee screen — godziny docelowe/miesiąc** — corrected
   2026-08-23 (round-7 R7-4, owner ruling): plain month selector, no
   restriction to months with an existing schedule — defaults to the
@@ -453,8 +470,6 @@ follow-up, not partially now.
 ### Out of scope for this increment
 
 - Dniówka/Nocka/weekday matrix columns — blocked, see above.
-- "Ogólna dostępność" (matrix toggle and its `UNAVAILABLE_24H` case in
-  "Zgłoś nieobecność") — blocked 2026-08-23 (round-9 R9-2), see above.
 - The full roster-overview matrix (all employees, all columns at a
   glance) — the per-employee screen is the primary surface for now; the
   scanning grid is a later addition once the blocked columns exist too
