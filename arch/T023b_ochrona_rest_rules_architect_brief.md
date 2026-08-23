@@ -243,7 +243,14 @@ The following remain outside T023b:
 - a redesign of LOAD-01 or print settings;
 - new coordinator policy toggles unrelated to the ochrona/ordinary mode.
 
-## 8. Binding owner decisions closing art. 133 scope (2026-08-23)
+## 8. Binding decisions closing art. 133 scope (2026-08-23)
+
+O1 and O2 are owner rulings (confirmed directly by Paweł, 2026-08-23,
+outside this document). O3 is Codex's own legal-provenance finding
+(derived from the already-established art. 137 fact that ochrona's
+equivalent-time settlement period is capped at 1 month), not a product
+decision Paweł originated — confirmed/accepted by Paweł as correct
+after CC flagged the ambiguous attribution.
 
 ### O1 — automatic floor is always 35h
 
@@ -266,7 +273,7 @@ this task concerns uninterrupted duration only. Do not add employer-defined
 Sunday boundaries, Sunday-work authorization data or Sunday-placement
 constraints.
 
-### O3 — settlement period is the calendar month
+### O3 — settlement period is the calendar month (Codex finding, owner-confirmed)
 
 For T023b the applicable settlement period is the calendar month. Its first
 day is the statutory week anchor; successive seven-day intervals are derived
@@ -275,7 +282,7 @@ windows. The architect must specify the exact trailing/boundary read window
 and ensure that work from adjacent months and other Sites cannot disappear
 from validation.
 
-These three rulings close the known product questions. The architect may
+These three decisions close the known product questions. The architect may
 return `OWNER DECISION REQUIRED` only for a newly demonstrated contradiction
 that cannot be resolved from this document or current frozen contracts.
 
