@@ -152,6 +152,10 @@ export default function ControlPanel({
   );
 }
 
+function newEmployeeIdStorageKey(siteId: string) {
+  return `elnath-rota-new-employee-id:${siteId}`;
+}
+
 function AddPersonPanel({ siteId, onClose, onAdded }: { siteId: string; onClose: () => void; onAdded: () => void }) {
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [displayName, setDisplayName] = useState("");
@@ -160,6 +164,23 @@ function AddPersonPanel({ siteId, onClose, onAdded }: { siteId: string; onClose:
   const [selectedExisting, setSelectedExisting] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Generated once (brief.md section 5.1, round-9 R9-1): held until the
+  // attach step succeeds, surviving re-render, "Ponów" and a reload
+  // (sessionStorage) -- never regenerated on retry, so a lost response
+  // after Employee creation can never produce a second Employee.
+  const [newEmployeeId] = useState<string>(() => {
+    const key = newEmployeeIdStorageKey(siteId);
+    try {
+      const existing = sessionStorage.getItem(key);
+      if (existing) return existing;
+      const id = crypto.randomUUID();
+      sessionStorage.setItem(key, id);
+      return id;
+    } catch {
+      return crypto.randomUUID();
+    }
+  });
 
   useEffect(() => {
     if (mode === "existing") {
@@ -172,9 +193,13 @@ function AddPersonPanel({ siteId, onClose, onAdded }: { siteId: string; onClose:
     setError(null);
     try {
       if (mode === "new") {
-        const employeeId = crypto.randomUUID();
-        await api.createEmployee({ employee_id: employeeId, site_id: siteId, display_name: displayName, day_only: dayOnly });
-        await api.attachToRoster(siteId, employeeId);
+        await api.createEmployee({ employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly });
+        await api.attachToRoster(siteId, newEmployeeId);
+        try {
+          sessionStorage.removeItem(newEmployeeIdStorageKey(siteId));
+        } catch {
+          // per-viewer convenience only; ignore storage failures
+        }
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
         await api.attachToRoster(siteId, selectedExisting);

@@ -66,7 +66,13 @@ export default function EmployeeDetail({
 
   const dniowkaBlocked = cellActiveToday(cells, (c) => c.cell === "dniowka");
   const dayOnlyExceptionActive = cellActiveToday(cells, (c) => c.cell === "day_only_exception");
-  const nockaBlocked = detail.employee.day_only ? !dayOnlyExceptionActive : cellActiveToday(cells, (c) => c.cell === "nocka");
+  // Corrected (round-12 audit R12-3): the day_only exception exempts only
+  // the base DAY_ONLY-01 block (T021b brief.md section 2 -- "does not
+  // weaken any other HARD"). An independent Nocka restriction is
+  // AND-composed and still blocks even while the exception is active.
+  const explicitNockaRestriction = cellActiveToday(cells, (c) => c.cell === "nocka");
+  const nockaBlocked =
+    explicitNockaRestriction || (detail.employee.day_only && !dayOnlyExceptionActive);
   const today = isoToday();
   const ogolnaBlocked = detail.availability.some(
     (r) => r.kind === "UNAVAILABLE_24H" && r.active && r.start_date <= today && r.end_date >= today,
@@ -247,6 +253,14 @@ function StatusCell({ blocked }: { blocked: boolean }) {
   return <span className={`matrix-box ${blocked ? "matrix-box-off" : "matrix-box-on"}`}>{blocked ? "✕" : "✓"}</span>;
 }
 
+function restrictionLabel(c: MatrixCellOut): string {
+  if (c.cell === "dniowka") return "Dniówka";
+  if (c.cell === "nocka") return "Nocka";
+  if (c.cell === "day_only_exception") return "Wyjątek: czasowa Nocka";
+  if (c.cell === "weekday") return WEEKDAY_NAMES[(c.weekday ?? 1) - 1] ?? "Dzień tygodnia";
+  return "Inne";
+}
+
 function RestrictionList({
   cells,
   employeeId,
@@ -258,40 +272,116 @@ function RestrictionList({
   siteId: string;
   onChanged: () => void;
 }) {
-  const [error, setError] = useState<string | null>(null);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   if (cells.length === 0) return <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak aktywnych ograniczeń.</p>;
 
-  const label = (c: MatrixCellOut) => {
-    if (c.cell === "dniowka") return "Dniówka";
-    if (c.cell === "nocka") return "Nocka";
-    if (c.cell === "day_only_exception") return "Wyjątek: czasowa Nocka";
-    if (c.cell === "weekday") return WEEKDAY_NAMES[(c.weekday ?? 1) - 1] ?? "Dzień tygodnia";
-    return "Inne";
-  };
+  return (
+    <>
+      {cells.map((c) =>
+        editingRuleId === c.rule_id ? (
+          <RestrictionEditRow
+            key={c.rule_id}
+            cell={c}
+            employeeId={employeeId}
+            siteId={siteId}
+            onDone={() => {
+              setEditingRuleId(null);
+              onChanged();
+            }}
+            onCancel={() => setEditingRuleId(null)}
+          />
+        ) : (
+          <div key={c.rule_id} className="absence-log-item">
+            <span>
+              <strong>{restrictionLabel(c)}</strong> — od {c.effective_from} do {c.effective_to ?? "bez końca"}
+            </span>
+            <span style={{ display: "flex", gap: 8 }}>
+              <button className="btn-ghost" onClick={() => setEditingRuleId(c.rule_id)}>
+                Edytuj / zakończ
+              </button>
+            </span>
+          </div>
+        ),
+      )}
+    </>
+  );
+}
 
-  const endEarly = async (ruleId: string) => {
+function RestrictionEditRow({
+  cell,
+  employeeId,
+  siteId,
+  onDone,
+  onCancel,
+}: {
+  cell: MatrixCellOut;
+  employeeId: string;
+  siteId: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [from, setFrom] = useState(cell.effective_from);
+  const [to, setTo] = useState(cell.effective_to ?? "");
+  const [endDate, setEndDate] = useState(cell.effective_from > isoToday() ? cell.effective_from : isoToday());
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const saveDates = async () => {
+    setSubmitting(true);
+    setError(null);
     try {
-      await api.endMatrixRuleEarly(employeeId, ruleId, { site_id: siteId, effective_from: isoToday() });
-      onChanged();
+      await api.updateMatrixRule(employeeId, cell.rule_id, { site_id: siteId, effective_from: from, effective_to: to });
+      onDone();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const endEarly = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.endMatrixRuleEarly(employeeId, cell.rule_id, { site_id: siteId, effective_from: endDate });
+      onDone();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <>
+    <div className="create-panel" style={{ marginBottom: 10 }}>
+      <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{restrictionLabel(cell)}</p>
       {error && <div className="banner-error">{error}</div>}
-      {cells.map((c) => (
-        <div key={c.rule_id} className="absence-log-item">
-          <span>
-            <strong>{label(c)}</strong> — od {c.effective_from} do {c.effective_to ?? "bez końca"}
-          </span>
-          <button className="btn-ghost" onClick={() => endEarly(c.rule_id)}>
-            Zakończ teraz
-          </button>
-        </div>
-      ))}
-    </>
+      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label>
+          <span className="field-label">Od</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label>
+          <span className="field-label">Do</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+      </div>
+      <div className="create-panel-actions" style={{ marginBottom: 14 }}>
+        <button className="btn-primary" onClick={saveDates} disabled={submitting || !from || !to}>
+          Zapisz daty
+        </button>
+        <button className="btn-ghost" onClick={onCancel} disabled={submitting}>
+          Anuluj
+        </button>
+      </div>
+      <div className="field-row">
+        <label>Zakończ wcześniej, od dnia</label>
+        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        <button className="btn-ghost" onClick={endEarly} disabled={submitting || !endDate}>
+          Zakończ
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -405,7 +495,7 @@ function AbsenceLog({
   onChanged: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  if (records.length === 0) return <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak zgłoszonych nieobecności.</p>;
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const endNow = async (r: AvailabilityRecordOut) => {
     try {
@@ -418,23 +508,103 @@ function AbsenceLog({
     }
   };
 
+  if (records.length === 0) return <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak zgłoszonych nieobecności.</p>;
+
   return (
     <>
       {error && <div className="banner-error">{error}</div>}
-      {records.map((r) => (
-        <div key={r.availability_id} className={`absence-log-item${r.active ? "" : " absence-log-item-ended"}`}>
-          <span>
-            <strong>{AVAILABILITY_KIND_LABELS[r.kind] ?? r.kind}</strong> — od {r.start_date} do {r.end_date}
-            {!r.active && " (zakończone)"}
-          </span>
-          {r.active && (
-            <button className="btn-ghost" onClick={() => endNow(r)}>
-              Zakończ teraz
-            </button>
-          )}
-        </div>
-      ))}
+      {records.map((r) =>
+        editingId === r.availability_id ? (
+          <AbsenceEditRow
+            key={r.availability_id}
+            record={r}
+            employeeId={employeeId}
+            siteId={siteId}
+            onDone={() => {
+              setEditingId(null);
+              onChanged();
+            }}
+            onCancel={() => setEditingId(null)}
+          />
+        ) : (
+          <div key={r.availability_id} className={`absence-log-item${r.active ? "" : " absence-log-item-ended"}`}>
+            <span>
+              <strong>{AVAILABILITY_KIND_LABELS[r.kind] ?? r.kind}</strong> — od {r.start_date} do {r.end_date}
+              {!r.active && " (zakończone)"}
+            </span>
+            {r.active && (
+              <span style={{ display: "flex", gap: 8 }}>
+                <button className="btn-ghost" onClick={() => setEditingId(r.availability_id)}>
+                  Edytuj daty
+                </button>
+                <button className="btn-ghost" onClick={() => endNow(r)}>
+                  Zakończ teraz
+                </button>
+              </span>
+            )}
+          </div>
+        ),
+      )}
     </>
+  );
+}
+
+function AbsenceEditRow({
+  record,
+  employeeId,
+  siteId,
+  onDone,
+  onCancel,
+}: {
+  record: AvailabilityRecordOut;
+  employeeId: string;
+  siteId: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [from, setFrom] = useState(record.start_date);
+  const [to, setTo] = useState(record.end_date);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.updateAvailability(employeeId, record.availability_id, {
+        site_id: siteId, kind: record.kind, start_date: from, end_date: to, active: true,
+      });
+      onDone();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="create-panel" style={{ marginBottom: 10 }}>
+      <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{AVAILABILITY_KIND_LABELS[record.kind] ?? record.kind}</p>
+      {error && <div className="banner-error">{error}</div>}
+      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label>
+          <span className="field-label">Od</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label>
+          <span className="field-label">Do</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+      </div>
+      <div className="create-panel-actions">
+        <button className="btn-primary" onClick={save} disabled={submitting || !from || !to}>
+          Zapisz
+        </button>
+        <button className="btn-ghost" onClick={onCancel} disabled={submitting}>
+          Anuluj
+        </button>
+      </div>
+    </div>
   );
 }
 
