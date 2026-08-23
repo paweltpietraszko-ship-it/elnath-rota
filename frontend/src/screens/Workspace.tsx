@@ -142,7 +142,7 @@ export default function Workspace() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
-                Nowy obiekt (Zwykły)
+                Nowy obiekt (Standardowy)
               </button>
             </div>
           </div>
@@ -163,20 +163,18 @@ export default function Workspace() {
             <Chip label={`Wszystkie (${sites.length})`} active={filter === "ALL"} onClick={() => setFilter("ALL")} />
             <Chip
               label={`Wymaga decyzji (${decisionCount})`}
+              tip="Miesiące, w których trzeba coś zdecydować — np. bo w danym tygodniu przekroczono dopuszczalną liczbę godzin."
               rust
               active={filter === "DECISION_REQUIRED"}
               onClick={() => setFilter("DECISION_REQUIRED")}
             />
             <Chip
               label={`Konfiguracja niepełna (${incompleteCount})`}
+              tip="Obiekt nie jest jeszcze gotowy do pracy — brakuje np. grafiku zmian, przypisanych pracowników albo ustawień wydruku."
               active={filter === "CONFIG_INCOMPLETE"}
               onClick={() => setFilter("CONFIG_INCOMPLETE")}
             />
           </div>
-          <p className="chip-hint">
-            „Konfiguracja niepełna” łączy dwa sprawdzenia: kompletność kontekstu obiektu (profil/obsada) i obecność
-            ustawień wydruku.
-          </p>
 
           {loading ? (
             <p>Ładowanie…</p>
@@ -290,7 +288,7 @@ function SiteRow({ site }: { site: SiteSummary }) {
       <div>
         <h3 className="site-card-name">{site.display_name}</h3>
         <p className="site-card-regime">
-          {site.planning_regime === "OCHRONA" ? "Ochrona obiektu" : "Obiekt zwykły"}
+          {site.planning_regime === "OCHRONA" ? "Ochrona obiektu" : "Obiekt standardowy"}
         </p>
       </div>
       <div className="site-card-foot">
@@ -366,7 +364,7 @@ function CreatePanel({
 
   return (
     <div className="create-panel">
-      <h3>Nowy obiekt — {regime === "OCHRONA" ? "Ochrona" : "Zwykły"}</h3>
+      <h3>Nowy obiekt — {regime === "OCHRONA" ? "Ochrona" : "Standardowy"}</h3>
       <p className="create-panel-hint">
         Tworzy minimalny wpis — obiekt pojawi się od razu w „Konfiguracja niepełna” i czeka na katalog zmian,
         obsadę i ustawienia wydruku w Panelu sterowania.

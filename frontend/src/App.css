@@ -357,7 +357,7 @@ button {
 .chip-row {
   display: flex;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 24px;
   flex-wrap: wrap;
 }
 
@@ -380,12 +380,6 @@ button {
 .chip-rust {
   color: var(--rust);
   font-weight: 600;
-}
-
-.chip-hint {
-  font-size: 11px;
-  color: var(--ink-faint);
-  margin-bottom: 22px;
 }
 
 /* Site cards */
