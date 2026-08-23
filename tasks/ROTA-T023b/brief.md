@@ -416,6 +416,9 @@ TASK_SCOPE:
 - rota/planning/validator.py
 - rota/application/schedule_export.py
 - tests/test_t023b.py
+- tests/test_t012.py
+- tests/test_t019b.py
+- tests/test_t020.py
 
 Owner-authorized narrow amendment (2026-08-23, mechanical schema-bump
 fallout): tests/test_t012.py, tests/test_t019b.py, tests/test_t020.py
