@@ -15,6 +15,24 @@ logika biznesowa (wybór rodziny, wymuszanie unikalności), nie zwykłe
 opakowanie istniejącej funkcji, a T021 nie może jej wymyślać w `api/`
 ani w `rota/`. Ten dokument jest wyłącznie faktograficzny.
 
+## Dodatkowy fakt (2026-08-23, po pytaniu Pawła) — nakładanie się RÓŻNYCH rodzajów jest już rozwiązane
+
+`rota/planning/eligibility.py:71-88` (`_BLOCKING_KIND_PRIORITY`) —
+zamrożona decyzja właściciela z 2026-08-14: gdy `SICK_LEAVE` i
+`LEAVE_GRANTED` nakładają się na ten sam dzień, wygrywa `SICK_LEAVE`
+("a sick note handed in during an approved vacation is the real-world
+case (sick leave interrupts the vacation)"). To dokładnie przykład,
+który podał Paweł — i jest już zaimplementowane oraz zatwierdzone.
+
+**To NIE rozwiązuje problemu niżej.** Priorytet dotyczy nakładania się
+RÓŻNYCH `AvailabilityKind` (np. chorobowe vs urlop) przy odczycie/
+raportowaniu przez solver — nie ogranicza w żaden sposób, ile
+NIEZALEŻNYCH rekordów TEGO SAMEGO rodzaju (`UNAVAILABLE_24H`) może
+istnieć naraz dla jednego pracownika. Pytanie do architekta poniżej
+dotyczy wyłącznie tego węższego przypadku: czy checkbox "Ogólna
+dostępność" (jeden rodzaj, `UNAVAILABLE_24H`) może przez pomyłkę
+stworzyć dwa niezależne, równoległe wpisy zamiast poprawić jeden.
+
 ## Fakty zweryfikowane w kodzie
 
 - `durable_inputs.append_availability(conn, *, coordinator_id, site_id,
