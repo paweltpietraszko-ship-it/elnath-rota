@@ -1,0 +1,1496 @@
+diff --git a/arch/T026_absence_canonicalization_gaps_architect_brief.md b/arch/T026_absence_canonicalization_gaps_architect_brief.md
+new file mode 100644
+index 0000000..48e5a63
+--- /dev/null
++++ b/arch/T026_absence_canonicalization_gaps_architect_brief.md
+@@ -0,0 +1,69 @@
++# ROTA-T026 — ARCHITECT INPUT: POST-T023 CANONICALIZATION GAPS
++
++STATUS: INPUT FOR A NEW ARCHITECT SESSION — NOT AN IMPLEMENTATION CONTRACT
++BASE: `main@3d2c2dc` (ROTA-T023 Checkpoints A/B/C merged)
++SOURCE: independent Cursor holistic audit, [PR #7](https://github.com/paweltpietraszko-ship-it/elnath-rota/pull/7), exact audit HEAD `6368ec0eae04733b4acd094247352724dd6c0901` (`cursor/t023-holistic-audit-4a06`). The PR contains `tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md`; that file is not present in this local workspace, so the PR+SHA above — not a nonexistent local path or an unavailable transcript — is the source citation. CC directly confirmed A2/A3/A4 against `main@3d2c2dc`; Codex directly confirmed A1, checked the same A2/A3 source paths and performed the final scope classification below.
++
++HANDOFF CLASSIFICATION: A1 is a confirmed legacy-gate/contract gap; A2+A3 are one confirmed canonical-ownership gap, not two independent numerical defects; A4 is a stale-comment cleanup with no functional effect. The audit's labor-law items and C1/C2 observations are explicitly excluded in section 5. This classification is complete for the architect handoff and does not depend on either review transcript.
++
++## 1. Architect deliverables
++
++Produce, without implementation:
++
++1. a separate, explicit disposition for **each** of items 1 and 2 below: authorize it in T026, defer it with a named reason/future decision boundary, or reject it as not a defect with trace to the controlling contract; neither item may be left implicit merely because the other is authorized;
++2. for item 1, a definition of the public `plan(PlanningState)` trust/validation boundary, followed by the gate decision: remove the stale gate and supersede its oracle, replace it with an exactly named canonical-model invariant, or confirm it as intentional defense-in-depth and state how it remains compatible with T023;
++3. for item 2, a layering decision: does the canonical Site-aware projection move into `rota/planning/absence.py`, taking the richer decoded facts with it or by reference, or does it live in another named pure owner? The decision must preserve or explicitly amend the frozen single-owner contract; this module's current ownership comment states that it imports nothing from persistence by design;
++4. if either item is authorized, `tasks/ROTA-T026/brief.md` with exact `TASK_SCOPE`, allowed production/test files, superseded-or-preserved historical oracles, and closure criteria for **all** authorized items;
++5. explicit confirmation of what stays OUT of scope — this brief deliberately excludes the labor-law and C1/C2 items from the same Cursor audit (see section 5).
++
++CC must not implement before independent Codex preimplementation PASS, per the same pipeline T023 used.
++
++## 2. Item 1 — `rota/planning/engine.py` still gates on the retired SICK-only workday-calendar path
++
++`engine.py:29` imports `IncompleteAbsenceCalendarError, excused_absence_days_in_month` from `rota.planning.absence`. `_plan()` at `engine.py:76-79` calls:
++
++```python
++excused_absence_days_in_month(
++    state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
++    calendar_days=state.calendar_days,
++)
++```
++
++before `solve()`. `plan()` at `engine.py:62-63` maps `IncompleteAbsenceCalendarError` to `TECHNICAL_ERROR`. The comment immediately above the call (`engine.py:71-75`) justifies this as a pre-model shortage check because "a pre-model shortage ... never reaches `_sick_adjusted_targets()`" — **that function no longer exists**; it was renamed to `_effective_targets` during ROTA-T023 Checkpoint B (`rota/planning/solver.py:276`), and its body no longer recomputes anything from `calendar_days`/`availability_records` at all — it reads `wb.absence_hours` directly off `PlanningState.work_balances` (already resolved upstream). The comment describes a pre-Checkpoint-B world.
++
++Frozen addendum section 2 (ROTA-T023): SICK_LEAVE has no PRE_PLAN path at all — its hours only ever come from an accepted schedule (POST_PLAN_REFERENCE) or are MISSING. `excused_absence_days_in_month`/`CalendarDay` is not part of how SICK_LEAVE hours are computed anywhere after T023. This engine.py call's actual current effect is a completeness gate unrelated to what the solver now consumes.
++
++**Observed production-path redundancy, not yet confirmed as total:** in the `plan_month()`/`replan()` application paths, `assemble_planning_state()` runs before `plan()` and already calls `_assemble_work_balances()` → `reconstruct_month_balance()`, which raises `IncompleteAbsenceReferenceError` uncaught if a required SICK/LEAVE reference is incomplete. If those are the exhaustive supported entry paths, `engine.py`'s own gate is subsumed before a real caller reaches it. Direct `plan(PlanningState)` remains a public code boundary and is used directly by tests, so T026 must decide whether that boundary accepts only an already assembled/trusted state or owns an independent completeness check; this brief does not infer that answer from current tests.
++
++**Known retained test dependency:** `tests/test_t018.py::test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical_error` (lines 186-198) asserts `plan()` returns `TECHNICAL_ERROR` for a hand-built `PlanningState` carrying a SICK_LEAVE record and no `calendar_days`. It records the old T018 boundary but does not by itself prove that this remains the correct post-T023 oracle.
++
++**Required architect ruling for a testable contract:**
++
++- If `PlanningState` is trusted/assembled input, say so explicitly, identify the supported assembly entry paths, and state whether the old direct-plan oracle is superseded while unrelated uses of the T018 helper remain preserved.
++- If `plan()` still owns an independent guard, name the exact canonical field/invariant it checks and its `PlanningResult` error mapping. The guard must not silently restore CalendarDay/raw-Availability recounting that T023 superseded for solver TARGET (`T23-32`).
++- State the regression boundary for direct `plan()`, `plan_month()` and `replan()` so a fix cannot close only the observed call path.
++
++## 3. Item 2 — `rota/application/schedule_export.py` re-derives SICK/LEAVE precedence and POST_PLAN hours instead of consuming one canonical result
++
++Frozen addendum section 13: "`rota/planning/absence.py` is the single pure consumer-facing accounting/precedence owner ... Consumers do not choose source mode from CURRENT and do not reimplement SICK/LEAVE precedence, anchor rules or Site filtering."
++
++`rota/planning/absence.py::canonical_daily_hours` (lines 150-171) already implements SICK-wins-over-LEAVE_GRANTED precedence and returns `dict[date, int]` hours. `rota/balance.py` and `rota/application/analytics_read.py` consume decoded `DailyAbsenceFact`; the solver consumes the resulting `WorkBalance.absence_hours` indirectly rather than reading `DailyAbsenceFact` itself. The canonical shape is Employee-global and Site-agnostic, with no `PeriodFact`/shift-kind detail.
++
++`rota/application/schedule_export.py` needs Site-filtered hours (T20 prints one Site's own sheet; frozen addendum: "Site comes from bound schedule provenance") and the bound period's `shift_kind` (to print a D or N code rather than pick by duration alone — this was itself a closed Checkpoint C finding, C-R15-2). `DailyAbsenceFact` cannot supply either. So Checkpoint C built a second reader directly against the richer `AbsenceReferenceSnapshot`/`DayReference`/`PeriodFact` shape (`rota/persistence/absence_reference_repository.py`) and reimplemented both concerns locally:
++
++- `schedule_export.py::_winning_days` (lines 324-333) — its own SICK-wins-LEAVE precedence over `(AvailabilityRecord, AbsenceReferenceSnapshot)` pairs, duplicating `canonical_daily_hours`'s own rule.
++- `schedule_export.py::_post_plan_pair` (lines 334-351) — sums `PeriodFact` interval durations filtered by `site_id`, **never reads `DayReference.hours`** for POST_PLAN dates. `_decompose_pre_plan` (lines 321-323), by contrast, reads `day.hours` for PRE_PLAN dates. The two provenance modes legitimately require different projections; the gap is that T020 owns the POST_PLAN Site arithmetic and precedence locally even though frozen section 13 assigns those concerns to one canonical owner.
++
++A same-value substitution is not available by construction: `DailyAbsenceFact` is deliberately simplified and Site-agnostic, so `schedule_export.py` cannot just consume it without losing the Site filtering required by C-R15-3/T23-25. Closing this needs either (a) a canonical Site-aware presentation projection in the existing or another named pure owner, called by `schedule_export.py` instead of its own `_winning_days`/`_post_plan_pair`, or (b) a formal T026 owner amendment authorizing a narrower second owner. Option (b) may not be expressed as a reinterpretation: it must explicitly supersede the conflicting text in frozen addendum section 13, section 16 guarantee 15 and the corresponding `T23-35` consumer-equality requirement, while stating what equality remains required. `rota/planning/absence.py`'s module comment (lines 118-121) currently says it imports nothing from persistence to avoid a layering cycle with `absence_reference_repository.py`, which already imports `rota.planning.validator`/`work_periods`; option (a) must resolve that layering boundary explicitly, not silently.
++
++For either authorized design, the T026 implementation contract must name the pure input and output shapes and preserve the already-frozen behavior for explicit range clipping, SICK-over-LEAVE precedence, PRE_PLAN exact-sum presentation, POST_PLAN Site provenance and D/N/24h/rest facts, and fail-closed MISSING/AMBIGUOUS handling. These are inherited T023 guarantees, not new T026 product rules.
++
++## 4. Item 3 — stale comment, no functional effect
++
++`rota/planning/absence.py:123-127` still reads: "Deliberately NOT wired into rota.balance / rota.planning.solver / rota.application.schedule_export yet -- those are Checkpoint B/C's own allowed-file scope ... until that checkpoint switches them over." All three are wired as of `main@3d2c2dc`. This is a trivial documentation correction: include it if T026 authorizes either implementation item; if neither is authorized, give it an explicit cleanup disposition rather than silently leaving the stale statement in place.
++
++## 5. Explicitly out of scope for this brief
++
++The same Cursor audit raised labor-law questions (Kodeks pracy art. 132/136 §2/137 rest-after-24h-shift, art. 133 35h weekly rest, night-work window) about what `rota/planning/eligibility.py`/`constraints.py`/`work_periods.py` treat as legal today (`REST_MIN_HOURS = 11`, coordinator-entered `required_rest_hours`, no encoded weekly-rest or 24h-aftermath rule). Codex's review of that section confirmed the KP citations on their own terms but held that it is a distinct scope question from T023's canonicalization work — today's product spec treats coordinator-configured `required_rest_hours` as authoritative and does not derive legality from statute anywhere. Paweł has not yet decided whether/when to open that as its own task. Do not fold it into T026.
++
++Also out of scope (Cursor findings C1/C2, reviewed and not reopened): T021's absence log reading raw `AvailabilityRecord` beside `open_month`'s canonical `work_balances` is an intentional split (presence/dates vs. canonical hours are different questions with different owners), and `IncompleteAbsenceReferenceError` propagating uncaught through `manual_edit.apply_manual_correction`/`lifecycle_ops.revalidate`/`finalize`/`open_month` (beyond the `plan_month`/`select_candidate`/`replan` path already ruled fail-closed-required during T023 Checkpoint B) is the same required fail-closed behavior on new call sites, not a new requirement — any push toward degrade-to-warning UX consistency across those coordinator screens is a distinct owner decision, not a T023/T026 defect.
+diff --git a/rota/application/schedule_export.py b/rota/application/schedule_export.py
+index 3f1c874..6f0d92d 100644
+--- a/rota/application/schedule_export.py
++++ b/rota/application/schedule_export.py
+@@ -20,6 +20,7 @@ from rota.persistence import calendar_repository, employee_repository, schedule_
+ from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
+ from rota.persistence.availability_repository import list_active_overlapping_for_employees
+ from rota.persistence.schedule_errors import ScheduleVersionNotFound
++from rota.planning.absence import DetailedAbsencePeriodFact, DetailedDailyAbsenceFact, IncompleteAbsenceReferenceError, canonical_site_absence_days
+ from rota.planning.work_periods import PeriodComponent, group_into_periods
+ PLAN_PRIORITY = ("D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5")
+ BLANK = "–"
+@@ -117,13 +118,13 @@ def _version_for_date(lineage: list, target: date) -> Optional[str]:
+             selected = header.version_id
+     return selected
+ def _provenance_text(lineage: list, adjacent_facts: list) -> str:
+-    """Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3)."""
++    # Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3).
+     ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
+     digest = hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
+     return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
+ # Real work cells (Section 10)
+ def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
+-    """Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2)."""
++    # Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2).
+     other_month = date(target_day.year, target_day.month, 1)
+     if schedule_repository.get_current_version_id(conn, site_id, other_month) is None:
+         return []
+@@ -152,12 +153,11 @@ def _validate_item(a, demand) -> None:
+     if demand.catalog_kind == ShiftCatalogKind.OTHER:
+         raise ExportProblemError("UNSUPPORTED_SHIFT_KIND", f"{a.assignment_id} covers an INNY demand")
+ def _ckey(a) -> str:
+-    """Assignment identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)."""
+-    return f"{a.schedule_version_id}::{a.assignment_id}"
++    return f"{a.schedule_version_id}::{a.assignment_id}"  # identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)
+ def _component(a) -> PeriodComponent:
+     return PeriodComponent(_ckey(a), a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
+ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
+-    """raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance."""
++    # raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance.
+     raw_items: dict[tuple[str, date], list] = {}
+     components: list[PeriodComponent] = []
+     demand_by_assignment: dict = {}; assignment_by_id: dict = {}; seen_employee_ids: set[str] = set()  # noqa: E702
+@@ -190,8 +190,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
+                     boundary_items.append((a, demand, a.schedule_version_id, None))
+     for boundary_day in boundary_days:  # or it may live in a genuinely different month's own ScheduleVersion
+         boundary_items.extend(_adjacent_day_items(conn, site_id, boundary_day))
+-    boundary_ids: set[str] = set()
+-    adjacent_versions: dict = {}
++    boundary_ids: set[str] = set(); adjacent_versions: dict = {}  # noqa: E702
+     for a, demand, version_id, effective_from in boundary_items:
+         if a.work_period_id is None or _ckey(a) in demand_by_assignment:
+             continue
+@@ -200,7 +199,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
+         components.append(_component(a))
+     return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions
+ def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
+-    """R5 Amendment Section 4.2 -- unchanged, still owned/re-derived by T020."""
++    # R5 Amendment Section 4.2 -- unchanged, still owned/re-derived by T020.
+     if total_hours != 24 or d0.catalog_kind != ShiftCatalogKind.H24 or d1.catalog_kind != ShiftCatalogKind.H24:
+         return False
+     if d0.shift_kind is None or d0.shift_kind == d1.shift_kind:
+@@ -212,11 +211,10 @@ def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
+     hours0, hours1 = (d0.end_datetime - d0.start_datetime).total_seconds() / 3600, (d1.end_datetime - d1.start_datetime).total_seconds() / 3600
+     return hours0 == 12 and hours1 == 12
+ def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> Optional[str]:
+-    """'normal' (R5 4.2, re-derived) or 'linked' (cross-boundary pair -- trusts persisted (employee_id, work_period_id) only, per R6 Linkage Narrowing). None -> caller fails closed if asserted."""
++    # 'normal' (R5 4.2, re-derived) or 'linked' (cross-boundary pair -- trusts persisted (employee_id, work_period_id) only, per R6 Linkage Narrowing). None -> caller fails closed if asserted.
+     if len(period.component_ids) != 2:
+         return None
+-    d0 = demand_by_assignment.get(period.component_ids[0])
+-    d1 = demand_by_assignment.get(period.component_ids[1])
++    d0, d1 = demand_by_assignment.get(period.component_ids[0]), demand_by_assignment.get(period.component_ids[1])
+     if d0 is None or d1 is None:
+         return None
+     total_hours = (period.end - period.start).total_seconds() / 3600
+@@ -228,9 +226,7 @@ def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> O
+     return None
+ def _apply_24h_periods(collected, settings, days: list[date]):
+     raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions = collected
+-    work_cells: dict[str, dict[date, str]] = {}
+-    consumed: set[str] = set()
+-    adjacent_facts: list[tuple] = []
++    work_cells: dict[str, dict[date, str]] = {}; consumed: set[str] = set(); adjacent_facts: list[tuple] = []  # noqa: E702
+     for period in group_into_periods(components):
+         if len(period.component_ids) < 2:
+             continue
+@@ -319,40 +315,41 @@ def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list
+     pairs += [(d, f"{letter}~", f"{letter}~") for d in span if d not in symbol_dates]
+     return pairs
+ def _decompose_pre_plan(employee_id, pre_plan_days, settings) -> list[tuple]:
+-    span, qualifying = [d for d, _ in pre_plan_days], [(d, day.hours) for d, day in pre_plan_days if day.hours]
++    span, qualifying = [d for d, _ in pre_plan_days], [(d, day.canonical_hours) for d, day in pre_plan_days if day.canonical_hours]
+     return _decompose(employee_id, "U", span, [d for d, _ in qualifying], sum(h for _, h in qualifying), settings)
+-def _winning_days(snapshots, month_start: date, month_end: date) -> dict[date, tuple]:
+-    winner: dict[date, tuple] = {}  # SICK wins over LEAVE_GRANTED same-date, count once, present C (frozen addendum sec.4, T23-45)
++def _detailed_facts(snapshots) -> list[DetailedDailyAbsenceFact]:
++    # T026-2: mechanical persisted-to-pure mapping only -- no precedence/range/arithmetic; canonical_site_absence_days owns that.
++    facts = []
+     for record, snapshot in snapshots:
+         for day in snapshot.days:
+-            if not (month_start <= day.the_date <= month_end):  # C-R15-1: never let an adjacent-month day alter or poison this month's projection
+-                continue
+-            existing = winner.get(day.the_date)
+-            if existing is None or (record.kind == AvailabilityKind.SICK_LEAVE and existing[0] != AvailabilityKind.SICK_LEAVE):
+-                winner[day.the_date] = (record.kind, day)
+-    return winner
+-def _post_plan_pair(employee_id, the_date, kind, day, settings, site_id) -> list[tuple]:
+-    matching = [p for p in day.periods if p.site_id == site_id]  # T23-25/T20: only this Site's own bound periods count
+-    site_hours = sum(int((p.end_datetime - p.start_datetime).total_seconds() // 3600) for p in matching)
+-    if site_hours == 0:
+-        return []  # accepted rest, no synthetic U/C (T23-42)
+-    letter = "C" if kind == AvailabilityKind.SICK_LEAVE else "U"
++            periods = tuple(
++                DetailedAbsencePeriodFact(
++                    p.assignment_id, p.schedule_version_id, p.site_id, p.covers_demand_id, p.work_period_id,
++                    p.start_datetime, p.end_datetime, p.shift_kind, p.catalog_kind, p.required_rest_hours,
++                    p.work_period_template_id, p.work_period_component,
++                )
++                for p in day.periods
++            )
++            facts.append(DetailedDailyAbsenceFact(day.the_date, record.kind, day.source_mode, day.status, day.hours, periods))
++    return facts
++def _post_plan_pair(employee_id, day, settings) -> list[tuple]:
++    if day.site_hours == 0:
++        return []  # accepted rest, or no bound period at this Site -- no synthetic U/C (T23-42)
++    letter = "C" if day.kind == AvailabilityKind.SICK_LEAVE else "U"
+     pairs_by_value = _pair_values(letter, settings.base_regime, settings.reserve_hours)
+-    if site_hours not in pairs_by_value:
+-        raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h POST_PLAN code")
+-    plan_code, uc_code = pairs_by_value[site_hours]
+-    shift_kinds = {p.shift_kind for p in matching if p.shift_kind}
++    if day.site_hours not in pairs_by_value:
++        raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{day.the_date}: no exact {day.site_hours}h POST_PLAN code")
++    plan_code, uc_code = pairs_by_value[day.site_hours]
++    shift_kinds = {p.shift_kind for p in day.site_periods if p.shift_kind}
+     if len(shift_kinds) == 1:  # C-R15-2: the immutable bound shift_kind owns D/N presentation, not duration alone
+         kind_letter = next(iter(shift_kinds))
+-        family_codes = [c for c in PLAN_PRIORITY if c.startswith(kind_letter) and site_repository.FROZEN_WORK_CODE_HOURS[c] == site_hours and not (settings.base_regime == "12h" and site_hours == 24)]
++        family_codes = [c for c in PLAN_PRIORITY if c.startswith(kind_letter) and site_repository.FROZEN_WORK_CODE_HOURS[c] == day.site_hours and not (settings.base_regime == "12h" and day.site_hours == 24)]
+         if not family_codes:
+-            raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{the_date}: no exact {site_hours}h {kind_letter}-family POST_PLAN code")
++            raise ExportProblemError("ABSENCE_DECOMPOSITION_REQUIRED", f"{employee_id}/{day.the_date}: no exact {day.site_hours}h {kind_letter}-family POST_PLAN code")
+         plan_code = family_codes[0]
+-    return [(the_date, plan_code, uc_code)]
++    return [(day.the_date, plan_code, uc_code)]
+ def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> dict[str, list[tuple]]:
+-    # C-R15-3 (round 16): discovery must never be gated on currently-enabled Site membership -- an immutable bound period
+-    # at this Site keeps an Employee here even after that membership is later disabled. So every Employee with an active,
+-    # in-range SICK/LEAVE record is a candidate; local_ids only decides PRE_PLAN's own fail-closed attribution below.
++    # C-R15-3: discovery is never gated on currently-enabled Site membership -- a bound period keeps an Employee here even after that membership is later disabled; local_ids only decides PRE_PLAN's own fail-closed attribution below.
+     month_start, month_end = days[0], days[-1]
+     all_employee_ids = [e.employee_id for e in employee_repository.list_employees(conn)]
+     records = list_active_overlapping_for_employees(conn, all_employee_ids, month_start, month_end)
+@@ -369,30 +366,31 @@ def _collect_absence(conn, days, local_ids, work_cells, settings, site_id) -> di
+         bound_here = any(p.site_id == site_id for _, snap in snapshots if snap for day in snap.days for p in day.periods)
+         if employee_id not in local_ids and not bound_here:
+             continue  # dormant/unrelated: not this Site's business, never creates a row or MISSING
+-        for r, snapshot in snapshots:
+-            if snapshot is None:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
++        for r, snapshot in snapshots:  # brief.md section 14 (NO LEGACY BACKFILL), same as WorkBalance/analytics (B-R12-1)
++            if snapshot is None:
+                 raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: legacy active {r.kind.value} has no captured reference snapshot")
+         enabled_local = sum(1 for m in memberships_by_employee.get(employee_id, []) if m.membership_kind == MembershipKind.LOCAL and m.enabled)
+-        pairs = _absence_pairs_for_employee(employee_id, _winning_days(snapshots, month_start, month_end), work_cells, settings, site_id, enabled_local)
++        try:
++            canonical_days = canonical_site_absence_days(_detailed_facts(snapshots), range_start=month_start, range_end=month_end, site_id=site_id)
++        except IncompleteAbsenceReferenceError as exc:
++            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: {exc}") from exc
++        pairs = _absence_pairs_for_employee(employee_id, canonical_days, work_cells, settings, enabled_local)
+         if pairs:
+             result[employee_id] = pairs
+     return result
+-def _absence_pairs_for_employee(employee_id, winner_by_date, work_cells, settings, site_id, enabled_local) -> list[tuple]:
+-    for the_date in winner_by_date:
+-        if the_date in work_cells.get(employee_id, {}):
+-            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{the_date}: real Assignment on an active absence day")
+-    pre_plan_days, post_plan_days = [], []
+-    for the_date, (kind, day) in sorted(winner_by_date.items()):
+-        if day.status != "BOUND":
+-            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}/{the_date}: {day.status} accepted reference")
+-        (pre_plan_days if day.source_mode == "PRE_PLAN_LEAVE" else post_plan_days).append((the_date, kind, day))
++def _absence_pairs_for_employee(employee_id, canonical_days, work_cells, settings, enabled_local) -> list[tuple]:
++    for day in canonical_days:
++        if day.the_date in work_cells.get(employee_id, {}):
++            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day.the_date}: real Assignment on an active absence day")
++    pre_plan_days = [(d.the_date, d) for d in canonical_days if d.source_mode == "PRE_PLAN_LEAVE"]
++    post_plan_days = [d for d in canonical_days if d.source_mode != "PRE_PLAN_LEAVE"]
+     pairs = []
+     if pre_plan_days:
+         if enabled_local > 1:  # T23-46: keeps the existing fail-closed Site-attribution boundary, else duplicates the global total
+             raise ExportProblemError("ABSENCE_SITE_AMBIGUOUS", f"{employee_id} has {enabled_local} enabled LOCAL memberships")
+-        pairs += _decompose_pre_plan(employee_id, [(d, day) for d, _, day in pre_plan_days], settings)
+-    for the_date, kind, day in post_plan_days:
+-        pairs += _post_plan_pair(employee_id, the_date, kind, day, settings, site_id)
++        pairs += _decompose_pre_plan(employee_id, pre_plan_days, settings)
++    for day in post_plan_days:
++        pairs += _post_plan_pair(employee_id, day, settings)
+     return pairs
+ # Row assembly (Section 11/16)
+ def _hours_of(code: str, reserve_hours: dict) -> int:
+@@ -500,7 +498,7 @@ def _check_fits(n_rows: int, row_h: float) -> None:
+     if n_rows * 2 * row_h > available:
+         raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"{n_rows} rows do not fit the accepted single sheet at the {row_h}pt floor")
+ def _check_header_fits(model: ExportModel, regular: str, bold: str) -> None:
+-    """T20-36 -- header/period text must fit at a readable floor size or fail closed, never draw clipped/overflowing text (R10-5)."""
++    # T20-36 -- header/period text must fit at a readable floor size or fail closed, never draw clipped/overflowing text (R10-5).
+     available = landscape(A3)[0] - 2 * MARGIN
+     title = f"{model.company_print_name} — {model.site_print_name}"
+     period = f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"
+@@ -541,8 +539,7 @@ def _draw_cell(c, x, y, row_h, day_w, code, bold) -> None:
+ def _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold) -> None:
+     x = MARGIN
+     if label == "PLAN":
+-        c.setFont(regular, _fit_font_size(row.display_name, regular, 7, NAME_W - 40))
+-        c.drawString(x + 2, y - row_h + 5, row.display_name)
++        c.setFont(regular, _fit_font_size(row.display_name, regular, 7, NAME_W - 40)); c.drawString(x + 2, y - row_h + 5, row.display_name)  # noqa: E702
+     c.setFont(regular, 6.5); c.drawRightString(x + NAME_W - 2, y - row_h + 5, label)  # noqa: E702
+     x += NAME_W
+     for code in cells:
+diff --git a/rota/planning/absence.py b/rota/planning/absence.py
+index 1b4a00b..8a6e50a 100644
+--- a/rota/planning/absence.py
++++ b/rota/planning/absence.py
+@@ -26,7 +26,7 @@ from __future__ import annotations
+ 
+ import calendar
+ from dataclasses import dataclass
+-from datetime import date, timedelta
++from datetime import date, datetime, timedelta
+ from typing import Optional
+ 
+ from rota.domain import AvailabilityKind, AvailabilityRecord, CalendarDay
+@@ -111,20 +111,20 @@ def excused_absence_days_in_month(
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# ROTA-T023: canonical POST_PLAN_REFERENCE/PRE_PLAN_LEAVE accounting owner
+-# (frozen addendum section 13 / brief.md section 8/12). Pure/persistence-
+-# free: callers (the new absence-reference repository module, and from
+-# Checkpoint B onward rota.balance/rota.planning.solver) decode persisted
+-# absence_reference_snapshots rows into DailyAbsenceFact themselves -- this
+-# module imports nothing from the persistence layer (that would be a
+-# layering cycle, since the repository module already imports
+-# rota.planning.validator/work_periods).
++# ROTA-T023/T026: canonical POST_PLAN_REFERENCE/PRE_PLAN_LEAVE accounting
++# owner (frozen addendum section 13 / brief.md section 8/12). Pure/
++# persistence-free: callers in the persistence and application layers
++# (the absence-reference repository module, rota.balance, rota.planning.
++# solver, rota.application.analytics_read, rota.application.schedule_export)
++# decode persisted absence_reference_snapshots rows into DailyAbsenceFact/
++# DetailedDailyAbsenceFact themselves -- this module imports nothing from
++# the persistence layer (that would be a layering cycle, since the
++# repository module already imports rota.planning.validator/work_periods).
+ #
+-# Deliberately NOT wired into rota.balance / rota.planning.solver /
+-# rota.application.schedule_export yet -- those are Checkpoint B/C's own
+-# allowed-file scope (brief.md section 16). The flat EXCUSED_ABSENCE_*
+-# functions above stay exactly as they are for those consumers until that
+-# checkpoint switches them over (section 18's deliberate supersession).
++# The flat EXCUSED_ABSENCE_* functions above are retired for POST_PLAN/live
++# TARGET accounting (T026); `excused_absence_days_in_month` remains only as
++# the direct-call PRE_PLAN_LEAVE source and its own retained regression
++# tests (frozen addendum section 2.1 / T018 helper history).
+ # ---------------------------------------------------------------------------
+ 
+ 
+@@ -147,26 +147,39 @@ class DailyAbsenceFact:
+     hours: Optional[int]  # None when status != "BOUND"
+ 
+ 
+-def canonical_daily_hours(facts: list[DailyAbsenceFact]) -> dict[date, int]:
+-    """Collapses possibly-multiple DailyAbsenceFact entries for the same
+-    date (an Employee can in principle carry more than one active
+-    SICK_LEAVE/LEAVE_GRANTED family) into one canonical per-date hour
+-    total. SICK_LEAVE wins over LEAVE_GRANTED on the same date -- counted
+-    once, never doubled (frozen addendum section 4 "SICK wins overlap with
+-    LEAVE_GRANTED; count once and present C"). Raises
+-    IncompleteAbsenceReferenceError if the winning fact for any date is not
+-    BOUND -- never guesses 0/8/12/24."""
+-    winner_by_date: dict[date, DailyAbsenceFact] = {}
++def _winning_facts(facts) -> dict:
++    """ROTA-T026: the one shared SICK-over-LEAVE_GRANTED same-date winner
++    rule (frozen addendum section 4). Structural over any sequence of
++    objects exposing `.the_date`/`.kind` -- both `DailyAbsenceFact` and
++    `DetailedDailyAbsenceFact` qualify, so `canonical_daily_hours` and
++    `canonical_site_absence_days` apply exactly one precedence path,
++    never two independent implementations in this module."""
++    winner_by_date: dict = {}
+     for fact in facts:
+         existing = winner_by_date.get(fact.the_date)
+         if existing is None or (fact.kind == AvailabilityKind.SICK_LEAVE and existing.kind != AvailabilityKind.SICK_LEAVE):
+             winner_by_date[fact.the_date] = fact
++    return winner_by_date
++
++
++def _require_bound(fact) -> None:
++    """Shared status gate: never guess 0/8/12/24 for a MISSING/AMBIGUOUS winner."""
++    if fact.status != "BOUND":
++        raise IncompleteAbsenceReferenceError(
++            f"{fact.the_date}: {fact.status} accepted reference for {fact.kind.value} ({fact.source_mode})"
++        )
++
++
++def canonical_daily_hours(facts: list[DailyAbsenceFact]) -> dict[date, int]:
++    """Collapses possibly-multiple DailyAbsenceFact entries for the same
++    date (an Employee can in principle carry more than one active
++    SICK_LEAVE/LEAVE_GRANTED family) into one canonical per-date hour
++    total. Raises IncompleteAbsenceReferenceError if the winning fact for
++    any date is not BOUND -- never guesses 0/8/12/24."""
++    winner_by_date = _winning_facts(facts)
+     hours: dict[date, int] = {}
+     for the_date, fact in winner_by_date.items():
+-        if fact.status != "BOUND":
+-            raise IncompleteAbsenceReferenceError(
+-                f"{the_date}: {fact.status} accepted reference for {fact.kind.value} ({fact.source_mode})"
+-            )
++        _require_bound(fact)
+         hours[the_date] = fact.hours or 0
+     return hours
+ 
+@@ -180,5 +193,89 @@ def canonical_hours_in_range(facts: list[DailyAbsenceFact], range_start: date, r
+     return sum(canonical_daily_hours(in_range).values())
+ 
+ 
++# --- ROTA-T026: canonical Site-aware presentation projection (T020's own owner) ---
++
++
++@dataclass(frozen=True)
++class DetailedAbsencePeriodFact:
++    """Pure mirror of the persistence-layer PeriodFact -- same fields, no
++    persistence import (T026-2 layering: schedule_export.py mechanically
++    maps persisted PeriodFact rows into this shape)."""
++
++    assignment_id: str
++    schedule_version_id: str
++    site_id: str
++    covers_demand_id: Optional[str]
++    work_period_id: Optional[str]
++    start_datetime: datetime
++    end_datetime: datetime
++    shift_kind: Optional[str] = None
++    catalog_kind: Optional[str] = None
++    required_rest_hours: Optional[int] = None
++    work_period_template_id: Optional[str] = None
++    work_period_component: Optional[int] = None
++
++
++@dataclass(frozen=True)
++class DetailedDailyAbsenceFact:
++    """Pure mirror of the persistence-layer DayReference plus the owning
++    AvailabilityRecord's kind -- same shape as DailyAbsenceFact, with the
++    immutable bound-period detail T020 needs (D/N/24h/Site) that the
++    WorkBalance-facing DailyAbsenceFact deliberately omits."""
++
++    the_date: date
++    kind: AvailabilityKind
++    source_mode: str
++    status: str
++    hours: Optional[int]
++    periods: tuple[DetailedAbsencePeriodFact, ...] = ()
++
++
++@dataclass(frozen=True)
++class CanonicalSiteAbsenceDay:
++    """One winning day's canonical result plus its Site-scoped presentation
++    slice. `canonical_hours` is the same Employee-global winning-day value
++    `DailyAbsenceFact.hours`/`canonical_daily_hours` would produce for this
++    date. `site_hours`/`site_periods` are POST_PLAN_REFERENCE-only: `None`/
++    `()` for PRE_PLAN_LEAVE, which has no schedule Site provenance (T020's
++    own already-frozen fail-closed multi-LOCAL attribution boundary)."""
++
++    the_date: date
++    kind: AvailabilityKind
++    source_mode: str
++    canonical_hours: int
++    site_hours: Optional[int]
++    site_periods: tuple[DetailedAbsencePeriodFact, ...]
++
++
++def _site_period_hours(periods: tuple[DetailedAbsencePeriodFact, ...]) -> int:
++    return sum(int((p.end_datetime - p.start_datetime).total_seconds() // 3600) for p in periods)
++
++
++def canonical_site_absence_days(
++    facts: list[DetailedDailyAbsenceFact], *, range_start: date, range_end: date, site_id: str,
++) -> tuple[CanonicalSiteAbsenceDay, ...]:
++    """T026-2: the one canonical, Site-aware presentation projection --
++    range clipping, SICK/LEAVE precedence and fail-closed status all reuse
++    `_winning_facts`/`_require_bound` (the same path `canonical_daily_hours`
++    uses), so this module never carries two independent implementations of
++    either rule. Callers (schedule_export.py) must not reimplement
++    precedence or sum POST_PLAN period durations themselves."""
++    in_range = [f for f in facts if range_start <= f.the_date <= range_end]
++    winner_by_date = _winning_facts(in_range)
++    days = []
++    for the_date in sorted(winner_by_date):
++        fact = winner_by_date[the_date]
++        _require_bound(fact)
++        if fact.source_mode == "PRE_PLAN_LEAVE":
++            days.append(CanonicalSiteAbsenceDay(the_date, fact.kind, fact.source_mode, fact.hours or 0, None, ()))
++            continue
++        site_periods = tuple(p for p in fact.periods if p.site_id == site_id)
++        days.append(CanonicalSiteAbsenceDay(
++            the_date, fact.kind, fact.source_mode, fact.hours or 0, _site_period_hours(site_periods), site_periods,
++        ))
++    return tuple(days)
++
++
+ if __name__ == "__main__":
+     print("absence module OK")
+diff --git a/rota/planning/engine.py b/rota/planning/engine.py
+index ca01c35..28cedca 100644
+--- a/rota/planning/engine.py
++++ b/rota/planning/engine.py
+@@ -25,8 +25,7 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
+ """
+ from __future__ import annotations
+ 
+-from rota.domain import Assignment, AssignmentState, AvailabilityKind
+-from rota.planning.absence import IncompleteAbsenceCalendarError, excused_absence_days_in_month
++from rota.domain import Assignment, AssignmentState
+ from rota.planning.decision_guidance import build_decision_payload
+ from rota.planning.state import PlanningState
+ from rota.planning.engine_types import (
+@@ -59,8 +58,6 @@ def plan(state: PlanningState) -> PlanningResult:
+         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
+     except UnsupportedOrMalformedSiteRule as exc:
+         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
+-    except IncompleteAbsenceCalendarError as exc:
+-        return PlanningResult("TECHNICAL_ERROR", [], None, f"calendar error: {exc}", [])
+ 
+ 
+ def _plan(state: PlanningState) -> PlanningResult:
+@@ -68,15 +65,6 @@ def _plan(state: PlanningState) -> PlanningResult:
+     # that cannot be executed must never be silently ignored just to reach
+     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
+     validate_executable_site_rules(state.site_rules)
+-    # T018 A-R4-1: validate calendar completeness eagerly, before solve() --
+-    # a pre-model shortage (NO_ELIGIBLE_EMPLOYEE) never reaches
+-    # _sick_adjusted_targets(), so relying on that call alone let an
+-    # incomplete calendar slip through as DECISION_REQUIRED instead of the
+-    # required TECHNICAL_ERROR.
+-    excused_absence_days_in_month(
+-        state.availability_records, state.month, kinds=(AvailabilityKind.SICK_LEAVE,),
+-        calendar_days=state.calendar_days,
+-    )
+     # T018 B6/DAY-ONLY-N-FALLBACK-01: literal 4-stage retry order (see
+     # module docstring). A capped stage's candidate is always terminal;
+     # only a proven INFEASIBLE or a pre-model coverage shortage advances to
+diff --git a/tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md b/tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md
+new file mode 100644
+index 0000000..1817ae0
+--- /dev/null
++++ b/tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md
+@@ -0,0 +1,157 @@
++# Cursor audit — ROTA-T023 holistic (2026-08-22)
++
++DATE: 2026-08-22
++SHA: `3d2c2dc` (`origin/main`, T023 Checkpoint C reaudit recorded)
++CONTRACT: `tasks/ROTA-T023/brief.md` + `arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md`
++REQUEST: `tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/REQUEST.md`
++
++Three angles, not one narrative. No re-run of the T023/T020/T018 test matrix. No fix proposals. No PASS/FAIL.
++
++Known Checkpoint B assembler fail-closed on `plan_month` / `select_candidate` / `replan` is not re-flagged.
++
++---
++
++## A. IMPLEMENTATION GAPS ACROSS CHECKPOINTS A/B/C
++
++### A1. `plan()` still runs the T018 CalendarDay / flat-8 gate
++
++Frozen addendum §13 / brief §18: the T018 `EXCUSED_ABSENCE_HOURS_PER_DAY` / `excused_absence_days_in_month` path may remain only as the preserved PRE_PLAN_LEAVE source (`absence.py` legacy plus T020 PRE_PLAN decomposition). POST_PLAN hours must not use CalendarDay.
++
++`rota/planning/engine.py:29` imports `IncompleteAbsenceCalendarError` and `excused_absence_days_in_month`. `_plan` at `:76-79` calls `excused_absence_days_in_month(..., kinds=(AvailabilityKind.SICK_LEAVE,), calendar_days=state.calendar_days)` before `solve()`. `plan()` at `:62-63` maps that exception to `TECHNICAL_ERROR`.
++
++This is not PRE_PLAN capture and not T020 decomposition. It is a live PLAN-time consumer of the retired mechanism. It still keys off SICK_LEAVE only (the pre-T023 TARGET carve-out), so a LEAVE_GRANTED-only month does not hit this gate. Assembler already requires a full `CalendarDay` month (`assembler.py` `_assemble_calendar`), so the remaining live effect is mainly conflicting holiday rows → TECHNICAL_ERROR, plus a SICK-only calendar completeness philosophy that T023 no longer uses for hours.
++
++### A2. Checkpoint C reimplements SICK/LEAVE precedence instead of calling the canonical owner
++
++Frozen addendum §13: `rota/planning/absence.py` is the single precedence owner; consumers must not reimplement SICK/LEAVE precedence.
++
++`canonical_daily_hours` (`absence.py:150-171`) already collapses same-date facts with SICK winning.
++
++`schedule_export._winning_days` (`schedule_export.py:324-333`) copies that rule over `(record, snapshot)` pairs. `_absence_pairs_for_employee` (`:380-396`) then branches on `source_mode` itself.
++
++Same snapshot, second owner of “who wins the day”.
++
++### A3. Checkpoint C POST_PLAN hours do not use `DayReference.hours`
++
++Frozen addendum §4 / §13: canonical hours are the bound PRIMARY period durations; WorkBalance/solver/analytics consume `DailyAbsenceFact.hours` decoded from that field (`work_balance_repository.py:47-49`, `balance.py:99`, `solver.py:276-287`).
++
++T020 POST_PLAN (`schedule_export.py:334-336`) ignores `day.hours` and sums `PeriodFact` intervals with `p.site_id == site_id`. PRE_PLAN (`:322-323`) does use `day.hours`.
++
++So Checkpoint B trusts the captured `hours` field (Employee-global). Checkpoint C POST_PLAN treats that field as unused and re-derives a Site-filtered duration from `periods`. A 24h WorkPeriod captured as one grouped duration (`absence_reference_repository.py:339-354`) can still match 12+12 on one Site, but a bound PRIMARY on another Site is in `hours` and not in this PDF row. Frozen §14 allows Site from provenance for print; frozen §13 still says the same canonical result feeds T020. Those two sentences are implemented as two arithmetics.
++
++### A4. `absence.py` module comment is stale vs merged B/C
++
++`absence.py:123-127` still says the T023 canonical API is “Deliberately NOT wired into rota.balance / rota.planning.solver / rota.application.schedule_export yet”. After `3d2c2dc` those three consumers are wired (`balance.py:18-26`, `solver.py:276-287`, `schedule_export.py:275`). The code paths are not this comment; the comment is the contract’s own “one owner” file describing a pre-B world.
++
++### A5. Residual CalendarDay use at PRE_PLAN capture (authorized shape, named for completeness)
++
++`absence_reference_repository._resolve_no_accepted_plan_day` (`:310-325`) still does 8h × weekday × not-holiday via `workday_holiday_map` / `list_calendar_days`. That is the frozen PRE_PLAN source, not a stray consumer. It is the write-time twin of `excused_absence_days_in_month`, not a third runtime hours path.
++
++No additional residual `EXCUSED_ABSENCE_HOURS_PER_DAY` / `excused_absence_days_in_month` / `IncompleteAbsenceCalendarError` call sites in `rota/` beyond `absence.py` (definition), `engine.py` (A1), `absence_reference_repository.py:238` (comment), and `balance.py:19` (supersession comment).
++
++---
++
++## B. LABOR-LAW COMPLIANCE FOR PRIVATE SECURITY (“ochrona”)
++
++Product boundary (frozen addendum §1): Rota does not own payroll, benefits, leave entitlement, HR settlement or legal advice. Findings below compare what the code *encodes as legal/illegal for scheduling* against current KP text. Not a legal opinion.
++
++Law text checked 2026-08-22: Kodeks pracy, t.j. Dz.U. 2025 poz. 277, via lexlege.pl (art. 136 dated 22.08.2026; art. 137 dated 30.06.2026). I did not open ISAP PDF page images; if those pages diverge from the t.j. citation, treat B2 as uncertain.
++
++### B1. Daily rest: art. 132 is the default; art. 137 + 136 §2 after 24h is not enforced
++
++`rota/constants.py:3-4` sets `REST_MIN_HOURS = 11` with an explicit “art. 132 KP” comment. `work_periods.resolve_required_rest` (`work_periods.py:29-32`) uses that only when provenance is missing. Live REST-01 uses per-period `required_rest_hours` / `required_rest_after_hours` (`constraints.py:8-16`, `validator.py` REST-01). `arch/spec.md` T012: coordinator enters `required_rest_hours >= 0`; the program enforces that number and does not derive or validate law.
++
++Art. 132 §1 KP (current t.j.): co najmniej 11 godzin nieprzerwanego odpoczynku w każdej dobie, with the stated exceptions.
++
++Art. 137 KP (current t.j., stan lexlege 30.06.2026): do pracowników zatrudnionych przy pilnowaniu mienia lub ochronie osób może być stosowany system równoważnego czasu pracy z przedłużeniem dobowego wymiaru **do 24 godzin**, okres rozliczeniowy nieprzekraczający 1 miesiąca; **przepisy art. 135 § 2 i 3 oraz art. 136 § 2 stosuje się odpowiednio**.
++
++Art. 136 §2 KP (stan lexlege 22.08.2026): bezpośrednio po okresie pracy w przedłużonym dobowym wymiarze przysługuje odpoczynek przez czas odpowiadający **co najmniej liczbie przepracowanych godzin**, niezależnie od odpoczynku z art. 133.
++
++Secondary commentary (inforlex / czas-pracy.pl) reads that “odpowiednio” for ochrona 24h as rest ≥ 24h after a 24h shift. I am not certain a court would always read art. 137 that way without the commentary; the statutory hook is the “stosuje się odpowiednio” clause itself.
++
++Code allows a 24h catalog WorkPeriod (two 12h components, counted once) followed by `required_rest_hours=11` (T012 legacy default, `spec.md` pre-T012 line). REST-01 will pass an 11h gap after 24h work. There is no check that rest after a 24h period is ≥ 24h. `required_rest_hours=0` is also legal in-product (internal join of two H12 into one 24h period — T012 / T022), which is a different fact: rest *inside* the period, not after it.
++
++### B2. 24h shift length vs art. 137
++
++`FROZEN_WORK_CODE_HOURS` (`site_repository.py:39-41`) is a T020 print legend (D1=12, D2=4, D3=24, D4=2, D5=24, N1=12, N2=16, N3–N5=24), not a legality table. Planning 24h is `ShiftCatalogKind.H24` as two 12h D/N components (`shift_catalog.py` / T012).
++
++Art. 137 (citation above) currently allows extending the daily dimension to 24h for ochrona/pilnowanie. A 24h on-site period is therefore not, by itself, outside that article. The code does not encode the 1-month (extendable) settlement period, art. 130 monthly norm, or art. 131 average 40h week. `target_hours` is a coordinator integer (`MissingTargetHoursError`, `balance.py:37-42`).
++
++### B3. Weekly rest (art. 133) is not encoded; LOAD-01 is a different number
++
++Art. 133 §1 KP: w każdym tygodniu co najmniej 35 godzin nieprzerwanego odpoczynku, obejmującego 11 godzin dobowego; §2 can shorten to 24h in listed cases (including shift-change). §3: that rest should fall on Sunday unless Sunday work is allowed.
++
++No `rota/planning` symbol implements a 35h consecutive weekly rest. LOAD-01 (`validator.py:479-496`, `constraints.py`, `engine.py:374+`) is a rolling 7-day *hours-worked* window against `SiteProfile.rolling_7d_decision_threshold_hours` (example default 60 in `shift_catalog.py:275`). Exceeding it is DECISION_REQUIRED (`decision_guidance.py:29`, “Koliduje z tygodniowym czasem pracy”), not a HARD 35h rest gap. Two 24h duties with an 11h gap can satisfy REST-01 and still have no 35h weekly block.
++
++Sunday-off-at-least-once-per-4-weeks (art. 151¹¹ / related Sunday rules — I did not re-fetch the exact numbered article in this pass) is also not encoded. `CalendarDay.holiday` affects PRE_PLAN 8h qualification (`absence_reference_repository.py:323-324`: ISO weekday ≤5 and not holiday) and does not create a Sunday-off HARD rule.
++
++### B4. Night work
++
++Art. 151⁷ KP (not re-opened as full text here; standard current rule): pora nocna is 8 hours chosen by the employer between 21:00 and 7:00. Code has `ShiftKind.N` and typical 17:00–05:00 N (`Grafiki/` / T012 examples). There is no encoded 8-hour night-period cap, no “pracownik pracujący w nocy” extra limits, no night-work allowance. Uncertain without the full current 151⁷–151⁸ text in front of me whether a 12h N is treated as night work for the whole interval or only the overlap with the employer’s 8h night window — the product does not model that window at all.
++
++### B5. T023 absence hours vs L4 and urlop in KP
++
++Brief §11 / frozen §13: SICK_LEAVE and LEAVE_GRANTED both reduce live TARGET through `max(0, target_hours - absence_hours)` (`solver.py:287`, `balance.py:99-100`). HARD exclusion of the absent employee is unchanged (`eligibility.py`).
++
++Polish law treats them as distinct:
++- choroba / L4 — remuneration/zasiłek under art. 92 KP and the zasiłek chorobowy regime (ZUS), not a reduction of a scheduling quota;
++- urlop wypoczynkowy — art. 172 KP: za czas urlopu pracownik zachowuje prawo do wynagrodzenia jak za pracę.
++
++Rota applies the same hour-quota subtraction to both and presents C vs U only in T020 letters (`schedule_export.py:339`). That matches the owner scheduling/fairness model and frozen §1 (not payroll). It does **not** match legal settlement: L4 is not “hours off the monthly norm” in KP, and urlop is paid as work, not as a smaller target. PRE_PLAN leave still uses 8h × qualified workday (`_PRE_PLAN_HOURS_PER_WORKDAY = 8`, `absence_reference_repository.py:78, 323-325`), which is the owner T018 convention, not art. 130 daily dimension (8h in basic system) applied as HR settlement.
++
++I am not asserting a compliance verdict for a security firm’s timesheet vs ZUS. The encoding is: one fairness number, two legally different absences.
++
++---
++
++## C. VERTICAL INTEGRATION
++
++Canonical write: `durable_inputs.append_availability` (`durable_inputs.py:169-210`) → `capture_and_check_in_open_transaction` (`absence_reference_repository.py:547-575`) for active SICK/LEAVE only → snapshot row. Reconstruct: `work_balance_repository.absence_facts_for_employee` (`:23-50`) → `balance.compute_month_balance` → `assembler._assemble_work_balances` (`assembler.py:138-155`) → `PlanningState.work_balances` → `solver._effective_targets` (`solver.py:276-287`) on `plan_month`/`replan` after `assemble_planning_state` (`plan_ops.py:129, 347`). Analytics: `analytics_read.py:193` via `absence_facts_for_employees`. PDF: `schedule_export._collect_absence` (`:352-378`) reads the same snapshot table, then A2/A3.
++
++R5-3 cutover sits on `select_candidate` (`plan_ops.py:185-237, 287-300`), not on the snapshot. Bound POST_PLAN facts are not rewritten by later CURRENT movement (`_prior_bound_post_plan_facts`, `absence_reference_repository.py:287-307`).
++
++### C1. Parallel Availability reads that skip snapshots
++
++Application functions that load SICK/LEAVE (or all availability) as `AvailabilityRecord` and never decode `absence_reference_snapshots`:
++
++- `assembler._assemble_windows_and_availability` (`assembler.py:92-105`) → `PlanningState.availability_records` → eligibility/validator HARD block. Intentional second channel (presence vs hours).
++- `open_month` (`open_month.py:45-58`) surfaces those records beside `work_balances` (canonical hours). Two facts on one view: dates from CURRENT availability, hours from snapshots.
++- `availability_matrix.employee_availability_matrix` (`availability_matrix.py:30-32, 53-60`) returns current SICK/LEAVE/UNAVAILABLE_24H records only. No `source_mode`, no `hours`, no snapshot. T021 EmployeeDetail “absence log” (`T021_spec.md` Panel per-employee, uploaded copy used in the T021 audit — not on `origin/main`) is this function, not `analytics_for_site_month`.
++
++`analytics_for_site_month` (`analytics_read.py:171+`) is the T021 Analityka path and does use the canonical chain. `balance_read.quarter_balance` also uses reconstruct and degrades on `IncompleteAbsenceReferenceError` (`balance_read.py:13-30`).
++
++Production write bypass: `availability_repository.append_availability_version` still exists (`availability_repository.py:81`) and does not capture. Callers in `rota/` production application code go through `durable_inputs.append_availability`. Test files still call the persistence function directly (out of REQUEST “do not re-derive” test list except as context). Not a second application entry point.
++
++### C2. `IncompleteAbsenceReferenceError` outside PLAN — different surfaces, same assembler
++
++Not re-stating the Checkpoint B ruling that fail-closed on `plan_month`/`replan`/`select_candidate` is required.
++
++`IncompleteAbsenceReferenceError` is caught only in `analytics_read.py` (`:96, :114, :143`) and `balance_read.py` (`:30`). It is not caught in:
++
++- `open_month` → `assemble_planning_state` → `_assemble_work_balances` → `reconstruct_month_balance` (`assembler.py:153`)
++- `manual_edit.apply_manual_correction` (`manual_edit.py:234`)
++- `lifecycle_ops.revalidate` / `finalize` (`lifecycle_ops.py:38`)
++
++Those are coordinator-facing month/korekta/finalize paths, not the analytics degrade-to-UNAVAILABLE path. A legacy active SICK/LEAVE without a snapshot (`work_balance_repository.py:39-46`) makes Analityka show a warning row and makes Przegląd/korekta/finalize raise through assembler instead. PDF has its own `ABSENCE_REFERENCE_INCOMPLETE` (`schedule_export.py:372-374`). Three coordinator-visible behaviors for one missing snapshot.
++
++`_carry_in_before` (`assembler.py:128`) catches `MissingTargetHoursError` only, not `IncompleteAbsenceReferenceError` from an earlier quarter month. Same exception class, earlier month, still uncaught on those screens. Not the “missing target never blocks PLAN” catch.
++
++### C3. T021 would not show stale snapshot hours on Analityka; it would show hour-less absences on EmployeeDetail
++
++T021 Analityka is `analytics_for_site_month` — canonical, ALL_SITES, LOCAL rows. Not stale vs WorkBalance.
++
++T021 absence log / matrix is `employee_availability_matrix` / `append_availability` records. After a T023 write, the log has the new dates (same transaction as capture) but never the captured PRE_PLAN vs POST_PLAN hours. A coordinator comparing EmployeeDetail (ranges) with Analityka (`absence_hours` inside effective target) is looking at two projections of the same write. PDF U/C (A3) is a third, Site-filtered.
++
++No T021 UI package is on `origin/main` (`arch/T021_spec.md` absent). Wiring is from the uploaded spec used in the 2026-08-22 UI audit.
++
++### C4. Solver TARGET now follows WorkBalance, including LEAVE_GRANTED
++
++`solver._effective_targets` (`solver.py:276-287`) uses `wb.absence_hours` for both kinds. The old SICK-only live TARGET carve-out is gone from solver and remains only as the engine.py calendar probe (A1). `plan_month` / `replan` reach this through `assemble_planning_state` work_balances. Chain holds for hours once assembler returns.
++
++---
++
++## Not reported (in scope of the request to skip)
++
++- Assembler fail-closed blocking PLAN on incomplete reference (Checkpoint B owner/Codex ruling).
++- Anything already closed by `tests/test_t023*.py`, `test_t020.py`, `test_t018.py`, `test_balance.py`, `test_t019.py`, `test_t012.py`, or `tasks/ROTA-T023/round_01/tests/*`.
++- PRE_PLAN 8h/workday capture itself (frozen §2.1 / §14).
++- R5-3 implementation sitting on `select_candidate` (matches frozen §10).
+diff --git a/tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/REQUEST.md b/tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/REQUEST.md
+new file mode 100644
+index 0000000..92f0900
+--- /dev/null
++++ b/tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/REQUEST.md
+@@ -0,0 +1,156 @@
++# Cursor audit request — ROTA-T023 holistic review (2026-08-22)
++
++STATUS: request for an independent scan, not yet run. Output goes back
++through CC for verification against source (same discipline as
++`tasks/CURSOR_AUDIT_2026-08-21/FINDINGS_VERIFIED.md` and
++`tasks/CURSOR_AUDIT_2026-08-22_ui_coverage/FINDINGS_VERIFIED.md`) before
++anything here is trusted or acted on.
++
++## Context
++
++ROTA-T023 ("schedule-based absence hours accounting") just merged to
++`main` after three checkpoints (A: provenance/write-time capture, B:
++WorkBalance/solver/analytics/REPLAN cutover, C: T020 PDF presentation),
++each independently audited round-by-round by a separate Codex instance
++against `tasks/ROTA-T023/brief.md` and
++`arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md`. That
++process was narrow and adversarial by design — each round targeted one
++or two specific findings. This request is the opposite shape: a single
++wide pass looking for anything that narrow process structurally couldn't
++catch.
++
++**Do not re-derive or re-run the existing T023 test matrix.** Every
++`test_t23_*`/`test_t20_*` id in `tasks/ROTA-T023/brief.md` section 17 and
++every file under `tests/test_t023*.py`, `tests/test_t020.py`,
++`tests/test_t018.py`, `tests/test_sick_leave.py`,
++`tests/test_balance.py`, `tests/test_t019.py`, `tests/test_t019b.py`,
++`tests/test_t012.py`,
++`tasks/ROTA-T012/round_01/tests/test_absence_workday_accounting_r23.py`,
++`tasks/ROTA-T023/round_01/tests/*.py` is already covered ground — reading
++them for context is fine, reporting a gap they already close is not
++useful here.
++
++## Task for Cursor
++
++Three independent angles. Report each separately; don't try to unify
++them into one narrative.
++
++### A. IMPLEMENTATION GAPS ACROSS CHECKPOINTS A/B/C
++
++Read the full frozen contract (`tasks/ROTA-T023/brief.md` +
++`arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md`) end to
++end, then read the actual implementation:
++`rota/planning/absence.py`, `rota/persistence/absence_reference_repository.py`,
++`rota/balance.py`, `rota/persistence/work_balance_repository.py`,
++`rota/application/analytics_read.py`, `rota/application/balance_read.py`,
++`rota/planning/solver.py`, `rota/application/plan_ops.py`,
++`rota/application/schedule_export.py`, `rota/application/durable_inputs.py`.
++
++Report:
++- Any contract sentence (brief.md or the frozen addendum) that the code
++  doesn't actually implement, or implements differently than written.
++- Any code path reachable in production that no existing test in the
++  files listed above under "do not re-derive" actually exercises —
++  name the exact function/branch and why it looks untested.
++- Any residual use, anywhere in `rota/`, of the pre-T023 flat-8/
++  CalendarDay mechanism (`EXCUSED_ABSENCE_HOURS_PER_DAY`,
++  `excused_absence_days_in_month`, `IncompleteAbsenceCalendarError`)
++  outside the one place it's explicitly frozen as the preserved
++  PRE_PLAN_LEAVE source (`rota/planning/absence.py`'s own legacy
++  function plus `rota/application/schedule_export.py`'s PRE_PLAN
++  decomposition path). If you find one, name file:line and say which
++  frozen-addendum clause it should have been retired under.
++- Any inconsistency between how Checkpoint A (capture), Checkpoint B
++  (WorkBalance/solver/analytics) and Checkpoint C (T020) each read or
++  interpret the same `DailyAbsenceFact`/`DayReference`/`PeriodFact`
++  shape — e.g. one consumer trusting a field another consumer treats as
++  untrustworthy, or duplicate precedence/decomposition logic that
++  should have stayed in one owner module (frozen addendum section 11:
++  "Consumers do not choose source mode from CURRENT and do not
++  reimplement SICK/LEAVE precedence, anchor rules or Site filtering").
++
++### B. LABOR-LAW COMPLIANCE FOR PRIVATE SECURITY GUARDS ("ochrona")
++
++The product's real users are Polish private security firms
++(`Grafiki/` contains real ROYALPACK/APEXIM guard schedules — 12h and
++24h shifts are the norm, not the exception). Compare what the code
++actually encodes as legal/illegal against **current** Polish labor law
++for this sector — Kodeks pracy (rest periods: 11h dobowy, 35h
++tygodniowy, night-work definition and limits, work on Sundays/holidays)
++and any sector-specific provisions for private security under ustawa o
++ochronie osób i mienia and związane rozporządzenia.
++
++Ground every claim in the actual code, not just the brief:
++- `rota/planning/eligibility.py`, `rota/planning/constraints.py`,
++  `rota/planning/work_periods.py` (24h/rest/legality rules — T012's own
++  domain, out of T023's own TASK_SCOPE, so this is genuinely
++  independent territory).
++- The frozen 24h legend in `rota/persistence/site_repository.py`
++  (`FROZEN_WORK_CODE_HOURS`) and whether the hour values it treats as
++  legal shift lengths and the rest-hour assumptions elsewhere in the
++  codebase are still accurate against current law (cite the specific
++  provision and its current text/date, not a remembered summary — law
++  changes; say plainly if you can't verify currency).
++- T023's own absence-hours model itself: does treating SICK_LEAVE/
++  LEAVE_GRANTED as reducing live TARGET the way brief.md section 11
++  specifies match how Polish law actually treats sick leave (L4) and
++  granted leave (urlop) for compensation/scheduling purposes, or does
++  it conflate two legally distinct absence categories?
++
++Where you're not certain current law text, say so explicitly rather
++than asserting a compliance verdict — a flagged uncertainty is more
++useful here than a confident guess.
++
++### C. VERTICAL INTEGRATION WITH THE REST OF THE PROGRAM
++
++Trace one absence end to end, from the coordinator's actual write
++through every downstream consumer, and report any place the chain is
++broken, bypassed, or duplicated:
++
++`rota/application/durable_inputs.py::append_availability` →
++`rota/persistence/absence_reference_repository.py` (capture) →
++`rota/persistence/work_balance_repository.py` (WorkBalance) →
++`rota/application/analytics_read.py` (coordinator analytics screen) →
++`rota/planning/solver.py` (TARGET-01 objective) →
++`rota/application/schedule_export.py` (printed PDF) →
++and back upstream into `rota/application/plan_ops.py::select_candidate`/
++`replan` (R5-3 cutover) and `rota/application/assembler.py`
++(`_assemble_work_balances`, `assemble_planning_state` — how
++`PlanningState.work_balances` actually reaches the solver in a real
++`plan_month()`/`replan()` call).
++
++Report:
++- Any application-layer entry point (`rota/application/*.py`) that
++  reads Availability, WorkBalance, or absence data but does NOT go
++  through the canonical path above — i.e. a second, parallel read of
++  the same facts.
++- Any place `assemble_planning_state`/`_assemble_work_balances` could
++  raise `IncompleteAbsenceReferenceError` (or `MissingTargetHoursError`)
++  uncaught and block `plan_month()`/`select_candidate()`/`replan()`
++  entirely for a whole Site/month — this was flagged once already
++  during T023 Checkpoint B (see `tasks/ROTA-T023/brief.md` DELIVERY
++  history / owner ruling section, "assembler.py note") and explicitly
++  ruled NOT A FINDING by Codex under T023 (fail-closed is required
++  behavior) — don't re-flag that same conclusion, but DO check whether
++  there's a *different*, not-yet-considered call site with the same
++  shape that only a whole-program trace would surface.
++- Any UI/coordinator-facing read path (if one exists yet — check
++  `arch/T021_spec.md` and whatever of `rota/application/` it actually
++  wires to) that would show stale or wrong absence data because it
++  reads WorkBalance/Availability some other way than the canonical
++  chain above.
++
++## Scope
++
++Include: `rota/**`, `arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md`,
++`tasks/ROTA-T023/brief.md`, `arch/T021_spec.md` (context only, for part
++C), `Grafiki/` (context only, for part B — real shift patterns).
++Exclude: everything already listed under "do not re-derive" above,
++`benchmarks/**`, `tasks/**` other than the one brief.md named.
++
++## Output format
++
++Same shape as the two prior Cursor audits: plain findings with
++file:line evidence, one paragraph each, no fix proposals, no PASS/FAIL
++or priority verdict — that's Paweł + architect's call after CC verifies
++each finding against source.
+diff --git a/tasks/ROTA-T026/brief.md b/tasks/ROTA-T026/brief.md
+new file mode 100644
+index 0000000..23c843b
+--- /dev/null
++++ b/tasks/ROTA-T026/brief.md
+@@ -0,0 +1,312 @@
++# ROTA-T026 — ABSENCE CANONICALIZATION OWNERSHIP REPAIR
++
++STATUS: READY FOR INDEPENDENT CODEX PREIMPLEMENTATION AUDIT — NOT READY FOR CC
++BASE_PRODUCT_SHA: `3d2c2dce52af9e48f28d86b8160249f2040d405c`
++ARCHITECT_INPUT_SHA: `64774715ecb1cfb56dc7cd69a2192761e0eba335`
++CONTROLLING_CONTRACT: `arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md` + preserved T023 decisions in `tasks/ROTA-T023/brief.md`
++
++This task repairs two post-T023 ownership/canonicalization gaps without changing product semantics. It does not reopen T023 absence-hour rules, T020 presentation rules, payroll/HR, labor-law modeling, or coordinator UX error policy.
++
++## 1. SOURCE / FACT CLASSIFICATION
++
++Confirmed source material:
++- `arch/T026_absence_canonicalization_gaps_architect_brief.md`;
++- `tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/REQUEST.md`;
++- `tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md`;
++- current product `main@3d2c2dc`.
++
++Facts confirmed against current code:
++1. `rota/planning/engine.py::_plan()` still calls the retired T018 SICK-only `excused_absence_days_in_month(..., calendar_days=...)` gate before solving, although T023 solver TARGET now consumes only `PlanningState.work_balances[].absence_hours`.
++2. `rota/application/schedule_export.py` independently chooses SICK over LEAVE on a date and independently derives POST_PLAN Site hours from bound periods, despite frozen T023 assigning precedence/accounting/Site filtering to one pure canonical owner in `rota/planning/absence.py`.
++3. `rota/planning/absence.py` still contains stale pre-B/C ownership comments.
++
++These are implementation/ownership gaps under an already-decided product contract. No new owner/product decision is required for the repair below.
++
++## 2. DISPOSITION
++
++### T026-1 — stale engine CalendarDay/SICK gate
++
++DISPOSITION: **AUTHORIZED IN T026 — REMOVE THE STALE GATE.**
++
++Architect decision:
++- `plan(PlanningState)` is a public planning-engine boundary over an already constructed `PlanningState`.
++- For absence-hour accounting specifically, `PlanningState.work_balances` is authoritative input.
++- `plan()` / `_plan()` must not reconstruct, recount, or independently completeness-check SICK/LEAVE absence hours from `availability_records`, `CalendarDay`, source mode, or the T018 flat-8 helper.
++- Raw `availability_records` remain valid planning input for their existing HARD eligibility/validator responsibilities; this decision is only about absence-hour accounting/TARGET provenance.
++- `plan()` continues to own its existing planning-model validation/orchestration/status mapping (SiteRule execution validation, solver orchestration, independent validator, three PlanningResult statuses). T026 does not redefine those boundaries.
++
++Supported production planning path:
++- `plan_month()` assembles state through `assemble_planning_state()` before calling `plan()`.
++- `replan()` assembles state through `assemble_planning_state()` before calling `plan()`.
++- `select_candidate()` validates a supplied candidate and does not call `plan()`.
++- `assemble_planning_state()` builds `work_balances` through `reconstruct_month_balance()`, which is the existing fail-closed canonical absence-reference path.
++
++Therefore:
++- remove the `engine.py` import/use of `excused_absence_days_in_month` and `IncompleteAbsenceCalendarError` that exists solely for the old SICK CalendarDay gate;
++- remove the obsolete `_sick_adjusted_targets()` explanatory comment;
++- do **not** replace it with a new raw-Availability/CalendarDay guard or a new invented WorkBalance completeness invariant.
++
++Why recommended: T023 already moved TARGET accounting to canonical WorkBalance. A second SICK-only T018 gate validates a retired representation rather than the value the solver actually consumes.
++
++Concrete problem solved: a hand-built or otherwise valid canonical `PlanningState` can currently become `TECHNICAL_ERROR` solely because its raw CalendarDay/SICK legacy representation is incomplete/conflicting, even when its canonical WorkBalance is already the authoritative target input.
++
++### T026-2 — T020 duplicate precedence / Site POST_PLAN arithmetic
++
++DISPOSITION: **AUTHORIZED IN T026 — KEEP `rota/planning/absence.py` AS THE SINGLE PURE OWNER AND EXTEND ITS PURE PROJECTION API.**
++
++No frozen amendment is authorized. The existing single-owner contract remains controlling.
++
++Layering decision:
++- `rota/planning/absence.py` remains pure and persistence-free.
++- It must not import `rota.persistence.*`.
++- `rota/application/schedule_export.py` may mechanically decode/map persisted `AbsenceReferenceSnapshot` / `DayReference` / `PeriodFact` fields into pure input dataclasses owned by `rota/planning/absence.py`.
++- Persistence remains provenance/I/O; presentation remains code/symbol rendering; accounting/precedence/range/Site projection remains in the pure canonical owner.
++
++Required pure shapes in `rota/planning/absence.py` (exact names may be mechanically adjusted by CC only if a collision exists; semantics may not change):
++
++`DetailedAbsencePeriodFact`
++- `assignment_id: str`
++- `schedule_version_id: str`
++- `site_id: str`
++- `covers_demand_id: Optional[str]`
++- `work_period_id: Optional[str]`
++- `start_datetime: datetime`
++- `end_datetime: datetime`
++- `shift_kind: Optional[str]`
++- `catalog_kind: Optional[str]`
++- `required_rest_hours: Optional[int]`
++- `work_period_template_id: Optional[str]`
++- `work_period_component: Optional[int]`
++
++`DetailedDailyAbsenceFact`
++- `the_date: date`
++- `kind: AvailabilityKind`
++- `source_mode: str`
++- `status: str`
++- `hours: Optional[int]`
++- `periods: tuple[DetailedAbsencePeriodFact, ...]`
++
++`CanonicalSiteAbsenceDay`
++- `the_date: date`
++- `kind: AvailabilityKind`
++- `source_mode: str`
++- `canonical_hours: int` — the same Employee-global winning-day canonical hours represented by `DailyAbsenceFact.hours`;
++- `site_hours: Optional[int]` — `None` for PRE_PLAN_LEAVE because it has no schedule Site provenance; for POST_PLAN_REFERENCE, exact hours belonging to the requested Site from bound period provenance, including 0 for accepted rest;
++- `site_periods: tuple[DetailedAbsencePeriodFact, ...]` — POST_PLAN bound periods for the requested Site, preserving the immutable D/N/24h provenance T020 needs; empty for PRE_PLAN_LEAVE.
++
++Required pure function:
++
++`canonical_site_absence_days(facts, *, range_start, range_end, site_id) -> tuple[CanonicalSiteAbsenceDay, ...]`
++
++Required behavior:
++1. clip facts to the explicit inclusive `[range_start, range_end]` before winner/status evaluation;
++2. apply the same one-owner SICK-over-LEAVE_GRANTED winner rule as `canonical_daily_hours`;
++3. fail closed with `IncompleteAbsenceReferenceError` when the winning fact is MISSING/AMBIGUOUS; never guess 0/8/12/24;
++4. PRE_PLAN_LEAVE: preserve the captured canonical `hours`; return `site_hours=None` and no site periods — Site attribution remains T020's already-frozen presentation boundary;
++5. POST_PLAN_REFERENCE: preserve captured Employee-global `canonical_hours`, filter bound periods by `site_id`, and derive `site_hours` from those immutable period intervals exactly as T020 already does today; accepted rest therefore yields `site_hours=0`;
++6. preserve bound period `shift_kind` and other captured period provenance so T020 can map D/N/24h symbols without re-reading CURRENT;
++7. no source-mode choice from CURRENT and no new fallback/backfill.
++
++Implementation ownership inside `absence.py`:
++- `canonical_daily_hours` and `canonical_site_absence_days` must share one internal winner/status path; two independent SICK/LEAVE precedence implementations inside the same module are not acceptable.
++
++Required `schedule_export.py` boundary after T026:
++- it may load current Availability records and captured snapshots and mechanically construct `DetailedDailyAbsenceFact` values;
++- it may enforce its existing presentation-only concerns: real-work/absence conflict, PRE_PLAN multi-LOCAL fail-closed attribution, exact legend/code availability, exact PRE_PLAN decomposition, D/N code selection from canonical `site_periods`;
++- it must **not** contain its own SICK-vs-LEAVE winner implementation;
++- it must **not** sum POST_PLAN Site period durations itself;
++- it must consume `canonical_site_absence_days(...)` for winner/range/status/Site-hour projection.
++
++Why recommended: this preserves the frozen T023 single-owner contract while keeping the pure domain layer free of persistence imports.
++
++Concrete problem solved: T020 currently owns a second implementation of two rules already assigned to the canonical absence owner, so later changes/fixes can make WorkBalance/analytics and the PDF disagree even while both read the same persisted snapshot.
++
++### T026-3 — stale comments
++
++DISPOSITION: **AUTHORIZED CLEANUP, NO BEHAVIOR CHANGE.**
++
++Within `rota/planning/absence.py`, remove/update stale comments/docstrings that claim solver/schedule_export are not yet wired or that live solver TARGET still uses the pre-T023 SICK-only flat-8 carve-out. Preserve historical T018 helper documentation where it still correctly describes the retained PRE_PLAN_LEAVE source.
++
++Why recommended: the canonical owner should not document a superseded architecture as current behavior.
++
++Concrete problem solved: stale comments can mislead a later maintainer into restoring a path T023 deliberately retired.
++
++## 3. T026 DOES NOT CHANGE PRODUCT SEMANTICS
++
++The following T023/T020 behavior remains frozen:
++- SICK_LEAVE and LEAVE_GRANTED remain HARD unavailable.
++- SICK wins same-date overlap and presents C once.
++- PRE_PLAN_LEAVE remains owner-approved 8h per qualified weekday/nonholiday source captured at write time.
++- SICK has no PRE_PLAN flat-8 fallback.
++- POST_PLAN_REFERENCE hours come from accepted bound schedule periods, anchored wholly to work-period start date.
++- 8/12/N/24/rest/weekend/holiday behavior remains unchanged.
++- global WorkBalance is Employee-wide/cross-Site once; T020 prints only the requested Site's bound post-PLAN periods.
++- PRE_PLAN multi-LOCAL no-provenance attribution remains fail-closed rather than duplicated.
++- T020 U/C is presentation only and never demand coverage.
++- no guessed historical backfill.
++- TARGET remains SOFT and uses `max(0, target_hours - absence_hours)`.
++
++T026 fixes ownership, not values.
++
++## 4. TASK_SCOPE — FILES CC MAY MODIFY
++
++TASK_SCOPE:
++- rota/planning/engine.py
++- rota/planning/absence.py
++- rota/application/schedule_export.py
++- tests/test_t018.py
++- tests/test_t026.py
++- tasks/ROTA-T026/brief.md
++
++Mechanical formatting note (2026-08-22, CC): the list above is the literal
++`TASK_SCOPE:` block `backend.py::read_task_scope()` parses (bare paths, no
++Markdown formatting) -- the original Production/Tests/Contract-process
++grouping and per-file annotations below are preserved as prose, unchanged
++in meaning.
++
++Production: `rota/planning/engine.py`, `rota/planning/absence.py`,
++`rota/application/schedule_export.py`.
++
++Tests: `tests/test_t018.py` — only the exact superseded direct-plan
++CalendarDay/SICK oracle and mechanical imports/fixture edits required by
++that replacement; `tests/test_t026.py` — new T026 closure matrix.
++
++Contract/process: `tasks/ROTA-T026/brief.md`.
++
++No other product/test file may be modified without a concrete independent-audit finding proving it is required to close this contract.
++
++Inherited owner-accepted legacy SIZE_FILE exceptions in pre-existing large test files are not reopened merely because `tests/test_t018.py` receives the narrow oracle replacement above.
++
++## 5. EXPLICIT OUT OF SCOPE
++
++Do not modify or reinterpret in T026:
++- `arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md`;
++- `arch/spec.md`, `arch/FROZEN.lock`;
++- DB schema/migrations;
++- `rota/persistence/absence_reference_repository.py` capture/provenance rules;
++- `rota/persistence/work_balance_repository.py` or `rota/balance.py`;
++- `rota/application/assembler.py`, `durable_inputs.py`, `plan_ops.py`;
++- eligibility/HARD absence rules;
++- T012/T022 work-period/rest legality;
++- labor-law findings/questions from Cursor section B, including 24h-after-rest, weekly rest and night-work window;
++- Cursor C1 raw Availability UI/read split;
++- Cursor C2 coordinator-screen error/degrade UX consistency;
++- payroll, HR, leave entitlement, benefits or legal settlement;
++- new absence ledger/history/versioning/backfill;
++- new SiteProfile strategy/configuration.
++
++Reading/calling existing out-of-scope APIs is allowed; modifying them is not.
++
++## 6. DELIBERATE SUPERSESSION / PRESERVATION
++
++Superseded exactly:
++- `tests/test_t018.py::test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical_error` as an oracle for the public `plan(PlanningState)` boundary. Its old meaning depended on pre-T023 SICK TARGET recounting from raw CalendarDay/Availability.
++
++Replacement meaning:
++- direct `plan()` with canonical `work_balances` must not become TECHNICAL_ERROR merely because raw SICK/CalendarDay data cannot support the retired flat-8 recount; the planning outcome is determined by the canonical state plus existing solver/validator rules.
++
++Preserved:
++- T018 helper tests that directly verify the retained qualified-workday/holiday function where it is still used as PRE_PLAN_LEAVE source;
++- T23-32: solver consumes WorkBalance, no CalendarDay/flat recount/source-mode choice;
++- T23-35: T020 is a projection of the same canonical absence facts;
++- all T023/T020 range, precedence, Site, D/N, 24h, rest, MISSING/AMBIGUOUS and PRE_PLAN decomposition regressions;
++- unrelated CalendarDay uses and planning rules.
++
++No unrelated oracle may be weakened to make T026 pass.
++
++## 7. REQUIRED TEST / AUDIT MATRIX
++
++### Item 1 — engine trust boundary
++
++T26-01 — direct `plan()` with a SICK record, canonical WorkBalance and no CalendarDay absence-accounting support does not fail with the retired `calendar error`; result follows normal solver/validator semantics.
++
++T26-02 — for otherwise identical direct PlanningStates with the same canonical WorkBalance, changing only CalendarDay values cannot change absence TARGET arithmetic.
++
++T26-03 — direct plan still uses raw SICK/LEAVE Availability for existing HARD eligibility semantics; removing the legacy hours gate must not make an absent Employee eligible.
++
++T26-04 — production `plan_month()` and `replan()` retain existing upstream fail-closed behavior when required canonical absence reference/WorkBalance reconstruction is incomplete. T026 does not add a degrade-to-zero fallback.
++
++T26-05 — retained direct tests for SiteRule/model/solver TECHNICAL_ERROR mapping remain unchanged.
++
++### Item 2 — canonical Site projection
++
++T26-10 — canonical Site projection clips to caller range before precedence/status checks; adjacent out-of-range MISSING/AMBIGUOUS cannot poison the requested range.
++
++T26-11 — same-date SICK+LEAVE yields one SICK winner in both `canonical_daily_hours` and `canonical_site_absence_days`.
++
++T26-12 — single-Site POST_PLAN projection has `site_hours == canonical_hours` and preserves shift-kind provenance.
++
++T26-13 — multi-Site POST_PLAN projection preserves Employee-global `canonical_hours` but returns only requested Site's exact bound `site_hours`/periods; no membership-based duplication.
++
++T26-14 — accepted POST_PLAN rest yields canonical/site 0 for that Site and T020 emits no synthetic U/C.
++
++T26-15 — legal 24h and D/N period provenance survives the pure projection and produces the same T020 PLAN/WYK symbols as before.
++
++T26-16 — PRE_PLAN_LEAVE keeps captured canonical hours with `site_hours=None`; T020 exact decomposition and existing multi-LOCAL fail-closed attribution remain unchanged.
++
++T26-17 — winning MISSING/AMBIGUOUS raises canonical `IncompleteAbsenceReferenceError`; T020 maps it to its existing presentation integrity failure and never guesses hours.
++
++T26-18 — `schedule_export.py` consumes the canonical Site projection; no local SICK/LEAVE winner function and no local POST_PLAN Site-duration sum remains.
++
++T26-19 — `rota/planning/absence.py` imports no persistence module.
++
++### Retained regressions
++
++Must run and remain green at minimum:
++- `tests/test_t020.py`;
++- `tests/test_t023.py`;
++- `tests/test_t023_checkpoint_b.py`;
++- `tests/test_t023_checkpoint_c.py`;
++- `tests/test_t018.py` after the exact oracle replacement;
++- full configured repository suite;
++- Ruff;
++- `git diff --check`;
++- repository scope/size/function guards, with only already owner-accepted inherited exceptions.
++
++## 8. IMPLEMENTATION SHAPE
++
++One implementation checkpoint only. Do not split T026 into independent feature checkpoints because both authorized fixes are small ownership repairs over one frozen absence model.
++
++Expected production delta:
++1. `engine.py`: delete retired SICK CalendarDay gate/import/catch path only.
++2. `absence.py`: add detailed pure input/output projection types + one canonical Site projection reusing the same winner/status owner; clean stale current-architecture comments.
++3. `schedule_export.py`: mechanical snapshot-to-pure-fact mapping; consume canonical projection; retain presentation/code mapping only.
++
++No persistence/schema migration and no new runtime configuration.
++
++## 9. INDEPENDENT CODEX PREIMPLEMENTATION GATE
++
++Audit the exact contract HEAD before CC writes product code.
++
++The audit must answer only:
++
++T026-1:
++- Does the contract correctly make canonical `work_balances` authoritative for absence TARGET at the `plan(PlanningState)` boundary?
++- Does it remove only the retired SICK CalendarDay accounting gate without weakening raw Availability HARD exclusion or other engine validation?
++- Is the old direct-plan T018 oracle superseded narrowly and explicitly?
++
++T026-2:
++- Does `rota/planning/absence.py` remain the one pure, persistence-free precedence/accounting/Site-projection owner?
++- Is T020 allowed only mechanical persistence-to-pure mapping plus presentation/code mapping, not its own precedence or Site-hours arithmetic?
++- Does the proposed projection preserve global canonical hours while exposing the exact Site slice and immutable D/N/24h provenance needed by T020?
++- Are PRE_PLAN attribution, MISSING/AMBIGUOUS fail-closed, range clipping and existing T023/T020 outputs preserved?
++
++Scope:
++- confirm labor-law and Cursor C1/C2 items remain out of T026;
++- do not invent a new product rule or new completeness invariant.
++
++Required verdict:
++`PASS — READY_FOR_IMPLEMENTATION`
++or concrete T026-1/T026-2 contract findings.
++
++Until that PASS: **NOT READY FOR CC**.
++
++## 10. FINAL GATES
++
++After preimplementation PASS:
++1. CC implements only TASK_SCOPE.
++2. T26 matrix + retained T018/T020/T023 regressions pass.
++3. Full suite, Ruff, repository guards and `git diff --check` pass.
++4. Independent Codex implementation audit runs on the exact final implementation SHA.
++5. Architect reviews exact final SHA/diff and audit report.
++6. Merge remains an explicit owner action.
+diff --git a/tasks/ROTA-T026/round_01/implementation/backend_output.txt b/tasks/ROTA-T026/round_01/implementation/backend_output.txt
+new file mode 100644
+index 0000000..f673eed
+--- /dev/null
++++ b/tasks/ROTA-T026/round_01/implementation/backend_output.txt
+@@ -0,0 +1,67 @@
++STATUS: FAIL
++HEAD_SHA: 6515625568473463162b33670076ea8548e21f41
++CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
++REASON:
++  - SIZE_FILE: tests/test_t018.py has 831 lines (max 600)
++WYMAGA_DECYZJI:
++  - TOTAL_LINES: 459 lines changed (threshold 150)
++IMPORTERS_FOR_REVIEW:
++  - benchmarks\manual_audits.py
++  - benchmarks\real_object.py
++  - benchmarks\rota_stress.py
++  - rota\balance.py
++  - tests\test_audit_r12_findings.py
++  - tests\test_audit_r13_findings.py
++  - tests\test_audit_r14_findings.py
++  - tests\test_audit_r15_findings.py
++  - tests\test_audit_r16_findings.py
++  - tests\test_audit_r17_findings.py
++  - tests\test_audit_r20_r21_findings.py
++  - tests\test_audit_r22_findings.py
++  - tests\test_audit_r23_findings.py
++  - tests\test_audit_r25_findings.py
++  - tests\test_audit_r26_findings.py
++  - tests\test_audit_t007_r3.py
++  - tests\test_audit_t007_r4.py
++  - tests\test_audit_t007_r5.py
++  - tests\test_audit_t010_r3.py
++  - tests\test_balance.py
++  - tests\test_eligibility_matrix.py
++  - tests\test_real_object_benchmark.py
++  - tests\test_replan_and_soft_ranking.py
++  - tests\test_replan_minimal_reshuffle.py
++  - tests\test_rota_generic_month.py
++  - tests\test_rota_reg_001.py
++  - tests\test_sick_leave.py
++  - tests\test_site_rules_execution.py
++  - tests\test_site_rule_execution_integration.py
++  - tests\test_t010_c_readiness_regression.py
++  - tests\test_t012.py
++  - tests\test_t013.py
++  - tests\test_t016_emp02_retirement.py
++  - tests\test_t017.py
++  - tests\test_t018.py
++  - tests\test_t022_planning_integrity.py
++  - tests\test_t023_checkpoint_b.py
++  - tests\test_t023_checkpoint_c.py
++  - tests\test_t026.py
++  - tests\test_vertical_full_stack.py
++  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_a_audit.py
++  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_b_audit.py
++  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_c_audit.py
++  - tasks\ROTA-T023\round_01\tests\test_t023_round8_audit.py
++  - tasks\ROTA-T023\round_01\tests\test_t023_round9_audit.py
++  - tasks\ROTA-T022\round_01\tests\test_t022_r1_audit.py
++  - tasks\ROTA-T012\scenarios\t012_owner_march_2027_probe.py
++  - tasks\ROTA-T003\round_01\implementation\rota_stress_edge_generator.py
++  - rota\application\analytics_read.py
++  - rota\application\balance_read.py
++  - rota\application\plan_ops.py
++  - rota\application\schedule_export.py
++  - rota\persistence\absence_reference_repository.py
++  - rota\persistence\work_balance_repository.py
++  - .venv\Lib\site-packages\pandas\io\sql.py
++  - .venv\Lib\site-packages\pandas\tests\io\test_sql.py
++EXCLUDED_ARTIFACTS:
++  - tasks/ROTA-T026/round_01/tests/tests_r1.txt
++  - tasks/ROTA-T026/brief.md
+\ No newline at end of file
+diff --git a/tasks/ROTA-T026/round_01/tests/tests_r1.txt b/tasks/ROTA-T026/round_01/tests/tests_r1.txt
+new file mode 100644
+index 0000000..a31a7ae
+--- /dev/null
++++ b/tasks/ROTA-T026/round_01/tests/tests_r1.txt
+@@ -0,0 +1,43 @@
++ROTA-T026 - PREIMPLEMENTATION CONTRACT AUDIT - ROUND 1
++AUDITED_HEAD: 30467345c7cd61cd0a6553236b0e76d9fd7dc8d8
++BASE_PRODUCT_SHA: 3d2c2dce52af9e48f28d86b8160249f2040d405c
++ARCHITECT_INPUT_SHA: 64774715ecb1cfb56dc7cd69a2192761e0eba335
++VERDICT: PASS - READY_FOR_IMPLEMENTATION
++
++SECTION_CHECK 1 - DELIVERY / PRECEDENCE
++STATUS: PASS.
++- 6477471..3046734 is exactly one commit and adds exactly tasks/ROTA-T026/brief.md; no product or test code changed.
++- The contract keeps the frozen T023 addendum and preserved T023 decisions controlling. It authorizes no frozen amendment and introduces no new absence-hour value rule.
++- T026-1 and T026-2 receive separate explicit dispositions; T026-3 is documentation-only cleanup.
++
++SECTION_CHECK 2 - T026-1 ENGINE TRUST BOUNDARY
++STATUS: PASS.
++- PlanningState.work_balances is explicitly authoritative only for absence-hour/TARGET accounting at plan(PlanningState); raw Availability remains authoritative for existing HARD eligibility and validator behavior.
++- The retired SICK-only CalendarDay gate, its import/catch and obsolete explanatory comment are removed narrowly. No replacement raw recount or invented WorkBalance completeness invariant is authorized.
++- The supported plan_month()/replan() assembly boundary and upstream reconstruct_month_balance() fail-closed path are named; select_candidate() is correctly classified as candidate validation rather than a plan() caller.
++- The old direct-plan T018 oracle is superseded exactly, while the retained PRE_PLAN helper tests and unrelated planning-model TECHNICAL_ERROR mappings remain preserved.
++- T26-01..05 cover the original reproducer, CalendarDay sibling variation, HARD SICK/LEAVE behavior, both application assembly paths and adjacent engine error mappings.
++
++SECTION_CHECK 3 - T026-2 CANONICAL SITE PROJECTION
++STATUS: PASS.
++- rota/planning/absence.py remains the single pure, persistence-free owner of range clipping, winner/status classification and Site-hour projection.
++- schedule_export.py is limited to mechanical persisted-to-pure mapping and presentation-only checks/code selection; it may own neither SICK/LEAVE precedence nor POST_PLAN Site-duration summation.
++- The detailed pure shapes carry the immutable period provenance needed for Site filtering and D/N/24h presentation without reading CURRENT.
++- CanonicalSiteAbsenceDay preserves the Employee-global winning canonical hours and separately exposes the requested Site slice; PRE_PLAN deliberately returns no Site attribution.
++- canonical_daily_hours() and canonical_site_absence_days() must share one internal winner/status path, preventing a same-module duplicate of the original defect class.
++- T26-10..19 cover range boundaries, overlapping kinds, single-/multi-Site arithmetic, accepted rest, D/N/24h provenance, PRE_PLAN decomposition/ambiguity, MISSING/AMBIGUOUS failure, consumer ownership and the persistence-import boundary.
++
++SECTION_CHECK 4 - PRESERVATION / SCOPE
++STATUS: PASS.
++- T023/T020 HARD availability, SICK precedence, PRE_PLAN capture/decomposition, POST_PLAN anchoring and exact scheduled hours, cross-Site global accounting, T020 Site presentation, fail-closed provenance and SOFT TARGET semantics remain explicit.
++- Labor-law work, Cursor C1/C2, UX degradation policy, persistence/schema, balance reconstruction and unrelated planning legality remain explicitly OUT OF SCOPE.
++- Production and test files are bounded. Historical oracles are classified narrowly, and unrelated tests may not be weakened.
++- The implementation matrix requires retained T018/T020/T023 suites, the full configured suite, Ruff, diff check and repository guards.
++
++SECTION_CHECK 5 - TESTABILITY / NEXT GATE
++STATUS: PASS.
++- Every authorized behavior has a named owner, observable result/error boundary and traceable regression case.
++- No implementation matrix was run: the audited delivery is contract-only and contains no product/test implementation.
++- CC may implement only the exact T026 scope after this PASS. Final acceptance still requires the full gates, an independent implementation audit on the exact implementation SHA and architect review.
++
++ARCHITECTURE_PROPOSALS: NONE.
+diff --git a/tests/test_t018.py b/tests/test_t018.py
+index a6e7cf2..d8c1c0f 100644
+--- a/tests/test_t018.py
++++ b/tests/test_t018.py
+@@ -183,9 +183,14 @@ def test_a7_8_incomplete_calendar_with_qualifying_absence_fails_closed():
+ # A7.9 -----------------------------------------------------------------------
+ 
+ 
+-def test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical_error():
+-    # Two employees so demand coverage is still reachable (no unassignable
+-    # short-circuit before the objective, where the calendar is consumed).
++def test_a7_9_direct_plan_no_longer_calendar_gated_for_sick_absence():
++    """ROTA-T026 supersedes the old oracle here: direct plan() must not
++    become TECHNICAL_ERROR merely because raw CalendarDay data cannot
++    support the retired flat-8 recount -- absence-hour TARGET accounting is
++    authoritative via PlanningState.work_balances, and CalendarDay is no
++    longer consulted for SICK_LEAVE hours at all (frozen addendum section 2:
++    SICK_LEAVE has no PRE_PLAN path). Two employees so demand coverage is
++    still reachable; A stays HARD unavailable regardless (T26-03)."""
+     demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
+     employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
+     employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
+@@ -195,7 +200,8 @@ def test_a7_9_direct_plan_with_incomplete_calendar_and_sick_absence_is_technical
+         shift_demands=(demand,), availability_records=(sick,),
+     )
+     result = plan(state)
+-    assert result.status == "TECHNICAL_ERROR"
++    assert result.status == "FEASIBLE"
++    assert result.candidates[0][0].employee_id == "B"
+ 
+ 
+ # A7.10 ----------------------------------------------------------------------
+diff --git a/tests/test_t026.py b/tests/test_t026.py
+new file mode 100644
+index 0000000..3f955d4
+--- /dev/null
++++ b/tests/test_t026.py
+@@ -0,0 +1,167 @@
++"""ROTA-T026 closure matrix (tasks/ROTA-T026/brief.md section 7): the
++engine trust-boundary repair (T26-01..05) and the canonical Site-aware
++absence projection (T26-10..19). Reuses tests/test_t018.py's helpers
++(_sick, _local_membership, _full_month_calendar) and tests/test_t023.py's
++DB fixtures (_setup, SITE, COORDINATOR, MONTH) rather than duplicating
++them -- no existing T018/T023/T020 test is moved, removed or duplicated
++into this file."""
++from __future__ import annotations
++
++import inspect
++from datetime import date, datetime
++
++import pytest
++
++import rota.application.schedule_export as schedule_export_module
++import rota.planning.absence as absence_module
++import rota.planning.engine as engine_module
++from rota.application import plan_ops
++from rota.domain import AvailabilityKind, Employee, ShiftDemand, WorkBalance
++from rota.persistence.availability_repository import append_availability_version
++from rota.persistence.work_balance_repository import save_work_balance_target
++from rota.planning.absence import (
++    DailyAbsenceFact,
++    DetailedAbsencePeriodFact,
++    DetailedDailyAbsenceFact,
++    IncompleteAbsenceReferenceError,
++    canonical_daily_hours,
++    canonical_site_absence_days,
++)
++from rota.planning.engine import plan
++from rota.planning.shift_catalog import UnclassifiedShiftError
++from rota.planning.site_rules import UnsupportedOrMalformedSiteRule
++from rota.planning.solver import _effective_targets
++from tests.support.minimal_state import base_state
++from tests.test_t018 import _full_month_calendar, _local_membership, _sick
++from tests.test_t023 import COORDINATOR, MONTH, SITE, _seed_full_month_calendar, _setup
++
++# --- T26-01..05: engine trust boundary --------------------------------------
++
++
++def test_t26_01_direct_plan_not_calendar_gated_with_canonical_work_balance() -> None:
++    demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
++    employee_a, employee_b = Employee("A", "A", date(2026, 9, 1), None, False), Employee("B", "B", date(2026, 9, 1), None, False)
++    sick = _sick("A", date(2026, 10, 1), date(2026, 10, 5))
++    wb = WorkBalance("A", date(2026, 10, 1), 156, 0, 0, 0, 0, 0, absence_hours=40)
++    state = base_state(
++        employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
++        shift_demands=(demand,), availability_records=(sick,), work_balances=(wb,),
++    )
++    result = plan(state)
++    assert result.status != "TECHNICAL_ERROR"
++
++
++def test_t26_02_calendar_days_cannot_change_target_arithmetic() -> None:
++    wb = WorkBalance("A", date(2026, 10, 1), 156, 0, 0, 0, 0, 0, absence_hours=40)
++    state_no_calendar = base_state(work_balances=(wb,), calendar_days=())
++    state_full_calendar = base_state(work_balances=(wb,), calendar_days=_full_month_calendar(date(2026, 10, 1)))
++    assert _effective_targets(state_no_calendar) == _effective_targets(state_full_calendar) == {"A": 116}
++
++
++def test_t26_03_hard_availability_unaffected_by_removed_calendar_gate() -> None:
++    demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
++    employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
++    sick = _sick("A", date(2026, 10, 1), date(2026, 10, 12))
++    state = base_state(employees=(employee_a,), memberships=(_local_membership("A"),), shift_demands=(demand,), availability_records=(sick,))
++    result = plan(state)
++    assert result.status == "DECISION_REQUIRED"  # sole Employee is HARD unavailable -- no eligible Employee, never silently assigned
++
++
++def test_t26_04_plan_month_still_fails_closed_on_incomplete_reference(tmp_path) -> None:
++    conn = _setup(tmp_path)
++    _seed_full_month_calendar(conn, MONTH, MONTH)
++    save_work_balance_target(conn, employee_id="A", month=MONTH, target_hours=100)
++    append_availability_version(
++        conn, availability_id="AV-LEGACY", employee_id="A", kind=AvailabilityKind.SICK_LEAVE,
++        start_date=date(2027, 3, 6), end_date=date(2027, 3, 6), active=True,
++    )
++    with pytest.raises(IncompleteAbsenceReferenceError):
++        plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
++
++
++def test_t26_05_unrelated_technical_error_mappings_unchanged(monkeypatch) -> None:
++    monkeypatch.setattr(engine_module, "_plan", lambda state: (_ for _ in ()).throw(UnclassifiedShiftError("bad shift")))
++    assert plan(base_state()).status == "TECHNICAL_ERROR"
++    monkeypatch.setattr(engine_module, "_plan", lambda state: (_ for _ in ()).throw(UnsupportedOrMalformedSiteRule("RV-1", "bad rule")))
++    assert plan(base_state()).status == "TECHNICAL_ERROR"
++
++
++# --- T26-10..19: canonical Site-aware absence projection --------------------
++
++
++def _period(site_id: str, start: datetime, end: datetime, shift_kind=None) -> DetailedAbsencePeriodFact:
++    return DetailedAbsencePeriodFact("A-1", "SV-1", site_id, "D-1", None, start, end, shift_kind, "H12", None, None, None)
++
++
++def test_t26_10_range_clipping_before_precedence_and_status() -> None:
++    in_range = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 12, ())
++    out_of_range_missing = DetailedDailyAbsenceFact(date(2027, 3, 1), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "MISSING", None, ())
++    days = canonical_site_absence_days([in_range, out_of_range_missing], range_start=date(2027, 3, 5), range_end=date(2027, 3, 10), site_id="SITE-1")
++    assert [d.the_date for d in days] == [date(2027, 3, 8)]
++
++
++def test_t26_11_same_date_sick_leave_one_sick_winner_shared() -> None:
++    leave, sick = DailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.LEAVE_GRANTED, "PRE_PLAN_LEAVE", "BOUND", 8), DailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 12)
++    assert canonical_daily_hours([leave, sick]) == {date(2027, 3, 8): 12}
++    detailed_leave = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.LEAVE_GRANTED, "PRE_PLAN_LEAVE", "BOUND", 8, ())
++    detailed_sick = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 12, ())
++    days = canonical_site_absence_days([detailed_leave, detailed_sick], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-1")
++    assert len(days) == 1 and days[0].kind == AvailabilityKind.SICK_LEAVE and days[0].canonical_hours == 12
++
++
++def test_t26_12_single_site_post_plan_site_hours_equals_canonical() -> None:
++    period = _period("SITE-1", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), "D")
++    fact = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 12, (period,))
++    days = canonical_site_absence_days([fact], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-1")
++    assert days[0].site_hours == days[0].canonical_hours == 12
++    assert days[0].site_periods[0].shift_kind == "D"
++
++
++def test_t26_13_multi_site_post_plan_exposes_only_requested_site() -> None:
++    period_a, period_b = _period("SITE-A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), "D"), _period("SITE-B", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), "D")
++    fact = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 24, (period_a, period_b))
++    days = canonical_site_absence_days([fact], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-A")
++    assert days[0].canonical_hours == 24
++    assert days[0].site_hours == 12
++    assert len(days[0].site_periods) == 1 and days[0].site_periods[0].site_id == "SITE-A"
++
++
++def test_t26_14_accepted_rest_yields_zero_canonical_and_site() -> None:
++    fact = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 0, ())
++    days = canonical_site_absence_days([fact], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-1")
++    assert days[0].canonical_hours == 0
++    assert days[0].site_hours == 0
++
++
++def test_t26_15_24h_and_dn_provenance_survives_projection() -> None:
++    p1 = _period("SITE-1", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), "D")
++    p2 = _period("SITE-1", datetime(2027, 3, 8, 17, 0), datetime(2027, 3, 9, 5, 0), "N")
++    fact = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "BOUND", 24, (p1, p2))
++    days = canonical_site_absence_days([fact], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-1")
++    assert days[0].site_hours == 24
++    assert {p.shift_kind for p in days[0].site_periods} == {"D", "N"}
++
++
++def test_t26_16_pre_plan_leave_has_no_site_attribution() -> None:
++    fact = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.LEAVE_GRANTED, "PRE_PLAN_LEAVE", "BOUND", 8, ())
++    days = canonical_site_absence_days([fact], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-1")
++    assert days[0].canonical_hours == 8
++    assert days[0].site_hours is None
++    assert days[0].site_periods == ()
++
++
++def test_t26_17_missing_status_raises_canonical_error() -> None:
++    fact = DetailedDailyAbsenceFact(date(2027, 3, 8), AvailabilityKind.SICK_LEAVE, "POST_PLAN_REFERENCE", "MISSING", None, ())
++    with pytest.raises(IncompleteAbsenceReferenceError):
++        canonical_site_absence_days([fact], range_start=date(2027, 3, 1), range_end=date(2027, 3, 31), site_id="SITE-1")
++
++
++def test_t26_18_schedule_export_has_no_local_precedence_or_duration_sum() -> None:
++    source = inspect.getsource(schedule_export_module)
++    assert "canonical_site_absence_days" in source
++    assert "_winning_days" not in source
++    assert not hasattr(schedule_export_module, "_winning_days")
++
++
++def test_t26_19_absence_module_imports_no_persistence() -> None:
++    assert "rota.persistence" not in inspect.getsource(absence_module)
