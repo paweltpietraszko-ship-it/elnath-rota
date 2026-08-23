@@ -1,0 +1,131 @@
+ROTA-T021 / SCREEN 2 SECTION 5.1 CONTRACT RE-AUDIT / ROUND 9
+
+AUDITED_SHA: f378f06054e7a6d3b5d7acb201bb01afc669648f
+AUDITED_CONTRACT: tasks/ROTA-T021/brief.md Section 5.1
+RE-AUDITED_FINDINGS: R8-1, R8-2 and R8-3 only
+PRESERVED_CLOSURE: R7-4
+SCOPE_EXCLUDED:
+- every other T021 screen and visual fidelity/Tor 2
+- T021b rule-wrapper contract
+- previously accepted Screen-2 semantics outside R8-1..R8-3
+
+VERDICT: FAIL - R8-1 CLOSED; R8-2 AND R8-3 NOT CLOSED
+
+The consolidated correction removes the EXTERNAL_SUPPORT overwrite. The two
+remaining problems are not missing prose details: one endpoint is still not
+idempotent under its named retry class, and the availability correction puts
+new selection/branching semantics in the API despite T021's explicit thin-
+pass-through boundary.
+
+R9-1 - EMPLOYEE-CREATION STEP IS NOT INDEPENDENTLY RETRYABLE
+TRACES_TO: R8-2
+STATUS: FAIL
+CONTRACT:
+- brief.md:343-355 defines two separately callable endpoints; employee
+  creation generates employee_id server-side and returns it to the frontend
+- brief.md:356-361 calls the operations independently retryable and claims a
+  full retry cannot create another Employee for the same name because
+  update_employee is an upsert
+EVIDENCE:
+- Employee uniqueness is employee_id only; display_name has no UNIQUE
+  constraint (rota/persistence/db.py:141-146)
+- update_employee upserts on employee_id, not display_name
+  (rota/persistence/employee_repository.py:34-51)
+- if step 1 commits but its HTTP response is lost, the frontend never receives
+  the generated ID; retrying step 1 generates another UUID and inserts a
+  second Employee even with the same display_name
+IMPACT:
+- the first of the two supposedly independent calls is not idempotent for the
+  lost-response/retried-request sibling case required by R8-2
+- the contract's explicit claim that a full retry cannot duplicate Employee
+  is factually false on the exact schema and write owner
+CLOSURE:
+- define a stable identity/retry contract for step 1 that survives a committed
+  write followed by a lost response; do not use display_name as identity
+- test lost response after commit, exact request retry and normal step-2 retry,
+  proving exactly one Employee and one LOCAL membership
+
+R9-2 - GENERAL-AVAILABILITY INVARIANT IS NEW BUSINESS LOGIC IN FASTAPI
+TRACES_TO: R8-3
+STATUS: FAIL
+CONTRACT:
+- brief.md:80-88: FastAPI performs marshalling and calls an existing
+  application function directly; missing application logic is a gap to flag,
+  never logic to invent in the API layer
+- brief.md:398-408 makes the API query every UNAVAILABLE_24H family, classify
+  current/future rows, choose an existing availability_id or generate a new
+  one, and enforce a new single-family invariant
+- brief.md:425-437 applies the same branching to the separate absence-form
+  entry point
+- brief.md:524-532 permits T021 to read rota/** but forbids changing it and
+  requires a missing function to be flagged back
+EVIDENCE:
+- append_availability() owns one explicitly supplied availability_id family;
+  it does not select a family or enforce uniqueness across families
+  (rota/application/durable_inputs.py:177-218)
+- get_current_availability_for_employee() returns one current end for every
+  family; the schema has no single-family constraint or provenance marker
+  (rota/persistence/availability_repository.py:117-130)
+- lookup followed later by append is not one atomic invariant: two concurrent
+  requests can both observe no family and create different UUID families
+- even without concurrency, an existing future block is silently repurposed
+  when the coordinator attempts to add a different current/future period;
+  the contract neither preserves the first period nor defines selection when
+  legacy/current data already contains multiple matching families
+IMPACT:
+- the API would become a second owner of availability-family business rules,
+  contradicting the global T021 architecture and the task scope
+- the proposed construction does not actually guarantee the invariant it
+  claims, and can overwrite the dates of a distinct planned block
+- CC cannot implement R8-3 legally inside the authorized frontend/api files
+CLOSURE:
+- return the literal missing application-layer operation/read-model blocker;
+  do not implement lookup/selection/uniqueness branching in FastAPI
+- architect/owner must decide whether multiple UNAVAILABLE_24H periods remain
+  selectable independent families or a genuinely atomic single-family policy
+  is intended; that choice must be implemented/tested by its owning backend
+  task before this control is buildable
+- cover zero/one/multiple existing families, disjoint and overlapping current/
+  future periods, natural expiry, inactive ends, restart and concurrent writes
+
+R8-1 LOCAL/EXTERNAL_SUPPORT CLOSURE
+STATUS: PASS / CLOSED
+EVIDENCE:
+- brief.md:362-380 reads Site memberships without a kind filter for picker
+  classification
+- only no-row and disabled-LOCAL cases are offered
+- enabled/disabled EXTERNAL_SUPPORT rows are excluded and never passed to the
+  (employee_id, site_id) upsert, so membership_kind cannot be overwritten
+
+R7-4 TARGET-HOURS CLOSURE
+STATUS: PASS / UNCHANGED
+
+CONCISION / DUPLICATION CHECK
+- the correction remains within Screen 2 and adds no duplicate storage
+- R9-2 would duplicate application-layer branching in API, so it fails the
+  reuse check irrespective of document length
+- further prose around the API lookup cannot repair its ownership violation
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  f378f06054e7a6d3b5d7acb201bb01afc669648f
+- f378f06^..f378f06 changes only tasks/ROTA-T021/brief.md
+- target tasks/ROTA-T021/round_01/tests/tests_r9.txt did not exist before this
+  report was written
+- git diff --check f378f06^..f378f06: PASS
+
+TESTS
+- product suite not run: the audited commit changes only the contract
+- exact-SHA Employee key/upsert behavior, availability family read/write
+  owners and T021 API/task boundaries were inspected directly
+- no implementation PASS is implied
+
+ARCHITECTURE_PROPOSALS: NONE
+
+PROCESS BOUNDARY
+- Section 5.1 has now exceeded two correction passes and still lacks a legal,
+  testable path for R8-2/R8-3; stop iterative brief patching through Codex
+- CC remains READ-ONLY for the affected creation and general-availability
+  flows; do not move their business logic into FastAPI
+- return R9-1 to owner/architect for an identity/retry decision and R9-2 as a
+  separate application-layer blocker; do not reopen R8-1 or R7-4
