@@ -58,7 +58,29 @@ per-period `required_rest_hours` value that the COORDINATOR types in
 program enforces that number and does not derive or validate law"). A
 coordinator can today set `required_rest_hours=11` after a 24h shift and
 the program will accept it — nothing checks that a 24h shift's follow-up
-rest is ≥24h.
+rest is ≥24h. Confirmed by the field's own code comment
+(`rota/domain.py:114-116`): "`required_rest_hours=11` is only the
+legacy-compatible default (`REST_MIN_HOURS`), never a program-enforced
+legal minimum."
+
+### 2.1a Two DIFFERENT 24h mechanisms, both need the new rest floor
+
+A 24h duty is formed one of two ways today, and each carries its OWN
+rest-hours field — a new ochrona rest-floor check must cover both or it
+will silently miss one path:
+- **Catalog H24** (`ShiftCatalogKind.H24`, planned in advance,
+  `rota/planning/shift_catalog.py`): two 12h D/N components sharing one
+  `work_period_id`; rest after it is `Assignment.required_rest_after_hours`
+  (`rota/domain.py:374`), checked by `work_periods.py`/REST-01.
+- **Emergency 24h pair** (ad-hoc rescue combining two ordinary 12h
+  shifts, T012-C, `rota/planning/validator.py:396`
+  `_check_emergency_pairs`, `SHIFT-24-PAIR-01`): rest after it is a
+  SEPARATE, demand-level snapshot field,
+  `ShiftDemand.emergency_24h_rest_hours` (`rota/domain.py:347`,
+  "Snapshotted only when exactly one matching 24h capability exists...
+  None means no emergency 24h rescue is possible"). `work_periods.py:294`
+  cross-checks the two but they remain two distinct fields set through
+  two distinct code paths.
 
 ### 2.2 Weekly rest (art. 133 KP)
 
@@ -94,6 +116,23 @@ Consistent with the existing product boundary
 "Rota does not own payroll, benefits, leave entitlement, HR
 settlement"). T023b does NOT cover night-work window modeling. Not
 tracked as a separate task either — out of product scope, not deferred.
+
+### 2.4 Confirmed: no hidden prior work covers this
+
+Re-checked 2026-08-23 against `origin/main` (fetched fresh, not
+assumed) specifically to avoid repeating the earlier session's mistake
+of answering from a stale view:
+- no `arch/FROZEN_ADDENDUM_*.md` exists for weekly rest, post-24h rest,
+  or any "równoważny system" enforcement — the 11 existing addenda cover
+  absence accounting, day-only/N fallback, cross-site zero-gap, replan,
+  multi-variant plan, site-rule execution, decision-required
+  communication; none of them touch this;
+- no code symbol anywhere under `rota/` implements a 35h weekly rest
+  window (grepped `rownowa|równoważ|35\s*h|weekly.*rest` — no hits
+  beyond this brief itself);
+- `arch/spec.md` labels LOAD-01's example 60h threshold explicitly
+  `(LOAD-01 trigger; OCHRONA = 60;`  — confirming ochrona is already the
+  product's named primary use case, not a hypothetical add-on.
 
 ## 3. Existing precedent for a Site-level mode field
 
