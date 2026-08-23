@@ -6,350 +6,384 @@ ARCHITECT_INPUT_SHA: `4b046be4300480d39320159ae507b32b18f80910`
 FROZEN_CONTRACT: `arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md`
 SUPERSEDES_DRAFT_HEAD: `b1e585979bb6f98d66920181705dcd7c075327fd`
 
-T023b implements exactly two new HARD protections for a Site whose checkbox is set to ochrona:
+T023b implements exactly two new HARD protections for a protection-service Site:
 
 1. at least 24h immediate rest after an actual 24h WorkPeriod;
 2. at least 35h uninterrupted rest in each complete seven-day week of the calendar-month settlement period.
 
-No implementation may start before independent Codex preimplementation PASS on the exact contract HEAD.
+No production implementation may start before independent Codex preimplementation PASS on the exact final contract HEAD.
 
-## 1. OWNER CLARIFICATIONS THAT CONTROL THIS CONTRACT
+## 1. CONTROLLING PRODUCT FACTS
 
-The 2026-08-23 owner clarification supersedes the architect input's broader cross-Site wording.
+The following are closed owner decisions:
 
-### C1 — no T023b cross-Site aggregation
+- `Site` is one planning/service unit, not a unique physical object;
+- one real-world location may therefore have separate Sites, e.g. protection and cleaning;
+- those Sites have independent schedules, memberships and HARD semantics even if the same coordinator manages both;
+- T023b concerns protection only; cleaning HARD rules are a separate task;
+- T023b does not aggregate work from other Sites and does not infer unobserved/external work;
+- TRAINEE remains work exactly under frozen T012 REST/LOAD semantics; no new training logic;
+- settlement period = calendar month;
+- WEEKLY-REST-01 uses only complete seven-day blocks starting at day 1; the final 0-3 days are tail days and do not form another week;
+- no weekly window crosses into the next month;
+- immediate rest after a concrete 24h duty may cross month end;
+- Site regime is selected at creation and is normally immutable;
+- ordinary Site editing cannot change the regime;
+- correcting a mistaken initial classification is a separate exceptional product operation outside T023b;
+- currently persisted Sites are test data only, so migration requires no real-world reclassification workflow.
 
-T023b validates only work facts actually stored for the **target Site** in the considered Rota.
-
-- do not add work from `state.other_site_assignments` to the new 24h floor or WEEKLY-REST-01;
-- do not infer a second employer/site schedule that Rota does not observe;
-- do not add warnings, placeholders or integrations for unknown external work;
-- preserve existing pre-T023b T012/T022 cross-Site REST behaviour unchanged.
-
-### C2 — TRAINEE is inherited T012 work, not a new case
-
-Frozen T012 already states: non-CANCELLED TRAINEE remains work for REST/LOAD.
-
-Therefore:
-
-- a TRAINEE interval can interrupt the 35h uninterrupted weekly rest;
-- do not add any new training-specific rule, exception, qualification or state;
-- existing training/mentor constraints remain outside T023b.
-
-### C3 — only full seven-day weeks exist for WEEKLY-REST-01
-
-The monthly settlement period is divided from day 1 into complete seven-day weeks.
-
-For a 31-day month the weekly windows are human dates:
-
-- 1-7;
-- 8-14;
-- 15-21;
-- 22-28.
-
-Days 29-31 are tail days. They do not form another weekly-rest window. There is no week beginning on day 29 and extending into the next month. Day 1 of the next month begins week 1 of the new settlement period.
-
-This weekly boundary does **not** truncate immediate rest after a concrete 24h duty. A 24h duty ending on the last day of a month may require rest extending into the next month.
-
-No owner decision remains open.
+No owner decision remains open for this task.
 
 ## 2. NAMED INVARIANTS
 
-### SITE-MODE-01
+### SITE-REGIME-01 — explicit planning/service regime
 
-`Site.ochrona_mode: bool = False` is the sole T023b mode input.
+Add:
 
-- ordinary preserves pre-T023b behaviour;
-- ochrona enables the two T023b protections for that Site;
-- mode is per Site, not per SiteProfile and not print `base_regime`.
+`SitePlanningRegime = ORDINARY | OCHRONA`
 
-### OCHRONA-24H-REST-01
+and required Site field:
 
-This is the ochrona-mode effective floor inside existing `REST-01`, not a second validator code.
+`planning_regime: SitePlanningRegime`
 
-For a target-Site resolved WorkPeriod `P`:
+This is deliberately an enum, not a boolean. `False = ORDINARY` is not a valid long-term domain model because other service regimes exist conceptually. T023b implements no cleaning enum value or cleaning semantics.
 
-`effective_rest(P) = max(configured_resolved_rest(P), 24h)` iff `P` lasts exactly 24h and target Site is ochrona.
+- `ORDINARY` preserves pre-T023b behaviour;
+- `OCHRONA` enables the two T023b protections;
+- regime belongs to Site, not SiteProfile and not print settings;
+- Site regime has no normal post-creation edit path.
 
-Otherwise use existing configured/resolved rest.
+### REST-24H-01 — effective floor inside existing REST-01
 
-The floor applies to Catalog H24 and emergency H12+H12 because the actual resolved WorkPeriod span is the criterion.
+This is not a new validator code.
 
-### WEEKLY-REST-01
+For a resolved target-Site WorkPeriod `P`:
 
-For target Site ochrona, every complete seven-day week wholly inside the calendar month must contain at least 35h uninterrupted free time for each employee's recorded target-Site work.
+`effective_rest = max(configured_resolved_rest, 24h)` iff:
 
-- no rolling-window replacement;
+- `state.site.planning_regime == OCHRONA`, and
+- `P` lasts exactly 24h.
+
+Otherwise existing configured/resolved rest applies.
+
+Do not rewrite persisted rest provenance.
+
+### WEEKLY-REST-01 — complete settlement-week rest
+
+For OCHRONA, every complete seven-day week wholly inside `state.month` must contain at least 35h uninterrupted target-Site work-free time for each employee with recorded target-Site work in that week.
+
+- exact elapsed time;
 - no ISO week;
-- no Sunday-placement test;
+- no rolling-window substitution;
+- no Sunday placement;
 - no automatic 24h shortening;
-- no cross-Site aggregation;
-- PRIMARY and TRAINEE are both recorded work;
-- CANCELLED is not work.
+- PRIMARY and TRAINEE both count as work;
+- CANCELLED does not count;
+- `state.other_site_assignments` do not count.
 
 ### TAIL-DAYS-01
 
-The 0-3 days after the final complete seven-day week are outside WEEKLY-REST-01.
+Days left after the final complete seven-day block are outside WEEKLY-REST-01.
 
-They remain ordinary calendar time and can still participate in existing REST-01 or in immediate rest after a 24h duty.
+They may still participate in REST-01 and in immediate rest after a concrete 24h duty.
 
-### MANUAL-REST-OVERRIDE-01
+### REGIME-IMMUTABLE-01
+
+After Site creation, ordinary application editing cannot change `planning_regime`.
+
+T023b adds no setter/toggle command for regime change. A future exceptional correction flow must have its own contract and is not implemented here.
+
+### REST-OVERRIDE-01
 
 Automatic planning never persists a violating candidate.
 
-An explicit manual correction may persist the HARD deviation only through the existing atomic REST override precedent: materialized deviation + at most one `REST_OVERRIDE_RECORD` for that logical child correction.
+An explicit manual schedule correction may persist REST-01/WEEKLY-REST-01 deviations only through the existing atomic REST override precedent, producing at most one `REST_OVERRIDE_RECORD` for one logical child correction.
 
-## 3. SITE MODE DATA / WRITE BOUNDARY
+## 3. DOMAIN / SCHEMA / SITE WRITE CONTRACT
 
-### Domain and schema
+### Domain
 
-Append:
+In `rota/domain.py`:
 
-`Site.ochrona_mode: bool = False`
+- add `SitePlanningRegime(str, Enum)` with exactly `ORDINARY`, `OCHRONA`;
+- add required `Site.planning_regime: SitePlanningRegime` with **no product default**.
 
-Bump LocalStore schema v8 -> v9 with:
+Existing test constructors must be updated explicitly. Do not hide the choice behind `False`, `None` or an implicit application default.
 
-`ALTER TABLE sites ADD COLUMN ochrona_mode INTEGER NOT NULL DEFAULT 0 CHECK (ochrona_mode IN (0,1))`
+### Schema v9
 
-Existing rows migrate to ordinary mode. No new table and no heuristic backfill.
+In `rota/persistence/db.py`:
 
-`site_repository.write_site_in_open_transaction`, `get_site`, `list_sites` round-trip the field.
+`ALTER TABLE sites ADD COLUMN planning_regime TEXT NOT NULL DEFAULT 'ORDINARY' CHECK (planning_regime IN ('ORDINARY','OCHRONA'))`
 
-### Bootstrap/create
+The schema default exists only because every currently persisted Site is test/legacy data. It is a migration compatibility value, not the product's new-Site selection rule.
 
-`bootstrap_or_resume_coordinator_context()` may persist the supplied Site mode. Its existing `CONTEXT_CONFIGURATION_SAVED` before/after Site facts must include `ochrona_mode` when Site configuration is recorded.
+No `UNCLASSIFIED`, no heuristic backfill, no new table.
 
-### Later edit
+### Repository
 
-Add one public application command:
+`site_repository` must:
 
-`set_site_ochrona_mode(conn, *, coordinator_id: str, site_id: str, ochrona_mode: bool, note: str | None = None, responds_to_decision_required_id: str | None = None) -> None`
+- persist the supplied regime explicitly on writes;
+- return `SitePlanningRegime` on reads/lists;
+- fail closed on unsupported stored values.
 
-It must:
+### Creation/bootstrap
 
-- use existing active coordinator-context authorization;
-- update only the named Site's mode;
-- no-op without a material change;
-- on change, write the Site field + invalidate current decision-required state for that Site + record exactly one existing `CONTEXT_CONFIGURATION_SAVED` action in one transaction;
-- create no ScheduleVersion and no new CoordinatorActionKind.
+`bootstrap_or_resume_coordinator_context()` keeps the existing Site object write boundary.
 
-`update_site()` must not silently change the mode; mode edits go through the named command.
+Required changes:
 
-## 4. PURE REST SEMANTICS
+- a newly created Site carries an explicit required `planning_regime`;
+- `_planning_fields(Site)` includes regime;
+- `_site_state(Site)` includes regime;
+- existing `CONTEXT_CONFIGURATION_SAVED` therefore records the initial regime as planning-relevant configuration;
+- no new CoordinatorActionKind.
 
-`rota/planning/work_periods.py` stays the one pure owner for T012/T023b WorkPeriod/rest calculations.
+### Ordinary edit
 
-Add only the pure helpers needed for:
+`durable_inputs.update_site()` keeps existing name/active behaviour but must reject any attempted `planning_regime` change.
 
-1. target-Site effective required rest after a resolved WorkPeriod;
-2. complete week windows for one calendar month;
-3. maximum uninterrupted free interval inside one supplied week.
+Do not add:
 
-Planning code must not import persistence into this module and must not duplicate the calculations in validator/manual_edit.
+- `set_site_ochrona_mode`;
+- `set_site_regime`;
+- generic regime-transition command;
+- lifecycle handling for a routine regime toggle.
 
-### Complete week generation
+There is no routine regime toggle in this product contract.
 
-For `month_start` and `next_month_start`, create:
+## 4. PURE REST OWNER
+
+`rota/planning/work_periods.py` remains the single pure, persistence-free owner of shared WorkPeriod/rest calculations.
+
+Add only pure equivalents of:
+
+### `effective_required_rest_hours(period, *, planning_regime)`
+
+- starts from resolved WorkPeriod rest;
+- exact 24h + OCHRONA => max(current, 24h);
+- otherwise unchanged.
+
+### `complete_settlement_week_windows(month)`
+
+For `[month_start, next_month_start)` return ordered windows:
 
 `[month_start + 7*n days, month_start + 7*(n+1) days)`
 
-only while the end is `<= next_month_start`.
+only while window end `<= next_month_start`.
 
 No partial final window.
 
-### Weekly free-time calculation
+### `maximum_uninterrupted_rest_hours(work_intervals, week_start, week_end)`
 
-Given target-Site work intervals:
+- clip intervals to week;
+- merge overlapping/abutting occupied time;
+- measure free gaps including both week boundaries;
+- return exact maximum free duration.
 
-- clip each interval to `[week_start, week_end)`;
-- discard no-overlap intervals;
-- merge overlapping or abutting occupied intervals;
-- measure free gaps from `week_start` to first occupied interval, between occupied intervals, and from last occupied interval to `week_end`;
-- maximum gap `>=35h` passes.
+Do not create another legal-rest module or duplicate the arithmetic in manual/application code.
 
-Exact elapsed time; no day rounding.
+## 5. IMMEDIATE 24H REST — SOLVER + VALIDATOR
 
-## 5. 24H IMMEDIATE REST IMPLEMENTATION BOUNDARY
+Existing `REST-01` remains the only immediate-rest code.
 
-Do not rewrite persisted `required_rest_after_hours` to 24h. Existing configured/snapshot provenance remains intact.
-
-Solver and validator use the shared effective-rest helper only for a **target-Site REST edge** under ochrona mode.
-
-Coverage required:
+The effective floor applies to target-Site resolved WorkPeriods under OCHRONA and must cover the existing T012 shapes:
 
 - normal Catalog H24;
 - same-month emergency H12+H12 selected as one WorkPeriod;
-- cross-month emergency H12+H12 using existing work-period provenance;
-- same-Site next recorded work after the 24h period, including across month end.
+- cross-month emergency H12+H12 represented by existing work-period provenance.
 
-Do not apply the new 24h floor to `state.other_site_assignments`. Existing T012/T022 behavior for those facts is not part of T023b and must not change.
+The next recorded target-Site duty must respect the effective rest even across month end.
 
-## 6. WEEKLY-REST-01 SOLVER
+Do not apply the new floor to `state.other_site_assignments`. Preserve existing T012/T022 cross-Site REST semantics exactly as they are.
 
-Wire one new HARD weekly-rest constraint builder into the existing solver path only when `state.site.ochrona_mode=True`.
+Malformed WorkPeriod provenance remains handled by existing structural rules; T023b does not create alternative grouping semantics.
 
-Per employee/full week, occupied time consists only of target-Site facts:
+## 6. WEEKLY-REST-01 — SOLVER
 
-- fixed target assignments from `fixed_existing_assignments(state)`;
-- same-Site `state.boundary_assignments` to the extent they overlap the week;
-- prospective target solver slots selected for that employee.
+Wire one new HARD weekly-rest builder in `constraints.py`, called from the existing solver only for OCHRONA.
 
-Do **not** use `state.other_site_assignments`.
+For one employee/full week, occupied time is target-Site work only:
 
-Fixed non-CANCELLED TRAINEE counts as occupied time exactly as T012 already requires. No training branch is added.
+- fixed target assignments from the existing target/fixed context;
+- same-Site boundary assignments that overlap the week;
+- prospective selected target solver slots.
 
-The CP-SAT encoding must be equivalent to the pure 35h oracle. A minimal complete construction may enumerate candidate 35h rest starts at:
+Do not use `state.other_site_assignments`.
+
+Non-CANCELLED TRAINEE fixed work counts as occupied time under existing T012 semantics. No training branch is added.
+
+The CP-SAT constraint must be equivalent to the pure 35h oracle. A valid simple encoding may enumerate candidate 35h rest windows starting at:
 
 - `week_start`;
-- end times of fixed/prospective target-Site intervals in that week;
+- end times of fixed/prospective target-Site work in that week;
 
-and require at least one 35h candidate window with no fixed or selected work overlap. Equivalent simpler encoding is allowed.
+and require at least one such window with no fixed/selected overlap.
 
-No LOAD-01 variable or rolling window may satisfy this rule.
+Equivalent implementation is allowed if audit can prove parity with the pure oracle.
+
+No LOAD-01 variable or rolling window may satisfy WEEKLY-REST-01.
 
 ## 7. INDEPENDENT VALIDATOR
 
-`validator.validate()` independently re-derives the rules from final facts.
+`validator.validate()` independently re-derives both T023b rules from final facts.
 
 ### REST-01
 
-For target-Site work-period edges, use shared effective rest. Do not infer 24h from a label alone.
+For target-Site WorkPeriod edges use the shared effective-rest helper. Do not infer 24h from a label alone.
 
 ### WEEKLY-REST-01
 
-In ordinary mode: skip.
+For ORDINARY: skip.
 
-In ochrona mode:
+For OCHRONA:
 
-- generate every complete week for `state.month`, whether or not it begins on Monday;
-- work = non-CANCELLED target candidate Assignments + same-Site boundary Assignments overlapping the week;
-- explicitly exclude `state.other_site_assignments`;
+- generate every complete week wholly inside `state.month`;
+- work = non-CANCELLED target candidate/current Assignments + same-Site boundary Assignments overlapping the week;
+- exclude `state.other_site_assignments`;
 - PRIMARY and TRAINEE both occupy time;
-- `<35h` maximum uninterrupted free interval emits `ViolationDetail(rule="WEEKLY-REST-01", ...)`;
-- `assignment_ids` must identify target-Site Assignment facts, not message-parsed data.
+- `<35h` maximum uninterrupted free time emits `ViolationDetail(rule="WEEKLY-REST-01", ...)`;
+- structured assignment ids identify target-Site Assignment facts; downstream must not parse message text.
 
-Tail days create no WEEKLY-REST-01 check.
+Tail days create no weekly check.
 
-No application caller may implement its own copy of the rule; existing candidate selection/revalidation/finalization inherit it through validator/solver.
+Existing candidate-selection/revalidation/finalization callers inherit validator semantics; do not copy WEEKLY-REST-01 into those application modules.
 
 ## 8. MANUAL CORRECTION
 
-Keep `apply_manual_correction()` and the current atomic success-hook/DecisionRecord precedent.
+Keep the existing `apply_manual_correction()` transaction and REST override precedent.
 
-Add static deviation mapping:
+Required T023b changes:
 
-`WEEKLY-REST-01 -> DeviationCategory.LAW`
+- `WEEKLY-REST-01 -> DeviationCategory.LAW`;
+- `REST-01 -> LAW` unchanged;
+- generalize existing rest-override fact reconstruction for WEEKLY-REST-01;
+- one logical child correction with any REST-01/WEEKLY-REST-01 deviations creates at most one existing-style `REST_OVERRIDE_RECORD`.
 
-Existing `REST-01 -> LAW` remains.
-
-Generalize current rest-override fact reconstruction so one logical correction with any REST-01/WEEKLY-REST-01 deviations produces at most one existing-style:
-
-- category `CONFIRMED_EXCEPTION`;
-- enforcement `INFORMATIONAL`;
-- resolution `RESOLVED`;
-- `rule_kind="REST_OVERRIDE_RECORD"`;
-- `rule_id="REST-OVERRIDE:<child_id>"`.
-
-Do not parse `ViolationDetail.message`.
-
-Minimum WEEKLY structured facts:
+Minimum weekly structured facts:
 
 - employee id;
-- week start/end;
+- full-week start/end;
 - observed maximum uninterrupted rest;
 - required = 35h;
-- target-Site Assignment identities overlapping that week.
+- target-Site Assignment identities overlapping the week.
 
-For an ochrona 24h REST-01 exception record configured/resolved rest, effective required rest and actual gap so the applied floor is reconstructable.
+For a 24h REST-01 exception record:
 
-Do not add `coordinator_action_id` or another linkage solely for T023b. Existing ScheduleVersion/child id + DecisionRecord coordinator provenance + the existing coordinator action already give the audit trail. Keep all writes atomic exactly as the current manual-correction flow does.
+- actual gap;
+- configured/resolved rest;
+- effective required rest.
+
+Do not add `coordinator_action_id`, another action, another override table or reordered action semantics solely for T023b.
 
 ## 9. TASK SCOPE
 
-TASK_SCOPE:
-- arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md
-- tasks/ROTA-T023b/brief.md
-- rota/domain.py
-- rota/persistence/db.py
-- rota/persistence/site_repository.py
-- rota/application/bootstrap.py
-- rota/application/durable_inputs.py
-- rota/planning/work_periods.py
-- rota/planning/constraints.py
-- rota/planning/solver.py
-- rota/planning/validator.py
-- rota/application/deviation_mapping.py
-- rota/application/manual_edit.py
-- tests/test_t023b.py
-- tests/test_local_store_schema_migration.py
+Functional production scope:
 
-No other production/test modification is authorized absent a concrete independent-audit finding that proves the task cannot be implemented within this scope.
+- `rota/domain.py`
+- `rota/persistence/db.py`
+- `rota/persistence/site_repository.py`
+- `rota/application/bootstrap.py`
+- `rota/application/durable_inputs.py`
+- `rota/planning/work_periods.py`
+- `rota/planning/constraints.py`
+- `rota/planning/solver.py`
+- `rota/planning/validator.py`
+- `rota/application/deviation_mapping.py`
+- `rota/application/manual_edit.py`
+
+Contract/test scope:
+
+- `arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md`
+- `tasks/ROTA-T023b/brief.md`
+- `tests/test_t023b.py`
+- `tests/test_local_store_schema_migration.py`
+
+Mechanical compatibility exception:
+
+- existing tests/fixtures anywhere under `tests/` may be changed **only** to add explicit `planning_regime=SitePlanningRegime.ORDINARY` to pre-T023b Site constructors/imports;
+- such mechanical edits may not change assertions, expected outcomes, fixture meaning or any other product semantic;
+- OCHRONA may be used outside `tests/test_t023b.py` only where an existing retained regression deliberately needs an OCHRONA Site to prove parity/integration.
+
+No other production modification is authorized absent a concrete independent-audit finding proving a blocker.
 
 Explicitly out of scope for modification:
 
 - `arch/spec.md`, `arch/FROZEN.lock`;
 - architect input brief;
 - `rota/application/assembler.py`;
-- `rota/application/plan_ops.py`, lifecycle/export modules;
+- lifecycle/plan/export modules;
 - `rota/planning/eligibility.py`;
-- persistence schedule/site-memory/decision-ledger modules;
-- `rota/site_memory_types.py`;
+- schedule persistence/lifecycle modules;
+- site-memory/action-kind modules;
 - T023/T026 absence modules;
-- SiteProfile schema;
+- SiteProfile schema/semantics;
 - SitePrintSettings/base_regime;
 - training/mentor logic;
 - UI visual design;
-- payroll/HR/night-work/Sunday-placement/general work-time compliance.
+- cleaning-service model/HARD rules;
+- physical-object/address aggregation;
+- payroll/HR/night/Sunday/general work-time compliance;
+- exceptional correction of an erroneous Site regime.
 
-Reading/calling existing out-of-scope APIs is allowed.
+## 10. REQUIRED TEST MATRIX
 
-## 10. REQUIRED ADVERSARIAL TEST MATRIX
+### Site regime / migration
 
-### Mode / migration
+T23b-01 — v8 existing test rows migrate to v9 as `ORDINARY`.
 
-T23b-01 — v8 database migrates to v9 and every existing Site has `ochrona_mode=False`.
+T23b-02 — new persisted Site has explicit `planning_regime`; unsupported stored values fail closed.
 
-T23b-02 — two Sites sharing the same SiteProfile can have different modes; changing one does not change the other.
+T23b-03 — two Sites sharing one SiteProfile can have different regimes without cross-effect.
 
-T23b-03 — ordinary mode preserves existing REST/LOAD result for the same facts.
+T23b-04 — `update_site()` rejects regime change while preserving its current supported edits.
+
+T23b-05 — no public normal regime-change command exists.
+
+T23b-06 — ORDINARY preserves pre-T023b REST/LOAD results for equivalent facts.
 
 ### Immediate 24h rest
 
-T23b-10 — Catalog H24 with pure gaps 23h59 / 24h / 24h01 gives fail / pass / pass under ochrona.
+T23b-10 — Catalog H24 pure gaps 23h59 / 24h / 24h01 => fail / pass / pass under OCHRONA.
 
-T23b-11 — same-month emergency H12+H12 has identical floor.
+T23b-11 — same-month emergency H12+H12 has the same effective floor.
 
-T23b-12 — configured rest 0/11/23 never lowers the ochrona effective floor below 24h.
+T23b-12 — configured rest 0/11/23 cannot lower OCHRONA floor below 24h; configured value >24 remains stronger.
 
-T23b-13 — cross-month emergency/24h duty ending in month M still enforces its immediate rest against the next recorded target-Site duty in M+1.
+T23b-13 — cross-month emergency/24h duty still enforces immediate rest against next recorded target-Site duty in M+1.
 
-T23b-14 — ordinary mode keeps configured rest; T023b does not mutate persisted rest provenance.
+T23b-14 — persisted configured rest provenance is unchanged by the OCHRONA floor.
 
-### Full weekly windows
+T23b-15 — T023b does not apply its new 24h floor to `state.other_site_assignments`.
 
-T23b-20 — 31-day month returns exactly four windows: days 1-7, 8-14, 15-21, 22-28; days 29-31 have no weekly window.
+### Complete weekly windows
 
-T23b-21 — 30-day month has four full weeks + two tail days; 28-day month exactly four weeks; leap February four weeks + one tail day.
+T23b-20 — 31-day month => exactly 1-7, 8-14, 15-21, 22-28; days 29-31 are tail days.
 
-T23b-22 — no generated weekly window crosses into the next month and next month's day 1 starts its own sequence.
+T23b-21 — 30-day month => four full weeks + two tail days; 28-day month => exactly four weeks; leap February => four weeks + one tail day.
 
-T23b-23 — maximum uninterrupted rest 34h59 / 35h / 35h01 gives fail / pass / pass in pure calculation.
+T23b-22 — no weekly window crosses into the next month; next month starts its own sequence on day 1.
 
-T23b-24 — non-CANCELLED TRAINEE interval interrupts weekly rest exactly as recorded work; no training-specific result or rule is produced.
+T23b-23 — maximum uninterrupted rest 34h59 / 35h / 35h01 => fail / pass / pass.
 
-T23b-25 — work occurring only on tail days creates no WEEKLY-REST-01 violation solely because of those tail days.
+T23b-24 — non-CANCELLED TRAINEE interrupts weekly rest exactly as recorded work, with no training-specific rule/result.
+
+T23b-25 — work only in tail days does not create WEEKLY-REST-01 solely because of those tail days.
+
+T23b-26 — `state.other_site_assignments` do not enter weekly calculation; no surrogate external work is created.
 
 ### Parity / manual override
 
-T23b-30 — solver cannot return an ochrona candidate that independent validator rejects for either T023b protection.
+T23b-30 — solver does not return an OCHRONA candidate that independent validator rejects for either T023b rule.
 
-T23b-31 — manual correction can persist a 24h-rest violation only with LAW deviation + atomic `REST_OVERRIDE_RECORD` carrying reconstructable effective-rest facts.
+T23b-31 — manual correction with 24h REST-01 violation persists LAW deviation + existing atomic REST override with reconstructable effective-rest facts.
 
-T23b-32 — manual correction can persist a WEEKLY-REST-01 violation only with LAW deviation + the same single-record override precedent carrying week/observed-rest facts.
+T23b-32 — manual correction with WEEKLY-REST-01 violation uses the same single-record override precedent with week/rest facts.
 
-T23b-33 — one correction containing multiple rest violations creates no duplicate REST override record.
+T23b-33 — one correction with multiple rest violations creates no duplicate REST override record.
 
-T23b-34 — injected failure in the existing atomic schedule-version success path leaves no partial child/deviation/override write.
+T23b-34 — fault in existing atomic success path leaves no partial child/deviation/override write.
 
 ### Negative scope
 
@@ -357,65 +391,71 @@ T23b-40 — no Sunday-placement rule.
 
 T23b-41 — no automatic 24h weekly-rest exception.
 
-T23b-42 — LOAD-01 regression remains its existing rolling-7d decision-threshold behavior and is not reused as WEEKLY-REST-01.
+T23b-42 — LOAD-01 remains existing rolling-7d decision-threshold behaviour.
 
-T23b-43 — existing T012 TRAINEE REST/LOAD and existing T012/T022 cross-Site regressions remain unchanged; T023b adds no new cross-Site semantics.
+T23b-43 — existing T012 TRAINEE and T012/T022 cross-Site regressions remain unchanged.
+
+T23b-44 — no CLEANING/SPRZATANIE regime, disabled-person HARD rule, physical-object aggregate or regime-correction workflow appears in T023b implementation.
 
 ## 11. RETAINED REGRESSIONS / QUALITY GATES
 
 Run at minimum:
 
 - `tests/test_t012.py`;
-- T012 emergency/cross-month tests already present in the suite;
-- training tests covering TRAINEE REST/LOAD;
+- existing T012 emergency/cross-month tests;
+- existing training tests covering TRAINEE REST/LOAD;
 - T022 cross-Site REST regressions;
-- T019b manual action/audit tests;
+- T019b coordinator action/audit regressions;
+- local-store migration tests;
 - full suite;
 - Ruff;
 - `git diff --check`;
-- repo scope/size/function guards with only already accepted inherited exceptions.
+- repository size/function/scope guards, with only already accepted inherited exceptions plus the explicit mechanical Site-constructor compatibility exception above.
 
-Do not rewrite existing regression oracles merely to make T023b pass. Any genuine semantic supersession must be named by this contract; otherwise it is a defect.
+Do not rewrite an existing oracle merely to make T023b pass.
 
-## 12. IMPLEMENTATION SHAPE / REVIEW UNIT
+## 12. IMPLEMENTATION UNIT
 
-This task is narrow enough to review as **one implementation unit**. No A/B/C checkpoint split is required.
+T023b is one implementation/review unit. No A/B/C split is required.
 
-Expected production shape:
+Expected shape:
 
-1. one Site bool + v9 migration/repository round-trip;
-2. one authorized mode-edit application command;
+1. one required Site regime enum/field + v9 migration/repository round-trip;
+2. bootstrap audit inclusion + immutable ordinary edit guard;
 3. small pure additions in `work_periods.py`;
-4. one 24h-floor integration into existing REST solver/validator edges for target Site only;
+4. existing REST-01 target-Site effective floor for actual 24h periods;
 5. one WEEKLY-REST-01 solver builder + independent validator check;
-6. one deviation-map entry and minimal generalization of existing manual REST override facts.
+6. one deviation-map entry + minimal generalization of existing REST override facts;
+7. targeted and retained regressions.
 
-No new repository module, no new audit store, no new planning status, no new training logic, no external-time model.
+No new repository module, audit store, planning status, training logic, cleaning logic, external-time model or regime-transition workflow.
 
-## 13. PREIMPLEMENTATION AUDIT / FINAL GATES
+## 13. PREIMPLEMENTATION AUDIT
 
-Independent Codex must audit the exact final architect contract HEAD before CC writes production code.
+Independent Codex must audit the exact final contract HEAD.
 
-Audit questions:
+Required questions:
 
-1. Does any clause still imply cross-Site/external aggregation for T023b?
-2. Are weekly windows restricted to complete 7-day blocks wholly inside the month, with tail days excluded?
-3. Is cross-month behavior retained only where needed for immediate rest after a concrete 24h duty / existing work-period provenance, not by extending weekly windows?
-4. Is TRAINEE only inherited T012 work with no new training branch?
-5. Does ordinary mode preserve current behavior?
-6. Can solver and validator share pure semantics without creating a second owner?
-7. Does manual correction reuse the existing atomic REST override precedent without new audit plumbing?
-8. Is TASK_SCOPE sufficient and no broader product feature is implied?
+1. Does the contract model Site as planning/service unit rather than physical object?
+2. Is the boolean `ochrona_mode` fully removed in favour of an explicit regime value?
+3. Does T023b implement only `ORDINARY` and `OCHRONA`, with cleaning explicitly deferred?
+4. Is legacy migration default `ORDINARY` clearly test-data compatibility only, with no `UNCLASSIFIED` or heuristic inference?
+5. Is regime required at new Site creation and blocked from ordinary edits?
+6. Is there no normal regime-transition command or retroactive lifecycle requirement?
+7. Are T023b work facts target-Site only, with no `other_site_assignments` aggregation or inferred external work?
+8. Is TRAINEE inherited solely from T012 with no new training branch?
+9. Are weekly windows complete seven-day blocks wholly inside the month, with tail days excluded and no overlap across months?
+10. Does cross-month behaviour remain only where needed for immediate rest after a concrete 24h duty/existing work-period provenance?
+11. Do solver and validator share pure arithmetic while remaining independently enforcing?
+12. Does manual correction reuse existing REST override/audit semantics without the previously invented `coordinator_action_id` requirement or hook reordering?
+13. Is scope sufficient without assembler/lifecycle/site-memory changes?
+14. Does any clause introduce a scenario not required by the frozen owner rulings?
 
-Required preimplementation verdict:
+Required verdict:
 
 - `PASS — READY_FOR_IMPLEMENTATION`, or
 - `FAIL` with numbered contract defects tied to exact clauses.
 
-After implementation:
+Until PASS: `CC READ-ONLY / NOT READY FOR IMPLEMENTATION`.
 
-1. target matrix + retained regressions pass;
-2. full suite / Ruff / diff-check / repo guards pass;
-3. independent Codex implementation audit is bound to exact implementation SHA;
-4. architect reviews exact final SHA and audit;
-5. merge remains an explicit owner action.
+After implementation: targeted matrix + retained regressions + full quality gates + independent exact-SHA implementation audit + architect exact-SHA review. Merge remains an explicit owner action.
