@@ -340,54 +340,83 @@ follow-up, not partially now.
       LOCAL, enabled=True, readiness_state=NOT_READY, readiness_source=
       DEFAULT, can_work_24h=True`.
 
-      **Two-call composition, corrected 2026-08-23 (round-7 R7-2)**:
-      no `rota/**` function creates Employee+membership atomically, and
-      T021 may not invent one. The API layer sequences the two existing
-      calls (marshalling order, not a new business rule) and its POST
-      response carries the generated `employee_id` back to the frontend
-      — the frontend needs it for the second call and for navigating to
-      the new per-employee screen. If the second call (`update_membership`)
-      fails after the first succeeds, retry is the SAME idempotent
-      `update_membership` call, addressed by the already-known
-      `employee_id` — equivalent to the *istniejący pracownik* path
-      below, not a duplicate Employee.
-  - *Istniejący pracownik*: `employee_repository.list_employees(conn) ->
-    list[Employee]`, filtered to employees who do **NOT** currently have
-    an `enabled=True, membership_kind=LOCAL` membership at this site —
-    corrected 2026-08-23 (round-7 R7-1): this includes employees with NO
-    membership row at all AND employees with an existing but
-    `enabled=False` LOCAL membership (re-add case), not just the former.
-    Same `update_membership` call as remove-from-roster above, with
-    `enabled=True` and the rest of the membership object either fresh
-    (no prior row) or the disabled row's own prior values (re-add,
-    `can_work_24h` etc. carried over from before removal).
+      **Sequencing, corrected 2026-08-23 (round-8 R8-2 — replaces the
+      round-7 text, which contradicted itself on who owns the two
+      calls)**: two separate, independently-callable API endpoints, the
+      frontend orchestrates, matching *istniejący pracownik* below:
+      1. `POST` employee-creation endpoint → calls `update_employee`
+         only, returns `{employee_id}`.
+      2. `POST` roster-attach endpoint (site-scoped) → calls
+         `update_membership` only, given an `employee_id` (from step 1,
+         or picked directly in the *istniejący pracownik* path) —
+         `enabled=True, membership_kind=LOCAL, ...`. **Same endpoint for
+         both paths.**
+
+      *Nowy pracownik* calls (1) then (2). If (2) fails, the frontend
+      retries ONLY (2), using the `employee_id` already returned by (1)
+      — never calls (1) again for the same attempt (an Employee row
+      already exists; `update_employee` is itself an upsert, so even a
+      user-initiated full retry from scratch cannot create a second
+      Employee for the same name — but the UI must not invite that
+      confusion by re-running step 1 automatically).
+  - *Istniejący pracownik* — **narrowed 2026-08-23 (round-8 R8-1)**:
+    `site_memberships` has ONE row per `(employee_id, site_id)`
+    regardless of kind (`db.py:148-155`) — `update_membership` upserts
+    on that same pair, so blindly reusing it on an employee who already
+    has an EXTERNAL_SUPPORT row here would silently convert that row to
+    LOCAL. The picker therefore reads `list_memberships_for_site`
+    **unfiltered by kind** and offers only:
+    - employees with **no membership row at all** at this site → step
+      (2) above creates a fresh LOCAL row;
+    - employees with an existing row where `membership_kind == LOCAL
+      and enabled == False` → step (2) above, same row, `enabled=True`,
+      every other field (`can_work_24h` etc.) carried over from that
+      row unchanged (re-add, not a fresh row).
+
+    Employees whose existing row has `membership_kind ==
+    EXTERNAL_SUPPORT` (enabled or not) are **not shown in this picker at
+    all** — out of scope per the boundary above, this flow must never
+    read or write their row.
 - **Per-employee screen — "Ogólna dostępność" toggle** — corrected
-  2026-08-23 (round-7 R7-3), now covers create AND correct/restore, not
-  create-only:
-  - Read: the employee's current `UNAVAILABLE_24H` block, if any, comes
-    from `availability_repository.get_current_availability_for_employee(conn,
-    employee_id) -> list[AvailabilityRecord]` (the same call powering
-    the absence log below), filtered to `kind == UNAVAILABLE_24H`. At
-    most one such family is ever "the matrix toggle's" block — if the
-    current chain-end for that family has `active=True`, the toggle
-    shows unchecked with that record's `start_date`–`end_date`; no
-    active `UNAVAILABLE_24H` record (never created, or its own current
-    end is `active=False`) means the toggle shows checked.
-  - **New block** (toggle was checked, coordinator picks a date range to
-    block): fresh `availability_id` (`uuid.uuid4().hex`) — an
-    independent family, per `durable_inputs.append_availability(conn, *,
-    coordinator_id, site_id, availability_id, employee_id,
+  2026-08-23 (round-8 R8-3 — replaces the round-7 text, which assumed
+  `active=True` means "currently in effect" and assumed at most one
+  `UNAVAILABLE_24H` family without enforcing it):
+
+  `AvailabilityRecord.active` means "current chain-end of its family,
+  not superseded" — NOT "today falls inside its date range." A family
+  whose `end_date` has already passed remains `active=True` forever
+  unless explicitly deactivated; the frozen owner rule ("wraca samo po
+  dacie do") is a UI-computed fact from dates, never derived from
+  `active` alone.
+
+  - **Checked/unchecked state** (today's date, evaluated client- or
+    API-side, not stored): from `get_current_availability_for_employee`,
+    filter to `kind == UNAVAILABLE_24H and active == True and
+    start_date <= today <= end_date`. Zero matches → checked (available).
+    Exactly one match → unchecked, using that record's `availability_id`
+    or any further action.
+  - **Single-family invariant, enforced by construction, not assumed**:
+    before writing a NEW block, the write path (API layer) must itself
+    re-run the same current-family lookup used for read. If one already
+    exists (`active=True`, `end_date >= today`, whether currently
+    in-range or starting in the future), the write REUSES that record's
+    `availability_id` (correct dates or restore-early below) instead of
+    generating a fresh one — the "new block" `uuid.uuid4().hex` path
+    below only ever runs when that lookup finds nothing. This is the
+    only way the matrix can stay unambiguous with the existing schema —
+    no provenance field is added, per the audit's explicit instruction
+    not to invent one.
+  - **New block** (lookup above found nothing): fresh `availability_id`
+    (`uuid.uuid4().hex`), per `durable_inputs.append_availability(conn,
+    *, coordinator_id, site_id, availability_id, employee_id,
     kind=AvailabilityKind.UNAVAILABLE_24H, start_date, end_date,
     active=True, ...)`.
-  - **Correct dates** (an active block's range needs changing, still in
-    force): SAME `availability_id` as the record read above, new
-    `start_date`/`end_date`, `active=True` — a new version in the same
-    append-only family, per `append_availability`'s own documented
-    append/supersede behavior.
-  - **Restore early** (end the block before its own `end_date`): SAME
-    `availability_id`, `active=False` — the deactivate case of the same
-    function. This is the only "turn the checkbox back on early" path;
-    there is no separate restore call.
+  - **Correct dates** (lookup found the employee's current/future block):
+    SAME `availability_id`, new `start_date`/`end_date`, `active=True` —
+    a new version in the same append-only family.
+  - **Restore early** (end the found block before its own `end_date`):
+    SAME `availability_id`, `active=False`. This is the only "turn the
+    checkbox back on early" path; there is no separate restore call.
 - **Per-employee screen — "24h" toggle**: same `update_membership` call
   as remove-from-roster, flipping only `can_work_24h`, every other field
   carried over unchanged. Plain persistent bool, no date range, no
@@ -395,15 +424,17 @@ follow-up, not partially now.
   this one).
 - **Per-employee screen — "Zgłoś nieobecność"**: one form, all 5
   `AvailabilityKind` values (`DAY_SHIFT_OFF`/`UNAVAILABLE_24H`/
-  `LEAVE_PLAN`/`LEAVE_GRANTED`/`SICK_LEAVE`) + date range, same
-  `append_availability` call as the matrix toggle above (this is the
-  SAME underlying mechanism, not a separate one — the matrix toggle is
-  a shortcut for `UNAVAILABLE_24H` specifically, including its own
-  correct/restore behavior above). A NEW entry (any kind) is always a
-  fresh `availability_id`; correcting/ending an entry already shown in
-  the log reuses that entry's own `availability_id`, same append/
-  deactivate rule as the matrix toggle. Shown as a log of every family's
-  current state: `availability_repository.get_current_availability_for_employee(conn,
+  `LEAVE_PLAN`/`LEAVE_GRANTED`/`SICK_LEAVE`) + date range. For
+  `UNAVAILABLE_24H` specifically this is the SAME mechanism as the
+  matrix toggle above, including its single-family lookup-before-write
+  rule (round-8 R8-3) — this form is just another entry point to it, not
+  a second way to create competing `UNAVAILABLE_24H` families. The other
+  4 kinds have no such singularity rule (per `T021_spec.md`, only
+  `UNAVAILABLE_24H` is the matrix's own column) — each is always a fresh
+  `availability_id` on creation; correcting/ending an entry already
+  shown in the log reuses that entry's own `availability_id`, same
+  append/deactivate rule. Shown as a log of every family's current
+  state: `availability_repository.get_current_availability_for_employee(conn,
   employee_id) -> list[AvailabilityRecord]` (persistence-layer, no
   application wrapper, call directly per the same already-accepted
   missing-wrapper pattern as Screen 1's calendar read) — includes
