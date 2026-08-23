@@ -1,9 +1,10 @@
 # ROTA-T021b — EMPLOYEE MATRIX RULE WRAPPERS
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION RE-AUDIT — CC READ-ONLY UNTIL PASS
+STATUS: READY FOR CODEX PREIMPLEMENTATION FINAL R2-1 VERIFY — CC READ-ONLY UNTIL PASS
 ARCHITECT_INPUT_SHA: `86979980c5c94371317c68647e51aaf68e41a853`
 ARCHITECT_INPUT: `arch/T021_screen2_rule_wrapper_architect_brief_2026-08-23.md`
 R1_AUDIT: `tasks/ROTA-T021b/round_01/tests/tests_r1.txt`
+R2_AUDIT: `tasks/ROTA-T021b/round_01/tests/tests_r2.txt`
 DATE: 2026-08-23
 
 ## 1. PURPOSE
@@ -255,11 +256,23 @@ No new CoordinatorActionKind, table, column or persistence repository is authori
 
 ## 8. READ/WRITE ROUND TRIP
 
-`employee_availability_matrix()` remains unchanged and is the read owner for this UI.
+`employee_availability_matrix()` remains unchanged and is the effective-state read owner for this UI. Decision Ledger remains the historical owner; the matrix projection is not required to expose a historical rule version on dates where that family has no active rule.
 
-After any successful T021b write and after restart, the existing projection must be callable for the affected employee and expose the resulting relevant `SiteRuleVersion` plus its `rule_applicability` slices. The frontend derives checked/unchecked state from those existing facts; T021b does not create a second matrix-state DTO or persisted checkbox state.
+After every successful T021b write and after restart, the projection must be callable for the affected existing Employee.
 
-Successful writes are therefore impossible for an unknown Employee. T021b does not promise that membership/enabled state is part of this read contract.
+For create/update commands, for dates on which the newly written `SiteRuleVersion` is effective under existing T005 selection, the projection exposes that relevant version and corresponding `rule_applicability` slice(s).
+
+For `end_employee_matrix_rule_early()`:
+
+- on dates before the rejecting `effective_from`, the preceding rule version is exposed only where it is still effective;
+- from the rejecting `effective_from`, that family contributes no relevant rule or applicability slice and the base state applies;
+- if rejection uses `effective_from == rule.effective_from`, the cancelled version has zero effective days, so the projection correctly contains **no relevant rule and no applicability slice for that family** for the cancelled period, both immediately and after restart.
+
+The append-only Decision Ledger still retains the historical create/update/reject decisions; absence from the matrix projection means only “not effective on any projected day”, not loss of history.
+
+The frontend derives checked/unchecked state from these existing effective facts; T021b does not create a second matrix-state DTO or persisted checkbox state.
+
+Successful writes remain impossible for an unknown Employee. T021b does not make membership/enabled state part of this read contract.
 
 ## 9. SCOPE
 
@@ -296,28 +309,28 @@ If implementation proves one of those files must change to satisfy this contract
 8. New independent period for the same employee/cell uses a different generated `rule_id`.
 9. Update/end rejects unknown, wrong-Site, ended, non-matrix, wrong-category/enforcement/resolution families, and a matrix-owned family retaining an unknown Employee, without writing.
 10. Generated `statement` is Polish semantic text and caller supplies no statement parameter; note remains action metadata.
-11. Existing `employee_availability_matrix()` shows the written rule/applicability before and after restart.
+11. Effective projection round trip and restart: create/update exposes the effective rule and slices; an interior/equal-end reject exposes the preceding rule only before the rejection date; equal-start reject returns a callable projection with **no relevant rule and no applicability slice for that cancelled family**.
 12. Existing eligibility + independent validator regressions remain unchanged, including `day_only` exception AND-composition with other HARDs.
 13. Each successful wrapper action produces exactly one existing `RULE_DECISION_RECORDED` coordinator action and retains existing DECISION_REQUIRED linkage/invalidation semantics.
 
 Do not add tests for hypothetical new rule kinds, membership-state policy or a generalized rule-editor API.
 
-## 11. PREIMPLEMENTATION RE-AUDIT
+## 11. PREIMPLEMENTATION FINAL R2-1 VERIFY
 
-Independent Codex re-audits the corrected exact contract HEAD. Per R1, do not reopen accepted design; verify only closure of R1-1 and R1-2 plus absence of contradiction introduced by their fixes.
+Independent Codex verifies only closure of R2-1 on this exact contract HEAD. R1-1 and R1-2 are closed and must not be reopened; do not reopen canonical representation, family identity, relations, generic write seam or any other accepted design.
 
 Required checks:
 
-1. Does every create/update/end path now enforce one consistent existing-Employee precondition before write, while deliberately adding no membership/enabled policy?
-2. Is every bounded early-return boundary unambiguous and testable: before start, equal start, inside, equal end, after end?
-3. Is the open-ended pre-existing-family case explicitly defined?
-4. Do invalid identity/date cases require zero decision/rule/action writes?
-5. Do the corrections preserve the already-accepted canonical forbidden-rule representation, family identity, `supersedes`/`rejects` relations, generic write seam and unchanged read owner?
+1. Does §8 now distinguish effective-state projection from append-only history?
+2. Does create/update require rule+slices only where the written version is actually effective?
+3. Does reject correctly remove the family from the projection from its rejecting `effective_from` onward?
+4. Is equal-start cancellation explicitly expected to produce a callable empty relevant-rule/applicability projection before and after restart?
+5. Did this literal correction leave R1-1, the R1-2 boundary table and all accepted design decisions unchanged?
 
 Required verdict:
 
 - `PASS — READY_FOR_IMPLEMENTATION`, or
-- `FAIL` with numbered remaining contract defects.
+- `FAIL` only for a remaining contradiction caused by R2-1 wording.
 
 Until PASS: `CC READ-ONLY / NOT READY FOR IMPLEMENTATION`.
 
