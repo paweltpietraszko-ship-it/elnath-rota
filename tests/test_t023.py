@@ -25,10 +25,7 @@ from rota.domain import (
     ReadinessSource,
     ReadinessState,
     ShiftDemand,
-    Site,
-    SiteMembership,
-    SiteProfile,
-    SitePlanningRegime,
+    Site, SiteMembership, SitePlanningRegime, SiteProfile,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
