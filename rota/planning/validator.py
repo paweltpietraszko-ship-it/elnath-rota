@@ -527,12 +527,14 @@ def _check_full_hour(state: PlanningState, assignments: list[Assignment], detail
 
 def _check_weekly_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     """WEEKLY-REST-01 (ROTA-T023b sec.6/7): OCHRONA only. Per employee/complete settlement-week window
-    (weekly_settlement_windows), target-Site non-CANCELLED work only (PRIMARY+TRAINEE); PASS needs >=35h free somewhere."""
+    (weekly_settlement_windows), target-Site non-CANCELLED work only (PRIMARY+TRAINEE); PASS needs >=35h free somewhere.
+    Architect review A1: same-Site state.boundary_assignments (previous-month work spilling into day 1) also occupies
+    time here -- matches solver's target_fixed exactly; state.other_site_assignments stays excluded (sec.7)."""
     if state.site.planning_regime != SitePlanningRegime.OCHRONA:
         return
     windows = weekly_settlement_windows(state.month)
     by_employee: dict[str, list[tuple]] = {}
-    for a in assignments:
+    for a in list(assignments) + _not_cancelled(state.boundary_assignments):
         by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
     for employee_id, intervals in by_employee.items():
         for window_start, window_end in windows:

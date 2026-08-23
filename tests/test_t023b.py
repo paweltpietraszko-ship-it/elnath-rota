@@ -279,11 +279,11 @@ def test_max_uninterrupted_free_hours_empty_window_is_fully_free():
 
 
 # --- validator: REST-01 24h floor + WEEKLY-REST-01 ------------------------
-def _bare_state(*, regime, shift_demands=(), existing_assignments=(), month=MONTH):
+def _bare_state(*, regime, shift_demands=(), existing_assignments=(), month=MONTH, boundary_assignments=()):
     profile = make_profile("PROF-1")
     return PlanningState(
         site=Site("SITE-1", "PROF-1", "Site One", True, planning_regime=regime),
-        profile=profile, month=month, calendar_days=(), boundary_assignments=(),
+        profile=profile, month=month, calendar_days=(), boundary_assignments=boundary_assignments,
         memberships=(), employees=(), external_windows=(), availability_records=(),
         site_rules=(), unresolved_site_rules=(), site_rule_applicability=(),
         shift_demands=shift_demands, existing_assignments=existing_assignments, deviations=(),
@@ -344,6 +344,81 @@ def test_validator_weekly_rest01_passes_with_one_big_gap():
     state = _bare_state(regime=SitePlanningRegime.OCHRONA, existing_assignments=(a1, a2))
     report = validate(state, [a1, a2])
     assert not any(v.rule == "WEEKLY-REST-01" for v in report.violation_details)
+
+
+# --- architect review A1: same-Site boundary_assignments parity -----------
+def test_validator_weekly_rest01_counts_same_site_boundary_work():
+    """Architect review A1: previous-month same-Site work spilling into day 1
+    (state.boundary_assignments) must occupy time in the first settlement
+    week, matching solver's target_fixed exactly. Without it, this exact
+    scenario would wrongly report the week as compliant (the round-8
+    regression this test guards against)."""
+    window_start = datetime(2026, 8, 1)
+    # Previous-month boundary work clipped to [Aug1 00:00, Aug1 08:00) -- 8h.
+    boundary = Assignment(
+        "BND-1", "SV-PREV", "EMP-1", datetime(2026, 7, 31, 20), datetime(2026, 8, 1, 8),
+        AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, None, None,
+    )
+    # First target shift starts 40h into the window: 0h->40h gap without the
+    # boundary (>=35h, wrongly PASS); 8h->40h = 32h with it (<35h, correct FAIL).
+    target = []
+    for i in range(5):
+        s = window_start + timedelta(hours=40 + 24 * i)
+        target.append(Assignment(
+            f"TGT-{i}", "SV-X", "EMP-1", s, s + timedelta(hours=12),
+            AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, None, None,
+        ))
+    state = _bare_state(regime=SitePlanningRegime.OCHRONA, existing_assignments=tuple(target), boundary_assignments=(boundary,))
+    report = validate(state, target)
+    assert any(v.rule == "WEEKLY-REST-01" for v in report.violation_details), "boundary work must close the otherwise-large first-week gap"
+
+    # Without the boundary fact, the same target work alone leaves a >=35h
+    # gap at the start of the week -- confirms the scenario genuinely
+    # depends on boundary_assignments, not just the target shifts.
+    state_no_boundary = _bare_state(regime=SitePlanningRegime.OCHRONA, existing_assignments=tuple(target))
+    report_no_boundary = validate(state_no_boundary, target)
+    assert not any(v.rule == "WEEKLY-REST-01" for v in report_no_boundary.violation_details)
+
+
+def test_manual_correction_weekly_rest_facts_include_boundary_work():
+    """Architect review A1: manual_edit._weekly_rest_override_facts must
+    reconstruct the same boundary-inclusive fact set as the validator."""
+    conn = connect(":memory:")
+    _seed(conn, regime=SitePlanningRegime.OCHRONA)
+    prev_month = date(2026, 7, 1)
+    boundary_demand = ShiftDemand(
+        "DEM-BND", "", datetime(2026, 7, 31, 20), datetime(2026, 8, 1, 8), 1,
+        shift_kind=ShiftKind.N, catalog_kind=ShiftCatalogKind.H12,
+    )
+    boundary_assignment = Assignment(
+        "ASG-BND", "", "EMP-1", boundary_demand.start_datetime, boundary_demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, "DEM-BND", None,
+    )
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-PREV", site_id="SITE-1", month=prev_month, parent_version_id=None,
+        created_at=datetime(2026, 7, 1, 8), created_by="COORD-1", applied_rule_version_ids=[],
+        shift_demands=[boundary_demand], assignments=[boundary_assignment], deviations=[], effective_from=prev_month,
+    )
+
+    target_demands, target_assignments = [], []
+    for i in range(5):
+        s = datetime(2026, 8, 1) + timedelta(hours=40 + 24 * i)
+        did = f"DEM-TGT-{i}"
+        target_demands.append(ShiftDemand(did, "", s, s + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12))
+        target_assignments.append(Assignment(f"ASG-TGT-{i}", "", "EMP-1", s, s + timedelta(hours=12), AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, did, None))
+    version = _create_version(conn, target_demands, target_assignments)
+    updated = target_assignments[0].__class__(**{**target_assignments[0].__dict__, "schedule_version_id": version.version_id})
+    child = apply_manual_correction(
+        conn, site_id="SITE-1", month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 7, 27),
+        upsert_assignments=[updated],
+    )
+    row = conn.execute(
+        "SELECT structured_parameters FROM site_rule_versions WHERE rule_id = ?", (f"REST-OVERRIDE:{child.version_id}",),
+    ).fetchone()
+    assert row is not None, "boundary-inclusive weekly-rest fact must trigger a REST_OVERRIDE_RECORD"
+    import json
+    params = json.loads(row[0])
+    assert params["weekly_rest_facts"], "expected a recorded weekly-rest fact once boundary work is counted"
 
 
 # --- negative scope --------------------------------------------------------

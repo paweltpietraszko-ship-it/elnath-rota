@@ -123,12 +123,14 @@ def _weekly_rest_override_facts(state, corrected_assignments: list[Assignment], 
     never parsed out of ViolationDetail.message. Mirrors
     _rest_override_pairs's own reconstruction discipline. Target-Site
     non-CANCELLED work only, matching validator._check_weekly_rest
-    exactly (corrected_assignments is exactly what validate() saw)."""
+    exactly (corrected_assignments is exactly what validate() saw) --
+    architect review A1: also includes same-Site state.boundary_assignments,
+    still excludes state.other_site_assignments."""
     if not any(detail.rule == "WEEKLY-REST-01" for detail in report.violation_details):
         return []
     windows = weekly_settlement_windows(state.month)
     by_employee: dict[str, list[tuple[datetime, datetime]]] = {}
-    for a in corrected_assignments:
+    for a in list(corrected_assignments) + list(state.boundary_assignments):
         if a.state != AssignmentState.CANCELLED:
             by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
     facts = []
