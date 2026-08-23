@@ -1,216 +1,315 @@
-# T023b — ochrona rest-rule enforcement: architect input material
+# ROTA-T023b — ARCHITECT INPUT: OCHRONA REST-RULE ENFORCEMENT
 
 DATE: 2026-08-23
-STATUS: fact + direction, NOT a design doc, NOT frozen. Same role as
-`arch/T004_T005_architect_brief.md` and the original
-`arch/T023_absence_hours_architect_brief.md` served for their tasks — CC
-does not author the implementation brief or any new FROZEN_ADDENDUM here;
-that is architect Claude's job once Paweł relays this over.
+BASE: `main@5e8f282c8208441b25f0f0a3e0f44016c7162a6a`
+STATUS: INPUT FOR AN ARCHITECT SESSION — NOT AN IMPLEMENTATION CONTRACT
 
-AUTHORITY BOUNDARY: this document states what current code does and what
-current law text says. It does not decide field names, enforcement
-mechanism, or scope boundaries beyond what Paweł has explicitly ruled
-below.
+This document supplies verified code facts, official legal sources and the
+owner rulings already made. It does not choose field placement, algorithms or
+new product semantics. The architect owns the contract/addendum. CC may read
+the result only as an implementation-feasibility review; CC does not resolve
+the owner questions below, write the architecture contract or implement code
+before independent Codex preimplementation PASS.
 
-## 1. Why this task exists
+## 1. Required architect deliverables
 
-T023 (merged to `main`) correctly replaced flat 8h/day absence accounting
-with schedule-based hours (actual scheduled shift length: 12h D/N, 24h
-once for a legal 24h period). That was the accounting-side fix.
+Produce, without implementation:
 
-Paweł's original request for T023 also included verifying general KP
-(Kodeks pracy) compliance for ochrona's równoważny system (12/24h shifts).
-A holistic post-T023 audit (`tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md`,
-section B, 2026-08-22) found that several *rest-rule* requirements — not
-absence-hour accounting — are not enforced anywhere in the codebase. T023
-never claimed to cover these; they were simply never implemented. T023b
-is the follow-up task to close that gap.
+1. a frozen addendum for the two rest protections in Section 7;
+2. `tasks/ROTA-T023b/brief.md` with exact scope, named invariants, gates and
+   adversarial test matrix;
+3. a schema/migration and application-impact list, including the Site-mode
+   input, existing-Site compatibility and all planning/validation/manual-edit
+   call sites;
+4. an explicit temporal data-window contract for cross-Site and
+   cross-boundary validation;
+5. an impact list for existing frozen/regression oracles requiring deliberate
+   supersession;
+6. a checkpoint order if this cannot be safely reviewed as one implementation
+   unit.
 
-OWNER RULING (2026-08-23, Paweł, verbatim intent): the program needs a
-mode switch — "checkbox określający tryb pracy programu ochrona/zwykłe
-zasady" — so that ochrona-mode Sites get the real KP rest rules for
-równoważny czas pracy enforced, while normal Sites keep today's
-coordinator-configured behavior unchanged.
+The architect must end with exactly one status:
 
-## 2. What current code does NOT enforce (confirmed against source, 2026-08-23)
+- `READY FOR CODEX PREIMPLEMENTATION AUDIT — CC READ-ONLY UNTIL PASS`, or
+- `OWNER DECISION REQUIRED`, naming only product questions not resolved in
+  this document.
 
-### 2.1 Rest after a 24h shift (art. 136 §2 w zw. z art. 137 KP)
+## 2. Why this task exists
 
-Law text (checked against lexlege.pl, t.j. Dz.U. 2025 poz. 277 — the
-same source citation as the holistic audit; article numbers not
-independently re-verified beyond that source today):
-- Art. 137 KP: pracownicy zatrudnieni przy pilnowaniu mienia lub ochronie
-  osób mogą pracować w systemie równoważnego czasu pracy z przedłużeniem
-  dobowego wymiaru czasu pracy do 24 godzin, w okresie rozliczeniowym
-  nieprzekraczającym 1 miesiąca; stosuje się odpowiednio art. 135 §2-3
-  oraz art. 136 §2.
-- Art. 136 §2 KP: bezpośrednio po okresie pracy w przedłużonym dobowym
-  wymiarze pracownikowi przysługuje odpoczynek odpowiadający co najmniej
-  liczbie przepracowanych godzin (tj. po 24h służby — co najmniej 24h
-  odpoczynku), niezależnie od odpoczynku z art. 133.
+T023 replaced flat 8h/day absence accounting with schedule-based hours. It did
+not add general work-rest legality rules.
 
-Code today: `REST_MIN_HOURS = 11` (`rota/constants.py:3-4`, explicit "art.
-132 KP" comment — that is the GENERAL 11h daily rest default, not the
-after-24h rule). `work_periods.resolve_required_rest` falls back to this
-11h only when provenance is missing; live REST-01 otherwise uses a
-per-period `required_rest_hours` value that the COORDINATOR types in
-(`arch/spec.md` T012: "coordinator enters required_rest_hours >= 0; the
-program enforces that number and does not derive or validate law"). A
-coordinator can today set `required_rest_hours=11` after a 24h shift and
-the program will accept it — nothing checks that a 24h shift's follow-up
-rest is ≥24h. Confirmed by the field's own code comment
-(`rota/domain.py:114-116`): "`required_rest_hours=11` is only the
-legacy-compatible default (`REST_MIN_HOURS`), never a program-enforced
-legal minimum."
+A holistic post-T023 audit
+(`tasks/CURSOR_AUDIT_2026-08-22_t023_holistic/FINDINGS.md`, Section B) found
+two separate gaps in the current scheduling rules:
 
-### 2.1a Two DIFFERENT 24h mechanisms, both need the new rest floor
+- no legal rest floor after a 24h duty in the security equivalent-time
+  system;
+- no 35h uninterrupted weekly-rest check.
 
-A 24h duty is formed one of two ways today, and each carries its OWN
-rest-hours field — a new ochrona rest-floor check must cover both or it
-will silently miss one path:
-- **Catalog H24** (`ShiftCatalogKind.H24`, planned in advance,
-  `rota/planning/shift_catalog.py`): two 12h D/N components sharing one
-  `work_period_id`; rest after it is `Assignment.required_rest_after_hours`
-  (`rota/domain.py:374`), checked by `work_periods.py`/REST-01.
-- **Emergency 24h pair** (ad-hoc rescue combining two ordinary 12h
-  shifts, T012-C, `rota/planning/validator.py:396`
-  `_check_emergency_pairs`, `SHIFT-24-PAIR-01`): rest after it is a
-  SEPARATE, demand-level snapshot field,
-  `ShiftDemand.emergency_24h_rest_hours` (`rota/domain.py:347`,
-  "Snapshotted only when exactly one matching 24h capability exists...
-  None means no emergency 24h rescue is possible"). `work_periods.py:294`
-  cross-checks the two but they remain two distinct fields set through
-  two distinct code paths.
+These are not T023 absence-accounting regressions. T023b is a separate task.
 
-### 2.2 Weekly rest (art. 133 KP)
+OWNER RULING (2026-08-23, Paweł, verbatim intent): the program needs a mode
+switch — "checkbox określający tryb pracy programu ochrona/zwykłe zasady" —
+so that ochrona-mode Sites receive the new rest protections, while ordinary
+Sites retain today's coordinator-configured behaviour.
 
-Law text: co najmniej 35 godzin nieprzerwanego odpoczynku w każdym
-tygodniu (obejmujące 11h dobowego odpoczynku); §2 allows shortening to
-24h in specific listed cases; §3 ties it to Sunday absent an authorized
-exception.
+OWNER RULING (2026-08-23, Paweł, verbatim intent): these protections are legal
+minimums, not judgment calls — "jeśli koordynator zechce je ręcznie złamać to
+jego sprawa, ale nie budujemy programu łamiącego prawo." Automatic planning
+must not propose a violating plan. An explicit manual correction may persist
+one only through the existing audited hard-violation/REST-override precedent
+described in Section 6.
 
-Code today: no symbol implements a 35h consecutive weekly rest check at
-all. The only weekly-scale mechanism is LOAD-01
-(`rota/planning/validator.py:479-496`, `constraints.py`,
-`engine.py:374+`) — a rolling 7-day *worked-hours* ceiling against
-`SiteProfile.rolling_7d_decision_threshold_hours` (example default 60h).
-Exceeding it produces a coordinator-facing `DECISION_REQUIRED` ("Koliduje
-z tygodniowym czasem pracy") — a soft flag the coordinator can override,
-not a hard block, and it counts hours worked, not consecutive rest hours.
-Two 24h duties with only an 11h gap between them can pass REST-01 today
-and still contain no 35h uninterrupted rest block anywhere in that week.
+Do not describe T023b as complete Polish-labour-law compliance. Its closed
+candidate scope is only the two protections in Section 7. Night work, payroll,
+settlement of wages and other work-time rules remain outside this task.
 
-### 2.3 Night work (art. 151⁷ KP) — RULED OUT OF SCOPE (owner, 2026-08-23)
+## 3. Official legal facts (verified 2026-08-23)
 
-Art. 151⁷ §1 KP: pora nocna obejmuje 8 godzin między godzinami 21:00 a
-7:00 — the employer fixes ONE specific 8-hour window inside that wider
-21:00-7:00 (10h) span; the 8h is the length of "pora nocna" itself, not
-the boundary span (corrected from an earlier ambiguous statement in
-this conversation).
+Primary source: current codified Kodeks pracy, Dz.U. 2025 poz. 277, ELI text
+showing legal state current on 2026-08-18:
 
-OWNER RULING: this article's substance is primarily compensation
-(dodatek za pracę w nocy) and eligibility restrictions for protected
-groups — payroll/HR territory, not a scheduling-legality constraint.
-Consistent with the existing product boundary
-(`arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md` §1:
-"Rota does not own payroll, benefits, leave entitlement, HR
-settlement"). T023b does NOT cover night-work window modeling. Not
-tracked as a separate task either — out of product scope, not deferred.
+https://eli.gov.pl/api/acts/DU/2025/277/text/U/D20250277Lj.pdf
 
-### 2.4 Confirmed: no hidden prior work covers this
+Official explanatory source: Państwowa Inspekcja Pracy, `Czas pracy`:
 
-Re-checked 2026-08-23 against `origin/main` (fetched fresh, not
-assumed) specifically to avoid repeating the earlier session's mistake
-of answering from a stale view:
-- no `arch/FROZEN_ADDENDUM_*.md` exists for weekly rest, post-24h rest,
-  or any "równoważny system" enforcement — the 11 existing addenda cover
-  absence accounting, day-only/N fallback, cross-site zero-gap, replan,
-  multi-variant plan, site-rule execution, decision-required
-  communication; none of them touch this;
-- no code symbol anywhere under `rota/` implements a 35h weekly rest
-  window (grepped `rownowa|równoważ|35\s*h|weekly.*rest` — no hits
-  beyond this brief itself);
-- `arch/spec.md` labels LOAD-01's example 60h threshold explicitly
-  `(LOAD-01 trigger; OCHRONA = 60;`  — confirming ochrona is already the
-  product's named primary use case, not a hypothetical add-on.
+https://www.pip.gov.pl/dla-pracownikow/porady-prawne/czas-pracy
 
-## 3. Existing precedent for a Site-level mode field
+### 3.1 Rest after extended work — art. 136 §2 with art. 137
 
-`SiteProfile` (`rota/domain.py:126`) already carries several structural,
-non-coordinator-facing fields describing what KIND of Site this is:
-`rolling_7d_decision_threshold_hours` (a number the coordinator sets, but
-structurally per-Site). `SitePrintSettings.base_regime` (`rota/persistence/site_repository.py:60`, `"12h"|"24h"`) is a DIFFERENT, already-existing
-per-Site field — but it is print/export-only (controls how
-`schedule_export.py` pairs work-code values for the PDF legend); it does
-not feed the solver, eligibility, or REST-01/LOAD-01 at all. It is not a
-usable hook for legal enforcement as-is, but is worth the architect
-knowing it exists so a new field is not confused with it or duplicated.
+Art. 137 allows employees guarding property or protecting persons to work in
+an equivalent-time system with a daily dimension extended up to 24 hours and
+applies art. 136 §2 accordingly. Art. 136 §2 requires, immediately after work
+in the extended daily dimension, uninterrupted rest lasting at least as many
+hours as were worked, independently of weekly rest under art. 133.
 
-This is a different kind of field than the four toggles Paweł removed
-from UI scope on 2026-08-22 (`arch/T021_owner_decisions_2026-08-22.md`
-D2): those were about the coordinator's own judgment calls (training
-timing, external-support availability, night-shift eligibility per
-employee) which he ruled the program must not gate. A
-ochrona/zwykłe-zasady mode is not a coordinator judgment call — it is a
-structural, legal-regime fact about the Site (does KP's równoważny system
-for pilnowanie mienia/ochrona apply here or not), analogous to why
-`base_regime` and the (not-yet-built) absence-accounting-strategy
-distinction from the earlier finding are Site-level facts, not
-coordinator overrides.
+For the exact T023b case selected by the owner, 24h worked therefore requires
+at least 24h immediate rest.
 
-## 4. Explicitly NOT decided here
+### 3.2 Weekly rest — art. 128 §3 point 2 and art. 133
 
-- Exact field name/type/values on `SiteProfile` (or whether it reuses/
-  replaces `SitePrintSettings.base_regime` — architect must confirm
-  these should stay separate, since one is print-only today).
-- Whether "zwykłe zasady" mode changes any code path at all, or is simply
-  the absence of the new ochrona-only hard checks (i.e., is it a real
-  second ruleset, or just "ochrona checks are skipped when off").
-- Exact mechanism/placement for the ≥24h-rest-after-24h-shift check (new
-  REST-01 variant vs. a new constraint class).
-- Exact mechanism for weekly 35h consecutive rest — this is a genuinely
-  new constraint shape (a rest window, not an hours-worked ceiling) with
-  no existing analog in `rota/planning/constraints.py` today.
-- Interaction with existing coordinator-entered `required_rest_hours`:
-  does the new ochrona rest floor override a coordinator's smaller
-  manual entry as the effective minimum, or reject the entry outright?
-  (Section 6 below settles that the SOLVER may never propose below the
-  floor either way — this question is only about how a coordinator-typed
-  value below the floor is handled.)
+Art. 133 §1 establishes at least 35 hours of uninterrupted rest in each week,
+including at least 11 hours of uninterrupted daily rest.
 
-## 6. HARD, not DECISION_REQUIRED — owner ruling (2026-08-23)
+This rule cannot be specified as an arbitrary rolling seven-day window or ISO
+week. Art. 128 §3 point 2 defines `week` for work-time accounting as seven
+consecutive calendar days beginning on the first day of the settlement
+period. The eventual contract must identify the durable source of that
+settlement-period start and must test both sides of month/year boundaries.
 
-Paweł, verbatim intent: these are legal minimums, not judgment calls —
-"jeśli koordynator zechce je ręcznie złamać to jego sprawa, ale nie
-budujemy programu łamiącego prawo." Both 2.1 and 2.2 are **HARD**
-constraints for the automatic solver/validator in ochrona mode: the
-solver must never PROPOSE a plan that violates them, and independent
-validation must reject a candidate that does, exactly like every other
-HARD check today (COVERAGE-01, REST-01, etc.).
+The base 35h statement is not the whole statutory rule:
 
-**A coordinator may still knowingly override manually** — this is not a
-new capability to invent. The exact existing precedent is REST-01's own
-manual-override path in `rota/application/manual_edit.py`
-(`_rest_override_pairs`/`_rest_override_rule_content`/
-`_with_rest_override_hook`, T012-D): `apply_manual_correction` may
-knowingly commit a REST-01-violating pair, and the write records a
-`CONFIRMED_EXCEPTION`/`RuleEnforcement.INFORMATIONAL`/
-`RuleResolution.RESOLVED` audit entry ("Manual correction {id} knowingly
-overrides REST-01 for N pair(s)...") rather than being silently allowed
-or silently blocked. The automatic solver/`plan()`/`replan()` path never
-takes this route on its own — only an explicit coordinator manual
-correction can.
+- art. 133 §2 permits weekly rest shorter than 35h, but not shorter than 24h,
+  in the cases named there, including a scheduled transition to another
+  shift;
+- art. 133 §3 says weekly rest should fall on Sunday and defines the Sunday
+  interval;
+- art. 133 §4 permits another day where Sunday work is allowed.
 
-The new ochrona rest-floor checks (2.1, 2.2) should follow this exact
-same shape: HARD for solver/independent-validation, with a
-manual-correction override path that produces the same kind of audited
-`CONFIRMED_EXCEPTION` record REST-01 already produces — not a new
-override mechanism, not a DECISION_REQUIRED/soft classification like
-LOAD-01. Whether the override plumbing is literally extended/reused or
-duplicated per-rule is an architect implementation decision, not decided
-here.
+Section 8 records the owner's deliberately stricter product treatment of
+these cases.
 
-## 7. Scope (closed, 2026-08-23)
+### 3.3 Night work — out of scope by owner ruling
 
-T023b covers exactly 2.1 (rest ≥24h after a 24h shift) and 2.2 (weekly
-35h consecutive rest). No open scope questions remain.
+OWNER RULING (2026-08-23): T023b does not model the night-work window from
+art. 151⁷, night-work compensation or protected-group HR eligibility. This is
+outside product scope, not deferred into the T023b contract.
+
+## 4. Confirmed current-code gap
+
+### 4.1 Current REST-01 does not derive a legal floor
+
+`REST_MIN_HOURS = 11` (`rota/constants.py`) is the general legacy-compatible
+default. `work_periods.resolve_required_rest` uses it only for legacy
+provenance. Normal T012 paths use persisted rest provenance derived from a
+coordinator-configured `StandardShift.required_rest_hours` value. The field's
+own comment in `rota/domain.py` states that its default is not a
+program-enforced legal minimum.
+
+Consequently an explicit 24h WorkPeriod with `required_rest_after_hours=11`
+can pass current REST-01. No check raises the effective minimum to 24h in an
+ochrona mode.
+
+### 4.2 Both existing 24h mechanisms must be covered
+
+A contract limited to one of these paths would leave the same bug class open:
+
+1. **Catalog H24** — two 12h D/N components share one `work_period_id`.
+   Terminal rest is carried by `Assignment.required_rest_after_hours` and
+   checked through `work_periods.py`/REST-01.
+2. **Emergency 24h pair** — two ordinary H12 demands are joined through the
+   T012-C rescue path. The earlier demand carries the separate snapshot
+   `ShiftDemand.emergency_24h_rest_hours`; independent validation cross-checks
+   that provenance in `work_periods.py`/`SHIFT-24-PAIR-01`.
+
+The architect must produce one invariant covering both, including same-month
+and cross-month emergency pairing. The implementation must not trust only a
+catalog label or only one rest-hours field.
+
+### 4.3 LOAD-01 is not weekly rest
+
+LOAD-01 computes hours worked in a rolling seven-day window against
+`SiteProfile.rolling_7d_decision_threshold_hours` and reports
+`DECISION_REQUIRED`. It neither finds an uninterrupted rest interval nor uses
+the statutory week boundary. It remains a separate current feature and must
+not be renamed or reused as proof of art. 133 compliance unless the frozen
+contract explicitly supersedes its semantics.
+
+### 4.4 No hidden prior implementation
+
+At the audited base there is no frozen addendum or `rota/` symbol implementing
+the two T023b protections. The existing 11h/rest-provenance and LOAD-01 paths
+are the only adjacent mechanisms.
+
+## 5. Site-mode ownership and compatibility boundary
+
+The owner's language makes the behaviour a fact about a **Site**: an ochrona
+Site receives the new protections; an ordinary Site does not. Do not infer
+that `SiteProfile` is automatically a per-Site owner. In the current model a
+`Site` references a `SiteProfile` by `profile_id`, and the model does not
+guarantee that a profile is bound to only one Site.
+
+Current adjacent fields are not reusable without an explicit contract:
+
+- `SiteProfile.rolling_7d_decision_threshold_hours` is per profile and owns a
+  soft LOAD-01 threshold, not a legal regime;
+- `SitePrintSettings.base_regime` is keyed by `site_id` but is print/export
+  configuration (`"12h"|"24h"`), not solver input.
+
+The architect chooses storage/API mechanics, but the resulting semantics must
+remain per-Site and must not silently switch other Sites merely because they
+share a profile. Reusing `base_regime` is not authorized: 12h/24h print shape
+and ochrona/ordinary legal mode are independent facts.
+
+Compatibility consequences already fixed by the owner wording:
+
+- existing Sites migrate/default to ordinary mode so their current planning
+  behaviour does not change merely because T023b is deployed;
+- ordinary mode skips only the new T023b checks; it is not a second redesigned
+  ruleset;
+- the requested mode is coordinator-visible and editable as a checkbox in
+  Site creation/editing. The architect must name the write/read boundary and
+  authorization path; visual design belongs to T021, not this addendum.
+
+## 6. HARD classification and existing manual-override precedent
+
+Both selected protections are HARD for automatic planning in ochrona mode:
+
+- the solver must never propose a violating candidate;
+- independent validation must report the same HARD violation from persisted
+  facts rather than trusting solver literals;
+- `plan()`/candidate selection/`replan()` cannot turn the violation into
+  `DECISION_REQUIRED` or silently accept it.
+
+An explicit coordinator manual correction may persist a HARD violation. This
+is not authorization for a second override system. The existing precedent is
+REST-01 in `rota/application/manual_edit.py`:
+
+- `apply_manual_correction` validates the corrected snapshot and materializes
+  HARD deviations instead of treating them as automatic candidates;
+- `_rest_override_pairs`, `_rest_override_rule_content` and
+  `_with_rest_override_hook` independently reconstruct REST-01 facts;
+- the successful write records an audited `CONFIRMED_EXCEPTION` rule with
+  `INFORMATIONAL` enforcement and `RESOLVED` status.
+
+The new checks must have equally explicit, atomic and fact-derived audit
+records when manually overridden. The architect decides whether the existing
+plumbing is generalized or extended; CC must not duplicate it by local
+convention. Automatic planning never invokes this override path.
+
+## 7. Product scope (closed)
+
+T023b covers exactly:
+
+1. in ochrona mode, immediate rest of at least 24h after an actual 24h duty,
+   across both Catalog H24 and emergency-pair mechanisms;
+2. in ochrona mode, an automatic HARD floor of 35h uninterrupted weekly rest,
+   anchored to the week definition in art. 128 §3 point 2 and the
+   calendar-month settlement period fixed in Section 8;
+3. identical independent-validation results for automatically generated and
+   persisted/manual snapshots;
+4. employee-wide evaluation across all Sites and across the temporal boundary
+   needed to prove the applicable rest interval;
+5. audited explicit manual override through the precedent in Section 6;
+6. ordinary-mode compatibility described in Section 5.
+
+The following remain outside T023b:
+
+- absence accounting from T023/T026;
+- payroll, benefits, wage settlement and HR entitlement;
+- night-work-window modeling;
+- general monthly/average weekly work-time limits;
+- a redesign of LOAD-01 or print settings;
+- new coordinator policy toggles unrelated to the ochrona/ordinary mode.
+
+## 8. Binding owner decisions closing art. 133 scope (2026-08-23)
+
+### O1 — automatic floor is always 35h
+
+In ochrona mode the automatic solver and independent validator always apply a
+35h uninterrupted weekly-rest HARD floor. T023b does not automatically model
+the art. 133 §2 shortening to 24h, even where such shortening could be lawful.
+
+A coordinator who needs to apply a statutory 24h exception must do so through
+an explicit manual correction. The correction remains a HARD deviation and
+must produce the audited `CONFIRMED_EXCEPTION` record required by Section 6;
+it must never become an inferred solver exception or `DECISION_REQUIRED`.
+The audit record must identify the affected employee, weekly interval,
+observed rest duration and coordinator action. The architect defines the
+smallest fact shape consistent with the existing manual-override precedent.
+
+### O2 — Sunday placement is outside T023b
+
+Art. 133 §3-4 Sunday placement is not enforced by T023b. The weekly rule in
+this task concerns uninterrupted duration only. Do not add employer-defined
+Sunday boundaries, Sunday-work authorization data or Sunday-placement
+constraints.
+
+### O3 — settlement period is the calendar month
+
+For T023b the applicable settlement period is the calendar month. Its first
+day is the statutory week anchor; successive seven-day intervals are derived
+from that first day, not from ISO weeks and not from arbitrary rolling
+windows. The architect must specify the exact trailing/boundary read window
+and ensure that work from adjacent months and other Sites cannot disappear
+from validation.
+
+These three rulings close the known product questions. The architect may
+return `OWNER DECISION REQUIRED` only for a newly demonstrated contradiction
+that cannot be resolved from this document or current frozen contracts.
+
+## 9. Minimum required contract oracles
+
+The frozen addendum/test matrix must include at least:
+
+1. Catalog H24 followed by gaps of 23h59m, 24h and 24h01m;
+2. same-month emergency H12+H12 pair with the same three boundaries;
+3. cross-month emergency pair and a next duty in the following month;
+4. a 24h duty whose configured rest is 0/11/23 but whose effective ochrona
+   floor remains 24h;
+5. the same facts in ordinary mode retaining current configured behaviour;
+6. employee assignments split across two Sites, including a violating next
+   duty on another Site;
+7. weekly-rest windows immediately below, exactly at and above the selected
+   floor;
+8. a statutory week spanning a month/year boundary and anchored by the
+   settlement-period start;
+9. an automatic candidate with only 24h weekly rest is rejected even in a
+   fact pattern where a statutory shortening may exist; the equivalent
+   explicit manual correction persists only with the required audited
+   exception record;
+10. automatic solver, independent validator and persisted-snapshot parity;
+11. manual correction persists only with deviation plus one atomic audited
+    override record containing reconstructable facts;
+12. failure/fault injection proving that schedule-version persistence and the
+    override audit record cannot commit separately;
+13. no duplicate override record for one logical manual correction;
+14. ordinary Sites and existing migrated Sites preserve pre-T023b results;
+15. no Sunday-placement rule is introduced by solver, validator or manual
+    correction;
+16. malformed/missing mode or settlement-boundary data fails according to an
+    explicitly frozen rule, never by accidental fallback.
+
+Do not write code from this document. First freeze the architect contract and
+obtain independent Codex preimplementation PASS.
