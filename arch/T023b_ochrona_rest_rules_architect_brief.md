@@ -172,14 +172,45 @@ coordinator overrides.
   new constraint shape (a rest window, not an hours-worked ceiling) with
   no existing analog in `rota/planning/constraints.py` today.
 - Interaction with existing coordinator-entered `required_rest_hours`:
-  does a new hard ochrona rule override a coordinator's smaller manual
-  entry, or does it validate/reject it?
-- HARD vs DECISION_REQUIRED (soft) classification for the new checks —
-  today's LOAD-01 precedent is soft; Paweł's phrasing ("program ma to
-  wymuszać" in the surrounding conversation) suggests HARD is intended
-  for at least 2.1, but this needs explicit confirmation, not inference.
+  does the new ochrona rest floor override a coordinator's smaller
+  manual entry as the effective minimum, or reject the entry outright?
+  (Section 6 below settles that the SOLVER may never propose below the
+  floor either way — this question is only about how a coordinator-typed
+  value below the floor is handled.)
 
-## 5. Scope (closed, 2026-08-23)
+## 6. HARD, not DECISION_REQUIRED — owner ruling (2026-08-23)
+
+Paweł, verbatim intent: these are legal minimums, not judgment calls —
+"jeśli koordynator zechce je ręcznie złamać to jego sprawa, ale nie
+budujemy programu łamiącego prawo." Both 2.1 and 2.2 are **HARD**
+constraints for the automatic solver/validator in ochrona mode: the
+solver must never PROPOSE a plan that violates them, and independent
+validation must reject a candidate that does, exactly like every other
+HARD check today (COVERAGE-01, REST-01, etc.).
+
+**A coordinator may still knowingly override manually** — this is not a
+new capability to invent. The exact existing precedent is REST-01's own
+manual-override path in `rota/application/manual_edit.py`
+(`_rest_override_pairs`/`_rest_override_rule_content`/
+`_with_rest_override_hook`, T012-D): `apply_manual_correction` may
+knowingly commit a REST-01-violating pair, and the write records a
+`CONFIRMED_EXCEPTION`/`RuleEnforcement.INFORMATIONAL`/
+`RuleResolution.RESOLVED` audit entry ("Manual correction {id} knowingly
+overrides REST-01 for N pair(s)...") rather than being silently allowed
+or silently blocked. The automatic solver/`plan()`/`replan()` path never
+takes this route on its own — only an explicit coordinator manual
+correction can.
+
+The new ochrona rest-floor checks (2.1, 2.2) should follow this exact
+same shape: HARD for solver/independent-validation, with a
+manual-correction override path that produces the same kind of audited
+`CONFIRMED_EXCEPTION` record REST-01 already produces — not a new
+override mechanism, not a DECISION_REQUIRED/soft classification like
+LOAD-01. Whether the override plumbing is literally extended/reused or
+duplicated per-rule is an architect implementation decision, not decided
+here.
+
+## 7. Scope (closed, 2026-08-23)
 
 T023b covers exactly 2.1 (rest ≥24h after a 24h shift) and 2.2 (weekly
 35h consecutive rest). No open scope questions remain.
