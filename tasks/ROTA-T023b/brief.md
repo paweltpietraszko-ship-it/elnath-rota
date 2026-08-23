@@ -389,3 +389,44 @@ Required verdict:
 Until PASS: `CC READ-ONLY / NOT READY FOR IMPLEMENTATION`.
 
 After implementation: targeted matrix + retained regressions + full quality gates + independent exact-SHA implementation audit + architect exact-SHA review. Merge remains an explicit owner action.
+
+## 13. EXACT TASK_SCOPE
+
+Mechanical restatement of section 9 for backend.py's parser (bare paths,
+no formatting) -- same precedent as T023 brief.md section 15/T026's own
+fix. Not a scope change; section 9 is the authoritative prose.
+
+TASK_SCOPE:
+- arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md
+- arch/T023b_ochrona_rest_rules_architect_brief.md
+- tasks/ROTA-T023b/brief.md
+- rota/domain.py
+- rota/persistence/db.py
+- rota/persistence/site_repository.py
+- rota/persistence/schedule_repository.py
+- rota/persistence/schedule_lifecycle.py
+- rota/application/bootstrap.py
+- rota/application/durable_inputs.py
+- rota/application/plan_ops.py
+- rota/application/manual_edit.py
+- rota/application/deviation_mapping.py
+- rota/planning/work_periods.py
+- rota/planning/constraints.py
+- rota/planning/solver.py
+- rota/planning/validator.py
+- rota/application/schedule_export.py
+- tests/test_t023b.py
+
+Owner-authorized narrow amendment (2026-08-23, mechanical schema-bump
+fallout): tests/test_t012.py, tests/test_t019b.py, tests/test_t020.py
+are in scope ONLY for the LATEST_SCHEMA_VERSION literal (8 -> 9) forced
+by this task's own required db.py schema bump (section 2), plus
+tests/test_t020.py's test_t20_01b migration-replay test, which cannot
+safely reuse its "roll back an already-fully-migrated connection's
+pragma" technique against a non-idempotent ALTER TABLE ADD COLUMN
+migration (as migrations 3/4/5 already are) the way it could against
+migrations 7/8 (both CREATE TABLE IF NOT EXISTS) -- rewritten to build
+a genuine schema-6-only connection instead. No other assertion or
+scenario meaning in any of the three files changes. Same one-time
+exact-SHA exception pattern as T023's own Checkpoint B/C amendments;
+backend.py's global MAX_NEW_FILES is unchanged.
