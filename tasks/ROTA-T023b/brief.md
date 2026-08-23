@@ -15,7 +15,7 @@ No implementation may start before independent Codex preimplementation PASS on t
 
 ## 1. OWNER CLARIFICATIONS THAT CONTROL THIS CONTRACT
 
-The 2026-08-23 owner clarification supersedes any broader reading of the architect input phrase `across all Sites`.
+The 2026-08-23 owner clarification supersedes the architect input's broader cross-Site wording.
 
 ### C1 — no T023b cross-Site aggregation
 
@@ -339,8 +339,6 @@ T23b-24 — non-CANCELLED TRAINEE interval interrupts weekly rest exactly as rec
 
 T23b-25 — work occurring only on tail days creates no WEEKLY-REST-01 violation solely because of those tail days.
 
-T23b-26 — `state.other_site_assignments` do not enter T023b weekly calculation. No external-work surrogate is created.
-
 ### Parity / manual override
 
 T23b-30 — solver cannot return an ochrona candidate that independent validator rejects for either T023b protection.
@@ -361,7 +359,7 @@ T23b-41 — no automatic 24h weekly-rest exception.
 
 T23b-42 — LOAD-01 regression remains its existing rolling-7d decision-threshold behavior and is not reused as WEEKLY-REST-01.
 
-T23b-43 — existing T012 TRAINEE REST/LOAD and existing T012/T022 cross-Site regressions remain unchanged except where the target-Site 24h floor is explicitly in scope.
+T23b-43 — existing T012 TRAINEE REST/LOAD and existing T012/T022 cross-Site regressions remain unchanged; T023b adds no new cross-Site semantics.
 
 ## 11. RETAINED REGRESSIONS / QUALITY GATES
 
