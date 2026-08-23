@@ -15,6 +15,7 @@ export default function ControlPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -45,6 +46,8 @@ export default function ControlPanel({
     }
   };
 
+  const visibleRoster = roster.filter((row) => row.enabled || showRemoved);
+
   return (
     <>
       <h1 className="brand-font" style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>
@@ -58,7 +61,7 @@ export default function ControlPanel({
         <button className="tab-item" disabled title="jeszcze nie zbudowane">
           Obiekt
         </button>
-        <button className="tab-item tab-item-active">Obsada ({roster.length})</button>
+        <button className="tab-item tab-item-active">Obsada ({roster.filter((r) => r.enabled).length})</button>
       </div>
 
       {error && <div className="banner-error">{error}</div>}
@@ -69,19 +72,27 @@ export default function ControlPanel({
             <h3>Lista pracowników</h3>
             <p className="panel-hint">Kliknij nazwisko, żeby otworzyć konfigurację pracownika.</p>
           </div>
-          <button className="btn-primary" onClick={() => setAddOpen(true)}>
-            + Dodaj osobę
-          </button>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ink-soft)" }}>
+              <input
+                type="checkbox"
+                checked={showRemoved}
+                onChange={(e) => setShowRemoved(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Pokaż usuniętych
+            </label>
+            <button className="btn-primary" onClick={() => setAddOpen(true)}>
+              + Dodaj osobę
+            </button>
+          </div>
         </div>
 
         {addOpen && (
           <AddPersonPanel
             siteId={siteId}
             onClose={() => setAddOpen(false)}
-            onAdded={() => {
-              setAddOpen(false);
-              load();
-            }}
+            onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
           />
         )}
 
@@ -99,7 +110,7 @@ export default function ControlPanel({
                 </tr>
               </thead>
               <tbody>
-                {roster.map((row) => (
+                {visibleRoster.map((row) => (
                   <tr key={row.employee_id} className={row.enabled ? "" : "roster-row-disabled"}>
                     <td>
                       <button
@@ -136,10 +147,12 @@ export default function ControlPanel({
                     </td>
                   </tr>
                 ))}
-                {roster.length === 0 && (
+                {visibleRoster.length === 0 && (
                   <tr>
                     <td colSpan={4} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
-                      Brak pracowników. Dodaj pierwszą osobę.
+                      {roster.length === 0
+                        ? "Brak pracowników. Dodaj pierwszą osobę."
+                        : "Brak aktywnych pracowników — wszyscy usunięci (włącz „Pokaż usuniętych”, żeby ich zobaczyć)."}
                     </td>
                   </tr>
                 )}
@@ -156,7 +169,15 @@ function newEmployeeIdStorageKey(siteId: string) {
   return `elnath-rota-new-employee-id:${siteId}`;
 }
 
-function AddPersonPanel({ siteId, onClose, onAdded }: { siteId: string; onClose: () => void; onAdded: () => void }) {
+function AddPersonPanel({
+  siteId,
+  onClose,
+  onAdded,
+}: {
+  siteId: string;
+  onClose: () => void;
+  onAdded: (employeeId: string) => void;
+}) {
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [displayName, setDisplayName] = useState("");
   const [dayOnly, setDayOnly] = useState(false);
@@ -200,11 +221,12 @@ function AddPersonPanel({ siteId, onClose, onAdded }: { siteId: string; onClose:
         } catch {
           // per-viewer convenience only; ignore storage failures
         }
+        onAdded(newEmployeeId);
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
         await api.attachToRoster(siteId, selectedExisting);
+        onAdded(selectedExisting);
       }
-      onAdded();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
