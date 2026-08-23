@@ -33,7 +33,7 @@ with these mappings:
 - Nocka `☐` -> `weekdays=[1..7]`, `forbidden_shift_kinds=["N"]`;
 - one weekday `☐` -> `weekdays=[ISO weekday]`, `forbidden_shift_kinds=["D","N"]`.
 
-The rule is `LOCAL_RULE / HARD / RESOLVED`, with `employee_id` in `structured_parameters`.
+The matrix-owned restriction is `LOCAL_RULE / HARD / RESOLVED`, with `employee_id` in `structured_parameters`.
 
 Do **not** add Screen-2 wrappers based on `EMPLOYEE_ALLOWED_SHIFT_KINDS` or `EMPLOYEE_ALLOWED_WEEKDAYS`. Doing so would create a second write representation for the same matrix whose existing read owner currently projects `EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS`.
 
@@ -124,13 +124,21 @@ def update_employee_matrix_rule_period(
 ) -> DecisionRecord
 ```
 
-- `rule_id` must identify an existing family for this Site whose current chain end carries either `EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS` or `EMPLOYEE_DAY_ONLY_N_EXCEPTION`;
+`rule_id` must identify an existing family for this Site whose **current chain end carries one of the two matrix-owned shapes**:
+
+1. `EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS` with `LOCAL_RULE / HARD / RESOLVED`; or
+2. `EMPLOYEE_DAY_ONLY_N_EXCEPTION` with `CONFIRMED_EXCEPTION / HARD / RESOLVED`.
+
+Reject an unknown/wrong-Site family, an ended family whose current chain end has no rule version, every other `rule_kind`, and the right `rule_kind` under a different category/enforcement/resolution. A matrix convenience command must not mutate a `CLIENT_REQUIREMENT` or another rule merely because its structural kind can affect the same employee.
+
+For an accepted family:
+
 - preserve the current rule's category, rule kind, structured parameters, enforcement, resolution and optional descriptive fields; change only the effective period through a new SiteRuleVersion;
 - append to the **same** rule family;
 - relation is `supersedes`, matching the existing tested T010-B edit precedent;
 - do not generate a new `rule_id` for an ordinary edit.
 
-The command may edit an existing matrix-relevant forbidden-rule family even when its parameters are a legitimate pre-existing combination broader than one single UI cell. It preserves that content rather than trying to reinterpret or normalize it.
+The command may edit an existing matrix-owned forbidden-rule family even when its valid parameters are broader than one single UI cell. It preserves that content rather than trying to reinterpret or normalize it.
 
 ### 3.5 Earlier return to base state
 
@@ -146,7 +154,7 @@ def end_employee_matrix_rule_early(
 ) -> DecisionRecord
 ```
 
-- same family validation as §3.4;
+- same matrix-owned-family validation as §3.4;
 - append `rel="rejects"` with `rule_content=None`;
 - no fake SiteRuleVersion is created;
 - from `effective_from` the base state returns according to existing T005 effective-selection semantics.
@@ -246,7 +254,7 @@ If implementation proves one of those files must change to satisfy this contract
 4. Update dates: same `rule_id`, one new decision + SiteRuleVersion, `rel="supersedes"`, current content preserved, no parallel family.
 5. Early base restore: same `rule_id`, `rel="rejects"`, no new SiteRuleVersion; applicability ends the day before rejecting `effective_from`.
 6. New independent period for the same employee/cell uses a different generated `rule_id`.
-7. Update/end rejects an unknown, wrong-Site or non-matrix rule family without writing.
+7. Update/end rejects unknown, wrong-Site, ended, non-matrix, or wrong-category/enforcement/resolution families without writing.
 8. Generated `statement` is Polish semantic text and caller supplies no statement parameter; note remains action metadata.
 9. Existing `employee_availability_matrix()` shows the written rule/applicability before and after restart.
 10. Existing eligibility + independent validator regressions remain unchanged, including `day_only` exception AND-composition with other HARDs.
@@ -262,9 +270,10 @@ Independent Codex audits the exact contract HEAD and answers:
 2. Do new-period vs same-period-edit semantics correctly map to new family vs same family without deterministic per-employee IDs?
 3. Are `supersedes` for date edit and `rejects` for early base restore consistent with existing T005/T010-B effective-selection behaviour?
 4. Does temporary N for `day_only=true` reuse only the frozen narrow exception and preserve every other HARD?
-5. Can all wrapper writes delegate to `record_structured_rule_decision()` without duplicating transaction/action/invalidation machinery?
-6. Will the unchanged `employee_availability_matrix()` read back every state these wrappers create?
-7. Does any clause introduce code or product semantics unnecessary for Screen 2?
+5. Does the matrix write boundary prevent these wrappers from rewriting a `CLIENT_REQUIREMENT`, unresolved rule or another non-matrix family merely because it can affect the same employee?
+6. Can all wrapper writes delegate to `record_structured_rule_decision()` without duplicating transaction/action/invalidation machinery?
+7. Will the unchanged `employee_availability_matrix()` read back every state these wrappers create?
+8. Does any clause introduce code or product semantics unnecessary for Screen 2?
 
 Required verdict:
 
