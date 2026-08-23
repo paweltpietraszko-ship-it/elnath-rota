@@ -1,0 +1,139 @@
+"""Read-only wraps of employee_repository/availability_repository/
+work_balance_repository -- persistence-layer, no owning application
+module (brief.md section 5.1: "call directly", same already-accepted
+missing-wrapper pattern as Screen 1's calendar read). Writes live in
+api/routers/durable_inputs.py, matching the module they wrap.
+"""
+from __future__ import annotations
+
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from api.deps import get_conn
+from api.errors import to_http_exception
+from rota.domain import MembershipKind
+from rota.persistence.employee_repository import (
+    get_employee,
+    list_employees,
+    list_employees_by_ids,
+    list_memberships_for_site,
+)
+from rota.persistence.availability_repository import get_current_availability_for_employee
+from rota.persistence.work_balance_repository import get_work_balance_target
+
+router = APIRouter(prefix="/workspace", tags=["roster"])
+
+
+class RosterRow(BaseModel):
+    employee_id: str
+    display_name: str
+    enabled: bool
+    can_work_24h: bool
+    readiness_state: str
+
+
+class EmployeeOut(BaseModel):
+    employee_id: str
+    display_name: str
+    day_only: bool
+
+
+class MembershipOut(BaseModel):
+    enabled: bool
+    can_work_24h: bool
+    readiness_state: str
+    readiness_source: str
+
+
+class AvailabilityRecordOut(BaseModel):
+    availability_id: str
+    kind: str
+    start_date: str
+    end_date: str
+    active: bool
+
+
+class EmployeeDetailOut(BaseModel):
+    employee: EmployeeOut
+    membership: MembershipOut
+    availability: list[AvailabilityRecordOut]
+
+
+class PickableEmployeeOut(BaseModel):
+    employee_id: str
+    display_name: str
+    reason: str  # "new" | "re-add" -- which action selecting this employee performs
+
+
+class TargetHoursOut(BaseModel):
+    target_hours: int | None
+
+
+@router.get("/sites/{site_id}/roster", response_model=list[RosterRow])
+def list_roster(site_id: str, conn=Depends(get_conn)) -> list[RosterRow]:
+    """LOCAL memberships only (brief.md section 5.1 scope boundary) --
+    both enabled and disabled rows, the UI marks disabled ones
+    distinctly and offers re-add, never hides them."""
+    memberships = [m for m in list_memberships_for_site(conn, site_id) if m.membership_kind == MembershipKind.LOCAL]
+    employees = list_employees_by_ids(conn, [m.employee_id for m in memberships])
+    return [
+        RosterRow(
+            employee_id=m.employee_id,
+            display_name=employees[m.employee_id].display_name,
+            enabled=m.enabled,
+            can_work_24h=m.can_work_24h,
+            readiness_state=m.readiness_state.value,
+        )
+        for m in memberships
+    ]
+
+
+@router.get("/sites/{site_id}/roster/pickable", response_model=list[PickableEmployeeOut])
+def list_pickable_employees(site_id: str, conn=Depends(get_conn)) -> list[PickableEmployeeOut]:
+    """Existing-employee picker for "+ Dodaj osobę" (brief.md section
+    5.1, round-8 R8-1): only employees with no membership row at this
+    site at all, or a disabled LOCAL row. Any employee with an
+    EXTERNAL_SUPPORT row (enabled or not) is excluded entirely -- this
+    flow must never read or write their row."""
+    memberships_by_employee = {m.employee_id: m for m in list_memberships_for_site(conn, site_id)}
+    out: list[PickableEmployeeOut] = []
+    for employee in list_employees(conn):
+        membership = memberships_by_employee.get(employee.employee_id)
+        if membership is None:
+            out.append(PickableEmployeeOut(employee_id=employee.employee_id, display_name=employee.display_name, reason="new"))
+        elif membership.membership_kind == MembershipKind.LOCAL and not membership.enabled:
+            out.append(PickableEmployeeOut(employee_id=employee.employee_id, display_name=employee.display_name, reason="re-add"))
+    return out
+
+
+@router.get("/employees/{employee_id}", response_model=EmployeeDetailOut)
+def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) -> EmployeeDetailOut:
+    try:
+        employee = get_employee(conn, employee_id)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+    membership = next((m for m in list_memberships_for_site(conn, site_id) if m.employee_id == employee_id), None)
+    if membership is None:
+        raise HTTPException(status_code=404, detail=f"employee {employee_id!r} has no membership at site {site_id!r}")
+    availability = get_current_availability_for_employee(conn, employee_id)
+    return EmployeeDetailOut(
+        employee=EmployeeOut(employee_id=employee.employee_id, display_name=employee.display_name, day_only=employee.day_only),
+        membership=MembershipOut(
+            enabled=membership.enabled, can_work_24h=membership.can_work_24h,
+            readiness_state=membership.readiness_state.value, readiness_source=membership.readiness_source.value,
+        ),
+        availability=[
+            AvailabilityRecordOut(
+                availability_id=r.availability_id, kind=r.kind.value,
+                start_date=r.start_date.isoformat(), end_date=r.end_date.isoformat(), active=r.active,
+            )
+            for r in availability
+        ],
+    )
+
+
+@router.get("/employees/{employee_id}/target-hours", response_model=TargetHoursOut)
+def get_target_hours(employee_id: str, month: str, conn=Depends(get_conn)) -> TargetHoursOut:
+    return TargetHoursOut(target_hours=get_work_balance_target(conn, employee_id, date.fromisoformat(month)))

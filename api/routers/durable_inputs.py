@@ -17,10 +17,26 @@ from pydantic import BaseModel
 from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
-from rota.application.durable_inputs import set_calendar_day
-from rota.domain import CalendarDay
+from rota.application.durable_inputs import (
+    append_availability,
+    set_calendar_day,
+    set_target_hours,
+    update_employee,
+    update_membership,
+)
+from rota.domain import (
+    AvailabilityKind,
+    CalendarDay,
+    Employee,
+    MembershipKind,
+    ReadinessSource,
+    ReadinessState,
+    SiteMembership,
+)
+from rota.persistence.employee_repository import get_employee, list_memberships_for_site
 
-router = APIRouter(prefix="/workspace/calendar", tags=["calendar"])
+calendar_router = APIRouter(prefix="/workspace/calendar", tags=["calendar"])
+roster_router = APIRouter(prefix="/workspace", tags=["roster"])
 
 
 class SetDayRequest(BaseModel):
@@ -29,13 +45,190 @@ class SetDayRequest(BaseModel):
     site_id: str  # any one of the coordinator's own site_ids -- auth only, never data scope
 
 
-@router.post("/day", status_code=204)
+@calendar_router.post("/day", status_code=204)
 def set_day(payload: SetDayRequest, conn=Depends(get_conn)) -> None:
     try:
         day_date = date.fromisoformat(payload.date)
         set_calendar_day(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
             day=CalendarDay(day_date, payload.holiday),
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+# --- Employee creation (brief.md section 5.1, round-9 R9-1) ---
+# employee_id is frontend-generated (crypto.randomUUID()) so this call is
+# idempotent under retry -- the API never generates or returns an id.
+
+
+class CreateEmployeeRequest(BaseModel):
+    employee_id: str
+    site_id: str  # coordinator-context authorization only, not persisted on Employee
+    display_name: str
+    day_only: bool
+
+
+@roster_router.post("/employees", status_code=204)
+def create_employee(payload: CreateEmployeeRequest, conn=Depends(get_conn)) -> None:
+    try:
+        update_employee(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            employee=Employee(payload.employee_id, payload.display_name, date.today(), None, payload.day_only),
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class UpdateDayOnlyRequest(BaseModel):
+    site_id: str
+    day_only: bool
+
+
+@roster_router.patch("/employees/{employee_id}", status_code=204)
+def update_day_only(employee_id: str, payload: UpdateDayOnlyRequest, conn=Depends(get_conn)) -> None:
+    """Reads the employee's current record first and resubmits every
+    field unchanged except day_only (brief.md section 5.1, round-7
+    R7-2) -- never blanks display_name/active_from/active_to."""
+    try:
+        current = get_employee(conn, employee_id)
+        update_employee(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            employee=Employee(current.employee_id, current.display_name, current.active_from, current.active_to, payload.day_only),
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+# --- Roster attach / remove / re-add / 24h (LOCAL only, brief.md section 5.1) ---
+
+
+class AttachRosterRequest(BaseModel):
+    employee_id: str
+
+
+@roster_router.post("/sites/{site_id}/roster", status_code=204)
+def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(get_conn)) -> None:
+    """Shared by "nowy pracownik" (after employee creation) and
+    "istniejący pracownik" (re-add a disabled LOCAL row). Reuses the
+    disabled row's own can_work_24h/readiness fields when one exists,
+    per brief.md section 5.1 round-8 R8-1 -- never fabricates new
+    defaults over an existing row."""
+    try:
+        existing = next(
+            (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == payload.employee_id), None,
+        )
+        if existing is not None:
+            membership = SiteMembership(
+                employee_id=payload.employee_id, site_id=site_id, membership_kind=MembershipKind.LOCAL,
+                enabled=True, readiness_state=existing.readiness_state, readiness_source=existing.readiness_source,
+                can_work_24h=existing.can_work_24h,
+            )
+        else:
+            membership = SiteMembership(
+                employee_id=payload.employee_id, site_id=site_id, membership_kind=MembershipKind.LOCAL,
+                enabled=True, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.DEFAULT,
+                can_work_24h=True,
+            )
+        update_membership(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class UpdateRosterRequest(BaseModel):
+    enabled: bool | None = None
+    can_work_24h: bool | None = None
+
+
+@roster_router.patch("/sites/{site_id}/roster/{employee_id}", status_code=204)
+def update_roster_row(site_id: str, employee_id: str, payload: UpdateRosterRequest, conn=Depends(get_conn)) -> None:
+    """Remove-from-roster (enabled=False) and the 24h toggle both flow
+    through here: read the current row fresh, change only the supplied
+    field(s), carry every other field over unchanged (brief.md section
+    5.1, round-7 R7-1)."""
+    try:
+        current = next((m for m in list_memberships_for_site(conn, site_id) if m.employee_id == employee_id), None)
+        if current is None:
+            raise ValueError(f"no membership for employee {employee_id!r} at site {site_id!r}")
+        membership = SiteMembership(
+            employee_id=current.employee_id, site_id=current.site_id, membership_kind=current.membership_kind,
+            enabled=current.enabled if payload.enabled is None else payload.enabled,
+            readiness_state=current.readiness_state, readiness_source=current.readiness_source,
+            can_work_24h=current.can_work_24h if payload.can_work_24h is None else payload.can_work_24h,
+        )
+        update_membership(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+# --- Availability (brief.md section 5.1, "Ogólna dostępność" + "Zgłoś nieobecność") ---
+# Multiple independent periods per employee are allowed (architect
+# resolution, arch/T021_screen2_availability_singularity_architect_brief_2026-08-23.md)
+# -- no lookup/selection logic here. New period = frontend-generated
+# availability_id (same idempotent-retry reasoning as R9-1); editing an
+# existing period reuses that period's own id, supplied by the frontend
+# from the list it already has loaded.
+
+
+class CreateAvailabilityRequest(BaseModel):
+    site_id: str
+    availability_id: str
+    kind: str
+    start_date: str
+    end_date: str
+
+
+@roster_router.post("/employees/{employee_id}/availability", status_code=204)
+def create_availability(employee_id: str, payload: CreateAvailabilityRequest, conn=Depends(get_conn)) -> None:
+    try:
+        append_availability(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            availability_id=payload.availability_id, employee_id=employee_id,
+            kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
+            end_date=date.fromisoformat(payload.end_date), active=True,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class UpdateAvailabilityRequest(BaseModel):
+    site_id: str
+    kind: str
+    start_date: str
+    end_date: str
+    active: bool
+
+
+@roster_router.patch("/employees/{employee_id}/availability/{availability_id}", status_code=204)
+def update_availability(
+    employee_id: str, availability_id: str, payload: UpdateAvailabilityRequest, conn=Depends(get_conn),
+) -> None:
+    try:
+        append_availability(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            availability_id=availability_id, employee_id=employee_id,
+            kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
+            end_date=date.fromisoformat(payload.end_date), active=payload.active,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+# --- Target hours (brief.md section 5.1, round-7 R7-4) ---
+
+
+class SetTargetHoursRequest(BaseModel):
+    site_id: str
+    month: str
+    target_hours: int
+
+
+@roster_router.post("/employees/{employee_id}/target-hours", status_code=204)
+def set_employee_target_hours(employee_id: str, payload: SetTargetHoursRequest, conn=Depends(get_conn)) -> None:
+    try:
+        set_target_hours(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
+            month=date.fromisoformat(payload.month), target_hours=payload.target_hours,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

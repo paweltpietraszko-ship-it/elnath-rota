@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import backup, bootstrap, calendar, durable_inputs
+from api.routers import backup, bootstrap, calendar, durable_inputs, roster
 
 app = FastAPI(title="Rota API (dev)")
 
@@ -21,7 +21,9 @@ app.add_middleware(
 
 app.include_router(bootstrap.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
-app.include_router(durable_inputs.router, prefix="/api")
+app.include_router(durable_inputs.calendar_router, prefix="/api")
+app.include_router(durable_inputs.roster_router, prefix="/api")
+app.include_router(roster.router, prefix="/api")
 app.include_router(backup.router, prefix="/api")
 
 

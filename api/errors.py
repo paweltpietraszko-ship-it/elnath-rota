@@ -9,6 +9,7 @@ from rota.application.errors import (
     CoordinatorContextAlreadyActive,
     InvalidCoordinatorContext,
 )
+from rota.persistence.employee_repository import EmployeeNotFound
 from rota.persistence.site_repository import (
     InvalidSitePrintSettings,
     SiteNotFound,
@@ -19,6 +20,7 @@ from rota.persistence.site_repository import (
 _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (SiteNotFound, 404),
     (UnknownSiteProfile, 404),
+    (EmployeeNotFound, 404),
     (InvalidCoordinatorContext, 403),
     (CoordinatorContextAlreadyActive, 409),
     (SiteRegimeChangeRejected, 409),
