@@ -1,0 +1,93 @@
+ROTA-T021 — TOR 1 IMPLEMENTATION AUDIT, SCREEN 2, ROUND 14
+Date: 2026-08-23
+Branch: task/ROTA-T021
+Audited exact SHA: a68a4b81e8dfe9f80f320a9e9b4ea97e6de459f0
+Contract: tasks/ROTA-T021/brief.md, §5.1
+Predecessor report: tasks/ROTA-T021/round_01/tests/tests_r13.txt
+
+VERDICT: PASS — R12-2A AND R12-2B CLOSED
+
+This round verifies only the two open findings from tests_r13.txt. Visual
+fidelity/Tor 2 is not graded. Interactive browser control was unavailable in
+this environment, so the independent behavioral check used the production
+frontend build and the real Vite `/api` proxy, FastAPI and SQLite restart path.
+
+DELIVERY SCOPE
+STATUS: PASS
+
+- 9ee4ef8..a68a4b8 changes only:
+  - api/routers/roster.py
+  - frontend/src/api/client.ts
+  - frontend/src/screens/EmployeeDetail.tsx
+- `rota/**`, schema, persistence and business logic are unchanged.
+- the API change only marshals an already-existing SiteRuleVersion identifier.
+- git diff --check: PASS.
+
+R12-2A ENDED AVAILABILITY RESTORE/CORRECTION
+STATUS: PASS / CLOSED
+
+CONTRACT TRACE:
+- brief.md:413-421 requires editing a selected existing family with its same
+  availability_id and active=True.
+- brief.md:474-488 includes active=False chain ends in the displayed log.
+
+EVIDENCE:
+- EmployeeDetail.tsx:539-548 exposes "Edytuj / przywróć" for inactive rows;
+  only "Zakończ teraz" remains guarded by `r.active`.
+- EmployeeDetail.tsx:570-581 saves the selected row with its unchanged
+  availability_id and active=True.
+- the generalized R13 reproducer is green.
+- live proxy scenario: one family was created, ended active=False, read back as
+  a visible ended entry, then restored with corrected dates using the same ID.
+  The restored active=True state and dates survived FastAPI restart.
+
+R12-2B MATRIX VERSION RENDER/SELECTION IDENTITY
+STATUS: PASS / CLOSED
+
+CONTRACT TRACE:
+- brief.md:447-457 requires edits and early ends to retain the family rule_id.
+- tests_r13.txt requires a stable version-specific render/selection identity
+  when one family has more than one version in the viewed month.
+
+EVIDENCE:
+- api/routers/roster.py:97-102 and 193-204 expose the existing
+  SiteRuleVersion.rule_version_id as response marshalling only.
+- frontend/src/api/client.ts:73-82 mirrors that response field.
+- EmployeeDetail.tsx:275-306 uses rule_version_id for React keys and for the
+  selected row, while RestrictionEditRow continues to send cell.rule_id to the
+  unchanged update/end endpoints.
+- the generalized R13 reproducer is green.
+- live proxy scenario: a supported mid-period correction produced 2 Nocka
+  version rows, 2 distinct non-empty rule_version_id values and exactly 1
+  unchanged family rule_id. The same identities and family relationship were
+  read back after FastAPI restart.
+
+INDEPENDENT VERIFICATION
+
+Focused audit regressions:
+- `python -m pytest -q tests/test_t021_screen2_r12_audit.py tests/test_t021_screen2_r13_audit.py`
+- result: 6 passed.
+
+Production frontend build:
+- `npm.cmd run build`: PASS (TypeScript + Vite, 37 modules transformed).
+
+Vertical proxy/persistence exercise:
+- Site -> Employee -> LOCAL membership -> Nocka family -> mid-period
+  correction -> two-version read -> availability create -> end -> restore ->
+  restart -> reread: PASS through Vite `/api`.
+
+Full regression:
+- 1103 passed, 1 failed in 93.57 s.
+- the sole failure is the previously accepted, unrelated stale source-diff
+  assertion
+  `test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b`; it
+  assumes T023b did not intentionally modify constraints.py/work_periods.py.
+- no ROTA-T021 audit or product regression failed.
+
+NEW FINDINGS
+
+None.
+
+ARCHITECTURE_PROPOSALS
+
+None.
