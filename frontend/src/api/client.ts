@@ -72,6 +72,7 @@ export interface EmployeeDetailOut {
 
 export interface MatrixCellOut {
   rule_id: string;
+  rule_version_id: string;
   cell: "dniowka" | "nocka" | "weekday" | "day_only_exception" | "other";
   weekday: number | null;
   effective_from: string;

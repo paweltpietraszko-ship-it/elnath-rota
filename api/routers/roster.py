@@ -95,6 +95,10 @@ class TargetHoursOut(BaseModel):
 
 class MatrixCellOut(BaseModel):
     rule_id: str
+    rule_version_id: str  # round-13 R12-2B: one family can have >1 version
+    # effective on different days within one queried month (a mid-period
+    # correction) -- this is the per-version render/selection identity;
+    # rule_id (the family) is still what update/end-early are called with.
     cell: str  # "dniowka" | "nocka" | "weekday" | "day_only_exception" | "other"
     weekday: int | None
     effective_from: str
@@ -192,7 +196,7 @@ def get_employee_matrix(employee_id: str, site_id: str, month: str, conn=Depends
         applicability = applicability_by_version.get(version.rule_version_id)
         cell, weekday = _classify_matrix_rule(version)
         cells.append(MatrixCellOut(
-            rule_id=version.rule_id, cell=cell, weekday=weekday,
+            rule_id=version.rule_id, rule_version_id=version.rule_version_id, cell=cell, weekday=weekday,
             effective_from=version.effective_from.isoformat(),
             effective_to=version.effective_to.isoformat() if version.effective_to else None,
             applies_from=applicability.applies_from.isoformat() if applicability else None,

@@ -272,31 +272,36 @@ function RestrictionList({
   siteId: string;
   onChanged: () => void;
 }) {
-  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  // round-13 R12-2B: one rule_id (family) can have >1 SiteRuleVersion
+  // effective on different days within one queried month (a mid-period
+  // correction) -- rule_version_id is the per-row render/selection
+  // identity; rule_id (unchanged per version) is still what update/end
+  // are called with.
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   if (cells.length === 0) return <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak aktywnych ograniczeń.</p>;
 
   return (
     <>
       {cells.map((c) =>
-        editingRuleId === c.rule_id ? (
+        editingVersionId === c.rule_version_id ? (
           <RestrictionEditRow
-            key={c.rule_id}
+            key={c.rule_version_id}
             cell={c}
             employeeId={employeeId}
             siteId={siteId}
             onDone={() => {
-              setEditingRuleId(null);
+              setEditingVersionId(null);
               onChanged();
             }}
-            onCancel={() => setEditingRuleId(null)}
+            onCancel={() => setEditingVersionId(null)}
           />
         ) : (
-          <div key={c.rule_id} className="absence-log-item">
+          <div key={c.rule_version_id} className="absence-log-item">
             <span>
               <strong>{restrictionLabel(c)}</strong> — od {c.effective_from} do {c.effective_to ?? "bez końca"}
             </span>
             <span style={{ display: "flex", gap: 8 }}>
-              <button className="btn-ghost" onClick={() => setEditingRuleId(c.rule_id)}>
+              <button className="btn-ghost" onClick={() => setEditingVersionId(c.rule_version_id)}>
                 Edytuj / zakończ
               </button>
             </span>
@@ -532,16 +537,16 @@ function AbsenceLog({
               <strong>{AVAILABILITY_KIND_LABELS[r.kind] ?? r.kind}</strong> — od {r.start_date} do {r.end_date}
               {!r.active && " (zakończone)"}
             </span>
-            {r.active && (
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn-ghost" onClick={() => setEditingId(r.availability_id)}>
-                  Edytuj daty
-                </button>
+            <span style={{ display: "flex", gap: 8 }}>
+              <button className="btn-ghost" onClick={() => setEditingId(r.availability_id)}>
+                {r.active ? "Edytuj daty" : "Edytuj / przywróć"}
+              </button>
+              {r.active && (
                 <button className="btn-ghost" onClick={() => endNow(r)}>
                   Zakończ teraz
                 </button>
-              </span>
-            )}
+              )}
+            </span>
           </div>
         ),
       )}
