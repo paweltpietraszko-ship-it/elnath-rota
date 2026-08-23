@@ -245,6 +245,25 @@ here.
   block T021 implementation from starting, run in parallel, or come
   first.
 
+## OWNER RULINGS 2026-08-23
+
+**Real authentication/authorization is a REQUIRED hard gate, not a
+proposal.** Confirmed by Paweł ("dopisz do dokumentacji, że musimy
+zabezpieczyć kod"). F1 (real authentication) plus real per-action
+authorization (Update 2026-08-23, above) is now a settled product
+requirement: no build with real coordinator/employee data — Paweł's
+own dev/test Railway included — goes live without it. This is no
+longer just an architect-input flag; it is a release gate the same
+way T024's L1 (NDA) is.
+
+**Testing rule: Paweł's own dev/test environment (Railway) uses only
+fictional data, never real employee data, for as long as real
+authentication is not yet built.** Paweł's own words: "Do testów
+zastrzegę, że dane muszą być fikcyjne." This is his own operational
+constraint on his own server — not a new product requirement to build,
+just recorded here so it isn't lost. Once F1 exists, this restriction
+can be revisited; it is not necessarily permanent.
+
 ## Next step
 This is architecture-decision scale, larger than a normal Task —
 needs real architect engagement (own brief, own review), not something
