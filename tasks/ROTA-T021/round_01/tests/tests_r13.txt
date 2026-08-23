@@ -1,0 +1,142 @@
+ROTA-T021 — TOR 1 IMPLEMENTATION AUDIT, SCREEN 2, ROUND 13
+Date: 2026-08-23
+Branch: task/ROTA-T021
+Audited exact SHA: 41cf9fbc44d80c9236d4b9981c5daac9347578bc
+Contract: tasks/ROTA-T021/brief.md, §5.1
+Predecessor report: tasks/ROTA-T021/round_01/tests/tests_r12.txt
+
+VERDICT: FAIL — R12-1 AND R12-3 CLOSED; R12-2 REMAINS INCOMPLETE
+
+This is a Tor-1 contract/vertical audit. Visual fidelity and Tor 2 are not
+graded. The in-app interactive browser was unavailable in this environment;
+the real Vite proxy, production build, FastAPI, SQLite persistence and restart
+path were exercised independently instead.
+
+DELIVERY SCOPE
+STATUS: PASS
+
+- 41cf9fb^..41cf9fb changes only:
+  - frontend/src/screens/ControlPanel.tsx
+  - frontend/src/screens/EmployeeDetail.tsx
+- no backend/product/test change is present in the implementation commit
+- git diff --check: PASS
+
+R12-1 RETRY-STABLE NEW EMPLOYEE ID
+STATUS: PASS / CLOSED
+
+CONTRACT TRACE:
+- brief.md:323-367 requires one frontend-generated employee_id to survive
+  re-render, retry and reload, and to be discarded only after roster attach
+  succeeds.
+
+EVIDENCE:
+- ControlPanel.tsx:155-182 creates/loads the ID when AddPersonPanel opens and
+  persists it under a Site-specific sessionStorage key.
+- ControlPanel.tsx:191-202 reuses that ID for create + attach and removes it
+  only after attach succeeds.
+- the round-12 generalized reproducer is green.
+
+R12-3 DAY_ONLY EXCEPTION AND INDEPENDENT NOCKA HARD RULE
+STATUS: PASS / CLOSED
+
+CONTRACT TRACE:
+- T021b §3.3/§10: the exception exempts DAY_ONLY-01 only and does not weaken
+  another HARD rule.
+
+EVIDENCE:
+- EmployeeDetail.tsx:68-75 separately computes the explicit Nocka restriction
+  and OR-composes it with the non-exempted day_only block.
+- live proxy scenario with day_only=true, an active Nocka restriction and an
+  active day_only exception returned both facts; the displayed-state formula
+  remains blocked.
+- the round-12 generalized reproducer is green.
+
+R12-2A ENDED AVAILABILITY FAMILY CANNOT BE RESTORED/CORRECTED IN THE UI
+STATUS: FAIL
+
+CONTRACT TRACE:
+- brief.md:413-421 requires an existing log entry to be selectable for an edit
+  with the SAME availability_id and active=True.
+- brief.md:474-488 says editing/ending an entry already in the log reuses that
+  entry's ID and explicitly includes active=False chain ends in that log.
+- tests_r11.txt:68-75 freezes create/edit/end through the UI and an inactive
+  current end remaining in the log.
+
+REACHABLE FAILURE:
+- EmployeeDetail.tsx:530-543 displays an inactive entry but places both
+  "Edytuj daty" and "Zakończ teraz" inside `r.active && (...)`.
+- after "Zakończ teraz" saves active=False, the entry remains visible as
+  required but has no edit action. The accepted active=True correction/restore
+  path is therefore inaccessible.
+- through the real Vite `/api` proxy the same inactive availability_id was
+  successfully updated to active=True with corrected dates, and the restored
+  state survived backend restart. Backend/API are sufficient; the missing path
+  is frontend-only.
+
+REQUIRED CLOSURE:
+- keep the selected row's edit action available for active=False entries and
+  reuse its exact availability_id; "Zakończ teraz" may remain active-only.
+- no new endpoint or rota/** function is required.
+
+R12-2B ONE SAVED MATRIX-FAMILY EDIT OPENS MULTIPLE EDITORS AFTER CORRECTION
+STATUS: FAIL
+
+CONTRACT TRACE:
+- brief.md:447-457 requires period correction and early end to reuse the
+  selected cell family's rule_id.
+- the same section treats each concrete displayed cell as the coordinator's
+  edit target; one click must identify one displayed row, even when the read
+  contains more than one version of that family.
+
+REACHABLE FAILURE:
+- a supported mid-period correction was saved through the real Vite proxy.
+  The August read then correctly contained two SiteRuleVersion rows for one
+  Nocka family: 2 rows, 1 distinct rule_id.
+- EmployeeDetail.tsx:280-304 maps those raw rows while using `c.rule_id` both
+  as React key and as the edit-selection identity.
+- both versions therefore receive a duplicate React key, and clicking Edit on
+  either one makes `editingRuleId === c.rule_id` true for both rows, opening two
+  edit forms at once. This is the same R12-2 edit-path bug class after its first
+  successful correction, not a new product requirement.
+
+REQUIRED CLOSURE:
+- give each rendered version row a stable version-specific render/selection
+  identity while continuing to send that family's unchanged rule_id to the
+  already-existing update/end endpoints.
+- no backend, schema or rota/** change is required.
+
+INDEPENDENT TESTS
+
+Focused audit tests:
+- `python -m pytest -q tests/test_t021_screen2_r12_audit.py tests/test_t021_screen2_r13_audit.py`
+- result: 4 passed, 2 failed
+- the two failures are the R12-2A and R12-2B generalized regressions above.
+
+Production frontend build:
+- `npm.cmd ci --offline`: PASS
+- `npm.cmd run build`: PASS (TypeScript + Vite production build)
+
+Vertical proxy/persistence exercise:
+- Site -> day_only Employee -> LOCAL membership -> Nocka restriction +
+  day_only exception -> matrix correction -> availability end -> availability
+  restore -> future-rule equal-start cancellation: all backend calls accepted
+  through Vite `/api`.
+- after stopping and restarting FastAPI against the same SQLite file, the
+  corrected matrix versions, active restored availability and separate
+  inactive availability were read back unchanged through the proxy.
+
+Full regression including the two new adversarial tests:
+- 1101 passed, 3 failed in 91.89 s
+- 2 failures are the intentional R13 reproductions above.
+- the third is the previously accepted stale source-diff assertion
+  `test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b`; it
+  assumes T023b did not intentionally change constraints.py/work_periods.py
+  and is unrelated to this frontend delivery.
+
+Regression test added:
+- tests/test_t021_screen2_r13_audit.py
+
+ARCHITECTURE_PROPOSALS
+
+None. Both required closures are frontend corrections within the frozen
+contract and use the already-existing API.
