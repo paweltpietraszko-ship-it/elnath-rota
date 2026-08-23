@@ -6,6 +6,10 @@ ARCHITECT_INPUT_SHA: `4b046be4300480d39320159ae507b32b18f80910`
 FROZEN_CONTRACT: `arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md`
 SUPERSEDES_DRAFT_HEAD: `b1e585979bb6f98d66920181705dcd7c075327fd`
 
+BINDING_OWNER_FOLLOW_UP: `tasks/ROTA-T023b/OWNER_FRONTEND_DECISION_2026-08-23.md`
+
+The owner follow-up was recorded after this draft and requires architect consolidation before CC implementation. Where this brief conflicts with that decision, the owner decision controls.
+
 T023b adds exactly two HARD protections to an `OCHRONA` Site:
 
 1. 24h minimum immediate rest after an actual 24h WorkPeriod;
