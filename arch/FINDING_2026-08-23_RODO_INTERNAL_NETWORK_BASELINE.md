@@ -107,6 +107,73 @@ Even without a direct RODO duty, two independent pressures remain:
   EDPB Guideline 4/2019 commentary
   (https://lexdigital.pl/privacy-by-design/, https://maniszewska.pl/en/privacy-by-design-by-default-gdpr-guide/)
 
+## UPDATE 2026-08-23 — reusable encryption-at-rest code exists (LynxMask-Desktop)
+
+Paweł: an existing separate project, `LynxMask-Desktop`
+(`C:\Users\p_pie\Desktop\LynxMask-Desktop`, also on GitHub), already has
+production encryption code that can be viewed/copied. Reviewed the two
+relevant modules:
+
+- `backend/anonymizer_crypto.py` — AES-256-GCM (via `cryptography.hazmat`)
+  for whole-blob encryption of a JSON map, plus a keystore for the 32-byte
+  ENC/MAC key pair protected by Windows DPAPI (`CryptProtectData`/
+  `CryptUnprotectData`), with a non-Windows fallback (plain file, 0600
+  permissions, explicitly logged as weaker). Per-entry HMAC-SHA256 signing
+  (`sign_entry`/`verify_entry`) detects tampering of individual records
+  independent of the whole-blob AEAD tag.
+- `backend/crypto_selftest.py` — 22 in-memory adversarial tests (roundtrip,
+  wrong key, tampered ciphertext, wrong/truncated header, nonce
+  uniqueness, MAC tamper detection, plaintext-not-in-blob) with no disk/
+  DPAPI dependency — a genuine correctness self-test, reusable as a
+  pattern regardless of what gets encrypted.
+
+### What transfers directly to Rota
+
+**The key-management layer (DPAPI keystore, key generation, key
+lifecycle)** transfers essentially as-is — it solves "where does the
+encryption key live and how is it protected from other Windows accounts,"
+which is orthogonal to what's being encrypted. This is real, tested,
+already-adversarially-audited code, not something to reinvent.
+
+### What does NOT transfer directly
+
+LynxMask's `encrypt_map`/`decrypt_map` pattern encrypts one JSON blob as a
+single AEAD unit — read the whole file, decrypt, use; re-encrypt the
+whole thing on write. That fits a map file. It does **not** fit Rota's
+`rota/persistence/db.py` SQLite store as-is: the product needs live,
+indexed, partial reads/writes (a single ScheduleVersion, a single
+Assignment row) against a database that can grow large, not "decrypt the
+entire file into memory on every open." Applying the same whole-blob
+approach to the live SQLite file would mean holding the entire decrypted
+database in memory for the process lifetime and serializing/re-encrypting
+on every write — a correctness and performance regression, not a security
+upgrade.
+
+### Candidate directions for Rota specifically (not decided here)
+
+1. **SQLCipher** (transparent page-level AES encryption, drop-in
+   replacement for the stdlib `sqlite3` connection) — the standard answer
+   for "encrypt an entire live SQLite database" without changing query/
+   access patterns. Would still need the LynxMask-style DPAPI keystore to
+   protect the SQLCipher passphrase.
+2. **Field-level encryption** of specific sensitive columns (employee
+   names, L4/absence records) using LynxMask's own AES-256-GCM primitives
+   directly, keyed via the same DPAPI keystore pattern — closer to a
+   direct code port, but needs new columns/migration work and changes how
+   those fields are queried (no more `WHERE display_name = ?`).
+3. **Filesystem/OS-level encryption** (BitLocker etc.) — simplest, but
+   it's a deployment/ops decision outside the product, not something the
+   application enforces itself, and doesn't protect against a
+   authenticated-but-malicious local user reading the file directly.
+
+The per-entry HMAC pattern is also worth keeping in mind separately: it's
+a good fit for adding tamper-evidence to `coordinator_action_records`
+specifically (Rota's SQL triggers already make it append-only/immutable
+at the query layer, but they don't stop someone editing the raw `.db`
+file directly outside the application — an HMAC per action row would
+close that specific gap, independent of whichever storage-encryption
+direction is chosen above).
+
 ## Explicitly NOT decided here
 
 - Whether encryption-at-rest for the SQLite store is actually implemented,
