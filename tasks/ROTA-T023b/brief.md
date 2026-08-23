@@ -444,6 +444,16 @@ TASK_SCOPE:
 - tests/test_t019.py
 - tests/test_t023.py
 - tests/test_vertical_full_stack.py
+- rota/planning/state.py
+
+Owner-authorized narrow amendment (2026-08-23, round-6 audit R5-3
+follow-up): rota/planning/state.py is in scope ONLY to add an explicit
+`planning_regime=SitePlanningRegime.ORDINARY` keyword argument (plus
+the matching import) to its `__main__` smoke-block Site() construction
+-- the one production call site the round-5 fix missed
+(`python -m rota.planning.state` raised TypeError). Not a production
+API/logic change; the module's only executable content besides the
+PlanningState dataclass itself is this demo block.
 
 Owner-authorized narrow amendment (2026-08-23, round-5 audit R5-3 fix):
 the above `tests/*` and `benchmarks/*` files are in scope ONLY to add

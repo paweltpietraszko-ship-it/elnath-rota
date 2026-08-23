@@ -13,6 +13,7 @@ from rota.domain import (
     ShiftDemand,
     Site,
     SiteMembership,
+    SitePlanningRegime,
     SiteProfile,
     SiteRuleVersion,
     WorkBalance,
@@ -90,7 +91,7 @@ class PlanningState:
 
 if __name__ == "__main__":
     state = PlanningState(
-        site=Site(site_id="s1", profile_id="OCHRONA", display_name="Site 1", active=True),
+        site=Site(site_id="s1", profile_id="OCHRONA", display_name="Site 1", active=True, planning_regime=SitePlanningRegime.ORDINARY),
         profile=SiteProfile(
             profile_id="OCHRONA",
             display_name="Ochrona",
