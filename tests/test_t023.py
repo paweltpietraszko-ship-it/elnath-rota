@@ -28,6 +28,7 @@ from rota.domain import (
     Site,
     SiteMembership,
     SiteProfile,
+    SitePlanningRegime,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
@@ -57,7 +58,7 @@ def _seed_minimal(conn, *, site_id: str = SITE, coordinator_id: str = COORDINATO
         training_s_weekdays_only=False, training_s_default_readiness_threshold=0,
         rolling_7d_decision_threshold_hours=999,
     ))
-    save_site(conn, Site(site_id, "PROF-1", "Site One", True))
+    save_site(conn, Site(site_id, "PROF-1", "Site One", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator(coordinator_id, "Coord", True))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation(coordinator_id, site_id, True))
 
@@ -148,7 +149,7 @@ def _setup_two_sites(tmp_path, *, membership_kind_b: MembershipKind = Membership
     """SITE-A (default) + SITE-B, Employee "A" LOCAL at SITE-A with the given membership_kind at SITE-B."""
     conn = connect(tmp_path / "rota.db")
     _seed_minimal(conn, site_id="SITE-A")
-    save_site(conn, Site("SITE-B", "PROF-1", "Site B", True))
+    save_site(conn, Site("SITE-B", "PROF-1", "Site B", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation(COORDINATOR, "SITE-B", True))
     _employee(conn, "A", site_id="SITE-A")
     save_site_membership(conn, SiteMembership("A", "SITE-B", membership_kind_b, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))

@@ -17,6 +17,7 @@ from rota.application.durable_inputs import append_availability
 from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind, CalendarDay, CoordinatorSiteAssociation, Employee,
     MembershipKind, ReadinessSource, ReadinessState, ShiftCatalogKind, ShiftDemand, ShiftKind, SiteMembership,
+    SitePlanningRegime,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.calendar_repository import save_calendar_day
@@ -354,7 +355,7 @@ def test_t20_21_multi_site_local_employee_absence_is_ambiguous():
     from rota.persistence.site_profile_repository import save_site_profile
     from tests.support.t008_fixtures import make_profile
     save_site_profile(conn, make_profile("PROF-2"))
-    save_site(conn, Site(site_id="SITE-2", profile_id="PROF-2", display_name="Site Two", active=True))
+    save_site(conn, Site(site_id="SITE-2", profile_id="PROF-2", display_name="Site Two", active=True, planning_regime=SitePlanningRegime.ORDINARY))
     save_site_membership(conn, SiteMembership("EMP-1", "SITE-2", MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT, True))
     _create_version(conn, [], [])
     _grant_leave(conn, "EMP-1", start=date(2026, 8, 19), end=date(2026, 8, 25))

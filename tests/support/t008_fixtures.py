@@ -14,6 +14,7 @@ from rota.domain import (
     RuleResolution,
     ShiftKind,
     Site,
+    SitePlanningRegime,
     SiteProfile,
     SiteRuleVersion,
     StandardShift,
@@ -45,7 +46,7 @@ def seed_base_entities(
     coordinator_id: str = "COORD-1", employee_id: str = "EMP-1",
 ) -> None:
     save_site_profile(conn, make_profile(profile_id))
-    save_site(conn, Site(site_id=site_id, profile_id=profile_id, display_name="Site One", active=True))
+    save_site(conn, Site(site_id=site_id, profile_id=profile_id, display_name="Site One", active=True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator(coordinator_id=coordinator_id, display_name="Coord", active=True))
     save_employee(conn, Employee(
         employee_id=employee_id, display_name="Emp One", active_from=date(2026, 1, 1), active_to=None, day_only=False,

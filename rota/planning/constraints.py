@@ -21,6 +21,7 @@ from __future__ import annotations
 import calendar
 from dataclasses import replace
 from datetime import date, datetime
+from itertools import combinations
 
 from ortools.sat.python import cp_model
 
@@ -408,7 +409,10 @@ def _add_one_employee_weekly_rest(
         anchors.add(s); anchors.add(e)  # noqa: E702
     ordered_anchors = sorted(anchors)
     gap_vars = []
-    for a, b in zip(ordered_anchors, ordered_anchors[1:]):
+    # R5-1: every PAIR of anchors, not just temporally adjacent ones -- an
+    # unassigned prospective slot's own start/end must not fragment a
+    # genuinely longer free run into gaps that individually miss 35h.
+    for a, b in combinations(ordered_anchors, 2):
         if (b - a).total_seconds() / 3600 < WEEKLY_REST_REQUIRED_HOURS:
             continue
         if any(s < b and a < e for s, e in fixed_clipped):
@@ -447,7 +451,11 @@ def add_weekly_rest_constraints(
     by_employee: dict[str, list] = {}
     for slot in slots:
         by_employee.setdefault(slot.employee_id, []).append(slot)
-    for employee_id, employee_slots in by_employee.items():
+    # R5-1: an employee represented only by already-fixed target-Site work
+    # (no prospective slot this pass) must still be checked -- iterate the
+    # union, not only employees with a candidate slot.
+    for employee_id in set(by_employee) | set(target_fixed):
+        employee_slots = by_employee.get(employee_id, [])
         fixed_intervals = target_fixed.get(employee_id, [])
         for window_start, window_end in windows:
             _add_one_employee_weekly_rest(model, x, employee_id, employee_slots, fixed_intervals, window_start, window_end)

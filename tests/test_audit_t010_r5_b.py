@@ -28,6 +28,7 @@ from rota.domain import (
     Site,
     SiteMembership,
     SiteRuleVersion,
+    SitePlanningRegime,
 )
 from rota.persistence.db import connect
 from rota.persistence.decision_ledger import record_decision
@@ -306,9 +307,9 @@ def test_r5_b_exception_does_not_lift_disabled_membership_in_either_owner() -> N
 def _seed_projection_context(conn, *, include_second_site: bool = False) -> None:
     profile = base_profile()
     save_site_profile(conn, profile)
-    save_site(conn, Site(SITE_ID, PROFILE_ID, "Site", True))
+    save_site(conn, Site(SITE_ID, PROFILE_ID, "Site", True, planning_regime=SitePlanningRegime.ORDINARY))
     if include_second_site:
-        save_site(conn, Site("OTHER-SITE", PROFILE_ID, "Other Site", True))
+        save_site(conn, Site("OTHER-SITE", PROFILE_ID, "Other Site", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_employee(conn, _employee(EMP_A, day_only=False))
     save_employee(conn, _employee(EMP_B, day_only=False))
 

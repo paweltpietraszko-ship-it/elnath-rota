@@ -42,6 +42,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.planning.validator import validate
 
@@ -88,7 +89,7 @@ def _bootstrap_and_fill(conn, employee_ids: tuple[str, ...]) -> None:
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=SITE_ID,
         coordinator=Coordinator(COORD, "Coord E2", True), site_profile=_profile(),
-        site=Site(SITE_ID, PROFILE_ID, "Site E2", True),
+        site=Site(SITE_ID, PROFILE_ID, "Site E2", True, planning_regime=SitePlanningRegime.ORDINARY),
         association=CoordinatorSiteAssociation(COORD, SITE_ID, True),
     )
     for employee_id in employee_ids:

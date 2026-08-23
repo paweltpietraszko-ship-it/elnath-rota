@@ -28,6 +28,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 
 COORD = "COORD-E1"
@@ -48,7 +49,7 @@ def _profile() -> SiteProfile:
 
 
 def _site() -> Site:
-    return Site(site_id=SITE_ID, profile_id=PROFILE_ID, display_name="Site E1", active=True)
+    return Site(site_id=SITE_ID, profile_id=PROFILE_ID, display_name="Site E1", active=True, planning_regime=SitePlanningRegime.ORDINARY)
 
 
 def _coordinator() -> Coordinator:

@@ -31,6 +31,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.planning.shift_catalog import InvalidStandardShift
 from rota.persistence.calendar_repository import save_calendar_day
@@ -69,7 +70,7 @@ def _seed_complete_context(
 ) -> None:
     save_coordinator(conn, Coordinator(COORDINATOR_ID, "Coordinator", True))
     save_site_profile(conn, _profile(profile_id, shift))
-    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_site(conn, Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator_site_association(
         conn, CoordinatorSiteAssociation(COORDINATOR_ID, site_id, association_active)
     )
@@ -235,7 +236,7 @@ def test_r4_a_concurrent_bootstrap_of_two_different_sites_both_succeeds(
                 site_profile=_profile(
                     profile_id, StandardShift(ShiftKind.D, time(5), time(17), False, 1)
                 ),
-                site=Site(site_id, profile_id, site_id, True),
+                site=Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY),
                 association=CoordinatorSiteAssociation(COORDINATOR_ID, site_id, True),
             )
         except Exception as exc:

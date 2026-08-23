@@ -29,6 +29,7 @@ from rota.domain import (
     ShiftDemand,
     SiteMembership,
     SiteRuleVersion,
+    SitePlanningRegime,
 )
 from rota.planning.engine import plan
 from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION
@@ -558,7 +559,7 @@ def test_m29_select_candidate2_real_persistence_roundtrip(tmp_path):
         site_profile=SiteProfile(profile_id, "T017 profile", True, [StandardShift(ShiftKind.D, datetime(2026, 10, 1, 5).time(), datetime(2026, 10, 1, 17).time(), False, 1)], True, False, False, False, 1, 999),
     )
     bootstrap.bootstrap_or_resume_coordinator_context(
-        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "T017 site", True),
+        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "T017 site", True, planning_regime=SitePlanningRegime.ORDINARY),
         association=CoordinatorSiteAssociation(coord, site, True),
     )
     for letter in "ABCDEF":

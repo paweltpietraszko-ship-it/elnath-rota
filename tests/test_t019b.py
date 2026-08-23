@@ -44,6 +44,7 @@ from rota.domain import (
     SiteProfile,
     ShiftKind,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.persistence import site_memory
 from rota.persistence.availability_repository import get_availability_history
@@ -68,7 +69,7 @@ def _bootstrap(conn, *, site_id: str = SITE) -> None:
     bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=site_id,
         coordinator=Coordinator(COORD, "Coord", True), site_profile=_profile(),
-        site=Site(site_id, PROFILE, site_id, True), association=CoordinatorSiteAssociation(COORD, site_id, True),
+        site=Site(site_id, PROFILE, site_id, True, planning_regime=SitePlanningRegime.ORDINARY), association=CoordinatorSiteAssociation(COORD, site_id, True),
     )
 
 def _employee(conn, employee_id: str = "E1", *, site_id: str = SITE, day_only: bool = False) -> None:
@@ -258,9 +259,9 @@ def test_b14_site_active_change_records_display_name_no_action(tmp_path) -> None
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     before_count = len(memory_read.material_action_history(conn))
-    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", True))
+    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", True, planning_regime=SitePlanningRegime.ORDINARY))
     assert len(memory_read.material_action_history(conn)) == before_count
-    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", False))
+    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", False, planning_regime=SitePlanningRegime.ORDINARY))
     actions = memory_read.material_action_history(conn)
     assert actions[0].action_kind == CoordinatorActionKind.SITE_ACTIVE_CHANGED
 

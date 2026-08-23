@@ -153,13 +153,10 @@ class Site:
     profile_id: str
     display_name: str
     active: bool
-    # ROTA-T023b: required Site classification (frozen addendum section 3).
-    # Defaulted here only for positional/constructor compatibility with
-    # existing call sites (same pattern as WorkBalance.absence_hours in
-    # T023) -- application write paths (site_repository, bootstrap
-    # creation) must always supply an explicit value, never rely on this
-    # default; a missing regime must fail before a new real Site persists.
-    planning_regime: SitePlanningRegime = SitePlanningRegime.ORDINARY
+    # ROTA-T023b (frozen addendum section 3): required Site classification.
+    # No default -- omission must never silently become ORDINARY; every
+    # constructor, production or test, must supply an explicit value.
+    planning_regime: SitePlanningRegime
 
 
 @dataclass
