@@ -12,7 +12,7 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 
 const isConfigComplete = (s: SiteSummary) => s.complete && !s.print_settings_missing;
 
-export default function Workspace() {
+export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string, siteName: string) => void }) {
   const [sites, setSites] = useState<SiteSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +181,7 @@ export default function Workspace() {
           ) : (
             <ul className="site-grid">
               {filtered.map((site) => (
-                <SiteRow key={site.site_id} site={site} />
+                <SiteRow key={site.site_id} site={site} onOpen={() => onOpenSite(site.site_id, site.display_name)} />
               ))}
               {filtered.length === 0 && <li className="empty-state">Brak obiektów spełniających kryteria.</li>}
             </ul>
@@ -259,7 +259,7 @@ function InfoTip({ text }: { text: string }) {
   );
 }
 
-function SiteRow({ site }: { site: SiteSummary }) {
+function SiteRow({ site, onOpen }: { site: SiteSummary; onOpen: () => void }) {
   const needsDecision = site.decision_required_months.length > 0;
   const complete = isConfigComplete(site);
   const translatedMissing = site.missing.map(translateMissingReason);
@@ -278,7 +278,7 @@ function SiteRow({ site }: { site: SiteSummary }) {
     : "";
 
   return (
-    <li className={`site-card${!complete ? " site-card-incomplete" : ""}`}>
+    <li className={`site-card${!complete ? " site-card-incomplete" : ""}`} onClick={onOpen} role="button" tabIndex={0}>
       <div className="site-card-top">
         <div className={`site-card-icon icon-${tone}`}>
           <StatusIcon tone={tone} />
