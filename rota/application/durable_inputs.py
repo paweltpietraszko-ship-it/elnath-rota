@@ -28,7 +28,7 @@ from rota.domain import (
 from rota.persistence import site_memory
 from rota.persistence.absence_reference_repository import capture_and_check_in_open_transaction
 from rota.persistence.availability_repository import append_availability_version_in_open_transaction, get_availability_history
-from rota.persistence.calendar_repository import get_calendar_day, write_calendar_day_in_open_transaction
+from rota.persistence.calendar_repository import get_calendar_day, list_calendar_days, write_calendar_day_in_open_transaction
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
 from rota.persistence.employee_repository import (
     EmployeeNotFound,
@@ -349,6 +349,27 @@ def set_calendar_day(
                 responds_to_decision_required_id=responds_to_decision_required_id,
                 invalidate_months=[date(day.date.year, day.date.month, 1)],
             )
+
+
+def fill_missing_calendar_days(
+    conn, *, coordinator_id: str, site_id: str, range_start: date, range_end: date,
+    note: str | None = None,
+) -> None:
+    """ROTA-T021 Screen 1 (brief.md section 4, round-2 audit A4): composes
+    list_calendar_days + set_calendar_day, the two already-contracted
+    primitives, to fill every date in [range_start, range_end] that has no
+    persisted CalendarDay row yet with holiday=False. Never overwrites an
+    already-persisted row (workday or holiday) -- the coordinator's own
+    toggles are preserved."""
+    existing = {d.date for d in list_calendar_days(conn, range_start, range_end)}
+    current = range_start
+    while current <= range_end:
+        if current not in existing:
+            set_calendar_day(
+                conn, coordinator_id=coordinator_id, site_id=site_id,
+                day=CalendarDay(current, False), note=note,
+            )
+        current = date.fromordinal(current.toordinal() + 1)
 
 
 def _profile_planning_fields(p):

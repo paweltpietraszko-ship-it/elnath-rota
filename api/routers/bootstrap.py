@@ -64,7 +64,10 @@ def _site_summary(conn, site) -> SiteSummary:
 @router.get("/sites", response_model=list[SiteSummary])
 def list_sites(conn=Depends(get_conn)) -> list[SiteSummary]:
     sites = bootstrap.active_sites_for_coordinator(conn, coordinator_id=DEV_COORDINATOR_ID)
-    return [_site_summary(conn, site) for site in sites]
+    try:
+        return [_site_summary(conn, site) for site in sites]
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/sites", response_model=CreateSiteResponse, status_code=201)
