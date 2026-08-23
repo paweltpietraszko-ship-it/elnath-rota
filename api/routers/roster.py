@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from api.deps import get_conn
 from api.errors import to_http_exception
+from rota.application.availability_matrix import employee_availability_matrix
 from rota.domain import MembershipKind
 from rota.persistence.employee_repository import (
     get_employee,
@@ -22,8 +23,29 @@ from rota.persistence.employee_repository import (
 )
 from rota.persistence.availability_repository import get_current_availability_for_employee
 from rota.persistence.work_balance_repository import get_work_balance_target
+from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION
 
 router = APIRouter(prefix="/workspace", tags=["roster"])
+
+_ALL_WEEKDAYS = list(range(1, 8))
+
+
+def _classify_matrix_rule(version) -> tuple[str, int | None]:
+    """Same canonical shape mapping T021b's own _describe_matrix_family
+    uses server-side (tasks/ROTA-T021b/brief.md section 2) -- marshalling
+    of an already-frozen shape, not a new decision."""
+    if version.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION:
+        return "day_only_exception", None
+    params = version.structured_parameters
+    weekdays = params.get("weekdays") if isinstance(params, dict) else None
+    forbidden = params.get("forbidden_shift_kinds") if isinstance(params, dict) else None
+    if weekdays == _ALL_WEEKDAYS and forbidden == ["D"]:
+        return "dniowka", None
+    if weekdays == _ALL_WEEKDAYS and forbidden == ["N"]:
+        return "nocka", None
+    if isinstance(weekdays, list) and len(weekdays) == 1 and forbidden == ["D", "N"]:
+        return "weekday", weekdays[0]
+    return "other", None
 
 
 class RosterRow(BaseModel):
@@ -69,6 +91,20 @@ class PickableEmployeeOut(BaseModel):
 
 class TargetHoursOut(BaseModel):
     target_hours: int | None
+
+
+class MatrixCellOut(BaseModel):
+    rule_id: str
+    cell: str  # "dniowka" | "nocka" | "weekday" | "day_only_exception" | "other"
+    weekday: int | None
+    effective_from: str
+    effective_to: str | None
+    applies_from: str | None
+    applies_to: str | None
+
+
+class EmployeeMatrixOut(BaseModel):
+    cells: list[MatrixCellOut]
 
 
 @router.get("/sites/{site_id}/roster", response_model=list[RosterRow])
@@ -137,3 +173,29 @@ def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) 
 @router.get("/employees/{employee_id}/target-hours", response_model=TargetHoursOut)
 def get_target_hours(employee_id: str, month: str, conn=Depends(get_conn)) -> TargetHoursOut:
     return TargetHoursOut(target_hours=get_work_balance_target(conn, employee_id, date.fromisoformat(month)))
+
+
+@router.get("/employees/{employee_id}/matrix", response_model=EmployeeMatrixOut)
+def get_employee_matrix(employee_id: str, site_id: str, month: str, conn=Depends(get_conn)) -> EmployeeMatrixOut:
+    """Dniówka/Nocka/weekday/day_only-exception cells (brief.md section
+    5.1) -- rota.application.availability_matrix.employee_availability_matrix
+    is the effective-state read owner (T021b brief section 8), not
+    get_current_availability_for_employee (that's the separate Ogólna
+    dostępność mechanism)."""
+    try:
+        matrix = employee_availability_matrix(conn, site_id=site_id, employee_id=employee_id, month=date.fromisoformat(month))
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+    applicability_by_version = {a.rule_version_id: a for a in matrix.rule_applicability}
+    cells = []
+    for version in matrix.weekday_and_exception_rules:
+        applicability = applicability_by_version.get(version.rule_version_id)
+        cell, weekday = _classify_matrix_rule(version)
+        cells.append(MatrixCellOut(
+            rule_id=version.rule_id, cell=cell, weekday=weekday,
+            effective_from=version.effective_from.isoformat(),
+            effective_to=version.effective_to.isoformat() if version.effective_to else None,
+            applies_from=applicability.applies_from.isoformat() if applicability else None,
+            applies_to=applicability.applies_to.isoformat() if applicability else None,
+        ))
+    return EmployeeMatrixOut(cells=cells)

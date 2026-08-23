@@ -274,17 +274,11 @@ Source: `T021_spec.md:516-559` (roster matrix + per-employee screen),
 `arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md` §5 (frozen
 matrix decision).
 
-**BLOCKED ON A SEPARATE BACKEND TASK, NOT PART OF T021**: 3 of the
-5 matrix column-groups (Dniówka, Nocka, 7× weekday) have no ready
-application-layer function — only the raw `rule_decisions.
-record_structured_rule_decision` primitive exists, and choosing how to
-wrap it (rule_id continuity, statement text, function shape) is a real
-design decision, not an implementation detail. Facts handed to the
-architect: `arch/T021_screen2_rule_wrapper_architect_brief_2026-08-23.md`.
-**Do not build those 3 column-groups until that task lands and this
-brief is updated with the real function names/signatures** — per
-Paweł's explicit ruling 2026-08-23: no half-working screens shipped for
-review, the small backend piece comes first.
+**UNBLOCKED 2026-08-23**: T021b (`tasks/ROTA-T021b/brief.md`) landed and
+passed its final implementation audit (round 5, `de8790c`) — the
+Dniówka/Nocka/7×weekday column-groups now have real
+`rota/application/rule_decisions.py` functions. Full details in the
+"Dniówka / Nocka / 7× weekday" subsection below.
 
 ### What CAN be built now (real functions exist, verified against source)
 
@@ -434,6 +428,49 @@ follow-up, not partially now.
   carried over unchanged. Plain persistent bool, no date range, no
   auto-revert (`T021_spec.md:524-529` — do not build a date picker for
   this one).
+- **Per-employee screen — Dniówka / Nocka / 7× weekday columns — UNBLOCKED
+  2026-08-23**: five functions in `rota/application/rule_decisions.py`
+  (T021b, `tasks/ROTA-T021b/brief.md` §3, Codex-accepted implementation
+  `de8790c`) own every write; the API layer only marshals. Canonical
+  shape mapping (T021b brief §2, frozen — do not reinvent):
+  - Dniówka ☐ (all week) → `create_employee_shift_unavailability(conn,
+    *, coordinator_id, site_id, employee_id, shift_kind=ShiftKind.D,
+    effective_from, effective_to, ...) -> DecisionRecord`.
+  - Nocka ☐ (all week) → same function, `shift_kind=ShiftKind.N`.
+  - One weekday ☐ (Pon..Nd column) → `create_employee_weekday_unavailability(
+    conn, *, coordinator_id, site_id, employee_id, iso_weekday: int 1..7,
+    effective_from, effective_to, ...) -> DecisionRecord`.
+  - Temporary Nocka `✓` for a `day_only=true` employee → `create_day_only_n_exception(
+    conn, *, coordinator_id, site_id, employee_id, effective_from,
+    effective_to, ...) -> DecisionRecord` (rejects with no write if the
+    employee isn't `day_only`).
+  - Each of the above is a NEW independent family (its own generated
+    `rule_id`) the FIRST time that specific cell is unchecked. An
+    employee may have multiple such families active at once (up to 9:
+    Dniówka + Nocka + 7 weekdays) — this is expected, not a bug.
+  - Correcting an already-unchecked cell's date range → `update_employee_matrix_rule_period(
+    conn, *, coordinator_id, site_id, rule_id, effective_from,
+    effective_to, ...) -> DecisionRecord`, reusing that cell's own
+    `rule_id` (never a fresh one).
+  - Re-checking a cell before its date range naturally ends →
+    `end_employee_matrix_rule_early(conn, *, coordinator_id, site_id,
+    rule_id, effective_from, ...) -> DecisionRecord`, same `rule_id`.
+  - Read (all cells at once, for the currently viewed month):
+    `rota.application.availability_matrix.employee_availability_matrix(
+    conn, *, site_id, employee_id, month) -> EmployeeAvailabilityMatrix`
+    — `.weekday_and_exception_rules` (tuple of `SiteRuleVersion`) +
+    `.rule_applicability` (tuple of `SiteRuleApplicability`,
+    `applies_from`/`applies_to`) are the effective-state owner (T021b
+    brief §8) — not `get_current_availability_for_employee`, which is
+    the separate `AvailabilityRecord`/Ogólna-dostępność mechanism.
+    The API layer classifies each returned `SiteRuleVersion` by its
+    `structured_parameters` shape (same classification T021b's own
+    `_describe_matrix_family` uses server-side: all-week+`["D"]`→Dniówka,
+    all-week+`["N"]`→Nocka, one-weekday+`["D","N"]`→that weekday column,
+    `EMPLOYEE_DAY_ONLY_N_EXCEPTION`→the day_only exception) into a plain
+    per-cell list the frontend renders directly — this is marshalling of
+    an already-frozen, already-implemented shape mapping, not a new
+    decision.
 - **Per-employee screen — "Zgłoś nieobecność"** — **corrected 2026-08-23
   (architect resolution above removes the round-9 R9-2 restriction)**:
   one form, all 5 `AvailabilityKind` values
@@ -475,11 +512,10 @@ follow-up, not partially now.
 
 ### Out of scope for this increment
 
-- Dniówka/Nocka/weekday matrix columns — blocked, see above.
 - The full roster-overview matrix (all employees, all columns at a
   glance) — the per-employee screen is the primary surface for now; the
-  scanning grid is a later addition once the blocked columns exist too
-  (building it now would show mostly non-functional columns).
+  scanning grid is a later addition, not because anything is blocked
+  anymore but to keep this increment's UI surface to one screen.
 - EXTERNAL_SUPPORT entirely — membership creation, listing, and
   support-window management — moved from "listed but incomplete" to
   fully out of scope 2026-08-23 (round-7 R7-1); do together as one
