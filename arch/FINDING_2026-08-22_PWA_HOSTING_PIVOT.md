@@ -5,6 +5,42 @@ two decisions made earlier the SAME session.
 TASK: ROTA-T025 (scaffolded via task_init.py, HEAD e05dfb7 — repo-state
 snapshot only, nothing implemented).
 
+**UPDATE 2026-08-23** — Paweł raised the concrete threat directly: a
+malicious actor reaching the Railway URL could impersonate a
+coordinator through the front-end and tamper with schedules for fun —
+framed explicitly as a data-security/RODO concern, not the T024
+source-secrecy concern. This is real and worse than F1 below implied:
+verified against current code today (`rota/application/bootstrap.py`,
+`context.py`, `rota/domain.py`'s `Coordinator` class) — `coordinator_id`
+is a caller-supplied string, trusted with ZERO verification anywhere in
+`rota/`. There is no password/credential field on `Coordinator`, no
+hash, no session concept, nothing. Today this is fine because the only
+caller is a trusted local process; the instant a public HTTP layer
+sits in front of this library (F2), ANY caller can pass any
+`coordinator_id` and act as that coordinator with full write access —
+there is no boundary to breach, because none exists yet to bypass.
+
+**RODO angle, not previously captured in this document**: the data
+this program holds is not merely operational. Employee imię/nazwisko
+and full work schedule are ordinary personal data (RODO art. 6); L4/
+zwolnienie lekarskie records (`AvailabilityKind.SICK_LEAVE`, already
+schedule-based per T023) are health-adjacent and plausibly fall under
+RODO art. 9's special category data, which carries a materially higher
+compliance bar (stricter lawful-basis grounds, likely a DPIA, breach-
+notification exposure) than a generic "keep the login secure" reading
+of F1 suggests. This needs explicit owner/legal framing, not just an
+engineering auth-scheme choice — flagging, not deciding, here.
+
+**Consequence for sequencing** (previously an open question in this
+same document, "Explicitly NOT decided here"): F1 (real authentication)
++ real per-action authorization (verifying the authenticated identity
+actually owns the coordinator_id/site it's writing to on EVERY mutating
+call, not just at login) must be a hard gate before any real coordinator
+data — even test data resembling real employee names/schedules — ever
+touches a public Railway URL. This does not have to block T021 UI-
+screen-building work itself (which can proceed against a local/dev
+backend), but it must block deployment to a publicly reachable URL.
+
 STATUS: finding + direction, NOT a design doc, NOT frozen. Architect-
 input material (same role as `arch/T004_T005_architect_brief.md`,
 `arch/FINDING_2026-08-22_ABSENCE_HOURS_ACCOUNTING.md`,
