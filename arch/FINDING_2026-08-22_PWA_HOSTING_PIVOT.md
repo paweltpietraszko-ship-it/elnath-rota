@@ -87,6 +87,39 @@ real employees' health-adjacent data, real controller liability —
 needs an actual lawyer/IOD (Inspektor Ochrony Danych) sign-off before
 production data goes live, not just an engineering read of the rules.
 
+**UPDATE 2026-08-23 (3) — CORRECTION, deployment model clarified.**
+Paweł: "Railway się pojawił bo JA mam tam serwer. Firma pewnie ma swój
+serwer" — Paweł's Railway is HIS OWN dev/test environment, not the
+production target. Confirmed via direct question: production hosting
+is **the client's (ochrona company's) own server**, not Paweł's
+Railway. This changes who the (3)-update's RODO analysis actually
+applies to:
+
+- Paweł's Railway holds only fictional/test data during development —
+  the DPA/EU-region/DPF analysis above is not an urgent action item
+  for Paweł himself as long as no real employee data ever lands there.
+  It stays useful, repurposed: as guidance to eventually HAND TO THE
+  CLIENT (DPA with their own cloud provider, EU region selection, etc.)
+  when they choose their own hosting — not something Paweł executes on
+  their behalf.
+- The **client** is the RODO data controller (administrator danych) for
+  their employees' data and is responsible for their own hosting's
+  compliance (DPA with their provider if cloud-hosted, region choice,
+  physical/organizational security) — not Paweł, as long as Paweł never
+  operates or has standing access to their production data himself.
+- **Does NOT change F1/the zero-authentication finding.** Shipping the
+  PRODUCT with no authentication/authorization at all is a gap
+  regardless of who hosts it — a client deploying it on their own
+  server with real employee data still needs real auth built in, or
+  they inherit a product-level art. 32 gap Paweł's software created,
+  not one their hosting choice created. This stays a hard pre-release
+  gate on the product itself, not just on Paweł's own deployment.
+- Worth a small deliverable once T024/T025 firm up: brief written
+  deployment/RODO guidance handed to the client alongside the delivered
+  program (region choice, DPA with their provider, L4-data handling) —
+  not drafted here, just flagged as a real gap once there's an actual
+  client to hand it to.
+
 STATUS: finding + direction, NOT a design doc, NOT frozen. Architect-
 input material (same role as `arch/T004_T005_architect_brief.md`,
 `arch/FINDING_2026-08-22_ABSENCE_HOURS_ACCOUNTING.md`,
