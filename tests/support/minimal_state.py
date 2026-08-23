@@ -14,6 +14,7 @@ from rota.domain import (
     ReadinessState,
     ShiftKind,
     Site,
+    SitePlanningRegime,
     SiteProfile,
     StandardShift,
 )
@@ -45,7 +46,7 @@ def base_profile(rolling_threshold: int = 60) -> SiteProfile:
 def base_state(**overrides) -> PlanningState:
     """A PlanningState with every collection empty; override fields as needed."""
     state = PlanningState(
-        site=Site(SITE_ID, PROFILE_ID, "Test Site", True),
+        site=Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.ORDINARY),
         profile=base_profile(),
         month=MONTH,
         calendar_days=(),

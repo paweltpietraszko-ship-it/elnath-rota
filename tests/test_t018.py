@@ -33,6 +33,7 @@ from rota.domain import (
     SiteMembership,
     SiteRuleVersion,
     WorkBalance,
+    SitePlanningRegime,
 )
 from rota.planning.absence import DailyAbsenceFact, IncompleteAbsenceCalendarError, excused_absence_days_in_month
 from rota.planning.engine import plan
@@ -717,7 +718,7 @@ def _b10_14_seed_context(conn, coord: str, site: str, profile_id: str, emp: str,
         site_profile=SiteProfile(profile_id, "B14 profile", True, [StandardShift(ShiftKind.N, datetime(2026, 10, 1, 17).time(), datetime(2026, 10, 2, 5).time(), True, 1)], True, False, False, False, 1, 999),
     )
     bootstrap.bootstrap_or_resume_coordinator_context(
-        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "B14 site", True),
+        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "B14 site", True, planning_regime=SitePlanningRegime.ORDINARY),
         association=CoordinatorSiteAssociation(coord, site, True),
     )
     durable_inputs.update_employee(conn, coordinator_id=coord, site_id=site, employee=_employee(emp, day_only=True))

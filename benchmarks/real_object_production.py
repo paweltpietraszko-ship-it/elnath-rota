@@ -34,6 +34,7 @@ from rota.domain import (
     ShiftKind,
     Site,
     SiteMembership,
+    SitePlanningRegime,
     SiteProfile,
     SiteRuleVersion,
     StandardShift,
@@ -164,7 +165,7 @@ def build_planning_state(scenario: ScenarioSpec) -> PlanningState:
     version_id = f"benchmark-{scenario.case_id}"
     rules, applicability = _site_rules(scenario)
     return PlanningState(
-        site=Site(SITE_ID, PROFILE_ID, "Real Object Benchmark", True),
+        site=Site(SITE_ID, PROFILE_ID, "Real Object Benchmark", True, planning_regime=SitePlanningRegime.ORDINARY),
         profile=_profile(scenario),
         month=scenario.month,
         calendar_days=_calendar(scenario),

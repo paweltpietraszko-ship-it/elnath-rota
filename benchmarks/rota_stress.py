@@ -22,7 +22,7 @@ from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind,
     AvailabilityRecord, CalendarDay, Employee, MembershipKind,
     ReadinessSource, ReadinessState, ShiftDemand, ShiftKind, Site,
-    SiteMembership, SiteProfile, StandardShift, WorkBalance,
+    SiteMembership, SitePlanningRegime, SiteProfile, StandardShift, WorkBalance,
 )
 from rota.planning.engine import plan
 from rota.planning.state import PlanningState
@@ -233,7 +233,7 @@ def generate_case(index: int, seed: int) -> GeneratedCase:
     for assignment in witness_tuple:
         targets[assignment.employee_id] += 12
     state = PlanningState(
-        Site(site_id, profile_id, site_id, True),
+        Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY),
         SiteProfile(profile_id, profile_id, True, shifts, True, False, False, True, 2, 60),
         month, _calendar_days(rng, month), boundary, memberships, employees, (),
         _availability(rng, month, employees, list(witness_tuple), boundary), (), (), (), demands, existing, (),

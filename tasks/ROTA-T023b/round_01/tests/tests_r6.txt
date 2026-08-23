@@ -1,0 +1,72 @@
+ROTA-T023b — IMPLEMENTATION AUDIT, ROUND 6
+
+AUDITED_HEAD: f7965f34740cca2f27a6b05da9b96a0c9f0b4e6e
+AUDITED_BRANCH: origin/task/ROTA-T023b
+PREVIOUS_AUDIT_HEAD: 46283761c80958550241cb8fa9b43ef6c1d9bb21
+AUDITED_CONTRACT_HEAD: 50ac0cb1c6b09661dbd16d15c3bad8228f995507
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+DATE: 2026-08-23
+
+VERDICT: WYMAGA_DECYZJI — ALL R5 PRODUCT FINDINGS CLOSED; BACKEND DELIVERY
+GATE REMAINS FAIL
+
+No new product defect was found. The three round-5 findings are closed across
+their tested equivalence classes.
+
+R5-1 CLOSED — solver WEEKLY-REST-01 now enumerates every ordered pair of
+candidate anchors, so endpoints belonging to unselected prospective slots no
+longer fragment a genuinely longer free interval. The employee iteration is
+the union of prospective-slot and fixed-target-work employees, closing the
+fixed-only bypass as well. Both independent round-5 sibling reproducers pass.
+
+R5-2 CLOSED — manual REST override reconstruction now applies the shared
+effective_required_rest_after_hours oracle under OCHRONA for a target-Site
+earlier period and stores the effective requirement. The reproducer with an
+11h configured value, exact 24h WorkPeriod and 20h actual rest now creates one
+REST_OVERRIDE_RECORD whose required_rest_hours is 24.
+
+R5-3 CLOSED — Site.planning_regime no longer has a dataclass default. All
+production/test/benchmark constructors touched by this change supply an
+explicit SitePlanningRegime; review of the diff found only mechanical ORDINARY
+compatibility updates outside the three product files. Omission now fails at
+construction rather than silently becoming ORDINARY.
+
+INDEPENDENT VERIFICATION
+
+- tests/test_t023b.py plus round-5 adversarial tests: 35 passed;
+- full existing suite: 1050 passed, 1 failed;
+- the sole existing failure remains
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b;
+- as established in round 5, that failure is an obsolete T023 Checkpoint-B
+  source-diff proof, because T023b explicitly requires constraints.py and
+  work_periods.py changes; it is not a T023b behavioural regression;
+- Ruff: PASS;
+- git diff --check: PASS.
+
+DELIVERY-GATE DECISION REQUIRED
+
+backend_output_r5fix.txt is current for the product HEAD immediately preceding
+the output-only commit and records STATUS: FAIL:
+
+- NEW_FILES: 3 (limit 2);
+- SIZE_FILE: pre-existing oversized tests/test_t012.py, test_t019b.py,
+  test_t020.py and test_t018.py are now in the diff;
+- SIZE_FUNC: one pre-existing oversized function in
+  tests/test_audit_t010_r6_d.py is reported because its file is in the diff;
+- RATIO 11.4:1 and TOTAL_LINES 1710 remain WYMAGA_DECYZJI.
+
+The newly touched test/benchmark files are predominantly the mechanical
+explicit-Site-regime fallout expressly permitted by the task contract; the
+flagged long function itself was not redesigned. That explains the gate output
+but does not turn STATUS: FAIL into PASS. There is no written acceptance in the
+audited delivery that resolves all reported guard/threshold results.
+
+Therefore the implementation behaviour is ready for architect review, but the
+overall delivery cannot receive final PASS/merge readiness until the owner
+either accepts the exact backend exceptions/thresholds in writing or requires a
+different green-gate delivery. This is a delivery decision, not another product
+or architecture correction round.
+
+ARCHITECTURE_PROPOSALS
+
+None.

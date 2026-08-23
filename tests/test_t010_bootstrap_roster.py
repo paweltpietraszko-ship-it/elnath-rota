@@ -27,6 +27,7 @@ from rota.domain import (
     SiteProfile,
     StandardShift,
     ShiftKind,
+    SitePlanningRegime,
 )
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import connect
@@ -53,7 +54,7 @@ def _profile() -> SiteProfile:
 
 
 def _site() -> Site:
-    return Site(site_id=SITE, profile_id=PROFILE, display_name="Site A1", active=True)
+    return Site(site_id=SITE, profile_id=PROFILE, display_name="Site A1", active=True, planning_regime=SitePlanningRegime.ORDINARY)
 
 
 def _coordinator() -> Coordinator:

@@ -29,6 +29,7 @@ from rota.domain import (
     ShiftKind,
     Site,
     SiteMembership,
+    SitePlanningRegime,
     SiteProfile,
     StandardShift,
     WorkBalance,
@@ -173,7 +174,7 @@ def build_state_from_fixture(
     profile = _build_profile(fixture, profile_id)
     demands = _shift_demands(fixture, month, version_id)
     return PlanningState(
-        site=Site(site_id, profile_id, site_id, True),
+        site=Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY),
         profile=profile,
         month=month,
         calendar_days=_calendar_days(month),

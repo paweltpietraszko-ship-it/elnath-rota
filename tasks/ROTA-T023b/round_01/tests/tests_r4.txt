@@ -1,0 +1,59 @@
+ROTA-T023b — PREIMPLEMENTATION AUDIT, ROUND 4
+
+AUDITED_HEAD: 50ac0cb1c6b09661dbd16d15c3bad8228f995507
+AUDITED_BRANCH: origin/task/ROTA-T023b
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+CONTRACT:
+- arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md
+- tasks/ROTA-T023b/brief.md
+- tasks/ROTA-T023b/OWNER_FRONTEND_DECISION_2026-08-23.md
+DATE: 2026-08-23
+
+VERDICT: PASS — READY_FOR_IMPLEMENTATION
+
+No product code or tests were changed at the audited SHA. The implementation
+matrix was not run because this is a preimplementation contract audit.
+
+R3-1 is closed. Site regime and ScheduleVersion planning-regime provenance are
+persisted facts, and schedule_repository owns one derived mismatch predicate.
+The same predicate gates finalize, restore and PDF presentation before mutation,
+so the correction command's returned month list is no longer an ephemeral
+enforcement mechanism. A restart cannot erase the obligation.
+
+The normal recovery path is complete and testable: a REPLAN child conservatively
+inherits its parent's provenance; revalidation, finalization, restoration and
+manual child creation cannot clear it; only a candidate freshly validated under
+the current Site regime adopts that regime in the same transaction as the
+selected snapshot write. REALIZED/CANCELLED-only history remains unchanged and
+is not blocked merely because the Site regime was corrected later.
+
+Existing-code feasibility was checked at BASE_PRODUCT_SHA:
+- select_candidate() is the sole automatic candidate-persistence entry and
+  already writes through the atomic replace_working_snapshot transaction;
+- schedule_lifecycle already owns finalize/restore mutation and invokes action
+  hooks only on the success path, so a repository predicate can reject before
+  lifecycle and coordinator-action side effects without duplicating the gate in
+  lifecycle_ops;
+- schedule_repository already owns ScheduleVersion/current-version reads and is
+  the natural single owner of both durable derived queries;
+- T021 is explicitly bound to call the persisted month query on navigation,
+  while schedule_export receives its own pre-render gate.
+
+The contract is sufficiently bounded for implementation. The added structure is
+traceable to the one R3 blocker: one enum field on Site, one provenance field on
+ScheduleVersion, one dedicated correction command, two repository reads and
+gates at existing lifecycle/export boundaries. It introduces no parallel stale
+table/status, generic regime setter, action kind, REST workflow or second legal-
+arithmetic owner. Separate OCHRONA/ORDINARY frontend entry points remain a T021
+binding and explicitly share common form/application/persistence implementation.
+
+The minimum matrix covers the relevant equivalence classes and boundaries:
+restart durability, PLANNED versus REALIZED/CANCELLED content, finalize/restore/
+export bypasses, conservative child inheritance, atomic candidate adoption,
+manual-child non-bypass, both existing 24h WorkPeriod forms, exact rest/week
+boundaries, month shapes, TRAINEE, solver/validator independence and the existing
+manual REST-override path.
+
+No FAIL or WYMAGA_DECYZJI finding remains. No architecture proposal is raised.
+This PASS verifies testability and internal consistency of the frozen contract;
+it is not a product-design endorsement.

@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 8
+LATEST_SCHEMA_VERSION = 9
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -483,6 +483,21 @@ _MIGRATION_8: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 9 -- ROTA-T023b: Site classification (ORDINARY|OCHRONA) and its
+# ScheduleVersion provenance. SQL defaults exist only for current test/legacy
+# rows -- new Site creation and new ScheduleVersion writes must persist an
+# explicit/derived value at the application layer, never rely on this
+# default (frozen addendum section 3).
+# ---------------------------------------------------------------------------
+_MIGRATION_9: tuple[str, ...] = (
+    "ALTER TABLE sites ADD COLUMN planning_regime TEXT NOT NULL DEFAULT 'ORDINARY' "
+    "CHECK (planning_regime IN ('ORDINARY','OCHRONA'))",
+    "ALTER TABLE schedule_versions ADD COLUMN planning_regime TEXT NOT NULL DEFAULT 'ORDINARY' "
+    "CHECK (planning_regime IN ('ORDINARY','OCHRONA'))",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -492,6 +507,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (6, _MIGRATION_6),
     (7, _MIGRATION_7),
     (8, _MIGRATION_8),
+    (9, _MIGRATION_9),
 )
 
 

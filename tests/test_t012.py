@@ -42,6 +42,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
@@ -107,7 +108,7 @@ def test_a_standard_shift_t012_fields_round_trip(tmp_path):
 def test_a_can_work_24h_default_and_round_trip(tmp_path):
     conn = connect(tmp_path / "rota.db")
     save_site_profile(conn, _profile("P-A1", [_d(5)]))
-    save_site(conn, Site("SITE-A", "P-A1", "Site A", True))
+    save_site(conn, Site("SITE-A", "P-A1", "Site A", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_employee(conn, Employee("E1", "E1", date(2026, 1, 1), None, False))
     save_employee(conn, Employee("E2", "E2", date(2026, 1, 1), None, False))
     save_site_membership(conn, SiteMembership(
@@ -210,7 +211,7 @@ def test_a_all_24_profile_data_case_can_work_24h_still_stores(tmp_path):
     solver-side meaning (ignored on an all-24h profile) is Part C."""
     conn = connect(tmp_path / "rota.db")
     save_site_profile(conn, _profile("ALL24", [_h24(ShiftKind.D, 5, 12)]))
-    save_site(conn, Site("SITE-ALL24", "ALL24", "All 24h", True))
+    save_site(conn, Site("SITE-ALL24", "ALL24", "All 24h", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_employee(conn, Employee("E3", "E3", date(2026, 1, 1), None, False))
     save_site_membership(conn, SiteMembership(
         "E3", "SITE-ALL24", MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY,
@@ -253,7 +254,7 @@ def test_a_current_schema_reconnect_is_idempotent(tmp_path):
     db_path = tmp_path / "rota.db"
     connect(db_path).close()
     conn = connect(db_path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 8
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 9
     save_site_profile(conn, _profile("REOPEN", [_d(5)]))
     assert get_site_profile(conn, "REOPEN").profile_id == "REOPEN"
 
@@ -897,7 +898,7 @@ def _seed_history_site(conn, *, site_id: str, profile_id: str, employee_id: str)
     # control run is FEASIBLE on this fixture alone, with no history.
     profile = replace(_profile(profile_id, [_d(5, 11)]), rolling_7d_decision_threshold_hours=100)
     save_site_profile(conn, profile)
-    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_site(conn, Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", site_id, True))
     save_employee(conn, Employee(employee_id, employee_id, date(2020, 1, 1), None, False))
@@ -1152,7 +1153,7 @@ def test_c_same_month_work_period_id_is_site_scoped_for_identical_demand_ids():
     employee = Employee("A", "A", date(2026, 1, 1), None, False)
     state_a = base_state(shift_demands=(d1, d2), memberships=(_membership("A"),), employees=(employee,))
     state_b = base_state(
-        site=Site("SITE-B", state_a.site.profile_id, "Site B", True),
+        site=Site("SITE-B", state_a.site.profile_id, "Site B", True, planning_regime=SitePlanningRegime.ORDINARY),
         shift_demands=(d1, d2), memberships=(_membership("A", site_id="SITE-B"),), employees=(employee,),
     )
     result_a, result_b = plan(state_a), plan(state_b)
@@ -1261,7 +1262,7 @@ def test_c_replan_reshuffle_counts_placements_not_pair_literal():
 def _seed_site_for_month(conn, *, site_id: str, profile_id: str, employee_id: str, month: date) -> None:
     profile = replace(_profile(profile_id, [_d(5, 11)]), rolling_7d_decision_threshold_hours=100)
     save_site_profile(conn, profile)
-    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_site(conn, Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", site_id, True))
     save_employee(conn, Employee(employee_id, employee_id, date(2020, 1, 1), None, False))
@@ -1438,7 +1439,7 @@ def test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback():
 def _seed_d_site(conn, *, site_id: str, profile_id: str, employees: list[str], month: date) -> None:
     profile = _profile(profile_id, [_d(5, 11)])
     save_site_profile(conn, profile)
-    save_site(conn, Site(site_id, profile_id, site_id, True))
+    save_site(conn, Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator("COORD-1", "Coord", True))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", site_id, True))
     for employee_id in employees:

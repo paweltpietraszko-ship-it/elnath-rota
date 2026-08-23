@@ -20,6 +20,7 @@ from rota.domain import (
     ReadinessState,
     Site,
     SiteMembership,
+    SitePlanningRegime,
 )
 from rota.persistence.availability_repository import (
     InvalidAvailabilityChain,
@@ -87,7 +88,7 @@ def test_b_invalid_fk_and_coherence_cases_fail_explicitly(tmp_path: Path) -> Non
     seed_base_entities(conn)
 
     with pytest.raises(UnknownSiteProfile):
-        save_site(conn, Site("SITE-X", "NO-SUCH-PROFILE", "X", True))
+        save_site(conn, Site("SITE-X", "NO-SUCH-PROFILE", "X", True, planning_regime=SitePlanningRegime.ORDINARY))
 
     with pytest.raises(UnknownCoordinatorOrSite):
         save_coordinator_site_association(conn, CoordinatorSiteAssociation("NO-SUCH-COORD", "SITE-1", True))

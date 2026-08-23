@@ -21,6 +21,7 @@ from rota.domain import (
     ShiftKind,
     Site,
     SiteMembership,
+    SitePlanningRegime,
 )
 from rota.persistence.availability_repository import append_availability_version
 from rota.persistence.db import connect
@@ -114,7 +115,7 @@ def _make_assignment(day: int):
 
 def _seed_context(conn) -> None:
     save_site_profile(conn, base_profile())
-    save_site(conn, Site(SITE_ID, PROFILE_ID, "Test Site", True))
+    save_site(conn, Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_employee(conn, _employee())
     save_site_membership(conn, _membership())
 

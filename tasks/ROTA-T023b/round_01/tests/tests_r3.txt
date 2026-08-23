@@ -1,0 +1,87 @@
+ROTA-T023b — PREIMPLEMENTATION AUDIT, ROUND 3
+
+AUDITED_HEAD: f42549d493f7a6bc330bf44a53dc10c8a8085c6c
+AUDITED_BRANCH: origin/task/ROTA-T023b
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+CONTRACT:
+- arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md
+- tasks/ROTA-T023b/brief.md
+- tasks/ROTA-T023b/OWNER_FRONTEND_DECISION_2026-08-23.md
+DATE: 2026-08-23
+
+VERDICT: FAIL — CC READ-ONLY / NOT READY FOR IMPLEMENTATION
+
+No product code or tests were changed at the audited SHA. The implementation
+matrix was not run because this is a preimplementation contract audit.
+
+The consolidated contract is materially shorter and now reuses the existing
+owners instead of creating parallel subsystems: Site persistence remains in
+site_repository, the correction command composes existing context/action/
+invalidation and current-schedule reads, work_periods.py owns shared arithmetic,
+solver and validator keep their established separation, and manual_edit extends
+the existing REST override. The separate frontend entry points also explicitly
+share common implementation. No concision or duplicate-mechanism blocker was
+found in those areas.
+
+One implementation blocker remains.
+
+FINDING R3-1 — FAIL — the correction's replan requirement is advisory while
+existing lifecycle paths can still reactivate/finalize the old-regime plan.
+
+Contract trace:
+- frozen addendum §3 says correction is prospective, every later finalize uses
+  the corrected Site regime, and a current plan containing not-yet-realized work
+  must be routed through REPLAN before it is presented under the corrected
+  regime;
+- frozen addendum §7 permits persistence of a T023b HARD violation through the
+  existing audited REST-override precedent;
+- task brief §2 makes correct_site_planning_regime return and audit
+  replan_required_months but expressly creates no ScheduleVersion, stale marker
+  or lifecycle state;
+- task brief §§2/7 leave plan/lifecycle and schedule-lifecycle modules outside
+  modification scope unless this audit proves a literal blocker.
+
+Current owned behaviour at BASE_PRODUCT_SHA:
+- lifecycle_ops.finalize() freshly validates the current snapshot under the
+  current assembled Site, materializes the exact violations as acknowledged
+  Deviations and finalizes it as FINAL_WITH_DEVIATIONS. It does not create a
+  REST_OVERRIDE_RECORD;
+- lifecycle_ops.restore() moves CURRENT to any prior version without validation;
+- neither path knows the ephemeral tuple returned by the earlier regime-
+  correction call, and there is no frozen read rule deriving an unresolved
+  replan obligation from the correction action's metadata.
+
+Reproducer/equivalence class:
+1. An ORDINARY Site has a current or prior ScheduleVersion with PLANNED work
+   that violates REST-01's new 24h floor and/or WEEKLY-REST-01.
+2. The coordinator corrects the Site to OCHRONA. The command changes only Site,
+   returns the affected month and leaves every ScheduleVersion unchanged.
+3. A caller may then either (a) acknowledge the fresh deviations in finalize(),
+   producing FINAL_WITH_DEVIATIONS without the contract's REST override record,
+   or (b) restore an earlier ordinary-regime version as CURRENT without any
+   validation or replan obligation.
+4. After restart/navigation, the immediate correction return value is gone; the
+   contract supplies no owning persisted gate that prevents the old plan from
+   being treated as current before REPLAN.
+
+Therefore CC cannot implement both the frozen prospective-correction invariant
+and the frozen scope. A frontend redirect is not an enforcement boundary for
+the existing backend lifecycle commands. The architecture must assign one
+existing owner a durable, testable rule covering finalize and restore (or change
+the frozen correction semantics); that owner and its tests must be in scope.
+
+This is the same unresolved ownership class as round-2 finding R2-1, now reached
+through the newly specified correction command. It is not a request for a new
+workflow, table or preferred architecture.
+
+ARCHITECTURE_PROPOSALS
+
+None.
+
+STOP CONDITION
+
+This brief has already exceeded two correction rounds. Per the audit role
+boundary, do not continue iterating wording with Codex as a design loop. The
+architecture owner must first resolve the lifecycle ownership contradiction in
+one consolidated contract. CC must not start implementation from
+f42549d493f7a6bc330bf44a53dc10c8a8085c6c.

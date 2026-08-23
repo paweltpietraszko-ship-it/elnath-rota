@@ -30,6 +30,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 
 COORD = "COORD-T011A"
@@ -54,7 +55,7 @@ def _bootstrap_context(conn) -> None:
         conn, coordinator_id=COORD, site_id=SITE,
         coordinator=Coordinator(COORD, "Coord T011A", True),
         site_profile=_profile(),
-        site=Site(SITE, PROFILE, "Site T011A", True),
+        site=Site(SITE, PROFILE, "Site T011A", True, planning_regime=SitePlanningRegime.ORDINARY),
         association=CoordinatorSiteAssociation(COORD, SITE, True),
     )
     update_employee(conn, coordinator_id=COORD, site_id=SITE, employee=Employee(EMP, "Emp T011A", date(2020, 1, 1), None, False))

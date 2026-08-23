@@ -1,0 +1,66 @@
+ROTA-T023b — IMPLEMENTATION AUDIT, ROUND 8
+
+AUDITED_HEAD: ea91176f1c21999f455836857dee9d45026088fb
+AUDITED_BRANCH: origin/task/ROTA-T023b
+PREVIOUS_AUDIT_COMMIT: 5b8c3513abdd8e761bb8c82a6b4b860d04412fd0
+AUDITED_CONTRACT_HEAD: 50ac0cb1c6b09661dbd16d15c3bad8228f995507
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+DATE: 2026-08-23
+
+VERDICT: WYMAGA_DECYZJI — PRODUCT IMPLEMENTATION PASS; DELIVERY GATES NOT
+GREEN
+
+All round-5 product findings are closed. No new product defect was found.
+
+R5-3 closure is complete across the generalized production-call-site class:
+
+- rota/planning/state.py now supplies explicit SitePlanningRegime.ORDINARY;
+- the AST audit of every direct Site(...) call under rota/**/*.py passes;
+- `python -m rota.planning.state` completes successfully;
+- the change is limited to the missing keyword/import and its written narrow
+  scope amendment.
+
+INDEPENDENT VERIFICATION ON EXACT AUDITED HEAD
+
+- tests/test_t023b.py plus round-5 and round-6 adversarial tests: 36 passed;
+- full existing suite: 1050 passed, 1 failed;
+- the sole failure remains
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b;
+- that assertion is an obsolete repository-HEAD source-diff proof for T023
+  Checkpoint B; T023b explicitly requires the reported constraints.py and
+  work_periods.py changes, so it is not a T023b behavioural regression;
+- Ruff: PASS;
+- git diff --check: PASS.
+
+DELIVERY DECISION REQUIRED
+
+backend_output_r6fix.txt is current for the product HEAD immediately preceding
+the output-only commit and still records STATUS: FAIL:
+
+- NEW_FILES: 3 (limit 2);
+- SIZE_FILE on four pre-existing oversized test files pulled into the diff by
+  explicit-regime/schema compatibility changes;
+- SIZE_FUNC on one pre-existing oversized function in a mechanically touched
+  test file;
+- RATIO 11.3:1 and TOTAL_LINES 1713 are WYMAGA_DECYZJI.
+
+The task contract contains narrow mechanical scope amendments explaining these
+changes, but the gate output does not accept them. The full-suite obsolete
+source-diff test also remains physically red. Neither is a product defect, yet
+an independent auditor cannot report a green delivery or merge readiness while
+the required gates themselves remain red.
+
+No further product-code iteration is requested. The owner must now choose and
+record one delivery outcome:
+
+1. accept the exact backend size/new-file/ratio/total exceptions and explicitly
+   exclude the obsolete Checkpoint-B source-diff proof from T023b delivery; or
+2. require a delivery adjustment that produces green backend and full-suite
+   results.
+
+This is the terminal decision point for the current audit, not another brief or
+architecture design round.
+
+ARCHITECTURE_PROPOSALS
+
+None.
