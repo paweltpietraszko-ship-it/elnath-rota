@@ -1,0 +1,341 @@
+T021 BACKEND FUNCTION <-> UI COVERAGE / INDEPENDENT CODEX SCAN / ROUND 1
+
+STATUS: RAW FINDINGS FOR CC SOURCE VERIFICATION
+AUDITED_SHA: abd3ac4926c716535db283dd2dbfe24c98d2abde
+REQUEST: tasks/CURSOR_AUDIT_2026-08-23_backend_ui_coverage/REQUEST.md
+
+This is not a PASS/FAIL verdict and not an implementation instruction.
+It is the independent source scan requested in REQUEST.md, supplied in
+place of Cursor. CC must verify each finding against source before the
+owner or architect acts on it.
+
+SCOPE NOTE
+
+REQUEST.md calls both architect briefs "currently open". That description
+is stale at the audited SHA:
+
+- arch/T021_screen2_availability_singularity_architect_brief_2026-08-23.md
+  is RESOLVED: multiple independent UNAVAILABLE_24H families;
+- the rule-wrapper design has an accepted task contract in
+  tasks/ROTA-T021b/brief.md and its product implementation landed at the
+  audited SHA. That implementation has not been independently accepted by
+  this coverage scan; this report is not its implementation verdict.
+
+The A/B/D scan below still compares exactly the four documents named in
+REQUEST.md. Section C records the current state instead of pretending those
+two questions are both still open.
+
+METHOD
+
+- inventoried 62 public application functions, 119 public persistence
+  functions, and 58 module-level planning functions at the audited SHA;
+- traced coordinator-facing operations and rules to the live T021 brief,
+  the fallback T021 spec and the two named architect briefs;
+- filtered transaction primitives, schema helpers, validators called only
+  by an already-documented application owner, and solver arithmetic with no
+  independent coordinator-facing meaning;
+- did not re-report the two motivating known findings
+  (list_active_overlapping* and _BLOCKING_KIND_PRIORITY).
+
+
+A. OMISSIONS
+
+A-1. No documented read owner for reopening a persisted schedule grid
+
+The UI documents describe navigating back into the current working
+schedule and displaying/editing a persisted schedule, but name only header
+reads:
+
+- arch/T021_spec.md:425-448 uses get_current_version_id plus
+  get_schedule_version_header for the Przeglad status/resume tile;
+- arch/T021_spec.md:456-514 describes PLAN/select/replan/finalize/restore;
+- arch/T021_spec.md:606-623 describes manual editing of the current
+  ScheduleVersion.
+
+The existing complete reads are absent by name or clear paraphrase from all
+four audited documents:
+
+- rota/persistence/schedule_repository.py:85-112
+  get_schedule_snapshot(version_id) -> ScheduleSnapshot;
+- rota/persistence/schedule_repository.py:152-156
+  get_current_schedule_snapshot(site_id, month) -> Optional[(header,
+  snapshot)].
+
+This is not covered by open_month(): its DTO at
+rota/application/open_month.py:31-42 contains current_version and
+version_history headers but no current ShiftDemand, Assignment or Deviation
+collection. Natural screen fit: Planowanie miesiaca, Reczna korekta, and the
+Przeglad resume link.
+
+A-2. T023b OCHRONA rest rules have no T021 UI-contract coverage
+
+The following coordinator-facing HARD behavior exists in planning code but
+is not mentioned in any of the four audited documents:
+
+- rota/planning/work_periods.py:308: WEEKLY_REST_REQUIRED_HOURS = 35;
+- rota/planning/work_periods.py:311-321:
+  effective_required_rest_after_hours raises the effective rest after an
+  exact 24h OCHRONA work period to at least 24h;
+- rota/planning/work_periods.py:324-337:
+  weekly_settlement_windows creates complete non-overlapping seven-day
+  windows from day 1 of the month and omits the trailing partial window;
+- rota/planning/constraints.py:435-461 and
+  rota/planning/validator.py:528-548 apply the OCHRONA-only weekly rule;
+- the persisted violation code is WEEKLY-REST-01
+  (rota/application/deviation_mapping.py:13-31).
+
+T021_spec.md:567-570 mentions only the generic Polish labels for daily rest
+and rolling weekly load. It never identifies WEEKLY-REST-01, the 35h rule,
+or the strengthened post-24h REST-01 meaning. Natural screen fit: the
+violation/deviation presentation on Planowanie miesiaca, Decyzje
+koordynatora and Reczna korekta.
+
+
+B. INACCURACIES
+
+B-1. The 24h checkbox is not an effective gate on every SiteProfile
+
+Document claims:
+
+- arch/T021_spec.md:516-528 says every roster row has a 24h column, that
+  unchecked means the solver may not use the employee, and that the
+  persistent can_work_24h bool remains off until toggled back on;
+- tasks/ROTA-T021/brief.md:426-430 carries this toggle into Screen 2
+  without an applicability exception.
+
+Actual code:
+
+- rota/domain.py:193-196 documents can_work_24h as a qualification only
+  for a mixed 12h/24h profile and says it is ignored on an all-24h profile;
+- rota/planning/eligibility.py:142-148 defines is_all_24h_profile;
+- rota/planning/eligibility.py:167-173 enforces SHIFT-24-01 only when the
+  profile is not all-24h;
+- tests/test_t012.py:563 is the retained regression proving an all-24h
+  profile ignores can_work_24h.
+
+Therefore the persisted bool can be false while the checkbox has no effect
+on eligibility at an all-24h Site. The documents describe it as an
+unconditional solver permission.
+
+B-2. ExternalSupportWindow is a datetime interval, not a date range
+
+Document claims:
+
+- arch/T021_spec.md:537-541 describes each support window as "date range +
+  optional D/N restriction";
+- arch/T021_spec.md:549-556 repeats "date range + optional D/N" for the
+  per-employee list.
+
+Actual code:
+
+- rota/domain.py:200-208 stores start_datetime and end_datetime;
+- rota/application/durable_inputs.py:112-152 writes those exact datetime
+  fields;
+- rota/planning/eligibility.py:195-207 requires one active window to cover
+  the demand's complete [start_datetime, end_datetime] interval.
+
+A date-only form is therefore not the actual backend shape and can change
+whether an overnight D/N demand is covered.
+
+B-3. Historia i audyt overstates material-action completeness
+
+Document claims:
+
+- arch/T021_spec.md:667-688 calls material_action_history a stream of
+  "every concrete operational action across the whole program" and calls
+  the 18 CoordinatorActionKind values the complete list of things that can
+  happen across T021 screens.
+
+Actual code deliberately does not record every accepted current-state edit:
+
+- rota/application/durable_inputs.py:417-460 persists Site.display_name,
+  but creates SITE_ACTIVE_CHANGED only when Site.active changes and its
+  before/after state contains no display_name;
+- rota/application/durable_inputs.py:221-248 persists Employee.display_name
+  and active metadata, but creates EMPLOYEE_DAY_ONLY_CHANGED only when the
+  Employee is new or day_only changes.
+
+Site-name editing is explicitly in T021 scope (owner D3, indexed at
+tasks/ROTA-T021/brief.md:491-494), yet a name-only edit will not appear in
+the claimed all-action history.
+
+B-4. The live T021 brief still says the T021b application commands do not exist
+
+Document claims:
+
+- tasks/ROTA-T021/brief.md:277-287 says Dniowka, Nocka and weekday columns
+  have no ready application-layer functions, are blocked on a separate
+  backend task, and must not be built until that task lands and the brief is
+  updated with real function names/signatures;
+- tasks/ROTA-T021/brief.md:470-476 still lists those columns as blocked.
+
+Actual code at the audited SHA now exposes:
+
+- rota/application/rule_decisions.py:177-200
+  create_employee_shift_unavailability;
+- rota/application/rule_decisions.py:202-227
+  create_employee_weekday_unavailability;
+- rota/application/rule_decisions.py:229-252 create_day_only_n_exception;
+- rota/application/rule_decisions.py:254-282
+  update_employee_matrix_rule_period;
+- rota/application/rule_decisions.py:284-305
+  end_employee_matrix_rule_early.
+
+The backend commit has therefore landed, while the live frontend contract
+still presents its absence as the current sequencing gate. This statement
+does not accept the new implementation; it only records that the brief's
+literal code-existence claim is now false.
+
+
+C. EXISTING SOLUTIONS TO THE NAMED ARCHITECT QUESTIONS
+
+C-1. Rule-wrapper brief: no older hidden solution; the explicit T021b implementation now exists
+
+The pre-T021b code provided only the following pieces:
+
+- rota/application/rule_decisions.py:41-80 accepts a caller-supplied
+  rule_id and appends through the existing chain;
+- rota/planning/site_rules.py:17-33 and 89-118 own the four executable
+  shapes and their exact validation;
+- rota/persistence/site_memory.py:49-73 owns chain history/effective
+  selection;
+- rota/application/availability_matrix.py:53-72 is the existing read
+  projection.
+
+No older application/persistence/planning helper was found that already
+generated/selected the matrix family ID, generated the coordinator
+statement or exposed create/update/end as one matrix operation. The five
+new public functions at rota/application/rule_decisions.py:177-305 are the
+explicit T021b implementation of that missing seam. Therefore the task did
+not duplicate a previously hidden solution. Its behavioral acceptance is a
+separate exact-SHA implementation audit.
+
+C-2. Availability singularity brief: resolved model confirmed; no new gap
+
+The current brief is no longer an open question. Code confirms its decision:
+
+- rota/persistence/availability_repository.py:109-129 has one chain history
+  per availability_id and returns one current end for every family of an
+  employee, with no uniqueness constraint across families;
+- rota/persistence/availability_repository.py:132-158 filters current
+  families by active inclusive overlap;
+- rota/application/availability_matrix.py:58-61 is only a narrower active
+  projection, not the full five-kind/current-end log.
+
+The live T021 brief now correctly names
+get_current_availability_for_employee for the full current-family log at
+tasks/ROTA-T021/brief.md:431-445. No additional existing solution was
+missed in this question.
+
+
+D. DEPENDENCY / SEQUENCING
+
+D-1. The "existing employee" picker has no source population
+
+Contract flow:
+
+- tasks/ROTA-T021/brief.md:374-391 says the picker offers employees with no
+  membership at the current Site and disabled LOCAL members, while excluding
+  existing EXTERNAL_SUPPORT rows;
+- the only read named there is list_memberships_for_site.
+
+Actual read boundaries:
+
+- rota/persistence/employee_repository.py:143-150
+  list_memberships_for_site returns only rows that already have a membership
+  at that Site;
+- rota/persistence/employee_repository.py:79-84 list_employees is the
+  existing all-Employee population read, but the contract never names it or
+  defines a narrower coordinator-visible population.
+
+The named read can identify disabled LOCAL and EXTERNAL_SUPPORT rows, but it
+cannot discover the first required class: employees with no row at all for
+this Site. The picker cannot be implemented from its stated inputs.
+
+D-2. New Site -> empty shift catalog has no documented receiving flow
+
+Contract link:
+
+- tasks/ROTA-T021/brief.md:179-184 creates every SiteProfile with
+  standard_shifts=[] and says the catalog will be filled incrementally in
+  Panel Sterowania;
+- arch/T021_spec.md:393-407 repeats that the coordinator fills the shift
+  catalog there;
+- coordinator_context_completeness requires at least one valid shift
+  (arch/T021_spec.md:364-374), so the Site cannot become plan-ready without
+  this step.
+
+Existing backend path:
+
+- rota/persistence/site_profile_repository.py:151-179 reads the full
+  SiteProfile including standard_shifts;
+- rota/application/durable_inputs.py:383-414 rewrites the full current
+  SiteProfile;
+- rota/planning/shift_catalog.py:95-132 owns write-time and PLAN-time
+  StandardShift validation (full-hour boundaries, weekdays, rest,
+  catalog-kind/duration and required-primary-count rules).
+
+No Panel sterowania -> Obiekt section in the audited T021 documents defines
+the shift rows/fields, read, complete-object update or these validation
+boundaries. The producer screen intentionally creates an incomplete Site,
+but its claimed consumer step is not contractually present.
+
+D-3. In-scope Site deactivation has no UI route back to reactivation
+
+The documents combine these facts:
+
+- Site display_name/active editing is in scope now
+  (tasks/ROTA-T021/brief.md:491-494 and owner D3);
+- Workspace reads only active_sites_for_coordinator
+  (tasks/ROTA-T021/brief.md:141-160);
+- arch/T021_spec.md:344-381 explicitly leaves all_sites_for_coordinator out
+  of the current Workspace.
+
+Actual backend behavior:
+
+- rota/application/durable_inputs.py:417-460 can persist Site.active=False;
+- rota/application/bootstrap.py:378-386 omits inactive Sites from the
+  Workspace read;
+- rota/application/context.py:20-40 makes update_site itself unusable once
+  that Site is inactive;
+- rota/application/bootstrap.py:81-96 explicitly identifies bootstrap/resume
+  as the public recovery path after this self-lock.
+
+The current UI contract exposes neither the inactive Site nor a resume
+action addressed to its existing site_id. This is a new sequencing issue,
+not a repetition of the previously accepted decision that Workspace's
+ordinary "Wszystkie" list means active Sites rather than an admin-wide list.
+
+D-4. Persisted schedule handoff is incomplete
+
+PLAN/select can create a current ScheduleVersion and Przeglad can identify
+its header, but the next navigation step cannot reconstruct the schedule
+grid from the documented calls. This is the vertical consequence of A-1:
+the existing get_current_schedule_snapshot/get_schedule_snapshot read must
+be accounted for before Planowanie miesiaca or Reczna korekta can be called
+complete after reload/restart.
+
+
+CHECKED CONNECTIONS WITH NO NEW FINDING
+
+- calendar: set_calendar_day -> calendar_repository -> assembler/readiness;
+- availability: append_availability -> current-family repository read ->
+  eligibility/analytics/export, with the accepted multi-family semantics;
+- target hours: set_target_hours and get_work_balance_target use the same
+  (employee_id, month) fact consumed by analytics;
+- external support: add_external_support_window and
+  list_windows_for_site/list_windows_for_employee exist and use the same
+  window_id/employee_id/site_id model; B-2 is about the documented time
+  shape, not a missing backend connection;
+- decision/audit: current DECISION_REQUIRED IDs and responds_to links use the
+  same persisted identifiers;
+- the known list_active_overlapping* and SICK-over-LEAVE priority findings
+  were checked and not re-reported.
+
+ARCHITECTURE_PROPOSALS: NONE
+
+TESTS
+
+- Product tests were not run: this is a read-only cross-reference audit.
+- All evidence was read from exact audited SHA
+  abd3ac4926c716535db283dd2dbfe24c98d2abde.
