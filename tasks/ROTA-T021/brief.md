@@ -90,7 +90,22 @@ Required shape:
   ruling), but no build of this API may ship to a client before F1 is
   real.
 
-### 3.3 D4 superseded — Site creation is per-service, not one generic form
+### 3.3 Interim coordinator_id, pending real login (GAP FOUND 2026-08-23)
+
+`T021_spec.md:118-165`'s "coordinator identity switcher" (a no-password
+name-picker in the header, using `active_coordinators`/
+`all_coordinators`) is explicitly marked SUPERSEDED by T025's real-login
+requirement — it is not the design to build. But real login (F1) does
+not exist yet either, and every screen needs SOME `coordinator_id` to
+call anything. Interim decision, dev-only, until F1 lands: the API layer
+reads `coordinator_id` from a single hardcoded dev-config value (an env
+var or a one-line config file), never from a UI control. No login
+screen, no identity-picker UI gets built as if it were real — that would
+misrepresent an already-superseded design as current. When F1 (real
+login) is designed, this interim mechanism is deleted outright, not
+extended.
+
+### 3.4 D4 superseded — Site creation is per-service, not one generic form
 
 `T021_spec.md:393-407`'s "one inline form, Nazwa obiektu / Nazwa profilu /
 Próg decyzyjny" is STALE. Per `FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md`
@@ -113,7 +128,7 @@ placement, completeness filters, search) is unchanged and current.
 ## 4. SCREEN 1 — Workspace / Przedpokój (IN PROGRESS)
 
 Source: `T021_spec.md:344-407` (Site-creation subsection superseded by
-§3.3 above; rest current).
+§3.4 above; rest current).
 
 ### Reads (no mutation)
 - `bootstrap.active_sites_for_coordinator(conn, *, coordinator_id: str) -> tuple[Site, ...]`
@@ -130,7 +145,7 @@ Source: `T021_spec.md:344-407` (Site-creation subsection superseded by
 
 ### Writes
 - **Create OCHRONA Site** / **Create ORDINARY Site** (two entry points,
-  shared form component per §3.3): `bootstrap.bootstrap_or_resume_coordinator_context(conn, *, coordinator_id, site_id, coordinator=None, site_profile=SiteProfile(...), site=Site(..., planning_regime=SitePlanningRegime.OCHRONA|ORDINARY), association=CoordinatorSiteAssociation(...))`.
+  shared form component per §3.4): `bootstrap.bootstrap_or_resume_coordinator_context(conn, *, coordinator_id, site_id, coordinator=None, site_profile=SiteProfile(...), site=Site(..., planning_regime=SitePlanningRegime.OCHRONA|ORDINARY), association=CoordinatorSiteAssociation(...))`.
   Minimal fields per the (superseded but still field-accurate) form spec:
   Nazwa obiektu, Nazwa profilu zmianowego, Próg decyzyjny 7-dniowy
   (`rolling_7d_decision_threshold_hours`). D2's three fixed SiteProfile
@@ -141,6 +156,31 @@ Source: `T021_spec.md:344-407` (Site-creation subsection superseded by
 - `backup.build_diagnostic_zip(conn, destination: str) -> None`
   (destination: a path the API layer resolves server-side; the frontend
   triggers a download, it does not choose a filesystem path itself)
+
+### Calendar/holidays (GAP FOUND 2026-08-23 — never placed on any screen)
+
+D1 (`arch/T021_owner_decisions_2026-08-22.md`) ruled calendar editing
+in scope, global/whole-UI — `CalendarDay` has no `site_id` at all. No
+document ever assigned it to a screen (`T021_spec.md:42` only lists it
+as an unplaced gap). Workspace/Przedpokój is the only screen with
+matching (cross-Site, global) scope — decided here, now, not deferred
+again:
+
+- Read: `calendar_repository.list_calendar_days(conn, range_start: date, range_end: date) -> list[CalendarDay]`
+  (persistence-layer, no application wrapper exists for reads — call
+  directly, same already-accepted pattern as other missing-wrapper
+  reads noted in `T021_spec.md`)
+- Write: `durable_inputs.set_calendar_day(conn, *, coordinator_id: str, site_id: str, day: CalendarDay, note=None, responds_to_decision_required_id=None) -> None`
+  — `site_id` here is a pure authorization technicality (any active
+  `CoordinatorSiteAssociation` works; the write itself is never
+  site-scoped or persisted per-site). The frontend must pass any one of
+  the coordinator's own associated site_ids for this call — it must
+  never be shown to the user as "which obiekt," since that would imply a
+  scoping that doesn't exist.
+- UI: a simple year/month holiday-toggle list, not a full editable
+  calendar widget — matches the actual data shape (one `holiday: bool`
+  per date). Exact layout is Tor 2 (Paweł's own review), not specified
+  further here.
 
 ### Out of scope for this screen
 - Site regime correction (`correct_site_planning_regime`) — belongs to
@@ -156,8 +196,48 @@ authoritative source. Each gets its own §-numbered expansion in this
 brief when CC starts building it — not written speculatively ahead of
 need, matching Paweł's established per-screen method
 ([[feedback_screen_function_list_before_mockup]]). Panel Sterowania's
-expansion must additionally cover the T023b regime-correction UI (§3.3)
+expansion must additionally cover the T023b regime-correction UI (§3.4)
 when it's reached.
+
+**Known open items from `T021_spec.md`'s own completeness audit
+(lines 30-198) that must not get silently dropped when their screen is
+reached** — carried forward explicitly so re-verifying each screen
+doesn't depend on re-reading the whole spec file from scratch every
+time:
+
+- **Panel Sterowania**: `durable_inputs.update_site_profile` (only
+  `rolling_7d_decision_threshold_hours` may ever be editable per D2 —
+  the other SiteProfile toggles stay permanently non-coordinator-facing);
+  `durable_inputs.update_site` (D3, display_name/active editing);
+  `update_membership`'s `readiness_source=COORDINATOR_OVERRIDE` path for
+  S/szkolenie (currently read-only badge only, per
+  `T021_spec.md:92-98` — confirm with Paweł whether T021 makes this
+  editable or keeps it read-only); `membership_kind` is not editable
+  anywhere today (`T021_spec.md:100-102`) — confirm in/out of scope
+  before building, don't assume.
+- **EmployeeDetail (Panel Sterowania → per-employee)**: absence log's
+  real source is `availability_repository.get_current_availability_for_employee`
+  (persistence-layer, no application wrapper — same missing-wrapper
+  pattern as calendar reads above), not
+  `availability_matrix.employee_availability_matrix` (that function
+  covers only 3 of 5 `AvailabilityKind` values and 2 of 4 relevant rule
+  kinds — confirmed insufficient for the absence log,
+  `T021_spec.md:71-90`).
+- **Ręczna korekta**: the dry-run preview function this screen's Krok 2
+  needs does not exist in `rota/application/*` yet
+  (`T021_spec.md:186-187`) — flag back, do not invent it in the API
+  layer.
+- **Planowanie miesiąca**: "Historia wersji"/`restore` source
+  (`open_month.months_with_schedule`/`list_schedule_versions`?) was
+  never confirmed (`T021_spec.md:111-113`) — verify before building, not
+  guessed.
+- **Cross-cutting**: one raw/untranslated backend code,
+  `DAY_SHIFT_OFF-01` in `rota/planning/decision_guidance.py`
+  (`_render_condition`), returns unmapped — violates the no-anglicisms
+  rule; whichever screen renders it (Decyzje koordynatora) needs either
+  a backend fix (out of this task's scope per §6) or a frontend-side
+  translation table as a stopgap — decide when that screen is reached,
+  don't ship the raw code to a coordinator.
 
 ## 6. TASK_SCOPE
 
@@ -178,4 +258,4 @@ patched into the API layer.
 - No Railway/PWA deployment config yet (T025, separate).
 - No redesign of `T021_spec.md`'s per-screen facts — this brief indexes
   them, it does not re-derive or override them except where explicitly
-  marked superseded (§3.3).
+  marked superseded (§3.4).
