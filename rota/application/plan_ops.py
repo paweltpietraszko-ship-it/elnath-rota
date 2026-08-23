@@ -19,7 +19,12 @@ from rota.application.errors import (
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
-from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
+from rota.persistence.schedule_repository import (
+    get_current_version_id,
+    get_schedule_snapshot,
+    get_schedule_version_header,
+    set_schedule_version_planning_regime_in_open_transaction,
+)
 from rota.planning.engine import plan
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
@@ -241,9 +246,17 @@ def _replan_cutover_pre_check(
 
 def _select_candidate_hook(
     *, site_id, month, coordinator_id, header, current_id, before_state, after_state, note,
-    responds_to_decision_required_id, recorded_at,
+    responds_to_decision_required_id, recorded_at, planning_regime,
 ):
     def _hook(open_conn) -> None:
+        # ROTA-T023b (frozen addendum section 4, 'provenance adoption on
+        # selected candidate'): this fresh, freshly-validated candidate
+        # write is the ONLY normal automatic path that may promote an
+        # old-regime WORKING plan -- revalidate/finalize/restore/manual
+        # child creation must never call this primitive.
+        set_schedule_version_planning_regime_in_open_transaction(
+            open_conn, version_id=current_id, planning_regime=planning_regime,
+        )
         site_memory.record_coordinator_action_no_commit(
             open_conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, origin_site_id=site_id,
             affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
@@ -295,6 +308,7 @@ def select_candidate(
         site_id=site_id, month=month, coordinator_id=coordinator_id, header=header, current_id=current_id,
         before_state=before_state, after_state=after_state, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=recorded_at,
+        planning_regime=state.site.planning_regime,
     )
     pre_check = _replan_cutover_pre_check(
         current_id=current_id, header=header, candidate=candidate, cutover_at=cutover_at,

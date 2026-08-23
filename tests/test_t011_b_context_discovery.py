@@ -39,6 +39,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 
 COORD_A = "COORD-T011B-A"
@@ -66,7 +67,7 @@ def _bootstrap(conn, *, coordinator_id: str, site_id: str, coordinator_active=Tr
         conn, coordinator_id=coordinator_id, site_id=site_id,
         coordinator=Coordinator(coordinator_id, f"Coord {coordinator_id}", coordinator_active),
         site_profile=_profile(),
-        site=Site(site_id, PROFILE, f"Site {site_id}", site_active),
+        site=Site(site_id, PROFILE, f"Site {site_id}", site_active, planning_regime=SitePlanningRegime.ORDINARY),
         association=CoordinatorSiteAssociation(coordinator_id, site_id, association_active),
     )
 

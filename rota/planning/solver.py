@@ -23,9 +23,10 @@ from rota.domain import (
     AvailabilityKind,
     ShiftDemand,
     ShiftKind,
+    SitePlanningRegime,
 )
 from rota.planning.constraints import (
-    add_load_constraints, add_rest_constraints, add_same_person_24h_constraints,
+    add_load_constraints, add_rest_constraints, add_same_person_24h_constraints, add_weekly_rest_constraints,
     build_emergency_pair_context, build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
 )
 from rota.planning.eligibility import check_eligibility
@@ -532,7 +533,6 @@ def solve(
     slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state, allow_day_only_n_fallback)
     if unassignable:
         return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
-
     model = cp_model.CpModel()
     x = {
         (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
@@ -541,35 +541,32 @@ def solve(
     fixed_assignments = fixed_existing_assignments(state)
     fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
     fixed_periods, other_site_keys = build_fixed_periods(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
+    ochrona = state.site.planning_regime == SitePlanningRegime.OCHRONA
+    target_fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), [])  # T023b sec.7: target-Site only
     fixed_primary_by_demand: dict[str, set[str]] = {}
     for a in fixed_assignments:
         if a.role == AssignmentRole.PRIMARY and a.covers_demand_id:
             fixed_primary_by_demand.setdefault(a.covers_demand_id, set()).add(a.employee_id)
-
-    # T012-C: candidates/eligibility are computed only when this pass allows
-    # emergency 24h -- the first (normal) capped pass never even builds them.
+    # T012-C: candidates/eligibility computed only when this pass allows emergency 24h.
     same_month_by_employee, cross_month_by_employee = build_emergency_pair_context(state, slots) if allow_emergency_24h else ({}, {})
     assumptions = _add_coverage_constraints(model, x, slots, still_needed)
-    pair_vars = add_rest_constraints(model, x, slots, fixed_periods, state.site.site_id, same_month_by_employee, cross_month_by_employee, other_site_keys)
+    pair_vars = add_rest_constraints(
+        model, x, slots, fixed_periods, state.site.site_id, same_month_by_employee, cross_month_by_employee, other_site_keys, ochrona=ochrona,
+    )
+    add_weekly_rest_constraints(model, x, slots, target_fixed, state.month, ochrona)
     add_same_person_24h_constraints(model, x, slots, list(state.shift_demands), fixed_primary_by_demand)
     add_load_constraints(
         model, x, slots, fixed, state.month, state.profile.rolling_7d_decision_threshold_hours, enforce_load_cap
     )
     model.add_assumptions(list(assumptions.values()))
-
-    # T018 B5: reshuffle (REPLAN-MIN-01, only when a baseline exists) always
-    # precedes exceptional_n; the exceptional phase is skipped entirely when
-    # allow_day_only_n_fallback is False (no exceptional slot can exist).
+    # T018 B5: reshuffle (REPLAN-MIN-01) precedes exceptional_n; the exceptional phase needs allow_day_only_n_fallback.
     phase_exprs = []
     baseline = redistributable_baseline_assignments(state)
     if baseline:
         phase_exprs.append(build_reshuffle_count_expr(x, baseline))
     if allow_day_only_n_fallback:
         phase_exprs.append(_exceptional_n_expr(x, slots))
-
-    # T017: search variants only for a capped pass -- an uncapped Stage 4
-    # candidate is always routed to LOAD DECISION_REQUIRED, never a
-    # multi-candidate FEASIBLE source.
+    # T017: search variants only for a capped pass -- uncapped Stage 4 routes to LOAD DECISION_REQUIRED, never multi-candidate.
     return _solve_lexicographic_phases(
         model, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee, phase_exprs,
         still_needed, search_variants=enforce_load_cap,

@@ -15,6 +15,7 @@ from rota.domain import (
     MembershipKind,
     ShiftDemand,
     SiteMembership,
+    SitePlanningRegime,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
@@ -130,7 +131,7 @@ def _seed_minimal_context(conn) -> tuple[str, str]:
     import calendar as cal
     site_id, coordinator_id, employee_id = "SITE-NN", "COORD-NN", "EMP-NN"
     save_site_profile(conn, profile)
-    save_site(conn, Site(site_id, profile.profile_id, "NN Site", True))
+    save_site(conn, Site(site_id, profile.profile_id, "NN Site", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator(coordinator_id, "Coord", True))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation(coordinator_id, site_id, True))
     save_employee(conn, Employee(employee_id, "Emp NN", date(2026, 1, 1), None, False))

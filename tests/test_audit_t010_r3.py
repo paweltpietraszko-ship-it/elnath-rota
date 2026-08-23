@@ -41,6 +41,7 @@ from rota.domain import (
     SiteProfile,
     SiteRuleVersion,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.calendar_repository import save_calendar_day
@@ -91,7 +92,7 @@ def _profile(*, shifts: list[StandardShift] | None = None, display_name: str = "
 
 def _seed_context(conn, *, shifts: list[StandardShift] | None = None, day_only: bool = False) -> None:
     save_site_profile(conn, _profile(shifts=shifts))
-    save_site(conn, Site(SITE_ID, PROFILE_ID, "Site", True))
+    save_site(conn, Site(SITE_ID, PROFILE_ID, "Site", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator(COORDINATOR_ID, "Coordinator", True))
     save_coordinator_site_association(
         conn, CoordinatorSiteAssociation(COORDINATOR_ID, SITE_ID, True)
@@ -171,7 +172,7 @@ def test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed(
                 site_id=SITE_ID,
                 coordinator=Coordinator(COORDINATOR_ID, f"Coordinator {label}", True),
                 site_profile=_profile(display_name=f"Profile {label}"),
-                site=Site(SITE_ID, PROFILE_ID, f"Site {label}", True),
+                site=Site(SITE_ID, PROFILE_ID, f"Site {label}", True, planning_regime=SitePlanningRegime.ORDINARY),
                 association=CoordinatorSiteAssociation(COORDINATOR_ID, SITE_ID, True),
             )
         except CoordinatorContextAlreadyActive:

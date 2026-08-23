@@ -18,8 +18,9 @@ WYMAGANIA REST (tasks/ROTA-T012/part_b_work_period_rest.md):
 """
 from __future__ import annotations
 
+import calendar as _calendar
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from rota.constants import REST_MIN_HOURS
@@ -298,6 +299,70 @@ def check_emergency_pair_structure(
     if not can_work_24h and not all_24h_profile:
         return [EmergencyPeriodFinding(ids, "SHIFT-24-01", "employee lacks can_work_24h on a mixed profile")]
     return []
+
+
+# --- ROTA-T023b: ochrona rest-rule pure arithmetic (frozen addendum ------
+# section 6). Single pure, persistence-free owner -- consumers (solver,
+# validator, manual_edit) must not reimplement this. ------------------------
+
+WEEKLY_REST_REQUIRED_HOURS = 35
+
+
+def effective_required_rest_after_hours(period: WorkPeriod, *, ochrona: bool) -> int:
+    """Exact 24h WorkPeriod under OCHRONA -> max(resolved configured rest,
+    24h). Every other WorkPeriod, or a non-OCHRONA Site, keeps its
+    configured/resolved rest unchanged. Persisted rest provenance is
+    never rewritten -- this is a read-time effective value only, covering
+    both existing 24h forms (Catalog H24 and an emergency H12+H12 pair)
+    since both already produce one WorkPeriod with (end - start) == 24h
+    via group_into_periods."""
+    if ochrona and (period.end - period.start) == timedelta(hours=24):
+        return max(period.required_rest_after_hours, 24)
+    return period.required_rest_after_hours
+
+
+def weekly_settlement_windows(month: date) -> list[tuple[datetime, datetime]]:
+    """Complete, non-overlapping 7-day windows of the calendar-month
+    settlement period, starting on day 1 -- [window_start, window_end)
+    datetime pairs at midnight. A trailing partial week (fewer than 7
+    remaining days) creates no window; T023b does not invent a separate
+    weekly arithmetic or week-boundary convention beyond this."""
+    days_in_month = _calendar.monthrange(month.year, month.month)[1]
+    windows = []
+    day = 1
+    while day + 7 <= days_in_month + 1:
+        start = datetime.combine(date(month.year, month.month, day), datetime.min.time())
+        windows.append((start, start + timedelta(days=7)))
+        day += 7
+    return windows
+
+
+def max_uninterrupted_free_hours(
+    window_start: datetime, window_end: datetime, work_intervals: list[tuple[datetime, datetime]],
+) -> float:
+    """Clips each occupied interval to [window_start, window_end), merges
+    overlapping/abutting occupied time, and returns the largest free gap
+    in hours -- including the boundary gaps before the first occupied
+    interval and after the last (an empty window is entirely free)."""
+    clipped = []
+    for start, end in work_intervals:
+        s, e = max(start, window_start), min(end, window_end)
+        if s < e:
+            clipped.append((s, e))
+    clipped.sort()
+    merged: list[list[datetime]] = []
+    for s, e in clipped:
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    if not merged:
+        return (window_end - window_start).total_seconds() / 3600
+    best = (merged[0][0] - window_start).total_seconds() / 3600
+    for (_, prev_end), (next_start, _) in zip(merged, merged[1:]):
+        best = max(best, (next_start - prev_end).total_seconds() / 3600)
+    best = max(best, (window_end - merged[-1][1]).total_seconds() / 3600)
+    return best
 
 
 if __name__ == "__main__":

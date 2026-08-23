@@ -31,6 +31,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.calendar_repository import save_calendar_day
@@ -63,7 +64,7 @@ def _bootstrap(conn, *, employee_ids=(EMP_A,)) -> None:
         conn, coordinator_id=COORD, site_id=SITE,
         coordinator=Coordinator(COORD, "Coord T011D", True),
         site_profile=_profile(),
-        site=Site(SITE, PROFILE, "Site T011D", True),
+        site=Site(SITE, PROFILE, "Site T011D", True, planning_regime=SitePlanningRegime.ORDINARY),
         association=CoordinatorSiteAssociation(COORD, SITE, True),
     )
     for employee_id in employee_ids:

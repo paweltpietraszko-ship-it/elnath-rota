@@ -51,6 +51,7 @@ from rota.domain import (
     SiteMembership,
     SiteProfile,
     StandardShift,
+    SitePlanningRegime,
 )
 from rota.site_memory_types import NewRuleContent
 
@@ -77,7 +78,7 @@ def _profile(profile_id: str) -> SiteProfile:
 
 
 def _site(site_id: str, profile_id: str, display_name: str, active: bool = True) -> Site:
-    return Site(site_id=site_id, profile_id=profile_id, display_name=display_name, active=active)
+    return Site(site_id=site_id, profile_id=profile_id, display_name=display_name, active=active, planning_regime=SitePlanningRegime.ORDINARY)
 
 
 def _bootstrap(

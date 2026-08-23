@@ -60,6 +60,37 @@ Jeżeli zauważysz szerszy problem współbieżności, możesz zgłosić go jede
 - Test nie tworzy kontraktu.
 - Werdykt FAIL musi wynikać z dosłownego wymagania należącego do komponentu pod audytem.
 
+## 4A. Warstwowy niezależny audyt implementacji
+
+Wynik testów wykonawcy jest dowodem pomocniczym, ale nie zastępuje niezależnego
+uruchomienia przez audytora. Niezależność nie oznacza jednak bezmyślnego
+powtarzania całej macierzy wykonawcy po każdej poprawce. Audyt prowadź w czterech
+warstwach, na dokładnie wskazanym SHA:
+
+1. **Minimalny niezależny reproduktor** — samodzielnie uruchom najmniejszy test,
+   który potwierdza naprawę nazwanego findingu. Przed wystawieniem werdyktu
+   powiąż oczekiwanie z obowiązującym kontraktem i właścicielem wymagania.
+2. **Pełna macierz Tasku** — uruchom wszystkie testy Tasku, w tym autoryzowane
+   klasy równoważności, wartości graniczne oraz sąsiednie i alternatywne ścieżki
+   wykonania podatne na tę samą klasę błędu.
+3. **Test pionowy** — sprawdź współpracę zmiany z rzeczywistym, istotnym dla niej
+   łańcuchem programu, na przykład zapis/wejście → assembler → solver lub
+   walidator → lifecycle/manual edit/export/odczyt UI. Zakres dobierz z istniejącego
+   kontraktu; test pionowy nie może tworzyć nowego wymagania.
+4. **Końcowa regresja repozytorium** — raz, na finalnym SHA, uruchom pełny zestaw
+   testów i właściwe bramki jakości. Nie powtarzaj pełnej regresji po każdej
+   mikropoprawce, chyba że zakres albo ryzyko zmiany rzeczywiście tego wymaga.
+
+Powtarzaj te same testy wykonawcy tylko w minimalnym zakresie potrzebnym do
+niezależnego potwierdzenia wyniku. Pozostały wysiłek audytowy kieruj na niepokryte
+klasy równoważności i ścieżki pionowe. Stary test oparty na kształcie źródła lub
+nieaktualnym założeniu sklasyfikuj najpierw wobec bieżącego kontraktu i właściciela
+komponentu; samo jego niepowodzenie nie jest automatycznie regresją produktu.
+
+Raport końcowy musi wskazywać dokładne audytowane SHA oraz to, które z czterech
+warstw wykonano. `PASS` dotyczy wyłącznie tego SHA. Metoda nie pozwala pomijać
+testów wymaganych wprost przez Task ani osłabiać kontraktu.
+
 ## 5. Stan katalogu roboczego
 
 Working tree zawiera liczne niezależne, niecommitowane pliki i zmiany użytkownika, między innymi w `Grafiki/`, `arch/`, `tasks/` oraz pliki diffów. Nie usuwaj ich, nie porządkuj i nie dołączaj do własnych commitów. Przed każdą zmianą uruchom `git status -sb` i commituj wyłącznie własne, dokładnie wskazane pliki.

@@ -1,0 +1,62 @@
+ROTA-T023b — IMPLEMENTATION AUDIT, ROUND 9
+
+AUDITED_HEAD: cbd5c16d5d5232ebed44bfbd3c9bc1c082c3c666
+AUDITED_BRANCH: origin/task/ROTA-T023b
+ARCHITECT_FINDING_HEAD: fcc9b54a57dfdd939d09a2086ace24f2bd053718
+CONTRACT_HEAD: 50ac0cb1c6b09661dbd16d15c3bad8228f995507
+DATE: 2026-08-23
+
+VERDICT: PASS — PRODUCT IMPLEMENTATION AND VERTICAL INTEGRATION VERIFIED;
+READY FOR ARCHITECT FINAL EXACT-SHA REVIEW
+
+Architect finding A1 is closed without widening the contract.
+
+- validator WEEKLY-REST-01 now evaluates non-CANCELLED current/candidate
+  target-Site Assignments plus non-CANCELLED same-Site boundary_assignments;
+- manual weekly REST-override fact reconstruction uses the same fact set;
+- state.other_site_assignments remains excluded;
+- both consumers still delegate clipping/merging/free-gap arithmetic to the
+  existing pure work_periods oracle;
+- solver was unchanged and already used the same target fixed facts.
+
+The focused persistence-to-application regression creates a real previous-
+month same-Site current ScheduleVersion whose Assignment overlaps day 1, then
+proves apply_manual_correction assembles that boundary fact, derives
+WEEKLY-REST-01 and writes the existing REST_OVERRIDE_RECORD. The validator
+regression independently proves that the same target schedule passes without
+the boundary and fails when the boundary is present.
+
+INDEPENDENT EXECUTION ON EXACT AUDITED HEAD
+
+Task matrix:
+- tests/test_t023b.py plus round-5/round-6 adversarial suites: 38 passed.
+
+Relevant vertical/regression set:
+- tests/test_vertical_full_stack.py;
+- tests/test_t009_open_and_assembler.py;
+- tests/test_t009_plan_select_replan.py;
+- tests/test_t009_manual_edit.py;
+- tests/test_t009_lifecycle_memory_backup_boundary.py;
+- tests/test_t022_planning_integrity.py;
+- together with the T023b/audit tests above: 113 passed.
+
+Repository regression:
+- 1052 passed;
+- 1 failed: the obsolete T023 Checkpoint-B repository-HEAD source-diff proof
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b.
+
+The architect review at fcc9b54 records the owner's explicit exclusion of that
+obsolete proof and acceptance of the exact backend NEW_FILES, SIZE_FILE,
+SIZE_FUNC, RATIO and TOTAL_LINES exceptions. Those written owner decisions are
+accepted behaviour for this audit; they waive no behavioural regression.
+
+Quality checks:
+- Ruff: PASS;
+- git diff --check: PASS;
+- backend_output_a1fix.txt still mechanically reports STATUS: FAIL only for
+  the already owner-accepted delivery exceptions; no new unaccepted reason is
+  present.
+
+No FAIL or WYMAGA_DECYZJI product finding remains. No architecture proposal is
+raised. Merge remains an explicit owner action after the architect's final
+review of cbd5c16d5d5232ebed44bfbd3c9bc1c082c3c666.

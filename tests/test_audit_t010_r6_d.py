@@ -27,6 +27,7 @@ from rota.domain import (
     ShiftDemand,
     Site,
     SiteMembership,
+    SitePlanningRegime,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.calendar_repository import save_calendar_day
@@ -54,7 +55,7 @@ EMP_C = "EMP-R6-C"
 def _seed_context(conn) -> None:
     profile = base_profile()
     save_site_profile(conn, profile)
-    save_site(conn, Site(SITE_ID, profile.profile_id, "Site D", True))
+    save_site(conn, Site(SITE_ID, profile.profile_id, "Site D", True, planning_regime=SitePlanningRegime.ORDINARY))
     save_coordinator(conn, Coordinator(COORDINATOR_ID, "Coordinator D", True))
     save_coordinator_site_association(
         conn, CoordinatorSiteAssociation(COORDINATOR_ID, SITE_ID, True)

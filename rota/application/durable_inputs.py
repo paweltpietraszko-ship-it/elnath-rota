@@ -22,6 +22,7 @@ from rota.domain import (
     ExternalSupportWindow,
     Site,
     SiteMembership,
+    SitePlanningRegime,
     SiteProfile,
 )
 from rota.persistence import site_memory
@@ -39,8 +40,15 @@ from rota.persistence.employee_repository import (
     write_external_support_window_in_open_transaction,
     write_site_membership_in_open_transaction,
 )
+from rota.persistence.schedule_repository import list_regime_replan_required_months
 from rota.persistence.site_profile_repository import SiteProfileNotFound, get_site_profile, write_site_profile_in_open_transaction
-from rota.persistence.site_repository import SiteNotFound, get_site, list_sites, write_site_in_open_transaction
+from rota.persistence.site_repository import (
+    SiteNotFound,
+    correct_site_planning_regime_in_open_transaction,
+    get_site,
+    list_sites,
+    write_site_in_open_transaction,
+)
 from rota.persistence.work_balance_repository import get_work_balance_target, write_work_balance_target_in_open_transaction
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
 
@@ -482,3 +490,46 @@ def update_association(conn, *, coordinator_id: str, site_id: str, association: 
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     _require_payload_belongs_to_site(association.site_id, site_id)
     save_coordinator_site_association(conn, association)
+
+
+def correct_site_planning_regime(
+    conn, *, coordinator_id: str, site_id: str, planning_regime: SitePlanningRegime,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
+) -> tuple[date, ...]:
+    """ROTA-T023b (frozen addendum section 3): deliberate, audited repair
+    of a mistaken initial Site classification -- NOT an ordinary edit.
+    update_site's normal write path already rejects any regime change
+    (write_site_in_open_transaction); only this command may change it.
+
+    Does not create/rewrite/finalize/restore a ScheduleVersion and does
+    not mutate any Assignment -- historical ScheduleVersions and REALIZED
+    Assignments are untouched. The returned month list is a UI
+    convenience for routing affected months to the existing REPLAN flow;
+    it is NOT the enforcement source
+    (schedule_repository.version_requires_regime_replan re-derives the
+    same fact from persisted data at every real enforcement point)."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    before = get_site(conn, site_id)
+    if before.planning_regime == planning_regime:
+        return list_regime_replan_required_months(conn, site_id)
+    recorded_at = datetime.now()
+    with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        correct_site_planning_regime_in_open_transaction(conn, site_id=site_id, planning_regime=planning_regime)
+        affected_months = list_regime_replan_required_months(conn, site_id)
+        _record_action_and_invalidate_no_commit(
+            conn, action_kind=CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=recorded_at.date(), month=None,
+            affected_entities=[AffectedEntity("SITE", site_id)],
+            before_state={"planning_regime": before.planning_regime.value},
+            after_state={
+                "planning_regime": planning_regime.value,
+                "regime_replan_required_months": [m.isoformat() for m in affected_months],
+            },
+            note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE, source_id=site_id,
+            responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=None,
+        )
+    return affected_months

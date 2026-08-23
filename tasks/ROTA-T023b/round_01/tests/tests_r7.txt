@@ -1,0 +1,87 @@
+ROTA-T023b — IMPLEMENTATION AUDIT, ROUND 7
+
+AUDITED_HEAD: f7965f34740cca2f27a6b05da9b96a0c9f0b4e6e
+AUDITED_BRANCH: origin/task/ROTA-T023b
+PREVIOUS_AUDIT_HEAD: 46283761c80958550241cb8fa9b43ef6c1d9bb21
+AUDITED_CONTRACT_HEAD: 50ac0cb1c6b09661dbd16d15c3bad8228f995507
+BASE_PRODUCT_SHA: 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+DATE: 2026-08-23
+
+VERDICT: FAIL — R5-3 REMAINS OPEN ON AN ALTERNATE PRODUCTION PATH; BACKEND
+DELIVERY GATE ALSO REMAINS FAIL
+
+This report supersedes the preliminary round-6 result recorded earlier in the
+same audit run. Per the immutable-audit-file rule, tests_r6.txt is preserved
+unchanged; the later production-call-site check below is the reason for this
+next-round correction.
+
+No new product requirement is asserted. R5-1 and R5-2 are closed, but R5-3 was
+fixed only at the call sites exercised by the ordinary suite.
+
+R5-1 CLOSED — solver WEEKLY-REST-01 now enumerates every pair of candidate
+anchors, so endpoints belonging to unselected prospective slots no longer
+fragment a genuinely longer free interval. Employee iteration is the union of
+prospective-slot and fixed-target-work employees. Both round-5 sibling
+reproducers pass.
+
+R5-2 CLOSED — manual REST override reconstruction now applies the shared
+effective_required_rest_after_hours oracle under OCHRONA for a target-Site
+earlier period and stores the effective requirement. The 11h-configured,
+exact-24h-work, 20h-rest reproducer creates one REST_OVERRIDE_RECORD with
+required_rest_hours=24.
+
+R5-3 STILL OPEN — Site.planning_regime correctly no longer has a dataclass
+default, and the implementation mechanically updated many constructors.
+However rota/planning/state.py:93 still constructs Site without
+planning_regime. The committed production smoke path
+`python -m rota.planning.state` exits with TypeError instead of printing its
+normal module-OK result.
+
+This is the same explicit-regime invariant as R5-3 on an alternate execution
+path: every production Site constructor must make the classification choice
+explicit. A generalized AST regression over all rota/**/*.py call sites finds
+the remaining omission. The ordinary full suite does not execute this module's
+__main__ block, so its result cannot close the class.
+
+Reproducer:
+- test_r6_every_production_site_constructor_supplies_explicit_regime
+
+INDEPENDENT VERIFICATION
+
+- tests/test_t023b.py plus round-5 adversarial tests: 35 passed;
+- round-6 production-call-site audit: 1 failed;
+- `python -m rota.planning.state`: TypeError at the omitted regime;
+- full existing suite: 1050 passed, 1 failed;
+- that sole existing failure remains the obsolete T023 Checkpoint-B
+  source-diff proof test_t23_54; T023b explicitly requires the reported
+  constraints.py/work_periods.py changes, so it is not a product regression;
+- Ruff: PASS;
+- git diff --check: PASS.
+
+DELIVERY GATE
+
+backend_output_r5fix.txt is current for the product HEAD immediately preceding
+the output-only commit and records STATUS: FAIL:
+
+- NEW_FILES: 3 (limit 2);
+- SIZE_FILE: pre-existing oversized tests/test_t012.py, test_t019b.py,
+  test_t020.py and test_t018.py are now in the diff;
+- SIZE_FUNC: one pre-existing oversized function in
+  tests/test_audit_t010_r6_d.py is reported because its file is in the diff;
+- RATIO 11.4:1 and TOTAL_LINES 1710 remain WYMAGA_DECYZJI.
+
+The newly touched test/benchmark files are predominantly mechanical
+explicit-Site-regime fallout permitted by the task contract; the flagged long
+function itself was not redesigned. That explains the output but does not turn
+STATUS: FAIL into PASS. There is no written acceptance in the audited delivery
+that resolves all reported guard/threshold results.
+
+The implementation is not ready for architect review or merge. CC must close
+the remaining R5-3 production call site. After that code fix, the backend
+exceptions/thresholds still require an explicit owner decision or a different
+green-gate delivery. Neither condition requires a new product or architecture
+decision.
+
+ARCHITECTURE_PROPOSALS
+
+None.

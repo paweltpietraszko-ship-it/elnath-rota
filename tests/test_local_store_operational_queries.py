@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from rota.balance import MissingTargetHoursError
-from rota.domain import Assignment, AssignmentRole, AssignmentState, CalendarDay, Employee, ShiftDemand
+from rota.domain import Assignment, AssignmentRole, AssignmentState, CalendarDay, Employee, ShiftDemand, SitePlanningRegime
 from rota.persistence import schedule_lifecycle as lc
 from rota.persistence import schedule_repository as repo
 from rota.persistence import work_balance_repository as wb
@@ -47,7 +47,7 @@ def _create(conn, **overrides):
 
 def _seed_second_site(conn) -> None:
     save_site_profile(conn, make_profile("PROF-2"))
-    save_site(conn, Site("SITE-2", "PROF-2", "Site Two", True))
+    save_site(conn, Site("SITE-2", "PROF-2", "Site Two", True, planning_regime=SitePlanningRegime.ORDINARY))
 
 
 # --- M. CURRENT-ONLY OPERATIONAL QUERIES -------------------------------------

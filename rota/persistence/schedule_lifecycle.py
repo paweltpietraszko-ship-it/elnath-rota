@@ -11,7 +11,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import date, datetime
 
-from rota.domain import Assignment, AssignmentRole, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand
+from rota.domain import Assignment, AssignmentRole, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand, SitePlanningRegime
 from rota.persistence import schedule_validation as validation
 from rota.persistence.schedule_errors import (
     DuplicateScheduleVersionId,
@@ -19,7 +19,21 @@ from rota.persistence.schedule_errors import (
     MalformedScheduleSnapshot,
     NonEditableScheduleVersion,
 )
-from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
+from rota.persistence.schedule_repository import (
+    get_current_version_id,
+    get_schedule_snapshot,
+    get_schedule_version_header,
+    version_requires_regime_replan,
+)
+
+
+class RegimeReplanRequired(Exception):
+    """ROTA-T023b (frozen addendum section 4): raised by finalize/restore
+    when the target ScheduleVersion has PLANNED content whose persisted
+    planning_regime provenance no longer matches its Site's current
+    planning_regime -- durable across restart, re-derived from persisted
+    facts by schedule_repository.version_requires_regime_replan. No
+    lifecycle/action side effect occurs when this is raised."""
 
 
 def _order_assignments_mentor_first(assignments: list[Assignment]) -> list[Assignment]:
@@ -107,6 +121,22 @@ def _validate_content(
     return validation.derive_working_status(deviations)
 
 
+def _initial_planning_regime(conn: sqlite3.Connection, *, site_id: str, parent_version_id: str | None) -> SitePlanningRegime:
+    """ROTA-T023b (frozen addendum section 4, 'provenance on creation'):
+    a root version starts with the CURRENT Site regime; a child version
+    conservatively INHERITS its parent ScheduleVersion's own persisted
+    regime provenance -- cloning old planning content does not prove that
+    content was accepted under a newer regime. No child becomes
+    current-regime merely because it was created after a Site
+    correction; only a freshly-validated selected candidate may adopt it
+    (schedule_repository.set_schedule_version_planning_regime_in_open_transaction,
+    called from plan_ops.select_candidate)."""
+    if parent_version_id is not None:
+        return get_schedule_version_header(conn, parent_version_id).planning_regime
+    row = conn.execute("SELECT planning_regime FROM sites WHERE site_id = ?", (site_id,)).fetchone()
+    return SitePlanningRegime(row[0]) if row is not None else SitePlanningRegime.ORDINARY
+
+
 def create_schedule_version(
     conn: sqlite3.Connection, *, version_id: str, site_id: str, month: date, parent_version_id: str | None,
     created_at: datetime, created_by: str, applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand],
@@ -141,12 +171,13 @@ def create_schedule_version(
             assignments=assignments, deviations=deviations, nn_reference_version_id=parent_version_id,
             allow_new_nn_from_planned_primary=parent_version_id is not None,
         )
+        planning_regime = _initial_planning_regime(conn, site_id=site_id, parent_version_id=parent_version_id)
         conn.execute(
             "INSERT INTO schedule_versions (version_id, site_id, month, parent_version_id, created_at, "
-            "created_by, status, effective_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "created_by, status, effective_from, planning_regime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 version_id, site_id, month.isoformat(), parent_version_id, created_at.isoformat(), created_by,
-                status.value, effective_from.isoformat() if effective_from else None,
+                status.value, effective_from.isoformat() if effective_from else None, planning_regime.value,
             ),
         )
         _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
@@ -235,6 +266,8 @@ def finalize_schedule_version(
         if pre_check is not None:
             pre_check(conn)
         header = _require_editable_current(conn, version_id)
+        if version_requires_regime_replan(conn, version_id):
+            raise RegimeReplanRequired(f"{version_id}: regime replan required before finalize")
         if shift_demands is not None:
             _replace_content_for_finalize(
                 conn, version_id, header, applied_rule_version_ids, shift_demands, assignments, deviations,
@@ -268,6 +301,8 @@ def restore_schedule_version(
         header = get_schedule_version_header(conn, version_id)
         if header.site_id != site_id or header.month != month:
             raise InvalidCurrentVersionTarget(f"{version_id} does not belong to ({site_id}, {month})")
+        if version_requires_regime_replan(conn, version_id):
+            raise RegimeReplanRequired(f"{version_id}: regime replan required before restore")
         _set_current_reference(conn, site_id, month, version_id)
         if on_success is not None:
             on_success(conn)
