@@ -174,11 +174,23 @@ file directly outside the application — an HMAC per action row would
 close that specific gap, independent of whichever storage-encryption
 direction is chosen above).
 
+## RULING 2026-08-23 — sequencing: not a T021 blocker
+
+Paweł asked whether SQLCipher work must precede T021 (frontend). Ruling:
+**no**. SQLCipher is a swap at `rota/persistence/db.py`'s `connect()`
+only — it changes no function signature or business logic anything in
+`rota/application/*.py` (and therefore T021's screens) calls. Today's
+persisted data is test data, not real client data. Same sequencing
+logic as F1 (real authentication) in
+`arch/FINDING_2026-08-22_PWA_HOSTING_PIVOT.md`: this does not block
+T021 UI-screen-building work, but it (together with F1) becomes a hard
+gate before any real client employee data is ever loaded, regardless
+of deployment path (on-premise or Railway/PWA).
+
 ## Explicitly NOT decided here
 
-- Whether encryption-at-rest for the SQLite store is actually implemented,
-  and with what mechanism (SQLCipher vs. filesystem/OS-level encryption
-  vs. something else).
+- Exact mechanism for encryption-at-rest (SQLCipher vs. field-level vs.
+  filesystem/OS-level) — direction only, per the UPDATE above.
 - Whether TLS is required for the internal-network deployment path
   specifically (vs. the already-settled Railway/PWA path, which needs it
   regardless as a public-internet service).
