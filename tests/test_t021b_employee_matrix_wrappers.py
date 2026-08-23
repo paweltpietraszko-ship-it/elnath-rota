@@ -364,3 +364,73 @@ def test_current_decision_required_months_still_readable_after_writes(conn):
         effective_from=date(2026, 9, 1), effective_to=date(2026, 9, 30),
     )
     assert current_decision_required_months_for_site(conn, site_id=SITE) == []
+
+
+# --- round-4 audit regressions (R4-1, R4-2) ---
+
+
+def test_update_rejects_malformed_current_family_with_no_write(conn):
+    from rota.application.rule_decisions import record_structured_rule_decision
+    from rota.domain import RuleCategory, RuleEnforcement, RuleResolution
+    from rota.site_memory_types import NewRuleContent
+
+    rule_id = "R-EMP-MATRIX-malformed"
+    record_structured_rule_decision(
+        conn, coordinator_id=COORD, site_id=SITE, rule_id=rule_id, statement="malformed family",
+        effective_from=date(2026, 9, 1), rel=None,
+        rule_content=NewRuleContent(
+            category=RuleCategory.LOCAL_RULE, rule_kind="EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS",
+            structured_parameters={
+                "employee_id": "EMP-1", "weekdays": [1, 2, 3, 4, 5, 6, 7],
+                "forbidden_shift_kinds": ["D"], "extra_key": "not allowed",
+            },
+            enforcement=RuleEnforcement.HARD, resolution_status=RuleResolution.RESOLVED,
+            effective_to=date(2026, 9, 30), description=None, source=None, reason=None,
+        ),
+    )
+    before = _action_count(conn, CoordinatorActionKind.RULE_DECISION_RECORDED)
+    with pytest.raises(ValueError):
+        update_employee_matrix_rule_period(
+            conn, coordinator_id=COORD, site_id=SITE, rule_id=rule_id,
+            effective_from=date(2026, 9, 1), effective_to=date(2026, 10, 15),
+        )
+    with pytest.raises(ValueError):
+        end_employee_matrix_rule_early(conn, coordinator_id=COORD, site_id=SITE, rule_id=rule_id, effective_from=date(2026, 9, 5))
+    assert _action_count(conn, CoordinatorActionKind.RULE_DECISION_RECORDED) == before
+
+
+def test_broader_family_statement_names_every_weekday(conn):
+    created = create_employee_weekday_unavailability(
+        conn, coordinator_id=COORD, site_id=SITE, employee_id="EMP-1", iso_weekday=1,
+        effective_from=date(2026, 9, 1), effective_to=date(2026, 9, 30),
+    )
+    # broaden to a 2-weekday, 2-kind family directly (a valid shape this
+    # module's own create wrappers don't produce, but update must accept
+    # and describe truthfully -- brief.md section 3.4 explicitly permits
+    # a broader-than-one-cell family)
+    from rota.application.rule_decisions import record_structured_rule_decision
+    from rota.domain import RuleCategory, RuleEnforcement, RuleResolution
+    from rota.site_memory_types import NewRuleContent
+
+    broadened = record_structured_rule_decision(
+        conn, coordinator_id=COORD, site_id=SITE, rule_id=created.rule_id, statement="widen",
+        effective_from=date(2026, 9, 1), rel="supersedes",
+        rule_content=NewRuleContent(
+            category=RuleCategory.LOCAL_RULE, rule_kind="EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS",
+            structured_parameters={"employee_id": "EMP-1", "weekdays": [1, 2], "forbidden_shift_kinds": ["D", "N"]},
+            enforcement=RuleEnforcement.HARD, resolution_status=RuleResolution.RESOLVED,
+            effective_to=date(2026, 9, 30), description=None, source=None, reason=None,
+        ),
+    )
+    assert broadened.rule_version_id is not None
+
+    updated = update_employee_matrix_rule_period(
+        conn, coordinator_id=COORD, site_id=SITE, rule_id=created.rule_id,
+        effective_from=date(2026, 9, 1), effective_to=date(2026, 10, 15),
+    )
+    assert "poniedziałek" in updated.statement.lower() and "wtorek" in updated.statement.lower()
+
+    ended = end_employee_matrix_rule_early(
+        conn, coordinator_id=COORD, site_id=SITE, rule_id=created.rule_id, effective_from=date(2026, 10, 1),
+    )
+    assert "poniedziałek" in ended.statement.lower() and "wtorek" in ended.statement.lower()

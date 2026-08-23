@@ -23,7 +23,12 @@ from rota.persistence.decision_ledger import record_decision_no_commit
 from rota.persistence.employee_repository import get_employee
 from rota.persistence.site_memory import rule_history
 from rota.persistence.site_rule_repository import get_site_rule_version
-from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION, EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS
+from rota.planning.site_rules import (
+    EMPLOYEE_DAY_ONLY_N_EXCEPTION,
+    EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
+    UnsupportedOrMalformedSiteRule,
+    validate_executable_site_rules,
+)
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind, DecisionRecord, NewRuleContent
 
 
@@ -127,10 +132,16 @@ def _day_only_exception_statement(effective_from: date, effective_to: date) -> s
     return f"Nocka: czasowo dozwolona od {_fmt(effective_from)} do {_fmt(effective_to)}"
 
 
-def _describe_matrix_family_for_reject(rule_kind: str, structured_parameters: dict) -> str:
-    """Statement for end_employee_matrix_rule_early() -- derives the
-    human label from the family's own saved content, since the caller
-    only supplies rule_id."""
+_SHIFT_KIND_LABELS_PL = {"D": "dniówka", "N": "nocka"}
+
+
+def _describe_matrix_family(rule_kind: str, structured_parameters: dict) -> str:
+    """Human label for update/end statements (brief.md section 6),
+    derived from the family's own saved content since the caller only
+    supplies rule_id -- corrected 2026-08-23 (round-4 audit R4-2): must
+    truthfully describe the FULL stored weekdays/kinds, not just the
+    first weekday, for a valid family broader than one UI cell
+    (e.g. weekdays=[1,2], forbidden_shift_kinds=["D","N"])."""
     if rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION:
         return "Nocka"
     weekdays = structured_parameters["weekdays"]
@@ -139,7 +150,9 @@ def _describe_matrix_family_for_reject(rule_kind: str, structured_parameters: di
         return "Dniówka"
     if weekdays == _ALL_WEEKDAYS and forbidden == ["N"]:
         return "Nocka"
-    return _WEEKDAY_NAMES_PL[weekdays[0]].capitalize()
+    kinds = " i ".join(_SHIFT_KIND_LABELS_PL[k] for k in forbidden)
+    days = "wszystkie dni tygodnia" if weekdays == _ALL_WEEKDAYS else ", ".join(_WEEKDAY_NAMES_PL[d] for d in weekdays)
+    return f"{kinds} ({days})"
 
 
 _MATRIX_OWNED_SHAPES = {
@@ -169,6 +182,15 @@ def _resolve_matrix_owned_rule(conn, site_id: str, rule_id: str):
     expected = _MATRIX_OWNED_SHAPES.get(version.rule_kind)
     if expected is None or (version.category, version.enforcement, version.resolution_status) != expected:
         raise ValueError(f"rule family {rule_id!r} is not a matrix-owned employee restriction")
+    # Corrected 2026-08-23 (round-4 audit R4-1): the shape/category/
+    # enforcement match above does not validate structured_parameters
+    # itself -- a malformed family (extra key, empty/unknown shift-kind
+    # list, malformed weekday list) must be rejected here, before any
+    # write, using the same validation the executable-rule owner applies.
+    try:
+        validate_executable_site_rules([version])
+    except UnsupportedOrMalformedSiteRule as exc:
+        raise ValueError(f"rule family {rule_id!r} has malformed parameters: {exc}") from exc
     employee_id = version.structured_parameters["employee_id"]
     _require_employee_exists(conn, employee_id)
     return version
@@ -262,13 +284,8 @@ def update_employee_matrix_rule_period(
     if version.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION:
         statement = _day_only_exception_statement(effective_from, effective_to)
     else:
-        params = version.structured_parameters
-        if params["weekdays"] == _ALL_WEEKDAYS and params["forbidden_shift_kinds"] == ["D"]:
-            statement = _shift_kind_statement(ShiftKind.D, effective_from, effective_to)
-        elif params["weekdays"] == _ALL_WEEKDAYS and params["forbidden_shift_kinds"] == ["N"]:
-            statement = _shift_kind_statement(ShiftKind.N, effective_from, effective_to)
-        else:
-            statement = _weekday_statement(params["weekdays"][0], effective_from, effective_to)
+        label = _describe_matrix_family(version.rule_kind, version.structured_parameters)
+        statement = f"{label}: zmieniono okres na od {_fmt(effective_from)} do {_fmt(effective_to)}"
     return record_structured_rule_decision(
         conn, coordinator_id=coordinator_id, site_id=site_id, rule_id=rule_id, statement=statement,
         effective_from=effective_from, rel="supersedes",
@@ -292,7 +309,7 @@ def end_employee_matrix_rule_early(
     else:
         if effective_from < version.effective_from or effective_from > version.effective_to:
             raise ValueError("effective_from is outside the rule's own effective period")
-    label = _describe_matrix_family_for_reject(version.rule_kind, version.structured_parameters)
+    label = _describe_matrix_family(version.rule_kind, version.structured_parameters)
     return record_structured_rule_decision(
         conn, coordinator_id=coordinator_id, site_id=site_id, rule_id=rule_id,
         statement=f"Przywrócono bazowy stan {label} od {_fmt(effective_from)}",
