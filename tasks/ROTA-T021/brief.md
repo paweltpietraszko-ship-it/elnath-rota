@@ -371,13 +371,19 @@ follow-up, not partially now.
       frontend-held id. Any failure at either step is retried by
       re-calling that same step with the same id — never generates a
       new id for the same in-progress attempt.
-  - *Istniejący pracownik* — **narrowed 2026-08-23 (round-8 R8-1)**:
+  - *Istniejący pracownik* — **narrowed 2026-08-23 (round-8 R8-1),
+    population source named 2026-08-23 (coverage audit D-1)**:
     `site_memberships` has ONE row per `(employee_id, site_id)`
     regardless of kind (`db.py:148-155`) — `update_membership` upserts
     on that same pair, so blindly reusing it on an employee who already
     has an EXTERNAL_SUPPORT row here would silently convert that row to
-    LOCAL. The picker therefore reads `list_memberships_for_site`
-    **unfiltered by kind** and offers only:
+    LOCAL. `list_memberships_for_site` alone cannot identify the "no
+    membership row at all" case (it only ever returns rows that already
+    have one) — the picker's population is
+    `employee_repository.list_employees(conn) -> list[Employee]`
+    (persistence-layer, no application wrapper, call directly), each
+    employee then cross-referenced against `list_memberships_for_site`
+    (**unfiltered by kind**) to classify. Offers only:
     - employees with **no membership row at all** at this site → step
       (2) above creates a fresh LOCAL row;
     - employees with an existing row where `membership_kind == LOCAL
