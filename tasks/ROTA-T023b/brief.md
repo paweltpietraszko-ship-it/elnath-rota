@@ -419,6 +419,44 @@ TASK_SCOPE:
 - tests/test_t012.py
 - tests/test_t019b.py
 - tests/test_t020.py
+- benchmarks/real_object_production.py
+- benchmarks/rota_stress.py
+- tests/support/minimal_state.py
+- tests/support/state_builder.py
+- tests/support/t008_fixtures.py
+- tests/test_audit_t010_r3.py
+- tests/test_audit_t010_r4_a.py
+- tests/test_audit_t010_r5_b.py
+- tests/test_audit_t010_r6_d.py
+- tests/test_local_store_master_data.py
+- tests/test_local_store_operational_queries.py
+- tests/test_t010_bootstrap_roster.py
+- tests/test_t010_day_only_n_exception.py
+- tests/test_t010_nn.py
+- tests/test_t011_a_application_entry_points.py
+- tests/test_t011_b_context_discovery.py
+- tests/test_t011_c_site_coordinator_lifecycle.py
+- tests/test_t011_d_quarter_balance.py
+- tests/test_t011_e_pipeline_e2e_happy_path.py
+- tests/test_t011_e_pipeline_e2e_hard_stop.py
+- tests/test_t017.py
+- tests/test_t018.py
+- tests/test_t019.py
+- tests/test_t023.py
+- tests/test_vertical_full_stack.py
+
+Owner-authorized narrow amendment (2026-08-23, round-5 audit R5-3 fix):
+the above `tests/*` and `benchmarks/*` files are in scope ONLY to add
+an explicit `planning_regime=SitePlanningRegime.ORDINARY` keyword
+argument (plus the matching import) to their existing `Site(...)`
+constructor call(s), forced by removing `Site.planning_regime`'s
+dataclass default per R5-3 (frozen addendum section 3: omission must
+never silently become ORDINARY). No assertion or scenario meaning
+changes. `benchmarks/*.py` is not literally under `tests/`, but its two
+`Site()` call sites are imported by in-scope test files
+(test_real_object_benchmark.py, test_manual_audits.py,
+test_rota_stress_benchmark.py) and needed the same mechanical fix for
+those tests to run at all.
 
 Owner-authorized narrow amendment (2026-08-23, mechanical schema-bump
 fallout): tests/test_t012.py, tests/test_t019b.py, tests/test_t020.py
