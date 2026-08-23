@@ -5,7 +5,8 @@ TASK: ROTA-T023b
 BASE_PRODUCT_SHA: `5e8f282c8208441b25f0f0a3e0f44016c7162a6a`
 ARCHITECT_INPUT_SHA: `4b046be4300480d39320159ae507b32b18f80910`
 OWNER_FOLLOW_UP: `tasks/ROTA-T023b/OWNER_FRONTEND_DECISION_2026-08-23.md`
-SUPERSEDES_DRAFT_HEAD: `b1e585979bb6f98d66920181705dcd7c075327fd`
+R3_AUDIT: `tasks/ROTA-T023b/round_01/tests/tests_r3.txt`
+SUPERSEDES_DRAFT_HEAD: `f42549d493f7a6bc330bf44a53dc10c8a8085c6c`
 
 This addendum freezes only product semantics. Implementation ownership, file scope and test gates are in `tasks/ROTA-T023b/brief.md`.
 
@@ -53,20 +54,28 @@ Currently persisted Sites are test data only. Migration may assign those legacy/
 
 T021 must expose separate, unambiguous creation entry points/screens for at least OCHRONA and ORDINARY. There is no generic creation checkbox/toggle/dropdown that silently chooses the legal regime.
 
-Separate user flows must share common Site form/application/persistence implementation. The selected flow supplies the regime. The Site workspace shows the classification, while ordinary editing exposes no regime-change control.
+Separate user flows share common Site form/application/persistence implementation. The selected flow supplies the regime. The Site workspace shows the classification, while ordinary editing exposes no regime-change control.
 
-### Correction semantics
+### Durable correction semantics
 
-Regime correction is prospective for planning and must not rewrite historical ScheduleVersions or REALIZED Assignments.
+Regime correction is prospective for planning and does not rewrite historical ScheduleVersions or REALIZED Assignments.
 
-After correction:
+A ScheduleVersion therefore carries persisted `planning_regime` provenance: the regime under which its currently persisted planning content was accepted. This is not a second Site setting.
 
-- persisted ScheduleVersions and Assignment facts remain byte-for-byte historical facts unless changed later through their existing lifecycle operations;
-- every fresh PLAN/REPLAN/candidate validation/manual correction/finalize uses the corrected current Site regime;
-- an existing current plan is not silently rewritten into a corrected-regime plan;
-- if the current plan contains not-yet-realized work, the correction UX must visibly route the coordinator to the existing REPLAN flow before presenting that plan as a plan under the corrected regime.
+For a ScheduleVersion containing at least one `PLANNED` Assignment:
 
-No new stale-schedule state, regime snapshot on ScheduleVersion or retroactive rewrite is introduced by T023b.
+- if `ScheduleVersion.planning_regime == Site.planning_regime`, it is regime-current;
+- if they differ, it is `REGIME_REPLAN_REQUIRED`.
+
+`REGIME_REPLAN_REQUIRED` is a derived condition, not a new lifecycle status or table. It survives restart because both inputs are persisted.
+
+A regime-stale version with PLANNED work must not be finalized, restored as CURRENT, or presented/exported as the current plan under the corrected Site regime.
+
+REALIZED/CANCELLED-only historical content is not blocked by this rule and is never rewritten by the correction.
+
+A fresh candidate that is independently validated and persisted under the current Site regime may update the WORKING ScheduleVersion's regime provenance to that current regime. Mere revalidation, finalization, restoration or navigation does not do so.
+
+The correction UI should route affected months to the existing REPLAN flow, but frontend routing is not the enforcement boundary: backend lifecycle/presentation paths must derive the mismatch again from persisted facts.
 
 ## 4. WORK FACTS USED BY T023b
 
@@ -119,6 +128,8 @@ LOAD-01 is separate and cannot substitute for this rule. T023b adds neither auto
 Automatic planning must never return/persist a candidate violating either T023b HARD rule. Independent validation derives the same result from final Assignment facts rather than trusting solver internals.
 
 An explicit manual schedule correction may persist such a HARD violation only through the existing audited REST-override precedent. T023b reuses that mechanism and the same canonical rest/week arithmetic; it creates no second exception workflow, audit store or planning result status.
+
+Regime correction itself is not a REST override and cannot authorize finalizing/restoring a regime-stale PLANNED schedule.
 
 ## 8. LEGAL / OWNER BASIS
 
