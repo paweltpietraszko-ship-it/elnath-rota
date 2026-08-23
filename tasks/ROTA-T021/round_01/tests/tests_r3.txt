@@ -1,0 +1,78 @@
+ROTA-T021 / PREIMPLEMENTATION CONTRACT RE-AUDIT / ROUND 3
+
+AUDITED_SHA: 680a34258f956df26ac6fd9b3190ad4e70c312b0
+PREVIOUS_REPORT: tasks/ROTA-T021/round_01/tests/tests_r2.txt
+SCOPE: only Round-2 blockers A1-A4 and their recorded closure conditions
+SCOPE_EXCLUDED: Screens 2-9, visual Tor 2, implementation audit
+
+VERDICT: PASS — SCREEN 1 CONTRACT READY FOR IMPLEMENTATION
+
+A1 — DECLARED PRODUCT BASE IS PRESENT
+STATUS: PASS
+EVIDENCE:
+- `git merge-base --is-ancestor 7349ae6 HEAD` returns exit 0
+- `arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md` and
+  `tasks/ROTA-T023b/brief.md` are present
+- runtime source exposes SitePlanningRegime and
+  durable_inputs.correct_site_planning_regime
+- `git diff --name-status 7349ae6..HEAD -- rota tests` is empty: the task
+  branch carries the accepted base product rather than a divergent product
+  variant
+RESULT:
+- the brief and implementation branch now refer to the same post-T023b model
+
+A2 — WORKSPACE COMPLETENESS HAS ONE OWNER AND NO UNOWNED MONTH
+STATUS: PASS
+EVIDENCE:
+- Screen 1 requires only coordinator_context_completeness for durable Site
+  completeness, plus the separate print-settings signal
+- month_plan_readiness is explicitly removed from Workspace and assigned to
+  Planowanie miesiąca, where the month is already selected
+- the duplicated nested completeness call is no longer required
+RESULT:
+- Tor 1 has one deterministic Screen-1 read graph and no invented month
+
+A3 — SITE-CREATION PAYLOAD IS COMPLETE
+STATUS: PASS
+EVIDENCE:
+- API-owned uuid4 rules define site_id and profile_id; neither leaks into UI
+- every SiteProfile field is mapped: the three UI values, active=True,
+  standard_shifts=[], all D2 constants, and explicit values for the two
+  constructor-required but disabled training settings
+- every Site field is mapped, including entry-point-owned planning_regime
+- every CoordinatorSiteAssociation field is mapped to the interim
+  coordinator, generated site_id and active=True
+- coordinator=None is explicitly tied to the separate one-time dev setup
+- Python dataclass introspection on this SHA confirms that the mapping covers
+  all constructor fields of SiteProfile, Site and CoordinatorSiteAssociation
+RESULT:
+- CC need not invent persisted facts or add coordinator-facing fields
+
+A4 — CALENDAR PRESERVES THE BACKEND'S THREE STATES
+STATUS: PASS
+EVIDENCE:
+- the contract distinguishes no row / persisted holiday=False / persisted
+  holiday=True
+- an absent row may not be rendered silently as an ordinary workday
+- the bulk action creates only missing rows with holiday=False and skips all
+  existing rows; individual toggles then write the selected date
+RESULT:
+- the UI can represent the same completeness facts that
+  month_plan_readiness evaluates
+
+MECHANICAL CHECKS:
+- `git diff --check 3e36b0c..680a342`: PASS
+- authoritative-source presence and ancestry: PASS
+- dataclass/function-surface introspection on exact SHA: PASS
+
+TESTS:
+- product test suite not rerun: this is a preimplementation contract re-audit,
+  frontend/api code does not yet exist, and rota/tests are unchanged relative
+  to the accepted 7349ae6 base
+
+ARCHITECTURE_PROPOSALS: NONE
+
+FINAL:
+- CC may start Screen 1 implementation against this exact contract SHA
+- later implementation PASS will apply only to the exact delivered code SHA
+  and will require the independent layered audit recorded in START_HERE
