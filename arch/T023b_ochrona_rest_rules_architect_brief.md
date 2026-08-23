@@ -78,25 +78,22 @@ not a hard block, and it counts hours worked, not consecutive rest hours.
 Two 24h duties with only an 11h gap between them can pass REST-01 today
 and still contain no 35h uninterrupted rest block anywhere in that week.
 
-### 2.3 Night work (art. 151⁷ KP) — correction from prior message
+### 2.3 Night work (art. 151⁷ KP) — RULED OUT OF SCOPE (owner, 2026-08-23)
 
 Art. 151⁷ §1 KP: pora nocna obejmuje 8 godzin między godzinami 21:00 a
 7:00 — the employer fixes ONE specific 8-hour window inside that wider
 21:00-7:00 (10h) span; the 8h is the length of "pora nocna" itself, not
-the boundary span (I stated this ambiguously in the prior message — the
-21:00-7:00 span is 10 hours, the chosen night period within it is 8).
-Related provisions (not re-verified in full text this pass) generally
-give night workers extra protections and cap night work at 8h in a
-24h period for certain categories.
+the boundary span (corrected from an earlier ambiguous statement in
+this conversation).
 
-Code today: `ShiftKind.N` exists with a typical example start-time of
-17:00 (per `Grafiki/`/T012 examples), but there is no modeled 8h night
-window, no per-shift split between "night portion" and "day portion" of
-an N shift, and no night-specific hour cap. Whether this needs
-scheduling-time enforcement at all (vs. being purely a payroll/HR
-concern out of this program's stated boundary — `arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md` §1: "Rota does not own payroll,
-benefits, leave entitlement, HR settlement") is an open question, not
-answered here — see section 4.
+OWNER RULING: this article's substance is primarily compensation
+(dodatek za pracę w nocy) and eligibility restrictions for protected
+groups — payroll/HR territory, not a scheduling-legality constraint.
+Consistent with the existing product boundary
+(`arch/FROZEN_ADDENDUM_SCHEDULE_BASED_ABSENCE_ACCOUNTING_01.md` §1:
+"Rota does not own payroll, benefits, leave entitlement, HR
+settlement"). T023b does NOT cover night-work window modeling. Not
+tracked as a separate task either — out of product scope, not deferred.
 
 ## 3. Existing precedent for a Site-level mode field
 
@@ -135,11 +132,6 @@ coordinator overrides.
 - Exact mechanism for weekly 35h consecutive rest — this is a genuinely
   new constraint shape (a rest window, not an hours-worked ceiling) with
   no existing analog in `rota/planning/constraints.py` today.
-- Whether night-work window modeling (2.3) is in scope for T023b at all,
-  is deferred as a separate task, or is ruled out-of-scope as an HR/
-  payroll concern per the existing product boundary — Paweł has not yet
-  ruled on this specific sub-point; the rest-after-24h (2.1) and weekly
-  rest (2.2) points are the ones he explicitly named.
 - Interaction with existing coordinator-entered `required_rest_hours`:
   does a new hard ochrona rule override a coordinator's smaller manual
   entry, or does it validate/reject it?
@@ -148,9 +140,7 @@ coordinator overrides.
   wymuszać" in the surrounding conversation) suggests HARD is intended
   for at least 2.1, but this needs explicit confirmation, not inference.
 
-## 5. Open question for Paweł (not for architect)
+## 5. Scope (closed, 2026-08-23)
 
-Is night-work window modeling (2.3) part of T023b's scope, or should
-T023b cover only 2.1 (rest after 24h shift) and 2.2 (weekly 35h rest) —
-the two points explicitly named — with 2.3 tracked separately or ruled
-out of scope?
+T023b covers exactly 2.1 (rest ≥24h after a 24h shift) and 2.2 (weekly
+35h consecutive rest). No open scope questions remain.
