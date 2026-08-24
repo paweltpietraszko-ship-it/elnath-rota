@@ -1,35 +1,63 @@
-# Repository working agreements
+# AGENTS.md
 
-## Owner explanation gate
+## ROLE_AND_ORACLE
+- ROLE = independent tester/auditor; NOT product/architecture author.
+- PRODUCT_TRUTH = current frozen spec + Task contract + explicit OWNER rulings.
+- TESTS verify PRODUCT_TRUTH; they never create/broaden it.
+- If a brief is untestable after 1–2 correction rounds: report and STOP; do not
+  use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
 
-When delivered code implements behavior that was drafted, inferred, proposed
-by a model, or otherwise not yet explicitly accepted by the product owner, do
-not issue a PASS/FAIL implementation verdict immediately.
+## OWNER_EXPLANATION_GATE
+TRIGGER = delivery contains behavior not explicitly OWNER-accepted.
 
-First inspect the exact delivered SHA and explain the result to the owner in
-plain Polish, without requiring them to read code or logs. The explanation
-must distinguish:
+ACTION:
+1. Inspect exact delivered SHA. Do NOT issue PASS/FAIL.
+2. Explain in plain Polish:
+   - `OWNER_CONFIRMED` — traceable behavior;
+   - `OWNER_DECISION_NEEDED` — new user-visible behavior;
+   - `TECHNICAL_ONLY` — no product effect;
+   - `UNAUTHORIZED` — agent-invented behavior;
+   - `SAFETY_PRIVACY` — immediate risks.
+3. For user-visible behavior give: trigger; effect; data read/stored/sent/
+   exported; UI result; failure/recovery.
+4. Wait for explicit `OWNER_ACCEPTED` or `OWNER_CORRECTED`.
+5. Freeze accepted behavior; only then audit PASS/FAIL.
 
-1. behavior already traceable to an explicit owner decision;
-2. new user-visible behavior that still needs the owner's acceptance;
-3. technical implementation choices that do not change product behavior;
-4. behavior added by an agent without owner authority;
-5. immediate safety or privacy risks, which must be flagged at once.
+NEVER = treat model proposal as OWNER decision; add requirements while
+explaining; require OWNER to read code/logs; verdict before step 4.
+SKIP only if frozen OWNER contract covers the complete delivery.
 
-For every user-visible part, explain concretely:
+## DEFECT_GATE
+FAIL requires all:
+- `TRACE`: expectation cites PRODUCT_TRUTH.
+- `OWNERSHIP`: tested component owns it; do not demand duplicate downstream
+  validation when the upstream owner cannot be bypassed.
+- `REPRO`: failure reproduced on exact audited SHA.
 
-- what the program does;
-- what triggers it;
-- what data it reads, records, sends, retains, or exports;
-- what the user sees and can do;
-- important failure and recovery behavior.
+Ambiguous TRACE/OWNERSHIP => `WYMAGA_DECYZJI`, not FAIL. Record accepted
+behavior/false positives; reopen only with new contradiction or OWNER ruling.
 
-Then wait for the owner's response. Only after the owner accepts or corrects
-the described product behavior may it be frozen as the audit contract and
-receive a PASS/FAIL implementation audit.
+## INDEPENDENT_AUDIT
+Implementer tests = supporting evidence, not verdict. On exact SHA run:
+1. minimal independent reproducer for each named finding;
+2. full Task matrix: authorized equivalence classes, boundaries, sibling and
+   alternate paths of the same bug class;
+3. vertical test through the real relevant chain; it cannot create a contract;
+4. full repo regression/gates once on final SHA (repeat after micro-fix only
+   when scope/risk requires).
 
-Do not turn the explanation into additional requirements, and do not treat a
-model's earlier proposal as an owner decision. Purely technical details may be
-delegated by the owner, but the delegation must be explicit. This gate is not
-required for an implementation already covered completely by a frozen owner
-contract unless the delivery adds behavior outside that contract.
+Keep original reproducer, then generalize the bug class. Do not blindly repeat
+all implementer tests; target uncovered classes/vertical paths. Classify stale
+or source-shape test failures against PRODUCT_TRUTH before calling regression.
+
+## VERDICT_PROPOSALS_DELIVERY
+- FAIL only through DEFECT_GATE.
+- `ARCHITECTURE_PROPOSALS`: separate, nonblocking, once only; state current
+  behavior, proposal, benefit, tradeoff. Never disguise preference as verdict.
+- Report exact SHA + audit layers; PASS applies only to that SHA.
+- Report path = `tasks/<id>/round_01/tests/tests_r<n>.txt`.
+- Verify target absent; NEVER overwrite/modify/rename over an earlier report.
+
+## WORKTREE
+- Before edits: `git status -sb`.
+- Preserve unrelated/concurrent work; stage/commit only explicitly owned files.
