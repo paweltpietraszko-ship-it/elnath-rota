@@ -513,8 +513,21 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
     """Open (creating if needed) the Rota SQLite store at db_path, migrate
-    it to the latest schema, and return the connection."""
-    conn = sqlite3.connect(db_path)
+    it to the latest schema, and return the connection.
+
+    ROTA-T027: check_same_thread=False. api/deps.py::get_conn() is a
+    FastAPI sync-generator dependency; FastAPI dispatches its open
+    (__enter__) and close (__exit__) as two *separate*
+    anyio.to_thread.run_sync calls with no guarantee both land on the
+    same worker thread, and under concurrent request load they often
+    don't -- sqlite3's default check_same_thread=True then raises
+    ProgrammingError on close. Each connection here is still used
+    strictly sequentially (open, then request handling, then close --
+    never concurrently by more than one thread at once), which is
+    exactly the usage pattern check_same_thread=False is for; it only
+    disables sqlite3's own same-thread assertion, not any real
+    thread-safety."""
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     migrate(conn)
     return conn
