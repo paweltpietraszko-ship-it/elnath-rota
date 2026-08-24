@@ -1,0 +1,120 @@
+ROTA-T021c — IMPLEMENTATION AUDIT, ROUND 5
+
+VERDICT: FAIL — ONE FALSE-CAUSALITY CORRECTION REQUIRED
+AUDITED_SHA: 358c593b10f126b7610f45c55130571347e1fac6
+BRANCH: task/ROTA-T021c
+DATE: 2026-08-24
+
+ROUND-4 CLOSURE CONFIRMED
+
+The correction requested in tests_r4.txt is implemented:
+
+- RENDER_ERROR, UNHANDLED_ERROR and UNHANDLED_REJECTION export action_id;
+- each handler reads the candidate ID once and uses the same value in the
+  exported event and resolveAction();
+- the existing brief now records the accepted best-effort contract and no
+  longer presents the task as an unauthorized draft;
+- all four independent round-4 browser cases pass, including the required
+  delayed/ambiguous rejection with action_id=null.
+
+The three historical failures that require perfect attribution of arbitrarily
+delayed work are withdrawn expectations under the owner ruling. They are not
+counted as defects in this audit.
+
+REMAINING BLOCKER — an already scheduled background error is attributed to a
+later unrelated click
+
+TRACE
+
+The accepted brief §3.2 states both that delayed correlation is best-effort and
+that an ambiguous error must NEVER resolve another, unrelated click; it must
+remain without action_id instead.
+
+OWNERSHIP
+
+- tracking.ts owns pendingActionId and its clearing window.
+- globalHandlers.ts reads that value into exported global-error events and
+  resolves the corresponding action.
+
+INDEPENDENT REPRODUCTION
+
+Two equivalent real-browser cases were parameterized:
+
+1. a background setTimeout that will throw window.error is scheduled;
+2. a separate inert control is clicked before that queued task executes;
+3. the same case is repeated for unhandledrejection.
+
+The background failure was scheduled before the click, so the click cannot be
+its cause. On the audited SHA, both error kinds receive the inert click's
+action_id. resolveAction() then suppresses ACTION_STALLED for that inert click.
+
+Observed in both cases:
+
+- expected error action_id: null;
+- actual error action_id: the unrelated inert click ID;
+- expected ACTION_STALLED for the inert click: present;
+- actual ACTION_STALLED: absent.
+
+This is not the withdrawn requirement to recover the original cause of
+arbitrarily delayed work. The test only enforces the retained fail-safe rule:
+when causality is not established, do not claim one and do not resolve another
+action.
+
+CAUSE
+
+setPendingActionId() now retains the most recent click across two chained
+macrotasks so a direct Promise.reject() can reach unhandledrejection. During
+that interval globalHandlers.ts treats temporal proximity as causality. A
+previously queued, unrelated task can execute inside the same interval.
+
+The implementation comment saying the extra queue turn is shorter than any
+subsequent unrelated task is disproved by the reproducer: the unrelated task
+was queued first and executes before the clearing tasks.
+
+REQUIRED BEHAVIORAL CORRECTION
+
+- Global errors and rejections must always remain recorded.
+- A global error may carry an action_id and resolve an action only when its
+  provenance to that action is positively established under the accepted
+  contract.
+- Mere occurrence inside a recent-click timer window is not sufficient.
+- Otherwise action_id must be null and the unrelated click must remain
+  unresolved, allowing ACTION_STALLED to be emitted.
+- Preserve the passing direct render/error export cases and the round-4
+  delayed-error case to the extent required by the accepted brief; do not
+  restore global timer/Promise/microtask monkey-patching.
+- Keep both round-5 cases as regression coverage for the shared false-causality
+  class.
+
+INDEPENDENT VALIDATION
+
+1. Round-4 browser matrix, isolated Chromium, retries=0:
+   RESULT: 4/4 PASS.
+
+2. Existing supported browser matrix:
+   RESULT: 19/19 PASS.
+   Three separately identified historical tests for the withdrawn arbitrary-
+   delay guarantee still fail and are not counted. The ordinary-development
+   test-hook isolation case was run under its clean Vite configuration and
+   passed 1/1.
+
+3. New round-5 false-causality matrix, isolated Chromium, retries=0:
+   RESULT: 0/2 PASS. Both window.error and unhandledrejection reproduce the
+   same invalid attribution and false resolution.
+
+4. Production frontend build:
+   RESULT: PASS.
+
+5. Full Python regression:
+   RESULT: 1103 passed, 1 known stale T023 source-diff assertion failed; no new
+   T021c Python regression.
+
+SEPARATE BACKEND DEFECT — UNCHANGED
+
+The api/deps.py SQLite thread-affinity failure remains outside T021c and is not
+counted here.
+
+NO ARCHITECTURE_PROPOSALS
+
+The blocker is limited to an explicit retained invariant in §3.2. This report
+does not prescribe a new diagnostic architecture.
