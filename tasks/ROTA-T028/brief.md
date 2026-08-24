@@ -13,9 +13,31 @@ Zatwierdzona granica: tymczasowa baza + produkcyjne operacje backendowe, bez
 przeglądarki, sieci i danych użytkownika.
 
 TASK_SCOPE:
+- tasks/ROTA-T028/brief.md
 - tools/solver_scenario_lab.py
 - tests/test_solver_scenario_lab.py
 - .gitignore
+
+Owner amendment `OWNER_ACCEPTED`, 2026-08-24:
+
+- warianty Obiektu to: 12h `1x5`, 12h `2x10`, 24h `1x4`, 24h `1x5`,
+  24h `2x8` i 24h `2x10`; liczba LOCAL nie zmienia się z długością miesiąca;
+- każdy przypadek od początku deklaruje dokładnie jedną syntetyczną osobę
+  `LAB-EXTERNAL-*`, bez target hours i bez okna wsparcia;
+- najpierw planuje wyłącznie własna załoga. Okno wsparcia wolno zapisać przez
+  `add_external_support_window()` tylko po rzeczywistej produkcyjnej propozycji
+  wsparcia, po czym runner ponawia planowanie;
+- urlop: zero albo jedna osoba LOCAL, 14 dni kalendarzowych; chorobowe: 0-21
+  dni, pracownik i ewentualne nałożenie z urlopem wynikają z seeda;
+- generator zapisuje tylko decyzje i daty. Backend pozostaje jedynym
+  właścicielem wyliczenia godzin i skutków nieobecności;
+- `target_hours=168` jest jawną decyzją wejściową koordynatora dla każdego
+  LOCAL, a nie wartością wyliczaną przez generator;
+- po zmianie wejść dotyczących wybranego grafiku runner używa produkcyjnego
+  `replan()`;
+- zarówno `FEASIBLE`, jak i kompletne `DECISION_REQUIRED` są wartościowym
+  wynikiem poligonu. Błędem są `TECHNICAL_ERROR`, niepoprawny kandydat,
+  niespójny payload albo naruszenie świata zamkniętego.
 
 ## 1. Wynik dla właściciela
 
@@ -25,11 +47,15 @@ Powstaje lokalny skrypt, który dla każdego syntetycznego przypadku:
 2. zakłada syntetyczny obiekt i wyliczoną obsadę;
 3. zapisuje konfigurację, checkboxy, kalendarz, godziny docelowe oraz
    nieobecności przez istniejące operacje backendu;
-4. uruchamia produkcyjne `plan_month()`;
+4. uruchamia produkcyjne `plan_month()` albo, po zmianie wybranego grafiku,
+   `replan()`;
 5. sprawdza każdego kandydata produkcyjnym `validate()`;
 6. wybiera pierwszego poprawnego kandydata przez produkcyjne
    `select_candidate()` i odczytuje zapisany snapshot;
-7. przy błędzie zapisuje seed, decyzje wejściowe i wynik potrzebny do replay.
+7. po `DECISION_REQUIRED` dodaje okno dla wcześniej zadeklarowanego wsparcia
+   wyłącznie wtedy, gdy payload rzeczywiście proponuje tę operację, i ponawia
+   planowanie;
+8. przy błędzie zapisuje seed, decyzje wejściowe i wynik potrzebny do replay.
 
 To NIE jest benchmark. Nie mierzy czasu, nie przyznaje punktów i nie porównuje
 wersji. Nie używa przeglądarki, FastAPI/TestClient, sieci, AI ani danych
@@ -75,12 +101,15 @@ przez obecny backend:
   `day_only`, `can_work_24h` i katalog zmian;
 - `set_calendar_day`, `set_target_hours`, `append_availability` — kalendarz,
   godziny docelowe, urlop, chorobowe i niedostępność;
+- `add_external_support_window` — wyłącznie po rzeczywistej propozycji
+  wsparcia w produkcyjnym payloadzie;
 - `create_employee_shift_unavailability`,
   `create_employee_weekday_unavailability`, `create_day_only_n_exception` —
   istniejące checkboxy/reguły macierzy;
 - `validate_standard_shift` — ta sama produkcyjna walidacja katalogu, której
   używa ekran Obiekt przed `update_site_profile`;
-- `assemble_planning_state`, `plan_month`, `validate`, `select_candidate`;
+- `assemble_planning_state`, `plan_month`, `replan`, `validate`,
+  `select_candidate`;
 - `get_current_schedule_snapshot` wyłącznie do potwierdzenia zapisu po wyborze.
 
 Można konstruować obiekty wejściowe tych komend (`Site`, `SiteProfile`,
@@ -97,12 +126,14 @@ Typowany `ScenarioSpec` zawiera wyłącznie jawne decyzje wejściowe:
 
 - `family`, `case_seed`, miesiąc;
 - syntetyczny Site/SiteProfile i katalog zmian;
-- pracowników oraz membership LOCAL;
+- dokładną liczbę pracowników LOCAL wynikającą z wariantu Obiektu oraz jedną
+  wcześniej zadeklarowaną osobę EXTERNAL_SUPPORT bez okna;
 - wartości checkboxów i okresy reguł;
 - CalendarDay dla każdego dnia miesiąca;
-- target hours;
+- target hours równe jawnie `168` dla każdego LOCAL; bez targetu dla
+  EXTERNAL_SUPPORT;
 - okresy `UNAVAILABLE_24H`, `LEAVE_GRANTED` lub `SICK_LEAVE`;
-- oczekiwany status: `FEASIBLE` albo `DECISION_REQUIRED`;
+- kolejne wyniki produkcyjne przed i ewentualnie po wsparciu;
 - bezpieczne `summary` tych samych faktów.
 
 Wszystkie identyfikatory i nazwy wejściowe mają prefiks `LAB-`. Generator używa
@@ -114,51 +145,33 @@ częścią gwarancji deterministyczności i są normalizowane lub pomijane w
 porównaniu/replay. Generator nie może omijać produkcyjnych komend tylko po to,
 aby uzyskać identyczne techniczne ID.
 
-## 5. Rodziny v1
+## 5. Macierz scenariuszy v1
 
-Pierwsze pięć przypadków obejmuje każdą rodzinę dokładnie raz. Nie dodawać
-TRAINING/TRAINEE, CLEANING, EXTERNAL_SUPPORT, wielu Site ani innych rodzin.
+Wariant Obiektu jest jawnym wymiarem, nigdy liczbą losowaną z zakresu:
 
-### F1 `ordinary_baseline_feasible`
+- `ordinary_12h_single_5`: D/N 12h, jedna osoba na zmianie, 5 LOCAL;
+- `ordinary_12h_double_10`: D/N 12h, dwie osoby na zmianie, 10 LOCAL;
+- `ochrona_24h_single_4`: zmiana 24h, jedna osoba, 4 LOCAL;
+- `ochrona_24h_single_5`: zmiana 24h, jedna osoba, 5 LOCAL;
+- `ochrona_24h_double_8`: zmiana 24h, dwie osoby, 8 LOCAL;
+- `ochrona_24h_double_10`: zmiana 24h, dwie osoby, 10 LOCAL.
 
-- `ORDINARY`, katalog D/N 12h;
-- 6–10 aktywnych pracowników LOCAL;
-- co najmniej jedna osoba `day_only` i wystarczająca liczba pozostałych;
-- pełny kalendarz i target hours zapisane produkcyjnymi komendami;
-- oczekiwanie: `FEASIBLE`.
+Przypadki cyklicznie obejmują sześć wariantów. Seed wybiera jeden z jawnych
+wariantów pracy koordynatora: baza bez nieobecności, 14-dniowy
+`LEAVE_GRANTED`, `SICK_LEAVE` długości 0-21 dni, pojedyncza decyzja checkboxa
+(D, N albo dzień tygodnia) albo jednodniowy brak N. Urlop dotyczy najwyżej
+jednego LOCAL; chorobowe może dotyczyć tej samej albo innej osoby. Wszystkie
+zapisy przechodzą przez produkcyjne komendy, a ich godziny i skutki pozostają
+własnością backendu.
 
-### F2 `absence_replacement_feasible`
+Każdy przypadek ma jedną osobę EXTERNAL_SUPPORT bez okna. Pierwszy przebieg
+jest próbą własną załogą. Jeżeli wynik `DECISION_REQUIRED` zawiera
+produkcyjną opcję skonfigurowania tej osoby, runner zapisuje okno dokładnie na
+wskazane blocking demands i ponawia planowanie. Bez takiej opcji okno nie
+powstaje. Wynik przed i po decyzji pozostaje w raporcie.
 
-- jak F1, ale z jednym okresem przecinającym dni z zapotrzebowaniem;
-- rodzaj rotuje: `UNAVAILABLE_24H`, `LEAVE_GRANTED`, `SICK_LEAVE`;
-- pozostaje nadmiarowa aktywna obsada, aby nie konstruować niedoboru;
-- oczekiwanie: `FEASIBLE`; validator rozstrzyga skutki nieobecności.
-
-### F3 `ochrona_24h_feasible`
-
-- `OCHRONA`, mieszany katalog 12h/24h zapisany przez `update_site_profile`;
-- co najmniej jedna osoba `can_work_24h=False` i wystarczająca pula osób z
-  `can_work_24h=True`;
-- oczekiwanie: `FEASIBLE`; generator nie liczy sam odpoczynku 24h/35h.
-
-### F4 `matrix_restriction_feasible`
-
-- jedna produkcyjna decyzja checkboxa: blokada D, blokada N albo dzień
-  tygodnia;
-- wystarczająca liczba innych aktywnych pracowników;
-- oczekiwanie: `FEASIBLE`; generator nie interpretuje structured_parameters.
-
-### F5 `night_shortage_decision_required`
-
-- istnieje dodatni demand N;
-- każdy aktywny pracownik LOCAL ma jawnie zapisane `day_only=True` albo
-  produkcyjną blokadę N obejmującą wskazany dzień;
-- brak EXTERNAL_SUPPORT i innych Site;
-- oczekiwanie: `DECISION_REQUIRED`, zero kandydatów i wskazany N w
-  `blocking_shift_demands`.
-
-Miesiące rotują przez 28, 29, 30 i 31 dni, w tym luty przestępny. Parametry
-muszą pozostawać małe; skrypt nie jest testem wydajnościowym.
+Nie dodawać TRAINING/TRAINEE, CLEANING, wielu Site ani innych wariantów.
+Miesiące rotują przez 28, 29, 30 i 31 dni, w tym luty przestępny.
 
 ## 6. Oracle bez drugiego solvera
 
@@ -180,11 +193,9 @@ kilka rozwiązań. Nie istnieje witness tworzony przez generator.
 
 ### DECISION_REQUIRED
 
-Runner wymaga statusu `DECISION_REQUIRED`, zera kandydatów, niepustego payloadu
-i wskazanego demandu N w `blocking_shift_demands`. Lokalna kontrola sprawdza
-tylko jawne fakty wejściowe F5: dodatni demand, dokładny zbiór aktywnych LOCAL i
-zapisane dla każdego `day_only`/blokadę N. Nie wylicza odpoczynku ani
-eligibility.
+Runner wymaga statusu `DECISION_REQUIRED`, zera kandydatów i niepustego
+payloadu. Dla jawnego jednodniowego braku N wymaga także wskazanego demandu N
+w `blocking_shift_demands`. Nie wylicza odpoczynku ani eligibility.
 
 `TECHNICAL_ERROR`, błędny status, brak payloadu lub kandydat odrzucony przez
 validator oznacza błąd przypadku.
@@ -194,13 +205,16 @@ validator oznacza błąd przypadku.
 To jedyna niezależna kontrola poza produkcyjnym validatorem. Dla każdego
 kandydata i zapisanego snapshotu runner sprawdza:
 
-- `employee_id` należy do pracowników zapisanych w syntetycznej bazie i ma
-  aktywne membership `LOCAL` dla tego Site;
+- `employee_id` należy do dokładnego zbioru zapisanych pracowników: LOCAL albo
+  jednej wcześniej zadeklarowanej osoby EXTERNAL_SUPPORT. Osoba zewnętrzna
+  może wystąpić dopiero po zapisaniu dozwolonego okna;
 - każdy PRIMARY ma `covers_demand_id` należący do demandów z assemblera oraz
   dokładnie ten sam przedział czasu;
 - kandydat nie zawiera dodatkowego Assignment ani odcinka pracy poza demandami;
 - profil i kanoniczne demands nie zawierają `ShiftCatalogKind.OTHER` (`INNY`);
-- `external_windows` i `other_site_assignments` w złożonym stanie są puste.
+- `other_site_assignments` jest puste; `external_windows` jest puste przed
+  propozycją, a po niej zawiera wyłącznie okna wcześniej zadeklarowanej osoby
+  i dokładnych blocking demands.
 
 Kontrola nie próbuje wyjaśniać, dlaczego pracownik jest legalny. To zadanie
 validatora. Odrzuca jednak wspólne przeoczenie solvera i validatora, które
@@ -249,6 +263,8 @@ Nowe:
 
 Modyfikowane:
 
+- `tasks/ROTA-T028/brief.md` — wyłącznie mechaniczne włączenie
+  `OWNER_ACCEPTED` z 2026-08-24;
 - `.gitignore` — wyłącznie `artifacts/solver-scenario-lab/`.
 
 Brak `tools/__init__.py`: Python uruchamia `tools` jako namespace package, więc
@@ -265,8 +281,8 @@ T28-01 — CLI: argumenty, exit codes i dokładna linia podsumowania.
 T28-02 — ten sam seed daje identyczny ScenarioSpec/komendy; inny seed zmienia
 realny fakt. Techniczne ID i timestamps są ignorowane.
 
-T28-03 — pierwsze pięć przypadków pokrywa dokładnie F1–F5 oraz miesiące
-28/29/30/31.
+T28-03 — pierwsze sześć przypadków pokrywa dokładnie sześć wariantów Obiektu,
+a test seeda pokrywa pięć wariantów decyzji oraz miesiące 28/29/30/31.
 
 T28-04 — każda komenda scenariusza przechodzi przez seam z §3; test blokuje
 bezpośredni zapis SQL i import `api`.
@@ -274,29 +290,33 @@ bezpośredni zapis SQL i import `api`.
 T28-05 — jawny dowód, że każda sprawa używa nowej bazy `:memory:` i nie czyta
 `ROTA_DB_PATH` ani pliku użytkownika.
 
-T28-06 — F1–F4 zwracają FEASIBLE; każdy kandydat przechodzi produkcyjny
-validator i kontrolę świata zamkniętego; pierwszy przeżywa select + readback.
+T28-06 — FEASIBLE: każdy kandydat przechodzi produkcyjny validator i kontrolę
+świata zamkniętego; pierwszy przeżywa select + readback. DECISION_REQUIRED:
+zero kandydatów i kompletny payload.
 
-T28-07 — F2 rotuje trzy rodzaje nieobecności zapisane przez
-append_availability; kandydat nie przydziela pracy w aktywnym okresie.
+T28-07 — urlop i chorobowe są zapisane przez append_availability zgodnie z §5;
+kandydat nie przydziela pracy w aktywnym okresie, a generator nie liczy godzin.
 
-T28-08 — F3 zapisuje mixed 12h/24h przez update_site_profile; żaden kandydat
-nie przydziela 24h osobie z can_work_24h=False.
+T28-08 — sześć wariantów ma dokładnie liczebności 5/10/4/5/8/10 i katalog
+12h/24h zapisany przez update_site_profile.
 
-T28-09 — F4 rotuje trzy istniejące decyzje macierzy i nie konstruuje
+T28-09 — wariant checkboxa rotuje trzy istniejące decyzje macierzy i nie konstruuje
 SiteRuleVersion ręcznie.
 
-T28-10 — F5 zwraca DECISION_REQUIRED, zero kandydatów i właściwy blocking N.
+T28-10 — jawny brak N zwraca DECISION_REQUIRED przed wsparciem. Okno powstaje
+tylko po produkcyjnej propozycji, a raport zachowuje wynik przed/po i użycie
+LAB-EXTERNAL.
 
 T28-11 — mutanty obcego pracownika/demandu, braku demandu i dodatkowych godzin
 są odrzucane niezależnie od podstawionego PASS validatora.
 
-T28-12 — profil/demands `INNY`, EXTERNAL_SUPPORT lub other-Site powodują
-GENERATOR_ERROR przed uznaniem wyniku.
+T28-12 — profil/demands `INNY`, niezadeklarowany EXTERNAL_SUPPORT lub
+other-Site powodują GENERATOR_ERROR przed uznaniem wyniku.
 
 T28-13 — failure JSON/replay, brak pliku dla PASS, brak nadpisania.
 
-T28-14 — realne CLI `--cases 5` wykonuje pięć rodzin na produkcyjnych seamach.
+T28-14 — realne CLI `--cases 6` wykonuje sześć wariantów Obiektu na
+produkcyjnych seamach.
 
 T28-15 — diff-scope z §9, build/import i pełna regresja. Znany stary test
 source-diff T023 nie należy do T028.
