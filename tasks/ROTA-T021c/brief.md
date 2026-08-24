@@ -4,7 +4,7 @@ Status: **FROZEN OWNER CONTRACT — ready for CC implementation**
 
 Owner decision: Paweł, 2026-08-24
 
-Base branch/SHA: `task/ROTA-T021c` from `8eda40b`
+Base branch/SHA: `task/ROTA-T021c` from `713ef5c`
 
 ## 1. Cel
 
