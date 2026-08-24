@@ -98,8 +98,10 @@ Dopiero gdy wszystkie wiersze są poprawne, router pobiera najnowszy
 `update_site_profile`. Request nie może nadpisać żadnego ukrytego pola, także
 gdy zmieniło się ono po wcześniejszym GET w przeglądarce.
 
-Odpowiedź `200` ma ten sam kształt co GET i pochodzi ze świeżego odczytu po
-zapisie. Nie ma osobnych endpointów POST/PATCH/DELETE dla pojedynczego wiersza.
+Odpowiedź to `204` — bez ponownego odczytu i bez `site_id`/`profile_id` w
+body (Site identyfikuje już ścieżka). `req()` już obsługuje 204. Nie ma
+osobnych endpointów POST/PATCH/DELETE dla pojedynczego wiersza.
+(R3-1, runda 3: usunięty wcześniejszy wymóg drugiego GET po PUT.)
 
 ## 5. Granice zachowania
 
@@ -118,21 +120,19 @@ zapisie. Nie ma osobnych endpointów POST/PATCH/DELETE dla pojedynczego wiersza.
 - Pola `training_s_*`, `external_support_enabled` i `day_only_blocks_n` nie są
   zwracane do formularza ani przyjmowane w request.
 
-## 6. UI zakładki „Obiekt”
+## 6. UI zakładki „Obiekt” (zredukowane R3-2, runda 3)
 
-- Dwie aktywne zakładki: „Obiekt” i istniejąca „Obsada (n)”. Przełączenie nie
-  zmienia ekranu ani nie gubi stanu zapisanej Obsady.
+- Dwie aktywne zakładki: „Obiekt” i istniejąca „Obsada (n)”.
 - „Obiekt” pokazuje listę wierszy, przycisk „+ Dodaj zmianę” i jeden przycisk
   „Zapisz katalog”. Edycje są lokalnym draftem do jednego atomowego PUT.
-- Nowy pusty profil od razu pokazuje formularz pierwszego wiersza; anulowanie
-  pozostawia pusty stan bez requestu.
 - Wiersz zawiera: D/N, Początek, Koniec, Potrzebnych osób, Pon–Nd oraz
   wyliczony opis czasu/katalogu.
 - „Usuń” wymaga potwierdzenia. Przy jednym wierszu jest disabled z informacją
   „Ostatnią zmianę popraw przez edycję”.
-- Podczas zapisu przycisk jest disabled. Sukces zastępuje draft odpowiedzią
-  serwera. Błąd pokazuje komunikat, zachowuje cały draft i nie pokazuje
-  fałszywego sukcesu.
+- Podczas zapisu przycisk jest disabled. Sukces oznacza wysłany draft jako
+  zapisany (PUT kończy się 204 — nie ma czym go zastąpić); reload + GET
+  dowodzi zapisu. Błąd pokazuje komunikat, zachowuje cały draft i nie
+  pokazuje fałszywego sukcesu.
 - Wszystkie akcje korzystają z istniejącego `data-diag-action` i klienta
   `req()`; bez drugiej diagnostyki i bez bezpośredniego `fetch` w komponencie.
 
@@ -162,41 +162,35 @@ listą; w plikach współdzielonych zachować całe zachowanie T029 poza koniecz
 osadzeniem zakładki. Jeżeli implementacja wymaga szerszego zakresu, zgłosić
 blocker zamiast tworzyć connector lub nową warstwę.
 
-## 8. Minimalna macierz odbioru
+## 8. Minimalna macierz odbioru (zredukowana R3-3, runda 3 — 8 grup)
 
-T30-01 — branch zawiera exact base T029 i jego zachowanie nadal przechodzi.
+Niższe warstwy (repository, application, diagnostyka `req()`) mają już własne
+testy atomowości/reconnect/fault-injection/REQUEST_FAILED — T030 sprawdza, że
+z nich korzysta, nie powtarza ich całych kontraktów.
 
-T30-02 — GET zwraca pusty oraz istniejący katalog w trwałej kolejności.
+T30-01 — GET pustego i istniejącego katalogu, trwała kolejność.
 
-T30-03 — parametry: D/N 12h dzienna/nocna, 24h (równe godziny) i INNY mają
-poprawne `end_next_day`, duration i wyliczony catalog kind po reconnect.
+T30-02 — PUT i trwałe wyliczenie `end_next_day`/`catalog_kind` (12h/24h/INNY)
+oraz `required_rest_hours=11`.
 
-T30-04 — odrzucane są: minuty, count <=0, puste/powtórzone dni, dzień poza
-1–7 i pusty PUT; stan sprzed requestu pozostaje bez zmian.
+T30-03 — sparametryzowana walidacja: minuty, count<=0, puste/powtórzone dni,
+dzień poza 1–7, w tym błędny DRUGI wiersz — brak zmiany stanu.
 
-T30-05 — zapis wielu wierszy jest atomowy; błąd ostatniego nie zapisuje
-wcześniejszych.
+T30-04 — zachowanie najnowszych ukrytych pól przy PUT oraz odrzucenie
+requestu z dodatkowym/nieoczekiwanym polem.
 
-T30-06 — symulowana zmiana ukrytych pól po GET nie zostaje cofnięta przez PUT
-katalogu; request z dodatkowym ukrytym polem jest odrzucany.
+T30-05 — jeden materialny PUT: istniejący audyt/invalidacja się uruchamia,
+completeness przestaje zgłaszać brak zmiany, żaden utrwalony grafik się nie
+zmienia.
 
-T30-07 — materialny PUT tworzy istniejący audyt/invalidację, identyczny PUT
-nie tworzy fałszywej akcji; żaden utrwalony historyczny grafik nie zmienia się.
+T30-06 — E2E: wejście w „Obiekt”, dodanie, zapis, reload, ten sam katalog;
+edycja istniejącego wiersza.
 
-T30-08 — po pierwszym poprawnym PUT completeness nie zawiera komunikatu o
-braku standardowej zmiany (inne braki mogą pozostać).
+T30-07 — E2E: usunięcie jednego z dwóch wierszy; ostatni wiersz chroniony w
+UI i API; draft zachowany po błędzie zapisu.
 
-T30-09 — E2E: wejście w „Obiekt”, pusty stan, dodanie, zapis, reload i ten sam
-katalog.
-
-T30-10 — E2E: edycja godzin/liczby/dni oraz usunięcie jednego z dwóch wierszy;
-ostatni wiersz jest chroniony w UI i API.
-
-T30-11 — E2E: błąd zapisu zachowuje draft, pokazuje błąd i jest widoczny w
-istniejącym raporcie diagnostycznym.
-
-T30-12 — build frontendu, pełna regresja Pythona, diff-scope z §7 i zero
-zmian w `rota/**`.
+T30-08 — build frontendu, pełna regresja Pythona (w tym T029), diff-scope
+z §7, zero zmian w `rota/**`.
 
 ## 9. DELIVERY
 
