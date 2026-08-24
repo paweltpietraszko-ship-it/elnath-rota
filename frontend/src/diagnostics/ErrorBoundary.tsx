@@ -5,7 +5,7 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 import { recordEvent, newEventId, nowIso, getCurrentScreen } from "./buffer";
 import { downloadFrontendReport } from "./report";
-import { resolveActiveClickContext } from "./tracking";
+import { resolveAction, consumePendingActionId } from "./tracking";
 
 function shortCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -35,9 +35,11 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
       error_type: error?.name || "Error",
       component_stack: info.componentStack ?? "",
     });
-    // Same causal-resolution invariant as R1-2A: a click that crashes
-    // the render is resolved by that crash, not left to stall.
-    resolveActiveClickContext();
+    // A direct (synchronous) render crash from a click's own update is
+    // reliably tied to it via pendingActionId, same as req() (R4 owner
+    // ruling: this is one of the correlations kept, unlike arbitrarily
+    // delayed work).
+    resolveAction(consumePendingActionId());
   }
 
   render() {

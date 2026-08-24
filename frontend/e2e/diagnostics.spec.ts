@@ -63,9 +63,12 @@ test("3: API 500 -- click, request start and request failed share one action_id"
   const { frontendReport } = await downloadDiagnosticZip(page);
   const events = frontendReport!.events as Array<{ kind: string; action_id?: string | null }>;
 
-  const failed = events.find((e) => e.kind === "REQUEST_FAILED");
+  // .find on action_id truthy, not just the first REQUEST_FAILED: an
+  // unrelated api/deps.py SQLite thread-affinity 500 (separately
+  // reported, not a T021c defect) can precede our own mocked failure in
+  // the buffer, always with action_id=null since it isn't click-caused.
+  const failed = events.find((e) => e.kind === "REQUEST_FAILED" && e.action_id);
   expect(failed).toBeTruthy();
-  expect(failed!.action_id).toBeTruthy();
   const started = events.find((e) => e.kind === "REQUEST_STARTED" && e.action_id === failed!.action_id);
   const click = events.find((e) => e.kind === "CLICK_RECEIVED" && e.action_id === failed!.action_id);
   expect(started).toBeTruthy();

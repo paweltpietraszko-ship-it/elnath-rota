@@ -1,23 +1,43 @@
 // T021c section 3.1/3.2: one global, capture-phase click listener
-// correlates a click with whatever happens next (request start,
-// navigation, an observable DOM change, or a registered error). If
-// none of those happen within STALLED_WINDOW_MS, the action is
-// reported as ACTION_STALLED. This intentionally avoids instrumenting
-// every button/handler individually -- "centralnie" per the brief.
+// correlates a click with whatever happens next.
+//
+// R4 (owner ruling, round-3 audit aftermath): three rounds of trying to
+// make EVERY async result path (arbitrarily delayed setTimeout/Promise
+// chains) correlate back to its causing click, via progressively more
+// elaborate timing/propagation tricks, foundered on a hard fact proven
+// empirically: a single click's own capture/target/bubble dispatch is
+// NOT one uninterrupted synchronous execution in this browser -- a
+// microtask queued from the capture-phase listener can run BEFORE the
+// same click's own target-phase listener. No fixed window, frame count,
+// or global setTimeout/Promise wrapping can reliably outrun that, so
+// the owner explicitly narrowed the diagnostic promise instead:
+//
+//   - every click is recorded (CLICK_RECEIVED), always;
+//   - a request via req(), a navigation, and a DIRECT (synchronous)
+//     render error are reliably tied to the click that caused them;
+//   - window.error / unhandledrejection are ALWAYS recorded, but their
+//     action_id is best-effort: attempted only via the same short,
+//     macrotask-scoped window req() already uses (pendingActionId,
+//     below), never guessed from "whichever click was most recent";
+//   - ACTION_STALLED means "no confirmed reaction", not "confirmed no
+//     reaction" -- it is a diagnostic hint, not a proof;
+//   - an error whose origin can't be established stays uncorrelated
+//     (action_id=null) rather than resolving an unrelated click;
+//   - no monkey-patching of setTimeout/Promise/microtasks to chase
+//     arbitrary async causality.
 
 import { recordEvent, newEventId, newActionId, nowIso, getCurrentScreen, findLastByActionId } from "./buffer";
 
 const STALLED_WINDOW_MS = 800;
 export const REQUEST_TIMEOUT_MS = 20000;
 
-// Synchronous hand-off: a native click (capture phase, before React's
-// synthetic dispatch) sets this; any fetch call issued synchronously
-// within the resulting click handler (i.e. before its first await)
-// reads it via consumePendingActionId(). Cleared on the next macrotask
-// so a request started by an unrelated, later click never inherits it.
-// Deliberately separate from activeClickContext below: this one must
-// decay fast so a later, non-click-triggered request (e.g. a mount
-// effect) never inherits a stale click's id.
+// Synchronous-ish hand-off, proven reliable in practice (req() has used
+// it without issue): a click (capture phase) sets this; consumers read
+// it before the next macrotask clears it. Because the clear is itself a
+// macrotask, it survives any microtask interleaving within the SAME
+// click's own dispatch (capture/target/bubble), which is exactly the
+// scope "reliably tied to this click" needs -- and exactly why a
+// genuinely later, unrelated click never inherits a stale value.
 let pendingActionId: string | null = null;
 let clearPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -38,51 +58,6 @@ const resolvedActionIds = new Set<string>();
 export function resolveAction(actionId: string | null | undefined) {
   if (!actionId) return;
   resolvedActionIds.add(actionId);
-}
-
-// R2 (round-2 audit): a "most recent click wins" heuristic misattributes
-// a delayed error to whichever click happened to occur later, even when
-// that later click never scheduled the failing work. Real causal
-// tracking instead: every click gets its own causal context
-// (activeClickContext), and any setTimeout SCHEDULED WHILE that context
-// is active is wrapped so the SAME context is restored when it finally
-// fires -- regardless of what any other, unrelated click has done to
-// the global "current" click in the meantime. A later click simply
-// never touches an earlier click's already-captured closure.
-let activeClickContext: string | null = null;
-
-// If the wrapped callback throws, execution never reaches the
-// "restore previous" line below, so activeClickContext is left exactly
-// as the throwing callback's own context -- available for the error
-// listener (which runs synchronously as the exception unwinds to the
-// top) to read. The listener itself resets it afterwards.
-function withClickContext<T>(id: string | null, fn: () => T): T {
-  const previous = activeClickContext;
-  activeClickContext = id;
-  const result = fn();
-  activeClickContext = previous;
-  return result;
-}
-
-let timerPropagationInstalled = false;
-
-function installTimerContextPropagation() {
-  if (timerPropagationInstalled || typeof window === "undefined") return;
-  timerPropagationInstalled = true;
-  const nativeSetTimeout = window.setTimeout.bind(window);
-  window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
-    if (typeof handler !== "function") {
-      return nativeSetTimeout(handler as unknown as () => void, timeout, ...args);
-    }
-    const capturedContext = activeClickContext;
-    const wrapped = () => withClickContext(capturedContext, () => (handler as (...a: unknown[]) => unknown)(...args));
-    return nativeSetTimeout(wrapped, timeout);
-  }) as typeof window.setTimeout;
-}
-
-export function resolveActiveClickContext() {
-  resolveAction(activeClickContext);
-  activeClickContext = null;
 }
 
 function isInteractiveControl(el: Element): boolean {
@@ -122,16 +97,13 @@ function actionNameFor(el: Element): string {
   return `${tag}:untagged`;
 }
 
-// R2 (round-2 audit): watching the whole #root subtree for the full
-// STALLED_WINDOW_MS meant ANY later, unrelated re-render anywhere in
-// the app (a different component's own effect, a background refresh)
-// got credited to this click. A real UI effect from a click handler
-// commits synchronously and paints within the next couple of frames;
-// scoping the watch to that short window instead of the full stall
-// window means a mutation arriving well after (as in the audit's 100ms
-// repro) is no longer in scope to misattribute.
-const MUTATION_ATTRIBUTION_FRAMES = 2;
-
+// Best-effort UI-effect detection (brief.md section 3.2's "obserwowalna
+// zmiana UI"): watches #root for the declared stalled window and
+// resolves on any mutation observed there. Deliberately simple -- per
+// the R4 owner ruling this is a best-effort signal, not a guarantee, so
+// it does not attempt precise causal scoping (which is exactly what
+// three rounds of increasingly elaborate attempts showed isn't
+// reliably buildable here).
 function watchForMutation(actionId: string) {
   const root = document.getElementById("root");
   if (typeof MutationObserver === "undefined" || !root) return;
@@ -140,26 +112,7 @@ function watchForMutation(actionId: string) {
     observer.disconnect();
   });
   observer.observe(root, { childList: true, subtree: true, attributes: true, characterData: true });
-
-  let framesLeft = MUTATION_ATTRIBUTION_FRAMES;
-  const tick = () => {
-    framesLeft -= 1;
-    if (framesLeft <= 0) {
-      observer.disconnect();
-      return;
-    }
-    if (typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(tick);
-    } else {
-      observer.disconnect();
-    }
-  };
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(tick);
-  } else {
-    // No rAF (non-browser test runner): fall back to a short timer.
-    setTimeout(() => observer.disconnect(), 50);
-  }
+  setTimeout(() => observer.disconnect(), STALLED_WINDOW_MS);
 }
 
 function onCapturedClick(ev: MouseEvent) {
@@ -181,7 +134,6 @@ function onCapturedClick(ev: MouseEvent) {
   });
 
   setPendingActionId(actionId);
-  activeClickContext = actionId;
   watchForMutation(actionId);
 
   setTimeout(() => {
@@ -189,6 +141,9 @@ function onCapturedClick(ev: MouseEvent) {
       resolvedActionIds.delete(actionId);
       return;
     }
+    // "No confirmed reaction" (R4 owner ruling), not a proof nothing
+    // happened -- a delayed effect this mechanism cannot reliably trace
+    // may still land after this point.
     recordEvent({
       event_id: newEventId(),
       timestamp: nowIso(),
@@ -205,7 +160,6 @@ let installed = false;
 export function installClickTracking() {
   if (installed) return;
   installed = true;
-  installTimerContextPropagation();
   document.addEventListener("click", onCapturedClick, true);
 }
 
