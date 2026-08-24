@@ -1,0 +1,92 @@
+ROTA-T030 — ADVERSARIALNY AUDYT ZWIĘZŁOŚCI KONTRAKTU, RUNDA 3
+
+Audytowany exact contract SHA: 3d2b6294ec8be83a5362974669da69763e63ba55
+Branch HEAD przy audycie: b3f0412f21b0d4b1ade6067f565b9a54e3a1596e
+Data: 2026-08-24
+
+WERDYKT: WYMAGA JEDNEGO MECHANICZNEGO SKRÓCENIA — BEZ DECYZJI PRODUKTOWYCH
+
+Kontrakt jest logiczny, testowalny i nie tworzy nowej domeny. Większość
+opisanej logiki jest naprawdę potrzebna. Autor dopisał jednak trzy grupy
+obowiązków, które nie zmieniają wyniku dla właściciela, a zwiększają kod i
+macierz. Należy je usunąć w jednej konsolidacji, bez kolejnej rundy pytań.
+
+1. CO MUSI ZOSTAĆ
+
+Niezbędne są:
+
+- GET katalogu i jeden atomowy PUT całej listy;
+- pobranie najnowszego SiteProfile po stronie serwera i podmiana wyłącznie
+  standard_shifts, aby przeglądarka nie mogła nadpisać ukrytych pól;
+- walidacja wszystkich wierszy przed jednym update_site_profile;
+- serwerowe wyliczenie end_next_day i catalog_kind oraz rest=11;
+- lokalny draft UI, pełne godziny, dni tygodnia, liczba osób;
+- dodanie/edycja/usunięcie z potwierdzeniem i ochrona ostatniego wiersza;
+- zachowanie draftu po błędzie i użycie istniejącego req()/diagnostyki;
+- test pionowy API→application→persistence oraz podstawowe E2E.
+
+Osobny `api/routers/site_profile.py` nie jest nową warstwą biznesową. Jest
+zgodny z obecnym podziałem routerów i nie wymaga redukcji.
+
+R3-1 — ODPOWIEDŹ PUT JEST BOGATSZA NIŻ POTRZEBA
+
+§4 wymaga po PUT ponownego GET, odpowiedzi 200 i pełnego enriched response.
+Widoczne pola są dokładnie tym, co wysłał front; pola ukryte nie są edytowane.
+Obecny `frontend/src/api/client.ts::req()` obsługuje już 204.
+
+Prostszy kontrakt:
+
+- GET nadal zwraca listę potrzebną do otwarcia ekranu;
+- PUT po jednym update_site_profile zwraca 204, bez drugiego odczytu;
+- po sukcesie UI oznacza wysłany draft jako zapisany; reload dowodzi GET.
+
+`duration_hours`/`catalog_kind` można zachować w GET, jeżeli mają służyć jako
+czytelne zabezpieczenie przed pomyłką. Nie są potrzebne w odpowiedzi PUT.
+`site_id` i `profile_id` również nie są potrzebne w body — Site identyfikuje
+już ścieżka endpointu.
+
+R3-2 — TRZY OBOWIĄZKI UI NIE REALIZUJĄ DECYZJI WŁAŚCICIELA
+
+Można usunąć z §6:
+
+- obietnicę, że przełączenie zakładki nie „gubi stanu zapisanej Obsady” — zapis
+  trwa w backendzie niezależnie od renderowania zakładki;
+- osobną semantykę anulowania pustego pierwszego formularza bez requestu;
+- obowiązek zastępowania draftu odpowiedzią serwera po sukcesie, skoro PUT
+  może kończyć się 204.
+
+Pozostałe zachowanie UI jest potrzebne i wystarczające.
+
+R3-3 — MACIERZ POWTARZA WŁAŚCICIELI NIŻSZYCH WARSTW
+
+Repozytorium już ma fault-injection atomowości i reconnect. Application już
+ma testy material/no-op `SITE_PROFILE_CHANGED` i invalidacji. Diagnostyka
+`req()` już ma własną macierz REQUEST_FAILED. T030 powinno sprawdzić, że używa
+tych seamów, a nie powtarzać ich całe kontrakty.
+
+Minimalna macierz T030 może mieć osiem grup:
+
+1. GET pustego i istniejącego katalogu;
+2. PUT i trwałe wyliczenie nocnej/24h/INNY + rest=11;
+3. parametryzowana walidacja, w tym zły drugi wiersz i brak zmiany stanu;
+4. zachowanie najnowszych ukrytych pól oraz odrzucenie extra fields;
+5. jeden materialny PUT: istniejący audit/invalidation, completeness i brak
+   zmiany utrwalonego grafiku;
+6. E2E dodaj/zapisz/reload oraz edytuj;
+7. E2E usuń jeden z dwóch, ochrona ostatniego i draft zachowany po błędzie;
+8. build, regresja T029/Python i diff-scope.
+
+Do usunięcia jako osobne obowiązki: ponowny reconnect repozytorium, osobna
+fault injection transakcji, identical-PUT audit i pełne ponowne badanie raportu
+diagnostycznego. Statyczna granica „komponent używa req(), nie fetch” oraz E2E
+błędu wystarczają dla T030.
+
+PODSUMOWANIE
+
+Task nie jest „programem dla NASA”. Jego rdzeń to jeden GET, jeden PUT, jeden
+formularz i osiem grup testów. Nadmiar kontraktu to drugi odczyt po PUT, trzy
+drobne obietnice prezentacyjne i powtórzone macierze niższych warstw.
+
+To jest trzecia i końcowa runda kontraktowa. Zalecana jest jedna mechaniczna
+redukcja R3-1…R3-3, bez dalszego audytu języka przed implementacją. Nie
+uruchamiano testów produktu: audyt dotyczy wyłącznie zakresu dokumentu.
