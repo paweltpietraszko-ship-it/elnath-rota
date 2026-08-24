@@ -1,0 +1,97 @@
+ROTA-T030 — AUDYT KONTRAKTU PRZED IMPLEMENTACJĄ, RUNDA 1
+
+Audytowana gałąź: task/ROTA-T030
+Audytowany exact SHA: 2d314483acd336a339080f39ccead7a92711b835
+Data: 2026-08-24
+
+WERDYKT: FAIL — DRAFT NIE JEST JESZCZE GOTOWY DO IMPLEMENTACJI
+
+Cel zadania jest prawidłowy i nie dubluje backendu: istnieją już odczyt,
+atomowy zapis całego SiteProfile, walidacja StandardShift oraz invalidacja.
+Potrzebne są tylko API i zakładka „Obiekt”. Poniższe blokery dotyczą granicy
+i testowalności tego wąskiego zakresu, nie proponują nowej domeny.
+
+R1-1 — BŁĘDNA BAZA GAŁĘZI (FAIL)
+
+Commit T030 ma rodzica 37973b5 (main), natomiast wdrożony T029 ma HEAD f2ba515.
+T029 zmienia m.in. frontend/src/api/client.ts, ekran konfiguratora i routery
+API — czyli sąsiednie miejsca, które T030 będzie rozbudowywać. Implementacja
+T030 na obecnej bazie nie zawiera T029 i tworzy niepotrzebne ryzyko konfliktu
+lub zgubienia jego zachowania.
+
+Zamknięcie: przed kodowaniem oprzeć T030 na exact HEAD T029 (albo najpierw
+włączyć T029 do main i dopiero z nowego main utworzyć T030). Brief ma podać
+exact base SHA. Nie implementować T030 równolegle na bazie 37973b5.
+
+R1-2 — UKRYTE POLA PROFILU NIE MAJĄ ZAMKNIĘTEJ GRANICY ZAPISU (FAIL)
+
+Owner decision D2 usuwa training_s_*, external_support_enabled i
+day_only_blocks_n z UI na stałe. Brief mówi, że zapis ma przekazać pełny
+profil, ale nie ustala, czy przeglądarka może odesłać te ukryte pola. Taki
+round-trip pozwoliłby staremu stanowi ekranu nadpisać nowszy trwały fakt.
+
+Wymagany kontrakt, bez nowej logiki w rota/**:
+
+- request zapisu katalogu przyjmuje tylko listę StandardShift i dane
+  technicznie konieczne do autoryzacji/audytu;
+- po stronie serwera pobierany jest aktualny SiteProfile, podmieniana jest
+  wyłącznie standard_shifts i dopiero pełny obiekt trafia do istniejącego
+  update_site_profile;
+- test dowodzi, że wszystkie pozostałe pola są bit-for-bit takie jak tuż
+  przed zapisem katalogu, także gdy zmieniły się po wcześniejszym GET.
+
+R1-3 — RZECZYWISTE DECYZJE WŁAŚCICIELA (WYMAGA ODPOWIEDZI)
+
+Historia nie jest tu otwarta: StandardShift jest bieżącą konfiguracją, a
+istniejące ScheduleVersion/ShiftDemand/Assignment są utrwalonymi faktami.
+Zmiana katalogu wywołuje istniejącą invalidację, ale nie przepisuje grafiku
+zrealizowanego. Otwarte pozostają tylko zachowania przyszłej konfiguracji:
+
+1. Czy UI pozwala usuwać błędny wiersz? Jeżeli tak, czy wolno usunąć ostatni
+   wiersz i świadomie pozostawić obiekt jako „Konfiguracja niepełna”?
+2. Czy koordynator wybiera dni tygodnia obowiązywania każdego wiersza, czy
+   wszystkie zmiany w v1 zawsze obowiązują 7 dni?
+3. Czy koordynator może ustawiać required_rest_hours, czy UI zawsze zapisuje
+   11h, a ochrona 24h/tygodniowa pozostaje automatycznie egzekwowana przez
+   T023b?
+
+Bez tych odpowiedzi formularz nie ma jednego oczekiwanego zachowania.
+
+R1-4 — BRAK MINIMALNEGO KONTRAKTU POLA I BŁĘDU (FAIL)
+
+Brief wymienia pola domeny, ale nie ustala, które wartości użytkownik podaje,
+które są wyliczane ani jak UI reprezentuje end_next_day. Nie wolno zostawić
+implementatorowi swobody wymyślenia innego formularza.
+
+Po decyzjach z R1-3 brief musi jednoznacznie ustalić co najmniej: D/N,
+start, koniec, przejście na następny dzień, wymaganą liczbę PRIMARY, dni
+aktywne i odpoczynek. catalog_kind ma pozostać wynikiem czasu trwania, nie
+osobnym przełącznikiem. Błąd walidacji backendu ma zostać pokazany bez
+częściowego zapisu i bez utraty wpisanych wartości.
+
+R1-5 — WERYFIKACJA JEST ZA WĄSKA (FAIL)
+
+Jeden happy-path do coordinator_context_completeness nie chroni klasy błędów
+tego ekranu. Minimalna macierz musi objąć:
+
+- GET rzeczywistego katalogu;
+- dodanie i edycję oraz — jeśli zaakceptowane — usunięcie;
+- zachowanie wszystkich pól profilu spoza standard_shifts;
+- odrzucenie minut, pustych/powtórzonych dni, złego czasu trwania i obsady <=0;
+- rollback całej listy przy błędzie jednego wiersza;
+- brak zmiany zrealizowanego grafiku oraz użycie istniejącej invalidacji;
+- frontend: błąd zapisu pozostawia formularz i nie pokazuje fałszywego sukcesu;
+- test zakresu: brak zmian w rota/** oraz brak drugiego repozytorium/walidatora.
+
+ARCHITECTURE_PROPOSALS (NIE BLOKUJĄ I NIE SĄ DECYZJĄ PRODUKTOWĄ)
+
+AP-1. Obecnie format godziny jest otwarty. Propozycja: wybór pełnych godzin
+00:00–23:00, bez minut; end_next_day wyliczać z relacji końca do początku
+(koniec <= początek oznacza następny dzień), a obok pokazywać wyliczony czas
+trwania i 12h/24h/INNY. Korzyść: UI nie pozwala utworzyć wartości, które
+backend musi odrzucić, i nie dodaje kolejnego checkboxa. Koszt: brak ręcznego
+wyboru end_next_day, który przy pełnych godzinach nie wnosi dodatkowej legalnej
+wartości. Propozycję należy przyjąć albo odrzucić raz przy konsolidacji briefu.
+
+Nie uruchamiano macierzy produktu: audytowany commit zawiera wyłącznie DRAFT
+briefu, bez implementacji.
