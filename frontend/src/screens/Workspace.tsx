@@ -132,7 +132,7 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
             <h1 className="brand-font">Twoje obiekty</h1>
             <div className="workspace-title-actions">
               <span className="site-count">{sites.length} obiektów</span>
-              <button className="btn-primary" onClick={() => setCreatingRegime("OCHRONA")}>
+              <button className="btn-primary" data-diag-action="create-site-open" onClick={() => setCreatingRegime("OCHRONA")}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
@@ -195,12 +195,14 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
             <div className="utility-panel-actions">
               <button
                 className="btn-secondary"
+                data-diag-action="download-diagnostics"
                 onClick={() => api.downloadDiagnostics().catch((e) => setError(String(e.message ?? e)))}
               >
                 Pobierz pakiet diagnostyczny
               </button>
               <button
                 className="btn-primary"
+                data-diag-action="download-backup"
                 onClick={() => api.downloadBackup().catch((e) => setError(String(e.message ?? e)))}
               >
                 Utwórz kopię zapasową
@@ -278,7 +280,13 @@ function SiteRow({ site, onOpen }: { site: SiteSummary; onOpen: () => void }) {
     : "";
 
   return (
-    <li className={`site-card${!complete ? " site-card-incomplete" : ""}`} onClick={onOpen} role="button" tabIndex={0}>
+    <li
+      className={`site-card${!complete ? " site-card-incomplete" : ""}`}
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      data-diag-action="site-row-open"
+    >
       <div className="site-card-top">
         <div className={`site-card-icon icon-${tone}`}>
           <StatusIcon tone={tone} />
@@ -395,6 +403,7 @@ function CreatePanel({
       <div className="create-panel-actions">
         <button
           className="btn-primary"
+          data-diag-action="create-site-submit"
           onClick={submit}
           disabled={submitting || !displayName.trim() || !profileName.trim()}
         >

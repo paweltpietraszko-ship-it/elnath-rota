@@ -29,7 +29,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
           <span className="brand-font topbar-brand-name">Elnath Rota</span>
         </div>
         <div className="room-breadcrumb">
-          <button className="room-breadcrumb-back" onClick={() => onNavigate({ screen: "workspace" })}>
+          <button className="room-breadcrumb-back" data-diag-action="breadcrumb-back" onClick={() => onNavigate({ screen: "workspace" })}>
             ← Twoje obiekty
           </button>
           <span className="room-breadcrumb-sep">/</span>

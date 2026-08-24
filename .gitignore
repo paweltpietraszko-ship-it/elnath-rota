@@ -43,6 +43,12 @@ build/
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
+# Playwright (ROTA-T021c e2e)
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+rota_e2e.db
+
 # OS
 .DS_Store
 Thumbs.db

@@ -82,7 +82,7 @@ export default function ControlPanel({
               />
               Pokaż usuniętych
             </label>
-            <button className="btn-primary" onClick={() => setAddOpen(true)}>
+            <button className="btn-primary" data-diag-action="roster-add-open" onClick={() => setAddOpen(true)}>
               + Dodaj osobę
             </button>
           </div>
@@ -115,6 +115,7 @@ export default function ControlPanel({
                     <td>
                       <button
                         className="roster-name-link"
+                        data-diag-action="roster-open-employee"
                         onClick={() => onNavigate({ screen: "employee", siteId, siteName, employeeId: row.employee_id })}
                       >
                         {row.display_name}
@@ -128,6 +129,7 @@ export default function ControlPanel({
                     <td>
                       <button
                         className={`matrix-box ${row.can_work_24h ? "matrix-box-on" : "matrix-box-off"}`}
+                        data-diag-action="roster-toggle-24h"
                         onClick={() => toggle24h(row.employee_id, row.can_work_24h)}
                         title={row.can_work_24h ? "może pracować 24h" : "nie może pracować 24h"}
                       >
@@ -136,7 +138,7 @@ export default function ControlPanel({
                     </td>
                     <td>
                       {row.enabled ? (
-                        <button className="btn-ghost" onClick={() => removeFromRoster(row.employee_id)}>
+                        <button className="btn-ghost" data-diag-action="roster-remove" onClick={() => removeFromRoster(row.employee_id)}>
                           Usuń z obsady
                         </button>
                       ) : (
@@ -283,6 +285,7 @@ function AddPersonPanel({
       <div className="create-panel-actions">
         <button
           className="btn-primary"
+          data-diag-action="add-person-submit"
           onClick={submit}
           disabled={submitting || (mode === "new" ? !displayName.trim() : !selectedExisting)}
         >

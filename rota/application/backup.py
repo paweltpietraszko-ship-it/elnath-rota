@@ -18,7 +18,14 @@ def backup_database(conn: sqlite3.Connection, destination: str) -> None:
     backup_to(conn, destination)
 
 
-def build_diagnostic_zip(conn: sqlite3.Connection, destination: str) -> None:
+def build_diagnostic_zip(
+    conn: sqlite3.Connection,
+    destination: str,
+    *,
+    frontend_report: dict | None = None,
+) -> None:
     payload = diagnostics_payload(conn)
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("diagnostics.json", json.dumps(payload, indent=2))
+        if frontend_report is not None:
+            archive.writestr("frontend_diagnostics.json", json.dumps(frontend_report, indent=2))

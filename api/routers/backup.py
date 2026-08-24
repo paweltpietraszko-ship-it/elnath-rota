@@ -10,11 +10,19 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from api.deps import get_conn
 from rota.application.backup import backup_database, build_diagnostic_zip
 
 router = APIRouter(prefix="/workspace", tags=["backup"])
+
+
+class DiagnosticsRequest(BaseModel):
+    # ROTA-T021c: opaque frontend diagnostic report (see
+    # frontend/src/diagnostics/types.ts). The backend never inspects or
+    # validates its shape -- it is embedded into the ZIP as-is.
+    frontend_report: dict | None = None
 
 
 def _timestamp() -> str:
@@ -31,9 +39,14 @@ def download_backup(background_tasks: BackgroundTasks, conn=Depends(get_conn)) -
 
 
 @router.post("/diagnostics")
-def download_diagnostics(background_tasks: BackgroundTasks, conn=Depends(get_conn)) -> FileResponse:
+def download_diagnostics(
+    background_tasks: BackgroundTasks,
+    payload: DiagnosticsRequest | None = None,
+    conn=Depends(get_conn),
+) -> FileResponse:
     fd, path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
-    build_diagnostic_zip(conn, path)
+    frontend_report = payload.frontend_report if payload is not None else None
+    build_diagnostic_zip(conn, path, frontend_report=frontend_report)
     background_tasks.add_task(os.remove, path)
     return FileResponse(path, filename=f"rota-diagnostics-{_timestamp()}.zip", media_type="application/zip")

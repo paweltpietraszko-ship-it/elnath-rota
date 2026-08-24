@@ -2,6 +2,11 @@
 // exactly (see api/routers/bootstrap.py, calendar.py, backup.py) --
 // no client-side reinterpretation of business fields.
 
+import { recordEvent, newEventId, nowIso, getCurrentScreen } from "../diagnostics/buffer";
+import { consumePendingActionId, resolveAction, REQUEST_TIMEOUT_MS } from "../diagnostics/tracking";
+import { sanitizeEndpoint } from "../diagnostics/sanitize";
+import { getFrontendReport } from "../diagnostics/report";
+
 export interface SiteSummary {
   site_id: string;
   display_name: string;
@@ -82,14 +87,95 @@ export interface MatrixCellOut {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
+  const method = init?.method ?? "GET";
+  const endpointTemplate = sanitizeEndpoint(path);
+  const actionId = consumePendingActionId();
+  const screen = getCurrentScreen();
+  const started = performance.now();
+
+  recordEvent({
+    event_id: newEventId(),
+    timestamp: nowIso(),
+    screen,
+    kind: "REQUEST_STARTED",
+    action_id: actionId,
+    method,
+    endpoint_template: endpointTemplate,
   });
+  resolveAction(actionId);
+
+  const controller = new AbortController();
+  const timeoutTimer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (e: unknown) {
+    clearTimeout(timeoutTimer);
+    const duration = Math.round(performance.now() - started);
+    if (e instanceof DOMException && e.name === "AbortError") {
+      recordEvent({
+        event_id: newEventId(),
+        timestamp: nowIso(),
+        screen,
+        kind: "REQUEST_TIMEOUT",
+        action_id: actionId,
+        method,
+        endpoint_template: endpointTemplate,
+        duration_ms: duration,
+      });
+      throw new Error("Żądanie przekroczyło limit czasu.");
+    }
+    recordEvent({
+      event_id: newEventId(),
+      timestamp: nowIso(),
+      screen,
+      kind: "REQUEST_FAILED",
+      action_id: actionId,
+      method,
+      endpoint_template: endpointTemplate,
+      status: null,
+      error_category: "network",
+      duration_ms: duration,
+    });
+    throw e;
+  }
+  clearTimeout(timeoutTimer);
+  const duration = Math.round(performance.now() - started);
+
   if (!res.ok) {
+    recordEvent({
+      event_id: newEventId(),
+      timestamp: nowIso(),
+      screen,
+      kind: "REQUEST_FAILED",
+      action_id: actionId,
+      method,
+      endpoint_template: endpointTemplate,
+      status: res.status,
+      error_category: res.status >= 500 ? "http_5xx" : "http_4xx",
+      duration_ms: duration,
+    });
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
   }
+
+  recordEvent({
+    event_id: newEventId(),
+    timestamp: nowIso(),
+    screen,
+    kind: "REQUEST_SUCCEEDED",
+    action_id: actionId,
+    method,
+    endpoint_template: endpointTemplate,
+    status: res.status,
+    duration_ms: duration,
+  });
+
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -113,7 +199,17 @@ export const api = {
     }),
 
   downloadBackup: () => downloadPost("/workspace/backup"),
-  downloadDiagnostics: () => downloadPost("/workspace/diagnostics"),
+  downloadDiagnostics: () => {
+    let body: string | undefined;
+    try {
+      body = JSON.stringify({ frontend_report: getFrontendReport() });
+    } catch {
+      // Building the frontend report must never block the existing
+      // backend diagnostics download (brief.md section 3.4).
+      body = undefined;
+    }
+    return downloadPost("/workspace/diagnostics", body);
+  },
 
   // Roster (brief.md section 5.1)
   listRoster: (siteId: string) => req<RosterRow[]>(`/workspace/sites/${siteId}/roster`),
@@ -161,8 +257,11 @@ export const api = {
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}/end-early`, { method: "POST", body: JSON.stringify(payload) }),
 };
 
-async function downloadPost(path: string): Promise<void> {
-  const res = await fetch(`/api${path}`, { method: "POST" });
+async function downloadPost(path: string, body?: string): Promise<void> {
+  const res = await fetch(`/api${path}`, {
+    method: "POST",
+    ...(body ? { headers: { "Content-Type": "application/json" }, body } : {}),
+  });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const match = /filename="?([^"]+)"?/.exec(disposition);
