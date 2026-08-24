@@ -115,6 +115,18 @@ mechanizmów przeglądarki w celu pościgu za dowolną asynchronicznością — 
 kolejne rundy audytu (`tests_r1.txt`–`tests_r3.txt`) pokazały, że to
 niewykonalne i tylko przesuwa błąd w inne miejsce.
 
+**Znane, zaakceptowane ograniczenie (runda 5, decyzja właściciela
+2026-08-24):** wywołanie handlera Reacta wymaga przetrwania sygnału korelacji
+przez co najmniej jedno makrozadanie przeglądarki — tej samej warstwy
+kolejkowania, w której może też wykonać się zupełnie niepowiązane zadanie
+zaplanowane tuż przed kliknięciem. W tym wąskim, syntetycznym przypadku
+(zadanie w tle zaplanowane przed przypadkowo bliskim, niepowiązanym
+kliknięciem) błąd może błędnie „uzdrowić” to kliknięcie zamiast zostać bez
+`action_id`. Nie jest to dalej łatane — właściciel zdecydował, że koszt
+kolejnych rund technicznych przewyższa realną wartość tego brzegowego
+przypadku, który nie gubi żadnych danych ani realnych błędów, tylko może
+błędnie stłumić jeden `ACTION_STALLED`.
+
 ### 3.3 Awarie i biały ekran
 
 - root React ma globalny ErrorBoundary;

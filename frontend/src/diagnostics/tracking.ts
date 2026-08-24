@@ -33,25 +33,17 @@ export const REQUEST_TIMEOUT_MS = 20000;
 
 // Synchronous-ish hand-off, proven reliable in practice (req() has used
 // it without issue): a click (capture phase) sets this; consumers read
-// it before the next macrotask clears it. Because the clear is itself a
-// macrotask, it survives any microtask interleaving within the SAME
-// click's own dispatch (capture/target/bubble), which is exactly the
-// scope "reliably tied to this click" needs -- and exactly why a
-// genuinely later, unrelated click never inherits a stale value.
+// it before it clears. Two chained setTimeout(0) macrotasks (see R4/R5
+// notes in the round-5 delivery: a pure-microtask chain was tried and
+// measurably broke the legitimate React-dispatch case, since React's
+// own handler invocation crosses a real macrotask boundary here, not
+// just microtask hops -- see the escalation sent back after round 5).
 let pendingActionId: string | null = null;
 let clearPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
 function setPendingActionId(id: string) {
   pendingActionId = id;
   if (clearPendingTimer) clearTimeout(clearPendingTimer);
-  // Two chained macrotasks, not one: the browser dispatches
-  // unhandledrejection as its own queued task, itself scheduled after
-  // the current task's microtask checkpoint -- empirically, that task
-  // lands in the queue AFTER a setTimeout(0) scheduled earlier in the
-  // same click (verified directly; a single-macrotask clear cleared
-  // this before a synchronous Promise.reject()'s own unhandledrejection
-  // ever fired). One extra queue turn is still far short of any
-  // subsequent, genuinely unrelated click or task.
   clearPendingTimer = setTimeout(() => {
     clearPendingTimer = setTimeout(() => {
       pendingActionId = null;
