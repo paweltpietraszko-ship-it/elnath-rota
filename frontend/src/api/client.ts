@@ -29,6 +29,28 @@ export interface CreateSiteResponse {
   profile_id: string;
 }
 
+export interface ShiftRowOut {
+  kind: "D" | "N";
+  start_time: string;
+  end_time: string;
+  required_primary_count: number;
+  active_weekdays: number[];
+  duration_hours: number;
+  catalog_kind: "12h" | "24h" | "INNY";
+}
+
+export interface ShiftCatalogOut {
+  shifts: ShiftRowOut[];
+}
+
+export interface ShiftRowIn {
+  kind: "D" | "N";
+  start_time: string;
+  end_time: string;
+  required_primary_count: number;
+  active_weekdays: number[];
+}
+
 export interface CalendarDayOut {
   date: string;
   holiday: boolean;
@@ -223,6 +245,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  // Shift catalog (Panel sterowania -> Obiekt, T030)
+  getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),
+  putShiftCatalog: (siteId: string, shifts: ShiftRowIn[]) =>
+    req<void>(`/workspace/sites/${siteId}/shift-catalog`, { method: "PUT", body: JSON.stringify({ shifts }) }),
 
   getCalendarRange: (start: string, end: string) =>
     req<CalendarDayOut[]>(`/workspace/calendar?start=${start}&end=${end}`),
