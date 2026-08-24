@@ -1,0 +1,29 @@
+ROTA-T030 — AUDYT KONTRAKTU PRZED IMPLEMENTACJĄ, RUNDA 2
+
+Audytowana gałąź: task/ROTA-T030
+Zaakceptowany exact contract SHA: 3d2b6294ec8be83a5362974669da69763e63ba55
+Base implementation SHA: f2ba515d701ee41f325a58a7711169a640d49ade
+Data: 2026-08-24
+
+WERDYKT: PASS — KONTRAKT GOTOWY DO IMPLEMENTACJI
+
+Zamknięcie rundy 1:
+
+- R1-1: merge-base T030 z T029 jest dokładnie f2ba515; T030 nie jest już
+  oparte na starszym main.
+- R1-2: request przyjmuje wyłącznie listę zmian, a serwer pobiera najnowszy
+  pełny profil i podmienia tylko standard_shifts. Ukryte pola mają test
+  zachowania także przy zmianie pomiędzy GET i PUT.
+- R1-3: właściciel potwierdził usuwanie z ochroną ostatniego wiersza,
+  edytowalne dni tygodnia oraz automatyczne required_rest_hours=11.
+- R1-4: zamknięto wszystkie pola wejściowe i pochodne, pełne godziny,
+  end_next_day, catalog_kind oraz zachowanie błędu bez częściowego zapisu.
+- R1-5: §8 zawiera minimalną macierz API, atomowości, historii, UI, diagnostyki,
+  regresji T029 i diff-scope.
+
+Kontrakt reużywa istniejący backend. Nie autoryzuje zmian w rota/**, nowej
+domeny, identyfikatora wiersza ani osobnych endpointów CRUD. Względem exact
+base T029 zaakceptowany SHA zmienia wyłącznie dokumentację T030.
+
+CC/Codex może implementować tasks/ROTA-T030/brief.md z exact contract SHA
+3d2b6294ec8be83a5362974669da69763e63ba55.

@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import backup, bootstrap, calendar, durable_inputs, roster, rule_decisions
+from api.routers import backup, bootstrap, calendar, durable_inputs, roster, rule_decisions, site_profile
 
 app = FastAPI(title="Rota API (dev)")
 
@@ -26,6 +26,7 @@ app.include_router(durable_inputs.roster_router, prefix="/api")
 app.include_router(roster.router, prefix="/api")
 app.include_router(rule_decisions.router, prefix="/api")
 app.include_router(backup.router, prefix="/api")
+app.include_router(site_profile.router, prefix="/api")
 
 
 @app.get("/api/health")

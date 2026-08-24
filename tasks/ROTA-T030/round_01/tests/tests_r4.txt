@@ -1,0 +1,89 @@
+ROTA-T030 — NIEZALEŻNY AUDYT IMPLEMENTACJI, RUNDA 4
+
+Audytowany exact SHA: dbdd19bd4c6eab4588ec3578fcc45d1df236d4bb
+Base SHA: f2ba515d701ee41f325a58a7711169a640d49ade
+Data: 2026-08-24
+
+WERDYKT: FAIL — JEDNA WĄSKA POPRAWKA UI
+
+Osobno: mechaniczny backend.py ma nierozstrzygnięty konflikt delivery opisany
+na końcu raportu. Nie jest to drugi błąd zachowania produktu.
+
+WARSTWY NIEZALEŻNEGO AUDYTU
+
+- diff/scope: zero zmian w rota/**; implementacja używa istniejących
+  get_site_profile, validate_standard_shift i update_site_profile;
+- testy implementatora API: 15/15 PASS;
+- build frontendu: PASS;
+- E2E implementatora na świeżych serwerach: 4/4 PASS;
+- pełna regresja: 1124 PASS, 1 znany stary source-diff FAIL T023b; T030 nie
+  dotyka constraints.py/work_periods.py i nie może naprawiać tego testu;
+- niezależny pionowy reproduktor GET → zmiana ukrytych pól → PUT: PASS,
+  najnowsze hidden fields nie zostały cofnięte;
+- niezależny E2E trwałego usunięcia → save → reload: PASS;
+- niezależny E2E granicy active_weekdays: FAIL powtórzony 3/3.
+
+R4-1 — UI POZWALA WYŁĄCZYĆ WSZYSTKIE DNI TYGODNIA (FAIL)
+
+TRACE:
+
+- brief.md §3 pkt 2: „Co najmniej jeden dzień musi pozostać zaznaczony”;
+- komponentem posiadającym tę interakcję jest
+  frontend/src/screens/SiteShiftCatalog.tsx::toggleWeekday.
+
+REPRO na exact SHA:
+
+1. utwórz Site i otwórz Panel sterowania → Obiekt;
+2. w domyślnym wierszu kolejno kliknij aktywne Pon…Nd;
+3. po siódmym kliknięciu `.chip-active` ma count 0, oczekiwane minimum 1;
+4. wynik identyczny w trzech próbach Playwrighta.
+
+Przyczyna jest bezpośrednia: linia 88 zawsze usuwa kliknięty aktywny dzień,
+również gdy `active_weekdays.length === 1`. Backend później odrzuca zapis, ale
+kontrakt formularza wymaga, aby jeden dzień pozostał zaznaczony; użytkownik nie
+powinien dopiero po „Zapisz” dowiadywać się, że UI pozwoliło zbudować stan
+zakazany przez ten sam ekran.
+
+WĄSKIE ZAMKNIĘCIE:
+
+- gdy kliknięty dzień jest aktywny i jest jedynym aktywnym dniem, pozostawić
+  draft bez zmiany;
+- wizualnie zablokować tylko ten ostatni aktywny przycisk albo podać title,
+  dlaczego nie można go wyłączyć; pozostałe dni nadal można włączyć;
+- dodać do istniejącego shift-catalog.spec.ts E2E: próba wyłączenia wszystkich
+  pozostawia dokładnie jeden dzień, zapis i reload zachowują poprawny wiersz.
+
+Nie wymaga to zmiany API, backendu, domeny ani nowego pliku.
+
+NIE SĄ FINDINGAMI
+
+- PUT jest pojedynczy i zwraca 204 bez drugiego GET — redukcja R3 zachowana.
+- Wszystkie wiersze są walidowane przed update_site_profile; błędny drugi
+  wiersz nie daje częściowego zapisu.
+- Usunięcie jednego z dwóch wierszy jest trwałe. Test implementatora kończył
+  się przed save/reload, ale niezależny E2E potwierdził pełną ścieżkę.
+- Lokalny `key` Reacta nie jest domenowym identyfikatorem wiersza i nie trafia
+  do API ani bazy.
+- Osobne pliki routera i komponentu mają jedną odpowiedzialność; sama liczba
+  plików nie jest dowodem nadmiarowej architektury.
+
+MECHANICZNY DELIVERY GATE — WYMAGA ROZLICZENIA, NIE REFAKTORU PRODUKTU
+
+Raw `backend.py` dla exact SHA zwrócił FAIL:
+
+1. brief nie zawiera maszynowej sekcji `TASK_SCOPE:`, więc DIFF_SCOPE nie może
+   rozpoznać listy §7;
+2. gate ma globalne `MAX_NEW_FILES=2`, a zaakceptowany brief jawnie dopuścił
+   cztery sensowne nowe pliki: router, komponent, test API i test E2E;
+3. AGENTS.md jest w diffie od T029 na bezpośrednie polecenie właściciela i ma
+   osobny commit; nie jest nieautoryzowaną zmianą produktu T030.
+
+Punkt 1 należy naprawić dokumentacyjnie przez `TASK_SCOPE`. Punkt 2 jest
+konfliktem mechanicznego limitu z zaakceptowanym kontraktem. Nie należy wciskać
+routera/komponentu do dużych istniejących plików tylko dla zmniejszenia licznika.
+Jeżeli backend.py ma być bezwzględnym gate'em, potrzebny jest jawny wyjątek
+albo zmiana reguły procesu dla T030; to nie jest poprawka zachowania produktu.
+
+Po naprawie R4-1 ponowny audyt ma uruchomić tylko reproduktor dni, istniejące
+E2E T030, build i — jeśli zmieni się wyłącznie frontend/test/brief — nie musi
+powtarzać całej 1125-testowej regresji.

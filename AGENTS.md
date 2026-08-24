@@ -7,6 +7,27 @@
 - If a brief is untestable after 1–2 correction rounds: report and STOP; do not
   use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
 
+## PRE_IMPLEMENTATION_REDUCTION_GATE
+TRIGGER = nontrivial Task contract before implementation starts.
+
+Run exactly once, after OWNER decisions are frozen:
+1. For every proposed entity, endpoint, response field, helper, UI state and
+   test, identify `SOURCE` in PRODUCT_TRUTH and `NECESSITY` as one of:
+   OWNER-visible result; enforcement at the owning boundary; minimal adapter
+   to an existing owner.
+2. Search the repository before adding. Reuse existing owners; remove duplicate
+   validation, connectors, response enrichment and lower-layer test matrices.
+3. Integration tests prove the new seam and its failure class. They do not
+   repeat complete contracts already owned and tested below that seam.
+4. Do not remove safety, recovery, auditability or error-prevention merely to
+   reduce lines. An extra file alone is not evidence of overarchitecture;
+   challenge logic and responsibility, not file count.
+5. Explain in plain Polish what remains necessary, what can be removed and why.
+
+OUTPUT = one mechanical consolidation with no new product behavior. If a
+reduction changes user-visible behavior, route only that decision through
+OWNER_EXPLANATION_GATE. Do not turn reduction into repeated design rounds.
+
 ## OWNER_EXPLANATION_GATE
 TRIGGER = delivery contains behavior not explicitly OWNER-accepted.
 

@@ -118,18 +118,24 @@ def _require_employee_exists(conn, employee_id: str) -> None:
     get_employee(conn, employee_id)  # raises EmployeeNotFound; no write has happened yet
 
 
-def _shift_kind_statement(shift_kind: ShiftKind, effective_from: date, effective_to: date) -> str:
+def _period_suffix(effective_from: date, effective_to: Optional[date]) -> str:
+    if effective_to is None:
+        return f"od {_fmt(effective_from)}, bezterminowo"
+    return f"od {_fmt(effective_from)} do {_fmt(effective_to)}"
+
+
+def _shift_kind_statement(shift_kind: ShiftKind, effective_from: date, effective_to: Optional[date]) -> str:
     label = "Dniówka" if shift_kind == ShiftKind.D else "Nocka"
-    return f"{label}: niedostępna od {_fmt(effective_from)} do {_fmt(effective_to)}"
+    return f"{label}: niedostępna {_period_suffix(effective_from, effective_to)}"
 
 
-def _weekday_statement(iso_weekday: int, effective_from: date, effective_to: date) -> str:
+def _weekday_statement(iso_weekday: int, effective_from: date, effective_to: Optional[date]) -> str:
     name = _WEEKDAY_NAMES_PL[iso_weekday]
-    return f"Brak dostępności w {name}: od {_fmt(effective_from)} do {_fmt(effective_to)}"
+    return f"Brak dostępności w {name}: {_period_suffix(effective_from, effective_to)}"
 
 
-def _day_only_exception_statement(effective_from: date, effective_to: date) -> str:
-    return f"Nocka: czasowo dozwolona od {_fmt(effective_from)} do {_fmt(effective_to)}"
+def _day_only_exception_statement(effective_from: date, effective_to: Optional[date]) -> str:
+    return f"Nocka: czasowo dozwolona {_period_suffix(effective_from, effective_to)}"
 
 
 _SHIFT_KIND_LABELS_PL = {"D": "dniówka", "N": "nocka"}
@@ -198,10 +204,10 @@ def _resolve_matrix_owned_rule(conn, site_id: str, rule_id: str):
 
 def create_employee_shift_unavailability(
     conn, *, coordinator_id: str, site_id: str, employee_id: str, shift_kind: ShiftKind,
-    effective_from: date, effective_to: date, note: Optional[str] = None,
+    effective_from: date, effective_to: Optional[date] = None, note: Optional[str] = None,
     responds_to_decision_required_id: Optional[str] = None,
 ) -> DecisionRecord:
-    if effective_from > effective_to:
+    if effective_to is not None and effective_from > effective_to:
         raise ValueError("effective_from must not be after effective_to")
     _require_employee_exists(conn, employee_id)
     rule_id = _new_matrix_rule_id()
@@ -223,12 +229,12 @@ def create_employee_shift_unavailability(
 
 def create_employee_weekday_unavailability(
     conn, *, coordinator_id: str, site_id: str, employee_id: str, iso_weekday: int,
-    effective_from: date, effective_to: date, note: Optional[str] = None,
+    effective_from: date, effective_to: Optional[date] = None, note: Optional[str] = None,
     responds_to_decision_required_id: Optional[str] = None,
 ) -> DecisionRecord:
     if isinstance(iso_weekday, bool) or not isinstance(iso_weekday, int) or not (1 <= iso_weekday <= 7):
         raise ValueError(f"iso_weekday must be an int 1..7, got {iso_weekday!r}")
-    if effective_from > effective_to:
+    if effective_to is not None and effective_from > effective_to:
         raise ValueError("effective_from must not be after effective_to")
     _require_employee_exists(conn, employee_id)
     rule_id = _new_matrix_rule_id()
@@ -250,10 +256,10 @@ def create_employee_weekday_unavailability(
 
 def create_day_only_n_exception(
     conn, *, coordinator_id: str, site_id: str, employee_id: str,
-    effective_from: date, effective_to: date, note: Optional[str] = None,
+    effective_from: date, effective_to: Optional[date] = None, note: Optional[str] = None,
     responds_to_decision_required_id: Optional[str] = None,
 ) -> DecisionRecord:
-    if effective_from > effective_to:
+    if effective_to is not None and effective_from > effective_to:
         raise ValueError("effective_from must not be after effective_to")
     employee = get_employee(conn, employee_id)  # no write yet
     if not employee.day_only:
@@ -275,17 +281,17 @@ def create_day_only_n_exception(
 
 def update_employee_matrix_rule_period(
     conn, *, coordinator_id: str, site_id: str, rule_id: str,
-    effective_from: date, effective_to: date, note: Optional[str] = None,
+    effective_from: date, effective_to: Optional[date] = None, note: Optional[str] = None,
     responds_to_decision_required_id: Optional[str] = None,
 ) -> DecisionRecord:
-    if effective_from > effective_to:
+    if effective_to is not None and effective_from > effective_to:
         raise ValueError("effective_from must not be after effective_to")
     version = _resolve_matrix_owned_rule(conn, site_id, rule_id)
     if version.rule_kind == EMPLOYEE_DAY_ONLY_N_EXCEPTION:
         statement = _day_only_exception_statement(effective_from, effective_to)
     else:
         label = _describe_matrix_family(version.rule_kind, version.structured_parameters)
-        statement = f"{label}: zmieniono okres na od {_fmt(effective_from)} do {_fmt(effective_to)}"
+        statement = f"{label}: zmieniono okres na {_period_suffix(effective_from, effective_to)}"
     return record_structured_rule_decision(
         conn, coordinator_id=coordinator_id, site_id=site_id, rule_id=rule_id, statement=statement,
         effective_from=effective_from, rel="supersedes",
