@@ -1,0 +1,385 @@
+"""ROTA-T031 (tasks/ROTA-T031/brief.md): thin wrap of open_month/plan_ops/
+lifecycle_ops/precheck/deviation_mapping for the Planowanie miesiaca
+screen. Marshalling and a Polish deviation-label lookup only -- no new
+persistence, versioning, or solver logic; every write still goes through
+the existing plan_month/select_candidate/replan/revalidate/finalize/
+restore application functions.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, ConfigDict
+
+from api.config import DEV_COORDINATOR_ID
+from api.deps import get_conn
+from api.errors import to_http_exception
+from rota.application.assembler import assemble_planning_state
+from rota.application.lifecycle_ops import finalize, restore, revalidate
+from rota.application.open_month import months_with_schedule, open_month
+from rota.application.plan_ops import plan_month, replan, select_candidate
+from rota.application.precheck import precheck
+from rota.domain import Assignment, AssignmentRole, AssignmentState
+from rota.persistence.employee_repository import list_employees_by_ids
+from rota.persistence.schedule_repository import get_current_schedule_snapshot
+
+router = APIRouter(prefix="/workspace/sites", tags=["schedule"])
+
+# brief.md section 4 point 8 / audit finding A-2: WEEKLY-REST-01 and REST-01
+# had no Polish label anywhere in the T021 UI documents. Unknown codes fall
+# back to the raw source_reference instead of a fabricated label.
+_DEVIATION_LABELS = {
+    "REST-01": "odpoczynek dobowy",
+    "WEEKLY-REST-01": "odpoczynek tygodniowy (35h, OCHRONA)",
+    "LOAD-01": "obciążenie godzinowe",
+    "COVERAGE-01": "brak pokrycia zmiany",
+    "DAY_SHIFT_OFF-01": "dzień wolny",
+    "LEAVE_GRANTED-01": "urlop",
+    "UNAVAILABLE-01": "niedostępność",
+    "SICK_LEAVE-01": "zwolnienie lekarskie",
+    "DAY_ONLY-01": "tylko dniówka",
+    "MEMBERSHIP-01": "brak przypisania do obiektu",
+    "EXTERNAL-01": "wsparcie zewnętrzne poza oknem",
+    "SHIFT-24-01": "niedostępność 24h",
+    "SHIFT-24-PAIR-01": "niekompletna para 24h",
+}
+
+
+def _deviation_label(source_reference: str) -> str:
+    return _DEVIATION_LABELS.get(source_reference, source_reference)
+
+
+def _parse_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid date: {value!r}") from exc
+
+
+class MonthsOut(BaseModel):
+    months: list[str]
+
+
+class ScheduleVersionOut(BaseModel):
+    version_id: str
+    status: str
+    effective_from: str | None
+    created_at: str
+    created_by: str
+    parent_version_id: str | None
+
+
+class ShiftDemandOut(BaseModel):
+    demand_id: str
+    start_datetime: str
+    end_datetime: str
+    required_primary_count: int
+    shift_kind: str | None
+
+
+class AssignmentOut(BaseModel):
+    assignment_id: str
+    schedule_version_id: str
+    employee_id: str
+    employee_display_name: str
+    start_datetime: str
+    end_datetime: str
+    role: str
+    state: str
+    frozen: bool
+    covers_demand_id: str | None
+    mentor_primary_assignment_id: str | None
+    operational_code: str | None
+    work_period_id: str | None
+    required_rest_after_hours: int | None
+
+
+class DeviationOut(BaseModel):
+    deviation_id: str
+    category: str
+    source_reference: str
+    label: str
+    affected_assignment_or_employee: str
+    acknowledged: bool
+
+
+class MonthViewOut(BaseModel):
+    current_version: ScheduleVersionOut | None
+    version_history: list[ScheduleVersionOut]
+    demands: list[ShiftDemandOut]
+    assignments: list[AssignmentOut]
+    deviations: list[DeviationOut]
+    warnings: list[str]
+
+
+class BlockingDemandOut(BaseModel):
+    demand_id: str
+    start_datetime: str
+    end_datetime: str
+
+
+class BlockerOut(BaseModel):
+    employee_id: str
+    condition: str
+
+
+class LoadBlockerOut(BaseModel):
+    employee_id: str
+    window_start: str
+    window_end: str
+    hours: int
+
+
+class DecisionRequiredPayloadOut(BaseModel):
+    blocking_shift_demands: list[BlockingDemandOut]
+    blockers: list[BlockerOut]
+    load_blocker: LoadBlockerOut | None
+    unblocking_options: list[str]
+
+
+class PlanningResultOut(BaseModel):
+    status: str
+    candidates: list[list[AssignmentOut]]
+    decision_payload: DecisionRequiredPayloadOut | None
+    error_message: str | None
+    warnings: list[str]
+
+
+class PrecheckOut(BaseModel):
+    status: str
+    under_covered_demand_ids: list[str]
+
+
+def _version_out(v) -> ScheduleVersionOut:
+    return ScheduleVersionOut(
+        version_id=v.version_id, status=v.status.value,
+        effective_from=v.effective_from.isoformat() if v.effective_from else None,
+        created_at=v.created_at.isoformat(), created_by=v.created_by, parent_version_id=v.parent_version_id,
+    )
+
+
+def _demand_out(d) -> ShiftDemandOut:
+    return ShiftDemandOut(
+        demand_id=d.demand_id, start_datetime=d.start_datetime.isoformat(), end_datetime=d.end_datetime.isoformat(),
+        required_primary_count=d.required_primary_count, shift_kind=d.shift_kind.value if d.shift_kind else None,
+    )
+
+
+def _assignment_out(a, employees_by_id: dict) -> AssignmentOut:
+    employee = employees_by_id.get(a.employee_id)
+    return AssignmentOut(
+        assignment_id=a.assignment_id, schedule_version_id=a.schedule_version_id, employee_id=a.employee_id,
+        employee_display_name=employee.display_name if employee else a.employee_id,
+        start_datetime=a.start_datetime.isoformat(), end_datetime=a.end_datetime.isoformat(),
+        role=a.role.value, state=a.state.value, frozen=a.frozen, covers_demand_id=a.covers_demand_id,
+        mentor_primary_assignment_id=a.mentor_primary_assignment_id, operational_code=a.operational_code,
+        work_period_id=a.work_period_id, required_rest_after_hours=a.required_rest_after_hours,
+    )
+
+
+def _deviation_out(d) -> DeviationOut:
+    return DeviationOut(
+        deviation_id=d.deviation_id, category=d.category.value, source_reference=d.source_reference,
+        label=_deviation_label(d.source_reference), affected_assignment_or_employee=d.affected_assignment_or_employee,
+        acknowledged=d.acknowledged,
+    )
+
+
+def _planning_result_out(conn, result) -> PlanningResultOut:
+    all_employee_ids = {a.employee_id for candidate in result.candidates for a in candidate}
+    employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
+    candidates = [[_assignment_out(a, employees_by_id) for a in candidate] for candidate in result.candidates]
+    decision_payload = None
+    if result.decision_payload is not None:
+        dp = result.decision_payload
+        decision_payload = DecisionRequiredPayloadOut(
+            blocking_shift_demands=[
+                BlockingDemandOut(
+                    demand_id=b.demand_id, start_datetime=b.start_datetime.isoformat(), end_datetime=b.end_datetime.isoformat(),
+                )
+                for b in dp.blocking_shift_demands
+            ],
+            blockers=[BlockerOut(employee_id=b.employee_id, condition=b.condition) for b in dp.blockers],
+            load_blocker=LoadBlockerOut(
+                employee_id=dp.load_blocker.employee_id, window_start=dp.load_blocker.window_start.isoformat(),
+                window_end=dp.load_blocker.window_end.isoformat(), hours=dp.load_blocker.hours,
+            ) if dp.load_blocker else None,
+            unblocking_options=list(dp.unblocking_options),
+        )
+    return PlanningResultOut(
+        status=result.status, candidates=candidates, decision_payload=decision_payload,
+        error_message=result.error_message, warnings=list(result.warnings),
+    )
+
+
+@router.get("/{site_id}/schedule/months", response_model=MonthsOut)
+def get_months(site_id: str, conn=Depends(get_conn)) -> MonthsOut:
+    try:
+        months = months_with_schedule(conn, site_id=site_id)
+        return MonthsOut(months=[m.isoformat() for m in months])
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.get("/{site_id}/schedule/{month}", response_model=MonthViewOut)
+def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut:
+    try:
+        view = open_month(conn, site_id=site_id, month=month)
+        current = get_current_schedule_snapshot(conn, site_id=site_id, month=month)
+        demands: list = []
+        assignments: list = []
+        deviations: list = []
+        if current is not None:
+            _, snapshot = current
+            employee_ids = list({a.employee_id for a in snapshot.assignments})
+            employees_by_id = list_employees_by_ids(conn, employee_ids)
+            demands = [_demand_out(d) for d in snapshot.shift_demands]
+            assignments = [_assignment_out(a, employees_by_id) for a in snapshot.assignments]
+            deviations = [_deviation_out(d) for d in snapshot.deviations]
+        return MonthViewOut(
+            current_version=_version_out(view.current_version) if view.current_version else None,
+            version_history=[_version_out(v) for v in view.version_history],
+            demands=demands, assignments=assignments, deviations=deviations, warnings=list(view.warnings),
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.get("/{site_id}/schedule/{month}/precheck", response_model=PrecheckOut)
+def get_precheck(site_id: str, month: date, conn=Depends(get_conn)) -> PrecheckOut:
+    try:
+        state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+        result = precheck(state)
+        return PrecheckOut(status=result.status, under_covered_demand_ids=list(result.under_covered_demand_ids))
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class PlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    effective_from: str | None = None
+
+
+@router.post("/{site_id}/schedule/{month}/plan", response_model=PlanningResultOut)
+def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_conn)) -> PlanningResultOut:
+    try:
+        effective_from = _parse_date(payload.effective_from) if payload.effective_from else None
+        result = plan_month(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
+        )
+        return _planning_result_out(conn, result)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class AssignmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    assignment_id: str
+    schedule_version_id: str
+    employee_id: str
+    start_datetime: str
+    end_datetime: str
+    role: str
+    state: str
+    frozen: bool
+    covers_demand_id: str | None = None
+    mentor_primary_assignment_id: str | None = None
+    operational_code: str | None = None
+    work_period_id: str | None = None
+    required_rest_after_hours: int | None = None
+
+
+def _assignment_from_in(a: AssignmentIn) -> Assignment:
+    return Assignment(
+        assignment_id=a.assignment_id, schedule_version_id=a.schedule_version_id, employee_id=a.employee_id,
+        start_datetime=datetime.fromisoformat(a.start_datetime), end_datetime=datetime.fromisoformat(a.end_datetime),
+        role=AssignmentRole(a.role), state=AssignmentState(a.state), frozen=a.frozen,
+        covers_demand_id=a.covers_demand_id, mentor_primary_assignment_id=a.mentor_primary_assignment_id,
+        operational_code=a.operational_code, work_period_id=a.work_period_id,
+        required_rest_after_hours=a.required_rest_after_hours,
+    )
+
+
+class SelectCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate: list[AssignmentIn]
+    note: str | None = None
+    responds_to_decision_required_id: str | None = None
+
+
+@router.post("/{site_id}/schedule/{month}/select-candidate", status_code=204)
+def post_select_candidate(site_id: str, month: date, payload: SelectCandidateRequest, conn=Depends(get_conn)) -> None:
+    try:
+        candidate = [_assignment_from_in(a) for a in payload.candidate]
+        select_candidate(
+            conn, site_id=site_id, month=month, candidate=candidate, coordinator_id=DEV_COORDINATOR_ID,
+            note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class ReplanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    effective_from: str
+    note: str | None = None
+    responds_to_decision_required_id: str | None = None
+
+
+@router.post("/{site_id}/schedule/{month}/replan", response_model=PlanningResultOut)
+def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(get_conn)) -> PlanningResultOut:
+    try:
+        effective_from = _parse_date(payload.effective_from)
+        result = replan(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
+            note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+        return _planning_result_out(conn, result)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/{site_id}/schedule/{month}/revalidate", status_code=204)
+def post_revalidate(site_id: str, month: date, conn=Depends(get_conn)) -> None:
+    try:
+        revalidate(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class FinalizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    acknowledged_deviation_ids: list[str]
+    reason: str | None = None
+    responds_to_decision_required_id: str | None = None
+
+
+@router.post("/{site_id}/schedule/{month}/finalize", status_code=204)
+def post_finalize(site_id: str, month: date, payload: FinalizeRequest, conn=Depends(get_conn)) -> None:
+    try:
+        finalize(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            acknowledged_deviation_ids=set(payload.acknowledged_deviation_ids), reason=payload.reason,
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class RestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version_id: str
+    note: str | None = None
+    responds_to_decision_required_id: str | None = None
+
+
+@router.post("/{site_id}/schedule/{month}/restore", status_code=204)
+def post_restore(site_id: str, month: date, payload: RestoreRequest, conn=Depends(get_conn)) -> None:
+    try:
+        restore(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
+            note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
