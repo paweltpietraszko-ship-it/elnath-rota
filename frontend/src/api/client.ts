@@ -56,6 +56,84 @@ export interface CalendarDayOut {
   holiday: boolean;
 }
 
+// Planowanie miesiąca (T031)
+export interface ScheduleVersionOut {
+  version_id: string;
+  status: "WORKING" | "WORKING_WITH_DEVIATIONS" | "FINAL_NO_DEVIATIONS" | "FINAL_WITH_DEVIATIONS";
+  effective_from: string | null;
+  created_at: string;
+  created_by: string;
+  parent_version_id: string | null;
+}
+
+export interface ShiftDemandOut {
+  demand_id: string;
+  start_datetime: string;
+  end_datetime: string;
+  required_primary_count: number;
+  shift_kind: "D" | "N" | null;
+}
+
+export interface AssignmentOut {
+  assignment_id: string;
+  schedule_version_id: string;
+  employee_id: string;
+  employee_display_name: string;
+  start_datetime: string;
+  end_datetime: string;
+  role: "PRIMARY" | "TRAINEE";
+  state: "PLANNED" | "REALIZED" | "CANCELLED";
+  frozen: boolean;
+  covers_demand_id: string | null;
+  mentor_primary_assignment_id: string | null;
+  operational_code: string | null;
+  work_period_id: string | null;
+  required_rest_after_hours: number | null;
+}
+
+export interface DeviationOut {
+  deviation_id: string;
+  category: string;
+  source_reference: string;
+  label: string;
+  affected_assignment_or_employee: string;
+  acknowledged: boolean;
+}
+
+export interface MonthViewOut {
+  current_version: ScheduleVersionOut | null;
+  version_history: ScheduleVersionOut[];
+  demands: ShiftDemandOut[];
+  assignments: AssignmentOut[];
+  deviations: DeviationOut[];
+  warnings: string[];
+}
+
+export interface DecisionRequiredPayloadOut {
+  blocking_shift_demands: { demand_id: string; start_datetime: string; end_datetime: string }[];
+  blockers: { employee_id: string; condition: string }[];
+  load_blocker: { employee_id: string; window_start: string; window_end: string; hours: number } | null;
+  unblocking_options: string[];
+}
+
+export interface PlanningResultOut {
+  status: "FEASIBLE" | "DECISION_REQUIRED" | "TECHNICAL_ERROR";
+  candidates: AssignmentOut[][];
+  decision_payload: DecisionRequiredPayloadOut | null;
+  error_message: string | null;
+  warnings: string[];
+}
+
+export interface PrecheckOut {
+  status: "NO_OBVIOUS_SHORTAGE" | "LIKELY_INSUFFICIENT";
+  under_covered_demand_ids: string[];
+}
+
+// AssignmentIn (select-candidate payload) -- same fields as AssignmentOut
+// minus employee_display_name, which the API joins on read and never
+// accepts back (api/routers/schedule.py::AssignmentIn, extra="forbid").
+export type AssignmentIn = Omit<AssignmentOut, "employee_display_name">;
+
 export interface RosterRow {
   employee_id: string;
   display_name: string;
@@ -250,6 +328,36 @@ export const api = {
   getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),
   putShiftCatalog: (siteId: string, shifts: ShiftRowIn[]) =>
     req<void>(`/workspace/sites/${siteId}/shift-catalog`, { method: "PUT", body: JSON.stringify({ shifts }) }),
+
+  // Planowanie miesiąca (T031)
+  getScheduleMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/schedule/months`),
+  getMonthView: (siteId: string, month: string) => req<MonthViewOut>(`/workspace/sites/${siteId}/schedule/${month}`),
+  getPrecheck: (siteId: string, month: string) => req<PrecheckOut>(`/workspace/sites/${siteId}/schedule/${month}/precheck`),
+  planMonth: (siteId: string, month: string, effectiveFrom: string | null) =>
+    req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/plan`, {
+      method: "POST",
+      body: JSON.stringify({ effective_from: effectiveFrom }),
+    }),
+  selectCandidate: (siteId: string, month: string, candidate: AssignmentIn[], note?: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/select-candidate`, {
+      method: "POST",
+      body: JSON.stringify({ candidate, note: note ?? null }),
+    }),
+  replanMonth: (siteId: string, month: string, effectiveFrom: string, note?: string) =>
+    req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan`, {
+      method: "POST",
+      body: JSON.stringify({ effective_from: effectiveFrom, note: note ?? null }),
+    }),
+  finalizeMonth: (siteId: string, month: string, acknowledgedDeviationIds: string[], reason?: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/finalize`, {
+      method: "POST",
+      body: JSON.stringify({ acknowledged_deviation_ids: acknowledgedDeviationIds, reason: reason ?? null }),
+    }),
+  restoreVersion: (siteId: string, month: string, versionId: string, note?: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ version_id: versionId, note: note ?? null }),
+    }),
 
   getCalendarRange: (start: string, end: string) =>
     req<CalendarDayOut[]>(`/workspace/calendar?start=${start}&end=${end}`),

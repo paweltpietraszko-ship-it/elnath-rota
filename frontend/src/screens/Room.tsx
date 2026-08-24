@@ -1,6 +1,8 @@
+import { useState } from "react";
 import type { View } from "../App";
 import ControlPanel from "./ControlPanel";
 import EmployeeDetail from "./EmployeeDetail";
+import MonthlyPlanning from "./MonthlyPlanning";
 
 const NAV_ITEMS = [
   "Przegląd",
@@ -13,9 +15,22 @@ const NAV_ITEMS = [
   "Wydruk Grafiku",
 ];
 
+const BUILT_NAV_ITEMS = new Set(["Panel sterowania", "Planowanie miesiąca"]);
+const NAV_DIAG_ACTIONS: Record<string, string> = {
+  "Panel sterowania": "room-nav-control-panel",
+  "Planowanie miesiąca": "room-nav-monthly-planning",
+};
+
 export default function Room({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
+  const [activeNav, setActiveNav] = useState<"Panel sterowania" | "Planowanie miesiąca">("Panel sterowania");
   if (view.screen === "workspace") return null;
   const { siteId, siteName } = view;
+
+  const selectNav = (item: string) => {
+    if (!BUILT_NAV_ITEMS.has(item)) return;
+    setActiveNav(item as "Panel sterowania" | "Planowanie miesiąca");
+    if (view.screen === "employee") onNavigate({ screen: "room", siteId, siteName });
+  };
 
   return (
     <div className="room">
@@ -43,24 +58,31 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
           <div>
             <p className="room-sidebar-label">Ekrany</p>
             <div className="room-sidebar-nav">
-              {NAV_ITEMS.map((item) => (
-                <button
-                  key={item}
-                  className={`nav-item${item === "Panel sterowania" ? " nav-item-active" : ""}`}
-                  disabled={item !== "Panel sterowania"}
-                  title={item !== "Panel sterowania" ? "jeszcze nie zbudowane" : undefined}
-                >
-                  {item}
-                </button>
-              ))}
+              {NAV_ITEMS.map((item) => {
+                const built = BUILT_NAV_ITEMS.has(item);
+                return (
+                  <button
+                    key={item}
+                    className={`nav-item${built && item === activeNav ? " nav-item-active" : ""}`}
+                    disabled={!built}
+                    title={!built ? "jeszcze nie zbudowane" : undefined}
+                    data-diag-action={NAV_DIAG_ACTIONS[item]}
+                    onClick={() => selectNav(item)}
+                  >
+                    {item}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
         <div className="room-content">
           <div className="room-content-inner">
-            {view.screen === "room" && <ControlPanel siteId={siteId} siteName={siteName} onNavigate={onNavigate} />}
-            {view.screen === "employee" && (
+            {activeNav === "Panel sterowania" && view.screen === "room" && (
+              <ControlPanel siteId={siteId} siteName={siteName} onNavigate={onNavigate} />
+            )}
+            {activeNav === "Panel sterowania" && view.screen === "employee" && (
               <EmployeeDetail
                 siteId={siteId}
                 siteName={siteName}
@@ -68,6 +90,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 onBack={() => onNavigate({ screen: "room", siteId, siteName })}
               />
             )}
+            {activeNav === "Planowanie miesiąca" && <MonthlyPlanning siteId={siteId} />}
           </div>
         </div>
       </div>

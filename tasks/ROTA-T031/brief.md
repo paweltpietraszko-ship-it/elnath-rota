@@ -1,6 +1,6 @@
 # ROTA-T031 — Planowanie miesiąca
 
-Status: **DRAFT (autor: CC, do audytu)**
+Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu**
 
 Base implementation SHA: `3be4ed37e735766a80ca2259c7d1b6981d22dbb5` (`main`,
 po zmergowaniu T030).
@@ -180,3 +180,30 @@ wymaga potwierdzenia dokładnego zbioru odchyleń.
 
 T31-11 — build frontendu, pełna regresja Pythona, diff-scope z §5, zero
 zmian w `rota/**`.
+
+## 7. Ustalenia z implementacji (E2E)
+
+Dwa fakty odkryte podczas pisania `frontend/e2e/monthly-planning.spec.ts`,
+nieprzewidziane w §2/§4 — obie poprawki mieszczą się w istniejącym §5
+(zero zmian poza deklarowanym zakresem plików):
+
+1. **Kalendarz jest twardym warunkiem wstępnym PLAN.**
+   `assemble_planning_state` (`rota/application/assembler.py::_assemble_calendar`)
+   wymaga rekordu `CalendarDay` dla KAŻDEGO dnia docelowego miesiąca —
+   `plan_month`/`replan` rzucają `IncompleteCalendarData` bez tego. Jedyna
+   dziś istniejąca ścieżka wypełnienia to modal „Kalendarz” w
+   `frontend/src/screens/Workspace.tsx` (przycisk „Wygeneruj kalendarz na
+   miesiąc”), poza deklarowanym zakresem plików T031 — nie modyfikowany.
+   `CalendarDay` jest globalny (nie per-obiekt), więc wygenerowanie
+   kalendarza dla dowolnego obiektu wystarcza dla wszystkich. E2E seeduje
+   to jawnie przed każdym PLAN. Ekran „Planowanie miesiąca” sam z siebie
+   NIE prowadzi koordynatora do kalendarza — samo pokazuje surowy błąd
+   backendu, jeśli brakuje dni. To świadomie zostawione poza T031: naprawa
+   UX (link/CTA do kalendarza z tego ekranu) to osobna, mała poprawka do
+   rozważenia w kolejnym zadaniu, nie blocker.
+2. **Bug znaleziony i naprawiony**: przycisk „Finalizuj” był błędnie
+   ukryty, gdy `assignments.length === 0` — ale pusty (zero-osobowy)
+   miesiąc jest prawidłowo finalizowalny (brak przypisań = brak odchyleń =
+   pusty zbiór do potwierdzenia). Warunek zawężony do samego `!isFinal`
+   (`frontend/src/screens/MonthlyPlanning.tsx`), złapane przez E2E
+   T31-10, nie przez testy API.
