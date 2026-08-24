@@ -26,11 +26,18 @@ from rota.domain import ShiftKind
 router = APIRouter(prefix="/workspace/employees", tags=["matrix"])
 
 
+def _parse_optional_date(value: str | None) -> date | None:
+    return date.fromisoformat(value) if value else None
+
+
 class CreateShiftUnavailabilityRequest(BaseModel):
     site_id: str
     shift_kind: str  # "D" | "N"
     effective_from: str
-    effective_to: str
+    # ROTA-T029: None/omitted = "bezterminowo" (owner ruling 2026-08-24 --
+    # the checkbox itself IS the permanent decision; only a genuine
+    # temporary exception carries an end date).
+    effective_to: str | None = None
 
 
 @router.post("/{employee_id}/matrix/shift-unavailability", status_code=204)
@@ -39,7 +46,7 @@ def create_shift_unavailability(employee_id: str, payload: CreateShiftUnavailabi
         create_employee_shift_unavailability(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
             shift_kind=ShiftKind(payload.shift_kind),
-            effective_from=date.fromisoformat(payload.effective_from), effective_to=date.fromisoformat(payload.effective_to),
+            effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -49,7 +56,7 @@ class CreateWeekdayUnavailabilityRequest(BaseModel):
     site_id: str
     iso_weekday: int
     effective_from: str
-    effective_to: str
+    effective_to: str | None = None
 
 
 @router.post("/{employee_id}/matrix/weekday-unavailability", status_code=204)
@@ -58,7 +65,7 @@ def create_weekday_unavailability(employee_id: str, payload: CreateWeekdayUnavai
         create_employee_weekday_unavailability(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
             iso_weekday=payload.iso_weekday,
-            effective_from=date.fromisoformat(payload.effective_from), effective_to=date.fromisoformat(payload.effective_to),
+            effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -67,7 +74,7 @@ def create_weekday_unavailability(employee_id: str, payload: CreateWeekdayUnavai
 class CreateDayOnlyExceptionRequest(BaseModel):
     site_id: str
     effective_from: str
-    effective_to: str
+    effective_to: str | None = None
 
 
 @router.post("/{employee_id}/matrix/day-only-exception", status_code=204)
@@ -75,7 +82,7 @@ def create_day_only_exception(employee_id: str, payload: CreateDayOnlyExceptionR
     try:
         create_day_only_n_exception(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
-            effective_from=date.fromisoformat(payload.effective_from), effective_to=date.fromisoformat(payload.effective_to),
+            effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -84,7 +91,7 @@ def create_day_only_exception(employee_id: str, payload: CreateDayOnlyExceptionR
 class UpdateMatrixRuleRequest(BaseModel):
     site_id: str
     effective_from: str
-    effective_to: str
+    effective_to: str | None = None
 
 
 @router.patch("/{employee_id}/matrix/{rule_id}", status_code=204)
@@ -92,7 +99,7 @@ def update_matrix_rule(employee_id: str, rule_id: str, payload: UpdateMatrixRule
     try:
         update_employee_matrix_rule_period(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, rule_id=rule_id,
-            effective_from=date.fromisoformat(payload.effective_from), effective_to=date.fromisoformat(payload.effective_to),
+            effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

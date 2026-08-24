@@ -29,6 +29,28 @@ export interface CreateSiteResponse {
   profile_id: string;
 }
 
+export interface ShiftRowOut {
+  kind: "D" | "N";
+  start_time: string;
+  end_time: string;
+  required_primary_count: number;
+  active_weekdays: number[];
+  duration_hours: number;
+  catalog_kind: "12h" | "24h" | "INNY";
+}
+
+export interface ShiftCatalogOut {
+  shifts: ShiftRowOut[];
+}
+
+export interface ShiftRowIn {
+  kind: "D" | "N";
+  start_time: string;
+  end_time: string;
+  required_primary_count: number;
+  active_weekdays: number[];
+}
+
 export interface CalendarDayOut {
   date: string;
   holiday: boolean;
@@ -224,6 +246,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // Shift catalog (Panel sterowania -> Obiekt, T030)
+  getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),
+  putShiftCatalog: (siteId: string, shifts: ShiftRowIn[]) =>
+    req<void>(`/workspace/sites/${siteId}/shift-catalog`, { method: "PUT", body: JSON.stringify({ shifts }) }),
+
   getCalendarRange: (start: string, end: string) =>
     req<CalendarDayOut[]>(`/workspace/calendar?start=${start}&end=${end}`),
 
@@ -280,13 +307,13 @@ export const api = {
   // Dniówka/Nocka/weekday matrix (T021b-backed)
   getEmployeeMatrix: (employeeId: string, siteId: string, month: string) =>
     req<{ cells: MatrixCellOut[] }>(`/workspace/employees/${employeeId}/matrix?site_id=${siteId}&month=${month}`),
-  createShiftUnavailability: (employeeId: string, payload: { site_id: string; shift_kind: "D" | "N"; effective_from: string; effective_to: string }) =>
+  createShiftUnavailability: (employeeId: string, payload: { site_id: string; shift_kind: "D" | "N"; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/shift-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
-  createWeekdayUnavailability: (employeeId: string, payload: { site_id: string; iso_weekday: number; effective_from: string; effective_to: string }) =>
+  createWeekdayUnavailability: (employeeId: string, payload: { site_id: string; iso_weekday: number; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/weekday-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
-  createDayOnlyException: (employeeId: string, payload: { site_id: string; effective_from: string; effective_to: string }) =>
+  createDayOnlyException: (employeeId: string, payload: { site_id: string; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/day-only-exception`, { method: "POST", body: JSON.stringify(payload) }),
-  updateMatrixRule: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string; effective_to: string }) =>
+  updateMatrixRule: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   endMatrixRuleEarly: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}/end-early`, { method: "POST", body: JSON.stringify(payload) }),

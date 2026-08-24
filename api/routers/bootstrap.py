@@ -15,7 +15,7 @@ from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application import bootstrap
-from rota.domain import CoordinatorSiteAssociation, Site, SitePlanningRegime, SiteProfile
+from rota.domain import Coordinator, CoordinatorSiteAssociation, Site, SitePlanningRegime, SiteProfile
 from rota.persistence import site_memory
 from rota.persistence.site_repository import get_site_print_settings
 
@@ -103,11 +103,16 @@ def create_site(payload: CreateSiteRequest, conn=Depends(get_conn)) -> CreateSit
     association = CoordinatorSiteAssociation(
         coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, active=True,
     )
+    # ROTA-T028: the association below is FK-constrained to an existing
+    # coordinators row, but nothing else in this app ever creates one --
+    # a fresh/reset database has none. write_coordinator_in_open_transaction
+    # is an idempotent UPSERT, so passing this on every call is safe.
+    coordinator = Coordinator(coordinator_id=DEV_COORDINATOR_ID, display_name="Koordynator", active=True)
 
     try:
         bootstrap.bootstrap_or_resume_coordinator_context(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id,
-            coordinator=None, site_profile=site_profile, site=site, association=association,
+            coordinator=coordinator, site_profile=site_profile, site=site, association=association,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { View } from "../App";
 import { api, PickableEmployee, RosterRow } from "../api/client";
+import SiteShiftCatalog from "./SiteShiftCatalog";
 
 export default function ControlPanel({
   siteId,
@@ -11,6 +12,7 @@ export default function ControlPanel({
   siteName: string;
   onNavigate: (v: View) => void;
 }) {
+  const [tab, setTab] = useState<"obiekt" | "obsada">("obsada");
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,111 +60,125 @@ export default function ControlPanel({
       </p>
 
       <div className="tab-row">
-        <button className="tab-item" disabled title="jeszcze nie zbudowane">
+        <button
+          className={`tab-item${tab === "obiekt" ? " tab-item-active" : ""}`}
+          data-diag-action="control-panel-tab-obiekt"
+          onClick={() => setTab("obiekt")}
+        >
           Obiekt
         </button>
-        <button className="tab-item tab-item-active">Obsada ({roster.filter((r) => r.enabled).length})</button>
+        <button
+          className={`tab-item${tab === "obsada" ? " tab-item-active" : ""}`}
+          data-diag-action="control-panel-tab-obsada"
+          onClick={() => setTab("obsada")}
+        >
+          Obsada ({roster.filter((r) => r.enabled).length})
+        </button>
       </div>
 
-      {error && <div className="banner-error">{error}</div>}
+      {error && tab === "obsada" && <div className="banner-error">{error}</div>}
 
-      <div className="panel">
-        <div className="panel-title-row">
-          <div>
-            <h3>Lista pracowników</h3>
-            <p className="panel-hint">Kliknij nazwisko, żeby otworzyć konfigurację pracownika.</p>
+      {tab === "obiekt" && <SiteShiftCatalog siteId={siteId} />}
+
+      {tab === "obsada" && (
+        <div className="panel">
+          <div className="panel-title-row">
+            <div>
+              <h3>Lista pracowników</h3>
+              <p className="panel-hint">Kliknij nazwisko, żeby otworzyć konfigurację pracownika.</p>
+            </div>
+            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ink-soft)" }}>
+                <input
+                  type="checkbox"
+                  checked={showRemoved}
+                  onChange={(e) => setShowRemoved(e.target.checked)}
+                  style={{ width: "auto" }}
+                />
+                Pokaż usuniętych
+              </label>
+              <button className="btn-primary" data-diag-action="roster-add-open" onClick={() => setAddOpen(true)}>
+                + Dodaj osobę
+              </button>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ink-soft)" }}>
-              <input
-                type="checkbox"
-                checked={showRemoved}
-                onChange={(e) => setShowRemoved(e.target.checked)}
-                style={{ width: "auto" }}
-              />
-              Pokaż usuniętych
-            </label>
-            <button className="btn-primary" data-diag-action="roster-add-open" onClick={() => setAddOpen(true)}>
-              + Dodaj osobę
-            </button>
-          </div>
-        </div>
 
-        {addOpen && (
-          <AddPersonPanel
-            siteId={siteId}
-            onClose={() => setAddOpen(false)}
-            onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
-          />
-        )}
+          {addOpen && (
+            <AddPersonPanel
+              siteId={siteId}
+              onClose={() => setAddOpen(false)}
+              onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
+            />
+          )}
 
-        {loading ? (
-          <p>Ładowanie…</p>
-        ) : (
-          <div className="matrix-table-wrap">
-            <table className="roster-table">
-              <thead>
-                <tr>
-                  <th>Pracownik</th>
-                  <th>Status</th>
-                  <th>24h</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRoster.map((row) => (
-                  <tr key={row.employee_id} className={row.enabled ? "" : "roster-row-disabled"}>
-                    <td>
-                      <button
-                        className="roster-name-link"
-                        data-diag-action="roster-open-employee"
-                        onClick={() => onNavigate({ screen: "employee", siteId, siteName, employeeId: row.employee_id })}
-                      >
-                        {row.display_name}
-                      </button>
-                    </td>
-                    <td>
-                      <span className={`badge-pill ${row.enabled ? "badge-on" : "badge-off"}`}>
-                        {row.enabled ? "na obsadzie" : "usunięty z obsady"}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className={`matrix-box ${row.can_work_24h ? "matrix-box-on" : "matrix-box-off"}`}
-                        data-diag-action="roster-toggle-24h"
-                        onClick={() => toggle24h(row.employee_id, row.can_work_24h)}
-                        title={row.can_work_24h ? "może pracować 24h" : "nie może pracować 24h"}
-                      >
-                        {row.can_work_24h ? "✓" : "✕"}
-                      </button>
-                    </td>
-                    <td>
-                      {row.enabled ? (
-                        <button className="btn-ghost" data-diag-action="roster-remove" onClick={() => removeFromRoster(row.employee_id)}>
-                          Usuń z obsady
-                        </button>
-                      ) : (
-                        <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>
-                          przywróć przez „+ Dodaj osobę”
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {visibleRoster.length === 0 && (
+          {loading ? (
+            <p>Ładowanie…</p>
+          ) : (
+            <div className="matrix-table-wrap">
+              <table className="roster-table">
+                <thead>
                   <tr>
-                    <td colSpan={4} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
-                      {roster.length === 0
-                        ? "Brak pracowników. Dodaj pierwszą osobę."
-                        : "Brak aktywnych pracowników — wszyscy usunięci (włącz „Pokaż usuniętych”, żeby ich zobaczyć)."}
-                    </td>
+                    <th>Pracownik</th>
+                    <th>Status</th>
+                    <th>24h</th>
+                    <th></th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {visibleRoster.map((row) => (
+                    <tr key={row.employee_id} className={row.enabled ? "" : "roster-row-disabled"}>
+                      <td>
+                        <button
+                          className="roster-name-link"
+                          data-diag-action="roster-open-employee"
+                          onClick={() => onNavigate({ screen: "employee", siteId, siteName, employeeId: row.employee_id })}
+                        >
+                          {row.display_name}
+                        </button>
+                      </td>
+                      <td>
+                        <span className={`badge-pill ${row.enabled ? "badge-on" : "badge-off"}`}>
+                          {row.enabled ? "na obsadzie" : "usunięty z obsady"}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className={`matrix-box ${row.can_work_24h ? "matrix-box-on" : "matrix-box-off"}`}
+                          data-diag-action="roster-toggle-24h"
+                          onClick={() => toggle24h(row.employee_id, row.can_work_24h)}
+                          title={row.can_work_24h ? "może pracować 24h" : "nie może pracować 24h"}
+                        >
+                          {row.can_work_24h ? "✓" : "✕"}
+                        </button>
+                      </td>
+                      <td>
+                        {row.enabled ? (
+                          <button className="btn-ghost" data-diag-action="roster-remove" onClick={() => removeFromRoster(row.employee_id)}>
+                            Usuń z obsady
+                          </button>
+                        ) : (
+                          <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>
+                            przywróć przez „+ Dodaj osobę”
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {visibleRoster.length === 0 && (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
+                        {roster.length === 0
+                          ? "Brak pracowników. Dodaj pierwszą osobę."
+                          : "Brak aktywnych pracowników — wszyscy usunięci (włącz „Pokaż usuniętych”, żeby ich zobaczyć)."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }

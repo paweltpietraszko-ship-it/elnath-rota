@@ -434,3 +434,73 @@ def test_broader_family_statement_names_every_weekday(conn):
         conn, coordinator_id=COORD, site_id=SITE, rule_id=created.rule_id, effective_from=date(2026, 10, 1),
     )
     assert "poniedziałek" in ended.statement.lower() and "wtorek" in ended.statement.lower()
+
+
+# --- ROTA-T029: open-ended (bezterminowo) periods -------------------------
+# Owner ruling 2026-08-24: the checkbox itself is a permanent decision --
+# effective_to is optional (None = no end date) on create/update.
+
+def test_create_shift_unavailability_open_ended(conn):
+    from rota.persistence.site_rule_repository import get_site_rule_version
+
+    rec = create_employee_shift_unavailability(
+        conn, coordinator_id=COORD, site_id=SITE, employee_id="EMP-1", shift_kind=ShiftKind.N,
+        effective_from=date(2026, 9, 1),
+    )
+    version = get_site_rule_version(conn, rec.rule_version_id)
+    assert version.effective_to is None
+    assert "bezterminowo" in rec.statement.lower()
+    # still in effect three months later -- no expiry.
+    matrix = employee_availability_matrix(conn, site_id=SITE, employee_id="EMP-1", month=date(2026, 12, 1))
+    assert any(v.rule_version_id == rec.rule_version_id for v in matrix.weekday_and_exception_rules)
+
+
+def test_create_weekday_unavailability_open_ended(conn):
+    from rota.persistence.site_rule_repository import get_site_rule_version
+
+    rec = create_employee_weekday_unavailability(
+        conn, coordinator_id=COORD, site_id=SITE, employee_id="EMP-1", iso_weekday=3,
+        effective_from=date(2026, 9, 1),
+    )
+    version = get_site_rule_version(conn, rec.rule_version_id)
+    assert version.effective_to is None
+
+
+def test_create_day_only_exception_open_ended(conn):
+    from rota.persistence.site_rule_repository import get_site_rule_version
+
+    rec = create_day_only_n_exception(
+        conn, coordinator_id=COORD, site_id=SITE, employee_id="EMP-2",
+        effective_from=date(2026, 9, 1),
+    )
+    version = get_site_rule_version(conn, rec.rule_version_id)
+    assert version.effective_to is None
+
+
+def test_update_matrix_rule_period_can_clear_end_date(conn):
+    from rota.persistence.site_rule_repository import get_site_rule_version
+
+    created = create_employee_shift_unavailability(
+        conn, coordinator_id=COORD, site_id=SITE, employee_id="EMP-1", shift_kind=ShiftKind.D,
+        effective_from=date(2026, 9, 1), effective_to=date(2026, 9, 30),
+    )
+    updated = update_employee_matrix_rule_period(
+        conn, coordinator_id=COORD, site_id=SITE, rule_id=created.rule_id,
+        effective_from=date(2026, 9, 1),
+    )
+    version = get_site_rule_version(conn, updated.rule_version_id)
+    assert version.effective_to is None
+    assert "bezterminowo" in updated.statement.lower()
+
+
+def test_open_ended_rule_can_still_be_ended_early(conn):
+    created = create_employee_shift_unavailability(
+        conn, coordinator_id=COORD, site_id=SITE, employee_id="EMP-1", shift_kind=ShiftKind.N,
+        effective_from=date(2026, 9, 1),
+    )
+    ended = end_employee_matrix_rule_early(
+        conn, coordinator_id=COORD, site_id=SITE, rule_id=created.rule_id, effective_from=date(2026, 9, 15),
+    )
+    assert ended.rel == "rejects"
+    matrix = employee_availability_matrix(conn, site_id=SITE, employee_id="EMP-1", month=date(2026, 10, 1))
+    assert matrix.weekday_and_exception_rules == ()
