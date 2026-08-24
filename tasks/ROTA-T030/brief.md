@@ -8,6 +8,20 @@ Base implementation SHA: `f2ba515d701ee41f325a58a7711169a640d49ade`
 Owner decisions: Paweł, 2026-08-24. Konsolidacja zamyka audyt
 `round_01/tests/tests_r1.txt`.
 
+TASK_SCOPE:
+- api/main.py
+- api/errors.py
+- api/routers/site_profile.py
+- frontend/src/api/client.ts
+- frontend/src/screens/ControlPanel.tsx
+- frontend/src/App.css
+- frontend/src/screens/SiteShiftCatalog.tsx
+- tests/test_t030_shift_catalog_api.py
+- frontend/e2e/shift-catalog.spec.ts
+
+(dokumentacyjne domknięcie punktu 1 z round_01/tests/tests_r4.txt — maszynowa
+transkrypcja już zamrożonej listy z §7, bez zmiany zakresu).
+
 ## 1. Wynik dla właściciela
 
 Zakładka „Obiekt” w Panelu sterowania przestaje być wyszarzonym placeholderem.

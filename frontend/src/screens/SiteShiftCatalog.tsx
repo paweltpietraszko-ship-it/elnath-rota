@@ -85,6 +85,9 @@ export default function SiteShiftCatalog({ siteId }: { siteId: string }) {
       prev.map((r) => {
         if (r.key !== key) return r;
         const active = r.active_weekdays.includes(day);
+        // brief.md section 3, point 2: at least one weekday must stay
+        // checked -- the last active day cannot be unchecked from the UI.
+        if (active && r.active_weekdays.length === 1) return r;
         const next = active ? r.active_weekdays.filter((d) => d !== day) : [...r.active_weekdays, day].sort((a, b) => a - b);
         return { ...r, active_weekdays: next };
       }),
@@ -191,6 +194,7 @@ export default function SiteShiftCatalog({ siteId }: { siteId: string }) {
               {WEEKDAY_NAMES.map((name, i) => {
                 const day = i + 1;
                 const active = row.active_weekdays.includes(day);
+                const isLastActive = active && row.active_weekdays.length === 1;
                 return (
                   <button
                     key={day}
@@ -198,6 +202,8 @@ export default function SiteShiftCatalog({ siteId }: { siteId: string }) {
                     className={`chip${active ? " chip-active" : ""}`}
                     data-diag-action="shift-catalog-toggle-weekday"
                     onClick={() => toggleWeekday(row.key, day)}
+                    disabled={isLastActive}
+                    title={isLastActive ? "Co najmniej jeden dzień musi pozostać zaznaczony" : undefined}
                   >
                     {name}
                   </button>

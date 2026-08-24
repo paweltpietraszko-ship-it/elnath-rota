@@ -70,6 +70,37 @@ test("delete one of two rows; the last remaining row is protected", async ({ pag
   await expect(page.locator(".create-panel").first().getByRole("button", { name: "Usuń" })).toBeDisabled();
 });
 
+test("attempting to uncheck every weekday leaves exactly one checked, and it survives save+reload", async ({ page }) => {
+  const siteName = `SHIFT-WD-${uid()}`;
+  await createSite(page, siteName, `SHIFT-WD-PROF-${uid()}`);
+  await openSite(page, siteName);
+  await openObiektTab(page);
+
+  const row = page.locator(".create-panel").first();
+  // uncheck six of the seven days -- "Nd" is left as the one remaining
+  // active day, and the guard must keep its button disabled/un-clickable
+  // rather than letting a 7th click clear it too.
+  const sixDays = ["Pon", "Wt", "Śr", "Czw", "Pt", "Sob"];
+  for (const name of sixDays) {
+    await row.getByRole("button", { name, exact: true }).click();
+  }
+
+  const active = row.locator(".chip.chip-active");
+  await expect(active).toHaveCount(1);
+  await expect(active).toHaveText("Nd");
+  await expect(row.getByRole("button", { name: "Nd", exact: true })).toBeDisabled();
+
+  await page.locator('[data-diag-action="shift-catalog-save"]').click();
+  await expect(page.getByText("Zapisano.")).toBeVisible();
+
+  await page.reload();
+  await openSite(page, siteName);
+  await openObiektTab(page);
+  const reloadedActive = page.locator(".create-panel").first().locator(".chip.chip-active");
+  await expect(reloadedActive).toHaveCount(1);
+  await expect(reloadedActive).toHaveText("Nd");
+});
+
 test("save error preserves the draft and shows no false success", async ({ page }) => {
   const siteName = `SHIFT-ERR-${uid()}`;
   await createSite(page, siteName, `SHIFT-ERR-PROF-${uid()}`);
