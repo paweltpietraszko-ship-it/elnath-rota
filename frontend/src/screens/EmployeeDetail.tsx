@@ -20,9 +20,17 @@ const currentMonth = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 };
 
-function cellActiveToday(cells: MatrixCellOut[], predicate: (c: MatrixCellOut) => boolean): boolean {
+function isActiveToday(c: MatrixCellOut): boolean {
   const today = isoToday();
-  return cells.some((c) => predicate(c) && c.applies_from && c.applies_to && c.applies_from <= today && c.applies_to >= today);
+  return Boolean(c.applies_from && c.applies_to && c.applies_from <= today && c.applies_to >= today);
+}
+
+function cellActiveToday(cells: MatrixCellOut[], predicate: (c: MatrixCellOut) => boolean): boolean {
+  return cells.some((c) => predicate(c) && isActiveToday(c));
+}
+
+function findActiveCell(cells: MatrixCellOut[], predicate: (c: MatrixCellOut) => boolean): MatrixCellOut | undefined {
+  return cells.find((c) => predicate(c) && isActiveToday(c));
 }
 
 export default function EmployeeDetail({
@@ -41,8 +49,9 @@ export default function EmployeeDetail({
   const [targetHours, setTargetHoursState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showAddRestriction, setShowAddRestriction] = useState(false);
   const [showAddAbsence, setShowAddAbsence] = useState(false);
+  const [showDayOnlyExceptionForm, setShowDayOnlyExceptionForm] = useState(false);
+  const [matrixBusy, setMatrixBusy] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -105,6 +114,73 @@ export default function EmployeeDetail({
     }
   };
 
+  // T029 (owner ruling 2026-08-24): the checkbox itself IS the solver
+  // instruction -- click toggles it immediately and permanently (no end
+  // date), matching how toggleDayOnly/toggle24h above already work. Only
+  // Nocka for a day_only employee is a genuine temporary exception (the
+  // owner's own example), so it opens a small dated form instead.
+  const toggleShiftKind = async (shiftKind: "D" | "N") => {
+    const active = findActiveCell(cells, (c) => c.cell === (shiftKind === "D" ? "dniowka" : "nocka"));
+    setMatrixBusy(true);
+    setError(null);
+    try {
+      if (active) {
+        await api.endMatrixRuleEarly(employeeId, active.rule_id, { site_id: siteId, effective_from: today });
+      } else {
+        await api.createShiftUnavailability(employeeId, { site_id: siteId, shift_kind: shiftKind, effective_from: today });
+      }
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setMatrixBusy(false);
+    }
+  };
+
+  const toggleNocka = () => {
+    if (!detail.employee.day_only) {
+      toggleShiftKind("N");
+      return;
+    }
+    const exceptionCell = findActiveCell(cells, (c) => c.cell === "day_only_exception");
+    if (exceptionCell) {
+      endDayOnlyException(exceptionCell.rule_id);
+    } else {
+      setShowDayOnlyExceptionForm(true);
+    }
+  };
+
+  const endDayOnlyException = async (ruleId: string) => {
+    setMatrixBusy(true);
+    setError(null);
+    try {
+      await api.endMatrixRuleEarly(employeeId, ruleId, { site_id: siteId, effective_from: today });
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setMatrixBusy(false);
+    }
+  };
+
+  const toggleWeekday = async (weekday: number) => {
+    const active = findActiveCell(cells, (c) => c.cell === "weekday" && c.weekday === weekday);
+    setMatrixBusy(true);
+    setError(null);
+    try {
+      if (active) {
+        await api.endMatrixRuleEarly(employeeId, active.rule_id, { site_id: siteId, effective_from: today });
+      } else {
+        await api.createWeekdayUnavailability(employeeId, { site_id: siteId, iso_weekday: weekday, effective_from: today });
+      }
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setMatrixBusy(false);
+    }
+  };
+
   return (
     <>
       <div className="employee-detail-header">
@@ -140,7 +216,9 @@ export default function EmployeeDetail({
       <div className="panel">
         <h3>Macierz dostępności — stan dzisiejszy ({today})</h3>
         <p className="panel-hint" style={{ marginBottom: 14 }}>
-          ✓ = solver może użyć tej osoby w tym wymiarze, ✕ = nie może. Szczegóły i edycja okresów — sekcje poniżej.
+          Ptaszek = solver może użyć tej osoby w tym wymiarze. Kliknij, żeby od razu, na stałe, zmienić decyzję —
+          Nocka dla pracownika „tylko dniówka” to jedyny wyjątek: włączenie jej pyta o termin, bo z założenia jest
+          czasowe.
         </p>
         <div className="matrix-table-wrap">
           <table className="matrix-table">
@@ -161,49 +239,71 @@ export default function EmployeeDetail({
                   <StatusCell blocked={ogolnaBlocked} />
                 </td>
                 <td>
-                  <StatusCell blocked={dniowkaBlocked} />
+                  <button
+                    className={`matrix-box ${dniowkaBlocked ? "matrix-box-off" : "matrix-box-on"}`}
+                    onClick={() => toggleShiftKind("D")}
+                    disabled={matrixBusy}
+                    title={dniowkaBlocked ? "kliknij, żeby zezwolić na Dniówkę" : "kliknij, żeby zablokować Dniówkę"}
+                  >
+                    {dniowkaBlocked ? "✕" : "✓"}
+                  </button>
                 </td>
                 <td>
-                  <StatusCell blocked={nockaBlocked} />
+                  <button
+                    className={`matrix-box ${nockaBlocked ? "matrix-box-off" : "matrix-box-on"}`}
+                    onClick={toggleNocka}
+                    disabled={matrixBusy}
+                    title={nockaBlocked ? "kliknij, żeby zezwolić na Nockę" : "kliknij, żeby zablokować Nockę"}
+                  >
+                    {nockaBlocked ? "✕" : "✓"}
+                  </button>
                 </td>
                 <td>
                   <button className={`matrix-box ${detail.membership.can_work_24h ? "matrix-box-on" : "matrix-box-off"}`} onClick={toggle24h}>
                     {detail.membership.can_work_24h ? "✓" : "✕"}
                   </button>
                 </td>
-                {[1, 2, 3, 4, 5, 6, 7].map((w) => (
-                  <td key={w}>
-                    <StatusCell blocked={cellActiveToday(cells, (c) => c.cell === "weekday" && c.weekday === w)} />
-                  </td>
-                ))}
+                {[1, 2, 3, 4, 5, 6, 7].map((w) => {
+                  const blocked = cellActiveToday(cells, (c) => c.cell === "weekday" && c.weekday === w);
+                  return (
+                    <td key={w}>
+                      <button
+                        className={`matrix-box ${blocked ? "matrix-box-off" : "matrix-box-on"}`}
+                        onClick={() => toggleWeekday(w)}
+                        disabled={matrixBusy}
+                        title={blocked ? `kliknij, żeby zezwolić w ${WEEKDAY_NAMES[w - 1]}` : `kliknij, żeby zablokować ${WEEKDAY_NAMES[w - 1]}`}
+                      >
+                        {blocked ? "✕" : "✓"}
+                      </button>
+                    </td>
+                  );
+                })}
               </tr>
             </tbody>
           </table>
         </div>
+        {showDayOnlyExceptionForm && (
+          <DayOnlyExceptionForm
+            employeeId={employeeId}
+            siteId={siteId}
+            onClose={() => setShowDayOnlyExceptionForm(false)}
+            onAdded={() => {
+              setShowDayOnlyExceptionForm(false);
+              load();
+            }}
+          />
+        )}
       </div>
 
       <div className="panel">
         <div className="panel-title-row">
           <div>
-            <h3>Ograniczenia: Dniówka / Nocka / dni tygodnia</h3>
-            <p className="panel-hint">Każdy wiersz to osobny, niezależny okres — mogą się nakładać.</p>
+            <h3>Historia ograniczeń</h3>
+            <p className="panel-hint">
+              Powstają przez kliknięcie ptaszków powyżej. Tu można poprawić datę albo zakończyć wcześniej.
+            </p>
           </div>
-          <button className="btn-primary" onClick={() => setShowAddRestriction(true)}>
-            + Nowe ograniczenie
-          </button>
         </div>
-        {showAddRestriction && (
-          <AddRestrictionForm
-            employeeId={employeeId}
-            siteId={siteId}
-            dayOnly={detail.employee.day_only}
-            onClose={() => setShowAddRestriction(false)}
-            onAdded={() => {
-              setShowAddRestriction(false);
-              load();
-            }}
-          />
-        )}
         <RestrictionList cells={cells} employeeId={employeeId} siteId={siteId} onChanged={load} />
       </div>
 
@@ -335,7 +435,7 @@ function RestrictionEditRow({
     setSubmitting(true);
     setError(null);
     try {
-      await api.updateMatrixRule(employeeId, cell.rule_id, { site_id: siteId, effective_from: from, effective_to: to });
+      await api.updateMatrixRule(employeeId, cell.rule_id, { site_id: siteId, effective_from: from, effective_to: to || null });
       onDone();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -367,12 +467,12 @@ function RestrictionEditRow({
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label>
-          <span className="field-label">Do</span>
+          <span className="field-label">Do (puste = bezterminowo)</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
       </div>
       <div className="create-panel-actions" style={{ marginBottom: 14 }}>
-        <button className="btn-primary" onClick={saveDates} disabled={submitting || !from || !to}>
+        <button className="btn-primary" onClick={saveDates} disabled={submitting || !from}>
           Zapisz daty
         </button>
         <button className="btn-ghost" onClick={onCancel} disabled={submitting}>
@@ -390,22 +490,18 @@ function RestrictionEditRow({
   );
 }
 
-function AddRestrictionForm({
+function DayOnlyExceptionForm({
   employeeId,
   siteId,
-  dayOnly,
   onClose,
   onAdded,
 }: {
   employeeId: string;
   siteId: string;
-  dayOnly: boolean;
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [kind, setKind] = useState<"dniowka" | "nocka" | "weekday" | "day_only_exception">("dniowka");
-  const [weekday, setWeekday] = useState(1);
-  const [from, setFrom] = useState("");
+  const [from, setFrom] = useState(isoToday());
   const [to, setTo] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -414,15 +510,7 @@ function AddRestrictionForm({
     setSubmitting(true);
     setError(null);
     try {
-      if (kind === "dniowka") {
-        await api.createShiftUnavailability(employeeId, { site_id: siteId, shift_kind: "D", effective_from: from, effective_to: to });
-      } else if (kind === "nocka") {
-        await api.createShiftUnavailability(employeeId, { site_id: siteId, shift_kind: "N", effective_from: from, effective_to: to });
-      } else if (kind === "weekday") {
-        await api.createWeekdayUnavailability(employeeId, { site_id: siteId, iso_weekday: weekday, effective_from: from, effective_to: to });
-      } else {
-        await api.createDayOnlyException(employeeId, { site_id: siteId, effective_from: from, effective_to: to });
-      }
+      await api.createDayOnlyException(employeeId, { site_id: siteId, effective_from: from, effective_to: to });
       onAdded();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -432,40 +520,12 @@ function AddRestrictionForm({
   };
 
   return (
-    <div className="create-panel" style={{ marginBottom: 18 }}>
+    <div className="create-panel" style={{ marginTop: 14 }}>
+      <p className="panel-hint" style={{ marginBottom: 10 }}>
+        Ta osoba jest „tylko dniówka” — Nocka jest domyślnie zablokowana. Podaj, na jak długo ma być tymczasowo
+        dozwolona.
+      </p>
       {error && <div className="banner-error">{error}</div>}
-      <div className="chip-row" style={{ marginBottom: 14, flexWrap: "wrap" }}>
-        <button className={`chip${kind === "dniowka" ? " chip-active" : ""}`} onClick={() => setKind("dniowka")}>
-          Dniówka
-        </button>
-        <button className={`chip${kind === "nocka" ? " chip-active" : ""}`} onClick={() => setKind("nocka")}>
-          Nocka
-        </button>
-        <button className={`chip${kind === "weekday" ? " chip-active" : ""}`} onClick={() => setKind("weekday")}>
-          Dzień tygodnia
-        </button>
-        {dayOnly && (
-          <button className={`chip${kind === "day_only_exception" ? " chip-active" : ""}`} onClick={() => setKind("day_only_exception")}>
-            Wyjątek: czasowa Nocka
-          </button>
-        )}
-      </div>
-      {kind === "weekday" && (
-        <label style={{ display: "block", marginBottom: 14 }}>
-          <span className="field-label">Dzień tygodnia</span>
-          <select
-            value={weekday}
-            onChange={(e) => setWeekday(Number(e.target.value))}
-            style={{ background: "var(--paper-light)", border: "1px solid var(--line)", borderRadius: 8, padding: "9px 12px", color: "var(--ink)" }}
-          >
-            {WEEKDAY_NAMES.map((w, i) => (
-              <option key={w} value={i + 1}>
-                {w}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <label>
           <span className="field-label">Od</span>
@@ -478,7 +538,7 @@ function AddRestrictionForm({
       </div>
       <div className="create-panel-actions">
         <button className="btn-primary" onClick={submit} disabled={submitting || !from || !to}>
-          {submitting ? "Zapisywanie…" : "Dodaj"}
+          {submitting ? "Zapisywanie…" : "Zezwól tymczasowo"}
         </button>
         <button className="btn-ghost" onClick={onClose} disabled={submitting}>
           Anuluj

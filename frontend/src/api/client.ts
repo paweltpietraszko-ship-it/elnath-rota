@@ -280,13 +280,13 @@ export const api = {
   // Dniówka/Nocka/weekday matrix (T021b-backed)
   getEmployeeMatrix: (employeeId: string, siteId: string, month: string) =>
     req<{ cells: MatrixCellOut[] }>(`/workspace/employees/${employeeId}/matrix?site_id=${siteId}&month=${month}`),
-  createShiftUnavailability: (employeeId: string, payload: { site_id: string; shift_kind: "D" | "N"; effective_from: string; effective_to: string }) =>
+  createShiftUnavailability: (employeeId: string, payload: { site_id: string; shift_kind: "D" | "N"; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/shift-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
-  createWeekdayUnavailability: (employeeId: string, payload: { site_id: string; iso_weekday: number; effective_from: string; effective_to: string }) =>
+  createWeekdayUnavailability: (employeeId: string, payload: { site_id: string; iso_weekday: number; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/weekday-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
-  createDayOnlyException: (employeeId: string, payload: { site_id: string; effective_from: string; effective_to: string }) =>
+  createDayOnlyException: (employeeId: string, payload: { site_id: string; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/day-only-exception`, { method: "POST", body: JSON.stringify(payload) }),
-  updateMatrixRule: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string; effective_to: string }) =>
+  updateMatrixRule: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string; effective_to?: string | null }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   endMatrixRuleEarly: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}/end-early`, { method: "POST", body: JSON.stringify(payload) }),
