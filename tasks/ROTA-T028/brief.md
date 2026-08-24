@@ -19,6 +19,10 @@ Powstaje mały lokalny skrypt, który:
 To NIE jest benchmark: brak pomiarów czasu, punktów, rankingów i porównań
 wersji. Skrypt nie czyta bazy użytkownika, nie używa UI, sieci ani AI.
 
+Owner clarification 2026-08-24: scenariusz jest światem zamkniętym. Solver nie
+może uratować grafiku godzinami `INNY`, własnym demandem ani pracownikiem,
+którego generator nie umieścił w obsadzie.
+
 ## 1. Cel i granica
 
 Łańcuch T028:
@@ -78,6 +82,9 @@ Generator:
 - nie używa solvera do budowania witness ani oczekiwania;
 - używa wyłącznie aktualnych obiektów domenowych i wspieranych reguł;
 - nadaje wszystkim identyfikatorom/nazwom prefiks `LAB-`;
+- tworzy wyłącznie aktywne membership `LOCAL`; `external_windows` i
+  `other_site_assignments` są puste;
+- nie tworzy `ShiftCatalogKind.OTHER` (`INNY`) w profilu ani demands;
 - nie odczytuje plików, bazy, zegara, UUID, sieci ani zmiennych użytkownika.
 
 Ten sam kod, family i case seed muszą tworzyć identyczne `summary`, wejście i
@@ -172,6 +179,25 @@ Nie tworzyć drugiego solvera ani kopiować całej logiki walidatora. Istniejąc
 `validator.validate()` jest właścicielem kontroli HARD; lokalny dowód shortage
 jest jedynym dodatkowym oraclem v1.
 
+### Kontrola świata zamkniętego
+
+Przed uznaniem witness lub kandydata za poprawny runner sprawdza niezależnie:
+
+- każdy `employee_id` należy do dokładnego zbioru `state.employees` i ma
+  aktywne `LOCAL` membership dla wygenerowanego Site;
+- każdy PRIMARY wskazuje przez `covers_demand_id` demand z dokładnego zbioru
+  `state.shift_demands`, a jego przedział czasu jest identyczny z tym demandem;
+- nie ma dodatkowego Assignment, demandu ani odcinka pracy poza wygenerowanym
+  zapotrzebowaniem;
+- żadna pozycja profilu ani demand nie ma `catalog_kind=INNY`;
+- boundary z F2 wpływa wyłącznie na odpoczynek. Nie jest godzinami bieżącego
+  grafiku i nie może pokryć żadnego demandu miesiąca.
+
+Naruszenie wejścia lub witness przez generator to `GENERATOR_ERROR`; naruszenie
+w kandydacie solvera to `CANDIDATE_INVALID`, nawet gdy `validate()` zwróci
+`hard_pass=True`. T028 nie ufa więc wspólnemu przeoczeniu solvera i walidatora
+w tej granicy.
+
 ## 6. Failure record i replay
 
 PASS nie zapisuje żadnego pliku.
@@ -244,8 +270,9 @@ T28-09 — F4: każda z trzech reguł jest aktywna i wymusza zmianę przypisania
 T28-10 — F5: lokalny proof ma pusty eligible set, a solver zwraca oczekiwany
 blocking demand.
 
-T28-11 — podstawiony kandydat bez jednego PRIMARY daje `CANDIDATE_INVALID`;
-runner nie ufa samemu statusowi `FEASIBLE`.
+T28-11 — parametryzowane mutanty kandydata: brak jednego PRIMARY, obcy
+`employee_id`, obcy `covers_demand_id` i dodatkowy przedział pracy dają
+`CANDIDATE_INVALID`; runner nie ufa samemu statusowi `FEASIBLE`.
 
 T28-12 — podstawiony zły status daje `SOLVER_MISMATCH`.
 
@@ -255,7 +282,9 @@ istniejący plik nie jest nadpisywany.
 T28-14 — replay odtwarza family/case seed; ten sam SHA daje to samo summary.
 
 T28-15 — test zakresu: brak importu `benchmarks`, brak metryk czasu i brak
-zmian poza §7.
+zmian poza §7. Wszystkie wygenerowane profile/demands są wolne od `INNY`, a
+zbiory external support i other-Site pozostają puste. Mutant dodający
+`catalog_kind=INNY` do profilu lub demandu daje `GENERATOR_ERROR`.
 
 T28-16 — pełna regresja repozytorium. Znany stary test source-diff T023 nie
 należy do T028 i nie może być „naprawiany” w tym Tasku.
@@ -268,6 +297,8 @@ PASS wymaga:
 - realnego CLI `--cases 5` obejmującego F1–F5;
 - co najmniej jednego niezależnego mutanta invalid-candidate odrzuconego przez
   poligon;
+- jawnego dowodu w testach, że pracownik spoza obsady, obcy demand lub próba
+  pokrycia grafiku godzinami `INNY` nie może dać PASS;
 - braku zmian poza §7;
 - braku benchmarkowych metryk i importów;
 - exact SHA, raw `backend.py` stdout i diff względem base SHA w DELIVERY.
