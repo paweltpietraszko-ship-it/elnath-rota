@@ -1,0 +1,105 @@
+ROTA-T021c — IMPLEMENTATION AUDIT, ROUND 4
+
+VERDICT: FAIL — ONE NARROW REPORT-SHAPE CORRECTION + CONTRACT SYNC
+AUDITED_SHA: 1568246fffbb471f6c7203ed708912e7d0a45f0c
+BRANCH: task/ROTA-T021c
+DATE: 2026-08-24
+
+ACCEPTED R4 CONTRACT NARROWING
+
+The owner/Codex ruling after round 3 is accepted and used as PRODUCT_TRUTH:
+
+- every click is recorded;
+- req(), navigation and direct render/global errors are correlated when the
+  originating action ID is reliably available;
+- arbitrarily delayed errors are recorded but their action correlation is
+  best-effort;
+- an ambiguous error remains uncorrelated and must not resolve another click;
+- ACTION_STALLED means "no confirmed reaction", not proof that no reaction
+  occurred;
+- no global monkey-patching of timer/Promise/microtask scheduling.
+
+The withdrawn R3 expectation of perfect correlation for arbitrary async work
+is not retested and is not a defect under this narrowed contract.
+
+WHAT IS CORRECT ON THE AUDITED SHA
+
+- The global setTimeout/context-propagation patch is removed.
+- CLICK_RECEIVED remains central.
+- req() and navigation retain their explicit action_id paths.
+- A delayed Promise rejection after a later inert click is recorded with no
+  action association and resolves neither click; both actions remain stalled.
+- ACTION_STALLED is documented in the implementation as best-effort.
+
+REMAINING BLOCKER — reliable error correlation is not exported
+
+TRACE
+
+- brief.md §3.1 requires action_id to connect a click with its downstream
+  effect when applicable.
+- The accepted R4 ruling explicitly keeps reliable correlation for direct
+  render/global errors.
+
+OWNERSHIP
+
+- ErrorBoundary.tsx and globalHandlers.ts obtain the pending click action ID and
+  call resolveAction() with it.
+- diagnostics/types.ts defines the exported event shapes.
+
+REPRODUCED EQUIVALENCE CLASS
+
+Three real-browser cases were executed independently:
+
+1. direct click-triggered RENDER_ERROR;
+2. direct click-triggered UNHANDLED_ERROR;
+3. direct click-triggered UNHANDLED_REJECTION.
+
+In every case the originating CLICK_RECEIVED has a valid action_id and the code
+uses that ID internally to suppress ACTION_STALLED. However, the corresponding
+error event exported in the diagnostic buffer has action_id=undefined because
+RenderErrorEvent, UnhandledErrorEvent and UnhandledRejectionEvent contain no
+action_id field and the handlers never write it.
+
+The downloaded report therefore cannot show the reliable relationship that the
+implementation already established internally.
+
+REQUIRED CORRECTION
+
+- Add action_id: string | null to all three exported error event shapes.
+- Read the pending ID once per error, put that exact value in the event and use
+  the same value for resolveAction().
+- Direct error cases must export the click's ID.
+- Delayed/ambiguous error cases must export null and resolve no action.
+- Keep all four R4 browser cases as the bounded regression family.
+
+CONTRACT SYNC — MECHANICAL, NO NEW OWNER DECISION
+
+tasks/ROTA-T021c/brief.md still says "DRAFT — NOT AUTHORIZED FOR
+IMPLEMENTATION" and still describes the pre-R4 strict stalled/error semantics.
+That now contradicts the explicit owner ruling and the delivered code comments.
+Update the existing brief in the same correction so the durable task contract
+records the accepted best-effort boundary. Do not create another addendum.
+
+INDEPENDENT VALIDATION
+
+1. Production frontend build:
+   RESULT: PASS.
+
+2. Narrowed R4 browser matrix, isolated browser, retries=0:
+   RESULT: 1/4 PASS.
+   - ambiguous delayed rejection: PASS;
+   - three reliable direct-error export cases: FAIL (same missing field class).
+
+3. Full Python regression:
+   RESULT: 1103 passed, 1 known stale T023 source-diff assertion failed; no new
+   T021c Python regression.
+
+SEPARATE BACKEND DEFECT — UNCHANGED
+
+The api/deps.py SQLite thread-affinity failure remains outside T021c and is not
+counted here.
+
+NO ARCHITECTURE_PROPOSALS
+
+The required correction only exposes correlation already known internally and
+synchronizes the frozen task text with the accepted owner ruling.
