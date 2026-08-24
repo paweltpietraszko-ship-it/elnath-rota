@@ -1,0 +1,102 @@
+ROTA-T021 / SCREEN 2 GENERAL AVAILABILITY CONTRACT CONSOLIDATION / ROUND 11
+
+AUDITED_SHA: 0812153995fa68734c7db6fbc4cf8fafb3b5f438
+AUDITED_CONTRACT: tasks/ROTA-T021/brief.md Section 5.1
+AUTHORITATIVE_DECISION_SHA: 4374c999f13dbf56b859425094e5e136c801dc4f
+AUDITED_SCOPE:
+- integration of the accepted multiple-UNAVAILABLE_24H-family decision
+- removal of stale R9-2 blocking/exclusion clauses
+- exact read/write ownership and thin-API boundary
+SCOPE_EXCLUDED:
+- implementation and visual fidelity/Tor 2
+- T021b implementation readiness
+- reopening R8-1, R7-4 or accepted availability precedence
+
+VERDICT: PASS - CONSOLIDATION READY_FOR_IMPLEMENTATION
+
+The main T021 contract now incorporates the accepted architecture without a
+single-family invariant, new backend operation, provenance marker or business
+branching in FastAPI. The stale BLOCKED and out-of-scope clauses are removed.
+
+R9-2 DECISION INTEGRATION
+STATUS: PASS / CLOSED
+EVIDENCE:
+- brief.md:392-405 permits multiple independent UNAVAILABLE_24H families and
+  derives current status for today's date from all covering active ranges
+- a new period always gets a fresh availability_id and directly delegates to
+  durable_inputs.append_availability()
+- edit/end actions originate from a concrete displayed row and send that
+  row's exact availability_id; API performs no family lookup or selection
+- expired active=True rows stop affecting the computed state by date without
+  synthetic active=False writes
+- brief.md:425-438 restores UNAVAILABLE_24H to the same five-kind absence form
+  and the same append-only family semantics; no competing matrix write path
+- the former general-availability BLOCKED entry is absent from Out of scope
+
+READ-OWNER CONSOLIDATION
+STATUS: PASS
+EVIDENCE:
+- the full log reads get_current_availability_for_employee(), so it receives
+  one current end per family for all five kinds, including active=False ends
+- the display formula filters those loaded facts by active, kind and inclusive
+  dates; it does not misuse active as temporal applicability
+- employee_availability_matrix() is not falsely claimed to return inactive
+  ends; the existing note continues to identify the repository read as the
+  complete absence-log owner and the matrix projection as insufficient for
+  that log
+- superseded versions remain family history rather than duplicate displayed
+  periods
+
+THIN-API / REUSE CHECK
+STATUS: PASS
+- create, edit and end each make one explicit append_availability() call with
+  an already-decided new or existing availability_id
+- frontend selection of the row the coordinator clicked is UI intent, not
+  backend inference or lookup-to-decide-create-versus-update branching
+- no product modification to rota/**, schema, solver, validator or precedence
+  is requested
+- zero/one/multiple and overlapping periods are represented by the existing
+  family model rather than a new checkbox state
+
+CONCISION / DUPLICATION CHECK
+- the replacement is longer than the stale blocked paragraph because it now
+  specifies create/edit/end and read behavior, but every clause maps to a
+  Screen-2 operation and an existing owner
+- no backend or frontend mechanism is duplicated; no further contract round is
+  needed for general availability
+
+IMPLEMENTATION TEST BOUNDARY
+- zero, one and multiple disjoint/overlapping UNAVAILABLE_24H families
+- new period uses a distinct ID; edit/end reuse the selected exact family ID
+- today before/on/after inclusive boundaries and expired active=True record
+- inactive current end remains in the log but never blocks
+- create/edit/end through the UI/API, restart, reread and identical computed
+  current status
+- same UNAVAILABLE_24H facts visible regardless of matrix or absence-form
+  entry point
+- API contains no family-selection, merge, dedup or uniqueness branching
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  0812153995fa68734c7db6fbc4cf8fafb3b5f438
+- 0812153^..0812153 changes only tasks/ROTA-T021/brief.md
+- target tasks/ROTA-T021/round_01/tests/tests_r11.txt did not exist before this
+  report was written
+- git diff --check 0812153^..0812153: PASS
+
+TESTS
+- product suite not run: the audited commit changes only the contract
+- exact-SHA availability repository/projection behavior and application write
+  seam were inspected directly
+- this is a preimplementation contract PASS, not an implementation verdict
+
+ARCHITECTURE_PROPOSALS: NONE
+
+NEXT GATE
+- CC may implement the consolidated general-availability and five-kind absence
+  behavior against exact contract SHA
+  0812153995fa68734c7db6fbc4cf8fafb3b5f438
+- D/N/weekday controls remain separately gated on the accepted T021b contract
+  being implemented; this PASS does not pretend that backend delivery exists
+- after Screen 2 implementation, Codex performs the promised independent
+  vertical frontend -> API -> application -> restart -> frontend audit

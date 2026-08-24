@@ -1,0 +1,151 @@
+ROTA-T021 / SCREEN 2 VERTICAL IMPLEMENTATION AUDIT / ROUND 12
+
+AUDITED_BRANCH: task/ROTA-T021
+AUDITED_SHA: e4915ae37777a994ed3ebb22a45157e39ddc8b42
+AUDITED_CONTRACT: tasks/ROTA-T021/brief.md Section 5.1
+T021B_CONTRACT: tasks/ROTA-T021b/brief.md
+AUDIT_TESTS: tests/test_t021_screen2_r12_audit.py
+SCOPE: frontend -> Vite proxy -> FastAPI -> existing application/persistence -> restart -> read
+SCOPE_EXCLUDED: visual fidelity / Tor 2
+
+VERDICT: FAIL - THREE NARROW FRONTEND CORRECTIONS REQUIRED
+
+The backend/API seam is sufficient and the implemented positive paths persist
+correctly. The failures are not requests for another backend layer or new
+architecture: they are three reachable frontend orchestration/display gaps
+against already accepted Screen-2 behavior.
+
+R12-1 NEW-EMPLOYEE RETRY GENERATES A NEW ID
+STATUS: FAIL
+
+CONTRACT TRACE:
+- brief.md Section 5.1 lines 321-334 requires employee_id to be generated once
+  when "+ Dodaj osobę" opens, retained in component/form state and
+  sessionStorage until roster attachment succeeds, and reused by every retry
+- this is the accepted idempotency boundary for the two independent calls:
+  create Employee, then attach LOCAL membership
+
+CODE EVIDENCE:
+- frontend/src/screens/ControlPanel.tsx:170-177 generates
+  crypto.randomUUID() inside submit(), immediately before each create call
+- the component has no employee-id state and no sessionStorage use
+
+REACHABLE FAILURE:
+- if Employee creation commits but the response or following attach call
+  fails, pressing "Dodaj" again generates a different ID and creates a second
+  Employee instead of safely retrying the same two-step attempt
+
+REQUIRED CLOSURE:
+- one in-progress ID is created on panel open, survives reload, is reused for
+  both steps and all retries, and is discarded only after attach succeeds
+
+R12-2 ACCEPTED EDIT OPERATIONS ARE NOT WIRED TO THE EMPLOYEE SCREEN
+STATUS: FAIL
+
+CONTRACT TRACE:
+- brief.md Section 5.1 lines 413-421 requires selecting an existing absence
+  row and editing that family's dates with the same availability_id, in
+  addition to ending it
+- lines 451-458 requires correcting an existing D/N/weekday restriction's
+  dates through update_employee_matrix_rule_period() with the same rule_id, in
+  addition to ending it
+
+CODE EVIDENCE:
+- frontend/src/api/client.ts exposes both updateAvailability() and
+  updateMatrixRule(), so the API connector already exists
+- frontend/src/screens/EmployeeDetail.tsx never calls updateMatrixRule()
+- its sole updateAvailability() call at lines 412-414 is the active=False end
+  path with unchanged dates; there is no active date-correction path
+- RestrictionList only offers "Zakończ teraz" and always submits today's date
+  at line 274
+
+REACHABLE FAILURE:
+- a coordinator cannot correct either saved date range from the delivered UI
+- for a future restriction visible in its month, "Zakończ teraz" sends today;
+  the live proxy test returned HTTP 400 because today precedes the rule start,
+  and the UI offers neither the accepted equal-start cancellation nor an edit
+
+REQUIRED CLOSURE:
+- each concrete absence row exposes edit and end using its exact
+  availability_id
+- each concrete matrix-rule row exposes period correction and a valid early
+  end/cancellation using its exact rule_id
+- reuse the existing API functions; no new rota/** function or API endpoint is
+  needed
+
+R12-3 DAY_ONLY EXCEPTION HIDES A SIMULTANEOUS HARD NOCKA BAN IN THE DISPLAY
+STATUS: FAIL
+
+CONTRACT TRACE:
+- the per-employee matrix states that a check means the solver may use the
+  employee in that dimension
+- T021b Section 3.3 line 129 and minimum regression 12 line 313 preserve the
+  frozen rule that the temporary day_only N exception exempts only DAY_ONLY-01;
+  every other HARD, including an independent Nocka ban, remains AND-composed
+
+CODE EVIDENCE:
+- frontend/src/screens/EmployeeDetail.tsx:68-69 calculates a day_only
+  employee's Nocka state solely as the inverse of dayOnlyExceptionActive
+- when the exception is active, the expression does not inspect an active
+  cell === "nocka" rule at all
+
+REACHABLE FAILURE:
+- the delivered UI itself can create both an Nocka restriction and a temporary
+  day_only exception for overlapping dates
+- the API correctly returns both cells, but the screen displays Nocka as
+  allowed even though the independent HARD rule still blocks the solver
+
+REQUIRED CLOSURE:
+- displayed Nocka is blocked when an independent active Nocka restriction
+  applies, regardless of the day_only exception; the exception only removes
+  the base day_only block
+
+VERTICAL PASS EVIDENCE
+- production frontend build: PASS (`tsc -b && vite build`, 37 modules)
+- real Vite proxy on 127.0.0.1:5173 forwarded to the FastAPI process on
+  127.0.0.1:8123; health, create, patch and read requests completed through
+  `/api`, not by calling Python functions directly
+- created Site -> Employee -> LOCAL membership, changed 24h, created two
+  independent UNAVAILABLE_24H families, created Nocka/weekday/day_only rules,
+  set target hours and read all facts back
+- after stopping and restarting FastAPI against the same SQLite file, the
+  employee, both availability families, matrix cells and target_hours=123 were
+  unchanged and callable through the Vite proxy
+- direct proxy verification of the already-existing edit/end endpoints passed:
+  matrix update + valid early end, availability date edit + end, LOCAL remove
+  -> pickable(re-add) -> re-add; re-add preserved can_work_24h=False
+- this proves R12-2 is a missing frontend call surface, not a missing backend
+  capability
+
+INDEPENDENT AUDIT TEST RESULT
+- tests/test_t021_screen2_r12_audit.py: 4 failed
+  - 1 failure: R12-1 retry identity
+  - 2 failures: R12-2 matrix and absence edit wiring
+  - 1 failure: R12-3 day_only/HARD Nocka composition
+
+REGRESSION RESULT
+- full exact-SHA suite: 1097 passed, 1 failed in 100.18s
+- the sole failure remains the previously accepted stale source-diff assertion
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b; it is not
+  caused by Screen 2 and is not counted in this verdict
+
+MECHANICAL CHECKS
+- detached audit worktree resolved exactly to
+  e4915ae37777a994ed3ebb22a45157e39ddc8b42
+- implementation range after the accepted T021b delivery changes product code
+  only in api/** and frontend/** (plus the live contract document); rota/** is
+  unchanged by this Screen-2 delivery
+- git diff --check for the implementation range: PASS
+- target tasks/ROTA-T021/round_01/tests/tests_r12.txt did not exist before this
+  report was written
+- interactive in-app browser control was unavailable in this session; Tor 1
+  was verified through source, production build, real Vite proxy/HTTP traffic,
+  restart and persisted reread. No visual/Tor-2 verdict is claimed.
+
+WYMAGA_DECYZJI: NONE
+ARCHITECTURE_PROPOSALS: NONE
+
+NEXT GATE
+- one consolidated frontend-only correction may close R12-1 through R12-3
+- no architect round and no new backend task are required
+- re-audit uses a new exact SHA and the next immutable report number

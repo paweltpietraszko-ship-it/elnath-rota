@@ -1,0 +1,180 @@
+ROTA-T021 / SCREEN 2 SECTION 5.1 PREIMPLEMENTATION CONTRACT AUDIT / ROUND 7
+
+AUDITED_SHA: 86979980c5c94371317c68647e51aaf68e41a853
+AUDITED_CONTRACT: tasks/ROTA-T021/brief.md Section 5.1
+AUTHORITATIVE_SOURCES:
+- arch/T021_spec.md:516-559
+- arch/OWNER_DECISION_T010_PANEL_STEROWANIA_2026-08-13.md:42-91,110-124
+- tasks/ROTA-T010/part_a_bootstrap_roster.md
+- tasks/ROTA-T010/part_b_availability.md
+- tasks/ROTA-T016/brief.md:50-68
+SCOPE:
+- employee list
+- "+ Dodaj osobę"
+- the currently buildable per-employee controls
+- contract completeness, testability, concision and reuse
+SCOPE_EXCLUDED:
+- implementation audit
+- visual fidelity/Tor 2
+- blocked Dniówka/Nocka/weekday rule-wrapper design
+- Screens other than Section 5.1
+
+VERDICT: FAIL — FOUR NARROW CONTRACT CORRECTIONS REQUIRED
+
+Section 5.1 is concise enough and mostly indexes the correct existing owners.
+It does not duplicate Employee, SiteMembership, Availability, target-hours or
+readiness state. The four gaps below are contract gaps: closing them does not
+require redesigning the product or reopening the blocked rule-wrapper task.
+
+R7-1 — CURRENT-ROSTER MEMBERSHIP LIFECYCLE AND ROW SCOPE ARE INCOMPLETE
+STATUS: FAIL
+CONTRACT:
+- owner decision Section 4 and T010 Part A: current roster means
+  SiteMembership.enabled=True; removal sets enabled=False without deleting
+  Employee/history; re-adding enables the same membership
+- T021_spec.md:516-517: the roster surface covers LOCAL and
+  EXTERNAL_SUPPORT memberships
+- T021_spec.md:549-556: an EXTERNAL_SUPPORT employee detail includes the
+  support-window list
+EVIDENCE:
+- brief.md:291-295 reads every SiteMembership without defining how disabled
+  rows are filtered or represented
+- brief.md:308-312 excludes every employee_id already present in the Site's
+  memberships; that also excludes disabled memberships, so the contracted
+  picker cannot re-enable them
+- Section 5.1 defines no remove-from-roster action at all
+- the list explicitly includes existing EXTERNAL_SUPPORT rows, while
+  brief.md:355-358 defers the support-window part required on their detail
+  screen; this conflicts with the same section's no-half-working-screen gate
+IMPACT:
+- CC cannot implement the authoritative remove/re-add lifecycle, and an
+  existing disabled employee has no route back into the current roster
+- the claimed per-employee screen is incomplete for a row type the list
+  explicitly returns
+CLOSURE:
+- define enabled current-row behavior, enabled=False removal and re-enabling
+  the same disabled membership without DELETE or a parallel record
+- make the existing-employee picker distinguish no membership from a disabled
+  membership instead of excluding both
+- align the declared increment with EXTERNAL_SUPPORT: either its required
+  existing-row detail is complete before this screen can ship, or the screen
+  remains explicitly blocked; do not silently hide existing product data
+
+R7-2 — NEW-EMPLOYEE PAYLOAD AND TWO-STEP CALL OWNERSHIP ARE NOT EXECUTABLE
+STATUS: FAIL
+CONTRACT:
+- brief.md:300-307 supplies display_name, day_only, a generated employee_id
+  and then calls update_employee followed by update_membership
+- brief.md:80-87 forbids the API router from owning a new compound business
+  operation
+- T016 keeps Employee.active_from/active_to as legacy metadata: they need not
+  become planning UI fields, but remain mandatory persisted constructor data
+EVIDENCE:
+- exact-SHA dataclass introspection gives five mandatory Employee fields:
+  employee_id, display_name, active_from, active_to and day_only
+- Section 5.1 maps only three of them and supplies no technical values for
+  active_from/active_to
+- update_employee returns None, while employee_id is generated in the API;
+  the contract does not define how the frontend obtains that ID for the
+  required following update_membership call
+- no existing application command atomically creates Employee + membership,
+  and the contract does not say which allowed layer composes the two existing
+  commands or what the retry/resume behavior is after the first succeeds
+- the later day_only toggle says only "toggling Employee.day_only" but does
+  not require the other four current Employee fields to round-trip unchanged
+IMPACT:
+- implementations must invent persisted metadata, an API response and/or a
+  forbidden API-owned orchestration; a day_only edit can also overwrite
+  unrelated Employee data
+CLOSURE:
+- map every Employee constructor field without exposing retired metadata as a
+  planning decision, and require day_only edits to preserve all other fields
+- define the thin API response carrying the generated employee_id and assign
+  the two existing calls to an allowed layer; under current T021 scope no new
+  rota/** compound command may be invented
+- define deterministic retry/resume after Employee exists but membership does
+  not, reusing the existing-employee path rather than creating a duplicate
+
+R7-3 — "OGÓLNA DOSTĘPNOŚĆ" HAS CREATE SEMANTICS BUT NO TOGGLE/CORRECTION
+STATUS: FAIL
+CONTRACT:
+- owner matrix: an unchecked range is inclusive od-do, returns to the base
+  checked state after do, and an existing restriction can have its dates
+  corrected or be restored earlier without mutating history
+- append_availability is the single append-only owner; availability_id names
+  one family and a new version in that family supersedes its predecessor
+EVIDENCE:
+- brief.md:313-319 specifies only active=True with a fresh availability_id
+  for a new UNAVAILABLE_24H block
+- that correctly creates an independent block, but no Section 5.1 action
+  reuses its availability_id with corrected dates or active=False
+- get_current_availability_for_employee returns the current end of every
+  family, including inactive ends, but the contract does not define how that
+  read drives the promised toggle/restore behavior
+IMPACT:
+- the control can turn availability off but cannot perform the other half of
+  a toggle or the already-frozen correction path; generating a fresh family
+  for an edit would leave parallel active restrictions
+CLOSURE:
+- distinguish creation of a new independent range (fresh availability_id)
+  from correction/deactivation of an existing range (same availability_id)
+- define how the current record's active flag and inclusive dates are shown
+  and how early restoration writes the next append-only version
+
+R7-4 — TARGET HOURS HAS NO OWNER FOR THE MONTH OR THE MISSING VALUE
+STATUS: WYMAGA_DECYZJI — CONTRACT IS NOT TESTABLE YET
+CONTRACT:
+- set_target_hours and get_work_balance_target both require an explicit
+  month date
+- T009: a missing target remains missing; it must not be manufactured as zero
+  or as a guessed norm
+EVIDENCE:
+- brief.md:335-340 says only "godziny docelowe/miesiąc" and names the two
+  functions
+- it defines neither a month selector nor a default/route-owned month, and it
+  does not define the UI state when the read returns None
+IMPACT:
+- CC must invent current/next/remembered month semantics and may collapse
+  missing into 0; Tor 1 has no deterministic request or display expectation
+CLOSURE:
+- owner/architect must name the month source and require first-of-month API
+  serialization
+- preserve None as visibly missing and distinct from an explicitly saved 0;
+  do not invent a norm
+
+NON-BLOCKING CHECKS
+- the separate backend rule-wrapper gap is correctly isolated and does not
+  duplicate raw SiteRule construction in T021; its design is outside this
+  audit
+- 24h correctly reuses SiteMembership.can_work_24h, changes only that field
+  and has no date range
+- the five absence kinds correctly share append_availability; the general
+  availability shortcut does not introduce a second absence mechanism
+- target-hours uses the existing Employee-global repository fact; no per-Site
+  target store is proposed
+- S/szkolenie is a small read-only readiness badge, not a matrix toggle and
+  not a new eligibility mechanism
+- the 92-line Section 5.1 expansion is proportionate; shortening it is not a
+  requested correction
+
+MECHANICAL CHECKS
+- requested/audited contract SHA resolves exactly to
+  86979980c5c94371317c68647e51aaf68e41a853
+- the branch advanced during the audit only by adding
+  tasks/ROTA-T021b/brief.md; Section 5.1 and its source/code surface are
+  unchanged, so this report remains an exact-SHA audit of the requested text
+- `git diff --name-only 31ce50a..8697998 -- rota tests` is empty
+- exact-SHA dataclass/function signature introspection: PASS
+- `git diff --check 31ce50a..8697998`: PASS
+
+TESTS
+- product suite not run: this is a preimplementation contract audit and the
+  product/backend source plus tests are unchanged
+- no implementation PASS is implied by this report
+
+ARCHITECTURE_PROPOSALS: NONE
+
+RE-AUDIT BOUNDARY
+- one corrected-contract round should be sufficient
+- re-audit only R7-1 through R7-4; do not reopen Screen 1, visual design,
+  accepted availability/target semantics or the separate rule-wrapper design

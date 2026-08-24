@@ -1,0 +1,153 @@
+ROTA-T021c — IMPLEMENTATION AUDIT, ROUND 1
+
+VERDICT: FAIL — FOUR BOUNDED CORRECTIONS REQUIRED
+AUDITED_SHA: 00b8d66fc6736c034118dbb88a3ba1bf945b8ad1
+BRANCH: task/ROTA-T021c
+DATE: 2026-08-24
+
+CONTRACT BASIS
+
+- tasks/ROTA-T021c/brief.md sections 1–5.
+- Owner ruling of 2026-08-24: the owner confirms the product goal and delegates
+  the technical choices (bounded session buffer, timing thresholds, local ZIP
+  integration and test mechanics) to Codex. For this audit Codex accepts the
+  delivered 300-event sessionStorage buffer, 800 ms stalled window and 20 s
+  request timeout as reasonable initial technical parameters.
+- The delegation does not authorize test-only controls that can affect an
+  ordinary runtime, privacy leakage, or diagnostic classifications contradicted
+  by the recorded execution.
+
+INDEPENDENT AUDIT LAYERS
+
+1. Exact-SHA source/diff and ownership inspection.
+2. Production frontend build:
+   npm.cmd run build
+   RESULT: PASS.
+3. Implementer browser matrix independently rerun with retries disabled:
+   npm.cmd run test:e2e -- --retries=0
+   RESULT: 10/10 PASS.
+4. Independent adversarial browser matrix:
+   npm.cmd run test:e2e -- diagnostics.audit-r1.spec.ts --retries=0
+   RESULT: 0/5 PASS; all five reproductions below failed as expected on the
+   audited implementation.
+5. Full Python regression:
+   .venv/Scripts/python.exe -m pytest -q
+   RESULT: 1103 passed, 1 failed. The sole failure is the already-known stale
+   source-diff assertion
+   test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b; it checks
+   that T023b-authorized files were never changed after T023 and is not a T021c
+   regression.
+
+BLOCKERS
+
+R1-1 — Generated Site IDs are exported instead of endpoint templates
+
+TRACE:
+- brief.md §3.5 forbids full URL/path data containing Site or Employee IDs and
+  permits only an endpoint template;
+- §5.10 requires an ID privacy canary.
+
+OWNERSHIP:
+- frontend/src/diagnostics/sanitize.ts owns endpoint sanitization before an
+  event enters the buffer.
+
+REPRO:
+- diagnostics.audit-r1.spec.ts, "a SITE identifier is removed...";
+- create a real Site, open it, and inspect the recorded request;
+- observed endpoint_template:
+  /workspace/sites/SITE-3292e7cbaa664000a934684a99ff4bde/roster
+- the generated SITE-* value remains verbatim because ID_SEGMENT recognizes
+  hex/UUID-like values, R-* and long numeric values, but not SITE-*.
+
+REQUIRED CORRECTION:
+- normalize every actual identifier format used in decision-relevant frontend
+  routes before recording/export; extend the privacy canary to the generated
+  technical Site ID (and the other actual route-ID families), not only names
+  typed into forms.
+
+R1-2 — Action resolution is not causal
+
+TRACE:
+- brief.md §3.2 says the effect of the click resolves that click; a registered
+  error is an allowed resolution, while no request/navigation/UI effect/error/
+  explicit no-op produces ACTION_STALLED.
+
+OWNERSHIP:
+- frontend/src/diagnostics/tracking.ts owns click/effect correlation;
+- frontend/src/diagnostics/globalHandlers.ts owns global-error recording.
+
+REPRO A — registered error is also reported as a stall:
+- click the unhandled-error trigger and wait past 800 ms;
+- observed UNHANDLED_ERROR and ACTION_STALLED for the originating click, because
+  the global error handler records the error but never resolves its action.
+
+REPRO B — unrelated mutation hides a dead click:
+- click the inert control, then mutate an unrelated body attribute within the
+  800 ms window;
+- ACTION_STALLED is absent because the document-wide MutationObserver treats
+  any DOM mutation as the effect of that click.
+
+REQUIRED CORRECTION:
+- use one causal action-resolution invariant across request, navigation, UI
+  effect, error and explicit no-op paths. An unrelated mutation must not resolve
+  the click; the error caused by the click must resolve it. Keep both sibling
+  cases as regression tests.
+
+R1-3 — Malformed successful JSON is recorded as REQUEST_SUCCEEDED
+
+TRACE:
+- brief.md §1 requires the report to say whether an error occurred;
+- §3.1 requires REQUEST_FAILED with an error category;
+- the delivered event schema explicitly includes the "parse" category.
+
+OWNERSHIP:
+- frontend/src/api/client.ts::req owns request completion and JSON parsing.
+
+REPRO:
+- return HTTP 201 with malformed JSON from POST /workspace/sites;
+- the UI shows the parsing failure, but the buffer contains
+  REQUEST_SUCCEEDED and no REQUEST_FAILED(error_category="parse");
+- success is recorded before res.json() completes.
+
+REQUIRED CORRECTION:
+- classify success only after the response required by the caller has been
+  parsed; record a safe parse failure when parsing fails. Cover representative
+  GET and mutation responses through the shared req path.
+
+R1-4 — Ordinary dev runtime contains clickable self-failure controls
+
+TRACE:
+- the owner authorized automatic diagnostics, not additional runtime controls;
+- brief.md §4 allows test/configuration work but excludes a visual redesign and
+  additional product behavior.
+
+OWNERSHIP:
+- frontend/src/App.tsx and diagnostics/TestHooks.tsx introduce the controls.
+
+REPRO:
+- start the ordinary Vite dev runtime used by the application;
+- five real buttons exist at the bottom-right with opacity 0.02 and maximum
+  z-index; Playwright resolves all five as clickable controls;
+- they can deliberately crash render, throw an error/rejection, or simulate
+  inert/no-op behavior.
+
+REQUIRED CORRECTION:
+- expose failure injection only under an explicit E2E/test flag that ordinary
+  dev use does not enable. Production dead-code elimination alone is
+  insufficient because this project is currently operated and tested through
+  the Vite dev runtime.
+
+SEPARATE PRE-EXISTING BACKEND DEFECT — NOT COUNTED AS T021c FAILURE
+
+During the no-retry real-browser run Uvicorn repeatedly emitted
+sqlite3.ProgrammingError: a connection created in one thread was used or closed
+in another (api/deps.py::get_conn). The browser assertions still reached 10/10,
+so that green count is not evidence that the complete application had a clean
+run. The defect is outside the T021c product diff and has already been reported
+separately; it must not be hidden by default Playwright retries, but repairing
+api/deps.py is not added to T021c by this audit.
+
+NO ARCHITECTURE_PROPOSALS
+
+The four corrections above are direct contract/safety closures, not a request
+for a broader telemetry system or frontend redesign.

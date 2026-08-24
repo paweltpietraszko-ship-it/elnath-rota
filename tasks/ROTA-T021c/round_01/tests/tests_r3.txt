@@ -1,0 +1,114 @@
+ROTA-T021c — IMPLEMENTATION AUDIT, ROUND 3
+
+VERDICT: FAIL — R1-2 CAUSALITY REMAINS OPEN
+AUDITED_SHA: 131f91d337f7859a4783538692a6fd349d6e3d83
+BRANCH: task/ROTA-T021c
+DATE: 2026-08-24
+
+ROUND-2 REPRODUCERS
+
+Both literal round-2 reproducers now pass:
+
+- an unrelated #root mutation at 100 ms no longer hides the inert control;
+- a synchronous exception thrown by a timer scheduled by action A resolves A,
+  not a newer action B.
+
+This is not sufficient to close the R1-2 equivalence class. The implementation
+replaces the previous broad heuristics with two narrower heuristics:
+
+- every UI mutation is causal only for roughly two animation frames;
+- context is propagated through setTimeout only for work completed or thrown
+  synchronously inside the timer callback.
+
+The accepted contract covers the whole 800 ms stalled window, observable UI
+effects and both unhandled errors and unhandled promise rejections. The two new
+boundaries therefore remain within the existing requirement; they do not add a
+new product feature.
+
+TRACE
+
+- tasks/ROTA-T021c/brief.md §3.2: an observable UI effect or registered error
+  resolves the click; absent an effect, ACTION_STALLED is recorded.
+- tests_r1.txt R1-2 and tests_r2.txt: the same action identity must survive the
+  supported result path; an unrelated action must not be declared successful.
+
+OWNERSHIP
+
+- frontend/src/diagnostics/tracking.ts owns action context, timer propagation,
+  mutation attribution and stalled classification.
+- globalHandlers.ts owns UNHANDLED_REJECTION consumption of that context.
+
+REPRO A — a valid delayed UI effect is falsely reported as stalled
+
+1. A local UI control schedules its own visible DOM change after 100 ms.
+2. The visible change occurs successfully, well inside the accepted 800 ms
+   stalled window.
+3. Wait past 800 ms and inspect the buffer.
+
+Observed: ACTION_STALLED is recorded for the action. The MutationObserver was
+already disconnected after two animation frames, so it cannot see the causal
+100 ms UI result.
+
+REPRO B — delayed Promise rejection is assigned to a newer click
+
+1. Action A schedules a timer which creates a rejected Promise after 300 ms.
+2. Action B (inert) is clicked 50 ms after A.
+3. The timer callback briefly restores A, then returns; the browser dispatches
+   unhandledrejection after withClickContext has restored B.
+
+Observed:
+- UNHANDLED_REJECTION is recorded;
+- A is incorrectly ACTION_STALLED;
+- inert B is incorrectly treated as resolved.
+
+This is the Promise sibling of the timer exception from round 2, and
+UNHANDLED_REJECTION is an explicitly required event path in brief.md §3.1/§3.3.
+
+REQUIRED CORRECTION — ONE CONSOLIDATED CLOSURE, NOT ANOTHER TIMING PATCH
+
+- Preserve or explicitly pass the originating action identity through every
+  async result path the mechanism claims to correlate.
+- A valid UI result occurring inside the declared 800 ms window must not become
+  stalled merely because it is later than two frames.
+- If an error cannot be attributed unambiguously, record it as uncorrelated and
+  fail conservatively; never use it to resolve a different action.
+- Keep all R1, R2 and R3 causal cases as one regression family.
+
+Do not close this by changing 100 ms to another threshold or by wrapping only
+one more browser scheduling primitive. This is the third implementation round
+on the same invariant; another instance-by-instance patch would demonstrate
+that the generic mechanism is not supportable as specified. In that case stop
+and narrow the promised diagnostic semantics explicitly instead of continuing
+the patch loop.
+
+INDEPENDENT VALIDATION
+
+1. Production frontend build:
+   RESULT: PASS.
+
+2. R2 causal reproducers, isolated browser, retries=0:
+   RESULT: 2/2 PASS.
+
+3. R3 generalized causal reproducers, isolated browser, retries=0:
+   RESULT: 0/2 PASS; both failures reproduced as described.
+
+4. Combined existing T021c/R1/R2 browser matrix, retries=0:
+   RESULT: 15/16 PASS. The one failure was contaminated by the separately known
+   api/deps.py SQLite thread-affinity defect: the test selects the first
+   REQUEST_FAILED in the buffer, and an unrelated SQLite 500 with action_id=null
+   preceded its injected 500. This is not classified as a new T021c defect.
+
+5. Full Python regression:
+   RESULT: 1103 passed, 1 known stale T023 source-diff assertion failed; no new
+   T021c Python regression.
+
+SEPARATE BACKEND DEFECT — UNCHANGED
+
+The SQLite thread-affinity failure remains outside the T021c implementation
+diff and is not reopened here. It continues to make the implementer browser
+matrix non-deterministic and must remain visible rather than hidden by retries.
+
+NO ARCHITECTURE_PROPOSALS
+
+The remaining failure is against the already accepted action-causality
+contract, not a request for broader telemetry or a frontend redesign.

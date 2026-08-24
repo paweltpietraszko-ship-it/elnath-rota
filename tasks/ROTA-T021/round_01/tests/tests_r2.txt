@@ -1,0 +1,128 @@
+ROTA-T021 / PREIMPLEMENTATION CONTRACT AUDIT / ROUND 2
+
+AUDITED_SHA: 93faf68fa4d63db5125f5f6798eb4aabe0297b8a
+AUDITED_CONTRACT: tasks/ROTA-T021/brief.md
+SCOPE:
+- global decisions needed to start the greenfield frontend/API shell
+- Screen 1: Workspace / Przedpokój
+- contract consistency, completeness, testability, concision and reuse
+SCOPE_EXCLUDED:
+- visual fidelity to the private Design Canvas (Tor 2, owner-owned)
+- Screens 2-9, deliberately not expanded yet
+- implementation audit (frontend/ and api/ do not exist yet)
+
+VERDICT: FAIL — SCREEN 1 CONTRACT CORRECTION REQUIRED
+
+The per-screen method is acceptable. This audit does not require the brief
+to specify Screens 2-9 before their implementation starts. The document is
+also concise enough for Screen 1 and mostly indexes existing owners instead
+of restating them. Four concrete blockers below prevent an independent,
+non-inventive implementation of Screen 1.
+
+A1 — DELIVERED BRANCH DOES NOT CONTAIN ITS DECLARED PRODUCT BASE
+STATUS: FAIL
+CONTRACT:
+- brief.md:4 declares BASE_PRODUCT_SHA 7349ae6 (main, post-T023b merge)
+- brief.md:22-23 makes the T023b frozen addendum and task brief authoritative
+EVIDENCE:
+- `git merge-base --is-ancestor 7349ae6 93faf68` returns exit 1
+- actual merge-base is 5e8f282c8208441b25f0f0a3e0f44016c7162a6a
+- at 93faf68, both referenced files are absent:
+  `arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md` and
+  `tasks/ROTA-T023b/brief.md`
+- the branch source also lacks the T023b product surface used by Screen 1,
+  including SitePlanningRegime and correct_site_planning_regime
+IMPACT:
+- CC starting code on this branch would implement against pre-T023b models,
+  while the brief requires post-T023b creation and correction semantics
+CLOSURE:
+- move the task branch onto 7349ae6 or a newer main descendant that preserves
+  it; verify 7349ae6 is an ancestor and the two authoritative files plus the
+  T023b backend surface are present
+- do not close this by copying only the missing documents onto stale source
+
+A2 — CONFIGURATION FILTER HAS NO MONTH OWNER AND DUPLICATES AN EXISTING READ
+STATUS: FAIL
+CONTRACT:
+- brief.md:137-142 requires both coordinator_context_completeness and
+  month_plan_readiness, then combines them with print-settings presence for
+  one "Konfiguracja niepełna" filter
+EVIDENCE AT DECLARED BASE 7349ae6:
+- bootstrap.py:321 month_plan_readiness requires an explicit first-of-month
+  `month`
+- Screen 1 defines no selected/default month for that call
+- bootstrap.py:330 month_plan_readiness already calls
+  coordinator_context_completeness internally and includes its `missing`
+  result, so requiring both calls repeats the same completeness calculation
+IMPACT:
+- implementations can choose different months (current month, next month,
+  a remembered month) and therefore classify the same Site differently
+- Tor 1 cannot define one expected call graph without requiring duplicated
+  backend work
+CLOSURE:
+- record whether this Workspace filter is month-independent or month-specific
+- if month-specific, name the existing/owner-decided source of that month
+- name one owner for the overlapping completeness read; do not require the
+  frontend/API to call the nested calculation twice
+
+A3 — SITE-CREATION MAPPING OMITS REQUIRED NON-UI VALUES
+STATUS: FAIL
+CONTRACT:
+- brief.md:147-154 allows only three coordinator inputs and requires a direct
+  call to bootstrap_or_resume_coordinator_context with SiteProfile, Site and
+  CoordinatorSiteAssociation payloads
+- the API is forbidden to invent missing business values (brief.md:74-79)
+EVIDENCE AT DECLARED BASE 7349ae6:
+- domain.py:137-175 requires, without constructor defaults, profile_id,
+  active, standard_shifts, training_s_weekdays_only,
+  training_s_default_readiness_threshold, site_id and association.active in
+  addition to the three UI inputs and three constants named by the brief
+- the brief also does not assign ownership/generation of site_id/profile_id
+IMPACT:
+- CC must invent mandatory payload values or put technical IDs into the UI;
+  either result can pass the three-field form description while differing in
+  persisted product facts
+CLOSURE:
+- provide or cite one complete mapping from the three UI inputs + selected
+  regime + interim coordinator_id to every mandatory constructor field
+- explicitly assign generation/ownership of technical IDs
+- preserve the already-decided partial-context result; this does not require
+  adding more coordinator-facing fields
+
+A4 — CALENDAR UI COLLAPSES TWO BACKEND STATES THAT READINESS DISTINGUISHES
+STATUS: FAIL
+CONTRACT:
+- brief.md:169-182 requires list_calendar_days + per-day set_calendar_day and
+  describes a year/month holiday-toggle list
+EVIDENCE AT DECLARED BASE 7349ae6:
+- calendar_repository.py:36 returns only persisted CalendarDay rows
+- bootstrap.py:321-344 treats every absent date row as missing configuration
+- CalendarDay(date, holiday=False) is therefore not equivalent to no row
+IMPACT:
+- an unchecked toggle can mean either a saved non-holiday or an unconfigured
+  date; the UI cannot truthfully display readiness or know which false rows
+  must be persisted
+CLOSURE:
+- specify how absent dates are represented in the chosen month/year range
+- specify the save rule that produces explicit CalendarDay rows for ordinary
+  days as well as holidays, or cite an existing owner that already defines it
+- do not treat an absent row as holiday=False silently
+
+NON-BLOCKING CHECKS
+- separate OCHRONA and ORDINARY entry points with one shared implementation
+  correctly reuse the T023b owner and do not duplicate Site persistence
+- backup/diagnostic placement is consistent with their database-wide scope
+- the dev-only coordinator_id bridge is explicit and does not resurrect the
+  superseded identity switcher
+- deferring Screen 2-9 expansion is not a finding in this per-screen process
+
+TESTS:
+- not run: no frontend/API implementation exists at the audited SHA
+- this was a static contract/source/ancestry audit
+
+ARCHITECTURE_PROPOSALS: NONE
+
+RE-AUDIT BOUNDARY:
+- one corrected contract/branch round should be sufficient
+- re-audit only A1-A4 and their closure conditions; do not reopen accepted
+  T023b product semantics or expand Screens 2-9

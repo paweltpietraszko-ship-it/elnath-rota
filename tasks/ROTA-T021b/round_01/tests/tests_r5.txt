@@ -1,0 +1,86 @@
+ROTA-T021b / EXACT-SHA IMPLEMENTATION RE-AUDIT / ROUND 5
+
+AUDITED_BRANCH: task/ROTA-T021
+AUDITED_SHA: edf76bb611c66f475fc97ecdd94c1c9ac312a5a5
+ACCEPTED_CONTRACT_SHA: 55b1c084daf1dbfc23c62a0fd36cb6ada8d7c4f7
+PREVIOUS_REPORT: tasks/ROTA-T021b/round_01/tests/tests_r4.txt
+RE-AUDITED_FINDINGS: R4-1, R4-2 only
+
+VERDICT: PASS - EXACT IMPLEMENTATION SHA ACCEPTED
+
+Both round-4 findings are closed by one bounded correction. The implementation
+reuses the existing executable-rule validation owner, preserves the broader
+valid-family behavior required by the contract, and generates statements that
+describe the complete stored family. No architecture or product decision is
+required.
+
+R4-1 MALFORMED CURRENT MATRIX FAMILY
+STATUS: PASS / CLOSED
+EVIDENCE:
+- rota/application/rule_decisions.py imports and calls the existing
+  validate_executable_site_rules() owner after the matrix category/kind/
+  enforcement/resolution boundary and before retained-Employee resolution or
+  any material write
+- UnsupportedOrMalformedSiteRule is translated to the wrapper's existing
+  ValueError boundary; record_structured_rule_decision() is not reached
+- the independent equivalence-class reproducer covers both update and end for
+  forbidden-rule extra keys, unknown shift kinds, empty shift-kind lists and a
+  day-only-exception extra key
+- all 8 malformed-family cases now reject with unchanged family-history and
+  RULE_DECISION_RECORDED counts
+- valid broader forbidden-rule shapes remain accepted and preserved; the fix
+  does not narrow update/end to a single UI cell
+
+R4-2 BROADER VALID FAMILY STATEMENT
+STATUS: PASS / CLOSED
+EVIDENCE:
+- the shared description helper now derives its label from the complete
+  forbidden_shift_kinds and weekdays collections
+- update and end both use that same complete-family description
+- the independent two-path reproducer for weekdays [1, 2] and forbidden kinds
+  [D, N] passes for both update and end
+- the test does not freeze punctuation: closure rests on semantic completeness,
+  not a preferred UI phrase
+
+PRESERVED INDEPENDENT COVERAGE
+- vertical file-backed restart path remains green across
+  create -> reopen -> update -> reopen -> end -> reopen, including effective
+  version selection and applicability ending on the preceding day
+- each of the five public wrappers still produces exactly one existing
+  RULE_DECISION_RECORDED material action
+- material writes still delegate to record_structured_rule_decision(); no new
+  persistence owner, table, column, DTO or CoordinatorActionKind was added
+- the correction commit changes only rota/application/rule_decisions.py and
+  tests/test_t021b_employee_matrix_wrappers.py
+
+TEST RESULTS
+- independent round-4 audit/reproducer module:
+  12 passed in 0.58s
+- complete delivered T021b module:
+  33 passed in 0.61s
+- full exact-SHA regression:
+  1097 passed, 1 failed in 97.49s
+- the sole failure remains the previously accepted stale source-diff assertion
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b. It checks
+  that constraints.py/work_periods.py are unchanged since T023 even though
+  accepted T023b intentionally changed them. The edf76bb correction does not
+  touch those files and this failure is not counted against T021b.
+
+MECHANICAL CHECKS
+- detached audit worktree resolves exactly to
+  edf76bb611c66f475fc97ecdd94c1c9ac312a5a5 and is clean
+- edf76bb^..edf76bb changes exactly the authorized production module and its
+  focused T021b test module
+- git diff --check edf76bb^..edf76bb: PASS
+- current branch versions of the product module and both T021b audit/delivery
+  test modules are byte-identical to the audited SHA
+- target tasks/ROTA-T021b/round_01/tests/tests_r5.txt did not exist before this
+  report was written
+
+WYMAGA_DECYZJI: NONE
+ARCHITECTURE_PROPOSALS: NONE
+
+NEXT GATE
+- exact implementation SHA edf76bb611c66f475fc97ecdd94c1c9ac312a5a5 is
+  accepted for ROTA-T021b
+- do not reopen R4-1/R4-2 without a new contract-traceable regression

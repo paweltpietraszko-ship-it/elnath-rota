@@ -1,0 +1,78 @@
+ROTA-T021 / SCREEN 1 IMPLEMENTATION RE-AUDIT / ROUND 6
+
+AUDITED_IMPLEMENTATION_SHA: b63344d316aa50f6da0bbcc3ffa51493fb941d3a
+PREVIOUS_AUDIT_COMMIT: d8fd59d4903228a9259f4f9b97cb2a5a19ccf46f
+ACCEPTED_CONTRACT_SHA: 680a34258f956df26ac6fd9b3190ad4e70c312b0
+CONTRACT: tasks/ROTA-T021/brief.md, Sections 3.2, 4 and 6
+AUDIT_TESTS: tasks/ROTA-T021/round_01/tests/test_t021_r6_audit.py
+SCOPE: closure of R4-4 only
+SCOPE_EXCLUDED: visual fidelity/redesign/Tor 2, Screens 2-9
+
+VERDICT: PASS — R4-4 CLOSED
+
+R4-4 — CALENDAR OWNERSHIP / THIN PASS-THROUGH BOUNDARY
+STATUS: PASS
+OWNER:
+- brief.md:80-87: API routers are thin pass-throughs and may not invent
+  missing application logic
+- brief.md:248-252: the Screen 1 action calls the existing set_calendar_day
+  once for every missing date and skips persisted dates
+- brief.md:317-320: T021 may read existing rota/** but does not modify rota/**
+EVIDENCE:
+- `git diff --name-only 680a342..b63344d -- rota` is empty
+- fill_missing_calendar_days no longer exists in
+  rota/application/durable_inputs.py or the API router
+- api/routers/durable_inputs.py exposes only the single-day calendar write;
+  its imported set_calendar_day belongs to the matching
+  rota.application.durable_inputs module
+- POST /api/workspace/calendar/bulk-generate is absent and returns 404
+- executing the real CalendarModal generate callback for August 2026 with a
+  saved holiday on August 2 and saved workday on August 3 produces exactly
+  29 calls to the existing single-day write: one for every other date, all
+  with holiday=False and the same authorization site_id
+- neither already-persisted date is written, so both existing states remain
+  untouched
+
+INDEPENDENT LAYERED VALIDATION
+
+1. ADVERSARIAL R6 MATRIX
+- test_t021_r6_audit.py: 4 passed
+- covers the frozen rota/** boundary, application-module router ownership,
+  endpoint absence, executed frontend call cardinality/arguments/skip-existing
+  behavior, and a real HTTP -> application -> SQLite calendar path
+- test_t021_r5_audit.py remains an immutable historical reproducer for the
+  implementation it audited; R6 does not modify it after the contracted bulk
+  symbols were removed
+
+2. TASK / OWNER MATRIX
+- bootstrap, context discovery, backup boundary, durable-input history,
+  T023b Site-regime owners and full vertical-backend owners: 125 passed
+- Python Ruff over api/ + the R6 audit test: PASS
+- npm ci from the committed lockfile: PASS
+- npm run build (TypeScript + Vite production build): PASS
+
+3. REAL API VERTICAL
+- fresh LocalStore through FastAPI TestClient: Site create 201, two
+  single-day writes 204, calendar read 200
+- persisted calendar read returned the saved holiday=True and workday=False
+  facts unchanged
+- removed bulk route returned 404
+
+4. FINAL REPOSITORY REGRESSION ON THE EXACT SHA
+- 1052 passed
+- 1 failed: obsolete T023 Checkpoint-B source-diff proof
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b
+- not a T021 regression: its exclusion is explicitly owner-accepted in
+  tasks/ROTA-T023b/ARCHITECT_FINAL_EXACT_SHA_REVIEW_2026-08-23.md:20-24,107
+- git diff --check: PASS
+
+NON-FINDINGS / BOUNDARIES
+- R4-1, R4-2 and R4-3 were accepted as closed in Round 5 and were not
+  reopened; the relevant owner matrix and full regression remain green
+- the frontend sequence is not atomic across requests, but the accepted
+  contract does not require an atomic bulk command; this is not a finding
+- no visual/mockup/redesign judgment was made
+
+ARCHITECTURE_PROPOSALS: NONE
+
+RE-AUDIT: NOT REQUIRED FOR SCREEN 1 / ROUND 01

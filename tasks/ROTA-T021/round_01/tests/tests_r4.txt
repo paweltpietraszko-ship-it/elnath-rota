@@ -1,0 +1,137 @@
+ROTA-T021 / SCREEN 1 IMPLEMENTATION AUDIT / ROUND 4
+
+AUDITED_IMPLEMENTATION_SHA: 262a53a1f96094175760b6634d7e09f593bf9893
+ACCEPTED_CONTRACT_SHA: 680a34258f956df26ac6fd9b3190ad4e70c312b0
+CONTRACT: tasks/ROTA-T021/brief.md, global API rules + Section 4
+AUDIT_TESTS: tasks/ROTA-T021/round_01/tests/test_t021_r4_audit.py
+SCOPE: Screen 1 Workspace/Przedpokój, api/ + frontend/
+SCOPE_EXCLUDED: visual fidelity/Tor 2, Screens 2-9
+
+VERDICT: FAIL — FOUR NARROW IMPLEMENTATION CORRECTIONS REQUIRED
+
+R4-1 — LOCAL CALENDAR DATES ARE SENT AS THE PREVIOUS DAY
+STATUS: FAIL
+OWNER:
+- Section 4 CalendarDay read/write contract; the displayed date and persisted
+  CalendarDay.date must be the same calendar fact
+EVIDENCE:
+- frontend/src/screens/Workspace.tsx:10 serializes a local Date with
+  `toISOString().slice(0, 10)`, which first converts it to UTC
+- under the product's Europe/Warsaw timezone, independent representatives
+  produce 2026-01-01 -> 2025-12-31, 2026-08-01 -> 2026-07-31 and
+  2026-12-31 -> 2026-12-30
+- the same helper owns range reads, bulk generation and individual toggles,
+  so this is one shared bug class, not three isolated instances
+IMPACT:
+- the UI labels one day but reads/writes the preceding CalendarDay; month
+  boundaries also move into the preceding month/year
+CLOSURE:
+- calendar-date serialization must preserve local year/month/day without a
+  UTC conversion; keep the winter, summer and year-boundary representatives
+
+R4-2 — RAW ENGLISH COMPLETENESS TEXT REACHES THE COORDINATOR
+STATUS: FAIL
+OWNER:
+- arch/T021_spec.md:294-299: every user-visible label/status/warning must be
+  Polish; internal English identifiers/text may never be shown raw
+EVIDENCE:
+- frontend/src/screens/Workspace.tsx:157-159 renders every `site.missing`
+  string verbatim
+- SSR reproductions render both sibling backend messages unchanged:
+  `no valid standard shift` and `no active LOCAL SiteMembership`
+IMPACT:
+- the primary "Konfiguracja niepełna" explanation violates the global UI
+  language rule for every reachable English completeness message
+CLOSURE:
+- render a Polish coordinator-facing explanation for every reachable
+  ContextCompleteness.missing condition; preserve useful entity identifiers
+  but do not expose raw backend English/technical names
+
+R4-3 — SHARED EXCEPTION MAPPING IS BYPASSED ON SIBLING ROUTES
+STATUS: FAIL
+OWNER:
+- brief.md:89-90: exception mapping belongs to one shared helper, never
+  per-router ad-hoc handling
+- api/errors.py explicitly maps ValueError -> 400 and
+  InvalidSitePrintSettings -> 422
+EVIDENCE:
+- calendar.get_range parses dates outside the shared boundary: raw ValueError
+- calendar.bulk_generate does the same: raw ValueError
+- bootstrap.list_sites lets InvalidSitePrintSettings escape instead of using
+  the declared 422 mapping
+- the sibling calendar.set_day path correctly maps ValueError to 400, proving
+  inconsistent coverage of the same invariant
+IMPACT:
+- malformed dates and fail-closed print-setting reads become generic HTTP 500
+  responses despite the API's declared stable mapping
+CLOSURE:
+- every route path must apply the one shared mapper to its owned exceptions;
+  retain representatives across GET, single write, bulk path and composed list
+
+R4-4 — CALENDAR ROUTER IS NOT THE CONTRACTED THIN 1:1 PASS-THROUGH
+STATUS: FAIL
+OWNER:
+- brief.md:80: one router module per rota/application module it wraps
+- brief.md:81-87: the API marshals and directly calls existing application
+  functions; missing business logic is flagged, not invented in the router
+EVIDENCE:
+- api/routers/calendar.py wraps
+  rota.application.durable_inputs.set_calendar_day, so module ownership does
+  not match (`calendar` vs `durable_inputs`)
+- its `/bulk-generate` route adds a new read/filter/date-loop/write operation;
+  no corresponding application function exists
+IMPACT:
+- the greenfield API already gains a second owner for calendar orchestration,
+  defeating the brief's duplication boundary before later screens are added
+CLOSURE:
+- restore the contracted application-module router ownership and 1:1
+  pass-through boundary
+- implement the already-required screen action by composing the existing
+  reads/set_calendar_day without making the API router a new business owner,
+  or obtain a written owner change before introducing a new application command
+
+INDEPENDENT LAYERED VALIDATION
+
+1. MINIMAL / ADVERSARIAL MATRIX
+- `test_t021_r4_audit.py`: 4 passed, 10 failed
+- passing: both creation regimes with every persisted constructor field;
+  list/completeness/print flags; calendar gap-fill preserving saved holiday
+  and workday; the already-correct set_day ValueError mapping
+- failing: R4-1 through R4-4 representatives above
+
+2. TASK / OWNER MATRIX
+- bootstrap, context discovery, backup boundary, print settings, T023b regime
+  and full vertical-backend owners: 117 passed
+- Python Ruff over api/ + audit tests: PASS
+- `npm ci` from committed lockfile: PASS
+- `npm run build` (TypeScript + Vite production build): PASS
+
+3. VERTICAL API -> DOMAIN -> SQLITE
+- real FastAPI TestClient routes on a fresh LocalStore: create 201, list 200,
+  set-day 204, bulk 204, calendar read 200, backup 200, diagnostics 200
+- persisted range preserved False/True/False and both downloads returned real
+  non-empty files with Content-Disposition filenames
+
+4. FINAL REPOSITORY REGRESSION ON EXACT SHA
+- 1052 passed
+- 1 failed: obsolete T023 Checkpoint-B source-diff proof
+  `test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b`
+- not a T021 regression: its exclusion is explicitly owner-accepted in
+  tasks/ROTA-T023b/ARCHITECT_FINAL_EXACT_SHA_REVIEW_2026-08-23.md:20-24,107
+- `git diff --check`: PASS
+
+NON-FINDINGS / BOUNDARIES
+- separate OCHRONA/ORDINARY entry points share one form and persist explicit
+  planning_regime correctly
+- search and both filter-chip predicates use the contracted fields
+- three persisted calendar states and skip-existing semantics work at the
+  backend boundary; R4-1 concerns the frontend date supplied to that boundary
+- backup/diagnostics use server-owned temporary destinations and download
+  responses as contracted
+- no visual/mockup judgment was made
+
+ARCHITECTURE_PROPOSALS: NONE
+
+RE-AUDIT:
+- audit only R4-1 through R4-4 on the corrected exact SHA, then rerun the
+  relevant T021 matrix, vertical probe and one final repository regression

@@ -1,0 +1,154 @@
+ROTA-T021 / SCREEN 2 SECTION 5.1 CONTRACT RE-AUDIT / ROUND 8
+
+AUDITED_SHA: 964694f52e5bc99ad942ac11166e028036ed5597
+AUDITED_CONTRACT: tasks/ROTA-T021/brief.md Section 5.1
+RE-AUDITED_FINDINGS: R7-1, R7-2, R7-3, R7-4 only
+SCOPE_EXCLUDED:
+- Screen 1 and every other T021 screen
+- visual fidelity/Tor 2
+- T021b rule-wrapper contract
+- previously accepted Section 5.1 semantics outside R7-1..R7-4
+
+VERDICT: FAIL - R7-4 CLOSED; R7-1, R7-2 AND R7-3 NOT CLOSED
+
+The correction remains scoped to existing Employee, SiteMembership,
+AvailabilityRecord and target-hours owners; it does not add a duplicate
+rota/** model or application command. The remaining failures are internal
+contradictions in the correction itself, not requests for a different product
+architecture.
+
+R8-1 - LOCAL-ONLY PICKER CAN STILL MUTATE AN EXTERNAL_SUPPORT MEMBERSHIP
+TRACES_TO: R7-1
+STATUS: FAIL
+CONTRACT:
+- brief.md:291-299 puts EXTERNAL_SUPPORT entirely outside this increment
+- brief.md:354-363 includes every Employee without an enabled LOCAL
+  membership in the existing-employee picker
+- brief.md:438-447 says membership_kind editing and EXTERNAL_SUPPORT are out
+  of scope
+EVIDENCE:
+- an Employee with an enabled or disabled EXTERNAL_SUPPORT membership has no
+  enabled LOCAL membership and therefore satisfies the stated picker filter
+- site_memberships has primary key (employee_id, site_id), not one row per
+  membership kind (rota/persistence/db.py:148-155)
+- update_membership upserts on that same pair and overwrites membership_kind
+  (rota/persistence/employee_repository.py:101-125)
+IMPACT:
+- selecting an existing EXTERNAL_SUPPORT employee through the supposedly
+  LOCAL-only flow converts the existing row to LOCAL; it neither creates a
+  separate row nor stays outside the deferred product scope
+- Tor 1 cannot simultaneously implement the stated picker filter and the
+  stated prohibition on membership_kind editing
+CLOSURE:
+- make the picker/re-add contract explicitly distinguish: no membership,
+  disabled LOCAL membership, and any existing EXTERNAL_SUPPORT membership
+- test all enabled/disabled LOCAL/EXTERNAL_SUPPORT sibling cases and prove
+  that this increment never changes an EXTERNAL_SUPPORT row
+
+R8-2 - THE TWO-CALL OWNER AND PARTIAL-FAILURE RETRY CONTRADICT EACH OTHER
+TRACES_TO: R7-2
+STATUS: FAIL
+CONTRACT:
+- brief.md:343-347 says the API layer sequences update_employee followed by
+  update_membership and returns generated employee_id in its POST response
+- brief.md:348-353 says the frontend needs that ID for the second call and
+  that a failed second call is retried with the already-known ID
+EVIDENCE:
+- if one API POST sequences both calls, the frontend does not make the second
+  call and receives a normal response only after both calls succeed
+- update_employee and update_membership each own and commit a separate
+  transaction (rota/application/durable_inputs.py:221-290); therefore the
+  first can persist while the second fails
+- in that partial-failure path the contract defines neither an error response
+  that reveals the generated ID nor a retry request that accepts/reuses it;
+  retrying initial creation can generate a different ID and duplicate Employee
+IMPACT:
+- the promised idempotent resume is not executable for the exact failure it
+  is intended to cover
+- CC must choose whether the API or frontend owns sequencing and must invent
+  the failure/response protocol
+CLOSURE:
+- choose one sequencing owner and define the observable success and partial-
+  failure contract, including how the original generated employee_id is
+  recovered and reused without creating another Employee
+- test failure injection between the two existing calls, lost/retried request,
+  and successful resume with exactly one Employee and one LOCAL membership
+
+R8-3 - GENERAL-AVAILABILITY READ STATE IS NOT DERIVABLE FROM THE RETURNED LIST
+TRACES_TO: R7-3
+STATUS: FAIL
+CONTRACT:
+- brief.md:364-375 reads all current UNAVAILABLE_24H family ends but asserts
+  that at most one family is the matrix toggle's block
+- brief.md:376-391 permits fresh independent families and correction/restore
+  by the selected family's availability_id
+- brief.md:393-410 says the absence form uses the same UNAVAILABLE_24H
+  mechanism and may also create independent families
+- frozen owner decision Section 5 requires automatic return to checked state
+  after the inclusive end date
+EVIDENCE:
+- get_current_availability_for_employee returns one current row for every
+  availability_id family; it supplies no provenance marking one row as
+  belonging to the matrix shortcut (availability_repository.py:117-130)
+- multiple UNAVAILABLE_24H families are therefore legal and indistinguishable
+  by origin under the stated shared mechanism
+- AvailabilityRecord.active is the current chain-end flag, not temporal
+  applicability: active=True remains true after end_date has elapsed
+- brief.md:371-375 renders every active=True family as unchecked without an
+  evaluation date, so natural expiry would remain visually unchecked
+IMPACT:
+- the UI cannot deterministically choose which availability_id to correct or
+  restore when zero, one or multiple blocks exist
+- it also cannot satisfy the frozen automatic re-check after end_date by the
+  specified active-flag rule
+CLOSURE:
+- define the matrix state and editable-family selection from the full list for
+  zero/one/multiple UNAVAILABLE_24H families and for dates before, inside and
+  after each inclusive range
+- do not invent a provenance marker unless separately authorized; the current
+  model has none
+- test overlapping and disjoint sibling families, an inactive chain end, and
+  natural expiry without a write
+
+R8-4 - TARGET-HOURS MONTH AND MISSING VALUE
+TRACES_TO: R7-4
+STATUS: PASS / CLOSED
+EVIDENCE:
+- brief.md:412-423 defines a visible month selector, current-month default,
+  unrestricted month choice, first-of-month serialization and the read owner
+- Optional[int] None is explicitly displayed as missing and remains distinct
+  from a persisted zero
+
+CONCISION / DUPLICATION CHECK
+- the correction is longer than the prior Section 5.1 text, but the added
+  fields and lifecycle cases are within the requested screen and mostly reuse
+  existing owners; length alone is not a blocker
+- no new Employee, membership, availability or target-hours storage/function
+  is proposed
+- R8-1..R8-3 concern contradictions in the added wiring, not preferences for
+  another UI or backend design
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  964694f52e5bc99ad942ac11166e028036ed5597
+- c7acf1e..964694f changes only tasks/ROTA-T021/brief.md
+- target tasks/ROTA-T021/round_01/tests/tests_r8.txt did not exist before
+  this report was written
+- git diff --check c7acf1e..964694f: PASS
+
+TESTS
+- product suite not run: this is a contract-only correction and no product or
+  test implementation changed in c7acf1e..964694f
+- exact-SHA persistence keys, upsert behavior, transaction ownership and
+  availability read shape were inspected directly
+- no implementation PASS is implied
+
+ARCHITECTURE_PROPOSALS: NONE
+
+PROCESS BOUNDARY
+- this is the second Section 5.1 contract pass and it still contains three
+  implementation-blocking contradictions; CC remains READ-ONLY for this scope
+- stop iterative line-by-line design through audit findings: architect/owner
+  should issue one consolidated correction for R8-1..R8-3
+- any subsequent re-audit is limited strictly to those three closures; do not
+  reopen R7-4 or the already accepted Screen-2 semantics

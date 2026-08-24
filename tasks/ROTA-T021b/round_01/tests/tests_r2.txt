@@ -1,0 +1,102 @@
+ROTA-T021b / PREIMPLEMENTATION CONTRACT RE-AUDIT / ROUND 2
+
+AUDITED_SHA: 8a3bbe1a937a521dcc7d08193c065066997134bf
+AUDITED_CONTRACT: tasks/ROTA-T021b/brief.md
+RE-AUDITED_FINDINGS: R1-1 and R1-2 only, plus contradictions introduced by
+their corrections
+SCOPE_EXCLUDED:
+- reopening the accepted canonical rule representation
+- reopening family identity, supersedes/rejects relations or generic write seam
+- frontend/API and implementation audit
+
+VERDICT: FAIL - ONE LITERAL ROUND-TRIP CORRECTION REQUIRED
+
+R1-1 is closed. R1-2's date boundary is also fully specified and matches T005
+selection, but its newly accepted equal-start cancellation contradicts the
+unchanged absolute read/write promise in Section 8. No production redesign or
+wider file scope is required to correct that sentence and its test expectation.
+
+R2-1 - ZERO-DAY CANCELLATION CANNOT EXPOSE A RULE VERSION WITH APPLICABILITY
+TRACES_TO: R1-2 correction / introduced contradiction
+STATUS: FAIL
+CONTRACT:
+- brief.md:182 and 198: rejecting at the current version's effective_from is
+  valid and intentionally cancels that version for all days
+- brief.md:294: the minimum tests must accept that equal-start case
+- brief.md:260: after any successful T021b write, the unchanged projection
+  must expose a relevant SiteRuleVersion plus rule_applicability slices
+EVIDENCE:
+- effective_rule_on() selects the equal-date, later-in-chain rejects decision;
+  because it has no rule_version_id, the result is NoActiveRule from the first
+  day (rota/persistence/site_memory.py:59-72)
+- assemble_monthly_site_rules() includes versions and applicability only for
+  days whose selection is EffectiveRule; NO_ACTIVE_RULE days contribute
+  nothing (rota/persistence/site_rule_assembly.py:51-86)
+- employee_availability_matrix() filters that monthly result and cannot expose
+  a version or slice that has zero effective days
+IMPACT:
+- a correct implementation of the required equal-start reject necessarily
+  violates the absolute Section-8 promise
+- independent tests can either require the correct empty base-state projection
+  or require a resulting version+slices, but cannot satisfy both
+CLOSURE:
+- make Section 8 distinguish create/update from reject: create/update expose
+  their effective version and slices; reject exposes the preceding version
+  only on dates before the rejecting effective_from, and exposes no relevant
+  rule/slice where base state applies
+- add the equal-start round-trip/restart expectation explicitly: callable
+  projection, existing Employee, empty relevant rules and applicability
+
+R1-1 EMPLOYEE IDENTITY CLOSURE
+STATUS: PASS / CLOSED
+EVIDENCE:
+- brief.md:44-58 defines one existing-Employee precondition across every
+  create/update/end path and explicitly rejects unknown IDs before writing
+- membership presence, enabled state and Employee active dates are explicitly
+  excluded from this command boundary rather than left for CC to invent
+- brief.md:291 and 293-297 cover the unknown-ID equivalence class, including
+  retained IDs in update/end, with zero decision/rule/action writes
+- the unchanged employee_availability_matrix() is therefore callable after
+  every successful command
+
+R1-2 DATE-BOUNDARY CLOSURE APART FROM R2-1
+STATUS: PASS
+EVIDENCE:
+- brief.md:177-198 explicitly covers bounded before-start, equal-start,
+  interior, equal-end and after-end cases
+- it separately covers pre-existing open-ended families
+- every invalid boundary is a no-write failure and every valid boundary uses
+  the accepted rejects relation with no fake SiteRuleVersion
+- brief.md:294-295 parameterizes all stated boundary classes
+
+PRESERVATION / CONCISION CHECK
+- the correction preserves the canonical forbidden-rule and narrow day-only
+  exception representations, new-versus-existing family identity, accepted
+  relations, generic write seam and unchanged read owner
+- no membership policy, repository, DTO or generalized editor is introduced
+- the added identity and boundary tables are proportionate and remove genuine
+  ambiguity; R2-1 is a single overbroad sentence, not architectural sprawl
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  8a3bbe1a937a521dcc7d08193c065066997134bf
+- 34948ce..8a3bbe1 changes only tasks/ROTA-T021b/brief.md
+- target tasks/ROTA-T021b/round_01/tests/tests_r2.txt did not exist before
+  this report was written
+- git diff --check 34948ce..8a3bbe1: PASS
+
+TESTS
+- product suite not run: this is a contract-only correction with no product or
+  test implementation change
+- exact-SHA T005 selection, monthly assembly and unchanged matrix projection
+  were inspected directly
+- no implementation PASS is implied
+
+ARCHITECTURE_PROPOSALS: NONE
+
+PROCESS BOUNDARY
+- this is the second T021b contract audit; do not continue redesign through
+  successive audit wording rounds
+- CC remains READ-ONLY until the literal Section-8 contradiction is removed
+- any final verification is limited to R2-1 and must not reopen R1-1, the date
+  boundary table or any accepted design decision

@@ -1,0 +1,130 @@
+ROTA-T021b / PREIMPLEMENTATION CONTRACT AUDIT / ROUND 1
+
+AUDITED_SHA: bd1a0512cec28288c90821883fd7b7a143a3b01e
+AUDITED_CONTRACT: tasks/ROTA-T021b/brief.md
+ARCHITECT_INPUT_SHA: 86979980c5c94371317c68647e51aaf68e41a853
+SCOPE:
+- completeness and testability of the five semantic backend commands
+- reuse of T005/T010-B owners and the existing generic application seam
+- contract concision and avoidance of duplicate product mechanisms
+SCOPE_EXCLUDED:
+- product implementation audit (no T021b product implementation exists)
+- frontend/API and visual fidelity
+- reopening accepted T010-B rule semantics
+
+VERDICT: FAIL - TWO NARROW CONTRACT CORRECTIONS REQUIRED
+
+The task is correctly narrow. It reuses the canonical forbidden-rule and
+day-only-exception representations, keeps one family for an edit, creates a
+new family for an independent period, and delegates the material write to
+record_structured_rule_decision(). Its 285 lines are proportionate to five
+public commands plus their safety boundary; no separate rule engine, state
+DTO, persistence path or competing ALLOWED-based representation is proposed.
+
+The two findings below are missing boundary definitions. They do not require
+a product redesign or a wider production-file scope.
+
+R1-1 - EMPLOYEE IDENTITY IS NOT VALIDATED CONSISTENTLY WITH THE READ CONTRACT
+STATUS: FAIL
+CONTRACT:
+- brief.md:11-13 and 220-224: these commands write the per-employee matrix
+  state that employee_availability_matrix() must read back after every write
+- brief.md:105: the day-only exception already requires an existing Employee
+- brief.md:51-88: the D/N and weekday commands accept employee_id but define
+  no corresponding existing-Employee precondition
+- brief.md:127-141 and 157: update/end validate the rule-family shape but do
+  not define the validity of the employee_id retained in that shape
+EVIDENCE:
+- rota/planning/site_rules.py:101-105 validates only that employee_id is a
+  non-empty string; the structured JSON has no Employee referential check
+- record_structured_rule_decision() likewise does not resolve Employee
+- rota/application/availability_matrix.py:53-65 begins by calling
+  get_employee(conn, employee_id), which raises for an unknown Employee
+IMPACT:
+- a conforming implementation may persist D/N or weekday state for an
+  arbitrary non-empty ID, after which the mandatory read/write round trip
+  cannot be performed for that ID
+- different wrappers for the same per-employee matrix would enforce
+  different identity boundaries, and Tor 1 cannot derive the expected
+  no-write behavior for unknown IDs
+CLOSURE:
+- define one explicit Employee identity precondition for every create command
+  and for the employee retained by update/end; at minimum it must make the
+  promised unchanged read projection total for every successful write
+- add an equivalence-class test covering unknown employee_id across all
+  affected commands and proving zero decision/rule/action writes
+- if SiteMembership presence or enabled state is also intended as a command
+  precondition, state it explicitly; neither this audit nor CC should invent
+  that additional product rule
+
+R1-2 - "EARLY" RESTORE HAS NO TESTABLE DATE BOUNDARY
+STATUS: WYMAGA_DECYZJI - BLOCKS IMPLEMENTATION PASS
+CONTRACT:
+- brief.md:143-162 names end_employee_matrix_rule_early() and says it is
+  only an early return; natural expiry needs no restore command
+- brief.md:174-186 fully bounds create/update periods but says only that the
+  rejecting decision receives an inclusive effective_from
+- brief.md:255 tests the resulting day-before cutoff, not which requested
+  cutoff dates are legal
+EVIDENCE:
+- as written, the command can accept a rejection before the current rule's
+  effective_from, on its effective_from, inside its period, on/after natural
+  effective_to, or against an open-ended matrix-shaped family admitted by
+  the broader-family clause in brief.md:141
+- existing T005 selection defines what each accepted rejection does; it does
+  not decide which of those user operations T021b calls an "early return"
+IMPACT:
+- CC must invent whether the command may cancel a not-yet-started period or
+  append a no-op rejection after natural expiry
+- implementations and independent tests can choose different valid-looking
+  boundaries while each claims compliance with the word "early"
+CLOSURE:
+- architect/owner must state the accepted relation between rejecting
+  effective_from and the current rule version's inclusive period, including
+  before-start, equal-start, equal-end and after-end cases and the already
+  admitted effective_to=None case
+- parameterize those boundary cases and require zero writes for every date
+  declared invalid
+
+NON-BLOCKING CHECKS
+- canonical D/N/weekday writes use only
+  EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS; no second ALLOWED write model
+- new independent period versus same-saved-rule edit is correctly represented
+  by new UUID family versus the same exact rule_id
+- supersedes for a date edit and rejects with no SiteRuleVersion for restore
+  match the tested T005/T010-B chain semantics
+- the temporary N command reuses only EMPLOYEE_DAY_ONLY_N_EXCEPTION and does
+  not weaken any other HARD
+- update/end reject wrong-Site, ended, non-matrix and wrong category/
+  enforcement/resolution families; the broader-valid-content preservation
+  clause is explicit rather than an accidental general rule editor
+- all material writes can reuse record_structured_rule_decision(); no
+  transaction, action, invalidation, repository or schema duplication is
+  authorized
+- employee_availability_matrix() already understands both written rule kinds
+  and applicability slices; R1-1 is the only missing identity precondition
+  preventing the promised round trip
+- statement generation, bounded create/update periods, opaque family IDs and
+  one focused test module are necessary and not speculative Screen-2 scope
+
+MECHANICAL CHECKS
+- requested/audited SHA resolves exactly to
+  bd1a0512cec28288c90821883fd7b7a143a3b01e
+- git diff 8697998..bd1a051 contains exactly one added file:
+  tasks/ROTA-T021b/brief.md; no product or test code changed
+- target tests_r1.txt did not exist before this report was written
+- git diff --check 8697998..bd1a051: PASS
+
+TESTS
+- product suite not run: this is a preimplementation contract audit and the
+  audited range contains no product/test implementation change
+- source signatures, validators, decision-ledger selection and unchanged read
+  projection were inspected directly
+- no implementation PASS is implied by this report
+
+ARCHITECTURE_PROPOSALS: NONE
+
+RE-AUDIT BOUNDARY
+- one corrected-contract round should be sufficient
+- re-audit only R1-1 and R1-2; do not reopen the accepted canonical mapping,
+  family identity, relations, generic write seam or unchanged read owner

@@ -1,0 +1,133 @@
+ROTA-T021b / EXACT-SHA IMPLEMENTATION AUDIT / ROUND 4
+
+AUDITED_BRANCH: task/ROTA-T021
+AUDITED_SHA: abd3ac4926c716535db283dd2dbfe24c98d2abde
+ACCEPTED_CONTRACT_SHA: 55b1c084daf1dbfc23c62a0fd36cb6ada8d7c4f7
+AUDITED_CONTRACT: tasks/ROTA-T021b/brief.md
+AUDIT_TESTS: tests/test_t021b_r4_audit.py
+
+VERDICT: FAIL - TWO CONTRACT-TRACEABLE CORRECTIONS REQUIRED
+
+The five public wrappers, file ownership and generic write-seam reuse are
+present, and the delivered 31-test module is green. Independent tests found
+two omitted equivalence classes owned explicitly by Sections 3.4/3.5/6/7 of
+the accepted contract. No product or architecture extension is proposed.
+
+R4-1 MALFORMED CURRENT MATRIX FAMILY IS MUTATED INSTEAD OF REJECTED
+STATUS: FAIL / BLOCKER
+
+CONTRACT TRACE:
+- brief.md Section 3.4 permits update only when the current chain end carries
+  one of the two matrix-owned shapes, and permits broader content only when
+  those parameters are valid
+- Section 3.5 applies the same family validation to early end
+- Section 7 requires all pre-write validation before delegation and therefore
+  requires invalid input to leave no Decision, SiteRuleVersion or action
+
+CODE EVIDENCE:
+- rota/application/rule_decisions.py:145-173 identifies a matrix family only
+  by rule_kind plus category/enforcement/resolution and then reads employee_id
+- it does not validate the complete structured_parameters shape before either
+  update_employee_matrix_rule_period() at line 254 or
+  end_employee_matrix_rule_early() at line 284
+- the existing executable-shape owner in rota/planning/site_rules.py:101-109
+  and 121-134 rejects extra keys, empty/unknown shift-kind lists and malformed
+  weekday lists, but that validation is not reached by these mutation wrappers
+
+REPRODUCTION / EQUIVALENCE CLASS:
+- test_t021b_r4_audit.py:134 parameterizes both update and end across both
+  matrix rule kinds and representative sibling malformations:
+  forbidden-rule extra key, unknown shift kind, empty shift-kind list, and
+  day-only-exception extra key
+- all 8 cases are accepted materially: family history changes 1 -> 2 and
+  RULE_DECISION_RECORDED action count changes 1 -> 2
+- this is not a request for duplicated downstream validation: the wrappers
+  own the accepted-family boundary and otherwise can be directed to mutate a
+  malformed family through their public rule_id input
+
+REQUIRED CLOSURE:
+- both update and end reject every current family that does not carry a valid
+  complete matrix-owned structured shape
+- every such rejection occurs before the generic writer: no Decision,
+  SiteRuleVersion, coordinator action or stale-question invalidation
+- retain the contract's accepted support for valid broader forbidden-rule
+  parameter sets; do not narrow the command to one UI cell
+
+R4-2 BROADER VALID FAMILY GETS A FALSELY PARTIAL COORDINATOR STATEMENT
+STATUS: FAIL / BLOCKER
+
+CONTRACT TRACE:
+- brief.md Section 3.4 explicitly allows a valid forbidden-rule family broader
+  than one UI cell and requires its content to be preserved
+- Section 6 requires the generated Polish statement to come from the semantic
+  action; example punctuation is not frozen
+
+CODE EVIDENCE:
+- rota/application/rule_decisions.py:130-143 and 265-270 reduce every broader
+  forbidden family that is not one of the two all-week shift shapes to
+  structured_parameters["weekdays"][0]
+- for a valid family with weekdays [1, 2] and forbidden kinds [D, N], update
+  records only "Brak dostępności w poniedziałek..." and end records only
+  "Przywrócono bazowy stan Poniedziałek...", although Tuesday is preserved in
+  the same action's structured content
+
+REPRODUCTION / EQUIVALENCE CLASS:
+- test_t021b_r4_audit.py:169 covers the same valid broader family through both
+  update and end; both cases fail
+- the assertion does not freeze wording: a truthful generic family statement
+  or a statement naming the complete weekday set is accepted; selectively
+  naming only a subset is not
+
+REQUIRED CLOSURE:
+- update and end statements for every valid broader family remain
+  deterministic Polish statements and do not describe only a selected subset
+  of the content being updated/ended
+- no specific punctuation or UI wording is required
+
+INDEPENDENT PASS COVERAGE
+- exact implementation commit changes one production file,
+  rota/application/rule_decisions.py, plus its one focused test module; no new
+  table, column, repository or CoordinatorActionKind is present
+- all five wrappers delegate the material write to the existing
+  record_structured_rule_decision() seam
+- delivered focused suite: 31 passed
+- audit restart path at test_t021b_r4_audit.py:209 passed: create -> close/open
+  -> update -> close/open -> end -> close/open preserved the correct effective
+  versions and applicability boundary
+- audit action invariant at test_t021b_r4_audit.py:280 passed: each of the five
+  public wrappers added exactly one existing RULE_DECISION_RECORDED action
+
+TEST RESULTS
+- exact-SHA delivered tests:
+  31 passed in 0.68s
+- independent audit module against product source identical to audited SHA:
+  10 failed, 2 passed in 0.42s
+  - 8 failures belong to R4-1 (4 malformed shapes x update/end)
+  - 2 failures belong to R4-2 (valid broader family x update/end)
+- full exact-SHA regression:
+  1083 passed, 1 failed in 103.19s
+- the one full-suite failure is the previously accepted stale source-diff
+  assertion
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b; it checks
+  that constraints.py/work_periods.py are still unchanged since T023 even
+  though accepted T023b intentionally changed them. It is not caused by T021b
+  and is not counted in this verdict.
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  abd3ac4926c716535db283dd2dbfe24c98d2abde
+- abd3ac4^..abd3ac4 contains only the authorized production file and one
+  focused T021b test module
+- git diff --check abd3ac4^..abd3ac4: PASS
+- current branch product diff against audited SHA for
+  rota/application/rule_decisions.py: empty
+- target tasks/ROTA-T021b/round_01/tests/tests_r4.txt did not exist before this
+  report was written
+
+WYMAGA_DECYZJI: NONE
+ARCHITECTURE_PROPOSALS: NONE
+
+NEXT GATE
+- one consolidated implementation correction may close R4-1 and R4-2
+- re-audit must use a new exact SHA and the next immutable report number;
+  previously accepted contract behavior is not reopened

@@ -1,0 +1,110 @@
+ROTA-T021 / SCREEN 1 IMPLEMENTATION RE-AUDIT / ROUND 5
+
+AUDITED_IMPLEMENTATION_SHA: 272b0f2a22a5307ba17c0abeb65d8b53ae21b47e
+PREVIOUSLY_AUDITED_SHA: 262a53a1f96094175760b6634d7e09f593bf9893
+ACCEPTED_CONTRACT_SHA: 680a34258f956df26ac6fd9b3190ad4e70c312b0
+CONTRACT: tasks/ROTA-T021/brief.md, global API rules + Section 4 + Section 6
+AUDIT_TESTS: tasks/ROTA-T021/round_01/tests/test_t021_r5_audit.py
+SCOPE: R4-1 through R4-4 corrections for Screen 1 Workspace/Przedpokoj
+SCOPE_EXCLUDED: visual fidelity/redesign/Tor 2, Screens 2-9
+
+VERDICT: FAIL — R4-4 REMAINS OPEN; R4-1, R4-2 AND R4-3 PASS
+
+R4-1 — LOCAL CALENDAR DATE IDENTITY
+STATUS: PASS
+EVIDENCE:
+- frontend/src/screens/Workspace.tsx:11 now serializes local year/month/day
+  directly and performs no UTC conversion
+- independent Europe/Warsaw winter, summer and year-boundary representatives
+  preserve 2026-01-01, 2026-08-01 and 2026-12-31 exactly
+
+R4-2 — POLISH COMPLETENESS EXPLANATIONS
+STATUS: PASS
+EVIDENCE:
+- frontend/src/screens/Workspace.tsx:267 translates every missing reason before
+  rendering it
+- SSR representatives cover every currently reachable
+  ContextCompleteness.missing shape; none exposes the raw English fragment
+- the translation helper also fails closed to a Polish generic explanation
+  for an unknown future shape
+
+R4-3 — SHARED EXCEPTION MAPPING
+STATUS: PASS
+EVIDENCE:
+- malformed dates map to HTTP 400 across calendar GET, single write and bulk
+  paths
+- an InvalidSitePrintSettings raised while composing the Site list maps to
+  HTTP 422 through the shared helper
+
+R4-4 — CALENDAR OWNERSHIP / THIN PASS-THROUGH BOUNDARY
+STATUS: FAIL — PARTIALLY CORRECTED, NOT CLOSED
+OWNER:
+- brief.md:80-87: API routers are thin pass-throughs and may not invent missing
+  application logic
+- brief.md:248-252: the screen action calls the existing set_calendar_day once
+  for every missing date and skips persisted dates
+- brief.md:317-320: T021 may read existing rota/**, but does not modify rota/**;
+  a missing application function is a gap to flag
+EVIDENCE:
+- API module ownership itself is now corrected: calendar writes moved to
+  api/routers/durable_inputs.py and the router calls its matching application
+  owner
+- however, rota/application/durable_inputs.py:354 adds the new
+  fill_missing_calendar_days command specifically for the T021 bulk action
+- `git diff --name-only 680a342..272b0f2 -- rota` returns exactly
+  rota/application/durable_inputs.py
+- the API bulk endpoint calls that new command, instead of the Screen 1 action
+  composing the already-contracted calendar read with one existing
+  set_calendar_day call per absent date
+IMPACT:
+- business logic no longer lives in the API router, but the correction crosses
+  the contract's explicit read-only boundary for the existing product layer;
+  it therefore replaces one ownership violation with another
+CLOSURE:
+- remove the T021 change from rota/application/durable_inputs.py and do not
+  expose a new backend bulk command in this task
+- implement the already-specified Screen 1 action from the persisted dates
+  returned by the range read, calling the existing single-day write once for
+  each absent date and never writing an already-present date
+
+INDEPENDENT LAYERED VALIDATION
+
+1. ADVERSARIAL R5 MATRIX
+- test_t021_r5_audit.py: 20 passed, 1 failed
+- the sole failure is the direct Section 6 changed-path invariant above
+- includes both creation regimes, every persisted constructor field, all
+  reachable completeness translations, date boundaries, mapped exception
+  siblings, calendar skip-existing semantics and the real HTTP vertical
+
+2. TASK / OWNER MATRIX
+- bootstrap, context discovery, backup boundary, durable-input history,
+  T023b Site-regime owners and full vertical-backend owners: 125 passed
+- Python Ruff over api/ + the R5 audit test: PASS
+- npm ci from the committed lockfile: PASS
+- npm run build (TypeScript + Vite production build): PASS
+
+3. REAL FASTAPI -> APPLICATION -> SQLITE VERTICAL
+- fresh LocalStore through TestClient: create 201, list 200, set-day 204,
+  bulk 204, calendar read 200, backup 200 and diagnostics 200
+- persisted range remained False/True/False; both downloads were non-empty
+  and supplied Content-Disposition filenames
+
+4. FINAL REPOSITORY REGRESSION ON THE EXACT SHA
+- 1052 passed
+- 1 failed: obsolete T023 Checkpoint-B source-diff proof
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b
+- not a T021 regression: its exclusion is explicitly owner-accepted in
+  tasks/ROTA-T023b/ARCHITECT_FINAL_EXACT_SHA_REVIEW_2026-08-23.md:20-24,107
+- git diff --check: PASS
+
+NON-FINDINGS / BOUNDARIES
+- calendar gap-fill behavior itself preserves both saved workday and holiday
+  values; the failure is ownership/scope, not its observed result
+- no visual/mockup/redesign judgment was made
+- no additional Screen 1 findings were introduced outside the R4 closure set
+
+ARCHITECTURE_PROPOSALS: NONE
+
+RE-AUDIT:
+- audit only R4-4 on the corrected exact SHA, then rerun the relevant owner
+  matrix, real HTTP vertical and one final repository regression

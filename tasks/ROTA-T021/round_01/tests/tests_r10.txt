@@ -1,0 +1,103 @@
+ROTA-T021 / SCREEN 2 GENERAL AVAILABILITY ARCHITECTURE VERIFY / ROUND 10
+
+AUDITED_SHA: 4374c999f13dbf56b859425094e5e136c801dc4f
+AUDITED_DOCUMENT:
+- arch/T021_screen2_availability_singularity_architect_brief_2026-08-23.md
+AUDITED_FINDING: R9-2 only
+SCOPE_EXCLUDED:
+- R8-1/R7-4 and T021b, already closed
+- R9-1 employee-ID correction
+- implementation and visual fidelity/Tor 2
+
+VERDICT: PASS - R9-2 ARCHITECTURAL DECISION ACCEPTED
+IMPLEMENTATION_STATUS: T021 CONTRACT CONSOLIDATION REQUIRED BEFORE CC
+
+The decision fully resolves the product question without inventing a
+single-family invariant or a new backend mechanism. Multiple independent
+UNAVAILABLE_24H periods reuse the existing append-only family model, and
+FastAPI no longer needs forbidden lookup/selection/uniqueness branching.
+
+R9-2 CLOSURE
+STATUS: PASS / CLOSED
+EVIDENCE:
+- architect brief lines 9-13 explicitly permit multiple independent families
+  and forbid merge, dedup and lookup-based selection of a supposedly unique
+  family
+- a new period receives a new opaque availability_id; editing an existing
+  period sends its exact availability_id and appends in the same family
+- the UI lists one current chain end per family and does not render superseded
+  versions as independent periods
+- general_available_on(d) is the AND-compatible aggregate of every active
+  UNAVAILABLE_24H range covering d; overlapping siblings are explicitly legal
+  and have the same eligibility result as one covering range
+- active remains chain state, not temporal applicability; natural expiry is
+  derived from inclusive dates and does not manufacture active=False writes
+- matrix and absence entry points share the same fact and do not add
+  provenance or competing write representations
+- no new table, column, rule engine, application command or solver/validator
+  semantic is proposed
+
+OWNERSHIP / REUSE CHECK
+- durable_inputs.append_availability() remains the only material write owner
+  for create, correction and deactivation of an explicitly named family
+- get_current_availability_for_employee() already provides one current end per
+  family and naturally supports zero/one/multiple families
+- FastAPI can remain a thin pass-through: new ID for explicit create, exact
+  existing ID for explicit edit/end; it makes no family-selection decision
+- the accepted cross-kind SICK_LEAVE/LEAVE_GRANTED priority is correctly left
+  outside this same-kind multiplicity decision
+
+REQUIRED CONTRACT CONSOLIDATION - NOT A NEW ARCHITECTURE ROUND
+
+I1. tasks/ROTA-T021/brief.md is stale on the same exact SHA:
+- lines 392-403 still label the control BLOCKED
+- lines 410-427 still exclude UNAVAILABLE_24H from the absence form
+- lines 455-457 still place the control in out-of-scope
+Before CC implements the control, replace those stale clauses with the accepted
+multiple-family decision. Until then the branch contains two contradictory
+instructions even though the architecture question itself is closed.
+
+I2. Preserve the exact read-owner facts while consolidating:
+- the architect decision says the screen shows every current family end
+- employee_availability_matrix() currently filters availability_records to
+  active=True (rota/application/availability_matrix.py:53-60)
+- get_current_availability_for_employee() returns all current ends, including
+  active=False, and is already the accepted absence-log source in T021
+Therefore the consolidated screen contract must not claim that the matrix
+projection returns inactive family ends. Use the existing repository read for
+the full period/history list, or explicitly narrow the displayed matrix list
+to active family ends; no new backend task is needed for either existing fact.
+
+IMPLEMENTATION TEST BOUNDARY AFTER CONSOLIDATION
+- zero, one and multiple disjoint/overlapping UNAVAILABLE_24H families
+- new period creates a distinct ID; edit/end reuses the selected exact ID
+- expired active=True range no longer affects general_available_on(d)
+- inactive current end does not block but remains in the full log if that log
+  is part of the consolidated UI
+- both matrix and absence entry points create the same kind of fact
+- restart preserves families, chain ends, ranges and computed daily state
+- API performs no lookup-to-decide-create-versus-update branching
+
+MECHANICAL CHECKS
+- audited SHA resolves exactly to
+  4374c999f13dbf56b859425094e5e136c801dc4f
+- 4374c99^..4374c99 changes only the existing architect brief
+- target tasks/ROTA-T021/round_01/tests/tests_r10.txt did not exist before this
+  report was written
+- git diff --check 4374c99^..4374c99: PASS
+
+TESTS
+- product suite not run: the audited commit changes only an architecture
+  decision document
+- exact-SHA availability write/read owners and current T021 blocking clauses
+  were inspected directly
+- this PASS accepts R9-2 architecture; it is not an implementation verdict
+
+ARCHITECTURE_PROPOSALS: NONE
+
+NEXT GATE
+- fold this accepted decision into tasks/ROTA-T021/brief.md once, removing the
+  stale blocked/out-of-scope text and preserving the factual read split above
+- no further architect decision or singularity backend task is needed
+- after that consolidation CC may implement the control; Codex's next pass is
+  the planned independent vertical implementation audit

@@ -1,0 +1,77 @@
+ROTA-T021c — IMPLEMENTATION AUDIT, ROUND 6
+
+VERDICT: PASS — OWNER-ACCEPTED PRODUCT CONTRACT SATISFIED
+ACCEPTED_SHA: 8a1867b7296e3dd8453cc677dbfc8bc1178630b4
+FUNCTIONALLY_VERIFIED_IMPLEMENTATION_SHA: 358c593b10f126b7610f45c55130571347e1fac6
+BRANCH: task/ROTA-T021c
+DATE: 2026-08-24
+
+OWNER DECISION APPLIED
+
+The owner explicitly accepted the round-5 timing case as a documented product
+limitation and directed that it must not be patched further. The R5 finding is
+therefore closed as accepted behavior, not a defect. It is not retested as a
+PASS/FAIL gate and must not be reported again in later T021c rounds.
+
+The same applies to the three earlier audit cases requiring perfect causality
+for arbitrarily delayed work: those expectations were withdrawn in the round-4
+owner ruling and remain outside the active contract.
+
+DELIVERY REVIEW
+
+- The implementation behavior at 8a1867b is the accepted behavior from
+  358c593.
+- The only frontend production-source difference from 358c593 is correction
+  of explanatory comments in tracking.ts; executable statements are unchanged.
+- brief.md now records the round-5 limitation and the owner's decision not to
+  continue hardening it.
+- No Python, API or rota product source changed between the functionally
+  verified implementation and the accepted SHA.
+
+INDEPENDENT USER-VALUE VALIDATION
+
+The fixed, owner-relevant browser matrix was run in isolated Chromium with
+retries=0. Result: 19/19 PASS.
+
+It confirms the intended diagnostic workflow:
+
+- clicks are recorded centrally;
+- a control with no detected effect produces ACTION_STALLED;
+- requests, navigation, local UI changes and direct errors are recorded;
+- render failure does not leave a white screen;
+- window.error and unhandledrejection are recorded;
+- exported reports retain the applicable action_id;
+- events survive reload;
+- local frontend export works without the API;
+- the diagnostic ZIP remains readable and contains both reports;
+- identifiers, form contents and failed-response bodies do not leak;
+- request timeout is distinguished from a stalled click.
+
+The ordinary-development build was tested separately without the E2E flag.
+Result: 1/1 PASS; failure-injection controls are absent.
+
+Production frontend build: PASS.
+
+REGRESSION ACCOUNTING
+
+The full Python regression was already run against 358c593 and produced 1103
+passes plus the single known stale T023 source-diff assertion. It was not
+duplicated for 8a1867b because the verified diff contains no Python/API/rota
+source changes and no executable frontend change.
+
+The known api/deps.py SQLite thread-affinity defect remains a separately owned
+backend issue. It appeared in server logs during the vertical browser run but
+did not fail the 19-case T021c matrix and is not attributed to this task.
+
+Historical adversarial audit files that demonstrate withdrawn or accepted
+limitations are evidence, not active acceptance gates. Their expected failures
+do not change this verdict.
+
+FINAL
+
+ROTA-T021c meets the owner's practical requirement: when a user clicks and the
+application does not provide a confirmed reaction, the diagnostic record gives
+Codex useful evidence for later analysis; errors and downloadable diagnostic
+data are retained. No further T021c correction is required.
+
+NO ARCHITECTURE_PROPOSALS
