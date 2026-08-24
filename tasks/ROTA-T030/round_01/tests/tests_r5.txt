@@ -1,0 +1,74 @@
+ROTA-T030 — NIEZALEŻNY AUDYT POPRAWKI R4, RUNDA 5
+
+Audytowany exact implementation SHA: eccb82748ec8855d2b1ac4b60baf5a5d84c77955
+Base SHA: f2ba515d701ee41f325a58a7711169a640d49ade
+Data: 2026-08-24
+
+WERDYKT: PASS — EXACT SHA ZAAKCEPTOWANY
+
+Jedyny błąd produktu z rundy 4 został zamknięty. Mechaniczne wyjątki delivery
+opisane niżej są zaakceptowane wyłącznie dla T030 i nie są nowymi wyjątkami
+globalnymi.
+
+R4-1 — ZAMKNIĘTY
+
+TRACE:
+
+- brief.md §3 pkt 2: co najmniej jeden dzień musi pozostać zaznaczony;
+- SiteShiftCatalog.tsx:90 ignoruje próbę wyłączenia ostatniego aktywnego dnia;
+- SiteShiftCatalog.tsx:197,205-206 blokuje ten jeden przycisk i wyjaśnia powód;
+- shift-catalog.spec.ts:73-101 zachowuje reproduktor jako test regresyjny.
+
+WERYFIKACJA NA EXACT SHA:
+
+- build frontendu: PASS;
+- komplet E2E T030 na świeżym frontendzie i backendzie: 5/5 PASS;
+- niezależny E2E klasy błędu na drugim wierszu: PASS — sześć dni można
+  wyłączyć, ostatni pozostaje aktywny i zablokowany, pierwszy wiersz zachowuje
+  siedem dni, a oba stany przeżywają zapis i reload;
+- git diff --check: PASS;
+- diff od rundy 4: wyłącznie SiteShiftCatalog.tsx, istniejący E2E i brief,
+  51 dodanych linii; bez zmian backendu i domeny.
+
+Pełnej regresji Pythona nie powtórzono zgodnie z instrukcją zamknięcia z
+tests_r4.txt. Audytowana część bazowa miała 1124 PASS i jeden znany, niezależny
+stary source-diff FAIL T023b; poprawka eccb827 nie dotyka kodu Pythona.
+
+ROZLICZENIE MECHANICZNEGO backend.py
+
+Raw backend.py nadal poprawnie raportuje swój mechaniczny STATUS: FAIL. Nie
+zmieniamy skryptu ani TASK_SCOPE, aby sztucznie uzyskać zielony wynik. Dla tego
+exact SHA trzy sygnały zostają sklasyfikowane następująco:
+
+1. DIFF_SCOPE / AGENTS.md — ZAAKCEPTOWANY WYJĄTEK PROCESOWY
+
+AGENTS.md pochodzi z osobnego, wcześniejszego commitu wykonanego na jawne
+polecenie właściciela i nie jest częścią produktu T030. Ta sama zmiana została
+osobno wprowadzona do main. Dopisywanie AGENTS.md do produktowego TASK_SCOPE
+fałszowałoby zakres zamiast go naprawiać.
+
+2. NEW_FILES 4 > 2 — ZAAKCEPTOWANY WYJĄTEK T030
+
+Cztery pliki to dokładnie zakres zamrożony przed implementacją: router API,
+komponent ekranu, test API i test E2E. Każdy ma jedną odpowiedzialność. Łączenie
+routera lub komponentu z dużym istniejącym plikiem albo łączenie testów różnych
+warstw służyłoby tylko obejściu licznika i pogorszyłoby strukturę. Nie wymaga to
+architekta ani refaktoru produktu.
+
+3. RATIO 798/96 i TOTAL_LINES 894 — OSTRZEŻENIA ZAAKCEPTOWANE
+
+To progi WYMAGA_DECYZJI, nie dowód defektu. W liczbie 894 mieści się 284 linii
+dwóch testów oraz nowy pionowy ekran z routerem i okablowaniem. Wcześniejszy
+adwersarialny audyt zwięzłości R3 usunął drugi odczyt PUT, zbędne obowiązki UI i
+powtarzanie testów niższych warstw. Audyt implementacji R4 nie znalazł drugiej
+warstwy biznesowej ani zbędnej logiki. Sam stosunek nowych linii do usuniętych
+jest naturalny dla nowej funkcji i nie uzasadnia kolejnej redukcji.
+
+ZAMKNIĘCIE
+
+- Nie jest potrzebna decyzja produktowa właściciela.
+- Nie jest potrzebna opinia architekta.
+- Nie zmieniać backend.py i nie sklejać plików dla przejścia licznika.
+- Nie zgłaszać ponownie powyższych trzech zaakceptowanych sygnałów dla T030.
+- Exact implementation SHA eccb82748ec8855d2b1ac4b60baf5a5d84c77955
+  może przejść dalej.
