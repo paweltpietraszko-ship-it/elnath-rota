@@ -4,9 +4,11 @@
 // depending on flaky real-world timing or a real backend outage.
 //
 // Not a screen: no nav entry, unreachable from any real navigation
-// path, rendered only when import.meta.env.DEV is true (Vite dead-code
-// eliminates this whole module from a production build). Never part
-// of what a coordinator sees.
+// path, rendered only when __E2E_TEST_HOOKS__ is true -- set only by
+// Playwright's own webServer, never by an ordinary `npm run dev` or a
+// production build (R1-4, round-1 audit: import.meta.env.DEV alone was
+// also true for ordinary dev use, which is the runtime this project is
+// actually operated through). Never part of what a coordinator sees.
 import { useState, type CSSProperties } from "react";
 import { consumePendingActionId, recordNoop } from "./tracking";
 

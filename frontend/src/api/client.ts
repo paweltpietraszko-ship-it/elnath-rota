@@ -164,6 +164,43 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
   }
 
+  // R1-3 (round-1 audit): an HTTP-successful response can still fail to
+  // parse -- that must be REQUEST_FAILED(error_category="parse"), not
+  // REQUEST_SUCCEEDED. Classify only after parsing actually succeeds.
+  if (res.status === 204) {
+    recordEvent({
+      event_id: newEventId(),
+      timestamp: nowIso(),
+      screen,
+      kind: "REQUEST_SUCCEEDED",
+      action_id: actionId,
+      method,
+      endpoint_template: endpointTemplate,
+      status: res.status,
+      duration_ms: duration,
+    });
+    return undefined as T;
+  }
+
+  let data: T;
+  try {
+    data = (await res.json()) as T;
+  } catch {
+    recordEvent({
+      event_id: newEventId(),
+      timestamp: nowIso(),
+      screen,
+      kind: "REQUEST_FAILED",
+      action_id: actionId,
+      method,
+      endpoint_template: endpointTemplate,
+      status: res.status,
+      error_category: "parse",
+      duration_ms: duration,
+    });
+    throw new Error("Nieprawidłowa odpowiedź serwera.");
+  }
+
   recordEvent({
     event_id: newEventId(),
     timestamp: nowIso(),
@@ -175,9 +212,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     status: res.status,
     duration_ms: duration,
   });
-
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  return data;
 }
 
 export const api = {

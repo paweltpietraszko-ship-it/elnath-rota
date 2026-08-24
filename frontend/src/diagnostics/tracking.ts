@@ -37,6 +37,20 @@ export function resolveAction(actionId: string | null | undefined) {
   resolvedActionIds.add(actionId);
 }
 
+// R1-2A (round-1 audit): a registered window.error/unhandledrejection
+// can be the causal effect of a click (e.g. it throws asynchronously,
+// after pendingActionId has already been cleared for fetch-correlation
+// purposes -- see setPendingActionId's comment). Unlike pendingActionId,
+// this is NOT cleared after one macrotask: it stays "the most recent
+// click" for the click's own stalled-detection window, so an error
+// surfacing shortly after resolves the click that caused it instead of
+// leaving it to fire a spurious ACTION_STALLED.
+let mostRecentActionId: string | null = null;
+
+export function resolveMostRecentAction() {
+  resolveAction(mostRecentActionId);
+}
+
 function isInteractiveControl(el: Element): boolean {
   const tag = el.tagName.toLowerCase();
   if (tag === "button" || tag === "a" || tag === "select") return true;
@@ -74,13 +88,22 @@ function actionNameFor(el: Element): string {
   return `${tag}:untagged`;
 }
 
+// R1-2B (round-1 audit): watching document.body (or any ancestor of the
+// React root) means an unrelated mutation elsewhere on the page -- an
+// attribute set directly on <body>, a toast from a totally different
+// component -- gets credited as "the effect" of this click, hiding a
+// genuinely dead control. Scoping to the React mount point means only
+// mutations React itself produced in response to being (re-)rendered
+// can resolve a click; a change to <body> itself, outside that subtree,
+// cannot.
 function watchForMutation(actionId: string) {
-  if (typeof MutationObserver === "undefined") return;
+  const root = document.getElementById("root");
+  if (typeof MutationObserver === "undefined" || !root) return;
   const observer = new MutationObserver(() => {
     resolveAction(actionId);
     observer.disconnect();
   });
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+  observer.observe(root, { childList: true, subtree: true, attributes: true, characterData: true });
   // Stop watching once the stalled window has passed either way.
   setTimeout(() => observer.disconnect(), STALLED_WINDOW_MS);
 }
@@ -104,6 +127,7 @@ function onCapturedClick(ev: MouseEvent) {
   });
 
   setPendingActionId(actionId);
+  mostRecentActionId = actionId;
   watchForMutation(actionId);
 
   setTimeout(() => {

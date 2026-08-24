@@ -16,6 +16,12 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __BUILD_SHA__: JSON.stringify(resolveBuildSha()),
+    // R1-4 (round-1 audit): gates the diagnostic failure-injection test
+    // hooks (frontend/src/diagnostics/TestHooks.tsx). Deliberately NOT
+    // import.meta.env.DEV -- ordinary `npm run dev` must not expose
+    // clickable self-failure controls. Only Playwright's own webServer
+    // (playwright.config.ts) sets ROTA_E2E_TEST_HOOKS.
+    __E2E_TEST_HOOKS__: JSON.stringify(Boolean(process.env.ROTA_E2E_TEST_HOOKS)),
   },
   server: {
     port: 5173,

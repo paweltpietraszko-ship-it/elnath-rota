@@ -46,7 +46,7 @@ export default function App() {
       ) : (
         <Room view={view} onNavigate={navigate} />
       )}
-      {import.meta.env.DEV && <TestHooks />}
+      {__E2E_TEST_HOOKS__ && <TestHooks />}
     </>
   );
 }

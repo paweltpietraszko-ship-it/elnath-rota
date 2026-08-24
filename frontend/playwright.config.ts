@@ -39,7 +39,7 @@ export default defineConfig({
     {
       command: "npx vite --port 5183 --host 127.0.0.1",
       cwd: __dirname,
-      env: { ROTA_E2E_API_PORT: "8133" },
+      env: { ROTA_E2E_API_PORT: "8133", ROTA_E2E_TEST_HOOKS: "1" },
       port: 5183,
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
