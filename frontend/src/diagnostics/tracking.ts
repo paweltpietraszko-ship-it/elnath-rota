@@ -15,6 +15,9 @@ export const REQUEST_TIMEOUT_MS = 20000;
 // within the resulting click handler (i.e. before its first await)
 // reads it via consumePendingActionId(). Cleared on the next macrotask
 // so a request started by an unrelated, later click never inherits it.
+// Deliberately separate from activeClickContext below: this one must
+// decay fast so a later, non-click-triggered request (e.g. a mount
+// effect) never inherits a stale click's id.
 let pendingActionId: string | null = null;
 let clearPendingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -37,18 +40,49 @@ export function resolveAction(actionId: string | null | undefined) {
   resolvedActionIds.add(actionId);
 }
 
-// R1-2A (round-1 audit): a registered window.error/unhandledrejection
-// can be the causal effect of a click (e.g. it throws asynchronously,
-// after pendingActionId has already been cleared for fetch-correlation
-// purposes -- see setPendingActionId's comment). Unlike pendingActionId,
-// this is NOT cleared after one macrotask: it stays "the most recent
-// click" for the click's own stalled-detection window, so an error
-// surfacing shortly after resolves the click that caused it instead of
-// leaving it to fire a spurious ACTION_STALLED.
-let mostRecentActionId: string | null = null;
+// R2 (round-2 audit): a "most recent click wins" heuristic misattributes
+// a delayed error to whichever click happened to occur later, even when
+// that later click never scheduled the failing work. Real causal
+// tracking instead: every click gets its own causal context
+// (activeClickContext), and any setTimeout SCHEDULED WHILE that context
+// is active is wrapped so the SAME context is restored when it finally
+// fires -- regardless of what any other, unrelated click has done to
+// the global "current" click in the meantime. A later click simply
+// never touches an earlier click's already-captured closure.
+let activeClickContext: string | null = null;
 
-export function resolveMostRecentAction() {
-  resolveAction(mostRecentActionId);
+// If the wrapped callback throws, execution never reaches the
+// "restore previous" line below, so activeClickContext is left exactly
+// as the throwing callback's own context -- available for the error
+// listener (which runs synchronously as the exception unwinds to the
+// top) to read. The listener itself resets it afterwards.
+function withClickContext<T>(id: string | null, fn: () => T): T {
+  const previous = activeClickContext;
+  activeClickContext = id;
+  const result = fn();
+  activeClickContext = previous;
+  return result;
+}
+
+let timerPropagationInstalled = false;
+
+function installTimerContextPropagation() {
+  if (timerPropagationInstalled || typeof window === "undefined") return;
+  timerPropagationInstalled = true;
+  const nativeSetTimeout = window.setTimeout.bind(window);
+  window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    if (typeof handler !== "function") {
+      return nativeSetTimeout(handler as unknown as () => void, timeout, ...args);
+    }
+    const capturedContext = activeClickContext;
+    const wrapped = () => withClickContext(capturedContext, () => (handler as (...a: unknown[]) => unknown)(...args));
+    return nativeSetTimeout(wrapped, timeout);
+  }) as typeof window.setTimeout;
+}
+
+export function resolveActiveClickContext() {
+  resolveAction(activeClickContext);
+  activeClickContext = null;
 }
 
 function isInteractiveControl(el: Element): boolean {
@@ -88,14 +122,16 @@ function actionNameFor(el: Element): string {
   return `${tag}:untagged`;
 }
 
-// R1-2B (round-1 audit): watching document.body (or any ancestor of the
-// React root) means an unrelated mutation elsewhere on the page -- an
-// attribute set directly on <body>, a toast from a totally different
-// component -- gets credited as "the effect" of this click, hiding a
-// genuinely dead control. Scoping to the React mount point means only
-// mutations React itself produced in response to being (re-)rendered
-// can resolve a click; a change to <body> itself, outside that subtree,
-// cannot.
+// R2 (round-2 audit): watching the whole #root subtree for the full
+// STALLED_WINDOW_MS meant ANY later, unrelated re-render anywhere in
+// the app (a different component's own effect, a background refresh)
+// got credited to this click. A real UI effect from a click handler
+// commits synchronously and paints within the next couple of frames;
+// scoping the watch to that short window instead of the full stall
+// window means a mutation arriving well after (as in the audit's 100ms
+// repro) is no longer in scope to misattribute.
+const MUTATION_ATTRIBUTION_FRAMES = 2;
+
 function watchForMutation(actionId: string) {
   const root = document.getElementById("root");
   if (typeof MutationObserver === "undefined" || !root) return;
@@ -104,8 +140,26 @@ function watchForMutation(actionId: string) {
     observer.disconnect();
   });
   observer.observe(root, { childList: true, subtree: true, attributes: true, characterData: true });
-  // Stop watching once the stalled window has passed either way.
-  setTimeout(() => observer.disconnect(), STALLED_WINDOW_MS);
+
+  let framesLeft = MUTATION_ATTRIBUTION_FRAMES;
+  const tick = () => {
+    framesLeft -= 1;
+    if (framesLeft <= 0) {
+      observer.disconnect();
+      return;
+    }
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(tick);
+    } else {
+      observer.disconnect();
+    }
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(tick);
+  } else {
+    // No rAF (non-browser test runner): fall back to a short timer.
+    setTimeout(() => observer.disconnect(), 50);
+  }
 }
 
 function onCapturedClick(ev: MouseEvent) {
@@ -127,7 +181,7 @@ function onCapturedClick(ev: MouseEvent) {
   });
 
   setPendingActionId(actionId);
-  mostRecentActionId = actionId;
+  activeClickContext = actionId;
   watchForMutation(actionId);
 
   setTimeout(() => {
@@ -151,6 +205,7 @@ let installed = false;
 export function installClickTracking() {
   if (installed) return;
   installed = true;
+  installTimerContextPropagation();
   document.addEventListener("click", onCapturedClick, true);
 }
 

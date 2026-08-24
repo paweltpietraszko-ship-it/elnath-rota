@@ -5,7 +5,7 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 import { recordEvent, newEventId, nowIso, getCurrentScreen } from "./buffer";
 import { downloadFrontendReport } from "./report";
-import { resolveMostRecentAction } from "./tracking";
+import { resolveActiveClickContext } from "./tracking";
 
 function shortCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -37,7 +37,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
     });
     // Same causal-resolution invariant as R1-2A: a click that crashes
     // the render is resolved by that crash, not left to stall.
-    resolveMostRecentAction();
+    resolveActiveClickContext();
   }
 
   render() {

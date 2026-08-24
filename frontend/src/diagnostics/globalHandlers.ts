@@ -3,7 +3,7 @@
 // the raw message (which could echo user-entered data in a bug).
 
 import { recordEvent, newEventId, nowIso, getCurrentScreen } from "./buffer";
-import { resolveMostRecentAction } from "./tracking";
+import { resolveActiveClickContext } from "./tracking";
 
 let installed = false;
 
@@ -22,7 +22,7 @@ export function installGlobalErrorHandlers() {
     });
     // R1-2A: a registered error is an allowed resolution of the click
     // that caused it (brief.md section 3.2) -- must not also stall.
-    resolveMostRecentAction();
+    resolveActiveClickContext();
   });
 
   window.addEventListener("unhandledrejection", (ev: PromiseRejectionEvent) => {
@@ -36,6 +36,6 @@ export function installGlobalErrorHandlers() {
       kind: "UNHANDLED_REJECTION",
       error_type: errorType,
     });
-    resolveMostRecentAction();
+    resolveActiveClickContext();
   });
 }
