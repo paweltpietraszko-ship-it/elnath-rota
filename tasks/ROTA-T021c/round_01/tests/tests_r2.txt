@@ -1,0 +1,127 @@
+ROTA-T021c — IMPLEMENTATION AUDIT, ROUND 2
+
+VERDICT: FAIL — ONE CORE CORRECTION REMAINS (R1-2 CAUSALITY)
+AUDITED_SHA: 6c1dc8de8e9aaa64090a856ecb97afbc4d1570f5
+BRANCH: task/ROTA-T021c
+DATE: 2026-08-24
+
+CLOSED FROM ROUND 1
+
+R1-1 — CLOSED.
+- A real generated SITE-* ID is now normalized to :id.
+- The original real-browser privacy reproducer passes.
+
+R1-3 — CLOSED.
+- REQUEST_SUCCEEDED is recorded only after successful JSON parsing.
+- Malformed HTTP-success JSON now produces REQUEST_FAILED(parse).
+- The original real-browser parse reproducer passes.
+
+R1-4 — CLOSED.
+- Failure-injection controls require the explicit Playwright-only build flag.
+- A separately started ordinary Vite server, with no E2E environment flag,
+  contains zero diagnostic test buttons.
+- The original R1 test remains expectedly inapplicable inside the shared
+  Playwright server because that server intentionally enables the hooks; the
+  separate clean-dev configuration tests the actual contract boundary.
+
+R1-2 — NOT CLOSED AS AN EQUIVALENCE CLASS
+
+The two original observed instances now pass:
+- an error after a single click prevents ACTION_STALLED;
+- a mutation on document.body outside #root no longer resolves the click.
+
+However, the round-1 required correction was one causal invariant, not those
+two literal examples. Two representative sibling paths still contradict it.
+
+TRACE
+
+- brief.md §3.2: request, navigation, observable UI effect, registered error or
+  explicit no-op resolves the click; absent those effects, the click is stalled.
+- tests_r1.txt R1-2 REQUIRED CORRECTION: an unrelated mutation must not resolve
+  the click, and an error must resolve the click that caused it.
+
+OWNERSHIP
+
+- frontend/src/diagnostics/tracking.ts owns click/effect correlation.
+- frontend/src/diagnostics/globalHandlers.ts and ErrorBoundary.tsx call that
+  correlation seam for errors.
+
+REPRO A — an unrelated mutation inside #root hides a dead control
+
+1. Click the inert diagnostic control.
+2. Within 100 ms change an unrelated attribute on #root, representing another
+   component/background refresh within the React application.
+3. Wait beyond the 800 ms stalled window.
+
+Observed: no ACTION_STALLED is recorded. The root-wide MutationObserver credits
+every mutation in the entire React application to the latest click. Moving the
+observer from body to #root removed only the original body-attribute example;
+it did not create causal attribution.
+
+REPRO B — a delayed error resolves a newer, unrelated click
+
+1. Click action A, which throws an asynchronous error after 300 ms.
+2. After 50 ms click inert action B.
+3. Wait beyond both stalled windows.
+
+Expected:
+- A is resolved by its error and is not stalled;
+- B has no effect and is stalled.
+
+Observed:
+- A is incorrectly ACTION_STALLED;
+- B is incorrectly treated as resolved.
+
+resolveMostRecentAction() associates the error with whichever click happened
+most recently, not the click that caused the error.
+
+REQUIRED CORRECTION
+
+Close the causal invariant rather than adding another DOM scope or timing
+special case:
+
+- an unrelated mutation elsewhere in the React root must not resolve a click;
+- a delayed error must not resolve a newer action that did not cause it;
+- when causality is genuinely unavailable/ambiguous, fail conservatively rather
+  than declaring an unrelated action successful;
+- retain the single-click R1 cases and both concurrent/unrelated R2 cases as the
+  regression family.
+
+This report does not prescribe a new architecture. The implementation may use
+the existing shared seams, explicit action completion, or another minimal
+mechanism, provided the same action identity survives all supported result
+paths.
+
+INDEPENDENT VALIDATION
+
+1. Production frontend build:
+   npm.cmd run build
+   RESULT: PASS.
+
+2. Core T021c browser matrix, isolated fresh Vite/FastAPI servers, retries=0:
+   diagnostics.spec.ts
+   RESULT: 10/10 PASS.
+
+3. Original R1 product reproducers with E2E hooks enabled, excluding the
+   clean-dev-only assertion:
+   RESULT: 4/4 PASS.
+
+4. Clean ordinary Vite runtime, no E2E flag:
+   ordinary-dev test-hook assertion
+   RESULT: 1/1 PASS (zero controls).
+
+5. New generalized R1-2 browser reproducers, retries=0:
+   diagnostics.audit-r2.spec.ts
+   RESULT: 0/2 PASS; both failures reproduced as described above.
+
+6. Full Python regression:
+   RESULT: 1103 passed, 1 known stale T023 source-diff assertion failed; no new
+   T021c Python regression.
+
+SEPARATE BACKEND DEFECT — UNCHANGED, NOT COUNTED AGAINST T021c
+
+The isolated browser run again emitted the already-recorded api/deps.py SQLite
+thread-affinity ProgrammingError while its 10 browser assertions still passed.
+This remains a separate backend task and is not reopened as a T021c blocker.
+
+NO ARCHITECTURE_PROPOSALS
