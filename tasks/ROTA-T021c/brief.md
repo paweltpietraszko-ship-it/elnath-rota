@@ -1,10 +1,22 @@
 # ROTA-T021c — frontendowa czarna skrzynka diagnostyczna
 
-Status: **FROZEN OWNER CONTRACT — ready for CC implementation**
+Status: **DRAFT — NOT AUTHORIZED FOR IMPLEMENTATION**
 
 Owner decision: Paweł, 2026-08-24
 
 Base branch/SHA: `task/ROTA-T021c` from `713ef5c`
+
+## 0. Granica autoryzacji
+
+Właściciel potwierdził wyłącznie potrzebę automatycznej diagnostyki grubych
+awarii UI, np. rozpoznania „system wykrył kliknięcie, ale nie wykrył reakcji”,
+oraz to, że implementację ma wykonać CC, a Codex później audytować.
+
+Szczegóły w §3–§5 — rodzaje zapisywanych zdarzeń, retencja, ekran błędu,
+zawartość eksportu i ZIP-a oraz dokładna macierz testów — są propozycją
+techniczną Codexa powstałą na podstawie rozmowy. Nie są jeszcze decyzją
+właściciela. CC nie może rozpocząć implementacji, dopóki właściciel nie
+zaakceptuje lub nie skoryguje ich przedstawionego prostym językiem skutku.
 
 ## 1. Cel
 
