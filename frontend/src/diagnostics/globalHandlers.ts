@@ -26,6 +26,7 @@ export function installGlobalErrorHandlers() {
       timestamp: nowIso(),
       screen: getCurrentScreen(),
       kind: "UNHANDLED_ERROR",
+      action_id: actionId,
       error_type: ev.error?.name || "Error",
       source_ref: `${ev.filename || "unknown"}:${ev.lineno ?? 0}:${ev.colno ?? 0}`,
     });
@@ -42,6 +43,7 @@ export function installGlobalErrorHandlers() {
       timestamp: nowIso(),
       screen: getCurrentScreen(),
       kind: "UNHANDLED_REJECTION",
+      action_id: actionId,
       error_type: errorType,
     });
     resolveAction(actionId);

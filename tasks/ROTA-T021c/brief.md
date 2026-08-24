@@ -1,22 +1,29 @@
 # ROTA-T021c — frontendowa czarna skrzynka diagnostyczna
 
-Status: **DRAFT — NOT AUTHORIZED FOR IMPLEMENTATION**
+Status: **IMPLEMENTED — action-causality contract narrowed per owner ruling
+2026-08-24 (round 4 audit)**
 
-Owner decision: Paweł, 2026-08-24
+Owner decision: Paweł, 2026-08-24 (initial authorization); Paweł, 2026-08-24
+(round-4 narrowing of the action-causality guarantee, see §3.2/§3.3 below)
 
 Base branch/SHA: `task/ROTA-T021c` from `713ef5c`
 
 ## 0. Granica autoryzacji
 
-Właściciel potwierdził wyłącznie potrzebę automatycznej diagnostyki grubych
-awarii UI, np. rozpoznania „system wykrył kliknięcie, ale nie wykrył reakcji”,
-oraz to, że implementację ma wykonać CC, a Codex później audytować.
+Właściciel potwierdził potrzebę automatycznej diagnostyki grubych awarii UI,
+np. rozpoznania „system wykrył kliknięcie, ale nie wykrył reakcji”, z
+implementacją przez CC i audytem przez Codexa. §3–§5 poniżej to zaakceptowany,
+wdrożony kontrakt (nie propozycja) — patrz historia audytu w
+`tasks/ROTA-T021c/round_01/tests/tests_r1.txt`…`tests_r4.txt`.
 
-Szczegóły w §3–§5 — rodzaje zapisywanych zdarzeń, retencja, ekran błędu,
-zawartość eksportu i ZIP-a oraz dokładna macierz testów — są propozycją
-techniczną Codexa powstałą na podstawie rozmowy. Nie są jeszcze decyzją
-właściciela. CC nie może rozpocząć implementacji, dopóki właściciel nie
-zaakceptuje lub nie skoryguje ich przedstawionego prostym językiem skutku.
+Po trzech rundach audytu §3.2/§3.3 okazały się niewykonalne w pierwotnym,
+„gwarantowanym zawsze” brzmieniu — przeglądarka nie daje niezawodnego haczyka
+do śledzenia dowolnie opóźnionej pracy asynchronicznej (setTimeout/Promise) z
+powrotem do klikniętego elementu; trzy kolejne próby techniczne (opakowanie
+`setTimeout`, znakowanie `Promise.reject`, obserwacja mutacji DOM w wąskim
+oknie) zawodziły na kolejnych, coraz bardziej wyrafinowanych przypadkach
+brzegowych. Właściciel zawęził gwarancję zamiast autoryzować czwartą łatkę —
+patrz zmieniona treść §3.2/§3.3.
 
 ## 1. Cel
 
@@ -79,27 +86,40 @@ Wymagane rodzaje:
 Bufor musi przetrwać reload po awarii, ale być ograniczony rozmiarem/liczbą
 zdarzeń. Nie jest pełnym dziennikiem aktywności.
 
-### 3.2 Kliknięcie bez reakcji
+### 3.2 Kliknięcie bez reakcji (zawężone przez owner ruling 2026-08-24, runda 4)
 
-Kliknięcia kontrolek interaktywnych są rejestrowane centralnie. Jeżeli po
-kliknięciu w ustalonym, krótkim czasie nie ma żadnego z poniższych:
+Kliknięcia kontrolek interaktywnych są rejestrowane centralnie
+(`CLICK_RECEIVED`, zawsze). Rejestr wiarygodnie łączy kliknięcie z jego
+`action_id`, gdy skutkiem jest:
 
-- rozpoczęcia requestu;
-- nawigacji;
-- obserwowalnej zmiany UI;
-- zarejestrowanego błędu;
-- jawnego `ACTION_NOOP`;
+- request przez istniejące `req()`;
+- nawigacja;
+- bezpośredni (synchroniczny) błąd renderowania lub globalny błąd/odrzucenie
+  obietnicy, którego pochodzenie da się jednoznacznie ustalić.
 
-rejestr zapisuje `ACTION_STALLED` z tym samym `action_id`.
+Dla pracy dowolnie opóźnionej (np. `setTimeout`, łańcuch obietnic
+uruchomiony poza bezpośrednim, synchronicznym wykonaniem handlera kliknięcia)
+powiązanie jest best-effort — może wypaść `null`, jeśli pochodzenia nie da się
+jednoznacznie ustalić. Niejednoznaczny błąd NIGDY nie „uzdrawia” innego,
+niepowiązanego kliknięcia — zamiast tego zostaje bez `action_id`.
 
-To jest ostrzeżenie diagnostyczne, nie reguła biznesowa. Prawidłowa akcja nie
-może być oznaczana jako stalled tylko dlatego, że jej request trwa dłużej — w
-takim przypadku obowiązuje osobny timeout requestu.
+Jeżeli w ustalonym, krótkim czasie nie ma żadnego z powyższych (ani jawnego
+`ACTION_NOOP`), rejestr zapisuje `ACTION_STALLED` z tym samym `action_id`.
+**`ACTION_STALLED` oznacza „nie potwierdzono reakcji”, nie „potwierdzono brak
+reakcji”** — to sygnał diagnostyczny typu best-effort, nie dowód. Prawidłowa
+akcja nie może być oznaczana jako stalled tylko dlatego, że jej request trwa
+dłużej — w takim przypadku obowiązuje osobny timeout requestu.
+
+Implementacja nie może globalnie opakowywać `setTimeout`/`Promise`/innych
+mechanizmów przeglądarki w celu pościgu za dowolną asynchronicznością — trzy
+kolejne rundy audytu (`tests_r1.txt`–`tests_r3.txt`) pokazały, że to
+niewykonalne i tylko przesuwa błąd w inne miejsce.
 
 ### 3.3 Awarie i biały ekran
 
 - root React ma globalny ErrorBoundary;
-- rejestrowane są także `window.error` i `unhandledrejection`;
+- rejestrowane są także `window.error` i `unhandledrejection` — zawsze, z
+  best-effort `action_id` jak w §3.2;
 - zamiast białego ekranu użytkownik widzi prosty komunikat, kod diagnostyczny,
   „Pobierz diagnostykę frontu” oraz możliwość bezpiecznego reloadu/powrotu;
 - pobranie diagnostyki frontu działa lokalnie nawet wtedy, gdy API nie działa.

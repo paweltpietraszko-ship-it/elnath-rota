@@ -26,20 +26,24 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    // A direct (synchronous) render crash from a click's own update is
+    // reliably tied to it via pendingActionId, same as req() (R4 owner
+    // ruling: this is one of the correlations kept, unlike arbitrarily
+    // delayed work). Read once, export it, and resolve with that exact
+    // same value (round-4 audit: the internal resolution must be
+    // visible in the exported event, not just used internally).
+    const actionId = consumePendingActionId();
     recordEvent({
       event_id: newEventId(),
       timestamp: nowIso(),
       screen: getCurrentScreen(),
       kind: "RENDER_ERROR",
+      action_id: actionId,
       diagnostic_code: this.state.code ?? shortCode(),
       error_type: error?.name || "Error",
       component_stack: info.componentStack ?? "",
     });
-    // A direct (synchronous) render crash from a click's own update is
-    // reliably tied to it via pendingActionId, same as req() (R4 owner
-    // ruling: this is one of the correlations kept, unlike arbitrarily
-    // delayed work).
-    resolveAction(consumePendingActionId());
+    resolveAction(actionId);
   }
 
   render() {

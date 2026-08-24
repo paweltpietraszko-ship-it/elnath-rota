@@ -44,8 +44,18 @@ let clearPendingTimer: ReturnType<typeof setTimeout> | null = null;
 function setPendingActionId(id: string) {
   pendingActionId = id;
   if (clearPendingTimer) clearTimeout(clearPendingTimer);
+  // Two chained macrotasks, not one: the browser dispatches
+  // unhandledrejection as its own queued task, itself scheduled after
+  // the current task's microtask checkpoint -- empirically, that task
+  // lands in the queue AFTER a setTimeout(0) scheduled earlier in the
+  // same click (verified directly; a single-macrotask clear cleared
+  // this before a synchronous Promise.reject()'s own unhandledrejection
+  // ever fired). One extra queue turn is still far short of any
+  // subsequent, genuinely unrelated click or task.
   clearPendingTimer = setTimeout(() => {
-    pendingActionId = null;
+    clearPendingTimer = setTimeout(() => {
+      pendingActionId = null;
+    }, 0);
   }, 0);
 }
 

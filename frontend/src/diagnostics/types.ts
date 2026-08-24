@@ -71,6 +71,7 @@ export interface NavigationEvent extends DiagEventBase {
 
 export interface RenderErrorEvent extends DiagEventBase {
   kind: "RENDER_ERROR";
+  action_id: string | null; // R4 (round-4 audit): the resolving id, exported -- null when unavailable/ambiguous
   diagnostic_code: string;
   error_type: string;
   component_stack: string; // component display names only, no props/data
@@ -78,12 +79,14 @@ export interface RenderErrorEvent extends DiagEventBase {
 
 export interface UnhandledErrorEvent extends DiagEventBase {
   kind: "UNHANDLED_ERROR";
+  action_id: string | null; // R4: same rule as RenderErrorEvent above
   error_type: string;
   source_ref: string; // "file:line:col", code location only
 }
 
 export interface UnhandledRejectionEvent extends DiagEventBase {
   kind: "UNHANDLED_REJECTION";
+  action_id: string | null; // R4: same rule as RenderErrorEvent above
   error_type: string;
 }
 
