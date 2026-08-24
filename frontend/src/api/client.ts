@@ -106,6 +106,7 @@ export interface MonthViewOut {
   demands: ShiftDemandOut[];
   assignments: AssignmentOut[];
   deviations: DeviationOut[];
+  decision_required: DecisionRequiredPayloadOut | null;
   warnings: string[];
 }
 

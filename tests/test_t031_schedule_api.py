@@ -4,15 +4,28 @@ T31-01..T31-09 from the acceptance matrix; T31-10 (E2E) lives in
 frontend/e2e, T31-11 (build/regression) in delivery."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
+from api.errors import to_http_exception
 from api.main import app
 from api.routers.schedule import _deviation_label
+from rota.application import bootstrap
+from rota.domain import (
+    CalendarDay,
+    Coordinator,
+    CoordinatorSiteAssociation,
+    ShiftKind,
+    Site,
+    SitePlanningRegime,
+    SiteProfile,
+    StandardShift,
+)
+from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import connect
 from tests.support.t009_fixtures import seed_real_object
 
@@ -253,3 +266,77 @@ def test_plan_rejects_unexpected_extra_field(client, site_id):
         json={"effective_from": MONTH_STR, "site_id": site_id},
     )
     assert resp.status_code == 422
+
+
+# R1-5 (round-1 audit): api/errors.py no longer maps every TypeError to 400
+# -- a TypeError this shared boundary doesn't recognize must still fall
+# through to 500, exactly as it did before T031 touched api/errors.py.
+def test_unmapped_type_error_still_falls_through_to_500():
+    exc = to_http_exception(TypeError("internal programming error"))
+    assert exc.status_code == 500
+
+
+def _seed_days_of_month(conn, month: date) -> None:
+    next_month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    day = month
+    while day < next_month:
+        save_calendar_day(conn, CalendarDay(day, False))
+        day = date.fromordinal(day.toordinal() + 1)
+
+
+# R1-2 (round-1 audit): DECISION_REQUIRED must be a persistent readback
+# (current_decision_required), not only a transient PlanningResult -- a
+# minimal one-shift/zero-roster scenario forces it deterministically,
+# unlike seed_real_object's already-staffed benchmark.
+@pytest.fixture
+def understaffed_site():
+    connection = connect(":memory:")
+    site_id, profile_id = "SITE-UNDERSTAFFED", "PROF-UNDERSTAFFED"
+    profile = SiteProfile(
+        profile_id, "Profile", True,
+        [StandardShift(ShiftKind.D, time(6, 0), time(18, 0), False, 1)],
+        True, True, False, False, 1, 40,
+    )
+    bootstrap.bootstrap_or_resume_coordinator_context(
+        connection, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id,
+        coordinator=Coordinator(DEV_COORDINATOR_ID, "Coordinator", True),
+        site_profile=profile,
+        site=Site(site_id, profile_id, "Understaffed", True, SitePlanningRegime.ORDINARY),
+        association=CoordinatorSiteAssociation(DEV_COORDINATOR_ID, site_id, True),
+    )
+    _seed_days_of_month(connection, MONTH)
+    try:
+        yield connection, site_id
+    finally:
+        connection.close()
+
+
+@pytest.fixture
+def understaffed_client(understaffed_site):
+    connection, _ = understaffed_site
+    app.dependency_overrides[get_conn] = lambda: (yield connection)
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_decision_required_is_persistent_across_get(understaffed_site, understaffed_client):
+    _, site_id = understaffed_site
+    plan_resp = understaffed_client.post(
+        f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR},
+    )
+    assert plan_resp.json()["status"] == "DECISION_REQUIRED"
+
+    view = understaffed_client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()
+    assert view["decision_required"] is not None
+    assert view["decision_required"]["blocking_shift_demands"]
+
+    # simulates a reload: a second, independent GET must still see it.
+    view_again = understaffed_client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()
+    assert view_again["decision_required"] is not None
+
+
+def test_decision_required_absent_for_a_feasible_month(client, site_id):
+    view = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()
+    assert view["decision_required"] is None

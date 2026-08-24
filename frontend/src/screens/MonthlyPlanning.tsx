@@ -8,9 +8,24 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function firstOfMonthIso(monthInput: string): string {
-  // monthInput is "YYYY-MM" from <input type="month">
-  return `${monthInput}-01`;
+function firstOfMonthIso(yearMonth: string): string {
+  return `${yearMonth}-01`;
+}
+
+function shiftMonth(yearMonth: string, delta: number): string {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const d = new Date(year, month - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+const MONTH_NAMES_PL = [
+  "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
+  "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
+];
+
+function monthLabel(yearMonth: string): string {
+  const [year, month] = yearMonth.split("-").map(Number);
+  return `${MONTH_NAMES_PL[month - 1]} ${year}`;
 }
 
 function daysInMonth(monthIso: string): string[] {
@@ -91,8 +106,14 @@ function ScheduleGrid({
 }
 
 export default function MonthlyPlanning({ siteId }: { siteId: string }) {
-  const [monthInput, setMonthInput] = useState(() => todayIso().slice(0, 7));
+  const currentYearMonth = useMemo(() => todayIso().slice(0, 7), []);
+  const selectableMonths = useMemo(
+    () => [shiftMonth(currentYearMonth, -1), currentYearMonth, shiftMonth(currentYearMonth, 1)],
+    [currentYearMonth],
+  );
+  const [monthInput, setMonthInput] = useState(currentYearMonth);
   const monthIso = firstOfMonthIso(monthInput);
+  const [scheduledMonths, setScheduledMonths] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +122,12 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
   const [planning, setPlanning] = useState(false);
   const [planResult, setPlanResult] = useState<PlanningResultOut | null>(null);
   const [effectiveFromDraft, setEffectiveFromDraft] = useState(monthIso);
+
+  // R1-1 (round-1 audit): resync the PLAN-first date whenever the selected
+  // month changes -- it must never silently keep a stale month's date.
+  useEffect(() => {
+    setEffectiveFromDraft(monthIso);
+  }, [monthIso]);
 
   const [selecting, setSelecting] = useState(false);
   const [ackDeviations, setAckDeviations] = useState<Set<string>>(new Set());
@@ -122,6 +149,10 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
+    api
+      .getScheduleMonths(siteId)
+      .then((res) => setScheduledMonths(new Set(res.months.map((m) => m.slice(0, 7)))))
+      .catch(() => undefined);
   };
 
   useEffect(() => {
@@ -202,7 +233,21 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
       await api.finalizeMonth(siteId, monthIso, Array.from(ackDeviations));
       load();
     } catch (e: unknown) {
-      setError(String((e as Error).message ?? e));
+      const message = String((e as Error).message ?? e);
+      // R1-3 (round-1 audit): a rejected finalize means the acknowledged
+      // set was stale -- replace the view with a fresh GET and reset the
+      // checkboxes so the user can re-confirm the real current set,
+      // without a manual reload. load() itself clears the error banner
+      // (setError(null) at its top), so the fresh fetch happens first and
+      // the error message is set afterward, or it would be wiped.
+      try {
+        const fresh = await api.getMonthView(siteId, monthIso);
+        setView(fresh);
+        setAckDeviations(new Set());
+      } catch {
+        // the original finalize error below is still shown either way
+      }
+      setError(message);
     } finally {
       setFinalizing(false);
     }
@@ -225,6 +270,7 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
   const status = view?.current_version?.status ?? null;
   const isFinal = status === "FINAL_NO_DEVIATIONS" || status === "FINAL_WITH_DEVIATIONS";
   const hasAssignments = (view?.assignments.length ?? 0) > 0;
+  const decisionRequired = view?.decision_required ?? null;
 
   return (
     <div className="panel">
@@ -235,7 +281,14 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="field-label">Miesiąc</span>
-          <input type="month" value={monthInput} onChange={(e) => setMonthInput(e.target.value)} />
+          <select value={monthInput} onChange={(e) => setMonthInput(e.target.value)}>
+            {selectableMonths.map((m) => (
+              <option key={m} value={m}>
+                {monthLabel(m)}
+                {scheduledMonths.has(m) ? " (ma grafik)" : ""}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 
@@ -243,6 +296,11 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
 
       {loading ? (
         <p>Ładowanie…</p>
+      ) : decisionRequired ? (
+        <div className="banner-error">
+          Wymagana decyzja koordynatora — solver nie mógł ukończyć planu bez rozstrzygnięcia. Rozstrzygnięcie będzie
+          dostępne na ekranie „Decyzje koordynatora”. Ten ekran nie tworzy siatki, dopóki decyzja nie zostanie podjęta.
+        </div>
       ) : (
         <>
           {!view?.current_version && (
@@ -379,12 +437,10 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
             </>
           )}
 
-          {planResult && planResult.status === "DECISION_REQUIRED" && (
-            <div className="banner-error" style={{ marginTop: 12 }}>
-              Wymagana decyzja koordynatora — solver nie mógł ukończyć planu bez rozstrzygnięcia. Przejdź do ekranu
-              „Decyzje koordynatora”.
-            </div>
-          )}
+          {/* R1-2 (round-1 audit): DECISION_REQUIRED has no transient banner
+              here -- the persistent view.decision_required block above (which
+              survives reload) is the single source of truth, avoiding a
+              duplicate message once load() catches up. */}
 
           {planResult && planResult.status === "TECHNICAL_ERROR" && (
             <div className="banner-error" style={{ marginTop: 12 }}>

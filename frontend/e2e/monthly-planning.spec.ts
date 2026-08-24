@@ -83,3 +83,83 @@ test("finalize with no deviations moves to FINAL, then REPLAN creates a new vers
   await page.locator('[data-diag-action="history-toggle"]').click();
   await expect(page.locator('[data-diag-action="restore-version"]')).toBeVisible();
 });
+
+// R1-1 (round-1 audit): month choice is limited to prev/current/next, and
+// the PLAN-first effective_from date must resync when the selected month
+// changes, not silently keep a stale month's date.
+test("R1-1: exactly three selectable months, changing month resyncs the PLAN date", async ({ page }) => {
+  const siteName = `PLAN-MONTHS-${uid()}`;
+  await createSite(page, siteName, `PLAN-MONTHS-PROF-${uid()}`);
+  await openSite(page, siteName);
+  await openMonthlyPlanning(page);
+
+  const monthSelect = page.getByLabel("Miesiąc");
+  await expect(monthSelect.locator("option")).toHaveCount(3);
+
+  const dateInput = page.locator('input[type="date"]');
+  const initialValue = await dateInput.inputValue();
+
+  await monthSelect.selectOption({ index: 0 });
+  const newValue = await dateInput.inputValue();
+  expect(newValue).not.toBe(initialValue);
+});
+
+// R1-2 (round-1 audit): DECISION_REQUIRED must be a persistent hard stop
+// (backed by the existing current_decision_required readback), not a
+// transient in-memory PlanningResult that vanishes on reload while the
+// Finalizuj button stays visible. Real repro: a shift catalog row that
+// needs a primary employee, zero roster.
+test("R1-2: DECISION_REQUIRED is a persistent hard stop that survives reload", async ({ page }) => {
+  const siteName = `PLAN-DECREQ-${uid()}`;
+  await createSite(page, siteName, `PLAN-DECREQ-PROF-${uid()}`);
+  await generateCalendarForCurrentMonth(page);
+  await openSite(page, siteName);
+
+  // Obiekt tab seeds one default row (D, 06:00-18:00, 1 required primary)
+  // when the catalog is empty -- saving it with zero roster guarantees
+  // DECISION_REQUIRED on PLAN.
+  await page.locator('[data-diag-action="control-panel-tab-obiekt"]').click();
+  await page.locator('[data-diag-action="shift-catalog-save"]').click();
+  await expect(page.getByText("Zapisano.")).toBeVisible();
+
+  await openMonthlyPlanning(page);
+  await page.locator('[data-diag-action="plan-month-first"]').click();
+
+  await expect(page.getByText(/Wymagana decyzja koordynatora/)).toBeVisible();
+  await expect(page.locator('[data-diag-action="finalize-month"]')).toHaveCount(0);
+
+  await page.reload();
+  await openSite(page, siteName);
+  await openMonthlyPlanning(page);
+  await expect(page.getByText(/Wymagana decyzja koordynatora/)).toBeVisible();
+  await expect(page.locator('[data-diag-action="finalize-month"]')).toHaveCount(0);
+});
+
+// R1-3 (round-1 audit): a rejected finalize (stale acknowledged set) must
+// re-fetch the month view instead of leaving the coordinator stuck on the
+// old deviation list with no way to re-confirm correctly.
+test("R1-3: a rejected finalize re-fetches the month view", async ({ page }) => {
+  const siteName = `PLAN-FINREFRESH-${uid()}`;
+  await createSite(page, siteName, `PLAN-FINREFRESH-PROF-${uid()}`);
+  await openSite(page, siteName);
+  await openMonthlyPlanning(page);
+
+  await page.locator('[data-diag-action="plan-month-first"]').click();
+  await page.locator('[data-diag-action="select-candidate"]').first().click();
+  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+
+  await page.route("**/schedule/*/finalize", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "stale deviation set" }) });
+    } else {
+      await route.continue();
+    }
+  });
+
+  const refreshedGet = page.waitForResponse(
+    (r) => /\/schedule\/\d{4}-\d{2}-\d{2}$/.test(r.url()) && r.request().method() === "GET",
+  );
+  await page.locator('[data-diag-action="finalize-month"]').click();
+  await expect(page.getByText("stale deviation set")).toBeVisible();
+  await refreshedGet;
+});

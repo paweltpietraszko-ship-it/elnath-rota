@@ -93,12 +93,14 @@ papierowe.
 
 ## 4. Zamknięte decyzje formularza
 
-1. Wybór miesiąca: dropdown/date-picker ograniczony do bieżącego +
-   sąsiednich miesięcy, `months_with_schedule` tylko podświetla które mają
-   już jakąś wersję — nie ogranicza wyboru (można otworzyć nowy miesiąc).
+1. Wybór miesiąca: trzy opcje — poprzedni/bieżący/następny (nie dowolny
+   natywny `<input type="month">`); każda opcja oznaczona, czy ma już
+   zapisany grafik (`getScheduleMonths`/`months_with_schedule`). Przy
+   zmianie wybranego miesiąca `effective_from` (pole PLAN dla pierwszej
+   wersji) resetuje się na 1. dzień nowo wybranego miesiąca.
 2. Brak current_version → ekran pokazuje tylko przycisk „Zaplanuj
    (PLAN)” z wymaganym polem `effective_from` (data, domyślnie 1. dzień
-   miesiąca).
+   wybranego miesiąca, resynchronizowana przy zmianie miesiąca per pkt 1).
 3. Jest current_version, status WORKING → siatka pokazuje zapisany stan
    (`get_current_schedule_snapshot`), plus przycisk „Przelicz (PLAN)”
    (bez `effective_from`) i po przeliczeniu — listę kandydatów do wyboru
@@ -107,9 +109,16 @@ papierowe.
 4. Jest current_version, status FINAL_* → siatka read-only, przyciski:
    „REPLAN” (wymaga `effective_from` odcięcia), „Przywróć starszą wersję”
    (lista `list_schedule_versions` przez `open_month().version_history`).
-5. `status == DECISION_REQUIRED` → siatka nie jest tworzona (solver nie
-   zwrócił kandydatów), ekran pokazuje komunikat + link do „Decyzje
-   koordynatora” (ten ekran NIE rozstrzyga DECISION_REQUIRED).
+5. `status == DECISION_REQUIRED` jest TRWAŁYM hard stopem, nie chwilowym
+   stanem PlanningResult w pamięci przeglądarki: GET miesiąca dołącza
+   istniejący readback `rota.application.memory_read.current_decision_required`
+   (bez zmiany `rota/**`). Gdy jest aktualny, ekran pokazuje komunikat i
+   ukrywa siatkę oraz WSZYSTKIE akcje (PLAN/select/REPLAN/finalize/
+   restore) — stan przeżywa reload. „Decyzje koordynatora” to w
+   zaakceptowanym kontrakcie T021 sam NAV ITEM bez zbudowanej treści —
+   komunikat tylko wskazuje, że rozstrzygnięcie będzie dostępne na tym
+   osobnym ekranie, bez linku donikąd (ten ekran NIE rozstrzyga
+   DECISION_REQUIRED).
 6. `status == TECHNICAL_ERROR` → komunikat z `error_message`, nic nie
    zapisane, spróbuj ponownie.
 7. Finalizacja: przycisk aktywny tylko gdy user zaakceptował widoczną
@@ -144,8 +153,12 @@ zamiast tworzyć connector lub nową warstwę.
 
 ## 6. Minimalna macierz odbioru
 
-T31-01 — GET otwarcia miesiąca (bez current_version): zwraca profil/obsadę/
-reguły/bilanse, `current_version=null`, `months_with_schedule`.
+T31-01 — GET otwarcia miesiąca (bez current_version): zwraca
+`current_version=null`, puste `demands`/`assignments`/`deviations`,
+`version_history=[]`, `decision_required=null`, `warnings`. Miesiące z
+zapisanym grafikiem to OSOBNY odczyt (`GET .../schedule/months`, R1-1) —
+GET pojedynczego miesiąca nie zwraca profilu/obsady/reguł/bilansów, front
+ich tu nie potrzebuje.
 
 T31-02 — POST plan (bez current_version, effective_from wymagane): tworzy
 pierwszą wersję, zwraca `PlanningResult`; brak `effective_from` → 422/400

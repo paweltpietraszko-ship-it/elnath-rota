@@ -36,10 +36,6 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (InvalidStandardShift, 400),
     (CandidateRejected, 400),
     (ValueError, 400),
-    # rota/application/errors.py::require_real_date rejects a missing/wrong-
-    # type effective_from with TypeError -- same "bad caller input" class as
-    # ValueError in this codebase's convention.
-    (TypeError, 400),
 )
 
 
