@@ -1,0 +1,53 @@
+ROTA-T027 — IMPLEMENTATION AUDIT, ROUND 1
+
+VERDICT: PASS
+ACCEPTED_SHA: 435519754108082ca2c83ac24420caa1ce0ab3a6
+BRANCH: task/ROTA-T027
+DATE: 2026-08-24
+
+SCOPE AND CONTRACT
+
+The executable delivery is limited to rota/persistence/db.py::connect():
+sqlite3.connect() now receives check_same_thread=False. There is no schema,
+API-contract or business-rule change.
+
+OWNERSHIP CHECK
+
+- api/deps.py creates one connection per request and closes it in finally.
+- All current endpoints consuming Depends(get_conn) are synchronous.
+- The request handlers use the connection sequentially; no handler passes it
+  to a background task or performs concurrent operations on the same object.
+- Backup background tasks only remove already-created temporary files and do
+  not retain the connection.
+
+The flag therefore removes sqlite3's thread-identity assertion for FastAPI's
+sequential worker-thread handoff without introducing shared concurrent access.
+
+INDEPENDENT REGRESSION TEST
+
+tests/test_t027_thread_affinity_audit.py deterministically opens, writes/reads
+and closes one connection on three simultaneously alive, distinct worker
+threads. Operations are sequential. Result: 1/1 PASS.
+
+This covers the shared defect class directly instead of relying on the
+nondeterministic scheduler to reproduce the original exception.
+
+VERTICAL VALIDATION
+
+The real frontend/FastAPI diagnostics suite was run with isolated Chromium and
+retries=0. Result: 10/10 PASS. The Uvicorn log contained no
+sqlite3.ProgrammingError or thread-affinity traceback. This is the same
+vertical package whose server logs repeatedly exposed the defect before T027.
+
+FULL REGRESSION
+
+Result: 1104 passed, 1 known stale T023 source-diff assertion failed. The only
+failure checks an obsolete claim that T023b never changed two planning files;
+it is unrelated to persistence, SQLite and T027.
+
+FINAL
+
+The delivered change satisfies the T027 contract and is proportionate to the
+observed FastAPI/SQLite lifecycle. No correction or owner decision is needed.
+
+NO ARCHITECTURE_PROPOSALS
