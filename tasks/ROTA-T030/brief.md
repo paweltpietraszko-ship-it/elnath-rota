@@ -1,6 +1,6 @@
 # ROTA-T030 — Panel sterowania → Obiekt: katalog zmian
 
-Status: **READY FOR IMPLEMENTATION**
+Status: **PASS** (round_01/tests/tests_r5.txt, exact SHA `eccb82748ec8855d2b1ac4b60baf5a5d84c77955`)
 
 Base implementation SHA: `f2ba515d701ee41f325a58a7711169a640d49ade`
 (`task/ROTA-T029`). T030 musi zachować całe zachowanie T029.
