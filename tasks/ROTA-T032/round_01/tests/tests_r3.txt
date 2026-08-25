@@ -1,0 +1,132 @@
+ROTA-T032 — audyt kontraktu przed implementacją, runda 3
+
+Audytowany exact SHA:
+06e79c2a5e49158ce79bdcd747dd4046c4a9e213
+
+Baza:
+3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+
+WERDYKT: FAIL — DWIE FUNKCJE ZAAKCEPTOWANE PRZEZ OWNERA NIE MAJĄ JESZCZE
+DZIAŁAJĄCEGO PIONOWEGO SEAMU. CC READ-ONLY.
+
+OWNER_CONFIRMED dla tego audytu:
+
+- maksymalnie dwie kolejne N jest bezwzględnym HARD;
+- jedna operacja może pracować 3 minuty, poprawność jest ważniejsza niż czas;
+- optimization_complete, informacja o pracy oraz możliwość dalszego szukania
+  wynikają z ustaleń z właścicielem;
+- po zmianie 24h pracownik musi mieć 24h wolnego, więc nie może dostać N
+  następnego dnia.
+
+## Wynik redukcji
+
+NIGHT-STREAK-01 jest teraz zaprojektowany minimalnie i we właściwych ownerach:
+
+- jeden CP-SAT HARD w constraints + wiring w solverze;
+- jeden niezależny mirror w validatorze;
+- canonical classify_demand oraz istniejące fixed/boundary facts;
+- bez score, night-streak phase, nowego persistence i cross-Site domysłów;
+- D→N→wolne→wolne pozostaje osobnym SOFT.
+
+Nie dodawać do NIGHT-STREAK-01 specjalnej logiki dla 24h. Istniejący HARD
+odpoczynku po 24h już uniemożliwia N następnego dnia i rozcina serię. Nowy
+warunek 24h w T032 byłby drugim ownerem tej samej ochrony.
+
+Target equity nadal reuse istniejące actual/effective target i ma pionowy test
+przez real solve(). Ta część kontraktu jest gotowa.
+
+## R3-1 — frontend przerwie trzyminutowe planowanie po 20 sekundach
+
+TRACE:
+- zaakceptowane §7–§8: request PLAN/REPLAN może trwać do 180 s, a UI ma przez
+  ten czas pokazywać pracę i odebrać końcowy wynik;
+- frontend/src/diagnostics/tracking.ts:32 definiuje REQUEST_TIMEOUT_MS=20000;
+- frontend/src/api/client.ts:130 przekazuje ten limit do AbortController dla
+  każdego req().
+
+OWNERSHIP:
+- przyszły API/frontend seam planowania jest jedynym miejscem, które może
+  utrzymać długie żądanie; solver nie może naprawić przerwania po stronie
+  przeglądarki.
+
+REPRO:
+- request uruchomiony przez obecne req() dostaje abort po 20 s;
+- backend może dalej liczyć, ale koordynator zobaczy timeout około 160 s przed
+  końcem zaakceptowanego budżetu i nie odbierze PlanningResult.
+
+Minimalna korekta kontraktu:
+
+- §8 musi wymagać per-request timeoutu dla PLAN/REPLAN większego od 180 s plus
+  mały margines transportu;
+- nie podnosić globalnego timeoutu wszystkich krótkich endpointów;
+- nie budować teraz nieistniejącego ekranu, lecz zamrozić ten wymóg dla jego
+  późniejszego seam/testu E2E.
+
+## R3-2 — „Szukaj lepszej konfiguracji” powtarza ten sam solve od zera
+
+TRACE:
+- zaakceptowane §7.4: druga akcja ma rzeczywiście kontynuować poszukiwanie
+  lepszego układu przy zachowaniu poprzedniego kandydata;
+- brief pozwala rozpocząć nowy solve i czyni solution hint opcjonalnym;
+- solver.py:427–428 używa num_search_workers=1 i stałego random_seed=0;
+- PlanningResult nie niesie score, a żaden request nie przekazuje poprzedniego
+  kandydata/score/hintu do backendu.
+
+OWNERSHIP:
+- seam ponownego szukania musi dostarczyć solverowi co najmniej znany incumbent
+  albo inną rzeczywistą kontynuację; sam przycisk nie zmienia przestrzeni
+  poszukiwania.
+
+REPRO:
+- identyczny PlanningState + identyczny model + jeden worker + seed 0 + ten sam
+  limit uruchamiają ten sam deterministyczny przebieg;
+- bez przekazania poprzedniego wyniku drugi request nie wie, od czego ma szukać
+  lepiej ani jak stwierdzić poprawę;
+- dla REPLAN naiwne ponowne wywołanie replan() dodatkowo tworzy kolejny WORKING
+  child, zamiast szukać dalej na tym samym aktualnym wejściu.
+
+Minimalna korekta kontraktu musi wskazać jeden działający seam, bez job queue:
+
+1. retry pracuje na tym samym bieżącym WORKING ScheduleVersion i nie tworzy
+   kolejnego REPLAN child;
+2. poprzedni HARD-zwalidowany kandydat jest przekazywany nietrwale do kolejnego
+   przebiegu jako obowiązkowy incumbent/hint, nie tylko opcjonalna sugestia;
+3. backend potrafi rozpoznać, czy nowy wynik jest lepszy według canonical
+   objective, albo UI uczciwie nazywa akcję „Szukaj dalej” i pokazuje oba
+   poprawne wyniki bez twierdzenia, że drugi jest lepszy;
+4. poprzedni kandydat pozostaje fallbackiem i każdy nowy nadal przechodzi
+   niezależny validator.
+
+Nie wymaga to persistence solvera ani background workera, ale wymaga jawnego
+future API payload/seam. Bez niego zaakceptowana funkcja jest atrapą.
+
+## R3-3 — niejednoznaczny timeout istniejących silniejszych faz
+
+TRACE:
+- brief §1 zachowuje REPLAN-MIN i exceptional-N jako wcześniejsze, silniejsze
+  fazy;
+- istniejący _solve_lexicographic_phases fail-closed przy każdym statusie innym
+  niż OPTIMAL, ponieważ nie wolno zamrozić nieudowodnionego minimum;
+- nowe §7.2A/T32-T2 mówi szerzej: każdy HARD-poprawny incumbent po wyczerpaniu
+  budżetu może wrócić jako FEASIBLE optimization_complete=False.
+
+Te zdania dają różne wyniki, gdy czas kończy się podczas REPLAN-MIN albo
+exceptional-N: według starego kontraktu TECHNICAL_ERROR bez kandydata, według
+nowego FEASIBLE z nieudowodnioną liczbą przetasowań/wyjątkowych N.
+
+To nie jest nowy FAIL z preferencji audytora, lecz sprzeczność dwóch zapisów.
+Konsolidacja musi jawnie określić, czy partial FEASIBLE obejmuje także te dwie
+wcześniejsze fazy. Jeżeli ich frozen fail-closed pozostaje, T32-T2 należy
+zawęzić do faz jakości dodanych/zmienionych przez T032.
+
+## Pozostały zakres
+
+Nie potrzeba:
+- nowego wyjątku 24h w NIGHT-STREAK;
+- globalnego wydłużenia wszystkich requestów;
+- trwałej sesji CP-SAT, tabeli jobów lub procentowego progressu;
+- drugiego hours/D-N ownera;
+- zmian cross-Site.
+
+Potrzeba jednej konsolidacji briefu obejmującej wyłącznie R3-1, R3-2 i R3-3.
+Do nowego exact SHA: CC READ-ONLY / NOT READY FOR IMPLEMENTATION.
