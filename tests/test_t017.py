@@ -430,13 +430,20 @@ def _run_solver_forcing_second_call(monkeypatch, forced_status):
     monkeypatch.setattr(solver_module, "_run_solver", _fake_run_solver)
 
 
-def test_m22_optional_unknown_status_fails_whole_result_closed(monkeypatch):
+def test_m22_optional_unknown_status_keeps_first_candidate_marked_incomplete(monkeypatch):
+    """ROTA-T032 owner-corrected (audit tests_r6.txt, 2026-08-25): UNKNOWN
+    while searching for a SECOND/THIRD T017 variant is a routine timeout,
+    not a technical failure -- the already-found, independently-validated
+    first candidate must be kept (FEASIBLE, optimization_complete=False),
+    never discarded into TECHNICAL_ERROR. Only MODEL_INVALID (test M23,
+    below) still fails the whole result closed."""
     from ortools.sat.python import cp_model
 
     _run_solver_forcing_second_call(monkeypatch, cp_model.UNKNOWN)
     result = plan(_symmetric_pool_state(6))
-    assert result.status == "TECHNICAL_ERROR"
-    assert result.candidates == []
+    assert result.status == "FEASIBLE"
+    assert len(result.candidates) == 1
+    assert result.optimization_complete is False
 
 
 def test_m23_optional_model_invalid_status_fails_whole_result_closed(monkeypatch):

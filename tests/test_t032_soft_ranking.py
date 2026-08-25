@@ -1,15 +1,28 @@
 """ROTA-T032: NIGHT-STREAK-01 HARD (max two consecutive N), target equity and
 D/N/wolne/wolne SOFT ranking, search_attempt passthrough.
 
-Owner-corrected contract (tasks/ROTA-T032/brief.md @ 2d609c0), then further
-corrected live 2026-08-25: the strict "prove TARGET-01 OPTIMAL, freeze, then
-optimize equity/rhythm" two-phase design was replaced by ONE combined
-weighted objective (isolated measurement: the two-phase split alone took a
-5-employee/62-demand fixture from 0.37s OPTIMAL to 30s+ unproven FEASIBLE for
-the exact same terms) -- the coordinator, not the solver, decides whether a
-FEASIBLE candidate is good enough (existing T017 1-3 candidates + REPLAN),
-so `optimization_complete=False` is an honest, expected outcome, never an
-error to work around with an arbitrary sub-budget.
+Owner-corrected contract (tasks/ROTA-T032/brief.md @ 2d609c0), then twice
+corrected live 2026-08-25:
+
+1. TARGET-01/equity/rhythm live in ONE combined weighted objective (not a
+   proof-then-freeze phase split) because the coordinator, not the solver,
+   decides whether a FEASIBLE candidate is good enough (existing T017 1-3
+   candidates + REPLAN) -- an earlier version of this file wrongly cited a
+   "two-phase split caused a 30s slowdown" measurement as the reason; that
+   measurement was itself broken (a monkeypatch never actually disabled
+   anything it claimed to). The real, only measured cause of any slowdown
+   was add_dn_rhythm_reward's LP relaxation (fixed separately in
+   fairness.py) -- the phase-split-vs-combined choice made no difference.
+2. TARGET-01 nonetheless has an absolute, mathematically-guaranteed
+   priority over equity/rhythm (solver._add_combined_objective sizes
+   TARGET_DEVIATION_WEIGHT to strictly exceed their maximum possible
+   combined swing every solve) -- still allowed to hit the 180s budget and
+   return the best found valid candidate with `optimization_complete=False`,
+   never required to prove optimum.
+3. A found, independently-validated FEASIBLE candidate must never be
+   discarded just because the T017 search for a SECOND/THIRD variant ran
+   out of time (audit tests_r6.txt, 2026-08-25) -- see
+   test_t32_variant_search_timeout_keeps_the_found_candidate below.
 """
 from __future__ import annotations
 
@@ -175,6 +188,54 @@ def test_t32_n7_night_streak_conflict_is_decision_required_not_technical_error()
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload is not None
     assert any(b.condition == _BUILT_IN_CONDITION_TEXT["NIGHT-STREAK-01"] for b in result.decision_payload.blockers)
+
+
+# --- T017 variant search must never discard a found candidate on timeout --
+
+
+def test_t32_variant_search_timeout_keeps_the_found_candidate():
+    """Audit tests_r6.txt (2026-08-25): a coordinator who already has one
+    perfectly valid, independently-validated FEASIBLE candidate must never
+    have it thrown away and replaced with an error just because the search
+    for a SECOND/THIRD T017 variant ran out of time (UNKNOWN). Only a
+    genuine MODEL_INVALID during that search may still fail the whole
+    result closed."""
+    from ortools.sat.python import cp_model
+
+    from rota.planning import solver as solver_mod
+    from tests.support.state_builder import build_state_from_fixture
+    from tests.test_rota_reg_001 import _load_fixture
+
+    state = build_state_from_fixture(_load_fixture())
+    slots, still_needed, unassignable, reasons, site_rule_exclusions = solver_mod._build_slots(state, False)
+    model = cp_model.CpModel()
+    x = {
+        (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
+        for s in slots
+    }
+    assumptions = solver_mod._add_coverage_constraints(model, x, slots, still_needed)
+    model.add_assumptions(list(assumptions.values()))
+    model.minimize(sum(x.values()))
+    solver = cp_model.CpSolver()
+    status = solver.solve(model)
+    assert status == cp_model.OPTIMAL
+
+    class _FakeUnknownSolver:
+        def status_name(self, s):
+            return "UNKNOWN"
+
+    real_run_solver = solver_mod._run_solver
+    try:
+        solver_mod._run_solver = lambda m, *a, **kw: (_FakeUnknownSolver(), cp_model.UNKNOWN)
+        alternatives, override, timed_out = solver_mod._search_additional_candidates(
+            model, x, slots, state, {}, {}, solver, still_needed, None, 0,
+        )
+    finally:
+        solver_mod._run_solver = real_run_solver
+
+    assert override is None, "a timeout during variant search must not discard the already-found candidate"
+    assert alternatives == []
+    assert timed_out is True
 
 
 # --- optimization_complete / PlanningResult backward compatibility ---------

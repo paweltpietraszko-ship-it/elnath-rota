@@ -647,15 +647,32 @@ def _search_additional_candidates(
     pair_vars: dict | None, cross_month_by_employee: dict | None,
     first_solver: cp_model.CpSolver, still_needed: dict[str, int],
     deadline: float | None, search_attempt: int,
-) -> tuple[list[tuple[list[Assignment], list[str]]], SolverOutcome | None]:
+) -> tuple[list[tuple[list[Assignment], list[str]]], SolverOutcome | None, bool]:
     """T017: up to 2 more pairwise->=15%-diverse variants on the SAME model --
     frozen lexicographic minima/objective already apply, a diversity cut is
-    the only new HARD constraint. Returns (alternatives, override); a
-    non-None override means a technical status was hit and the WHOLE result
-    must fail closed (never masked as "no more variants")."""
+    the only new HARD constraint. Returns (alternatives, override, timed_out);
+    a non-None override means a genuine technical status (MODEL_INVALID) was
+    hit and the WHOLE result must fail closed (never masked as "no more
+    variants").
+
+    OWNER_CORRECTED 2026-08-25 (audit tests_r6.txt): the shared 180s
+    operation deadline (section 6) makes UNKNOWN (deadline reached mid-
+    search, no proof either way) a routine outcome here now, not a rare
+    edge case -- a coordinator who already has one perfectly valid,
+    independently-validated FEASIBLE candidate must never have it discarded
+    and replaced with an error just because the search for a SECOND or
+    THIRD variant ran out of time. UNKNOWN stops the search early and keeps
+    every alternative already found; only a genuine MODEL_INVALID still
+    fails the whole result closed, since that is a real solver/mapping bug,
+    not a timing outcome. `timed_out` distinguishes the two ways this
+    search can end early -- True only for UNKNOWN (the caller must then
+    mark optimization_complete=False: this was not proven to be every
+    possible variant), False for INFEASIBLE (a genuine proof that no
+    further qualifying variant exists, or the search never needed to run
+    at all -- still a complete result)."""
     n = sum(still_needed.values())
     if n <= 0 or n - (k := (15 * n + 99) // 100) < 0:
-        return [], None
+        return [], None, False
     signature = _candidate_signature(first_solver, x, slots)
     alternatives: list[tuple[list[Assignment], list[str]]] = []
     for _ in range(2):
@@ -668,9 +685,11 @@ def _search_additional_candidates(
             signature = _candidate_signature(solver, x, slots)
         elif status == cp_model.INFEASIBLE:
             break  # proof no further qualifying variant exists -- a valid, complete result
+        elif status == cp_model.UNKNOWN:
+            return alternatives, None, True  # ran out of time looking -- keep what was already found, mark incomplete
         else:
-            return alternatives, SolverOutcome(solver.status_name(status), None, [], [], {}, [], {})
-    return alternatives, None
+            return alternatives, SolverOutcome(solver.status_name(status), None, [], [], {}, [], {}), False
+    return alternatives, None, False
 
 
 def _solve_lexicographic_phases(
@@ -739,12 +758,14 @@ def _solve_lexicographic_phases(
     outcome.optimization_complete = final_status == cp_model.OPTIMAL
     if not search_variants or outcome.assignments is None or not outcome.optimization_complete:
         return outcome
-    alternatives, override = _search_additional_candidates(
+    alternatives, override, variant_search_timed_out = _search_additional_candidates(
         model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed, deadline, search_attempt,
     )
     if override is not None:
         return override
     outcome.alternatives = alternatives
+    if variant_search_timed_out:
+        outcome.optimization_complete = False
     return outcome
 
 
