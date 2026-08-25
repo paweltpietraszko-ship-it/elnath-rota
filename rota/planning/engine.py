@@ -25,6 +25,8 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 """
 from __future__ import annotations
 
+import time
+
 from rota.domain import Assignment, AssignmentState
 from rota.planning.decision_guidance import build_decision_payload
 from rota.planning.state import PlanningState
@@ -36,12 +38,14 @@ from rota.planning.engine_types import (
 )
 from rota.planning.shift_catalog import UnclassifiedShiftError
 from rota.planning.site_rules import UnsupportedOrMalformedSiteRule, validate_executable_site_rules
-from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
+from rota.planning.solver import (
+    PLANNING_OPERATION_BUDGET_SECONDS, SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve,
+)
 from rota.planning.timeutil import intervals_overlap
 from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
 
 
-def plan(state: PlanningState) -> PlanningResult:
+def plan(state: PlanningState, search_attempt: int = 0) -> PlanningResult:
     """Produce a PlanningResult for one PlanningState.
 
     plan() has exactly three output statuses (arch/spec.md:339-342); a raw
@@ -51,16 +55,24 @@ def plan(state: PlanningState) -> PlanningResult:
     TECHNICAL_ERROR at this public boundary, not left to propagate to the
     caller. ROTA-T007: UnsupportedOrMalformedSiteRule (a RESOLVED rule that
     claims to be executable but isn't) is the same class of model error.
+
+    ROTA-T032 section 6.1: this is the ONE public entry point that creates
+    the shared 180s planning-operation deadline (a time.monotonic() absolute
+    instant) -- every internal solve() call below, across every retry stage,
+    gets only the time remaining to this same deadline, never a fresh
+    per-stage allowance. section 7.2: search_attempt only varies CP-SAT
+    search seed/order for "Szukaj dalej" retries, never the model.
     """
+    deadline = time.monotonic() + PLANNING_OPERATION_BUDGET_SECONDS
     try:
-        return _plan(state)
+        return _plan(state, deadline, search_attempt)
     except UnclassifiedShiftError as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
     except UnsupportedOrMalformedSiteRule as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
 
 
-def _plan(state: PlanningState) -> PlanningResult:
+def _plan(state: PlanningState, deadline: float, search_attempt: int = 0) -> PlanningResult:
     # ROTA-T007: prevalidate before solve() -- a RESOLVED HARD/SOFT SiteRule
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
@@ -76,13 +88,16 @@ def _plan(state: PlanningState) -> PlanningResult:
     for allow_day_only_n_fallback, allow_emergency_24h in ((False, False), (True, False)):
         outcome = solve(
             state, enforce_load_cap=True, allow_day_only_n_fallback=allow_day_only_n_fallback,
-            allow_emergency_24h=allow_emergency_24h,
+            allow_emergency_24h=allow_emergency_24h, deadline=deadline, search_attempt=search_attempt,
         )
         result = _dispatch_or_continue(state, outcome)
         if result is not None:
             return result
 
-    outcome_3 = solve(state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True)
+    outcome_3 = solve(
+        state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True,
+        deadline=deadline, search_attempt=search_attempt,
+    )
     result = _dispatch_stage3(state, outcome_3)
     if result is not None:
         return result
@@ -90,7 +105,9 @@ def _plan(state: PlanningState) -> PlanningResult:
     # conflict by itself (round 13 FINDING R13-1) -- drop the cap before
     # treating this as a genuine cross-demand conflict, both fallbacks still
     # ON (part_c_emergency_24h.md section 9 point 9: same boundary context).
-    return _resolve_without_load_cap(state, allow_emergency_24h=True, allow_day_only_n_fallback=True)
+    return _resolve_without_load_cap(
+        state, deadline, search_attempt, allow_emergency_24h=True, allow_day_only_n_fallback=True,
+    )
 
 
 def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
@@ -99,12 +116,15 @@ def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> Plann
     INFEASIBLE or a pre-model coverage shortage (NO_ELIGIBLE_EMPLOYEE) means
     None -- the caller must still try the next fallback stage. Any other
     status (UNKNOWN/MODEL_INVALID) is a genuine technical failure, never
-    masked by a further retry (round 14 audit tests_r14.txt FINDING R14-2)."""
+    masked by a further retry (round 14 audit tests_r14.txt FINDING R14-2).
+    ROTA-T032 section 6.3: a technical failure caused by the shared deadline
+    running out with no candidate proven anywhere carries
+    optimization_complete=False through to the final PlanningResult."""
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
     if outcome.unassignable_demand_ids or outcome.status_name == "INFEASIBLE":
         return None
-    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete)
 
 
 def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
@@ -116,24 +136,27 @@ def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningRe
     if outcome.unassignable_demand_ids:
         return _decision_for_unassignable(state, outcome)
     if outcome.status_name != "INFEASIBLE":
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete)
     return None
 
 
 def _resolve_without_load_cap(
-    state: PlanningState, allow_emergency_24h: bool = False, allow_day_only_n_fallback: bool = False,
+    state: PlanningState, deadline: float, search_attempt: int = 0,
+    allow_emergency_24h: bool = False, allow_day_only_n_fallback: bool = False,
 ) -> PlanningResult:
     fallback = solve(
         state, enforce_load_cap=False, allow_emergency_24h=allow_emergency_24h,
-        allow_day_only_n_fallback=allow_day_only_n_fallback,
+        allow_day_only_n_fallback=allow_day_only_n_fallback, deadline=deadline, search_attempt=search_attempt,
     )
     if fallback.unassignable_demand_ids:
         return _decision_for_unassignable(state, fallback)
     if fallback.assignments is not None:
         return _decision_for_load(state, fallback)
+    if fallback.night_streak_conflicts:
+        return _decision_for_night_streak(state, fallback)
     if fallback.conflicting_demand_ids:
         return _decision_for_conflict(state, fallback)
-    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [], fallback.optimization_complete)
 
 
 def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[Assignment]:
@@ -150,7 +173,9 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
     if report.hard_pass:
-        return _feasible_result(state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives)
+        return _feasible_result(
+            state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives, outcome.optimization_complete,
+        )
     if _has_non_load_violations(report):
         return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
@@ -163,14 +188,18 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
 
 def _feasible_result(
     state: PlanningState, first_full: list[Assignment], first_warnings: list[str],
-    alternatives: list[tuple[list[Assignment], list[str]]],
+    alternatives: list[tuple[list[Assignment], list[str]]], optimization_complete: bool = True,
 ) -> PlanningResult:
     """T017: a single candidate keeps the exact legacy unprefixed warning
     shape. 2-3 candidates each get independently HARD-validated; any
     additional candidate failing validation fails the WHOLE result closed
-    (anti-drift rule 12, brief.md H2) -- never a silent partial success."""
+    (anti-drift rule 12, brief.md H2) -- never a silent partial success.
+    ROTA-T032 section 6.4: optimization_complete carries through unchanged
+    from the solver outcome that produced first_full/alternatives -- T017
+    variant search itself never runs on an incomplete outcome (solver.py),
+    so this is always True whenever `alternatives` is non-empty."""
     if not alternatives:
-        return PlanningResult("FEASIBLE", [first_full], None, None, first_warnings)
+        return PlanningResult("FEASIBLE", [first_full], None, None, first_warnings, optimization_complete)
     candidates = [first_full]
     per_candidate_warnings = [first_warnings]
     for solved, solver_warnings in alternatives:
@@ -223,6 +252,29 @@ def _site_rule_blockers_for(
             seen.add(key)
             blockers.append(Blocker(employee_id, rule_version_id))
     return blockers
+
+
+def _decision_for_night_streak(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
+    """ROTA-T032 section 3.5: an INFEASIBLE whose minimal unsat core includes
+    a NIGHT-STREAK-01 assumption is the same class of autonomy boundary
+    REST-01 conflicts already are -- DECISION_REQUIRED, never REST-01 and
+    never TECHNICAL_ERROR."""
+    by_id = {d.demand_id: d for d in state.shift_demands}
+    demand_ids = sorted({demand_id for ids in outcome.night_streak_conflicts.values() for demand_id in ids})
+    blocking = [
+        BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
+        for demand_id in demand_ids
+        if demand_id in by_id
+    ]
+    employee_ids = sorted({employee_id for employee_id, _ in outcome.night_streak_conflicts})
+    raw_blockers = [Blocker(employee_id, "NIGHT-STREAK-01") for employee_id in employee_ids]
+    payload = build_decision_payload(state, blocking, raw_blockers, None)
+    warnings = [
+        "NIGHT-STREAK-01: demands "
+        f"{demand_ids} cannot be jointly covered without exceeding the max-two-consecutive-N limit; "
+        "blockers list every employee involved in a conflicting window, not a proven minimal cause"
+    ]
+    return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 
 def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
@@ -291,6 +343,10 @@ def _fixed_non_realized_ids(state: PlanningState) -> set:
 _FROZEN_BOUNDARY_RULES = frozenset({
     "MEMBERSHIP-01", "DAY_ONLY-01", "DAY_SHIFT_OFF-01",
     "UNAVAILABLE-01", "SICK_LEAVE-01", "LEAVE_GRANTED-01", "EXTERNAL-01", "REST-01",
+    # ROTA-T032: a NIGHT-STREAK-01 violation entirely among already-fixed
+    # (REALIZED/frozen/mentor-linked) Assignments is the same kind of
+    # coordinator autonomy boundary REST-01 already is -- never a solver bug.
+    "NIGHT-STREAK-01",
 })
 
 

@@ -314,11 +314,11 @@ def _assert_phase1_status_fails_closed(monkeypatch, forced_status_name: str):
     real_run_solver = solver_module._run_solver
     call_count = {"n": 0}
 
-    def fake_run_solver(model):
+    def fake_run_solver(model, *args, **kwargs):
         call_count["n"] += 1
         if call_count["n"] == 1:
             return _FakeSolver(), forced_status
-        return real_run_solver(model)
+        return real_run_solver(model, *args, **kwargs)
 
     monkeypatch.setattr(solver_module, "_run_solver", fake_run_solver)
     result = plan(_replan_state_with_baseline())

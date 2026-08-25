@@ -35,7 +35,7 @@ def test_r6_engine_state_names_the_current_version_it_is_planning(tmp_path, monk
     state = seed_real_object(conn, case_id=f"audit-r6-state-{operation}", month=MONTH, seed=901)
     captured = []
 
-    def capture(planning_state):
+    def capture(planning_state, **kwargs):
         captured.append(planning_state)
         return PlanningResult("TECHNICAL_ERROR", [], None, "audit stop", [])
 

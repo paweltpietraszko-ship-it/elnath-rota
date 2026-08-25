@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import combinations
 
 from ortools.sat.python import cp_model
@@ -549,6 +549,69 @@ def add_same_person_24h_constraints(
             _constrain_one_fixed(model, x, d1.demand_id, fixed2, eligible_by_key, template_id)
         else:
             _constrain_both_open(model, x, d1.demand_id, d2.demand_id, eligible_by_key, template_id)
+
+
+def add_max_two_consecutive_night_constraints(
+    model: cp_model.CpModel, day_kind_terms: dict[str, dict], month: date,
+) -> dict[tuple[str, date], tuple[object, list[str]]]:
+    """NIGHT-STREAK-01 HARD (ROTA-T032, owner-corrected 2026-08-25): the same
+    employee never has non-CANCELLED PRIMARY N on three consecutive start
+    dates. day_kind_terms[employee_id][d] = (d_term, n_term, any_term,
+    n_demand_id) is built once by the caller (solver.py) from newly-selected
+    PRIMARY (x), non-CANCELLED fixed target-Site PRIMARY, and target-Site
+    boundary_assignments matched to boundary_shift_demands -- the same
+    source fairness.add_dn_rhythm_reward and validator._check_night_streak
+    use, so all three can never disagree about what counts as N. TRAINEE,
+    CANCELLED and other_site_assignments never enter day_kind_terms at all
+    (built that way by the caller) and so never participate here.
+
+    A date missing from day_kind_terms[employee_id] contributes 0 (not-N),
+    matching the fixed/boundary-data-missing policy used everywhere else in
+    this module (e.g. build_fixed_periods/build_fixed_intervals). Extends
+    across the month boundary automatically wherever the caller already put
+    a constant boundary term at a date before `month` -- no history store,
+    no persistence, no special-cased look-back window here.
+
+    Returns one assumption literal per (employee_id, window_start_date) that
+    involves at least one real decision term, keyed with the window's own N
+    demand_ids (for DECISION_REQUIRED diagnosis, mirroring
+    _add_coverage_constraints) -- a window built entirely from fixed/
+    boundary constants is enforced unconditionally instead (nothing for a
+    coordinator to decide if it is ever inconsistent; that is an anti-drift
+    validator concern like any other fixed-fact HARD conflict)."""
+    num_days = calendar.monthrange(month.year, month.month)[1]
+    month_start = date(month.year, month.month, 1)
+    month_end = date(month.year, month.month, num_days)
+    empty = (0, 0, 0, None)
+    assumptions: dict[tuple[str, date], tuple[object, list[str]]] = {}
+    for employee_id, by_date in day_kind_terms.items():
+        window_start = month_start - timedelta(days=2)
+        last_start = month_end - timedelta(days=2)
+        while window_start <= last_start:
+            dates = [window_start, window_start + timedelta(days=1), window_start + timedelta(days=2)]
+            entries = [by_date.get(d, empty) for d in dates]
+            terms = [e[1] for e in entries]
+            demand_ids = [e[3] for e in entries if e[3] is not None]
+            # A term contributes at most 1 (a BoolVar, or a fixed/boundary
+            # constant, both single-occurrence per employee/day in practice)
+            # -- if the worst case across all three dates cannot exceed 2,
+            # this window can never be violated, so it is never even a
+            # candidate for the CP-SAT model: no wasted constraint, and no
+            # vacuously-true assumption literal that could otherwise show up
+            # in an unrelated INFEASIBLE proof's minimal core.
+            worst_case = sum(t if isinstance(t, int) else 1 for t in terms)
+            if worst_case <= 2:
+                window_start += timedelta(days=1)
+                continue
+            if all(isinstance(t, int) for t in terms):
+                model.add(sum(terms) <= 2)
+                window_start += timedelta(days=1)
+                continue
+            assume_var = model.new_bool_var(f"assume_night_streak_{employee_id}_{window_start.isoformat()}")
+            model.add(sum(terms) <= 2).only_enforce_if(assume_var)
+            assumptions[employee_id, window_start] = (assume_var, demand_ids)
+            window_start += timedelta(days=1)
+    return assumptions
 
 
 if __name__ == "__main__":

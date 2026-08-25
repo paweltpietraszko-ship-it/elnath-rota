@@ -187,7 +187,14 @@ def test_scenario_2_h24_catalog_can_work_24h_gating_end_to_end(tmp_path: Path) -
 
 def test_scenario_3_manual_zero_gap_rest_override_replan_ledger(tmp_path: Path) -> None:
     site_id, profile_id, month = "SITE-V3", "PROF-V3", date(2026, 11, 1)
-    employees = ("EMP-V3-A", "EMP-V3-B")
+    # ROTA-T032 NIGHT-STREAK-01 (max two consecutive N): with only two
+    # employees covering one D + one N every single day for a full month,
+    # OWNER-T022-02 (no zero-gap same-employee D/N abutment) leaves no
+    # NIGHT-STREAK-compliant automatic PLAN at all -- a third employee gives
+    # the solver enough room to rotate without ever exceeding the new HARD
+    # limit, without changing anything this test actually asserts (day 1's
+    # PRIMARY D/N pair and the manual override onto it).
+    employees = ("EMP-V3-A", "EMP-V3-B", "EMP-V3-C")
     db_path = tmp_path / "rota.db"
     conn = store.open_store(db_path)
     _bootstrap(conn, site_id=site_id, profile_id=profile_id, profile=_profile_h12_dn(profile_id, rest_hours=0), employees=employees, month=month)

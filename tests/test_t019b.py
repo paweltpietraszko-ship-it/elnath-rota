@@ -536,7 +536,7 @@ def test_e38_technical_error_preserves_previous_pointer(tmp_path, monkeypatch) -
     plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     before_id = site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH).decision_required_id
 
-    def _boom(state):
+    def _boom(state, **kwargs):
         from rota.planning.engine_types import PlanningResult
         return PlanningResult(status="TECHNICAL_ERROR", candidates=[], decision_payload=None, error_message="injected", warnings=[])
 

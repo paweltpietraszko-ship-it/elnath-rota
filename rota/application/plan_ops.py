@@ -94,11 +94,17 @@ def _create_first_version(
 
 def plan_month(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date | None = None,
+    search_attempt: int = 0,
 ) -> PlanningResult:
     """Operation 3 (PLAN). Creates the first WORKING version when none
     exists yet (requires effective_from); otherwise plans fresh against the
     existing current WORKING version. A FINAL current version is never
     reopened -- callers must REPLAN.
+
+    ROTA-T032 section 7.2: search_attempt is an optional, non-persisted
+    passthrough to the existing solver -- "Szukaj dalej" reuses this same
+    operation on the same CURRENT WORKING version with attempt > 0, never a
+    new application operation. It is never stored on ScheduleVersion.
 
     R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
     trigger), so a version created and only later found broken by a
@@ -126,13 +132,13 @@ def plan_month(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             version_id=version_id, demands=list(demands),
         )
-        result = plan(state)
+        result = plan(state, search_attempt=search_attempt)
         return _persist_decision_readback(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             schedule_version_id=version_id, result=result,
         )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    result = plan(state)
+    result = plan(state, search_attempt=search_attempt)
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

@@ -49,6 +49,11 @@ class PlanningResult:
     decision_payload: Optional[DecisionRequiredPayload]
     error_message: Optional[str]
     warnings: list[str]
+    # ROTA-T032 section 6.4: False only when the shared 180s planning budget
+    # (section 6) ran out before every required solver phase proved OPTIMAL --
+    # the candidate is still HARD-valid (independent validator PASS). True
+    # keeps every pre-T032 caller/constructor valid unchanged (T32-T8).
+    optimization_complete: bool = True
 
 
 if __name__ == "__main__":
