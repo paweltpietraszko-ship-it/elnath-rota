@@ -57,8 +57,8 @@ def plan(state: PlanningState, search_attempt: int = 0) -> PlanningResult:
     claims to be executable but isn't) is the same class of model error.
 
     ROTA-T032 section 6.1: this is the ONE public entry point that creates
-    the shared 180s planning-operation deadline (a time.monotonic() absolute
-    instant) -- every internal solve() call below, across every retry stage,
+    the shared planning-operation deadline (PLANNING_OPERATION_BUDGET_SECONDS,
+    a time.monotonic() absolute instant) -- every internal solve() call below, across every retry stage,
     gets only the time remaining to this same deadline, never a fresh
     per-stage allowance. section 7.2: search_attempt only varies CP-SAT
     search seed/order for "Szukaj dalej" retries, never the model.

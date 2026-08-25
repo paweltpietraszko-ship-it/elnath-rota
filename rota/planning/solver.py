@@ -50,7 +50,17 @@ MAX_MONTHLY_HOURS = 744
 # of one public plan(state) call -- engine.py creates it once and threads it
 # down; solve() called directly (e.g. by tests) without a deadline keeps the
 # pre-T032 fixed per-solve budget via _remaining_seconds(None).
-PLANNING_OPERATION_BUDGET_SECONDS = 180.0
+#
+# OWNER_CORRECTED 2026-08-25 (45s, not the contract's original 180s):
+# measured on a realistic fixture (ROTA-REG-001, 5 employees/62 demands) --
+# a well-staffed month plateaus in ~2-3s with zero further quality gain out
+# to 120s (only the unproven-optimal proof, never the delivered schedule,
+# keeps running); the hardest realistic case, a moderate one-person staffing
+# shortfall working through every fallback stage before proving
+# DECISION_REQUIRED, measured 16.4s. 45s keeps a real margin over that
+# measured worst case without asking a coordinator to wait anywhere near
+# the original 180s ceiling.
+PLANNING_OPERATION_BUDGET_SECONDS = 45.0
 
 
 @dataclass
@@ -655,8 +665,8 @@ def _search_additional_candidates(
     hit and the WHOLE result must fail closed (never masked as "no more
     variants").
 
-    OWNER_CORRECTED 2026-08-25 (audit tests_r6.txt): the shared 180s
-    operation deadline (section 6) makes UNKNOWN (deadline reached mid-
+    OWNER_CORRECTED 2026-08-25 (audit tests_r6.txt): the shared operation
+    deadline (section 6, PLANNING_OPERATION_BUDGET_SECONDS) makes UNKNOWN (deadline reached mid-
     search, no proof either way) a routine outcome here now, not a rare
     edge case -- a coordinator who already has one perfectly valid,
     independently-validated FEASIBLE candidate must never have it discarded

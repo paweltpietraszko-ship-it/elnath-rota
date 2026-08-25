@@ -16,9 +16,11 @@ corrected live 2026-08-25:
 2. TARGET-01 nonetheless has an absolute, mathematically-guaranteed
    priority over equity/rhythm (solver._add_combined_objective sizes
    TARGET_DEVIATION_WEIGHT to strictly exceed their maximum possible
-   combined swing every solve) -- still allowed to hit the 180s budget and
-   return the best found valid candidate with `optimization_complete=False`,
-   never required to prove optimum.
+   combined swing every solve) -- still allowed to hit the operation budget
+   (PLANNING_OPERATION_BUDGET_SECONDS, owner-set to 45s 2026-08-25 after a
+   real timing measurement -- see solver.py) and return the best found
+   valid candidate with `optimization_complete=False`, never required to
+   prove optimum.
 3. A found, independently-validated FEASIBLE candidate must never be
    discarded just because the T017 search for a SECOND/THIRD variant ran
    out of time (audit tests_r6.txt, 2026-08-25) -- see
