@@ -45,6 +45,21 @@ function cellLabel(a: AssignmentOut, demandKindByDemandId: Map<string, string | 
   return a.role === "TRAINEE" ? `${base}·S` : base;
 }
 
+function assignmentHours(a: AssignmentOut): number {
+  const start = new Date(a.start_datetime).getTime();
+  const end = new Date(a.end_datetime).getTime();
+  return Math.round((end - start) / (1000 * 60 * 60));
+}
+
+// tasks/ROTA-T031/brief.md section 3: paper reference (Grafiki/7442.jpg) has
+// an hours summary at the end of each row -- PRIMARY only, non-CANCELLED
+// (matches the backend's own monthly-hours convention), TRAINEE excluded.
+function totalHours(assignments: AssignmentOut[]): number {
+  return assignments
+    .filter((a) => a.role === "PRIMARY" && a.state !== "CANCELLED")
+    .reduce((sum, a) => sum + assignmentHours(a), 0);
+}
+
 function ScheduleGrid({
   monthIso, assignments, demandKindByDemandId,
 }: {
@@ -69,6 +84,15 @@ function ScheduleGrid({
     }
     return map;
   }, [assignments]);
+  const assignmentsByEmployee = useMemo(() => {
+    const map = new Map<string, AssignmentOut[]>();
+    for (const a of assignments) {
+      const list = map.get(a.employee_id) ?? [];
+      list.push(a);
+      map.set(a.employee_id, list);
+    }
+    return map;
+  }, [assignments]);
 
   if (employees.length === 0) {
     return <p className="panel-hint">Brak zapisanych przypisań w tej wersji.</p>;
@@ -83,6 +107,7 @@ function ScheduleGrid({
             {days.map((d) => (
               <th key={d}>{d.slice(8, 10)}</th>
             ))}
+            <th>Suma godzin</th>
           </tr>
         </thead>
         <tbody>
@@ -97,6 +122,9 @@ function ScheduleGrid({
                   </td>
                 );
               })}
+              <td style={{ textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                {totalHours(assignmentsByEmployee.get(employeeId) ?? [])}h
+              </td>
             </tr>
           ))}
         </tbody>
