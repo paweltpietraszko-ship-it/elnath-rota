@@ -1,4 +1,4 @@
-# ROTA-T032 — SOFT ranking, max 2 N pod rząd i budżet optymalizacji
+# ROTA-T032 — SOFT ranking, max 2 N pod rząd i budżet planowania
 
 Status: **READY FOR CODEX PREIMPLEMENTATION RE-AUDIT — CC READ-ONLY UNTIL PASS**
 
@@ -9,77 +9,89 @@ R2_AUDIT: `tasks/ROTA-T032/round_01/tests/tests_r2.txt`
 R3_AUDIT: `tasks/ROTA-T032/round_01/tests/tests_r3.txt`
 OWNER_CORRECTED: 2026-08-25
 
-T032 domyka:
+Ta wersja jest konsolidacją po R3. Usuwa dwie nadmiarowe konstrukcje z poprzedniego kontraktu:
 
-1. równomierność godzin względem istniejącego effective targetu;
-2. preferencję rytmu D → N → wolne → wolne;
-3. absolutny HARD: **ten sam pracownik nie może mieć więcej niż dwóch kolejnych N**;
-4. jedną publiczną granicę czasu planowania: **180 sekund na całą operację**;
-5. działający seam dalszego szukania po nieukończonej optymalizacji, bez job queue i bez trwałej sesji solvera.
+- **nie powstaje `continue_plan_search()`, incumbent protocol, solution-hint/no-good protocol ani nowa operacja application-layer**;
+- **T028 nie implementuje trzeciego licznika NIGHT-STREAK** — jego istniejący obowiązek wywołania produkcyjnego `validate()` jest wystarczającym bezpiecznikiem po wdrożeniu nowego HARD.
 
-R3 dodatkowo zamraża dwie pionowe granice: przyszły request PLAN/REPLAN nie może zostać ucięty przez obecny globalny 20-sekundowy timeout frontendu, a akcja dalszego szukania nie może uruchamiać identycznego deterministycznego solve od zera bez poprzedniego kandydata.
+T032 domyka tylko:
 
-Nie powstaje procentowy progress liczony z sufitu, nowy status planowania, persistence solvera ani background worker.
+1. HARD: maksymalnie dwie kolejne N;
+2. TARGET equity jako dodatkowy SOFT po zachowaniu TARGET-01;
+3. reward D → N → wolne → wolne;
+4. jeden budżet 180 s dla publicznego planowania;
+5. minimalny sygnał `optimization_complete` i przyszły UX loader/retry.
+
+Nie powstaje nowy model grafiku, nowy persisted state, job queue, background worker, solver session, procentowy progress ani nowy PlanningStatus.
 
 ---
 
 ## 1. WYNIK PRODUKTOWY
 
-Po istniejących silniejszych fazach REPLAN-MIN i — gdy aktywna — exceptional-N:
+### 1.1 HARD
 
-1. każdy automatyczny kandydat musi spełniać wszystkie dotychczasowe HARD oraz `NIGHT-STREAK-01`;
-2. solver w pozostałym budżecie optymalizuje istniejący TARGET-01 i dalsze SOFT;
-3. przy tej samej jakości targetu preferuje bardziej wyrównaną relację `actual_hours / effective_target`;
-4. w finalnym SOFT rankingu preferuje więcej okien D → N → wolne → wolne, obok istniejących weekend/holiday/DAY_SHIFT_OFF/LEAVE_PLAN terms.
+Ten sam pracownik **nigdy nie może dostać więcej niż dwóch kolejnych zmian N**.
 
-`NIGHT-STREAK-01` jest HARD. Nie jest score, warningiem ani fairness termem.
+`N / N` — legalne.
 
-**Owner rule:** nie może być trzeciej kolejnej nocki tego samego pracownika. Koniec.
+`N / N / N` — niedozwolone.
 
-Brak rozwiązania przez ten HARD trafia do istniejącej ścieżki `DECISION_REQUIRED`, nie do częściowego FEASIBLE ani do `TECHNICAL_ERROR`.
+To jest `NIGHT-STREAK-01` HARD, nie fairness, score, warning ani wyjątek do zaakceptowania.
 
-Po 24h służbie T032 nie dodaje osobnej logiki nocnej. Istniejący HARD odpoczynku po 24h już wymusza 24h wolnego i uniemożliwia N następnego dnia; drugi owner tej samej ochrony jest zakazany.
+### 1.2 SOFT
+
+Po spełnieniu HARD solver preferuje:
+
+- jak najmniejsze istniejące łączne odchylenie od effective targetów (`TARGET-01`);
+- przy tym samym udowodnionym optimum TARGET-01 — bardziej równomierny procent realizacji indywidualnych effective targetów;
+- więcej okien `D → N → wolne → wolne`;
+- istniejące weekend/holiday/DAY_SHIFT_OFF/LEAVE_PLAN SOFT pozostają aktywne.
+
+### 1.3 Czas
+
+Jedna publiczna operacja planowania może pracować maksymalnie **180 sekund**.
+
+Jeżeli po 180 s istnieje pełny kandydat zgodny z HARD, może zostać pokazany jako `FEASIBLE` z `optimization_complete=False`, zgodnie z §6.
 
 ---
 
-## 2. OWNERZY I JEDNO ŹRÓDŁO PRAWDY
+## 2. OWNERZY — BEZ NOWYCH RÓWNOLEGŁYCH MECHANIZMÓW
 
-Pozostają:
+Pozostają istniejący ownerzy:
 
-- `rota/planning/solver.py` — CP-SAT, fazy, objective i remaining budget;
 - `rota/planning/constraints.py` — CP-SAT HARD;
-- `rota/planning/validator.py` — niezależny mirror HARD (anti-drift rule 12);
+- `rota/planning/solver.py` — model, fazy, objective i remaining time;
+- `rota/planning/validator.py` — niezależny mirror każdego HARD;
 - `rota/planning/fairness.py` — helpery SOFT;
-- `_effective_targets(state)` — canonical `max(0, target_hours - absence_hours)`;
-- istniejący expression godzin TARGET-01 — canonical actual hours;
-- `rota/planning.shift_catalog.classify_demand` — jedyny owner klasyfikacji D/N;
-- `rota/application/plan_ops.py` — publiczne PLAN/REPLAN oraz nowy nietrwały seam dalszego szukania na tym samym WORKING version.
+- `_effective_targets(state)` — canonical effective target;
+- istniejąca arytmetyka TARGET-01 — canonical actual hours;
+- `rota.planning.shift_catalog.classify_demand` — jedyny owner D/N;
+- `rota/application/plan_ops.py::plan_month()` i istniejący `replan()` — publiczne application operations.
 
-T032 nie tworzy drugiej definicji godzin, D/N, absencji, odpoczynku ani targetu.
+T032 **nie dodaje nowej publicznej operacji dalszego szukania**. Retry reuse istniejącego `plan_month()` na aktualnym CURRENT WORKING ScheduleVersion.
+
+Po pierwszym `replan()` utworzony child jest CURRENT WORKING; kolejne „Szukaj dalej” wywołuje zwykłe PLAN na tym childzie, a nie `replan()` ponownie.
 
 ---
 
-## 3. HARD `NIGHT-STREAK-01` — MAKSYMALNIE DWIE KOLEJNE N
+## 3. HARD `NIGHT-STREAK-01`
 
 ### 3.1 Semantyka
 
-Dla jednego pracownika nie może istnieć żadna trójka kolejnych **dat startu** `(d, d+1, d+2)`, na których finalny target-Site grafik zawiera PRIMARY N tego pracownika na każdej z trzech dat.
+Dla jednego pracownika nie może istnieć trójka kolejnych **dat startu** `(d, d+1, d+2)`, na których finalny target-Site grafik zawiera non-CANCELLED PRIMARY N tego pracownika na każdej z trzech dat.
 
-- N / N — legalne;
-- N / N / N — niedozwolone;
-- N / wolne / N — legalne dla tej reguły;
 - D nie liczy się jako N;
-- TRAINEE i CANCELLED nie tworzą N.
+- TRAINEE nie tworzy N dla tej reguły;
+- CANCELLED nie tworzy N;
+- N rozpoznaje wyłącznie produkcyjny `classify_demand`, nigdy godzina startu ani długość Assignmentu.
 
-N klasyfikować wyłącznie `classify_demand`.
-
-### 3.2 Fakty widziane przez regułę
+### 3.2 Fakty
 
 Reguła widzi:
 
 - nowo wybierane PRIMARY (`x`);
 - non-CANCELLED fixed existing target-Site PRIMARY pozostające w solve/replan;
-- target-Site `boundary_assignments` z jednoznacznie matching `boundary_shift_demands`.
+- istniejące target-Site `boundary_assignments` z jednoznacznie matching `boundary_shift_demands`.
 
 Nie widzi:
 
@@ -91,55 +103,64 @@ Fixed/boundary Assignment bez matching demand nie jest zgadywany jako D/N.
 
 ### 3.3 Granica miesiąca
 
-Max-2-N obowiązuje również przez granicę miesiąca/roku, jeśli sąsiedni target-Site fakt istnieje w canonical boundary state.
+Max-2-N obowiązuje przez granicę miesiąca/roku, jeżeli potrzebny target-Site boundary fact już istnieje w canonical state.
 
-Zakazane przy planowaniu października:
+Przykład zakazany przy planowaniu października:
 
-- 30.09 — persisted target-Site PRIMARY N;
+- 30.09 — persisted PRIMARY N;
 - 01.10 — N;
 - 02.10 — N.
 
-Bez nowego history store/DTO. Użyć istniejących boundary facts.
+Bez nowego history store, DTO i persistence.
 
-### 3.4 Solver / constraints
+### 3.4 Solver + validator
 
-Dodać jeden CP-SAT HARD owner, np. `add_max_two_consecutive_night_constraints(...)`, w `constraints.py` i podpiąć w `solver.py`.
+W `constraints.py` powstaje jeden CP-SAT HARD, np. `add_max_two_consecutive_night_constraints(...)`, podpięty przez `solver.py`.
 
-Zakazane: `night_streak_excess_count`, NIGHT_STREAK weight, soft phase albo override tej reguły.
+Zakazane są:
 
-Jeżeli HARD uczestniczy w niewykonalności, diagnoza ma zachować raw code `NIGHT-STREAK-01` i istniejącą ścieżkę `DECISION_REQUIRED`; nie nazywać go automatycznie `REST-01`.
+- `night_streak_excess_count`;
+- NIGHT_STREAK weight;
+- soft phase;
+- override tego HARD.
 
-### 3.5 Validator
+`validator.py` niezależnie od solverowego helpera powtarza tę regułę od zera na finalnych Assignmentach + canonical boundary facts.
 
-Validator niezależnie, od zera, na finalnej liście Assignmentów + canonical boundary facts powtarza tę samą semantykę.
+Violation/raw code: `NIGHT-STREAK-01`.
 
-Violation code: `NIGHT-STREAK-01`.
+To obowiązkowy anti-drift mirror HARD, nie powielenie produktu.
 
-Nie importuje solverowego helpera CP-SAT.
+### 3.5 DECISION_REQUIRED
 
-### 3.6 Coordinator-facing diagnosis
+Jeżeli brak automatycznego pełnego grafiku wynika z `NIGHT-STREAK-01`, wynik ma trafić do istniejącej ścieżki `DECISION_REQUIRED`, nie zostać nazwany `REST-01` ani `TECHNICAL_ERROR`.
 
 `DecisionRequiredPayload` pozostaje jedynym DTO.
 
-W `decision_guidance.py` tylko tłumaczenie:
+W `decision_guidance.py` dochodzi wyłącznie tekst:
 
 `NIGHT-STREAK-01` → `Koliduje z limitem dwóch nocek pod rząd`.
 
-Brak opcji akceptacji/wyłączenia HARD.
+Nie dodawać opcji zaakceptowania trzeciej N.
+
+### 3.6 24h
+
+T032 **nie dodaje specjalnej logiki 24h do NIGHT-STREAK**.
+
+Istniejący HARD odpoczynku po służbie 24h jest jedynym ownerem wymaganej 24h przerwy i sam uniemożliwia N następnego dnia. Nie duplikować tej ochrony.
 
 ---
 
-## 4. CHECKPOINT A — TARGET EQUITY
+## 4. TARGET EQUITY
 
-### 4.1 Jeden expression godzin
+### 4.1 Jeden owner godzin
 
 Dla każdego pracownika z istniejącego `target_by_employee`:
 
-- `effective_target` = `_effective_targets(state)`;
-- `actual_hours` = ten sam expression, którego TARGET-01 już używa;
-- absencja i hours scope nie są przeliczane drugi raz.
+- `effective_target` = dokładnie `_effective_targets(state)`;
+- `actual_hours` = dokładnie expression już używany przez TARGET-01;
+- T032 nie przelicza absencji ani godzin drugim kodem.
 
-Solver wyprowadza actual hours i absolutne odchylenie raz i reuse je przez TARGET-01 oraz equity.
+Solver wyprowadza actual hours i absolutne odchylenia raz i reuse je w TARGET-01 oraz equity.
 
 ### 4.2 Metryka
 
@@ -147,7 +168,7 @@ Dla `effective_target > 0`:
 
 `completion_pct = floor(100 * actual_hours / effective_target)`.
 
-Bez capu na 100.
+Bez capu na 100%.
 
 Dla co najmniej dwóch dodatnich effective targetów:
 
@@ -155,213 +176,185 @@ Dla co najmniej dwóch dodatnich effective targetów:
 
 Mniejszy spread jest lepszy.
 
-`effective_target == 0` wyłącza pracownika tylko z ratio; TARGET-01 nadal liczy `|actual_hours - 0|`.
+`effective_target == 0` wyłącza pracownika wyłącznie z ratio; TARGET-01 nadal liczy jego odchylenie od 0.
 
-### 4.3 TARGET-01 przed equity
+### 4.3 TARGET-01 ma pierwszeństwo
 
-Equity nie może świadomie kupić gorszej łącznej wartości TARGET-01.
+Po istniejących silniejszych fazach REPLAN-MIN i — gdy aktywna — exceptional-N solver najpierw optymalizuje:
 
-Po ukończeniu istniejących silniejszych faz solver dąży do minimum `total_target_deviation`; jeśli udowodni je w budżecie, blokuje optimum przed finalną objective.
+`total_target_deviation = sum(|actual_hours - effective_target|)`.
 
-Jeżeli budżet kończy się już na etapie jakości (TARGET-01/final SOFT), HARD-poprawny incumbent może wrócić jako `FEASIBLE + optimization_complete=False`; nie wolno wtedy twierdzić, że target optimum zostało udowodnione.
+Jeżeli uzyska `OPTIMAL`, blokuje tę wartość i dopiero wtedy uruchamia equity oraz pozostałe finalne SOFT.
 
-### 4.4 Finalny term
+**Equity nigdy nie może świadomie kupić gorszego udowodnionego TARGET-01.**
 
-`TARGET_EQUITY_WEIGHT = 1` w `fairness.py`.
+Jeżeli 180 s kończy się podczas fazy TARGET-01 po znalezieniu FEASIBLE, lecz przed `OPTIMAL`, solver zwraca ten HARD-poprawny incumbent jako partial FEASIBLE i **nie przechodzi już do equity/rhythm**, ponieważ optimum TARGET-01 nie zostało udowodnione.
 
-`TARGET_DEVIATION_WEIGHT = 100` bez zmiany.
+### 4.4 Helper
 
-`add_target_equity_fairness(...)` dostaje już wyprowadzone `actual_hours` i effective targets. Nie czyta persistence ani nie liczy absencji.
+W `fairness.py`:
+
+`TARGET_EQUITY_WEIGHT = 1`.
+
+`TARGET_DEVIATION_WEIGHT = 100` pozostaje bez zmiany.
+
+`add_target_equity_fairness(...)` dostaje już wyprowadzone actual hours i effective targets; nie czyta WorkBalance/Availability/persistence.
 
 ---
 
-## 5. CHECKPOINT B — REWARD D → N → WOLNE → WOLNE
+## 5. REWARD `D → N → WOLNE → WOLNE`
 
-Reward jest SOFT i niezależny od HARD max-2-N.
+To wyłącznie same-month SOFT.
 
 `DN_RHYTHM_REWARD_WEIGHT = 1`.
 
-Każde pełne trafienie obniża finalną objective o 1.
+Dla okna czterech kolejnych dat startu `(d, d+1, d+2, d+3)` całkowicie wewnątrz `state.month` trafienie istnieje tylko gdy:
 
-### 5.1 Okno
-
-Tylko cztery kolejne daty startu `(d, d+1, d+2, d+3)` całkowicie wewnątrz `state.month`.
-
-Cross-month dotyczy HARD N-streak, nie rewardu rytmu.
-
-### 5.2 Trafienie
-
-`pattern_match(employee, d) = 1` tylko gdy:
-
-1. w `d` startuje dokładnie jeden non-CANCELLED Assignment i jest PRIMARY D;
+1. w `d` startuje dokładnie jeden non-CANCELLED Assignment pracownika i jest PRIMARY D;
 2. w `d+1` startuje dokładnie jeden non-CANCELLED Assignment i jest PRIMARY N;
 3. w `d+2` nie startuje żaden non-CANCELLED Assignment tego pracownika;
 4. w `d+3` nie startuje żaden non-CANCELLED Assignment tego pracownika.
 
-N kończąca się rano w `d+2` nie psuje wzorca; „wolne” oznacza tu brak nowego startu. Odpoczynek godzinowy pozostaje własnością REST/WEEKLY-REST.
+N kończąca się rano w `d+2` nie psuje tego wzorca. „Wolne” oznacza tutaj brak nowego startu; odpoczynek godzinowy pozostaje wyłącznie własnością REST/WEEKLY-REST.
 
-Fixed target-Site facts uczestniczą; redistributable baseline nie jest liczony drugi raz; other-Site nie uczestniczy.
+Fixed target-Site facts uczestniczą. Redistributable baseline nie jest liczony drugi raz. Other-Site nie uczestniczy.
 
----
-
-## 6. EQUITY — WYMAGANY DOWÓD PIONOWY
-
-Live `192 / 180 / 180 / 120 / 48` przy targetach `160` pozostaje sygnałem produktu, nie oracle przyczyny.
-
-T032 dowodzi:
-
-1. kontrolowany tie TARGET-01 → mniejszy completion spread wygrywa;
-2. realny `solve()` na małym stanie: ≥4 osoby, równe dodatnie effective targety, pula 12h demandów poniżej sumy targetów, HARD pozwala idealnie równo rozdzielić zmiany → pierwszy FEASIBLE kandydat ma `max(actual_hours)-min(actual_hours) == 0`.
-
-Jeśli fixture sam tworzy HARD przeszkadzający równości, fixture jest błędny.
+Reward = suma trafień wszystkich pracowników. Brak wspólnej fazy brygady i brak cross-month rewardu.
 
 ---
 
-## 7. OWNER TIME BUDGET — 180 S NA CAŁĄ OPERACJĘ
+## 6. JEDEN BUDŻET 180 S
 
-### 7.1 Jeden deadline
-
-Jedna publiczna operacja `plan(state)` ma:
+### 6.1 Deadline
 
 `PLANNING_OPERATION_BUDGET_SECONDS = 180`.
 
-Deadline powstaje raz z monotonicznego zegara. Każdy wewnętrzny solve/fallback/faza/search alternatyw dostaje tylko pozostały czas do tego samego deadline. Nie resetować 180 s per faza.
+Deadline powstaje raz na początku publicznego `plan(state)` z monotonicznego zegara.
 
-Testy używają fake clock/małego test budgetu; nie śpią 180 s.
+Każdy wewnętrzny CP-SAT solve, fallback, faza leksykograficzna i search wariantów dostaje wyłącznie **pozostały czas** do tego samego deadline.
 
-### 7.2 R3-3 — które fazy wolno zakończyć partial FEASIBLE
+Nie resetować pełnych 180 s per solve/faza.
 
-**Partial FEASIBLE NIE rozluźnia istniejących silniejszych faz REPLAN-MIN ani exceptional-N.**
+Testy używają fake clock albo małego test budgetu; nie śpią 180 s.
 
-Jeżeli deadline kończy się zanim któraś z tych pre-existing phases udowodni swoje wymagane `OPTIMAL`, zachowuje się ich dotychczasowy fail-closed contract: publicznie brak kandydata / `TECHNICAL_ERROR + optimization_complete=False`.
+### 6.2 Istniejące silniejsze fazy pozostają fail-closed
 
-Dopiero po udowodnieniu wszystkich aktywnych pre-existing stronger phases można zastosować timeout fallback z §7.3 do faz jakości: TARGET-01, equity, rhythm, weekend/holiday i pozostałej finalnej objective.
+T032 nie rozluźnia REPLAN-MIN ani exceptional-N.
 
-To zachowuje wcześniejsze frozen gwarancje zamiast po cichu dopuszczać większy reshuffle albo nieudowodnione użycie exceptional-N.
+Jeżeli deadline kończy się przed udowodnieniem wymaganego `OPTIMAL` którejkolwiek z tych istniejących silniejszych faz:
 
-### 7.3 Wynik po wyczerpaniu budżetu
+- brak partial FEASIBLE;
+- `TECHNICAL_ERROR + optimization_complete=False`.
 
-A. Po ukończeniu silniejszych faz, jeśli istnieje pełny HARD-poprawny incumbent:
+### 6.3 Partial FEASIBLE
+
+Po ukończeniu aktywnych silniejszych faz:
+
+- timeout podczas TARGET-01 z FEASIBLE incumbent → zwróć incumbent, nie uruchamiaj późniejszych SOFT;
+- timeout podczas finalnego SOFT po udowodnionym TARGET optimum → zwróć najlepszy znaleziony incumbent.
+
+W obu przypadkach:
 
 - status `FEASIBLE`;
 - independent validator musi PASS;
-- `optimization_complete=False`;
-- nie nazywać nieudowodnionego SOFT optimum błędem technicznym.
+- `optimization_complete=False`.
 
-B. Wszystkie wymagane fazy/objective udowodnione w budżecie:
+Jeżeli wszystkie wymagane fazy/objective są udowodnione w czasie → `optimization_complete=True`.
 
-- zwykły wynik;
-- `optimization_complete=True`.
+Jeżeli do deadline nie ma HARD-poprawnego kandydata ani dowodu normalnego `DECISION_REQUIRED` → `TECHNICAL_ERROR + optimization_complete=False` z czytelnym komunikatem o wyczerpaniu czasu.
 
-C. Brak kandydata i brak proof `DECISION_REQUIRED` do deadline:
+Udowodniony przed deadline `DECISION_REQUIRED` pozostaje zwykłym kompletnym wynikiem.
 
-- brak wymyślonego FEASIBLE;
-- `TECHNICAL_ERROR` może pozostać publiczną klasą nierozstrzygnięcia;
-- `optimization_complete=False`;
-- czytelny komunikat o upływie 3 minut i możliwości ponowienia.
+### 6.4 Minimalne DTO
 
-D. `DECISION_REQUIRED` udowodniony przed deadline jest kompletnym normalnym wynikiem.
-
-### 7.4 DTO
-
-Do `PlanningResult` na końcu:
+Do końca `PlanningResult`:
 
 `optimization_complete: bool = True`.
 
-Bez nowego statusu `PARTIAL`, job ID ani persisted solver session.
+Bez nowego statusu `PARTIAL`, solver score DTO, job ID i persisted session.
 
 ---
 
-## 8. DZIAŁAJĄCY SEAM „SZUKAJ DALEJ”
+## 7. „SZUKAJ DALEJ” — REUSE ISTNIEJĄCEGO PLAN
 
-### 8.1 Publiczna operacja application-layer
+### 7.1 Bez nowej komendy
 
-Dodać w `rota/application/plan_ops.py` cienką operację, nazwa przykładowa:
+Po `FEASIBLE + optimization_complete=False` koordynator może wybrać:
 
-`continue_plan_search(conn, *, site_id: str, month: date, coordinator_id: str, incumbent_candidate: list[Assignment]) -> PlanningResult`
+- `Użyj tego grafiku` — istniejący `select_candidate`;
+- `Szukaj dalej` — ponowne wywołanie istniejącego PLAN na tym samym CURRENT WORKING version.
 
-Kontrakt:
+Nie dodawać `continue_plan_search()`.
 
-1. wymaga aktywnego kontekstu i istniejącego CURRENT `WORKING` ScheduleVersion;
-2. **nie tworzy nowego ScheduleVersion ani kolejnego REPLAN child**;
-3. składa fresh canonical PlanningState dla tego samego CURRENT WORKING version;
-4. niezależnie waliduje `incumbent_candidate` względem tego fresh state; invalid/stale incumbent = request rejected, nie hint;
-5. przekazuje incumbent nietrwale do engine/solver;
-6. niczego nie zapisuje, dopóki koordynator później nie użyje zwykłego `select_candidate`.
+Dla REPLAN:
 
-Dla pierwszego PLAN retry pracuje na już utworzonym current WORKING version. Dla REPLAN retry pracuje na tym samym child, który utworzył pierwszy `replan()`; **nie wolno ponownie wywołać `replan()` tylko po to, żeby szukać dalej**.
+1. pierwsze `replan()` tworzy jeden WORKING child;
+2. jeżeli koordynator chce szukać dalej, **nie wywołuje się drugi raz `replan()`**;
+3. używa się zwykłego `plan_month()` na już istniejącym CURRENT WORKING child.
 
-### 8.2 Incumbent jest obowiązkowy i zmienia przebieg
+Poprzedni poprawny kandydat pozostaje po stronie UI dostępny jako fallback i nie jest automatycznie persystowany ani usuwany.
 
-Retry bez incumbent jest niedozwolony.
+### 7.2 Jedyny nowy parametr retry
 
-Solver mapuje mutable PRIMARY część incumbent na istniejące `x` i:
+Istniejący PLAN dostaje opcjonalny, nietrwały parametr:
 
-- używa pełnej sygnatury incumbent jako obowiązkowego CP-SAT solution hintu;
-- dodaje no-good/diversity cut wykluczający dokładnie tę samą mutable PRIMARY signature z nowego wyniku.
+`search_attempt: int = 0`.
 
-Dzięki temu identyczny `PlanningState + seed=0` nie uruchamia po prostu tego samego przebiegu kończącego się tym samym kandydatem.
+Semantyka:
 
-Fixed facts nie są częścią diversity cut jako „wybór”, bo nie mogą się zmienić.
+- pierwszy przebieg: `search_attempt=0`, zachowuje dotychczasowy deterministyczny przebieg;
+- każde `Szukaj dalej`: frontend zwiększa wartość (`1`, `2`, ...);
+- parametr wpływa wyłącznie na **CP-SAT search seed/order**, nie na model, HARD, objective ani PlanningState;
+- nie jest persystowany i nie jest częścią ScheduleVersion.
 
-Każdy nowy kandydat ponownie przechodzi independent validator.
+Solver ma użyć wartości attempt do uruchomienia rzeczywiście innego przebiegu wyszukiwania (np. przez wspierane przez CP-SAT ustawienia random seed/search randomization). Nie wolno ponownie uruchamiać identycznego `seed=0` i nazywać tego „szukaniem dalej”.
 
-### 8.3 Uczciwa semantyka „lepszy”
+Nie jest gwarantowane znalezienie innego grafiku. Jeżeli kolejny przebieg zwróci tę samą konfigurację albo nic lepszego/innego nie znajdzie w budżecie, UI zachowuje poprzedni kandydat i może poinformować, że nie znaleziono innej konfiguracji.
 
-T032 **nie dodaje drugiego post-hoc kalkulatora pełnego canonical objective** tylko po to, aby porównywać dwa zakończone grafiki.
+### 7.3 Bez comparatora i bez incumbent protocol
 
-Dlatego UI nie może twierdzić, że drugi znaleziony grafik jest matematycznie lepszy, jeżeli backend tego nie udowodnił.
+T032 nie dodaje:
 
-Owner-facing flow:
+- payloadu poprzedniego kandydata do backendu;
+- solution hintu między requestami;
+- no-good/diversity cutu między requestami;
+- post-hoc kalkulatora pełnej objective;
+- persistent search state.
 
-- pytanie po timeout pozostaje: **„Znaleziono poprawny grafik. Szukać lepszej konfiguracji?”**;
-- akcja wykonawcza na przycisku nazywa się **„Szukaj dalej”**;
-- podczas retry poprzedni kandydat pozostaje widoczny/dostępny jako fallback;
-- jeśli backend znajdzie inny HARD-poprawny kandydat, UI pokazuje oba (`Dotychczasowy` / `Nowy znaleziony`) i nie opisuje nowego jako „lepszy” bez dowodu;
-- koordynator może wybrać dowolny przez istniejący `select_candidate` albo ponowić `Szukaj dalej` z wybranym bieżącym incumbentem.
-
-Jeżeli po no-good cut nie ma innego rozwiązania w budżecie, poprzedni incumbent pozostaje dostępny. Nie wolno go usuwać ani automatycznie zapisywać.
-
-Brak persistence solvera i brak zachowania obiektu `CpSolver` między requestami.
+Dlatego przycisk nazywa się **`Szukaj dalej`**, a nie obiecuje, że następny wynik będzie matematycznie lepszy.
 
 ---
 
-## 9. OBOWIĄZKOWY UX + TIMEOUT TRANSPORTOWY — POLECENIE DLA CC
+## 8. UX I TIMEOUT TRANSPORTOWY — BINDING DLA CC
 
-To binding OWNER UX requirement.
+### 8.1 Loader
 
-### 9.1 Loader
+Podczas trwającego PLAN/REPLAN/retry koordynator ma widzieć:
 
-Podczas trwającego PLAN/REPLAN/`continue_plan_search` koordynator widzi:
-
-- spinner **lub** indeterminate progress bar;
+- spinner albo indeterminate progress bar;
 - tekst np. `Układam grafik — to może potrwać do 3 minut`;
 - zablokowanie podwójnego uruchomienia;
-- brak fałszywego procentu postępu.
+- brak wymyślonego procentu postępu.
 
-Ekran nie może wyglądać jak zawieszony.
+### 8.2 Timeout frontendu
 
-### 9.2 R3-1 — planning request nie używa globalnego 20 s timeoutu
+Obecny globalny `REQUEST_TIMEOUT_MS = 20000` pozostaje dla zwykłych krótkich endpointów.
 
-Obecne `frontend/src/api/client.ts` abortuje każdy `req()` przez globalne `REQUEST_TIMEOUT_MS = 20000`. To jest za krótko dla zaakceptowanego budżetu 180 s.
+Docelowy PLAN/REPLAN/retry musi używać per-request override:
 
-Gdy powstaje docelowy seam PLAN/REPLAN/search dalej:
+`PLANNING_REQUEST_TIMEOUT_MS = 195000`.
 
-- `req()` ma obsługiwać **per-request timeout override**;
-- zwykłe krótkie endpointy nadal używają istniejącego 20 s defaultu;
-- wyłącznie PLAN/REPLAN/`continue_plan_search` używają `PLANNING_REQUEST_TIMEOUT_MS = 195000` (180 s budżetu backendu + 15 s marginesu transportu/serializacji);
-- frontend nie może abortować requestu przed 180 s backend deadline;
-- loader trwa do faktycznej odpowiedzi/abortu, nie do lokalnego timera 20 s.
+To 180 s backend budget + 15 s marginesu transportu/serializacji.
 
-Nie podnosić globalnego timeoutu wszystkich endpointów.
+Nie podnosić globalnego timeoutu wszystkich requestów.
 
-### 9.3 Po odpowiedzi
+### 8.3 Wynik w UI
 
 `FEASIBLE + optimization_complete=False`:
 
-- pokaż znaleziony grafik;
-- pytanie z §8.3;
-- `Użyj tego grafiku` oraz `Szukaj dalej`.
+- pokaż znaleziony grafik normalnie;
+- komunikat: `Znaleziono poprawny grafik. Szukać dalej?`;
+- akcje: `Użyj tego grafiku` / `Szukaj dalej`.
 
 `optimization_complete=True`:
 
@@ -369,176 +362,185 @@ Nie podnosić globalnego timeoutu wszystkich endpointów.
 
 `TECHNICAL_ERROR + optimization_complete=False` bez kandydata:
 
-- czytelny komunikat o wyczerpaniu budżetu;
+- czytelny komunikat o upływie 3 minut;
 - możliwość ponowienia;
 - bez stack trace.
 
-### 9.4 Granica branchu
+### 8.4 Granica branchu
 
-Na bazie T032 nadal nie ma kompletnego docelowego ekranu Planowanie miesiąca ani routera PLAN/REPLAN. T032 nie tworzy sztucznego UI/API scaffoldu.
+T032 nie tworzy nieistniejącego jeszcze ekranu/routera Planowanie tylko po to, aby zamknąć UX.
 
-Ale contract dla późniejszego seam jest binding: ekran/API nie przejdą owner review bez per-request 195 s timeoutu, loadera i flow `Szukaj dalej`.
-
-Backend T032 implementuje już `optimization_complete` i application seam `continue_plan_search`; późniejszy router ma je tylko przenieść 1:1.
+Binding future seam jest jednak jednoznaczny: per-request 195 s timeout, loader, `optimization_complete`, opcjonalny `search_attempt` i akcja `Szukaj dalej`.
 
 ---
 
-## 10. T028 QUALITY GATE
+## 9. T028 — BEZ TRZECIEGO OWNERA NIGHT-STREAK
 
-T028 pozostaje osobnym taskiem/branchem.
+T028 **nie dostaje własnego algorytmu wykrywania serii N**.
 
-Companion correction T028 ma traktować każdy FEASIBLE kandydat z >2 kolejnymi PRIMARY N jako `QUALITY_FAIL` poligonu. Po OWNER_CORRECTED jest to niezależny bezpiecznik regresji; produkcyjny solver/validator powinny już taki wynik uniemożliwić.
+Po wdrożeniu T032 produkcyjny validator ma niezależnie od solvera odrzucać każdy finalny kandydat z `NIGHT-STREAK-01`.
 
-T028 nie implementuje reguły.
+T028 już ma obowiązek wywołać produkcyjny `validate()` dla każdego FEASIBLE kandydata. To wystarcza: jeśli solver kiedykolwiek przepuści N/N/N, validator odrzuci kandydat i istniejący poligon uzna przypadek za FAIL.
+
+Nie dodawać:
+
+- `QUALITY_FAIL` liczonego lokalnie z serii N;
+- lokalnego `classify_demand` loop tylko dla T028;
+- trzeciej implementacji max-2-N.
+
+Po integracji T032 należy uruchomić istniejący T028 jako regresję. Można dodać scenariusz wejściowy zwiększający szansę ekspozycji N-streak, ale oracle pozostaje produkcyjny validator + istniejące generic checks T028.
 
 ---
 
-## 11. SCOPE
+## 10. SCOPE
 
-### Production dozwolone
+### Production — dozwolone
 
-- `rota/planning/constraints.py` — `NIGHT-STREAK-01`;
-- `rota/planning/solver.py` — wiring HARD, objective, deadline, incumbent hint/no-good retry;
-- `rota/planning/validator.py` — mirror HARD;
-- `rota/planning/fairness.py` — equity + D/N rhythm;
-- `rota/planning/engine.py` — operation budget, timeout disposition, incumbent retry seam;
-- `rota/planning/engine_types.py` — tylko `PlanningResult.optimization_complete`;
-- `rota/planning/decision_guidance.py` — tylko label `NIGHT-STREAK-01`;
-- `rota/application/plan_ops.py` — `optimization_complete` pass-through + `continue_plan_search` bez nowej wersji/persistence solvera.
+- `rota/planning/constraints.py` — HARD `NIGHT-STREAK-01`;
+- `rota/planning/solver.py` — wiring HARD, target/equity/rhythm, operation deadline, `search_attempt` → search seed/order;
+- `rota/planning/validator.py` — niezależny mirror HARD;
+- `rota/planning/fairness.py` — equity + rhythm;
+- `rota/planning/engine.py` — deadline/partial disposition i poprawna diagnoza NIGHT-STREAK;
+- `rota/planning/engine_types.py` — wyłącznie `PlanningResult.optimization_complete`;
+- `rota/planning/decision_guidance.py` — wyłącznie label `NIGHT-STREAK-01`;
+- `rota/application/plan_ops.py` — wyłącznie przekazanie opcjonalnego `search_attempt` przez istniejący `plan_month()`; bez nowej operacji.
 
-### Tests
+### Testy
 
 - `tests/test_t032_soft_ranking.py`;
-- opcjonalnie `tests/test_t032_night_streak.py`;
-- istniejące regressions ownerów bez zmian.
+- opcjonalnie `tests/test_t032_night_streak.py` dla czytelności;
+- istniejące regresje ownerów, w tym T028 po integracji.
 
-### Nie implementować na tym branchu
+### Zakazane
 
-- nowego ekranu Planowanie/routera, którego baza jeszcze nie ma;
-- frontend scaffoldu tylko dla testu T032;
+- `continue_plan_search()` lub inna nowa publiczna komenda retry;
+- incumbent/hint/no-good protocol między requestami;
 - persistence/job queue/background worker;
-- procentowego progressu;
-- nowego PlanningStatus;
+- solver score/comparator DTO;
+- nowy PlanningStatus;
+- trzeci NIGHT-STREAK owner w T028;
+- specjalna logika NIGHT-STREAK dla 24h;
 - cross-Site night streak;
 - cross-month rhythm reward;
-- zmian REST/WEEKLY/LOAD;
-- specjalnej logiki NIGHT-STREAK dla 24h;
-- nowego modelu absencji/targetu;
-- sztywnej brygady;
-- nowego manual override HARD.
+- nowe REST/WEEKLY/LOAD semantics;
+- nowy model absencji/targetu;
+- sztywny grafik brygadowy;
+- nowy override HARD.
 
 ---
 
-## 12. MINIMALNA MACIERZ ODBIORU
+## 11. MINIMALNA MACIERZ ODBIORU
 
 ### NIGHT-STREAK-01
 
 T32-N1 — N/N legalne; N/N/N niedozwolone.
 
-T32-N2 — persisted N poprzedniego miesiąca + N/N bieżącego zablokowane.
+T32-N2 — persisted N poprzedniego miesiąca + N/N bieżącego jest zablokowane.
 
 T32-N3 — D/N/N i N/wolne/N nie są trójką N.
 
-T32-N4 — fixed current-Site PRIMARY uczestniczy; redistributable baseline bez double count.
+T32-N4 — fixed target-Site PRIMARY uczestniczy; redistributable baseline bez double count.
 
 T32-N5 — TRAINEE/CANCELLED nie tworzą N; other-Site nie uczestniczy.
 
 T32-N6 — validator odrzuca wstrzyknięty N/N/N także przez boundary kodem `NIGHT-STREAK-01`.
 
-T32-N7 — solve blokowany przez tę regułę trafia do `DECISION_REQUIRED`, nie udaje REST-01.
+T32-N7 — infeasible przez ten HARD trafia do `DECISION_REQUIRED` z właściwą przyczyną, nie jako `REST-01`.
 
-T32-N8 — istniejący 24h rest sam uniemożliwia 24h → N następnego dnia; brak drugiego NIGHT-STREAK special-case.
+T32-N8 — 24h rest pozostaje jedynym ownerem przerwy po 24h; brak special-case w NIGHT-STREAK.
 
 ### TARGET EQUITY
 
-T32-A1 — tie TARGET-01: mniejszy completion spread wygrywa.
+T32-A1 — przy tym samym TARGET-01 mniejszy completion spread wygrywa.
 
-T32-A2 — różne targety: proporcjonalność > równe surowe godziny przy tej samej wcześniejszej jakości.
+T32-A2 — różne targety: proporcjonalność wygrywa nad równymi surowymi godzinami przy tej samej wcześniejszej jakości.
 
-T32-A3 — effective target po absence_hours.
+T32-A3 — effective target uwzględnia canonical absence_hours.
 
-T32-A4 — target=0 bez dzielenia/model invalid; TARGET-01 nadal działa.
+T32-A4 — target=0 nie powoduje dzielenia/model invalid; TARGET-01 nadal działa.
 
-T32-A5 — surplus >100% niecapowany.
+T32-A5 — surplus >100% nie jest capowany.
 
-T32-A6 — real solve ≥4 równych targetów, równomiernie rozdzielalny shortage → równe actual hours.
+T32-A6 — real `solve()` z ≥4 równymi targetami i równomiernie rozdzielalnym shortage daje równy rozkład godzin.
 
 ### D/N RHYTHM
 
-T32-B1 — więcej D→N→wolne→wolne trafień wygrywa przy równej wcześniejszej jakości.
+T32-B1 — więcej D→N→wolne→wolne trafień wygrywa przy tej samej wcześniejszej jakości.
 
-T32-B2 — suma wielu trafień/wielu pracowników, bez wspólnej fazy.
+T32-B2 — wiele trafień/wielu pracowników sumuje się bez wspólnej fazy.
 
 T32-B3 — N kończąca się rano dnia wolnego nie niszczy start-day rhythm.
 
-T32-B4 — fixed target-Site facts uczestniczą; TRAINEE może zająć wolny dzień, ale nie spełnia D/N.
+T32-B4 — fixed target-Site facts uczestniczą; TRAINEE może zająć dzień wolny, ale nie spełnia D/N.
 
 T32-B5 — reward nie przechodzi przez granicę miesiąca.
 
 ### BUDŻET
 
-T32-T1 — jeden fake 180 s deadline współdzielony przez wszystkie solve; brak resetu per faza.
+T32-T1 — jeden fake 180 s deadline jest współdzielony przez wszystkie wewnętrzne solve; brak resetu.
 
-T32-T2 — timeout podczas REPLAN-MIN lub exceptional-N zachowuje fail-closed: brak partial FEASIBLE.
+T32-T2 — timeout podczas REPLAN-MIN/exceptional-N pozostaje fail-closed.
 
-T32-T3 — timeout dopiero po ukończeniu stronger phases + HARD-valid incumbent → `FEASIBLE`, `optimization_complete=False`, validator PASS.
+T32-T3 — timeout podczas TARGET-01 po FEASIBLE, przed OPTIMAL → partial FEASIBLE, validator PASS, bez uruchomienia equity/rhythm.
 
-T32-T4 — pełne udowodnienie → `optimization_complete=True`.
+T32-T4 — timeout podczas finalnego SOFT po target OPTIMAL → partial FEASIBLE, validator PASS.
 
-T32-T5 — timeout bez kandydata/proof decision → `TECHNICAL_ERROR`, `optimization_complete=False`, czytelny message.
+T32-T5 — pełne zakończenie → `optimization_complete=True`.
 
-T32-T6 — normalny udowodniony `DECISION_REQUIRED` nie jest maskowany timeoutem.
+T32-T6 — brak kandydata/proof decision → `TECHNICAL_ERROR + optimization_complete=False`.
 
-T32-T7 — default `optimization_complete=True` zachowuje stare konstruktory/testy.
+T32-T7 — normalny `DECISION_REQUIRED` nie jest maskowany timeoutem.
 
-### CONTINUE SEARCH
+T32-T8 — default `optimization_complete=True` zachowuje stare konstruktory.
 
-T32-C1 — `continue_plan_search` używa tego samego CURRENT WORKING version; nie tworzy nowego ScheduleVersion/REPLAN child.
+### RETRY / REUSE
 
-T32-C2 — incumbent jest obowiązkowy, fresh-validator PASS wymagany przed użyciem jako hint.
+T32-C1 — pierwsze PLAN używa `search_attempt=0`; retry istniejącym `plan_month()` na tym samym CURRENT WORKING używa `search_attempt>0`.
 
-T32-C3 — retry mapuje incumbent do x, daje solution hint i no-good cut wykluczający dokładną mutable signature; identyczny deterministic solve nie może po prostu zwrócić tej samej signature.
+T32-C2 — po pierwszym REPLAN retry nie tworzy drugiego child; używa PLAN na aktualnym WORKING child.
 
-T32-C4 — fixed facts nie są traktowane jako zmienny diversity choice; każdy nowy kandydat validator PASS.
+T32-C3 — różny `search_attempt` rzeczywiście zmienia CP-SAT search seed/order, ale nie model/HARD/objective.
 
-T32-C5 — poprzedni incumbent nie jest persystowany/usuwany przez retry i pozostaje możliwy do późniejszego `select_candidate`.
+T32-C4 — `search_attempt` nie jest persystowany i nie zmienia ScheduleVersion.
 
-T32-C6 — bez działającego canonical post-hoc comparatora flow używa label `Szukaj dalej`; UI nie twierdzi, że nowy kandydat jest lepszy i zachowuje oba.
+T32-C5 — brak incumbent payload, hintu, no-good cutu i nowego application command.
 
-### FUTURE UI/API SEAM CONTRACT
+### FUTURE UI/API CONTRACT
 
-T32-U1 — planujące requesty używają per-request 195000 ms timeoutu, zwykłe endpointy pozostają przy 20000 ms.
+T32-U1 — planning request ma per-request 195000 ms timeout; globalny default pozostaje 20000 ms.
 
-T32-U2 — loader/spinner jest widoczny przez cały request; brak wymyślonego %.
+T32-U2 — loader/spinner przez cały request; brak fake %.
 
-T32-U3 — partial FEASIBLE pokazuje incumbent + pytanie i `Szukaj dalej`; retry zachowuje poprzedni wynik.
+T32-U3 — partial FEASIBLE pokazuje grafik + `Użyj tego grafiku` / `Szukaj dalej`; retry zachowuje poprzedni wynik po stronie UI.
 
-Te trzy są contract tests dla późniejszego ekranu/routera, nie powodem tworzenia nieistniejącego frontendu na T032.
+Te punkty są binding dla przyszłego ekranu/routera, ale nie wymagają tworzenia scaffoldu na T032.
 
 ### Regresja
 
-T32-R1 — REST/WEEKLY/LOAD/coverage/eligibility zielone.
+T32-R1 — REST/WEEKLY/LOAD/coverage/eligibility pozostają zielone.
 
 T32-R2 — weekend/holiday fairness, DAY_SHIFT_OFF, LEAVE_PLAN, REPLAN-MIN i exceptional-N zachowują swoje role.
 
-T32-R3 — żaden timeout/retry nie omija independent validator przed publicznym FEASIBLE.
+T32-R3 — żaden timeout nie omija independent validator przed publicznym FEASIBLE.
+
+T32-R4 — po integracji T032 istniejący T028 FAILuje każdy FEASIBLE kandydat odrzucony przez produkcyjny validator; brak lokalnej kopii NIGHT-STREAK.
 
 ---
 
-## 13. PREIMPLEMENTATION RE-AUDIT
+## 12. PREIMPLEMENTATION RE-AUDIT
 
-Independent Codex audituje exact corrected HEAD wyłącznie pod konsekwencje R3 i regresje wprowadzone korektą.
+Independent Codex audituje exact HEAD wyłącznie pod R3 i tę redukcję architektury.
 
 Required checks:
 
 1. Czy R3-1 jest zamknięty per-request timeoutem 195 s bez zmiany globalnego 20 s defaultu?
-2. Czy R3-2 ma realny application seam na tym samym WORKING version, mandatory incumbent, hint + no-good cut i bez kolejnego REPLAN child?
-3. Czy UI contract uczciwie używa `Szukaj dalej` i zachowuje oba wyniki, skoro T032 nie dodaje canonical post-hoc comparatora?
-4. Czy R3-3 jednoznacznie zachowuje fail-closed REPLAN-MIN/exceptional-N, a partial FEASIBLE dotyczy dopiero późniejszej optymalizacji jakości?
-5. Czy NIGHT-STREAK pozostaje literalnym HARD z boundary i bez specjalnej logiki 24h?
-6. Czy equity/rhythm nie tworzą drugiego ownera hours/D-N?
-7. Czy 180 s nadal jest jednym backend deadline i wszystkie partial candidates przechodzą validator?
-8. Czy scope nie tworzy job queue, persistence solvera, fake progress ani nieistniejącego ekranu?
+2. Czy R3-2 jest zamknięty przez reuse istniejącego `plan_month()` + nietrwały `search_attempt`, bez nowej operacji, incumbent protocol, hint/no-good i bez kolejnego REPLAN child?
+3. Czy `search_attempt` rzeczywiście zmienia przebieg CP-SAT, ale nie zmienia modelu/rankingu produktu?
+4. Czy R3-3 zachowuje fail-closed REPLAN-MIN/exceptional-N, a partial FEASIBLE zaczyna się dopiero później?
+5. Czy timeout podczas nieudowodnionego TARGET-01 zwraca incumbent bez uruchamiania equity/rhythm, dzięki czemu equity nie może kupić gorszego targetu?
+6. Czy NIGHT-STREAK pozostaje jednym HARD w solverze + obowiązkowym independent validator mirror, bez trzeciego ownera w T028 i bez special-case 24h?
+7. Czy T028 może polegać na swoim istniejącym obowiązku `validate()` zamiast lokalnie powielać regułę?
+8. Czy scope nie tworzy job queue, persistence solvera, comparatora, fake progress ani nowego modelu planowania?
 
 Required verdict:
 
