@@ -1,0 +1,142 @@
+ROTA-T028 — niezależny audyt implementacji, runda 1
+
+WERDYKT: FAIL — DWIE WĄSKIE KOREKTY POLIGONU
+
+Audytowany exact SHA:
+c469190c3a91cc36a691160d5c3238fc46da6605
+
+Baza:
+3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+
+Źródło prawdy:
+- tasks/ROTA-T028/brief.md na audytowanym SHA, w tym OWNER_ACCEPTED z
+  2026-08-24;
+- tasks/ROTA-T030/brief.md §3 pkt 3 — realny konfigurator zapisuje
+  required_rest_hours=11;
+- arch/FROZEN_ADDENDUM_OCHRONA_REST_RULES_01.md — skuteczny odpoczynek po
+  faktycznej pracy 24h podnosi backend.
+
+## Odpowiedź dla właściciela
+
+Tak: skrypt naprawdę odpytuje produkcyjny solver. Każdy przypadek tworzy
+oddzielną SQLite :memory:, zapisuje fakty istniejącymi komendami aplikacyjnymi,
+wywołuje rota.application.plan_ops.plan_month()/replan(), składa stan przez
+assembler, sprawdza kandydatów produkcyjnym validator.validate(), zapisuje
+wybrany kandydat przez select_candidate() i odczytuje snapshot. Nie znalazłem
+ręcznie utworzonego PlanningState, ShiftDemand, Assignment ani własnego
+grafiku-witnessa.
+
+Zwrócone grafiki z pełnej macierzy 6 wariantów Obiektu × 5 warunków są
+arytmetycznie poprawne w niezależnej kontroli: 30/30 przypadków, wszystkie
+zwrócone kandydaty mają kompletny zbiór demandów, dokładnie wymaganą liczbę
+PRIMARY na każdym demandzie i wymagany odstęp pomiędzy kolejnymi WorkPeriod
+tej samej osoby. Produkcyjny validator również akceptuje każdego kandydata.
+
+Obecna implementacja ma jednak dwie luki w tym, co uznaje za wiarygodny PASS.
+
+## R1-1 — pusty DECISION_REQUIRED jest zaliczany jako PASS
+
+TRACE:
+- brief §1 pkt 8: niespójny payload jest błędem;
+- brief §6: wartościowy jest kompletny DECISION_REQUIRED;
+- T28-06: DECISION_REQUIRED ma mieć kompletny payload.
+
+OWNERSHIP:
+tools/solver_scenario_lab.py::_inspect_result jest właścicielem klasyfikacji
+wyniku poligonu. Produkcyjny solver nie może sam zdecydować, że jego własna
+pusta odpowiedź jest wystarczającym dowodem dla poligonu.
+
+REPRO:
+tasks/ROTA-T028/round_01/tests/test_t028_audit.py::
+test_incomplete_decision_required_payload_must_not_be_reported_as_pass
+
+Podstawiono status DECISION_REQUIRED z:
+- zero kandydatów;
+- pustym blocking_shift_demands;
+- pustym blockers;
+- load_blocker=None;
+- pustym unblocking_options.
+
+Rzeczywisty wynik skryptu: CaseOutcome(ok=True, category="PASS").
+Oczekiwanie kontraktu: SOLVER_MISMATCH/FAIL poligonu.
+
+To nie jest hipotetyczne wymaganie nowego produktu. Bez tej kontroli przyszła
+regresja solvera może przestać wyjaśniać brak grafiku, a poligon nadal pokaże
+zielony wynik. Minimalna korekta ma odrzucić payload bez jakiegokolwiek
+faktu/przyczyny i bez propozycji działania; nie wymaga drugiego solvera.
+
+Kontrola rzeczywistych wyników na tym SHA: wszystkie 9 zbadanych odpowiedzi
+DECISION_REQUIRED miały rzeczywistą podstawę (blocking demand albo
+load_blocker), blocker oraz niepustą propozycję działania. Finding dotyczy
+brakującego bezpiecznika poligonu, nie twierdzenia, że obecny solver zwrócił
+pusty payload w macierzy 30 przypadków.
+
+## R1-2 — scenariusz 24h sam wpisuje 24h odpoczynku zamiast sprawdzić backend
+
+TRACE:
+- OWNER_ACCEPTED w briefie: generator zapisuje decyzje i daty, a backend jest
+  właścicielem wyliczenia godzin/skutków;
+- brief §2: generator nie wylicza sam odpoczynku;
+- realny konfigurator T030 §3 pkt 3 zapisuje required_rest_hours=11;
+- automatyczne podniesienie skutecznego odpoczynku po pracy 24h należy do
+  T023b/frozen addendum.
+
+OWNERSHIP:
+tools/solver_scenario_lab.py::_shifts buduje wejście scenariusza. To ta funkcja
+ma odtworzyć wejście koordynatora, a nie wpisać wynik reguły, którą poligon ma
+sprawdzać.
+
+REPRO:
+tasks/ROTA-T028/round_01/tests/test_t028_audit.py::
+test_24h_scenario_does_not_preconfigure_the_rest_that_backend_owns
+
+Rzeczywisty wynik: profil H24 otrzymuje required_rest_hours=24.
+Oczekiwanie istniejącej ścieżki produktu: wejściowe 11; backend sam stosuje
+ochronę 24h po powstaniu faktycznego WorkPeriod 24h.
+
+Wpływ: aktualne statusy wszystkich 20 wariantów 24h po mechanicznym
+podstawieniu wejściowego 11 pozostały identyczne. Nie wykazałem błędnego
+grafiku na obecnym kodzie. Obecne 24 maskuje jednak ewentualną regresję
+automatycznej reguły odpoczynku, bo generator dostarcza solverowi gotowe 24
+zamiast sprawdzić, czy backend sam je zastosuje. Minimalna korekta to zmiana
+jednej wartości wejściowej H24 z 24 na 11; bez nowej logiki.
+
+## Warstwy niezależnej weryfikacji
+
+1. Mechanika i scope
+- origin/task/ROTA-T028 == audytowany exact SHA;
+- merge-base z origin/main: 3be4ed37...;
+- diff produktu ograniczony do .gitignore, briefu, jednego skryptu i jednego
+  testu; zero zmian rota/**, api/**, frontend/** i benchmarks/**;
+- git diff --check: PASS;
+- backend.py: WYMAGA_DECYZJI wyłącznie TOTAL_LINES=805. Jawne limity Tasku
+  dopuszczają po 600 linii dla skryptu i testu; nie jest to finding produktu.
+
+2. Testy implementatora
+- tests/test_solver_scenario_lab.py: 26 passed.
+
+3. Niezależny pion i macierz
+- dowód realnego wywołania importowanych plan_month i validate: PASS;
+- kompletność pokrycia/liczebność/WorkPeriod rest dla 6×5: 30 passed;
+- rzeczywiste payloady DECISION_REQUIRED: 9 passed po uwzględnieniu dwóch
+  legalnych kształtów — blocking demands albo load_blocker;
+- dwa reproduktory findingów: 2 failed zgodnie z opisem;
+- cały niezależny plik: 40 passed, 2 failed.
+
+4. Pełna regresja repozytorium na exact SHA
+- 1150 passed, 1 failed;
+- jedyny failure:
+  test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b;
+- to znany, nieaktualny source-diff T023, który zakłada brak późniejszych,
+  autoryzowanych zmian T023b w constraints.py/work_periods.py. Nie jest
+  regresją T028.
+
+## Zakres wymaganej poprawki
+
+Tylko:
+1. odrzucić całkowicie pusty/niewyjaśniony DECISION_REQUIRED;
+2. dla profilu H24 przekazać wejściowe required_rest_hours=11 i pozostawić
+   podniesienie odpoczynku produkcyjnemu backendowi.
+
+Nie ma podstaw do zmiany solvera, validatora, API, bazy, macierzy wariantów ani
+do dodawania niezależnego oracle/benchmarku.
