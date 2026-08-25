@@ -7,6 +7,14 @@ import { consumePendingActionId, resolveAction, REQUEST_TIMEOUT_MS } from "../di
 import { sanitizeEndpoint } from "../diagnostics/sanitize";
 import { getFrontendReport } from "../diagnostics/report";
 
+// ROTA-T032: PLAN/REPLAN can legitimately run up to the solver's own
+// operation budget (PLANNING_OPERATION_BUDGET_SECONDS = 45s, see
+// rota/planning/solver.py) -- the global REQUEST_TIMEOUT_MS (20s) is too
+// short for these two calls specifically and must never abort them
+// mid-solve. 45s backend budget + 15s transport/serialization margin;
+// every other endpoint keeps the global 20s default.
+const PLANNING_REQUEST_TIMEOUT_MS = 60000;
+
 export interface SiteSummary {
   site_id: string;
   display_name: string;
@@ -187,7 +195,7 @@ export interface MatrixCellOut {
   applies_to: string | null;
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const method = init?.method ?? "GET";
   const endpointTemplate = sanitizeEndpoint(path);
   const actionId = consumePendingActionId();
@@ -206,7 +214,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   resolveAction(actionId);
 
   const controller = new AbortController();
-  const timeoutTimer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs);
 
   let res: Response;
   try {
@@ -338,7 +346,7 @@ export const api = {
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/plan`, {
       method: "POST",
       body: JSON.stringify({ effective_from: effectiveFrom }),
-    }),
+    }, PLANNING_REQUEST_TIMEOUT_MS),
   selectCandidate: (siteId: string, month: string, candidate: AssignmentIn[], note?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/select-candidate`, {
       method: "POST",
@@ -348,7 +356,7 @@ export const api = {
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan`, {
       method: "POST",
       body: JSON.stringify({ effective_from: effectiveFrom, note: note ?? null }),
-    }),
+    }, PLANNING_REQUEST_TIMEOUT_MS),
   finalizeMonth: (siteId: string, month: string, acknowledgedDeviationIds: string[], reason?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/finalize`, {
       method: "POST",
