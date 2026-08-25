@@ -212,7 +212,7 @@ def _shifts(spec: ScenarioSpec) -> list[StandardShift]:
         ]
     return [
         StandardShift(ShiftKind.D, time(6), time(6), True, spec.required_primary_count,
-                      catalog_kind=ShiftCatalogKind.H24, required_rest_hours=24),
+                      catalog_kind=ShiftCatalogKind.H24, required_rest_hours=11),
     ]
 
 
@@ -397,8 +397,8 @@ def _inspect_result(conn, spec: ScenarioSpec, result, *, external_enabled: bool,
     if result.status == "TECHNICAL_ERROR":
         raise ScenarioProblem("SOLVER_MISMATCH", result.error_message or "TECHNICAL_ERROR")
     if result.status == "DECISION_REQUIRED":
-        if result.candidates or result.decision_payload is None:
-            raise ScenarioProblem("SOLVER_MISMATCH", "DECISION_REQUIRED lacks zero-candidate payload")
+        if result.candidates or result.decision_payload is None or not any(asdict(result.decision_payload).values()):
+            raise ScenarioProblem("SOLVER_MISMATCH", "DECISION_REQUIRED lacks explained zero-candidate payload")
         if spec.shortage_date is not None:
             blocking = result.decision_payload.blocking_shift_demands
             if not any(item.start_datetime.date() == spec.shortage_date for item in blocking):

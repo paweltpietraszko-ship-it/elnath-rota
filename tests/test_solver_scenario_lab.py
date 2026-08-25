@@ -4,9 +4,11 @@ import ast
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from rota.planning.engine_types import DecisionRequiredPayload
 from tools import solver_scenario_lab as lab
 
 
@@ -120,6 +122,28 @@ def test_external_window_is_created_only_after_real_proposal_and_use_is_reported
     assert commands.index("add_external_support_window") > commands.index("plan_month")
     assert outcome.external_assignments
     assert {a["employee_id"] for a in outcome.external_assignments} == {"LAB-EXTERNAL-14"}
+
+
+def test_empty_decision_required_payload_is_a_solver_mismatch(monkeypatch):
+    result = SimpleNamespace(
+        status="DECISION_REQUIRED",
+        candidates=[],
+        decision_payload=DecisionRequiredPayload([], [], None, []),
+        warnings=[],
+        error_message=None,
+    )
+    monkeypatch.setattr(lab, "plan_month", lambda *args, **kwargs: result)
+
+    outcome = lab.execute_scenario(lab.build_scenario("ordinary_12h_single_5", 10))
+
+    assert not outcome.ok
+    assert outcome.category == "SOLVER_MISMATCH"
+
+
+def test_24h_profile_passes_real_coordinator_rest_input_to_backend():
+    spec = lab.build_scenario("ochrona_24h_single_5", 10)
+
+    assert {shift.required_rest_hours for shift in lab._shifts(spec)} == {11}
 
 
 @pytest.mark.parametrize("mutation, expected", [
