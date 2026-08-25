@@ -766,7 +766,17 @@ def _solve_lexicographic_phases(
         return SolverOutcome(final_solver.status_name(final_status), None, [], [], {}, [], site_rule_exclusions, optimization_complete=False)
     outcome = _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
     outcome.optimization_complete = final_status == cp_model.OPTIMAL
-    if not search_variants or outcome.assignments is None or not outcome.optimization_complete:
+    # OWNER_CORRECTED 2026-08-25 (live testing): T017's up-to-3-candidates
+    # search must run whenever a valid first candidate exists, regardless of
+    # whether the main solve proved OPTIMAL -- gating it behind
+    # optimization_complete was my own overreach (T032 never asked for
+    # this): with equity/rhythm now rarely provable within budget, that
+    # gate silently collapsed the coordinator's normal 1-3 option choice
+    # down to always exactly 1, contradicting the very product flow
+    # ("coordinator decides, solver doesn't need to prove") T032 was built
+    # around. Matches pre-T032 behaviour: search_variants + a real
+    # candidate is the only requirement.
+    if not search_variants or outcome.assignments is None:
         return outcome
     alternatives, override, variant_search_timed_out = _search_additional_candidates(
         model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed, deadline, search_attempt,
