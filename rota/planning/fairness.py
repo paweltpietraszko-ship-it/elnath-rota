@@ -165,7 +165,7 @@ def _exactly_one(model: cp_model.CpModel, term: object, name: str) -> object:
 
 def add_dn_rhythm_reward(
     model: cp_model.CpModel, month, day_kind_terms: dict[str, dict], penalties: list,
-) -> None:
+) -> int:
     """D -> N -> wolne -> wolne REWARD (ROTA-T032 section 5, owner decision
     2026-08-25): same-month only, no shared phase between employees -- a
     loose per-employee preference, never a rigid brigade rotation. For every
@@ -173,13 +173,17 @@ def add_dn_rhythm_reward(
     `month`, a match exists only when d is exactly D, d+1 is exactly N, and
     neither d+2 nor d+3 has any non-CANCELLED start for that employee.
 
-    day_kind_terms[employee_id][date] is (d_term, n_term, any_term, n_demand_id):
-    d_term/n_term are already tight 'exactly one' booleans (built once by
-    solver.py._build_day_kind_terms, the same source
+    day_kind_terms[employee_id][date] is (d_term, n_term, any_term, n_demand_id),
+    built once by solver.py._build_day_kind_terms from the same source
     add_max_two_consecutive_night_constraints/validator._check_night_streak
-    use for D/N classification -- the reward can never disagree with the
-    HARD rule about what counts as D or N). any_term may still be a raw sum
-    (every occupying fact on that date, any role, all count).
+    use for D/N classification (the reward can never disagree with the HARD
+    rule about what counts as D or N). d_term/n_term/any_term may be raw
+    sums there -- this function tightens d_term/n_term to 'exactly one'
+    lazily, per window, only when a window survives every cheap skip below
+    (never eagerly for the whole month: an earlier version that reified
+    every date up front measurably slowed down every solve, including ones
+    with this reward disabled entirely, since it bloated the shared model
+    itself for no benefit those solves ever used).
 
     Correction (2026-08-25, isolated timing measurement): match is encoded
     with ONLY the upper-bound implications (match <= each literal),
@@ -240,8 +244,14 @@ def add_dn_rhythm_reward(
             match_terms.append(match)
             window_start += _timedelta(days=1)
     if not match_terms:
-        return
+        return 0
     penalties.append(-DN_RHYTHM_REWARD_WEIGHT * sum(match_terms))
+    # OWNER_CORRECTED 2026-08-25: the caller uses this count -- the maximum
+    # possible reward this call could ever contribute (every match_terms[i]
+    # is bounded above by 1) -- to size TARGET_DEVIATION_WEIGHT so target
+    # accuracy can never be knowingly traded for rhythm (see
+    # solver._add_combined_objective).
+    return len(match_terms)
 
 
 if __name__ == "__main__":

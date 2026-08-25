@@ -32,7 +32,10 @@ from rota.planning.constraints import (
     build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
 )
 from rota.planning.eligibility import check_eligibility
-from rota.planning.fairness import add_dn_rhythm_reward, add_holiday_fairness, add_target_equity_fairness, add_weekend_fairness
+from rota.planning.fairness import (
+    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, add_dn_rhythm_reward, add_holiday_fairness,
+    add_target_equity_fairness, add_weekend_fairness,
+)
 from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.site_rules import hard_rules_applicable_on
@@ -435,18 +438,40 @@ def _add_combined_objective(
     by_employee: dict[str, list[SolverSlot]], day_kind_terms: dict[str, dict],
 ) -> None:
     """ONE weighted objective (owner correction 2026-08-25, see
-    _solve_lexicographic_phases docstring): TARGET-01 (weight 100, still the
-    dominant term -- section 4.4), DAY_SHIFT_OFF-01/LEAVE_PLAN-01 SOFT,
-    weekend/holiday fairness, target equity (section 4) and the D/N/wolne/
-    wolne reward (section 5) all minimized together in a single solve, the
-    same shape every pre-T032 SOFT term already used."""
+    _solve_lexicographic_phases docstring for why this is one solve, not a
+    proof-then-freeze phase split): DAY_SHIFT_OFF-01/LEAVE_PLAN-01 SOFT,
+    weekend/holiday fairness (unchanged pre-T032 terms), target equity
+    (section 4) and the D/N/wolne/wolne reward (section 5) all minimized
+    together with TARGET-01.
+
+    OWNER_CORRECTED 2026-08-25 (second correction): TARGET-01 has ABSOLUTE
+    priority over equity/rhythm specifically -- not just a large weight
+    ratio that happens to hold, a mathematical guarantee. Equity's maximum
+    possible swing is the compile-time constant TARGET_EQUITY_WEIGHT *
+    MAX_COMPLETION_PCT (fairness.add_target_equity_fairness's own declared
+    variable bounds); rhythm's is DN_RHYTHM_REWARD_WEIGHT * the exact number
+    of match variables it created this solve (its return value -- always a
+    tighter, real bound, never a worst-case guess). The per-solve target
+    weight is set strictly above the SUM of both, so degrading total target
+    deviation by even one hour always costs more than the entire equity+
+    rhythm swing could ever be worth combined -- equity/rhythm can only ever
+    break ties among candidates that already share the same optimal target
+    deviation, never trade it for a better tie-break score. This does not
+    extend to the pre-T032 weekend/holiday/leave_plan terms (out of scope
+    for this correction, unchanged in shape and relative weight)."""
     penalties = []
+
+    # Rhythm is built first so its real match count (never a worst-case
+    # guess) is known before TARGET_DEVIATION_WEIGHT is sized against it.
+    rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
+    target_weight = TARGET_DEVIATION_WEIGHT + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+
     for employee_id, target in target_by_employee.items():
         worked = worked_by_employee[employee_id]
         pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
         neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
         model.add(worked - target == pos - neg)
-        penalties.append(TARGET_DEVIATION_WEIGHT * (pos + neg))
+        penalties.append(target_weight * (pos + neg))
 
     for slot in slots:
         if slot.leave_plan_collision or slot.day_off_soft_entry:
@@ -456,7 +481,6 @@ def _add_combined_objective(
     holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
     add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
     add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
-    add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
 
     model.minimize(sum(penalties) if penalties else 0)
 
@@ -668,14 +692,26 @@ def _solve_lexicographic_phases(
     REQUIRED explanation when it cannot do better. TARGET-01/equity/rhythm
     (sections 4/5) therefore live in ONE combined weighted objective, the
     same shape as every pre-T032 SOFT term, rather than a separate proof-
-    then-freeze phase: an isolated measurement on ROTA-REG-001's fixture
-    showed the two-phase split alone (freeze target_deviation == value, then
-    a second solve) took CP-SAT from 0.37s OPTIMAL to 30s+ unproven FEASIBLE
-    for the exact same terms -- proving strict optimality of a sum-of-
-    deviations phase over several employees is a much harder certificate
-    than jointly minimizing a weighted sum once. TARGET_DEVIATION_WEIGHT's
-    large magnitude (100 vs 1) still makes target accuracy dominate the
-    ranking, just as a weight, not a proof."""
+    then-freeze phase. An earlier attempt at this correction wrongly blamed
+    that two-phase split for a measured 30s+ slowdown; that measurement was
+    itself broken (a monkeypatch replaced the wrong module attribute and
+    silently never disabled anything). Correctly isolated, the real cause
+    was add_dn_rhythm_reward's LP relaxation (fixed separately, see
+    fairness.py) -- the phase-split-vs-combined choice made no measured
+    difference either way. ONE combined objective is used here because it
+    matches the existing product flow above, not because of that retracted
+    performance claim.
+
+    OWNER_CORRECTED 2026-08-25 (second correction): TARGET-01 has absolute
+    priority -- equity/rhythm must never be ABLE to trade away total target
+    deviation, not merely be outweighed by a large-but-finite weight ratio
+    that happens to hold in practice. _add_combined_objective computes
+    TARGET_DEVIATION_WEIGHT's actual per-solve multiplier so that even the
+    maximum theoretically possible combined equity+rhythm improvement is
+    worth strictly less than improving total target deviation by a single
+    hour -- a mathematical guarantee, not a heuristic ratio (100 vs 1 stays
+    the *documented* relative weight in section 4.4; the real per-solve
+    coefficient is derived from it, see that function)."""
     for expr in phase_exprs:
         model.minimize(expr)
         phase_solver, phase_status = _run_solver(model, _remaining_seconds(deadline), search_attempt)
