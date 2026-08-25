@@ -1,0 +1,152 @@
+ROTA-T031 — NIEZALEŻNY AUDYT IMPLEMENTACJI, RUNDA 1
+
+Audytowany exact SHA: f11e3f0d59de930c5a48a903bcf726229649aa5a
+Base SHA: 3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+Data: 2026-08-24
+
+WERDYKT: FAIL — JEDNA SKONSOLIDOWANA POPRAWKA, NIE MERGE
+
+Podstawowa ścieżka autora działa, ale niezależny audyt zwykłych reakcji ekranu
+ujawnił cztery luki kontraktowe i jedną zbyt szeroką zmianę wspólnego API.
+Nie potrzeba nowego solvera, walidatora, tabeli ani decyzji architekta.
+
+WYNIKI WERYFIKACJI
+
+- exact SHA i origin/task/ROTA-T031 zgodne;
+- diff-scope: zero zmian w rota/**, wszystkie zmiany produktu w TASK_SCOPE;
+- testy autora API: 14/14 PASS;
+- E2E autora: 2/2 PASS;
+- build frontendu: PASS;
+- pełna regresja: 1138 PASS, 1 znany stary source-diff FAIL T023;
+- niezależne E2E kontraktu: 0/4 PASS;
+- niezależny E2E trwałości DECISION_REQUIRED po reloadzie: FAIL;
+- git diff --check: PASS.
+
+R1-1 — WYBÓR MIESIĄCA NIE REALIZUJE §4 PKT 1 (FAIL)
+
+TRACE:
+
+- brief.md:96-98 wymaga bieżącego i sąsiednich miesięcy oraz oznaczenia
+  miesięcy mających grafik;
+- MonthlyPlanning.tsx:238 renderuje nieograniczony natywny input month;
+- client.ts:333 definiuje getScheduleMonths, ale żaden ekran go nie wywołuje;
+- MonthlyPlanning.tsx:103 ustawia effectiveFromDraft tylko przy pierwszym
+  montażu komponentu i nie synchronizuje go po zmianie miesiąca.
+
+REPRO:
+
+- input nie ma min/max i pozwala wybrać dowolnie odległy miesiąc;
+- po zmianie z 2026-08 na 2026-09 pole „Obowiązuje od” nadal ma 2026-08-01,
+  zamiast domyślnego 2026-09-01;
+- użytkownik nie widzi, które z trzech miesięcy mają zapisany grafik.
+
+ZAMKNIĘCIE:
+
+- najprościej użyć trzech opcji: poprzedni/bieżący/następny, bez budowania
+  własnego kalendarza;
+- pobrać istniejące /schedule/months i oznaczyć opcje z grafikiem;
+- przy zmianie wybranego miesiąca ustawić domyślny effective_from na jego
+  pierwszy dzień, o ile użytkownik nie edytuje istniejącej wersji;
+- dodać E2E obu miesięcy granicznych, miesiąca poza zakresem i synchronizacji
+  daty PLAN.
+
+R1-2 — DECISION_REQUIRED NIE JEST TRWAŁYM HARD STOPEM (FAIL)
+
+TRACE:
+
+- brief.md:110-112: przy DECISION_REQUIRED ekran nie tworzy siatki i kieruje
+  do decyzji koordynatora;
+- plan_ops zapisuje current_decision_required w bazie;
+- istniejący rota.application.memory_read.current_decision_required jest
+  właścicielem jego odczytu;
+- MonthViewOut/get_month nie zwraca tego trwałego stanu;
+- MonthlyPlanning.tsx:382 zna DECISION_REQUIRED tylko z chwilowego
+  PlanningResult trzymanego w pamięci Reacta.
+
+REALNY REPRO:
+
+1. nowy Site, katalog z jedną wymaganą zmianą, kalendarz, brak pracowników;
+2. PLAN poprawnie zwraca DECISION_REQUIRED;
+3. ten sam ekran równocześnie pokazuje przycisk Finalizuj;
+4. po zwykłym reloadzie komunikat DECISION_REQUIRED znika całkowicie,
+   natomiast Finalizuj nadal jest widoczny.
+
+ZAMKNIĘCIE:
+
+- do istniejącego GET miesiąca dołączyć istniejący trwały readback
+  current_decision_required (bez zmiany rota/**);
+- gdy readback jest aktualny, pokazać komunikat i ukryć siatkę oraz akcje
+  PLAN/select/finalize/restore zgodnie z §4 pkt 5;
+- zachować ten hard stop po reloadzie;
+- dodać E2E realnego braku obsady przed i po reloadzie.
+
+Brief mówi o „linku” do ekranu Decyzje koordynatora, ale zaakceptowany kontrakt
+T021 określa ten element jako NAV ITEM ONLY, bez zbudowanej treści. Nie budować
+fikcyjnego ekranu ani linku donikąd w T031. W brief.md zastąpić słowo „link”
+zwykłym wskazaniem, że rozstrzygnięcie będzie dostępne na tym osobnym ekranie.
+To synchronizacja z wcześniejszym źródłem, nie nowa decyzja produktowa.
+
+R1-3 — ODRZUCENIE FINALIZACJI NIE ODŚWIEŻA ODCHYLEŃ (FAIL)
+
+TRACE:
+
+- brief.md:115-119: przy rozjechanym zbiorze UI pokazuje błąd I odświeża listę;
+- MonthlyPlanning.tsx:198-208 w catch ustawia tylko tekst błędu, bez load().
+
+Niezależny E2E zwrócił 400 dla POST finalize i policzył późniejsze odczyty
+miesiąca: 0. Użytkownik widzi błąd, ale nadal ma starą listę i nie może wykonać
+poprawnego potwierdzenia bez ręcznego reloadu.
+
+ZAMKNIĘCIE:
+
+- po odrzuconym finalize wykonać GET miesiąca, zastąpić view świeżym stanem i
+  wyzerować zaznaczenia;
+- zachować komunikat błędu;
+- E2E ma potwierdzić nowy GET i możliwość zaznaczenia świeżego zestawu.
+
+R1-4 — GET MIESIĄCA I T31-01 OPISUJĄ RÓŻNE PAYLOADY (DOKUMENTACJA)
+
+T31-01 obiecuje w odpowiedzi profil, obsadę, reguły, bilanse i
+months_with_schedule. MonthViewOut zwraca tylko wersje, demands, assignments,
+deviations i warnings; miesiące są osobnym endpointem. Front nie potrzebuje
+pozostałych danych do wyniku z §1/§4.
+
+Nie dopisywać dużego, nieużywanego payloadu tylko po to, żeby spełnić omyłkową
+linijkę macierzy. W jednej konsolidacji poprawić T31-01 tak, aby uczciwie
+opisywał minimalny GET miesiąca, a months_with_schedule pozostawić jako osobny
+odczyt używany przez selektor z R1-1. To redukcja rozbieżności, nie rozszerzenie
+produktu.
+
+R1-5 — GLOBALNE MAPOWANIE TypeError NA HTTP 400 JEST ZA SZEROKIE (FAIL)
+
+api/errors.py:42 zmienia każdy TypeError z każdego obecnego routera na „błąd
+klienta 400”. Przed T031 nieznany TypeError poprawnie trafiał do domyślnego 500.
+Reproduktor to_http_exception(TypeError("internal programming error")) zwraca
+na tej SHA 400. To może ukryć prawdziwy błąd programu jako zły formularz i
+zepsuć diagnostykę także poza T031.
+
+ZAMKNIĘCIE:
+
+- usunąć globalne (TypeError, 400);
+- wymaganie effective_from obsłużyć lokalnie przez typ Pydantic date lub jawne
+  sprawdzenie w routerze schedule, nadal 400/422 i bez zapisu;
+- test: brak/niepoprawna data jest 400/422, a nieznany TypeError wspólnej
+  granicy nadal jest 500.
+
+MECHANICZNY backend.py
+
+- NEW_FILES 4 > 2: zaakceptowany wyjątek T031 — router, komponent, test API i
+  E2E mają odrębne odpowiedzialności; nie sklejać ich dla licznika;
+- RATIO 1300/13 i TOTAL_LINES 1313: ostrzeżenia nie są osobnym blockerem.
+  Diff sprawdzono ręcznie: nie ma drugiego solvera, wersjonowania ani zmian
+  domeny. Po zamknięciu R1-1...R1-5 ponownie ocenić tylko końcowy diff;
+- IMPORTERS_FOR_REVIEW z backend.py zawiera .venv i szerokie trafienia nazw
+  modułów; nie jest dowodem regresji.
+
+ZAKRES PONOWNEGO AUDYTU
+
+Jedna konsolidacja, bez nowych bytów. Ponowny audyt: testy T031 API, build,
+istniejące E2E oraz niezależne reproduktory miesiąca, trwałego
+DECISION_REQUIRED i odświeżenia finalize. Pełnej regresji nie trzeba powtarzać,
+jeśli rota/** pozostanie nietknięte, a globalne mapowanie TypeError zostanie
+jedynie cofnięte do zachowania z base SHA.
