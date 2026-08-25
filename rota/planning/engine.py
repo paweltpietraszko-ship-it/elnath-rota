@@ -195,9 +195,12 @@ def _feasible_result(
     additional candidate failing validation fails the WHOLE result closed
     (anti-drift rule 12, brief.md H2) -- never a silent partial success.
     ROTA-T032 section 6.4: optimization_complete carries through unchanged
-    from the solver outcome that produced first_full/alternatives -- T017
-    variant search itself never runs on an incomplete outcome (solver.py),
-    so this is always True whenever `alternatives` is non-empty."""
+    from the solver outcome that produced first_full/alternatives in EVERY
+    branch below, including the multi-candidate one -- audit R7-1
+    (tests_r7.txt, 2026-08-25): the shared deadline can now run out while
+    searching for a THIRD variant after already finding a second one, which
+    keeps both candidates (solver.py) but must still mark the result
+    incomplete; `alternatives` non-empty no longer implies True."""
     if not alternatives:
         return PlanningResult("FEASIBLE", [first_full], None, None, first_warnings, optimization_complete)
     candidates = [first_full]
@@ -217,7 +220,7 @@ def _feasible_result(
         for index, candidate_warnings in enumerate(per_candidate_warnings, start=1)
         for warning in candidate_warnings
     ]
-    return PlanningResult("FEASIBLE", candidates, None, None, warnings)
+    return PlanningResult("FEASIBLE", candidates, None, None, warnings, optimization_complete)
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
