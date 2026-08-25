@@ -1,0 +1,74 @@
+ROTA-T032 — niezależny re-audyt mikropoprawki, runda 7
+
+Audytowany exact SHA:
+52212a6bfc72dfc0eb5abfefaf882e8a5397674a
+
+Poprzedni audit HEAD:
+e2d32adccc75a08f4a167f2a2d92ef059740b4dc
+
+WERDYKT:
+FAIL — ONE MICRO CORRECTION REQUIRED.
+
+Nie ma nowych decyzji produktowych ani architektonicznych. Wycofany przypadek
+search_attempt=2**40 nie był audytowany i nie wraca jako wymaganie.
+
+## R7-1 — timeout przy trzecim wariancie gubi znacznik incomplete
+
+TRACE:
+- tests_r6.txt: po timeoutcie podczas szukania wariantów zachować wszystkie
+  już znalezione poprawne grafiki i oznaczyć wynik optimization_complete=False;
+- to ta sama realna ścieżka co poprawiony timeout przy wariancie drugim.
+
+OWNERSHIP:
+- solver.py prawidłowo zwraca dwa znalezione grafiki oraz ustawia
+  outcome.optimization_complete=False;
+- engine.py::_feasible_result składa publiczny PlanningResult i w gałęzi
+  z alternatives nie przekazuje istniejącej wartości optimization_complete,
+  więc dataclass używa domyślnego True.
+
+REPRO:
+tasks/ROTA-T032/round_01/tests/repro_r7.py::
+test_timeout_after_second_candidate_keeps_incomplete_flag
+
+Przebieg:
+1. pierwszy solve znajduje poprawny kandydat;
+2. drugi solve znajduje poprawny kandydat numer 2;
+3. trzeci solve kończy się UNKNOWN jak po wyczerpaniu wspólnego deadline.
+
+Oczekiwane:
+- FEASIBLE;
+- dwa zachowane kandydaty;
+- optimization_complete=False.
+
+Rzeczywiste:
+- FEASIBLE;
+- dwa zachowane kandydaty;
+- optimization_complete=True.
+
+To nie wymaga nowego mechanizmu. Należy przenieść już wyliczony bool do
+PlanningResult także w istniejącej gałęzi alternatives oraz skorygować
+nieaktualny docstring engine.py:197-200, który zakłada, że alternatives zawsze
+oznaczają complete=True.
+
+## Potwierdzone
+
+- timeout przed znalezieniem wariantu 2 zachowuje pierwszy grafik i daje
+  optimization_complete=False;
+- MODEL_INVALID podczas variant search pozostaje TECHNICAL_ERROR;
+- niezależny reproduktor r5 bez wycofanego testu skrajnej wartości: PASS;
+- TARGET priority, NIGHT-STREAK i wcześniejszy pion pozostają bez zmian.
+
+Komenda celowana:
+python -m pytest tests/test_t017.py::test_m22_optional_unknown_status_keeps_first_candidate_marked_incomplete tests/test_t017.py::test_m23_optional_model_invalid_status_fails_whole_result_closed tasks/ROTA-T032/round_01/tests/repro_r5.py -k "not large_search_attempt" -q
+
+Wynik:
+7 passed, 1 deselected.
+
+Komenda reproduktora R7:
+python -m pytest tasks/ROTA-T032/round_01/tests/repro_r7.py -q
+
+Wynik:
+1 failed — dwa poprawne kandydaty zachowane, ale optimization_complete=True.
+
+Pełnej regresji nie powtarzano na SHA z jednym odtworzonym blockerem. Jeden
+końcowy przebieg należy wykonać po mikropoprawce.
