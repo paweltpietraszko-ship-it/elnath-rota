@@ -127,7 +127,13 @@ export interface DecisionRequiredPayloadOut {
 }
 
 export interface PlanningResultOut {
-  status: "FEASIBLE" | "DECISION_REQUIRED" | "TECHNICAL_ERROR" | "NO_ALTERNATIVE";
+  status:
+    | "FEASIBLE"
+    | "DECISION_REQUIRED"
+    | "TECHNICAL_ERROR"
+    | "NO_ALTERNATIVE"
+    | "NARROW_SEARCH_EXHAUSTED"
+    | "SEARCH_INCOMPLETE";
   candidates: AssignmentOut[][];
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;
@@ -361,6 +367,10 @@ export const api = {
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan`, {
       method: "POST",
       body: JSON.stringify({ effective_from: effectiveFrom, note: note ?? null }),
+    }, PLANNING_REQUEST_TIMEOUT_MS),
+  replanWiderSearch: (siteId: string, month: string) =>
+    req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan/wider-search`, {
+      method: "POST",
     }, PLANNING_REQUEST_TIMEOUT_MS),
   finalizeMonth: (siteId: string, month: string, acknowledgedDeviationIds: string[], reason?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/finalize`, {

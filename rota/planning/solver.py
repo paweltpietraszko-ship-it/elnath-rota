@@ -11,6 +11,7 @@ is hardcoded to October 2026 or to employees A-E.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -41,6 +42,12 @@ TARGET_DEVIATION_WEIGHT = 100
 SOFT_PENALTY_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
 MAX_MONTHLY_HOURS = 744
+# Owner-corrected REPLAN search budget (2026-08-26): the narrow search and
+# the wider ("Szukaj szerzej") search each get their OWN 45s wall-clock
+# budget, shared across however many internal solves that search needs --
+# never stages-count * SOLVER_TIME_LIMIT_SECONDS. See engine.
+# plan_requiring_different_result_narrow/_wide.
+REPLAN_SEARCH_BUDGET_SECONDS = 45.0
 
 
 @dataclass
@@ -422,11 +429,23 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
     return warnings
 
 
-def _run_solver(model: cp_model.CpModel) -> tuple[cp_model.CpSolver, int]:
+def _remaining_seconds(deadline: float | None) -> float:
+    """ROTA-T033 (owner-corrected REPLAN search budget, 2026-08-26): when a
+    shared deadline is given, every _run_solver call below within one
+    plan_requiring_different_result_narrow/_wide invocation draws down the
+    SAME wall-clock budget, so a multi-stage cascade can never silently cost
+    stages-count * SOLVER_TIME_LIMIT_SECONDS. None (every pre-existing
+    ordinary plan()/PLAN caller) keeps the original fixed per-call budget."""
+    if deadline is None:
+        return SOLVER_TIME_LIMIT_SECONDS
+    return max(0.0, min(SOLVER_TIME_LIMIT_SECONDS, deadline - time.monotonic()))
+
+
+def _run_solver(model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME_LIMIT_SECONDS) -> tuple[cp_model.CpSolver, int]:
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = 0
-    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
+    solver.parameters.max_time_in_seconds = time_limit_seconds
     status = solver.solve(model)
     return solver, status
 
@@ -463,7 +482,7 @@ def _candidate_signature(solver: cp_model.CpSolver, x: dict, slots: list[SolverS
 def _search_additional_candidates(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     pair_vars: dict | None, cross_month_by_employee: dict | None,
-    first_solver: cp_model.CpSolver, still_needed: dict[str, int],
+    first_solver: cp_model.CpSolver, still_needed: dict[str, int], deadline: float | None = None,
 ) -> tuple[list[tuple[list[Assignment], list[str]]], SolverOutcome | None]:
     """T017: up to 2 more pairwise->=15%-diverse variants on the SAME model --
     frozen lexicographic minima/objective already apply, a diversity cut is
@@ -477,7 +496,7 @@ def _search_additional_candidates(
     alternatives: list[tuple[list[Assignment], list[str]]] = []
     for _ in range(2):
         model.add(sum(x[employee_id, demand_id] for demand_id, employee_id in signature) <= n - k)
-        solver, status = _run_solver(model)
+        solver, status = _run_solver(model, _remaining_seconds(deadline))
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
             assignments = _extract_assignments(solver, x, slots, state, overrides)
@@ -494,12 +513,12 @@ def _solve_lexicographic_phases(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     assumptions: dict[str, object], site_rule_exclusions: dict[str, list[tuple[str, str]]],
     pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
-    still_needed: dict[str, int], search_variants: bool = False,
+    still_needed: dict[str, int], search_variants: bool = False, deadline: float | None = None,
 ) -> SolverOutcome:
     """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle count) and T018 B5 (exceptional_n_count); T017 variant search runs after (search_variants)."""
     for expr in phase_exprs:
         model.minimize(expr)
-        phase_solver, phase_status = _run_solver(model)
+        phase_solver, phase_status = _run_solver(model, _remaining_seconds(deadline))
         if phase_status == cp_model.INFEASIBLE:
             # Rigorous proof, not approximation -- existing infeasibility/
             # conflict path (round 2 FINDING R2-1).
@@ -512,12 +531,12 @@ def _solve_lexicographic_phases(
         model.add(expr == round(phase_solver.value(expr)))
 
     _add_objective(model, x, slots, state)
-    final_solver, final_status = _run_solver(model)
+    final_solver, final_status = _run_solver(model, _remaining_seconds(deadline))
     outcome = _finalize(final_solver, final_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
     if not search_variants or outcome.assignments is None:
         return outcome
     alternatives, override = _search_additional_candidates(
-        model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed,
+        model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed, deadline,
     )
     if override is not None:
         return override
@@ -528,7 +547,7 @@ def _solve_lexicographic_phases(
 def solve(
     state: PlanningState, enforce_load_cap: bool = True, allow_emergency_24h: bool = False,
     allow_day_only_n_fallback: bool = False, require_different_from_baseline: bool = False,
-    cutover_at: datetime | None = None,
+    cutover_at: datetime | None = None, deadline: float | None = None,
 ) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment.
 
@@ -548,7 +567,14 @@ def solve(
     If nothing redistributable remains AFTER excluding the past, no
     schedule can ever be different going forward: this returns INFEASIBLE
     immediately without building a model, and the caller maps that to
-    NO_ALTERNATIVE, not a coordinator decision."""
+    NO_ALTERNATIVE, not a coordinator decision.
+
+    deadline (owner-corrected REPLAN search budget, 2026-08-26): a
+    time.monotonic() absolute instant shared across every internal
+    _run_solver call this one solve() makes, and across every solve() call
+    within one plan_requiring_different_result_narrow/_wide invocation --
+    None (every ordinary plan()/PLAN caller) keeps the original fixed
+    per-call SOLVER_TIME_LIMIT_SECONDS."""
     slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state, allow_day_only_n_fallback)
     if unassignable:
         return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
@@ -613,7 +639,7 @@ def solve(
     # T017: search variants only for a capped pass -- uncapped Stage 4 routes to LOAD DECISION_REQUIRED, never multi-candidate.
     return _solve_lexicographic_phases(
         model, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee, phase_exprs,
-        still_needed, search_variants=enforce_load_cap,
+        still_needed, search_variants=enforce_load_cap, deadline=deadline,
     )
 
 

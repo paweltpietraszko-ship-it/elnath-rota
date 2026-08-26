@@ -159,10 +159,10 @@ def _capture_model_with_single_diversity_cut(monkeypatch, state):
     real_run_solver = solver_module._run_solver
     call_count = {"n": 0}
 
-    def _spy_run_solver(model):
+    def _spy_run_solver(model, *args, **kwargs):
         call_count["n"] += 1
         captured["model"] = model
-        solver, status = real_run_solver(model)
+        solver, status = real_run_solver(model, *args, **kwargs)
         if call_count["n"] == 2:
             return solver, cp_model.INFEASIBLE  # stop the search right after cut #1
         return solver, status
@@ -420,9 +420,9 @@ def _run_solver_forcing_second_call(monkeypatch, forced_status):
     real_run_solver = solver_module._run_solver
     call_count = {"n": 0}
 
-    def _fake_run_solver(model):
+    def _fake_run_solver(model, *args, **kwargs):
         call_count["n"] += 1
-        solver, status = real_run_solver(model)
+        solver, status = real_run_solver(model, *args, **kwargs)
         if call_count["n"] == 2:
             return solver, forced_status
         return solver, status

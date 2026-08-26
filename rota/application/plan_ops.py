@@ -25,7 +25,7 @@ from rota.persistence.schedule_repository import (
     get_schedule_version_header,
     set_schedule_version_planning_regime_in_open_transaction,
 )
-from rota.planning.engine import plan, plan_requiring_different_result
+from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
@@ -390,12 +390,34 @@ def replan(
             c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         ),
     )
-    # Owner decision 2026-08-26: REPLAN must never hand back the schedule
-    # already in place -- see engine.plan_requiring_different_result. This
-    # cutover_at is a separate "now" from select_candidate's own (captured
-    # later, immediately before its cutover-preservation check) -- best
-    # effort, same as every other cutover-adjacent timestamp in this flow.
-    result = plan_requiring_different_result(state, cutover_at=datetime.now())
+    # Owner decision 2026-08-26, OWNER_CORRECTED same day: REPLAN must never
+    # hand back the schedule already in place -- see
+    # engine.plan_requiring_different_result_narrow (step 1 of the agreed
+    # two-step flow; step 2 is replan_wider_search below, only on the
+    # coordinator's explicit "Szukaj szerzej"). This cutover_at is a separate
+    # "now" from select_candidate's own (captured later, immediately before
+    # its cutover-preservation check) -- best effort, same as every other
+    # cutover-adjacent timestamp in this flow.
+    result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now())
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
+    )
+
+
+def replan_wider_search(conn, *, site_id: str, month: date, coordinator_id: str) -> PlanningResult:
+    """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
+    reachable after replan() returns NARROW_SEARCH_EXHAUSTED and the
+    coordinator explicitly asks to widen the search. Runs on the SAME
+    WORKING child replan() already created; creates no further
+    ScheduleVersion (per the agreed contract point 5) -- exactly the same
+    "plan fresh against the existing current WORKING version" read
+    plan_month() itself uses for its own recompute branch."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to search wider on")
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+    result = plan_requiring_different_result_wide(state, cutover_at=datetime.now())
+    return _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

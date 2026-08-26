@@ -40,11 +40,11 @@ def test_r6_engine_state_names_the_current_version_it_is_planning(tmp_path, monk
         return PlanningResult("TECHNICAL_ERROR", [], None, "audit stop", [])
 
     monkeypatch.setattr(plan_ops, "plan", capture)
-    # ROTA-T033: REPLAN now calls plan_requiring_different_result (owner
-    # decision 2026-08-26, REPLAN must never hand back the same schedule),
-    # not plan() -- the audit's own capture must intercept whichever one the
-    # exercised operation actually uses.
-    monkeypatch.setattr(plan_ops, "plan_requiring_different_result", capture)
+    # ROTA-T033: REPLAN now calls plan_requiring_different_result_narrow
+    # (owner decision 2026-08-26, REPLAN must never hand back the same
+    # schedule), not plan() -- the audit's own capture must intercept
+    # whichever one the exercised operation actually uses.
+    monkeypatch.setattr(plan_ops, "plan_requiring_different_result_narrow", capture)
     if operation == "initial-plan":
         plan_ops.plan_month(
             conn, site_id=state.site.site_id, month=MONTH,
