@@ -39,6 +39,27 @@ Owner amendment `OWNER_ACCEPTED`, 2026-08-24:
   wynikiem poligonu. Błędem są `TECHNICAL_ERROR`, niepoprawny kandydat,
   niespójny payload albo naruszenie świata zamkniętego.
 
+Owner amendment `OWNER_ACCEPTED`, 2026-08-26 (integration baseline T032):
+
+Quality integration base: `f71ecfff73c8880e74b304eaddd0f1b7826f7197`
+(`origin/task/ROTA-T032`); bez zmian w kodzie produktu tej gałęzi.
+
+- PLAN i REPLAN są blokowane, gdy choć jeden aktywny LOCAL nie ma
+  `target_hours` dla miesiąca; payload wskazuje dokładnie brakujących LOCAL;
+  EXTERNAL_SUPPORT nadal nie ma targetu;
+- w kontrolowanym, symetrycznym przypadku z równymi targetami zakończona
+  optymalizacja dzieli godziny z rozrzutem najwyżej jednej zmiany;
+- przy różnych targetach obserwowana jakość używa procentu realizacji targetu;
+- zmiana targetów albo parametrów Obiektu pozwala REPLAN ponownie rozdzielić
+  wszystkie przyszłe, niezrealizowane i niezablokowane zmiany; stary rozkład
+  nie ma pierwszeństwa przed nowym bilansem;
+- `optimization_complete=False` może zostać pokazane i użyte. Poligon zapisuje
+  wtedy godziny, targety i rozrzut jako `QUALITY_INCOMPLETE`, ale nie zgłasza
+  samego braku dowodu optimum jako błędu;
+- nowe rodziny jakościowe są dołączone po istniejących sześciu rodzinach
+  Obiektu, więc pierwsze sześć przypadków i dotychczasowe replay pozostają
+  stabilne.
+
 ## 1. Wynik dla właściciela
 
 Powstaje lokalny skrypt, który dla każdego syntetycznego przypadku:
@@ -200,10 +221,12 @@ w `blocking_shift_demands`. Nie wylicza odpoczynku ani eligibility.
 `TECHNICAL_ERROR`, błędny status, brak payloadu lub kandydat odrzucony przez
 validator oznacza błąd przypadku.
 
-## 7. Kontrola świata zamkniętego
+## 7. Kontrola świata zamkniętego i jakości
 
-To jedyna niezależna kontrola poza produkcyjnym validatorem. Dla każdego
-kandydata i zapisanego snapshotu runner sprawdza:
+Poza produkcyjnym validatorem runner wykonuje kontrolę świata zamkniętego oraz
+trzy proste kontrole obserwowalnego wyniku właściciela. Nie kopiuje objective,
+eligibility ani arytmetyki absencji. Dla każdego kandydata i zapisanego
+snapshotu runner sprawdza:
 
 - `employee_id` należy do dokładnego zbioru zapisanych pracowników: LOCAL albo
   jednej wcześniej zadeklarowanej osoby EXTERNAL_SUPPORT. Osoba zewnętrzna
@@ -219,6 +242,22 @@ kandydata i zapisanego snapshotu runner sprawdza:
 Kontrola nie próbuje wyjaśniać, dlaczego pracownik jest legalny. To zadanie
 validatora. Odrzuca jednak wspólne przeoczenie solvera i validatora, które
 dodałoby pracownika, demand albo godziny nieistniejące w świecie koordynatora.
+
+Rodziny jakościowe używają zwykłego 12h `1x5`, pięciu równorzędnych LOCAL,
+pełnego lutego bez absencji, checkboxów i okna wsparcia:
+
+- `quality_target_gate` pomija target dokładnie jednego LOCAL i wymaga
+  `DECISION_REQUIRED` wskazującego tę osobę;
+- `quality_fair_plan` zapisuje równe targety przed pierwszym PLAN i dla
+  ukończonej optymalizacji wymaga rozrzutu godzin najwyżej 12h;
+- `quality_replan_rebalance` wybiera pierwszy poprawny grafik, zmienia targety
+  produkcyjnym `set_target_hours()`, wywołuje produkcyjny REPLAN od początku
+  miesiąca i przy ukończonej optymalizacji wymaga usunięcia osiągalnego
+  odchylenia targetów.
+
+Każdy kandydat zapisuje obserwowalne `hours_by_local`, jawne targety, spread,
+odchylenie i `optimization_complete`. To acceptance oracle kontrolowanego
+przypadku, nie drugi solver.
 
 Testy podstawiają mutanty wyniku: obcy pracownik, obcy demand, Assignment bez
 demandu i dodatkowy przedział czasu. Każdy musi zostać odrzucony przez kontrolę
@@ -258,7 +297,8 @@ może wykonać przypadek; nie wymaga identycznych UUID/timestamps.
 
 Nowe:
 
-- `tools/solver_scenario_lab.py` — maksymalnie 600 linii;
+- `tools/solver_scenario_lab.py` — maksymalnie 720 linii po rozszerzeniu ownera
+  z 2026-08-26;
 - `tests/test_solver_scenario_lab.py` — maksymalnie 600 linii.
 
 Modyfikowane:
@@ -320,6 +360,15 @@ produkcyjnych seamach.
 
 T28-15 — diff-scope z §9, build/import i pełna regresja. Znany stary test
 source-diff T023 nie należy do T028.
+
+T28-16 — brak targetu jednego aktywnego LOCAL blokuje PLAN/REPLAN i payload
+wskazuje dokładnie brakującą osobę; EXTERNAL_SUPPORT pozostaje bez targetu.
+
+T28-17 — symetryczny pełny miesiąc sprawdza rozrzut godzin pierwszego kandydata
+i zapisuje diagnostykę także dla `optimization_complete=False`.
+
+T28-18 — pionowy PLAN → select → zmiana targetów → REPLAN potwierdza możliwość
+pełnego ponownego zbilansowania przyszłego grafiku.
 
 ## 11. Polecenie dla implementatora
 

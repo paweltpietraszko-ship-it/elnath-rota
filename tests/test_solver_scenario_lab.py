@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import ast
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from rota.planning.engine_types import DecisionRequiredPayload
+from rota.planning.engine_types import Blocker, DecisionRequiredPayload
 from tools import solver_scenario_lab as lab
 
 
@@ -67,6 +67,58 @@ def test_seed_conditions_cover_baseline_leave_sickness_matrix_and_shortage():
     assert (leave.leave.end_date - leave.leave.start_date).days == 13
     sickness = lab.build_scenario("ordinary_12h_single_5", 12).sickness
     assert sickness is not None and 1 <= (sickness.end_date - sickness.start_date).days + 1 <= 21
+
+
+def test_quality_families_are_symmetric_explicit_coordinator_scenarios():
+    target_gate = lab.build_scenario("quality_target_gate", 3201)
+    fair = lab.build_scenario("quality_fair_plan", 3202)
+    replan = lab.build_scenario("quality_replan_rebalance", 3203)
+
+    assert target_gate.missing_target_employee_ids == (target_gate.local_employee_ids[-1],)
+    assert not fair.day_only_employee_ids and not fair.cannot_work_24h_employee_ids
+    assert not replan.day_only_employee_ids and not replan.cannot_work_24h_employee_ids
+    assert [target_gate.condition, fair.condition, replan.condition] == [
+        "target_gate", "fair_plan", "replan_rebalance",
+    ]
+
+
+def test_target_gate_accepts_only_payload_identifying_the_missing_local(monkeypatch):
+    spec = lab.build_scenario("quality_target_gate", 3201)
+    missing = spec.missing_target_employee_ids[0]
+    result = SimpleNamespace(
+        status="DECISION_REQUIRED",
+        candidates=[],
+        decision_payload=DecisionRequiredPayload([], [Blocker(missing, "TARGET_MISSING")], None, ["Ustaw target"]),
+        warnings=[],
+        error_message=None,
+    )
+    monkeypatch.setattr(lab, "plan_month", lambda *args, **kwargs: result)
+
+    outcome = lab.execute_scenario(spec)
+
+    assert outcome.ok
+    assert outcome.statuses == ["DECISION_REQUIRED"]
+
+
+def test_quality_fact_reports_every_local_including_zero_hours():
+    spec = lab.build_scenario("quality_fair_plan", 3202)
+    start = datetime(2027, 2, 1, 6)
+    assignments = [
+        SimpleNamespace(
+            employee_id=spec.local_employee_ids[0], role=lab.AssignmentRole.PRIMARY,
+            start_datetime=start, end_datetime=start + timedelta(hours=12),
+        ),
+        SimpleNamespace(
+            employee_id=spec.local_employee_ids[1], role=lab.AssignmentRole.PRIMARY,
+            start_datetime=start, end_datetime=start + timedelta(hours=12),
+        ),
+    ]
+
+    quality = lab._quality_fact(assignments, spec)
+
+    assert quality["hours_by_local"][spec.local_employee_ids[-1]] == 0
+    assert quality["hours_spread"] == 12
+    assert set(quality["target_by_local"]) == set(spec.local_employee_ids)
 
 
 @pytest.mark.parametrize("family", [variant.name for variant in lab.OBJECT_VARIANTS])
@@ -182,7 +234,7 @@ def test_source_uses_only_authorized_architecture_and_line_limits():
     assert ".execute(" not in source
     calls = {getattr(node.func, "id", None) for node in ast.walk(tree) if isinstance(node, ast.Call)}
     assert not {"PlanningState", "ShiftDemand"} & calls
-    assert len(source.splitlines()) <= 600
+    assert len(source.splitlines()) <= 720
     assert len(test_path.read_text(encoding="utf-8").splitlines()) <= 600
 
 

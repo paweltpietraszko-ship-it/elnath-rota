@@ -55,6 +55,7 @@ from rota.planning.validator import validate
 DEFAULT_SEED = 20260824
 DEFAULT_OUTPUT = Path("artifacts/solver-scenario-lab")
 CONDITIONS = ("baseline", "leave", "sickness", "matrix", "night_shortage")
+QUALITY_FAMILIES = ("quality_target_gate", "quality_fair_plan", "quality_replan_rebalance")
 MONTHS = (date(2027, 2, 1), date(2028, 2, 1), date(2027, 4, 1), date(2027, 7, 1))
 
 
@@ -76,6 +77,7 @@ OBJECT_VARIANTS = (
     ObjectVariant("ochrona_24h_double_10", 24, 2, 10, SitePlanningRegime.OCHRONA),
 )
 VARIANTS_BY_NAME = {variant.name: variant for variant in OBJECT_VARIANTS}
+FAMILY_SEQUENCE = tuple(VARIANTS_BY_NAME) + QUALITY_FAMILIES
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,7 @@ class ScenarioSpec:
     sickness: AbsenceInput | None
     matrix: MatrixInput | None
     shortage_date: date | None
+    missing_target_employee_ids: tuple[str, ...] = ()
     target_hours: int = 168
 
     @property
@@ -161,17 +164,18 @@ def _bounded_period(rng: random.Random, month: date, length: int) -> tuple[date,
 
 
 def build_scenario(family: str, case_seed: int) -> ScenarioSpec:
-    if family not in VARIANTS_BY_NAME:
-        raise ValueError(f"unknown family {family!r}; choose one of {sorted(VARIANTS_BY_NAME)}")
-    variant = VARIANTS_BY_NAME[family]
+    quality = family in QUALITY_FAMILIES
+    if family not in VARIANTS_BY_NAME and not quality:
+        raise ValueError(f"unknown family {family!r}; choose one of {sorted(FAMILY_SEQUENCE)}")
+    variant = VARIANTS_BY_NAME["ordinary_12h_single_5"] if quality else VARIANTS_BY_NAME[family]
     rng = random.Random(case_seed)
-    family_index = next(i for i, item in enumerate(OBJECT_VARIANTS) if item.name == family)
+    family_index = 0 if quality else next(i for i, item in enumerate(OBJECT_VARIANTS) if item.name == family)
     month = MONTHS[family_index % len(MONTHS)]
-    condition = CONDITIONS[case_seed % len(CONDITIONS)]
+    condition = family.removeprefix("quality_") if quality else CONDITIONS[case_seed % len(CONDITIONS)]
     local_ids = tuple(f"LAB-EMP-{case_seed}-{i + 1}" for i in range(variant.local_count))
     external_id = f"LAB-EXTERNAL-{case_seed}"
-    day_only = (local_ids[0],) if variant.shift_hours == 12 else ()
-    cannot_24 = (local_ids[-1],) if variant.shift_hours == 24 else ()
+    day_only = (local_ids[0],) if variant.shift_hours == 12 and not quality else ()
+    cannot_24 = (local_ids[-1],) if variant.shift_hours == 24 and not quality else ()
     leave = sickness = None
     matrix = None
     shortage_date = None
@@ -195,10 +199,11 @@ def build_scenario(family: str, case_seed: int) -> ScenarioSpec:
     elif condition == "night_shortage":
         shortage_date = date(month.year, month.month, rng.randint(1, calendar.monthrange(month.year, month.month)[1]))
 
+    missing_targets = (local_ids[-1],) if condition == "target_gate" else ()
     return ScenarioSpec(
         family, case_seed, month, condition, variant.shift_hours, variant.required_primary_count,
         local_ids, external_id, variant.regime, day_only, cannot_24, leave, sickness,
-        matrix, shortage_date,
+        matrix, shortage_date, missing_targets,
     )
 
 
@@ -254,7 +259,7 @@ def _bootstrap(conn, spec: ScenarioSpec, commands: list[dict[str, Any]]) -> None
         update_employee(conn, coordinator_id=spec.coordinator_id, site_id=spec.site_id, employee=employee)
         _record(commands, "update_membership", membership=membership)
         update_membership(conn, coordinator_id=spec.coordinator_id, site_id=spec.site_id, membership=membership)
-        if kind == MembershipKind.LOCAL:
+        if kind == MembershipKind.LOCAL and employee_id not in spec.missing_target_employee_ids:
             _record(commands, "set_target_hours", employee_id=employee_id, month=spec.month,
                     target_hours=spec.target_hours)
             set_target_hours(
@@ -325,6 +330,73 @@ def _assignment_fact(assignment: Assignment) -> dict[str, Any]:
         "work_period_id": assignment.work_period_id,
         "required_rest_after_hours": assignment.required_rest_after_hours,
     })
+
+
+def _quality_fact(assignments: Iterable[Assignment], spec: ScenarioSpec,
+                  targets: dict[str, int] | None = None) -> dict[str, Any]:
+    hours = {employee_id: 0 for employee_id in spec.local_employee_ids}
+    for assignment in assignments:
+        if assignment.employee_id in hours and assignment.role == AssignmentRole.PRIMARY:
+            hours[assignment.employee_id] += int(
+                (assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600
+            )
+    targets = targets or {
+        employee_id: spec.target_hours for employee_id in spec.local_employee_ids
+        if employee_id not in spec.missing_target_employee_ids
+    }
+    completion = {employee_id: (100 * hours[employee_id]) // target
+                  for employee_id, target in targets.items() if target > 0}
+    return {
+        "hours_by_local": hours,
+        "target_by_local": targets,
+        "hours_spread": max(hours.values()) - min(hours.values()),
+        "completion_spread": max(completion.values()) - min(completion.values()) if completion else 0,
+        "target_deviation": sum(abs(hours[employee_id] - target) for employee_id, target in targets.items()),
+    }
+
+
+def _check_target_gate(spec: ScenarioSpec, result, statuses: list[str], warnings: list[str]) -> None:
+    statuses.append(result.status)
+    warnings.extend(result.warnings)
+    payload = result.decision_payload
+    indicated = {item.employee_id for item in payload.blockers} if payload is not None else set()
+    missing = set(spec.missing_target_employee_ids)
+    if result.status != "DECISION_REQUIRED" or result.candidates or not missing.issubset(indicated):
+        raise ScenarioProblem(
+            "TARGET_GATE_FAIL",
+            f"missing LOCAL targets {sorted(missing)} were not identified; status={result.status}",
+        )
+
+
+def _check_fair_result(spec: ScenarioSpec, result, warnings: list[str],
+                       targets: dict[str, int] | None = None) -> dict[str, Any]:
+    if result.status != "FEASIBLE" or not result.candidates:
+        raise ScenarioProblem("QUALITY_FAIL", f"quality probe requires FEASIBLE, got {result.status}")
+    quality = _quality_fact(result.candidates[0], spec, targets)
+    if not result.optimization_complete:
+        warnings.append(f"QUALITY_INCOMPLETE {quality}")
+    elif targets is None and quality["hours_spread"] > spec.shift_hours:
+        raise ScenarioProblem("QUALITY_FAIL", f"completed optimization has unfair hours: {quality}")
+    return quality
+
+
+def _retarget_for_rebalance(conn, spec: ScenarioSpec, commands: list[dict[str, Any]],
+                            before_hours: dict[str, int]) -> dict[str, int]:
+    values = [144, 144, 132, 132, 120]
+    targets = dict(zip(spec.local_employee_ids, values))
+    for _ in spec.local_employee_ids:
+        if any(before_hours[employee_id] != targets[employee_id] for employee_id in targets):
+            break
+        values = values[1:] + values[:1]
+        targets = dict(zip(spec.local_employee_ids, values))
+    for employee_id, target in targets.items():
+        _record(commands, "set_target_hours", employee_id=employee_id, month=spec.month,
+                target_hours=target, quality_rebalance=True)
+        set_target_hours(
+            conn, coordinator_id=spec.coordinator_id, site_id=spec.site_id,
+            employee_id=employee_id, month=spec.month, target_hours=target,
+        )
+    return targets
 
 
 def check_closed_world(state, assignments: Iterable[Assignment], spec: ScenarioSpec,
@@ -414,7 +486,12 @@ def _inspect_result(conn, spec: ScenarioSpec, result, *, external_enabled: bool,
         problems = check_closed_world(state, candidate, spec, external_enabled=external_enabled)
         if problems:
             raise ScenarioProblem("CANDIDATE_INVALID", "; ".join(problems))
-        candidates.append({"assignments": [_assignment_fact(a) for a in candidate], "warnings": list(report.warnings)})
+        candidates.append({
+            "assignments": [_assignment_fact(a) for a in candidate],
+            "warnings": list(report.warnings),
+            "optimization_complete": result.optimization_complete,
+            "quality": _quality_fact(candidate, spec),
+        })
     chosen = result.candidates[0]
     select_candidate(
         conn, site_id=spec.site_id, month=spec.month, candidate=chosen,
@@ -468,10 +545,46 @@ def execute_scenario(spec: ScenarioSpec) -> CaseOutcome:
         conn = connect(":memory:")
         _bootstrap(conn, spec, commands)
         _apply_initial_decisions(conn, spec, commands)
-        _, external_enabled, selected = _plan_and_maybe_support(
+        if spec.condition == "target_gate":
+            _record(commands, "plan_month", site_id=spec.site_id, month=spec.month,
+                    expected="DECISION_REQUIRED_MISSING_TARGET")
+            result = plan_month(
+                conn, site_id=spec.site_id, month=spec.month, coordinator_id=spec.coordinator_id,
+                effective_from=spec.month,
+            )
+            for candidate in result.candidates:
+                candidates.append({
+                    "assignments": [_assignment_fact(a) for a in candidate],
+                    "optimization_complete": result.optimization_complete,
+                    "quality": _quality_fact(candidate, spec),
+                })
+            _check_target_gate(spec, result, statuses, warnings)
+            return CaseOutcome(True, "PASS", "", statuses, commands, spec.summary(), [], warnings, [])
+        result, external_enabled, selected = _plan_and_maybe_support(
             conn, spec, commands, use_replan=False, statuses=statuses,
             candidates=candidates, warnings=warnings,
         )
+        if spec.condition == "fair_plan":
+            _check_fair_result(spec, result, warnings)
+        if spec.condition == "replan_rebalance":
+            if not selected:
+                raise ScenarioProblem("GENERATOR_ERROR", "rebalance requires selected baseline")
+            baseline = _quality_fact(result.candidates[0], spec)
+            targets = _retarget_for_rebalance(conn, spec, commands, baseline["hours_by_local"])
+            before = _quality_fact(result.candidates[0], spec, targets)
+            replan_result, replan_external, replan_selected = _plan_and_maybe_support(
+                conn, spec, commands, use_replan=True, statuses=statuses,
+                candidates=candidates, warnings=warnings, external_enabled=external_enabled,
+            )
+            external_enabled = external_enabled or replan_external
+            after = _check_fair_result(spec, replan_result, warnings, targets)
+            if replan_result.optimization_complete and after["target_deviation"] != 0:
+                raise ScenarioProblem(
+                    "REPLAN_BALANCE_FAIL",
+                    f"completed REPLAN kept avoidable target deviation: before={before}; after={after}",
+                )
+            if not replan_selected:
+                raise ScenarioProblem("GENERATOR_ERROR", "rebalance REPLAN did not select a candidate")
         if spec.sickness is not None:
             if not selected:
                 raise ScenarioProblem("GENERATOR_ERROR", "sickness requires a selected baseline schedule")
@@ -551,7 +664,7 @@ def run_cases(*, cases: int, seed: int, family: str | None = None, case_seed: in
     specs = (
         [build_scenario(family, case_seed)]
         if family is not None and case_seed is not None
-        else [build_scenario(OBJECT_VARIANTS[index % len(OBJECT_VARIANTS)].name, rng.randrange(1, 2**31))
+        else [build_scenario(FAMILY_SEQUENCE[index % len(FAMILY_SEQUENCE)], rng.randrange(1, 2**31))
               for index in range(cases)]
     )
     passed = failed = 0
@@ -574,7 +687,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local coordinator/solver scenario lab")
     parser.add_argument("--cases", type=int, default=25)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--family", choices=sorted(VARIANTS_BY_NAME))
+    parser.add_argument("--family", choices=sorted(FAMILY_SEQUENCE))
     parser.add_argument("--case-seed", type=int)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--expected-sha", help=argparse.SUPPRESS)
