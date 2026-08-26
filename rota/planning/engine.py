@@ -26,6 +26,7 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from datetime import datetime
 
 from rota.domain import Assignment, AssignmentState
@@ -37,6 +38,7 @@ from rota.planning.engine_types import (
     LoadBlocker,
     PlanningResult,
 )
+from rota.planning.replan_reshuffle import redistributable_baseline_assignments
 from rota.planning.shift_catalog import UnclassifiedShiftError
 from rota.planning.site_rules import UnsupportedOrMalformedSiteRule, validate_executable_site_rules
 from rota.planning.solver import (
@@ -263,6 +265,23 @@ def _is_timeout_technical_error(result: PlanningResult) -> bool:
     return result.status == "TECHNICAL_ERROR" and result.error_message is not None and "UNKNOWN" in result.error_message
 
 
+def _already_differs_from_baseline(state: PlanningState, candidate: list[Assignment]) -> bool:
+    """Integration audit finding INT-R3-1 (2026-08-26, round 3): the baseline
+    check's own _plan() call can already produce a genuinely different
+    schedule -- e.g. the baseline was empty/partial (a prior DECISION_REQUIRED
+    that a newly-declared external support window just resolved), so ANY
+    full candidate is trivially different from it. Reuses
+    replan_reshuffle.redistributable_baseline_assignments (the exact same
+    predicate solve()'s own diversity constraint is built from) against a
+    stand-in state whose existing_assignments is the candidate itself, so
+    this never drifts from the solver's own definition of "the pairs that
+    count"."""
+    baseline_pairs = {(a.employee_id, a.covers_demand_id) for a in redistributable_baseline_assignments(state)}
+    candidate_state = replace(state, existing_assignments=tuple(candidate))
+    candidate_pairs = {(a.employee_id, a.covers_demand_id) for a in redistributable_baseline_assignments(candidate_state)}
+    return candidate_pairs != baseline_pairs
+
+
 def plan_requiring_different_result_narrow(
     state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
 ) -> PlanningResult:
@@ -326,6 +345,15 @@ def _plan_requiring_different_result_narrow(
         if _is_timeout_technical_error(baseline_check):
             return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
         return baseline_check
+    if _already_differs_from_baseline(state, baseline_check.candidates[0]):
+        # INT-R3-1: the baseline check's own candidate already satisfies
+        # "must differ" (e.g. baseline was empty/partial) -- a second,
+        # diversity-only solve would be redundant and, on timeout, would
+        # wrongly discard this already-valid, already-different candidate.
+        # optimization_complete is forced False: the normal REPLAN diversity
+        # pass (which could still have found an even better arrangement) was
+        # deliberately skipped, not proven unnecessary.
+        return replace(baseline_check, optimization_complete=False)
     outcome = solve(
         state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
         search_attempt=search_attempt,
