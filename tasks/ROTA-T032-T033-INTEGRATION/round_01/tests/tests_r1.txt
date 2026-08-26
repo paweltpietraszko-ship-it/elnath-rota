@@ -1,0 +1,120 @@
+ROTA-T032 + ROTA-T033 — AUDYT INTEGRACYJNY, RUNDA 1
+
+WERDYKT: FAIL — ONE VERTICAL CONTINUATION SEAM CORRECTION REQUIRED
+
+Audytowany exact SHA:
+e5bbf17cab7dfa6563fff46e9b8899792c2498f9
+
+Skład konsolidacji:
+
+- zaakceptowany tip T032: f71ecfff73c8880e74b304eaddd0f1b7826f7197;
+- zaakceptowana implementacja T033: 6de21f8e5635b03f7ddd6445a2c5075535000cbd;
+- oba SHA są przodkami audytowanego merge SHA.
+
+ŹRÓDŁO PRAWDY
+
+- tasks/ROTA-T032/brief.md §6.3–6.4: timeout/nieukończona optymalizacja ma `optimization_complete=False`;
+- tasks/ROTA-T032/brief.md §7.1–7.2 oraz T32-C1..C5: „Szukaj dalej” ponawia istniejący PLAN na tym samym CURRENT WORKING, zwiększa niepersystowany `search_attempt` i nie tworzy kolejnego REPLAN child;
+- tasks/ROTA-T032/brief.md §8 oraz T32-U3: ekran pokazuje poprawny częściowy wynik z wyborem „Użyj tego grafiku” / „Szukaj dalej”;
+- zaakceptowany T033: SEARCH_INCOMPLETE oznacza wyczerpanie czasu i pozwala ponowić ten sam etap; ponowienie nie może udawać dowodu ani tworzyć zbędnej historii wersji;
+- OWNER: NIGHT-STREAK-01 to bezwzględne maksimum dwóch kolejnych N.
+
+WARSTWY AUDYTU
+
+1. Historia/merge:
+   - ancestry T032: PASS;
+   - ancestry T033: PASS;
+   - git diff --check: PASS.
+2. Inspekcja rozwiązań konfliktów w engine.py, solver.py, plan_ops.py, API i MonthlyPlanning.tsx.
+3. Niezależna macierz:
+   tasks/ROTA-T032-T033-INTEGRATION/round_01/tests/test_audit_r1.py
+   => 4 FAIL / 1 PASS.
+4. Krytyczny rdzeń wspólny:
+   - NIGHT-STREAK solver + validator + boundary + diagnoza REPLAN;
+   - zachowanie znalezionego kandydata po timeout dodatkowych wariantów;
+   => 9/9 PASS w 0,65 s.
+5. Pełna regresja nie została uruchomiona na znanym czerwonym SHA. Zgodnie z AGENTS.md ma zostać wykonana raz na finalnym SHA po korekcie. Próba szerokiego pakietu została przerwana, ponieważ realne testy planowania prawidłowo zużywają wielokrotnie zaakceptowany budżet 45 s i nie wnosiły nowej informacji po reprodukcji seam failure.
+
+FINDING INT-R1-1 — HIGH — ZAAKCEPTOWANY PROTOKÓŁ KONTYNUACJI T032 KOŃCZY SIĘ W ENGINE I NIE DOCIERA DO EKRANU
+
+To jest jedna klasa integracyjna z czterema objawami, nie cztery niezależne łatki.
+
+TRACE
+
+T032 §6–§8 i T32-C1..C5/T32-U3 jednoznacznie zamrażają minimalny pion:
+
+- `optimization_complete` wychodzi do API/UI;
+- `search_attempt` wchodzi z UI przez istniejący PLAN;
+- kolejne szukanie używa tego samego CURRENT WORKING i innego seed/order;
+- po pierwszym REPLAN retry nie tworzy drugiego child;
+- ekran pokazuje „Użyj tego grafiku” / „Szukaj dalej”.
+
+T033 dodaje SEARCH_INCOMPLETE wyłącznie dla timeoutu, więc taki wynik z definicji nie może jednocześnie twierdzić `optimization_complete=True`.
+
+OWNERSHIP
+
+- engine.py jest właścicielem PlanningResult i statusu timeoutu;
+- api/routers/schedule.py jest minimalnym adapterem DTO/request do istniejącego plan_month(search_attempt=...);
+- MonthlyPlanning.tsx jest właścicielem zaakceptowanych przycisków i nietrwałego licznika próby;
+- plan_ops.py już posiada potrzebny `plan_month(search_attempt)`; nie potrzeba nowej logiki domenowej ani persystencji.
+
+REPRO 1 — SPRZECZNY WYNIK NARROW TIMEOUT
+
+`test_integration_timeout_from_narrow_baseline_is_marked_incomplete`:
+
+- wejściowy UNKNOWN ma optimization_complete=False;
+- status wynikowy poprawnie zmienia się na SEARCH_INCOMPLETE;
+- rzeczywista flaga wynikowa wraca do domyślnego True.
+
+REPRO 2 — SPRZECZNY WYNIK WIDE TIMEOUT
+
+`test_integration_timeout_from_wide_search_is_marked_incomplete`:
+
+- solver zwraca UNKNOWN + optimization_complete=False;
+- wide zwraca SEARCH_INCOMPLETE + optimization_complete=True.
+
+Przyczyna obu: konstruktory T033 tworzą nowy PlanningResult bez jawnego False i dziedziczą default=True z T032.
+
+REPRO 3 — DTO GUBI optimization_complete
+
+`test_integration_api_exports_optimization_complete`:
+
+- PlanningResult(FEASIBLE, optimization_complete=False) jest przekazany do prawdziwego `_planning_result_out`;
+- wynik API w ogóle nie ma klucza `optimization_complete`.
+
+PlanningResultOut, mapper oraz frontendowy PlanningResultOut nie zawierają pola.
+
+REPRO 4 — API ODRZUCA search_attempt
+
+`test_integration_plan_request_accepts_nonpersistent_search_attempt`:
+
+- istniejący PlanRequest ma `extra=forbid`;
+- zaakceptowany payload `search_attempt=3` kończy się ValidationError;
+- router nie może więc przekazać go do już gotowego `plan_month(search_attempt)`.
+
+UI/SIBLING PATH
+
+MonthlyPlanning.tsx nie czyta `optimization_complete`, nie pokazuje zaakceptowanego wyboru „Użyj tego grafiku” / „Szukaj dalej” i nie zwiększa `search_attempt`.
+
+Dodatkowo `retrySearchIncomplete()` po narrow wywołuje ponownie `runReplan()`. Każde `replan()` tworzy nowy ScheduleVersion child, podczas gdy T32-C2 wymaga ponowienia na tym samym CURRENT WORKING. Retry używa też ponownie domyślnego seed=0, więc nie realizuje znaczenia „szukaj dalej”. Wide retry pozostaje tym samym etapem, ale również nie otrzymuje zmienionego search_attempt.
+
+WYMAGANA JEDNA KOREKTA PIONOWA
+
+1. Każdy SEARCH_INCOMPLETE zwraca `optimization_complete=False`.
+2. PlanningResultOut w Pythonie i TypeScript eksportuje flagę bez zmiany znaczenia.
+3. Istniejący POST PLAN przyjmuje opcjonalny, nieujemny `search_attempt=0` i przekazuje go do istniejącego plan_month; niczego nie persystuje.
+4. FEASIBLE+False pokazuje istniejącego kandydata oraz akcje „Użyj tego grafiku” / „Szukaj dalej”; retry zachowuje poprzedni wynik do czasu otrzymania nowego.
+5. „Szukaj dalej” zwiększa attempt i używa tego samego CURRENT WORKING. Po pierwszym REPLAN nie tworzy kolejnego child.
+6. Retry SEARCH_INCOMPLETE powtarza właściwy etap narrow/wide na tym samym child i z innym attempt. Implementacja ma użyć minimalnego istniejącego seamu; nie wolno tworzyć job queue, sesji solvera, incumbent persistence ani kolejnego modelu planowania.
+7. Dodać jeden pionowy test przeglądarkowy/API, nie powielać macierzy solvera: false -> widoczny wybór -> search_attempt+1 -> ten sam version_id.
+
+POTWIERDZONE — NIE OTWIERAĆ PONOWNIE BEZ NOWEJ SPRZECZNOŚCI
+
+- HARD NIGHT-STREAK-01 przetrwał merge w solverze i validatorze.
+- Trzy kolejne N dla jedynego pracownika prowadzą przez REPLAN do DECISION_REQUIRED z właściwym blockerem, nie TECHNICAL_ERROR.
+- Limit dwóch N obejmuje granicę miesiąca; TRAINEE i CANCELLED nie tworzą streaku.
+- Timeout szukania drugiego/trzeciego wariantu nie wyrzuca już znalezionego poprawnego kandydata.
+- Pełna sygnatura T033 uwzględnia dodanie obsady do pustego demandu.
+- Wspólne publiczne mapowanie błędów modelu T033 pozostało obecne.
+
+KONIEC RAPORTU
