@@ -1,0 +1,86 @@
+ROTA-T032 soft-delete history — independent audit, round 1
+Date: 2026-08-26
+Audited branch: origin/recovered/T032-soft-delete-history-2026-08-26
+Audited exact SHA: f457d7c29aeac33f775d03cbca86a6c4a3192e35
+Comparison main SHA: 05514c26b9e29e8ff11a03d422c4c8f15f7a2442
+
+VERDICT: FAIL — DELIVERY BRANCH IS NOT SAFE TO MERGE INTO CURRENT MAIN
+
+R1-1 — exact branch is based before accepted T032/T033 integration
+
+TRACE
+- OWNER requested audit of `git diff main recovered/T032-soft-delete-history-2026-08-26`
+  and preservation of existing rules.
+- Current main@05514c2 contains the accepted T032+T033 integration. A delivery
+  branch must add the requested feature without reverting that accepted state.
+
+OWNERSHIP
+- The delivered branch/ref owns its integration lineage and merge diff. This
+  is not a downstream duplicate-validation concern.
+
+REPRO ON EXACT SHA
+- merge-base(main, f457d7c) = 563fd08c.
+- `git rev-list --left-right --count main...f457d7c` = `20 5`: delivery is 20
+  main commits behind and 5 commits ahead.
+- `git diff --shortstat main f457d7c` = 38 files changed, 212 insertions,
+  2482 deletions.
+- The diff deletes the accepted T033 implementation/tests and T032/T033
+  integration audit reports, and reverts current engine/solver/API/frontend
+  fragments.
+- `git cherry main f457d7c` shows the first three recovered commits are already
+  patch-equivalent on main; only f457d7c is unique.
+- Diagnostic `git cherry-pick --no-commit f457d7c` onto clean main reaches one
+  content conflict in frontend/src/App.css. Therefore the unique feature must
+  be transplanted and resolved on a new branch from current main; the recovered
+  branch itself must not be merged.
+
+Required correction
+1. Start from current main and transplant only the unique f457d7c feature.
+2. Resolve the App.css conflict without reverting current styles.
+3. Mechanically update the four schema-version assertions that still freeze
+   `LATEST_SCHEMA_VERSION == 9`; migration 10 makes that source-shape stale.
+4. Deliver a new exact SHA for the final audit. No OWNER product decision is
+   required for these corrections.
+
+FEATURE AUDIT (supporting evidence; does not override R1-1)
+
+No functional defect was reproduced in the requested feature itself:
+- migration 9 -> 10 is atomic, defaults existing rows to visible, retains the
+  old ScheduleVersion, and leaves `schedule_versions_no_delete` effective;
+- hiding is allowed only for a non-current, non-FINAL draft;
+- hiding changes only `excluded_from_history`, does not move the current
+  pointer, does not remove snapshot rows, and the complete version remains
+  retrievable through the repository's explicit include_excluded path;
+- FINAL, current, and wrong Site/month targets are rejected;
+- real API -> application -> persistence -> GET-month chain hides the old
+  draft from `version_history` while the physical row remains;
+- GET-month returns the existing missing-target_hours warnings used by the
+  Planning screen;
+- frontend compiles and the production Vite build succeeds;
+- `git diff --check f457d7c^ f457d7c` succeeds.
+
+Independent matrix:
+- tasks/ROTA-T032-soft-delete-history/round_01/tests/test_audit_r1.py
+- Result: 4 passed.
+
+Existing targeted persistence/open-month matrix:
+- 26 passed.
+
+Full repository regression on exact SHA (test solver budget = 3 s, matching
+the established audit method for T032-era suites):
+- 1149 passed, 6 failed.
+- 4 failures are stale exact-schema-number assertions (`== 9`) caused solely
+  by the authorized migration 10; independent migration behavior is green.
+- 2 failures reproduce unchanged on clean main@05514c2:
+  `test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave` and the
+  known T023 source-diff proof. They are not regressions from f457d7c.
+
+AUDIT LAYERS
+1. Exact feature diff and branch-to-main lineage.
+2. Independent boundary/equivalence/migration matrix.
+3. Vertical API -> application -> persistence -> readback path.
+4. Existing persistence/open-month tests.
+5. Frontend production build.
+6. Full repository regression plus clean-main classification of failures.
+
+PASS may be considered only for a new exact SHA based on current main.
