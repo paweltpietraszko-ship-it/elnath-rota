@@ -12,7 +12,7 @@ is hardcoded to October 2026 or to employees A-E.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from ortools.sat.python import cp_model
 
@@ -527,12 +527,41 @@ def _solve_lexicographic_phases(
 
 def solve(
     state: PlanningState, enforce_load_cap: bool = True, allow_emergency_24h: bool = False,
-    allow_day_only_n_fallback: bool = False,
+    allow_day_only_n_fallback: bool = False, require_different_from_baseline: bool = False,
+    cutover_at: datetime | None = None,
 ) -> SolverOutcome:
-    """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment."""
+    """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment.
+
+    require_different_from_baseline (owner decision 2026-08-26, REPLAN must
+    never hand back the same schedule): used only by
+    engine.plan_requiring_different_result, never by ordinary plan()/PLAN.
+    An empty baseline (nothing was ever redistributably placed yet -- e.g.
+    REPLAN running on a version that only ever reached DECISION_REQUIRED)
+    means there is nothing to "differ from" in the first place, so this
+    solves normally, same as ordinary PLAN. A non-empty baseline instead
+    needs `cutover_at`: exactly like plan_ops._enforce_replan_cutover
+    (checked later, at select_candidate time), any baseline placement whose
+    demand already started before cutover_at is pinned in the model instead
+    of being eligible for the "must differ" requirement -- otherwise the
+    solver is free to reshuffle already-past assignments purely to satisfy
+    diversity, which select_candidate's cutover check would reject anyway.
+    If nothing redistributable remains AFTER excluding the past, no
+    schedule can ever be different going forward: this returns INFEASIBLE
+    immediately without building a model, and the caller maps that to
+    NO_ALTERNATIVE, not a coordinator decision."""
     slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state, allow_day_only_n_fallback)
     if unassignable:
         return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
+    diverse_pool: list[Assignment] = []
+    past_pinned: list[Assignment] = []
+    if require_different_from_baseline:
+        baseline_for_diversity = redistributable_baseline_assignments(state)
+        if baseline_for_diversity:
+            assert cutover_at is not None, "require_different_from_baseline needs cutover_at when baseline is non-empty"
+            past_pinned = [a for a in baseline_for_diversity if a.start_datetime < cutover_at]
+            diverse_pool = [a for a in baseline_for_diversity if a.start_datetime >= cutover_at]
+            if not diverse_pool:
+                return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
     model = cp_model.CpModel()
     x = {
         (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
@@ -561,9 +590,24 @@ def solve(
     model.add_assumptions(list(assumptions.values()))
     # T018 B5: reshuffle (REPLAN-MIN-01) precedes exceptional_n; the exceptional phase needs allow_day_only_n_fallback.
     phase_exprs = []
-    baseline = redistributable_baseline_assignments(state)
-    if baseline:
-        phase_exprs.append(build_reshuffle_count_expr(x, baseline))
+    if require_different_from_baseline:
+        # A plain HARD floor over the future-only pool, not a phase to
+        # minimize: the coordinator explicitly wants a different result, not
+        # the smallest possible difference from it. Past-dated placements
+        # are pinned to their existing value instead -- select_candidate's
+        # own cutover check (plan_ops._enforce_replan_cutover) must never be
+        # the only thing standing between "diversity" and silently rewriting
+        # history.
+        for a in past_pinned:
+            key = (a.employee_id, a.covers_demand_id)
+            if key in x:
+                model.add(x[key] == 1)
+        if diverse_pool:
+            model.add(build_reshuffle_count_expr(x, diverse_pool) >= 1)
+    else:
+        baseline = redistributable_baseline_assignments(state)
+        if baseline:
+            phase_exprs.append(build_reshuffle_count_expr(x, baseline))
     if allow_day_only_n_fallback:
         phase_exprs.append(_exceptional_n_expr(x, slots))
     # T017: search variants only for a capped pass -- uncapped Stage 4 routes to LOAD DECISION_REQUIRED, never multi-candidate.

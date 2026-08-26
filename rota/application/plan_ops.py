@@ -25,7 +25,7 @@ from rota.persistence.schedule_repository import (
     get_schedule_version_header,
     set_schedule_version_planning_regime_in_open_transaction,
 )
-from rota.planning.engine import plan
+from rota.planning.engine import plan, plan_requiring_different_result
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
@@ -382,7 +382,12 @@ def replan(
             c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         ),
     )
-    result = plan(state)
+    # Owner decision 2026-08-26: REPLAN must never hand back the schedule
+    # already in place -- see engine.plan_requiring_different_result. This
+    # cutover_at is a separate "now" from select_candidate's own (captured
+    # later, immediately before its cutover-preservation check) -- best
+    # effort, same as every other cutover-adjacent timestamp in this flow.
+    result = plan_requiring_different_result(state, cutover_at=datetime.now())
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
     )

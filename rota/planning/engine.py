@@ -25,6 +25,8 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from rota.domain import Assignment, AssignmentState
 from rota.planning.decision_guidance import build_decision_payload
 from rota.planning.state import PlanningState
@@ -189,6 +191,36 @@ def _feasible_result(
         for warning in candidate_warnings
     ]
     return PlanningResult("FEASIBLE", candidates, None, None, warnings)
+
+
+def plan_requiring_different_result(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    """Owner decision 2026-08-26: REPLAN, by definition, must never hand the
+    coordinator back the schedule they already have -- pressing it means they
+    want a genuinely different HARD-valid alternative. Used only by
+    plan_ops.replan(), never by ordinary PLAN.
+
+    Deliberately does NOT reuse _plan()'s 4-stage coverage-shortage fallback
+    ladder (day-only-N exception, emergency 24h, dropping the LOAD-01 cap):
+    those exist to rescue a genuine staffing shortage, and cascading them
+    here to chase "any different result" could hand back a materially worse
+    schedule (excess load, emergency overrides) just to satisfy diversity.
+    REPLAN only ever runs on a baseline that is itself already HARD-valid, so
+    a single ordinary-capped solve is enough to answer the real question:
+    does another valid arrangement exist at all. If not, that is a plain
+    mathematical fact about this month, not a coordinator decision --
+    NO_ALTERNATIVE, never DECISION_REQUIRED/TECHNICAL_ERROR.
+
+    cutover_at mirrors plan_ops._enforce_replan_cutover's own "now" (same
+    invariant: an already-past PRIMARY Assignment is never moved) -- the
+    caller computes it once, at the same point in the REPLAN flow, so the
+    solver never even considers a placement select_candidate would reject
+    later on cutover grounds alone."""
+    outcome = solve(state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at)
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    if outcome.status_name == "INFEASIBLE":
+        return PlanningResult("NO_ALTERNATIVE", [], None, None, [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:

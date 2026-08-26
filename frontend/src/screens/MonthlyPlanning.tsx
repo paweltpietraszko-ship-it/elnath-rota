@@ -476,6 +476,15 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
             </div>
           )}
 
+          {/* Owner decision 2026-08-26: REPLAN never returns the same
+              schedule silently -- this is the plain-fact case where no other
+              HARD-valid arrangement exists at all, not an error. */}
+          {planResult && planResult.status === "NO_ALTERNATIVE" && (
+            <div className="banner-warning" style={{ marginTop: 12 }}>
+              Nie istnieje inny grafik spełniający zasady HARD dla tego miesiąca — obecny układ pozostaje bez zmian.
+            </div>
+          )}
+
           {planResult && planResult.status === "FEASIBLE" && planResult.candidates.length > 0 && (
             <div className="panel" style={{ marginTop: 12 }}>
               <h3>Kandydaci</h3>

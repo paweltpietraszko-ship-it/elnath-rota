@@ -23,6 +23,7 @@ export interface SiteSummary {
   missing: string[];
   decision_required_months: string[];
   print_settings_missing: boolean;
+  active: boolean;
 }
 
 export interface CreateSiteRequest {
@@ -126,7 +127,7 @@ export interface DecisionRequiredPayloadOut {
 }
 
 export interface PlanningResultOut {
-  status: "FEASIBLE" | "DECISION_REQUIRED" | "TECHNICAL_ERROR";
+  status: "FEASIBLE" | "DECISION_REQUIRED" | "TECHNICAL_ERROR" | "NO_ALTERNATIVE";
   candidates: AssignmentOut[][];
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;
@@ -325,13 +326,17 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
 }
 
 export const api = {
-  listSites: () => req<SiteSummary[]>("/workspace/sites"),
+  listSites: (includeInactive = false) =>
+    req<SiteSummary[]>(`/workspace/sites${includeInactive ? "?include_inactive=true" : ""}`),
 
   createSite: (payload: CreateSiteRequest) =>
     req<CreateSiteResponse>("/workspace/sites", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  deactivateSite: (siteId: string) => req<void>(`/workspace/sites/${siteId}/deactivate`, { method: "POST" }),
+  reactivateSite: (siteId: string) => req<void>(`/workspace/sites/${siteId}/reactivate`, { method: "POST" }),
 
   // Shift catalog (Panel sterowania -> Obiekt, T030)
   getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),

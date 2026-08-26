@@ -19,6 +19,9 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterChip>("ALL");
   const [creatingRegime, setCreatingRegime] = useState<Regime | null>(null);
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [removedSites, setRemovedSites] = useState<SiteSummary[]>([]);
+  const [busySiteId, setBusySiteId] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
@@ -50,7 +53,43 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
       .finally(() => setLoading(false));
   };
 
+  const loadRemovedSites = () => {
+    api
+      .listSites(true)
+      .then((all) => setRemovedSites(all.filter((s) => !s.active)))
+      .catch((e) => setError(String(e.message ?? e)));
+  };
+
   useEffect(loadSites, []);
+
+  useEffect(() => {
+    if (showRemoved) loadRemovedSites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRemoved]);
+
+  // 2026-08-26 owner decision: usuwanie obiektu z Workspace bez usuwania go
+  // z historii programu -- Site.active toggles, nothing is deleted.
+  const deactivateSite = (site: SiteSummary) => {
+    if (!window.confirm(`Usunąć obiekt „${site.display_name}” z Workspace? Cała historia zostanie zachowana.`)) return;
+    setBusySiteId(site.site_id);
+    api
+      .deactivateSite(site.site_id)
+      .then(loadSites)
+      .catch((e) => setError(String(e.message ?? e)))
+      .finally(() => setBusySiteId(null));
+  };
+
+  const reactivateSite = (site: SiteSummary) => {
+    setBusySiteId(site.site_id);
+    api
+      .reactivateSite(site.site_id)
+      .then(() => {
+        loadSites();
+        loadRemovedSites();
+      })
+      .catch((e) => setError(String(e.message ?? e)))
+      .finally(() => setBusySiteId(null));
+  };
 
   const decisionCount = sites.filter((s) => s.decision_required_months.length > 0).length;
   const incompleteCount = sites.filter((s) => !isConfigComplete(s)).length;
@@ -132,6 +171,9 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
             <h1 className="brand-font">Twoje obiekty</h1>
             <div className="workspace-title-actions">
               <span className="site-count">{sites.length} obiektów</span>
+              <button className="btn-ghost" data-diag-action="toggle-removed-sites" onClick={() => setShowRemoved((s) => !s)}>
+                {showRemoved ? "Ukryj usunięte" : "Usunięte obiekty"}
+              </button>
               <button className="btn-primary" data-diag-action="create-site-open" onClick={() => setCreatingRegime("OCHRONA")}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <path d="M12 5v14M5 12h14" />
@@ -181,10 +223,44 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
           ) : (
             <ul className="site-grid">
               {filtered.map((site) => (
-                <SiteRow key={site.site_id} site={site} onOpen={() => onOpenSite(site.site_id, site.display_name)} />
+                <SiteRow
+                  key={site.site_id}
+                  site={site}
+                  onOpen={() => onOpenSite(site.site_id, site.display_name)}
+                  onDeactivate={() => deactivateSite(site)}
+                  busy={busySiteId === site.site_id}
+                />
               ))}
               {filtered.length === 0 && <li className="empty-state">Brak obiektów spełniających kryteria.</li>}
             </ul>
+          )}
+
+          {showRemoved && (
+            <div className="panel" style={{ marginTop: 12 }}>
+              <h3>Usunięte obiekty</h3>
+              <p className="panel-hint">
+                Nie widoczne w Workspace, ale cała historia (grafiki, pracownicy, decyzje) jest zachowana.
+              </p>
+              {removedSites.length === 0 ? (
+                <p className="panel-hint">Brak usuniętych obiektów.</p>
+              ) : (
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {removedSites.map((site) => (
+                    <li key={site.site_id} style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>{site.display_name}</span>
+                      <button
+                        className="btn-ghost"
+                        data-diag-action="reactivate-site"
+                        onClick={() => reactivateSite(site)}
+                        disabled={busySiteId === site.site_id}
+                      >
+                        Przywróć
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
 
           <div className="utility-panel">
@@ -261,7 +337,14 @@ function InfoTip({ text }: { text: string }) {
   );
 }
 
-function SiteRow({ site, onOpen }: { site: SiteSummary; onOpen: () => void }) {
+function SiteRow({
+  site, onOpen, onDeactivate, busy,
+}: {
+  site: SiteSummary;
+  onOpen: () => void;
+  onDeactivate: () => void;
+  busy: boolean;
+}) {
   const needsDecision = site.decision_required_months.length > 0;
   const complete = isConfigComplete(site);
   const translatedMissing = site.missing.map(translateMissingReason);
@@ -292,6 +375,17 @@ function SiteRow({ site, onOpen }: { site: SiteSummary; onOpen: () => void }) {
           <StatusIcon tone={tone} />
         </div>
         <span className={`site-card-status status-${tone}`}>{statusLabel}</span>
+        <button
+          className="btn-ghost"
+          data-diag-action="deactivate-site"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeactivate();
+          }}
+        >
+          Usuń
+        </button>
       </div>
       <div>
         <h3 className="site-card-name">{site.display_name}</h3>

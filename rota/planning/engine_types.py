@@ -44,7 +44,7 @@ class ValidationResult:
 
 @dataclass
 class PlanningResult:
-    status: Literal["FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"]
+    status: Literal["FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR", "NO_ALTERNATIVE"]
     candidates: list[list[Assignment]]
     decision_payload: Optional[DecisionRequiredPayload]
     error_message: Optional[str]
