@@ -155,10 +155,6 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
   // FEASIBLE+optimization_complete=false result retries the RIGHT
   // operation (plan vs. the correct replan stage) rather than guessing.
   const [planResultSource, setPlanResultSource] = useState<"plan" | "replan">("plan");
-  // "Użyj tego grafiku" on a FEASIBLE+optimization_complete=false result
-  // just dismisses the "search further?" offer -- selection itself already
-  // happens via the ordinary "Wybierz" button in the candidates list below.
-  const [acceptedIncomplete, setAcceptedIncomplete] = useState<PlanningResultOut | null>(null);
   const [effectiveFromDraft, setEffectiveFromDraft] = useState(monthIso);
 
   // R1-1 (round-1 audit): resync the PLAN-first date whenever the selected
@@ -631,8 +627,16 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
               proof, the coordinator is told and offered the choice to
               search further, on the SAME version, instead of silently
               presenting a possibly-improvable candidate as final. */}
-          {planResult && planResult.status === "FEASIBLE" && planResult.candidates.length > 0 &&
-            !planResult.optimization_complete && acceptedIncomplete !== planResult && (
+          {/* Round-2 audit (INT-R2-1, HIGH): "Użyj tego grafiku" must go
+              through the EXISTING chooseCandidate/select-candidate for the
+              shown candidate -- no separate accepted-state, no second, fake
+              confirmation. With exactly one candidate (the common case:
+              REPLAN narrow/wide, and ordinary PLAN's own single result)
+              this banner offers it directly; with several, the per-candidate
+              button below is relabeled instead (same chooseCandidate call),
+              since one banner button could not pick among them. */}
+          {planResult && planResult.status === "FEASIBLE" && planResult.candidates.length === 1 &&
+            !planResult.optimization_complete && (
               <div className="banner-warning" style={{ marginTop: 12 }}>
                 <p style={{ margin: 0 }}>
                   Znaleziono grafik spełniający zasady, ale czas na dalszą optymalizację się skończył — może istnieć
@@ -642,16 +646,16 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                   <button
                     className="btn-ghost"
                     data-diag-action="accept-incomplete"
-                    onClick={() => setAcceptedIncomplete(planResult)}
-                    disabled={planning}
+                    onClick={() => chooseCandidate(planResult.candidates[0])}
+                    disabled={planning || selecting}
                   >
-                    Użyj tego grafiku
+                    {selecting ? "Zapisywanie…" : "Użyj tego grafiku"}
                   </button>
                   <button
                     className="btn-primary"
                     data-diag-action="search-again-incomplete"
                     onClick={searchAgainForFeasible}
-                    disabled={planning}
+                    disabled={planning || selecting}
                   >
                     {planning ? "Szukanie…" : "Szukaj dalej"}
                   </button>
@@ -673,7 +677,11 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                       onClick={() => chooseCandidate(candidate)}
                       disabled={selecting}
                     >
-                      {selecting ? "Zapisywanie…" : "Wybierz"}
+                      {selecting
+                        ? "Zapisywanie…"
+                        : planResult.optimization_complete
+                          ? "Wybierz"
+                          : "Użyj tego grafiku"}
                     </button>
                   </div>
                 </div>
