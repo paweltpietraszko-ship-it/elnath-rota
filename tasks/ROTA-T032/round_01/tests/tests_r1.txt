@@ -1,0 +1,151 @@
+ROTA-T032 — audyt kontraktu przed implementacją, runda 1
+
+Audytowany exact SHA:
+fce2f996f713fd1e2ce678f2c002a34c7bffe63d
+
+Baza:
+3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+
+WERDYKT: FAIL — KONTRAKT JEST TECHNICZNIE WĄSKI, ALE NIE ZAMYKA DWÓCH
+ZGŁOSZONYCH PROBLEMÓW I MA JEDNĄ NIEUSTALONĄ KONSEKWENCJĘ WAG.
+
+## Wynik redukcji
+
+Proponowany kształt implementacji nie jest nadmiernie rozbudowany.
+
+Potrzebne i pozostawione:
+- jeden helper equity w fairness.py;
+- jeden helper rytmu w fairness.py;
+- jednokrotne wyprowadzenie actual_hours w solver.py i reuse przez oba termy;
+- uwzględnienie fixed target-Site facts w ocenie finalnego kandydata;
+- jawne wyłączenie target=0 wyłącznie z dzielenia;
+- same-month start-day semantics, bez nowego boundary/persistence;
+- brak zmian validatora, DTO, statusów, warningów, UI i API.
+
+Nie znalazłem istniejącego ownera, którego te dwa helpery niepotrzebnie
+duplikują. Weekend/holiday fairness nie rozwiązuje ani proporcji do różnych
+targetów, ani rytmu D/N. Zachowanie istniejącego bezwzględnego TARGET-01 obok
+equity też nie jest duplikatem: pierwszy mierzy łączny błąd targetu, drugi
+rozkład tego błędu między ludźmi.
+
+Warunki B3–B6 (start-day, fixed/redistributable, TRAINEE i granica miesiąca)
+nie są ozdobnym future-proofingiem. Bez nich implementator musiałby sam
+zgadywać semantykę istniejących danych. Nie należy ich usuwać.
+
+Redukcja testów: T32-R2 nie powinien tworzyć w nowym pliku kopii pełnych
+macierzy weekend/holiday/DAY_SHIFT_OFF/LEAVE_PLAN/REPLAN-MIN/day_only. Dla
+T032 wystarczy test, że nowe termy są dopięte do istniejącej objective, oraz
+uruchomienie już istniejących regresji właścicieli tych mechanizmów.
+
+## R1-1 — nagroda D/N/wolne/wolne nie realizuje limitu dwóch kolejnych nocek
+
+TRACE:
+- najnowsza jawna decyzja właściciela 2026-08-25: grafik z więcej niż dwiema
+  kolejnymi N nie może zostać uznany przez poligon za PASS;
+- źródłem T032 jest potwierdzony live problem 3–5 kolejnych nocek;
+- brief §5 definiuje wyłącznie nagrodę za dokładny wzorzec D/N/wolne/wolne.
+
+Problem mechaniczny:
+- N/N/N/N oraz N/wolne/N/wolne mają po zero trafień D/N/wolne/wolne;
+- nowy term przypisuje im więc tę samą wartość;
+- kandydat może również zdobyć wiele trafień rytmu w jednej części miesiąca
+  i nadal zawierać serię 3–5 N w innej części.
+
+Wniosek: Checkpoint B może promować pożądany rytm, ale nie zapobiega
+konkretnemu problemowi, który uruchomił korektę. Implementacja może spełnić
+T32-B1…B6 i nadal zwrócić dokładnie taki zły grafik jak zgłoszony live.
+
+Nie narzucam sposobu technicznego. Kontrakt musi jednak jawnie zapisać
+zamrożoną semantykę właściciela: jak wynik z serią >2 N wpływa na ranking i na
+ocenę poligonu. Nagroda za rytm może pozostać dodatkową, niezależną
+preferencją, ale nie może być opisana jako zamiennik tego limitu.
+
+## R1-2 — T032 nie domyka fałszywego PASS w T028
+
+TRACE:
+- właściciel wskazał wprost, że generator nie powinien uznawać grafiku z
+  serią >2 N za PASS;
+- task/ROTA-T028 na c469190 został odtworzony: 9/9 pierwszych FEASIBLE
+  kandydatów zwykłych wariantów 12h miało serię 3–4 N, a poligon zwrócił PASS;
+- T032 §8 dopuszcza wyłącznie fairness.py, solver.py i test T032.
+
+Nawet poprawa rankingu solvera nie naprawia bezpiecznika poligonu. Przyszła
+regresja rankingu ponownie przejdzie na zielono, ponieważ T028 nadal sprawdza
+tylko HARD/closed-world.
+
+T032 może pozostać taskiem wyłącznie solverowym, ale wtedy musi istnieć jawnie
+zamrożona, osobna wąska korekta T028. Obecny dokument nie może przedstawiać
+problemu generatora jako zamkniętego.
+
+## R1-3 — kryteria equity mogą przejść, gdy live problem pozostaje bez zmian
+
+TRACE:
+- §1 obiecuje, że solver przestaje przypadkowo skupiać niedobór godzin;
+- §3 prawidłowo wycofuje nieudowodnioną diagnozę konkretnego wektora live;
+- T32-A1…A5 dowodzą tylko kontrolowanych remisów/metyki;
+- ostatnie zdanie §9 jawnie nie wymaga nawet uogólnionego odtworzenia klasy
+  live jako testu odbioru.
+
+To pozostawia kontrakt, który może dostać PASS po wykazaniu matematyki helpera,
+mimo że produkcyjny pięcioosobowy solve nadal daje skrajne 192/180/180/120/48.
+Przyczyna live może leżeć również w ograniczeniach, interakcji innych SOFT albo
+zakończeniu CP-SAT ze statusem FEASIBLE przed optimum; sam nowy tie term nie
+dowodzi usunięcia objawu.
+
+Nie należy zamrażać literalnego wektora jako oracle. Potrzebny jest jednak
+jeden uogólniony test pionowy klasy problemu: realny solver, kilku pracowników
+z równymi targetami i niedoborem, porównanie końcowego rozrzutu przed/po albo
+inna mierzalna granica zaakceptowana przez właściciela. Jeżeli wynik nie może
+się wyrównać przez HARD, test ma to wykazać zamiast nazywać poprawkę skuteczną.
+
+## R1-4 — nieustalona relacja equity do istniejącego TARGET-01
+
+Brief nazywa equity dodatkowym tie/quality signalem i zachowuje
+TARGET_DEVIATION_WEIGHT=100, ale jednocześnie wybiera zwykłą sumę ważoną i
+nie ogranicza skali completion_pct. Target hours nie ma dodatniego minimum w
+obecnym wejściu produktu.
+
+Kontrprzykład dla dokładnie zapisanej funkcji celu (pomijając równe pozostałe
+SOFT): targety 40/99, stała pula 276 h, dwie dystrybucje:
+
+- 36/240: sum(|actual-target|)=145, spread procentów=152,
+  objective contribution = 145*100+152 = 14652;
+- 180/96: sum(|actual-target|)=143, spread procentów=354,
+  objective contribution = 143*100+354 = 14654.
+
+Nowa objective wybiera pierwszy wariant, mimo że pogarsza istniejący łączny
+TARGET-01 o 2 h. Może to być świadomy trade-off, ale nie jest to decyzja
+właściciela zapisana w briefie. T32-A1 testuje tylko remisy, więc nie rozstrzyga
+tej konsekwencji.
+
+Kontrakt musi powiedzieć jedno z dwóch:
+- equity działa wyłącznie po zachowaniu optimum istniejącego TARGET-01; albo
+- equity może świadomie pogorszyć łączny TARGET-01 w zamian za proporcję.
+
+To jest decyzja o wyniku produktu, nie detal kodowania wagi.
+
+## Ocena pozostałych pytań §10
+
+1. Reuse effective target i worked expression: PASS kontraktu.
+2. floor(100*actual/target), surplus i target=0: semantyka lokalna jest
+   implementowalna; relacja wag pozostaje otwarta przez R1-4.
+3. Wagi 1/1: brak podstaw do PASS z powodu R1-4 i różnych skal termów.
+4. Start-day/fixed/no-double-count: PASS kontraktu.
+5. Same-month-only: implementowalne bez assemblera/persistence.
+6. Validator poza zakresem: poprawna, minimalna decyzja; nie gubi wymaganego
+   HARD ani zaakceptowanego komunikatu produktu.
+7. Zakres dwóch helperów: wąski; brak nowego stanu i warstw.
+8. Macierz testów: dobra dla mechaniki helperów, niewystarczająca dla
+   pierwotnych problemów przez R1-1, R1-2 i R1-3.
+
+## Wymagana konsolidacja przed implementacją
+
+Jedna korekta dokumentu, bez dopisywania kolejnej architektury:
+
+1. rozdzielić nagrodę D/N/wolne/wolne od jawnej zasady serii >2 N;
+2. wskazać, gdzie zostanie zamknięty QUALITY_FAIL T028;
+3. dodać jeden uogólniony pionowy dowód poprawy live klasy nierówności;
+4. zamrozić, czy equity może pogarszać łączny TARGET-01;
+5. nie ruszać validatora, UI/API, persistence, cross-month ani HARD.
+
+Do tej konsolidacji: CC READ-ONLY / NOT READY FOR IMPLEMENTATION.

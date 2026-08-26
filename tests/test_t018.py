@@ -612,7 +612,7 @@ def test_b10_8_stage1_no_eligible_employee_reaches_stage2(monkeypatch):
 def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls.append(allow_day_only_n_fallback)
         return SolverOutcome("UNKNOWN", None, [], [], {}, [], {})
 
@@ -629,7 +629,7 @@ def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
 def test_b10_10_stage2_failure_reaches_stage3(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls.append((allow_day_only_n_fallback, allow_emergency_24h))
         return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
 
@@ -664,7 +664,7 @@ def test_b10_11_day_only_fallback_alone_wins_without_reaching_emergency(monkeypa
 def test_b10_12_stage3_infeasible_advances_to_uncapped_stage4(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
         return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
 
@@ -725,6 +725,16 @@ def _b10_14_seed_context(conn, coord: str, site: str, profile_id: str, emp: str,
     membership = SiteMembership(emp, site, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
     durable_inputs.update_membership(conn, coordinator_id=coord, site_id=site, membership=membership)
     durable_inputs.set_target_hours(conn, coordinator_id=coord, site_id=site, employee_id=emp, month=month, target_hours=372)
+    # ROTA-T032 NIGHT-STREAK-01 (max two consecutive N): a lone employee
+    # covering an every-day N demand for the whole month is no longer
+    # feasible on its own -- a second employee shares the N coverage so
+    # `emp` still needs (and gets) the DAY_ONLY-N-FALLBACK-01 exception this
+    # test is actually about, without violating the new HARD rule.
+    emp2 = f"{emp}-2"
+    durable_inputs.update_employee(conn, coordinator_id=coord, site_id=site, employee=_employee(emp2, day_only=False))
+    membership2 = SiteMembership(emp2, site, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+    durable_inputs.update_membership(conn, coordinator_id=coord, site_id=site, membership=membership2)
+    durable_inputs.set_target_hours(conn, coordinator_id=coord, site_id=site, employee_id=emp2, month=month, target_hours=0)
     for day in range(1, calendar_module.monthrange(2026, 10)[1] + 1):
         durable_inputs.set_calendar_day(conn, coordinator_id=coord, site_id=site, day=CalendarDay(date(2026, 10, day), False))
     return rule_decisions.record_structured_rule_decision(

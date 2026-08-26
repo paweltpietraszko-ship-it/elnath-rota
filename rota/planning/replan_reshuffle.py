@@ -57,5 +57,35 @@ def build_reshuffle_count_expr(x: dict, baseline: list[Assignment]):
     return cp_model.LinearExpr.sum(changed_terms) if changed_terms else cp_model.LinearExpr.constant(0)
 
 
+def build_any_difference_expr(x: dict, baseline_pairs: set[tuple[str, str]]):
+    """ROTA-T033 audit finding R1-1 (2026-08-26): the coordinator-facing
+    "must differ from what's currently there" requirement (solver.solve's
+    require_different_from_baseline) is NOT the same question
+    build_reshuffle_count_expr answers. That function only asks "did an
+    ALREADY-COVERED demand's placement change" -- it has no term at all for
+    a demand that was genuinely open (no redistributable coverage yet, e.g.
+    a partially-saved schedule) suddenly getting filled. Filling one is just
+    as much a different, better schedule as reassigning an already-covered
+    one, and must count the same way.
+
+    baseline_pairs is the FULL (employee_id, covers_demand_id) signature of
+    every redistributable baseline placement in scope (both past-pinned and
+    future -- past ones are separately forced via model.add(x[key]==1), so
+    their own term here always evaluates to 0, correctly "unchanged"; never
+    pass only the future subset, or a pinned past placement would wrongly
+    slip into the "new pair" half below and count as a difference it can
+    never actually be).
+
+    Every key in baseline_pairs contributes 1 if it's no longer selected (or
+    no longer even a valid slot -- same constant-1 treatment as
+    build_reshuffle_count_expr). Every OTHER key in x -- any pairing that
+    was NOT part of the baseline -- contributes its own selected value: a
+    previously-nonexistent placement appearing in the candidate is exactly
+    as much a difference as an existing one disappearing or changing hands."""
+    terms = [1 - x[key] if key in x else 1 for key in baseline_pairs]
+    terms.extend(var for key, var in x.items() if key not in baseline_pairs)
+    return cp_model.LinearExpr.sum(terms) if terms else cp_model.LinearExpr.constant(0)
+
+
 if __name__ == "__main__":
     print("planning.replan_reshuffle module OK")

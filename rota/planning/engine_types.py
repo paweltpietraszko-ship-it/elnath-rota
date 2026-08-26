@@ -44,11 +44,19 @@ class ValidationResult:
 
 @dataclass
 class PlanningResult:
-    status: Literal["FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"]
+    status: Literal[
+        "FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR", "NO_ALTERNATIVE",
+        "NARROW_SEARCH_EXHAUSTED", "SEARCH_INCOMPLETE",
+    ]
     candidates: list[list[Assignment]]
     decision_payload: Optional[DecisionRequiredPayload]
     error_message: Optional[str]
     warnings: list[str]
+    # ROTA-T032 section 6.4: False only when the shared planning budget
+    # (section 6, PLANNING_OPERATION_BUDGET_SECONDS) ran out before every required solver phase proved OPTIMAL --
+    # the candidate is still HARD-valid (independent validator PASS). True
+    # keeps every pre-T032 caller/constructor valid unchanged (T32-T8).
+    optimization_complete: bool = True
 
 
 if __name__ == "__main__":

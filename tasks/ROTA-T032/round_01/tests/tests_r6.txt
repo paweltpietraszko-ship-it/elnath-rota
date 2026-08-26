@@ -1,0 +1,46 @@
+ROTA-T032 — korekta werdyktu audytu implementacji r5
+
+Audytowany exact SHA produktu:
+9663883543d007342ea3d585e72a2bcd3550a6ff
+
+Korygowany raport:
+tasks/ROTA-T032/round_01/tests/tests_r5.txt
+
+WERDYKT PO KOREKCIE:
+FAIL — ONE NARROW PRODUCT CORRECTION REQUIRED.
+
+## PODTRZYMANY R5-1
+
+Jeżeli program znalazł poprawny i zwalidowany grafik, a wspólny czas skończył
+się dopiero podczas szukania kandydata 2/3, pierwszy grafik musi pozostać
+dostępny. Obecny kod usuwa go i zwraca UNKNOWN, assignments=None oraz błędne
+optimization_complete=True.
+
+To jest realna ścieżka koordynatora, bez syntetycznego rozszerzenia produktu.
+Reproduktor pozostaje:
+
+tasks/ROTA-T032/round_01/tests/repro_r5.py::
+test_timeout_while_looking_for_variant_keeps_first_candidate
+
+## WYCOFANY R5-2
+
+Finding dotyczący search_attempt=2**40 zostaje WYCOFANY.
+
+Powód:
+- interfejs „Szukaj dalej” generuje zwykłą sekwencję 0, 1, 2...;
+- użytkownik nie wpisuje search_attempt;
+- obecny zakres T032 nie zawiera publicznego UI/API pozwalającego podać taką
+  arbitralną wartość;
+- zaakceptowany produkt nie wymaga obsługi biliona prób;
+- wcześniejszy tests_r4.txt nie mógł sam stworzyć nowego wymagania produktu.
+
+R5-2 nie spełnia TRACE ani realnej OWNERSHIP/REPRO ścieżki produktu według
+DEFECT_GATE. CC nie ma go naprawiać w T032.
+
+## NIEBLOKUJĄCE
+
+Nieaktualny komentarz testowy o błędnym pomiarze 30 s może zostać usunięty
+porządkowo, ale nie blokuje produktu i nie uzasadnia osobnej rundy.
+
+Pozostałe PASS z tests_r5.txt pozostają ważne: TARGET priority, NIGHT-STREAK,
+validator oraz pion ROTA-REG-001.

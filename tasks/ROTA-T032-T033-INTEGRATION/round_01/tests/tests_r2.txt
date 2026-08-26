@@ -1,0 +1,76 @@
+ROTA-T032 + ROTA-T033 — AUDYT INTEGRACYJNY, RUNDA 2
+
+WERDYKT: FAIL — ONE NARROW UI ACTION CORRECTION REQUIRED
+
+Audytowany exact SHA:
+59398ad6fbea3e80a2c8ccc416dbad8b84407890
+
+Skład konsolidacji:
+
+- zaakceptowany tip T032 f71ecfff73c8880e74b304eaddd0f1b7826f7197: ancestor PASS;
+- zaakceptowana implementacja T033 6de21f8e5635b03f7ddd6445a2c5075535000cbd: ancestor PASS;
+- git diff --check: PASS.
+
+ŹRÓDŁO PRAWDY
+
+- tasks/ROTA-T032/brief.md §7.1: po częściowym FEASIBLE akcja „Użyj tego grafiku” używa istniejącego select_candidate;
+- tasks/ROTA-T032/brief.md §8.3 oraz T32-U3: częściowy poprawny grafik pozostaje widoczny, a koordynator wybiera „Użyj tego grafiku” albo „Szukaj dalej”;
+- zaakceptowany T033: retry narrow/wide działa na tym samym CURRENT WORKING child i nie tworzy nowej wersji;
+- explicit OWNER: maksymalnie dwie kolejne N; timeout nie jest dowodem braku grafiku.
+
+WARSTWY AUDYTU
+
+1. Inspekcja diffu 284497f..59398ad: pięć plików produkcyjnych, 215 insertions / 27 deletions; bez persistence, job queue, incumbent protocol ani nowego modelu solvera.
+2. Oryginalny reproducer rundy 1:
+   tasks/ROTA-T032-T033-INTEGRATION/round_01/tests/test_audit_r1.py
+   => 5/5 PASS.
+3. Niezależna macierz rundy 2:
+   tasks/ROTA-T032-T033-INTEGRATION/round_01/tests/test_audit_r2.py
+   => 5/5 PASS, w tym rzeczywisty API -> application -> assembler -> solver -> persistence retry na tym samym child.
+4. Szeroki rdzeń T032 + T033 + API:
+   tests/test_t032_soft_ranking.py
+   tests/test_t033_replan_must_differ.py
+   tests/test_t031_schedule_api.py
+   => 39/39 PASS w 496,93 s.
+5. Frontend build: PASS.
+6. Niezależny test w prawdziwej przeglądarce:
+   tasks/ROTA-T032-T033-INTEGRATION/round_01/tests/frontend_click_repro_r2.cjs
+   => FAIL: „Użyj tego grafiku did not persist the candidate: select-candidate calls=0”.
+7. Pełna regresja repo: NOT RUN na czerwonym SHA. Ma zostać wykonana raz po korekcie na finalnym exact SHA; szeroki rdzeń i pion zostały już sprawdzone niezależnie.
+
+POTWIERDZONE — RUNDA 1 JEST TECHNICZNIE DOMKNIĘTA
+
+- każdy sprawdzony SEARCH_INCOMPLETE ma optimization_complete=False;
+- flaga wychodzi przez Python DTO i TypeScript DTO;
+- PLAN przyjmuje nieujemny search_attempt i przekazuje go do plan_month;
+- narrow i wide przekazują attempt do zwykłego i diversity solve;
+- retry REPLAN idzie na właściwy etap i nie tworzy drugiego ScheduleVersion;
+- poprzedni kandydat nie jest czyszczony podczas oczekiwania na retry;
+- nowe replan_retry_narrow + cienki endpoint są minimalnym adapterem technicznym potrzebnym do zachowania etapu T033; nie dodają zachowania produktowego ani persystencji;
+- NIGHT-STREAK-01, niezależny validator i diagnoza REPLAN pozostają zielone.
+
+FINDING INT-R2-1 — HIGH — „UŻYJ TEGO GRAFIKU” NICZEGO NIE UŻYWA ANI NIE ZAPISUJE
+
+TRACE
+
+T032 §7.1 przypisuje tej akcji istniejący select_candidate. §8.3/T32-U3 pokazują ją jako jedną z dwóch decyzji koordynatora po znalezieniu poprawnego, lecz nieudowodnionego jako optymalny grafiku.
+
+OWNERSHIP
+
+MonthlyPlanning.tsx jest właścicielem kliknięcia i ma już działającą funkcję chooseCandidate(), która wywołuje API select-candidate. Backend oraz API select-candidate są obecne i nie wymagają nowej logiki.
+
+REPRO
+
+frontend_click_repro_r2.cjs uruchamia dokładny frontend 59398ad w prawdziwym Chrome, podaje FEASIBLE + optimization_complete=False z jednym kandydatem i liczy wywołania istniejącego POST /select-candidate.
+
+Po kliknięciu „Użyj tego grafiku”:
+
+- oczekiwane: jedno wywołanie select-candidate i zapis wybranego kandydata;
+- rzeczywiste: zero wywołań; kod wykonuje wyłącznie setAcceptedIncomplete(planResult), więc chowa ostrzeżenie, ale nie zapisuje grafiku;
+- osobny przycisk „Wybierz” nadal może zapisać kandydat, lecz oznacza to dodatkowy, nieopisany krok, a przycisk „Użyj tego grafiku” składa fałszywą obietnicę.
+
+WYMAGANA KOREKTA KLASY
+
+„Użyj tego grafiku” musi przejść przez istniejący chooseCandidate/select_candidate dla konkretnego kandydata. Nie dodawać nowego endpointu, statusu ani stanu akceptacji. Jeżeli ekran pokazuje kilka kandydatów, akcję należy umieścić przy konkretnym kandydacie albo wykorzystać już istniejące „Wybierz” bez tworzenia drugiego, pozornego potwierdzenia. Sama zmiana etykiety nie realizuje zamrożonego kontraktu bez OWNER_CORRECTED.
+
+KONIEC RAPORTU

@@ -30,6 +30,7 @@ _BUILT_IN_CONDITION_TEXT = {
     "EXTERNAL-01": "Wsparcie zewnętrzne",
     "EXTERNAL_SUPPORT_DISABLED": "Wsparcie zewnętrzne",
     "SHIFT-24-01": "Koliduje z checkbox: 24",
+    "NIGHT-STREAK-01": "Koliduje z limitem dwóch nocek pod rząd",
 }
 _GENERIC_SITE_RULE_TEXT = "Koliduje z zapisaną regułą obiektu"
 

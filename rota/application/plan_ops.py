@@ -25,7 +25,7 @@ from rota.persistence.schedule_repository import (
     get_schedule_version_header,
     set_schedule_version_planning_regime_in_open_transaction,
 )
-from rota.planning.engine import plan
+from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
@@ -94,11 +94,25 @@ def _create_first_version(
 
 def plan_month(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date | None = None,
+    search_attempt: int = 0,
 ) -> PlanningResult:
     """Operation 3 (PLAN). Creates the first WORKING version when none
     exists yet (requires effective_from); otherwise plans fresh against the
     existing current WORKING version. A FINAL current version is never
     reopened -- callers must REPLAN.
+
+    ROTA-T032 section 7.2: search_attempt is an optional, non-persisted
+    passthrough to the existing solver -- "Szukaj dalej" reuses this same
+    operation on the same CURRENT WORKING version with attempt > 0, never a
+    new application operation. It is never stored on ScheduleVersion.
+
+    Owner decision 2026-08-26, revised same day: "Przelicz (PLAN)" keeps its
+    original, protective purpose -- recompute the MINIMAL change needed
+    after a real new fact (e.g. an employee goes on L4), never a pretext to
+    reshuffle everything. The "I don't like this candidate, show me
+    something else" need is real too, but belongs to REPLAN (now offered
+    alongside PLAN even before finalize, not gated behind isFinal on the
+    frontend) -- see plan_ops.replan, not this function.
 
     R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
     trigger), so a version created and only later found broken by a
@@ -126,13 +140,13 @@ def plan_month(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             version_id=version_id, demands=list(demands),
         )
-        result = plan(state)
+        result = plan(state, search_attempt=search_attempt)
         return _persist_decision_readback(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             schedule_version_id=version_id, result=result,
         )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    result = plan(state)
+    result = plan(state, search_attempt=search_attempt)
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
@@ -382,7 +396,58 @@ def replan(
             c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         ),
     )
-    result = plan(state)
+    # Owner decision 2026-08-26, OWNER_CORRECTED same day: REPLAN must never
+    # hand back the schedule already in place -- see
+    # engine.plan_requiring_different_result_narrow (step 1 of the agreed
+    # two-step flow; step 2 is replan_wider_search below, only on the
+    # coordinator's explicit "Szukaj szerzej"). This cutover_at is a separate
+    # "now" from select_candidate's own (captured later, immediately before
+    # its cutover-preservation check) -- best effort, same as every other
+    # cutover-adjacent timestamp in this flow.
+    result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now())
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
+    )
+
+
+def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0) -> PlanningResult:
+    """Integration audit (2026-08-26), point 5/6: retrying step 1 after a
+    FEASIBLE-but-optimization_complete=False or SEARCH_INCOMPLETE result
+    must reuse the SAME CURRENT WORKING child replan() already created --
+    never call replan() again, which would clone yet another child on top
+    of it. Mirrors replan_wider_search's own "plan fresh against the
+    existing current WORKING version, create nothing" pattern, but for the
+    narrow (step 1) stage, with search_attempt threaded through to vary the
+    solver's seed/order exactly like plan_month's own retry does."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to retry REPLAN on")
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+    result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now(), search_attempt=search_attempt)
+    return _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
+    )
+
+
+def replan_wider_search(
+    conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0,
+) -> PlanningResult:
+    """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
+    reachable after replan() returns NARROW_SEARCH_EXHAUSTED and the
+    coordinator explicitly asks to widen the search. Runs on the SAME
+    WORKING child replan() already created; creates no further
+    ScheduleVersion (per the agreed contract point 5) -- exactly the same
+    "plan fresh against the existing current WORKING version" read
+    plan_month() itself uses for its own recompute branch. search_attempt
+    threaded through so a subsequent "Szukaj dalej"/retry on this same
+    stage varies the solver's seed/order instead of repeating identically."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to search wider on")
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+    result = plan_requiring_different_result_wide(state, cutover_at=datetime.now(), search_attempt=search_attempt)
+    return _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

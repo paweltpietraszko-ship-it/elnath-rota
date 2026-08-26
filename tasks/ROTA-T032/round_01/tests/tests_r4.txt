@@ -1,0 +1,89 @@
+ROTA-T032 — audyt kontraktu przed implementacją, runda 4
+
+Audytowany exact SHA:
+b5f99a6cc3948721b9b0df3ca1dbc36b45c88f4e
+
+Baza:
+3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION.
+
+PASS dotyczy wyłącznie powyższego exact SHA kontraktu. Kod produktu i testy
+nie były częścią dostawy.
+
+## Redukcja odpowiedzialności
+
+Kontrakt jest wystarczająco wąski względem zaakceptowanego wyniku produktu.
+
+Niezbędne i pozostawione:
+
+- jeden NIGHT-STREAK-01 HARD w CP-SAT;
+- jeden niezależny mirror tego HARD w validatorze;
+- reuse canonical classify_demand, actual hours, effective target oraz
+  istniejących fixed/boundary facts;
+- target equity i D/N/wolne/wolne jako dwa lokalne helpery SOFT;
+- jeden wspólny deadline całej operacji;
+- jeden bool optimization_complete;
+- jeden nietrwały search_attempt zmieniający wyłącznie parametry wyszukiwania;
+- per-request timeout przyszłego endpointu planowania.
+
+Prawidłowo usunięte jako nadmiarowe:
+
+- soft night-streak score/faza;
+- lokalny trzeci NIGHT-STREAK owner w T028;
+- continue_plan_search i nowa application operation;
+- incumbent/score/hint/no-good protocol między requestami;
+- persisted solver state, job queue, background worker i fake progress;
+- specjalna logika NIGHT-STREAK dla służby 24h.
+
+OWNER fakt 24h jest zachowany przez istniejący HARD odpoczynku: po służbie 24h
+pracownik ma 24h wolnego, więc nie może dostać N następnego dnia. T032 nie
+duplikuje tej odpowiedzialności.
+
+## Zamknięcie R3
+
+R3-1 — PASS.
+
+- globalny timeout krótkich requestów pozostaje 20 s;
+- future PLAN/REPLAN/retry dostaje lokalny timeout 195 s;
+- 180 s backend + 15 s transportu jest spójne z loaderem i nie spowalnia
+  pozostałych endpointów.
+
+R3-2 — PASS.
+
+- retry używa istniejącego plan_month() na CURRENT WORKING;
+- po REPLAN nie tworzy kolejnego child;
+- search_attempt jest nietrwały i zmienia tylko wspierane parametry search;
+- przycisk uczciwie nazywa się „Szukaj dalej” i nie obiecuje poprawy;
+- brak poprzedniego kandydata w backendzie jest świadomą redukcją; poprzedni
+  HARD-poprawny wynik pozostaje fallbackiem po stronie UI.
+
+R3-3 — PASS.
+
+- timeout podczas REPLAN-MIN/exceptional-N zachowuje wcześniejszy fail-closed;
+- partial FEASIBLE jest dozwolony dopiero po ukończeniu tych faz;
+- timeout podczas nieudowodnionego TARGET-01 zwraca jego incumbent bez
+  uruchamiania equity/rhythm;
+- każdy publiczny partial FEASIBLE wymaga independent validator PASS.
+
+## Pion i istniejący T028
+
+Sprawdzono origin/task/ROTA-T028@d710d925011567688ae9c5eb4da725e09db27713.
+tools/solver_scenario_lab.py::_inspect_result() iteruje po każdym FEASIBLE
+kandydacie i wywołuje produkcyjny validate(state, candidate), a hard_pass=False
+zamienia na CANDIDATE_INVALID/FAIL. Po integracji T032 validatorowy
+NIGHT-STREAK-01 wystarcza więc jako niezależny bezpiecznik poligonu. Trzeci
+lokalny algorytm liczenia N byłby rzeczywistą duplikacją.
+
+## Interpretacja do audytu implementacji
+
+Nie jest to nowe wymaganie produktu: ponieważ §6.1 jawnie obejmuje wspólnym
+deadline także search wariantów, timeout podczas szukania wariantu 2/3 należy
+testować jako sibling timeoutu finalnego SOFT. Już znaleziony i zwalidowany
+kandydat nie może zostać utracony ani zamieniony w fałszywy TECHNICAL_ERROR.
+
+W implementacji search_attempt ma być bezpiecznie mapowany na wspierany zakres
+parametru CP-SAT i rzeczywiście zmieniać search seed/order dla attempt > 0;
+nie może zmieniać modelu, constraints ani objective.
+
+CC może rozpocząć implementację dokładnie tego kontraktu.

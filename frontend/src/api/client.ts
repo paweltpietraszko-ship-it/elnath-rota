@@ -23,6 +23,7 @@ export interface SiteSummary {
   missing: string[];
   decision_required_months: string[];
   print_settings_missing: boolean;
+  active: boolean;
 }
 
 export interface CreateSiteRequest {
@@ -126,11 +127,18 @@ export interface DecisionRequiredPayloadOut {
 }
 
 export interface PlanningResultOut {
-  status: "FEASIBLE" | "DECISION_REQUIRED" | "TECHNICAL_ERROR";
+  status:
+    | "FEASIBLE"
+    | "DECISION_REQUIRED"
+    | "TECHNICAL_ERROR"
+    | "NO_ALTERNATIVE"
+    | "NARROW_SEARCH_EXHAUSTED"
+    | "SEARCH_INCOMPLETE";
   candidates: AssignmentOut[][];
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;
   warnings: string[];
+  optimization_complete: boolean;
 }
 
 export interface PrecheckOut {
@@ -325,13 +333,17 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
 }
 
 export const api = {
-  listSites: () => req<SiteSummary[]>("/workspace/sites"),
+  listSites: (includeInactive = false) =>
+    req<SiteSummary[]>(`/workspace/sites${includeInactive ? "?include_inactive=true" : ""}`),
 
   createSite: (payload: CreateSiteRequest) =>
     req<CreateSiteResponse>("/workspace/sites", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  deactivateSite: (siteId: string) => req<void>(`/workspace/sites/${siteId}/deactivate`, { method: "POST" }),
+  reactivateSite: (siteId: string) => req<void>(`/workspace/sites/${siteId}/reactivate`, { method: "POST" }),
 
   // Shift catalog (Panel sterowania -> Obiekt, T030)
   getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),
@@ -342,10 +354,10 @@ export const api = {
   getScheduleMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/schedule/months`),
   getMonthView: (siteId: string, month: string) => req<MonthViewOut>(`/workspace/sites/${siteId}/schedule/${month}`),
   getPrecheck: (siteId: string, month: string) => req<PrecheckOut>(`/workspace/sites/${siteId}/schedule/${month}/precheck`),
-  planMonth: (siteId: string, month: string, effectiveFrom: string | null) =>
+  planMonth: (siteId: string, month: string, effectiveFrom: string | null, searchAttempt = 0) =>
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/plan`, {
       method: "POST",
-      body: JSON.stringify({ effective_from: effectiveFrom }),
+      body: JSON.stringify({ effective_from: effectiveFrom, search_attempt: searchAttempt }),
     }, PLANNING_REQUEST_TIMEOUT_MS),
   selectCandidate: (siteId: string, month: string, candidate: AssignmentIn[], note?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/select-candidate`, {
@@ -356,6 +368,16 @@ export const api = {
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan`, {
       method: "POST",
       body: JSON.stringify({ effective_from: effectiveFrom, note: note ?? null }),
+    }, PLANNING_REQUEST_TIMEOUT_MS),
+  replanWiderSearch: (siteId: string, month: string, searchAttempt = 0) =>
+    req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan/wider-search`, {
+      method: "POST",
+      body: JSON.stringify({ search_attempt: searchAttempt }),
+    }, PLANNING_REQUEST_TIMEOUT_MS),
+  replanRetry: (siteId: string, month: string, searchAttempt = 0) =>
+    req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan/retry`, {
+      method: "POST",
+      body: JSON.stringify({ search_attempt: searchAttempt }),
     }, PLANNING_REQUEST_TIMEOUT_MS),
   finalizeMonth: (siteId: string, month: string, acknowledgedDeviationIds: string[], reason?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/finalize`, {

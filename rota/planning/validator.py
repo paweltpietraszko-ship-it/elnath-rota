@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from itertools import combinations
 
 from rota.domain import (
@@ -213,6 +213,46 @@ def _demand_kind(demand, profile) -> ShiftKind | None:
         return classify_demand(demand, profile)
     except UnclassifiedShiftError:
         return None
+
+
+def _check_night_streak(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """NIGHT-STREAK-01 (ROTA-T032, owner-corrected 2026-08-25): independent
+    from-scratch mirror of the solver HARD -- the same employee never has
+    non-CANCELLED PRIMARY N on three consecutive start dates. N is
+    recognized exclusively via classify_demand on the assignment's own
+    covering ShiftDemand (never assignment start-hour/duration guessing).
+    `assignments` is already CANCELLED-filtered by validate(); target-Site
+    boundary_assignments extend the check across the month boundary (T032
+    section 3.3) -- other_site_assignments and TRAINEE never participate."""
+    n_dates_by_employee: dict[str, set] = {}
+    assignment_by_employee_date: dict[tuple[str, date], str] = {}
+    for assignment in assignments:
+        if assignment.role != AssignmentRole.PRIMARY:
+            continue
+        assignment_by_employee_date[assignment.employee_id, assignment.start_datetime.date()] = assignment.assignment_id
+        demand = _covering_demand(assignment, state)
+        if demand is not None and _demand_kind(demand, state.profile) == ShiftKind.N:
+            n_dates_by_employee.setdefault(assignment.employee_id, set()).add(assignment.start_datetime.date())
+
+    for boundary in state.boundary_assignments:
+        if boundary.role != AssignmentRole.PRIMARY or boundary.state == AssignmentState.CANCELLED:
+            continue
+        demand = _covering_demand(boundary, state)
+        if demand is not None and _demand_kind(demand, state.profile) == ShiftKind.N:
+            n_dates_by_employee.setdefault(boundary.employee_id, set()).add(boundary.start_datetime.date())
+
+    for employee_id, dates in n_dates_by_employee.items():
+        for d in dates:
+            if (d + timedelta(days=1)) in dates and (d + timedelta(days=2)) in dates:
+                ids = tuple(
+                    assignment_by_employee_date[employee_id, dd]
+                    for dd in (d, d + timedelta(days=1), d + timedelta(days=2))
+                    if (employee_id, dd) in assignment_by_employee_date
+                )
+                details.append(ViolationDetail(
+                    "NIGHT-STREAK-01", ids,
+                    f"NIGHT-STREAK-01: {employee_id} has N on three consecutive dates starting {d}",
+                ))
 
 
 def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
@@ -568,6 +608,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_trainee_mentor_reference(assignments, details)
     _check_membership_enabled(state, for_eligibility_checks, details)
     _check_day_only(state, for_eligibility_checks, details, warnings)
+    _check_night_streak(state, assignments, details)
     _check_day_shift_off(state, for_eligibility_checks, details, warnings)
     _check_leave_and_unavailable(state, for_eligibility_checks, details)
     _check_leave_plan(state, for_eligibility_checks, warnings)

@@ -159,10 +159,10 @@ def _capture_model_with_single_diversity_cut(monkeypatch, state):
     real_run_solver = solver_module._run_solver
     call_count = {"n": 0}
 
-    def _spy_run_solver(model):
+    def _spy_run_solver(model, *args, **kwargs):
         call_count["n"] += 1
         captured["model"] = model
-        solver, status = real_run_solver(model)
+        solver, status = real_run_solver(model, *args, **kwargs)
         if call_count["n"] == 2:
             return solver, cp_model.INFEASIBLE  # stop the search right after cut #1
         return solver, status
@@ -399,7 +399,7 @@ def test_m19_stage3_first_feasible_with_variants_never_reaches_stage4(monkeypatc
     second = Assignment("second", "test-v1", "B", demand.start_datetime, demand.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand.demand_id, None)
     calls: list[tuple[bool, bool, bool]] = []
 
-    def _fake_solve(_state, enforce_load_cap=True, allow_emergency_24h=False, allow_day_only_n_fallback=False):
+    def _fake_solve(_state, enforce_load_cap=True, allow_emergency_24h=False, allow_day_only_n_fallback=False, **_kwargs):
         calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
         if len(calls) < 3:
             return solver_module.SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
@@ -420,9 +420,9 @@ def _run_solver_forcing_second_call(monkeypatch, forced_status):
     real_run_solver = solver_module._run_solver
     call_count = {"n": 0}
 
-    def _fake_run_solver(model):
+    def _fake_run_solver(model, *args, **kwargs):
         call_count["n"] += 1
-        solver, status = real_run_solver(model)
+        solver, status = real_run_solver(model, *args, **kwargs)
         if call_count["n"] == 2:
             return solver, forced_status
         return solver, status
@@ -430,13 +430,20 @@ def _run_solver_forcing_second_call(monkeypatch, forced_status):
     monkeypatch.setattr(solver_module, "_run_solver", _fake_run_solver)
 
 
-def test_m22_optional_unknown_status_fails_whole_result_closed(monkeypatch):
+def test_m22_optional_unknown_status_keeps_first_candidate_marked_incomplete(monkeypatch):
+    """ROTA-T032 owner-corrected (audit tests_r6.txt, 2026-08-25): UNKNOWN
+    while searching for a SECOND/THIRD T017 variant is a routine timeout,
+    not a technical failure -- the already-found, independently-validated
+    first candidate must be kept (FEASIBLE, optimization_complete=False),
+    never discarded into TECHNICAL_ERROR. Only MODEL_INVALID (test M23,
+    below) still fails the whole result closed."""
     from ortools.sat.python import cp_model
 
     _run_solver_forcing_second_call(monkeypatch, cp_model.UNKNOWN)
     result = plan(_symmetric_pool_state(6))
-    assert result.status == "TECHNICAL_ERROR"
-    assert result.candidates == []
+    assert result.status == "FEASIBLE"
+    assert len(result.candidates) == 1
+    assert result.optimization_complete is False
 
 
 def test_m23_optional_model_invalid_status_fails_whole_result_closed(monkeypatch):

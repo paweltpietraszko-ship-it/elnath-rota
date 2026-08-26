@@ -80,9 +80,9 @@ def test_t26_04_plan_month_still_fails_closed_on_incomplete_reference(tmp_path) 
 
 
 def test_t26_05_unrelated_technical_error_mappings_unchanged(monkeypatch) -> None:
-    monkeypatch.setattr(engine_module, "_plan", lambda state: (_ for _ in ()).throw(UnclassifiedShiftError("bad shift")))
+    monkeypatch.setattr(engine_module, "_plan", lambda state, *a, **kw: (_ for _ in ()).throw(UnclassifiedShiftError("bad shift")))
     assert plan(base_state()).status == "TECHNICAL_ERROR"
-    monkeypatch.setattr(engine_module, "_plan", lambda state: (_ for _ in ()).throw(UnsupportedOrMalformedSiteRule("RV-1", "bad rule")))
+    monkeypatch.setattr(engine_module, "_plan", lambda state, *a, **kw: (_ for _ in ()).throw(UnsupportedOrMalformedSiteRule("RV-1", "bad rule")))
     assert plan(base_state()).status == "TECHNICAL_ERROR"
 
 

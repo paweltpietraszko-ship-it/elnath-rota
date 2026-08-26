@@ -1,0 +1,133 @@
+ROTA-T032 — niezależny audyt implementacji, runda 5
+
+Audytowany exact SHA:
+9663883543d007342ea3d585e72a2bcd3550a6ff
+
+Baza zaakceptowanego kontraktu:
+2d609c09e2aa3f3b61f05f58a11100d18296dffd
+
+Dodatkowe OWNER rulings z 2026-08-25:
+- poprawny HARD kandydat może wrócić bez dowodu optimum;
+- o praktycznej jakości decyduje koordynator;
+- TARGET ma bezwzględne pierwszeństwo przed equity/rytmem.
+
+WERDYKT: FAIL — TWO NARROW PRODUCT CORRECTIONS REQUIRED.
+
+PASS nie został wydany. Oba blokery spełniają DEFECT_GATE: mają TRACE,
+należą do zmienionego w T032 ownera i zostały niezależnie odtworzone na
+exact SHA.
+
+## R5-1 — timeout podczas wariantu 2/3 usuwa poprawny kandydat
+
+TRACE:
+- brief §6.1: jeden deadline obejmuje także search wariantów;
+- brief §6.3: po znalezieniu HARD-poprawnego kandydata timeout może zwrócić
+  partial FEASIBLE;
+- zaakceptowany tests_r4.txt, „Interpretacja do audytu implementacji”:
+  timeout podczas wariantu 2/3 jest siblingiem timeoutu finalnego SOFT,
+  a już znaleziony i zwalidowany kandydat nie może zostać utracony ani
+  zamieniony w fałszywy TECHNICAL_ERROR.
+
+OWNERSHIP:
+rota/planning/solver.py::_search_additional_candidates oraz
+_solve_lexicographic_phases są właścicielem search wariantów i dyspozycji
+wyniku CP-SAT.
+
+REPRO:
+tasks/ROTA-T032/round_01/tests/repro_r5.py::
+test_timeout_while_looking_for_variant_keeps_first_candidate
+
+Pierwszy solve zwraca realny OPTIMAL i poprawny kandydat. Następny solve,
+szukający tylko wariantu, zwraca UNKNOWN jak po wyczerpaniu deadline.
+
+Oczekiwane:
+- zachowany pierwszy Assignment candidate;
+- independent validator PASS;
+- optimization_complete=False;
+- publicznie kandydat może zostać pokazany koordynatorowi.
+
+Rzeczywiste:
+- status_name=UNKNOWN;
+- assignments=None;
+- optimization_complete=True;
+- engine zamieniłby to w TECHNICAL_ERROR i zgubił poprawny grafik.
+
+Przyczyna:
+_search_additional_candidates tworzy nowy pusty SolverOutcome dla UNKNOWN,
+z domyślnym optimization_complete=True. Caller zwraca ten override zamiast
+zachować pierwszego kandydata i już znalezione alternatywy.
+
+Macierz siblingów w tym samym reproduktorze:
+- FEASIBLE z finalnego SOFT przed dowodem optimum jest prawidłowo zachowany
+  z optimization_complete=False — PASS;
+- UNKNOWN przed znalezieniem jakiegokolwiek kandydata prawidłowo zwraca
+  brak assignments i optimization_complete=False — PASS;
+- uszkodzona jest wąsko ścieżka timeoutu po pierwszym kandydacie, podczas
+  search wariantów.
+
+## R5-2 — duży search_attempt wywołuje surowy wyjątek
+
+TRACE:
+- brief §7.2: search_attempt jest nietrwałym numerem kolejnego „Szukaj dalej”
+  i ma wpływać wyłącznie na wspierany seed/order CP-SAT;
+- zaakceptowany tests_r4.txt wymaga bezpiecznego mapowania do zakresu
+  wspieranego przez CP-SAT;
+- publiczny plan() nie może wypuszczać surowego wyjątku jako wyniku.
+
+OWNERSHIP:
+rota/planning/solver.py::_run_solver bezpośrednio mapuje search_attempt na
+solver.parameters.random_seed.
+
+REPRO:
+tasks/ROTA-T032/round_01/tests/repro_r5.py::
+test_large_search_attempt_is_safely_mapped_not_a_raw_exception
+
+Wywołanie produkcyjnego plan(state, search_attempt=2**40) kończy się:
+
+TypeError: incompatible function arguments
+solver.parameters.random_seed = 1099511627776
+
+CP-SAT przyjmuje tu liczbę 32-bitową; 0, 1 i 2 z testu implementera nie
+pokrywają granicy. search_attempt musi zostać bezpiecznie znormalizowany albo
+odrzucony na publicznej granicy w kontrolowany sposób. Nie może zmieniać
+modelu/HARD/objective i nie może powodować raw exception.
+
+## Potwierdzone zachowania
+
+- N/N jest legalne, N/N/N jest blokowane przez solver i validator.
+- persisted N z poprzedniego miesiąca uczestniczy w realnym solverze;
+  kandydat nie dostaje A na 01.10 i 02.10 po A=30.09 N.
+- OWNER_CORRECTED target priority naprawia wcześniejszy reproduktor:
+  dla targetów A=1, B=1, C=3 i dwóch zmian 12h wynik ma minimalne łączne
+  odchylenie 21h; wcześniejsze 23h już nie wygrywa przez equity.
+- własny pakiet implementera: 12/12 PASS.
+- pion ROTA-REG-001 przez real plan() + validator, z audytowym budżetem 3 s:
+  7/7 PASS, w tym pełne coverage, hard_pass i exact monthly hours.
+
+## Dokumentacja i test harness — do zamknięcia w tej samej poprawce
+
+Nie jest osobnym blokerem produktu, ale tests/test_t032_soft_ranking.py:1-11
+nadal zawiera wycofane, fałszywe twierdzenie, że phase split powodował 30 s.
+Komentarz produkcyjny poprawiono, komentarz testu nie. Usunąć tę dezinformację
+w tej samej mikropoprawce; nie tworzyć osobnej rundy projektu.
+
+Standardowy zestaw test_rota_reg_001 bez audytowej podmiany budżetu zużył
+pełne 180 s już na pierwszym teście. To zgodne z dozwolonym zachowaniem
+produktu, ale exact SHA nie zawiera współdzielonego test-only budgetu, mimo
+zalecenia §6.1. Pełnej regresji nie powtarzałem po znalezieniu dwóch blokerów;
+należy uruchomić ją niezależnie raz na finalnym SHA po poprawce, z jawnym
+krótkim budżetem testowym, bez zmiany produkcyjnych 180 s.
+
+## Komendy
+
+Implementer Task tests:
+python -m pytest tests/test_t032_soft_ranking.py -q
+Wynik: 12 passed.
+
+Independent reproducer:
+python -m pytest tasks/ROTA-T032/round_01/tests/repro_r5.py -q -s
+Wynik: 4 passed, 2 failed — dokładnie R5-1 i R5-2.
+
+Vertical ROTA-REG-001:
+python -c "import rota.planning.engine as e; e.PLANNING_OPERATION_BUDGET_SECONDS=3.0; import pytest; raise SystemExit(pytest.main(['tests/test_rota_reg_001.py','-q']))"
+Wynik: 7 passed in 21.06s.

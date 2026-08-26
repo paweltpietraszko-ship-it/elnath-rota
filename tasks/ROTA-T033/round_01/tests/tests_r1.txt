@@ -1,0 +1,134 @@
+ROTA-T033 — AUDYT IMPLEMENTACJI, RUNDA 1
+
+WERDYKT: FAIL — THREE CONSOLIDATED CORRECTIONS REQUIRED
+
+Audytowany exact SHA:
+43dc8cb9c65b6f17451643cd547d6d6db6c6240a
+
+Baza gałęzi:
+4a6dd590f67f0a35ec4c91afc038e019ec96bd6b (origin/main)
+
+ŹRÓDŁO PRAWDY
+
+- explicit OWNER ruling 2026-08-26: koordynator wybiera przed i po finalizacji między delikatnym PLAN a nowym układem REPLAN;
+- explicit OWNER-accepted two-step REPLAN: zwykłe zasady -> pytanie „Zostań / Szukaj szerzej” -> pełna istniejąca drabina wyjątków;
+- jeden budżet 45 s na cały krok 1 oraz osobny budżet 45 s na krok 2;
+- timeout oznacza nieukończone wyszukiwanie z możliwością ponowienia, nigdy dowód braku alternatywy;
+- arch/spec.md:455-466 i 706-715: publiczny PlanningEngine zwraca strukturalny wynik; błąd modelu jest TECHNICAL_ERROR;
+- zamknięta decyzja T003 R19/R20: nieklasyfikowalny ShiftDemand zwraca TECHNICAL_ERROR zamiast raw exception;
+- explicit OWNER ruling 2026-08-26: usunięcie Site to odwracalne ukrycie bez utraty historii.
+
+WARSTWY AUDYTU
+
+1. Inspekcja diffu i odpowiedzialności: 21 plików, 950 insertions / 62 deletions; git diff --check PASS.
+2. Testy dostawy i sąsiednie API:
+   python -m pytest -q tests/test_t033_replan_must_differ.py tests/test_t033_site_deactivate_reactivate.py tests/test_t031_schedule_api.py
+   => 31 PASS.
+3. Niezależna macierz/reproducery:
+   tasks/ROTA-T033/round_01/tests/test_audit_r1.py
+   => 4 FAIL / 3 PASS.
+4. Pionowy backend:
+   - realny API -> application -> assembler -> solver -> select-candidate -> persistence: PASS;
+   - deactivate -> ukrycie -> reactivate -> odczyt zachowanej obsady i grafiku: PASS.
+5. Frontend:
+   - npm.cmd run build: PASS;
+   - Playwright monthly-planning.spec.ts: 5/5 PASS.
+6. Pełna regresja repozytorium:
+   => 1155 PASS / 1 FAIL w 95,89 s.
+   Jedyny fail to przedistniejący source-diff
+   test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b;
+   nie jest regresją T033 i nie uczestniczy w werdykcie.
+7. backend.py: NOT RUN — gałąź T033 nie zawiera brief.md, a narzędzie wymaga ścieżki briefu. Pełna regresja i niezależne warstwy zostały wykonane bez tego mechanicznego gate.
+
+FINDING R1-1 — HIGH — UZUPEŁNIENIE CZĘŚCIOWEGO GRAFIKU NIE JEST LICZONE JAKO ZMIANA
+
+TRACE
+
+OWNER wymaga, aby REPLAN nie zwrócił identycznego grafiku. Dodanie brakującej obsady do częściowo zapisanego grafiku daje inny grafik. NO_ALTERNATIVE wolno pokazać dopiero po udowodnieniu, że nie istnieje żaden inny kompletny wynik.
+
+OWNERSHIP
+
+Solver jest jedynym właścicielem ograniczenia różnorodności. solver.py:631-632 buduje je wyłącznie z wcześniej istniejących Assignmentów. Sprawdza, czy któryś stary przydział zmienił pracownika, ale nie uwzględnia nowych przydziałów dodanych do wcześniej pustych demandów.
+
+REPRO
+
+test_r1_partial_schedule_completed_by_new_assignment_is_a_different_schedule:
+- zapisany jest D1=A;
+- D2 jest pusty i może go legalnie pokryć wyłącznie B;
+- pełny wynik D1=A, D2=B jest oczywiście inny od stanu zapisanego;
+- rzeczywisty wynik kroku 1: NARROW_SEARCH_EXHAUSTED zamiast FEASIBLE.
+
+test_r1_wide_must_not_claim_no_alternative_to_a_partial_schedule:
+- ten sam realnie uzupełnialny stan;
+- rzeczywisty wynik kroku 2: NO_ALTERNATIVE zamiast FEASIBLE.
+
+WYMAGANA KOREKTA KLASY
+
+Porównywać pełną kanoniczną sygnaturę grafiku przed i po: usunięcia, zamiany oraz dodania. Nie łatać osobno statusu narrow i wide — oba muszą korzystać z jednego właściciela tej definicji.
+
+FINDING R1-2 — HIGH — TIMEOUT W KONTROLI WEJŚCIOWEJ KROKU 1 JEST POKAZYWANY JAKO AWARIA
+
+TRACE
+
+Zaakceptowany przepływ rozróżnia timeout od dowodu braku alternatywy i pozwala ponowić ten sam krok. Cały krok 1 dzieli jeden budżet 45 s, więc timeout może legalnie wystąpić również podczas jego kontroli wejściowej.
+
+OWNERSHIP
+
+engine.py:259 wywołuje `_plan(state, deadline)`, lecz istniejący dispatcher engine.py:110 mapuje UNKNOWN na TECHNICAL_ERROR. Dopiero drugi solve ma specjalne mapowanie UNKNOWN -> SEARCH_INCOMPLETE w engine.py:269. Engine jest właścicielem publicznego statusu.
+
+REPRO
+
+test_r1_timeout_during_narrow_baseline_check_is_retryable:
+- solver otrzymuje niepusty wspólny deadline;
+- zwraca UNKNOWN już podczas baseline check;
+- rzeczywisty wynik: TECHNICAL_ERROR;
+- wymagany wynik: SEARCH_INCOMPLETE, aby ekran zaoferował ponowienie.
+
+WYMAGANA KOREKTA KLASY
+
+Specyficzna dla REPLAN interpretacja wyczerpania wspólnego deadline musi obejmować każdy solve kroku, nie tylko ostatni solve diversity. MODEL_INVALID i prawdziwe błędy nadal pozostają TECHNICAL_ERROR.
+
+FINDING R1-3 — HIGH — REPLAN OMIJA ISTNIEJĄCĄ PUBLICZNĄ OSŁONĘ BŁĘDÓW MODELU
+
+TRACE
+
+arch/spec.md:455-466 definiuje strukturalny wynik PlanningEngine, a arch/spec.md:706-710 zalicza błąd modelu do TECHNICAL_ERROR. Zamknięta decyzja T003 R19/R20 wymaga, aby nieklasyfikowalny ShiftDemand zwracał TECHNICAL_ERROR zamiast wyjątku.
+
+OWNERSHIP
+
+Publiczne `plan()` ma już właściwe, wąskie mapowanie UnclassifiedShiftError i UnsupportedOrMalformedSiteRule. T033 omija ten boundary: engine.py:259 woła wewnętrzne `_plan()` bez odpowiadającej osłony. To regresja w nowej publicznej ścieżce REPLAN, nie żądanie duplikowania walidacji domenowej.
+
+REPRO
+
+test_r1_replan_preserves_public_model_error_mapping:
+- ten sam nieklasyfikowalny ShiftDemand;
+- zwykły PLAN poprawnie zwraca TECHNICAL_ERROR;
+- REPLAN wypuszcza raw UnclassifiedShiftError;
+- na API staje się to HTTP 500 zamiast strukturalnego PlanningResultOut.
+
+WYMAGANA KOREKTA KLASY
+
+PLAN, narrow REPLAN i wide REPLAN powinny współdzielić jedną publiczną osłonę znanych błędów modelu. Nie dodawać szerokiego `except Exception` i nie kopiować list wyjątków do kolejnych funkcji.
+
+POTWIERDZONE ZACHOWANIA
+
+- 43dc8cb rzeczywiście przekazuje identyczny absolutny deadline do baseline check i diversity solve kroku 1.
+- Zwykły PLAN pozostaje minimal-change; REPLAN przed i po finalizacji szuka innego układu.
+- Znaleziony przez realny solver kandydat REPLAN różni się od zapisanego i daje się wybrać oraz odczytać po zapisie.
+- Krok 2 nie tworzy kolejnej ScheduleVersion.
+- Ukrycie Site zachowuje wybraną obsadę, membershipy i grafik; przywrócenie odtwarza dostęp do danych.
+- Build i istniejąca pionowa ścieżka przeglądarkowa są zielone.
+
+ARCHITECTURE_PROPOSALS — NONBLOCKING, ONCE ONLY
+
+Stan obecny: wide REPLAN ręcznie powtarza czterostopniową drabinę `_plan()`, a osobne gałęzie samodzielnie mapują UNKNOWN i wyjątki. To już spowodowało R1-2 i R1-3.
+
+Propozycja: w ramach jednej korekty T033 wyodrębnić współdzielony mechaniczny runner etapów, któremu PLAN/REPLAN przekazują jedynie tryb zwykły albo „wymagaj innej pełnej sygnatury”. Publiczne mapowanie błędów i timeoutu pozostawić w jednym miejscu.
+
+Korzyść: mniej kodu i jedna definicja etapów/statusów. Tradeoff: niewielki refactor engine zamiast trzech lokalnych ifów. To nie jest nowy task ani nowe zachowanie produktu.
+
+STAN INTEGRACJI Z T032
+
+T033 bazuje na main@4a6dd59 i nie zawiera zaakceptowanego T032; oba branche zmieniają te same pliki solver/engine i mają realne konflikty merge. Ten fakt nie tworzy dodatkowego findingu T033, ale finalny PASS przed merge musi dotyczyć skonsolidowanego SHA zawierającego oba zaakceptowane zachowania. Samo 43dc8cb nie jest takim SHA.
+
+KONIEC RAPORTU

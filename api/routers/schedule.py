@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
@@ -19,7 +19,7 @@ from rota.application.assembler import assemble_planning_state
 from rota.application.lifecycle_ops import finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
 from rota.application.open_month import months_with_schedule, open_month
-from rota.application.plan_ops import plan_month, replan, select_candidate
+from rota.application.plan_ops import plan_month, replan, replan_retry_narrow, replan_wider_search, select_candidate
 from rota.application.precheck import precheck
 from rota.domain import Assignment, AssignmentRole, AssignmentState
 from rota.persistence.employee_repository import list_employees_by_ids
@@ -150,6 +150,7 @@ class PlanningResultOut(BaseModel):
     decision_payload: DecisionRequiredPayloadOut | None
     error_message: str | None
     warnings: list[str]
+    optimization_complete: bool
 
 
 class PrecheckOut(BaseModel):
@@ -217,6 +218,7 @@ def _planning_result_out(conn, result) -> PlanningResultOut:
     return PlanningResultOut(
         status=result.status, candidates=candidates, decision_payload=decision_payload,
         error_message=result.error_message, warnings=list(result.warnings),
+        optimization_complete=result.optimization_complete,
     )
 
 
@@ -269,6 +271,11 @@ def get_precheck(site_id: str, month: date, conn=Depends(get_conn)) -> PrecheckO
 class PlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     effective_from: str | None = None
+    # Integration audit (2026-08-26): lets the coordinator ask for a
+    # different CP-SAT seed/order ("Szukaj dalej") after a FEASIBLE but
+    # optimization_complete=False result, without persisting anything --
+    # mirrors plan_month's own existing search_attempt parameter.
+    search_attempt: int = Field(default=0, ge=0)
 
 
 @router.post("/{site_id}/schedule/{month}/plan", response_model=PlanningResultOut)
@@ -283,6 +290,7 @@ def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_
             raise ValueError("effective_from is required to create the first schedule version")
         result = plan_month(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
+            search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result)
     except Exception as exc:
@@ -350,6 +358,46 @@ def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(
         result = replan(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+        return _planning_result_out(conn, result)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class ReplanRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    search_attempt: int = Field(default=0, ge=0)
+
+
+@router.post("/{site_id}/schedule/{month}/replan/wider-search", response_model=PlanningResultOut)
+def post_replan_wider_search(
+    site_id: str, month: date, payload: ReplanRetryRequest = ReplanRetryRequest(), conn=Depends(get_conn),
+) -> PlanningResultOut:
+    """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
+    meaningful after a NARROW_SEARCH_EXHAUSTED result from /replan, and only
+    on the coordinator's explicit choice. Creates no new ScheduleVersion."""
+    try:
+        result = replan_wider_search(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            search_attempt=payload.search_attempt,
+        )
+        return _planning_result_out(conn, result)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/{site_id}/schedule/{month}/replan/retry", response_model=PlanningResultOut)
+def post_replan_retry(
+    site_id: str, month: date, payload: ReplanRetryRequest = ReplanRetryRequest(), conn=Depends(get_conn),
+) -> PlanningResultOut:
+    """Integration audit (2026-08-26), point 6: retries the narrow (step 1)
+    stage on the SAME CURRENT WORKING child replan() already created, after
+    a SEARCH_INCOMPLETE result -- never calls replan() again, which would
+    create another child version."""
+    try:
+        result = replan_retry_narrow(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result)
     except Exception as exc:

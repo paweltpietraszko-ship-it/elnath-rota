@@ -1,0 +1,110 @@
+ROTA-T032 — audyt kontraktu przed implementacją, runda 2
+
+Audytowany exact SHA:
+6e18d8d6c4c10b369748bc4a1e33e30fc7c20624
+
+Baza:
+3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+
+WERDYKT: FAIL — OWNER_CORRECTED. CC READ-ONLY.
+
+Jawne rozstrzygnięcie właściciela z 2026-08-25:
+
+1. „Nie może być więcej nocek niż 2 pod rząd, koniec.”
+2. Limit 30 sekund wprowadzono bez wiedzy właściciela. Solver może pracować
+   kilka minut; poprawny grafik ma pierwszeństwo przed szybkością.
+
+## Wynik ponownej redukcji
+
+Konsolidacja 6e18d8d poprawnie zamknęła techniczne R1-2, R1-3 i R1-4:
+
+- T028 ma osobny, wąski quality gate;
+- T32-A6 jest pionowym testem przez prawdziwy solve();
+- target equity nie może kupować pogorszenia TARGET-01;
+- actual/effective target mają jednego ownera;
+- nie powstają nowe DTO, persistence ani UI/API.
+
+Po najnowszej decyzji właściciela część night-streak w briefie jest jednak
+nie tylko błędna produktowo, lecz również nadmiarowa. Nie jest potrzebna faza
+minimalizująca night_streak_excess_count, jej optimum ani score NNN/NNNN/NNNNN.
+Trzecia kolejna N ma być po prostu kandydatem niedozwolonym.
+
+## R2-1 — brief nadal dopuszcza wynik jawnie zakazany przez właściciela
+
+TRACE:
+- najnowsze OWNER_CORRECTED: nigdy więcej niż dwie kolejne N;
+- brief §1 i §5.2 nazywa tę zasadę SOFT i jawnie pozwala zwrócić FEASIBLE z
+  serią >2 N, gdy zero nie jest optimum wcześniejszych faz;
+- brief §5.1 i §8 ogranicza liczenie do wnętrza miesiąca.
+
+OWNERSHIP:
+- solver/constraints są ownerem dopuszczalności kandydata;
+- arch/spec.md anti-drift rule 12 wymaga niezależnego powtórzenia każdego HARD
+  w validatorze;
+- PlanningState już posiada target-Site boundary_assignments oraz odpowiadające
+  im boundary_shift_demands, więc nie potrzeba nowego DTO, tabeli ani assemblera.
+
+REPRO kontraktu:
+- N/N/N przy zachowanym optimum TARGET-01 może według §5.2 zostać FEASIBLE;
+- N 30.09 + N 01.10 + N 02.10 nie jest w ogóle liczone przez same-month §5.1;
+- oba wyniki przeczą literalnemu OWNER_CORRECTED.
+
+Minimalna korekta:
+
+1. usunąć fazę/score night_streak_excess_count i jej SOFT testy;
+2. dodać HARD „na żadnych trzech kolejnych datach startu ten sam pracownik nie
+   ma PRIMARY N” w istniejącym ownerze constraints/solver;
+3. powtórzyć tę samą regułę niezależnie w validatorze — to nie jest zbędne
+   dublowanie, lecz obowiązkowy anti-drift dla HARD;
+4. używać produkcyjnego classify_demand oraz istniejących fixed i boundary
+   facts; TRAINEE nie jest N, other-Site nie jest obserwowane;
+5. objąć granicę miesiąca z już posiadanych target-Site boundary facts;
+6. brak grafiku przez tę regułę ma iść istniejącą ścieżką diagnozy konfliktu
+   HARD/DECISION_REQUIRED, nie TECHNICAL_ERROR i nie częściowy FEASIBLE;
+7. pozostawić D→N→wolne→wolne jako osobny, zwykły reward SOFT.
+
+T028 QUALITY_FAIL pozostaje potrzebnym niezależnym bezpiecznikiem poligonu:
+po poprawnej implementacji powinien wykrywać regresję solvera, a nie legalizować
+grafik odrzucony przez produkcyjny HARD.
+
+## R2-2 — czas wykonania nadal nie ma zatwierdzonego kontraktu
+
+TRACE:
+- rota/planning/solver.py ma obecnie SOLVER_TIME_LIMIT_SECONDS = 30.0;
+- brief dodaje obowiązkowe fazy wymagające statusu OPTIMAL; każda korzysta z
+  osobnego _run_solver() i własnego limitu 30 sekund;
+- właściciel odrzucił 30 sekund jako nieuzgodnione i postawił poprawność ponad
+  szybkością, dopuszczając pracę przez kilka minut.
+
+Skutek obecnego briefu: zwykły PLAN może zużyć osobne 30 sekund na każdą fazę,
+a mimo znalezienia poprawnego kandydata zwrócić TECHNICAL_ERROR, gdy nie zdąży
+udowodnić optimum. Przy fallbackach budżet mnoży się ponownie. Dokument nie
+ustala łącznego czasu operacji ani zachowania po jego wyczerpaniu.
+
+Nie narzucam liczby sekund. Architekt ma zapisać jeden jawny, techniczny
+mechanizm budżetu zgodny z OWNER_CORRECTED: budżet liczony dla całej operacji,
+rzędu kilku minut, bez niejawnego resetowania pełnego limitu dla każdej fazy.
+Musi też jawnie opisać, co użytkownik dostaje po wyczerpaniu tego budżetu.
+Dopóki tego nie ma, kontrakt nie jest testowalny pod kątem czasu i recovery.
+
+## Zakres po korekcie
+
+Niezbędne:
+- solver/constraints: jeden HARD limit dwóch kolejnych N;
+- validator: niezależny mirror tego HARD;
+- fairness + solver: target equity i reward D/N/wolne/wolne;
+- testy: NNN wewnątrz miesiąca, NNN przez granicę, fixed/REPLAN, validator
+  wykrywający wstrzyknięty zły kandydat, pionowy solve, target preservation;
+- osobna korekta quality gate T028 zgodnie z §8.
+
+Usunąć jako nadmiarowe:
+- night_triple jako liczony SOFT score;
+- night_streak_excess_count;
+- osobną fazę optimum night-streak;
+- testy rozróżniające NNN=1, NNNN=2, NNNNN=3 jako ranking.
+
+Nie poszerzać o nowe DTO, statusy, persistence, UI/API ani obserwowanie
+nieznanej pracy na innych Site.
+
+Wymagana jest jedna konsolidacja briefu. Do nowego exact SHA:
+CC READ-ONLY / NOT READY FOR IMPLEMENTATION.

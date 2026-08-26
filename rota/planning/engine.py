@@ -25,6 +25,10 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 """
 from __future__ import annotations
 
+import time
+from dataclasses import replace
+from datetime import datetime
+
 from rota.domain import Assignment, AssignmentState
 from rota.planning.decision_guidance import build_decision_payload
 from rota.planning.state import PlanningState
@@ -34,33 +38,60 @@ from rota.planning.engine_types import (
     LoadBlocker,
     PlanningResult,
 )
+from rota.planning.replan_reshuffle import redistributable_baseline_assignments
 from rota.planning.shift_catalog import UnclassifiedShiftError
 from rota.planning.site_rules import UnsupportedOrMalformedSiteRule, validate_executable_site_rules
-from rota.planning.solver import SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve
+from rota.planning.solver import (
+    PLANNING_OPERATION_BUDGET_SECONDS, REPLAN_SEARCH_BUDGET_SECONDS, SolverOutcome, eligible_employees_for_demands,
+    fixed_existing_assignments, solve,
+)
 from rota.planning.timeutil import intervals_overlap
 from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
 
 
-def plan(state: PlanningState) -> PlanningResult:
-    """Produce a PlanningResult for one PlanningState.
+def _with_model_error_boundary(fn, *args, **kwargs) -> PlanningResult:
+    """The one public model-error boundary every public entry point
+    (plan(), plan_requiring_different_result_narrow/_wide) shares.
 
-    plan() has exactly three output statuses (arch/spec.md:339-342); a raw
-    exception is never one of them. FINDING R17-3: UnclassifiedShiftError is
-    a genuine model error (arch/spec.md:503-507) -- a ShiftDemand that
-    matches no StandardShift in the profile -- and must be mapped to
-    TECHNICAL_ERROR at this public boundary, not left to propagate to the
-    caller. ROTA-T007: UnsupportedOrMalformedSiteRule (a RESOLVED rule that
-    claims to be executable but isn't) is the same class of model error.
-    """
+    FINDING R17-3: UnclassifiedShiftError is a genuine model error
+    (arch/spec.md:503-507) -- a ShiftDemand that matches no StandardShift in
+    the profile -- and must be mapped to TECHNICAL_ERROR at this public
+    boundary, not left to propagate to the caller. ROTA-T007:
+    UnsupportedOrMalformedSiteRule (a RESOLVED rule that claims to be
+    executable but isn't) is the same class of model error.
+
+    ROTA-T033 audit finding R1-3 (2026-08-26): REPLAN's own entry points
+    used to call _plan()/solve() directly, bypassing this boundary entirely
+    -- the same model error that plan() maps to a structured TECHNICAL_ERROR
+    would surface from REPLAN as a raw exception (an HTTP 500, not
+    PlanningResultOut). One shared boundary function, not a copy of this
+    except-list pasted into each new entry point."""
     try:
-        return _plan(state)
+        return fn(*args, **kwargs)
     except UnclassifiedShiftError as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
     except UnsupportedOrMalformedSiteRule as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
 
 
-def _plan(state: PlanningState) -> PlanningResult:
+def plan(state: PlanningState, search_attempt: int = 0) -> PlanningResult:
+    """Produce a PlanningResult for one PlanningState.
+
+    plan() has exactly three output statuses (arch/spec.md:339-342); a raw
+    exception is never one of them -- see _with_model_error_boundary.
+
+    ROTA-T032 section 6.1: this is the ONE public entry point that creates
+    the shared planning-operation deadline (PLANNING_OPERATION_BUDGET_SECONDS,
+    a time.monotonic() absolute instant) -- every internal solve() call below, across every retry stage,
+    gets only the time remaining to this same deadline, never a fresh
+    per-stage allowance. section 7.2: search_attempt only varies CP-SAT
+    search seed/order for "Szukaj dalej" retries, never the model.
+    """
+    deadline = time.monotonic() + PLANNING_OPERATION_BUDGET_SECONDS
+    return _with_model_error_boundary(_plan, state, deadline, search_attempt)
+
+
+def _plan(state: PlanningState, deadline: float | None = None, search_attempt: int = 0) -> PlanningResult:
     # ROTA-T007: prevalidate before solve() -- a RESOLVED HARD/SOFT SiteRule
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
@@ -73,16 +104,26 @@ def _plan(state: PlanningState) -> PlanningResult:
     # fallback stage remains, so stages 1-2 never dispatch it (round 14
     # audit); only stage 3 finally treats it as the terminal shortage, since
     # no uncapped solve can repair a missing eligible slot.
+    #
+    # ROTA-T033 (Codex audit finding, UNAUTHORIZED, 2026-08-26): deadline is
+    # None for ordinary plan()/PLAN -- unaffected, original fixed per-call
+    # budget. plan_requiring_different_result_narrow passes its OWN 45s
+    # REPLAN_SEARCH_BUDGET_SECONDS deadline here too, so this baseline check
+    # and the diversity solve that follows it share ONE budget, never
+    # baseline-unbounded-time-plus-45s.
     for allow_day_only_n_fallback, allow_emergency_24h in ((False, False), (True, False)):
         outcome = solve(
             state, enforce_load_cap=True, allow_day_only_n_fallback=allow_day_only_n_fallback,
-            allow_emergency_24h=allow_emergency_24h,
+            allow_emergency_24h=allow_emergency_24h, deadline=deadline, search_attempt=search_attempt,
         )
         result = _dispatch_or_continue(state, outcome)
         if result is not None:
             return result
 
-    outcome_3 = solve(state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True)
+    outcome_3 = solve(
+        state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True,
+        deadline=deadline, search_attempt=search_attempt,
+    )
     result = _dispatch_stage3(state, outcome_3)
     if result is not None:
         return result
@@ -90,7 +131,9 @@ def _plan(state: PlanningState) -> PlanningResult:
     # conflict by itself (round 13 FINDING R13-1) -- drop the cap before
     # treating this as a genuine cross-demand conflict, both fallbacks still
     # ON (part_c_emergency_24h.md section 9 point 9: same boundary context).
-    return _resolve_without_load_cap(state, allow_emergency_24h=True, allow_day_only_n_fallback=True)
+    return _resolve_without_load_cap(
+        state, deadline, search_attempt, allow_emergency_24h=True, allow_day_only_n_fallback=True,
+    )
 
 
 def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
@@ -99,12 +142,15 @@ def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> Plann
     INFEASIBLE or a pre-model coverage shortage (NO_ELIGIBLE_EMPLOYEE) means
     None -- the caller must still try the next fallback stage. Any other
     status (UNKNOWN/MODEL_INVALID) is a genuine technical failure, never
-    masked by a further retry (round 14 audit tests_r14.txt FINDING R14-2)."""
+    masked by a further retry (round 14 audit tests_r14.txt FINDING R14-2).
+    ROTA-T032 section 6.3: a technical failure caused by the shared deadline
+    running out with no candidate proven anywhere carries
+    optimization_complete=False through to the final PlanningResult."""
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
     if outcome.unassignable_demand_ids or outcome.status_name == "INFEASIBLE":
         return None
-    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete)
 
 
 def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
@@ -116,24 +162,27 @@ def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningRe
     if outcome.unassignable_demand_ids:
         return _decision_for_unassignable(state, outcome)
     if outcome.status_name != "INFEASIBLE":
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete)
     return None
 
 
 def _resolve_without_load_cap(
-    state: PlanningState, allow_emergency_24h: bool = False, allow_day_only_n_fallback: bool = False,
+    state: PlanningState, deadline: float | None = None, search_attempt: int = 0,
+    allow_emergency_24h: bool = False, allow_day_only_n_fallback: bool = False,
 ) -> PlanningResult:
     fallback = solve(
         state, enforce_load_cap=False, allow_emergency_24h=allow_emergency_24h,
-        allow_day_only_n_fallback=allow_day_only_n_fallback,
+        allow_day_only_n_fallback=allow_day_only_n_fallback, deadline=deadline, search_attempt=search_attempt,
     )
     if fallback.unassignable_demand_ids:
         return _decision_for_unassignable(state, fallback)
     if fallback.assignments is not None:
         return _decision_for_load(state, fallback)
+    if fallback.night_streak_conflicts:
+        return _decision_for_night_streak(state, fallback)
     if fallback.conflicting_demand_ids:
         return _decision_for_conflict(state, fallback)
-    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [], fallback.optimization_complete)
 
 
 def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[Assignment]:
@@ -150,7 +199,9 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
     if report.hard_pass:
-        return _feasible_result(state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives)
+        return _feasible_result(
+            state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives, outcome.optimization_complete,
+        )
     if _has_non_load_violations(report):
         return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
@@ -163,14 +214,21 @@ def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> Plannin
 
 def _feasible_result(
     state: PlanningState, first_full: list[Assignment], first_warnings: list[str],
-    alternatives: list[tuple[list[Assignment], list[str]]],
+    alternatives: list[tuple[list[Assignment], list[str]]], optimization_complete: bool = True,
 ) -> PlanningResult:
     """T017: a single candidate keeps the exact legacy unprefixed warning
     shape. 2-3 candidates each get independently HARD-validated; any
     additional candidate failing validation fails the WHOLE result closed
-    (anti-drift rule 12, brief.md H2) -- never a silent partial success."""
+    (anti-drift rule 12, brief.md H2) -- never a silent partial success.
+    ROTA-T032 section 6.4: optimization_complete carries through unchanged
+    from the solver outcome that produced first_full/alternatives in EVERY
+    branch below, including the multi-candidate one -- audit R7-1
+    (tests_r7.txt, 2026-08-25): the shared deadline can now run out while
+    searching for a THIRD variant after already finding a second one, which
+    keeps both candidates (solver.py) but must still mark the result
+    incomplete; `alternatives` non-empty no longer implies True."""
     if not alternatives:
-        return PlanningResult("FEASIBLE", [first_full], None, None, first_warnings)
+        return PlanningResult("FEASIBLE", [first_full], None, None, first_warnings, optimization_complete)
     candidates = [first_full]
     per_candidate_warnings = [first_warnings]
     for solved, solver_warnings in alternatives:
@@ -188,7 +246,268 @@ def _feasible_result(
         for index, candidate_warnings in enumerate(per_candidate_warnings, start=1)
         for warning in candidate_warnings
     ]
-    return PlanningResult("FEASIBLE", candidates, None, None, warnings)
+    return PlanningResult("FEASIBLE", candidates, None, None, warnings, optimization_complete)
+
+
+def _is_timeout_technical_error(result: PlanningResult) -> bool:
+    """ROTA-T033 audit finding R1-2 (2026-08-26): _plan()'s own dispatch
+    (_dispatch_or_continue/_dispatch_stage3/_resolve_without_load_cap) maps
+    ANY non-INFEASIBLE, non-assignments solver status -- including UNKNOWN,
+    a plain shared-deadline timeout, not a real failure -- to a generic
+    TECHNICAL_ERROR carrying f"solver status: {status_name}". That is the
+    right call for ordinary PLAN (no SEARCH_INCOMPLETE concept exists
+    there), but REPLAN's own baseline check shares the SAME deadline as its
+    diversity search, so a timeout can just as easily land here as in the
+    diversity solve -- and must get the identical, retryable
+    SEARCH_INCOMPLETE treatment, never TECHNICAL_ERROR. MODEL_INVALID and
+    every other genuine failure still doesn't match this string and stays a
+    real TECHNICAL_ERROR."""
+    return result.status == "TECHNICAL_ERROR" and result.error_message is not None and "UNKNOWN" in result.error_message
+
+
+def _already_differs_from_baseline(state: PlanningState, candidate: list[Assignment]) -> bool:
+    """Integration audit finding INT-R3-1 (2026-08-26, round 3): the baseline
+    check's own _plan() call can already produce a genuinely different
+    schedule -- e.g. the baseline was empty/partial (a prior DECISION_REQUIRED
+    that a newly-declared external support window just resolved), so ANY
+    full candidate is trivially different from it. Reuses
+    replan_reshuffle.redistributable_baseline_assignments (the exact same
+    predicate solve()'s own diversity constraint is built from) against a
+    stand-in state whose existing_assignments is the candidate itself, so
+    this never drifts from the solver's own definition of "the pairs that
+    count"."""
+    baseline_pairs = {(a.employee_id, a.covers_demand_id) for a in redistributable_baseline_assignments(state)}
+    candidate_state = replace(state, existing_assignments=tuple(candidate))
+    candidate_pairs = {(a.employee_id, a.covers_demand_id) for a in redistributable_baseline_assignments(candidate_state)}
+    return candidate_pairs != baseline_pairs
+
+
+def plan_requiring_different_result_narrow(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_narrow, state, cutover_at, search_attempt)
+
+
+def _plan_requiring_different_result_narrow(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
+    """Owner decision 2026-08-26, then OWNER_CORRECTED same day after a Codex
+    audit question: REPLAN, by definition, must never hand the coordinator
+    back the schedule they already have. This is step 1 ("wąskie
+    wyszukiwanie") of the agreed two-step flow: ordinary rules only, no
+    fallback exceptions, budgeted at REPLAN_SEARCH_BUDGET_SECONDS. Used only
+    by plan_ops.replan(), now offered alongside "Przelicz (PLAN)" even
+    before finalize (not gated behind isFinal on the frontend), so a
+    coordinator can choose either a minimal recompute (PLAN, unaffected by
+    this function -- keeps the original protective minimize-reshuffle
+    behavior, e.g. for a newly reported L4) or a genuinely different
+    alternative (REPLAN) at the same point in the flow.
+
+    The caller cannot assume the state's existing content is actually
+    coverage-valid -- nothing stops REPLAN from being invoked (directly via
+    the API, if not through the gated frontend) on a version whose content
+    never solved cleanly. That must still get the full existing diagnosis
+    (DECISION_REQUIRED/TECHNICAL_ERROR), not a diversity verdict about a
+    schedule that never validly existed in the first place. So this runs
+    _plan()'s ordinary, unmodified diagnosis FIRST; only once that confirms
+    a real FEASIBLE baseline does a second, diversity-only solve ask the
+    actual new question.
+
+    Codex audit finding (UNAUTHORIZED, 2026-08-26): the baseline check and
+    the diversity solve MUST share ONE REPLAN_SEARCH_BUDGET_SECONDS budget,
+    not the baseline check running unbounded and then a fresh 45s starting
+    only for the diversity search -- a coordinator could otherwise wait far
+    longer than the agreed budget for one click. Both calls below share the
+    same `deadline` for exactly this reason.
+
+    Four outcomes, per the agreed contract -- "nie wolno pisać 'nie istnieje
+    inny grafik' po samym kroku 1" (never claim no-alternative from step 1
+    alone; only a step-2 proof earns that):
+    - FEASIBLE: a genuinely different HARD-valid schedule exists, here it is.
+    - DECISION_REQUIRED / TECHNICAL_ERROR: the baseline itself never solved
+      cleanly (see above) -- unrelated to diversity, passed through as-is.
+    - NARROW_SEARCH_EXHAUSTED: PROVEN (CP-SAT INFEASIBLE, not a guess) that
+      no different schedule exists under ordinary rules alone. The
+      coordinator is offered a choice: keep the current schedule, or widen
+      the search to exceptions (plan_requiring_different_result_wide).
+    - SEARCH_INCOMPLETE: the budget ran out before proving anything either
+      way -- an unproven "maybe", never reported as NARROW_SEARCH_EXHAUSTED
+      or NO_ALTERNATIVE.
+
+    cutover_at mirrors plan_ops._enforce_replan_cutover's own "now" (same
+    invariant: an already-past PRIMARY Assignment is never moved) -- the
+    caller computes it once, at the same point in its own flow, so the
+    solver never even considers a placement select_candidate would reject
+    later on cutover grounds alone."""
+    deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
+    baseline_check = _plan(state, deadline, search_attempt)
+    if baseline_check.status != "FEASIBLE":
+        if _is_timeout_technical_error(baseline_check):
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
+        return baseline_check
+    if _already_differs_from_baseline(state, baseline_check.candidates[0]):
+        # INT-R3-1: the baseline check's own candidate already satisfies
+        # "must differ" (e.g. baseline was empty/partial) -- a second,
+        # diversity-only solve would be redundant and, on timeout, would
+        # wrongly discard this already-valid, already-different candidate.
+        # optimization_complete is forced False: the normal REPLAN diversity
+        # pass (which could still have found an even better arrangement) was
+        # deliberately skipped, not proven unnecessary.
+        return replace(baseline_check, optimization_complete=False)
+    outcome = solve(
+        state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
+        search_attempt=search_attempt,
+    )
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    if outcome.status_name == "INFEASIBLE":
+        return PlanningResult("NARROW_SEARCH_EXHAUSTED", [], None, None, [])
+    if outcome.status_name == "UNKNOWN":
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+
+
+def _wide_try_diversity_at_stage(
+    state: PlanningState, cutover_at: datetime, deadline: float, *,
+    enforce_load_cap: bool, allow_day_only_n_fallback: bool, allow_emergency_24h: bool, search_attempt: int = 0,
+) -> PlanningResult | None:
+    """Only called once the ORDINARY (non-diversity) solve at these exact
+    stage flags already came back cleanly FEASIBLE (see
+    plan_requiring_different_result_wide) -- so any INFEASIBLE here is
+    provably attributable to the diversity requirement alone at THIS
+    permissiveness level (coverage/rest are already known solvable without
+    it), never a real conflict. Returns None to mean "not diverse at this
+    stage, try the next one"."""
+    outcome = solve(
+        state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
+        allow_emergency_24h=allow_emergency_24h, require_different_from_baseline=True, cutover_at=cutover_at,
+        deadline=deadline, search_attempt=search_attempt,
+    )
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    if outcome.status_name == "INFEASIBLE":
+        return None
+    if outcome.status_name == "UNKNOWN":
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+
+
+def plan_requiring_different_result_wide(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_wide, state, cutover_at, search_attempt)
+
+
+def _plan_requiring_different_result_wide(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
+    """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- called
+    only after plan_requiring_different_result_narrow returns
+    NARROW_SEARCH_EXHAUSTED and the coordinator explicitly chooses to widen
+    the search, never automatically. Reuses _plan()'s exact 4-stage
+    fallback ladder (day-only-N exception, emergency 24h, dropping the
+    LOAD-01 cap) for its ORDINARY (non-diversity) dispatch, unchanged --
+    exactly _dispatch_or_continue/_dispatch_stage3/_resolve_without_load_cap's
+    own logic, so a genuine coverage/rest conflict is diagnosed exactly like
+    ordinary PLAN would, completely independent of diversity.
+
+    Only once a stage's ORDINARY solve comes back cleanly FEASIBLE does this
+    ask the actual new question at that SAME permissiveness level: is there
+    also a genuinely different arrangement? A first attempt (round 1 of this
+    task) tried to read that off the diversity-required solve's own
+    INFEASIBLE core (conflicting_demand_ids) -- WRONG when a demand has
+    exactly one eligible employee: requiring "differ from baseline" then
+    directly contradicts that demand's OWN coverage assumption, so the
+    minimal unsat core includes it even though the true, only cause is the
+    diversity floor, not a real conflict (tests/test_t033_replan_must_differ.py
+    caught this). Solving twice per stage -- once ordinary, once diverse --
+    at the SAME flags sidesteps the ambiguity entirely: an ordinary-FEASIBLE
+    stage that goes INFEASIBLE only once diversity is added can only be the
+    floor's doing, by construction (_wide_try_diversity_at_stage).
+
+    NO_ALTERNATIVE is returned only after every stage's ordinary solve was
+    confirmed FEASIBLE somewhere (guaranteed by the caller: this function is
+    only reached after plan_requiring_different_result_narrow's own baseline
+    _plan() check already proved the state solves cleanly) yet no stage ever
+    produced a diverse one -- an exhaustive, proven fact. Any UNKNOWN
+    (budget ran out before a stage could prove anything) is SEARCH_INCOMPLETE
+    instead, never conflated with either NARROW_SEARCH_EXHAUSTED or
+    NO_ALTERNATIVE."""
+    deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
+    stages = (
+        (True, False, False),
+        (True, True, False),
+        (True, True, True),
+        (False, True, True),
+    )
+    # Tracks whether ANY earlier stage's ORDINARY (non-diversity) solve
+    # already proved coverage achievable -- stage 4 (uncapped) is only a
+    # genuine LOAD-01 decision point (_decision_for_load, exactly like
+    # ordinary PLAN) when it is the FIRST stage to succeed; if an earlier,
+    # capped stage already succeeded, dropping the cap was never actually
+    # necessary and stage 4 must be treated like any other diversity
+    # candidate instead of manufacturing a LOAD-01 decision that doesn't
+    # reflect reality.
+    found_ordinary_feasible = False
+    for enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h in stages:
+        ordinary = solve(
+            state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
+            allow_emergency_24h=allow_emergency_24h, deadline=deadline, search_attempt=search_attempt,
+        )
+        if ordinary.status_name == "UNKNOWN":
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
+        if ordinary.assignments is not None:
+            if not enforce_load_cap and not found_ordinary_feasible:
+                return _decision_for_load(state, ordinary)
+            found_ordinary_feasible = True
+            ordinary_result = _evaluate_candidate(state, ordinary)
+            if ordinary_result.status != "FEASIBLE":
+                return ordinary_result  # a real decision/error, exactly like ordinary PLAN
+            diverse_result = _wide_try_diversity_at_stage(
+                state, cutover_at, deadline, enforce_load_cap=enforce_load_cap,
+                allow_day_only_n_fallback=allow_day_only_n_fallback, allow_emergency_24h=allow_emergency_24h,
+                search_attempt=search_attempt,
+            )
+            if diverse_result is not None:
+                return diverse_result
+            continue  # ordinary-FEASIBLE but not diverse at this stage -- try a more permissive one
+        if ordinary.unassignable_demand_ids:
+            # Stage 3 (fallback=True, emergency=True, still capped) is
+            # terminal for a shortage exactly like _dispatch_stage3: dropping
+            # the LOAD-01 cap next cannot repair a missing eligible slot
+            # either. An earlier stage having already proven feasible would
+            # contradict eligibility only ever growing with more fallback
+            # flags -- guarded defensively anyway.
+            if enforce_load_cap and allow_day_only_n_fallback and allow_emergency_24h and not found_ordinary_feasible:
+                return _decision_for_unassignable(state, ordinary)
+            continue
+        if ordinary.status_name == "INFEASIBLE":
+            # Mirrors _resolve_without_load_cap's own ordering exactly:
+            # night-streak conflicts checked before plain coverage/rest ones,
+            # and both only diagnosed at the final, uncapped stage when no
+            # earlier stage already proved feasible -- same as ordinary
+            # _plan()'s _dispatch_or_continue/_dispatch_stage3, which never
+            # attempt this diagnosis before the last stage either.
+            if not enforce_load_cap and not found_ordinary_feasible:
+                if ordinary.night_streak_conflicts:
+                    return _decision_for_night_streak(state, ordinary)
+                if ordinary.conflicting_demand_ids:
+                    return _decision_for_conflict(state, ordinary)
+            continue  # a genuine ordinary conflict at this permissiveness -- a later stage may still rescue it
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {ordinary.status_name}", [])
+
+    if found_ordinary_feasible:
+        # Every stage that could ever cover this month was tried; none ever
+        # produced a schedule different from the baseline -- an exhaustive,
+        # proven fact, not a guess.
+        return PlanningResult("NO_ALTERNATIVE", [], None, None, [])
+    # plan_requiring_different_result_narrow's own baseline _plan() check
+    # already proved this state solves cleanly somewhere -- reaching here
+    # with no stage ever ordinarily feasible contradicts that guarantee;
+    # fail closed rather than claim a proof this function cannot have.
+    return PlanningResult(
+        "TECHNICAL_ERROR", [], None, "wide search: no stage proved feasible, contradicting the narrow step's own precondition", [],
+    )
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
@@ -223,6 +542,29 @@ def _site_rule_blockers_for(
             seen.add(key)
             blockers.append(Blocker(employee_id, rule_version_id))
     return blockers
+
+
+def _decision_for_night_streak(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
+    """ROTA-T032 section 3.5: an INFEASIBLE whose minimal unsat core includes
+    a NIGHT-STREAK-01 assumption is the same class of autonomy boundary
+    REST-01 conflicts already are -- DECISION_REQUIRED, never REST-01 and
+    never TECHNICAL_ERROR."""
+    by_id = {d.demand_id: d for d in state.shift_demands}
+    demand_ids = sorted({demand_id for ids in outcome.night_streak_conflicts.values() for demand_id in ids})
+    blocking = [
+        BlockingDemand(demand_id, by_id[demand_id].start_datetime, by_id[demand_id].end_datetime)
+        for demand_id in demand_ids
+        if demand_id in by_id
+    ]
+    employee_ids = sorted({employee_id for employee_id, _ in outcome.night_streak_conflicts})
+    raw_blockers = [Blocker(employee_id, "NIGHT-STREAK-01") for employee_id in employee_ids]
+    payload = build_decision_payload(state, blocking, raw_blockers, None)
+    warnings = [
+        "NIGHT-STREAK-01: demands "
+        f"{demand_ids} cannot be jointly covered without exceeding the max-two-consecutive-N limit; "
+        "blockers list every employee involved in a conflicting window, not a proven minimal cause"
+    ]
+    return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 
 def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
@@ -291,6 +633,10 @@ def _fixed_non_realized_ids(state: PlanningState) -> set:
 _FROZEN_BOUNDARY_RULES = frozenset({
     "MEMBERSHIP-01", "DAY_ONLY-01", "DAY_SHIFT_OFF-01",
     "UNAVAILABLE-01", "SICK_LEAVE-01", "LEAVE_GRANTED-01", "EXTERNAL-01", "REST-01",
+    # ROTA-T032: a NIGHT-STREAK-01 violation entirely among already-fixed
+    # (REALIZED/frozen/mentor-linked) Assignments is the same kind of
+    # coordinator autonomy boundary REST-01 already is -- never a solver bug.
+    "NIGHT-STREAK-01",
 })
 
 

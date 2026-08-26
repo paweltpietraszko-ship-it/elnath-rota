@@ -11,8 +11,9 @@ is hardcoded to October 2026 or to employees A-E.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 from ortools.sat.python import cp_model
 
@@ -26,21 +27,52 @@ from rota.domain import (
     SitePlanningRegime,
 )
 from rota.planning.constraints import (
-    add_load_constraints, add_rest_constraints, add_same_person_24h_constraints, add_weekly_rest_constraints,
-    build_emergency_pair_context, build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
+    add_load_constraints, add_max_two_consecutive_night_constraints, add_rest_constraints,
+    add_same_person_24h_constraints, add_weekly_rest_constraints, build_emergency_pair_context,
+    build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
 )
 from rota.planning.eligibility import check_eligibility
-from rota.planning.fairness import add_holiday_fairness, add_weekend_fairness
-from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
+from rota.planning.fairness import (
+    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, add_dn_rhythm_reward, add_holiday_fairness,
+    add_target_equity_fairness, add_weekend_fairness,
+)
+from rota.planning.replan_reshuffle import (
+    build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
+)
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.state import PlanningState
 from rota.planning.work_periods import resolve_required_rest
 
-TARGET_DEVIATION_WEIGHT = 100
+TARGET_DEVIATION_WEIGHT = 100  # ROTA-T032 section 4.4: unchanged -- TARGET-01 stays in the one combined objective, weighted to dominate (owner correction 2026-08-25: no separate proof-then-freeze phase, see _solve_lexicographic_phases).
 SOFT_PENALTY_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
 MAX_MONTHLY_HOURS = 744
+# ROTA-T032 section 6.1: one shared deadline for every internal CP-SAT solve
+# of one public plan(state) call -- engine.py creates it once and threads it
+# down; solve() called directly (e.g. by tests) without a deadline keeps the
+# pre-T032 fixed per-solve budget via _remaining_seconds(None).
+#
+# OWNER_CORRECTED 2026-08-25 (45s, not the contract's original 180s):
+# measured on a realistic fixture (ROTA-REG-001, 5 employees/62 demands) --
+# a well-staffed month plateaus in ~2-3s with zero further quality gain out
+# to 120s (only the unproven-optimal proof, never the delivered schedule,
+# keeps running); the hardest realistic case, a moderate one-person staffing
+# shortfall working through every fallback stage before proving
+# DECISION_REQUIRED, measured 16.4s. 45s keeps a real margin over that
+# measured worst case without asking a coordinator to wait anywhere near
+# the original 180s ceiling.
+PLANNING_OPERATION_BUDGET_SECONDS = 45.0
+# Owner-corrected REPLAN search budget (2026-08-26): the narrow search and
+# the wider ("Szukaj szerzej") search each get their OWN 45s wall-clock
+# budget, shared across however many internal solves that search needs --
+# never stages-count * SOLVER_TIME_LIMIT_SECONDS. See engine.
+# plan_requiring_different_result_narrow/_wide. Measured 2026-08-26 on the
+# real "cacafdd" OCHRONA site (5 employees, 60 demands, zero slack) and
+# several generated stress cases: both narrow and wide resolve in ~0.1-1.2s
+# in every case tried -- 45s is real margin, not a guess repeated by
+# analogy to PLANNING_OPERATION_BUDGET_SECONDS above.
+REPLAN_SEARCH_BUDGET_SECONDS = 45.0
 
 
 @dataclass
@@ -66,6 +98,13 @@ class SolverOutcome:
     site_rule_exclusions: dict[str, list[tuple[str, str]]]
     # T017: additional pairwise->=15%-diverse (solved, warnings) candidates found on the SAME model after the first. Empty unless the variant search ran.
     alternatives: list[tuple[list[Assignment], list[str]]] = field(default_factory=list)
+    # ROTA-T032 section 6.4: False once the shared deadline cut a phase short
+    # of its proof of OPTIMAL (still HARD-valid, independent validator PASS).
+    optimization_complete: bool = True
+    # ROTA-T032 section 3.5: (employee_id, window_start_date) -> N demand_ids
+    # in that window, populated only on INFEASIBLE whose minimal unsat core
+    # includes a NIGHT-STREAK-01 assumption literal (mirrors conflicting_demand_ids).
+    night_streak_conflicts: dict[tuple[str, date], list[str]] = field(default_factory=dict)
 
 
 def _demand_hours(demand: ShiftDemand) -> int:
@@ -274,6 +313,97 @@ def _add_coverage_constraints(
     return assumptions
 
 
+def _remaining_seconds(deadline: float | None) -> float:
+    """ROTA-T032 section 6.1: remaining time to the shared operation
+    deadline (a time.monotonic() absolute instant); no deadline (solve()
+    called directly, e.g. by pre-T032 tests) keeps the original fixed
+    per-solve budget."""
+    if deadline is None:
+        return SOLVER_TIME_LIMIT_SECONDS
+    return max(0.0, deadline - time.monotonic())
+
+
+
+
+def _build_day_kind_terms(
+    state: PlanningState, x: dict, slots: list[SolverSlot], fixed_assignments: list[Assignment],
+) -> dict[str, dict]:
+    """Single shared per-employee/start-date D/N/'any occupied' term builder
+    for NIGHT-STREAK-01 (constraints.add_max_two_consecutive_night_constraints)
+    and the D/N/wolne/wolne reward (fairness.add_dn_rhythm_reward) -- ROTA-T032
+    section 2, so neither can ever disagree about what counts as D or N.
+    Each date maps to (d_term, n_term, any_term, n_demand_id): d_term/n_term
+    are raw 0/1-or-summed CP-SAT terms (a "exactly one" tightening, where a
+    caller genuinely needs it, is its own responsibility and done lazily --
+    see fairness.add_dn_rhythm_reward -- never eagerly here, so a HARD rule
+    that only ever needs the cheap raw sum, like NIGHT-STREAK-01, never pays
+    for reification it does not use). any_term is used only for the section
+    5.4 'wolne' (no non-CANCELLED Assignment at all, ANY role) condition --
+    so a TRAINEE occupying that day, or a fixed Assignment whose covering
+    demand cannot be resolved (never guessed as D/N, but it still occupies
+    the day), both correctly block 'wolne' without ever being counted as a D
+    or N match. Fixed target-Site facts and target-Site boundary_assignments
+    both participate; CANCELLED and other_site_assignments never do."""
+    by_employee: dict[str, dict[date, list]] = {}
+
+    def _entry(employee_id: str, d) -> list:
+        return by_employee.setdefault(employee_id, {}).setdefault(d, [0, 0, 0, None])
+
+    for slot in slots:
+        d = slot.demand.start_datetime.date()
+        e = _entry(slot.employee_id, d)
+        term = x[slot.employee_id, slot.demand.demand_id]
+        e[2] = e[2] + term
+        if slot.shift_kind == ShiftKind.D:
+            e[0] = e[0] + term
+        elif slot.shift_kind == ShiftKind.N:
+            e[1] = e[1] + term
+            if e[3] is None:
+                e[3] = slot.demand.demand_id
+
+    demand_by_id = {d.demand_id: d for d in state.shift_demands}
+    for a in fixed_assignments:
+        # Section 5.4: every non-CANCELLED fixed fact occupies its start
+        # date regardless of role -- fixed_existing_assignments() already
+        # excludes CANCELLED. Classification into D/N below is attempted
+        # only for a PRIMARY with a resolvable covering demand.
+        d = a.start_datetime.date()
+        e = _entry(a.employee_id, d)
+        e[2] = e[2] + 1
+        if a.role != AssignmentRole.PRIMARY or not a.covers_demand_id:
+            continue
+        demand = demand_by_id.get(a.covers_demand_id)
+        if demand is None:
+            continue
+        kind = classify_demand(demand, state.profile)
+        if kind == ShiftKind.D:
+            e[0] = e[0] + 1
+        elif kind == ShiftKind.N:
+            e[1] = e[1] + 1
+            if e[3] is None:
+                e[3] = demand.demand_id
+
+    boundary_demand_by_id = {d.demand_id: d for d in state.boundary_shift_demands}
+    for a in state.boundary_assignments:
+        if a.state == AssignmentState.CANCELLED:
+            continue
+        d = a.start_datetime.date()
+        e = _entry(a.employee_id, d)
+        e[2] = e[2] + 1
+        if a.role != AssignmentRole.PRIMARY or not a.covers_demand_id:
+            continue
+        demand = boundary_demand_by_id.get(a.covers_demand_id)
+        if demand is None:
+            continue
+        kind = classify_demand(demand, state.profile)
+        if kind == ShiftKind.D:
+            e[0] = e[0] + 1
+        elif kind == ShiftKind.N:
+            e[1] = e[1] + 1
+
+    return {employee_id: {d: tuple(vals) for d, vals in by_date.items()} for employee_id, by_date in by_employee.items()}
+
+
 def _effective_targets(state: PlanningState) -> dict[str, int]:
     """ROTA-T023 Checkpoint B (brief.md section 11): the solver consumes
     WorkBalance.absence_hours as-is -- it does not recount Availability,
@@ -288,8 +418,7 @@ def _effective_targets(state: PlanningState) -> dict[str, int]:
     return {wb.employee_id: max(0, wb.target_hours - wb.absence_hours) for wb in state.work_balances}
 
 
-def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState) -> None:
-    target_by_employee = _effective_targets(state)
+def _fixed_hours_by_employee(state: PlanningState) -> dict[str, int]:
     # FINDING R17-5: a CANCELLED existing Assignment is not actual work
     # (arch/spec.md:257) and must not count toward the TARGET-01 objective,
     # consistent with coverage/REST-01/LOAD-01/validator filtering already
@@ -303,20 +432,68 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
             continue
         hours = int((assignment.end_datetime - assignment.start_datetime).total_seconds() // 3600)
         fixed_hours_by_employee[assignment.employee_id] = fixed_hours_by_employee.get(assignment.employee_id, 0) + hours
+    return fixed_hours_by_employee
 
-    penalties = []
+
+def _worked_hours_by_employee(
+    x: dict, slots: list[SolverSlot], fixed_hours_by_employee: dict[str, int], target_by_employee: dict[str, int],
+) -> tuple[dict[str, object], dict[str, list[SolverSlot]]]:
+    """ROTA-T032 section 4.1: the single canonical actual-hours expression
+    per employee, built once and reused unchanged by both TARGET-01 and
+    target equity inside the one combined objective -- never recomputed a
+    second way."""
     by_employee: dict[str, list[SolverSlot]] = {}
     for slot in slots:
         by_employee.setdefault(slot.employee_id, []).append(slot)
-
-    for employee_id, target in target_by_employee.items():
+    worked_by_employee: dict[str, object] = {}
+    for employee_id in target_by_employee:
         employee_slots = by_employee.get(employee_id, [])
         worked = sum(_demand_hours(s.demand) * x[employee_id, s.demand.demand_id] for s in employee_slots)
-        worked += fixed_hours_by_employee.get(employee_id, 0)
+        worked = worked + fixed_hours_by_employee.get(employee_id, 0)
+        worked_by_employee[employee_id] = worked
+    return worked_by_employee, by_employee
+
+
+def _add_combined_objective(
+    model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
+    worked_by_employee: dict[str, object], target_by_employee: dict[str, int],
+    by_employee: dict[str, list[SolverSlot]], day_kind_terms: dict[str, dict],
+) -> None:
+    """ONE weighted objective (owner correction 2026-08-25, see
+    _solve_lexicographic_phases docstring for why this is one solve, not a
+    proof-then-freeze phase split): DAY_SHIFT_OFF-01/LEAVE_PLAN-01 SOFT,
+    weekend/holiday fairness (unchanged pre-T032 terms), target equity
+    (section 4) and the D/N/wolne/wolne reward (section 5) all minimized
+    together with TARGET-01.
+
+    OWNER_CORRECTED 2026-08-25 (second correction): TARGET-01 has ABSOLUTE
+    priority over equity/rhythm specifically -- not just a large weight
+    ratio that happens to hold, a mathematical guarantee. Equity's maximum
+    possible swing is the compile-time constant TARGET_EQUITY_WEIGHT *
+    MAX_COMPLETION_PCT (fairness.add_target_equity_fairness's own declared
+    variable bounds); rhythm's is DN_RHYTHM_REWARD_WEIGHT * the exact number
+    of match variables it created this solve (its return value -- always a
+    tighter, real bound, never a worst-case guess). The per-solve target
+    weight is set strictly above the SUM of both, so degrading total target
+    deviation by even one hour always costs more than the entire equity+
+    rhythm swing could ever be worth combined -- equity/rhythm can only ever
+    break ties among candidates that already share the same optimal target
+    deviation, never trade it for a better tie-break score. This does not
+    extend to the pre-T032 weekend/holiday/leave_plan terms (out of scope
+    for this correction, unchanged in shape and relative weight)."""
+    penalties = []
+
+    # Rhythm is built first so its real match count (never a worst-case
+    # guess) is known before TARGET_DEVIATION_WEIGHT is sized against it.
+    rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
+    target_weight = TARGET_DEVIATION_WEIGHT + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+
+    for employee_id, target in target_by_employee.items():
+        worked = worked_by_employee[employee_id]
         pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
         neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
         model.add(worked - target == pos - neg)
-        penalties.append(TARGET_DEVIATION_WEIGHT * (pos + neg))
+        penalties.append(target_weight * (pos + neg))
 
     for slot in slots:
         if slot.leave_plan_collision or slot.day_off_soft_entry:
@@ -325,8 +502,9 @@ def _add_objective(model: cp_model.CpModel, x: dict, slots: list[SolverSlot], st
     add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
     holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
     add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
+    add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
 
-    model.minimize(sum(penalties))
+    model.minimize(sum(penalties) if penalties else 0)
 
 
 def _fixed_weekend_hours(state: PlanningState) -> dict[str, int]:
@@ -422,24 +600,53 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
     return warnings
 
 
-def _run_solver(model: cp_model.CpModel) -> tuple[cp_model.CpSolver, int]:
+def _run_solver(model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME_LIMIT_SECONDS, search_attempt: int = 0) -> tuple[cp_model.CpSolver, int]:
+    """ROTA-T032 section 6.1/7.2: time_limit_seconds is the REMAINING budget
+    to the shared operation deadline, never a fresh per-solve allowance --
+    ROTA-T033's plan_requiring_different_result_narrow/_wide share this same
+    mechanism for their own REPLAN_SEARCH_BUDGET_SECONDS deadline, via the
+    same _remaining_seconds helper below. search_attempt (section 7.2,
+    "Szukaj dalej") only varies the CP-SAT search seed/randomization for
+    attempt > 0 -- it never touches the model, constraints or objective, so
+    it cannot change what counts as a legal or optimal schedule, only which
+    one among equally-good solutions is found."""
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
-    solver.parameters.random_seed = 0
-    solver.parameters.max_time_in_seconds = SOLVER_TIME_LIMIT_SECONDS
+    solver.parameters.random_seed = search_attempt
+    solver.parameters.randomize_search = search_attempt > 0
+    solver.parameters.max_time_in_seconds = max(0.0, time_limit_seconds)
     status = solver.solve(model)
     return solver, status
 
 
+def _conflicting_night_streak(
+    solver: cp_model.CpSolver, status: int, night_streak_assumptions: dict[tuple[str, date], tuple[object, list[str]]],
+) -> dict[tuple[str, date], list[str]]:
+    """ROTA-T032 section 3.5: mirrors _conflicting_demand_ids for
+    NIGHT-STREAK-01 assumption literals -- only meaningful on a proven
+    INFEASIBLE."""
+    if status != cp_model.INFEASIBLE or not night_streak_assumptions:
+        return {}
+    core_indices = set(solver.sufficient_assumptions_for_infeasibility())
+    return {
+        key: demand_ids
+        for key, (var, demand_ids) in night_streak_assumptions.items()
+        if var.index in core_indices
+    }
+
+
 def _finalize(
     solver: cp_model.CpSolver, status: int, x: dict, slots: list[SolverSlot],
-    state: PlanningState, assumptions: dict[str, object], site_rule_exclusions: dict[str, list[tuple[str, str]]],
+    state: PlanningState, assumptions: dict[str, object],
+    night_streak_assumptions: dict[tuple[str, date], tuple[object, list[str]]],
+    site_rule_exclusions: dict[str, list[tuple[str, str]]],
     pair_vars: dict | None = None, cross_month_by_employee: dict | None = None,
 ) -> SolverOutcome:
     status_name = solver.status_name(status)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         conflicting = _conflicting_demand_ids(solver, status, assumptions)
-        return SolverOutcome(status_name, None, [], [], {}, conflicting, site_rule_exclusions)
+        night_streak_conflicts = _conflicting_night_streak(solver, status, night_streak_assumptions)
+        return SolverOutcome(status_name, None, [], [], {}, conflicting, site_rule_exclusions, night_streak_conflicts=night_streak_conflicts)
     overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
     assignments = _extract_assignments(solver, x, slots, state, overrides)
     warnings = _collect_warnings(assignments, slots)
@@ -464,20 +671,38 @@ def _search_additional_candidates(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     pair_vars: dict | None, cross_month_by_employee: dict | None,
     first_solver: cp_model.CpSolver, still_needed: dict[str, int],
-) -> tuple[list[tuple[list[Assignment], list[str]]], SolverOutcome | None]:
+    deadline: float | None, search_attempt: int,
+) -> tuple[list[tuple[list[Assignment], list[str]]], SolverOutcome | None, bool]:
     """T017: up to 2 more pairwise->=15%-diverse variants on the SAME model --
     frozen lexicographic minima/objective already apply, a diversity cut is
-    the only new HARD constraint. Returns (alternatives, override); a
-    non-None override means a technical status was hit and the WHOLE result
-    must fail closed (never masked as "no more variants")."""
+    the only new HARD constraint. Returns (alternatives, override, timed_out);
+    a non-None override means a genuine technical status (MODEL_INVALID) was
+    hit and the WHOLE result must fail closed (never masked as "no more
+    variants").
+
+    OWNER_CORRECTED 2026-08-25 (audit tests_r6.txt): the shared operation
+    deadline (section 6, PLANNING_OPERATION_BUDGET_SECONDS) makes UNKNOWN (deadline reached mid-
+    search, no proof either way) a routine outcome here now, not a rare
+    edge case -- a coordinator who already has one perfectly valid,
+    independently-validated FEASIBLE candidate must never have it discarded
+    and replaced with an error just because the search for a SECOND or
+    THIRD variant ran out of time. UNKNOWN stops the search early and keeps
+    every alternative already found; only a genuine MODEL_INVALID still
+    fails the whole result closed, since that is a real solver/mapping bug,
+    not a timing outcome. `timed_out` distinguishes the two ways this
+    search can end early -- True only for UNKNOWN (the caller must then
+    mark optimization_complete=False: this was not proven to be every
+    possible variant), False for INFEASIBLE (a genuine proof that no
+    further qualifying variant exists, or the search never needed to run
+    at all -- still a complete result)."""
     n = sum(still_needed.values())
     if n <= 0 or n - (k := (15 * n + 99) // 100) < 0:
-        return [], None
+        return [], None, False
     signature = _candidate_signature(first_solver, x, slots)
     alternatives: list[tuple[list[Assignment], list[str]]] = []
     for _ in range(2):
         model.add(sum(x[employee_id, demand_id] for demand_id, employee_id in signature) <= n - k)
-        solver, status = _run_solver(model)
+        solver, status = _run_solver(model, _remaining_seconds(deadline), search_attempt)
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
             assignments = _extract_assignments(solver, x, slots, state, overrides)
@@ -485,54 +710,151 @@ def _search_additional_candidates(
             signature = _candidate_signature(solver, x, slots)
         elif status == cp_model.INFEASIBLE:
             break  # proof no further qualifying variant exists -- a valid, complete result
+        elif status == cp_model.UNKNOWN:
+            return alternatives, None, True  # ran out of time looking -- keep what was already found, mark incomplete
         else:
-            return alternatives, SolverOutcome(solver.status_name(status), None, [], [], {}, [], {})
-    return alternatives, None
+            return alternatives, SolverOutcome(solver.status_name(status), None, [], [], {}, [], {}), False
+    return alternatives, None, False
 
 
 def _solve_lexicographic_phases(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
-    assumptions: dict[str, object], site_rule_exclusions: dict[str, list[tuple[str, str]]],
+    assumptions: dict[str, object], night_streak_assumptions: dict[tuple[str, date], tuple[object, list[str]]],
+    site_rule_exclusions: dict[str, list[tuple[str, str]]],
     pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
-    still_needed: dict[str, int], search_variants: bool = False,
+    still_needed: dict[str, int], day_kind_terms: dict[str, dict],
+    deadline: float | None = None, search_attempt: int = 0, search_variants: bool = False,
 ) -> SolverOutcome:
-    """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle count) and T018 B5 (exceptional_n_count); T017 variant search runs after (search_variants)."""
+    """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle
+    count) and T018 B5 (exceptional_n_count) -- unchanged, still fail-closed
+    on timeout (no partial FEASIBLE, no proven minimum to freeze).
+
+    ROTA-T032 (owner correction 2026-08-25, product-flow clarification): the
+    coordinator, not the solver, decides whether a candidate is good enough
+    -- FEASIBLE already returns 1-3 candidates (T017), and REPLAN is the
+    existing "try a different arrangement" loop with its own DECISION_
+    REQUIRED explanation when it cannot do better. TARGET-01/equity/rhythm
+    (sections 4/5) therefore live in ONE combined weighted objective, the
+    same shape as every pre-T032 SOFT term, rather than a separate proof-
+    then-freeze phase. An earlier attempt at this correction wrongly blamed
+    that two-phase split for a measured 30s+ slowdown; that measurement was
+    itself broken (a monkeypatch replaced the wrong module attribute and
+    silently never disabled anything). Correctly isolated, the real cause
+    was add_dn_rhythm_reward's LP relaxation (fixed separately, see
+    fairness.py) -- the phase-split-vs-combined choice made no measured
+    difference either way. ONE combined objective is used here because it
+    matches the existing product flow above, not because of that retracted
+    performance claim.
+
+    OWNER_CORRECTED 2026-08-25 (second correction): TARGET-01 has absolute
+    priority -- equity/rhythm must never be ABLE to trade away total target
+    deviation, not merely be outweighed by a large-but-finite weight ratio
+    that happens to hold in practice. _add_combined_objective computes
+    TARGET_DEVIATION_WEIGHT's actual per-solve multiplier so that even the
+    maximum theoretically possible combined equity+rhythm improvement is
+    worth strictly less than improving total target deviation by a single
+    hour -- a mathematical guarantee, not a heuristic ratio (100 vs 1 stays
+    the *documented* relative weight in section 4.4; the real per-solve
+    coefficient is derived from it, see that function)."""
     for expr in phase_exprs:
         model.minimize(expr)
-        phase_solver, phase_status = _run_solver(model)
+        phase_solver, phase_status = _run_solver(model, _remaining_seconds(deadline), search_attempt)
         if phase_status == cp_model.INFEASIBLE:
             # Rigorous proof, not approximation -- existing infeasibility/
             # conflict path (round 2 FINDING R2-1).
-            return _finalize(phase_solver, phase_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+            return _finalize(phase_solver, phase_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
         if phase_status != cp_model.OPTIMAL:
             # FEASIBLE/UNKNOWN/MODEL_INVALID don't PROVE this phase's
             # minimum -- fail closed to TECHNICAL_ERROR rather than freeze
             # an unproven incumbent as if it were the true minimum.
-            return SolverOutcome(phase_solver.status_name(phase_status), None, [], [], {}, [], {})
+            return SolverOutcome(phase_solver.status_name(phase_status), None, [], [], {}, [], site_rule_exclusions, optimization_complete=False)
         model.add(expr == round(phase_solver.value(expr)))
 
-    _add_objective(model, x, slots, state)
-    final_solver, final_status = _run_solver(model)
-    outcome = _finalize(final_solver, final_status, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    target_by_employee = _effective_targets(state)
+    fixed_hours_by_employee = _fixed_hours_by_employee(state)
+    worked_by_employee, by_employee = _worked_hours_by_employee(x, slots, fixed_hours_by_employee, target_by_employee)
+    _add_combined_objective(model, x, slots, state, worked_by_employee, target_by_employee, by_employee, day_kind_terms)
+    final_solver, final_status = _run_solver(model, _remaining_seconds(deadline), search_attempt)
+    if final_status == cp_model.INFEASIBLE:
+        return _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    if final_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return SolverOutcome(final_solver.status_name(final_status), None, [], [], {}, [], site_rule_exclusions, optimization_complete=False)
+    outcome = _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    outcome.optimization_complete = final_status == cp_model.OPTIMAL
+    # OWNER_CORRECTED 2026-08-25 (live testing): T017's up-to-3-candidates
+    # search must run whenever a valid first candidate exists, regardless of
+    # whether the main solve proved OPTIMAL -- gating it behind
+    # optimization_complete was my own overreach (T032 never asked for
+    # this): with equity/rhythm now rarely provable within budget, that
+    # gate silently collapsed the coordinator's normal 1-3 option choice
+    # down to always exactly 1, contradicting the very product flow
+    # ("coordinator decides, solver doesn't need to prove") T032 was built
+    # around. Matches pre-T032 behaviour: search_variants + a real
+    # candidate is the only requirement.
     if not search_variants or outcome.assignments is None:
         return outcome
-    alternatives, override = _search_additional_candidates(
-        model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed,
+    alternatives, override, variant_search_timed_out = _search_additional_candidates(
+        model, x, slots, state, pair_vars, cross_month_by_employee, final_solver, still_needed, deadline, search_attempt,
     )
     if override is not None:
         return override
     outcome.alternatives = alternatives
+    if variant_search_timed_out:
+        outcome.optimization_complete = False
     return outcome
 
 
 def solve(
     state: PlanningState, enforce_load_cap: bool = True, allow_emergency_24h: bool = False,
-    allow_day_only_n_fallback: bool = False,
+    allow_day_only_n_fallback: bool = False, deadline: float | None = None, search_attempt: int = 0,
+    require_different_from_baseline: bool = False, cutover_at: datetime | None = None,
 ) -> SolverOutcome:
-    """Build and solve the CP-SAT model for one PlanningState. Pure mapping, no domain judgment."""
+    """Build and solve the CP-SAT model for one PlanningState. Pure mapping,
+    no domain judgment. `deadline` (ROTA-T032 section 6.1) is a
+    time.monotonic() absolute instant shared by every internal solve of one
+    public plan() call -- None (e.g. direct pre-T032 callers/tests) keeps
+    the original fixed per-solve budget. `search_attempt` (section 7.2) only
+    varies CP-SAT search seed/order, never the model.
+
+    require_different_from_baseline (owner decision 2026-08-26, REPLAN must
+    never hand back the same schedule): used only by
+    engine.plan_requiring_different_result, never by ordinary plan()/PLAN.
+    An empty baseline (nothing was ever redistributably placed yet -- e.g.
+    REPLAN running on a version that only ever reached DECISION_REQUIRED)
+    means there is nothing to "differ from" in the first place, so this
+    solves normally, same as ordinary PLAN. A non-empty baseline instead
+    needs `cutover_at`: exactly like plan_ops._enforce_replan_cutover
+    (checked later, at select_candidate time), any baseline placement whose
+    demand already started before cutover_at is pinned in the model instead
+    of being eligible for the "must differ" requirement -- otherwise the
+    solver is free to reshuffle already-past assignments purely to satisfy
+    diversity, which select_candidate's cutover check would reject anyway.
+    ROTA-T033 audit finding R1-1 (2026-08-26): there is no early-exit
+    shortcut for "nothing redistributable remains" -- an audit reproducer
+    showed a genuinely open (never redistributably covered) demand can
+    still legally be filled, which IS a different, better schedule even
+    though nothing REDISTRIBUTABLE existed to compare it against. The model
+    is always built; build_any_difference_expr (see its own docstring)
+    proves the real answer, including the true "nothing can ever differ"
+    case, which now surfaces as a genuine, rigorous CP-SAT INFEASIBLE rather
+    than a hand-rolled shortcut.
+
+    deadline (owner-corrected REPLAN search budget, 2026-08-26): a
+    time.monotonic() absolute instant shared across every internal
+    _run_solver call this one solve() makes, and across every solve() call
+    within one plan_requiring_different_result_narrow/_wide invocation --
+    None (every ordinary plan()/PLAN caller) keeps the original fixed
+    per-call SOLVER_TIME_LIMIT_SECONDS."""
     slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state, allow_day_only_n_fallback)
     if unassignable:
         return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
+    baseline_for_diversity: list[Assignment] = []
+    past_pinned: list[Assignment] = []
+    if require_different_from_baseline:
+        baseline_for_diversity = redistributable_baseline_assignments(state)
+        if baseline_for_diversity:
+            assert cutover_at is not None, "require_different_from_baseline needs cutover_at when baseline is non-empty"
+            past_pinned = [a for a in baseline_for_diversity if a.start_datetime < cutover_at]
     model = cp_model.CpModel()
     x = {
         (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
@@ -558,18 +880,43 @@ def solve(
     add_load_constraints(
         model, x, slots, fixed, state.month, state.profile.rolling_7d_decision_threshold_hours, enforce_load_cap
     )
-    model.add_assumptions(list(assumptions.values()))
+    # ROTA-T032 section 3: NIGHT-STREAK-01 HARD, built from the one shared
+    # day_kind_terms source also reused by the D/N/wolne/wolne reward below.
+    day_kind_terms = _build_day_kind_terms(state, x, slots, fixed_assignments)
+    night_streak_assumptions = add_max_two_consecutive_night_constraints(model, day_kind_terms, state.month)
+    model.add_assumptions(list(assumptions.values()) + [var for var, _ in night_streak_assumptions.values()])
     # T018 B5: reshuffle (REPLAN-MIN-01) precedes exceptional_n; the exceptional phase needs allow_day_only_n_fallback.
     phase_exprs = []
-    baseline = redistributable_baseline_assignments(state)
-    if baseline:
-        phase_exprs.append(build_reshuffle_count_expr(x, baseline))
+    if require_different_from_baseline:
+        # A plain HARD floor over the future-only pool, not a phase to
+        # minimize: the coordinator explicitly wants a different result, not
+        # the smallest possible difference from it. Past-dated placements
+        # are pinned to their existing value instead -- select_candidate's
+        # own cutover check (plan_ops._enforce_replan_cutover) must never be
+        # the only thing standing between "diversity" and silently rewriting
+        # history.
+        for a in past_pinned:
+            key = (a.employee_id, a.covers_demand_id)
+            if key in x:
+                model.add(x[key] == 1)
+        # R1-1: the FULL baseline signature (past-pinned included), not just
+        # the future subset -- a pinned past pair must land in the "old"
+        # half below (where its forced x==1 makes its own term evaluate to
+        # 0, correctly "unchanged"), never in the "new pair" half, where it
+        # would wrongly count as a difference it can never actually be.
+        baseline_pairs = {(a.employee_id, a.covers_demand_id) for a in baseline_for_diversity}
+        model.add(build_any_difference_expr(x, baseline_pairs) >= 1)
+    else:
+        baseline = redistributable_baseline_assignments(state)
+        if baseline:
+            phase_exprs.append(build_reshuffle_count_expr(x, baseline))
     if allow_day_only_n_fallback:
         phase_exprs.append(_exceptional_n_expr(x, slots))
     # T017: search variants only for a capped pass -- uncapped Stage 4 routes to LOAD DECISION_REQUIRED, never multi-candidate.
     return _solve_lexicographic_phases(
-        model, x, slots, state, assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee, phase_exprs,
-        still_needed, search_variants=enforce_load_cap,
+        model, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars,
+        cross_month_by_employee, phase_exprs, still_needed, day_kind_terms,
+        deadline=deadline, search_attempt=search_attempt, search_variants=enforce_load_cap,
     )
 
 

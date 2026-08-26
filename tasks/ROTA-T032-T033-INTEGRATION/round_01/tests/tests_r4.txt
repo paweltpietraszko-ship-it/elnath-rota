@@ -1,0 +1,91 @@
+ROTA-T032 + ROTA-T033 — AUDYT INTEGRACYJNY, RUNDA 4
+
+WERDYKT: PASS — EXACT SHA ACCEPTED
+
+Audytowany exact SHA:
+1b11d84ee96dbd32a4f11115f5f1bb4dd658838b
+
+PASS dotyczy wyłącznie powyższego SHA produktu. Ten raport dodany po audycie
+nie zmienia kodu produktu.
+
+ŹRÓDŁO PRAWDY
+
+- T032 §6.3 i §7.1: znaleziony HARD-poprawny kandydat nie przepada po
+  nieukończonym późniejszym szukaniu;
+- zaakceptowany T033: REPLAN zwraca grafik rzeczywiście inny od bieżącego,
+  chroni przeszłe zmiany i może być ponawiany na tym samym child;
+- tests/test_t009_plan_select_replan.py: po zatwierdzonym ExternalSupportWindow
+  REPLAN zwraca FEASIBLE wykorzystujący zadeklarowane wsparcie;
+- wcześniejsze raporty integracyjne tests_r1–tests_r3.
+
+ZAKRES KOREKTY
+
+- jeden plik produktu: rota/planning/engine.py;
+- 28 insertions / 0 deletions;
+- git diff --check: PASS;
+- brak zmian API, UI, solver modelu, persistence i statusów.
+
+WARSTWY AUDYTU
+
+1. Inspekcja odpowiedzialności:
+   - helper porównania używa istniejącego
+     replan_reshuffle.redistributable_baseline_assignments;
+   - jednostką porównania pozostaje istniejąca para
+     (employee_id, covers_demand_id);
+   - nie powstała druga definicja redistributable placement ani nowy
+     comparator jakości.
+
+2. Oryginalne i uogólnione reproduktory INT-R3-1:
+   - pusty bieżący grafik;
+   - częściowy bieżący grafik;
+   => 2/2 PASS.
+
+3. Regresja właściwej zasady T033:
+   - inny kandydat istnieje;
+   - identyczny grafik jest jedyną możliwością;
+   - pusty baseline;
+   - ochrona zmian sprzed cutover;
+   - narrow i wide;
+   => PASS.
+
+4. Realny pion produkcyjny z budżetem 45 s:
+   DECISION_REQUIRED -> add_external_support_window -> REPLAN ->
+   kandydat wykorzystujący osobę X
+   => PASS.
+
+5. Zbiorcza macierz integracyjna rund 1–3 + T032:
+   => 25 PASS / 1 warning.
+
+6. Pełna regresja repo z przewidzianym przez T032 test-only budżetem 3 s,
+   bez zmiany produkcyjnej stałej 45 s:
+   => 1167 PASS / 2 znane faile / 1 warning w 365,00 s.
+
+KLASYFIKACJA DWÓCH FAILI
+
+- test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave:
+  znany test dawnego rozstrzygnięcia remisu; zaakceptowane T032 equity wybiera
+  A bez zmiany semantyki LEAVE_GRANTED.
+- test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b:
+  znany historyczny source-diff; późniejsze zaakceptowane taski celowo zmieniły
+  constraints.py/work_periods.py, a behavioral T012 pozostaje zielony.
+
+Oba zostały już sklasyfikowane w końcowym audycie T032 i nie uczestniczą w
+werdykcie tego SHA.
+
+POTWIERDZONE ZACHOWANIE
+
+- jeżeli zwykły baseline check znalazł już poprawny grafik różny od pustego
+  albo częściowego current, REPLAN go zachowuje zamiast zwracać pusty
+  SEARCH_INCOMPLETE;
+- wynik ma optimization_complete=False, ponieważ pełny diversity pass REPLAN
+  nie został wykonany; UI może uczciwie zaoferować „Szukaj dalej”;
+- jeżeli kandydat jest identyczny z kompletnym current, shortcut nie działa i
+  dotychczasowy diversity solve nadal wymusza prawdziwą różnicę;
+- nie dodano kolejnego solve, endpointu, persistence ani nowego algorytmu
+  jakości;
+- INT-R1, INT-R2 i INT-R3 są zamknięte na jednym skonsolidowanym SHA.
+
+ARCHITECTURE_PROPOSALS:
+brak.
+
+KONIEC RAPORTU
