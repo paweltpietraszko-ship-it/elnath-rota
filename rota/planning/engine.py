@@ -194,27 +194,45 @@ def _feasible_result(
 
 
 def plan_requiring_different_result(state: PlanningState, cutover_at: datetime) -> PlanningResult:
-    """Owner decision 2026-08-26: REPLAN, by definition, must never hand the
-    coordinator back the schedule they already have -- pressing it means they
-    want a genuinely different HARD-valid alternative. Used only by
-    plan_ops.replan(), never by ordinary PLAN.
+    """Owner decision 2026-08-26: neither REPLAN nor recomputing PLAN against
+    an existing WORKING version may ever hand the coordinator back the
+    schedule they already have -- pressing either means they want a
+    genuinely different HARD-valid alternative, whether or not they have
+    finalized yet. Used by plan_ops.replan() and by plan_ops.plan_month()'s
+    existing-WORKING-version branch; never by the very first plan on a
+    brand-new version (nothing to differ from yet).
 
-    Deliberately does NOT reuse _plan()'s 4-stage coverage-shortage fallback
-    ladder (day-only-N exception, emergency 24h, dropping the LOAD-01 cap):
-    those exist to rescue a genuine staffing shortage, and cascading them
-    here to chase "any different result" could hand back a materially worse
-    schedule (excess load, emergency overrides) just to satisfy diversity.
-    REPLAN only ever runs on a baseline that is itself already HARD-valid, so
-    a single ordinary-capped solve is enough to answer the real question:
-    does another valid arrangement exist at all. If not, that is a plain
-    mathematical fact about this month, not a coordinator decision --
-    NO_ALTERNATIVE, never DECISION_REQUIRED/TECHNICAL_ERROR.
+    Neither caller can assume the state's existing content is actually
+    coverage-valid -- plan_month's recompute branch is routinely called
+    again on a month still stuck in DECISION_REQUIRED (e.g. after loosening
+    an employee's availability, to see if it now solves), and that must
+    still get the full existing diagnosis (DECISION_REQUIRED/TECHNICAL_ERROR),
+    not a diversity verdict about a schedule that never validly existed in
+    the first place. So this runs _plan()'s ordinary, unmodified diagnosis
+    FIRST; only once that confirms a real FEASIBLE baseline does a second,
+    diversity-only solve ask the actual new question.
+
+    That second solve deliberately does NOT reuse _plan()'s 4-stage
+    coverage-shortage fallback ladder (day-only-N exception, emergency 24h,
+    dropping the LOAD-01 cap): those exist to rescue a genuine staffing
+    shortage, and cascading them here to chase "any different result" could
+    hand back a materially worse schedule (excess load, emergency overrides)
+    just to satisfy diversity. A known, narrow gap: if the FEASIBLE baseline
+    itself only exists because of one of those relaxations, this ordinary-
+    capped diversity solve can come back INFEASIBLE for a reason that has
+    nothing to do with diversity, and this fails closed to NO_ALTERNATIVE
+    rather than mining the relaxed stages for a genuine one -- acceptable
+    because it never reports a wrong schedule, only under-reports a rare
+    possibility.
 
     cutover_at mirrors plan_ops._enforce_replan_cutover's own "now" (same
     invariant: an already-past PRIMARY Assignment is never moved) -- the
-    caller computes it once, at the same point in the REPLAN flow, so the
+    caller computes it once, at the same point in its own flow, so the
     solver never even considers a placement select_candidate would reject
     later on cutover grounds alone."""
+    baseline_check = _plan(state)
+    if baseline_check.status != "FEASIBLE":
+        return baseline_check
     outcome = solve(state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at)
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)

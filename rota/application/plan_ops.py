@@ -100,6 +100,14 @@ def plan_month(
     existing current WORKING version. A FINAL current version is never
     reopened -- callers must REPLAN.
 
+    Owner decision 2026-08-26: recomputing against an EXISTING WORKING
+    version ("Przelicz (PLAN)") must never hand back the same schedule
+    either, for the same reason REPLAN can't -- a coordinator who already
+    selected a candidate they don't like has to be able to ask for a
+    genuinely different one before ever finalizing, not just after. Only
+    the very first plan on a brand-new version (nothing to differ from
+    yet) stays an ordinary plan().
+
     R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
     trigger), so a version created and only later found broken by a
     downstream read cannot be undone -- every assemble_planning_state read
@@ -132,7 +140,7 @@ def plan_month(
             schedule_version_id=version_id, result=result,
         )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    result = plan(state)
+    result = plan_requiring_different_result(state, cutover_at=datetime.now())
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

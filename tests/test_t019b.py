@@ -541,6 +541,12 @@ def test_e38_technical_error_preserves_previous_pointer(tmp_path, monkeypatch) -
         return PlanningResult(status="TECHNICAL_ERROR", candidates=[], decision_payload=None, error_message="injected", warnings=[])
 
     monkeypatch.setattr("rota.application.plan_ops.plan", _boom)
+    # ROTA-T033: this second call recomputes against an EXISTING WORKING
+    # version, which now goes through plan_requiring_different_result (owner
+    # decision 2026-08-26, "Przelicz (PLAN)" must never hand back the same
+    # schedule either) -- its own internal baseline check (engine._plan) is
+    # the one that must be forced to blow up here, not plan_ops.plan.
+    monkeypatch.setattr("rota.planning.engine._plan", _boom)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert result.status == "TECHNICAL_ERROR"
     after_id = site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH).decision_required_id
