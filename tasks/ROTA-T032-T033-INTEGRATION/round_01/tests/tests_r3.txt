@@ -1,0 +1,100 @@
+ROTA-T032 + ROTA-T033 — AUDYT INTEGRACYJNY, RUNDA 3
+
+WERDYKT: FAIL — UI FIX ACCEPTED, ONE EXISTING-CANDIDATE LOSS CORRECTION REQUIRED
+
+Audytowany exact SHA:
+5207e5f2524040acc3c18b19877c29d71d95c422
+
+Zmiana od raportu rundy 2:
+
+- wyłącznie frontend/src/screens/MonthlyPlanning.tsx;
+- 19 insertions / 11 deletions;
+- git diff --check: PASS;
+- żadnej zmiany backendu, solvera ani persistence.
+
+ŹRÓDŁO PRAWDY
+
+- tasks/ROTA-T032/brief.md §6.3: po znalezieniu HARD-poprawnego kandydata timeout późniejszego szukania nie usuwa tego kandydata; wynik pozostaje FEASIBLE + optimization_complete=False;
+- tasks/ROTA-T032/brief.md §7.1 i §8.3: poprawny kandydat pozostaje dostępny do użycia;
+- zaakceptowany T033 i tests/test_t033_replan_must_differ.py::test_narrow_with_empty_baseline_solves_normally: gdy nie zapisano jeszcze żadnego kandydata, pierwszy pełny grafik jest już z definicji innym wynikiem i REPLAN ma go zwrócić normalnie;
+- tests/test_t009_plan_select_replan.py::test_8_decision_required_then_external_window_then_replan_uses_window: po dodaniu zatwierdzonego okna wsparcia REPLAN zwraca FEASIBLE i wykorzystuje zadeklarowaną osobę zewnętrzną.
+
+WARSTWY AUDYTU
+
+1. Oryginalny prawdziwy browser repro rundy 2:
+   frontend_click_repro_r2.cjs
+   => PASS. „Użyj tego grafiku” wykonuje istniejący POST select-candidate.
+2. Sibling browser repro dla dwóch kandydatów:
+   frontend_multi_candidate_r3.cjs
+   => PASS. Nie ma niejednoznacznego globalnego przycisku; wybranie drugiego kandydata zapisuje dokładnie drugiego.
+3. Frontend build: PASS.
+4. Niezależne reproduktory pionu rund 1–2:
+   => 10/10 PASS, w tym real API -> application -> assembler -> solver -> persistence retry na tym samym child.
+5. Pełna regresja repo z przewidzianym w kontrakcie test-only budżetem 3 s, bez zmiany produkcyjnej stałej 45 s:
+   => 1166 PASS / 3 FAIL w 363,81 s.
+6. Realny reproducer jedynego nowego failure na produkcyjnym budżecie 45 s:
+   tests/test_t009_plan_select_replan.py::test_8_decision_required_then_external_window_then_replan_uses_window
+   => FAIL po 45,76 s: SEARCH_INCOMPLETE zamiast FEASIBLE.
+7. Niezależna generalizacja klasy:
+   test_audit_r3.py
+   => 2/2 FAIL: pusty bieżący grafik oraz częściowy bieżący grafik.
+
+KLASYFIKACJA POZOSTAŁYCH DWÓCH FAILI PEŁNEJ REGRESJI
+
+NONBLOCKING — tests/test_sick_leave.py::test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave
+
+To wcześniej zaakceptowany i zapisany w końcowym audycie T032 test dawnego rozstrzygnięcia remisu CP-SAT. T032 equity wybiera proporcjonalniejszy rozkład; semantyka LEAVE_GRANTED się nie zmienia.
+
+NONBLOCKING — tests/test_t023_checkpoint_b.py::test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b
+
+To znany historyczny source-diff. Późniejsze zaakceptowane T023b/T032 celowo zmieniły constraints.py/work_periods.py; behavioral T012 pozostaje zielony.
+
+POTWIERDZONE ZAMKNIĘCIE INT-R2-1
+
+- jeden częściowy kandydat: „Użyj tego grafiku” zapisuje go przez istniejący chooseCandidate/select_candidate;
+- kilka częściowych kandydatów: każdy ma własną, jednoznaczną akcję zapisu;
+- stan acceptedIncomplete został usunięty;
+- „Szukaj dalej” pozostało oddzielną akcją;
+- nie dodano endpointu, statusu ani logiki produktowej.
+
+FINDING INT-R3-1 — HIGH — REPLAN WYRZUCA JUŻ ZNALEZIONY POPRAWNY I INNY GRAFIK
+
+Proste znaczenie dla koordynatora:
+
+1. Program wcześniej nie mógł ułożyć grafiku, bo brakowało obsady.
+2. Koordynator dodaje zatwierdzone okno osoby zewnętrznej.
+3. Pierwsza część REPLAN znajduje poprawny grafik wykorzystujący tę osobę.
+4. Ten grafik jest już inny od pustego/niepełnego grafiku bieżącego.
+5. Program mimo tego uruchamia drugie szukanie, zużywa pozostały czas i zwraca „wyszukiwanie nieukończone”, wyrzucając znaleziony grafik.
+
+To nie jest potrzeba udowadniania optimum. Poprawny grafik już istnieje i powinien zostać pokazany koordynatorowi z optimization_complete=False.
+
+TRACE
+
+T032 §6.3 i §7.1 zabrania utraty poprawnego incumbent po timeout późniejszego szukania. T033 zamraża wymóg „REPLAN zwraca coś innego”; rezultat, który uzupełnia pusty albo częściowy grafik, już spełnia ten wymóg. Istniejący T009 dodatkowo zamraża realny pion decyzja -> external window -> REPLAN FEASIBLE.
+
+OWNERSHIP
+
+rota/planning/engine.py::_plan_requiring_different_result_narrow posiada oba wyniki i decyduje o publicznym statusie. `_plan()` najpierw zwraca zwalidowany FEASIBLE kandydat, ale engine bezwarunkowo uruchamia drugi `solve(require_different_from_baseline=True)`. Gdy drugi solve zwraca UNKNOWN, engine buduje pusty SEARCH_INCOMPLETE zamiast zachować pierwszy kandydat.
+
+REPRO
+
+Realny test T009 na exact SHA i realnym 45 s:
+
+- PLAN przed oknem: DECISION_REQUIRED;
+- dodanie wcześniej zadeklarowanego ExternalSupportWindow: PASS;
+- REPLAN: po 45 s SEARCH_INCOMPLETE bez kandydata;
+- wymagane: FEASIBLE z osobą X na zmianie N.
+
+Niezależny test_audit_r3.py potwierdza tę samą klasę bez kosztu czasowego:
+
+- pusty current + zwalidowany pierwszy kandydat + timeout późniejszego solve => kandydat przepada;
+- częściowy current uzupełniony o brakującą zmianę + timeout późniejszego solve => kandydat przepada.
+
+WYMAGANA JEDNA KOREKTA KLASY
+
+Jeżeli pierwszy zwalidowany wynik `_plan()` jest już rzeczywiście różny od bieżącego grafiku, timeout późniejszego szukania nie może go usunąć. Zwrócić ten kandydat jako FEASIBLE + optimization_complete=False.
+
+Nie dodawać nowego algorytmu jakości, comparatora score, trzeciego solve, nowego endpointu ani persistence. Korekta dotyczy wyłącznie zachowania już znalezionego poprawnego kandydata. Pełny grafik identyczny z bieżącym nadal wymaga dotychczasowego diversity solve; nie wolno rozluźnić zasady T033.
+
+KONIEC RAPORTU
