@@ -165,6 +165,7 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
   const [replanFrom, setReplanFrom] = useState(todayIso());
   const [showHistory, setShowHistory] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [excluding, setExcluding] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -295,6 +296,19 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
     }
   };
 
+  const excludeFromHistory = async (versionId: string) => {
+    setExcluding(true);
+    setError(null);
+    try {
+      await api.excludeVersionFromHistory(siteId, monthIso, versionId);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setExcluding(false);
+    }
+  };
+
   const status = view?.current_version?.status ?? null;
   const isFinal = status === "FINAL_NO_DEVIATIONS" || status === "FINAL_WITH_DEVIATIONS";
   const hasAssignments = (view?.assignments.length ?? 0) > 0;
@@ -321,6 +335,23 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
       </div>
 
       {error && <div className="banner-error">{error}</div>}
+
+      {/* 2026-08-26 owner decision: T010 keeps missing target_hours from
+          blocking PLAN, but the warning it already produces
+          (assembler._assemble_work_balances) was never surfaced anywhere on
+          this screen -- the coordinator had no way to know why equity looked
+          off. Shown regardless of loading/decisionRequired state since a
+          stale current_version's warnings are still relevant context. */}
+      {!!view?.warnings.length && (
+        <div className="banner-warning" data-diag-element="month-warnings">
+          <strong>Uwaga:</strong>
+          <ul>
+            {view.warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {loading ? (
         <p>Ładowanie…</p>
@@ -457,6 +488,18 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                             Przywróć
                           </button>
                         )}
+                        {v.version_id !== view.current_version?.version_id &&
+                          v.status !== "FINAL_NO_DEVIATIONS" &&
+                          v.status !== "FINAL_WITH_DEVIATIONS" && (
+                            <button
+                              className="btn-ghost"
+                              data-diag-action="exclude-version-from-history"
+                              onClick={() => excludeFromHistory(v.version_id)}
+                              disabled={excluding}
+                            >
+                              Usuń
+                            </button>
+                          )}
                       </li>
                     ))}
                   </ul>

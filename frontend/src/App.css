@@ -560,6 +560,21 @@ button {
   font-size: 13px;
 }
 
+.banner-warning {
+  background: var(--brass-soft);
+  color: var(--brass);
+  border: 1px solid var(--brass);
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.banner-warning ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
 /* Calendar modal (no mockup precedent for this screen; matches the same token system) */
 
 .modal-backdrop {

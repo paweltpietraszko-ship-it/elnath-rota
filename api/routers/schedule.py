@@ -16,7 +16,7 @@ from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.assembler import assemble_planning_state
-from rota.application.lifecycle_ops import finalize, restore, revalidate
+from rota.application.lifecycle_ops import exclude_from_history, finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
 from rota.application.open_month import months_with_schedule, open_month
 from rota.application.plan_ops import plan_month, replan, select_candidate
@@ -396,6 +396,21 @@ def post_restore(site_id: str, month: date, payload: RestoreRequest, conn=Depend
         restore(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class ExcludeFromHistoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version_id: str
+
+
+@router.post("/{site_id}/schedule/{month}/exclude-from-history", status_code=204)
+def post_exclude_from_history(site_id: str, month: date, payload: ExcludeFromHistoryRequest, conn=Depends(get_conn)) -> None:
+    try:
+        exclude_from_history(
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
