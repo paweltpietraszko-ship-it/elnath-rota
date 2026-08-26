@@ -1,0 +1,63 @@
+ROTA-T028 — pion jakości targetów i bilansowania
+Data: 2026-08-26
+
+Badany SHA implementacji:
+4cb32d757872ab800123b168fe13f28f4706f975
+
+Baza integracyjna T032:
+f71ecfff73c8880e74b304eaddd0f1b7826f7197
+
+Zakres
+------
+- generator T028 rozszerzony o trzy rodziny:
+  quality_target_gate, quality_fair_plan, quality_replan_rebalance;
+- pion przechodzi przez SQLite :memory:, produkcyjne operacje backendowe,
+  assembler, plan_month()/replan(), validate() i select_candidate();
+- generator nie tworzy ręcznie grafiku ani Assignment;
+- nie zmieniono rota/**, api/**, frontend/** ani solvera.
+
+Wyniki testów implementacji
+---------------------------
+- tests/test_solver_scenario_lab.py: 31 passed in 498.78s;
+- kompilacja zmienionych plików: PASS;
+- git diff --check: PASS.
+
+Pełna regresja repo nie została ukończona i nie jest zaliczana do wyniku.
+Została przerwana po stwierdzeniu, że powtarza liczne 45-sekundowe przebiegi
+solvera T032, które nie były potrzebne do tego zlecenia.
+
+Pion i rzeczywiste ustalenia
+----------------------------
+1. quality_target_gate — wykryty błąd produktu
+   Produkcyjne PLAN zwróciło FEASIBLE mimo braku target_hours jednego aktywnego
+   pracownika LOCAL. Generator zapisał TARGET_GATE_FAIL.
+
+   Reproduktor:
+   uv run python tools/solver_scenario_lab.py --cases 1 --seed 3201001 --family quality_target_gate --case-seed 3201
+
+   Failure JSON:
+   artifacts/solver-scenario-lab/run-3201001/case-0-3201.json
+
+2. quality_fair_plan — wynik poprawny
+   Dla pięciu LOCAL z równymi targetami i ukończoną optymalizacją rozrzut
+   wyniósł jedną zmianę 12h (144, 132, 132, 132, 132).
+
+   Reproduktor:
+   uv run python tools/solver_scenario_lab.py --cases 1 --seed 3201002 --family quality_fair_plan --case-seed 3201
+
+3. quality_replan_rebalance — wykryty błąd produktu
+   Po zmianie targetów na 144, 144, 132, 132, 120 produkcyjny REPLAN zakończył
+   optymalizację, lecz zachował poprzedni rozkład. Łączne odchylenie od targetów
+   pozostało równe 48h. Generator zapisał REPLAN_BALANCE_FAIL.
+
+   Reproduktor:
+   uv run python tools/solver_scenario_lab.py --cases 1 --seed 3201003 --family quality_replan_rebalance --case-seed 3201
+
+   Failure JSON:
+   artifacts/solver-scenario-lab/run-3201003/case-0-3201.json
+
+Wniosek
+-------
+Generator i pion wykonują uzgodnione kontrole. Ujawniły dwa odtwarzalne błędy
+backendu/solvera: brak blokady PLAN bez targetu LOCAL oraz brak pełnego
+zbilansowania REPLAN po zmianie targetów. T028 ich nie naprawia.
