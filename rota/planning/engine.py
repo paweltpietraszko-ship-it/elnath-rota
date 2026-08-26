@@ -26,6 +26,7 @@ still listed in `blockers`, and this is called out in `warnings`, not hidden.
 from __future__ import annotations
 
 import time
+from datetime import datetime
 
 from rota.domain import Assignment, AssignmentState
 from rota.planning.decision_guidance import build_decision_payload
@@ -221,6 +222,69 @@ def _feasible_result(
         for warning in candidate_warnings
     ]
     return PlanningResult("FEASIBLE", candidates, None, None, warnings, optimization_complete)
+
+
+def plan_requiring_different_result(state: PlanningState, cutover_at: datetime, search_attempt: int = 0) -> PlanningResult:
+    """Owner decision 2026-08-26 (revised same day): REPLAN, by definition,
+    must never hand the coordinator back the schedule they already have --
+    pressing it means they want a genuinely different HARD-valid
+    alternative. Used only by plan_ops.replan(), now offered alongside
+    "Przelicz (PLAN)" even before finalize (not gated behind isFinal on the
+    frontend), so a coordinator can choose either a minimal recompute (PLAN,
+    unaffected by this function -- keeps the original protective
+    minimize-reshuffle behavior, e.g. for a newly reported L4) or a
+    genuinely different alternative (REPLAN) at the same point in the flow.
+
+    The caller cannot assume the state's existing content is actually
+    coverage-valid -- nothing stops REPLAN from being invoked (directly via
+    the API, if not through the gated frontend) on a version whose content
+    never solved cleanly. That must still get the full existing diagnosis
+    (DECISION_REQUIRED/TECHNICAL_ERROR), not a diversity verdict about a
+    schedule that never validly existed in the first place. So this runs
+    _plan()'s ordinary, unmodified diagnosis FIRST; only once that confirms
+    a real FEASIBLE baseline does a second, diversity-only solve ask the
+    actual new question.
+
+    That second solve deliberately does NOT reuse _plan()'s 4-stage
+    coverage-shortage fallback ladder (day-only-N exception, emergency 24h,
+    dropping the LOAD-01 cap): those exist to rescue a genuine staffing
+    shortage, and cascading them here to chase "any different result" could
+    hand back a materially worse schedule (excess load, emergency overrides)
+    just to satisfy diversity. A known, narrow gap: if the FEASIBLE baseline
+    itself only exists because of one of those relaxations, this ordinary-
+    capped diversity solve can come back INFEASIBLE for a reason that has
+    nothing to do with diversity, and this fails closed to NO_ALTERNATIVE
+    rather than mining the relaxed stages for a genuine one -- acceptable
+    because it never reports a wrong schedule, only under-reports a rare
+    possibility.
+
+    cutover_at mirrors plan_ops._enforce_replan_cutover's own "now" (same
+    invariant: an already-past PRIMARY Assignment is never moved) -- the
+    caller computes it once, at the same point in its own flow, so the
+    solver never even considers a placement select_candidate would reject
+    later on cutover grounds alone.
+
+    ROTA-T032 integration: this is itself a public entry point in the same
+    sense as plan() (section 6.1) -- it creates its own shared deadline,
+    covering BOTH internal solves below, rather than letting each one claim
+    a fresh PLANNING_OPERATION_BUDGET_SECONDS and silently double the real
+    wait. search_attempt (section 7.2) passes through to both solves the
+    same way plan()'s does -- seed/order only, never the model."""
+    deadline = time.monotonic() + PLANNING_OPERATION_BUDGET_SECONDS
+    baseline_check = _plan(state, deadline, search_attempt)
+    if baseline_check.status != "FEASIBLE":
+        return baseline_check
+    outcome = solve(
+        state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at,
+        deadline=deadline, search_attempt=search_attempt,
+    )
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    if outcome.status_name == "INFEASIBLE":
+        return PlanningResult("NO_ALTERNATIVE", [], None, None, [], baseline_check.optimization_complete)
+    return PlanningResult(
+        "TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete,
+    )
 
 
 def _decision_for_unassignable(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:

@@ -25,7 +25,7 @@ from rota.persistence.schedule_repository import (
     get_schedule_version_header,
     set_schedule_version_planning_regime_in_open_transaction,
 )
-from rota.planning.engine import plan
+from rota.planning.engine import plan, plan_requiring_different_result
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
@@ -105,6 +105,14 @@ def plan_month(
     passthrough to the existing solver -- "Szukaj dalej" reuses this same
     operation on the same CURRENT WORKING version with attempt > 0, never a
     new application operation. It is never stored on ScheduleVersion.
+
+    Owner decision 2026-08-26, revised same day: "Przelicz (PLAN)" keeps its
+    original, protective purpose -- recompute the MINIMAL change needed
+    after a real new fact (e.g. an employee goes on L4), never a pretext to
+    reshuffle everything. The "I don't like this candidate, show me
+    something else" need is real too, but belongs to REPLAN (now offered
+    alongside PLAN even before finalize, not gated behind isFinal on the
+    frontend) -- see plan_ops.replan, not this function.
 
     R4-1/R5-1: schedule_versions rows can never be physically deleted (DB
     trigger), so a version created and only later found broken by a
@@ -388,7 +396,12 @@ def replan(
             c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         ),
     )
-    result = plan(state)
+    # Owner decision 2026-08-26: REPLAN must never hand back the schedule
+    # already in place -- see engine.plan_requiring_different_result. This
+    # cutover_at is a separate "now" from select_candidate's own (captured
+    # later, immediately before its cutover-preservation check) -- best
+    # effort, same as every other cutover-adjacent timestamp in this flow.
+    result = plan_requiring_different_result(state, cutover_at=datetime.now())
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
     )

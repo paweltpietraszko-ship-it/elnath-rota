@@ -6,8 +6,11 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from rota.application.errors import (
+    CandidateRejected,
     CoordinatorContextAlreadyActive,
     InvalidCoordinatorContext,
+    NoCurrentScheduleVersion,
+    ScheduleVersionNotWorking,
 )
 from rota.persistence.employee_repository import EmployeeNotFound
 from rota.persistence.site_profile_repository import SiteProfileNotFound
@@ -24,11 +27,14 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (UnknownSiteProfile, 404),
     (SiteProfileNotFound, 404),
     (EmployeeNotFound, 404),
+    (NoCurrentScheduleVersion, 404),
     (InvalidCoordinatorContext, 403),
     (CoordinatorContextAlreadyActive, 409),
     (SiteRegimeChangeRejected, 409),
+    (ScheduleVersionNotWorking, 409),
     (InvalidSitePrintSettings, 422),
     (InvalidStandardShift, 400),
+    (CandidateRejected, 400),
     (ValueError, 400),
 )
 

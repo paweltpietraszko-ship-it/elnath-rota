@@ -7,6 +7,7 @@ does not reimplement any of those functions' own logic.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -15,9 +16,10 @@ from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application import bootstrap
+from rota.application.durable_inputs import update_site
 from rota.domain import Coordinator, CoordinatorSiteAssociation, Site, SitePlanningRegime, SiteProfile
 from rota.persistence import site_memory
-from rota.persistence.site_repository import get_site_print_settings
+from rota.persistence.site_repository import get_site, get_site_print_settings
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -30,6 +32,7 @@ class SiteSummary(BaseModel):
     missing: list[str]
     decision_required_months: list[str]
     print_settings_missing: bool
+    active: bool
 
 
 class CreateSiteRequest(BaseModel):
@@ -58,14 +61,55 @@ def _site_summary(conn, site) -> SiteSummary:
         missing=list(completeness.missing),
         decision_required_months=[m.isoformat() for m in months],
         print_settings_missing=print_settings is None,
+        active=site.active,
     )
 
 
 @router.get("/sites", response_model=list[SiteSummary])
-def list_sites(conn=Depends(get_conn)) -> list[SiteSummary]:
-    sites = bootstrap.active_sites_for_coordinator(conn, coordinator_id=DEV_COORDINATOR_ID)
+def list_sites(include_inactive: bool = False, conn=Depends(get_conn)) -> list[SiteSummary]:
+    # 2026-08-26 owner decision: a coordinator can remove a Site from the
+    # Workspace (Site.active=False, already-existing durable_inputs.update_site
+    # semantics) without deleting anything -- schedule history, employees,
+    # memberships stay fully intact and queryable, only this listing hides it
+    # by default. include_inactive=True is the "show removed" view, needed to
+    # find something again to reactivate.
+    sites = (
+        bootstrap.all_sites_for_coordinator(conn, coordinator_id=DEV_COORDINATOR_ID) if include_inactive
+        else bootstrap.active_sites_for_coordinator(conn, coordinator_id=DEV_COORDINATOR_ID)
+    )
     try:
         return [_site_summary(conn, site) for site in sites]
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/sites/{site_id}/deactivate", status_code=204)
+def deactivate_site(site_id: str, conn=Depends(get_conn)) -> None:
+    """Hide a Site from the Workspace -- Site.active=False via the existing
+    update_site() write path. Never touches schedule/employee/membership
+    history; see rota.application.durable_inputs.update_site's own docstring
+    for why this is a plain upsert, not a versioned operation."""
+    try:
+        current = get_site(conn, site_id)
+        update_site(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, site=replace(current, active=False))
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/sites/{site_id}/reactivate", status_code=204)
+def reactivate_site(site_id: str, conn=Depends(get_conn)) -> None:
+    """Bring a removed Site back into the Workspace. update_site() cannot do
+    this itself -- its own require_active_coordinator_context guard demands
+    the Site already be active (tasks/ROTA-T011-C/brief.md 2026-08-14
+    RESOLUTION: "PEŁNA ODWRACALNOŚĆ DLA WSZYSTKICH TRZECH ENCJI"): the
+    reversal path for exactly this lockout shape is
+    bootstrap_or_resume_coordinator_context, which only requires the context
+    NOT already be fully active."""
+    try:
+        current = get_site(conn, site_id)
+        bootstrap.bootstrap_or_resume_coordinator_context(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, site=replace(current, active=True),
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 

@@ -1,0 +1,86 @@
+ROTA-T031 — NIEZALEŻNY AUDYT POPRAWKI R1, RUNDA 2
+
+Audytowany exact implementation SHA: 8e7fb5c58eeada6db423c957dff846374e27aace
+Base SHA: 3be4ed37e735766a80ca2259c7d1b6981d22dbb5
+Data: 2026-08-24
+
+WERDYKT: PASS — EXACT SHA ZAAKCEPTOWANY, MERGE
+
+Wszystkie punkty R1-1...R1-5 zostały zamknięte bez zmiany rota/**, bez nowego
+solvera, walidatora, magazynu danych ani fikcyjnego ekranu decyzji.
+
+WERYFIKACJA NA EXACT SHA
+
+- diff poprawki: wyłącznie 7 plików wskazanych w TASK_SCOPE;
+- testy T031 API: 17/17 PASS;
+- build frontendu: PASS;
+- komplet E2E T031 na świeżych serwerach: 5/5 PASS;
+- niezależny E2E przekazania oznaczenia „ma grafik” z endpointu do właściwej
+  opcji miesiąca: PASS;
+- niezależny E2E odrzuconej finalizacji: PASS — świeży GET naprawdę zastępuje
+  listę odchyleń, resetuje checkbox i zachowuje pierwotny komunikat błędu;
+- git diff --check: PASS.
+
+Pełnej regresji nie powtórzono zgodnie z zakresem ponownego audytu z tests_r1.
+Na poprzedniej audytowanej SHA było 1138 PASS i jeden znany stary source-diff
+FAIL T023; poprawka nie dotyka rota/**, a wspólną obsługę TypeError cofa do
+zachowania z base SHA.
+
+ZAMKNIĘCIE FINDINGÓW
+
+R1-1 — PASS
+
+- selektor ma dokładnie poprzedni/bieżący/następny miesiąc;
+- używa istniejącego GET /schedule/months i oznacza właściwą opcję;
+- zmiana miesiąca resetuje effective_from na jego pierwszy dzień;
+- nie powstał własny kalendarz ani dodatkowa warstwa.
+
+R1-2 — PASS
+
+- GET miesiąca korzysta z istniejącego
+  rota.application.memory_read.current_decision_required;
+- trwały hard stop przeżywa reload;
+- przy aktualnym DECISION_REQUIRED cała siatka oraz wszystkie akcje są poza
+  renderem, więc Finalizuj nie wraca po odświeżeniu;
+- komunikat tylko wskazuje przyszły ekran decyzji; nie zbudowano linku donikąd
+  ani treści ekranu pozostającego poza T031.
+
+R1-3 — PASS
+
+- po odrzuconym finalize UI pobiera świeży MonthView, zastępuje view i zeruje
+  potwierdzenia;
+- pierwotny błąd finalizacji pozostaje widoczny także po świeżym odczycie.
+
+R1-4 — PASS
+
+- T31-01 uczciwie opisuje minimalny GET miesiąca;
+- months_with_schedule pozostaje osobnym odczytem używanym przez selektor;
+- nie dodano nieużywanego payloadu profilu/obsady/reguł/bilansów.
+
+R1-5 — PASS
+
+- globalne mapowanie TypeError -> 400 usunięto;
+- brak effective_from dla pierwszej wersji jest sprawdzany lokalnie w routerze
+  schedule i nadal daje 400 bez zapisu;
+- test potwierdza, że nieznany TypeError wspólnej granicy pozostaje 500.
+
+MECHANICZNY backend.py — ROZLICZONY
+
+Raw gate nadal zwraca FAIL wyłącznie przez NEW_FILES=4 oraz ostrzeżenia
+RATIO/TOTAL_LINES. Są to te same sygnały sklasyfikowane w rundzie 1:
+
+- cztery nowe pliki to router, komponent, test API i test E2E, każdy o jednej
+  odpowiedzialności; zaakceptowany wyjątek T031;
+- wzrost końcowego diffu wynika głównie z testów zamykających realne klasy
+  błędów oraz cienkiego readbacku DECISION_REQUIRED; nie powstała druga logika
+  domenowa;
+- nie sklejać plików i nie zmieniać backend.py dla uzyskania mechanicznego
+  zielonego wyniku;
+- nie zgłaszać ponownie tych sygnałów dla T031.
+
+ZAMKNIĘCIE
+
+- Exact implementation SHA 8e7fb5c58eeada6db423c957dff846374e27aace
+  jest zaakceptowany.
+- Nie potrzeba decyzji właściciela ani architekta.
+- T031 może zostać zmergowany do main.
