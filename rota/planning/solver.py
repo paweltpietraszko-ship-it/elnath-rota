@@ -36,7 +36,9 @@ from rota.planning.fairness import (
     DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, add_dn_rhythm_reward, add_holiday_fairness,
     add_target_equity_fairness, add_weekend_fairness,
 )
-from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
+from rota.planning.replan_reshuffle import (
+    build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
+)
 from rota.planning.shift_catalog import classify_demand
 from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.state import PlanningState
@@ -61,6 +63,16 @@ MAX_MONTHLY_HOURS = 744
 # measured worst case without asking a coordinator to wait anywhere near
 # the original 180s ceiling.
 PLANNING_OPERATION_BUDGET_SECONDS = 45.0
+# Owner-corrected REPLAN search budget (2026-08-26): the narrow search and
+# the wider ("Szukaj szerzej") search each get their OWN 45s wall-clock
+# budget, shared across however many internal solves that search needs --
+# never stages-count * SOLVER_TIME_LIMIT_SECONDS. See engine.
+# plan_requiring_different_result_narrow/_wide. Measured 2026-08-26 on the
+# real "cacafdd" OCHRONA site (5 employees, 60 demands, zero slack) and
+# several generated stress cases: both narrow and wide resolve in ~0.1-1.2s
+# in every case tried -- 45s is real margin, not a guess repeated by
+# analogy to PLANNING_OPERATION_BUDGET_SECONDS above.
+REPLAN_SEARCH_BUDGET_SECONDS = 45.0
 
 
 @dataclass
@@ -590,11 +602,14 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
 
 def _run_solver(model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME_LIMIT_SECONDS, search_attempt: int = 0) -> tuple[cp_model.CpSolver, int]:
     """ROTA-T032 section 6.1/7.2: time_limit_seconds is the REMAINING budget
-    to the shared operation deadline, never a fresh per-solve allowance.
-    search_attempt (section 7.2, "Szukaj dalej") only varies the CP-SAT
-    search seed/randomization for attempt > 0 -- it never touches the model,
-    constraints or objective, so it cannot change what counts as a legal or
-    optimal schedule, only which one among equally-good solutions is found."""
+    to the shared operation deadline, never a fresh per-solve allowance --
+    ROTA-T033's plan_requiring_different_result_narrow/_wide share this same
+    mechanism for their own REPLAN_SEARCH_BUDGET_SECONDS deadline, via the
+    same _remaining_seconds helper below. search_attempt (section 7.2,
+    "Szukaj dalej") only varies the CP-SAT search seed/randomization for
+    attempt > 0 -- it never touches the model, constraints or objective, so
+    it cannot change what counts as a legal or optimal schedule, only which
+    one among equally-good solutions is found."""
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = search_attempt
@@ -814,23 +829,32 @@ def solve(
     of being eligible for the "must differ" requirement -- otherwise the
     solver is free to reshuffle already-past assignments purely to satisfy
     diversity, which select_candidate's cutover check would reject anyway.
-    If nothing redistributable remains AFTER excluding the past, no
-    schedule can ever be different going forward: this returns INFEASIBLE
-    immediately without building a model, and the caller maps that to
-    NO_ALTERNATIVE, not a coordinator decision."""
+    ROTA-T033 audit finding R1-1 (2026-08-26): there is no early-exit
+    shortcut for "nothing redistributable remains" -- an audit reproducer
+    showed a genuinely open (never redistributably covered) demand can
+    still legally be filled, which IS a different, better schedule even
+    though nothing REDISTRIBUTABLE existed to compare it against. The model
+    is always built; build_any_difference_expr (see its own docstring)
+    proves the real answer, including the true "nothing can ever differ"
+    case, which now surfaces as a genuine, rigorous CP-SAT INFEASIBLE rather
+    than a hand-rolled shortcut.
+
+    deadline (owner-corrected REPLAN search budget, 2026-08-26): a
+    time.monotonic() absolute instant shared across every internal
+    _run_solver call this one solve() makes, and across every solve() call
+    within one plan_requiring_different_result_narrow/_wide invocation --
+    None (every ordinary plan()/PLAN caller) keeps the original fixed
+    per-call SOLVER_TIME_LIMIT_SECONDS."""
     slots, still_needed, unassignable, reasons, site_rule_exclusions = _build_slots(state, allow_day_only_n_fallback)
     if unassignable:
         return SolverOutcome("NO_ELIGIBLE_EMPLOYEE", None, [], unassignable, reasons, [], site_rule_exclusions)
-    diverse_pool: list[Assignment] = []
+    baseline_for_diversity: list[Assignment] = []
     past_pinned: list[Assignment] = []
     if require_different_from_baseline:
         baseline_for_diversity = redistributable_baseline_assignments(state)
         if baseline_for_diversity:
             assert cutover_at is not None, "require_different_from_baseline needs cutover_at when baseline is non-empty"
             past_pinned = [a for a in baseline_for_diversity if a.start_datetime < cutover_at]
-            diverse_pool = [a for a in baseline_for_diversity if a.start_datetime >= cutover_at]
-            if not diverse_pool:
-                return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
     model = cp_model.CpModel()
     x = {
         (s.employee_id, s.demand.demand_id): model.new_bool_var(f"x_{s.employee_id}_{s.demand.demand_id}")
@@ -875,8 +899,13 @@ def solve(
             key = (a.employee_id, a.covers_demand_id)
             if key in x:
                 model.add(x[key] == 1)
-        if diverse_pool:
-            model.add(build_reshuffle_count_expr(x, diverse_pool) >= 1)
+        # R1-1: the FULL baseline signature (past-pinned included), not just
+        # the future subset -- a pinned past pair must land in the "old"
+        # half below (where its forced x==1 makes its own term evaluate to
+        # 0, correctly "unchanged"), never in the "new pair" half, where it
+        # would wrongly count as a difference it can never actually be.
+        baseline_pairs = {(a.employee_id, a.covers_demand_id) for a in baseline_for_diversity}
+        model.add(build_any_difference_expr(x, baseline_pairs) >= 1)
     else:
         baseline = redistributable_baseline_assignments(state)
         if baseline:

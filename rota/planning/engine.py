@@ -40,22 +40,43 @@ from rota.planning.engine_types import (
 from rota.planning.shift_catalog import UnclassifiedShiftError
 from rota.planning.site_rules import UnsupportedOrMalformedSiteRule, validate_executable_site_rules
 from rota.planning.solver import (
-    PLANNING_OPERATION_BUDGET_SECONDS, SolverOutcome, eligible_employees_for_demands, fixed_existing_assignments, solve,
+    PLANNING_OPERATION_BUDGET_SECONDS, REPLAN_SEARCH_BUDGET_SECONDS, SolverOutcome, eligible_employees_for_demands,
+    fixed_existing_assignments, solve,
 )
 from rota.planning.timeutil import intervals_overlap
 from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
+
+
+def _with_model_error_boundary(fn, *args, **kwargs) -> PlanningResult:
+    """The one public model-error boundary every public entry point
+    (plan(), plan_requiring_different_result_narrow/_wide) shares.
+
+    FINDING R17-3: UnclassifiedShiftError is a genuine model error
+    (arch/spec.md:503-507) -- a ShiftDemand that matches no StandardShift in
+    the profile -- and must be mapped to TECHNICAL_ERROR at this public
+    boundary, not left to propagate to the caller. ROTA-T007:
+    UnsupportedOrMalformedSiteRule (a RESOLVED rule that claims to be
+    executable but isn't) is the same class of model error.
+
+    ROTA-T033 audit finding R1-3 (2026-08-26): REPLAN's own entry points
+    used to call _plan()/solve() directly, bypassing this boundary entirely
+    -- the same model error that plan() maps to a structured TECHNICAL_ERROR
+    would surface from REPLAN as a raw exception (an HTTP 500, not
+    PlanningResultOut). One shared boundary function, not a copy of this
+    except-list pasted into each new entry point."""
+    try:
+        return fn(*args, **kwargs)
+    except UnclassifiedShiftError as exc:
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
+    except UnsupportedOrMalformedSiteRule as exc:
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
 
 
 def plan(state: PlanningState, search_attempt: int = 0) -> PlanningResult:
     """Produce a PlanningResult for one PlanningState.
 
     plan() has exactly three output statuses (arch/spec.md:339-342); a raw
-    exception is never one of them. FINDING R17-3: UnclassifiedShiftError is
-    a genuine model error (arch/spec.md:503-507) -- a ShiftDemand that
-    matches no StandardShift in the profile -- and must be mapped to
-    TECHNICAL_ERROR at this public boundary, not left to propagate to the
-    caller. ROTA-T007: UnsupportedOrMalformedSiteRule (a RESOLVED rule that
-    claims to be executable but isn't) is the same class of model error.
+    exception is never one of them -- see _with_model_error_boundary.
 
     ROTA-T032 section 6.1: this is the ONE public entry point that creates
     the shared planning-operation deadline (PLANNING_OPERATION_BUDGET_SECONDS,
@@ -65,15 +86,10 @@ def plan(state: PlanningState, search_attempt: int = 0) -> PlanningResult:
     search seed/order for "Szukaj dalej" retries, never the model.
     """
     deadline = time.monotonic() + PLANNING_OPERATION_BUDGET_SECONDS
-    try:
-        return _plan(state, deadline, search_attempt)
-    except UnclassifiedShiftError as exc:
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
-    except UnsupportedOrMalformedSiteRule as exc:
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
+    return _with_model_error_boundary(_plan, state, deadline, search_attempt)
 
 
-def _plan(state: PlanningState, deadline: float, search_attempt: int = 0) -> PlanningResult:
+def _plan(state: PlanningState, deadline: float | None = None, search_attempt: int = 0) -> PlanningResult:
     # ROTA-T007: prevalidate before solve() -- a RESOLVED HARD/SOFT SiteRule
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
@@ -86,6 +102,13 @@ def _plan(state: PlanningState, deadline: float, search_attempt: int = 0) -> Pla
     # fallback stage remains, so stages 1-2 never dispatch it (round 14
     # audit); only stage 3 finally treats it as the terminal shortage, since
     # no uncapped solve can repair a missing eligible slot.
+    #
+    # ROTA-T033 (Codex audit finding, UNAUTHORIZED, 2026-08-26): deadline is
+    # None for ordinary plan()/PLAN -- unaffected, original fixed per-call
+    # budget. plan_requiring_different_result_narrow passes its OWN 45s
+    # REPLAN_SEARCH_BUDGET_SECONDS deadline here too, so this baseline check
+    # and the diversity solve that follows it share ONE budget, never
+    # baseline-unbounded-time-plus-45s.
     for allow_day_only_n_fallback, allow_emergency_24h in ((False, False), (True, False)):
         outcome = solve(
             state, enforce_load_cap=True, allow_day_only_n_fallback=allow_day_only_n_fallback,
@@ -142,7 +165,7 @@ def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningRe
 
 
 def _resolve_without_load_cap(
-    state: PlanningState, deadline: float, search_attempt: int = 0,
+    state: PlanningState, deadline: float | None = None, search_attempt: int = 0,
     allow_emergency_24h: bool = False, allow_day_only_n_fallback: bool = False,
 ) -> PlanningResult:
     fallback = solve(
@@ -224,16 +247,38 @@ def _feasible_result(
     return PlanningResult("FEASIBLE", candidates, None, None, warnings, optimization_complete)
 
 
-def plan_requiring_different_result(state: PlanningState, cutover_at: datetime, search_attempt: int = 0) -> PlanningResult:
-    """Owner decision 2026-08-26 (revised same day): REPLAN, by definition,
-    must never hand the coordinator back the schedule they already have --
-    pressing it means they want a genuinely different HARD-valid
-    alternative. Used only by plan_ops.replan(), now offered alongside
-    "Przelicz (PLAN)" even before finalize (not gated behind isFinal on the
-    frontend), so a coordinator can choose either a minimal recompute (PLAN,
-    unaffected by this function -- keeps the original protective
-    minimize-reshuffle behavior, e.g. for a newly reported L4) or a
-    genuinely different alternative (REPLAN) at the same point in the flow.
+def _is_timeout_technical_error(result: PlanningResult) -> bool:
+    """ROTA-T033 audit finding R1-2 (2026-08-26): _plan()'s own dispatch
+    (_dispatch_or_continue/_dispatch_stage3/_resolve_without_load_cap) maps
+    ANY non-INFEASIBLE, non-assignments solver status -- including UNKNOWN,
+    a plain shared-deadline timeout, not a real failure -- to a generic
+    TECHNICAL_ERROR carrying f"solver status: {status_name}". That is the
+    right call for ordinary PLAN (no SEARCH_INCOMPLETE concept exists
+    there), but REPLAN's own baseline check shares the SAME deadline as its
+    diversity search, so a timeout can just as easily land here as in the
+    diversity solve -- and must get the identical, retryable
+    SEARCH_INCOMPLETE treatment, never TECHNICAL_ERROR. MODEL_INVALID and
+    every other genuine failure still doesn't match this string and stays a
+    real TECHNICAL_ERROR."""
+    return result.status == "TECHNICAL_ERROR" and result.error_message is not None and "UNKNOWN" in result.error_message
+
+
+def plan_requiring_different_result_narrow(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_narrow, state, cutover_at)
+
+
+def _plan_requiring_different_result_narrow(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    """Owner decision 2026-08-26, then OWNER_CORRECTED same day after a Codex
+    audit question: REPLAN, by definition, must never hand the coordinator
+    back the schedule they already have. This is step 1 ("wąskie
+    wyszukiwanie") of the agreed two-step flow: ordinary rules only, no
+    fallback exceptions, budgeted at REPLAN_SEARCH_BUDGET_SECONDS. Used only
+    by plan_ops.replan(), now offered alongside "Przelicz (PLAN)" even
+    before finalize (not gated behind isFinal on the frontend), so a
+    coordinator can choose either a minimal recompute (PLAN, unaffected by
+    this function -- keeps the original protective minimize-reshuffle
+    behavior, e.g. for a newly reported L4) or a genuinely different
+    alternative (REPLAN) at the same point in the flow.
 
     The caller cannot assume the state's existing content is actually
     coverage-valid -- nothing stops REPLAN from being invoked (directly via
@@ -245,45 +290,185 @@ def plan_requiring_different_result(state: PlanningState, cutover_at: datetime, 
     a real FEASIBLE baseline does a second, diversity-only solve ask the
     actual new question.
 
-    That second solve deliberately does NOT reuse _plan()'s 4-stage
-    coverage-shortage fallback ladder (day-only-N exception, emergency 24h,
-    dropping the LOAD-01 cap): those exist to rescue a genuine staffing
-    shortage, and cascading them here to chase "any different result" could
-    hand back a materially worse schedule (excess load, emergency overrides)
-    just to satisfy diversity. A known, narrow gap: if the FEASIBLE baseline
-    itself only exists because of one of those relaxations, this ordinary-
-    capped diversity solve can come back INFEASIBLE for a reason that has
-    nothing to do with diversity, and this fails closed to NO_ALTERNATIVE
-    rather than mining the relaxed stages for a genuine one -- acceptable
-    because it never reports a wrong schedule, only under-reports a rare
-    possibility.
+    Codex audit finding (UNAUTHORIZED, 2026-08-26): the baseline check and
+    the diversity solve MUST share ONE REPLAN_SEARCH_BUDGET_SECONDS budget,
+    not the baseline check running unbounded and then a fresh 45s starting
+    only for the diversity search -- a coordinator could otherwise wait far
+    longer than the agreed budget for one click. Both calls below share the
+    same `deadline` for exactly this reason.
+
+    Four outcomes, per the agreed contract -- "nie wolno pisać 'nie istnieje
+    inny grafik' po samym kroku 1" (never claim no-alternative from step 1
+    alone; only a step-2 proof earns that):
+    - FEASIBLE: a genuinely different HARD-valid schedule exists, here it is.
+    - DECISION_REQUIRED / TECHNICAL_ERROR: the baseline itself never solved
+      cleanly (see above) -- unrelated to diversity, passed through as-is.
+    - NARROW_SEARCH_EXHAUSTED: PROVEN (CP-SAT INFEASIBLE, not a guess) that
+      no different schedule exists under ordinary rules alone. The
+      coordinator is offered a choice: keep the current schedule, or widen
+      the search to exceptions (plan_requiring_different_result_wide).
+    - SEARCH_INCOMPLETE: the budget ran out before proving anything either
+      way -- an unproven "maybe", never reported as NARROW_SEARCH_EXHAUSTED
+      or NO_ALTERNATIVE.
 
     cutover_at mirrors plan_ops._enforce_replan_cutover's own "now" (same
     invariant: an already-past PRIMARY Assignment is never moved) -- the
     caller computes it once, at the same point in its own flow, so the
     solver never even considers a placement select_candidate would reject
-    later on cutover grounds alone.
-
-    ROTA-T032 integration: this is itself a public entry point in the same
-    sense as plan() (section 6.1) -- it creates its own shared deadline,
-    covering BOTH internal solves below, rather than letting each one claim
-    a fresh PLANNING_OPERATION_BUDGET_SECONDS and silently double the real
-    wait. search_attempt (section 7.2) passes through to both solves the
-    same way plan()'s does -- seed/order only, never the model."""
-    deadline = time.monotonic() + PLANNING_OPERATION_BUDGET_SECONDS
-    baseline_check = _plan(state, deadline, search_attempt)
+    later on cutover grounds alone."""
+    deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
+    baseline_check = _plan(state, deadline)
     if baseline_check.status != "FEASIBLE":
+        if _is_timeout_technical_error(baseline_check):
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
         return baseline_check
     outcome = solve(
-        state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at,
-        deadline=deadline, search_attempt=search_attempt,
+        state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
     if outcome.status_name == "INFEASIBLE":
-        return PlanningResult("NO_ALTERNATIVE", [], None, None, [], baseline_check.optimization_complete)
+        return PlanningResult("NARROW_SEARCH_EXHAUSTED", [], None, None, [])
+    if outcome.status_name == "UNKNOWN":
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+
+
+def _wide_try_diversity_at_stage(
+    state: PlanningState, cutover_at: datetime, deadline: float, *,
+    enforce_load_cap: bool, allow_day_only_n_fallback: bool, allow_emergency_24h: bool,
+) -> PlanningResult | None:
+    """Only called once the ORDINARY (non-diversity) solve at these exact
+    stage flags already came back cleanly FEASIBLE (see
+    plan_requiring_different_result_wide) -- so any INFEASIBLE here is
+    provably attributable to the diversity requirement alone at THIS
+    permissiveness level (coverage/rest are already known solvable without
+    it), never a real conflict. Returns None to mean "not diverse at this
+    stage, try the next one"."""
+    outcome = solve(
+        state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
+        allow_emergency_24h=allow_emergency_24h, require_different_from_baseline=True, cutover_at=cutover_at,
+        deadline=deadline,
+    )
+    if outcome.assignments is not None:
+        return _evaluate_candidate(state, outcome)
+    if outcome.status_name == "INFEASIBLE":
+        return None
+    if outcome.status_name == "UNKNOWN":
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
+
+
+def plan_requiring_different_result_wide(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_wide, state, cutover_at)
+
+
+def _plan_requiring_different_result_wide(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- called
+    only after plan_requiring_different_result_narrow returns
+    NARROW_SEARCH_EXHAUSTED and the coordinator explicitly chooses to widen
+    the search, never automatically. Reuses _plan()'s exact 4-stage
+    fallback ladder (day-only-N exception, emergency 24h, dropping the
+    LOAD-01 cap) for its ORDINARY (non-diversity) dispatch, unchanged --
+    exactly _dispatch_or_continue/_dispatch_stage3/_resolve_without_load_cap's
+    own logic, so a genuine coverage/rest conflict is diagnosed exactly like
+    ordinary PLAN would, completely independent of diversity.
+
+    Only once a stage's ORDINARY solve comes back cleanly FEASIBLE does this
+    ask the actual new question at that SAME permissiveness level: is there
+    also a genuinely different arrangement? A first attempt (round 1 of this
+    task) tried to read that off the diversity-required solve's own
+    INFEASIBLE core (conflicting_demand_ids) -- WRONG when a demand has
+    exactly one eligible employee: requiring "differ from baseline" then
+    directly contradicts that demand's OWN coverage assumption, so the
+    minimal unsat core includes it even though the true, only cause is the
+    diversity floor, not a real conflict (tests/test_t033_replan_must_differ.py
+    caught this). Solving twice per stage -- once ordinary, once diverse --
+    at the SAME flags sidesteps the ambiguity entirely: an ordinary-FEASIBLE
+    stage that goes INFEASIBLE only once diversity is added can only be the
+    floor's doing, by construction (_wide_try_diversity_at_stage).
+
+    NO_ALTERNATIVE is returned only after every stage's ordinary solve was
+    confirmed FEASIBLE somewhere (guaranteed by the caller: this function is
+    only reached after plan_requiring_different_result_narrow's own baseline
+    _plan() check already proved the state solves cleanly) yet no stage ever
+    produced a diverse one -- an exhaustive, proven fact. Any UNKNOWN
+    (budget ran out before a stage could prove anything) is SEARCH_INCOMPLETE
+    instead, never conflated with either NARROW_SEARCH_EXHAUSTED or
+    NO_ALTERNATIVE."""
+    deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
+    stages = (
+        (True, False, False),
+        (True, True, False),
+        (True, True, True),
+        (False, True, True),
+    )
+    # Tracks whether ANY earlier stage's ORDINARY (non-diversity) solve
+    # already proved coverage achievable -- stage 4 (uncapped) is only a
+    # genuine LOAD-01 decision point (_decision_for_load, exactly like
+    # ordinary PLAN) when it is the FIRST stage to succeed; if an earlier,
+    # capped stage already succeeded, dropping the cap was never actually
+    # necessary and stage 4 must be treated like any other diversity
+    # candidate instead of manufacturing a LOAD-01 decision that doesn't
+    # reflect reality.
+    found_ordinary_feasible = False
+    for enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h in stages:
+        ordinary = solve(
+            state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
+            allow_emergency_24h=allow_emergency_24h, deadline=deadline,
+        )
+        if ordinary.status_name == "UNKNOWN":
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+        if ordinary.assignments is not None:
+            if not enforce_load_cap and not found_ordinary_feasible:
+                return _decision_for_load(state, ordinary)
+            found_ordinary_feasible = True
+            ordinary_result = _evaluate_candidate(state, ordinary)
+            if ordinary_result.status != "FEASIBLE":
+                return ordinary_result  # a real decision/error, exactly like ordinary PLAN
+            diverse_result = _wide_try_diversity_at_stage(
+                state, cutover_at, deadline, enforce_load_cap=enforce_load_cap,
+                allow_day_only_n_fallback=allow_day_only_n_fallback, allow_emergency_24h=allow_emergency_24h,
+            )
+            if diverse_result is not None:
+                return diverse_result
+            continue  # ordinary-FEASIBLE but not diverse at this stage -- try a more permissive one
+        if ordinary.unassignable_demand_ids:
+            # Stage 3 (fallback=True, emergency=True, still capped) is
+            # terminal for a shortage exactly like _dispatch_stage3: dropping
+            # the LOAD-01 cap next cannot repair a missing eligible slot
+            # either. An earlier stage having already proven feasible would
+            # contradict eligibility only ever growing with more fallback
+            # flags -- guarded defensively anyway.
+            if enforce_load_cap and allow_day_only_n_fallback and allow_emergency_24h and not found_ordinary_feasible:
+                return _decision_for_unassignable(state, ordinary)
+            continue
+        if ordinary.status_name == "INFEASIBLE":
+            # Mirrors _resolve_without_load_cap's own ordering exactly:
+            # night-streak conflicts checked before plain coverage/rest ones,
+            # and both only diagnosed at the final, uncapped stage when no
+            # earlier stage already proved feasible -- same as ordinary
+            # _plan()'s _dispatch_or_continue/_dispatch_stage3, which never
+            # attempt this diagnosis before the last stage either.
+            if not enforce_load_cap and not found_ordinary_feasible:
+                if ordinary.night_streak_conflicts:
+                    return _decision_for_night_streak(state, ordinary)
+                if ordinary.conflicting_demand_ids:
+                    return _decision_for_conflict(state, ordinary)
+            continue  # a genuine ordinary conflict at this permissiveness -- a later stage may still rescue it
+        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {ordinary.status_name}", [])
+
+    if found_ordinary_feasible:
+        # Every stage that could ever cover this month was tried; none ever
+        # produced a schedule different from the baseline -- an exhaustive,
+        # proven fact, not a guess.
+        return PlanningResult("NO_ALTERNATIVE", [], None, None, [])
+    # plan_requiring_different_result_narrow's own baseline _plan() check
+    # already proved this state solves cleanly somewhere -- reaching here
+    # with no stage ever ordinarily feasible contradicts that guarantee;
+    # fail closed rather than claim a proof this function cannot have.
     return PlanningResult(
-        "TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete,
+        "TECHNICAL_ERROR", [], None, "wide search: no stage proved feasible, contradicting the narrow step's own precondition", [],
     )
 
 

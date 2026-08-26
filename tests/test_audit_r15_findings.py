@@ -77,7 +77,7 @@ def test_r15_2_uncapped_load_fallback_does_not_mask_day_only(monkeypatch):
         AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, DEMAND_N.demand_id, None,
     )
 
-    def _fake_solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, deadline=None, search_attempt=0):
+    def _fake_solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         if enforce_load_cap:
             return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
         return SolverOutcome("OPTIMAL", [solved], [], [], {}, [], {})

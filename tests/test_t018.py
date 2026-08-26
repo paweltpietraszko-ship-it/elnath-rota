@@ -612,7 +612,7 @@ def test_b10_8_stage1_no_eligible_employee_reaches_stage2(monkeypatch):
 def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, deadline=None, search_attempt=0):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls.append(allow_day_only_n_fallback)
         return SolverOutcome("UNKNOWN", None, [], [], {}, [], {})
 
@@ -629,7 +629,7 @@ def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
 def test_b10_10_stage2_failure_reaches_stage3(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, deadline=None, search_attempt=0):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls.append((allow_day_only_n_fallback, allow_emergency_24h))
         return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
 
@@ -664,7 +664,7 @@ def test_b10_11_day_only_fallback_alone_wins_without_reaching_emergency(monkeypa
 def test_b10_12_stage3_infeasible_advances_to_uncapped_stage4(monkeypatch):
     calls = []
 
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, deadline=None, search_attempt=0):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
         return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})
 

@@ -226,13 +226,21 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
     }
   };
 
+  // Owner-corrected two-step REPLAN (2026-08-26): step 1 (narrow) only ever
+  // means "found something", "found nothing under ordinary rules yet"
+  // (NARROW_SEARCH_EXHAUSTED -- offers "Szukaj szerzej"), or "ran out of
+  // time" (SEARCH_INCOMPLETE -- offer to retry the SAME step). lastWideSearch
+  // tracks which step a SEARCH_INCOMPLETE retry should repeat.
+  const [lastWideSearch, setLastWideSearch] = useState(false);
+
   const runReplan = async () => {
     setPlanning(true);
     setError(null);
+    setLastWideSearch(false);
     try {
       const result = await api.replanMonth(siteId, monthIso, replanFrom);
       setPlanResult(result);
-      setShowReplan(false);
+      if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
       load();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -240,6 +248,24 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
       setPlanning(false);
     }
   };
+
+  const runWiderSearch = async () => {
+    setPlanning(true);
+    setError(null);
+    setLastWideSearch(true);
+    try {
+      const result = await api.replanWiderSearch(siteId, monthIso);
+      setPlanResult(result);
+      if (result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setPlanning(false);
+    }
+  };
+
+  const retrySearchIncomplete = () => (lastWideSearch ? runWiderSearch() : runReplan());
 
   const toggleAck = (id: string) => {
     setAckDeviations((prev) => {
@@ -479,11 +505,46 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
           )}
 
           {/* Owner decision 2026-08-26: REPLAN never returns the same
-              schedule silently -- this is the plain-fact case where no other
-              HARD-valid arrangement exists at all, not an error. */}
+              schedule silently -- this is the plain, exhaustively-proven
+              fact that no other HARD-valid arrangement exists at all, even
+              using exceptions, not an error. */}
           {planResult && planResult.status === "NO_ALTERNATIVE" && (
             <div className="banner-warning" style={{ marginTop: 12 }}>
-              Nie istnieje inny grafik spełniający zasady HARD dla tego miesiąca — obecny układ pozostaje bez zmian.
+              Nie istnieje żaden inny grafik spełniający zasady dla tego miesiąca — obecny układ pozostaje bez zmian.
+            </div>
+          )}
+
+          {/* Step 1 (narrow) proved no different schedule exists under
+              ordinary rules -- never phrased as "no alternative" (only step
+              2's exhaustive proof earns that); offers the explicit choice
+              the owner specified instead of silently trying exceptions. */}
+          {planResult && planResult.status === "NARROW_SEARCH_EXHAUSTED" && (
+            <div className="banner-warning" style={{ marginTop: 12 }}>
+              <p style={{ margin: 0 }}>
+                Nie znaleziono innego grafiku w ramach zwykłych zasad. Sprawdzić możliwości wymagające wyjątków lub
+                Twojej decyzji?
+              </p>
+              <div className="create-panel-actions" style={{ marginTop: 8 }}>
+                <button className="btn-ghost" onClick={() => setPlanResult(null)} disabled={planning}>
+                  Zostań przy obecnym grafiku
+                </button>
+                <button className="btn-primary" data-diag-action="replan-wider-search" onClick={runWiderSearch} disabled={planning}>
+                  {planning ? "Szukanie…" : "Szukaj szerzej"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Budget ran out before either step could prove anything -- an
+              unproven "maybe", never reported as exhausted/no-alternative. */}
+          {planResult && planResult.status === "SEARCH_INCOMPLETE" && (
+            <div className="banner-warning" style={{ marginTop: 12 }}>
+              <p style={{ margin: 0 }}>Wyszukiwanie nie zostało zakończone w wyznaczonym czasie — spróbuj ponownie.</p>
+              <div className="create-panel-actions" style={{ marginTop: 8 }}>
+                <button className="btn-primary" data-diag-action="replan-retry-incomplete" onClick={retrySearchIncomplete} disabled={planning}>
+                  {planning ? "Szukanie…" : "Ponów wyszukiwanie"}
+                </button>
+              </div>
             </div>
           )}
 

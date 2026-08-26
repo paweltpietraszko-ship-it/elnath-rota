@@ -56,7 +56,7 @@ def test_r14_1_existing_assignment_with_disabled_membership_is_not_feasible():
 
 
 def _fake_solve_always(status_name: str):
-    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, deadline=None, search_attempt=0):
+    def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         return SolverOutcome(status_name, None, [], [], {}, [], {})
     return _fake
 
@@ -82,7 +82,7 @@ def test_r14_2c_uncapped_success_without_real_load_trigger_is_technical_error(mo
     )
     calls = {"count": 0}
 
-    def _fake_solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, deadline=None, search_attempt=0):
+    def _fake_solve(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
         calls["count"] += 1
         if enforce_load_cap:
             return SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})

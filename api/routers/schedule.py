@@ -19,7 +19,7 @@ from rota.application.assembler import assemble_planning_state
 from rota.application.lifecycle_ops import finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
 from rota.application.open_month import months_with_schedule, open_month
-from rota.application.plan_ops import plan_month, replan, select_candidate
+from rota.application.plan_ops import plan_month, replan, replan_wider_search, select_candidate
 from rota.application.precheck import precheck
 from rota.domain import Assignment, AssignmentRole, AssignmentState
 from rota.persistence.employee_repository import list_employees_by_ids
@@ -351,6 +351,18 @@ def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
+        return _planning_result_out(conn, result)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/{site_id}/schedule/{month}/replan/wider-search", response_model=PlanningResultOut)
+def post_replan_wider_search(site_id: str, month: date, conn=Depends(get_conn)) -> PlanningResultOut:
+    """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
+    meaningful after a NARROW_SEARCH_EXHAUSTED result from /replan, and only
+    on the coordinator's explicit choice. Creates no new ScheduleVersion."""
+    try:
+        result = replan_wider_search(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
         return _planning_result_out(conn, result)
     except Exception as exc:
         raise to_http_exception(exc) from exc
