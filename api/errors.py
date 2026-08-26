@@ -13,6 +13,7 @@ from rota.application.errors import (
     ScheduleVersionNotWorking,
 )
 from rota.persistence.employee_repository import EmployeeNotFound
+from rota.persistence.schedule_errors import NonEditableScheduleVersion
 from rota.persistence.site_profile_repository import SiteProfileNotFound
 from rota.persistence.site_repository import (
     InvalidSitePrintSettings,
@@ -32,6 +33,7 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (CoordinatorContextAlreadyActive, 409),
     (SiteRegimeChangeRejected, 409),
     (ScheduleVersionNotWorking, 409),
+    (NonEditableScheduleVersion, 409),
     (InvalidSitePrintSettings, 422),
     (InvalidStandardShift, 400),
     (CandidateRejected, 400),

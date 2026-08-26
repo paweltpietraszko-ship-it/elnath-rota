@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 9
+LATEST_SCHEMA_VERSION = 10
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -498,6 +498,22 @@ _MIGRATION_9: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 10: excluded_from_history on ScheduleVersion (2026-08-26,
+# owner decision) -- a WORKING/WORKING_WITH_DEVIATIONS version the
+# coordinator has discarded (e.g. an unwanted REPLAN attempt) can be hidden
+# from the Historia panel and analytics without touching the physical-delete
+# trigger above: schedule_versions_no_delete stays a hard, unconditional
+# backstop, this is a visibility flag only. FINAL versions must never be
+# excluded (schedule_versions_no_update_if_final already refuses any UPDATE
+# once status is FINAL, this column included) -- they are the real audit
+# trail, not a discardable draft.
+# ---------------------------------------------------------------------------
+_MIGRATION_10: tuple[str, ...] = (
+    "ALTER TABLE schedule_versions ADD COLUMN excluded_from_history INTEGER NOT NULL DEFAULT 0",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -508,6 +524,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (7, _MIGRATION_7),
     (8, _MIGRATION_8),
     (9, _MIGRATION_9),
+    (10, _MIGRATION_10),
 )
 
 
