@@ -399,7 +399,7 @@ def test_m19_stage3_first_feasible_with_variants_never_reaches_stage4(monkeypatc
     second = Assignment("second", "test-v1", "B", demand.start_datetime, demand.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, demand.demand_id, None)
     calls: list[tuple[bool, bool, bool]] = []
 
-    def _fake_solve(_state, enforce_load_cap=True, allow_emergency_24h=False, allow_day_only_n_fallback=False):
+    def _fake_solve(_state, enforce_load_cap=True, allow_emergency_24h=False, allow_day_only_n_fallback=False, **_kwargs):
         calls.append((enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h))
         if len(calls) < 3:
             return solver_module.SolverOutcome("INFEASIBLE", None, [], [], {}, [], {})

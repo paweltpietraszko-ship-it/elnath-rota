@@ -65,7 +65,7 @@ def plan(state: PlanningState) -> PlanningResult:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
 
 
-def _plan(state: PlanningState) -> PlanningResult:
+def _plan(state: PlanningState, deadline: float | None = None) -> PlanningResult:
     # ROTA-T007: prevalidate before solve() -- a RESOLVED HARD/SOFT SiteRule
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
@@ -78,16 +78,25 @@ def _plan(state: PlanningState) -> PlanningResult:
     # fallback stage remains, so stages 1-2 never dispatch it (round 14
     # audit); only stage 3 finally treats it as the terminal shortage, since
     # no uncapped solve can repair a missing eligible slot.
+    #
+    # ROTA-T033 (Codex audit finding, UNAUTHORIZED, 2026-08-26): deadline is
+    # None for ordinary plan()/PLAN -- unaffected, original fixed per-call
+    # budget. plan_requiring_different_result_narrow passes its OWN 45s
+    # REPLAN_SEARCH_BUDGET_SECONDS deadline here too, so this baseline check
+    # and the diversity solve that follows it share ONE budget, never
+    # baseline-unbounded-time-plus-45s.
     for allow_day_only_n_fallback, allow_emergency_24h in ((False, False), (True, False)):
         outcome = solve(
             state, enforce_load_cap=True, allow_day_only_n_fallback=allow_day_only_n_fallback,
-            allow_emergency_24h=allow_emergency_24h,
+            allow_emergency_24h=allow_emergency_24h, deadline=deadline,
         )
         result = _dispatch_or_continue(state, outcome)
         if result is not None:
             return result
 
-    outcome_3 = solve(state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True)
+    outcome_3 = solve(
+        state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True, deadline=deadline,
+    )
     result = _dispatch_stage3(state, outcome_3)
     if result is not None:
         return result
@@ -95,7 +104,7 @@ def _plan(state: PlanningState) -> PlanningResult:
     # conflict by itself (round 13 FINDING R13-1) -- drop the cap before
     # treating this as a genuine cross-demand conflict, both fallbacks still
     # ON (part_c_emergency_24h.md section 9 point 9: same boundary context).
-    return _resolve_without_load_cap(state, allow_emergency_24h=True, allow_day_only_n_fallback=True)
+    return _resolve_without_load_cap(state, allow_emergency_24h=True, allow_day_only_n_fallback=True, deadline=deadline)
 
 
 def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
@@ -127,10 +136,11 @@ def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningRe
 
 def _resolve_without_load_cap(
     state: PlanningState, allow_emergency_24h: bool = False, allow_day_only_n_fallback: bool = False,
+    deadline: float | None = None,
 ) -> PlanningResult:
     fallback = solve(
         state, enforce_load_cap=False, allow_emergency_24h=allow_emergency_24h,
-        allow_day_only_n_fallback=allow_day_only_n_fallback,
+        allow_day_only_n_fallback=allow_day_only_n_fallback, deadline=deadline,
     )
     if fallback.unassignable_demand_ids:
         return _decision_for_unassignable(state, fallback)
@@ -215,10 +225,16 @@ def plan_requiring_different_result_narrow(state: PlanningState, cutover_at: dat
     never solved cleanly. That must still get the full existing diagnosis
     (DECISION_REQUIRED/TECHNICAL_ERROR), not a diversity verdict about a
     schedule that never validly existed in the first place. So this runs
-    _plan()'s ordinary, unmodified diagnosis FIRST (untimed, exactly like
-    ordinary PLAN -- REPLAN_SEARCH_BUDGET_SECONDS covers only the diversity
-    search below); only once that confirms a real FEASIBLE baseline does a
-    second, diversity-only solve ask the actual new question.
+    _plan()'s ordinary, unmodified diagnosis FIRST; only once that confirms
+    a real FEASIBLE baseline does a second, diversity-only solve ask the
+    actual new question.
+
+    Codex audit finding (UNAUTHORIZED, 2026-08-26): the baseline check and
+    the diversity solve MUST share ONE REPLAN_SEARCH_BUDGET_SECONDS budget,
+    not the baseline check running unbounded and then a fresh 45s starting
+    only for the diversity search -- a coordinator could otherwise wait far
+    longer than the agreed budget for one click. Both calls below share the
+    same `deadline` for exactly this reason.
 
     Four outcomes, per the agreed contract -- "nie wolno pisać 'nie istnieje
     inny grafik' po samym kroku 1" (never claim no-alternative from step 1
@@ -239,10 +255,10 @@ def plan_requiring_different_result_narrow(state: PlanningState, cutover_at: dat
     caller computes it once, at the same point in its own flow, so the
     solver never even considers a placement select_candidate would reject
     later on cutover grounds alone."""
-    baseline_check = _plan(state)
+    deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
+    baseline_check = _plan(state, deadline)
     if baseline_check.status != "FEASIBLE":
         return baseline_check
-    deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
     outcome = solve(
         state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
     )
