@@ -46,23 +46,37 @@ from rota.planning.timeutil import intervals_overlap
 from rota.planning.validator import IndependentValidationReport, ViolationDetail, validate
 
 
-def plan(state: PlanningState) -> PlanningResult:
-    """Produce a PlanningResult for one PlanningState.
+def _with_model_error_boundary(fn, *args, **kwargs) -> PlanningResult:
+    """The one public model-error boundary every public entry point
+    (plan(), plan_requiring_different_result_narrow/_wide) shares.
 
-    plan() has exactly three output statuses (arch/spec.md:339-342); a raw
-    exception is never one of them. FINDING R17-3: UnclassifiedShiftError is
-    a genuine model error (arch/spec.md:503-507) -- a ShiftDemand that
-    matches no StandardShift in the profile -- and must be mapped to
-    TECHNICAL_ERROR at this public boundary, not left to propagate to the
-    caller. ROTA-T007: UnsupportedOrMalformedSiteRule (a RESOLVED rule that
-    claims to be executable but isn't) is the same class of model error.
-    """
+    FINDING R17-3: UnclassifiedShiftError is a genuine model error
+    (arch/spec.md:503-507) -- a ShiftDemand that matches no StandardShift in
+    the profile -- and must be mapped to TECHNICAL_ERROR at this public
+    boundary, not left to propagate to the caller. ROTA-T007:
+    UnsupportedOrMalformedSiteRule (a RESOLVED rule that claims to be
+    executable but isn't) is the same class of model error.
+
+    ROTA-T033 audit finding R1-3 (2026-08-26): REPLAN's own entry points
+    used to call _plan()/solve() directly, bypassing this boundary entirely
+    -- the same model error that plan() maps to a structured TECHNICAL_ERROR
+    would surface from REPLAN as a raw exception (an HTTP 500, not
+    PlanningResultOut). One shared boundary function, not a copy of this
+    except-list pasted into each new entry point."""
     try:
-        return _plan(state)
+        return fn(*args, **kwargs)
     except UnclassifiedShiftError as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"model error: {exc}", [])
     except UnsupportedOrMalformedSiteRule as exc:
         return PlanningResult("TECHNICAL_ERROR", [], None, f"site rule error: {exc}", [])
+
+
+def plan(state: PlanningState) -> PlanningResult:
+    """Produce a PlanningResult for one PlanningState.
+
+    plan() has exactly three output statuses (arch/spec.md:339-342); a raw
+    exception is never one of them -- see _with_model_error_boundary."""
+    return _with_model_error_boundary(_plan, state)
 
 
 def _plan(state: PlanningState, deadline: float | None = None) -> PlanningResult:
@@ -206,7 +220,27 @@ def _feasible_result(
     return PlanningResult("FEASIBLE", candidates, None, None, warnings)
 
 
+def _is_timeout_technical_error(result: PlanningResult) -> bool:
+    """ROTA-T033 audit finding R1-2 (2026-08-26): _plan()'s own dispatch
+    (_dispatch_or_continue/_dispatch_stage3/_resolve_without_load_cap) maps
+    ANY non-INFEASIBLE, non-assignments solver status -- including UNKNOWN,
+    a plain shared-deadline timeout, not a real failure -- to a generic
+    TECHNICAL_ERROR carrying f"solver status: {status_name}". That is the
+    right call for ordinary PLAN (no SEARCH_INCOMPLETE concept exists
+    there), but REPLAN's own baseline check shares the SAME deadline as its
+    diversity search, so a timeout can just as easily land here as in the
+    diversity solve -- and must get the identical, retryable
+    SEARCH_INCOMPLETE treatment, never TECHNICAL_ERROR. MODEL_INVALID and
+    every other genuine failure still doesn't match this string and stays a
+    real TECHNICAL_ERROR."""
+    return result.status == "TECHNICAL_ERROR" and result.error_message is not None and "UNKNOWN" in result.error_message
+
+
 def plan_requiring_different_result_narrow(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_narrow, state, cutover_at)
+
+
+def _plan_requiring_different_result_narrow(state: PlanningState, cutover_at: datetime) -> PlanningResult:
     """Owner decision 2026-08-26, then OWNER_CORRECTED same day after a Codex
     audit question: REPLAN, by definition, must never hand the coordinator
     back the schedule they already have. This is step 1 ("wąskie
@@ -258,6 +292,8 @@ def plan_requiring_different_result_narrow(state: PlanningState, cutover_at: dat
     deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
     baseline_check = _plan(state, deadline)
     if baseline_check.status != "FEASIBLE":
+        if _is_timeout_technical_error(baseline_check):
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
         return baseline_check
     outcome = solve(
         state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
@@ -297,6 +333,10 @@ def _wide_try_diversity_at_stage(
 
 
 def plan_requiring_different_result_wide(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_wide, state, cutover_at)
+
+
+def _plan_requiring_different_result_wide(state: PlanningState, cutover_at: datetime) -> PlanningResult:
     """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- called
     only after plan_requiring_different_result_narrow returns
     NARROW_SEARCH_EXHAUSTED and the coordinator explicitly chooses to widen
