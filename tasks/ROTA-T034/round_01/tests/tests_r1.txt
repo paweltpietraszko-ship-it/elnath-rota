@@ -1,0 +1,83 @@
+ROTA-T034 — preimplementation contract audit, round 1
+Date: 2026-08-26
+Audited branch: origin/task/ROTA-T034
+Audited exact contract SHA: f4a1e0bbda4e9cc3c8c26a4b3872f1aac53fde17
+Base main SHA: 05514c26b9e29e8ff11a03d422c4c8f15f7a2442
+
+VERDICT: PASS — READY_FOR_IMPLEMENTATION
+
+OWNER_CONFIRMED
+- Only D/D/D, D/D/N and D/N/N are penalized.
+- The rule is SOFT: it changes ranking only; it creates no HARD rejection,
+  DECISION_REQUIRED or manual-edit rejection.
+- The rule crosses month boundaries when persisted boundary facts exist and
+  never guesses missing past/future work.
+- N/N/N remains exclusively NIGHT-STREAK-01 HARD.
+
+PREIMPLEMENTATION REDUCTION
+
+Required production elements and their source/necessity:
+1. `add_third_consecutive_shift_penalty` in fairness.py
+   SOURCE: frozen owner-visible ranking above.
+   NECESSITY: one ranking helper at the existing SOFT owner.
+2. One call from solver.py::_add_combined_objective
+   SOURCE: existing single combined objective.
+   NECESSITY: minimal adapter to the existing owner; no second solve/phase.
+3. Returned variable-window count added to target-weight bound
+   SOURCE: accepted absolute TARGET-01 priority over the protected new SOFT
+   family.
+   NECESSITY: owning-boundary enforcement; without it T034 could buy worse
+   target deviation.
+4. One focused test file
+   SOURCE: three patterns, both month boundaries, target priority and vertical
+   wiring are the new seam.
+   NECESSITY: proves T034 without copying T032/T033 matrices.
+
+Repository search confirms reuse:
+- solver.py::_build_day_kind_terms already combines new decisions, fixed
+  target-Site assignments and persisted target-Site boundary assignments,
+  classifying D/N through canonical classify_demand.
+- fairness.py already owns D/N ranking and `_exactly_one` normalization.
+- constraints.py already exclusively owns NIGHT-STREAK-01.
+- solver.py::_add_combined_objective already owns TARGET/equity/rhythm weight
+  composition and one final solve.
+- No existing third-consecutive-shift scorer was found to reuse instead.
+
+REMOVED / NOT AUTHORIZED
+- No second D/N builder or boundary read.
+- No validator/HARD/decision-guidance behavior.
+- No second solver, phase, state machine, DTO, API, UI or persistence.
+- No change to time budgets, optimization_complete, search_attempt or T033
+  REPLAN mechanics.
+
+CONTRACT CHECKS
+1. One shared bad_window plus lower bounds for the three allowed conjunctions,
+   minimized in the objective, is sufficient and gives at most one penalty per
+   employee/window even when D and N components coexist on a date.
+2. Start range month_start-2 through month_end is exactly the set of 3-day
+   windows intersecting the planned month. Missing day_kind_terms remain zero;
+   persisted facts on either side are reused.
+3. Constant-only windows cannot change ranking and are correctly omitted.
+4. The number of created bad_window BoolVars bounds the complete possible T034
+   objective swing. Adding weight*count to the existing protected-soft bound
+   preserves the mathematical TARGET-01 priority.
+5. The 12-case matrix covers the three authorized patterns, single-penalty
+   semantics, both boundaries, missing facts, two-shift control, N/N/N
+   non-ownership, real solve wiring and TARGET priority. T032/T033 are referenced
+   as regression, not duplicated.
+6. Production scope closes in fairness.py + solver.py exactly.
+
+SUCCINCTNESS / OVERARCHITECTURE
+- The brief is longer than the resulting implementation, but it does not
+  require extra product entities or duplicate owners. Its executable core is
+  exactly one helper, one wiring call and one bound term. No reduction of logic
+  is required before CC starts.
+
+AUDIT LAYERS
+1. Exact SHA/base/diff verification: 1 commit, 1 brief file.
+2. Repository owner/reuse search on exact base.
+3. CP-SAT encoding and objective-bound proof review.
+4. Boundary and acceptance-matrix completeness review.
+
+CC may implement against contract SHA f4a1e0b. PASS applies only to this exact
+contract; implementation requires a separate exact-SHA audit.
