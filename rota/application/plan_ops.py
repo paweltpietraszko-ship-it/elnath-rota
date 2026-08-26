@@ -410,20 +410,44 @@ def replan(
     )
 
 
-def replan_wider_search(conn, *, site_id: str, month: date, coordinator_id: str) -> PlanningResult:
+def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0) -> PlanningResult:
+    """Integration audit (2026-08-26), point 5/6: retrying step 1 after a
+    FEASIBLE-but-optimization_complete=False or SEARCH_INCOMPLETE result
+    must reuse the SAME CURRENT WORKING child replan() already created --
+    never call replan() again, which would clone yet another child on top
+    of it. Mirrors replan_wider_search's own "plan fresh against the
+    existing current WORKING version, create nothing" pattern, but for the
+    narrow (step 1) stage, with search_attempt threaded through to vary the
+    solver's seed/order exactly like plan_month's own retry does."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to retry REPLAN on")
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+    result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now(), search_attempt=search_attempt)
+    return _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
+    )
+
+
+def replan_wider_search(
+    conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0,
+) -> PlanningResult:
     """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
     reachable after replan() returns NARROW_SEARCH_EXHAUSTED and the
     coordinator explicitly asks to widen the search. Runs on the SAME
     WORKING child replan() already created; creates no further
     ScheduleVersion (per the agreed contract point 5) -- exactly the same
     "plan fresh against the existing current WORKING version" read
-    plan_month() itself uses for its own recompute branch."""
+    plan_month() itself uses for its own recompute branch. search_attempt
+    threaded through so a subsequent "Szukaj dalej"/retry on this same
+    stage varies the solver's seed/order instead of repeating identically."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to search wider on")
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    result = plan_requiring_different_result_wide(state, cutover_at=datetime.now())
+    result = plan_requiring_different_result_wide(state, cutover_at=datetime.now(), search_attempt=search_attempt)
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

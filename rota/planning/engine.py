@@ -263,11 +263,15 @@ def _is_timeout_technical_error(result: PlanningResult) -> bool:
     return result.status == "TECHNICAL_ERROR" and result.error_message is not None and "UNKNOWN" in result.error_message
 
 
-def plan_requiring_different_result_narrow(state: PlanningState, cutover_at: datetime) -> PlanningResult:
-    return _with_model_error_boundary(_plan_requiring_different_result_narrow, state, cutover_at)
+def plan_requiring_different_result_narrow(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_narrow, state, cutover_at, search_attempt)
 
 
-def _plan_requiring_different_result_narrow(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+def _plan_requiring_different_result_narrow(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
     """Owner decision 2026-08-26, then OWNER_CORRECTED same day after a Codex
     audit question: REPLAN, by definition, must never hand the coordinator
     back the schedule they already have. This is step 1 ("wąskie
@@ -317,26 +321,27 @@ def _plan_requiring_different_result_narrow(state: PlanningState, cutover_at: da
     solver never even considers a placement select_candidate would reject
     later on cutover grounds alone."""
     deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
-    baseline_check = _plan(state, deadline)
+    baseline_check = _plan(state, deadline, search_attempt)
     if baseline_check.status != "FEASIBLE":
         if _is_timeout_technical_error(baseline_check):
-            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
         return baseline_check
     outcome = solve(
         state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
+        search_attempt=search_attempt,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
     if outcome.status_name == "INFEASIBLE":
         return PlanningResult("NARROW_SEARCH_EXHAUSTED", [], None, None, [])
     if outcome.status_name == "UNKNOWN":
-        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
     return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
 
 
 def _wide_try_diversity_at_stage(
     state: PlanningState, cutover_at: datetime, deadline: float, *,
-    enforce_load_cap: bool, allow_day_only_n_fallback: bool, allow_emergency_24h: bool,
+    enforce_load_cap: bool, allow_day_only_n_fallback: bool, allow_emergency_24h: bool, search_attempt: int = 0,
 ) -> PlanningResult | None:
     """Only called once the ORDINARY (non-diversity) solve at these exact
     stage flags already came back cleanly FEASIBLE (see
@@ -348,22 +353,26 @@ def _wide_try_diversity_at_stage(
     outcome = solve(
         state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
         allow_emergency_24h=allow_emergency_24h, require_different_from_baseline=True, cutover_at=cutover_at,
-        deadline=deadline,
+        deadline=deadline, search_attempt=search_attempt,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
     if outcome.status_name == "INFEASIBLE":
         return None
     if outcome.status_name == "UNKNOWN":
-        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
     return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [])
 
 
-def plan_requiring_different_result_wide(state: PlanningState, cutover_at: datetime) -> PlanningResult:
-    return _with_model_error_boundary(_plan_requiring_different_result_wide, state, cutover_at)
+def plan_requiring_different_result_wide(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
+    return _with_model_error_boundary(_plan_requiring_different_result_wide, state, cutover_at, search_attempt)
 
 
-def _plan_requiring_different_result_wide(state: PlanningState, cutover_at: datetime) -> PlanningResult:
+def _plan_requiring_different_result_wide(
+    state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+) -> PlanningResult:
     """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- called
     only after plan_requiring_different_result_narrow returns
     NARROW_SEARCH_EXHAUSTED and the coordinator explicitly chooses to widen
@@ -415,10 +424,10 @@ def _plan_requiring_different_result_wide(state: PlanningState, cutover_at: date
     for enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h in stages:
         ordinary = solve(
             state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
-            allow_emergency_24h=allow_emergency_24h, deadline=deadline,
+            allow_emergency_24h=allow_emergency_24h, deadline=deadline, search_attempt=search_attempt,
         )
         if ordinary.status_name == "UNKNOWN":
-            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [])
+            return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
         if ordinary.assignments is not None:
             if not enforce_load_cap and not found_ordinary_feasible:
                 return _decision_for_load(state, ordinary)
@@ -429,6 +438,7 @@ def _plan_requiring_different_result_wide(state: PlanningState, cutover_at: date
             diverse_result = _wide_try_diversity_at_stage(
                 state, cutover_at, deadline, enforce_load_cap=enforce_load_cap,
                 allow_day_only_n_fallback=allow_day_only_n_fallback, allow_emergency_24h=allow_emergency_24h,
+                search_attempt=search_attempt,
             )
             if diverse_result is not None:
                 return diverse_result

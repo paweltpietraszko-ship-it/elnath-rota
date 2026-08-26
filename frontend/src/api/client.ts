@@ -138,6 +138,7 @@ export interface PlanningResultOut {
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;
   warnings: string[];
+  optimization_complete: boolean;
 }
 
 export interface PrecheckOut {
@@ -353,10 +354,10 @@ export const api = {
   getScheduleMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/schedule/months`),
   getMonthView: (siteId: string, month: string) => req<MonthViewOut>(`/workspace/sites/${siteId}/schedule/${month}`),
   getPrecheck: (siteId: string, month: string) => req<PrecheckOut>(`/workspace/sites/${siteId}/schedule/${month}/precheck`),
-  planMonth: (siteId: string, month: string, effectiveFrom: string | null) =>
+  planMonth: (siteId: string, month: string, effectiveFrom: string | null, searchAttempt = 0) =>
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/plan`, {
       method: "POST",
-      body: JSON.stringify({ effective_from: effectiveFrom }),
+      body: JSON.stringify({ effective_from: effectiveFrom, search_attempt: searchAttempt }),
     }, PLANNING_REQUEST_TIMEOUT_MS),
   selectCandidate: (siteId: string, month: string, candidate: AssignmentIn[], note?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/select-candidate`, {
@@ -368,9 +369,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ effective_from: effectiveFrom, note: note ?? null }),
     }, PLANNING_REQUEST_TIMEOUT_MS),
-  replanWiderSearch: (siteId: string, month: string) =>
+  replanWiderSearch: (siteId: string, month: string, searchAttempt = 0) =>
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan/wider-search`, {
       method: "POST",
+      body: JSON.stringify({ search_attempt: searchAttempt }),
+    }, PLANNING_REQUEST_TIMEOUT_MS),
+  replanRetry: (siteId: string, month: string, searchAttempt = 0) =>
+    req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan/retry`, {
+      method: "POST",
+      body: JSON.stringify({ search_attempt: searchAttempt }),
     }, PLANNING_REQUEST_TIMEOUT_MS),
   finalizeMonth: (siteId: string, month: string, acknowledgedDeviationIds: string[], reason?: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/finalize`, {

@@ -149,6 +149,16 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
 
   const [planning, setPlanning] = useState(false);
   const [planResult, setPlanResult] = useState<PlanningResultOut | null>(null);
+  // Integration audit (2026-08-26), point 4: planResult is shared between
+  // ordinary PLAN and REPLAN's two steps -- this tracks which family
+  // produced the current planResult, so a "Szukaj dalej" on a
+  // FEASIBLE+optimization_complete=false result retries the RIGHT
+  // operation (plan vs. the correct replan stage) rather than guessing.
+  const [planResultSource, setPlanResultSource] = useState<"plan" | "replan">("plan");
+  // "Użyj tego grafiku" on a FEASIBLE+optimization_complete=false result
+  // just dismisses the "search further?" offer -- selection itself already
+  // happens via the ordinary "Wybierz" button in the candidates list below.
+  const [acceptedIncomplete, setAcceptedIncomplete] = useState<PlanningResultOut | null>(null);
   const [effectiveFromDraft, setEffectiveFromDraft] = useState(monthIso);
 
   // R1-1 (round-1 audit): resync the PLAN-first date whenever the selected
@@ -197,12 +207,41 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
     return map;
   }, [view]);
 
+  // Integration audit (2026-08-26), point 4/5: a FEASIBLE result whose
+  // optimization_complete is False is still shown to the coordinator (not
+  // hidden as if incomplete meant unusable) -- they choose "Użyj tego
+  // grafiku" (keep it, done) or "Szukaj dalej" (retry the SAME operation
+  // with a higher search_attempt, on the SAME current version -- never a
+  // new one). planSearchAttempt tracks ordinary PLAN's own attempt count;
+  // resets to 0 whenever a fresh, non-retry PLAN is run.
+  const [planSearchAttempt, setPlanSearchAttempt] = useState(0);
+
   const runPlan = async () => {
+    setPlanning(true);
+    setError(null);
+    setPlanSearchAttempt(0);
+    try {
+      const effectiveFrom = view?.current_version ? null : effectiveFromDraft;
+      const result = await api.planMonth(siteId, monthIso, effectiveFrom, 0);
+      setPlanResultSource("plan");
+      setPlanResult(result);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setPlanning(false);
+    }
+  };
+
+  const runPlanSearchAgain = async () => {
+    const nextAttempt = planSearchAttempt + 1;
     setPlanning(true);
     setError(null);
     try {
       const effectiveFrom = view?.current_version ? null : effectiveFromDraft;
-      const result = await api.planMonth(siteId, monthIso, effectiveFrom);
+      const result = await api.planMonth(siteId, monthIso, effectiveFrom, nextAttempt);
+      setPlanSearchAttempt(nextAttempt);
+      setPlanResultSource("plan");
       setPlanResult(result);
       load();
     } catch (e: unknown) {
@@ -232,13 +271,24 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
   // time" (SEARCH_INCOMPLETE -- offer to retry the SAME step). lastWideSearch
   // tracks which step a SEARCH_INCOMPLETE retry should repeat.
   const [lastWideSearch, setLastWideSearch] = useState(false);
+  // replanSearchAttempt tracks the CURRENT stage's (narrow or wide) attempt
+  // count, for both a SEARCH_INCOMPLETE retry and a FEASIBLE+"Szukaj dalej"
+  // request -- reset to 0 only when a genuinely fresh replan() (new child
+  // version) runs. A retry/­"Szukaj dalej" NEVER calls replan()/runReplan()
+  // again -- that would clone another child on top of the one already
+  // current (integration audit point 5/6) -- it uses replanRetry/
+  // replanWiderSearch instead, which operate on the existing current
+  // version.
+  const [replanSearchAttempt, setReplanSearchAttempt] = useState(0);
 
   const runReplan = async () => {
     setPlanning(true);
     setError(null);
     setLastWideSearch(false);
+    setReplanSearchAttempt(0);
     try {
       const result = await api.replanMonth(siteId, monthIso, replanFrom);
+      setPlanResultSource("replan");
       setPlanResult(result);
       if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
       load();
@@ -253,8 +303,10 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
     setPlanning(true);
     setError(null);
     setLastWideSearch(true);
+    setReplanSearchAttempt(0);
     try {
-      const result = await api.replanWiderSearch(siteId, monthIso);
+      const result = await api.replanWiderSearch(siteId, monthIso, 0);
+      setPlanResultSource("replan");
       setPlanResult(result);
       if (result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
       load();
@@ -265,7 +317,32 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
     }
   };
 
-  const retrySearchIncomplete = () => (lastWideSearch ? runWiderSearch() : runReplan());
+  const runReplanSearchAgain = async () => {
+    const nextAttempt = replanSearchAttempt + 1;
+    setPlanning(true);
+    setError(null);
+    try {
+      const result = lastWideSearch
+        ? await api.replanWiderSearch(siteId, monthIso, nextAttempt)
+        : await api.replanRetry(siteId, monthIso, nextAttempt);
+      setReplanSearchAttempt(nextAttempt);
+      setPlanResultSource("replan");
+      setPlanResult(result);
+      if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setPlanning(false);
+    }
+  };
+
+  const retrySearchIncomplete = () => runReplanSearchAgain();
+
+  // FEASIBLE+optimization_complete=false "Szukaj dalej" dispatches to
+  // whichever family (PLAN vs. REPLAN narrow/wide) actually produced the
+  // shown candidate -- see planResultSource above.
+  const searchAgainForFeasible = () => (planResultSource === "plan" ? runPlanSearchAgain() : runReplanSearchAgain());
 
   const toggleAck = (id: string) => {
     setAckDeviations((prev) => {
@@ -546,6 +623,40 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                 </button>
               </div>
             </div>
+          )}
+
+          {/* Integration audit (2026-08-26), point 4: FEASIBLE never implies
+              "this is provably the best possible schedule" -- when the
+              solver's shared budget cut a phase short of an optimality
+              proof, the coordinator is told and offered the choice to
+              search further, on the SAME version, instead of silently
+              presenting a possibly-improvable candidate as final. */}
+          {planResult && planResult.status === "FEASIBLE" && planResult.candidates.length > 0 &&
+            !planResult.optimization_complete && acceptedIncomplete !== planResult && (
+              <div className="banner-warning" style={{ marginTop: 12 }}>
+                <p style={{ margin: 0 }}>
+                  Znaleziono grafik spełniający zasady, ale czas na dalszą optymalizację się skończył — może istnieć
+                  lepszy układ.
+                </p>
+                <div className="create-panel-actions" style={{ marginTop: 8 }}>
+                  <button
+                    className="btn-ghost"
+                    data-diag-action="accept-incomplete"
+                    onClick={() => setAcceptedIncomplete(planResult)}
+                    disabled={planning}
+                  >
+                    Użyj tego grafiku
+                  </button>
+                  <button
+                    className="btn-primary"
+                    data-diag-action="search-again-incomplete"
+                    onClick={searchAgainForFeasible}
+                    disabled={planning}
+                  >
+                    {planning ? "Szukanie…" : "Szukaj dalej"}
+                  </button>
+                </div>
+              </div>
           )}
 
           {planResult && planResult.status === "FEASIBLE" && planResult.candidates.length > 0 && (
