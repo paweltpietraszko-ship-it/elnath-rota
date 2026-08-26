@@ -287,6 +287,31 @@ def finalize_schedule_version(
     return get_schedule_version_header(conn, version_id)
 
 
+def exclude_version_from_history(
+    conn: sqlite3.Connection, *, site_id: str, month: date, version_id: str,
+    on_success: Callable[[sqlite3.Connection], None] | None = None,
+) -> None:
+    """2026-08-26 owner decision: hide a discarded, non-current WORKING/
+    WORKING_WITH_DEVIATIONS draft from the Historia panel and analytics.
+    Never a physical delete (schedule_versions_no_delete stays absolute) --
+    this only flips excluded_from_history. Refuses the current version (it
+    is still on screen, restore it to something else first) and any FINAL
+    version (the DB trigger would refuse the UPDATE anyway; this raises the
+    same NonEditableScheduleVersion the rest of the module uses for that
+    case, instead of a raw sqlite3 error)."""
+    with conn:
+        header = get_schedule_version_header(conn, version_id)
+        if header.site_id != site_id or header.month != month:
+            raise InvalidCurrentVersionTarget(f"{version_id} does not belong to ({site_id}, {month})")
+        if get_current_version_id(conn, site_id, month) == version_id:
+            raise NonEditableScheduleVersion(f"{version_id} is the current version and cannot be excluded")
+        if header.status.value.startswith("FINAL"):
+            raise NonEditableScheduleVersion(f"{version_id} is FINAL and cannot be excluded")
+        conn.execute("UPDATE schedule_versions SET excluded_from_history = 1 WHERE version_id = ?", (version_id,))
+        if on_success is not None:
+            on_success(conn)
+
+
 def restore_schedule_version(
     conn: sqlite3.Connection, *, site_id: str, month: date, version_id: str,
     on_success: Callable[[sqlite3.Connection], None] | None = None,

@@ -1,0 +1,64 @@
+ROTA-T035 — independent implementation audit, round 1
+Date: 2026-08-26
+Audited branch: origin/task/ROTA-T035
+Audited exact SHA: a1c9a409d6059da3c498e370c2e7227f260e0056
+Base main SHA: 05514c26b9e29e8ff11a03d422c4c8f15f7a2442
+
+VERDICT: PASS
+
+The previous recovered-branch blocker is closed:
+- merge-base(main, a1c9a40) is current main@05514c2;
+- branch is 0 behind / 2 ahead;
+- diff adds the feature and its tests without deleting or reverting accepted
+  T032/T033 code or audit evidence;
+- the recovered feature was transplanted onto current main and the App.css
+  conflict was resolved while retaining the current warning-banner base style.
+
+PRODUCT BEHAVIOR VERIFIED
+- Coordinator can hide only a non-current WORKING or
+  WORKING_WITH_DEVIATIONS version from the Historia list.
+- Current and FINAL versions are rejected.
+- Site/month mismatch is rejected.
+- Hiding sets one visibility flag; it does not move the current pointer.
+- A non-empty hidden ScheduleVersion retains its ShiftDemand, Assignment and
+  Deviation snapshot byte-for-byte at the repository model level.
+- `schedule_versions_no_delete` still blocks raw physical DELETE.
+- `include_excluded=True` can still read every retained version explicitly.
+- API -> application -> persistence -> GET-month vertical path removes the
+  hidden draft only from `version_history` and retains its database row.
+- Existing missing-target_hours warnings are returned and rendered on the
+  Monthly Planning screen.
+
+MIGRATION SAFETY
+- schema 9 -> 10 migration is atomic;
+- existing ScheduleVersion rows receive `excluded_from_history = 0`;
+- reconnect at schema 10 is idempotent;
+- pre-existing data and final/no-delete guards remain effective;
+- four stale `LATEST_SCHEMA_VERSION == 9` assertions were mechanically moved
+  to 10 and are green.
+
+AUDIT EVIDENCE
+- Delivery/previous reproducer plus migration/API/T033 targeted matrix:
+  21 passed.
+- Additional independent non-empty-snapshot reproducer:
+  1 passed.
+- Frontend TypeScript + Vite production build: PASS.
+- `git diff --check origin/main a1c9a40`: PASS.
+- Full repository regression on exact SHA, with the established 3 s solver
+  test budget: 1167 passed, 2 failed.
+- Both failures are unchanged on clean main@05514c2 and were classified in
+  the preceding audit: the accepted T032 tie-break change in
+  `test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave`, and
+  the stale T023 source-diff proof. Neither is owned by T035.
+
+AUDIT LAYERS
+1. Exact SHA, lineage and complete main diff.
+2. Migration and persistence boundaries, including raw DELETE guard.
+3. Sibling status/Site/month rejection paths.
+4. Vertical API read/write/readback path and target-hours warning.
+5. Non-empty retained snapshot proof.
+6. T033 preservation checks and frontend production build.
+7. Full repository regression with clean-main failure classification.
+
+PASS applies only to exact implementation SHA
+a1c9a409d6059da3c498e370c2e7227f260e0056.

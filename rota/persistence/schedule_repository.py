@@ -61,12 +61,13 @@ def _row_to_deviation(row: tuple) -> Deviation:
 def get_schedule_version_header(conn: sqlite3.Connection, version_id: str) -> ScheduleVersion:
     row = conn.execute(
         "SELECT version_id, site_id, month, parent_version_id, created_at, created_by, status, effective_from, "
-        "planning_regime FROM schedule_versions WHERE version_id = ?",
+        "planning_regime, excluded_from_history FROM schedule_versions WHERE version_id = ?",
         (version_id,),
     ).fetchone()
     if row is None:
         raise ScheduleVersionNotFound(version_id)
-    version_id_, site_id, month, parent_id, created_at, created_by, status, effective_from, planning_regime = row
+    (version_id_, site_id, month, parent_id, created_at, created_by, status, effective_from, planning_regime,
+     excluded_from_history) = row
     applied_rules = [
         r[0] for r in conn.execute(
             "SELECT rule_version_id FROM schedule_version_applied_rules WHERE version_id = ? ORDER BY seq",
@@ -79,6 +80,7 @@ def get_schedule_version_header(conn: sqlite3.Connection, version_id: str) -> Sc
         applied_rule_version_ids=applied_rules,
         effective_from=date.fromisoformat(effective_from) if effective_from else None,
         planning_regime=SitePlanningRegime(planning_regime),
+        excluded_from_history=bool(excluded_from_history),
     )
 
 
@@ -133,11 +135,19 @@ def get_shift_demands_by_ids(conn: sqlite3.Connection, version_demand_ids: list[
     return demands
 
 
-def list_schedule_versions(conn: sqlite3.Connection, site_id: str, month: date) -> list[ScheduleVersion]:
-    rows = conn.execute(
-        "SELECT version_id FROM schedule_versions WHERE site_id = ? AND month = ? ORDER BY created_at, version_id",
-        (site_id, month.isoformat()),
-    ).fetchall()
+def list_schedule_versions(
+    conn: sqlite3.Connection, site_id: str, month: date, *, include_excluded: bool = False,
+) -> list[ScheduleVersion]:
+    """2026-08-26 owner decision: the Historia panel (and anything else
+    reading "the" version history) sees only non-excluded versions by
+    default -- a discarded draft is hidden, not gone (see
+    ScheduleVersion.excluded_from_history). include_excluded=True is for
+    callers that genuinely need every row regardless (none yet)."""
+    query = "SELECT version_id FROM schedule_versions WHERE site_id = ? AND month = ?"
+    if not include_excluded:
+        query += " AND excluded_from_history = 0"
+    query += " ORDER BY created_at, version_id"
+    rows = conn.execute(query, (site_id, month.isoformat())).fetchall()
     return [get_schedule_version_header(conn, row[0]) for row in rows]
 
 

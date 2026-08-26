@@ -343,6 +343,12 @@ class ScheduleVersion:
     # inherits parent provenance, a freshly-selected candidate adopts
     # current Site regime -- see schedule_lifecycle/plan_ops).
     planning_regime: SitePlanningRegime = SitePlanningRegime.ORDINARY
+    # 2026-08-26 owner decision: a coordinator-discarded WORKING/
+    # WORKING_WITH_DEVIATIONS draft (e.g. an unwanted REPLAN attempt) is
+    # hidden from the Historia panel and analytics -- never physically
+    # deleted (schedule_versions_no_delete stays absolute). FINAL versions
+    # can never carry this flag (DB trigger blocks any UPDATE once FINAL).
+    excluded_from_history: bool = False
 
 
 @dataclass

@@ -159,3 +159,12 @@ def restore(
             c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         ),
     )
+
+
+def exclude_from_history(conn, *, site_id: str, month: date, coordinator_id: str, version_id: str) -> None:
+    """2026-08-26 owner decision: coordinator-facing "Usuń" in the Historia
+    panel for a discarded draft -- never a physical delete, only hides it
+    from the version list and analytics (see
+    schedule_lifecycle.exclude_version_from_history)."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    lifecycle.exclude_version_from_history(conn, site_id=site_id, month=month, version_id=version_id)
