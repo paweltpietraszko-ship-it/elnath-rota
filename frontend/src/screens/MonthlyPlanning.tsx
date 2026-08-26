@@ -361,16 +361,18 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                 <p className="panel-hint">Wersja utworzona, ale nikt jeszcze nie został przypisany — uruchom PLAN i wybierz kandydata.</p>
               )}
 
-              {!isFinal && (
+              {/* Owner decision 2026-08-26: koordynator ma mieć obie opcje w
+                  tym samym miejscu, przed i po finalizacji -- delikatna
+                  korekta (PLAN, minimalna zmiana, np. po zgłoszeniu L4) i
+                  całościowa (REPLAN, zawsze inny wariant, chroni to co już
+                  się wydarzyło). Nie zastępują się nawzajem. */}
+              {!showReplan && (
                 <div className="create-panel-actions" style={{ marginTop: 12 }}>
-                  <button className="btn-primary" data-diag-action="plan-month-recompute" onClick={runPlan} disabled={planning}>
-                    {planning ? "Planowanie…" : "Przelicz (PLAN)"}
-                  </button>
-                </div>
-              )}
-
-              {isFinal && !showReplan && (
-                <div className="create-panel-actions" style={{ marginTop: 12 }}>
+                  {!isFinal && (
+                    <button className="btn-primary" data-diag-action="plan-month-recompute" onClick={runPlan} disabled={planning}>
+                      {planning ? "Planowanie…" : "Przelicz (PLAN)"}
+                    </button>
+                  )}
                   <button className="btn-ghost" data-diag-action="replan-open" onClick={() => setShowReplan(true)}>
                     REPLAN
                   </button>

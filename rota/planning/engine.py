@@ -194,23 +194,25 @@ def _feasible_result(
 
 
 def plan_requiring_different_result(state: PlanningState, cutover_at: datetime) -> PlanningResult:
-    """Owner decision 2026-08-26: neither REPLAN nor recomputing PLAN against
-    an existing WORKING version may ever hand the coordinator back the
-    schedule they already have -- pressing either means they want a
-    genuinely different HARD-valid alternative, whether or not they have
-    finalized yet. Used by plan_ops.replan() and by plan_ops.plan_month()'s
-    existing-WORKING-version branch; never by the very first plan on a
-    brand-new version (nothing to differ from yet).
+    """Owner decision 2026-08-26 (revised same day): REPLAN, by definition,
+    must never hand the coordinator back the schedule they already have --
+    pressing it means they want a genuinely different HARD-valid
+    alternative. Used only by plan_ops.replan(), now offered alongside
+    "Przelicz (PLAN)" even before finalize (not gated behind isFinal on the
+    frontend), so a coordinator can choose either a minimal recompute (PLAN,
+    unaffected by this function -- keeps the original protective
+    minimize-reshuffle behavior, e.g. for a newly reported L4) or a
+    genuinely different alternative (REPLAN) at the same point in the flow.
 
-    Neither caller can assume the state's existing content is actually
-    coverage-valid -- plan_month's recompute branch is routinely called
-    again on a month still stuck in DECISION_REQUIRED (e.g. after loosening
-    an employee's availability, to see if it now solves), and that must
-    still get the full existing diagnosis (DECISION_REQUIRED/TECHNICAL_ERROR),
-    not a diversity verdict about a schedule that never validly existed in
-    the first place. So this runs _plan()'s ordinary, unmodified diagnosis
-    FIRST; only once that confirms a real FEASIBLE baseline does a second,
-    diversity-only solve ask the actual new question.
+    The caller cannot assume the state's existing content is actually
+    coverage-valid -- nothing stops REPLAN from being invoked (directly via
+    the API, if not through the gated frontend) on a version whose content
+    never solved cleanly. That must still get the full existing diagnosis
+    (DECISION_REQUIRED/TECHNICAL_ERROR), not a diversity verdict about a
+    schedule that never validly existed in the first place. So this runs
+    _plan()'s ordinary, unmodified diagnosis FIRST; only once that confirms
+    a real FEASIBLE baseline does a second, diversity-only solve ask the
+    actual new question.
 
     That second solve deliberately does NOT reuse _plan()'s 4-stage
     coverage-shortage fallback ladder (day-only-N exception, emergency 24h,
