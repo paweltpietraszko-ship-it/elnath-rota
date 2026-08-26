@@ -254,7 +254,7 @@ def test_a_current_schema_reconnect_is_idempotent(tmp_path):
     db_path = tmp_path / "rota.db"
     connect(db_path).close()
     conn = connect(db_path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 9
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 10
     save_site_profile(conn, _profile("REOPEN", [_d(5)]))
     assert get_site_profile(conn, "REOPEN").profile_id == "REOPEN"
 
