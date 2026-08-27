@@ -1,0 +1,75 @@
+ROTA-T036 — implementation audit, round 3
+Date: 2026-08-27
+Audited branch: origin/task/ROTA-T036
+Audited exact implementation SHA: 53f1b6468d9cf843acd7f2326c9ef8ad127db5f6
+Accepted contract SHA: 8b2519cb398b8fc09284fa0e391e7a96e3037ef7
+Preimplementation PASS report: tasks/ROTA-T036/round_01/tests/tests_r2.txt
+
+VERDICT: FAIL
+
+The production fix is correct in every independently exercised path. The
+only defect is missing permanent coverage for two explicitly required
+validator seams in the focused T036 module. No product-code correction is
+requested.
+
+FINDING 1 — T36-05 and T36-06 are absent from the delivered test module
+
+TRACE
+- brief.md T36-05 requires a cross-Site REST pair proving that validator
+  identifies the Employee and no foreign Assignment persistence lookup is
+  needed.
+- brief.md T36-06 requires a WEEKLY-REST-01 boundary calculation carrying the
+  explicit Employee ID.
+- brief.md T36-12 explicitly retains focused mapper plus validator-boundary
+  proof for WEEKLY-REST-01 instead of a duplicated full lifecycle vertical.
+- brief.md section 7 assigns these proofs to the single focused T036 module.
+
+OWNERSHIP
+- affected_employee_id is a new validator-to-mapper seam owned by T036.
+- Existing T022/T023b tests prove the older REST/WEEKLY HARD calculations,
+  but they do not assert the new affected_employee_id or its materialized
+  Employee target. They cannot replace the focused T036 acceptance cases.
+
+REPRO ON EXACT SHA 53f1b64
+- Command:
+  python -m pytest --collect-only -q tests/test_t036_rest_deviation_target.py
+- Result: 8 tests collected. The module contains T36-01, T36-02, T36-03/03b,
+  T36-07, T36-08, T36-09 and T36-11 only.
+- There is no real cross-Site validator test for T36-05.
+- There is no real boundary-dependent WEEKLY validator test for T36-06.
+- T36-02 manually constructs ViolationDetail and therefore does not prove
+  that _check_weekly_rest supplies the new field.
+- T36-11 covers cross-month REST, so it does not cover either omitted sibling.
+
+REQUIRED MICRO-FIX — TESTS ONLY
+1. Add one genuine other_site_assignments REST case to the existing focused
+   module. Assert affected_employee_id, unchanged diagnostic assignment IDs,
+   and materialized Employee target.
+2. Add one genuine boundary-dependent WEEKLY-REST-01 case. Include a control
+   without the boundary, then assert affected_employee_id and materialized
+   Employee target for the boundary finding.
+3. Do not change validator.py, deviation_mapping.py, persistence, lifecycle,
+   solver, API or UI.
+
+INDEPENDENT FUNCTIONAL EVIDENCE
+- Delivered focused module: 8 passed in 0.10s.
+- Historical T009 sibling regression: 1 passed in 90.85s.
+- Relevant REST/WEEKLY/persistence/manual-edit siblings: 20 passed in 227.70s.
+- Independent cross-Site REST, shared WorkPeriod collision and boundary
+  WEEKLY matrix passed; every detail targeted the known Employee and retained
+  diagnostic Assignment IDs.
+- Exact base 54acdf7 independently reproduced MalformedScheduleSnapshot for
+  the cross-month vertical with old target AUG-ASSIGN-1.
+- Exact implementation 53f1b64 passed the same vertical and persisted LAW /
+  REST-01 with target EMP-T036.
+- Ruff on the three delivered files passed. Full-repo Ruff has two unrelated
+  pre-existing unused imports in T032/T033 audit artifacts present on base.
+- Full pytest was stopped without observed failures after the OWNER requested
+  a proportional audit for this small change; no full-suite claim is made.
+
+OWNER_EXPLANATION_GATE
+- Not triggered. The delivery adds no behavior beyond the accepted contract.
+
+PASS requires only the two focused tests above on a new exact SHA. Re-audit
+should run the focused module and the directly relevant sibling set, not the
+entire repository regression, unless product code changes.
