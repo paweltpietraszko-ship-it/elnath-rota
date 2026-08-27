@@ -1,0 +1,142 @@
+ROTA-T021 — FIVE NAV SCREENS REAUDIT, ROUND 15
+Date: 2026-08-27
+Branch: task/ROTA-T021-analityka
+Audited exact SHA: ecc9026cfec7977fcc8d33ea6adfb38f05c2dbfd
+Contract: arch/T021_spec.md + explicit OWNER_CORRECTED rulings reported with the delivery
+Audit request: tasks/ROTA-T021/UI_SCREENS_AUDIT_REQUEST_2026-08-27.md
+
+VERDICT: FAIL
+
+This was one proportional reaudyt of the fixes only. No full repository
+regression was repeated. Interactive browser control required by the audit
+request was unavailable in this Codex environment, so no independent Part B
+click-through is claimed. The implementer's live check is supporting evidence,
+not the verdict.
+
+FINDING 1 — EDITING EXISTING PRINT SETTINGS FAILS WITH HTTP 422
+
+TRACE:
+- arch/T021_spec.md:735-747 makes saved SitePrintSettings an editable hard
+  precondition owned by Panel sterowania -> Obiekt.
+
+OWNERSHIP / EVIDENCE:
+- PrintSettings.tsx:24-35 stores the GET response directly in a
+  SitePrintSettingsIn-typed form.
+- client.ts:301-315 shows that the GET shape contains site_id while the PUT
+  shape does not.
+- PrintSettings.tsx:40-62 preserves the complete object and sends it back.
+- export.py:57-75 returns site_id and rejects every extra PUT field.
+
+REPRO ON EXACT SHA:
+- first PUT of a valid fresh payload: 204;
+- GET: response contains site_id;
+- PUT of that returned object, matching the screen's load/edit/save path: 422,
+  extra_forbidden at body.site_id.
+
+FINDING 2 — RESPONSE ACTIONS ARE NOT LINKED TO THE DECISION THEY ANSWER
+
+TRACE:
+- arch/T021_spec.md:595-596: every response action MUST pass
+  responds_to_decision_required_id.
+
+OWNERSHIP / REPRO:
+- Room.tsx:52-57 explicitly says no frontend write path passes the ID and
+  stores display-only context instead.
+- ControlPanel.tsx:67-71 only renders the context banner.
+- A repository search under frontend/src finds the field only in the history
+  response type (client.ts:271) and the Room.tsx comment; no write request
+  contains it. Therefore a change opened from Decyzje cannot be recorded as a
+  response to that decision.
+
+FINDING 3 — EXTERNAL-SUPPORT UNBLOCKING OPTION IS STILL NOT NAVIGABLE
+
+TRACE:
+- arch/T021_spec.md:573-575 requires every unblocking option to link to its
+  other screen/action.
+- arch/T021_spec.md:590-592 maps "Skonfiguruj Wsparcie zewnętrzne: ..." to
+  Obsada -> employee -> support-window list.
+
+OWNERSHIP / REPRO:
+- Decisions.tsx:28-33 recognizes only the checkbox and saved-rule prefixes.
+- Decisions.tsx:85-95 renders every unrecognized option as plain text.
+- A repository search finds no frontend mapping for the external-support
+  prefix. A real option with that prefix therefore has no navigation action.
+
+FINDING 4 — PRZEGLĄD STILL HAS NO PENDING-DECISION PREVIEW CONTENT
+
+TRACE:
+- arch/T021_spec.md:419-424 requires both the count and list content from
+  memory_read.current_decision_required per month.
+
+OWNERSHIP / REPRO:
+- overview.py:27-33 and client.ts:327-334 expose only decision_months, with no
+  decision content.
+- Overview.tsx:63-75 renders only the count, month labels and one global
+  "Rozwiąż" button. The required decision rows/content cannot be rendered by
+  this response contract.
+
+FINDING 5 — A SUPPORT WINDOW WITH ZERO OVERLAP IS COUNTED IN THE MONTH
+
+TRACE:
+- arch/T021_spec.md:432-438 and OWNER_CORRECTED count EXTERNAL_SUPPORT only
+  when support is in use in the queried month.
+
+OWNERSHIP / EVIDENCE:
+- overview.py:52-59 treats end_datetime == month_start as overlap.
+- The product's interval-overlap convention is half-open, for example
+  schedule_repository.py:184 and validator.py:101 use start < end and end >
+  start.
+
+REPRO ON EXACT SHA:
+- one enabled LOCAL plus one enabled EXTERNAL_SUPPORT;
+- the only active support window is 2026-09-30 12:00 through
+  2026-10-01 00:00;
+- GET/composition for October returns headcount=2 although the support window
+  contains no October instant and cannot cover an October assignment.
+
+FINDING 6 — NESTED HISTORY FIELD NAMES REMAIN RAW ENGLISH IDENTIFIERS
+
+TRACE:
+- arch/T021_spec.md:294-305 forbids raw internal English names in text visible
+  to the coordinator.
+- arch/T021_spec.md:672-676 makes before_state/after_state visible action
+  detail data.
+
+OWNERSHIP / REPRO:
+- History.tsx:69-76 translates only top-level keys and JSON.stringify's every
+  nested object unchanged.
+- bootstrap.py:118-140 creates real nested site_profile/site state containing
+  keys such as standard_shifts, external_support_enabled and planning_regime;
+  bootstrap.py:158-159 records those objects in history.
+- Opening that action detail therefore shows those raw nested identifiers.
+  The previous [object Object] symptom is closed, but the Polish-name contract
+  is not.
+
+INDEPENDENT VERIFICATION
+
+- Exact SHA and clean detached worktree: confirmed.
+- git diff --check for c7656dc..ecc9026: PASS.
+- Focused backend/API checks selected across the changed seams: 9 passed in
+  0.94 s (overview headcount happy paths, print-settings roundtrip/schema,
+  history detail/filter, analytics quarter, decision detail).
+- Independent vertical print-settings echo reproducer: 204 -> GET -> 422.
+- Independent in-memory overview boundary reproducer: headcount=2.
+- Full repository regression: deliberately not run in this proportional
+  reaudyt.
+- Independent browser Part B: not run; required in-app browser control was not
+  available.
+
+CLOSED IN THIS SHA
+
+- demand_id and linked_action_ids are visible in Decyzje;
+- recognized decision options open the selected Panel sterowania tab and show
+  decision context;
+- coordinator/date history filters and source/responds detail fields exist;
+- the raw [object Object] rendering is gone;
+- the named analytics fields and unrestricted month inputs are present;
+- print settings moved to Panel sterowania -> Obiekt;
+- the explicitly deferred history entity filter is not graded as a defect.
+
+ARCHITECTURE_PROPOSALS
+
+None.

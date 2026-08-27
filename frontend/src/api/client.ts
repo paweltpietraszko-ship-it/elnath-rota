@@ -157,6 +157,7 @@ export interface RosterRow {
   enabled: boolean;
   can_work_24h: boolean;
   readiness_state: string;
+  membership_kind: "LOCAL" | "EXTERNAL_SUPPORT";
 }
 
 export interface PickableEmployee {
@@ -201,6 +202,164 @@ export interface MatrixCellOut {
   effective_to: string | null;
   applies_from: string | null;
   applies_to: string | null;
+}
+
+export interface AnalyticsMonthDataOut {
+  month: string;
+  target_hours: number;
+  effective_target_hours: number;
+  planned_hours: number;
+  realized_hours: number;
+  month_balance: number;
+  quarter_balance: number | null;
+  unresolved_carryover: number | null;
+}
+
+export interface EmployeeAnalyticsRowOut {
+  employee_id: string;
+  display_name: string;
+  status: "AVAILABLE" | "MONTH_AVAILABLE_QUARTER_UNAVAILABLE" | "UNAVAILABLE";
+  month_data: AnalyticsMonthDataOut | null;
+  quarter_months: AnalyticsMonthDataOut[];
+  warnings: string[];
+}
+
+export interface CoordinatorAnalyticsViewOut {
+  site_id: string;
+  month: string;
+  quarter_first_month: string;
+  hours_scope: "ALL_SITES";
+  rows: EmployeeAnalyticsRowOut[];
+}
+
+export type CoordinatorActionKind =
+  | "CONTEXT_CONFIGURATION_SAVED"
+  | "EXTERNAL_SUPPORT_WINDOW_CHANGED"
+  | "AVAILABILITY_CHANGED"
+  | "EMPLOYEE_DAY_ONLY_CHANGED"
+  | "SITE_MEMBERSHIP_CHANGED"
+  | "TARGET_HOURS_CHANGED"
+  | "CALENDAR_DAY_CHANGED"
+  | "SITE_PROFILE_CHANGED"
+  | "SITE_ACTIVE_CHANGED"
+  | "RULE_DECISION_RECORDED"
+  | "SCHEDULE_CANDIDATE_SELECTED"
+  | "SCHEDULE_REPLAN_CREATED"
+  | "MANUAL_SCHEDULE_CORRECTION"
+  | "ASSIGNMENT_FREEZE_CHANGED"
+  | "ASSIGNMENT_NOT_WORKED"
+  | "TRAINING_REALIZED"
+  | "SCHEDULE_FINALIZED"
+  | "SCHEDULE_RESTORED";
+
+export interface AffectedEntityOut {
+  entity_kind: string;
+  entity_id: string;
+}
+
+export interface MaterialActionSummaryOut {
+  action_id: string;
+  action_kind: CoordinatorActionKind;
+  origin_site_id: string;
+  affected_site_ids: string[];
+  coordinator_id: string;
+  recorded_at: string;
+  effective_from: string | null;
+  month: string | null;
+  schedule_version_id: string | null;
+  affected_entities: AffectedEntityOut[];
+  note: string | null;
+  responds_to_decision_required_id: string | null;
+}
+
+export interface DecisionRequiredReadbackOut {
+  decision_required_id: string;
+  site_id: string;
+  month: string;
+  schedule_version_id: string | null;
+  requested_by: string;
+  recorded_at: string;
+  linked_action_ids: string[];
+}
+
+export interface MaterialActionDetailOut extends MaterialActionSummaryOut {
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  source_kind: string;
+  source_id: string | null;
+  responds_to: DecisionRequiredReadbackOut | null;
+}
+
+export interface WorkCodeIntervalOut {
+  start_time: string;
+  end_time: string;
+  end_next_day: boolean;
+}
+
+export const WORK_CODE_KEYS = ["D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5"] as const;
+export const RESERVE_SLOT_KEYS = ["U3", "U4", "U5", "C3", "C4", "C5"] as const;
+
+export interface SitePrintSettingsOut {
+  site_id: string;
+  company_print_name: string;
+  site_print_name: string;
+  base_regime: "12h" | "24h";
+  work_code_intervals: Record<string, WorkCodeIntervalOut | null>;
+  reserve_hours: Record<string, number | null>;
+}
+
+export interface SitePrintSettingsIn {
+  company_print_name: string;
+  site_print_name: string;
+  base_regime: "12h" | "24h";
+  work_code_intervals: Record<string, WorkCodeIntervalOut | null>;
+  reserve_hours: Record<string, number | null>;
+}
+
+export interface ExportResultOut {
+  ok: boolean;
+  pdf_base64: string | null;
+  document_revision: string | null;
+  schedule_provenance: string | null;
+  problem_code: string | null;
+  message: string | null;
+}
+
+export interface OverviewOut {
+  month: string;
+  decision_months: string[];
+  version_id: string | null;
+  version_status: "WORKING" | "WORKING_WITH_DEVIATIONS" | "FINAL_NO_DEVIATIONS" | "FINAL_WITH_DEVIATIONS" | null;
+  resumable: boolean;
+  headcount: number;
+}
+
+export interface DecisionRequiredOut {
+  decision_required_id: string;
+  site_id: string;
+  month: string;
+  schedule_version_id: string | null;
+  requested_by: string;
+  recorded_at: string;
+  blocking_shift_demands: { demand_id: string; start_datetime: string; end_datetime: string }[];
+  blockers: { employee_id: string; condition: string }[];
+  load_blocker: { employee_id: string; window_start: string; window_end: string; hours: number } | null;
+  unblocking_options: string[];
+  linked_action_ids: string[];
+}
+
+export interface DecisionRecordOut {
+  decision_id: string;
+  site_id: string;
+  rule_id: string;
+  chain_seq: number;
+  statement: string;
+  coordinator_id: string;
+  recorded_at: string;
+  effective_from: string;
+  rule_version_id: string | null;
+  rel: "supersedes" | "corrects" | "rejects" | null;
+  predecessor_decision_id: string | null;
 }
 
 async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
@@ -347,8 +506,10 @@ export const api = {
 
   // Shift catalog (Panel sterowania -> Obiekt, T030)
   getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),
-  putShiftCatalog: (siteId: string, shifts: ShiftRowIn[]) =>
-    req<void>(`/workspace/sites/${siteId}/shift-catalog`, { method: "PUT", body: JSON.stringify({ shifts }) }),
+  putShiftCatalog: (siteId: string, shifts: ShiftRowIn[], respondsToDecisionRequiredId?: string | null) =>
+    req<void>(`/workspace/sites/${siteId}/shift-catalog`, {
+      method: "PUT", body: JSON.stringify({ shifts, responds_to_decision_required_id: respondsToDecisionRequiredId ?? null }),
+    }),
 
   // Planowanie miesiąca (T031)
   getScheduleMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/schedule/months`),
@@ -420,14 +581,41 @@ export const api = {
   // Roster (brief.md section 5.1)
   listRoster: (siteId: string) => req<RosterRow[]>(`/workspace/sites/${siteId}/roster`),
   listPickableEmployees: (siteId: string) => req<PickableEmployee[]>(`/workspace/sites/${siteId}/roster/pickable`),
-  attachToRoster: (siteId: string, employeeId: string) =>
-    req<void>(`/workspace/sites/${siteId}/roster`, { method: "POST", body: JSON.stringify({ employee_id: employeeId }) }),
+  attachToRoster: (
+    siteId: string,
+    employeeId: string,
+    membershipKind: "LOCAL" | "EXTERNAL_SUPPORT" = "LOCAL",
+    respondsToDecisionRequiredId?: string | null,
+  ) =>
+    req<void>(`/workspace/sites/${siteId}/roster`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId,
+        membership_kind: membershipKind,
+        responds_to_decision_required_id: respondsToDecisionRequiredId ?? null,
+      }),
+    }),
+  createSupportWindow: (
+    employeeId: string,
+    payload: {
+      site_id: string;
+      start_datetime: string;
+      end_datetime: string;
+      allowed_shift_kind?: "D" | "N" | null;
+      responds_to_decision_required_id?: string | null;
+    },
+  ) => req<void>(`/workspace/employees/${employeeId}/support-window`, { method: "POST", body: JSON.stringify(payload) }),
   updateRosterRow: (siteId: string, employeeId: string, payload: { enabled?: boolean; can_work_24h?: boolean }) =>
     req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),
 
   // Employee (brief.md section 5.1)
-  createEmployee: (payload: { employee_id: string; site_id: string; display_name: string; day_only: boolean }) =>
-    req<void>("/workspace/employees", { method: "POST", body: JSON.stringify(payload) }),
+  createEmployee: (payload: {
+    employee_id: string;
+    site_id: string;
+    display_name: string;
+    day_only: boolean;
+    responds_to_decision_required_id?: string | null;
+  }) => req<void>("/workspace/employees", { method: "POST", body: JSON.stringify(payload) }),
   getEmployeeDetail: (employeeId: string, siteId: string) =>
     req<EmployeeDetailOut>(`/workspace/employees/${employeeId}?site_id=${siteId}`),
   updateDayOnly: (employeeId: string, siteId: string, dayOnly: boolean) =>
@@ -451,16 +639,65 @@ export const api = {
   // Dniówka/Nocka/weekday matrix (T021b-backed)
   getEmployeeMatrix: (employeeId: string, siteId: string, month: string) =>
     req<{ cells: MatrixCellOut[] }>(`/workspace/employees/${employeeId}/matrix?site_id=${siteId}&month=${month}`),
-  createShiftUnavailability: (employeeId: string, payload: { site_id: string; shift_kind: "D" | "N"; effective_from: string; effective_to?: string | null }) =>
-    req<void>(`/workspace/employees/${employeeId}/matrix/shift-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
-  createWeekdayUnavailability: (employeeId: string, payload: { site_id: string; iso_weekday: number; effective_from: string; effective_to?: string | null }) =>
-    req<void>(`/workspace/employees/${employeeId}/matrix/weekday-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
-  createDayOnlyException: (employeeId: string, payload: { site_id: string; effective_from: string; effective_to?: string | null }) =>
-    req<void>(`/workspace/employees/${employeeId}/matrix/day-only-exception`, { method: "POST", body: JSON.stringify(payload) }),
-  updateMatrixRule: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string; effective_to?: string | null }) =>
-    req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  endMatrixRuleEarly: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string }) =>
-    req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}/end-early`, { method: "POST", body: JSON.stringify(payload) }),
+  createShiftUnavailability: (
+    employeeId: string,
+    payload: { site_id: string; shift_kind: "D" | "N"; effective_from: string; effective_to?: string | null; responds_to_decision_required_id?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/matrix/shift-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
+  createWeekdayUnavailability: (
+    employeeId: string,
+    payload: { site_id: string; iso_weekday: number; effective_from: string; effective_to?: string | null; responds_to_decision_required_id?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/matrix/weekday-unavailability`, { method: "POST", body: JSON.stringify(payload) }),
+  createDayOnlyException: (
+    employeeId: string,
+    payload: { site_id: string; effective_from: string; effective_to?: string | null; responds_to_decision_required_id?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/matrix/day-only-exception`, { method: "POST", body: JSON.stringify(payload) }),
+  updateMatrixRule: (
+    employeeId: string,
+    ruleId: string,
+    payload: { site_id: string; effective_from: string; effective_to?: string | null; responds_to_decision_required_id?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  endMatrixRuleEarly: (
+    employeeId: string,
+    ruleId: string,
+    payload: { site_id: string; effective_from: string; responds_to_decision_required_id?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}/end-early`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Analityka i bilanse (T021)
+  getAnalytics: (siteId: string, month: string) =>
+    req<CoordinatorAnalyticsViewOut>(`/workspace/sites/${siteId}/analytics?month=${month}`),
+
+  // Historia i audyt (T021)
+  getActionHistory: (
+    siteId: string,
+    filters?: { actionKind?: CoordinatorActionKind; coordinatorId?: string; recordedFrom?: string; recordedTo?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.actionKind) params.set("action_kind", filters.actionKind);
+    if (filters?.coordinatorId) params.set("coordinator_id", filters.coordinatorId);
+    if (filters?.recordedFrom) params.set("recorded_from", filters.recordedFrom);
+    if (filters?.recordedTo) params.set("recorded_to", filters.recordedTo);
+    const qs = params.toString();
+    return req<MaterialActionSummaryOut[]>(`/workspace/sites/${siteId}/history/actions${qs ? `?${qs}` : ""}`);
+  },
+  getActionDetail: (actionId: string) => req<MaterialActionDetailOut>(`/workspace/history/actions/${actionId}`),
+  getRuleHistory: (siteId: string) => req<Record<string, DecisionRecordOut[]>>(`/workspace/sites/${siteId}/history/rules`),
+
+  // Wydruk Grafiku (T021)
+  getPrintSettings: (siteId: string) => req<SitePrintSettingsOut | null>(`/workspace/sites/${siteId}/print-settings`),
+  savePrintSettings: (siteId: string, payload: SitePrintSettingsIn) =>
+    req<void>(`/workspace/sites/${siteId}/print-settings`, { method: "PUT", body: JSON.stringify(payload) }),
+  exportSchedule: (siteId: string, month: string, periodLabel: string) =>
+    req<ExportResultOut>(`/workspace/sites/${siteId}/schedule/${month}/export`, {
+      method: "POST", body: JSON.stringify({ period_label: periodLabel }),
+    }),
+
+  // Przeglad (T021)
+  getOverview: (siteId: string, month: string) => req<OverviewOut>(`/workspace/sites/${siteId}/overview?month=${month}`),
+
+  // Decyzje koordynatora (T021)
+  getDecisionMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/decisions/months`),
+  getDecisionForMonth: (siteId: string, month: string) =>
+    req<DecisionRequiredOut | null>(`/workspace/sites/${siteId}/decisions/${month}`),
 };
 
 async function downloadPost(path: string, body?: string): Promise<void> {

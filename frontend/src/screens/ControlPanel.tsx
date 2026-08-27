@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
 import type { View } from "../App";
 import { api, PickableEmployee, RosterRow } from "../api/client";
+import PrintSettings from "./PrintSettings";
 import SiteShiftCatalog from "./SiteShiftCatalog";
 
 export default function ControlPanel({
   siteId,
   siteName,
   onNavigate,
+  initialTab = "obsada",
+  decisionContext = null,
 }: {
   siteId: string;
   siteName: string;
   onNavigate: (v: View) => void;
+  initialTab?: "obiekt" | "obsada";
+  decisionContext?: { decisionRequiredId: string; month: string } | null;
 }) {
-  const [tab, setTab] = useState<"obiekt" | "obsada">("obsada");
+  const [tab, setTab] = useState<"obiekt" | "obsada">(initialTab);
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +64,13 @@ export default function ControlPanel({
         Konfigurator obiektu i obsady — dane trwałe, niezależne od miesiąca.
       </p>
 
+      {decisionContext && (
+        <div className="banner-warning" style={{ marginBottom: 16 }}>
+          Rozwiązujesz decyzję koordynatora zgłoszoną dla miesiąca {decisionContext.month.slice(0, 7)} (
+          {decisionContext.decisionRequiredId}). Po zmianie wróć do Decyzji koordynatora.
+        </div>
+      )}
+
       <div className="tab-row">
         <button
           className={`tab-item${tab === "obiekt" ? " tab-item-active" : ""}`}
@@ -78,7 +90,12 @@ export default function ControlPanel({
 
       {error && tab === "obsada" && <div className="banner-error">{error}</div>}
 
-      {tab === "obiekt" && <SiteShiftCatalog siteId={siteId} />}
+      {tab === "obiekt" && (
+        <>
+          <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} />
+          <PrintSettings siteId={siteId} />
+        </>
+      )}
 
       {tab === "obsada" && (
         <div className="panel">
@@ -108,6 +125,7 @@ export default function ControlPanel({
               siteId={siteId}
               onClose={() => setAddOpen(false)}
               onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
+              respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
             />
           )}
 
@@ -135,6 +153,11 @@ export default function ControlPanel({
                         >
                           {row.display_name}
                         </button>
+                        {row.membership_kind === "EXTERNAL_SUPPORT" && (
+                          <span className="badge-pill" style={{ marginLeft: 8 }}>
+                            wsparcie zewnętrzne
+                          </span>
+                        )}
                       </td>
                       <td>
                         <span className={`badge-pill ${row.enabled ? "badge-on" : "badge-off"}`}>
@@ -187,14 +210,25 @@ function newEmployeeIdStorageKey(siteId: string) {
   return `elnath-rota-new-employee-id:${siteId}`;
 }
 
+function endOfDayExclusive(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const yyyy = next.getUTCFullYear();
+  const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(next.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00:00`;
+}
+
 function AddPersonPanel({
   siteId,
   onClose,
   onAdded,
+  respondsToDecisionRequiredId,
 }: {
   siteId: string;
   onClose: () => void;
   onAdded: (employeeId: string) => void;
+  respondsToDecisionRequiredId?: string | null;
 }) {
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [displayName, setDisplayName] = useState("");
@@ -203,6 +237,13 @@ function AddPersonPanel({
   const [selectedExisting, setSelectedExisting] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OWNER_CORRECTED (2026-08-27): Wsparcie zewnętrzne is the same "+ Dodaj
+  // osobę" flow, not a separate screen -- membership_kind + one date range
+  // the solver may use this person within.
+  const [membershipKind, setMembershipKind] = useState<"LOCAL" | "EXTERNAL_SUPPORT">("LOCAL");
+  const [windowFrom, setWindowFrom] = useState("");
+  const [windowTo, setWindowTo] = useState("");
+  const [allowedShiftKind, setAllowedShiftKind] = useState<"" | "D" | "N">("");
 
   // Generated once (brief.md section 5.1, round-9 R9-1): held until the
   // attach step succeeds, surviving re-render, "Ponów" and a reload
@@ -227,13 +268,40 @@ function AddPersonPanel({
     }
   }, [mode, siteId]);
 
+  const addSupportWindowIfNeeded = async (employeeId: string) => {
+    if (membershipKind !== "EXTERNAL_SUPPORT" || !windowFrom || !windowTo) return;
+    // Owner ruling 2026-08-27: "do <dzień>" includes that whole day --
+    // end_datetime is midnight of the day AFTER, not the picked day itself.
+    // Never carries the decision link (see submit(): only the first write
+    // of the whole chain may -- audit round-17 R17-1 caught this endpoint
+    // receiving an already-invalidated id from an earlier write).
+    await api.createSupportWindow(employeeId, {
+      site_id: siteId, start_datetime: `${windowFrom}T00:00:00`, end_datetime: endOfDayExclusive(windowTo),
+      allowed_shift_kind: allowedShiftKind || null,
+      responds_to_decision_required_id: null,
+    });
+  };
+
   const submit = async () => {
     setSubmitting(true);
     setError(null);
     try {
+      if (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo)) {
+        throw new Error("Podaj zakres dat, w którym solver może korzystać z tej osoby.");
+      }
+      // Audit round-17 R17-1: EVERY material write here (employee creation
+      // included, not just membership) unconditionally invalidates the
+      // site's current decision, regardless of whether it carries the
+      // link. So only the very FIRST write of this whole chain can ever
+      // see a still-current id -- every later write in the same submit()
+      // must pass null, or it hits an already-stale id and 500s.
       if (mode === "new") {
-        await api.createEmployee({ employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly });
-        await api.attachToRoster(siteId, newEmployeeId);
+        await api.createEmployee({
+          employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly,
+          responds_to_decision_required_id: respondsToDecisionRequiredId,
+        });
+        await api.attachToRoster(siteId, newEmployeeId, membershipKind, null);
+        await addSupportWindowIfNeeded(newEmployeeId);
         try {
           sessionStorage.removeItem(newEmployeeIdStorageKey(siteId));
         } catch {
@@ -242,7 +310,8 @@ function AddPersonPanel({
         onAdded(newEmployeeId);
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
-        await api.attachToRoster(siteId, selectedExisting);
+        await api.attachToRoster(siteId, selectedExisting, membershipKind, respondsToDecisionRequiredId);
+        await addSupportWindowIfNeeded(selectedExisting);
         onAdded(selectedExisting);
       }
     } catch (e: unknown) {
@@ -264,6 +333,36 @@ function AddPersonPanel({
           Istniejący pracownik
         </button>
       </div>
+
+      <div className="chip-row" style={{ marginBottom: 14 }}>
+        <button className={`chip${membershipKind === "LOCAL" ? " chip-active" : ""}`} onClick={() => setMembershipKind("LOCAL")}>
+          Lokalny
+        </button>
+        <button className={`chip${membershipKind === "EXTERNAL_SUPPORT" ? " chip-active" : ""}`} onClick={() => setMembershipKind("EXTERNAL_SUPPORT")}>
+          Wsparcie zewnętrzne
+        </button>
+      </div>
+
+      {membershipKind === "EXTERNAL_SUPPORT" && (
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
+          <label>
+            <span className="field-label">Solver może z niej korzystać od</span>
+            <input type="date" value={windowFrom} onChange={(e) => setWindowFrom(e.target.value)} />
+          </label>
+          <label>
+            <span className="field-label">do</span>
+            <input type="date" value={windowTo} onChange={(e) => setWindowTo(e.target.value)} />
+          </label>
+          <label>
+            <span className="field-label">Ograniczenie zmiany (opcjonalnie)</span>
+            <select value={allowedShiftKind} onChange={(e) => setAllowedShiftKind(e.target.value as "" | "D" | "N")}>
+              <option value="">Dniówka i nocka</option>
+              <option value="D">Tylko dniówka</option>
+              <option value="N">Tylko nocka</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       {mode === "new" ? (
         <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -303,7 +402,11 @@ function AddPersonPanel({
           className="btn-primary"
           data-diag-action="add-person-submit"
           onClick={submit}
-          disabled={submitting || (mode === "new" ? !displayName.trim() : !selectedExisting)}
+          disabled={
+            submitting ||
+            (mode === "new" ? !displayName.trim() : !selectedExisting) ||
+            (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo))
+          }
         >
           {submitting ? "Dodawanie…" : "Dodaj"}
         </button>

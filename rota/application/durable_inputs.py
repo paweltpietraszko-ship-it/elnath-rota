@@ -44,9 +44,12 @@ from rota.persistence.schedule_repository import list_regime_replan_required_mon
 from rota.persistence.site_profile_repository import SiteProfileNotFound, get_site_profile, write_site_profile_in_open_transaction
 from rota.persistence.site_repository import (
     SiteNotFound,
+    SitePrintSettings,
     correct_site_planning_regime_in_open_transaction,
     get_site,
+    get_site_print_settings,
     list_sites,
+    save_site_print_settings,
     write_site_in_open_transaction,
 )
 from rota.persistence.work_balance_repository import get_work_balance_target, write_work_balance_target_in_open_transaction
@@ -315,6 +318,48 @@ def set_target_hours(
                 source_id=f"{employee_id}:{month.isoformat()}",
                 responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=[month],
             )
+
+
+def save_print_settings(
+    conn, *, coordinator_id: str, site_id: str, settings: SitePrintSettings,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
+) -> None:
+    """T021 gap (arch/T021_spec.md, Wydruk Grafiku section): site_repository.py
+    already has save_site_print_settings/get_site_print_settings (T020) but
+    no coordinator-context-aware application wrapper for the save side --
+    this is that thin wrapper, no new validation (save_site_print_settings
+    validates the frozen field shape itself, arch/spec.md-frozen
+    WORK_CODE_KEYS/RESERVE_SLOT_KEYS/FROZEN_WORK_CODE_HOURS unchanged).
+
+    NOT wrapped in the usual single `with conn:` T019b atomicity pattern:
+    save_site_print_settings (T020) already commits its own transaction
+    (an "_in_open_transaction" sibling does not exist for it -- also
+    flagged, not fixed, since it belongs to T020's own file scope, out of
+    this task's TASK_SCOPE). The action record below is a second, separate
+    commit. Print settings affect only PDF export presentation, never
+    solver feasibility or current_decision_required -- unlike every other
+    write in this module, a torn write here (settings saved, action record
+    lost, or vice versa) has no correctness impact on planning, only on
+    the Historia i audyt trail completeness."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    _require_payload_belongs_to_site(settings.site_id, site_id)
+    recorded_at = datetime.now()
+    before = get_site_print_settings(conn, site_id)
+    save_site_print_settings(conn, settings)
+    with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        _record_action_and_invalidate_no_commit(
+            conn, action_kind=CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=None, month=None,
+            affected_entities=[AffectedEntity("SITE_PRINT_SETTINGS", site_id)],
+            before_state={"site_id": site_id, "saved": before is not None},
+            after_state={"site_id": site_id, "saved": True},
+            note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE, source_id=site_id,
+            responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=None,
+        )
 
 
 def set_calendar_day(

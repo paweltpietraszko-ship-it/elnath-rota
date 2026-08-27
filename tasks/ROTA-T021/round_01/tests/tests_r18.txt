@@ -1,0 +1,45 @@
+ROTA-T021 — R17-1 TARGETED REAUDIT, ROUND 18
+Date: 2026-08-27
+Branch: task/ROTA-T021-analityka
+Audited exact SHA: eb99e657bbf0b9b8e34ae496bbd21ae8dc21e01c
+Predecessor report: tasks/ROTA-T021/round_01/tests/tests_r17.txt
+
+VERDICT: PASS — R17-1 CLOSED
+
+Scope was limited to the single stale decision-id failure reproduced in
+round 17. No full regression, architecture review or unrelated product
+behavior was added to this reaudyt.
+
+TRACE / EVIDENCE
+
+- ControlPanel.tsx:282-308 now gives the decision ID only to the first
+  material write in each real UI sequence.
+- New employee: createEmployee is first and carries the ID; membership and
+  support-window writes carry null.
+- Existing employee: attachToRoster is first and carries the ID; the optional
+  support-window write carries null.
+- durable_inputs.py:67-82 and client.ts:608-614 expose and forward the ID on
+  employee creation without changing the existing application owner.
+- The implementation test no longer inserts an artificial re-plan between
+  membership and window writes.
+
+INDEPENDENT REPRODUCERS ON EXACT SHA
+
+1. Existing external-support employee, exact UI order:
+   DECISION_REQUIRED -> attach with ID 204 -> window with null 204 -> no
+   pending decision.
+2. New external-support employee, exact UI order:
+   DECISION_REQUIRED -> create with ID 204 -> attach with null 204 -> window
+   with null 204 -> no pending decision.
+3. Focused delivered new-local/existing-external tests: 2 passed in 0.90 s.
+
+No HTTP 500 was reproduced. No new finding in the audited diff.
+
+OTHER ROUND-17 RESULTS
+
+The already-closed inclusive end-date and roster visibility/re-add behavior
+were not changed by eb99e65 and remain closed.
+
+ARCHITECTURE_PROPOSALS
+
+None.

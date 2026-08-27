@@ -1,0 +1,64 @@
+ROTA-T021 — FIVE NAV SCREENS REAUDIT, ROUND 16
+Date: 2026-08-27
+Branch: task/ROTA-T021-analityka
+Audited exact SHA: 9e0bae77598c749c7c7bba1e85b2c5472fb388a3
+Predecessor report: tasks/ROTA-T021/round_01/tests/tests_r15.txt
+
+VERDICT: PASS — SCREEN WIRING FINDINGS FROM ROUND 15 CLOSED
+
+Scope is the five-screen audit request: frontend rendering/navigation/client
+wiring plus the matching overview/history/export response boundary. Panel
+sterowania business behavior and existing rota/application logic are not
+redesigned or graded here.
+
+Part B browser click-through was not independently performed because the
+required in-app browser-control capability is unavailable in this Codex
+environment. The implementer's live check, tsc and build are supporting
+evidence only.
+
+ROUND-15 FINDING CLOSURE
+
+1. Existing print-settings edit: CLOSED.
+   PrintSettings.tsx:29-34 creates an explicit input-shaped form object, and
+   PrintSettings.tsx:47 uses it for a loaded response. site_id cannot remain
+   in the runtime object sent by the form.
+
+2. Decision response context: CLOSED at the audited screen seam.
+   Decisions.tsx:46 and 95 pass decisionRequiredId with the selected target;
+   Room.tsx:147 carries that context into Panel sterowania. The delivered
+   focused vertical tests cover the receiving write seams; their underlying
+   application logic is outside this screen audit.
+
+3. External-support option navigation: CLOSED.
+   Decisions.tsx:37 recognizes the production suggestion prefix and maps it
+   to Obsada; Decisions.tsx:95 renders it as a working button instead of plain
+   text. The existing roster flow is the accepted destination; no new screen
+   is required by this reaudyt.
+
+4. Przegląd decision content: CLOSED.
+   Overview.tsx:43 and 52-67 load current decision detail per pending month;
+   Overview.tsx:88-105 renders a blocker/demand preview and a per-row
+   "Rozwiąż" action.
+
+5. External-support month boundary: CLOSED.
+   overview.py:52-65 uses the product's half-open overlap convention. The
+   exact boundary case ending at month start is covered by the delivered
+   focused test.
+
+6. Nested History keys: CLOSED.
+   History.tsx:85-106 recursively renders arrays and objects, applying the
+   Polish key mapping at every nesting level; StateDiff uses that renderer at
+   History.tsx:119.
+
+INDEPENDENT STATIC VERIFICATION
+
+- exact SHA and clean detached worktree: confirmed;
+- git diff --check from the round-15 audited state: PASS;
+- every six round-15 frontend reproducer path was traced again on exact SHA;
+- no new screen-wiring finding;
+- full repository regression deliberately not repeated for this narrow
+  reaudyt.
+
+ARCHITECTURE_PROPOSALS
+
+None.

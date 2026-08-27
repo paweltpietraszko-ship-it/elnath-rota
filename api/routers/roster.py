@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.availability_matrix import employee_availability_matrix
-from rota.domain import MembershipKind
 from rota.persistence.employee_repository import (
     get_employee,
     list_employees,
@@ -54,6 +53,7 @@ class RosterRow(BaseModel):
     enabled: bool
     can_work_24h: bool
     readiness_state: str
+    membership_kind: str
 
 
 class EmployeeOut(BaseModel):
@@ -113,10 +113,13 @@ class EmployeeMatrixOut(BaseModel):
 
 @router.get("/sites/{site_id}/roster", response_model=list[RosterRow])
 def list_roster(site_id: str, conn=Depends(get_conn)) -> list[RosterRow]:
-    """LOCAL memberships only (brief.md section 5.1 scope boundary) --
-    both enabled and disabled rows, the UI marks disabled ones
+    """OWNER_CORRECTED (2026-08-27): both LOCAL and EXTERNAL_SUPPORT rows --
+    the earlier LOCAL-only scope predates membership_kind being settable
+    on this same "+ Dodaj osobę" flow and made EXTERNAL_SUPPORT people
+    invisible on their own roster (couldn't be seen or removed here).
+    Both enabled and disabled rows, the UI marks disabled ones
     distinctly and offers re-add, never hides them."""
-    memberships = [m for m in list_memberships_for_site(conn, site_id) if m.membership_kind == MembershipKind.LOCAL]
+    memberships = list(list_memberships_for_site(conn, site_id))
     employees = list_employees_by_ids(conn, [m.employee_id for m in memberships])
     return [
         RosterRow(
@@ -125,6 +128,7 @@ def list_roster(site_id: str, conn=Depends(get_conn)) -> list[RosterRow]:
             enabled=m.enabled,
             can_work_24h=m.can_work_24h,
             readiness_state=m.readiness_state.value,
+            membership_kind=m.membership_kind.value,
         )
         for m in memberships
     ]
@@ -132,18 +136,18 @@ def list_roster(site_id: str, conn=Depends(get_conn)) -> list[RosterRow]:
 
 @router.get("/sites/{site_id}/roster/pickable", response_model=list[PickableEmployeeOut])
 def list_pickable_employees(site_id: str, conn=Depends(get_conn)) -> list[PickableEmployeeOut]:
-    """Existing-employee picker for "+ Dodaj osobę" (brief.md section
-    5.1, round-8 R8-1): only employees with no membership row at this
-    site at all, or a disabled LOCAL row. Any employee with an
-    EXTERNAL_SUPPORT row (enabled or not) is excluded entirely -- this
-    flow must never read or write their row."""
+    """Existing-employee picker for "+ Dodaj osobę". OWNER_CORRECTED
+    (2026-08-27): a disabled row of EITHER membership_kind is pickable
+    for re-add, same as LOCAL always was -- insert/remove is meant to be
+    a full cycle regardless of kind (only an ENABLED row, of any kind,
+    stays excluded since it's already on the roster)."""
     memberships_by_employee = {m.employee_id: m for m in list_memberships_for_site(conn, site_id)}
     out: list[PickableEmployeeOut] = []
     for employee in list_employees(conn):
         membership = memberships_by_employee.get(employee.employee_id)
         if membership is None:
             out.append(PickableEmployeeOut(employee_id=employee.employee_id, display_name=employee.display_name, reason="new"))
-        elif membership.membership_kind == MembershipKind.LOCAL and not membership.enabled:
+        elif not membership.enabled:
             out.append(PickableEmployeeOut(employee_id=employee.employee_id, display_name=employee.display_name, reason="re-add"))
     return out
 
