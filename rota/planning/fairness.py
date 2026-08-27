@@ -16,6 +16,7 @@ HOLIDAY_FAIRNESS_WEIGHT = 1
 MAX_MONTHLY_HOURS = 744
 TARGET_EQUITY_WEIGHT = 1
 DN_RHYTHM_REWARD_WEIGHT = 1
+THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT = 1
 MAX_COMPLETION_PCT = 100 * MAX_MONTHLY_HOURS
 
 
@@ -252,6 +253,110 @@ def add_dn_rhythm_reward(
     # accuracy can never be knowingly traded for rhythm (see
     # solver._add_combined_objective).
     return len(match_terms)
+
+
+def add_third_consecutive_shift_penalty(
+    model: cp_model.CpModel, month, day_kind_terms: dict[str, dict], penalties: list,
+) -> int:
+    """SOFT: prefer avoiding a third consecutive day-shift-adjacent sequence
+    (ROTA-T034, owner ruling 2026-08-26, contract SHA f4a1e0b). For every
+    window of three consecutive start dates (d, d+1, d+2) intersecting
+    `month` (first possible start month_start-2 days, last month_end), one
+    bad_window bool is active iff D/D/D, D/D/N or D/N/N holds (D = existing
+    d_term==1, N = existing n_term==1, same day_kind_terms NIGHT-STREAK-01
+    and add_dn_rhythm_reward already share -- no second D/N classifier, no
+    second boundary read). One window contributes at most one penalty
+    regardless of how many of the three patterns match. N/N/N is out of
+    scope -- it stays exclusively NIGHT-STREAK-01 HARD.
+
+    A window built only from already-fixed/boundary facts (no decision
+    variable involved) is skipped entirely -- contract section 3.2: it
+    cannot change this solve's ranking, so it must not enter the objective
+    at all, even as a constant (unlike add_dn_rhythm_reward's own eager-match
+    branch, which still counts a fully-fixed match as a constant reward)."""
+    import calendar as _calendar
+    from datetime import timedelta as _timedelta
+    num_days = _calendar.monthrange(month.year, month.month)[1]
+    month_start = month.replace(day=1)
+    month_end = month_start + _timedelta(days=num_days - 1)
+    first_start = month_start - _timedelta(days=2)
+    _empty = (0, 0, 0, None)
+    lit_cache: dict[tuple, object] = {}
+
+    def _is_zero(v: object) -> bool:
+        return isinstance(v, int) and v == 0
+
+    def _is_one(v: object) -> bool:
+        return isinstance(v, int) and v == 1
+
+    def _lit(employee_id: str, d, raw_term: object, kind: str) -> object:
+        if isinstance(raw_term, int):
+            return raw_term
+        key = (employee_id, d, kind)
+        cached = lit_cache.get(key)
+        if cached is not None:
+            return cached
+        lit = _exactly_one(model, raw_term, f"t34_is_{kind}_{employee_id}_{d.isoformat()}")
+        lit_cache[key] = lit
+        return lit
+
+    bad_windows = []
+    for employee_id, by_date in day_kind_terms.items():
+        window_start = first_start
+        while window_start <= month_end:
+            d0, d1, d2 = window_start, window_start + _timedelta(days=1), window_start + _timedelta(days=2)
+            d0_raw = by_date.get(d0, _empty)[0]
+            d1_raw, n1_raw = by_date.get(d1, _empty)[0], by_date.get(d1, _empty)[1]
+            d2_raw, n2_raw = by_date.get(d2, _empty)[0], by_date.get(d2, _empty)[1]
+
+            raw_patterns = [
+                (d0_raw, d1_raw, d2_raw),  # D / D / D
+                (d0_raw, d1_raw, n2_raw),  # D / D / N
+                (d0_raw, n1_raw, n2_raw),  # D / N / N
+            ]
+            possible = [not any(_is_zero(v) for v in p) for p in raw_patterns]
+            if not any(possible):
+                # Every pattern is already provably false -- this window can
+                # never match, skip it entirely: no variable, no constraint.
+                window_start += _timedelta(days=1)
+                continue
+            if any(possible[i] and all(_is_one(v) for v in raw_patterns[i]) for i in range(3)):
+                # A fully-fixed match -- constant, cannot change this solve's
+                # ranking, must not enter the objective (contract 3.2).
+                window_start += _timedelta(days=1)
+                continue
+            if all(isinstance(v, int) for i in range(3) if possible[i] for v in raw_patterns[i]):
+                # Fully fixed and provably not a match -- also constant.
+                window_start += _timedelta(days=1)
+                continue
+
+            # Lazily tighten only for a window that already survived every
+            # cheap skip above (mirrors add_dn_rhythm_reward's own timing
+            # correction) -- never eagerly for the whole month.
+            lit0d = _lit(employee_id, d0, d0_raw, "d")
+            lit1d = _lit(employee_id, d1, d1_raw, "d")
+            lit2d = _lit(employee_id, d2, d2_raw, "d")
+            lit1n = _lit(employee_id, d1, n1_raw, "n")
+            lit2n = _lit(employee_id, d2, n2_raw, "n")
+            lit_patterns = [
+                (lit0d, lit1d, lit2d),
+                (lit0d, lit1d, lit2n),
+                (lit0d, lit1n, lit2n),
+            ]
+
+            bad_window = model.new_bool_var(f"third_shift_{employee_id}_{d0.isoformat()}")
+            for i in range(3):
+                if not possible[i]:
+                    continue
+                a, b, c = lit_patterns[i]
+                model.add(bad_window >= a + b + c - 2)
+            bad_windows.append(bad_window)
+            window_start += _timedelta(days=1)
+
+    if not bad_windows:
+        return 0
+    penalties.append(THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * sum(bad_windows))
+    return len(bad_windows)
 
 
 if __name__ == "__main__":

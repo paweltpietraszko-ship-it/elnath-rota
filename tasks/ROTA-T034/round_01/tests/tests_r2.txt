@@ -1,0 +1,118 @@
+ROTA-T034 — independent implementation audit, round 2
+Date: 2026-08-27
+Audited branch: origin/task/ROTA-T034
+Audited exact implementation SHA: f7563c7e478b651de66fd22bcecb681cb99c9daa
+Frozen contract SHA: f4a1e0bbda4e9cc3c8c26a4b3872f1aac53fde17
+Base main SHA: 05514c26b9e29e8ff11a03d422c4c8f15f7a2442
+
+VERDICT: FAIL
+
+The production implementation itself passed the independent behavioral
+matrix. The delivery fails because the only new test file does not prove
+material parts of the frozen acceptance matrix and can report green results
+from variables belonging to a different CP-SAT model.
+
+FINDING 1 — T34 unit ranking harness solves a different CpModel
+
+TRACE
+- brief.md section 7, T34-01/T34-02/T34-03/T34-04 requires controlled
+  ranking proofs for D/D/D, D/D/N, D/N/N and one-penalty-per-window.
+- brief.md section 9 question 7 requires the test matrix to prove ranking.
+
+OWNERSHIP
+- tests/test_t034_third_consecutive_shift_soft.py is the only new test file
+  and is explicitly owned by T034 TASK_SCOPE.
+
+REPRO on exact f7563c7
+- T34-01/02/03/04 create decision BoolVars on an outer CpModel.
+- _solve_min_penalty() at line 33 creates a fresh CpModel and passes the
+  outer model's variables into constraints on that fresh model.
+- CP-SAT variables are model-scoped; their integer indexes alias unrelated
+  variables subsequently created in the fresh model. Constraints already
+  added to the outer model are not present in the solved model.
+- Independent reproducer: outer_model adds choice == 1 and builds D/D/D;
+  the delivered _solve_min_penalty() returns objective 0. Building the same
+  forced D/D/D entirely on one model returns objective 1.
+
+REQUIRED CORRECTION
+- Build and solve every T34-01..04 variable and constraint on the same
+  CpModel. For example, pass the model into the helper test harness instead
+  of constructing a second one inside _solve_min_penalty().
+
+FINDING 2 — T34-06 does not exercise its contracted boundary window
+
+TRACE
+- brief.md section 7 T34-06 requires persisted D on month_start-1 followed
+  by current month_start/month_start+1 combinations D/D, D/N and N/N.
+
+OWNERSHIP
+- tests/test_t034_third_consecutive_shift_soft.py is the T034-owned matrix.
+
+REPRO on exact f7563c7
+- test_t34_06... line 183 uses MONTH - timedelta(days=2), then MONTH and
+  MONTH + 1. The date MONTH-1 is absent, so these are not three consecutive
+  dates.
+- The test then expects count == 0 and never verifies an active penalty.
+  It therefore proves the opposite shape from T34-06 while staying green.
+
+REQUIRED CORRECTION
+- Use MONTH-1, MONTH and MONTH+1 on one model; prove objective 1 for D/D/D,
+  D/D/N and D/N/N respectively.
+
+INDEPENDENT PRODUCT MATRIX
+- all eight D/N triples: only D/D/D, D/D/N and D/N/N score 1;
+- four consecutive D dates score two overlapping bad windows;
+- one fixed-only window creates no objective variable;
+- starts at month_start-2, month_start-1, month_end-1 and month_end are all
+  evaluated when facts exist;
+- real plan() vertical with persisted previous-month D and two current D
+  demands avoids assigning both current demands to the same employee;
+- real plan() vertical with current month-end D and two persisted future D
+  facts selects the alternative employee.
+Result: INDEPENDENT_T034_MATRIX_PASS.
+
+IMPLEMENTER / TARGETED REGRESSION
+- T034 + named T032/T033/ROTA-REG-001/T009 set:
+  43 passed in 497.59s.
+- git diff --check: PASS.
+- production scope from f4a1e0b: fairness.py + solver.py only; PASS.
+
+FULL REPOSITORY REGRESSION (once, exact f7563c7)
+- 1176 passed, 4 failed, 1 warning in 4319.84s (1:11:59).
+
+Classification of the four failures:
+1. tests/test_sick_leave.py::test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave
+   also FAILS on contract base f4a1e0b — pre-existing, not T034 regression.
+2. tests/test_t023_checkpoint_b.py::test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b
+   also FAILS on contract base f4a1e0b — stale source-diff assertion, not
+   T034 regression.
+3. tests/test_t017.py::test_m13_first_candidate_matches_pre_t017_deterministic_result
+   passes on base and fails on T034 because the newly authorized SOFT changes
+   the first candidate ranking. Its pre-T034 exact-placement oracle is stale
+   against the frozen T034 product result; this is not a product regression.
+4. tests/test_audit_t009_r6.py::test_r6_distinct_trainings_with_same_local_id_in_different_versions_both_count
+   passes on f4a1e0b and reproducibly fails on f7563c7 (isolated rerun:
+   1 failed in 90.97s). The new ranking exposes a cross-month REST-01
+   deviation whose target is the previous-month assignment; persistence
+   rejects it while creating the later training correction version.
+
+T009 REGRESSION OWNERSHIP: WYMAGA_DECYZJI, not a T034 finding
+- The observable regression is real and blocks a clean full-repo gate.
+- Its validation/persistence owner is outside T034's frozen production
+  scope. T034 must not patch application/persistence or distort the accepted
+  ranking merely to recover the previous incidental schedule.
+- Route the cross-version deviation target behavior to its owning contract
+  or an explicitly authorized follow-up. Do not widen T034 silently.
+
+AUDIT LAYERS
+1. Exact SHA, remote SHA, base and scope verification.
+2. Production diff and CP-SAT objective/bound review.
+3. Implementer targeted matrix on exact SHA.
+4. Independent 8-sequence, overlap and both-boundary matrix.
+5. Two real plan() boundary verticals.
+6. Full repository regression once.
+7. Minimal base-SHA comparison for all four full-suite failures.
+8. Isolated exact-SHA reproducer for the new T009 integration failure.
+
+PASS is not issued for f7563c7. Correct Findings 1 and 2 without changing
+product behavior. The T009 regression needs an explicit owning-scope decision.
