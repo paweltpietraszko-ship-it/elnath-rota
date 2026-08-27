@@ -157,6 +157,7 @@ export interface RosterRow {
   enabled: boolean;
   can_work_24h: boolean;
   readiness_state: string;
+  membership_kind: "LOCAL" | "EXTERNAL_SUPPORT";
 }
 
 export interface PickableEmployee {
@@ -580,11 +581,29 @@ export const api = {
   // Roster (brief.md section 5.1)
   listRoster: (siteId: string) => req<RosterRow[]>(`/workspace/sites/${siteId}/roster`),
   listPickableEmployees: (siteId: string) => req<PickableEmployee[]>(`/workspace/sites/${siteId}/roster/pickable`),
-  attachToRoster: (siteId: string, employeeId: string, membershipKind: "LOCAL" | "EXTERNAL_SUPPORT" = "LOCAL") =>
-    req<void>(`/workspace/sites/${siteId}/roster`, { method: "POST", body: JSON.stringify({ employee_id: employeeId, membership_kind: membershipKind }) }),
+  attachToRoster: (
+    siteId: string,
+    employeeId: string,
+    membershipKind: "LOCAL" | "EXTERNAL_SUPPORT" = "LOCAL",
+    respondsToDecisionRequiredId?: string | null,
+  ) =>
+    req<void>(`/workspace/sites/${siteId}/roster`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId,
+        membership_kind: membershipKind,
+        responds_to_decision_required_id: respondsToDecisionRequiredId ?? null,
+      }),
+    }),
   createSupportWindow: (
     employeeId: string,
-    payload: { site_id: string; start_datetime: string; end_datetime: string; allowed_shift_kind?: "D" | "N" | null },
+    payload: {
+      site_id: string;
+      start_datetime: string;
+      end_datetime: string;
+      allowed_shift_kind?: "D" | "N" | null;
+      responds_to_decision_required_id?: string | null;
+    },
   ) => req<void>(`/workspace/employees/${employeeId}/support-window`, { method: "POST", body: JSON.stringify(payload) }),
   updateRosterRow: (siteId: string, employeeId: string, payload: { enabled?: boolean; can_work_24h?: boolean }) =>
     req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),

@@ -125,6 +125,7 @@ export default function ControlPanel({
               siteId={siteId}
               onClose={() => setAddOpen(false)}
               onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
+              respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
             />
           )}
 
@@ -152,6 +153,11 @@ export default function ControlPanel({
                         >
                           {row.display_name}
                         </button>
+                        {row.membership_kind === "EXTERNAL_SUPPORT" && (
+                          <span className="badge-pill" style={{ marginLeft: 8 }}>
+                            wsparcie zewnętrzne
+                          </span>
+                        )}
                       </td>
                       <td>
                         <span className={`badge-pill ${row.enabled ? "badge-on" : "badge-off"}`}>
@@ -204,14 +210,25 @@ function newEmployeeIdStorageKey(siteId: string) {
   return `elnath-rota-new-employee-id:${siteId}`;
 }
 
+function endOfDayExclusive(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const yyyy = next.getUTCFullYear();
+  const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(next.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00:00`;
+}
+
 function AddPersonPanel({
   siteId,
   onClose,
   onAdded,
+  respondsToDecisionRequiredId,
 }: {
   siteId: string;
   onClose: () => void;
   onAdded: (employeeId: string) => void;
+  respondsToDecisionRequiredId?: string | null;
 }) {
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [displayName, setDisplayName] = useState("");
@@ -253,9 +270,12 @@ function AddPersonPanel({
 
   const addSupportWindowIfNeeded = async (employeeId: string) => {
     if (membershipKind !== "EXTERNAL_SUPPORT" || !windowFrom || !windowTo) return;
+    // Owner ruling 2026-08-27: "do <dzień>" includes that whole day --
+    // end_datetime is midnight of the day AFTER, not the picked day itself.
     await api.createSupportWindow(employeeId, {
-      site_id: siteId, start_datetime: `${windowFrom}T00:00:00`, end_datetime: `${windowTo}T00:00:00`,
+      site_id: siteId, start_datetime: `${windowFrom}T00:00:00`, end_datetime: endOfDayExclusive(windowTo),
       allowed_shift_kind: allowedShiftKind || null,
+      responds_to_decision_required_id: respondsToDecisionRequiredId ?? null,
     });
   };
 
@@ -266,9 +286,15 @@ function AddPersonPanel({
       if (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo)) {
         throw new Error("Podaj zakres dat, w którym solver może korzystać z tej osoby.");
       }
+      // Attaching membership always invalidates the site's current
+      // decision on its own (any roster change forces re-plan) -- for
+      // EXTERNAL_SUPPORT the window write is the real, LAST step, so only
+      // that call carries the decision link; carrying it on both would
+      // hand the window write an already-stale id.
+      const isExternal = membershipKind === "EXTERNAL_SUPPORT";
       if (mode === "new") {
         await api.createEmployee({ employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly });
-        await api.attachToRoster(siteId, newEmployeeId, membershipKind);
+        await api.attachToRoster(siteId, newEmployeeId, membershipKind, isExternal ? null : respondsToDecisionRequiredId);
         await addSupportWindowIfNeeded(newEmployeeId);
         try {
           sessionStorage.removeItem(newEmployeeIdStorageKey(siteId));
@@ -278,7 +304,7 @@ function AddPersonPanel({
         onAdded(newEmployeeId);
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
-        await api.attachToRoster(siteId, selectedExisting, membershipKind);
+        await api.attachToRoster(siteId, selectedExisting, membershipKind, isExternal ? null : respondsToDecisionRequiredId);
         await addSupportWindowIfNeeded(selectedExisting);
         onAdded(selectedExisting);
       }

@@ -114,15 +114,16 @@ class AttachRosterRequest(BaseModel):
     # arch/T021_spec.md's own confirmed placement). Defaults to LOCAL so
     # every existing caller of this endpoint is unaffected.
     membership_kind: str = "LOCAL"
+    responds_to_decision_required_id: str | None = None
 
 
 @roster_router.post("/sites/{site_id}/roster", status_code=204)
 def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(get_conn)) -> None:
     """Shared by "nowy pracownik" (after employee creation) and
-    "istniejący pracownik" (re-add a disabled LOCAL row). Reuses the
-    disabled row's own can_work_24h/readiness fields when one exists,
-    per brief.md section 5.1 round-8 R8-1 -- never fabricates new
-    defaults over an existing row."""
+    "istniejący pracownik" (re-add a disabled row of either
+    membership_kind). Reuses the disabled row's own can_work_24h/
+    readiness fields when one exists, per brief.md section 5.1 round-8
+    R8-1 -- never fabricates new defaults over an existing row."""
     try:
         kind = MembershipKind(payload.membership_kind)
         existing = next(
@@ -140,7 +141,10 @@ def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(ge
                 enabled=True, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.DEFAULT,
                 can_work_24h=True,
             )
-        update_membership(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership)
+        update_membership(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership,
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -150,6 +154,7 @@ class CreateSupportWindowRequest(BaseModel):
     start_datetime: str
     end_datetime: str
     allowed_shift_kind: str | None = None  # "D" | "N" | None (None = both)
+    responds_to_decision_required_id: str | None = None
 
 
 @roster_router.post("/employees/{employee_id}/support-window", status_code=204)
@@ -157,14 +162,20 @@ def create_support_window(employee_id: str, payload: CreateSupportWindowRequest,
     """OWNER_CORRECTED (2026-08-27): the simplest possible shape -- one
     date range the solver may use this EXTERNAL_SUPPORT person within.
     No list/management screen, no separate feature; add_external_support_window
-    already does the real work (rota.application.durable_inputs)."""
+    already does the real work (rota.application.durable_inputs).
+    end_datetime is expected exact (frontend turns the owner-facing "do
+    <dzień>" into midnight of the day AFTER -- owner ruling 2026-08-27:
+    the named end day is included in full)."""
     try:
         window = ExternalSupportWindow(
             window_id=f"WIN-{employee_id}-{payload.start_datetime}", employee_id=employee_id, site_id=payload.site_id,
             start_datetime=datetime.fromisoformat(payload.start_datetime), end_datetime=datetime.fromisoformat(payload.end_datetime),
             active=True, allowed_shift_kind=ShiftKind(payload.allowed_shift_kind) if payload.allowed_shift_kind else None,
         )
-        add_external_support_window(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, window=window)
+        add_external_support_window(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, window=window,
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
