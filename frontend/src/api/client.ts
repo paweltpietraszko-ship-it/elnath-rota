@@ -609,8 +609,13 @@ export const api = {
     req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),
 
   // Employee (brief.md section 5.1)
-  createEmployee: (payload: { employee_id: string; site_id: string; display_name: string; day_only: boolean }) =>
-    req<void>("/workspace/employees", { method: "POST", body: JSON.stringify(payload) }),
+  createEmployee: (payload: {
+    employee_id: string;
+    site_id: string;
+    display_name: string;
+    day_only: boolean;
+    responds_to_decision_required_id?: string | null;
+  }) => req<void>("/workspace/employees", { method: "POST", body: JSON.stringify(payload) }),
   getEmployeeDetail: (employeeId: string, siteId: string) =>
     req<EmployeeDetailOut>(`/workspace/employees/${employeeId}?site_id=${siteId}`),
   updateDayOnly: (employeeId: string, siteId: string, dayOnly: boolean) =>

@@ -70,6 +70,7 @@ class CreateEmployeeRequest(BaseModel):
     site_id: str  # coordinator-context authorization only, not persisted on Employee
     display_name: str
     day_only: bool
+    responds_to_decision_required_id: str | None = None
 
 
 @roster_router.post("/employees", status_code=204)
@@ -78,6 +79,7 @@ def create_employee(payload: CreateEmployeeRequest, conn=Depends(get_conn)) -> N
         update_employee(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
             employee=Employee(payload.employee_id, payload.display_name, date.today(), None, payload.day_only),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

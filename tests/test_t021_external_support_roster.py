@@ -171,10 +171,9 @@ def understaffed_client(understaffed_site):
 
 
 def test_attach_to_roster_with_responds_to_decision_required_id_clears_the_decision(understaffed_site, understaffed_client):
-    """FINDING 2: attach_to_roster never threaded responds_to_decision_required_id,
-    so resolving a DECISION_REQUIRED via "+ Dodaj osobę" from the Decisions
-    screen left the decision open even though the underlying membership
-    write went through."""
+    """FINDING 2, existing-employee path: attach-to-roster is the FIRST
+    (and only) write of this flow, so it's the one that legitimately
+    carries the still-current decision id."""
     _, site_id = understaffed_site
     plan_resp = understaffed_client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
     assert plan_resp.json()["status"] == "DECISION_REQUIRED"
@@ -191,36 +190,62 @@ def test_attach_to_roster_with_responds_to_decision_required_id_clears_the_decis
     assert months_after == {"months": []}
 
 
-def test_create_support_window_with_responds_to_decision_required_id_clears_the_decision(understaffed_site, understaffed_client):
-    """Mirrors the real "+ Dodaj osobę" sequencing: attaching membership is
-    an intermediate step (it already invalidates every current decision
-    for the site on its own -- any roster change forces re-plan), so only
-    the LAST write, the window, carries the decision link. Linking BOTH
-    steps to the same id would hand the second call an already-stale id
-    (owner-caught bug while implementing OWNER_CORRECTED finding 2)."""
+def test_existing_external_support_window_flow_uses_exact_ui_order(understaffed_site, understaffed_client):
+    """Audit round-17 R17-1 repro, now fixed: the real "+ Dodaj osobę" order
+    is attach-membership (carries the id, it's the FIRST write) then
+    create-window (carries None, since the decision is already gone by
+    then) -- no artificial re-plan between steps, exactly what the screen
+    itself does."""
     _, site_id = understaffed_site
     plan_resp = understaffed_client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
     assert plan_resp.json()["status"] == "DECISION_REQUIRED"
 
     decision_id = understaffed_client.get(f"/api/workspace/sites/{site_id}/decisions/{MONTH_STR}").json()["decision_required_id"]
 
-    understaffed_client.post(
-        f"/api/workspace/sites/{site_id}/roster", json={"employee_id": "EXT-1", "membership_kind": "EXTERNAL_SUPPORT"},
+    attach_resp = understaffed_client.post(
+        f"/api/workspace/sites/{site_id}/roster",
+        json={"employee_id": "EXT-1", "membership_kind": "EXTERNAL_SUPPORT", "responds_to_decision_required_id": decision_id},
     )
-    # Membership attach already invalidated the current decision above --
-    # re-plan to get a fresh, still-current decision id for this month
-    # before exercising the window endpoint's own linking.
-    understaffed_client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
-    decision_id = understaffed_client.get(f"/api/workspace/sites/{site_id}/decisions/{MONTH_STR}").json()["decision_required_id"]
+    assert attach_resp.status_code == 204
 
-    resp = understaffed_client.post(
+    window_resp = understaffed_client.post(
         f"/api/workspace/employees/EXT-1/support-window",
         json={
             "site_id": site_id, "start_datetime": f"{MONTH_STR}T00:00:00", "end_datetime": "2026-09-01T00:00:00",
-            "allowed_shift_kind": None, "responds_to_decision_required_id": decision_id,
+            "allowed_shift_kind": None, "responds_to_decision_required_id": None,
         },
     )
-    assert resp.status_code == 204
+    assert window_resp.status_code == 204
+
+    months_after = understaffed_client.get(f"/api/workspace/sites/{site_id}/decisions/months").json()
+    assert months_after == {"months": []}
+
+
+def test_new_local_employee_flow_uses_exact_ui_order(understaffed_site, understaffed_client):
+    """Audit round-17 R17-1 repro (new-employee variant), now fixed: employee
+    creation is the FIRST write of this flow (it invalidates the decision
+    on its own, same as membership does) and carries the id; the
+    following attach-to-roster carries None."""
+    _, site_id = understaffed_site
+    plan_resp = understaffed_client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
+    assert plan_resp.json()["status"] == "DECISION_REQUIRED"
+
+    decision_id = understaffed_client.get(f"/api/workspace/sites/{site_id}/decisions/{MONTH_STR}").json()["decision_required_id"]
+
+    create_resp = understaffed_client.post(
+        "/api/workspace/employees",
+        json={
+            "employee_id": "NEW-1", "site_id": site_id, "display_name": "Nowy Nowak", "day_only": False,
+            "responds_to_decision_required_id": decision_id,
+        },
+    )
+    assert create_resp.status_code == 204
+
+    attach_resp = understaffed_client.post(
+        f"/api/workspace/sites/{site_id}/roster",
+        json={"employee_id": "NEW-1", "responds_to_decision_required_id": None},
+    )
+    assert attach_resp.status_code == 204
 
     months_after = understaffed_client.get(f"/api/workspace/sites/{site_id}/decisions/months").json()
     assert months_after == {"months": []}

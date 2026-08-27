@@ -272,10 +272,13 @@ function AddPersonPanel({
     if (membershipKind !== "EXTERNAL_SUPPORT" || !windowFrom || !windowTo) return;
     // Owner ruling 2026-08-27: "do <dzień>" includes that whole day --
     // end_datetime is midnight of the day AFTER, not the picked day itself.
+    // Never carries the decision link (see submit(): only the first write
+    // of the whole chain may -- audit round-17 R17-1 caught this endpoint
+    // receiving an already-invalidated id from an earlier write).
     await api.createSupportWindow(employeeId, {
       site_id: siteId, start_datetime: `${windowFrom}T00:00:00`, end_datetime: endOfDayExclusive(windowTo),
       allowed_shift_kind: allowedShiftKind || null,
-      responds_to_decision_required_id: respondsToDecisionRequiredId ?? null,
+      responds_to_decision_required_id: null,
     });
   };
 
@@ -286,15 +289,18 @@ function AddPersonPanel({
       if (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo)) {
         throw new Error("Podaj zakres dat, w którym solver może korzystać z tej osoby.");
       }
-      // Attaching membership always invalidates the site's current
-      // decision on its own (any roster change forces re-plan) -- for
-      // EXTERNAL_SUPPORT the window write is the real, LAST step, so only
-      // that call carries the decision link; carrying it on both would
-      // hand the window write an already-stale id.
-      const isExternal = membershipKind === "EXTERNAL_SUPPORT";
+      // Audit round-17 R17-1: EVERY material write here (employee creation
+      // included, not just membership) unconditionally invalidates the
+      // site's current decision, regardless of whether it carries the
+      // link. So only the very FIRST write of this whole chain can ever
+      // see a still-current id -- every later write in the same submit()
+      // must pass null, or it hits an already-stale id and 500s.
       if (mode === "new") {
-        await api.createEmployee({ employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly });
-        await api.attachToRoster(siteId, newEmployeeId, membershipKind, isExternal ? null : respondsToDecisionRequiredId);
+        await api.createEmployee({
+          employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly,
+          responds_to_decision_required_id: respondsToDecisionRequiredId,
+        });
+        await api.attachToRoster(siteId, newEmployeeId, membershipKind, null);
         await addSupportWindowIfNeeded(newEmployeeId);
         try {
           sessionStorage.removeItem(newEmployeeIdStorageKey(siteId));
@@ -304,7 +310,7 @@ function AddPersonPanel({
         onAdded(newEmployeeId);
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
-        await api.attachToRoster(siteId, selectedExisting, membershipKind, isExternal ? null : respondsToDecisionRequiredId);
+        await api.attachToRoster(siteId, selectedExisting, membershipKind, respondsToDecisionRequiredId);
         await addSupportWindowIfNeeded(selectedExisting);
         onAdded(selectedExisting);
       }
