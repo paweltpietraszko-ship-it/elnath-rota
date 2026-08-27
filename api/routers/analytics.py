@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from api.deps import get_conn
 from api.errors import to_http_exception
-from rota.application.analytics_read import analytics_for_site_month
+from rota.application.analytics_read import AnalyticsDataStatus, AnalyticsHoursScope, analytics_for_site_month
 
 router = APIRouter(prefix="/workspace", tags=["analytics"])
 
@@ -30,7 +30,7 @@ class AnalyticsMonthDataOut(BaseModel):
 class EmployeeAnalyticsRowOut(BaseModel):
     employee_id: str
     display_name: str
-    status: str
+    status: AnalyticsDataStatus
     month_data: AnalyticsMonthDataOut | None
     quarter_months: list[AnalyticsMonthDataOut]
     warnings: list[str]
@@ -40,7 +40,7 @@ class CoordinatorAnalyticsViewOut(BaseModel):
     site_id: str
     month: str
     quarter_first_month: str
-    hours_scope: str
+    hours_scope: AnalyticsHoursScope
     rows: list[EmployeeAnalyticsRowOut]
 
 

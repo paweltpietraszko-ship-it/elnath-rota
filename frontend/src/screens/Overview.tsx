@@ -9,6 +9,16 @@ function todayYearMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+const MONTH_NAMES_PL = [
+  "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
+  "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
+];
+
+function monthLabel(monthIso: string): string {
+  const [year, month] = monthIso.slice(0, 7).split("-").map(Number);
+  return `${MONTH_NAMES_PL[month - 1]} ${year}`;
+}
+
 const VERSION_STATUS_LABEL: Record<NonNullable<OverviewOut["version_status"]>, string> = {
   WORKING: "roboczy",
   WORKING_WITH_DEVIATIONS: "roboczy, z odchyleniami",
@@ -52,6 +62,13 @@ export default function Overview({
         <div className="matrix-table-wrap" style={{ padding: 16 }}>
           <p className="field-label">Oczekujące decyzje</p>
           <p style={{ fontSize: 28, fontWeight: 600, margin: "6px 0" }}>{overview?.decision_months.length ?? 0}</p>
+          {!!overview?.decision_months.length && (
+            <ul style={{ margin: "0 0 8px 0", paddingLeft: 18, fontSize: 13 }}>
+              {overview.decision_months.map((m) => (
+                <li key={m}>{monthLabel(m)}</li>
+              ))}
+            </ul>
+          )}
           {!!overview?.decision_months.length && (
             <button className="btn-ghost" onClick={onOpenDecisions}>
               Rozwiąż

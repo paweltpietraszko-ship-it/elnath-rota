@@ -5,7 +5,7 @@ marshals their dataclasses to JSON, no new logic."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.memory_read import material_action_detail, material_action_history, rules_history_for_site
-from rota.site_memory_types import CoordinatorActionKind
+from rota.site_memory_types import ActionSourceKind, CoordinatorActionKind
 
 router = APIRouter(prefix="/workspace", tags=["history"])
 
@@ -25,7 +25,7 @@ class AffectedEntityOut(BaseModel):
 
 class MaterialActionSummaryOut(BaseModel):
     action_id: str
-    action_kind: str
+    action_kind: CoordinatorActionKind
     origin_site_id: str
     affected_site_ids: list[str]
     coordinator_id: str
@@ -51,7 +51,7 @@ class DecisionRequiredReadbackOut(BaseModel):
 class MaterialActionDetailOut(MaterialActionSummaryOut):
     before_state: Optional[dict]
     after_state: Optional[dict]
-    source_kind: str
+    source_kind: ActionSourceKind
     source_id: str | None
     responds_to: Optional[DecisionRequiredReadbackOut]
 
@@ -66,13 +66,13 @@ class DecisionRecordOut(BaseModel):
     recorded_at: str
     effective_from: str
     rule_version_id: str | None
-    rel: str | None
+    rel: Optional[Literal["supersedes", "corrects", "rejects"]]
     predecessor_decision_id: str | None
 
 
 def _summary_out(s) -> MaterialActionSummaryOut:
     return MaterialActionSummaryOut(
-        action_id=s.action_id, action_kind=s.action_kind.value, origin_site_id=s.origin_site_id,
+        action_id=s.action_id, action_kind=s.action_kind, origin_site_id=s.origin_site_id,
         affected_site_ids=list(s.affected_site_ids), coordinator_id=s.coordinator_id,
         recorded_at=s.recorded_at.isoformat(), effective_from=s.effective_from.isoformat() if s.effective_from else None,
         month=s.month.isoformat() if s.month else None, schedule_version_id=s.schedule_version_id,
@@ -83,12 +83,12 @@ def _summary_out(s) -> MaterialActionSummaryOut:
 
 @router.get("/sites/{site_id}/history/actions", response_model=list[MaterialActionSummaryOut])
 def get_action_history(
-    site_id: str, action_kind: Optional[CoordinatorActionKind] = None,
+    site_id: str, action_kind: Optional[CoordinatorActionKind] = None, coordinator_id: Optional[str] = None,
     recorded_from: Optional[str] = None, recorded_to: Optional[str] = None, conn=Depends(get_conn),
 ) -> list[MaterialActionSummaryOut]:
     try:
         records = material_action_history(
-            conn, site_id=site_id, action_kind=action_kind,
+            conn, site_id=site_id, action_kind=action_kind, coordinator_id=coordinator_id,
             recorded_from=datetime.fromisoformat(recorded_from) if recorded_from else None,
             recorded_to=datetime.fromisoformat(recorded_to) if recorded_to else None,
         )

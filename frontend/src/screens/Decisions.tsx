@@ -33,7 +33,14 @@ function optionTarget(option: string): "obsada" | "obiekt" | null {
   return null;
 }
 
-function DecisionDetail({ detail, onOpenControlPanel }: { detail: DecisionRequiredOut; onOpenControlPanel: () => void }) {
+function DecisionDetail({
+  detail,
+  onOpenControlPanel,
+}: {
+  detail: DecisionRequiredOut;
+  onOpenControlPanel: (tab: "obsada" | "obiekt", context: { decisionRequiredId: string; month: string }) => void;
+}) {
+  const context = { decisionRequiredId: detail.decision_required_id, month: detail.month };
   return (
     <div className="panel" style={{ marginTop: 12 }}>
       <p className="panel-hint">
@@ -45,7 +52,7 @@ function DecisionDetail({ detail, onOpenControlPanel }: { detail: DecisionRequir
         <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 13 }}>
           {detail.blocking_shift_demands.map((d) => (
             <li key={d.demand_id}>
-              {formatDateTime(d.start_datetime)} – {formatDateTime(d.end_datetime)}
+              {d.demand_id}: {formatDateTime(d.start_datetime)} – {formatDateTime(d.end_datetime)}
             </li>
           ))}
         </ul>
@@ -80,7 +87,7 @@ function DecisionDetail({ detail, onOpenControlPanel }: { detail: DecisionRequir
             return (
               <li key={i}>
                 {target ? (
-                  <button className="roster-name-link" onClick={onOpenControlPanel}>
+                  <button className="roster-name-link" onClick={() => onOpenControlPanel(target, context)}>
                     {option}
                   </button>
                 ) : (
@@ -91,11 +98,28 @@ function DecisionDetail({ detail, onOpenControlPanel }: { detail: DecisionRequir
           })}
         </ul>
       </div>
+
+      {detail.linked_action_ids.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <span className="field-label">Powiązane akcje ({detail.linked_action_ids.length})</span>
+          <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 13 }}>
+            {detail.linked_action_ids.map((id) => (
+              <li key={id}>{id}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
 
-export default function Decisions({ siteId, onOpenControlPanel }: { siteId: string; onOpenControlPanel: () => void }) {
+export default function Decisions({
+  siteId,
+  onOpenControlPanel,
+}: {
+  siteId: string;
+  onOpenControlPanel: (tab: "obsada" | "obiekt", context: { decisionRequiredId: string; month: string }) => void;
+}) {
   const [months, setMonths] = useState<string[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [detail, setDetail] = useState<DecisionRequiredOut | null>(null);

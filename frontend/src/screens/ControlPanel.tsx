@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
 import type { View } from "../App";
 import { api, PickableEmployee, RosterRow } from "../api/client";
+import PrintSettings from "./PrintSettings";
 import SiteShiftCatalog from "./SiteShiftCatalog";
 
 export default function ControlPanel({
   siteId,
   siteName,
   onNavigate,
+  initialTab = "obsada",
+  decisionContext = null,
 }: {
   siteId: string;
   siteName: string;
   onNavigate: (v: View) => void;
+  initialTab?: "obiekt" | "obsada";
+  decisionContext?: { decisionRequiredId: string; month: string } | null;
 }) {
-  const [tab, setTab] = useState<"obiekt" | "obsada">("obsada");
+  const [tab, setTab] = useState<"obiekt" | "obsada">(initialTab);
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +64,13 @@ export default function ControlPanel({
         Konfigurator obiektu i obsady — dane trwałe, niezależne od miesiąca.
       </p>
 
+      {decisionContext && (
+        <div className="banner-warning" style={{ marginBottom: 16 }}>
+          Rozwiązujesz decyzję koordynatora zgłoszoną dla miesiąca {decisionContext.month.slice(0, 7)} (
+          {decisionContext.decisionRequiredId}). Po zmianie wróć do Decyzji koordynatora.
+        </div>
+      )}
+
       <div className="tab-row">
         <button
           className={`tab-item${tab === "obiekt" ? " tab-item-active" : ""}`}
@@ -78,7 +90,12 @@ export default function ControlPanel({
 
       {error && tab === "obsada" && <div className="banner-error">{error}</div>}
 
-      {tab === "obiekt" && <SiteShiftCatalog siteId={siteId} />}
+      {tab === "obiekt" && (
+        <>
+          <SiteShiftCatalog siteId={siteId} />
+          <PrintSettings siteId={siteId} />
+        </>
+      )}
 
       {tab === "obsada" && (
         <div className="panel">

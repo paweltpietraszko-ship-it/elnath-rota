@@ -12,12 +12,6 @@ function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
 }
 
-function shiftMonth(yearMonth: string, delta: number): string {
-  const [year, month] = yearMonth.split("-").map(Number);
-  const d = new Date(year, month - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 const MONTH_NAMES_PL = [
   "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
   "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
@@ -51,9 +45,12 @@ function QuarterBreakdown({ months }: { months: AnalyticsMonthDataOut[] }) {
         <tr>
           <th>Miesiąc</th>
           <th>Cel (h)</th>
+          <th>Cel efektywny (h)</th>
           <th>Zaplanowane (h)</th>
           <th>Zrealizowane (h)</th>
-          <th>Bilans (h)</th>
+          <th>Bilans miesiąca (h)</th>
+          <th>Bilans kwartału (h)</th>
+          <th>Nierozliczone przeniesienie (h)</th>
         </tr>
       </thead>
       <tbody>
@@ -61,9 +58,12 @@ function QuarterBreakdown({ months }: { months: AnalyticsMonthDataOut[] }) {
           <tr key={m.month}>
             <td>{monthLabel(m.month.slice(0, 7))}</td>
             <td>{m.target_hours}</td>
+            <td>{m.effective_target_hours}</td>
             <td>{m.planned_hours}</td>
             <td>{m.realized_hours}</td>
             <td>{m.month_balance}</td>
+            <td>{hoursOrDash(m.quarter_balance)}</td>
+            <td>{hoursOrDash(m.unresolved_carryover)}</td>
           </tr>
         ))}
       </tbody>
@@ -73,10 +73,6 @@ function QuarterBreakdown({ months }: { months: AnalyticsMonthDataOut[] }) {
 
 export default function Analytics({ siteId }: { siteId: string }) {
   const currentYearMonth = useMemo(() => todayIso().slice(0, 7), []);
-  const selectableMonths = useMemo(
-    () => [shiftMonth(currentYearMonth, -1), currentYearMonth, shiftMonth(currentYearMonth, 1)],
-    [currentYearMonth],
-  );
   const [monthInput, setMonthInput] = useState(currentYearMonth);
   const monthIso = firstOfMonthIso(monthInput);
 
@@ -115,18 +111,13 @@ export default function Analytics({ siteId }: { siteId: string }) {
           <h3>Analityka i bilanse</h3>
           <p className="panel-hint">
             Cele godzinowe, plan i realizacja dla obsady lokalnej ({siteId}). Tabela celowo nie obejmuje wsparcia
-            zewnętrznego — inaczej niż liczba osób na Przeglądzie.
+            zewnętrznego — inaczej niż liczba osób na Przeglądzie. Bilanse dotyczą godzin ze wszystkich obiektów
+            danego pracownika, nie tylko tego obiektu.
           </p>
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="field-label">Miesiąc</span>
-          <select value={monthInput} onChange={(e) => setMonthInput(e.target.value)}>
-            {selectableMonths.map((m) => (
-              <option key={m} value={m}>
-                {monthLabel(m)}
-              </option>
-            ))}
-          </select>
+          <input type="month" value={monthInput} onChange={(e) => setMonthInput(e.target.value)} />
         </label>
       </div>
 
@@ -147,6 +138,7 @@ export default function Analytics({ siteId }: { siteId: string }) {
                 <th>Zrealizowane (h)</th>
                 <th>Bilans miesiąca (h)</th>
                 <th>Bilans kwartału (h)</th>
+                <th>Nierozliczone przeniesienie (h)</th>
                 <th></th>
               </tr>
             </thead>
@@ -167,6 +159,7 @@ export default function Analytics({ siteId }: { siteId: string }) {
                       <td>{hoursOrDash(md?.realized_hours)}</td>
                       <td>{hoursOrDash(md?.month_balance)}</td>
                       <td>{hoursOrDash(md?.quarter_balance)}</td>
+                      <td>{hoursOrDash(md?.unresolved_carryover)}</td>
                       <td>
                         {row.quarter_months.length > 0 && (
                           <button className="btn-ghost" onClick={() => toggleExpanded(row.employee_id)}>
@@ -177,7 +170,7 @@ export default function Analytics({ siteId }: { siteId: string }) {
                     </tr>
                     {isExpanded && row.quarter_months.length > 0 && (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={10}>
                           <QuarterBreakdown months={row.quarter_months} />
                         </td>
                       </tr>
@@ -187,7 +180,7 @@ export default function Analytics({ siteId }: { siteId: string }) {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
+                  <td colSpan={10} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
                     Brak pracowników lokalnych na obsadzie.
                   </td>
                 </tr>

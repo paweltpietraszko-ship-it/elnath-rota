@@ -45,12 +45,29 @@ type BuiltNavItem =
 
 export default function Room({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
   const [activeNav, setActiveNav] = useState<BuiltNavItem>("Przegląd");
+  // Set by Decyzje koordynatora/Wydruk Grafiku when they navigate into Panel
+  // sterowania on a specific tab -- ControlPanel only reads this as its
+  // initial tab on mount, see ControlPanel's own initialTab prop docs.
+  const [controlPanelTab, setControlPanelTab] = useState<"obsada" | "obiekt">("obsada");
+  // ROTA-T021 UI audit gate finding #4: no write path in the app threads
+  // responds_to_decision_required_id yet (verified: no existing frontend
+  // write call passes it) -- rather than inventing that plumbing for one
+  // screen, this carries just enough context to show the coordinator WHICH
+  // decision they're resolving on whichever screen they land on.
+  const [decisionContext, setDecisionContext] = useState<{ decisionRequiredId: string; month: string } | null>(null);
   if (view.screen === "workspace") return null;
   const { siteId, siteName } = view;
+
+  const openControlPanel = (tab: "obsada" | "obiekt", context: { decisionRequiredId: string; month: string } | null = null) => {
+    setControlPanelTab(tab);
+    setDecisionContext(context);
+    setActiveNav("Panel sterowania");
+  };
 
   const selectNav = (item: string) => {
     if (!BUILT_NAV_ITEMS.has(item)) return;
     setActiveNav(item as BuiltNavItem);
+    if (item !== "Panel sterowania") setDecisionContext(null);
     if (view.screen === "employee") onNavigate({ screen: "room", siteId, siteName });
   };
 
@@ -104,14 +121,17 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
             {activeNav === "Przegląd" && (
               <Overview
                 siteId={siteId}
-                onOpenControlPanel={() => setActiveNav("Panel sterowania")}
+                onOpenControlPanel={() => openControlPanel("obsada")}
                 onOpenPlanning={() => setActiveNav("Planowanie miesiąca")}
                 onOpenDecisions={() => setActiveNav("Decyzje koordynatora")}
                 onOpenExport={() => setActiveNav("Wydruk Grafiku")}
               />
             )}
             {activeNav === "Panel sterowania" && view.screen === "room" && (
-              <ControlPanel siteId={siteId} siteName={siteName} onNavigate={onNavigate} />
+              <ControlPanel
+                siteId={siteId} siteName={siteName} onNavigate={onNavigate}
+                initialTab={controlPanelTab} decisionContext={decisionContext}
+              />
             )}
             {activeNav === "Panel sterowania" && view.screen === "employee" && (
               <EmployeeDetail
@@ -123,11 +143,11 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
             )}
             {activeNav === "Planowanie miesiąca" && <MonthlyPlanning siteId={siteId} />}
             {activeNav === "Decyzje koordynatora" && (
-              <Decisions siteId={siteId} onOpenControlPanel={() => setActiveNav("Panel sterowania")} />
+              <Decisions siteId={siteId} onOpenControlPanel={(tab, context) => openControlPanel(tab, context)} />
             )}
             {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} />}
             {activeNav === "Historia i audyt" && <History siteId={siteId} />}
-            {activeNav === "Wydruk Grafiku" && <Export siteId={siteId} />}
+            {activeNav === "Wydruk Grafiku" && <Export siteId={siteId} onOpenPrintSettings={() => openControlPanel("obiekt")} />}
           </div>
         </div>
       </div>

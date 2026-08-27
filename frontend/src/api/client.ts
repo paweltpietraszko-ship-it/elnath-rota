@@ -625,10 +625,18 @@ export const api = {
     req<CoordinatorAnalyticsViewOut>(`/workspace/sites/${siteId}/analytics?month=${month}`),
 
   // Historia i audyt (T021)
-  getActionHistory: (siteId: string, actionKind?: CoordinatorActionKind) =>
-    req<MaterialActionSummaryOut[]>(
-      `/workspace/sites/${siteId}/history/actions${actionKind ? `?action_kind=${actionKind}` : ""}`,
-    ),
+  getActionHistory: (
+    siteId: string,
+    filters?: { actionKind?: CoordinatorActionKind; coordinatorId?: string; recordedFrom?: string; recordedTo?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.actionKind) params.set("action_kind", filters.actionKind);
+    if (filters?.coordinatorId) params.set("coordinator_id", filters.coordinatorId);
+    if (filters?.recordedFrom) params.set("recorded_from", filters.recordedFrom);
+    if (filters?.recordedTo) params.set("recorded_to", filters.recordedTo);
+    const qs = params.toString();
+    return req<MaterialActionSummaryOut[]>(`/workspace/sites/${siteId}/history/actions${qs ? `?${qs}` : ""}`);
+  },
   getActionDetail: (actionId: string) => req<MaterialActionDetailOut>(`/workspace/history/actions/${actionId}`),
   getRuleHistory: (siteId: string) => req<Record<string, DecisionRecordOut[]>>(`/workspace/sites/${siteId}/history/rules`),
 

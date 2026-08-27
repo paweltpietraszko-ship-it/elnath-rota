@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import base64
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
@@ -57,15 +58,20 @@ class SitePrintSettingsOut(BaseModel):
     site_id: str
     company_print_name: str
     site_print_name: str
-    base_regime: str
+    base_regime: Literal["12h", "24h"]
     work_code_intervals: dict[str, WorkCodeIntervalOut | None]
     reserve_hours: dict[str, int | None]
 
 
 class SitePrintSettingsIn(BaseModel):
+    # ROTA-T021 UI audit gate (finding #10): extra="forbid" makes a stray
+    # field (e.g. a caller echoing SitePrintSettingsOut.site_id back into
+    # this request body) a real validation error instead of a silently
+    # dropped field.
+    model_config = ConfigDict(extra="forbid")
     company_print_name: str
     site_print_name: str
-    base_regime: str
+    base_regime: Literal["12h", "24h"]
     work_code_intervals: dict[str, WorkCodeIntervalOut | None]
     reserve_hours: dict[str, int | None]
 

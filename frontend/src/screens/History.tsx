@@ -32,9 +32,48 @@ const REL_LABEL: Record<string, string> = {
   rejects: "odrzuca",
 };
 
+const SOURCE_KIND_LABEL: Record<string, string> = {
+  CURRENT_STATE: "stan bieżący",
+  AVAILABILITY_VERSION: "wersja dostępności",
+  DECISION_RECORD: "zapis decyzji",
+  SCHEDULE_VERSION: "wersja grafiku",
+  CURRENT_SCHEDULE_POINTER: "wskaźnik bieżącego grafiku",
+};
+
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "short" });
+}
+
+// Polish labels for before_state/after_state keys -- grepped from every
+// before_state/after_state dict literal in rota/application/durable_inputs.py
+// (ground truth, not guessed). Anglicism rule applies even to this raw
+// diagnostic diff view; an unmapped future key falls back to the raw key
+// rather than crashing, but should get its own entry here when noticed.
+const STATE_KEY_LABEL: Record<string, string> = {
+  active: "aktywne", content: "treść", current_version_id: "id bieżącej wersji", date: "data",
+  day_only: "tylko dniówka", decision_id: "id decyzji", deviations: "odchylenia", employee_id: "pracownik",
+  holiday: "święto", month: "miesiąc", planning_regime: "reżim planowania",
+  predecessor_decision_id: "poprzednia decyzja", predecessor_rule_version_id: "poprzednia wersja reguły",
+  regime_replan_required_months: "miesiące wymagające ponownego planowania", rel: "relacja",
+  rule_version_id: "wersja reguły", saved: "zapisane", site: "obiekt", site_id: "obiekt",
+  site_profile: "profil obiektu", status: "status", target_hours: "cel godzinowy",
+  active_weekdays: "aktywne dni tygodnia", availability_id: "id dostępności",
+  availability_version_id: "wersja dostępności", catalog_kind: "rodzaj katalogu", end_date: "data końca",
+  end_next_day: "koniec nast. dnia", end_time: "godzina końca", kind: "rodzaj", note: "notatka",
+  profile_id: "profil", required_primary_count: "wymagana liczba osób", required_rest_hours: "wymagany odpoczynek (h)",
+  standard_shifts: "standardowe zmiany", start_date: "data początku", start_time: "godzina początku",
+  supersedes_availability_version_id: "zastępuje wersję dostępności",
+};
+
+function stateKeyLabel(key: string): string {
+  return STATE_KEY_LABEL[key] ?? key;
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function StateDiff({ label, state }: { label: string; state: Record<string, unknown> | null }) {
@@ -45,7 +84,7 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
       <ul style={{ margin: "4px 0 0 0", paddingLeft: 18, fontSize: 12.5 }}>
         {Object.entries(state).map(([key, value]) => (
           <li key={key}>
-            {key}: {String(value)}
+            {stateKeyLabel(key)}: {formatValue(value)}
           </li>
         ))}
       </ul>
@@ -55,6 +94,9 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
 
 function ActionsTab({ siteId }: { siteId: string }) {
   const [actionKindFilter, setActionKindFilter] = useState<CoordinatorActionKind | "">("");
+  const [coordinatorFilter, setCoordinatorFilter] = useState("");
+  const [recordedFrom, setRecordedFrom] = useState("");
+  const [recordedTo, setRecordedTo] = useState("");
   const [rows, setRows] = useState<MaterialActionSummaryOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,11 +108,16 @@ function ActionsTab({ siteId }: { siteId: string }) {
     setLoading(true);
     setError(null);
     api
-      .getActionHistory(siteId, actionKindFilter || undefined)
+      .getActionHistory(siteId, {
+        actionKind: actionKindFilter || undefined,
+        coordinatorId: coordinatorFilter.trim() || undefined,
+        recordedFrom: recordedFrom ? `${recordedFrom}T00:00:00` : undefined,
+        recordedTo: recordedTo ? `${recordedTo}T23:59:59` : undefined,
+      })
       .then(setRows)
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [siteId, actionKindFilter]);
+  }, [siteId, actionKindFilter, coordinatorFilter, recordedFrom, recordedTo]);
 
   const toggleExpanded = (actionId: string) => {
     if (expandedId === actionId) {
@@ -95,17 +142,31 @@ function ActionsTab({ siteId }: { siteId: string }) {
           <h3>Akcje koordynatora</h3>
           <p className="panel-hint">Każda konkretna zmiana wprowadzona w programie, od najnowszej.</p>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="field-label">Rodzaj akcji</span>
-          <select value={actionKindFilter} onChange={(e) => setActionKindFilter(e.target.value as CoordinatorActionKind | "")}>
-            <option value="">Wszystkie</option>
-            {(Object.keys(ACTION_KIND_LABEL) as CoordinatorActionKind[]).map((kind) => (
-              <option key={kind} value={kind}>
-                {ACTION_KIND_LABEL[kind]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="field-label">Rodzaj akcji</span>
+            <select value={actionKindFilter} onChange={(e) => setActionKindFilter(e.target.value as CoordinatorActionKind | "")}>
+              <option value="">Wszystkie</option>
+              {(Object.keys(ACTION_KIND_LABEL) as CoordinatorActionKind[]).map((kind) => (
+                <option key={kind} value={kind}>
+                  {ACTION_KIND_LABEL[kind]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="field-label">Koordynator</span>
+            <input value={coordinatorFilter} onChange={(e) => setCoordinatorFilter(e.target.value)} placeholder="id koordynatora" style={{ width: 140 }} />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="field-label">Od</span>
+            <input type="date" value={recordedFrom} onChange={(e) => setRecordedFrom(e.target.value)} />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="field-label">Do</span>
+            <input type="date" value={recordedTo} onChange={(e) => setRecordedTo(e.target.value)} />
+          </label>
+        </div>
       </div>
 
       {error && <div className="banner-error">{error}</div>}
@@ -147,13 +208,28 @@ function ActionsTab({ siteId }: { siteId: string }) {
                           <p>Ładowanie…</p>
                         ) : (
                           detail && (
-                            <div style={{ display: "flex", gap: 32 }}>
-                              <StateDiff label="Przed" state={detail.before_state} />
-                              <StateDiff label="Po" state={detail.after_state} />
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                              <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: 0 }}>
+                                Źródło: {SOURCE_KIND_LABEL[detail.source_kind] ?? detail.source_kind}
+                                {detail.source_id ? ` (${detail.source_id})` : ""}
+                              </p>
+                              <div style={{ display: "flex", gap: 32 }}>
+                                <StateDiff label="Przed" state={detail.before_state} />
+                                <StateDiff label="Po" state={detail.after_state} />
+                              </div>
                               {detail.responds_to && (
-                                <p style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
-                                  Odpowiedź na decyzję koordynatora z {detail.responds_to.month}.
-                                </p>
+                                <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+                                  <p style={{ margin: 0 }}>
+                                    Odpowiedź na decyzję koordynatora {detail.responds_to.decision_required_id} z miesiąca{" "}
+                                    {detail.responds_to.month}, zgłoszoną przez {detail.responds_to.requested_by} (
+                                    {formatDateTime(detail.responds_to.recorded_at)}).
+                                  </p>
+                                  {detail.responds_to.linked_action_ids.length > 0 && (
+                                    <p style={{ margin: "4px 0 0 0" }}>
+                                      Powiązane akcje: {detail.responds_to.linked_action_ids.join(", ")}
+                                    </p>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )

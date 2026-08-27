@@ -5,7 +5,7 @@ under other screens (decisions, schedule version, roster), same pattern
 api/routers/bootstrap.py's _site_summary already uses."""
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -76,13 +76,33 @@ def test_fresh_site_has_no_version_no_decisions_and_zero_headcount(client):
     assert body["headcount"] == 0
 
 
-def test_headcount_counts_local_and_external_support(client, conn):
+def test_headcount_excludes_external_support_without_a_window_this_month(client, conn):
+    """OWNER_CORRECTED (2026-08-27, UI audit gate): an EXTERNAL_SUPPORT
+    membership only counts when it has an active window overlapping the
+    queried month -- spec's "if support is in use that month"."""
     save_employee(conn, Employee("A", "Anna A", date(2020, 1, 1), None, False))
     save_site_membership(conn, SiteMembership("A", SITE, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
     save_employee(conn, Employee("X", "External X", date(2020, 1, 1), None, False))
     save_site_membership(conn, SiteMembership("X", SITE, MembershipKind.EXTERNAL_SUPPORT, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
     save_employee(conn, Employee("D", "Disabled D", date(2020, 1, 1), None, False))
     save_site_membership(conn, SiteMembership("D", SITE, MembershipKind.LOCAL, False, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+
+    resp = client.get(f"/api/workspace/sites/{SITE}/overview?month={MONTH.isoformat()}")
+    assert resp.status_code == 200
+    assert resp.json()["headcount"] == 1
+
+
+def test_headcount_counts_external_support_with_an_active_window_this_month(client, conn):
+    from rota.domain import ExternalSupportWindow
+    from rota.persistence.employee_repository import save_external_support_window
+
+    save_employee(conn, Employee("A", "Anna A", date(2020, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership("A", SITE, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    save_employee(conn, Employee("X", "External X", date(2020, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership("X", SITE, MembershipKind.EXTERNAL_SUPPORT, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    save_external_support_window(conn, ExternalSupportWindow(
+        "WIN-1", "X", SITE, datetime(MONTH.year, MONTH.month, 5), datetime(MONTH.year, MONTH.month, 10), True, None,
+    ))
 
     resp = client.get(f"/api/workspace/sites/{SITE}/overview?month={MONTH.isoformat()}")
     assert resp.status_code == 200
