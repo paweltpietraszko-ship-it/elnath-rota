@@ -203,6 +203,34 @@ export interface MatrixCellOut {
   applies_to: string | null;
 }
 
+export interface AnalyticsMonthDataOut {
+  month: string;
+  target_hours: number;
+  effective_target_hours: number;
+  planned_hours: number;
+  realized_hours: number;
+  month_balance: number;
+  quarter_balance: number | null;
+  unresolved_carryover: number | null;
+}
+
+export interface EmployeeAnalyticsRowOut {
+  employee_id: string;
+  display_name: string;
+  status: "AVAILABLE" | "MONTH_AVAILABLE_QUARTER_UNAVAILABLE" | "UNAVAILABLE";
+  month_data: AnalyticsMonthDataOut | null;
+  quarter_months: AnalyticsMonthDataOut[];
+  warnings: string[];
+}
+
+export interface CoordinatorAnalyticsViewOut {
+  site_id: string;
+  month: string;
+  quarter_first_month: string;
+  hours_scope: "ALL_SITES";
+  rows: EmployeeAnalyticsRowOut[];
+}
+
 async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const method = init?.method ?? "GET";
   const endpointTemplate = sanitizeEndpoint(path);
@@ -461,6 +489,10 @@ export const api = {
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   endMatrixRuleEarly: (employeeId: string, ruleId: string, payload: { site_id: string; effective_from: string }) =>
     req<void>(`/workspace/employees/${employeeId}/matrix/${ruleId}/end-early`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // Analityka i bilanse (T021)
+  getAnalytics: (siteId: string, month: string) =>
+    req<CoordinatorAnalyticsViewOut>(`/workspace/sites/${siteId}/analytics?month=${month}`),
 };
 
 async function downloadPost(path: string, body?: string): Promise<void> {

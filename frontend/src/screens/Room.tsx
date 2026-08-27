@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { View } from "../App";
+import Analytics from "./Analytics";
 import ControlPanel from "./ControlPanel";
 import EmployeeDetail from "./EmployeeDetail";
 import MonthlyPlanning from "./MonthlyPlanning";
@@ -15,20 +16,23 @@ const NAV_ITEMS = [
   "Wydruk Grafiku",
 ];
 
-const BUILT_NAV_ITEMS = new Set(["Panel sterowania", "Planowanie miesiąca"]);
+const BUILT_NAV_ITEMS = new Set(["Panel sterowania", "Planowanie miesiąca", "Analityka i bilanse"]);
 const NAV_DIAG_ACTIONS: Record<string, string> = {
   "Panel sterowania": "room-nav-control-panel",
   "Planowanie miesiąca": "room-nav-monthly-planning",
+  "Analityka i bilanse": "room-nav-analytics",
 };
 
+type BuiltNavItem = "Panel sterowania" | "Planowanie miesiąca" | "Analityka i bilanse";
+
 export default function Room({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
-  const [activeNav, setActiveNav] = useState<"Panel sterowania" | "Planowanie miesiąca">("Panel sterowania");
+  const [activeNav, setActiveNav] = useState<BuiltNavItem>("Panel sterowania");
   if (view.screen === "workspace") return null;
   const { siteId, siteName } = view;
 
   const selectNav = (item: string) => {
     if (!BUILT_NAV_ITEMS.has(item)) return;
-    setActiveNav(item as "Panel sterowania" | "Planowanie miesiąca");
+    setActiveNav(item as BuiltNavItem);
     if (view.screen === "employee") onNavigate({ screen: "room", siteId, siteName });
   };
 
@@ -91,6 +95,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
               />
             )}
             {activeNav === "Planowanie miesiąca" && <MonthlyPlanning siteId={siteId} />}
+            {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} />}
           </div>
         </div>
       </div>
