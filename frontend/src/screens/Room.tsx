@@ -4,6 +4,7 @@ import Analytics from "./Analytics";
 import ControlPanel from "./ControlPanel";
 import Decisions from "./Decisions";
 import EmployeeDetail from "./EmployeeDetail";
+import Export from "./Export";
 import History from "./History";
 import MonthlyPlanning from "./MonthlyPlanning";
 import Overview from "./Overview";
@@ -20,7 +21,8 @@ const NAV_ITEMS = [
 ];
 
 const BUILT_NAV_ITEMS = new Set([
-  "Przegląd", "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Analityka i bilanse", "Historia i audyt",
+  "Przegląd", "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Historia i audyt",
+  "Analityka i bilanse", "Wydruk Grafiku",
 ]);
 const NAV_DIAG_ACTIONS: Record<string, string> = {
   "Przegląd": "room-nav-overview",
@@ -29,6 +31,7 @@ const NAV_DIAG_ACTIONS: Record<string, string> = {
   "Decyzje koordynatora": "room-nav-decisions",
   "Analityka i bilanse": "room-nav-analytics",
   "Historia i audyt": "room-nav-history",
+  "Wydruk Grafiku": "room-nav-export",
 };
 
 type BuiltNavItem =
@@ -37,7 +40,8 @@ type BuiltNavItem =
   | "Planowanie miesiąca"
   | "Decyzje koordynatora"
   | "Analityka i bilanse"
-  | "Historia i audyt";
+  | "Historia i audyt"
+  | "Wydruk Grafiku";
 
 export default function Room({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
   const [activeNav, setActiveNav] = useState<BuiltNavItem>("Przegląd");
@@ -103,6 +107,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 onOpenControlPanel={() => setActiveNav("Panel sterowania")}
                 onOpenPlanning={() => setActiveNav("Planowanie miesiąca")}
                 onOpenDecisions={() => setActiveNav("Decyzje koordynatora")}
+                onOpenExport={() => setActiveNav("Wydruk Grafiku")}
               />
             )}
             {activeNav === "Panel sterowania" && view.screen === "room" && (
@@ -122,6 +127,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
             )}
             {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} />}
             {activeNav === "Historia i audyt" && <History siteId={siteId} />}
+            {activeNav === "Wydruk Grafiku" && <Export siteId={siteId} />}
           </div>
         </div>
       </div>

@@ -289,6 +289,41 @@ export interface MaterialActionDetailOut extends MaterialActionSummaryOut {
   responds_to: DecisionRequiredReadbackOut | null;
 }
 
+export interface WorkCodeIntervalOut {
+  start_time: string;
+  end_time: string;
+  end_next_day: boolean;
+}
+
+export const WORK_CODE_KEYS = ["D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5"] as const;
+export const RESERVE_SLOT_KEYS = ["U3", "U4", "U5", "C3", "C4", "C5"] as const;
+
+export interface SitePrintSettingsOut {
+  site_id: string;
+  company_print_name: string;
+  site_print_name: string;
+  base_regime: "12h" | "24h";
+  work_code_intervals: Record<string, WorkCodeIntervalOut | null>;
+  reserve_hours: Record<string, number | null>;
+}
+
+export interface SitePrintSettingsIn {
+  company_print_name: string;
+  site_print_name: string;
+  base_regime: "12h" | "24h";
+  work_code_intervals: Record<string, WorkCodeIntervalOut | null>;
+  reserve_hours: Record<string, number | null>;
+}
+
+export interface ExportResultOut {
+  ok: boolean;
+  pdf_base64: string | null;
+  document_revision: string | null;
+  schedule_provenance: string | null;
+  problem_code: string | null;
+  message: string | null;
+}
+
 export interface OverviewOut {
   month: string;
   decision_months: string[];
@@ -596,6 +631,15 @@ export const api = {
     ),
   getActionDetail: (actionId: string) => req<MaterialActionDetailOut>(`/workspace/history/actions/${actionId}`),
   getRuleHistory: (siteId: string) => req<Record<string, DecisionRecordOut[]>>(`/workspace/sites/${siteId}/history/rules`),
+
+  // Wydruk Grafiku (T021)
+  getPrintSettings: (siteId: string) => req<SitePrintSettingsOut | null>(`/workspace/sites/${siteId}/print-settings`),
+  savePrintSettings: (siteId: string, payload: SitePrintSettingsIn) =>
+    req<void>(`/workspace/sites/${siteId}/print-settings`, { method: "PUT", body: JSON.stringify(payload) }),
+  exportSchedule: (siteId: string, month: string, periodLabel: string) =>
+    req<ExportResultOut>(`/workspace/sites/${siteId}/schedule/${month}/export`, {
+      method: "POST", body: JSON.stringify({ period_label: periodLabel }),
+    }),
 
   // Przeglad (T021)
   getOverview: (siteId: string, month: string) => req<OverviewOut>(`/workspace/sites/${siteId}/overview?month=${month}`),

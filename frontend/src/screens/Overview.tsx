@@ -21,11 +21,13 @@ export default function Overview({
   onOpenControlPanel,
   onOpenPlanning,
   onOpenDecisions,
+  onOpenExport,
 }: {
   siteId: string;
   onOpenControlPanel: () => void;
   onOpenPlanning: () => void;
   onOpenDecisions: () => void;
+  onOpenExport: () => void;
 }) {
   const [overview, setOverview] = useState<OverviewOut | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +84,9 @@ export default function Overview({
         <div className="chip-row">
           <button className="btn-primary" onClick={onOpenPlanning}>
             Zaplanuj miesiąc
+          </button>
+          <button className="btn-ghost" onClick={onOpenExport}>
+            Wygeneruj PDF
           </button>
           <button className="btn-ghost" onClick={onOpenControlPanel}>
             Otwórz panel sterowania
