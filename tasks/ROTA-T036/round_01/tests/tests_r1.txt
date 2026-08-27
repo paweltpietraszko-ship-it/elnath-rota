@@ -1,0 +1,89 @@
+ROTA-T036 — preimplementation contract audit, round 1
+Date: 2026-08-27
+Audited branch: origin/task/ROTA-T036
+Audited exact contract SHA: 974d4e50305b0b69fb4022a3117a480ab251a8c3
+Base main SHA: 54acdf7cfebadefe1e3370bac0a62f963c72123e
+
+VERDICT: FAIL
+
+The architecture decision is sound: REST-01/WEEKLY-REST-01 are derived per
+employee, ViolationDetail can carry that already-known employee explicitly,
+and deviation_mapping can choose Employee only for those exact source
+references. Persistence, Assignment identity, HARD semantics and diagnostic
+assignment_ids can remain unchanged.
+
+FINDING 1 — the named vertical reproducer is already green before T036
+
+TRACE
+- brief.md section 8 T36-10 names
+  tests/test_audit_t009_r6.py::test_r6_distinct_trainings_with_same_local_id_in_different_versions_both_count
+  as the scenario proving the fix.
+- brief.md section 8 T36-11 requires a real lifecycle vertical.
+- brief.md section 10 question 7 asks whether the T009 reproducer passes
+  without a global bare-ID lookup.
+
+OWNERSHIP
+- The T036 contract owns its acceptance seam and must provide a reproducer
+  that fails on its declared base before the implementation fixes it.
+
+REPRO on exact contract SHA 974d4e5 (production equals base main 54acdf7)
+- Command:
+  python -m pytest -q tests/test_audit_t009_r6.py::test_r6_distinct_trainings_with_same_local_id_in_different_versions_both_count
+- Result before any T036 implementation: 1 passed in 91.51s.
+- The historical failure required T034's newly ranked placement, but T036 is
+  based on main without T034. Therefore T36-10 can remain green even when
+  T036 does nothing and cannot be the primary proof of this fix.
+- T36-11 currently says only that revalidate/finalize/manual correction
+  materializing REST/WEEKLY passes through lifecycle. It does not explicitly
+  require the cross-context Assignment to be assignment_ids[0], so an
+  already-green same-version scenario could satisfy the wording.
+
+REQUIRED MECHANICAL CORRECTION — no new product behavior
+- Keep the existing T009 test as a sibling regression.
+- Make T36-11 (or replace T36-10) a deterministic vertical in the focused
+  T036 module that starts from the declared base and exercises the real chain:
+  validator.validate -> materialize_deviations -> existing lifecycle/
+  persistence validation.
+- The state must contain a genuine boundary or other-Site REST pair whose
+  first diagnostic assignment_id is cross-context. Before T036 this chain
+  must reproduce MalformedScheduleSnapshot; after T036 it must persist a LAW
+  Deviation targeted at the known Employee while preserving both diagnostic
+  assignment_ids in ViolationDetail.
+- Do not rebase merely to make the old incidental T009 schedule reappear,
+  do not modify the old T009 test, and do not widen production scope.
+
+PREIMPLEMENTATION REDUCTION
+
+Necessary production elements after correction:
+1. ViolationDetail final defaulted affected_employee_id field — minimal seam
+   carrying data already owned by validator.
+2. affected_employee_id on every REST-01 and WEEKLY-REST-01 detail — owning
+   boundary enforcement, no message parsing or second lookup.
+3. Exact source-specific selection in deviation_mapping — owner-visible
+   persistent target behavior for the two accepted rules only.
+4. One focused test module — pure mapper cases, boundary/cross-site validator
+   cases and one deterministic real lifecycle failure class.
+
+Correctly removed / still unnecessary:
+- global current-version Assignment lookup;
+- composite target encoding, schema/migration or new target kind;
+- category-wide LAW exception;
+- persistence, assembler, solver, HARD, manual override, API or UI changes;
+- duplicate reconstruction of employee from assignment IDs or message text.
+
+CONTRACT CHECKS THAT PASS
+1. Employee is the real per-employee REST/WEEKLY subject and already a legal,
+   persistence-validated target.
+2. validator.py already knows employee_id at every REST and WEEKLY creation
+   site; production scope needs no third owner.
+3. A final defaulted dataclass field preserves all existing constructors.
+4. Exact rule gating avoids future LAW inheritance.
+5. assignment_ids remain unchanged as in-memory diagnostics.
+6. COVERAGE and every non-REST mapping remain unchanged.
+7. Manual correction already calls validate and materialize_deviations;
+   its independent REST override fact derivation does not need modification.
+8. Production scope closes in validator.py + deviation_mapping.py.
+
+CC remains READ-ONLY. After the one acceptance-matrix correction, the same
+architecture can return for a narrow preimplementation re-audit; no further
+owner or architecture decision is required.

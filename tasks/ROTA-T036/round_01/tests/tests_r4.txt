@@ -1,0 +1,43 @@
+ROTA-T036 — focused implementation re-audit, round 4
+Date: 2026-08-27
+Audited branch: origin/task/ROTA-T036
+Audited exact SHA: 13e20a2cad3374d92dc66f2d51e7d4f63c56fc80
+Previous FAIL report: tasks/ROTA-T036/round_01/tests/tests_r3.txt
+
+VERDICT: PASS
+
+R3 CLOSURE
+
+The change after R3 modifies only tests/test_t036_rest_deviation_target.py.
+No product code changed.
+
+1. T36-05 now constructs a real other_site_assignments REST pair, calls the
+   production validator and asserts:
+   - the REST-01 finding identifies E1 through affected_employee_id;
+   - both real Assignment IDs remain in diagnostics;
+   - materialize_deviations targets Employee E1, not the foreign Assignment.
+2. T36-06 now contains a discriminating boundary WEEKLY pair:
+   - the control without boundary has no WEEKLY-REST-01;
+   - the same current-month work with the canonical boundary does have it;
+   - the finding carries affected_employee_id=E1;
+   - materialization produces LAW / WEEKLY-REST-01 targeted at Employee E1.
+
+EXECUTED ON EXACT SHA
+
+- python -m pytest -q tests/test_t036_rest_deviation_target.py
+  Result: 11 passed in 0.10s.
+- python -m ruff check tests/test_t036_rest_deviation_target.py
+  Result: All checks passed.
+- git diff --check 3c55d52..13e20a2
+  Result: clean.
+
+Per the OWNER's proportional-audit instruction and the explicit R3 re-audit
+boundary, no full repository regression was run. R3 had already established
+the production behavior with an independent base-red/fix-green vertical and
+direct sibling coverage; this round verifies only the two tests-only gaps.
+
+OWNER_EXPLANATION_GATE was not triggered because the micro-fix contains no
+product or user-visible behavior.
+
+PASS applies only to exact SHA 13e20a2cad3374d92dc66f2d51e7d4f63c56fc80.
+ROTA-T036 is ready to merge.

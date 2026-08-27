@@ -570,6 +570,11 @@ button {
   font-size: 13px;
 }
 
+.banner-warning ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
 /* Calendar modal (no mockup precedent for this screen; matches the same token system) */
 
 .modal-backdrop {

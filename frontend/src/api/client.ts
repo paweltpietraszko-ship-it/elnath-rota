@@ -389,6 +389,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ version_id: versionId, note: note ?? null }),
     }),
+  excludeVersionFromHistory: (siteId: string, month: string, versionId: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/exclude-from-history`, {
+      method: "POST",
+      body: JSON.stringify({ version_id: versionId }),
+    }),
 
   getCalendarRange: (start: string, end: string) =>
     req<CalendarDayOut[]>(`/workspace/calendar?start=${start}&end=${end}`),
