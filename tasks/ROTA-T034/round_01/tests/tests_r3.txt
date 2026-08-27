@@ -1,0 +1,65 @@
+ROTA-T034 — implementation audit, round 3
+Date: 2026-08-27
+Audited branch: origin/task/ROTA-T034
+Audited exact fix SHA: 020603a0054e02fdf07b888195c345c486dfc99d
+Previous audit report SHA: 95fe4b5d9ef7dd00bb1022e2f09b54c52f9bd2d2
+Production implementation SHA: f7563c7e478b651de66fd22bcecb681cb99c9daa
+
+VERDICT: WYMAGA_DECYZJI
+
+ROUND-2 FINDINGS
+
+1. PASS — one CpModel per ranking test
+- _solve_min_penalty now receives the caller's CpModel.
+- T34-01/02/03/04 create, constrain and solve their variables on that same
+  model. The cross-model integer-index alias from f7563c7 is removed.
+
+2. PASS — contracted T34-06 boundary
+- The test now uses MONTH-1, MONTH and MONTH+1.
+- Current D/N terms are real BoolVars on the solved model.
+- D/D/D, D/D/N and D/N/N each assert objective == 1.
+
+SCOPE
+- 020603a changes only tests/test_t034_third_consecutive_shift_soft.py from
+  the previous report HEAD.
+- rota/planning/fairness.py and rota/planning/solver.py are byte-for-byte
+  unchanged from production implementation SHA f7563c7.
+- git diff --check: PASS.
+
+VERIFICATION ON EXACT 020603a
+- tests/test_t034_third_consecutive_shift_soft.py: 11 passed in 0.53s.
+- independent eight-sequence, overlap, both-boundary and two-real-plan()
+  vertical matrix: INDEPENDENT_T034_MATRIX_PASS.
+
+FULL REGRESSION
+- Not repeated after this test-only micro-fix. Round 2 already ran it once
+  on the identical production implementation: 1176 passed, 4 failed in
+  4319.84s. Repeating all 72 minutes cannot add evidence about a change
+  confined to the corrected T034 test harness.
+
+REMAINING T009 VERTICAL
+- Exact reproducer on 020603a:
+  tests/test_audit_t009_r6.py::test_r6_distinct_trainings_with_same_local_id_in_different_versions_both_count
+  result: 1 failed in 90.90s.
+- The same test passes on frozen contract base f4a1e0b.
+- The newly ranked schedule can produce a cross-month REST-01 deviation
+  targeting the previous-month assignment. A later training correction
+  version is rejected by persistence because that target is not a
+  same-version Assignment.
+
+DEFECT_GATE CLASSIFICATION
+- TRACE: existing T008/T009 vertical behavior and the full-repo gate.
+- REPRO: deterministic on exact f7563c7 and exact 020603a; passes on base.
+- OWNERSHIP: unresolved for T034. The failure occurs in application/
+  persistence cross-version deviation validation, files explicitly outside
+  the frozen T034 scope. The accepted T034 ranking must not be weakened to
+  recover an incidental pre-T034 placement, and T034 must not silently edit
+  persistence.
+
+OWNER DECISION NEEDED
+- Authorize a focused owner task for cross-month deviation targets during
+  later schedule-version operations, or explicitly rule the T009 behavior
+  stale under the new ranking (not recommended without a product rationale).
+- Until that ownership decision is frozen and resolved, PASS cannot be
+  issued for integration of T034 despite the T034 implementation and its
+  corrected acceptance matrix now passing.
