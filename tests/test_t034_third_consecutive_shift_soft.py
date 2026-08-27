@@ -30,8 +30,13 @@ from tests.test_t032_soft_ranking import _d_demand, _membership, _n_assignment, 
 _EMPTY = (0, 0, 0, None)
 
 
-def _solve_min_penalty(day_kind_terms, extra_constraints=None, month=MONTH):
-    model = cp_model.CpModel()
+def _solve_min_penalty(model, day_kind_terms, extra_constraints=None, month=MONTH):
+    """Round-2 audit FINDING 1 fix: this must receive the SAME CpModel the
+    caller already built its decision variables on -- CP-SAT variables are
+    model-scoped by integer index, so building a second, fresh CpModel here
+    (as an earlier version of this helper did) and reusing variable objects
+    from the caller's model on it silently aliases unrelated variables and
+    proves nothing about the caller's actual constraints."""
     penalties = []
     count = add_third_consecutive_shift_penalty(model, month, day_kind_terms, penalties)
     if extra_constraints:
@@ -59,7 +64,7 @@ def test_t34_01_ranking_prefers_split_over_ddd():
         "A": {dates[i]: (choice[i], 0, choice[i], None) for i in range(3)},
         "B": {dates[i]: (1 - choice[i], 0, 1 - choice[i], None) for i in range(3)},
     }
-    count, objective, solver = _solve_min_penalty(day_kind_terms)
+    count, objective, solver = _solve_min_penalty(model, day_kind_terms)
     assert count == 2  # one bad_window candidate per employee
     assert objective == 0
     values = [solver.value(c) for c in choice]
@@ -84,7 +89,7 @@ def test_t34_02_ranking_prefers_split_over_ddn():
             dates[2]: (0, 1 - choice[2], 1 - choice[2], None),
         },
     }
-    count, objective, solver = _solve_min_penalty(day_kind_terms)
+    count, objective, solver = _solve_min_penalty(model, day_kind_terms)
     assert count == 2
     assert objective == 0
     values = [solver.value(c) for c in choice]
@@ -108,7 +113,7 @@ def test_t34_03_ranking_prefers_split_over_dnn():
             dates[2]: (0, 1 - choice[2], 1 - choice[2], None),
         },
     }
-    count, objective, solver = _solve_min_penalty(day_kind_terms)
+    count, objective, solver = _solve_min_penalty(model, day_kind_terms)
     assert count == 2
     assert objective == 0
     values = [solver.value(c) for c in choice]
@@ -133,7 +138,7 @@ def test_t34_04_one_window_contributes_at_most_one_penalty():
             dates[2]: (v, v, v, None),  # simultaneously "D" and "N" when v==1
         },
     }
-    count, objective, _ = _solve_min_penalty(day_kind_terms, extra_constraints=lambda m: m.add(v == 1))
+    count, objective, _ = _solve_min_penalty(model, day_kind_terms, extra_constraints=lambda m: m.add(v == 1))
     assert count == 1
     assert objective == 1
 
@@ -177,29 +182,45 @@ def test_t34_05_boundary_persisted_dd_plus_current_day_either_kind():
 
 
 def test_t34_06_boundary_persisted_single_d_plus_current_two_days():
-    """A single persisted D two days before the month start, plus the
-    first two in-month days fixed as D/D, D/N or N/N in turn, must trigger
-    the corresponding penalty each time."""
-    d_minus2 = MONTH - timedelta(days=2)
+    """Round-2 audit FINDING 2 fix: the window must be three literally
+    CONSECUTIVE dates (month_start-1, month_start, month_start+1) -- an
+    earlier version used month_start-2, skipping month_start-1 entirely,
+    so it silently tested a non-adjacent, always-impossible shape while
+    still asserting count == 0 (true for the wrong reason). A single
+    persisted D the day before the month start, plus the first two
+    in-month days as real decision variables forced in turn to D/D, D/N
+    or N/N, must trigger the corresponding penalty (objective == 1) each
+    time -- mirrors T34-05's pattern, forcing on ONE model rather than
+    trusting an all-fixed skip."""
+    d_minus1 = MONTH - timedelta(days=1)
     d0 = MONTH
     d1 = MONTH + timedelta(days=1)
     for day0_kind, day1_kind in (("d", "d"), ("d", "n"), ("n", "n")):
-        term0 = (1, 0, 1, None) if day0_kind == "d" else (0, 1, 1, None)
-        term1 = (1, 0, 1, None) if day1_kind == "d" else (0, 1, 1, None)
+        model = cp_model.CpModel()
+        cur_d0 = model.new_bool_var("cur_d0")
+        cur_n0 = model.new_bool_var("cur_n0")
+        cur_d1 = model.new_bool_var("cur_d1")
+        cur_n1 = model.new_bool_var("cur_n1")
+        model.add(cur_d0 + cur_n0 == 1)
+        model.add(cur_d1 + cur_n1 == 1)
+        model.add(cur_d0 == 1 if day0_kind == "d" else cur_n0 == 1)
+        model.add(cur_d1 == 1 if day1_kind == "d" else cur_n1 == 1)
         day_kind_terms = {
             "A": {
-                d_minus2: (1, 0, 1, None),
-                d0: term0,
-                d1: term1,
+                d_minus1: (1, 0, 1, None),
+                d0: (cur_d0, cur_n0, cur_d0 + cur_n0, None),
+                d1: (cur_d1, cur_n1, cur_d1 + cur_n1, None),
             },
         }
-        model = cp_model.CpModel()
         penalties = []
         count = add_third_consecutive_shift_penalty(model, MONTH, day_kind_terms, penalties)
-        assert count == 0, "fully-fixed boundary facts must not enter the objective at all"
-        # A fully-fixed match still must not be silently dropped from the
-        # product outcome -- confirmed separately by T34-01..03 (real
-        # decision variables) and T34-11 (full solve) actually triggering it.
+        assert count >= 1
+        model.minimize(sum(penalties))
+        solver = cp_model.CpSolver()
+        status = solver.solve(model)
+        assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+        objective = sum(solver.value(p) for p in penalties)
+        assert objective == 1, f"{day0_kind}/{day1_kind} must trigger the boundary penalty"
 
 
 # --- T34-07/T34-08: missing facts and two-in-a-row are never penalized ----
