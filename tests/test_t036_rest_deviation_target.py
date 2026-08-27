@@ -50,6 +50,7 @@ from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import connect
 from rota.persistence.schedule_repository import get_schedule_snapshot
 from rota.planning.validator import ViolationDetail, validate
+from tests.support.minimal_state import PROFILE_ID as _MINIMAL_PROFILE_ID, SITE_ID as _MINIMAL_SITE_ID, base_state
 
 SITE = "SITE-T036"
 PROFILE = "PROF-T036"
@@ -117,6 +118,105 @@ def test_t36_09_law_category_gate_is_by_exact_source_not_category():
     detail = ViolationDetail("SOME-FUTURE-LAW-RULE", (), "...")
     with pytest.raises(UnknownDeviationSource):
         _affected_target(detail)
+
+
+def _membership(employee_id: str) -> SiteMembership:
+    return SiteMembership(employee_id, _MINIMAL_SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT)
+
+
+# --- T36-05: real cross-Site REST pair -- validator names the Employee,
+# no cross-context Assignment persistence lookup is ever needed ------------
+
+
+def test_t36_05_cross_site_rest_targets_employee_without_assignment_lookup():
+    employee = Employee("E1", "E1", date(2020, 1, 1), None, False)
+    # A real, complete Assignment at a DIFFERENT Site, ending too close to
+    # this Site's own assignment start -- state.other_site_assignments is
+    # exactly the second cross-context source _check_rest folds into
+    # all_assignments (alongside state.boundary_assignments, covered by
+    # T36-11's cross-month case).
+    other_site_assignment = Assignment(
+        "OTHER-SITE-ASSIGN-1", "SV-OTHER-SITE", "E1", datetime(2026, 10, 1, 18, 0), datetime(2026, 10, 2, 6, 0),
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, None, None,
+    )
+    target_demand = ShiftDemand("TARGET-D-1", "", datetime(2026, 10, 2, 8, 0), datetime(2026, 10, 2, 20, 0), 1, shift_kind=ShiftKind.D)
+    target_assignment = Assignment(
+        "TARGET-ASSIGN-1", "", "E1", target_demand.start_datetime, target_demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, target_demand.demand_id, None,
+    )
+    state = base_state(
+        employees=(employee,), memberships=(_membership("E1"),), shift_demands=(target_demand,),
+        other_site_assignments=(other_site_assignment,),
+    )
+    report = validate(state, [target_assignment])
+    rest_details = [d for d in report.violation_details if d.rule == "REST-01"]
+    assert rest_details, "test setup invalid: no cross-Site REST-01 violation was raised"
+    finding = rest_details[0]
+    assert finding.affected_employee_id == "E1"
+    # Diagnostic assignment_ids must still name both real Assignments --
+    # T036 only changes the PERSISTED target, not validator diagnostics.
+    assert set(finding.assignment_ids) == {"OTHER-SITE-ASSIGN-1", "TARGET-ASSIGN-1"}
+
+    deviations = materialize_deviations(report.violation_details, site_rules=())
+    rest_deviation = next(d for d in deviations if d.source_reference == "REST-01")
+    assert rest_deviation.affected_assignment_or_employee == "E1"
+
+
+# --- T36-06: WEEKLY-REST-01 boundary-dependent finding carries the employee ---
+
+
+def _weekly_rest_state(*, with_boundary: bool):
+    employee = Employee("E1", "E1", date(2020, 1, 1), None, False)
+    site = Site(_MINIMAL_SITE_ID, _MINIMAL_PROFILE_ID, "Site X", True, planning_regime=SitePlanningRegime.OCHRONA)
+    # One long current-month occupation leaves only the window's opening
+    # stretch (month_start .. this assignment's start) free -- exactly the
+    # stretch a same-Site boundary Assignment (previous month spilling into
+    # day 1) shrinks. Every other gap in the 7-day window is already well
+    # under WEEKLY_REST_REQUIRED_HOURS (35h) regardless of the boundary.
+    long_assignment = Assignment(
+        "WEEKLY-LONG-1", "", "E1", datetime(2026, 10, 2, 12, 0), datetime(2026, 10, 7, 20, 0),
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, None, None,
+    )
+    boundary_assignments = ()
+    if with_boundary:
+        # Previous-month (September) work spilling into October 1 -- ends
+        # 24h before long_assignment starts, so the opening free stretch
+        # shrinks from 36h (month_start..Oct 2 12:00, PASSES) to 24h (FAILS).
+        boundary_assignments = (
+            Assignment(
+                "SEPT-BOUNDARY-1", "SV-SEPTEMBER", "E1", datetime(2026, 9, 30, 4, 0), datetime(2026, 10, 1, 12, 0),
+                AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, None, None,
+            ),
+        )
+    state = base_state(
+        employees=(employee,), memberships=(_membership("E1"),), site=site,
+        boundary_assignments=boundary_assignments,
+    )
+    return state, long_assignment
+
+
+def test_t36_06a_control_without_boundary_has_no_weekly_rest_violation():
+    """Control for T36-06: the exact same current-month content, with no
+    boundary Assignment, must NOT trigger WEEKLY-REST-01 (opening stretch
+    is 36h, at/above the 35h floor) -- proves the boundary Assignment is
+    what actually decides the finding below, not the current-month content."""
+    state, long_assignment = _weekly_rest_state(with_boundary=False)
+    report = validate(state, [long_assignment])
+    assert not any(d.rule == "WEEKLY-REST-01" for d in report.violation_details)
+
+
+def test_t36_06b_boundary_dependent_weekly_rest_targets_employee():
+    state, long_assignment = _weekly_rest_state(with_boundary=True)
+    report = validate(state, [long_assignment])
+    weekly_details = [d for d in report.violation_details if d.rule == "WEEKLY-REST-01"]
+    assert weekly_details, "test setup invalid: boundary Assignment did not tip the window into violation"
+    finding = weekly_details[0]
+    assert finding.affected_employee_id == "E1"
+
+    deviations = materialize_deviations(report.violation_details, site_rules=())
+    weekly_deviation = next(d for d in deviations if d.source_reference == "WEEKLY-REST-01")
+    assert weekly_deviation.category == DeviationCategory.LAW
+    assert weekly_deviation.affected_assignment_or_employee == "E1"
 
 
 # --- T36-11: real cross-month vertical: repro the exact T034-audit failure,
