@@ -59,7 +59,15 @@ function blankRow(): DraftRow {
   };
 }
 
-export default function SiteShiftCatalog({ siteId }: { siteId: string }) {
+export default function SiteShiftCatalog({
+  siteId,
+  respondsToDecisionRequiredId = null,
+}: {
+  siteId: string;
+  // ROTA-T021 UI audit gate round-16: set when this screen was opened
+  // while resolving a coordinator decision ("Zmień zapisaną regułę").
+  respondsToDecisionRequiredId?: string | null;
+}) {
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -120,6 +128,7 @@ export default function SiteShiftCatalog({ siteId }: { siteId: string }) {
           required_primary_count: r.required_primary_count,
           active_weekdays: r.active_weekdays,
         })),
+        respondsToDecisionRequiredId,
       );
       setSaved(true);
     } catch (e: unknown) {

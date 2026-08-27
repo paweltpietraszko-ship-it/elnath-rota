@@ -83,6 +83,12 @@ class ShiftCatalogIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     shifts: list[ShiftRowIn]
+    # ROTA-T021 UI audit gate (round-16, OWNER_CORRECTED): "Zmień zapisaną
+    # regułę" is a decision-response action per arch/T021_spec.md:595-596 --
+    # update_site_profile already accepted this parameter, only this router
+    # never exposed it (same gap already closed for the five employee
+    # matrix endpoints in api/routers/rule_decisions.py).
+    responds_to_decision_required_id: str | None = None
 
 
 def _parse_full_hour(value: str) -> time:
@@ -125,6 +131,9 @@ def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_co
         site = get_site(conn, site_id)
         current_profile = get_site_profile(conn, site.profile_id)
         updated_profile = replace(current_profile, standard_shifts=shifts)
-        update_site_profile(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, profile=updated_profile)
+        update_site_profile(
+            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, profile=updated_profile,
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc

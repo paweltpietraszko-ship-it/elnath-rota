@@ -113,5 +113,34 @@ def test_matrix_write_with_unknown_decision_id_is_rejected(understaffed_site, cl
     assert resp.status_code >= 400
 
 
+def test_shift_catalog_write_with_responds_to_decision_required_id_clears_the_decision(understaffed_site, client):
+    """Round-16 OWNER_CORRECTED: 'Zmien zapisana regule' -> Obiekt -> Katalog
+    zmian is also a decision-response action per arch/T021_spec.md:595-596 --
+    same gap, same fix shape as the five matrix endpoints."""
+    _, site_id = understaffed_site
+    plan_resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
+    assert plan_resp.json()["status"] == "DECISION_REQUIRED"
+
+    detail = client.get(f"/api/workspace/sites/{site_id}/decisions/{MONTH_STR}").json()
+    decision_id = detail["decision_required_id"]
+
+    # required_primary_count=2 (fixture's catalog has 1) so the write is a
+    # genuinely material profile change -- update_site_profile only records
+    # an action (and invalidates the decision) when the planning-relevant
+    # fields actually differ, matching every other durable_inputs "if
+    # before != after" no-op guard.
+    catalog_resp = client.put(
+        f"/api/workspace/sites/{site_id}/shift-catalog",
+        json={
+            "shifts": [{"kind": "D", "start_time": "06:00", "end_time": "18:00", "required_primary_count": 2, "active_weekdays": [1, 2, 3, 4, 5, 6, 7]}],
+            "responds_to_decision_required_id": decision_id,
+        },
+    )
+    assert catalog_resp.status_code == 204
+
+    months_after = client.get(f"/api/workspace/sites/{site_id}/decisions/months").json()
+    assert months_after == {"months": []}
+
+
 if __name__ == "__main__":
     print("test_t021_matrix_decision_link module OK")

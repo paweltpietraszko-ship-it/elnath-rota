@@ -505,8 +505,10 @@ export const api = {
 
   // Shift catalog (Panel sterowania -> Obiekt, T030)
   getShiftCatalog: (siteId: string) => req<ShiftCatalogOut>(`/workspace/sites/${siteId}/shift-catalog`),
-  putShiftCatalog: (siteId: string, shifts: ShiftRowIn[]) =>
-    req<void>(`/workspace/sites/${siteId}/shift-catalog`, { method: "PUT", body: JSON.stringify({ shifts }) }),
+  putShiftCatalog: (siteId: string, shifts: ShiftRowIn[], respondsToDecisionRequiredId?: string | null) =>
+    req<void>(`/workspace/sites/${siteId}/shift-catalog`, {
+      method: "PUT", body: JSON.stringify({ shifts, responds_to_decision_required_id: respondsToDecisionRequiredId ?? null }),
+    }),
 
   // Planowanie miesiąca (T031)
   getScheduleMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/schedule/months`),

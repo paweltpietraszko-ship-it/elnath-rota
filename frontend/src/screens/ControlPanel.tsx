@@ -92,7 +92,7 @@ export default function ControlPanel({
 
       {tab === "obiekt" && (
         <>
-          <SiteShiftCatalog siteId={siteId} />
+          <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} />
           <PrintSettings siteId={siteId} />
         </>
       )}
