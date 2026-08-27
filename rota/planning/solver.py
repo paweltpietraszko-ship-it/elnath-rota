@@ -33,8 +33,9 @@ from rota.planning.constraints import (
 )
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import (
-    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, add_dn_rhythm_reward, add_holiday_fairness,
-    add_target_equity_fairness, add_weekend_fairness,
+    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT,
+    add_dn_rhythm_reward, add_holiday_fairness, add_target_equity_fairness, add_third_consecutive_shift_penalty,
+    add_weekend_fairness,
 )
 from rota.planning.replan_reshuffle import (
     build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
@@ -463,8 +464,9 @@ def _add_combined_objective(
     _solve_lexicographic_phases docstring for why this is one solve, not a
     proof-then-freeze phase split): DAY_SHIFT_OFF-01/LEAVE_PLAN-01 SOFT,
     weekend/holiday fairness (unchanged pre-T032 terms), target equity
-    (section 4) and the D/N/wolne/wolne reward (section 5) all minimized
-    together with TARGET-01.
+    (section 4), the D/N/wolne/wolne reward (section 5) and the third
+    consecutive day-shift-adjacent SOFT penalty (ROTA-T034: D/D/D, D/D/N,
+    D/N/N) all minimized together with TARGET-01.
 
     OWNER_CORRECTED 2026-08-25 (second correction): TARGET-01 has ABSOLUTE
     priority over equity/rhythm specifically -- not just a large weight
@@ -480,13 +482,27 @@ def _add_combined_objective(
     break ties among candidates that already share the same optimal target
     deviation, never trade it for a better tie-break score. This does not
     extend to the pre-T032 weekend/holiday/leave_plan terms (out of scope
-    for this correction, unchanged in shape and relative weight)."""
+    for this correction, unchanged in shape and relative weight).
+
+    ROTA-T034 (contract f4a1e0b) extends this same protection by exactly one
+    term: THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * the exact number of
+    bad_window variables add_third_consecutive_shift_penalty created this
+    solve (its own return value, same tighter-real-bound pattern as
+    rhythm_match_count) -- so this new SOFT can never outweigh TARGET-01
+    either."""
     penalties = []
 
-    # Rhythm is built first so its real match count (never a worst-case
-    # guess) is known before TARGET_DEVIATION_WEIGHT is sized against it.
+    # Rhythm and the third-shift penalty are built first so their real
+    # counts (never a worst-case guess) are known before
+    # TARGET_DEVIATION_WEIGHT is sized against them.
     rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
-    target_weight = TARGET_DEVIATION_WEIGHT + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+    third_shift_penalty_count = add_third_consecutive_shift_penalty(model, state.month, day_kind_terms, penalties)
+    target_weight = (
+        TARGET_DEVIATION_WEIGHT
+        + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT
+        + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+        + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
+    )
 
     for employee_id, target in target_by_employee.items():
         worked = worked_by_employee[employee_id]
