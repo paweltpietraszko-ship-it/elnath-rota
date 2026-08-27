@@ -48,7 +48,21 @@ def category_for_rule(rule_code: str, site_rules_by_version_id: dict[str, SiteRu
     raise UnknownDeviationSource(f"no DeviationCategory mapping for rule {rule_code!r}")
 
 
+# ROTA-T036: REST-01/WEEKLY-REST-01 are the only two source references that
+# target an Employee rather than an Assignment -- their assignment_ids[0]
+# may be a cross-context (boundary/other-site) Assignment not resolvable in
+# the target ScheduleVersion, while the violation is always attributable to
+# exactly one Employee the validator already identified. Gated by exact
+# source_reference, never by DeviationCategory.LAW, so a future LAW rule
+# does not silently inherit this semantics.
+_EMPLOYEE_TARGETED_SOURCES = frozenset({"REST-01", "WEEKLY-REST-01"})
+
+
 def _affected_target(detail: ViolationDetail) -> str:
+    if detail.rule in _EMPLOYEE_TARGETED_SOURCES:
+        if not detail.affected_employee_id:
+            raise UnknownDeviationSource(f"rule {detail.rule!r} has no affected_employee_id")
+        return detail.affected_employee_id
     if detail.demand_ids:
         return detail.demand_ids[0]
     if detail.assignment_ids:

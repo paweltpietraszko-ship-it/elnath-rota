@@ -32,6 +32,12 @@ class ViolationDetail:
     assignment_ids: tuple[str, ...]
     message: str
     demand_ids: tuple[str, ...] = ()  # COVERAGE-01 gap/excess: only the demand can be blamed, no Assignment exists
+    # ROTA-T036: explicit employee seam for REST-01/WEEKLY-REST-01 only -- the
+    # persistent Deviation target for these two rules is this Employee, never
+    # one of assignment_ids (which may be a cross-context boundary/other-site
+    # Assignment not resolvable in the target ScheduleVersion). Every other
+    # rule leaves this None and keeps its existing demand/assignment target.
+    affected_employee_id: str | None = None
 
 
 @dataclass
@@ -479,7 +485,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
             member_keys = {(m.schedule_version_id, m.component_id) for m in members}
             if any(k in other_site_keys for k in member_keys) and any(k not in other_site_keys for k in member_keys):
                 ids = tuple(m.component_id for m in members)
-                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} work_period_id {period_id!r} is shared across different Sites"))
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} work_period_id {period_id!r} is shared across different Sites", affected_employee_id=employee_id))
         periods = group_into_periods(components)
         # Every (target, other) pair, not only sorted neighbors (B-R10-3).
         target_periods = [p for p in periods if not target_keys.isdisjoint(p.component_keys)]
@@ -489,19 +495,19 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
             earlier, later = (tp, other) if tp.start <= other.start else (other, tp)
             ids = (earlier.component_ids[-1], later.component_ids[0])
             if periods_overlap(earlier, later):
-                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} overlapping assignments"))
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} overlapping assignments", affected_employee_id=employee_id))
                 continue
             # CROSS-SITE-ZERO-GAP-01 (T022, OWNER-T022-03): zero-time continuation onto a different Site is illegal regardless of configured rest/can_work_24h.
             cross_site = any(k in other_site_keys for k in earlier.component_keys) != any(k in other_site_keys for k in later.component_keys)
             if (cross_site and earlier.end == later.start) or forms_illegal_continuous_pair(earlier, later):
-                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: zero-gap continuous work is not permitted"))
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: zero-gap continuous work is not permitted", affected_employee_id=employee_id))
                 min_rest = 0.0 if min_rest is None else min(min_rest, 0.0)
                 continue
             gap = (later.start - earlier.end).total_seconds() / 3600
             min_rest = gap if min_rest is None else min(min_rest, gap)
             required_rest = effective_required_rest_after_hours(earlier, ochrona=ochrona and not any(k in other_site_keys for k in earlier.component_keys))
             if gap < required_rest:
-                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: only {gap:.1f}h"))
+                details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} {ids[0]}->{ids[1]}: only {gap:.1f}h", affected_employee_id=employee_id))
     return min_rest
 
 
@@ -585,7 +591,7 @@ def _check_weekly_rest(state: PlanningState, assignments: list[Assignment], deta
                     if a.employee_id == employee_id and a.start_datetime < window_end and a.end_datetime > window_start
                 )
                 week_label = f"{window_start.date()}-{(window_end - timedelta(days=1)).date()}"
-                details.append(ViolationDetail("WEEKLY-REST-01", ids, f"WEEKLY-REST-01: {employee_id} only {free:.1f}h uninterrupted rest in week {week_label}"))
+                details.append(ViolationDetail("WEEKLY-REST-01", ids, f"WEEKLY-REST-01: {employee_id} only {free:.1f}h uninterrupted rest in week {week_label}", affected_employee_id=employee_id))
 
 
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
