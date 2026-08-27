@@ -1,0 +1,72 @@
+ROTA-T021 — TARGETED REAUDIT OF 5ace74a, ROUND 17
+Date: 2026-08-27
+Branch: task/ROTA-T021-analityka
+Audited exact SHA: 5ace74abf7972bafaa6a28c209d78e8af2f01692
+Predecessor report: tasks/ROTA-T021/round_01/tests/tests_r16.txt
+
+VERDICT: FAIL
+
+Scope was limited to the three delivered corrections: inclusive UI end date,
+decision-response linkage through the existing add-person flow, and external-
+support roster visibility/removal/re-add. No new architecture or product
+requirements were assessed.
+
+FINDING R17-1 — THE REAL MULTI-STEP UI FLOW REUSES AN ALREADY INVALIDATED
+DECISION ID AND FAILS WITH HTTP 500
+
+TRACE:
+- arch/T021_spec.md:595-596 requires a response action to retain its
+  responds_to_decision_required_id.
+- The delivery itself claims to close that existing screen-wiring defect.
+
+OWNERSHIP / EVIDENCE:
+- ControlPanel.tsx:271-279 sends the original decision ID only with the
+  support-window write.
+- ControlPanel.tsx:289-308 first attaches membership without that ID, then
+  sends the original ID with the window write.
+- durable_inputs.py:270-292 shows that the first material membership write
+  invalidates the site's current decision even when no response ID is passed.
+- For a new employee, ControlPanel.tsx:295-298 first creates Employee;
+  durable_inputs.py:225-250 shows that this material write also invalidates
+  the current decision before the later membership write.
+
+INDEPENDENT REPRO ON EXACT SHA — EXISTING EXTERNAL PERSON:
+1. Production plan endpoint returns DECISION_REQUIRED and its current ID.
+2. Exact UI-order roster attach without ID returns 204.
+3. The decision-month list is now empty.
+4. Exact UI-order support-window POST with the original ID returns 500:
+   "is not the current question".
+
+INDEPENDENT REPRO ON EXACT SHA — NEW LOCAL PERSON:
+1. Production plan endpoint returns DECISION_REQUIRED and its current ID.
+2. Exact UI-order employee creation without ID returns 204.
+3. The decision-month list is now empty.
+4. Roster attach with the original ID returns 500 with the same stale-question
+   error.
+
+TEST GAP:
+- tests/test_t021_external_support_roster.py:194-223 does not reproduce the UI
+  sequence. Lines 210-214 explicitly run plan() again between membership and
+  window writes and replace the original ID with a fresh one.
+- The UI does not perform that re-plan. Therefore the test is green while the
+  real sequence fails.
+
+VERIFICATION
+
+- Exact SHA and clean detached worktree: confirmed.
+- git diff --check: PASS.
+- Delivered focused suites: 11 passed in 0.95 s.
+- Two independent production API sequences above: both reproduced HTTP 500.
+- Full repository regression deliberately not run for this narrow reaudyt.
+
+CLOSED / NO FINDING
+
+- Inclusive date: ControlPanel.tsx:213-220 correctly computes midnight of
+  the following day, including month/year rollover.
+- Roster visibility: the API returns EXTERNAL_SUPPORT rows and their kind;
+  disabled external rows are pickable again, while enabled rows remain
+  excluded. The corresponding focused checks pass.
+
+ARCHITECTURE_PROPOSALS
+
+None.
