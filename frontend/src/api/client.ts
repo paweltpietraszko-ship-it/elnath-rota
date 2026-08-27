@@ -289,6 +289,15 @@ export interface MaterialActionDetailOut extends MaterialActionSummaryOut {
   responds_to: DecisionRequiredReadbackOut | null;
 }
 
+export interface OverviewOut {
+  month: string;
+  decision_months: string[];
+  version_id: string | null;
+  version_status: "WORKING" | "WORKING_WITH_DEVIATIONS" | "FINAL_NO_DEVIATIONS" | "FINAL_WITH_DEVIATIONS" | null;
+  resumable: boolean;
+  headcount: number;
+}
+
 export interface DecisionRequiredOut {
   decision_required_id: string;
   site_id: string;
@@ -587,6 +596,9 @@ export const api = {
     ),
   getActionDetail: (actionId: string) => req<MaterialActionDetailOut>(`/workspace/history/actions/${actionId}`),
   getRuleHistory: (siteId: string) => req<Record<string, DecisionRecordOut[]>>(`/workspace/sites/${siteId}/history/rules`),
+
+  // Przeglad (T021)
+  getOverview: (siteId: string, month: string) => req<OverviewOut>(`/workspace/sites/${siteId}/overview?month=${month}`),
 
   // Decyzje koordynatora (T021)
   getDecisionMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/decisions/months`),

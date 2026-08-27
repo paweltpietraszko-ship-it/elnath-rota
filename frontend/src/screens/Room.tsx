@@ -6,6 +6,7 @@ import Decisions from "./Decisions";
 import EmployeeDetail from "./EmployeeDetail";
 import History from "./History";
 import MonthlyPlanning from "./MonthlyPlanning";
+import Overview from "./Overview";
 
 const NAV_ITEMS = [
   "Przegląd",
@@ -19,9 +20,10 @@ const NAV_ITEMS = [
 ];
 
 const BUILT_NAV_ITEMS = new Set([
-  "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Analityka i bilanse", "Historia i audyt",
+  "Przegląd", "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Analityka i bilanse", "Historia i audyt",
 ]);
 const NAV_DIAG_ACTIONS: Record<string, string> = {
+  "Przegląd": "room-nav-overview",
   "Panel sterowania": "room-nav-control-panel",
   "Planowanie miesiąca": "room-nav-monthly-planning",
   "Decyzje koordynatora": "room-nav-decisions",
@@ -29,10 +31,16 @@ const NAV_DIAG_ACTIONS: Record<string, string> = {
   "Historia i audyt": "room-nav-history",
 };
 
-type BuiltNavItem = "Panel sterowania" | "Planowanie miesiąca" | "Decyzje koordynatora" | "Analityka i bilanse" | "Historia i audyt";
+type BuiltNavItem =
+  | "Przegląd"
+  | "Panel sterowania"
+  | "Planowanie miesiąca"
+  | "Decyzje koordynatora"
+  | "Analityka i bilanse"
+  | "Historia i audyt";
 
 export default function Room({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
-  const [activeNav, setActiveNav] = useState<BuiltNavItem>("Panel sterowania");
+  const [activeNav, setActiveNav] = useState<BuiltNavItem>("Przegląd");
   if (view.screen === "workspace") return null;
   const { siteId, siteName } = view;
 
@@ -89,6 +97,14 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
 
         <div className="room-content">
           <div className="room-content-inner">
+            {activeNav === "Przegląd" && (
+              <Overview
+                siteId={siteId}
+                onOpenControlPanel={() => setActiveNav("Panel sterowania")}
+                onOpenPlanning={() => setActiveNav("Planowanie miesiąca")}
+                onOpenDecisions={() => setActiveNav("Decyzje koordynatora")}
+              />
+            )}
             {activeNav === "Panel sterowania" && view.screen === "room" && (
               <ControlPanel siteId={siteId} siteName={siteName} onNavigate={onNavigate} />
             )}
