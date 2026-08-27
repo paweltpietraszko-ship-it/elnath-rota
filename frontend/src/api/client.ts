@@ -289,6 +289,20 @@ export interface MaterialActionDetailOut extends MaterialActionSummaryOut {
   responds_to: DecisionRequiredReadbackOut | null;
 }
 
+export interface DecisionRequiredOut {
+  decision_required_id: string;
+  site_id: string;
+  month: string;
+  schedule_version_id: string | null;
+  requested_by: string;
+  recorded_at: string;
+  blocking_shift_demands: { demand_id: string; start_datetime: string; end_datetime: string }[];
+  blockers: { employee_id: string; condition: string }[];
+  load_blocker: { employee_id: string; window_start: string; window_end: string; hours: number } | null;
+  unblocking_options: string[];
+  linked_action_ids: string[];
+}
+
 export interface DecisionRecordOut {
   decision_id: string;
   site_id: string;
@@ -573,6 +587,11 @@ export const api = {
     ),
   getActionDetail: (actionId: string) => req<MaterialActionDetailOut>(`/workspace/history/actions/${actionId}`),
   getRuleHistory: (siteId: string) => req<Record<string, DecisionRecordOut[]>>(`/workspace/sites/${siteId}/history/rules`),
+
+  // Decyzje koordynatora (T021)
+  getDecisionMonths: (siteId: string) => req<{ months: string[] }>(`/workspace/sites/${siteId}/decisions/months`),
+  getDecisionForMonth: (siteId: string, month: string) =>
+    req<DecisionRequiredOut | null>(`/workspace/sites/${siteId}/decisions/${month}`),
 };
 
 async function downloadPost(path: string, body?: string): Promise<void> {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { View } from "../App";
 import Analytics from "./Analytics";
 import ControlPanel from "./ControlPanel";
+import Decisions from "./Decisions";
 import EmployeeDetail from "./EmployeeDetail";
 import History from "./History";
 import MonthlyPlanning from "./MonthlyPlanning";
@@ -17,15 +18,18 @@ const NAV_ITEMS = [
   "Wydruk Grafiku",
 ];
 
-const BUILT_NAV_ITEMS = new Set(["Panel sterowania", "Planowanie miesiąca", "Analityka i bilanse", "Historia i audyt"]);
+const BUILT_NAV_ITEMS = new Set([
+  "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Analityka i bilanse", "Historia i audyt",
+]);
 const NAV_DIAG_ACTIONS: Record<string, string> = {
   "Panel sterowania": "room-nav-control-panel",
   "Planowanie miesiąca": "room-nav-monthly-planning",
+  "Decyzje koordynatora": "room-nav-decisions",
   "Analityka i bilanse": "room-nav-analytics",
   "Historia i audyt": "room-nav-history",
 };
 
-type BuiltNavItem = "Panel sterowania" | "Planowanie miesiąca" | "Analityka i bilanse" | "Historia i audyt";
+type BuiltNavItem = "Panel sterowania" | "Planowanie miesiąca" | "Decyzje koordynatora" | "Analityka i bilanse" | "Historia i audyt";
 
 export default function Room({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
   const [activeNav, setActiveNav] = useState<BuiltNavItem>("Panel sterowania");
@@ -97,6 +101,9 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
               />
             )}
             {activeNav === "Planowanie miesiąca" && <MonthlyPlanning siteId={siteId} />}
+            {activeNav === "Decyzje koordynatora" && (
+              <Decisions siteId={siteId} onOpenControlPanel={() => setActiveNav("Panel sterowania")} />
+            )}
             {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} />}
             {activeNav === "Historia i audyt" && <History siteId={siteId} />}
           </div>
