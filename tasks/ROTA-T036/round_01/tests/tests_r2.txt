@@ -1,0 +1,98 @@
+ROTA-T036 — preimplementation contract re-audit, round 2
+Date: 2026-08-27
+Audited branch: origin/task/ROTA-T036
+Audited exact contract SHA: 8b2519cb398b8fc09284fa0e391e7a96e3037ef7
+Base main SHA: 54acdf7cfebadefe1e3370bac0a62f963c72123e
+Previous audit: tasks/ROTA-T036/round_01/tests/tests_r1.txt
+
+VERDICT: PASS — READY_FOR_IMPLEMENTATION
+
+SCOPE OF RE-AUDIT
+
+The only change since the R1 report is the mechanical correction of the
+acceptance contract in tasks/ROTA-T036/brief.md (+33/-13). No product code was
+changed. This round therefore checks only closure of the R1 acceptance-proof
+defect and whether the correction introduced a contradiction.
+
+R1 DEFECT — CLOSED
+
+1. T36-10 now explicitly classifies the historical T009 test as a sibling
+   regression only. It is not the primary oracle, must not be modified, and
+   does not require rebasing T036 merely to recreate an incidental schedule.
+2. T36-11 now requires a deterministic vertical proof in the focused T036
+   module through the real chain:
+
+   validator.validate -> materialize_deviations -> existing lifecycle /
+   persistence validation
+
+3. The required state contains a genuine canonical-boundary or other-Site
+   REST pair for one existing Employee. assignment_ids[0] must be the
+   cross-context Assignment absent from the target ScheduleVersion, while the
+   second diagnostic ID belongs to that version. Both IDs must remain
+   unchanged in ViolationDetail.
+4. The test has an explicit before/after oracle: on declared base 54acdf7 it
+   must end in MalformedScheduleSnapshot because the old mapper selects the
+   cross-context Assignment; after T036, the same chain must persist a LAW
+   REST-01 Deviation targeted at the Employee and complete successfully
+   without a persistence change.
+5. The test may not bypass validate() or inject a ready Employee-target
+   Deviation. This prevents an already-green or lower-layer substitute from
+   satisfying the vertical requirement.
+6. T36-12 correctly avoids duplicating the complete lifecycle for WEEKLY;
+   focused mapper and validator-boundary coverage exercise that sibling path.
+
+CONTRACT CONSISTENCY — PASS
+
+1. Employee remains the already-existing, unambiguous subject of REST-01 and
+   WEEKLY-REST-01. Changing the persistent target does not alter either HARD
+   rule, its WorkPeriod calculation, boundary/other-site inputs, or 24h floor.
+2. affected_employee_id is carried from the employee loop that already owns
+   REST/WEEKLY derivation. No message parsing, Assignment reconstruction, or
+   second owner is introduced.
+3. The mapper exception is gated by the exact source references REST-01 and
+   WEEKLY-REST-01, not by DeviationCategory.LAW.
+4. assignment_ids retain their existing diagnostic meaning and order even
+   though the durable target for these two rules becomes Employee.
+5. Persistence remains unchanged: Employee must exist, Assignment targets
+   remain same-version, and arbitrary cross-context Assignment targets are
+   still rejected.
+6. COVERAGE and every non-REST source mapping retain the existing demand-first,
+   assignment-second behavior and fail-closed semantics.
+7. Production scope remains exactly validator.py + deviation_mapping.py.
+
+PREIMPLEMENTATION REDUCTION GATE — FINAL CONSOLIDATION
+
+Necessary:
+1. One final compatibility-defaulted affected_employee_id field on
+   ViolationDetail — minimal adapter for data already known by the validator.
+2. Populate that field at REST-01/WEEKLY-REST-01 creation sites — enforcement
+   at the owning derivation boundary.
+3. Select the Employee target for exactly those two rules and fail closed when
+   the field is absent — the accepted persistent result at the mapping seam.
+4. One focused test module containing mapper/validator cases and one genuine
+   SQLite lifecycle vertical for the failure class.
+
+Not necessary and correctly excluded:
+- schema, migration, composite identity, new target kind or SQL exception;
+- persistence, lifecycle, DB, assembler, solver, HARD or manual override
+  changes;
+- category-wide LAW handling, duplicate employee lookup or message parsing;
+- API/UI changes, T034 ranking changes, or rebasing to T034;
+- a second duplicated full lifecycle matrix for WEEKLY-REST-01.
+
+AUDIT EVIDENCE
+
+- Repository and existing owner inspection was completed in R1 on exact
+  974d4e5, whose production tree equals declared base main 54acdf7.
+- The named T009 sibling test was independently run in R1 on the unimplemented
+  base and passed (1 passed in 91.51s), proving why it could not be the primary
+  oracle. The corrected contract now states exactly that limitation.
+- No tests were rerun in R2 because exact 8b2519c changes only the Task brief;
+  there is still no T036 implementation to execute.
+
+No OWNER_EXPLANATION_GATE is triggered: the correction adds no user-visible
+behavior and only makes the already accepted acceptance proof mechanically
+discriminating.
+
+PASS applies only to contract SHA 8b2519cb398b8fc09284fa0e391e7a96e3037ef7.
+CC may implement T036 under the corrected brief.
