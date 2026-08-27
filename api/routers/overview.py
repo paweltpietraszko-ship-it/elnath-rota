@@ -7,7 +7,6 @@ reads into one -- no new persistence/application function.
 """
 from __future__ import annotations
 
-import calendar
 from datetime import date, datetime
 from typing import Literal, Optional
 
@@ -49,13 +48,20 @@ def get_overview(site_id: str, month: date, conn=Depends(get_conn)) -> OverviewO
         # EXTERNAL_SUPPORT membership counts only when it has an active
         # ExternalSupportWindow overlapping the queried month -- not every
         # enabled EXTERNAL_SUPPORT row regardless of window.
-        days_in_month = calendar.monthrange(month.year, month.month)[1]
+        #
+        # Round-15 audit FINDING 5: half-open interval convention, matching
+        # the product's own (schedule_repository.py/validator.py: start <
+        # end and end > start) -- an earlier version used <=/>= on a closed
+        # [month_start, month_end 23:59:59] range, which wrongly counted a
+        # window ending exactly at month_start (zero real overlap) as
+        # active in this month.
+        month_end_exclusive = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
         month_start = datetime(month.year, month.month, 1)
-        month_end = datetime(month.year, month.month, days_in_month, 23, 59, 59)
+        month_end = datetime(month_end_exclusive.year, month_end_exclusive.month, month_end_exclusive.day)
         windows = list_windows_for_site(conn, site_id)
         supported_employee_ids = {
             w.employee_id for w in windows
-            if w.active and w.start_datetime <= month_end and w.end_datetime >= month_start
+            if w.active and w.start_datetime < month_end and w.end_datetime > month_start
         }
         memberships = list_memberships_for_site(conn, site_id)
         headcount = sum(

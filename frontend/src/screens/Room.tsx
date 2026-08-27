@@ -139,6 +139,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 siteName={siteName}
                 employeeId={view.employeeId}
                 onBack={() => onNavigate({ screen: "room", siteId, siteName })}
+                respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
               />
             )}
             {activeNav === "Planowanie miesiąca" && <MonthlyPlanning siteId={siteId} />}

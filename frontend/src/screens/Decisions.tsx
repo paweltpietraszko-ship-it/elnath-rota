@@ -23,13 +23,21 @@ function formatDateTime(iso: string): string {
 // Spec caveat (arch/T021_spec.md §Decyzje koordynatora): unblocking_options
 // are bare Polish strings with no structured screen/action id -- this is
 // prefix matching on that text, fragile if backend wording changes. Only
-// the two options with an actually built destination today become links;
+// options with an actually built destination today become links;
 // everything else stays plain text rather than a broken navigation.
 function optionTarget(option: string): "obsada" | "obiekt" | null {
   if (option.startsWith("Zmień Ogólna dostępność") || option.startsWith("Zmień Nocka") || option.startsWith("Zmień 24")) {
     return "obsada";
   }
   if (option.startsWith("Zmień zapisaną regułę")) return "obiekt";
+  // Round-15 audit FINDING 3: spec's full target is "Obsada -> per-employee
+  // screen -> support-window list (§9.2)" -- that support-window list does
+  // not exist anywhere yet (no API endpoint, no UI), a real missing
+  // feature comparable in size to Ręczna korekta, not a navigation-wiring
+  // fix. Routing to Obsada is a partial, honest improvement (finds the
+  // right screen, not the right employee sub-section) -- flagged, not
+  // silently claimed as the full fix.
+  if (option.startsWith("Skonfiguruj Wsparcie zewnętrzne")) return "obsada";
   return null;
 }
 

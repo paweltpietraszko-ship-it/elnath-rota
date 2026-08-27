@@ -3,7 +3,7 @@
 // backend module for this screen, per spec) over reads already covered
 // by other screens (decisions, schedule version, roster).
 import { useEffect, useState } from "react";
-import { OverviewOut, api } from "../api/client";
+import { DecisionRequiredOut, OverviewOut, api } from "../api/client";
 
 function todayYearMonth(): string {
   return new Date().toISOString().slice(0, 7);
@@ -40,16 +40,37 @@ export default function Overview({
   onOpenExport: () => void;
 }) {
   const [overview, setOverview] = useState<OverviewOut | null>(null);
+  const [decisionPreviews, setDecisionPreviews] = useState<Record<string, DecisionRequiredOut | null>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    api
-      .getOverview(siteId, `${todayYearMonth()}-01`)
-      .then(setOverview)
-      .catch((e) => setError(String(e.message ?? e)))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const o = await api.getOverview(siteId, `${todayYearMonth()}-01`);
+        if (cancelled) return;
+        setOverview(o);
+        // Round-15 audit FINDING 4: spec requires actual decision CONTENT
+        // here, not just the month count -- one extra call per pending
+        // month (rarely more than a couple at once) for a one-line
+        // preview of what's blocking, reusing the same endpoint Decyzje
+        // koordynatora already calls per month.
+        const details = await Promise.all(o.decision_months.map((m) => api.getDecisionForMonth(siteId, m).catch(() => null)));
+        if (cancelled) return;
+        setDecisionPreviews(Object.fromEntries(o.decision_months.map((m, i) => [m, details[i]])));
+      } catch (e: unknown) {
+        if (!cancelled) setError(String((e as Error).message ?? e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, [siteId]);
 
   if (loading) return <div className="panel"><p>Ładowanie…</p></div>;
@@ -64,15 +85,24 @@ export default function Overview({
           <p style={{ fontSize: 28, fontWeight: 600, margin: "6px 0" }}>{overview?.decision_months.length ?? 0}</p>
           {!!overview?.decision_months.length && (
             <ul style={{ margin: "0 0 8px 0", paddingLeft: 18, fontSize: 13 }}>
-              {overview.decision_months.map((m) => (
-                <li key={m}>{monthLabel(m)}</li>
-              ))}
+              {overview.decision_months.map((m) => {
+                const preview = decisionPreviews[m];
+                const summary = preview
+                  ? preview.blockers[0]
+                    ? `${preview.blockers[0].employee_id}: ${preview.blockers[0].condition}`
+                    : `${preview.blocking_shift_demands.length} blokujących zmian`
+                  : null;
+                return (
+                  <li key={m} style={{ marginBottom: 4 }}>
+                    <strong>{monthLabel(m)}</strong>
+                    {summary && <> — {summary}</>}{" "}
+                    <button className="roster-name-link" onClick={onOpenDecisions}>
+                      Rozwiąż
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
-          )}
-          {!!overview?.decision_months.length && (
-            <button className="btn-ghost" onClick={onOpenDecisions}>
-              Rozwiąż
-            </button>
           )}
         </div>
 

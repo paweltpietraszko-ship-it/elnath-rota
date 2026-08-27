@@ -37,11 +37,17 @@ export default function EmployeeDetail({
   siteId,
   employeeId,
   onBack,
+  respondsToDecisionRequiredId = null,
 }: {
   siteId: string;
   siteName: string;
   employeeId: string;
   onBack: () => void;
+  // ROTA-T021 UI audit gate (round-15 FINDING 2): set when this screen was
+  // opened while resolving a coordinator decision (via Decyzje
+  // koordynatora) -- every matrix mutation below already accepts and
+  // forwards this so the resulting DecisionRecord links back correctly.
+  respondsToDecisionRequiredId?: string | null;
 }) {
   const [detail, setDetail] = useState<EmployeeDetailOut | null>(null);
   const [cells, setCells] = useState<MatrixCellOut[]>([]);
@@ -125,9 +131,9 @@ export default function EmployeeDetail({
     setError(null);
     try {
       if (active) {
-        await api.endMatrixRuleEarly(employeeId, active.rule_id, { site_id: siteId, effective_from: today });
+        await api.endMatrixRuleEarly(employeeId, active.rule_id, { site_id: siteId, effective_from: today, responds_to_decision_required_id: respondsToDecisionRequiredId });
       } else {
-        await api.createShiftUnavailability(employeeId, { site_id: siteId, shift_kind: shiftKind, effective_from: today });
+        await api.createShiftUnavailability(employeeId, { site_id: siteId, shift_kind: shiftKind, effective_from: today, responds_to_decision_required_id: respondsToDecisionRequiredId });
       }
       load();
     } catch (e: unknown) {
@@ -154,7 +160,7 @@ export default function EmployeeDetail({
     setMatrixBusy(true);
     setError(null);
     try {
-      await api.endMatrixRuleEarly(employeeId, ruleId, { site_id: siteId, effective_from: today });
+      await api.endMatrixRuleEarly(employeeId, ruleId, { site_id: siteId, effective_from: today, responds_to_decision_required_id: respondsToDecisionRequiredId });
       load();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -169,9 +175,9 @@ export default function EmployeeDetail({
     setError(null);
     try {
       if (active) {
-        await api.endMatrixRuleEarly(employeeId, active.rule_id, { site_id: siteId, effective_from: today });
+        await api.endMatrixRuleEarly(employeeId, active.rule_id, { site_id: siteId, effective_from: today, responds_to_decision_required_id: respondsToDecisionRequiredId });
       } else {
-        await api.createWeekdayUnavailability(employeeId, { site_id: siteId, iso_weekday: weekday, effective_from: today });
+        await api.createWeekdayUnavailability(employeeId, { site_id: siteId, iso_weekday: weekday, effective_from: today, responds_to_decision_required_id: respondsToDecisionRequiredId });
       }
       load();
     } catch (e: unknown) {
@@ -286,6 +292,7 @@ export default function EmployeeDetail({
           <DayOnlyExceptionForm
             employeeId={employeeId}
             siteId={siteId}
+            respondsToDecisionRequiredId={respondsToDecisionRequiredId}
             onClose={() => setShowDayOnlyExceptionForm(false)}
             onAdded={() => {
               setShowDayOnlyExceptionForm(false);
@@ -304,7 +311,7 @@ export default function EmployeeDetail({
             </p>
           </div>
         </div>
-        <RestrictionList cells={cells} employeeId={employeeId} siteId={siteId} onChanged={load} />
+        <RestrictionList cells={cells} employeeId={employeeId} siteId={siteId} onChanged={load} respondsToDecisionRequiredId={respondsToDecisionRequiredId} />
       </div>
 
       <div className="panel">
@@ -366,11 +373,13 @@ function RestrictionList({
   employeeId,
   siteId,
   onChanged,
+  respondsToDecisionRequiredId,
 }: {
   cells: MatrixCellOut[];
   employeeId: string;
   siteId: string;
   onChanged: () => void;
+  respondsToDecisionRequiredId: string | null;
 }) {
   // round-13 R12-2B: one rule_id (family) can have >1 SiteRuleVersion
   // effective on different days within one queried month (a mid-period
@@ -389,6 +398,7 @@ function RestrictionList({
             cell={c}
             employeeId={employeeId}
             siteId={siteId}
+            respondsToDecisionRequiredId={respondsToDecisionRequiredId}
             onDone={() => {
               setEditingVersionId(null);
               onChanged();
@@ -418,12 +428,14 @@ function RestrictionEditRow({
   siteId,
   onDone,
   onCancel,
+  respondsToDecisionRequiredId,
 }: {
   cell: MatrixCellOut;
   employeeId: string;
   siteId: string;
   onDone: () => void;
   onCancel: () => void;
+  respondsToDecisionRequiredId: string | null;
 }) {
   const [from, setFrom] = useState(cell.effective_from);
   const [to, setTo] = useState(cell.effective_to ?? "");
@@ -435,7 +447,7 @@ function RestrictionEditRow({
     setSubmitting(true);
     setError(null);
     try {
-      await api.updateMatrixRule(employeeId, cell.rule_id, { site_id: siteId, effective_from: from, effective_to: to || null });
+      await api.updateMatrixRule(employeeId, cell.rule_id, { site_id: siteId, effective_from: from, effective_to: to || null, responds_to_decision_required_id: respondsToDecisionRequiredId });
       onDone();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -448,7 +460,7 @@ function RestrictionEditRow({
     setSubmitting(true);
     setError(null);
     try {
-      await api.endMatrixRuleEarly(employeeId, cell.rule_id, { site_id: siteId, effective_from: endDate });
+      await api.endMatrixRuleEarly(employeeId, cell.rule_id, { site_id: siteId, effective_from: endDate, responds_to_decision_required_id: respondsToDecisionRequiredId });
       onDone();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -495,11 +507,13 @@ function DayOnlyExceptionForm({
   siteId,
   onClose,
   onAdded,
+  respondsToDecisionRequiredId,
 }: {
   employeeId: string;
   siteId: string;
   onClose: () => void;
   onAdded: () => void;
+  respondsToDecisionRequiredId: string | null;
 }) {
   const [from, setFrom] = useState(isoToday());
   const [to, setTo] = useState("");
@@ -510,7 +524,7 @@ function DayOnlyExceptionForm({
     setSubmitting(true);
     setError(null);
     try {
-      await api.createDayOnlyException(employeeId, { site_id: siteId, effective_from: from, effective_to: to });
+      await api.createDayOnlyException(employeeId, { site_id: siteId, effective_from: from, effective_to: to, responds_to_decision_required_id: respondsToDecisionRequiredId });
       onAdded();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));

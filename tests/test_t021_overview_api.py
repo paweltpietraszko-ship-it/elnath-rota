@@ -109,6 +109,24 @@ def test_headcount_counts_external_support_with_an_active_window_this_month(clie
     assert resp.json()["headcount"] == 2
 
 
+def test_headcount_excludes_window_ending_exactly_at_month_start(client, conn):
+    """Round-15 audit FINDING 5: half-open interval convention -- a window
+    that ends exactly at month_start (zero real overlap with the month,
+    e.g. a shift ending at midnight on day 1) must not count."""
+    from rota.domain import ExternalSupportWindow
+    from rota.persistence.employee_repository import save_external_support_window
+
+    save_employee(conn, Employee("X", "External X", date(2020, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership("X", SITE, MembershipKind.EXTERNAL_SUPPORT, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    save_external_support_window(conn, ExternalSupportWindow(
+        "WIN-1", "X", SITE, datetime(2026, 9, 30, 12, 0), datetime(MONTH.year, MONTH.month, 1, 0, 0), True, None,
+    ))
+
+    resp = client.get(f"/api/workspace/sites/{SITE}/overview?month={MONTH.isoformat()}")
+    assert resp.status_code == 200
+    assert resp.json()["headcount"] == 0
+
+
 def test_working_version_is_resumable():
     """Uses the same real-object fixture test_t031_schedule_api relies on
     (seed_real_object) -- a bare hand-built roster has no shift catalog and

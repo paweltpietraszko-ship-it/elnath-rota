@@ -64,15 +64,47 @@ const STATE_KEY_LABEL: Record<string, string> = {
   profile_id: "profil", required_primary_count: "wymagana liczba osób", required_rest_hours: "wymagany odpoczynek (h)",
   standard_shifts: "standardowe zmiany", start_date: "data początku", start_time: "godzina początku",
   supersedes_availability_version_id: "zastępuje wersję dostępności",
+  // Round-15 audit FINDING 6: nested site_profile/site objects (grepped
+  // from rota/application/bootstrap.py's _profile_state/_site_state) were
+  // JSON.stringify'd unchanged, still showing raw English keys one level
+  // down -- these two dicts plus their own nested fields are the exact
+  // repro, added here so the recursive renderer below can translate them.
+  day_only_blocks_n: "tylko dniówka blokuje nockę", external_support_enabled: "wsparcie zewnętrzne włączone",
+  training_s_enabled: "szkolenie włączone", training_s_weekdays_only: "szkolenie tylko w dni robocze",
+  training_s_default_readiness_threshold: "domyślny próg gotowości szkolenia",
+  rolling_7d_decision_threshold_hours: "próg decyzyjny 7-dniowy (h)",
 };
 
 function stateKeyLabel(key: string): string {
   return STATE_KEY_LABEL[key] ?? key;
 }
 
-function formatValue(value: unknown): string {
+// Round-15 audit FINDING 6: recurse into nested objects/arrays and
+// translate keys at every level, instead of JSON.stringify-ing a nested
+// value opaquely (which left raw English keys visible one level down).
+function renderStateValue(value: unknown): JSX.Element | string {
   if (value === null || value === undefined) return "—";
-  if (typeof value === "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "(brak)";
+    return (
+      <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
+        {value.map((v, i) => (
+          <li key={i}>{renderStateValue(v)}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    return (
+      <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
+        {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
+          <li key={k}>
+            {stateKeyLabel(k)}: {renderStateValue(v)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return String(value);
 }
 
@@ -84,7 +116,7 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
       <ul style={{ margin: "4px 0 0 0", paddingLeft: 18, fontSize: 12.5 }}>
         {Object.entries(state).map(([key, value]) => (
           <li key={key}>
-            {stateKeyLabel(key)}: {formatValue(value)}
+            {stateKeyLabel(key)}: {renderStateValue(value)}
           </li>
         ))}
       </ul>

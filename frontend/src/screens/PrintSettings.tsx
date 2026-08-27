@@ -5,7 +5,7 @@
 // own current settings and saves via api/routers/export.py's
 // print-settings endpoints.
 import { useEffect, useState } from "react";
-import { RESERVE_SLOT_KEYS, SitePrintSettingsIn, WORK_CODE_KEYS, WorkCodeIntervalOut, api } from "../api/client";
+import { RESERVE_SLOT_KEYS, SitePrintSettingsIn, SitePrintSettingsOut, WORK_CODE_KEYS, WorkCodeIntervalOut, api } from "../api/client";
 
 const FROZEN_WORK_CODE_HOURS: Record<string, number> = {
   D1: 12, D2: 4, D3: 24, D4: 2, D5: 24, N1: 12, N2: 16, N3: 24, N4: 24, N5: 24,
@@ -21,6 +21,18 @@ function emptySettings(): SitePrintSettingsIn {
   };
 }
 
+// Round-15 audit FINDING 1: the GET response (SitePrintSettingsOut) carries
+// site_id; the PUT body (SitePrintSettingsIn) does not and rejects extra
+// fields (extra="forbid"). TypeScript's structural typing does NOT strip
+// site_id from the runtime object just because a variable is annotated as
+// the narrower type -- it has to be dropped explicitly here.
+function toFormState(s: SitePrintSettingsOut): SitePrintSettingsIn {
+  return {
+    company_print_name: s.company_print_name, site_print_name: s.site_print_name, base_regime: s.base_regime,
+    work_code_intervals: s.work_code_intervals, reserve_hours: s.reserve_hours,
+  };
+}
+
 export default function PrintSettings({ siteId }: { siteId: string }) {
   const [form, setForm] = useState<SitePrintSettingsIn | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,7 +44,7 @@ export default function PrintSettings({ siteId }: { siteId: string }) {
     setLoading(true);
     api
       .getPrintSettings(siteId)
-      .then((s) => setForm(s ?? emptySettings()))
+      .then((s) => setForm(s ? toFormState(s) : emptySettings()))
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
   }, [siteId]);

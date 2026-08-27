@@ -38,6 +38,12 @@ class CreateShiftUnavailabilityRequest(BaseModel):
     # the checkbox itself IS the permanent decision; only a genuine
     # temporary exception carries an end date).
     effective_to: str | None = None
+    # ROTA-T021 UI audit gate (round-15 FINDING 2): every one of these five
+    # matrix mutations is a legal "Zmień Ogólna dostępność/Nocka/24" or
+    # "Zmień zapisaną regułę" response action per arch/T021_spec.md:595-596
+    # -- the application layer already accepted this parameter, only the
+    # router never exposed it.
+    responds_to_decision_required_id: str | None = None
 
 
 @router.post("/{employee_id}/matrix/shift-unavailability", status_code=204)
@@ -47,6 +53,7 @@ def create_shift_unavailability(employee_id: str, payload: CreateShiftUnavailabi
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
             shift_kind=ShiftKind(payload.shift_kind),
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -57,6 +64,7 @@ class CreateWeekdayUnavailabilityRequest(BaseModel):
     iso_weekday: int
     effective_from: str
     effective_to: str | None = None
+    responds_to_decision_required_id: str | None = None
 
 
 @router.post("/{employee_id}/matrix/weekday-unavailability", status_code=204)
@@ -66,6 +74,7 @@ def create_weekday_unavailability(employee_id: str, payload: CreateWeekdayUnavai
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
             iso_weekday=payload.iso_weekday,
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -75,6 +84,7 @@ class CreateDayOnlyExceptionRequest(BaseModel):
     site_id: str
     effective_from: str
     effective_to: str | None = None
+    responds_to_decision_required_id: str | None = None
 
 
 @router.post("/{employee_id}/matrix/day-only-exception", status_code=204)
@@ -83,6 +93,7 @@ def create_day_only_exception(employee_id: str, payload: CreateDayOnlyExceptionR
         create_day_only_n_exception(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -92,6 +103,7 @@ class UpdateMatrixRuleRequest(BaseModel):
     site_id: str
     effective_from: str
     effective_to: str | None = None
+    responds_to_decision_required_id: str | None = None
 
 
 @router.patch("/{employee_id}/matrix/{rule_id}", status_code=204)
@@ -100,6 +112,7 @@ def update_matrix_rule(employee_id: str, rule_id: str, payload: UpdateMatrixRule
         update_employee_matrix_rule_period(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, rule_id=rule_id,
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -108,6 +121,7 @@ def update_matrix_rule(employee_id: str, rule_id: str, payload: UpdateMatrixRule
 class EndMatrixRuleRequest(BaseModel):
     site_id: str
     effective_from: str
+    responds_to_decision_required_id: str | None = None
 
 
 @router.post("/{employee_id}/matrix/{rule_id}/end-early", status_code=204)
@@ -116,6 +130,7 @@ def end_matrix_rule_early(employee_id: str, rule_id: str, payload: EndMatrixRule
         end_employee_matrix_rule_early(
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, rule_id=rule_id,
             effective_from=date.fromisoformat(payload.effective_from),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
