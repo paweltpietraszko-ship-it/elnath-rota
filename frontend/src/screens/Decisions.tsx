@@ -30,13 +30,10 @@ function optionTarget(option: string): "obsada" | "obiekt" | null {
     return "obsada";
   }
   if (option.startsWith("Zmień zapisaną regułę")) return "obiekt";
-  // Round-15 audit FINDING 3: spec's full target is "Obsada -> per-employee
-  // screen -> support-window list (§9.2)" -- that support-window list does
-  // not exist anywhere yet (no API endpoint, no UI), a real missing
-  // feature comparable in size to Ręczna korekta, not a navigation-wiring
-  // fix. Routing to Obsada is a partial, honest improvement (finds the
-  // right screen, not the right employee sub-section) -- flagged, not
-  // silently claimed as the full fix.
+  // OWNER_CORRECTED (2026-08-27): "Wsparcie zewnętrzne" is the same Obsada
+  // "+ Dodaj osobę" flow (membership_kind=EXTERNAL_SUPPORT + one date
+  // range), not a separate per-employee support-window list screen --
+  // Obsada is the real, complete destination now, not a partial fallback.
   if (option.startsWith("Skonfiguruj Wsparcie zewnętrzne")) return "obsada";
   return null;
 }

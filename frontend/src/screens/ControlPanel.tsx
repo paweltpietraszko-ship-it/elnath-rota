@@ -220,6 +220,13 @@ function AddPersonPanel({
   const [selectedExisting, setSelectedExisting] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OWNER_CORRECTED (2026-08-27): Wsparcie zewnętrzne is the same "+ Dodaj
+  // osobę" flow, not a separate screen -- membership_kind + one date range
+  // the solver may use this person within.
+  const [membershipKind, setMembershipKind] = useState<"LOCAL" | "EXTERNAL_SUPPORT">("LOCAL");
+  const [windowFrom, setWindowFrom] = useState("");
+  const [windowTo, setWindowTo] = useState("");
+  const [allowedShiftKind, setAllowedShiftKind] = useState<"" | "D" | "N">("");
 
   // Generated once (brief.md section 5.1, round-9 R9-1): held until the
   // attach step succeeds, surviving re-render, "Ponów" and a reload
@@ -244,13 +251,25 @@ function AddPersonPanel({
     }
   }, [mode, siteId]);
 
+  const addSupportWindowIfNeeded = async (employeeId: string) => {
+    if (membershipKind !== "EXTERNAL_SUPPORT" || !windowFrom || !windowTo) return;
+    await api.createSupportWindow(employeeId, {
+      site_id: siteId, start_datetime: `${windowFrom}T00:00:00`, end_datetime: `${windowTo}T00:00:00`,
+      allowed_shift_kind: allowedShiftKind || null,
+    });
+  };
+
   const submit = async () => {
     setSubmitting(true);
     setError(null);
     try {
+      if (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo)) {
+        throw new Error("Podaj zakres dat, w którym solver może korzystać z tej osoby.");
+      }
       if (mode === "new") {
         await api.createEmployee({ employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly });
-        await api.attachToRoster(siteId, newEmployeeId);
+        await api.attachToRoster(siteId, newEmployeeId, membershipKind);
+        await addSupportWindowIfNeeded(newEmployeeId);
         try {
           sessionStorage.removeItem(newEmployeeIdStorageKey(siteId));
         } catch {
@@ -259,7 +278,8 @@ function AddPersonPanel({
         onAdded(newEmployeeId);
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
-        await api.attachToRoster(siteId, selectedExisting);
+        await api.attachToRoster(siteId, selectedExisting, membershipKind);
+        await addSupportWindowIfNeeded(selectedExisting);
         onAdded(selectedExisting);
       }
     } catch (e: unknown) {
@@ -281,6 +301,36 @@ function AddPersonPanel({
           Istniejący pracownik
         </button>
       </div>
+
+      <div className="chip-row" style={{ marginBottom: 14 }}>
+        <button className={`chip${membershipKind === "LOCAL" ? " chip-active" : ""}`} onClick={() => setMembershipKind("LOCAL")}>
+          Lokalny
+        </button>
+        <button className={`chip${membershipKind === "EXTERNAL_SUPPORT" ? " chip-active" : ""}`} onClick={() => setMembershipKind("EXTERNAL_SUPPORT")}>
+          Wsparcie zewnętrzne
+        </button>
+      </div>
+
+      {membershipKind === "EXTERNAL_SUPPORT" && (
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
+          <label>
+            <span className="field-label">Solver może z niej korzystać od</span>
+            <input type="date" value={windowFrom} onChange={(e) => setWindowFrom(e.target.value)} />
+          </label>
+          <label>
+            <span className="field-label">do</span>
+            <input type="date" value={windowTo} onChange={(e) => setWindowTo(e.target.value)} />
+          </label>
+          <label>
+            <span className="field-label">Ograniczenie zmiany (opcjonalnie)</span>
+            <select value={allowedShiftKind} onChange={(e) => setAllowedShiftKind(e.target.value as "" | "D" | "N")}>
+              <option value="">Dniówka i nocka</option>
+              <option value="D">Tylko dniówka</option>
+              <option value="N">Tylko nocka</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       {mode === "new" ? (
         <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -320,7 +370,11 @@ function AddPersonPanel({
           className="btn-primary"
           data-diag-action="add-person-submit"
           onClick={submit}
-          disabled={submitting || (mode === "new" ? !displayName.trim() : !selectedExisting)}
+          disabled={
+            submitting ||
+            (mode === "new" ? !displayName.trim() : !selectedExisting) ||
+            (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo))
+          }
         >
           {submitting ? "Dodawanie…" : "Dodaj"}
         </button>

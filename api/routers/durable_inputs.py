@@ -9,7 +9,7 @@ per missing date.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -18,6 +18,7 @@ from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.durable_inputs import (
+    add_external_support_window,
     append_availability,
     set_calendar_day,
     set_target_hours,
@@ -28,9 +29,11 @@ from rota.domain import (
     AvailabilityKind,
     CalendarDay,
     Employee,
+    ExternalSupportWindow,
     MembershipKind,
     ReadinessSource,
     ReadinessState,
+    ShiftKind,
     SiteMembership,
 )
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site
@@ -105,6 +108,12 @@ def update_day_only(employee_id: str, payload: UpdateDayOnlyRequest, conn=Depend
 
 class AttachRosterRequest(BaseModel):
     employee_id: str
+    # OWNER_CORRECTED (2026-08-27): "Wsparcie zewnętrzne" is not a separate
+    # feature/screen -- it's the same roster row, just membership_kind=
+    # EXTERNAL_SUPPORT (already a plain SiteMembership field, per
+    # arch/T021_spec.md's own confirmed placement). Defaults to LOCAL so
+    # every existing caller of this endpoint is unaffected.
+    membership_kind: str = "LOCAL"
 
 
 @roster_router.post("/sites/{site_id}/roster", status_code=204)
@@ -115,22 +124,47 @@ def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(ge
     per brief.md section 5.1 round-8 R8-1 -- never fabricates new
     defaults over an existing row."""
     try:
+        kind = MembershipKind(payload.membership_kind)
         existing = next(
             (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == payload.employee_id), None,
         )
         if existing is not None:
             membership = SiteMembership(
-                employee_id=payload.employee_id, site_id=site_id, membership_kind=MembershipKind.LOCAL,
+                employee_id=payload.employee_id, site_id=site_id, membership_kind=kind,
                 enabled=True, readiness_state=existing.readiness_state, readiness_source=existing.readiness_source,
                 can_work_24h=existing.can_work_24h,
             )
         else:
             membership = SiteMembership(
-                employee_id=payload.employee_id, site_id=site_id, membership_kind=MembershipKind.LOCAL,
+                employee_id=payload.employee_id, site_id=site_id, membership_kind=kind,
                 enabled=True, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.DEFAULT,
                 can_work_24h=True,
             )
         update_membership(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class CreateSupportWindowRequest(BaseModel):
+    site_id: str
+    start_datetime: str
+    end_datetime: str
+    allowed_shift_kind: str | None = None  # "D" | "N" | None (None = both)
+
+
+@roster_router.post("/employees/{employee_id}/support-window", status_code=204)
+def create_support_window(employee_id: str, payload: CreateSupportWindowRequest, conn=Depends(get_conn)) -> None:
+    """OWNER_CORRECTED (2026-08-27): the simplest possible shape -- one
+    date range the solver may use this EXTERNAL_SUPPORT person within.
+    No list/management screen, no separate feature; add_external_support_window
+    already does the real work (rota.application.durable_inputs)."""
+    try:
+        window = ExternalSupportWindow(
+            window_id=f"WIN-{employee_id}-{payload.start_datetime}", employee_id=employee_id, site_id=payload.site_id,
+            start_datetime=datetime.fromisoformat(payload.start_datetime), end_datetime=datetime.fromisoformat(payload.end_datetime),
+            active=True, allowed_shift_kind=ShiftKind(payload.allowed_shift_kind) if payload.allowed_shift_kind else None,
+        )
+        add_external_support_window(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, window=window)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 

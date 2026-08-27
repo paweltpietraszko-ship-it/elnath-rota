@@ -580,8 +580,12 @@ export const api = {
   // Roster (brief.md section 5.1)
   listRoster: (siteId: string) => req<RosterRow[]>(`/workspace/sites/${siteId}/roster`),
   listPickableEmployees: (siteId: string) => req<PickableEmployee[]>(`/workspace/sites/${siteId}/roster/pickable`),
-  attachToRoster: (siteId: string, employeeId: string) =>
-    req<void>(`/workspace/sites/${siteId}/roster`, { method: "POST", body: JSON.stringify({ employee_id: employeeId }) }),
+  attachToRoster: (siteId: string, employeeId: string, membershipKind: "LOCAL" | "EXTERNAL_SUPPORT" = "LOCAL") =>
+    req<void>(`/workspace/sites/${siteId}/roster`, { method: "POST", body: JSON.stringify({ employee_id: employeeId, membership_kind: membershipKind }) }),
+  createSupportWindow: (
+    employeeId: string,
+    payload: { site_id: string; start_datetime: string; end_datetime: string; allowed_shift_kind?: "D" | "N" | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/support-window`, { method: "POST", body: JSON.stringify(payload) }),
   updateRosterRow: (siteId: string, employeeId: string, payload: { enabled?: boolean; can_work_24h?: boolean }) =>
     req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),
 
