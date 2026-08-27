@@ -231,6 +231,78 @@ export interface CoordinatorAnalyticsViewOut {
   rows: EmployeeAnalyticsRowOut[];
 }
 
+export type CoordinatorActionKind =
+  | "CONTEXT_CONFIGURATION_SAVED"
+  | "EXTERNAL_SUPPORT_WINDOW_CHANGED"
+  | "AVAILABILITY_CHANGED"
+  | "EMPLOYEE_DAY_ONLY_CHANGED"
+  | "SITE_MEMBERSHIP_CHANGED"
+  | "TARGET_HOURS_CHANGED"
+  | "CALENDAR_DAY_CHANGED"
+  | "SITE_PROFILE_CHANGED"
+  | "SITE_ACTIVE_CHANGED"
+  | "RULE_DECISION_RECORDED"
+  | "SCHEDULE_CANDIDATE_SELECTED"
+  | "SCHEDULE_REPLAN_CREATED"
+  | "MANUAL_SCHEDULE_CORRECTION"
+  | "ASSIGNMENT_FREEZE_CHANGED"
+  | "ASSIGNMENT_NOT_WORKED"
+  | "TRAINING_REALIZED"
+  | "SCHEDULE_FINALIZED"
+  | "SCHEDULE_RESTORED";
+
+export interface AffectedEntityOut {
+  entity_kind: string;
+  entity_id: string;
+}
+
+export interface MaterialActionSummaryOut {
+  action_id: string;
+  action_kind: CoordinatorActionKind;
+  origin_site_id: string;
+  affected_site_ids: string[];
+  coordinator_id: string;
+  recorded_at: string;
+  effective_from: string | null;
+  month: string | null;
+  schedule_version_id: string | null;
+  affected_entities: AffectedEntityOut[];
+  note: string | null;
+  responds_to_decision_required_id: string | null;
+}
+
+export interface DecisionRequiredReadbackOut {
+  decision_required_id: string;
+  site_id: string;
+  month: string;
+  schedule_version_id: string | null;
+  requested_by: string;
+  recorded_at: string;
+  linked_action_ids: string[];
+}
+
+export interface MaterialActionDetailOut extends MaterialActionSummaryOut {
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  source_kind: string;
+  source_id: string | null;
+  responds_to: DecisionRequiredReadbackOut | null;
+}
+
+export interface DecisionRecordOut {
+  decision_id: string;
+  site_id: string;
+  rule_id: string;
+  chain_seq: number;
+  statement: string;
+  coordinator_id: string;
+  recorded_at: string;
+  effective_from: string;
+  rule_version_id: string | null;
+  rel: "supersedes" | "corrects" | "rejects" | null;
+  predecessor_decision_id: string | null;
+}
+
 async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const method = init?.method ?? "GET";
   const endpointTemplate = sanitizeEndpoint(path);
@@ -493,6 +565,14 @@ export const api = {
   // Analityka i bilanse (T021)
   getAnalytics: (siteId: string, month: string) =>
     req<CoordinatorAnalyticsViewOut>(`/workspace/sites/${siteId}/analytics?month=${month}`),
+
+  // Historia i audyt (T021)
+  getActionHistory: (siteId: string, actionKind?: CoordinatorActionKind) =>
+    req<MaterialActionSummaryOut[]>(
+      `/workspace/sites/${siteId}/history/actions${actionKind ? `?action_kind=${actionKind}` : ""}`,
+    ),
+  getActionDetail: (actionId: string) => req<MaterialActionDetailOut>(`/workspace/history/actions/${actionId}`),
+  getRuleHistory: (siteId: string) => req<Record<string, DecisionRecordOut[]>>(`/workspace/sites/${siteId}/history/rules`),
 };
 
 async function downloadPost(path: string, body?: string): Promise<void> {
