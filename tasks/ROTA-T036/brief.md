@@ -1,10 +1,11 @@
 # ROTA-T036 — REST/WEEKLY Deviation target bez cross-context Assignment lookup
 
-Status: **READY FOR CODEX PREIMPLEMENTATION AUDIT — CC READ-ONLY UNTIL PASS**
+Status: **READY FOR CODEX PREIMPLEMENTATION RE-AUDIT — CC READ-ONLY UNTIL PASS**
 
 BASE_MAIN_SHA: `54acdf7cfebadefe1e3370bac0a62f963c72123e`
 OWNER_INPUT: `arch/ARCHITECT_BRIEF_CROSS_CONTEXT_DEVIATION_TARGET_2026-08-27.md`
 ARCHITECT_DECISION_DATE: 2026-08-27
+R1_AUDIT: `tasks/ROTA-T036/round_01/tests/tests_r1.txt`
 
 ## 1. Problem
 
@@ -166,16 +167,33 @@ T36-08 — COVERAGE target ShiftDemand pozostaje bez zmian.
 
 T36-09 — source_reference inny niż dokładnie `REST-01`/`WEEKLY-REST-01` nie dostaje employee-target semantyki tylko dlatego, że jego category byłaby LAW.
 
-T36-10 — istniejący `tests/test_audit_t009_r6.py::test_r6_distinct_trainings_with_same_local_id_in_different_versions_both_count` przechodzi bez zmiany treści testu w scenariuszu, który ujawnił problem.
+T36-10 — stary `tests/test_audit_t009_r6.py::test_r6_distinct_trainings_with_same_local_id_in_different_versions_both_count` pozostaje **wyłącznie sibling regression**. Nie jest primary oracle T036, nie wolno go modyfikować ani rebazować tasku tylko po to, aby odtworzyć jego historycznie incydentalny układ grafiku.
 
-T36-11 — revalidate/finalize/manual-correction materializujące REST/WEEKLY przechodzą przez istniejący lifecycle bez zmian persistence.
+T36-11 — **obowiązkowy deterministyczny vertical proof w focused module T036**. Test ma przejść prawdziwym pionem:
+
+`validator.validate(...) -> materialize_deviations(...) -> istniejący schedule lifecycle / persistence validation`
+
+na realnym SQLite LocalStore i skonstruować prawdziwy `REST-01` cross-context z canonical boundary **albo** other-Site Assignmentem tak, aby:
+
+1. naruszenie dotyczyło jednego istniejącego Employee;
+2. `ViolationDetail.assignment_ids[0]` było ID Assignmentu cross-context, czyli nieobecnego w `assignments_by_id` target ScheduleVersion;
+3. drugi diagnostyczny assignment ID należał do target ScheduleVersion;
+4. oba diagnostyczne IDs pozostały bez zmian w `ViolationDetail.assignment_ids`;
+5. na zadeklarowanej bazie `54acdf7...`, przed implementacją T036, dokładnie ten pion kończył się `MalformedScheduleSnapshot` podczas lifecycle/persistence validation, ponieważ mapper próbował zapisać pierwszy cross-context Assignment jako target;
+6. po implementacji T036 ten sam pion zapisuje Deviation `category=LAW`, `source_reference="REST-01"`, `affected_assignment_or_employee=<employee_id>` i lifecycle kończy się sukcesem bez żadnej zmiany persistence.
+
+Test nie może ręcznie ominąć `validate()` ani wstrzyknąć gotowego Employee-target Deviation bez wcześniejszego realnego REST findingu. Ma dowodzić pełnego seam, który był uszkodzony.
+
+T36-12 — analogiczny pełny lifecycle nie musi być kopiowany dla WEEKLY-REST-01; focused mapper + validator boundary test z T36-02/T36-06 wystarczają, bo R1 wymaga jednego rzeczywistego failure-class vertical, nie duplikacji całego pionu.
 
 ## 9. Preimplementation reduction gate
 
-Pozostają tylko dwa konieczne ruchy:
+Pozostają tylko dwa konieczne ruchy produkcyjne:
 
 1. validator niesie jawnie employee, którego już zna podczas wyprowadzania REST/WEEKLY;
 2. mapper wybiera Employee jako trwały target dokładnie dla tych dwóch source references.
+
+Odbiór dodaje tylko jeden konieczny integration proof realnego failure seam; nie powstaje dodatkowa logika produkcyjna.
 
 Usunięte jako niepotrzebne:
 
@@ -185,24 +203,26 @@ Usunięte jako niepotrzebne:
 - assembler whitelist;
 - category-wide LAW gate;
 - duplicate lookup logic;
-- zmiany solvera/HARD.
+- zmiany solvera/HARD;
+- rebase do T034 tylko po to, by historyczny T009 test znowu przypadkowo reprodukował problem.
 
-## 10. Codex preimplementation audit
+## 10. Codex preimplementation re-audit
 
-Audit exact contract HEAD i odpowiedz:
+Re-audit exact corrected contract HEAD i nie otwieraj ponownie zaakceptowanej architektury. Sprawdź wyłącznie R1 acceptance-proof closure oraz brak sprzeczności powstałej przez tę korektę:
 
-1. Czy Employee jest prawdziwym, jednoznacznym istniejącym targetem dla REST-01/WEEKLY-REST-01 bez zmiany ich HARD semantyki?
-2. Czy `affected_employee_id` jest wyprowadzany w validatorze z już znanego employee, bez message parsing i bez drugiego ownera?
-3. Czy mapper jest gated dokładnie po source_reference `REST-01`/`WEEKLY-REST-01`, nie po `DeviationCategory.LAW`?
+1. Czy Employee pozostaje prawdziwym, jednoznacznym istniejącym targetem dla REST-01/WEEKLY-REST-01 bez zmiany HARD semantyki?
+2. Czy `affected_employee_id` nadal jest wyprowadzany w validatorze z już znanego employee, bez message parsing i bez drugiego ownera?
+3. Czy mapper nadal jest gated dokładnie po source_reference `REST-01`/`WEEKLY-REST-01`, nie po `DeviationCategory.LAW`?
 4. Czy assignment_ids pozostają dostępne diagnostycznie, mimo że trwały target jest Employee?
 5. Czy persistence pozostaje bez zmian i nadal odrzuca arbitrary cross-context Assignment targets?
 6. Czy COVERAGE i wszystkie inne source mappings pozostają bez zmian?
-7. Czy T009 reproducer z reused local assignment_id przechodzi bez wprowadzania bare-ID global lookup?
-8. Czy production scope można zamknąć w `validator.py + deviation_mapping.py`?
+7. Czy T36-11 wymaga deterministycznego realnego pionu, który na bazie reprodukuje `MalformedScheduleSnapshot`, a po T036 zapisuje LAW Deviation targetowane na Employee przy zachowaniu cross-context `assignment_ids[0]`?
+8. Czy stary T009 test jest tylko pomocniczą regresją, a nie primary proof?
+9. Czy production scope nadal zamyka się w `validator.py + deviation_mapping.py`?
 
 Required verdict:
 
 - `PASS — READY_FOR_IMPLEMENTATION`, albo
-- `FAIL` z numerowanymi defektami kontraktu.
+- `FAIL` wyłącznie dla pozostałej sprzeczności w korekcie R1.
 
 Do PASS: **CC READ-ONLY / NOT READY FOR IMPLEMENTATION**.
