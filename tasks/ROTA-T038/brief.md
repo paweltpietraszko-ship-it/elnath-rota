@@ -59,6 +59,11 @@ seed robi PLAN+REPLAN, dwa pełne wywołania solvera, nie jedno jak w T037).
 **Pełny formalny przebieg (5 seedów)**: `1 passed in 451.28s (0:07:31)`,
 zero awarii, `simulator_report.md` dołączony do commita jako dowód.
 
+backend.py gate po korekcie 2 (SHA `74f901c6378022c2e268ad49bf40f693b7593f25`):
+FAIL na `NEW_FILES: 3 new files` (te same, już zaakceptowane 3 pliki) +
+WYMAGA_DECYZJI na `TOTAL_LINES: 435` (wzrost z 385 — liczone od bazowego
+SHA `37e32da`, pełny przeprojekt). **OWNER_ACCEPTED oba, Paweł, 2026-08-28.**
+
 Base implementation SHA: `37e32da6244e4e43f504ef44b9b5a290f05a21b7` (`main`,
 po zmergowaniu T037).
 
