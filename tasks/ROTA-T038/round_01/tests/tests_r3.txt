@@ -1,0 +1,45 @@
+ROTA-T038 — reaudyt rundy 3
+
+Werdykt: PASS
+Audytowany exact SHA: c7dde5f62bca6bc05694cd79e1859d828be9d608
+
+Zakres
+
+- Sprawdzono wyłącznie dwa findings z tests_r2.txt oraz diff
+  81a4b44..c7dde5f.
+- Uruchomiono krótki niezależny reproduktor przez TestClient, produkcyjne
+  endpointy i osobną bazę SQLite :memory:.
+- Nie powtarzano pełnej, kilkuminutowej macierzy ani pełnej regresji repo:
+  implementer podał wynik 5 seedów, a niezależna kontrola objęła dokładnie
+  zmieniony kontrakt wejściowy. Commit c7dde5f zmienia już tylko dokumentację
+  i zapis bramki względem implementacji a670af4.
+
+Rozliczenie T38-R2-01 — PASS
+
+tests/property/coordinator_simulator.py:77–100 wylicza wymiar z art. 130 KP,
+a random_object_spec() przekazuje go jako target_hours niezależnie od liczby
+pracowników (linia 125).
+
+Niezależny wynik dla badanego miesiąca 2026-09:
+
+- nominal_monthly_hours_kp(2026-09-01) = 176;
+- seedy 0–4: employee_count=5 i target_hours_per_employee=176;
+- stan początkowy seed=0: dokładnie 5 × LOCAL;
+- GET /api/workspace/employees/{id}/target-hours zwrócił HTTP 200 oraz
+  {"target_hours": 176} dla każdej z pięciu osób.
+
+Rozliczenie T38-R2-02 — zamknięte jako false positive po OWNER ruling
+
+Najnowsze jawne rozstrzygnięcie właściciela przekazane do tej rundy:
+techniczny rodzaj osoby dodanej reaktywnie nie ma znaczenia; może pozostać
+LOCAL. Wymagane jest, aby nie była wpisana do obsady przed problemem zgłoszonym
+przez PLAN. Zapis w tasks/ROTA-T038/brief.md:134–145 dokumentuje tę decyzję.
+
+Mechanizm spełnia zaakceptowaną granicę: początkowy build_object() tworzy tylko
+wyliczoną pięcioosobową obsadę, natomiast hire_one_more_local() jest wywoływane
+przez sterownik dopiero po wyniku DECISION_REQUIRED
+(tests/property/test_coordinator_simulator.py:117–121). Wymóg konkretnego
+membership_kind=EXTERNAL_SUPPORT nie należy już do PRODUCT_TRUTH T038.
+
+Brak findings spełniających DEFECT_GATE. PASS dotyczy wyłącznie exact SHA
+c7dde5f62bca6bc05694cd79e1859d828be9d608.
