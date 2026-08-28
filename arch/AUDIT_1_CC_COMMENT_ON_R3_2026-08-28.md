@@ -57,6 +57,50 @@ nazwać wprost jako koszt czasowy tej rundy (podobnie jak przy Symulatorze
 Koordynatora), żeby nikt nie był zaskoczony długością przebiegu — nie jest
 to powód do zmiany metody, tylko do ustawienia oczekiwań.
 
+## Uzupełnienie — priorytet Warstwy C na dowodach z tej sesji, nie na etykiecie PR #9
+
+Poniższe NIE jest nową spekulacją — to cztery pozycje, dla których ta sama
+sesja (Symulator Koordynatora + ręczna diagnoza na `rota_dev.db`) dostarczyła
+już REALNY, ODTWARZALNY dowód, zanim Warstwa C w ogóle się zaczęła.
+Sprawdzone bezpośrednio w oryginalnym dokumencie PR #9
+(`audit/code-inventory-2026-08-28:START_HERE_CODE_INVENTORY_AUDIT_2026-08-28.md`):
+
+1. **`rota/planning/fairness.py`** — PR #9 oznaczyło to `USEFUL`
+   (linia 115), z zastrzeżeniem: *"Nie może być warunkiem poprawności
+   CM0/CM1"*. Potwierdzony dowodem: `add_dn_rhythm_reward()` zamieniła
+   SOFT preferencję w przypadkowy HARD blokier, czyniąc legalne grafiki
+   niewykonalnymi (`ARCHITECT_BRIEF_NIGHT_STREAK_24H_FALSE_POSITIVE_2026-08-28.md`,
+   `tasks/ROTA-T040/brief.md`). Zastrzeżenie PR #9 zostało złamane w
+   praktyce, nie tylko teoretycznie.
+2. **`rota/persistence/absence_reference_repository.py`** — PR #9 oznaczyło
+   to `SUSPECT` (linia 169): *"sprawdzić, czy złożoność wynika z
+   prawdziwej konieczności czy z kolejnych audytowych edge-case'ów"*.
+   Potwierdzone dowodem: luka SICK_LEAVE-przed-planem
+   (`ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md`) to dokładnie taki
+   nieprzewidziany edge-case dorzucony przy T023/T026.
+3. **Styk `rota/planning/engine.py` ↔ `rota/planning/decision_guidance.py`**
+   — PR #9 oznaczyło `decision_guidance.py` jako `USEFUL` (linia 117) z
+   zastrzeżeniem: *"nie powinna tworzyć semantyki decyzji niezależnej od
+   wyniku engine/validator"*. Potwierdzone dowodem: `engine.py` może
+   błędnie etykietować przyczynę `DECISION_REQUIRED` (raportuje
+   NIGHT-STREAK-01 lub REST-01, gdy prawdziwy defekt jest w
+   `fairness.py`) — `decision_guidance.py`/UI pokazuje wtedy koordynatorowi
+   mylącą diagnozę (`tasks/ROTA-T040/brief.md`, sekcja 1: "The reported
+   NIGHT-STREAK-01 / later REST-01 labels are not root-cause proof").
+4. **`rota/planning/validator.py::_check_coverage`** — moduł oznaczony
+   `MUST` (zaufany rdzeń), ale ma niezidentyfikowaną wcześniej lukę:
+   dwa GENUINE nakładające się zapotrzebowania z niezależnymi wymaganiami
+   dają fałszywy "nadmiar pokrycia" (ROTA-T039, opisane w
+   `tasks/ROTA-T039/brief.md` sekcja 2 tego taska). Dowód, że nawet `MUST`
+   nie jest wolne od nieprzetestowanych krawędzi — nie podważa statusu
+   `MUST` dla całego modułu, tylko wskazuje konkretną, wąską lukę w nim.
+
+**Wniosek**: te 4 pozycje mają dziś REALNY, potwierdzony incydent (nie
+hipotezę) i powinny wejść do Warstwy C jako pierwsze, przed resztą listy
+SUSPECT z mojej wcześniejszej propozycji wyżej — priorytet wg dowodu, nie
+wyłącznie wg pierwotnej etykiety PR #9 (etykieta `USEFUL` dla
+`fairness.py` nie przewidziała, gdzie faktycznie wystąpił defekt).
+
 ## Wniosek
 
 Metoda R3 gotowa do przyjęcia po jednym doprecyzowaniu: jawny zakres
