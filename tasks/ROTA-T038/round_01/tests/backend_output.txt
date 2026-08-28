@@ -1,15 +1,10 @@
-STATUS: FAIL
-HEAD_SHA: 73eb7cc9bc6319eb7893bf8dd782b092b522f84a
+STATUS: WYMAGA_DECYZJI
+HEAD_SHA: a670af4358a8320db98c801638fc204771f71c02
 CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
-REASON:
-  - NEW_FILES: 3 new files (max 2)
 WYMAGA_DECYZJI:
-  - TOTAL_LINES: 481 lines changed (threshold 150)
+  - RATIO: 35/5 = 7.0:1 (threshold 5:1)
 IMPORTERS_FOR_REVIEW:
   - tests\property\test_coordinator_simulator.py
 EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T038/round_01/tests/tests_r2.txt
   - tasks/ROTA-T038/brief.md
-  - tasks/ROTA-T038/repo_before.hash
-  - tasks/ROTA-T038/round_01/tests/backend_output.txt
-  - tasks/ROTA-T038/round_01/tests/simulator_report.md
-  - tasks/ROTA-T038/round_01/tests/tests_r1.txt

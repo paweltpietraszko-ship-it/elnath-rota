@@ -155,6 +155,9 @@ symulatora — kandydat na kolejną rundę.
 Pełny formalny przebieg po tej korekcie (5 seedów): `1 passed in 226.22s
 (0:03:46)`, zero awarii, `target_hours=176` potwierdzone dla wszystkich.
 
+backend.py gate (od SHA `7e28f0d` do `a670af4`, ten konkretny fix):
+WYMAGA_DECYZJI `RATIO: 7.0:1`. **OWNER_ACCEPTED, Paweł, 2026-08-28.**
+
 ## 7a. KOREKTA 3 (Codex round-1 FAIL naprawiony) + produktowe znalezisko
 
 Naprawione dokładnie 3 findings z `tests_r1.txt` (commit `d153d05`, exact
