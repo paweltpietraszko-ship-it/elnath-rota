@@ -1,6 +1,10 @@
 # ROTA-T037 — Ręczna korekta wbudowana w Planowanie miesiąca + Wydruk jako sekcja
 
-Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu**
+Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu Codex**
+
+backend.py gate: WYMAGA_DECYZJI na SHA `4e03855e5fa4b1efa56e9a24d1614c147f1c8cdc`
+(RATIO 45.8:1, TOTAL_LINES 468 — nowy router + nowy plik testowy, mało
+zmian w istniejącym kodzie). **OWNER_ACCEPTED, Paweł, 2026-08-28.**
 
 Base implementation SHA: `aa6330cd32d3f891777cc148805527bc307bd719` (`main`,
 po zmergowaniu T021).
@@ -32,13 +36,15 @@ Kolejne, jawne rozstrzygnięcia tej samej rozmowy:
 TASK_SCOPE:
 - api/main.py
 - api/errors.py
-- api/routers/manual_edit.py (nowy plik)
+- api/routers/manual_edit.py
 - frontend/src/api/client.ts
 - frontend/src/screens/Room.tsx
 - frontend/src/screens/MonthlyPlanning.tsx
 - tests/test_t037_manual_edit_api.py
-- run_dev.bat (nowy plik, dev-convenience na wyraźną prośbę właściciela —
-  odpala backend `.venv`/uvicorn:8123 + frontend vite:5173 w dwóch oknach)
+
+`run_dev.bat` (dev-convenience uruchamiania backend+frontend, na wyraźną
+prośbę właściciela) dostarczony osobnym commitem POZA tym zakresem/bramką
+— nie dotyka `rota/**`/`api/**`, zerowe ryzyko produktowe.
 
 ## 1. Wynik dla właściciela
 
