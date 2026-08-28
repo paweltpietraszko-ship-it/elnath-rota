@@ -1,0 +1,100 @@
+ROTA-T038 — niezależny audyt Codex, runda 1 po OWNER_CORRECTED
+Data: 2026-08-28
+
+VERDICT: FAIL
+AUDITED_SHA: 1e72cc9d602f8cd8d15fa09104599b784c13970e
+BASE_SHA: 37e32da6244e4e43f504ef44b9b5a290f05a21b7
+
+Audyt zatrzymano na konfiguracji świata przed pierwszym PLAN-em. Trzy
+niezgodności są deterministyczne i powstają zanim uruchomi się solver;
+wykonywanie pięciu kosztownych PLAN+REPLAN na takim wejściu nie dostarczyłoby
+dodatkowego dowodu.
+
+FINDING T38-R1-01 — symulator dodaje szóstego LOCAL do obiektu pięcioosobowego
+-----------------------------------------------------------------------------
+
+TRACE
+- OWNER_CORRECTED 2026-08-28: liczebność stałej załogi wynika z obiektu;
+  solver nie może dostać dodatkowych osób dla łatwiejszego grafiku.
+- Dla pojedynczej całodobowej obsady uzgodniony obiekt ma 5 LOCAL.
+
+OWNERSHIP
+- tests/property/coordinator_simulator.py sam tworzy ObjectSpec i obsadę,
+  więc ten moduł jest właścicielem wejścia przekazywanego solverowi.
+
+REPRO
+- coordinator_simulator.py:37 ustawia przybliżenie 160h;
+- coordinator_simulator.py:38 dodaje stały STAFFING_MARGIN=1;
+- coordinator_simulator.py:94 liczy ceil(monthly_hours_needed / 160) + 1;
+- dla września 2026 i 720h daje to 6 LOCAL;
+- niezależny odczyt random_object_spec dla seedów 0..4 na exact SHA:
+  [(0,720,6,0,6), (1,720,6,0,6), (2,720,6,1,7),
+   (3,720,6,0,6), (4,720,6,0,6)]
+- dołączony raport autora potwierdza 6 osób już w seedzie 0:
+  simulator_report.md:6.
+
+FINDING T38-R1-02 — LOCAL nie otrzymują rzeczywistego target_hours
+------------------------------------------------------------------
+
+TRACE
+- OWNER_CORRECTED 2026-08-28: każdy LOCAL przed PLAN-em otrzymuje rzeczywisty
+  target_hours właściwy dla badanego miesiąca/okresu rozliczeniowego; 168 ani
+  160 nie są kanoniczną stałą.
+
+OWNERSHIP
+- Symulator odtwarza wejścia koordynatora i tworzy wszystkich pracowników.
+  Ustawienie targetu przez istniejący endpoint należy więc do jego drivera.
+
+REPRO
+- W coordinator_simulator.py nie istnieje wywołanie endpointu target-hours.
+- Niezależny pion build_object(TestClient, SQLite :memory:) dla seed=2,
+  przed PLAN-em, odczytał dla SIM-2-EMP-0..5:
+  {"target_hours": null} dla każdego LOCAL.
+- REALISTIC_HOURS_PER_EMPLOYEE=160 jest używane wyłącznie do własnego
+  przybliżenia headcountu; nie staje się wejściem target_hours programu.
+
+FINDING T38-R1-03 — wsparcie zewnętrzne istnieje przed propozycją solvera
+----------------------------------------------------------------------------
+
+TRACE
+- OWNER_CORRECTED 2026-08-28: wsparcie nie istnieje przed PLAN-em; można je
+  utworzyć dopiero po rzeczywistej produkcyjnej propozycji i automatycznej
+  zgodzie koordynatora.
+
+OWNERSHIP
+- Symulator tworzy roster i kolejność działań koordynatora przed PLAN-em.
+
+REPRO
+- coordinator_simulator.py:105 losuje external_count w ObjectSpec;
+- coordinator_simulator.py:223-228 wywołuje _add_external_support podczas
+  build_object(), przed _run_plan();
+- niezależny GET roster po build_object(seed=2), nadal przed PLAN-em, zwrócił
+  6 LOCAL oraz aktywnego SIM-2-EXT-0 z membership_kind=EXTERNAL_SUPPORT;
+- ten sam odczyt targetów zwrócił null również dla osoby zewnętrznej;
+- raport autora na simulator_report.md:26 nazywa te 7 osób zadeklarowaną
+  obsadą, czyli włącza wcześniejsze wsparcie do obiektu zamiast czekać na
+  propozycję produkcyjną.
+
+Dodatkowa obserwacja kontraktowa
+--------------------------------
+brief.md po sekcji „KOREKTA 2” nadal zawiera pełne stare sekcje v1, które
+ponownie opisują losowe 4-8/1-2 osób, wsparcie w seedzie, brak REPLAN i dawną
+macierz 10 seedów. Dokument jest wewnętrznie sprzeczny. Powyższe findings nie
+opierają się jednak na tej sprzeczności — mają bezpośredni TRACE do jawnego
+OWNER_CORRECTED i niezależny REPRO na exact SHA.
+
+Warstwy audytu
+--------------
+1. HEAD == origin/task/ROTA-T038 == AUDITED_SHA.
+2. Przejrzano pełny diff KOREKTA 2, generator, driver i dołączony raport.
+3. Uruchomiono niezależny pion konfiguracji przez FastAPI TestClient i SQLite
+   :memory:, bez solvera: ObjectSpec -> build_object -> roster/target readback.
+4. Nie uruchamiano pięciu seedów PLAN+REPLAN ani pełnej regresji repo, ponieważ
+   kontrakt wejścia jest już złamany przed pierwszym wywołaniem solvera.
+
+STOP
+----
+To druga korekta granicy symulatora, a te same jawne warunki nadal nie są
+spełnione. Raport nie proponuje kolejnej architektury. Implementacja wymaga
+mechanicznego dostosowania do zamrożonych decyzji Ownera przed reaudytowaniem
+wyników PLAN/REPLAN.
