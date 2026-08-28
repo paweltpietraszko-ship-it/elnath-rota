@@ -1,6 +1,6 @@
 # BRIEF WYKONAWCZY — AUDYT KODU (WARSTWY A-E)
 
-**Stan:** SKONSOLIDOWANY PO CODEX REVIEW R1-R4 — gotowy do wykonania,
+**Stan:** SKONSOLIDOWANY PO CODEX REVIEW R1-R5 I OWNER_CORRECTED — gotowy do wykonania,
 chyba że pojawi się nowe zachowanie widoczne dla właściciela (Codex R4,
 sekcja 7). Historia rund: `AUDIT_1_BASELINE_CODEX_REVIEW_2026-08-28.md`
 (R1-2, `WYMAGA_KOREKTY`), `AUDIT_1_CODEX_REVIEW_R3_PROPER_CODE_AUDIT_2026-08-28.md`
@@ -25,11 +25,35 @@ nie klasyfikuje sam własnych warstw jako potrzebnych.
 
 Zebrać na dokładnie `BASE_SHA` powyżej:
 
-1. Pełny `pytest` → `tasks/ROTA-AUDIT1/round_01/tests/pytest.txt`.
-2. `python -m benchmarks.rota_stress --cases 100 --seed 20260812 --json
-   tasks/ROTA-AUDIT1/round_01/tests/rota_stress.json`.
-3. `python -m benchmarks.real_object --suite all --json
-   tasks/ROTA-AUDIT1/round_01/tests/real_object.json`.
+1. Pełny `pytest`, ale bez drugiego uruchomienia kosztownego Symulatora:
+   `python -m pytest -q --ignore=tests/property/test_coordinator_simulator.py`
+   → `tasks/ROTA-AUDIT1/round_01/tests/pytest.txt`.
+2. Symulator Koordynatora dokładnie raz, z przekierowaniem jego raportu do
+   artefaktów AUDIT-1 zamiast nadpisania śledzonego raportu T038:
+
+   ```text
+   python -c "from pathlib import Path; import tests.property.test_coordinator_simulator as s; s.REPORT_PATH=Path(r'tasks/ROTA-AUDIT1/round_01/tests/coordinator_simulator.md'); s.test_coordinator_simulator_report()"
+   ```
+
+3. Zapisać `tasks/ROTA-AUDIT1/round_01/tests/baseline_manifest.md` z exact
+   SHA, komendami, exit statusami i jawną adnotacją, że dwa stare benchmarki
+   NIE ZOSTAŁY URUCHOMIONE.
+
+**OWNER_CORRECTED 2026-08-28:** `benchmarks.rota_stress` i
+`benchmarks.real_object` mają znany niemiarodajny model wejścia: potrafią
+dobrać do obiektu wymagającego pięciu osób dowolnie większą obsadę i przez to
+nie odtwarzają pracy koordynatora. Nie są baseline'em produktu ani nawet
+użytecznym pomiarem historycznym. Usunięte z wykonania AUDIT-1; nie zastępować
+ich innym generatorem.
+
+Symulator Koordynatora jest dopuszczony, ponieważ zaczyna od obsady
+wyprowadzonej z zapotrzebowania obiektu, prowadzi produkcyjne PLAN/REPLAN i
+dopisuje pracownika dopiero w jawnej reakcji na rzeczywiste
+`DECISION_REQUIRED`. Jego własna asercja „nic nie wybuchło” nie jest
+werdyktem. Codex ocenia raport jako fakty: wejściową i końcową obsadę, warunki
+każdego zatrudnienia, użytych pracowników oraz statusy i powody PLAN/REPLAN.
+Rozkład godzin, którego obecny raport Symulatora nie zawiera, pozostaje
+niezależnym dowodem pionowym Warstwy B/C — nie wolno go sobie dopowiadać.
 
 Wynik tej warstwy NIE otrzymuje werdyktu "program poprawny" — oznacza
 wyłącznie "tak zachowuje się obecna siatka testowa na tym SHA, przed
@@ -81,9 +105,11 @@ Format: `tasks/ROTA-AUDIT1/round_01/tests/vertical_scenarios.md`, jeden
 wpis na scenariusz. Nieudany scenariusz zapisuje się i przechodzi do
 następnego — brak pokrycia nie uruchamia automatycznie pisania testu.
 
-## Warstwa C — cztery zamknięte, potwierdzone incydenty (Codex R4, sekcja 3)
+## Warstwa C — potwierdzone incydenty
 
-Zamknięty zakres. Żadna pozycja SUSPECT z PR #9 bez własnego odtwarzalnego
+Pierwotny zakres C-01..C-04 został zamknięty w Codex R4. C-05 doszedł później
+na podstawie nowej, bezpośredniej reprodukcji właściciela. Żadna pozycja
+SUSPECT z PR #9 bez własnego odtwarzalnego
 incydentu nie wchodzi tutaj — idzie do Warstwy D.
 
 **C-01 — H24 fałszywie niewykonalne.** Wejście: zwykły obiekt H24, 5
@@ -114,9 +140,20 @@ zachowanie wymaga OWNER_DECISION, ale sam rozjazd read/write jest
 odrębnym, udokumentowanym incydentem. Źródło:
 `ARCHITECT_BRIEF_SHIFT_CATALOG_STALE_WORKING_VERSION_2026-08-28.md`.
 
-Dla każdego C-01..C-04: wypełnić pełną tabelę CLAIM/TRACE/ENTRYPOINT/
+**C-05 — eligible LOCAL bez targetu znika z całego targetowego celu
+sprawiedliwości.** Live Test1, wrzesień 2026: pięciu LOCAL, cztery targety
+176 h, jeden brakujący; każdy kandydat daje rozkład 168/168/168/168/48.
+Assembler pomija pracownika w `state.work_balances`, a solver buduje
+TARGET-01 i target equity wyłącznie z tego zbioru. Stare rozstrzygnięcia nadal
+zakazują zgadywania targetu i blokowania PLAN; późniejsze rozstrzygnięcie
+właściciela wymaga jednak domyślnego uczciwego podziału także przy tej luce.
+Źródło na exact `docs/worker-omitted-from-fairness-objective@3328ce0`:
+`arch/ARCHITECT_BRIEF_EMPLOYEE_OMITTED_FROM_FAIRNESS_OBJECTIVE_2026-08-28.md`
+oraz `arch/CODEX_HANDOFF_CONSOLIDATED_SCHEDULE_UX_REPAIR_2026-08-28.md`.
+
+Dla każdego C-01..C-05: wypełnić pełną tabelę CLAIM/TRACE/ENTRYPOINT/
 REACHABILITY/REPRO/USER EFFECT/OWNER/CLASS (Codex R3, sekcja 5) w
-`tasks/ROTA-AUDIT1/round_01/tests/pr9_findings_c01_c04.md`.
+`tasks/ROTA-AUDIT1/round_01/tests/confirmed_incidents_c01_c05.md`.
 
 ## Warstwa D — strukturalny remanent wszystkich pozycji SUSPECT z PR #9
 
