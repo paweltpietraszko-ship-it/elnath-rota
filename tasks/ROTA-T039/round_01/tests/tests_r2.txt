@@ -1,0 +1,57 @@
+ROTA-T039 — reaudyt rundy 2
+
+Werdykt: PASS
+Audytowany exact SHA: 6531e24f05dc3cf1f6328ad2f88db243833f4f4c
+
+Zamrożone rozstrzygnięcie właściciela
+
+OWNER_ACCEPTED, 2026-08-28: wariant 12 h + 8 h zostaje wycofany z T039
+i pozostaje jawnie nieobsługiwany. T039 obejmuje trzy kształty:
+D_N_12H, SINGLE_24H oraz WEEKDAY_12H_WEEKEND_24H.
+
+Zakres audytu
+
+- Sprawdzono diff 619b789..6531e24 i oba findings rundy 1.
+- Niezależnie wyliczono macierz domyślnych seedów oraz godziny, liczebność
+  obsady i target_hours.
+- Uruchomiono pionowy przebieg nowego WEEKDAY_12H_WEEKEND_24H przez
+  produkcyjne endpointy, SQLite :memory:, PLAN i reakcję koordynatora.
+- Nie powtarzano pełnej regresji repo ani całego pięcioseedowego przebiegu;
+  implementer podał jego wynik, a niezależna kontrola objęła zmienione ścieżki.
+
+Rozliczenie T39-R1-01 — zamknięte po OWNER_ACCEPTED
+
+SPLIT_NIGHT_12_8 nie należy już do PRODUCT_TRUTH T039. Został usunięty z
+_CATALOG_ROWS, a jego nieobsługiwany stan jest jawnie zapisany w briefie oraz
+komentarzu przy katalogach. Nie ma pozostałości, która przedstawiałaby układ
+4 h + 8 h + 8 h jako zaakceptowany układ 12 h + 8 h.
+
+Rozliczenie T39-R1-02 — PASS
+
+tests/property/coordinator_simulator.py:169–183 wybiera kształty
+deterministycznym cyklem. Niezależny wynik dla domyślnych seedów 0–4:
+
+- 0: D_N_12H,
+- 1: D_N_12H,
+- 2: SINGLE_24H,
+- 3: WEEKDAY_12H_WEEKEND_24H,
+- 4: D_N_12H.
+
+Wszystkie trzy zaakceptowane kształty występują więc w zwykłym uruchomieniu.
+Dla każdego kontrola zwróciła monthly_hours_needed=720, obsadę początkową
+5 osób i target_hours=176.
+
+Pionowy reproduktor seed=3
+
+- zbudowany kształt: WEEKDAY_12H_WEEKEND_24H / OCHRONA;
+- obsada początkowa: 5 osób;
+- brak absencji początkowych;
+- produkcyjny PLAN i kolejne reakcje nie zwróciły wyjątku ani 5xx;
+- wynik końcowy: DECISION_REQUIRED po wykorzystaniu czterech dozwolonych
+  reakcji koordynatora.
+
+DECISION_REQUIRED jest zaakceptowanym wynikiem raportującym zachowanie
+programu, nie defektem symulatora.
+
+Brak findings spełniających DEFECT_GATE. PASS dotyczy wyłącznie exact SHA
+6531e24f05dc3cf1f6328ad2f88db243833f4f4c.
