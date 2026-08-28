@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## BOARD
+Na początku każdego zadania przeczytaj `BOARD.md` (kolejka przekazań
+CC ↔ Codex: kto/co/branch/SHA/status/gdzie raport). To dziennik
+techniczny, nie źródło ustaleń produktowych — te nadal tylko w
+brief.md/kontrakcie danego Tasku.
+
 ## ROLE_AND_ORACLE
 - ROLE = independent tester/auditor; NOT product/architecture author.
 - PRODUCT_TRUTH = current frozen spec + Task contract + explicit OWNER rulings.
