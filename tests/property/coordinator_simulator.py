@@ -37,14 +37,81 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from fastapi.testclient import TestClient
 
-from rota.domain import AvailabilityKind, CalendarDay
+from rota.domain import AvailabilityKind, CalendarDay, ShiftKind, StandardShift
 from rota.persistence.calendar_repository import save_calendar_day
+from rota.planning.shift_catalog import shift_duration_hours
 
 REALISTIC_HOURS_PER_EMPLOYEE = 160  # a plain, documented approximation of a full-time month, not a hidden constant
+
+WEEKDAYS = (1, 2, 3, 4, 5)  # ISO Mon-Fri
+WEEKEND = (6, 7)  # ISO Sat-Sun
+ALL_WEEK = (1, 2, 3, 4, 5, 6, 7)
+
+# Owner request 2026-08-28: heterogeneous catalogs, not just one uniform
+# shift shape per object. Each row is (kind, start, end, required_primary_count,
+# active_weekdays) -- rota/planning/shift_catalog.py::generate_catalog_demands
+# already documents "Multiple entries and overlaps are legal and generate
+# independent occurrences", confirmed by reading the code, not assumed.
+_CATALOG_ROWS: dict[str, list[tuple[str, time, time, int, tuple[int, ...]]]] = {
+    "D_N_12H": [
+        ("D", time(5, 0), time(17, 0), 1, ALL_WEEK),
+        ("N", time(17, 0), time(5, 0), 1, ALL_WEEK),
+    ],
+    "SINGLE_24H": [
+        ("D", time(8, 0), time(8, 0), 1, ALL_WEEK),
+    ],
+    # Weekday 12h D/N, weekend a single 24h shift -- same total daily hours
+    # (24h either way) but a different catalog SHAPE by day of week.
+    "WEEKDAY_12H_WEEKEND_24H": [
+        ("D", time(6, 0), time(18, 0), 1, WEEKDAYS),
+        ("N", time(18, 0), time(6, 0), 1, WEEKDAYS),
+        ("D", time(6, 0), time(6, 0), 1, WEEKEND),
+    ],
+}
+_SHAPES_WITH_NIGHT = ("D_N_12H", "WEEKDAY_12H_WEEKEND_24H")
+
+# NOT IMPLEMENTED (owner ruling 2026-08-28, ROTA-T039 Codex round-1 FAIL):
+# a night post covered by two people of different durations (owner's real
+# example: one works 18-6 continuously (12h), the other only 22-6 (8h)).
+# Two attempts failed for structural reasons, not test bugs:
+#   1. two truly OVERLAPPING demands (18-6 req=1, 22-6 req=1) -- validator's
+#      _check_coverage counts ANY geometrically-overlapping PRIMARY toward
+#      EVERY demand it overlaps (explicitly "not covers_demand_id tagging"),
+#      so they falsely double-count each other as COVERAGE-01 excess
+#      -> TECHNICAL_ERROR;
+#   2. two ADJACENT, non-overlapping demands (18-22 req=1, 22-6 req=2) --
+#      passes the validator, but nothing forces employee continuity across
+#      them: the solver split the actual FEASIBLE candidate into three
+#      unrelated fragments (4h+8h+8h across 3 different employees), never
+#      one continuous 18-6 person (confirmed via Codex's independent
+#      reproduction, tasks/ROTA-T039/round_01/tests/tests_r1.txt T39-R1-01).
+#      The only same-employee-continuity mechanism in the product
+#      (rota/planning/constraints.py:493-535) is hardcoded to
+#      catalog_kind=H24 pairs, not general-purpose.
+# Owner decision: leave this pattern unhandled until a real need shows up --
+# do not keep guessing workarounds. A real fix needs either a validator
+# change (overlapping demands with independent requirements) or a
+# generalized continuity mechanism, both out of this simulator's scope.
+
+
+def _row_hours(start: time, end: time) -> float:
+    return shift_duration_hours(StandardShift(ShiftKind.D, start, end, end <= start, 1))
+
+
+def monthly_hours_for_shape(shift_shape: str, month: date) -> int:
+    """Sums the REAL implied workload from the catalog rows themselves --
+    no separate hardcoded formula to drift out of sync with the catalog."""
+    rows = _CATALOG_ROWS[shift_shape]
+    total = 0.0
+    for day in _month_dates(month):
+        for _kind, start, end, required, active_weekdays in rows:
+            if day.isoweekday() in active_weekdays:
+                total += _row_hours(start, end) * required
+    return round(total)
 
 
 @dataclass(frozen=True)
@@ -55,7 +122,7 @@ class ObjectSpec:
 
     seed: int
     month: date
-    shift_shape: str  # "D_N_12H" | "SINGLE_24H"
+    shift_shape: str  # one of _CATALOG_ROWS's keys
     regime: str  # "ORDINARY" | "OCHRONA"
     rolling_7d_threshold_hours: int
     monthly_hours_needed: int
@@ -100,32 +167,33 @@ def nominal_monthly_hours_kp(month: date, holidays: frozenset[date] = frozenset(
 
 
 def random_object_spec(seed: int, month: date) -> ObjectSpec:
-    """seed=0 is reserved for the simplest realistic object (D/N, 1 post,
+    """seed=0 is reserved for the simplest realistic object (plain D/N,
     ORDINARY) -- the "everyone available -> nice schedule" baseline from
-    the owner's own description. posts is fixed at 1 (see brief.md for the
-    ~90s/seed measurement that ruled out varying it in this round)."""
+    the owner's own description. Every other seed cycles DETERMINISTICALLY
+    through _CATALOG_ROWS's shapes (Codex round-1 FINDING T39-R1-02: a
+    random.choice() left the default 5-seed sweep never exercising any new
+    shape at all) -- guarantees every shape appears within the default seed
+    range instead of leaving it to chance."""
     rng = random.Random(seed)
-    days = _days_in_month(month)
-    posts = 1
+    shapes = list(_CATALOG_ROWS)
 
     if seed == 0:
         shift_shape, regime = "D_N_12H", "ORDINARY"
     else:
-        shift_shape = rng.choice(["D_N_12H", "SINGLE_24H"])
-        regime = "OCHRONA" if shift_shape == "SINGLE_24H" else rng.choice(["ORDINARY", "OCHRONA"])
+        shift_shape = shapes[(seed - 1) % len(shapes)]
+        regime = "OCHRONA" if shift_shape in ("SINGLE_24H", "WEEKDAY_12H_WEEKEND_24H") else rng.choice(["ORDINARY", "OCHRONA"])
 
-    # Both shapes cover the post around the clock -- 24h/day of coverage per
-    # post either way (D+N together, or one 24h shift) -- so the same
-    # formula applies to both; shape varies the CATALOG, not the hours math.
-    monthly_hours_needed = 24 * posts * days
+    # Summed from the actual catalog rows (see monthly_hours_for_shape) --
+    # never a separate hardcoded formula that could drift from the catalog.
+    monthly_hours_needed = monthly_hours_for_shape(shift_shape, month)
     employee_count = math.ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE)
     # T38-R2-01: the REAL statutory monthly norm for every full-time
     # employee (art. 130 KP), independent of headcount -- never a share of
     # this object's own workload.
     target_hours_per_employee = nominal_monthly_hours_kp(month)
 
-    if shift_shape == "D_N_12H":
-        max_day_only = max(0, employee_count - max(posts + 2, 3))
+    if shift_shape in _SHAPES_WITH_NIGHT:
+        max_day_only = max(0, employee_count - 3)
         day_only_count = rng.randint(0, max_day_only) if seed != 0 else 0
         day_only_indices = tuple(sorted(rng.sample(range(employee_count), day_only_count)))
     else:
@@ -201,16 +269,13 @@ def _create_site(client: TestClient, spec: ObjectSpec) -> str:
 
 
 def _put_shift_catalog(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
-    all_week = [1, 2, 3, 4, 5, 6, 7]
-    if spec.shift_shape == "D_N_12H":
-        shifts = [
-            {"kind": "D", "start_time": "05:00", "end_time": "17:00", "required_primary_count": 1, "active_weekdays": all_week},
-            {"kind": "N", "start_time": "17:00", "end_time": "05:00", "required_primary_count": 1, "active_weekdays": all_week},
-        ]
-    else:
-        shifts = [
-            {"kind": "D", "start_time": "08:00", "end_time": "08:00", "required_primary_count": 1, "active_weekdays": all_week},
-        ]
+    shifts = [
+        {
+            "kind": kind, "start_time": start.strftime("%H:%M"), "end_time": end.strftime("%H:%M"),
+            "required_primary_count": required, "active_weekdays": list(active_weekdays),
+        }
+        for kind, start, end, required, active_weekdays in _CATALOG_ROWS[spec.shift_shape]
+    ]
     resp = client.put(f"/api/workspace/sites/{site_id}/shift-catalog", json={"shifts": shifts})
     assert resp.status_code == 204, resp.text
 
