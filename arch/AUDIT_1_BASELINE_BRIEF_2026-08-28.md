@@ -109,15 +109,20 @@ następnego — brak pokrycia nie uruchamia automatycznie pisania testu.
 
 Pierwotny zakres C-01..C-04 został zamknięty w Codex R4. C-05 doszedł później
 na podstawie nowej, bezpośredniej reprodukcji właściciela. Żadna pozycja
-SUSPECT z PR #9 bez własnego odtwarzalnego
-incydentu nie wchodzi tutaj — idzie do Warstwy D.
+SUSPECT z PR #9 bez własnego odtwarzalnego incydentu nie wchodzi tutaj — idzie
+do Warstwy D. Opis mechanizmu przy incydencie jest hipotezą wejściową, nie
+werdyktem przyczyny; staje się ustaleniem AUDIT-1 dopiero po niezależnym
+TRACE/OWNERSHIP/REPRO na `BASE_SHA`.
 
 **C-01 — H24 fałszywie niewykonalne.** Wejście: zwykły obiekt H24, 5
 LOCAL, wrzesień 2026. Objaw: PLAN zwraca DECISION_REQUIRED mimo
-istniejącego HARD-valid świadka. Potwierdzona przyczyna:
-`fairness.add_dn_rhythm_reward()` używa licznika occupancy `2*x` jak
-Boolean, tworząc przypadkowy zakaz HARD. Mylące etykiety
-NIGHT-STREAK-01/REST-01 to skutek tego samego UNSAT, nie osobny incydent.
+istniejącego HARD-valid świadka. Kandydat root cause do niezależnego
+potwierdzenia albo obalenia: `fairness.add_dn_rhythm_reward()` używa licznika
+occupancy `2*x` jak Boolean i może tworzyć przypadkowy zakaz HARD. Hipoteza
+pomocnicza: mylące etykiety NIGHT-STREAK-01/REST-01 mogą być skutkiem tego
+samego UNSAT, a nie osobnym incydentem. AUDIT-1 nie dziedziczy żadnej z tych
+diagnoz jako prawdy wejściowej i ma sprawdzić również, czy istnieje dodatkowy
+mechanizm prowadzący do tego samego objawu.
 Źródło: `ARCHITECT_BRIEF_NIGHT_STREAK_24H_FALSE_POSITIVE_2026-08-28.md`,
 `tasks/ROTA-T040/brief.md`.
 
@@ -157,6 +162,14 @@ REACHABILITY/REPRO/USER EFFECT/OWNER/CLASS (Codex R3, sekcja 5) w
 
 ## Warstwa D — strukturalny remanent wszystkich pozycji SUSPECT z PR #9
 
+Zamrożone źródło zakresu:
+
+- PR #9 exact head: `f2eba6ce97d19d03fbef3c7bd4fe3c417ff55a05`;
+- plik: `START_HERE_CODE_INVENTORY_AUDIT_2026-08-28.md` z tego exact head.
+
+Późniejsze commity lub zmiany statusu otwartego/draft PR #9 nie zmieniają
+zakresu tego wykonania AUDIT-1.
+
 Bez własnego odtwarzalnego incydentu (jeśli Warstwa D ujawni konkretny
 błąd, powstaje NOWY wiersz Warstwy C z dowodem, nie wcześniej). Dla
 każdej pozycji SUSPECT z `START_HERE_CODE_INVENTORY_AUDIT_2026-08-28.md`
@@ -170,7 +183,27 @@ kto jest jedynym właścicielem reguły, ilu ma konsumentów produkcyjnych,
 czy istnieje równoległa implementacja tej samej decyzji, czy kod służy
 wyłącznie testom/benchmarkowi, czy usunięcie naruszyłoby safety/recovery/
 auditability. Klasyfikacja: `KEEP / DUPLICATE / DEAD / TEST_ONLY / DEFECT /
-OWNER_DECISION`.
+OWNER_DECISION / EVIDENCE_GAP`.
+
+Minimalne progi dowodowe:
+
+- `KEEP` — literalny TRACE w PRODUCT_TRUTH oraz co najmniej jeden osiągalny
+  produkcyjny konsument/call path; sam zielony test nie wystarcza;
+- `DEAD` — brak produkcyjnego entrypointu, rejestracji i osiągalnego call path
+  oraz brak trwałego kontraktu wymagającego tego kodu;
+- `TEST_ONLY` — potwierdzeni callerzy istnieją wyłącznie w testach,
+  benchmarkach lub tooling, bez produkcyjnej rejestracji pośredniej;
+- `DUPLICATE` — dwie osiągalne ścieżki podejmują tę samą decyzję produktową
+  dla tego samego rodzaju wejścia, ze wskazanym kanonicznym ownerem; jeżeli
+  wyniki mogą się rozjechać, dołączyć reprodukcję tego rozjazdu;
+- `DEFECT` — deterministyczny REPRO na exact SHA sprzeczny z konkretnym TRACE,
+  przy potwierdzonym ownership badanej warstwy;
+- `OWNER_DECISION` — obie lub wszystkie zachowawcze interpretacje pozostają
+  zgodne z dostępnym kontraktem, a wybór zmieni zachowanie widoczne dla
+  użytkownika;
+- `EVIDENCE_GAP` — obowiązkowy wynik, gdy któregokolwiek minimum potrzebnego
+  do mocniejszej klasyfikacji nie da się wykazać. Nie zastępować go opinią
+  architektoniczną ani podobieństwem nazw/kształtu kodu.
 
 Format: `tasks/ROTA-AUDIT1/round_01/tests/suspect_inventory.md`.
 
@@ -193,3 +226,14 @@ Ten brief jest gotowy do wykonania (Codex R4: "nie potrzeba kolejnej rundy
 projektowania"). `task_init.py ROTA-AUDIT1` przed startem Warstwy A.
 `backend.py` nie dotyczy Warstw A-D (brak zmian w kodzie produktowym,
 tylko raporty).
+
+## Granice wnioskowania
+
+AUDIT-1 może wykazać działanie albo awarię konkretnego pionu na `BASE_SHA`,
+reprodukowalność konkretnego incydentu, rzeczywisty przebieg ownership,
+osiągalną duplikację oraz produkcyjną martwość/test-only badanego kodu.
+
+AUDIT-1 nie może wykazać, że cały pozostały program jest poprawny, że nie
+istnieją inne błędy ani że 11 zielonych scenariuszy obejmuje wszystkie
+kombinacje wejść. Brak dowodu problemu poza przebadanym zakresem nie jest
+dowodem jego nieistnienia.
