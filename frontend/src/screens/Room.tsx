@@ -21,24 +21,30 @@ const NAV_ITEMS = [
 ];
 
 const BUILT_NAV_ITEMS = new Set([
-  "Przegląd", "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Historia i audyt",
-  "Analityka i bilanse", "Wydruk Grafiku",
+  "Przegląd", "Panel sterowania", "Planowanie miesiąca", "Decyzje koordynatora", "Ręczna korekta",
+  "Historia i audyt", "Analityka i bilanse", "Wydruk Grafiku",
 ]);
 const NAV_DIAG_ACTIONS: Record<string, string> = {
   "Przegląd": "room-nav-overview",
   "Panel sterowania": "room-nav-control-panel",
   "Planowanie miesiąca": "room-nav-monthly-planning",
   "Decyzje koordynatora": "room-nav-decisions",
+  "Ręczna korekta": "room-nav-manual-correction",
   "Analityka i bilanse": "room-nav-analytics",
   "Historia i audyt": "room-nav-history",
   "Wydruk Grafiku": "room-nav-export",
 };
 
+// ROTA-T037 owner ruling (2026-08-28): Reczna korekta and Wydruk are NOT
+// separate screens with their own logic -- they are the same content
+// embedded inside Planowanie miesiaca (see MonthlyPlanning.tsx), reachable
+// here only as a duplicate shortcut into that one screen.
 type BuiltNavItem =
   | "Przegląd"
   | "Panel sterowania"
   | "Planowanie miesiąca"
   | "Decyzje koordynatora"
+  | "Ręczna korekta"
   | "Analityka i bilanse"
   | "Historia i audyt"
   | "Wydruk Grafiku";
@@ -142,7 +148,9 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
               />
             )}
-            {activeNav === "Planowanie miesiąca" && <MonthlyPlanning siteId={siteId} />}
+            {(activeNav === "Planowanie miesiąca" || activeNav === "Ręczna korekta") && (
+              <MonthlyPlanning siteId={siteId} onOpenPrintSettings={() => openControlPanel("obiekt")} />
+            )}
             {activeNav === "Decyzje koordynatora" && (
               <Decisions siteId={siteId} onOpenControlPanel={(tab, context) => openControlPanel(tab, context)} />
             )}
