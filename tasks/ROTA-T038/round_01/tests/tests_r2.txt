@@ -1,0 +1,88 @@
+ROTA-T038 — reaudyt rundy 2
+
+Werdykt: FAIL
+Audytowany exact SHA: 7e28f0dfcab36c19b7a30238ab26f44a4a1575e4
+
+Zakres tej rundy
+
+- Ponownie sprawdzono wyłącznie trzy findings z tests_r1.txt.
+- Wykonano krótki niezależny reproduktor pionowy przez TestClient, produkcyjne
+  endpointy i osobną bazę SQLite :memory:.
+- Nie uruchamiano długiej macierzy solvera ani pełnej regresji, ponieważ dwa
+  błędy wejścia/reakcji symulatora są odtwarzalne przed takim przebiegiem.
+- Osobny brief SICK_LEAVE jest propozycją dla architekta i nie wpływa na ten
+  werdykt.
+
+Rozliczenie findings rundy 1
+
+- T38-R1-01: naprawione w stanie początkowym — reproduktor widzi dokładnie
+  pięciu pracowników LOCAL.
+- T38-R1-02: usunięto null, lecz wpisywana wartość nadal nie jest rzeczywistym
+  miesięcznym target_hours. Szczegóły w T38-R2-01.
+- T38-R1-03: usunięto wsparcie przed pierwszym PLAN, lecz reakcja po
+  DECISION_REQUIRED nie realizuje zaakceptowanego przepływu wsparcia.
+  Szczegóły w T38-R2-02.
+
+T38-R2-01 — target_hours=144 nie jest rzeczywistym wymiarem czasu pracy
+
+TRACE
+
+OWNER_CORRECTED wymaga rzeczywistego target_hours dla badanego miesiąca,
+zweryfikowanego z oficjalnych zasad, a nie stałej 168/160 ani podziału godzin
+posterunku. Dla września 2026 produkcyjny wymiar pełnego etatu wynosi 176 h:
+4 pełne tygodnie × 40 h + wtorek 29.09 i środa 30.09 × 8 h; w tym miesiącu
+nie występuje święto obniżające wynik. Wzór wynika z art. 130 Kodeksu pracy,
+opisany przez Ministerstwo Rodziny:
+https://www.gov.pl/web/rodzina/ustalanie-i-rozliczanie-czasu-pracy
+
+OWNERSHIP
+
+Symulator sam ustala i zapisuje to wejście koordynatora. W
+tests/property/coordinator_simulator.py:45 zachowuje arbitralną bazę 160 h,
+a w liniach 94–95 wylicza target jako zapotrzebowanie obiektu podzielone przez
+liczbę osób. Brief błędnie zamraża tę samą definicję w
+tasks/ROTA-T038/brief.md:32–39.
+
+REPRO
+
+Na seed=0 i miesiącu 2026-09-01 spec ma monthly_hours_needed=720,
+employee_count=5 i target_hours_per_employee=144. Po build_object() odczyt
+produkcyjnego endpointu GET /api/workspace/employees/{id}/target-hours dla
+każdej z pięciu osób zwraca {"target_hours": 144}.
+
+T38-R2-02 — każda DECISION_REQUIRED powoduje dopisanie LOCAL zamiast
+zaakceptowanego przepływu EXTERNAL_SUPPORT
+
+TRACE
+
+OWNER_CORRECTED: osoba syntetyczna może powstać dopiero po rzeczywistej
+produkcyjnej propozycji wsparcia; po zgodzie koordynatora ma być rozpoznawalna
+jako EXTERNAL_SUPPORT. Sam status DECISION_REQUIRED nie jest taką propozycją.
+
+OWNERSHIP
+
+Sterownik symulatora posiada reakcję na odpowiedź PLAN. W
+tests/property/test_coordinator_simulator.py:117–121 każda DECISION_REQUIRED,
+bez sprawdzenia rodzaju propozycji, wywołuje hire_one_more_local(). Funkcja
+tests/property/coordinator_simulator.py:213–217 tworzy zwykłego pracownika
+LOCAL. Pętla może wykonać to do czterech razy (linia 46), czyli powiększyć
+pięcioosobową załogę do dziewięciu osób.
+
+REPRO
+
+Ten sam pionowy reproduktor po wykonaniu dokładnie funkcji reakcji
+hire_one_more_local(..., current_count=5) odczytał z produkcyjnego endpointu
+roster sześć wpisów i membership_kind=LOCAL dla każdego. Nie powstał żaden
+EXTERNAL_SUPPORT ani okno wsparcia. Mechanizm nie zawiera odczytu propozycji
+wsparcia.
+
+Surowy wynik reproduktora
+
+SPEC ObjectSpec(seed=0, month=2026-09-01, monthly_hours_needed=720,
+employee_count=5, target_hours_per_employee=144)
+ROSTER_BEFORE: 5 × LOCAL
+TARGETS_BEFORE: 5 × 144
+ROSTER_AFTER_REACTION: 6 × LOCAL
+
+PASS może dotyczyć dopiero SHA, na którym oba powyższe naruszenia nie są już
+odtwarzalne.
