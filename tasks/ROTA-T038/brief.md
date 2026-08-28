@@ -101,6 +101,12 @@ domyślnie przy każdej iteracji CC.
   OWNER_ACCEPTED.
 - Bramka po KOREKCIE 3 do uruchomienia przed kolejnym audytem Codex.
 
+## 5a. backend.py gate po KOREKCIE 3
+
+SHA `73eb7cc9bc6319eb7893bf8dd782b092b522f84a`: FAIL `NEW_FILES: 3` (te same
+pliki) + WYMAGA_DECYZJI `TOTAL_LINES: 481`. **OWNER_ACCEPTED, Paweł,
+2026-08-28.**
+
 ## 6. Poza zakresem
 
 - Warstwa przeglądarki/UI — osobna sprawa (Playwright), nie ten mechanizm.
