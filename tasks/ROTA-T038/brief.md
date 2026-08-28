@@ -1,6 +1,6 @@
 # ROTA-T038 — Symulator Koordynatora (property-based test flow całego programu)
 
-Status: **KOREKTA 3 ZAKOŃCZONA (autor: CC), do audytu Codex**
+Status: **KOREKTA 4 ZAKOŃCZONA (autor: CC), do audytu Codex**
 
 Base implementation SHA: `37e32da6244e4e43f504ef44b9b5a290f05a21b7` (`main`,
 po zmergowaniu T037).
@@ -114,6 +114,46 @@ pliki) + WYMAGA_DECYZJI `TOTAL_LINES: 481`. **OWNER_ACCEPTED, Paweł,
 - Refaktor z audytu PR #9.
 - Losowe święta, wariancja `posts`, sprawdzanie frozen/REALIZED w REPLAN —
   kandydaci na kolejną rundę tego samego mechanizmu.
+
+## 7b. KOREKTA 4 (Codex round-2 FAIL)
+
+`tests_r2.txt` (commit `81a4b44`, exact SHA `7e28f0d`): FAIL, dwa findings.
+
+**T38-R2-01 — `target_hours` nie był rzeczywistym wymiarem czasu pracy.**
+Poprzednio: podział zapotrzebowania obiektu przez liczbę osób (dawało 144h).
+Naprawione: `nominal_monthly_hours_kp(month)` — realny wzór art. 130 KP
+(40h za każdy pełny tydzień pon-nd w miesiącu + 8h za każdy pozostały dzień
+pon-pt poza pełnymi tygodniami, minus 8h za święto poza niedzielą).
+Zweryfikowane ręcznie i w kodzie: 176h dla września 2026 (3 pełne tygodnie
++ 4+3 dni robocze na brzegach = 120+56), zgodnie z wyliczeniem Codexa.
+Wartość niezależna od liczebności obsady — realny wymiar pełnego etatu,
+nie udział w zapotrzebowaniu obiektu.
+
+**T38-R2-02 — reakcja na `DECISION_REQUIRED` zawsze dokłada LOCAL, nie
+EXTERNAL_SUPPORT po "produkcyjnej propozycji wsparcia".** Zapytałem
+właściciela wprost, czy to faktycznie wymagany mechanizm. Odpowiedź
+(werbatim, 2026-08-28): *"Fakt jest taki, że na posterunku musi się ktoś
+zjawić, choćby pani Prezes, jak to rozwiążesz w symulatorze technicznie
+nie ma znaczenia... Byle nie był już domyślnie zapisany do obsady bo tak
+się nie dzieje realnie."* Czyli jedyny realny wymóg to: reaktywna osoba
+NIE może być w obsadzie startowej — co `hire_one_more_local()` już
+spełnia (wywoływane wyłącznie po `DECISION_REQUIRED`, nigdy przy
+budowaniu obiektu). **Konkretny mechanizm (LOCAL vs EXTERNAL_SUPPORT)
+pozostaje bez zmian — wymóg "musi być EXTERNAL_SUPPORT" wykracza poza to,
+co właściciel faktycznie polecił; flagowane, nie zaimplementowane.**
+
+Przy okazji: zbadałem osobne pytanie właściciela o niejednorodne katalogi
+zmian (różne wzorce tydzień/weekend, ta sama nazwa zmiany pokrywana przez
+osoby o różnej długości dyżuru) — potwierdzone w kodzie
+(`rota/planning/shift_catalog.py::generate_catalog_demands`, komentarz
+"Multiple entries and overlaps are legal and generate independent
+occurrences"): oba scenariusze są już natywnie wspierane przez wiele
+wierszy katalogu z różnym `active_weekdays`/godzinami, zero zmian
+produktowych potrzebnych. Nie wykorzystane jeszcze w generatorze
+symulatora — kandydat na kolejną rundę.
+
+Pełny formalny przebieg po tej korekcie (5 seedów): `1 passed in 226.22s
+(0:03:46)`, zero awarii, `target_hours=176` potwierdzone dla wszystkich.
 
 ## 7a. KOREKTA 3 (Codex round-1 FAIL naprawiony) + produktowe znalezisko
 

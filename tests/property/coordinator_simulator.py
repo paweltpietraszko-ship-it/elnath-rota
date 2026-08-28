@@ -10,9 +10,11 @@ Frozen owner rules (KOREKTA 3, fixing Codex round-1 FINDING T38-R1-01..03):
   workload (ceil(monthly_hours / REALISTIC_HOURS_PER_EMPLOYEE), no safety
   margin -- a coordinator does not pre-provision extra people "just in
   case"; that assumption is explicitly retired);
-- every LOCAL employee gets a REAL target_hours for the studied month
-  (an even split of that object's own monthly workload), set through the
-  real target-hours endpoint -- never left null;
+- every LOCAL employee gets a REAL target_hours for the studied month --
+  the statutory full-time norm per Kodeks pracy art. 130 SS1, independent
+  of headcount, never a share of this object's own workload (Codex round-2
+  FINDING T38-R2-01) -- set through the real target-hours endpoint, never
+  left null;
 - external support does NOT exist before PLAN. It is created only as a
   reaction to a real DECISION_REQUIRED, exactly like a coordinator who
   "must find someone, even if it means covering the post themselves" --
@@ -58,7 +60,7 @@ class ObjectSpec:
     rolling_7d_threshold_hours: int
     monthly_hours_needed: int
     employee_count: int  # ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE), no margin
-    target_hours_per_employee: int  # even split of monthly_hours_needed, the REAL target for this month
+    target_hours_per_employee: int  # real statutory monthly norm (art. 130 KP), independent of headcount
     day_only_indices: tuple[int, ...]
 
 
@@ -70,6 +72,31 @@ def _days_in_month(month: date) -> int:
 def _month_dates(month: date) -> list[date]:
     count = _days_in_month(month)
     return [month + timedelta(days=i) for i in range(count)]
+
+
+def nominal_monthly_hours_kp(month: date, holidays: frozenset[date] = frozenset()) -> int:
+    """Codex round-2 FINDING T38-R2-01: target_hours must be the REAL
+    statutory full-time monthly norm (Kodeks pracy art. 130 SS1), not a
+    per-object workload share. 40h per full Mon-Sun week fully inside the
+    month, + 8h per remaining Mon-Fri day outside those weeks, - 8h per
+    holiday landing on a non-Sunday. Verified by hand for 2026-09
+    (3 full weeks + 4+3 remainder weekdays = 120+56 = 176h, no holiday
+    that month) against the owner-cited art. 130 reference."""
+    days = _month_dates(month)
+    hours, i, n = 0, 0, len(days)
+    while i < n:
+        d = days[i]
+        if d.weekday() == 0 and i + 6 < n:  # Monday with a full week still inside the month
+            hours += 40
+            i += 7
+        else:
+            if d.weekday() < 5:  # Mon-Fri
+                hours += 8
+            i += 1
+    for h in holidays:
+        if h.year == month.year and h.month == month.month and h.weekday() != 6:
+            hours -= 8
+    return hours
 
 
 def random_object_spec(seed: int, month: date) -> ObjectSpec:
@@ -92,7 +119,10 @@ def random_object_spec(seed: int, month: date) -> ObjectSpec:
     # formula applies to both; shape varies the CATALOG, not the hours math.
     monthly_hours_needed = 24 * posts * days
     employee_count = math.ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE)
-    target_hours_per_employee = round(monthly_hours_needed / employee_count)
+    # T38-R2-01: the REAL statutory monthly norm for every full-time
+    # employee (art. 130 KP), independent of headcount -- never a share of
+    # this object's own workload.
+    target_hours_per_employee = nominal_monthly_hours_kp(month)
 
     if shift_shape == "D_N_12H":
         max_day_only = max(0, employee_count - max(posts + 2, 3))
