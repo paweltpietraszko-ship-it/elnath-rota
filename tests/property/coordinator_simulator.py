@@ -1,26 +1,34 @@
-"""ROTA-T038 (tasks/ROTA-T038/brief.md, KOREKTA 2 - OWNER_CORRECTED
-2026-08-28): Symulator Koordynatora.
+"""ROTA-T038 (tasks/ROTA-T038/brief.md, KOREKTA 3 - OWNER_CORRECTED
+2026-08-28, Codex round-1 FAIL fixed): Symulator Koordynatora.
 
 A thin "ticks checkboxes and reports" layer, explicitly NOT a layer that
 judges whether the solver is right (that role stays with
-benchmarks/REAL_OBJECT_BENCHMARK.md, unchanged). For each seed this:
+benchmarks/REAL_OBJECT_BENCHMARK.md, unchanged).
 
-1. invents a realistic Site (varying shift shape, number of parallel posts,
-   regime) with staffing DERIVED from that object's own hourly workload
-   (never picked independently of it -- the owner-caught v1 bug: an
-   "N-person" object could silently need/use more people than its label
-   claimed);
-2. ticks real availability/absence "checkboxes" (sick leave, vacation,
-   day-off-on-demand) through the same HTTP endpoint a coordinator's
-   browser calls;
-3. runs PLAN then REPLAN through the real routers;
-4. reports what happened -- status, human-readable reason, and the full
-   declared roster next to who actually ended up in the schedule -- into
-   tests/property/test_coordinator_simulator.py's report writer.
+Frozen owner rules (KOREKTA 3, fixing Codex round-1 FINDING T38-R1-01..03):
+- staffing is the EXACT computed minimum for the object's own hourly
+  workload (ceil(monthly_hours / REALISTIC_HOURS_PER_EMPLOYEE), no safety
+  margin -- a coordinator does not pre-provision extra people "just in
+  case"; that assumption is explicitly retired);
+- every LOCAL employee gets a REAL target_hours for the studied month
+  (an even split of that object's own monthly workload), set through the
+  real target-hours endpoint -- never left null;
+- external support does NOT exist before PLAN. It is created only as a
+  reaction to a real DECISION_REQUIRED, exactly like a coordinator who
+  "must find someone, even if it means covering the post themselves" --
+  see hire_one_more_local() in the driver, called only after a failure,
+  never during initial object construction.
 
-The only judgment this module makes is "did anything crash" -- status
-(FEASIBLE/DECISION_REQUIRED/TECHNICAL_ERROR) and headcount usage are
-reported as facts for the owner to read, never asserted as right or wrong.
+For each seed this: invents an object (workload-derived staffing, varying
+shift shape/regime), ticks real availability/absence "checkboxes", runs
+PLAN -- reactively hiring one more LOCAL and re-PLANning on
+DECISION_REQUIRED, exactly as a real coordinator must -- and only then,
+if a schedule was actually produced, sometimes exercises REPLAN as a
+DISTINCT, separately-reported mid-month event (never an automatic step
+after an already-successful PLAN). See test_coordinator_simulator.py for
+the driver and report writer. The only judgment made anywhere in this
+module is "did anything crash" -- every status and headcount fact is
+reported, never asserted as right or wrong.
 """
 from __future__ import annotations
 
@@ -35,24 +43,23 @@ from rota.domain import AvailabilityKind, CalendarDay
 from rota.persistence.calendar_repository import save_calendar_day
 
 REALISTIC_HOURS_PER_EMPLOYEE = 160  # a plain, documented approximation of a full-time month, not a hidden constant
-STAFFING_MARGIN = 1  # small buffer for REST/rotation feasibility on top of the raw hours division
 
 
 @dataclass(frozen=True)
 class ObjectSpec:
-    """One invented, internally-consistent Site: staffing is DERIVED from
-    this object's own hourly workload, never an independent random draw."""
+    """One invented, internally-consistent Site: staffing is the EXACT
+    computed minimum for this object's own hourly workload -- never a
+    margin, never an independent random draw."""
 
     seed: int
     month: date
     shift_shape: str  # "D_N_12H" | "SINGLE_24H"
-    posts: int  # parallel primaries required per shift
     regime: str  # "ORDINARY" | "OCHRONA"
     rolling_7d_threshold_hours: int
     monthly_hours_needed: int
-    employee_count: int  # DERIVED from monthly_hours_needed, never independent
+    employee_count: int  # ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE), no margin
+    target_hours_per_employee: int  # even split of monthly_hours_needed, the REAL target for this month
     day_only_indices: tuple[int, ...]
-    external_count: int
 
 
 def _days_in_month(month: date) -> int:
@@ -68,30 +75,24 @@ def _month_dates(month: date) -> list[date]:
 def random_object_spec(seed: int, month: date) -> ObjectSpec:
     """seed=0 is reserved for the simplest realistic object (D/N, 1 post,
     ORDINARY) -- the "everyone available -> nice schedule" baseline from
-    the owner's own description."""
+    the owner's own description. posts is fixed at 1 (see brief.md for the
+    ~90s/seed measurement that ruled out varying it in this round)."""
     rng = random.Random(seed)
     days = _days_in_month(month)
+    posts = 1
 
     if seed == 0:
-        shift_shape, posts, regime = "D_N_12H", 1, "ORDINARY"
+        shift_shape, regime = "D_N_12H", "ORDINARY"
     else:
         shift_shape = rng.choice(["D_N_12H", "SINGLE_24H"])
-        # Fixed at 1 (not varied 1-3): posts=2 needs ~10-12 declared
-        # employees and was measured at ~90s for one seed's PLAN+REPLAN
-        # during this task's build -- too slow for a default 10-seed sweep.
-        # Variety in this version comes from shift_shape/regime/external
-        # support/absences instead. Flagged as a scope simplification, not
-        # a silent cut -- posts variation is a reasonable follow-up once
-        # solve time is budgeted for it.
-        posts = 1
         regime = "OCHRONA" if shift_shape == "SINGLE_24H" else rng.choice(["ORDINARY", "OCHRONA"])
 
     # Both shapes cover the post around the clock -- 24h/day of coverage per
     # post either way (D+N together, or one 24h shift) -- so the same
     # formula applies to both; shape varies the CATALOG, not the hours math.
     monthly_hours_needed = 24 * posts * days
-
-    employee_count = math.ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE) + STAFFING_MARGIN
+    employee_count = math.ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE)
+    target_hours_per_employee = round(monthly_hours_needed / employee_count)
 
     if shift_shape == "D_N_12H":
         max_day_only = max(0, employee_count - max(posts + 2, 3))
@@ -102,38 +103,42 @@ def random_object_spec(seed: int, month: date) -> ObjectSpec:
         # DAY_ONLY has nothing to mean here.
         day_only_indices = ()
 
-    external_count = 0 if seed == 0 else (rng.randint(1, 2) if rng.random() < 0.4 else 0)
-
     return ObjectSpec(
-        seed=seed, month=month, shift_shape=shift_shape, posts=posts, regime=regime,
+        seed=seed, month=month, shift_shape=shift_shape, regime=regime,
         rolling_7d_threshold_hours=rng.choice([48, 56, 60]) if seed != 0 else 60,
         monthly_hours_needed=monthly_hours_needed, employee_count=employee_count,
-        day_only_indices=day_only_indices, external_count=external_count,
+        target_hours_per_employee=target_hours_per_employee, day_only_indices=day_only_indices,
     )
 
 
 @dataclass(frozen=True)
 class AbsenceDraw:
-    employee_index: int  # index into the LOCAL roster only
+    employee_index: int  # index into the LOCAL roster only (as it exists at draw time)
     kind: str  # AvailabilityKind value
     start_date: date
     end_date: date
 
 
-def random_absence_set(seed: int, spec: ObjectSpec) -> list[AbsenceDraw]:
+def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int, *, allow_sick_leave: bool) -> list[AbsenceDraw]:
     """seed=0 draws zero absences -- the explicit "everyone available"
-    baseline. Every other seed draws 0-3 records over the local roster
-    only (absences apply to real people, not to external-support windows,
-    which already have their own availability window mechanism)."""
-    if seed == 0 or spec.employee_count == 0:
+    baseline. employee_count is passed separately from spec.employee_count
+    because the roster may have grown via hire_one_more_local() by the time
+    a later absence draw (e.g. before REPLAN) happens.
+
+    allow_sick_leave=False for any draw applied before a plan exists yet:
+    see arch/ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md -- SICK_LEAVE
+    with no accepted plan anywhere in scope is a known, reported product
+    gap (IncompleteAbsenceReferenceError -> unhandled 500), not something
+    this simulator should silently route around by testing it anyway."""
+    if seed == 0 or employee_count == 0:
         return []
     rng = random.Random(seed * 7919 + 1)  # distinct stream from the object generator's own rng
     count = rng.randint(0, 3)
-    kinds = [k.value for k in AvailabilityKind]
+    kinds = [k.value for k in AvailabilityKind if allow_sick_leave or k != AvailabilityKind.SICK_LEAVE]
     days = _month_dates(spec.month)
     draws = []
     for _ in range(count):
-        employee_index = rng.randrange(spec.employee_count)
+        employee_index = rng.randrange(employee_count)
         kind = rng.choice(kinds)
         start_idx = rng.randrange(len(days))
         span = rng.randint(1, min(5, len(days) - start_idx))
@@ -146,10 +151,6 @@ def random_absence_set(seed: int, spec: ObjectSpec) -> list[AbsenceDraw]:
 
 def local_employee_id(spec: ObjectSpec, index: int) -> str:
     return f"SIM-{spec.seed}-EMP-{index}"
-
-
-def external_employee_id(spec: ObjectSpec, index: int) -> str:
-    return f"SIM-{spec.seed}-EXT-{index}"
 
 
 def seed_calendar(conn, month: date) -> None:
@@ -173,59 +174,62 @@ def _put_shift_catalog(client: TestClient, site_id: str, spec: ObjectSpec) -> No
     all_week = [1, 2, 3, 4, 5, 6, 7]
     if spec.shift_shape == "D_N_12H":
         shifts = [
-            {"kind": "D", "start_time": "05:00", "end_time": "17:00", "required_primary_count": spec.posts, "active_weekdays": all_week},
-            {"kind": "N", "start_time": "17:00", "end_time": "05:00", "required_primary_count": spec.posts, "active_weekdays": all_week},
+            {"kind": "D", "start_time": "05:00", "end_time": "17:00", "required_primary_count": 1, "active_weekdays": all_week},
+            {"kind": "N", "start_time": "17:00", "end_time": "05:00", "required_primary_count": 1, "active_weekdays": all_week},
         ]
     else:
         shifts = [
-            {"kind": "D", "start_time": "08:00", "end_time": "08:00", "required_primary_count": spec.posts, "active_weekdays": all_week},
+            {"kind": "D", "start_time": "08:00", "end_time": "08:00", "required_primary_count": 1, "active_weekdays": all_week},
         ]
     resp = client.put(f"/api/workspace/sites/{site_id}/shift-catalog", json={"shifts": shifts})
     assert resp.status_code == 204, resp.text
 
 
+def add_local_employee(client: TestClient, site_id: str, spec: ObjectSpec, index: int, day_only: bool) -> str:
+    """One real coordinator action: create + attach roster + set a real
+    target_hours for the studied month. Reused both for the initial roster
+    and for hire_one_more_local()'s reactive hire."""
+    employee_id = local_employee_id(spec, index)
+    resp = client.post(
+        "/api/workspace/employees",
+        json={"employee_id": employee_id, "site_id": site_id, "display_name": employee_id, "day_only": day_only},
+    )
+    assert resp.status_code == 204, resp.text
+    resp = client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": employee_id})
+    assert resp.status_code == 204, resp.text
+    resp = client.post(
+        f"/api/workspace/employees/{employee_id}/target-hours",
+        json={"site_id": site_id, "month": spec.month.isoformat(), "target_hours": spec.target_hours_per_employee},
+    )
+    assert resp.status_code == 204, resp.text
+    return employee_id
+
+
 def _add_local_roster(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
     for i in range(spec.employee_count):
-        employee_id = local_employee_id(spec, i)
-        resp = client.post(
-            "/api/workspace/employees",
-            json={"employee_id": employee_id, "site_id": site_id, "display_name": employee_id, "day_only": i in spec.day_only_indices},
-        )
-        assert resp.status_code == 204, resp.text
-        resp = client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": employee_id})
-        assert resp.status_code == 204, resp.text
+        add_local_employee(client, site_id, spec, i, day_only=i in spec.day_only_indices)
 
 
-def _add_external_support(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
-    if not spec.external_count:
-        return
-    last_day = _month_dates(spec.month)[-1]
-    for i in range(spec.external_count):
-        ext_id = external_employee_id(spec, i)
-        client.post("/api/workspace/employees", json={"employee_id": ext_id, "site_id": site_id, "display_name": ext_id, "day_only": False})
-        client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": ext_id, "membership_kind": "EXTERNAL_SUPPORT"})
-        client.post(
-            f"/api/workspace/employees/{ext_id}/support-window",
-            json={
-                "site_id": site_id, "start_datetime": f"{spec.month.isoformat()}T00:00:00",
-                "end_datetime": f"{last_day.isoformat()}T23:59:59", "allowed_shift_kind": None,
-            },
-        )
+def hire_one_more_local(client: TestClient, site_id: str, spec: ObjectSpec, current_count: int) -> str:
+    """The reactive step, per owner ruling 2026-08-28: a coordinator facing
+    DECISION_REQUIRED must find someone -- this is that hire, never done
+    upfront. Returns the new employee_id."""
+    return add_local_employee(client, site_id, spec, current_count, day_only=False)
 
 
-def declared_roster(spec: ObjectSpec) -> list[str]:
-    """The FULL, honest headcount -- local and external together, never a
-    category silently excluded from the number the report calls "the object"."""
-    return [local_employee_id(spec, i) for i in range(spec.employee_count)] + \
-           [external_employee_id(spec, i) for i in range(spec.external_count)]
+def declared_roster(spec: ObjectSpec, current_count: int) -> list[str]:
+    """The FULL, honest headcount as of `current_count` local employees --
+    grows only via hire_one_more_local(), never pre-provisioned."""
+    return [local_employee_id(spec, i) for i in range(current_count)]
 
 
 def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
+    """The initial object: exactly the computed minimum roster, real
+    target_hours for everyone, no external support -- see module docstring."""
     site_id = _create_site(client, spec)
     _put_shift_catalog(client, site_id, spec)
     seed_calendar(conn, spec.month)
     _add_local_roster(client, site_id, spec)
-    _add_external_support(client, site_id, spec)
     return site_id
 
 
@@ -237,8 +241,8 @@ def apply_absences(client: TestClient, site_id: str, spec: ObjectSpec, draws: li
         resp = client.post(
             f"/api/workspace/employees/{employee_id}/availability",
             json={
-                "site_id": site_id, "availability_id": f"SIM-{spec.seed}-AVAIL-{i}", "kind": draw.kind,
-                "start_date": draw.start_date.isoformat(), "end_date": draw.end_date.isoformat(),
+                "site_id": site_id, "availability_id": f"SIM-{spec.seed}-AVAIL-{i}-{draw.start_date.isoformat()}",
+                "kind": draw.kind, "start_date": draw.start_date.isoformat(), "end_date": draw.end_date.isoformat(),
             },
         )
         assert resp.status_code == 204, resp.text
