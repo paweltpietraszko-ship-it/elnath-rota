@@ -1,0 +1,2 @@
+{"current_version_unchanged": true, "demands_generated_directly_from_saved_catalog": 60, "demands_seen_by_assembler_with_existing_working": 0, "first_status": "FEASIBLE", "fresh_candidate_assignments": 0, "persisted_demands_after": 0, "persisted_demands_before": 0, "saved_catalog_shift_count": 2, "scenario": "C-04 shift catalog after empty WORKING", "second_status": "FEASIBLE"}
+{"elapsed_seconds": 0.015, "scenario": "scenario_c04 timing"}

@@ -1,0 +1,145 @@
+AUDIT-1 — INDEPENDENT CODE/PRODUCT AUDIT, ROUND 1
+
+VERDICT: FAIL
+
+AUDITED EXACT SHA
+d445ee64a0e634c4ca23c2fcc9f6a50b6503d22b
+(main before task/ROTA-T040)
+
+SCOPE AND DISCIPLINE
+- No product code, tests, solver code or UI was changed.
+- Old invalid benchmarks benchmarks.rota_stress and benchmarks.real_object were NOT run.
+- Coordinator Simulator was run exactly once; full pytest excluded it.
+- Implementer tests were supporting evidence only. Independent reproducers used fresh SQLite and production owners.
+- This verdict covers only the named verticals/incidents/inventory on this SHA. It does not claim the rest of the program is correct.
+
+FINDINGS
+
+1. C-01 — DEFECT — ordinary H24 is falsely classified as DECISION_REQUIRED.
+   TRACE: approved AUDIT-1 B-11/T012 H24 contract.
+   OWNERSHIP: rota/planning/fairness.py:167-244 with D/N terms from
+   rota/planning/solver.py:329.
+   REPRO: 5 LOCAL, daily H24, September 2026, target 176, no absences/rules:
+   PLAN returns no candidate and NIGHT-STREAK blockers. A round-robin over
+   the same production demands passes production validate() with 144h each.
+   Minimal CP-SAT confirms root cause: H24 occupancy is 2*x and the alleged
+   SOFT rhythm rule adds HARD match+any<=1, making forced x=1 INFEASIBLE.
+   USER EFFECT: a valid roster is reported as a staffing decision problem.
+
+2. C-02 — DEFECT — known SICK_LEAVE before first PLAN yields HTTP 500.
+   TRACE: direct 2026-08-28 OWNER correction recorded in
+   ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md. Exact accounting and
+   presentation still need a frozen design, but raw 500 is already contrary
+   to the accepted ability to enter known sickness before planning.
+   OWNERSHIP: rota/persistence/absence_reference_repository.py:310-326,
+   rota/planning/absence.py:165-168, api/errors.py:48-52.
+   REPRO: availability POST=204; first PLAN POST=500 with
+   `MISSING accepted reference for SICK_LEAVE (POST_PLAN_REFERENCE)`.
+   USER EFFECT: normal coordinator input blocks schedule creation as an
+   unhandled technical failure.
+
+3. C-03 — DEFECT — legal overlapping demands fail COVERAGE-01.
+   TRACE: arch/spec.md:58,485 and tasks/ROTA-T012/brief.md:57 explicitly
+   allow overlapping catalog occurrences and require a separate demand for
+   each entry. The later withdrawal of one SPLIT_NIGHT_12_8 product pattern
+   did not revoke this general contract.
+   OWNERSHIP: rota/planning/validator.py:100-101.
+   REPRO: 10 legal demands, 10 different employees, every assignment exactly
+   matches its own demand; validate() reports ten 2/1 coverage excesses in
+   overlap intervals.
+   USER EFFECT: correctly staffed legal catalog rows cannot be accepted.
+
+4. C-05 — DEFECT — eligible LOCAL without target is omitted from fairness.
+   TRACE: OWNER_CONFIRMED on docs/worker-omitted-from-fairness-objective@
+   3328ce0: do not invent a target or block PLAN, but divide work fairly
+   among all eligible LOCAL and expose the warning.
+   OWNERSHIP: rota/application/assembler.py:138-148,
+   rota/planning/solver.py:408-419,789 and warning loss in
+   rota/application/plan_ops.py:135,148,308,375,426,449.
+   REPRO: 5 eligible LOCAL, four target rows, one missing. All three FEASIBLE
+   HARD-valid candidates allocate 180/180/180/180/0. The fifth employee is
+   present in roster but absent from WorkBalance and every candidate.
+   USER EFFECT: a usable-looking schedule silently excludes one employee and
+   the coordinator-facing PLAN result loses the only assembler warning.
+
+5. C-04 — OWNER_DECISION — saved catalog and existing WORKING diverge.
+   REPRO: first PLAN with empty catalog creates WORKING with zero demands;
+   saved profile then contains two D/N rows and directly generates 60 demands,
+   but assembler and repeated PLAN still see zero and readback remains empty.
+   OWNERSHIP: rota/application/assembler.py:184-212 and
+   rota/application/plan_ops.py:95-151.
+   AUDIT CORRECTION: the earlier incident brief said repeated PLAN computes
+   fresh demands in memory. It does not; assembler selects persisted current
+   content first. Whether catalog save regenerates/replaces WORKING or requires
+   an explicit refresh is not frozen, so DEFECT_GATE does not permit FAIL for
+   this item until OWNER decides the intended recovery.
+
+VERTICAL MATRIX (B-01..B-11)
+- PASS: B-01 D/N 5-person coverage and exact equal 144h distribution.
+- PASS: B-02 DAY_ONLY receives no N.
+- PASS: B-03 post-plan SICK REPLAN preserves REALIZED/frozen and blocks future sick interval.
+- PASS: B-04 simultaneous granted leave blocks the other employee's interval.
+- PASS: B-05 true two-person shortage returns populated DECISION_REQUIRED, not TECHNICAL_ERROR.
+- PASS: B-06 24h rolling threshold returns LOAD DECISION_REQUIRED with an option.
+- PASS: B-07 cross-month REST boundary validates cleanly.
+- PASS: B-08 restart/reopen reconstructs identical current schedule.
+- PASS: B-09 manual correction creates a child and does not mutate FINAL parent.
+- PASS at owning engine boundary: B-10 invalid unclassified demand returns TECHNICAL_ERROR.
+- FAIL: B-11 H24, covered by C-01.
+
+FULL REPOSITORY BASELINE (ONCE)
+Command: python -m pytest -q --ignore=tests/property/test_coordinator_simulator.py
+Result: 3 failed, 1228 passed, 1 warning in 4604.88s.
+
+All three failures are stale tests, not current product regressions:
+- test_sick_leave old SICK-only target rule was superseded by T023
+  (tasks/ROTA-T023/brief.md:273; solver.py:408-419).
+- test_t017 exact pre-T034 placement oracle was already classified stale
+  after the owner-approved T034 ranking change
+  (tasks/ROTA-T034/round_01/tests/tests_r2.txt:89-92).
+- test_t023_checkpoint_b source-diff assertion compares current repo to a
+  historical task base and sees later authorized file changes
+  (tests/test_t023_checkpoint_b.py:60,355-360).
+
+COORDINATOR SIMULATOR (EXACTLY ONCE)
+- Seeds 0/1/4: D/N starts with five, FEASIBLE, uses all five.
+- Seeds 2/3: starts with five; adds four LOCAL only after real
+  DECISION_REQUIRED; still ends DECISION_REQUIRED with NIGHT-STREAK.
+- The simulator report has no hours distribution, therefore it is not a
+  fairness oracle. Independent B-01/C-05 supplied that evidence.
+- Numeric exit status was not retained after the tool/UI wait was interrupted;
+  the process completed and wrote all five seeds. It was not rerun.
+
+STRUCTURAL INVENTORY (PR #9 FROZEN AT f2eba6c)
+- No whole SUSPECT module met the evidence threshold for DEAD or DUPLICATE.
+- KEEP with live production paths: replan reshuffle, engine fallback stages,
+  multi-candidate search, durable inputs as a module, rule decisions,
+  deviation mapping, analytics, ledgers/memory, absence references, work
+  balances, site rules and the three audited read-only UI areas.
+- TEST_ONLY runtime reachability was proven for seven public symbols:
+  update_coordinator, update_association, correct_site_planning_regime,
+  mark_training_realized, record_decision wrapper, decision_fate and
+  save_work_balance_target wrapper. This is not authorization to delete them:
+  several retain an explicit contract or wrap a live transactional primitive.
+- EVIDENCE_GAP: duplicated redistributable/fixed predicate has no proven
+  canonical owner or behavioral divergence. It is not classified DUPLICATE.
+
+AUDIT LAYERS
+1. Exact SHA / isolated worktree / scope verification.
+2. Full pytest baseline once, with stale-failure classification.
+3. Coordinator Simulator once, report evaluated as facts rather than oracle.
+4. Eleven independent production-chain vertical scenarios.
+5. Five incident TRACE/OWNERSHIP/REPRO tables and minimal cause probes.
+6. Frozen PR #9 structural inventory with strict KEEP/TEST_ONLY/EVIDENCE_GAP thresholds.
+7. Product-code immutability and diff checks.
+
+ARTIFACTS
+- baseline_manifest.md
+- vertical_scenarios.md
+- confirmed_incidents_c01_c05.md
+- suspect_inventory.md
+- audit_probe.py and raw probe_*.jsonl
+- pytest.txt and coordinator_simulator.md
+
+No architecture proposal or fix is included. Warstwa E remains a separate
+OWNER decision after this audit.
