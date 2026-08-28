@@ -37,6 +37,20 @@ Dosłuchane w tej samej sesji dosłanie kolejnych 4 osób (do 9) NIE zmieniło
 wyniku ani treści blokad — identyczne w każdym szczególe (patrz sekcja 4),
 co dodatkowo wskazuje na błąd diagnostyki, nie na realny brak obsady.
 
+## 3a. Argument właściciela (2026-08-28, werbatim) — dlaczego to musi być błąd, nie realne ograniczenie
+
+"Jak przy 24 godzinnych zmianach może być konflikt nocek, skoro po 24
+godzinach pracy należy się 24 godziny odpoczynku". Innymi słowy: po
+przepracowaniu zmiany 24h obowiązuje osobna reguła odpoczynku (REST-01 /
+`emergency_24h_rest_hours`), która fizycznie UNIEMOŻLIWIA tej samej osobie
+przepracowanie kolejnej 24h-zmiany następnego dnia — a tym bardziej trzech
+pod rząd. NIGHT-STREAK-01 pyta o scenariusz, który dla katalogu 24h nie
+może się fizycznie wydarzyć. Jeśli reguła mimo to zgłasza konflikt, to
+dowód na niewłaściwe zastosowanie reguły zaprojektowanej dla rytmu D/N do
+katalogu 24h, nie na realny brak obsady. Podnosi to hipotezę z sekcji 3
+z "najbardziej prawdopodobna, niepotwierdzona" do "logicznie wymuszona,
+wymaga tylko potwierdzenia technicznego przez debug modelu".
+
 ## 3. Prawdopodobna przyczyna — współdzielony klucz dnia dla połówek D/N zmiany 24h
 
 `rota/planning/solver.py::_build_day_kind_terms` (linia ~329) klasyfikuje
