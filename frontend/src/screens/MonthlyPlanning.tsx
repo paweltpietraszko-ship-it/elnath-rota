@@ -41,6 +41,11 @@ function stripDisplayName(a: AssignmentOut): AssignmentIn {
 }
 
 function cellLabel(a: AssignmentOut, demandKindByDemandId: Map<string, string | null>): string {
+  // T037 audit finding R1-01: a CANCELLED+NN assignment must not read as an
+  // ordinary planned D/N -- operational_code is the ground truth here, not
+  // the demand's shift_kind (which still describes the original, now-moot,
+  // plan for this slot).
+  if (a.operational_code) return a.operational_code;
   const kind = a.covers_demand_id ? demandKindByDemandId.get(a.covers_demand_id) : null;
   const base = kind ?? "?";
   return a.role === "TRAINEE" ? `${base}·S` : base;
