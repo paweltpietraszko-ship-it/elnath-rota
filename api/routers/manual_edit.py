@@ -9,7 +9,7 @@ surfaces that resulting Deviation list back to the caller.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
