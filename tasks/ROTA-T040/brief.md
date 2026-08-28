@@ -30,6 +30,11 @@ jak wymaga sekcja 3 briefu.
   `test_t032_soft_ranking.py` (NIGHT-STREAK-01 pełne macierze) — 24/24
   PASS, zero regresji.
 - `tests/test_vertical_full_stack.py` (w tym scenario 2, H24) — 4/4 PASS.
+- backend.py gate (SHA `c981c32`): FAIL `SIZE_FUNC: add_third_consecutive_shift_penalty
+  ma 102 linie` — potwierdzone jako pre-istniejące (T034, nie dotknięte w
+  T040, ta sama długość na `BASE_SHA` przed zmianą) — plus WYMAGA_DECYZJI
+  `RATIO`/`TOTAL_LINES` (nowy plik testowy). **OWNER_ACCEPTED oba, Paweł,
+  2026-08-28.**
 - **Niezależny dowód na prawdziwym obiekcie Pawła** (`rota_dev.db`,
   site `SITE-af2c7186...`, "Test1", 5 LOCAL, OCHRONA, H24 06:00-06:00):
   `plan_month()` teraz zwraca `FEASIBLE`, 3 kandydatów, kandydat[0]
