@@ -1,10 +1,10 @@
-# BRIEF DLA ARCHITEKTA — NIGHT-STREAK-01 BLOKUJE CAŁY MIESIĄC DLA ZWYKŁEGO OBIEKTU 24H
+# BRIEF DLA ARCHITEKTA — PLAN FAŁSZYWIE UZNAJE ZWYKŁY OBIEKT H24 ZA NIEWYKONALNY
 
 **Stan:** ZGŁOSZENIE ZNALEZISKA — CC READ-ONLY, NIE READY FOR IMPLEMENTATION.
 **Źródło:** dwa NIEZALEŻNE potwierdzenia w tej samej sesji — (1) Symulator
 Koordynatora (ROTA-T038/T039, dane syntetyczne), (2) realny obiekt testowy
 Pawła w `rota_dev.db` (dane ręcznie wprowadzone przez UI, bez mojego
-udziału w konfiguracji).
+udziału w konfiguracji) — plus dowód wykonalności opisany w sekcji 3.
 **BASE_MAIN_SHA:** `d445ee6` (po zmergowaniu T039). Zero zmian w `rota/`
 w tej sesji przed tym znaleziskiem — potwierdzone `git diff` od `aa6330c`.
 
@@ -22,60 +22,78 @@ poprawnie zapisany. PLAN dla całego miesiąca (wrzesień 2026, 30 dni) zwraca
 - `unblocking_options`: "Brak automatycznego rozwiązania przy obecnej
   obsadzie i zapisanych ograniczeniach."
 
-## 2. Dlaczego to wygląda na fałszywy alarm
+**Dodatkowy eksperyment (Paweł, po pierwszej wersji tego briefu):**
+wyłączenie NIGHT-STREAK-01 wyłącznie w pamięci procesu (bez zmiany plików)
+nie naprawia problemu — PLAN nadal zwraca `DECISION_REQUIRED`, tym razem z
+powodem `REST-01`. To pokazuje, że problem NIE jest zlokalizowany
+wyłącznie w NIGHT-STREAK-01 — coś w modelu solvera lub w diagnostyce
+konfliktu dla katalogu H24 jest szersze niż jedna reguła. Traktować jako
+dowód, że usterka dotyczy obsługi H24 ogólnie, nie jako potwierdzenie
+konkretnego mechanizmu.
 
-NIGHT-STREAK-01 (`rota/planning/constraints.py:557`) zabrania **trzech**
-kolejnych nocy pod rząd dla TEGO SAMEGO pracownika
-(`add_max_two_consecutive_night_constraints` — nazwa funkcji: max DWIE z
-rzędu są legalne, TRZECIA jest zabroniona).
+## 2. Dowód wykonalności — ręczna rotacja przechodzi produkcyjny `validate()`
 
-Przy prostej rotacji 5 osób (A,B,C,D,E,A,B,C,D,E,...) po jednej 24h
-zmianie dziennie, ŻADNA osoba nigdy nie pracuje więcej niż 1 dzień z 5 —
-nigdy nawet 2 dni pod rząd, a limit dotyczy dopiero 3. To powinno być
-trywialnie spełnialne nawet przy 2-3 osobach, a tym bardziej przy 5.
-Dosłuchane w tej samej sesji dosłanie kolejnych 4 osób (do 9) NIE zmieniło
-wyniku ani treści blokad — identyczne w każdym szczególe (patrz sekcja 4),
-co dodatkowo wskazuje na błąd diagnostyki, nie na realny brak obsady.
+Zbudowany ręcznie, poza solverem: prosta rotacja round-robin 5 pracowników
+(A,B,C,D,E,A,B,C,D,E,...), jedna 24h-zmiana dziennie, na TYCH SAMYCH
+zapotrzebowaniach co realny obiekt Pawła (`assemble_planning_state` na
+`rota_dev.db`, wrzesień 2026, 60 zapotrzebowań = 30 dni × D/N-połówki).
+Każdemu `Assignment` ustawione `work_period_id`/`required_rest_after_hours`
+dokładnie tak, jak robi to `solver.py::_extract_assignments`
+(`work_period_id = f"{site_id}:{work_period_template_id}"`,
+`resolve_required_rest(demand.required_rest_hours)`).
 
-## 3a. Argument właściciela (2026-08-28, werbatim) — dlaczego to musi być błąd, nie realne ograniczenie
+Wynik niezależnego `rota.planning.validator.validate(state, assignments)`:
+
+```
+hard_pass: True
+violations: []
+```
+
+**Legalne, w pełni zgodne z HARD rozwiązanie na te same dane istnieje** —
+solver go nie znajduje i zwraca `DECISION_REQUIRED`. To jest twardy dowód,
+że problem leży w SOLVERZE (nie znajduje istniejącego rozwiązania) i/lub w
+DIAGNOSTYCE KONFLIKTU (błędnie twierdzi, że żadne rozwiązanie nie istnieje)
+— nie w rzeczywistym braku obsady. Ten dowód **nie lokalizuje** która
+konkretna reguła/mechanizm jest winna — patrz zastrzeżenie w sekcji 4.
+
+## 3. Tropy do zbadania przez architekta (żaden niepotwierdzony jako jedyna przyczyna)
+
+- `rota/planning/solver.py::_build_day_kind_terms` (linia ~329) klasyfikuje
+  slot pracownik×zapotrzebowanie pod kluczem
+  `d = slot.demand.start_datetime.date()`, osobno dla `d_term` i `n_term`.
+  Dla zmiany 24h obie połówki (komponent D i komponent N) DZIELĄ tę samą
+  datę rozpoczęcia (sprawdzone na realnych danych: `2026-09-01-D` i
+  odpowiadający komponent N obie mają `start_datetime.date() ==
+  2026-09-01`). Możliwy skutek: pracownik pracujący 24h-zmianę w dniu X
+  dostaje jednocześnie `d_term=1` i `n_term=1` na tej samej dacie.
+- Eksperyment z sekcji 1 (wyłączenie NIGHT-STREAK-01 → REST-01 przejmuje
+  blokadę) sugeruje, że także logika REST-01/asumpcji dla par H24
+  (`work_period_component`, `constraints.py:388-390` i okolice) może być
+  zaangażowana, nie tylko NIGHT-STREAK-01.
+- Diagnostyka konfliktu (`_conflicting_night_streak`, `solver.py:638-665`)
+  może wyciągać niepełny/mylący rdzeń UNSAT z asumpcji CP-SAT, niezależnie
+  od tego, która reguła jest ostatecznie winna.
+
+**Żaden z powyższych nie jest potwierdzoną przyczyną** — to lista tropów do
+debugowania modelu CP-SAT przez architekta, nie diagnoza.
+
+## 4. Argument właściciela (2026-08-28, werbatim) — co dowodzi, a czego nie dowodzi
 
 "Jak przy 24 godzinnych zmianach może być konflikt nocek, skoro po 24
-godzinach pracy należy się 24 godziny odpoczynku". Innymi słowy: po
-przepracowaniu zmiany 24h obowiązuje osobna reguła odpoczynku (REST-01 /
-`emergency_24h_rest_hours`), która fizycznie UNIEMOŻLIWIA tej samej osobie
-przepracowanie kolejnej 24h-zmiany następnego dnia — a tym bardziej trzech
-pod rząd. NIGHT-STREAK-01 pyta o scenariusz, który dla katalogu 24h nie
-może się fizycznie wydarzyć. Jeśli reguła mimo to zgłasza konflikt, to
-dowód na niewłaściwe zastosowanie reguły zaprojektowanej dla rytmu D/N do
-katalogu 24h, nie na realny brak obsady. Podnosi to hipotezę z sekcji 3
-z "najbardziej prawdopodobna, niepotwierdzona" do "logicznie wymuszona,
-wymaga tylko potwierdzenia technicznego przez debug modelu".
+godzinach pracy należy się 24 godziny odpoczynku". Po przepracowaniu zmiany
+24h obowiązuje osobna reguła odpoczynku, która fizycznie uniemożliwia tej
+samej osobie przepracowanie kolejnej 24h-zmiany następnego dnia — a tym
+bardziej trzech pod rząd przy prostej rotacji 5 osób.
 
-## 3. Prawdopodobna przyczyna — współdzielony klucz dnia dla połówek D/N zmiany 24h
+**Co ten argument dowodzi**: że przy 5 osobach rotujących pojedynczo
+istnieje legalny grafik (zgodne z dowodem w sekcji 2) — PLAN jest
+niewykonalny fałszywie.
+**Czego NIE dowodzi**: który konkretny mechanizm (NIGHT-STREAK-01, REST-01,
+diagnostyka konfliktu, coś innego w modelu H24) jest za to odpowiedzialny.
+Eksperyment z sekcji 1 pokazuje, że to nie jest tak proste jak "wyłącz
+NIGHT-STREAK-01 dla H24".
 
-`rota/planning/solver.py::_build_day_kind_terms` (linia ~329) klasyfikuje
-każdy slot pracownik×zapotrzebowanie pod kluczem
-`d = slot.demand.start_datetime.date()` — DATA ROZPOCZĘCIA zapotrzebowania,
-osobno dla `d_term` (D) i `n_term` (N).
-
-Dla zmiany 24h (`generate_catalog_demands`, T012 expansion) obie połówki
-JEDNEJ 24h-zmiany danego dnia — komponent D (np. 06:00-18:00) i komponent N
-(18:00-06:00 następnego dnia) — mają **tę samą datę rozpoczęcia** (dzień X).
-Sprawdzone wprost na realnych danych: `2026-09-01-D` start 2026-09-01
-06:00; odpowiadający komponent N ma `work_period_component=2` i również
-`start_datetime.date() == 2026-09-01`.
-
-Skutek: pracownik pracujący 24h-zmianę w dniu X dostaje jednocześnie
-`d_term=1` I `n_term=1` na TEJ SAMEJ dacie X — traktowany jak ktoś, kto ma
-"noc" w dniu X. Jeśli licznik nocy w NIGHT-STREAK-01 sumuje to poprawnie
-per pracownik per data, i każdy pracownik pracuje tylko co 5. dzień, to
-NIE powinno dawać konfliktu. **Nie zdążyłem jednoznacznie potwierdzić
-mechanizmu awarii do końca** (wymagałoby to debugowania samego modelu
-CP-SAT/wyciągania asumpcji z `solver.py:638-665`,
-`_conflicting_night_streak`) — zgłaszam to jako najbardziej prawdopodobny
-trop, nie jako potwierdzoną przyczynę.
-
-## 4. Dowody z obu niezależnych reprodukcji
+## 5. Dowody z niezależnych reprodukcji
 
 **Symulator** (`tests/property/coordinator_simulator.py`, seed=2,
 `SINGLE_24H`, 2026-09): identyczny komunikat, identyczne dni blokujące
@@ -88,38 +106,26 @@ pracowników z tym samym powodem. Zweryfikowane bezpośrednio przez
 `curl POST .../schedule/2026-09-01/plan` na żywo działającym serwerze
 deweloperskim — nie przez odczyt kodu.
 
-## 5. Poza zakresem tego zgłoszenia
+## 6. Poza zakresem tego zgłoszenia
 
-- CC nie proponuje konkretnej poprawki w `_build_day_kind_terms`/
-  `add_max_two_consecutive_night_constraints`/ekstrakcji asumpcji — to
-  wymaga zrozumienia całego modelu CP-SAT, nie punktowej zmiany.
+- CC nie proponuje konkretnej poprawki — wymaga zrozumienia całego modelu
+  CP-SAT (solver + diagnostyka konfliktu), nie punktowej zmiany.
 - Nie sprawdzone: czy błąd dotyczy WYŁĄCZNIE katalogu `SINGLE_24H`/H24, czy
   też np. `WEEKDAY_12H_WEEKEND_24H` (który w symulatorze dał identyczny
   wynik dla swojej weekendowej 24h-części — patrz `simulator_report.md`
   seed=3).
-- Naprawa dev-bazy Pawła (usunięcie osieroconego wskaźnika current-version
-  dla września, żeby PLAN w ogóle wygenerował świeże zapotrzebowania z
-  zapisanego katalogu) wykonana ręcznie, poza tym zgłoszeniem — osobny,
-  mniejszy problem (patrz sekcja 6), niezwiązany z solverem.
-
-## 6. Dodatkowa, osobna obserwacja (nie NIGHT-STREAK-01) — katalog zmian zmieniony po utworzeniu wersji roboczej
-
-Niezależnie od powyższego: jeśli koordynator zapisze katalog zmian PO TYM,
-jak dla danego miesiąca istnieje już wersja `WORKING` (utworzona np. z
-pustym katalogem), `PLAN` nie odświeża zapotrzebowań tej wersji — ponowne
-"Przelicz" liczy świeżo W PAMIĘCI, ale nic nie trafia do siatki, dopóki
-nie powstanie NOWA wersja. U Pawła to wymagało ręcznego usunięcia wpisu w
-`current_schedule_versions` dla (site, miesiąc), żeby kolejny PLAN
-utworzył wersję od zera. To osobny, prawdopodobnie warty osobnego
-zgłoszenia UX/kontraktowego temat (czy edycja katalogu zmian powinna
-wymuszać/oferować odświeżenie bieżącej roboczej wersji) — nie rozstrzygane
-tutaj.
+- Obserwacja o katalogu zmian zmienianym po utworzeniu wersji `WORKING`
+  (niezwiązana z fałszywą niewykonalnością H24) zgłoszona OSOBNO — patrz
+  `arch/ARCHITECT_BRIEF_SHIFT_CATALOG_STALE_WORKING_VERSION_2026-08-28.md`.
+  Nie rozszerza zakresu tego zgłoszenia ani przyszłego tasku solvera.
 
 ## 7. Warunek przekazania
 
-Zgłoszenie faktów i dwóch niezależnych reprodukcji, nie gotowy TASK_SCOPE.
-Wymaga: (1) architekt/Codex potwierdza lub odrzuca hipotezę z sekcji 3
-przez debug modelu CP-SAT, (2) Paweł decyduje o priorytecie (realny
-obiekt ochrony z jedną zmianą 24h to prawdopodobnie najczęstszy
-rzeczywisty przypadek użycia programu — jeśli to potwierdzony błąd, ma
-wysoki priorytet).
+Zgłoszenie faktów, dowodu wykonalności i dwóch niezależnych reprodukcji —
+nie gotowy TASK_SCOPE i nie diagnoza. Wymaga: (1) architekt/Codex
+debuguje model CP-SAT (solver.py + constraints.py + diagnostyka konfliktu)
+i lokalizuje faktyczny mechanizm usterki spośród tropów z sekcji 3,
+(2) Paweł decyduje o priorytecie (realny obiekt ochrony z jedną zmianą 24h
+to prawdopodobnie najczęstszy rzeczywisty przypadek użycia programu —
+problem jest realny i ma mocny reproduktor, więc prawdopodobnie wysoki
+priorytet).
