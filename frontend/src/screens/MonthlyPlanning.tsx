@@ -2,7 +2,8 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow } from "../api/client";
+import Export from "./Export";
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -61,11 +62,12 @@ function totalHours(assignments: AssignmentOut[]): number {
 }
 
 function ScheduleGrid({
-  monthIso, assignments, demandKindByDemandId,
+  monthIso, assignments, demandKindByDemandId, onSelectAssignment,
 }: {
   monthIso: string;
   assignments: AssignmentOut[];
   demandKindByDemandId: Map<string, string | null>;
+  onSelectAssignment?: (assignmentId: string) => void;
 }) {
   const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
   const employees = useMemo(() => {
@@ -118,7 +120,25 @@ function ScheduleGrid({
                 const cell = cellsByEmployeeDay.get(`${employeeId}|${d}`);
                 return (
                   <td key={d} style={{ textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-                    {cell ? cell.map((a) => cellLabel(a, demandKindByDemandId)).join("/") : ""}
+                    {cell?.map((a, i) => (
+                      <span key={a.assignment_id}>
+                        {i > 0 && "/"}
+                        {onSelectAssignment ? (
+                          <button
+                            className="btn-ghost"
+                            style={{ padding: "0 4px", height: "auto", fontSize: "inherit", fontVariantNumeric: "tabular-nums" }}
+                            data-diag-action="manual-correction-select-assignment"
+                            onClick={() => onSelectAssignment(a.assignment_id)}
+                            title="Ręczna korekta tej zmiany"
+                          >
+                            {cellLabel(a, demandKindByDemandId)}
+                            {a.frozen ? "🔒" : ""}
+                          </button>
+                        ) : (
+                          cellLabel(a, demandKindByDemandId)
+                        )}
+                      </span>
+                    ))}
                   </td>
                 );
               })}
@@ -133,7 +153,7 @@ function ScheduleGrid({
   );
 }
 
-export default function MonthlyPlanning({ siteId }: { siteId: string }) {
+export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteId: string; onOpenPrintSettings: () => void }) {
   const currentYearMonth = useMemo(() => todayIso().slice(0, 7), []);
   const selectableMonths = useMemo(
     () => [shiftMonth(currentYearMonth, -1), currentYearMonth, shiftMonth(currentYearMonth, 1)],
@@ -172,6 +192,72 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
   const [showHistory, setShowHistory] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [excluding, setExcluding] = useState(false);
+
+  // ROTA-T037 (owner ruling 2026-08-28, narrow scope): Reczna korekta lives
+  // inline here, not on a separate screen. No dry-run/preview -- a HARD
+  // violation never blocks the save, it comes back as a Deviation and is
+  // already shown by the existing "Odchylenia" panel below after reload,
+  // which is the whole warning mechanism (no separate banner needed).
+  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
+  const [correctionEffectiveFrom, setCorrectionEffectiveFrom] = useState(todayIso());
+  const [correctionSaving, setCorrectionSaving] = useState(false);
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
+  const [showPrint, setShowPrint] = useState(false);
+
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
+
+  const editingAssignment = view?.assignments.find((a) => a.assignment_id === editingAssignmentId) ?? null;
+
+  const runCorrection = async (upsert: AssignmentIn[]) => {
+    setCorrectionSaving(true);
+    setError(null);
+    try {
+      await api.applyManualCorrection(siteId, monthIso, correctionEffectiveFrom, upsert);
+      setEditingAssignmentId(null);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setCorrectionSaving(false);
+    }
+  };
+
+  const reassignEmployee = (newEmployeeId: string) => {
+    if (!editingAssignment) return;
+    runCorrection([{ ...stripDisplayName(editingAssignment), employee_id: newEmployeeId }]);
+  };
+
+  const toggleFreeze = async () => {
+    if (!editingAssignment) return;
+    setCorrectionSaving(true);
+    setError(null);
+    try {
+      await api.freezeOrUnfreeze(siteId, monthIso, correctionEffectiveFrom, editingAssignment.assignment_id, !editingAssignment.frozen);
+      setEditingAssignmentId(null);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setCorrectionSaving(false);
+    }
+  };
+
+  const markNotWorked = async () => {
+    if (!editingAssignment) return;
+    setCorrectionSaving(true);
+    setError(null);
+    try {
+      await api.markNotWorked(siteId, monthIso, correctionEffectiveFrom, editingAssignment.assignment_id);
+      setEditingAssignmentId(null);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setCorrectionSaving(false);
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -485,7 +571,47 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                 {view.current_version.effective_from ? ` — obowiązuje od ${view.current_version.effective_from}` : ""}
               </p>
 
-              <ScheduleGrid monthIso={monthIso} assignments={view.assignments} demandKindByDemandId={demandKindByDemandId} />
+              <ScheduleGrid
+                monthIso={monthIso} assignments={view.assignments} demandKindByDemandId={demandKindByDemandId}
+                onSelectAssignment={isFinal ? undefined : setEditingAssignmentId}
+              />
+
+              {!isFinal && editingAssignment && (
+                <div className="panel" style={{ marginTop: 12 }}>
+                  <div className="panel-title-row">
+                    <h3>Ręczna korekta — {editingAssignment.employee_display_name}, {editingAssignment.start_datetime.slice(0, 10)}</h3>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="field-label">Obowiązuje od</span>
+                      <input type="date" value={correctionEffectiveFrom} onChange={(e) => setCorrectionEffectiveFrom(e.target.value)} />
+                    </label>
+                  </div>
+                  <div className="create-panel-actions">
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="field-label">Przypisz innej osobie</span>
+                      <select
+                        value={editingAssignment.employee_id}
+                        disabled={correctionSaving}
+                        onChange={(e) => reassignEmployee(e.target.value)}
+                      >
+                        {rosterEmployees.map((r) => (
+                          <option key={r.employee_id} value={r.employee_id}>{r.display_name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="btn-ghost" onClick={toggleFreeze} disabled={correctionSaving}>
+                      {editingAssignment.frozen ? "Odmroź" : "Zamroź"}
+                    </button>
+                    {editingAssignment.role === "PRIMARY" && editingAssignment.state === "PLANNED" && (
+                      <button className="btn-ghost" onClick={markNotWorked} disabled={correctionSaving}>
+                        Nie przepracował (NN)
+                      </button>
+                    )}
+                    <button className="btn-ghost" onClick={() => setEditingAssignmentId(null)} disabled={correctionSaving}>
+                      Zamknij
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {!isFinal && !hasAssignments && (
                 <p className="panel-hint">Wersja utworzona, ale nikt jeszcze nie został przypisany — uruchom PLAN i wybierz kandydata.</p>
@@ -570,7 +696,16 @@ export default function MonthlyPlanning({ siteId }: { siteId: string }) {
                 <button className="btn-ghost" data-diag-action="history-toggle" onClick={() => setShowHistory((s) => !s)}>
                   {showHistory ? "Ukryj historię wersji" : "Historia wersji"}
                 </button>
+                <button className="btn-ghost" data-diag-action="print-toggle" onClick={() => setShowPrint((s) => !s)}>
+                  {showPrint ? "Ukryj wydruk" : "Wydruk"}
+                </button>
               </div>
+
+              {showPrint && (
+                <div style={{ marginTop: 12 }}>
+                  <Export siteId={siteId} onOpenPrintSettings={onOpenPrintSettings} />
+                </div>
+              )}
 
               {showHistory && (
                 <div className="panel" style={{ marginTop: 12 }}>

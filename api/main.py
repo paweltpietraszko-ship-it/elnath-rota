@@ -9,8 +9,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import (
-    analytics, backup, bootstrap, calendar, decisions, durable_inputs, export, history, overview, roster,
-    rule_decisions, schedule, site_profile,
+    analytics, backup, bootstrap, calendar, decisions, durable_inputs, export, history, manual_edit, overview,
+    roster, rule_decisions, schedule, site_profile,
 )
 
 app = FastAPI(title="Rota API (dev)")
@@ -36,6 +36,7 @@ app.include_router(history.router, prefix="/api")
 app.include_router(decisions.router, prefix="/api")
 app.include_router(overview.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(manual_edit.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -10,6 +10,7 @@ from rota.application.errors import (
     CoordinatorContextAlreadyActive,
     InvalidCoordinatorContext,
     NoCurrentScheduleVersion,
+    NotWorkedRequiresPlannedPrimary,
     ScheduleVersionNotWorking,
 )
 from rota.persistence.employee_repository import EmployeeNotFound
@@ -31,6 +32,7 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (EmployeeNotFound, 404),
     (CoordinatorActionNotFound, 404),
     (NoCurrentScheduleVersion, 404),
+    (NotWorkedRequiresPlannedPrimary, 400),
     (InvalidCoordinatorContext, 403),
     (CoordinatorContextAlreadyActive, 409),
     (SiteRegimeChangeRejected, 409),

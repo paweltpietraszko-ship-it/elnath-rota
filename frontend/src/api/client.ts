@@ -151,6 +151,15 @@ export interface PrecheckOut {
 // accepts back (api/routers/schedule.py::AssignmentIn, extra="forbid").
 export type AssignmentIn = Omit<AssignmentOut, "employee_display_name">;
 
+// ROTA-T037: narrow-scope manual correction result -- HARD violations never
+// block the save, they come back here as deviations for a short, non-
+// blocking warning (same DeviationOut shape the month view already uses).
+export interface ManualCorrectionResultOut {
+  version_id: string;
+  status: string;
+  deviations: DeviationOut[];
+}
+
 export interface RosterRow {
   employee_id: string;
   display_name: string;
@@ -554,6 +563,23 @@ export const api = {
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/exclude-from-history`, {
       method: "POST",
       body: JSON.stringify({ version_id: versionId }),
+    }),
+
+  // Reczna korekta (T037) -- embedded in Planowanie miesiaca, not its own screen.
+  applyManualCorrection: (siteId: string, month: string, effectiveFrom: string, upsertAssignments: AssignmentIn[]) =>
+    req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction`, {
+      method: "POST",
+      body: JSON.stringify({ effective_from: effectiveFrom, upsert_assignments: upsertAssignments }),
+    }),
+  freezeOrUnfreeze: (siteId: string, month: string, effectiveFrom: string, assignmentId: string, frozen: boolean) =>
+    req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction/freeze`, {
+      method: "POST",
+      body: JSON.stringify({ effective_from: effectiveFrom, assignment_id: assignmentId, frozen }),
+    }),
+  markNotWorked: (siteId: string, month: string, effectiveFrom: string, assignmentId: string) =>
+    req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction/mark-not-worked`, {
+      method: "POST",
+      body: JSON.stringify({ effective_from: effectiveFrom, assignment_id: assignmentId }),
     }),
 
   getCalendarRange: (start: string, end: string) =>
