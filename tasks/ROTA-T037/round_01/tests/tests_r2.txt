@@ -1,0 +1,46 @@
+ROTA-T037 — ograniczony reaudyt Codex, runda 2
+Data: 2026-08-28
+
+VERDICT: PASS
+AUDITED_SHA: 88cf3264f370dc66b0259e89e21bbc3e4b74af60
+BASE_AUDIT_SHA: 78221e1f9975558d3c6eeaf7185d2c22cac1e2e1
+ROUND_1_REPORT_COMMIT: d04df65
+
+Zakres
+------
+Reaudyt ograniczono do jedynego findingu T37-R1-01. Diff od raportu r1 do
+AUDITED_SHA zawiera wyłącznie pięć dodanych linii w
+frontend/src/screens/MonthlyPlanning.tsx::cellLabel. Nie zmieniono API,
+manual_edit, solvera, persystencji ani kontraktu T037.
+
+Weryfikacja findingu T37-R1-01
+-----------------------------
+Zachowany reproduktor:
+tasks/ROTA-T037/round_01/tests/audit_r1_ui_reproducer.cjs
+
+Wynik na SHA z rundy 1:
+{"before":"D","after":"D","nnVisibleAfter":false,
+ "deviationVisible":true,"manualShortcutOpenedPlanning":true,
+ "embeddedPrintVisible":true}
+
+Wynik na AUDITED_SHA:
+{"before":"D","after":"NN","nnVisibleAfter":true,
+ "deviationVisible":true,"manualShortcutOpenedPlanning":true,
+ "embeddedPrintVisible":true}
+
+Backend nadal dostarcza CANCELLED + operational_code="NN"; poprawiony
+cellLabel pokazuje operational_code zamiast shift_kind demandu. Jedyny finding
+r1 jest zamknięty.
+
+Gate frontendu
+--------------
+Komenda: npm.cmd run build
+Wynik: PASS — tsc -b i vite build czyste.
+
+Regresja
+--------
+Nie powtarzano solvera, testów API ani pełnej regresji repo. Były zielone w r1,
+a poprawka jest izolowaną zmianą renderowania bez wpływu na ich właścicieli.
+Zakres/risk tej mikropoprawki nie wymaga ponownego kosztownego przebiegu.
+
+PASS dotyczy wyłącznie exact AUDITED_SHA.
