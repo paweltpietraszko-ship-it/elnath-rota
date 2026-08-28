@@ -1,9 +1,11 @@
 STATUS: PASS
-HEAD_SHA: 9c75d2378bf6f287bd8d6bc2f0835b8d5b3273bf
+HEAD_SHA: c692a97a1934b5a513198cc170baf29737ffe00c
 CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
 IMPORTERS_FOR_REVIEW:
   - tests\property\test_coordinator_simulator.py
 EXCLUDED_ARTIFACTS:
   - tasks/ROTA-T039/brief.md
   - tasks/ROTA-T039/repo_before.hash
+  - tasks/ROTA-T039/round_01/tests/backend_output.txt
+  - tasks/ROTA-T039/round_01/tests/tests_r1.txt
   - tasks/ROTA-T038/round_01/tests/simulator_report.md
