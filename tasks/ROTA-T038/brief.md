@@ -14,9 +14,13 @@ słowami" — stąd świadomy wybór własnej pętli po seedach zamiast bibliote
 `hypothesis` (pełny plan zaakceptowany w trybie plan mode tej samej sesji).
 
 TASK_SCOPE:
-- tests/property/__init__.py (nowy plik)
-- tests/property/coordinator_simulator.py (nowy plik)
-- tests/property/test_coordinator_simulator.py (nowy plik)
+- tests/property/__init__.py
+- tests/property/coordinator_simulator.py
+- tests/property/test_coordinator_simulator.py
+
+Wszystkie trzy to nowe pliki (`tests/property/` nie istniał wcześniej) —
+3 nowe pliki przekracza `MAX_NEW_FILES = 2` bramki `backend.py`. Wniosek
+o akceptację niżej w sekcji weryfikacji.
 
 ## 1. Wynik dla właściciela
 
