@@ -1,0 +1,93 @@
+ROTA-T040 — PREIMPLEMENTATION AUDIT
+
+Werdykt: PASS — READY_FOR_IMPLEMENTATION
+Audytowany exact SHA kontraktu: 13f8ddeade5378faa2a357cee31c4da7cdb5b4c2
+Base produktu: d445ee64a0e634c4ca23c2fcc9f6a50b6503d22b
+
+Zakres audytu
+
+- Przeczytano cały tasks/ROTA-T040/brief.md i źródłowy finding na
+  fb562a7e7878e97b944cfc5ef816e6c588fdcbb9.
+- Zweryfikowano bieżące implementacje
+  solver._build_day_kind_terms() i fairness.add_dn_rhythm_reward().
+- Odtworzono minimalną nierówność na prawdziwym helperze fairness.
+- Wykonano różnicowy przebieg pełnego PLAN H24 przez produkcyjne endpointy
+  i SQLite :memory:, zmieniając wyłącznie obecność helpera rytmu w pamięci
+  procesu. Nie zmieniono plików produktu.
+
+Odpowiedzi na pytania kontraktu
+
+1. TAK. Root cause wynika bezpośrednio z obecnego kodu. Dla H24
+   SHIFT-24-PAIR-01 daje x_D == x_N, a współdzielony any_term wynosi
+   x_D + x_N = 2*x. Obecne `match + any_term <= 1` wymusza wtedy x=0 nawet
+   przy match=0. To SOFT helper wprowadzający przypadkowy zakaz HARD.
+
+2. TAK. Dla nieujemnego licznika równoważność
+   `occupied <=> any_term >= 1` zachowuje dokładne znaczenie „wolne” jako
+   `occupied == 0`. Ograniczenie `match + occupied <= 1` blokuje wyłącznie
+   nagrodę danego okna, nie legalne przypisanie.
+
+3. TAK. Zmieniony właściciel mieści się w fairness.py. Solver prawidłowo
+   dostarcza licznik, a H24 pairing, odpoczynek i validator nie wymagają
+   zmiany.
+
+4. TAK. Pozostawienie _build_day_kind_terms, H24 HARD, REST,
+   NIGHT-STREAK, validatora i engine bez zmian zachowuje obecne granice
+   odpowiedzialności. Diagnostyka UNSAT była objawem obcego ograniczenia,
+   nie źródłem defektu.
+
+5. TAK. T40-01 jest dokładnym reproduktorem before/after. Niezależny wynik
+   na BASE_MAIN_SHA dla x==1 i any_term=2*x:
+
+   MATCH_TERMS 1
+   STATUS INFEASIBLE
+
+6. TAK. T40-04 prowadzi przez realny solver/plan i niezależny validate(),
+   nie używa rota_dev.db ani losowego simulatora. Co najmniej cztery
+   kolejne wystąpienia wystarczają do aktywacji nakładających się okien
+   rytmu; test ma także sprawdzić prawdziwy kandydat H24.
+
+7. TAK. T40-05, T40-06 i T40-07 osłaniają odpowiednio pairing/provenance
+   H24, NIGHT-STREAK/REST oraz sąsiednią logikę T034. Brief wymaga reużycia
+   istniejących testów tam, gdzie wystarczają, więc nie dubluje ich pełnych
+   macierzy.
+
+8. NIE. Boolean occupancy tworzony leniwie i współdzielony per
+   (employee_id, date) jest najmniejszą ogólną korektą zachowującą
+   semantykę. H24 special-case albo globalna booleanizacja w solverze byłyby
+   szersze i naruszałyby ownership/performance boundary.
+
+Niezależny dowód pionowy przyczyny
+
+Ten sam obiekt SINGLE_24H, OCHRONA, wrzesień 2026, pięciu LOCAL, target
+176 h, bez absencji:
+
+- kod bazowy: HTTP 200, DECISION_REQUIRED, 0 kandydatów;
+- po wyłączeniu wyłącznie add_dn_rhythm_reward w pamięci procesu:
+  HTTP 200, FEASIBLE, 3 kandydatów.
+
+To potwierdza, że zakres fairness.py jest wystarczający. Nie jest to
+proponowana implementacja ani test akceptacyjny zamiast T40-04; jest to
+niezależny dowód przedimplementacyjny.
+
+PREIMPLEMENTATION_REDUCTION_GATE
+
+Konieczne pozostają dokładnie:
+
+1. ciasna konwersja nieujemnego any_term na Boolean occupancy/free wewnątrz
+   add_dn_rhythm_reward();
+2. użycie jej w dwóch istniejących implikacjach „wolne”;
+3. lokalny cache per employee/date;
+4. jeden skupiony moduł testowy pokrywający root reproducer, zwykłą
+   semantykę rytmu, pionowy H24 i wąskie sibling regressions.
+
+Nie są potrzebne: special-case H24, zmiany solvera/constraintów/validatora/
+engine, nowa faza, nowe DTO/statusy ani zmiany aplikacji, API, persistence
+lub UI.
+
+Brak nowych zachowań wymagających OWNER_EXPLANATION_GATE. Kontrakt odtwarza
+wcześniej zaakceptowany legalny przypadek H24 i usuwa przypadkowe
+ograniczenie z helpera SOFT.
+
+PASS dotyczy wyłącznie kontraktu na exact SHA
+13f8ddeade5378faa2a357cee31c4da7cdb5b4c2.

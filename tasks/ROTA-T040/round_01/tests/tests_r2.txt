@@ -1,0 +1,78 @@
+ROTA-T040 — IMPLEMENTATION AUDIT R2
+
+WERDYKT: PASS
+AUDYTOWANY EXACT SHA: 326695911b6077b3c84df281a275a264d9b24f79
+FINDINGS: brak
+
+Zakres
+
+- Przeczytano cały brief i porównano dostawę z kontraktem po audycie
+  przedimplementacyjnym.
+- Jedyna zmiana produkcyjna mieści się w rota/planning/fairness.py.
+- solver, constraints, validator, engine, work_periods i pozostałe warstwy
+  produktu są poza diffem, zgodnie z TASK_SCOPE.
+- _occupied_bool koduje ciasno `occupied <=> term >= 1` dla nieujemnego
+  licznika. add_dn_rhythm_reward używa tego BoolVar wyłącznie w dwóch
+  istniejących bramkach „wolne” i reużywa go lokalnie per employee/date.
+  Stałe przypadki nadal przechodzą przez wcześniejsze tanie skipy.
+
+Niezależny reproduktor przyczyny
+
+Na exact SHA uruchomiono bezpośrednio produkcyjny add_dn_rhythm_reward z
+H24-shape `any_term = 2*x` i wymuszonym `x == 1`:
+
+  INDEPENDENT_2X OPTIMAL X 1 MATCH_TERMS 1
+
+Legalne przypisanie H24 nie jest już zerowane przez helper SOFT. To jest ten
+sam minimalny przypadek, który przed T040 był INFEASIBLE.
+
+Macierz celowana i pion
+
+Uruchomiono:
+
+  tests/test_t040_h24_rhythm_occupancy.py
+  tests/test_t034_third_consecutive_shift_soft.py
+  tests/test_t032_soft_ranking.py
+  tests/test_vertical_full_stack.py
+
+Wynik: 34 passed in 48.53s.
+
+Pokrywa to zwykłe occupancy 0/1, rytm D/N/wolne/wolne, produkcyjny
+plan_month -> validate dla H24, REST, rzeczywiste NIGHT-STREAK przez solver
+i validator oraz sąsiednie zachowanie T032/T034.
+
+Dodatkowo niezależnie od słabszej asercji w T40-05 odczytano pełnego
+kandydata H24 z produkcyjnego plan_month:
+
+  STATUS FEASIBLE
+  WORK_PERIODS 30
+  BAD_PROVENANCE []
+  VALID True
+
+Każdy work period miał dokładnie dwie składowe D/N, jednego pracownika i
+required_rest_after_hours=24. Poprawka nie uzyskała FEASIBLE przez osłabienie
+H24 HARD.
+
+Pełna regresja repozytorium
+
+Pełny pytest został omyłkowo rozpoczęty mimo małego zakresu T040 i
+zaplanowanego osobno AUDIT-1. Po bezpośredniej korekcie właściciela został
+przerwany przy 11%; nie jest używany jako dowód ani opisywany jako PASS.
+Automatycznie nadpisany podczas tego przebiegu raport symulatora T038 został
+przywrócony dokładnie do HEAD. Worktree przed zapisaniem niniejszego raportu
+był czysty.
+
+Uzasadnienie werdyktu
+
+TRACE: sekcje 1-3 i T40-01..T40-07 briefu wymagają usunięcia przypadkowego
+HARD zakazu z SOFT occupancy bez zmiany H24, REST i NIGHT-STREAK.
+
+OWNERSHIP: defekt należy wyłącznie do fairness.add_dn_rhythm_reward; wejściowy
+any_term celowo pozostaje licznikiem i nie wymaga zmiany solvera.
+
+REPRO: minimalny przypadek 2*x jest OPTIMAL z x=1, pełny pion zwraca FEASIBLE
+i przechodzi niezależny validate, a H24 provenance i reguły siostrzane
+pozostają aktywne.
+
+PASS dotyczy wyłącznie exact SHA
+326695911b6077b3c84df281a275a264d9b24f79.

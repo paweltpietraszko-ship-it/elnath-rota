@@ -1,0 +1,35 @@
+STATUS: FAIL
+HEAD_SHA: c981c324ff283302c3486a6410094fa0572fe506
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FUNC: rota/planning/fairness.py:add_third_consecutive_shift_penalty has 102 lines (max 50)
+WYMAGA_DECYZJI:
+  - RATIO: 284/2 = 142.0:1 (threshold 5:1)
+  - TOTAL_LINES: 286 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_t034_third_consecutive_shift_soft.py
+  - tests\test_t040_h24_rhythm_occupancy.py
+  - rota\planning\solver.py
+  - .worktrees\t040-preimpl\tests\test_t034_third_consecutive_shift_soft.py
+  - .worktrees\t040-preimpl\rota\planning\solver.py
+  - .worktrees\audit1-brief-review\tests\test_t034_third_consecutive_shift_soft.py
+  - .worktrees\audit1-brief-review\rota\planning\solver.py
+  - .worktrees\audit-t035-a1c9a40\rota\planning\solver.py
+  - .worktrees\audit-t034-contract-f4a1e0b\rota\planning\solver.py
+  - .worktrees\audit-t033-dfa3b6a\rota\planning\solver.py
+  - .worktrees\audit-t033-8379f87\rota\planning\solver.py
+  - .worktrees\audit-t033-6de21f8\rota\planning\solver.py
+  - .worktrees\audit-t033-43dc8cb\rota\planning\solver.py
+  - .worktrees\audit-t032-t033-e5bbf17\rota\planning\solver.py
+  - .worktrees\audit-t032-t033-59398ad\rota\planning\solver.py
+  - .worktrees\audit-t032-t033-5207e5f\rota\planning\solver.py
+  - .worktrees\audit-t032-t033-1b11d84\rota\planning\solver.py
+  - .worktrees\audit-t032-fbe8b89\rota\planning\solver.py
+  - .worktrees\audit-t032-9663883\rota\planning\solver.py
+  - .worktrees\audit-t032-52212a6\rota\planning\solver.py
+  - .worktrees\audit-t032-1eaa5bf\rota\planning\solver.py
+  - .worktrees\audit-soft-delete-on-main\rota\planning\solver.py
+  - .worktrees\audit-soft-delete-f457d7c\rota\planning\solver.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T040/brief.md
+  - tasks/ROTA-T040/round_01/tests/tests_r1.txt
