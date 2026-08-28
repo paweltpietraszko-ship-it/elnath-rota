@@ -1,0 +1,12 @@
+STATUS: FAIL
+HEAD_SHA: 2d74efffee670a47f16ee7d3281e6ed7eb7f0b46
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - NEW_FILES: 3 new files (max 2)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 385 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - tests\property\test_coordinator_simulator.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T038/brief.md
+  - tasks/ROTA-T038/repo_before.hash

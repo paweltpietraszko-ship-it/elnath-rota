@@ -1,6 +1,13 @@
 # ROTA-T038 — Symulator Koordynatora (property-based test flow całego programu)
 
-Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu**
+Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu Codex**
+
+backend.py gate: FAIL na `NEW_FILES: 3 new files (max 2)` +
+WYMAGA_DECYZJI na `TOTAL_LINES: 385 lines changed` (SHA
+`2d74efffee670a47f16ee7d3281e6ed7eb7f0b46`) — nowy moduł testowy
+(`tests/property/` nie istniał wcześniej), 3 nowe pliki strukturalnie
+konieczne (pakiet + biblioteka generatora + plik pytest).
+**OWNER_ACCEPTED oba, Paweł, 2026-08-28.**
 
 Base implementation SHA: `37e32da6244e4e43f504ef44b9b5a290f05a21b7` (`main`,
 po zmergowaniu T037).
