@@ -154,6 +154,14 @@ Once the malformed SOFT constraint is removed, the known legal H24 case should n
 
 ## 4. TASK_SCOPE
 
+TASK_SCOPE:
+- rota/planning/fairness.py
+- tests/test_t040_h24_rhythm_occupancy.py
+
+(machine-readable block above, added for backend.py's parser — CC,
+2026-08-28; prose below is the architect's own frozen scope statement,
+unchanged.)
+
 Production — exactly:
 
 - `rota/planning/fairness.py`.
