@@ -71,23 +71,31 @@ _CATALOG_ROWS: dict[str, list[tuple[str, time, time, int, tuple[int, ...]]]] = {
         ("N", time(18, 0), time(6, 0), 1, WEEKDAYS),
         ("D", time(6, 0), time(6, 0), 1, WEEKEND),
     ],
-    # Night post covered by two people with DIFFERENT durations: one works
-    # 18-6 (12h), the other only 22-6 (8h) -- per the owner's real schedule
-    # example. Modeled as two ADJACENT, NON-overlapping demands (18-22 req=1,
-    # 22-6 req=2), not two overlapping same-window demands: validator's
-    # _check_coverage counts ANY geometrically-overlapping PRIMARY toward
-    # EVERY demand it overlaps (explicitly "not covers_demand_id tagging"),
-    # so two truly overlapping demands both requiring 1 falsely double-count
-    # each other as a coverage excess -- confirmed by reproduction, not
-    # assumed. Adjacent segments with varying required_primary_count avoid
-    # that: the 12h person's one continuous assignment spans both segments.
-    "SPLIT_NIGHT_12_8": [
-        ("D", time(6, 0), time(18, 0), 1, ALL_WEEK),
-        ("N", time(18, 0), time(22, 0), 1, ALL_WEEK),
-        ("N", time(22, 0), time(6, 0), 2, ALL_WEEK),
-    ],
 }
-_SHAPES_WITH_NIGHT = ("D_N_12H", "WEEKDAY_12H_WEEKEND_24H", "SPLIT_NIGHT_12_8")
+_SHAPES_WITH_NIGHT = ("D_N_12H", "WEEKDAY_12H_WEEKEND_24H")
+
+# NOT IMPLEMENTED (owner ruling 2026-08-28, ROTA-T039 Codex round-1 FAIL):
+# a night post covered by two people of different durations (owner's real
+# example: one works 18-6 continuously (12h), the other only 22-6 (8h)).
+# Two attempts failed for structural reasons, not test bugs:
+#   1. two truly OVERLAPPING demands (18-6 req=1, 22-6 req=1) -- validator's
+#      _check_coverage counts ANY geometrically-overlapping PRIMARY toward
+#      EVERY demand it overlaps (explicitly "not covers_demand_id tagging"),
+#      so they falsely double-count each other as COVERAGE-01 excess
+#      -> TECHNICAL_ERROR;
+#   2. two ADJACENT, non-overlapping demands (18-22 req=1, 22-6 req=2) --
+#      passes the validator, but nothing forces employee continuity across
+#      them: the solver split the actual FEASIBLE candidate into three
+#      unrelated fragments (4h+8h+8h across 3 different employees), never
+#      one continuous 18-6 person (confirmed via Codex's independent
+#      reproduction, tasks/ROTA-T039/round_01/tests/tests_r1.txt T39-R1-01).
+#      The only same-employee-continuity mechanism in the product
+#      (rota/planning/constraints.py:493-535) is hardcoded to
+#      catalog_kind=H24 pairs, not general-purpose.
+# Owner decision: leave this pattern unhandled until a real need shows up --
+# do not keep guessing workarounds. A real fix needs either a validator
+# change (overlapping demands with independent requirements) or a
+# generalized continuity mechanism, both out of this simulator's scope.
 
 
 def _row_hours(start: time, end: time) -> float:
@@ -161,16 +169,18 @@ def nominal_monthly_hours_kp(month: date, holidays: frozenset[date] = frozenset(
 def random_object_spec(seed: int, month: date) -> ObjectSpec:
     """seed=0 is reserved for the simplest realistic object (plain D/N,
     ORDINARY) -- the "everyone available -> nice schedule" baseline from
-    the owner's own description. Every other seed picks one of
-    _CATALOG_ROWS's heterogeneous shapes (owner request 2026-08-28: weekday
-    vs weekend patterns, a night post split across two different
-    durations) -- not just the original two uniform shapes."""
+    the owner's own description. Every other seed cycles DETERMINISTICALLY
+    through _CATALOG_ROWS's shapes (Codex round-1 FINDING T39-R1-02: a
+    random.choice() left the default 5-seed sweep never exercising any new
+    shape at all) -- guarantees every shape appears within the default seed
+    range instead of leaving it to chance."""
     rng = random.Random(seed)
+    shapes = list(_CATALOG_ROWS)
 
     if seed == 0:
         shift_shape, regime = "D_N_12H", "ORDINARY"
     else:
-        shift_shape = rng.choice(list(_CATALOG_ROWS))
+        shift_shape = shapes[(seed - 1) % len(shapes)]
         regime = "OCHRONA" if shift_shape in ("SINGLE_24H", "WEEKDAY_12H_WEEKEND_24H") else rng.choice(["ORDINARY", "OCHRONA"])
 
     # Summed from the actual catalog rows (see monthly_hours_for_shape) --

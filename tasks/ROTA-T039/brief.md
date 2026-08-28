@@ -1,6 +1,6 @@
 # ROTA-T039 — Symulator Koordynatora: niejednorodne katalogi zmian
 
-Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu**
+Status: **KOREKTA 1 ZAKOŃCZONA (autor: CC), do audytu Codex**
 
 Base implementation SHA: `67a245539400795bcf86234efad1f808a9f11013` (`main`,
 po zmergowaniu T038).
@@ -17,17 +17,22 @@ TASK_SCOPE:
 
 ## 1. Wynik dla właściciela
 
-Generator (`random_object_spec`) losuje teraz jeden z 4 kształtów katalogu
-zmian (`_CATALOG_ROWS`), nie tylko poprzednie 2:
+**Stan po KOREKCIE 1** (patrz sekcja 4a): generator (`random_object_spec`)
+losuje teraz jeden z 3 kształtów katalogu zmian (`_CATALOG_ROWS`), nie
+tylko poprzednie 2:
 
 - `D_N_12H` (bez zmian) — D+N po 12h, codziennie.
 - `SINGLE_24H` (bez zmian) — jedna zmiana 24h, codziennie.
 - `WEEKDAY_12H_WEEKEND_24H` (nowy) — D+N 12h w dni robocze (pon-pt), jedna
   zmiana 24h w weekend (sob-nd). Ta sama łączna liczba godzin/dobę (24h),
   inny kształt katalogu zależny od dnia tygodnia.
-- `SPLIT_NIGHT_12_8` (nowy) — nocka pokrywana przez dwie osoby o różnej
-  długości dyżuru: jedna 18:00-06:00 (12h), druga tylko 22:00-06:00 (8h) —
-  dokładnie przykład z realnego grafiku podany przez właściciela.
+
+Czwarty, pierwotnie planowany kształt (`SPLIT_NIGHT_12_8` — nocka
+pokrywana przez dwie osoby o różnej długości dyżuru, 18:00-06:00 i
+22:00-06:00, dokładnie przykład z realnego grafiku właściciela) okazał się
+niemożliwy do poprawnej realizacji dzisiejszymi prymitywami katalogu zmian
+— patrz sekcja 2 (historia dwóch nieudanych podejść) i sekcja 4a (owner
+decision: zostawiamy nieobsłużone).
 
 `monthly_hours_needed` (a więc i wyliczana obsada) jest teraz sumowane
 wprost z rzeczywistych wierszy katalogu (`monthly_hours_for_shape`), nie z
@@ -84,6 +89,31 @@ zrobił dokładnie to, do czego służy (ujawnił fakt), nie ocenia go.
 - Poprawa heurystyki obsady dla `SINGLE_24H` (punkt 3) — obserwacja do
   przemyślenia, nie zaimplementowana zmiana.
 - `posts` nadal na stałe 1 (bez zmian z T038).
+
+## 4a. KOREKTA 1 (Codex round-1 FAIL)
+
+`tests_r1.txt` (commit `619b789`, exact SHA `d1b6c8f`): FAIL, dwa findings.
+
+**T39-R1-01 — `SPLIT_NIGHT_12_8` nie odtwarzał zaakceptowanego przykładu.**
+Zbadane do końca: `rota/planning/constraints.py:493-535` ma mechanizm
+"ta sama osoba na obu połówkach", ale hardcoded do `catalog_kind=H24` —
+nie działa dla dowolnego podziału zmiany. Bez tego solver rozbił nockę na
+3 niezależne fragmenty (4h+8h+8h, 3 różne osoby), zamiast ciągłej osoby
+18-6 + nakładającej się 22-6. **Owner decision, 2026-08-28: zostawiamy ten
+wzorzec nieobsłużony, dopóki nie okaże się realnie potrzebny — nie zgadywać
+dalej.** `SPLIT_NIGHT_12_8` usunięty z `_CATALOG_ROWS`; powód i oba nieudane
+podejścia (nakładające się demandy → TECHNICAL_ERROR; sąsiadujące demandy →
+brak ciągłości) udokumentowane wprost w kodzie jako "NOT IMPLEMENTED",
+żeby nikt nie próbował tego samego bez świadomości tych dwóch ścian.
+
+**T39-R1-02 — domyślne seedy 0-4 nigdy nie trafiały na nowy kształt.**
+`shift_shape` losowany był przez `rng.choice()` bez gwarancji pokrycia.
+Naprawione: deterministyczny cykl `shapes[(seed-1) % len(shapes)]` —
+gwarantuje, że każdy kształt pojawi się w domyślnym zakresie seedów.
+
+Pełny formalny przebieg po korekcie (5 seedów): `1 passed in 146.06s
+(0:02:26)`, zero awarii, wszystkie 3 pozostałe kształty (`D_N_12H`,
+`SINGLE_24H`, `WEEKDAY_12H_WEEKEND_24H`) potwierdzone w raporcie.
 
 ## 5. Weryfikacja
 
