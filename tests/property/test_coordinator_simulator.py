@@ -1,35 +1,24 @@
-"""ROTA-T038 (tasks/ROTA-T038/brief.md): Symulator Koordynatora pytest entry
-point.
+"""ROTA-T038 (tasks/ROTA-T038/brief.md, KOREKTA 2): Symulator Koordynatora
+pytest entry point.
 
-COORDINATOR SIMULATOR INVARIANTS -- Rota's own already-published contract
-promises, not new requirements invented for this test:
+This does NOT judge whether the solver is right (see
+coordinator_simulator.py's module docstring). It runs many invented,
+internally-consistent objects (staffing derived from each object's own
+hourly workload) through randomly-drawn absence combinations, drives the
+real PLAN/REPLAN endpoints, and writes a human-readable report of what
+happened. The ONLY assertion is "nothing crashed" -- every other outcome
+(FEASIBLE, DECISION_REQUIRED, TECHNICAL_ERROR, headcount actually used) is
+a reported fact, not a pass/fail judgment.
 
-1. No seed ever raises an exception or returns a 5xx.
-2. PLAN status is always one of FEASIBLE / DECISION_REQUIRED / TECHNICAL_ERROR.
-3. When the generator built sufficient staffing, status MUST be FEASIBLE
-   (catches a false DECISION_REQUIRED/TECHNICAL_ERROR).
-4. Every FEASIBLE candidate, independently re-validated via
-   rota.planning.validator.validate(), has hard_pass=True (catches
-   solver/validator drift -- the same question REAL_OBJECT_BENCHMARK.md
-   asks, on many random inputs instead of one frozen one).
-5. mark-not-worked (a HARD-violation-creating manual correction) never
-   blocks the save (still 200) and its COVERAGE deviation appears in the
-   response.
-6. finalize with the exact current deviation set succeeds; with a stale/
-   wrong set it is rejected.
-
-Default run is DEELIBERATELY small (see DEFAULT_SEED_COUNT) -- this suite
-runs a real CP-SAT solve per seed and must not become the kind of slow
-sweep that eats session budget. Set ROTA_SIM_SEEDS=500 for a deep,
-manual/overnight run. Any seed that ever finds a real bug gets added to
-REGRESSION_SEEDS below so it is never silently dropped from coverage
-again -- do not remove entries from that tuple without a note explaining
-why the bug class it caught is now provably unreachable.
+Default run is small (see DEFAULT_SEED_COUNT) -- each seed runs a real
+CP-SAT solve twice (PLAN + REPLAN) and must not become a slow sweep that
+eats session budget. ROTA_SIM_SEEDS=<N> for a deeper manual run.
 """
 from __future__ import annotations
 
 import os
 from datetime import date
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,148 +27,164 @@ from api.deps import get_conn
 from api.main import app
 from rota.persistence.db import connect
 from tests.property.coordinator_simulator import (
+    apply_absences,
     build_object,
-    find_planned_primary,
-    independently_revalidate,
+    declared_roster,
+    local_employee_id,
+    random_absence_set,
     random_object_spec,
 )
 
 MONTH = date(2026, 9, 1)
-DEFAULT_SEED_COUNT = 10
-
-# Seeds that previously reproduced a real bug -- always checked, regardless
-# of DEFAULT_SEED_COUNT/ROTA_SIM_SEEDS.
-REGRESSION_SEEDS: tuple[int, ...] = ()
+DEFAULT_SEED_COUNT = 5  # each seed runs PLAN + REPLAN, each up to the 45s solver budget -- keep the default sweep bounded
+REPORT_PATH = Path(__file__).resolve().parents[2] / "tasks" / "ROTA-T038" / "round_01" / "tests" / "simulator_report.md"
 
 
 def _seeds() -> list[int]:
-    count = int(os.environ.get("ROTA_SIM_SEEDS", DEFAULT_SEED_COUNT))
-    return sorted(set(range(count)) | set(REGRESSION_SEEDS))
+    return list(range(int(os.environ.get("ROTA_SIM_SEEDS", DEFAULT_SEED_COUNT))))
+
+
+def _absence_lines(draws, spec) -> str:
+    if not draws:
+        return "brak (wszyscy dostępni)"
+    return "; ".join(
+        f"{local_employee_id(spec, d.employee_index)}: {d.kind} {d.start_date.isoformat()}..{d.end_date.isoformat()}"
+        for d in draws
+    )
+
+
+def _decision_reason(payload: dict | None) -> str:
+    if payload is None:
+        return "-"
+    parts = [b["condition"] for b in payload.get("blockers", [])]
+    parts += payload.get("unblocking_options", [])
+    return " | ".join(parts) if parts else "(brak szczegółów w payloadzie)"
 
 
 def _assignment_in(a: dict) -> dict:
     return {k: v for k, v in a.items() if k != "employee_display_name"}
 
 
-def _run_plan_phase(client: TestClient, site_id: str, seed: int, spec) -> dict | None:
-    """Returns the plan result dict if a candidate was selected, or None if
-    this seed's journey legitimately ends here (insufficient staffing)."""
-    plan_resp = client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/plan",
-        json={"effective_from": MONTH.isoformat()},
-    )
-    assert plan_resp.status_code == 200, f"seed={seed} spec={spec}: {plan_resp.text}"
-    result = plan_resp.json()
-
-    assert result["status"] in ("FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"), (
-        f"seed={seed} spec={spec}: illegal PLAN status {result['status']!r}"
-    )
-    assert result["status"] != "TECHNICAL_ERROR", f"seed={seed} spec={spec}: {result['error_message']}"
-
-    if spec.sufficient_staffing:
-        assert result["status"] == "FEASIBLE", (
-            f"seed={seed} spec={spec}: sufficient staffing but got {result['status']!r} "
-            f"(warnings={result['warnings']}, decision_payload={result['decision_payload']})"
-        )
-        return result
-
-    if result["status"] == "DECISION_REQUIRED":
-        payload = result["decision_payload"]
-        assert payload is not None, f"seed={seed}: DECISION_REQUIRED with no payload"
-        assert payload["blocking_shift_demands"] or payload["blockers"] or payload["load_blocker"], (
-            f"seed={seed}: DECISION_REQUIRED payload carries no evidence: {payload}"
-        )
-    return None  # insufficient-staffing seeds stop here -- no candidate to select
+def _used_employees(candidate: list[dict]) -> list[str]:
+    return sorted({a["employee_id"] for a in candidate})
 
 
-def _select_and_revalidate(client: TestClient, conn, site_id: str, seed: int, spec, result: dict) -> str:
+def _run_plan(client: TestClient, site_id: str) -> dict:
+    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/plan", json={"effective_from": MONTH.isoformat()})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _select_first_candidate(client: TestClient, site_id: str, result: dict) -> None:
     candidate = result["candidates"][0]
-    select_resp = client.post(
+    resp = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/select-candidate",
         json={"candidate": [_assignment_in(a) for a in candidate]},
     )
-    assert select_resp.status_code == 204, f"seed={seed}: {select_resp.text}"
+    resp.raise_for_status()
 
-    view_resp = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}")
-    assert view_resp.status_code == 200
-    version_id = view_resp.json()["current_version"]["version_id"]
 
-    # Invariant 4: independent re-validation of the persisted candidate.
-    assert independently_revalidate(conn, site_id, MONTH, version_id), (
-        f"seed={seed} spec={spec}: solver/validator disagreement on a persisted FEASIBLE candidate"
+def _run_replan(client: TestClient, site_id: str) -> dict:
+    resp = client.post(
+        f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/replan",
+        json={"effective_from": MONTH.isoformat()},
     )
-    return version_id
+    resp.raise_for_status()
+    return resp.json()
 
 
-def _maybe_mark_not_worked(client: TestClient, conn, site_id: str, seed: int, version_id: str) -> None:
-    # Invariant 5: mark-not-worked on ~1 in 3 seeds (deterministic on seed).
-    if seed % 3 != 0:
-        return
-    target = find_planned_primary(conn, version_id)
-    if target is None:
-        return
-    nn_resp = client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/manual-correction/mark-not-worked",
-        json={"effective_from": MONTH.isoformat(), "assignment_id": target.assignment_id},
-    )
-    assert nn_resp.status_code == 200, f"seed={seed}: mark-not-worked blocked: {nn_resp.text}"
-    nn_body = nn_resp.json()
-    assert any(d["category"] == "COVERAGE" for d in nn_body["deviations"]), (
-        f"seed={seed}: mark-not-worked left no COVERAGE deviation: {nn_body}"
-    )
+def _phase_row(result: dict) -> tuple[str, str, list[str]]:
+    status = result["status"]
+    if status == "FEASIBLE":
+        return status, "-", _used_employees(result["candidates"][0]) if result["candidates"] else []
+    if status == "TECHNICAL_ERROR":
+        return status, f"DO PRZEJRZENIA: {result.get('error_message')}", []
+    return status, _decision_reason(result.get("decision_payload")), []
 
 
-def _finalize_with_exact_ack(client: TestClient, site_id: str, seed: int) -> None:
-    # Invariant 6: finalize needs the EXACT current deviation set.
-    view_resp = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}")
-    current_deviation_ids = [d["deviation_id"] for d in view_resp.json()["deviations"]]
-
-    if not current_deviation_ids:
-        finalize_resp = client.post(
-            f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/finalize",
-            json={"acknowledged_deviation_ids": []},
-        )
-        assert finalize_resp.status_code == 204, f"seed={seed}: finalize with no deviations rejected: {finalize_resp.text}"
-        return
-
-    # An empty ack set is only "wrong" when real deviations exist -- otherwise
-    # it IS the correct call and must not be repeated (already FINAL, 409s).
-    wrong_finalize = client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/finalize",
-        json={"acknowledged_deviation_ids": []},
-    )
-    assert wrong_finalize.status_code != 204, f"seed={seed}: finalize accepted an empty ack set with real deviations present"
-
-    finalize_resp = client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/finalize",
-        json={"acknowledged_deviation_ids": current_deviation_ids},
-    )
-    assert finalize_resp.status_code == 204, f"seed={seed}: finalize with exact ack set rejected: {finalize_resp.text}"
-
-
-def _run_one_seed(seed: int) -> None:
+def _run_one_seed(seed: int) -> dict:
+    """Returns one report row dict. Raises only on a genuine crash/5xx --
+    every other outcome is captured as data, not raised."""
     conn = connect(":memory:")
     app.dependency_overrides[get_conn] = lambda: (yield conn)
+    row: dict = {"seed": seed}
     try:
         client = TestClient(app)
         spec = random_object_spec(seed, MONTH)
+        draws = random_absence_set(seed, spec)
+        row.update(
+            shift_shape=spec.shift_shape, posts=spec.posts, regime=spec.regime,
+            monthly_hours_needed=spec.monthly_hours_needed,
+            declared_roster=declared_roster(spec), absences=_absence_lines(draws, spec),
+        )
+
         site_id = build_object(client, conn, spec)
+        apply_absences(client, site_id, spec, draws)
 
-        result = _run_plan_phase(client, site_id, seed, spec)
-        if result is None:
-            return  # insufficient-staffing seed, already checked above
+        plan_result = _run_plan(client, site_id)
+        plan_status, plan_reason, plan_used = _phase_row(plan_result)
+        row.update(plan_status=plan_status, plan_reason=plan_reason, plan_used=plan_used)
 
-        version_id = _select_and_revalidate(client, conn, site_id, seed, spec, result)
-        _maybe_mark_not_worked(client, conn, site_id, seed, version_id)
-        _finalize_with_exact_ack(client, site_id, seed)
+        if plan_status != "FEASIBLE" or not plan_result["candidates"]:
+            row.update(replan_status="pominięto (brak grafiku bazowego)", replan_reason="-", replan_used=[])
+            return row
+
+        _select_first_candidate(client, site_id, plan_result)
+
+        # Second phase: one more randomly-drawn absence, simulating something
+        # happening mid-month, then REPLAN on the now-selected schedule.
+        mid_month_draws = random_absence_set(seed * 104729, spec)  # distinct stream, same object
+        apply_absences(client, site_id, spec, mid_month_draws)
+        row["absences_mid_month"] = _absence_lines(mid_month_draws, spec)
+
+        replan_result = _run_replan(client, site_id)
+        replan_status, replan_reason, replan_used = _phase_row(replan_result)
+        row.update(replan_status=replan_status, replan_reason=replan_reason, replan_used=replan_used)
+        return row
     finally:
         app.dependency_overrides.pop(get_conn, None)
         conn.close()
 
 
-@pytest.mark.parametrize("seed", _seeds())
-def test_coordinator_simulator(seed: int) -> None:
-    _run_one_seed(seed)
+def _write_report(rows: list[dict], crashes: list[tuple[int, str]]) -> None:
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# Symulator Koordynatora -- raport przebiegu\n", f"Miesiąc: {MONTH.isoformat()} | seedy: {len(rows) + len(crashes)}\n"]
+    for row in rows:
+        declared = row["declared_roster"]
+        lines.append(f"\n## Seed {row['seed']}\n")
+        lines.append(
+            f"- Zapotrzebowanie: {row['shift_shape']}, {row['posts']} posterunek(-i), regime {row['regime']}, "
+            f"{row['monthly_hours_needed']}h/mies.\n"
+        )
+        lines.append(f"- Zadeklarowana obsada ({len(declared)} osób): {', '.join(declared)}\n")
+        lines.append(f"- Absencje (PLAN): {row['absences']}\n")
+        lines.append(f"- PLAN: **{row['plan_status']}** -- {row['plan_reason']}\n")
+        if row["plan_used"]:
+            mismatch = " *(ROZBIEŻNOŚĆ vs deklaracja!)*" if set(row["plan_used"]) - set(declared) else ""
+            lines.append(f"  - Użyte osoby ({len(row['plan_used'])}): {', '.join(row['plan_used'])}{mismatch}\n")
+        if "absences_mid_month" in row:
+            lines.append(f"- Absencje (przed REPLAN): {row['absences_mid_month']}\n")
+        lines.append(f"- REPLAN: **{row['replan_status']}** -- {row['replan_reason']}\n")
+        if row["replan_used"]:
+            mismatch = " *(ROZBIEŻNOŚĆ vs deklaracja!)*" if set(row["replan_used"]) - set(declared) else ""
+            lines.append(f"  - Użyte osoby ({len(row['replan_used'])}): {', '.join(row['replan_used'])}{mismatch}\n")
+    if crashes:
+        lines.append("\n## Awarie (do przejrzenia)\n")
+        for seed, error in crashes:
+            lines.append(f"- Seed {seed}: {error}\n")
+    REPORT_PATH.write_text("".join(lines), encoding="utf-8")
+
+
+def test_coordinator_simulator_report() -> None:
+    rows, crashes = [], []
+    for seed in _seeds():
+        try:
+            rows.append(_run_one_seed(seed))
+        except Exception as exc:  # noqa: BLE001 -- deliberately broad: any crash is reported, not swallowed
+            crashes.append((seed, str(exc)))
+    _write_report(rows, crashes)
+    if crashes:
+        pytest.fail(f"{len(crashes)} seed(y) zakończone wyjątkiem/5xx: {crashes}")
 
 
 if __name__ == "__main__":

@@ -1,199 +1,244 @@
-"""ROTA-T038 (tasks/ROTA-T038/brief.md): Symulator Koordynatora.
+"""ROTA-T038 (tasks/ROTA-T038/brief.md, KOREKTA 2 - OWNER_CORRECTED
+2026-08-28): Symulator Koordynatora.
 
-Generates a random-but-realistic Site (varying employee count, DAY_ONLY
-mix, ORDINARY/OCHRONA regime, external support, rolling-7d threshold) from
-one integer seed, then drives it through the SAME HTTP endpoints a real
-coordinator's browser calls (api/routers/*.py via FastAPI TestClient) --
-create site, configure shift catalog, add employees, attach roster, plan,
-resolve or accept DECISION_REQUIRED, select a candidate, sometimes a manual
-correction, then finalize. REPLAN is deliberately out of v1 (see
-brief.md "Poza zakresem") -- flagged as a follow-up, not silently dropped.
+A thin "ticks checkboxes and reports" layer, explicitly NOT a layer that
+judges whether the solver is right (that role stays with
+benchmarks/REAL_OBJECT_BENCHMARK.md, unchanged). For each seed this:
 
-This is deliberately NOT a second scheduling system and does not decide
-whether a schedule is "the right one" -- see benchmarks/REAL_OBJECT_BENCHMARK.md
-for that role, unchanged and untouched by this module. The oracle here is
-Rota's own already-published contract promises (see COORDINATOR SIMULATOR
-INVARIANTS in test_coordinator_simulator.py), checked with the same
-independent rota.planning.validator.validate() production already uses --
-zero reimplemented solver logic.
+1. invents a realistic Site (varying shift shape, number of parallel posts,
+   regime) with staffing DERIVED from that object's own hourly workload
+   (never picked independently of it -- the owner-caught v1 bug: an
+   "N-person" object could silently need/use more people than its label
+   claimed);
+2. ticks real availability/absence "checkboxes" (sick leave, vacation,
+   day-off-on-demand) through the same HTTP endpoint a coordinator's
+   browser calls;
+3. runs PLAN then REPLAN through the real routers;
+4. reports what happened -- status, human-readable reason, and the full
+   declared roster next to who actually ended up in the schedule -- into
+   tests/property/test_coordinator_simulator.py's report writer.
+
+The only judgment this module makes is "did anything crash" -- status
+(FEASIBLE/DECISION_REQUIRED/TECHNICAL_ERROR) and headcount usage are
+reported as facts for the owner to read, never asserted as right or wrong.
 """
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from rota.application.assembler import assemble_planning_state
-from rota.domain import Assignment, CalendarDay
+from rota.domain import AvailabilityKind, CalendarDay
 from rota.persistence.calendar_repository import save_calendar_day
-from rota.persistence.schedule_repository import get_schedule_snapshot
-from rota.planning.validator import validate
+
+REALISTIC_HOURS_PER_EMPLOYEE = 160  # a plain, documented approximation of a full-time month, not a hidden constant
+STAFFING_MARGIN = 1  # small buffer for REST/rotation feasibility on top of the raw hours division
 
 
 @dataclass(frozen=True)
 class ObjectSpec:
-    """One randomly-drawn, internally-consistent Site configuration."""
+    """One invented, internally-consistent Site: staffing is DERIVED from
+    this object's own hourly workload, never an independent random draw."""
 
     seed: int
     month: date
-    employee_count: int
-    day_only_indices: tuple[int, ...]
+    shift_shape: str  # "D_N_12H" | "SINGLE_24H"
+    posts: int  # parallel primaries required per shift
     regime: str  # "ORDINARY" | "OCHRONA"
-    external_support: bool
     rolling_7d_threshold_hours: int
-    sufficient_staffing: bool
+    monthly_hours_needed: int
+    employee_count: int  # DERIVED from monthly_hours_needed, never independent
+    day_only_indices: tuple[int, ...]
+    external_count: int
+
+
+def _days_in_month(month: date) -> int:
+    next_month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    return (next_month - month).days
+
+
+def _month_dates(month: date) -> list[date]:
+    count = _days_in_month(month)
+    return [month + timedelta(days=i) for i in range(count)]
 
 
 def random_object_spec(seed: int, month: date) -> ObjectSpec:
-    """The generator. `sufficient_staffing=False` on ~1-in-5 seeds
-    deliberately under-staffs (1-2 employees) to also exercise
-    DECISION_REQUIRED as a checked, not just tolerated, outcome. Everything
-    else varies every seed: regime, DAY_ONLY mix, external support,
-    rolling-7d threshold.
-
-    Deliberately NOT varied (simplifications, flagged in brief.md): no
-    calendar holidays (every day holiday=False, matching every existing
-    fixture in this repo); required_primary_count fixed at 1 for both D and
-    N (varying it would need real coverage math, not just headcount, to
-    keep the "sufficient" guarantee honest); OCHRONA uses the same D/N
-    12h catalog as ORDINARY, not a genuine 24h shift pair -- it only
-    exercises the REST/weekly-rest rule differences OCHRONA triggers
-    (SitePlanningRegime), not a distinct shift catalog shape.
-    """
+    """seed=0 is reserved for the simplest realistic object (D/N, 1 post,
+    ORDINARY) -- the "everyone available -> nice schedule" baseline from
+    the owner's own description."""
     rng = random.Random(seed)
-    sufficient_staffing = rng.randint(1, 5) != 1
+    days = _days_in_month(month)
 
-    if sufficient_staffing:
-        employee_count = rng.randint(4, 8)
-        # Keep at least 3 employees able to work N (day_only blocks N).
-        max_day_only = max(0, employee_count - 3)
-        day_only_count = rng.randint(0, max_day_only)
+    if seed == 0:
+        shift_shape, posts, regime = "D_N_12H", 1, "ORDINARY"
     else:
-        employee_count = rng.randint(1, 2)
-        day_only_count = 0
+        shift_shape = rng.choice(["D_N_12H", "SINGLE_24H"])
+        # Fixed at 1 (not varied 1-3): posts=2 needs ~10-12 declared
+        # employees and was measured at ~90s for one seed's PLAN+REPLAN
+        # during this task's build -- too slow for a default 10-seed sweep.
+        # Variety in this version comes from shift_shape/regime/external
+        # support/absences instead. Flagged as a scope simplification, not
+        # a silent cut -- posts variation is a reasonable follow-up once
+        # solve time is budgeted for it.
+        posts = 1
+        regime = "OCHRONA" if shift_shape == "SINGLE_24H" else rng.choice(["ORDINARY", "OCHRONA"])
 
-    day_only_indices = tuple(sorted(rng.sample(range(employee_count), day_only_count)))
+    # Both shapes cover the post around the clock -- 24h/day of coverage per
+    # post either way (D+N together, or one 24h shift) -- so the same
+    # formula applies to both; shape varies the CATALOG, not the hours math.
+    monthly_hours_needed = 24 * posts * days
+
+    employee_count = math.ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE) + STAFFING_MARGIN
+
+    if shift_shape == "D_N_12H":
+        max_day_only = max(0, employee_count - max(posts + 2, 3))
+        day_only_count = rng.randint(0, max_day_only) if seed != 0 else 0
+        day_only_indices = tuple(sorted(rng.sample(range(employee_count), day_only_count)))
+    else:
+        # A single 24h shift catalog has no distinct night kind to block --
+        # DAY_ONLY has nothing to mean here.
+        day_only_indices = ()
+
+    external_count = 0 if seed == 0 else (rng.randint(1, 2) if rng.random() < 0.4 else 0)
 
     return ObjectSpec(
-        seed=seed,
-        month=month,
-        employee_count=employee_count,
-        day_only_indices=day_only_indices,
-        regime=rng.choice(["ORDINARY", "OCHRONA"]),
-        external_support=sufficient_staffing and rng.random() < 0.5,
-        rolling_7d_threshold_hours=rng.choice([40, 48, 56, 60]),
-        sufficient_staffing=sufficient_staffing,
+        seed=seed, month=month, shift_shape=shift_shape, posts=posts, regime=regime,
+        rolling_7d_threshold_hours=rng.choice([48, 56, 60]) if seed != 0 else 60,
+        monthly_hours_needed=monthly_hours_needed, employee_count=employee_count,
+        day_only_indices=day_only_indices, external_count=external_count,
     )
 
 
-def _days_in_month(month: date) -> list[date]:
-    next_month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
-    days, day = [], month
-    while day < next_month:
-        days.append(day)
-        day = day + timedelta(days=1)
-    return days
+@dataclass(frozen=True)
+class AbsenceDraw:
+    employee_index: int  # index into the LOCAL roster only
+    kind: str  # AvailabilityKind value
+    start_date: date
+    end_date: date
+
+
+def random_absence_set(seed: int, spec: ObjectSpec) -> list[AbsenceDraw]:
+    """seed=0 draws zero absences -- the explicit "everyone available"
+    baseline. Every other seed draws 0-3 records over the local roster
+    only (absences apply to real people, not to external-support windows,
+    which already have their own availability window mechanism)."""
+    if seed == 0 or spec.employee_count == 0:
+        return []
+    rng = random.Random(seed * 7919 + 1)  # distinct stream from the object generator's own rng
+    count = rng.randint(0, 3)
+    kinds = [k.value for k in AvailabilityKind]
+    days = _month_dates(spec.month)
+    draws = []
+    for _ in range(count):
+        employee_index = rng.randrange(spec.employee_count)
+        kind = rng.choice(kinds)
+        start_idx = rng.randrange(len(days))
+        span = rng.randint(1, min(5, len(days) - start_idx))
+        draws.append(AbsenceDraw(
+            employee_index=employee_index, kind=kind,
+            start_date=days[start_idx], end_date=days[start_idx + span - 1],
+        ))
+    return draws
+
+
+def local_employee_id(spec: ObjectSpec, index: int) -> str:
+    return f"SIM-{spec.seed}-EMP-{index}"
+
+
+def external_employee_id(spec: ObjectSpec, index: int) -> str:
+    return f"SIM-{spec.seed}-EXT-{index}"
 
 
 def seed_calendar(conn, month: date) -> None:
-    """Calendar days are setup data, not a coordinator action -- every
-    existing fixture in this repo (tests/support/t009_fixtures.py,
-    tests/test_t021_external_support_roster.py) writes them directly
-    through persistence, not through the /calendar HTTP endpoint. Matched
-    here for consistency, not as a new convention."""
-    for day in _days_in_month(month):
+    for day in _month_dates(month):
         save_calendar_day(conn, CalendarDay(day, False))
 
 
 def _create_site(client: TestClient, spec: ObjectSpec) -> str:
-    create_resp = client.post(
+    resp = client.post(
         "/api/workspace/sites",
         json={
-            "display_name": f"SIM-{spec.seed}",
-            "profile_display_name": f"SIM-PROFILE-{spec.seed}",
-            "rolling_7d_decision_threshold_hours": spec.rolling_7d_threshold_hours,
-            "planning_regime": spec.regime,
+            "display_name": f"SIM-{spec.seed}", "profile_display_name": f"SIM-PROFILE-{spec.seed}",
+            "rolling_7d_decision_threshold_hours": spec.rolling_7d_threshold_hours, "planning_regime": spec.regime,
         },
     )
-    assert create_resp.status_code == 201, create_resp.text
-    return create_resp.json()["site_id"]
+    assert resp.status_code == 201, resp.text
+    return resp.json()["site_id"]
 
 
-def _put_shift_catalog(client: TestClient, site_id: str) -> None:
-    catalog_resp = client.put(
-        f"/api/workspace/sites/{site_id}/shift-catalog",
-        json={
-            "shifts": [
-                {"kind": "D", "start_time": "05:00", "end_time": "17:00", "required_primary_count": 1, "active_weekdays": [1, 2, 3, 4, 5, 6, 7]},
-                {"kind": "N", "start_time": "17:00", "end_time": "05:00", "required_primary_count": 1, "active_weekdays": [1, 2, 3, 4, 5, 6, 7]},
-            ],
-        },
-    )
-    assert catalog_resp.status_code == 204, catalog_resp.text
+def _put_shift_catalog(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
+    all_week = [1, 2, 3, 4, 5, 6, 7]
+    if spec.shift_shape == "D_N_12H":
+        shifts = [
+            {"kind": "D", "start_time": "05:00", "end_time": "17:00", "required_primary_count": spec.posts, "active_weekdays": all_week},
+            {"kind": "N", "start_time": "17:00", "end_time": "05:00", "required_primary_count": spec.posts, "active_weekdays": all_week},
+        ]
+    else:
+        shifts = [
+            {"kind": "D", "start_time": "08:00", "end_time": "08:00", "required_primary_count": spec.posts, "active_weekdays": all_week},
+        ]
+    resp = client.put(f"/api/workspace/sites/{site_id}/shift-catalog", json={"shifts": shifts})
+    assert resp.status_code == 204, resp.text
 
 
 def _add_local_roster(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
     for i in range(spec.employee_count):
-        employee_id = f"SIM-{spec.seed}-EMP-{i}"
-        create_emp_resp = client.post(
+        employee_id = local_employee_id(spec, i)
+        resp = client.post(
             "/api/workspace/employees",
-            json={
-                "employee_id": employee_id, "site_id": site_id, "display_name": employee_id,
-                "day_only": i in spec.day_only_indices,
-            },
+            json={"employee_id": employee_id, "site_id": site_id, "display_name": employee_id, "day_only": i in spec.day_only_indices},
         )
-        assert create_emp_resp.status_code == 204, create_emp_resp.text
-        attach_resp = client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": employee_id})
-        assert attach_resp.status_code == 204, attach_resp.text
+        assert resp.status_code == 204, resp.text
+        resp = client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": employee_id})
+        assert resp.status_code == 204, resp.text
 
 
 def _add_external_support(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
-    if not spec.external_support:
+    if not spec.external_count:
         return
-    ext_id = f"SIM-{spec.seed}-EXT-1"
-    client.post("/api/workspace/employees", json={"employee_id": ext_id, "site_id": site_id, "display_name": ext_id, "day_only": False})
-    client.post(
-        f"/api/workspace/sites/{site_id}/roster",
-        json={"employee_id": ext_id, "membership_kind": "EXTERNAL_SUPPORT"},
-    )
-    client.post(
-        f"/api/workspace/employees/{ext_id}/support-window",
-        json={
-            "site_id": site_id, "start_datetime": f"{spec.month.isoformat()}T00:00:00",
-            "end_datetime": f"{_days_in_month(spec.month)[-1].isoformat()}T23:59:59", "allowed_shift_kind": None,
-        },
-    )
+    last_day = _month_dates(spec.month)[-1]
+    for i in range(spec.external_count):
+        ext_id = external_employee_id(spec, i)
+        client.post("/api/workspace/employees", json={"employee_id": ext_id, "site_id": site_id, "display_name": ext_id, "day_only": False})
+        client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": ext_id, "membership_kind": "EXTERNAL_SUPPORT"})
+        client.post(
+            f"/api/workspace/employees/{ext_id}/support-window",
+            json={
+                "site_id": site_id, "start_datetime": f"{spec.month.isoformat()}T00:00:00",
+                "end_datetime": f"{last_day.isoformat()}T23:59:59", "allowed_shift_kind": None,
+            },
+        )
+
+
+def declared_roster(spec: ObjectSpec) -> list[str]:
+    """The FULL, honest headcount -- local and external together, never a
+    category silently excluded from the number the report calls "the object"."""
+    return [local_employee_id(spec, i) for i in range(spec.employee_count)] + \
+           [external_employee_id(spec, i) for i in range(spec.external_count)]
 
 
 def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
-    """Real coordinator setup journey, through the real HTTP endpoints.
-    Returns the created site_id."""
     site_id = _create_site(client, spec)
-    _put_shift_catalog(client, site_id)
+    _put_shift_catalog(client, site_id, spec)
     seed_calendar(conn, spec.month)
     _add_local_roster(client, site_id, spec)
     _add_external_support(client, site_id, spec)
     return site_id
 
 
-def independently_revalidate(conn, site_id: str, month: date, version_id: str) -> bool:
-    """The oracle: reconstruct PlanningState the same way
-    rota.application.manual_edit.apply_manual_correction already does, and
-    re-run the SAME independent validator production uses. Returns
-    hard_pass. Zero reimplemented solver/validator logic."""
-    snapshot = get_schedule_snapshot(conn, version_id)
-    state, _ = assemble_planning_state(
-        conn, site_id=site_id, month=month, schedule_version_id=version_id,
-        shift_demands=list(snapshot.shift_demands), assignments=list(snapshot.assignments), deviations=[],
-    )
-    report = validate(state, list(snapshot.assignments))
-    return report.hard_pass
-
-
-def find_planned_primary(conn, version_id: str) -> Assignment | None:
-    snapshot = get_schedule_snapshot(conn, version_id)
-    return next(
-        (a for a in snapshot.assignments if a.role.value == "PRIMARY" and a.state.value == "PLANNED"), None,
-    )
+def apply_absences(client: TestClient, site_id: str, spec: ObjectSpec, draws: list[AbsenceDraw]) -> None:
+    """The real 'ticking checkboxes' step -- same endpoint a coordinator's
+    browser calls (api/routers/durable_inputs.py::create_availability)."""
+    for i, draw in enumerate(draws):
+        employee_id = local_employee_id(spec, draw.employee_index)
+        resp = client.post(
+            f"/api/workspace/employees/{employee_id}/availability",
+            json={
+                "site_id": site_id, "availability_id": f"SIM-{spec.seed}-AVAIL-{i}", "kind": draw.kind,
+                "start_date": draw.start_date.isoformat(), "end_date": draw.end_date.isoformat(),
+            },
+        )
+        assert resp.status_code == 204, resp.text

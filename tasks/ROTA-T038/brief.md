@@ -1,13 +1,63 @@
 # ROTA-T038 — Symulator Koordynatora (property-based test flow całego programu)
 
-Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu Codex**
+Status: **KOREKTA 2 ZAKOŃCZONA (autor: CC), do audytu Codex**
 
-backend.py gate: FAIL na `NEW_FILES: 3 new files (max 2)` +
-WYMAGA_DECYZJI na `TOTAL_LINES: 385 lines changed` (SHA
-`2d74efffee670a47f16ee7d3281e6ed7eb7f0b46`) — nowy moduł testowy
-(`tests/property/` nie istniał wcześniej), 3 nowe pliki strukturalnie
-konieczne (pakiet + biblioteka generatora + plik pytest).
-**OWNER_ACCEPTED oba, Paweł, 2026-08-28.**
+backend.py gate (na SHA `2d74efffee670a47f16ee7d3281e6ed7eb7f0b46`, przed
+korektą 2): FAIL na `NEW_FILES: 3 new files (max 2)` + WYMAGA_DECYZJI na
+`TOTAL_LINES: 385 lines changed`. **OWNER_ACCEPTED oba, Paweł, 2026-08-28.**
+Bramka do ponownego uruchomienia na SHA po korekcie 2 (poniżej).
+
+## KOREKTA 2 (OWNER_CORRECTED, 2026-08-28) — pełny przeprojekt
+
+Pierwsza wersja (commit `f6d1b85`) była property-based benchmarkiem
+oceniającym niezmienniki solvera. Paweł to skorygował wprost: **"nie
+projektuj warstwy zarządzającej solverem, tylko cienką warstwę klikającą
+ptaszki i reportującą"**. Pierwsza próba poprawki (jeden ustalony obiekt)
+też odrzucona — chodziło o RÓŻNE wymyślone obiekty i scenariusze, nie jeden
+sztywny przypadek.
+
+Kluczowa zasada wyłoniona po kilku rundach dopytywania (na wyraźne
+żądanie właściciela: "dopytuj dopóki masz wątpliwości, nie domyślaj się"):
+**liczba pracowników na wymyślonym obiekcie musi wynikać z realnego
+zapotrzebowania godzinowego tego obiektu, nigdy nie może być losowana
+niezależnie od niego.** Paweł złapał dokładnie ten błąd w v1: `employee_count`
+był tam losowany 4-8 niezależnie od zapotrzebowania, co mogło dać obiekt
+"5-osobowy" z nazwy, a więcej osób w praktyce (np. przez niepoliczone
+wsparcie zewnętrzne). Potwierdzone matematycznie na jego własnym przykładzie:
+24h zmiana × 1 wymagana osoba × ~30 dni ≈ 720h/mies.; przy ~160h/mies./osobę
+wychodzi ~5 osób — dokładnie liczba z jego przykładu.
+
+Pełna przebudowa (`coordinator_simulator.py`/`test_coordinator_simulator.py`
+zastąpione od zera, te same 3 pliki):
+- generator NAJPIERW liczy zapotrzebowanie godzinowe (kształt zmiany D/N-12h
+  vs pojedyncza 24h × liczba posterunków × dni miesiąca), POTEM wylicza
+  obsadę (`ceil(godziny/160) + 1`) — nigdy losowana niezależnie;
+- absencje (chorobowe/urlop/wolne na żądanie/niedostępność 24h) nadal
+  losowane z ziarna, na dwóch fazach (przed PLAN, przed REPLAN);
+- driver wyłącznie przez prawdziwe HTTP (`POST /workspace/sites`,
+  `PUT .../shift-catalog`, `POST /workspace/employees`, `POST .../roster`,
+  `POST .../support-window`, `POST /workspace/employees/{id}/availability`
+  — realne "ptaszki" — `POST .../plan`, `.../select-candidate`, `.../replan`);
+- **jedyna assercja: brak wyjątku/5xx.** Status i powód (PLAN/REPLAN) to
+  fakty w raporcie, nie pass/fail;
+- raport (`round_01/tests/simulator_report.md`) pokazuje na wpis:
+  zapotrzebowanie, PEŁNĄ zadeklarowaną obsadę (lokalni+zewnętrzni razem),
+  absencje, status+powód, i faktycznie użyte osoby — z jawną flagą
+  "ROZBIEŻNOŚĆ" gdyby użyto kogoś spoza deklaracji. Weryfikacja przeze mnie
+  na pełnym przebiegu (5 seedów): zero rozbieżności, dokładnie ten problem
+  z v1 jest teraz obserwowalny wprost w raporcie, gdyby się powtórzył.
+
+**Uproszczenie zgłoszone w trakcie budowy**: `posts` (liczba równoległych
+posterunków) ustawione na stałe 1, nie losowane 1-3 jak pierwotnie
+planowano — zmierzone: przy 2 posterunkach (10-12 deklarowanych osób) jeden
+seed (PLAN+REPLAN) zajął ~90s, przy 1 (6-8 osób) ~90s też się zdarzyło ale
+zwykle bliżej budżetu 45s/wywołanie — przy 10 seedach to realne ryzyko
+kilkunastu minut. Zmienność zostaje w kształcie zmiany/regime/wsparciu
+zewnętrznym/absencjach. `DEFAULT_SEED_COUNT` obniżone z 10 do 5 (każdy
+seed robi PLAN+REPLAN, dwa pełne wywołania solvera, nie jedno jak w T037).
+
+**Pełny formalny przebieg (5 seedów)**: `1 passed in 451.28s (0:07:31)`,
+zero awarii, `simulator_report.md` dołączony do commita jako dowód.
 
 Base implementation SHA: `37e32da6244e4e43f504ef44b9b5a290f05a21b7` (`main`,
 po zmergowaniu T037).
