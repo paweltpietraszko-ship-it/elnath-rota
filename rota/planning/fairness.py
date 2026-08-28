@@ -164,6 +164,24 @@ def _exactly_one(model: cp_model.CpModel, term: object, name: str) -> object:
     return is_one
 
 
+def _occupied_bool(model: cp_model.CpModel, term: object, name: str) -> object:
+    """ROTA-T040: tight Boolean 'occupied <=> term >= 1' for a non-negative
+    CP-SAT count term -- never treat the raw count itself as if it were
+    already 0/1. any_term is a SUM of non-CANCELLED starts on one date
+    (solver._build_day_kind_terms), which for a normal H24 occurrence is
+    2 (SHIFT-24-PAIR-01 forces its D and N components to the same
+    employee, both starting the same date) -- using any_term directly in
+    `match + any_term <= 1` silently forced the H24 employee's own
+    assignment to 0 even when match was already 0, turning this pure SOFT
+    reward into an accidental HARD ban on legal H24 assignments. Only
+    called lazily for a term that already survived every cheap skip below
+    (same reasoning as _exactly_one)."""
+    occupied = model.new_bool_var(name)
+    model.add(term >= 1).only_enforce_if(occupied)
+    model.add(term == 0).only_enforce_if(occupied.Not())
+    return occupied
+
+
 def add_dn_rhythm_reward(
     model: cp_model.CpModel, month, day_kind_terms: dict[str, dict], penalties: list,
 ) -> int:
@@ -202,6 +220,11 @@ def add_dn_rhythm_reward(
     month_start = month.replace(day=1)
     _empty = (0, 0, 0, None)
     match_terms = []
+    # ROTA-T040: one lazily-created occupancy literal per (employee_id, date),
+    # reused across the overlapping 4-day windows that share a date -- never
+    # eagerly booleanized for the whole month (same performance reasoning as
+    # d_bool/n_bool above).
+    occupied_cache: dict[tuple[str, object], object] = {}
     for employee_id, by_date in day_kind_terms.items():
         window_start = month_start
         last_start = month_start + _timedelta(days=num_days - 4)
@@ -239,9 +262,15 @@ def add_dn_rhythm_reward(
             model.add(match <= d_bool)
             model.add(match <= n_bool)
             if not free2_proven:
-                model.add(match + any2 <= 1)
+                key2 = (employee_id, d2)
+                if key2 not in occupied_cache:
+                    occupied_cache[key2] = _occupied_bool(model, any2, f"occupied_{employee_id}_{d2.isoformat()}")
+                model.add(match + occupied_cache[key2] <= 1)
             if not free3_proven:
-                model.add(match + any3 <= 1)
+                key3 = (employee_id, d3)
+                if key3 not in occupied_cache:
+                    occupied_cache[key3] = _occupied_bool(model, any3, f"occupied_{employee_id}_{d3.isoformat()}")
+                model.add(match + occupied_cache[key3] <= 1)
             match_terms.append(match)
             window_start += _timedelta(days=1)
     if not match_terms:

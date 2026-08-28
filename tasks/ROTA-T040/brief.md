@@ -1,6 +1,40 @@
 # ROTA-T040 — H24 false infeasibility caused by SOFT occupancy encoding
 
-Status: **READY FOR CODEX PREIMPLEMENTATION AUDIT — CC READ-ONLY UNTIL PASS**
+Status: **IMPLEMENTACJA ZAKOŃCZONA (autor: CC), do audytu**
+
+Preimplementation audit: PASS — READY_FOR_IMPLEMENTATION
+(`tasks/ROTA-T040/round_01/tests/tests_r1.txt`, exact SHA `9ff2c69`).
+
+## Implementacja
+
+`rota/planning/fairness.py`: nowy helper `_occupied_bool(model, term, name)`
+(analogiczny do istniejącego `_exactly_one`) — ciasna konwersja
+`occupied <=> term >= 1`. `add_dn_rhythm_reward()` używa go zamiast
+surowego `any2`/`any3` w obu implikacjach "wolne", z lokalnym cache
+`occupied_cache: dict[(employee_id, date), BoolVar]` per wywołanie
+(reużycie między zachodzącymi na siebie oknami rytmu, bez eager
+booleanizacji całego miesiąca — zgodnie z PREIMPLEMENTATION_REDUCTION_GATE
+punkty 1-3).
+
+Żadne inne pliki nie zmienione — `solver.py::_build_day_kind_terms`, H24
+pairing, NIGHT-STREAK-01, REST-01, validator, engine bez zmian, dokładnie
+jak wymaga sekcja 3 briefu.
+
+## Weryfikacja
+
+- `ruff check` czyste.
+- Nowy `tests/test_t040_h24_rhythm_occupancy.py` — T40-01..T40-06, 6/6
+  PASS (2.12s, bez ciężkiego solvera poza T40-04/05 które i tak są małe:
+  1 zmiana/dzień, 5 osób).
+- T40-07 (regresja T034): `test_t034_third_consecutive_shift_soft.py` +
+  `test_t032_soft_ranking.py` (NIGHT-STREAK-01 pełne macierze) — 24/24
+  PASS, zero regresji.
+- `tests/test_vertical_full_stack.py` (w tym scenario 2, H24) — 4/4 PASS.
+- **Niezależny dowód na prawdziwym obiekcie Pawła** (`rota_dev.db`,
+  site `SITE-af2c7186...`, "Test1", 5 LOCAL, OCHRONA, H24 06:00-06:00):
+  `plan_month()` teraz zwraca `FEASIBLE`, 3 kandydatów, kandydat[0]
+  niezależnie zwalidowany: `hard_pass=True, violations=0`. To dokładnie
+  ten sam obiekt, który wcześniej dawał fałszywe `DECISION_REQUIRED`.
 
 BASE_MAIN_SHA: `d445ee64a0e634c4ca23c2fcc9f6a50b6503d22b`
 SOURCE_FINDING_SHA: `fb562a7e7878e97b944cfc5ef816e6c588fdcbb9`
