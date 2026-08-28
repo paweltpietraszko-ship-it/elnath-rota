@@ -1,0 +1,87 @@
+ROTA-T039 — audyt rundy 1
+
+Werdykt: FAIL
+Audytowany exact SHA: d1b6c8fb2c2422395f7001436a57b4590c8c0bf0
+
+Warstwy audytu
+
+- Inspekcja kontraktu i diffu 67a2455..d1b6c8f.
+- Niezależna kontrola matematyki katalogów dla wszystkich 4 kształtów.
+- Pionowy przebieg przez produkcyjne endpointy, SQLite :memory:, PLAN i
+  reakcję koordynatora dla nowych seedów 5 i 9.
+- Inspekcja rzeczywistych Assignmentów kandydata seed=9.
+- Nie powtarzano pełnej regresji repo; findings są odtwarzalne w nowym
+  komponencie symulatora.
+
+T39-R1-01 — SPLIT_NIGHT_12_8 nie symuluje zmiany 12 h i zmiany 8 h
+
+TRACE
+
+Kontrakt tasks/ROTA-T039/brief.md:28–30 wymaga rzeczywistego przykładu:
+jedna osoba pracuje 18:00–06:00 (12 h), druga 22:00–06:00 (8 h).
+
+OWNERSHIP
+
+Symulator jest właścicielem danych wejściowych katalogu. W
+tests/property/coordinator_simulator.py:84–88 zastępuje zaakceptowany układ
+dwoma sąsiadującymi demandami: 18:00–22:00 z obsadą 1 oraz 22:00–06:00 z
+obsadą 2. Żaden demand nie opisuje pracy 18:00–06:00. Produkcyjny solver
+tworzy Assignment dla konkretnego demandu, więc pierwszy odcinek nie staje
+się automatycznie częścią 12-godzinnej zmiany.
+
+REPRO
+
+Seed 9 przeszedł realny łańcuch i zwrócił FEASIBLE. Kandydat miał rozkład
+Assignmentów: 30 × 4 h, 60 × 8 h i 30 × 12 h. Wszystkie 12-godzinne wpisy
+były zmianami dziennymi; liczba nocnych Assignmentów 18:00–06:00 wyniosła 0.
+
+Dla nocy 01/02.09 wynik był reprezentatywny dla całego miesiąca:
+
+- SIM-9-EMP-6: 18:00–22:00 (4 h),
+- SIM-9-EMP-2: 22:00–06:00 (8 h),
+- SIM-9-EMP-4: 22:00–06:00 (8 h).
+
+Generator raportuje więc inny obiekt: trzy osoby 4 h + 8 h + 8 h, a nie dwie
+osoby 12 h + 8 h.
+
+T39-R1-02 — domyślny przebieg nie uruchamia żadnego nowego kształtu T039
+
+TRACE
+
+Celem T039 jest rozszerzenie Symulatora Koordynatora o
+WEEKDAY_12H_WEEKEND_24H i SPLIT_NIGHT_12_8 (brief.md:17–30).
+
+OWNERSHIP
+
+Sterownik testu wybiera domyślną macierz. W
+tests/property/test_coordinator_simulator.py:45 ustawia DEFAULT_SEED_COUNT=5,
+a w liniach 50–51 uruchamia seedy range(5), czyli 0–4.
+
+REPRO
+
+Na exact SHA mapowanie seedów 0–4 wynosi:
+
+- 0: D_N_12H,
+- 1: SINGLE_24H,
+- 2: D_N_12H,
+- 3: SINGLE_24H,
+- 4: SINGLE_24H.
+
+Potwierdza to również dołączony simulator_report.md: jego formalny przebieg
+5 seedów nie zawiera żadnego nowego wariantu. Pierwsze seedy nowych ścieżek
+to 5 (WEEKDAY_12H_WEEKEND_24H) oraz 9 (SPLIT_NIGHT_12_8), oba poza domyślnym
+uruchomieniem.
+
+Obserwacje poza werdyktem T039
+
+- Seed 5 przeszedł produkcyjny łańcuch bez 5xx i uczciwie zwrócił
+  DECISION_REQUIRED. Brak grafiku jest dozwolonym wynikiem symulatora.
+- Zgłoszona rozbieżność walidatora dla nakładających się demandów dotyczy
+  właściciela produkcyjnego poza TASK_SCOPE T039. Nie została użyta jako
+  osobny FAIL produktu w tej rundzie. FAIL T39-R1-01 dotyczy wyłącznie tego,
+  że symulator zmienił zaakceptowany scenariusz zamiast go odtworzyć.
+- DECISION_REQUIRED dla SINGLE_24H przy 5–9 osobach jest wartościową
+  obserwacją, ale T039 dopuszcza taki wynik i nie jest właścicielem solvera.
+  Nie wpływa na werdykt.
+
+PASS może dotyczyć dopiero SHA, na którym oba findings nie są odtwarzalne.
