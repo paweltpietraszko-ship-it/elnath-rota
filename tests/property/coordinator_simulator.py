@@ -107,9 +107,7 @@ def seed_calendar(conn, month: date) -> None:
         save_calendar_day(conn, CalendarDay(day, False))
 
 
-def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
-    """Real coordinator setup journey, through the real HTTP endpoints.
-    Returns the created site_id."""
+def _create_site(client: TestClient, spec: ObjectSpec) -> str:
     create_resp = client.post(
         "/api/workspace/sites",
         json={
@@ -120,8 +118,10 @@ def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
         },
     )
     assert create_resp.status_code == 201, create_resp.text
-    site_id = create_resp.json()["site_id"]
+    return create_resp.json()["site_id"]
 
+
+def _put_shift_catalog(client: TestClient, site_id: str) -> None:
     catalog_resp = client.put(
         f"/api/workspace/sites/{site_id}/shift-catalog",
         json={
@@ -133,8 +133,8 @@ def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
     )
     assert catalog_resp.status_code == 204, catalog_resp.text
 
-    seed_calendar(conn, spec.month)
 
+def _add_local_roster(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
     for i in range(spec.employee_count):
         employee_id = f"SIM-{spec.seed}-EMP-{i}"
         create_emp_resp = client.post(
@@ -148,21 +148,33 @@ def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
         attach_resp = client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": employee_id})
         assert attach_resp.status_code == 204, attach_resp.text
 
-    if spec.external_support:
-        ext_id = f"SIM-{spec.seed}-EXT-1"
-        client.post("/api/workspace/employees", json={"employee_id": ext_id, "site_id": site_id, "display_name": ext_id, "day_only": False})
-        client.post(
-            f"/api/workspace/sites/{site_id}/roster",
-            json={"employee_id": ext_id, "membership_kind": "EXTERNAL_SUPPORT"},
-        )
-        client.post(
-            f"/api/workspace/employees/{ext_id}/support-window",
-            json={
-                "site_id": site_id, "start_datetime": f"{spec.month.isoformat()}T00:00:00",
-                "end_datetime": f"{_days_in_month(spec.month)[-1].isoformat()}T23:59:59", "allowed_shift_kind": None,
-            },
-        )
 
+def _add_external_support(client: TestClient, site_id: str, spec: ObjectSpec) -> None:
+    if not spec.external_support:
+        return
+    ext_id = f"SIM-{spec.seed}-EXT-1"
+    client.post("/api/workspace/employees", json={"employee_id": ext_id, "site_id": site_id, "display_name": ext_id, "day_only": False})
+    client.post(
+        f"/api/workspace/sites/{site_id}/roster",
+        json={"employee_id": ext_id, "membership_kind": "EXTERNAL_SUPPORT"},
+    )
+    client.post(
+        f"/api/workspace/employees/{ext_id}/support-window",
+        json={
+            "site_id": site_id, "start_datetime": f"{spec.month.isoformat()}T00:00:00",
+            "end_datetime": f"{_days_in_month(spec.month)[-1].isoformat()}T23:59:59", "allowed_shift_kind": None,
+        },
+    )
+
+
+def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
+    """Real coordinator setup journey, through the real HTTP endpoints.
+    Returns the created site_id."""
+    site_id = _create_site(client, spec)
+    _put_shift_catalog(client, site_id)
+    seed_calendar(conn, spec.month)
+    _add_local_roster(client, site_id, spec)
+    _add_external_support(client, site_id, spec)
     return site_id
 
 
