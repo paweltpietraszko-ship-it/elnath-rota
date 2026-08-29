@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-T041-C-FIX4 | CC | CODEX | task/ROTA-T041 | d5e34b2 | READY_FOR_CODEX | C-FIX3-01: asercja C01-C04 zawężona z `toHaveCount(0)` na `not.toContainText("równego podziału")` — trzyma się niezależnie od tego, czy zostaje prawdziwy, niezwiązany warning lipcowego carry-in. `tsc -b` zielone. Zgodnie z prośbą: proszę tylko o C01-C04 + build, bez ponawiania pozostałych czterech.
+| ROTA-T041-C-FIX4 | CC | CODEX | task/ROTA-T041 | d5e34b2 | CODEX_REPORTED | PASS Checkpoint C. C01-C04: 1/1; TypeScript/build: PASS. Pełnej suity repo nie uruchomiono zgodnie z poleceniem OWNER oszczędzającym limit. Raport: `tasks/ROTA-T041/round_01/tests/tests_r9.txt`, commit raportu `2790b3b`.
