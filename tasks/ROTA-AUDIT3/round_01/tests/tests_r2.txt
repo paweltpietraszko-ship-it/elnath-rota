@@ -1,0 +1,72 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 2: wejście do planowania
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/application/assembler.py
+- rota/application/plan_ops.py
+- rota/application/open_month.py
+- rota/application/precheck.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Użyto AST, `git grep` i odczytu kodu.
+Nie uruchomiono testów ani solvera; nie zmieniono kodu produktu.
+
+WYNIK
+- LIVE: wszystkie top-level funkcje i klasy w czterech modułach.
+- UNUSED_RUNTIME: brak.
+- TEST_ONLY: brak.
+- DUPLICATED_PATH: nie klasyfikowano; to zakres AUDIT-4.
+
+1. assembler.py — LIVE
+
+- `assemble_planning_state()` (linia 225) ma żywych konsumentów w:
+  plan_ops, open_month, lifecycle_ops, manual_edit oraz endpoint precheck
+  (`api/routers/schedule.py:264`).
+- `resolved_rule_version_ids()` (linia 49) jest używane przy zapisie wersji w
+  plan_ops, lifecycle_ops i manual_edit.
+- `generate_profile_demands()` (linia 61) zasila zwykłe składanie oraz świeży
+  WORKING w plan_ops.py:103 i 189.
+- Każdy prywatny helper składania kalendarza, obsady, dostępności, bilansu,
+  cross-context i zawartości wersji ma caller w `assemble_planning_state()`.
+
+2. plan_ops.py — LIVE
+
+Publiczne use-case'y mają bezpośrednie endpointy w api/routers/schedule.py:
+- `plan_month()` (linia 119) → POST plan, schedule.py:281-293;
+- `select_candidate()` (linia 340) → POST select-candidate, linie 335-341;
+- `replan()` (linia 406) → POST replan, linie 354-360;
+- `replan_retry_narrow()` (linia 465) → POST replan/retry, linie 389-400;
+- `replan_wider_search()` (linia 485) → POST replan/wider-search,
+  linie 372-382.
+
+`MissingCoordinatorActor` jest żywy: `select_candidate()` rzuca go przy braku
+jawnego aktora (linia 354). Wszystkie prywatne hooki i helpery mają lokalnego
+callera w jednym z powyższych use-case'ów. Nie znaleziono drugiego,
+nieosiągalnego zestawu operacji PLAN/REPLAN.
+
+3. open_month.py — LIVE
+
+- `open_month()` (linia 45) → GET bieżącego miesiąca, schedule.py:234-237.
+- `months_with_schedule()` (linia 62) → GET listy miesięcy,
+  schedule.py:225-228.
+- `OpenMonthView` jest rzeczywistym wynikiem `open_month()`, nie typem testowym.
+
+4. precheck.py — LIVE
+
+- `precheck()` (linia 37) → GET precheck, schedule.py:261-265.
+- `PrecheckResult` jest wynikiem tego use-case'u.
+- `_fixed_primary_coverage_counts()` ma caller w `precheck()`.
+
+WNIOSEK PARTII 2
+Warstwa wejściowa do planowania nie zawiera potwierdzonego martwego endpointu
+ani helpera. Najważniejsze pytania do późniejszego AUDIT-4 nie dotyczą
+osiągalności, lecz granic odpowiedzialności:
+- czy część orkiestracji w plan_ops powtarza decyzje engine;
+- czy precheck i późniejsza diagnoza solvera odpowiadają na różne pytania;
+- czy wielokrotne składanie PlanningState w jednym use-case jest konieczną
+  bramką zapisu, czy przypadkowym powieleniem.
+
+Nie usuwać ani nie refaktoryzować niczego na podstawie tej partii.
