@@ -223,6 +223,18 @@ export default function MonthlyPlanning({
     api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
   }, [siteId]);
 
+  // ROTA-T041 C-FIX-01: assembler warnings embed the raw employee_id
+  // (Python repr, e.g. 'uuid') -- resolve it to the roster display_name
+  // here rather than in the backend, since the roster this screen already
+  // fetches is the single canonical id->name lookup, not a second one.
+  const resolveWarningText = (text: string): string => {
+    let resolved = text;
+    for (const r of rosterEmployees) {
+      resolved = resolved.split(`'${r.employee_id}'`).join(r.display_name);
+    }
+    return resolved;
+  };
+
   // T41-C05/C07: the screen stays mounted across both nav shortcuts (Room
   // renders one MonthlyPlanning for all three entries), so entryMode can
   // change after first mount too -- react to it, don't just read it once.
@@ -561,7 +573,7 @@ export default function MonthlyPlanning({
           <strong>Uwaga:</strong>
           <ul>
             {view.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
+              <li key={i}>{resolveWarningText(w)}</li>
             ))}
           </ul>
         </div>

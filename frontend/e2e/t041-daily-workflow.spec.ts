@@ -45,6 +45,46 @@ async function addLocalEmployee(page: import("@playwright/test").Page, name: str
   await expect(page.getByRole("heading", { name: "Panel sterowania" })).toBeVisible();
 }
 
+// ROTA-T041 C-FIX-02: same object as every other test in this file (default
+// D/N daily catalog, whole current month) -- an owner ruling elsewhere
+// (coordinator simulator design, T038/T039) already fixes the realistic
+// crew size for exactly this shape at 5, not an arbitrary "enough to avoid
+// DECISION_REQUIRED" guess. Every test that runs a real PLAN in this file
+// must staff 5 LOCAL, matching that ruling, not fewer.
+async function addFiveLocalEmployees(page: import("@playwright/test").Page, siteName: string): Promise<string[]> {
+  const names = Array.from({ length: 5 }, (_, i) => `${siteName}-E${i + 1}`);
+  for (const name of names) {
+    await addLocalEmployee(page, name);
+  }
+  return names;
+}
+
+function currentMonthDateRange(): { from: string; to: string } {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { from: iso(from), to: iso(to) };
+}
+
+// ROTA-T041 C-FIX-03: T41-C04 requires an actual EXTERNAL_SUPPORT roster
+// member in scope, not just a filter that looks correct by reading the
+// code -- this is the same "+ Dodaj osobę" flow as addLocalEmployee with
+// membership_kind switched and a support window filled in (required by the
+// form before submit is enabled).
+async function addExternalSupportEmployee(page: import("@playwright/test").Page, name: string) {
+  const { from, to } = currentMonthDateRange();
+  await page.locator('[data-diag-action="roster-add-open"]').click();
+  await page.getByRole("button", { name: "Wsparcie zewnętrzne" }).click();
+  await page.locator('input[type="date"]').first().fill(from);
+  await page.locator('input[type="date"]').nth(1).fill(to);
+  await page.locator('input[placeholder="np. Jan Kowalski"]').fill(name);
+  await page.locator('[data-diag-action="add-person-submit"]').click();
+  await expect(page.getByRole("heading", { name: "Godziny docelowe" })).toBeVisible();
+  await page.getByRole("button", { name: /Wróć do obsady/ }).click();
+  await expect(page.getByRole("heading", { name: "Panel sterowania" })).toBeVisible();
+}
+
 async function saveDefaultCatalogRow(page: import("@playwright/test").Page) {
   await page.locator('[data-diag-action="control-panel-tab-obiekt"]').click();
   await page.locator('[data-diag-action="shift-catalog-save"]').click();
@@ -108,12 +148,8 @@ test("C08/C09: preview and download share one export call; a failed regeneration
   // The calendar button lives on Workspace (the site list), not inside Room.
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
-  // The default catalog row needs a person every day of the month -- one
-  // employee alone cannot cover that without breaking rest rules, which
-  // would return DECISION_REQUIRED instead of a FEASIBLE candidate. Two
-  // employees give the solver enough room for a real, clean plan.
-  await addLocalEmployee(page, `${siteName}-E1`);
-  await addLocalEmployee(page, `${siteName}-E2`);
+  // C-FIX-02: 5 LOCAL, the realistic crew size for this object shape.
+  await addFiveLocalEmployees(page, siteName);
   await page.locator('[data-diag-action="control-panel-tab-obiekt"]').click();
   await page.locator('[data-diag-action="shift-catalog-save"]').click();
   await expect(page.getByText("Zapisano.")).toBeVisible();
@@ -181,12 +217,18 @@ test("C01-C04: missing target_hours warning reaches the coordinator, survives re
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
 
-  // Two employees: one alone cannot legally cover the default catalog's
-  // daily demand without breaking rest rules (DECISION_REQUIRED instead of
-  // a real plan). Only empName is asserted on below; the second person just
-  // gives the solver room for a real FEASIBLE candidate.
+  // C-FIX-02: 5 LOCAL, the realistic crew size for this object shape.
+  // empName is the one with no target_hours; the other four get one below.
+  const otherNames = Array.from({ length: 4 }, (_, i) => `${siteName}-E${i + 2}`);
   await addLocalEmployee(page, empName);
-  await addLocalEmployee(page, `${siteName}-E2`);
+  for (const name of otherNames) {
+    await addLocalEmployee(page, name);
+  }
+  // C-FIX-03: a real EXTERNAL_SUPPORT roster member, in scope for the whole
+  // month, to prove T41-C04 (never falsely warned about) against an actual
+  // person, not just by reading the assembler's filter.
+  const externalName = `${siteName}-EXT`;
+  await addExternalSupportEmployee(page, externalName);
   await saveDefaultCatalogRow(page);
 
   await openViaNav(page, "room-nav-monthly-planning");
@@ -198,6 +240,7 @@ test("C01-C04: missing target_hours warning reaches the coordinator, survives re
   await expect(warningBanner).toBeVisible();
   await expect(warningBanner).toContainText(empName);
   await expect(warningBanner).toContainText("równego podziału");
+  await expect(warningBanner).not.toContainText(externalName);
 
   await page.reload();
   await openSite(page, siteName);
@@ -205,9 +248,11 @@ test("C01-C04: missing target_hours warning reaches the coordinator, survives re
   await expect(page.locator('[data-diag-element="month-warnings"]')).toContainText(empName);
 
   // Fix the gap: T41-C03 requires the warning to clear only once EVERY
-  // available LOCAL employee has a target -- both, not just empName.
+  // available LOCAL employee has a target -- all five, not just empName.
+  // EXTERNAL_SUPPORT is deliberately excluded: target_hours is a LOCAL-only
+  // concept (OWNER-T041-01), so it must never need one to clear the warning.
   await page.locator('[data-diag-action="control-panel-tab-obsada"]').click().catch(() => undefined);
-  for (const target of [empName, `${siteName}-E2`]) {
+  for (const target of [empName, ...otherNames]) {
     await page.locator('[data-diag-action="roster-open-employee"]').filter({ hasText: target }).click();
     await expect(page.getByRole("heading", { name: "Godziny docelowe" })).toBeVisible();
     await page.locator('input[type="number"]').last().fill("160");
@@ -230,10 +275,11 @@ test("C06: manual correction works via the Ręczna korekta entry even when curre
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
 
-  // Same reason as the other tests: one employee alone can't legally cover
-  // the default catalog's daily demand for a whole month.
+  // C-FIX-02: 5 LOCAL, the realistic crew size for this object shape.
   await addLocalEmployee(page, empName);
-  await addLocalEmployee(page, `${siteName}-E2`);
+  for (let i = 2; i <= 5; i++) {
+    await addLocalEmployee(page, `${siteName}-E${i}`);
+  }
   await saveDefaultCatalogRow(page);
 
   await openViaNav(page, "room-nav-monthly-planning");
