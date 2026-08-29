@@ -18,7 +18,7 @@ TARGET_EQUITY_WEIGHT = 1
 DN_RHYTHM_REWARD_WEIGHT = 1
 THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT = 1
 MAX_COMPLETION_PCT = 100 * MAX_MONTHLY_HOURS
-EQUAL_SPLIT_FAIRNESS_WEIGHT = 1
+EQUAL_SPLIT_FAIRNESS_WEIGHT = 100  # ROTA-T041 AUDIT round-2 FINDING T41-A-R2-01: matches solver.TARGET_DEVIATION_WEIGHT's magnitude, not a number tuned to one test -- this is the same "must dominate weekend/holiday-scale SOFT terms" constant TARGET-01 already establishes, reused for the fallback term that stands in TARGET-01's place. The real per-solve weight solver.py passes is computed to strictly dominate every coexisting term's actual bound (see solver._add_combined_objective); this module constant is only the default used when a caller (e.g. an isolated unit test) does not thread a computed weight through.
 
 
 def _demand_hours(demand) -> int:
@@ -32,14 +32,21 @@ def _is_weekend(day) -> bool:
 def add_weekend_fairness(
     model: cp_model.CpModel, x: dict, by_employee: dict[str, list],
     fixed_weekend_hours: dict[str, int], penalties: list,
-) -> None:
+) -> int:
     """Weekend fairness (arch/spec.md SECTION 3): monotonically prefer variants
     closer to an equal weekend workload among employees eligible this period.
     SOFT only -- weighted far below TARGET_DEVIATION_WEIGHT so it only breaks
     ties among equally target-optimal candidates, never trades away target
-    accuracy (ROTA-REG-001 still requires exact monthly hours)."""
+    accuracy (ROTA-REG-001 still requires exact monthly hours).
+
+    Returns this term's own declared max-min spread bound (its hours_var
+    domain, MAX_MONTHLY_HOURS, or 0 when skipped) -- ROTA-T041 AUDIT round-2
+    FINDING T41-A-R2-01: a caller building a dominance guarantee elsewhere
+    (solver._add_combined_objective's equal-split fallback) needs this real
+    bound to size its own weight against, the same pattern
+    add_target_equity_fairness's MAX_COMPLETION_PCT already provides."""
     if len(by_employee) < 2:
-        return
+        return 0
     weekend_hours_vars = []
     for employee_id, employee_slots in by_employee.items():
         terms = [
@@ -56,6 +63,7 @@ def add_weekend_fairness(
     model.add_max_equality(max_weekend, weekend_hours_vars)
     model.add_min_equality(min_weekend, weekend_hours_vars)
     penalties.append(WEEKEND_FAIRNESS_WEIGHT * (max_weekend - min_weekend))
+    return MAX_MONTHLY_HOURS
 
 
 def _holiday_hours_upper_bound(by_employee: dict[str, list], holiday_dates: set, historical_holiday_hours: dict[str, int]) -> int:
@@ -76,7 +84,7 @@ def _holiday_hours_upper_bound(by_employee: dict[str, list], holiday_dates: set,
 def add_holiday_fairness(
     model: cp_model.CpModel, x: dict, by_employee: dict[str, list],
     holiday_dates: set, historical_holiday_hours: dict[str, int], penalties: list,
-) -> None:
+) -> int:
     """Holiday fairness (arch/spec.md SECTION 3): prefer variants that reduce
     historical inequality of holiday work, derived from
     state.holiday_history (persisted REALIZED Assignments on
@@ -99,9 +107,14 @@ def add_holiday_fairness(
     CP-SAT model INFEASIBLE/invalid on a SOFT term, even though the current
     demand had a perfectly HARD-valid solution. The domain is now sized per
     run from the actual historical hours plus every holiday-dated demand's
-    hours this run, not a fixed constant."""
+    hours this run, not a fixed constant.
+
+    Returns that same real, per-run upper_bound (0 when skipped) -- ROTA-T041
+    AUDIT round-2 FINDING T41-A-R2-01: an arbitrarily large holiday history
+    means only a real computed bound, never a flat constant, can safely
+    dominate this term elsewhere (solver._add_combined_objective)."""
     if not holiday_dates or len(by_employee) < 2:
-        return
+        return 0
     upper_bound = _holiday_hours_upper_bound(by_employee, holiday_dates, historical_holiday_hours)
 
     holiday_hours_vars = []
@@ -120,6 +133,7 @@ def add_holiday_fairness(
     model.add_max_equality(max_holiday, holiday_hours_vars)
     model.add_min_equality(min_holiday, holiday_hours_vars)
     penalties.append(HOLIDAY_FAIRNESS_WEIGHT * (max_holiday - min_holiday))
+    return upper_bound
 
 
 def add_target_equity_fairness(
@@ -156,7 +170,7 @@ def add_target_equity_fairness(
 
 def add_equal_split_fairness(
     model: cp_model.CpModel, worked_hours_by_employee: dict[str, object],
-    employee_ids, penalties: list,
+    employee_ids, penalties: list, weight: int = EQUAL_SPLIT_FAIRNESS_WEIGHT,
 ) -> None:
     """ROTA-T041 OWNER-T041-01 / AUDIT-1 C-05: fallback used only for a
     solve whose target vector is incomplete (at least one available LOCAL
@@ -172,7 +186,14 @@ def add_equal_split_fairness(
     distort the spread just by being absent from the roster of real
     candidates. worked_hours_by_employee must already be the same
     canonical actual-hours expression TARGET-01/target-equity use
-    (section 4.1) -- never recomputed here."""
+    (section 4.1) -- never recomputed here.
+
+    ROTA-T041 AUDIT round-2 FINDING T41-A-R2-01: `weight` defaults to the
+    plain module constant, but the real caller (solver._add_combined_objective)
+    passes a per-solve weight computed to strictly dominate every other
+    coexisting SOFT term's real bound this solve -- a flat default cannot
+    safely dominate an unbounded holiday history on its own, only a real
+    computed bound can (see add_holiday_fairness's own return value)."""
     hours_vars = [worked_hours_by_employee[e] for e in employee_ids if e in worked_hours_by_employee]
     if len(hours_vars) < 2:
         return
@@ -180,7 +201,31 @@ def add_equal_split_fairness(
     min_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "equal_split_hours_min")
     model.add_max_equality(max_hours, hours_vars)
     model.add_min_equality(min_hours, hours_vars)
-    penalties.append(EQUAL_SPLIT_FAIRNESS_WEIGHT * (max_hours - min_hours))
+    penalties.append(weight * (max_hours - min_hours))
+
+
+def add_local_over_external_preference(
+    model: cp_model.CpModel, x: dict, by_employee: dict[str, list],
+    fallback_employee_ids: set[str], penalties: list, weight: int,
+) -> None:
+    """ROTA-T041 AUDIT round-2 FINDING T41-A-R2-02: add_equal_split_fairness
+    alone is indifferent between "one LOCAL works, one doesn't" (a real,
+    uneven split) and "no LOCAL works, EXTERNAL_SUPPORT covers the demand
+    instead" (a trivially equal 0/0 split) -- minimizing spread rewards the
+    second outcome even though OWNER-T041-01 requires the demand to actually
+    be divided among available LOCAL first. This SOFT term penalizes any
+    hours assigned to an employee outside fallback_employee_ids while the
+    fallback is active; the caller sizes `weight` to dominate the equal-split
+    term's own maximum possible swing (solver._add_combined_objective), the
+    same dominance pattern TARGET-01 already uses against equity/rhythm.
+    Never touches EXTERNAL_SUPPORT eligibility/window logic -- a demand with
+    no eligible LOCAL alternative at all is unaffected in practice, since no
+    fallback-set candidate exists for this term to prefer instead."""
+    for employee_id, employee_slots in by_employee.items():
+        if employee_id in fallback_employee_ids:
+            continue
+        for slot in employee_slots:
+            penalties.append(weight * x[employee_id, slot.demand.demand_id])
 
 
 def _exactly_one(model: cp_model.CpModel, term: object, name: str) -> object:

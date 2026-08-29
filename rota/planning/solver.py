@@ -34,9 +34,10 @@ from rota.planning.constraints import (
 )
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import (
-    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT,
-    add_dn_rhythm_reward, add_equal_split_fairness, add_holiday_fairness, add_target_equity_fairness,
-    add_third_consecutive_shift_penalty, add_weekend_fairness,
+    DN_RHYTHM_REWARD_WEIGHT, EQUAL_SPLIT_FAIRNESS_WEIGHT, HOLIDAY_FAIRNESS_WEIGHT, MAX_COMPLETION_PCT,
+    TARGET_EQUITY_WEIGHT, THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT, WEEKEND_FAIRNESS_WEIGHT,
+    add_dn_rhythm_reward, add_equal_split_fairness, add_holiday_fairness, add_local_over_external_preference,
+    add_target_equity_fairness, add_third_consecutive_shift_penalty, add_weekend_fairness,
 )
 from rota.planning.replan_reshuffle import (
     build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
@@ -517,10 +518,22 @@ def _add_combined_objective(
     at least one available LOCAL employee for lacking target_hours this
     month, see solver._available_local_employee_ids). TARGET-01 and target
     equity both need a real target to rank against, so neither runs at
-    all for that solve -- add_equal_split_fairness replaces both at the
-    same plain weight target equity itself already used, no dominance
-    guarantee invented here. The ordinary complete-vector solve below is
-    entirely unchanged."""
+    all for that solve -- add_equal_split_fairness replaces both.
+
+    ROTA-T041 AUDIT round-2 FINDINGS T41-A-R2-01/02 (tests_r2.txt): a flat
+    weight let weekend/holiday (an unbounded historical figure) outweigh a
+    0h-spread candidate, and equal-split alone rewarded pushing a demand to
+    EXTERNAL_SUPPORT over splitting it among LOCAL, since leaving every
+    LOCAL at 0h is trivially "equal". Fixed the same way TARGET-01 already
+    dominates equity/rhythm above: equal_split_weight is computed to
+    strictly exceed the SUM of every other coexisting term's real bound
+    this solve (weekend/holiday's own returned bounds plus rhythm/third-
+    shift's real counts), and add_local_over_external_preference is given a
+    weight that in turn strictly exceeds equal_split_weight's own maximum
+    possible swing -- so no combination of weekend/holiday/rhythm/third-
+    shift/equal-split gain can ever be worth handing one hour to a
+    non-fallback (e.g. EXTERNAL_SUPPORT) employee instead of an available
+    LOCAL one. The ordinary complete-vector branch below is unchanged."""
     penalties = []
 
     # Rhythm and the third-shift penalty are built first so their real
@@ -528,6 +541,9 @@ def _add_combined_objective(
     # TARGET_DEVIATION_WEIGHT is sized against them.
     rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
     third_shift_penalty_count = add_third_consecutive_shift_penalty(model, state.month, day_kind_terms, penalties)
+    weekend_bound = add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
+    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
+    holiday_bound = add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
 
     if fallback_employee_ids is None:
         target_weight = (
@@ -544,15 +560,23 @@ def _add_combined_objective(
             penalties.append(target_weight * (pos + neg))
         add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
     else:
-        add_equal_split_fairness(model, worked_by_employee, fallback_employee_ids, penalties)
+        equal_split_weight = (
+            EQUAL_SPLIT_FAIRNESS_WEIGHT
+            + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+            + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
+            + WEEKEND_FAIRNESS_WEIGHT * weekend_bound
+            + HOLIDAY_FAIRNESS_WEIGHT * holiday_bound
+        )
+        add_equal_split_fairness(model, worked_by_employee, fallback_employee_ids, penalties, weight=equal_split_weight)
+        # equal_split's own worst-case swing is bounded by MAX_MONTHLY_HOURS
+        # (its hours_var domain); +1 keeps this strictly greater even summed
+        # with the (already-included-in-equal_split_weight) other terms above.
+        prefer_local_weight = equal_split_weight * (MAX_MONTHLY_HOURS + 1)
+        add_local_over_external_preference(model, x, by_employee, fallback_employee_ids, penalties, weight=prefer_local_weight)
 
     for slot in slots:
         if slot.leave_plan_collision or slot.day_off_soft_entry:
             penalties.append(SOFT_PENALTY_WEIGHT * x[slot.employee_id, slot.demand.demand_id])
-
-    add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
-    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
-    add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
 
     model.minimize(sum(penalties) if penalties else 0)
 
