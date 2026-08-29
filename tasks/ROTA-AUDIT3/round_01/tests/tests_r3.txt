@@ -1,0 +1,100 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 3: zapis i cykl życia grafiku
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/application/lifecycle_ops.py
+- rota/application/manual_edit.py
+- rota/persistence/schedule_repository.py
+- rota/persistence/schedule_lifecycle.py
+- rota/persistence/schedule_validation.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Użyto listy symboli z AST, `git grep` i
+odczytu rzeczywistych wywołań. Nie uruchomiono testów ani solvera; nie zmieniono
+kodu produktu. LIVE oznacza tylko, że kod jest osiągalny w produkcji — nie że
+jest potrzebny w obecnym kształcie lub wolny od powtórzeń.
+
+WYNIK
+- LIVE: wszystkie top-level funkcje i klasy w pięciu modułach.
+- UNUSED_RUNTIME: brak potwierdzonych symboli.
+- TEST_ONLY: brak potwierdzonych symboli.
+- DUPLICATED_PATH: nie klasyfikowano; to zakres AUDIT-4.
+
+1. lifecycle_ops.py — LIVE
+
+Publiczne operacje mają bezpośrednie endpointy w api/routers/schedule.py:
+- `revalidate()` (lifecycle_ops.py:45) → schedule.py:407-410;
+- `finalize()` (linia 91) → schedule.py:422-425;
+- `restore()` (linia 132) → schedule.py:441-444;
+- `exclude_from_history()` (linia 164) → schedule.py:460.
+
+Każdy prywatny helper ma caller w jednej z tych operacji. Moduł jest żywą
+warstwą obsługi poleceń koordynatora, a nie alternatywną, niepodłączoną wersją
+cyklu życia.
+
+2. manual_edit.py — LIVE
+
+- `apply_manual_correction()` (manual_edit.py:285) jest wywoływane przez
+  api/routers/manual_edit.py:58, dwa warianty tej operacji w tym samym module
+  oraz application/training.py:147.
+- `freeze_or_unfreeze()` (linia 337) ma endpoint w manual_edit.py:85.
+- `mark_not_worked()` (linia 358) ma endpoint w manual_edit.py:111.
+- Wszystkie prywatne helpery mają lokalnych callerów na powyższych ścieżkach.
+
+3. schedule_repository.py — LIVE
+
+Wszystkie publiczne odczyty mają produkcyjnych konsumentów:
+- nagłówek, snapshot i bieżąca wersja zasilają endpointy, assembler, eksport,
+  planowanie, cykl życia i ręczne korekty;
+- odczyty przypisań zasilają assembler, analitykę, szkolenia, bilanse oraz
+  referencję nieobecności;
+- odczyty miesięcy i wersji zasilają `open_month()`;
+- odtwarzanie linii wersji zasila absence_reference_repository;
+- kontrola zmiany trybu planowania zasila eksport, lifecycle i durable_inputs;
+- odczyt pracy w święta zasila assembler.
+
+`InvalidScheduleVersionLineage` nie ma zewnętrznego callera jako symbol, ale
+jest rzucany przez żywe `reconstruct_lineage()` przy cyklu, brakującej wersji,
+złym obiekcie/miesiącu lub braku daty obowiązywania. Dlatego jest LIVE, nie
+TEST_ONLY.
+
+4. schedule_lifecycle.py — LIVE
+
+- `create_schedule_version()` jest używane przez plan_ops i manual_edit;
+- `replace_working_snapshot()` przez plan_ops i lifecycle_ops;
+- `finalize_schedule_version()`, `restore_schedule_version()` oraz
+  `exclude_version_from_history()` przez lifecycle_ops.
+
+Wszystkie prywatne helpery zapisu mają caller w tych pięciu wejściach.
+`RegimeReplanRequired` jest rzucany na żywych ścieżkach finalizacji i
+przywracania, jeśli wersja wymaga ponownego planowania. Brak bezpośredniego
+importu tej klasy poza modułem nie czyni jej martwą: zmienia rzeczywisty wynik
+tych operacji.
+
+5. schedule_validation.py — LIVE
+
+Każdy publiczny walidator jest wywoływany przez żywy zapis w
+schedule_lifecycle.py:
+- obiekt/koordynator, pierwszy dzień miesiąca i linia wersji przy tworzeniu;
+- reguły, demandy, przypisania, odchylenia, pochodzenie NN i zachowanie pracy
+  zrealizowanej przy tworzeniu, zastępowaniu i finalizowaniu zawartości;
+- `derive_working_status()` ustala status zapisywanej wersji.
+
+Wszystkie prywatne helpery mają caller w jednym z tych walidatorów. Nie
+znaleziono osobnego, nieużywanego zestawu kontroli zapisu.
+
+WNIOSEK PARTII 3
+W tych pięciu plikach nie ma potwierdzonego martwego ani wyłącznie testowego
+podsystemu. To nie rozstrzyga, czy kod jest nadmiernie rozbudowany. AUDIT-4
+powinien porównać odpowiedzialności, a nie same nazwy:
+- lifecycle_ops/manual_edit ↔ schedule_lifecycle: obsługa decyzji i uprawnień
+  kontra atomowy zapis oraz wersjonowanie;
+- schedule_validation ↔ planning/validator: poprawność zapisywanej struktury
+  kontra poprawność gotowego grafiku;
+- powtarzane pobieranie nagłówka/snapshotu między aplikacją i persistence:
+  konieczna kontrola przed zapisem czy przypadkowa podwójna praca.
+
+Nie usuwać ani nie refaktoryzować niczego na podstawie tej partii.
