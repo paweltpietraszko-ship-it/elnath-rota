@@ -260,7 +260,7 @@ def assemble_planning_state(
     # support staff) would trigger the exact same missing-target warning as
     # a genuinely forgotten LOCAL target. This was invisible before T041
     # because plan_ops discarded every assembler warning outright.
-    local_employee_ids = [m.employee_id for m in memberships if m.kind == MembershipKind.LOCAL]
+    local_employee_ids = [m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL]
     work_balances, warnings = _assemble_work_balances(conn, local_employee_ids, month)
     holiday_history_raw = get_current_realized_primary_on_holidays(conn, site_id)
     holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id not in exclude_version_ids)
