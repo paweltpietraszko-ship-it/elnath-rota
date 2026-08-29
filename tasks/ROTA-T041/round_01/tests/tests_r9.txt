@@ -1,0 +1,36 @@
+ROTA-T041 — Checkpoint C, końcowy wąski reaudyt
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+WERDYKT
+PASS — Checkpoint C.
+
+ZAKRES TEJ RUNDY
+Zgodnie z tests_r8 i poleceniem OWNER oszczędzającym limit wykonano wyłącznie:
+
+1. C01-C04:
+   `npx.cmd playwright test e2e/t041-daily-workflow.spec.ts --grep "C01-C04" --workers=1 --retries=0 --timeout=60000`
+   Wynik: 1 passed (test 6,8 s).
+
+2. Frontend build:
+   `npm.cmd run build`
+   Wynik: PASS; TypeScript i Vite czyste.
+
+WERYFIKACJA POPRAWKI
+- test sprawdza teraz zniknięcie konkretnego ostrzeżenia o awaryjnym równym
+  podziale, zamiast wymagać usunięcia całego panelu;
+- prawdziwe, niezależne ostrzeżenie o brakujących danych poprzedniego miesiąca
+  może pozostać widoczne;
+- C01-C04 przechodzi przez realny frontend, router, assembler, PLAN i zapis
+  target_hours dla 5 LOCAL oraz prawdziwego EXTERNAL_SUPPORT.
+
+POPRZEDNIE WARSTWY CHECKPOINTU C
+Na bezpośrednich przodkach tego SHA, przy niezmienionym kodzie produktu,
+potwierdzono także C05-C11, podgląd/pobranie PDF i ręczną korektę wersji FINAL.
+Commit d5e34b2 zmienia wyłącznie jedną asercję E2E.
+
+Pełnej suity repozytorium nie uruchomiono w tej rundzie. Jest to jawne
+ograniczenie zakresu na polecenie OWNER, a nie twierdzenie, że całe repo zostało
+ponownie sprawdzone. PASS dotyczy Checkpointu C i exact SHA wskazanego wyżej.

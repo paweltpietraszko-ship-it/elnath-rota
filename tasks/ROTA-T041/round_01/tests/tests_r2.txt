@@ -1,0 +1,88 @@
+ROTA-T041 — audyt Checkpointu A, runda 2
+
+Werdykt: FAIL
+Audytowany exact SHA: 3eae437f6d84e9bbbf09f7c9e99f3880e601c120
+Kontrakt: a0e7d932c8ddcfd038c490ba7046e6c325878645
+
+Zakres audytu
+
+- sprawdzenie SHA, zakresu diffu i `git diff --check`;
+- macierz wykonawcy T41-A01..A13 oraz wąskie regresje T022/T040;
+- trzy niezależne reproduktory brakujących granic;
+- bez pełnej suity repozytorium — zgodnie z briefem ma być uruchomiona dopiero
+  na końcowym SHA T041.
+
+Wyniki
+
+- testy wykonawcy + T022 + T040: 62 passed in 156.14s;
+- niezależne reproduktory: 3 failed in 0.48s;
+- reproduktory zachowano w
+  `tasks/ROTA-T041/round_01/tests/test_checkpoint_a_audit.py`.
+
+FINDING T41-A-R2-01 — awaryjny równy podział nie ma wymaganego pierwszeństwa
+
+TRACE:
+- brief.md:57-76: przy brakującym targecie solver ma wybrać najmniejszą
+  osiągalną różnicę rzeczywistych godzin LOCAL;
+- brief.md:162-170: A01/A02/A04 zamrażają ten wynik.
+
+OWNERSHIP:
+- `rota/planning/solver.py:515-547` wybiera cel dla brakującego targetu;
+- `rota/planning/fairness.py:21,157-183` definiuje jego wagę.
+
+REPRO:
+- `test_missing_target_spread_has_priority_over_other_soft_fairness_terms`;
+- kandydat z rozrzutem 0 h dostaje wynik celu 136;
+- kandydat z gorszym rozrzutem 24 h dostaje wynik celu 112, więc jest preferowany;
+- przyczyna jest widoczna także w kodzie: `solver.py:521-522` wprost odrzuca
+  gwarancję pierwszeństwa, a `solver.py:547,553,555` sumuje równy podział z
+  weekendami i świętami o porównywalnej wadze.
+
+FINDING T41-A-R2-02 — fallback zachęca do oddania pracy wsparciu zewnętrznemu
+
+TRACE:
+- brief.md:57-76: praca ma być rozdzielana pomiędzy dostępnych LOCAL;
+- brief.md:72 i A05: EXTERNAL_SUPPORT nie uczestniczy w lokalnym porównaniu;
+- brief.md:358: T041 nie zmienia mechanizmu EXTERNAL_SUPPORT.
+
+OWNERSHIP:
+- `solver.py:464-475` wybiera wyłącznie LOCAL do porównania;
+- `solver.py:547` minimalizuje tylko rozrzut tej grupy, podczas gdy zewnętrzny
+  kandydat nadal może dostać Assignment.
+
+REPRO:
+- `test_missing_target_fallback_does_not_prefer_external_over_available_locals`;
+- dwie osoby LOCAL są w pełni dostępne, jedna osoba EXTERNAL_SUPPORT ma aktywne
+  okno, a istnieje jedna zwykła zmiana 12 h;
+- produkcyjne `plan()` zwraca FEASIBLE i przydziela zmianę wyłącznie X1;
+- pozostawienie obu LOCAL z wynikiem 0/0 daje fallbackowi pozornie idealny
+  rozrzut 0 h. Test A05 wykonawcy (`tests/test_t041_checkpoint_a.py:193`) bada
+  tylko pomocniczy zbiór identyfikatorów i nie przechodzi przez solver.
+
+FINDING T41-A-R2-03 — częściowe nakładanie gubi niekonkurujący fragment czasu
+
+TRACE:
+- brief.md:180-190: tag rozstrzyga wyłącznie ten sam, równoczesny odcinek;
+  poza nim geometria nadal ma rozpoznawać rzeczywiste pokrycie;
+- T41-A11 zachowuje regułę ROTA-T022 dla ręcznego PRIMARY obejmującego więcej
+  niż jeden segment.
+
+OWNERSHIP:
+- `rota/planning/validator.py:119-140` jest jedynym ownerem COVERAGE-01.
+
+REPRO:
+- `test_partial_overlap_keeps_geometry_for_nonconcurrent_tail`;
+- D1 trwa 18:00-06:00, D2 22:00-10:00; A1 oznaczone D1 trwa 18:00-10:00,
+  a A2 oznaczone D2 pokrywa wspólny odcinek 22:00-06:00;
+- oczekiwane pokrycie D2 w odcinku 06:00-10:00 pochodzi geometrycznie z A1;
+- validator zgłasza fałszywą lukę 0/1 dla 06:00-10:00;
+- `validator.py:133-134` odrzuca całe A1 z D2, ponieważ demandy przecinają się
+  choćby częściowo, zamiast ograniczyć rozstrzygnięcie tagiem do wspólnego
+  odcinka.
+
+Podsumowanie
+
+Zmiana mieści się w dozwolonym zakresie plików, a dotychczasowe testy T022 i
+T040 pozostają zielone. Checkpoint A nie spełnia jednak zamrożonego wyniku w
+trzech niezależnie odtworzonych granicach. Raport nie proponuje refaktoryzacji
+ani nowej architektury.

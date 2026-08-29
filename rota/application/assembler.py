@@ -20,6 +20,7 @@ from rota.domain import (
     Deviation,
     Employee,
     ExternalSupportWindow,
+    MembershipKind,
     ShiftDemand,
     SiteMembership,
     WorkBalance,
@@ -145,7 +146,16 @@ def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple
         # a WorkBalance anyway would add a second, redundant warning about a
         # gap that is moot once they are already excluded.
         if get_work_balance_target(conn, employee_id, month) is None:
-            warnings.append(f"missing target_hours for employee {employee_id!r}: omitted from WorkBalance context")
+            # ROTA-T041 OWNER-T041-01/C-05: must be a Polish, coordinator-facing
+            # message (person + month + that the equal-split fallback is used),
+            # not the old internal-only diagnostic string -- this is the same
+            # `warnings` list plan_ops now threads through to the PLAN response
+            # and open_month already threads to GET /schedule/{month}.
+            warnings.append(
+                f"Brak wpisanego miesięcznego limitu godzin (target_hours) dla "
+                f"pracownika {employee_id!r} w miesiącu {month.isoformat()} — "
+                "użyto awaryjnego, równego podziału godzin."
+            )
             continue
         carry_in, carry_warnings = _carry_in_before(conn, employee_id=employee_id, month=month)
         warnings.extend(carry_warnings)
@@ -243,7 +253,15 @@ def assemble_planning_state(
     boundary_shift_demands = tuple(get_shift_demands_by_ids(
         conn, [(a.schedule_version_id, a.covers_demand_id) for a in boundary if a.covers_demand_id]
     ))
-    work_balances, warnings = _assemble_work_balances(conn, employee_ids, month)
+    # ROTA-T041 T41-C04: target_hours/WorkBalance is a LOCAL-only concept
+    # (OWNER-T041-01: "EXTERNAL_SUPPORT nie uczestniczy w tym porównaniu") --
+    # without this filter, an EXTERNAL_SUPPORT roster row with no
+    # work_balance_target (the normal case; targets are never entered for
+    # support staff) would trigger the exact same missing-target warning as
+    # a genuinely forgotten LOCAL target. This was invisible before T041
+    # because plan_ops discarded every assembler warning outright.
+    local_employee_ids = [m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL]
+    work_balances, warnings = _assemble_work_balances(conn, local_employee_ids, month)
     holiday_history_raw = get_current_realized_primary_on_holidays(conn, site_id)
     holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id not in exclude_version_ids)
 

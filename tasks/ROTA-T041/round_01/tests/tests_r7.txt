@@ -1,0 +1,114 @@
+ROTA-T041 — Checkpoint C, reaudyt poprawek z tests_r6
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+89b9ab920d59fbba6388464c7476c72e0ab160bd
+
+WERDYKT
+FAIL — trzy poprawki produktu/testu z tests_r6 są widoczne, ale dwa obowiązkowe
+przypadki E2E nadal nie dochodzą do sprawdzanej funkcji z powodu błędnego
+przygotowania testu. Nie znaleziono w tej rundzie nowego defektu produktu.
+
+ZAKRES ADEKWATNY DO CHECKPOINTU C
+- pięć przypadków `frontend/e2e/t041-daily-workflow.spec.ts`, jeden worker,
+  bez retry;
+- osobne powtórzenie C01-C04 z limitem 60 s w celu rozróżnienia wolnego testu
+  od błędnej nawigacji;
+- `tests/test_t009_open_and_assembler.py`;
+- frontend build (obejmuje TypeScript i Vite).
+
+Nie uruchamiano pełnej suity repozytorium, ponieważ obowiązkowy pion C nadal
+nie przechodzi i SHA nie jest końcowym kandydatem do PASS.
+
+POTWIERDZONE POPRAWKI
+1. Obsada pięcioosobowa daje prawdziwy grafik. PLAN przeszedł również w teście
+   korekty FINAL; C06 zakończył się PASS.
+2. Ostrzeżenie wyświetla czytelne nazwy pięciu pracowników LOCAL, a nie UUID.
+3. Utworzona osoba EXTERNAL_SUPPORT nie pojawia się na liście ostrzeżeń.
+4. `npm.cmd run build`: PASS.
+5. `test_t009_open_and_assembler.py`: 5 passed, 1 stale failure. Jedyna porażka
+   nadal oczekuje starego angielskiego tekstu warningu, celowo zastąpionego
+   przez OWNER-T041-01. Nie jest liczona jako regresja.
+
+WYNIK E2E
+Polecenie:
+  npx.cmd playwright test e2e/t041-daily-workflow.spec.ts --workers=1 --retries=0
+
+Wynik:
+  3 passed, 2 failed.
+
+Przeszły: C05; C06/C07/C10/C11; C06 na wersji FINAL.
+Nie przeszły: C08/C09 oraz C01-C04.
+
+FINDING C-FIX2-01 — C01-C04 zostaje na ekranie Planowania zamiast przejść do
+Obsady
+
+TRACE
+- tasks/ROTA-T041/brief.md:271-276 wymaga C01-C04, w tym zniknięcia warningu po
+  uzupełnieniu targetów wszystkich LOCAL.
+- tasks/ROTA-T041/brief.md:379-382 wymaga prawdziwego pionu UI/router/backend.
+
+OWNERSHIP
+- frontend/e2e/t041-daily-workflow.spec.ts:254 próbuje kliknąć zakładkę Obsada,
+  ale test jest wtedy nadal na ekranie Planowanie miesiąca.
+- nieistniejący na tym ekranie locator jest opakowany w `.catch(() => undefined)`,
+  więc błąd nawigacji zostaje ukryty.
+- linia 256 szuka następnie przycisków pracowników na ekranie Planowania, gdzie
+  tych przycisków nie ma.
+
+REPRO NA EXACT SHA
+- przy zwykłym limicie 30 s: timeout na linii 256;
+- przy zwiększonym limicie 60 s: ten sam timeout na tej samej linii;
+- snapshot w chwili porażki nadal ma nagłówek `Planowanie miesiąca` i przycisk
+  `Panel sterowania` w nawigacji.
+
+To nie jest wolny backend ani defekt zapisu targetu. Test nie wykonał wymaganej
+nawigacji do Panelu sterowania → Obsada, więc nie rozpoczął wpisywania targetów.
+
+DEFECT_GATE
+- TRACE: spełniony dla obowiązkowej macierzy testowej Tasku.
+- OWNERSHIP: test E2E sam odpowiada za przejście do istniejącego ekranu.
+- REPRO: deterministyczny na exact SHA przy dwóch limitach czasu.
+
+FINDING C-FIX2-02 — C08/C09 zapisuje puste ustawienia kodów zmian, więc eksport
+zgodnie z kontraktem odmawia wygenerowania PDF
+
+TRACE
+- tasks/ROTA-T041/brief.md:283-286 wymaga porównania podglądu i pobrania PDF
+  oraz obsługi błędu ponowienia.
+- test ma korzystać z istniejącego produkcyjnego endpointu eksportu, a nie
+  omijać jego wymagane ustawienia.
+
+OWNERSHIP
+- frontend/e2e/t041-daily-workflow.spec.ts:161-163 zapisuje domyślne ustawienia
+  wydruku bez skonfigurowania choć jednego przedziału kodu zmiany.
+- frontend/src/screens/PrintSettings.tsx:19 tworzy domyślnie wszystkie
+  `work_code_intervals` jako `null`.
+- api/routers/export.py:41 jawnie zwraca `WORK_CODE_MAPPING_REQUIRED`, gdy
+  przypisania nie pasują do skonfigurowanego D1-D5/N1-N5.
+
+REPRO NA EXACT SHA
+- prawdziwy PLAN z 5 LOCAL powstał i został wybrany;
+- po kliknięciu `Wygeneruj podgląd PDF` aplikacja pokazała:
+  `Co najmniej jedno przypisanie nie pasuje do żadnego skonfigurowanego kodu
+  zmiany (D1–D5/N1–N5). Sprawdź ustawienia wydruku.`
+- podgląd nie powstał, więc test zatrzymał się przed właściwymi asercjami
+  C08/C09.
+
+Produkt zachował się prawidłowo. Test musi najpierw przez istniejący ekran
+ustawić kod pasujący do własnego katalogu zmian.
+
+DODATKOWA MECHANICZNA KOREKTA TEGO SAMEGO FIXTURE
+- frontend/e2e/t041-daily-workflow.spec.ts:62-67 wylicza lokalne granice miesiąca,
+  a potem zamienia je przez `toISOString()` na UTC.
+- w strefie Europe/Warsaw dla sierpnia 2026 wynik to `2026-07-31` — `2026-08-30`,
+  nie deklarowany pełny miesiąc `2026-08-01` — `2026-08-31`.
+- nie zmieniło to wyniku warningu (EXTERNAL_SUPPORT został poprawnie pominięty),
+  ale opis testu o oknie na cały miesiąc jest nieprawdziwy i granice powinny być
+  zapisane jako lokalne daty bez konwersji przez UTC.
+
+ZAKRES NASTĘPNEGO REAUDYTU
+- tylko pięć przypadków E2E po korekcie dwóch fixture i granic dat;
+- build/TypeScript;
+- pełna regresja repozytorium dopiero raz, jeśli ten wynik będzie PASS i będzie
+  to końcowy SHA całego T041.

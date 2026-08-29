@@ -8,7 +8,7 @@ import uuid
 from dataclasses import replace
 from datetime import date, datetime
 
-from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
+from rota.application.assembler import assemble_planning_state, generate_profile_demands, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.errors import (
     CandidateRejected,
@@ -80,6 +80,30 @@ def _require_working_or_absent(conn, site_id: str, month: date) -> str | None:
     return current_id
 
 
+def _demand_semantic_key(d):
+    # ROTA-T041 OWNER-T041-03 / AUDIT-1 C-04: "materially different" ignores
+    # only the version/scope identifier (schedule_version_id) -- everything
+    # else that describes what the demand actually is/covers participates.
+    return (
+        d.demand_id, d.start_datetime, d.end_datetime, d.required_primary_count,
+        d.shift_kind, d.catalog_kind, d.required_rest_hours,
+    )
+
+
+def _stale_empty_working_needs_fresh_demands(state, month: date) -> bool:
+    """ROTA-T041 OWNER-T041-03: closes AUDIT-1 C-04 for exactly the
+    confirmed case -- current WORKING has zero Assignments and its
+    persisted demands no longer match what the current catalog would
+    generate. A WORKING with any real Assignment is explicitly out of
+    scope (left for a separate OWNER decision, never silently migrated
+    here). No fingerprint/new field: computed from existing data at call
+    time, ignoring only schedule_version_id (_demand_semantic_key)."""
+    if state.existing_assignments:
+        return False
+    fresh = generate_profile_demands(state.profile, month)
+    return {_demand_semantic_key(d) for d in state.shift_demands} != {_demand_semantic_key(d) for d in fresh}
+
+
 def _create_first_version(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
     version_id: str, demands: list,
@@ -132,7 +156,7 @@ def plan_month(
     if current_id is None:
         require_real_date(effective_from)
         assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
-        state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
+        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
         version_id = f"SV-{uuid.uuid4().hex}"
         demands = tuple(replace(d, schedule_version_id=version_id) for d in state.shift_demands)
         state = replace(state, schedule_version_id=version_id, shift_demands=demands)
@@ -141,12 +165,40 @@ def plan_month(
             version_id=version_id, demands=list(demands),
         )
         result = plan(state, search_attempt=search_attempt)
+        # ROTA-T041 C-05/OWNER-T041-01: assemble_planning_state's own
+        # warnings (e.g. missing target_hours) are produced before plan()
+        # is even called and plan() never sees them (they don't travel on
+        # PlanningState) -- without this they silently never reach the
+        # PLAN response, only a later GET /schedule/{month} (open_month
+        # already surfaces them there). Merge, don't replace: plan()'s own
+        # solver/validator warnings are still real warnings too.
+        result.warnings = list(assembler_warnings) + list(result.warnings)
         return _persist_decision_readback(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             schedule_version_id=version_id, result=result,
         )
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+    state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
+    if _stale_empty_working_needs_fresh_demands(state, month):
+        # R4-1/R6-1 (same rationale as the two branches above): the read
+        # that decided this already happened; create_schedule_version is
+        # atomic (rolls back whole on failure), never leaves current_id
+        # pointed at a half-written version.
+        header = get_schedule_version_header(conn, current_id)
+        fresh_id = f"SV-{uuid.uuid4().hex}"
+        fresh_demands = tuple(
+            replace(d, schedule_version_id=fresh_id) for d in generate_profile_demands(state.profile, month)
+        )
+        lifecycle.create_schedule_version(
+            conn, version_id=fresh_id, site_id=site_id, month=month, parent_version_id=current_id,
+            created_at=datetime.now(), created_by=coordinator_id,
+            applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
+            shift_demands=list(fresh_demands), assignments=[], deviations=[],
+            effective_from=header.effective_from,
+        )
+        current_id = fresh_id
+        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     result = plan(state, search_attempt=search_attempt)
+    result.warnings = list(assembler_warnings) + list(result.warnings)  # see note above
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

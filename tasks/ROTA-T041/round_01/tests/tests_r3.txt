@@ -1,0 +1,45 @@
+ROTA-T041 — reaudyt Checkpointu A, runda 3
+
+Werdykt: PASS
+Audytowany exact SHA: f59398d2a082a0ec1801270e7a24493bb05e713c
+Kontrakt: a0e7d932c8ddcfd038c490ba7046e6c325878645
+
+Sprawdzony zakres
+
+- diff od raportu rundy 2: wyłącznie `fairness.py`, `solver.py` i
+  `validator.py`;
+- trzy zachowane niezależne reproduktory R2-01..R2-03;
+- macierz wykonawcy Checkpointu A;
+- wąskie regresje właścicieli T022 i T040;
+- bez pełnej suity, zgodnie z briefem T041.
+
+Wyniki
+
+- reproduktory Codexa + macierz T041-A: 14 passed in 152.08s;
+- T022 + T040: 51 passed in 2.24s;
+- `git diff --check`: bez błędów.
+
+Ocena poprawek
+
+1. R2-01 zamknięte. Produkcyjny solver wylicza dla konkretnego planowania
+   wagę równego podziału większą niż łączna możliwa korzyść pozostałych
+   ocen miękkich objętych tym celem. Gorszy rozrzut nie wygrywa już przez
+   weekendy, święta ani rytm.
+
+2. R2-02 zamknięte. Przy dostępnej własnej załodze solver nie poprawia już
+   sztucznie wyniku 0/0 przez oddanie zmiany EXTERNAL_SUPPORT. Preferencja
+   jest miękka, więc nie blokuje wsparcia, gdy jest ono konieczne do
+   spełnienia twardego pokrycia.
+
+3. R2-03 zamknięte. Tag wyłącza tylko wspólny, rzeczywiście konkurujący
+   fragment czasu. Niepokrywający się początek albo koniec ręcznego PRIMARY
+   nadal jest liczony geometrycznie. Przypadki pełnego overlapu, fałszywego
+   tagu i ROTA-T022 pozostają zielone.
+
+Podniesienie `EQUAL_SPLIT_FAIRNESS_WEIGHT` z 1 do 100 jest TECHNICAL_ONLY:
+produkcja przekazuje funkcji wagę wyliczoną dla bieżącego modelu. Stała 100
+jest wartością domyślną interfejsu pomocniczego i nie zastępuje produkcyjnego
+obliczenia. Nie jest obejściem reproduktora ani nowym zachowaniem produktu.
+
+PASS dotyczy wyłącznie Checkpointu A na wskazanym SHA. Checkpointy B i C nie
+były audytowane w tej rundzie.

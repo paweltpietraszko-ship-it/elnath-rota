@@ -22,6 +22,7 @@ from rota.domain import (
     AssignmentRole,
     AssignmentState,
     AvailabilityKind,
+    MembershipKind,
     ShiftDemand,
     ShiftKind,
     SitePlanningRegime,
@@ -33,9 +34,10 @@ from rota.planning.constraints import (
 )
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import (
-    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT, THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT,
-    add_dn_rhythm_reward, add_holiday_fairness, add_target_equity_fairness, add_third_consecutive_shift_penalty,
-    add_weekend_fairness,
+    DN_RHYTHM_REWARD_WEIGHT, EQUAL_SPLIT_FAIRNESS_WEIGHT, HOLIDAY_FAIRNESS_WEIGHT, MAX_COMPLETION_PCT,
+    TARGET_EQUITY_WEIGHT, THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT, WEEKEND_FAIRNESS_WEIGHT,
+    add_dn_rhythm_reward, add_equal_split_fairness, add_holiday_fairness, add_local_over_external_preference,
+    add_target_equity_fairness, add_third_consecutive_shift_penalty, add_weekend_fairness,
 )
 from rota.planning.replan_reshuffle import (
     build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
@@ -437,17 +439,22 @@ def _fixed_hours_by_employee(state: PlanningState) -> dict[str, int]:
 
 
 def _worked_hours_by_employee(
-    x: dict, slots: list[SolverSlot], fixed_hours_by_employee: dict[str, int], target_by_employee: dict[str, int],
+    x: dict, slots: list[SolverSlot], fixed_hours_by_employee: dict[str, int], employee_ids,
 ) -> tuple[dict[str, object], dict[str, list[SolverSlot]]]:
     """ROTA-T032 section 4.1: the single canonical actual-hours expression
-    per employee, built once and reused unchanged by both TARGET-01 and
-    target equity inside the one combined objective -- never recomputed a
-    second way."""
+    per employee, built once and reused unchanged by TARGET-01, target
+    equity and (ROTA-T041) the fallback equal-split term inside the one
+    combined objective -- never recomputed a second way. `employee_ids` is
+    the exact set the caller wants a worked-hours expression for: the
+    target vector's own keys in the ordinary targeted mode, or every
+    available LOCAL employee id in T041's incomplete-target fallback mode
+    (solver._available_local_employee_ids) -- this function does not
+    decide which."""
     by_employee: dict[str, list[SolverSlot]] = {}
     for slot in slots:
         by_employee.setdefault(slot.employee_id, []).append(slot)
     worked_by_employee: dict[str, object] = {}
-    for employee_id in target_by_employee:
+    for employee_id in employee_ids:
         employee_slots = by_employee.get(employee_id, [])
         worked = sum(_demand_hours(s.demand) * x[employee_id, s.demand.demand_id] for s in employee_slots)
         worked = worked + fixed_hours_by_employee.get(employee_id, 0)
@@ -455,10 +462,25 @@ def _worked_hours_by_employee(
     return worked_by_employee, by_employee
 
 
+def _available_local_employee_ids(state: PlanningState, slots: list[SolverSlot]) -> set[str]:
+    """ROTA-T041 OWNER-T041-01: an employee 'available' for the fallback
+    equal-split comparison is a LOCAL member with at least one real
+    eligible slot this solve. `slots` is already the fully HARD-rule-
+    filtered eligibility result (_build_slots/check_eligibility) -- never
+    recomputed here. EXTERNAL_SUPPORT is excluded by membership kind;
+    anyone check_eligibility ruled out of every shift this month simply
+    never appears in `slots` and so is not an artificial participant
+    either."""
+    local_ids = {m.employee_id for m in state.memberships if m.membership_kind == MembershipKind.LOCAL}
+    slot_ids = {slot.employee_id for slot in slots}
+    return local_ids & slot_ids
+
+
 def _add_combined_objective(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     worked_by_employee: dict[str, object], target_by_employee: dict[str, int],
     by_employee: dict[str, list[SolverSlot]], day_kind_terms: dict[str, dict],
+    fallback_employee_ids: set[str] | None = None,
 ) -> None:
     """ONE weighted objective (owner correction 2026-08-25, see
     _solve_lexicographic_phases docstring for why this is one solve, not a
@@ -489,7 +511,29 @@ def _add_combined_objective(
     bad_window variables add_third_consecutive_shift_penalty created this
     solve (its own return value, same tighter-real-bound pattern as
     rhythm_match_count) -- so this new SOFT can never outweigh TARGET-01
-    either."""
+    either.
+
+    ROTA-T041 OWNER-T041-01 / AUDIT-1 C-05: `fallback_employee_ids` is set
+    only when this solve's target vector is incomplete (assembler omitted
+    at least one available LOCAL employee for lacking target_hours this
+    month, see solver._available_local_employee_ids). TARGET-01 and target
+    equity both need a real target to rank against, so neither runs at
+    all for that solve -- add_equal_split_fairness replaces both.
+
+    ROTA-T041 AUDIT round-2 FINDINGS T41-A-R2-01/02 (tests_r2.txt): a flat
+    weight let weekend/holiday (an unbounded historical figure) outweigh a
+    0h-spread candidate, and equal-split alone rewarded pushing a demand to
+    EXTERNAL_SUPPORT over splitting it among LOCAL, since leaving every
+    LOCAL at 0h is trivially "equal". Fixed the same way TARGET-01 already
+    dominates equity/rhythm above: equal_split_weight is computed to
+    strictly exceed the SUM of every other coexisting term's real bound
+    this solve (weekend/holiday's own returned bounds plus rhythm/third-
+    shift's real counts), and add_local_over_external_preference is given a
+    weight that in turn strictly exceeds equal_split_weight's own maximum
+    possible swing -- so no combination of weekend/holiday/rhythm/third-
+    shift/equal-split gain can ever be worth handing one hour to a
+    non-fallback (e.g. EXTERNAL_SUPPORT) employee instead of an available
+    LOCAL one. The ordinary complete-vector branch below is unchanged."""
     penalties = []
 
     # Rhythm and the third-shift penalty are built first so their real
@@ -497,28 +541,42 @@ def _add_combined_objective(
     # TARGET_DEVIATION_WEIGHT is sized against them.
     rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
     third_shift_penalty_count = add_third_consecutive_shift_penalty(model, state.month, day_kind_terms, penalties)
-    target_weight = (
-        TARGET_DEVIATION_WEIGHT
-        + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT
-        + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
-        + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
-    )
+    weekend_bound = add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
+    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
+    holiday_bound = add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
 
-    for employee_id, target in target_by_employee.items():
-        worked = worked_by_employee[employee_id]
-        pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
-        neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
-        model.add(worked - target == pos - neg)
-        penalties.append(target_weight * (pos + neg))
+    if fallback_employee_ids is None:
+        target_weight = (
+            TARGET_DEVIATION_WEIGHT
+            + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT
+            + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+            + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
+        )
+        for employee_id, target in target_by_employee.items():
+            worked = worked_by_employee[employee_id]
+            pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
+            neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
+            model.add(worked - target == pos - neg)
+            penalties.append(target_weight * (pos + neg))
+        add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
+    else:
+        equal_split_weight = (
+            EQUAL_SPLIT_FAIRNESS_WEIGHT
+            + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+            + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
+            + WEEKEND_FAIRNESS_WEIGHT * weekend_bound
+            + HOLIDAY_FAIRNESS_WEIGHT * holiday_bound
+        )
+        add_equal_split_fairness(model, worked_by_employee, fallback_employee_ids, penalties, weight=equal_split_weight)
+        # equal_split's own worst-case swing is bounded by MAX_MONTHLY_HOURS
+        # (its hours_var domain); +1 keeps this strictly greater even summed
+        # with the (already-included-in-equal_split_weight) other terms above.
+        prefer_local_weight = equal_split_weight * (MAX_MONTHLY_HOURS + 1)
+        add_local_over_external_preference(model, x, by_employee, fallback_employee_ids, penalties, weight=prefer_local_weight)
 
     for slot in slots:
         if slot.leave_plan_collision or slot.day_off_soft_entry:
             penalties.append(SOFT_PENALTY_WEIGHT * x[slot.employee_id, slot.demand.demand_id])
-
-    add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
-    holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
-    add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
-    add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
 
     model.minimize(sum(penalties) if penalties else 0)
 
@@ -788,8 +846,19 @@ def _solve_lexicographic_phases(
 
     target_by_employee = _effective_targets(state)
     fixed_hours_by_employee = _fixed_hours_by_employee(state)
-    worked_by_employee, by_employee = _worked_hours_by_employee(x, slots, fixed_hours_by_employee, target_by_employee)
-    _add_combined_objective(model, x, slots, state, worked_by_employee, target_by_employee, by_employee, day_kind_terms)
+    # ROTA-T041 OWNER-T041-01 / AUDIT-1 C-05: an available LOCAL employee
+    # missing target_hours is never added to target_by_employee
+    # (assembler's own R3-11-D omission) -- an incomplete vector switches
+    # this solve to the equal-split fallback over every available LOCAL
+    # employee instead of ranking against (necessarily partial) targets.
+    available_local_ids = _available_local_employee_ids(state, slots)
+    target_vector_complete = available_local_ids <= target_by_employee.keys()
+    fairness_employee_ids = target_by_employee.keys() if target_vector_complete else available_local_ids
+    worked_by_employee, by_employee = _worked_hours_by_employee(x, slots, fixed_hours_by_employee, fairness_employee_ids)
+    _add_combined_objective(
+        model, x, slots, state, worked_by_employee, target_by_employee, by_employee, day_kind_terms,
+        fallback_employee_ids=None if target_vector_complete else available_local_ids,
+    )
     final_solver, final_status = _run_solver(model, _remaining_seconds(deadline), search_attempt)
     if final_status == cp_model.INFEASIBLE:
         return _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)

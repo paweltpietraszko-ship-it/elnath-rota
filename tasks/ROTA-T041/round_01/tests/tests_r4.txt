@@ -1,0 +1,51 @@
+ROTA-T041 — audyt Checkpointu B, runda 4
+
+Werdykt: PASS
+Audytowany exact SHA: 926b00ca8461569227394e8e1340f7f7151f31e0
+Kontrakt: a0e7d932c8ddcfd038c490ba7046e6c325878645
+
+Sprawdzony zakres
+
+- diff od zaakceptowanego Checkpointu A: `plan_ops.py`,
+  `absence_reference_repository.py`, test właściciela T023 i nowy moduł B;
+- pełna macierz T41-B01..B14, w tym prawdziwy endpoint dla SICK przed PLAN,
+  produkcyjny `plan_month`, historia starego WORKING, ochrona FINAL i błąd
+  tworzenia nowej wersji;
+- bez pełnej suity — zgodnie z briefem dopiero na końcowym SHA T041.
+
+Wyniki
+
+- `tests/test_t041_checkpoint_b.py`: 14 passed in 3.07s;
+- wąska regresja wykonawcy 154/154 przyjęta jako dowód pomocniczy;
+- `git diff --check`: bez błędów.
+
+Ocena zachowania
+
+1. SICK znane przed pierwszym zaakceptowanym grafikiem używa istniejącego
+   mechanizmu PRE_PLAN: 8 h w roboczy poniedziałek–piątek, 0 h w weekend i
+   święto. SICK po zaakceptowanym grafiku nadal bierze rzeczywiście
+   zaplanowane godziny. Nie powstał drugi kalkulator ani nowy format danych.
+
+2. `plan_month` tworzy świeży child WORKING tylko dla potwierdzonego przypadku:
+   bieżący WORKING nie ma Assignmentów, a aktualny katalog daje materialnie
+   inny zestaw demandów. Stary snapshot pozostaje bez zmian; FINAL nadal
+   wymaga REPLAN; błąd tworzenia nie przesuwa current pointera.
+
+Klasyfikacja starych testów
+
+Na exact SHA uruchomiono cały `tests/test_t019.py` oraz wskazany T23-34:
+25 passed, 4 failed. Odtworzono dokładnie trzy, nie cztery, porażki w T019
+oraz jedną w T23-34:
+
+- T019 test 10 i 11 oraz druga połowa T23-34 nie dostarczają pełnego
+  CalendarDay, który jest teraz konieczny do zaakceptowanego liczenia 8/0;
+- T019 test 12 nadal oczekuje dawnego `MISSING`, choć OWNER-T041-02 zamroził
+  wynik PRE_PLAN/BOUND.
+
+To `STALE_EXPECTATION/STALE_FIXTURE`, nie regresje produktu. Zgodnie z decyzją
+OWNER z 2026-08-29 nie blokują PASS. Nie usunięto ich ani nie wyłączono w
+ramach audytu; należy je później dopasować do obowiązującego kontraktu zamiast
+utrzymywać fałszywą czerwień.
+
+PASS dotyczy wyłącznie Checkpointu B na wskazanym SHA. Checkpoint C nie był
+audytowany w tej rundzie.

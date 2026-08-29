@@ -1,0 +1,333 @@
+// ROTA-T041 Checkpoint C (tasks/ROTA-T041/brief.md section 6): E2E coverage
+// for "Ręczna korekta"/"Wydruk Grafiku" sharing one screen, the missing-
+// target warning actually reaching the coordinator, and PDF preview/
+// download sharing one set of bytes. Backend contracts for the warning
+// content and equal-split fallback are covered by
+// tests/test_t041_checkpoint_a.py and tests/test_t041_checkpoint_b.py --
+// this file exercises the real frontend flow against the real dev backend.
+import { test, expect } from "@playwright/test";
+import { createSite } from "./helpers";
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+// NOT the shared helpers.ts openSite(): that one waits for the "Panel
+// sterowania" heading to appear right after clicking the site card, which
+// assumes Room's default landing tab is Panel sterowania. It currently
+// isn't (Room.tsx defaults activeNav to "Praegląd"/Overview) -- confirmed
+// pre-existing and unrelated to T041 by running the existing, untouched
+// shift-catalog.spec.ts against both this checkpoint's changes and the
+// pre-checkpoint-C baseline; both fail identically at that same wait. Out
+// of TASK_SCOPE to fix (helpers.ts isn't a T041 file) -- this local helper
+// just avoids relying on the assumption, using the sidebar nav directly.
+async function openSite(page: import("@playwright/test").Page, displayName: string) {
+  await page.getByText(displayName, { exact: true }).click();
+  await page.locator('[data-diag-action="room-nav-control-panel"]').waitFor({ state: "visible" });
+  await page.locator('[data-diag-action="room-nav-control-panel"]').click();
+  await page.getByRole("heading", { name: "Panel sterowania" }).waitFor();
+}
+
+async function generateCalendarForCurrentMonth(page: import("@playwright/test").Page) {
+  await page.locator('button[title="Kalendarz (dni robocze i święta)"]').click();
+  await page.getByRole("button", { name: /Wygeneruj kalendarz na miesiąc/ }).click();
+  await page.locator(".calendar-day-unconfigured").first().waitFor({ state: "detached" }).catch(() => undefined);
+  await page.getByRole("button", { name: "Zamknij" }).click();
+}
+
+async function addLocalEmployee(page: import("@playwright/test").Page, name: string) {
+  await page.locator('[data-diag-action="roster-add-open"]').click();
+  await page.locator('input[placeholder="np. Jan Kowalski"]').fill(name);
+  await page.locator('[data-diag-action="add-person-submit"]').click();
+  await expect(page.getByRole("heading", { name: "Godziny docelowe" })).toBeVisible();
+  // add-person navigates straight to EmployeeDetail -- come back to the roster.
+  await page.getByRole("button", { name: /Wróć do obsady/ }).click();
+  await expect(page.getByRole("heading", { name: "Panel sterowania" })).toBeVisible();
+}
+
+// ROTA-T041 C-FIX-02: same object as every other test in this file (default
+// D/N daily catalog, whole current month) -- an owner ruling elsewhere
+// (coordinator simulator design, T038/T039) already fixes the realistic
+// crew size for exactly this shape at 5, not an arbitrary "enough to avoid
+// DECISION_REQUIRED" guess. Every test that runs a real PLAN in this file
+// must staff 5 LOCAL, matching that ruling, not fewer.
+async function addFiveLocalEmployees(page: import("@playwright/test").Page, siteName: string): Promise<string[]> {
+  const names = Array.from({ length: 5 }, (_, i) => `${siteName}-E${i + 1}`);
+  for (const name of names) {
+    await addLocalEmployee(page, name);
+  }
+  return names;
+}
+
+function currentMonthDateRange(): { from: string; to: string } {
+  // C-FIX2 mechanical correction: toISOString() converts to UTC, which
+  // shifts the date in any zone ahead of UTC (e.g. Europe/Warsaw in DST) --
+  // August became 2026-07-31..2026-08-30 instead of the full month. Format
+  // from local Date fields directly instead.
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const isoLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return { from: isoLocal(from), to: isoLocal(to) };
+}
+
+// ROTA-T041 C-FIX-03: T41-C04 requires an actual EXTERNAL_SUPPORT roster
+// member in scope, not just a filter that looks correct by reading the
+// code -- this is the same "+ Dodaj osobę" flow as addLocalEmployee with
+// membership_kind switched and a support window filled in (required by the
+// form before submit is enabled).
+async function addExternalSupportEmployee(page: import("@playwright/test").Page, name: string) {
+  const { from, to } = currentMonthDateRange();
+  await page.locator('[data-diag-action="roster-add-open"]').click();
+  await page.getByRole("button", { name: "Wsparcie zewnętrzne" }).click();
+  await page.locator('input[type="date"]').first().fill(from);
+  await page.locator('input[type="date"]').nth(1).fill(to);
+  await page.locator('input[placeholder="np. Jan Kowalski"]').fill(name);
+  await page.locator('[data-diag-action="add-person-submit"]').click();
+  await expect(page.getByRole("heading", { name: "Godziny docelowe" })).toBeVisible();
+  await page.getByRole("button", { name: /Wróć do obsady/ }).click();
+  await expect(page.getByRole("heading", { name: "Panel sterowania" })).toBeVisible();
+}
+
+async function saveDefaultCatalogRow(page: import("@playwright/test").Page) {
+  await page.locator('[data-diag-action="control-panel-tab-obiekt"]').click();
+  await page.locator('[data-diag-action="shift-catalog-save"]').click();
+  await expect(page.getByText("Zapisano.")).toBeVisible();
+  await page.locator('[data-diag-action="control-panel-tab-obsada"]').click();
+}
+
+async function openViaNav(page: import("@playwright/test").Page, navAction: string) {
+  await page.locator(`[data-diag-action="${navAction}"]`).click();
+  await expect(page.getByRole("heading", { name: "Planowanie miesiąca" })).toBeVisible();
+}
+
+test("C05: both shortcuts open the same screen and keep the selected month", async ({ page }) => {
+  const siteName = `T041-NAV-${uid()}`;
+  await createSite(page, siteName, `T041-NAV-PROF-${uid()}`);
+  await openSite(page, siteName);
+
+  await openViaNav(page, "room-nav-manual-correction");
+  const monthSelect = page.getByLabel("Miesiąc");
+  await monthSelect.selectOption({ index: 0 });
+  const monthAfterKorekta = await monthSelect.inputValue();
+
+  await openViaNav(page, "room-nav-export");
+  await expect(page.getByLabel("Miesiąc")).toHaveValue(monthAfterKorekta);
+});
+
+test("C06/C07/C10: correction instruction, inline print, print settings link, other nav unchanged (C11)", async ({ page }) => {
+  const siteName = `T041-SCREEN-${uid()}`;
+  await createSite(page, siteName, `T041-SCREEN-PROF-${uid()}`);
+  await openSite(page, siteName);
+
+  await openViaNav(page, "room-nav-manual-correction");
+  await expect(page.getByText(/Kliknij dowolny wpis w grafiku/)).toBeVisible();
+
+  await openViaNav(page, "room-nav-export");
+  await expect(page.getByRole("heading", { name: "Wydruk Grafiku" })).toBeVisible();
+  // Fresh site has no saved print settings yet -- Export shows the
+  // "configure it" link instead of the plain "Ustawienia wydruku" button;
+  // either way it must land on Panel sterowania -> Obiekt.
+  await page.getByRole("button", { name: /Skonfiguruj w Panelu sterowania/ }).click();
+  await expect(page.getByRole("heading", { name: "Panel sterowania" })).toBeVisible();
+  await expect(page.locator(".create-panel").first()).toBeVisible();
+
+  // C11: the rest of the nav is unchanged (still present, still separate screens).
+  // History.tsx's own heading is "Akcje koordynatora" (there is no literal
+  // "Historia i audyt" heading anywhere in that screen) -- this is a fact
+  // about the existing screen, not something T041 changed.
+  for (const [label, heading] of [
+    ["Decyzje koordynatora", "Decyzje koordynatora"],
+    ["Analityka i bilanse", "Analityka i bilanse"],
+    ["Historia i audyt", "Akcje koordynatora"],
+  ] as const) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+  }
+});
+
+test("C08/C09: preview and download share one export call; a failed regeneration leaves no stale preview", async ({ page }) => {
+  const siteName = `T041-PDF-${uid()}`;
+  await createSite(page, siteName, `T041-PDF-PROF-${uid()}`);
+  // The calendar button lives on Workspace (the site list), not inside Room.
+  await generateCalendarForCurrentMonth(page);
+  await openSite(page, siteName);
+  // C-FIX-02: 5 LOCAL, the realistic crew size for this object shape.
+  await addFiveLocalEmployees(page, siteName);
+  await page.locator('[data-diag-action="control-panel-tab-obiekt"]').click();
+  await page.locator('[data-diag-action="shift-catalog-save"]').click();
+  await expect(page.getByText("Zapisano.")).toBeVisible();
+  // Export refuses to generate anything until print settings exist for the
+  // site (PrintSettings.tsx, embedded on the same "Obiekt" tab) AND at
+  // least one work code interval matches every assignment it will actually
+  // print (api/routers/export.py WORK_CODE_MAPPING_REQUIRED, rota/
+  // application/schedule_export.py::_map_work_code) -- saving the settings
+  // with every interval still null (the form's default) makes export
+  // correctly refuse. The default catalog (SiteShiftCatalog.tsx blankRow())
+  // is a single D 06:00-18:00 row, so only D1 (12h, per
+  // FROZEN_WORK_CODE_HOURS) needs a matching interval here, no N code.
+  const printSettingsPanel = page.locator(".create-panel", { hasText: "Ustawienia wydruku" });
+  const d1Row = printSettingsPanel.locator("tr", { hasText: "D1" });
+  await d1Row.locator('input[type="time"]').first().fill("06:00");
+  await d1Row.locator('input[type="time"]').nth(1).fill("18:00");
+  await printSettingsPanel.getByRole("button", { name: "Zapisz ustawienia" }).click();
+  await expect(printSettingsPanel.getByText("Zapisano.")).toBeVisible();
+  await page.locator('[data-diag-action="control-panel-tab-obsada"]').click();
+
+  // Export legitimately refuses to generate anything ("Brak aktualnego
+  // grafiku dla tego miesiąca") until a schedule version exists -- run a
+  // real PLAN first, same as the other tests, rather than exporting nothing.
+  await openViaNav(page, "room-nav-monthly-planning");
+  await page.locator('[data-diag-action="plan-month-first"]').click();
+  await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
+  await page.locator('[data-diag-action="select-candidate"]').first().click();
+  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+
+  await openViaNav(page, "room-nav-export");
+
+  let exportCalls = 0;
+  await page.route("**/schedule/*/export", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    exportCalls += 1;
+    return route.continue();
+  });
+
+  await page.locator('button:has-text("Wygeneruj podgląd PDF")').click();
+  await expect(page.locator('[data-diag-element="export-preview"]')).toBeVisible({ timeout: 15000 });
+  expect(exportCalls).toBe(1);
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.locator('[data-diag-action="export-download"]').click(),
+  ]);
+  expect(download).toBeTruthy();
+  // Downloading must not have triggered a second generation call.
+  expect(exportCalls).toBe(1);
+
+  // Now force a failing regeneration and confirm the old preview is cleared,
+  // not left on screen mislabeled as the new attempt's result.
+  await page.route("**/schedule/*/export", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ ok: false, pdf_base64: null, document_revision: null, schedule_provenance: null, problem_code: "boom", message: "boom" }),
+    });
+  });
+  await page.locator('button:has-text("Wygeneruj podgląd PDF")').click();
+  await expect(page.getByText("boom")).toBeVisible();
+  await expect(page.locator('[data-diag-element="export-preview"]')).toHaveCount(0);
+  await expect(page.locator('[data-diag-action="export-download"]')).toHaveCount(0);
+});
+
+test("C01-C04: missing target_hours warning reaches the coordinator, survives reload, clears once fixed, never fires for EXTERNAL_SUPPORT", async ({ page }) => {
+  const siteName = `T041-WARN-${uid()}`;
+  const empName = `Pracownik-${uid()}`;
+  await createSite(page, siteName, `T041-WARN-PROF-${uid()}`);
+  // The calendar button lives on Workspace (the site list), not inside
+  // Room -- must run before openSite navigates into the object.
+  await generateCalendarForCurrentMonth(page);
+  await openSite(page, siteName);
+
+  // C-FIX-02: 5 LOCAL, the realistic crew size for this object shape.
+  // empName is the one with no target_hours; the other four get one below.
+  const otherNames = Array.from({ length: 4 }, (_, i) => `${siteName}-E${i + 2}`);
+  await addLocalEmployee(page, empName);
+  for (const name of otherNames) {
+    await addLocalEmployee(page, name);
+  }
+  // C-FIX-03: a real EXTERNAL_SUPPORT roster member, in scope for the whole
+  // month, to prove T41-C04 (never falsely warned about) against an actual
+  // person, not just by reading the assembler's filter.
+  const externalName = `${siteName}-EXT`;
+  await addExternalSupportEmployee(page, externalName);
+  await saveDefaultCatalogRow(page);
+
+  await openViaNav(page, "room-nav-monthly-planning");
+  await page.locator('[data-diag-action="plan-month-first"]').click();
+  await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
+  await page.locator('[data-diag-action="select-candidate"]').first().click();
+
+  const warningBanner = page.locator('[data-diag-element="month-warnings"]');
+  await expect(warningBanner).toBeVisible();
+  await expect(warningBanner).toContainText(empName);
+  await expect(warningBanner).toContainText("równego podziału");
+  await expect(warningBanner).not.toContainText(externalName);
+
+  await page.reload();
+  await openSite(page, siteName);
+  await openViaNav(page, "room-nav-monthly-planning");
+  await expect(page.locator('[data-diag-element="month-warnings"]')).toContainText(empName);
+
+  // Fix the gap: T41-C03 requires the warning to clear only once EVERY
+  // available LOCAL employee has a target -- all five, not just empName.
+  // EXTERNAL_SUPPORT is deliberately excluded: target_hours is a LOCAL-only
+  // concept (OWNER-T041-01), so it must never need one to clear the warning.
+  await page.locator('[data-diag-action="room-nav-control-panel"]').click();
+  await page.locator('[data-diag-action="control-panel-tab-obsada"]').click();
+  for (const target of [empName, ...otherNames]) {
+    await page.locator('[data-diag-action="roster-open-employee"]').filter({ hasText: target }).click();
+    await expect(page.getByRole("heading", { name: "Godziny docelowe" })).toBeVisible();
+    await page.locator('input[type="number"]').last().fill("160");
+    await page.getByRole("button", { name: "Zapisz" }).click();
+    await page.getByRole("button", { name: /Wróć do obsady/ }).click();
+  }
+  await openViaNav(page, "room-nav-monthly-planning");
+  // A WORKING version already exists from the first PLAN above -- the
+  // button is now "Przelicz (PLAN)" (plan-month-recompute), not the
+  // first-ever-plan button.
+  await page.locator('[data-diag-action="plan-month-recompute"]').click();
+  await page.locator('[data-diag-action="select-candidate"]').first().click();
+  // T41-C03 requires the missing-target warning to clear once every LOCAL
+  // has a target -- not that the whole panel is empty. A fresh site's
+  // first month legitimately also carries an unrelated, real prior-month
+  // quarter carry-in warning (rota/application/assembler.py::_carry_in_before),
+  // which this test's setup never gives July data for; asserting zero
+  // warnings would fail on that genuine, unrelated message.
+  await expect(page.locator('[data-diag-element="month-warnings"]')).not.toContainText("równego podziału");
+});
+
+test("C06: manual correction works via the Ręczna korekta entry even when current version is FINAL", async ({ page }) => {
+  const siteName = `T041-FINAL-${uid()}`;
+  const empName = `Pracownik-${uid()}`;
+  await createSite(page, siteName, `T041-FINAL-PROF-${uid()}`);
+  await generateCalendarForCurrentMonth(page);
+  await openSite(page, siteName);
+
+  // C-FIX-02: 5 LOCAL, the realistic crew size for this object shape.
+  await addLocalEmployee(page, empName);
+  for (let i = 2; i <= 5; i++) {
+    await addLocalEmployee(page, `${siteName}-E${i}`);
+  }
+  await saveDefaultCatalogRow(page);
+
+  await openViaNav(page, "room-nav-monthly-planning");
+  await page.locator('[data-diag-action="plan-month-first"]').click();
+  await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
+  await page.locator('[data-diag-action="select-candidate"]').first().click();
+  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+
+  await page.locator('[data-diag-action="finalize-month"]').click();
+  await expect(page.getByText(/status: FINAL_/)).toBeVisible();
+  const finalVersionText = await page.getByText(/Wersja: SV-/).textContent();
+  const finalVersionId = finalVersionText?.match(/SV-[a-f0-9]+/)?.[0];
+
+  await openViaNav(page, "room-nav-manual-correction");
+  await expect(page.getByText(/Kliknij dowolny wpis w grafiku/)).toBeVisible();
+
+  // Click the first real assignment cell in the grid and toggle freeze --
+  // the existing correction backend must accept this on a FINAL version by
+  // creating a new child WORKING, never by mutating FINAL in place.
+  await page.locator('[data-diag-action="manual-correction-select-assignment"]').first().click();
+  await expect(page.getByText(/Ręczna korekta —/)).toBeVisible();
+  await page.getByRole("button", { name: /Zamroź|Odmroź/ }).click();
+
+  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+  const childVersionText = await page.getByText(/Wersja: SV-/).textContent();
+  const childVersionId = childVersionText?.match(/SV-[a-f0-9]+/)?.[0];
+  expect(childVersionId).not.toBe(finalVersionId);
+
+  // The FINAL parent must still exist, unchanged, in history.
+  await page.locator('[data-diag-action="history-toggle"]').click();
+  await expect(page.getByText(new RegExp(finalVersionId!))).toBeVisible();
+});
