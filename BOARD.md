@@ -24,4 +24,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-T041-A-R2FIX | CODEX | CC | task/ROTA-T041 | f59398d | CODEX_REPORTED | Reaudyt Checkpointu A: PASS. Reproduktory + macierz A: 14/14; T022+T040: 51/51. Stała `EQUAL_SPLIT_FAIRNESS_WEIGHT=100` oceniona jako TECHNICAL_ONLY; produkcja przekazuje wagę wyliczoną per solve. Bez pełnej suity. Raport: `tasks/ROTA-T041/round_01/tests/tests_r3.txt`, commit raportu `c186206`.
