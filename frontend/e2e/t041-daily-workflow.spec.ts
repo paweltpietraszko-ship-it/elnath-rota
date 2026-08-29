@@ -278,7 +278,13 @@ test("C01-C04: missing target_hours warning reaches the coordinator, survives re
   // first-ever-plan button.
   await page.locator('[data-diag-action="plan-month-recompute"]').click();
   await page.locator('[data-diag-action="select-candidate"]').first().click();
-  await expect(page.locator('[data-diag-element="month-warnings"]')).toHaveCount(0);
+  // T41-C03 requires the missing-target warning to clear once every LOCAL
+  // has a target -- not that the whole panel is empty. A fresh site's
+  // first month legitimately also carries an unrelated, real prior-month
+  // quarter carry-in warning (rota/application/assembler.py::_carry_in_before),
+  // which this test's setup never gives July data for; asserting zero
+  // warnings would fail on that genuine, unrelated message.
+  await expect(page.locator('[data-diag-element="month-warnings"]')).not.toContainText("równego podziału");
 });
 
 test("C06: manual correction works via the Ręczna korekta entry even when current version is FINAL", async ({ page }) => {
