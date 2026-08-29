@@ -4,7 +4,6 @@ import Analytics from "./Analytics";
 import ControlPanel from "./ControlPanel";
 import Decisions from "./Decisions";
 import EmployeeDetail from "./EmployeeDetail";
-import Export from "./Export";
 import History from "./History";
 import MonthlyPlanning from "./MonthlyPlanning";
 import Overview from "./Overview";
@@ -148,15 +147,26 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
               />
             )}
-            {(activeNav === "Planowanie miesiąca" || activeNav === "Ręczna korekta") && (
-              <MonthlyPlanning siteId={siteId} onOpenPrintSettings={() => openControlPanel("obiekt")} />
+            {/* ROTA-T041 OWNER-T041-04: all three shortcuts are one screen,
+                one MonthlyPlanning instance (kept mounted across them so the
+                selected object/month doesn't reset) -- entryMode only picks
+                what's shown by default on arrival. */}
+            {(activeNav === "Planowanie miesiąca" ||
+              activeNav === "Ręczna korekta" ||
+              activeNav === "Wydruk Grafiku") && (
+              <MonthlyPlanning
+                siteId={siteId}
+                onOpenPrintSettings={() => openControlPanel("obiekt")}
+                entryMode={
+                  activeNav === "Ręczna korekta" ? "korekta" : activeNav === "Wydruk Grafiku" ? "wydruk" : undefined
+                }
+              />
             )}
             {activeNav === "Decyzje koordynatora" && (
               <Decisions siteId={siteId} onOpenControlPanel={(tab, context) => openControlPanel(tab, context)} />
             )}
             {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} />}
             {activeNav === "Historia i audyt" && <History siteId={siteId} />}
-            {activeNav === "Wydruk Grafiku" && <Export siteId={siteId} onOpenPrintSettings={() => openControlPanel("obiekt")} />}
           </div>
         </div>
       </div>

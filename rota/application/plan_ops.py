@@ -156,7 +156,7 @@ def plan_month(
     if current_id is None:
         require_real_date(effective_from)
         assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
-        state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
+        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
         version_id = f"SV-{uuid.uuid4().hex}"
         demands = tuple(replace(d, schedule_version_id=version_id) for d in state.shift_demands)
         state = replace(state, schedule_version_id=version_id, shift_demands=demands)
@@ -165,11 +165,19 @@ def plan_month(
             version_id=version_id, demands=list(demands),
         )
         result = plan(state, search_attempt=search_attempt)
+        # ROTA-T041 C-05/OWNER-T041-01: assemble_planning_state's own
+        # warnings (e.g. missing target_hours) are produced before plan()
+        # is even called and plan() never sees them (they don't travel on
+        # PlanningState) -- without this they silently never reach the
+        # PLAN response, only a later GET /schedule/{month} (open_month
+        # already surfaces them there). Merge, don't replace: plan()'s own
+        # solver/validator warnings are still real warnings too.
+        result.warnings = list(assembler_warnings) + list(result.warnings)
         return _persist_decision_readback(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             schedule_version_id=version_id, result=result,
         )
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+    state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     if _stale_empty_working_needs_fresh_demands(state, month):
         # R4-1/R6-1 (same rationale as the two branches above): the read
         # that decided this already happened; create_schedule_version is
@@ -188,8 +196,9 @@ def plan_month(
             effective_from=header.effective_from,
         )
         current_id = fresh_id
-        state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     result = plan(state, search_attempt=search_attempt)
+    result.warnings = list(assembler_warnings) + list(result.warnings)  # see note above
     return _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )

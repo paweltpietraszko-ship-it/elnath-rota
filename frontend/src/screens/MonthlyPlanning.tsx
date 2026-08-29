@@ -158,7 +158,17 @@ function ScheduleGrid({
   );
 }
 
-export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteId: string; onOpenPrintSettings: () => void }) {
+// ROTA-T041 OWNER-T041-04: "Ręczna korekta" and "Wydruk Grafiku" are two nav
+// shortcuts into this SAME screen, not two screens -- entryMode only picks
+// what's shown by default on arrival (a short instruction, or the print
+// fragment expanded), it never changes which operations are available.
+type EntryMode = "korekta" | "wydruk" | undefined;
+
+export default function MonthlyPlanning({
+  siteId, onOpenPrintSettings, entryMode,
+}: {
+  siteId: string; onOpenPrintSettings: () => void; entryMode?: EntryMode;
+}) {
   const currentYearMonth = useMemo(() => todayIso().slice(0, 7), []);
   const selectableMonths = useMemo(
     () => [shiftMonth(currentYearMonth, -1), currentYearMonth, shiftMonth(currentYearMonth, 1)],
@@ -207,11 +217,18 @@ export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteI
   const [correctionEffectiveFrom, setCorrectionEffectiveFrom] = useState(todayIso());
   const [correctionSaving, setCorrectionSaving] = useState(false);
   const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
-  const [showPrint, setShowPrint] = useState(false);
+  const [showPrint, setShowPrint] = useState(entryMode === "wydruk");
 
   useEffect(() => {
     api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
   }, [siteId]);
+
+  // T41-C05/C07: the screen stays mounted across both nav shortcuts (Room
+  // renders one MonthlyPlanning for all three entries), so entryMode can
+  // change after first mount too -- react to it, don't just read it once.
+  useEffect(() => {
+    if (entryMode === "wydruk") setShowPrint(true);
+  }, [entryMode]);
 
   const editingAssignment = view?.assignments.find((a) => a.assignment_id === editingAssignmentId) ?? null;
 
@@ -532,6 +549,13 @@ export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteI
           this screen -- the coordinator had no way to know why equity looked
           off. Shown regardless of loading/decisionRequired state since a
           stale current_version's warnings are still relevant context. */}
+      {entryMode === "korekta" && (
+        <div className="panel-hint" data-diag-element="correction-instruction">
+          Kliknij dowolny wpis w grafiku poniżej, aby wykonać ręczną korektę — działa również wtedy, gdy bieżąca
+          wersja jest już finalna.
+        </div>
+      )}
+
       {!!view?.warnings.length && (
         <div className="banner-warning" data-diag-element="month-warnings">
           <strong>Uwaga:</strong>
@@ -540,6 +564,18 @@ export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteI
               <li key={i}>{w}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* ROTA-T041 OWNER-T041-04/T41-C07: "Wydruk Grafiku" must show the
+          print fragment on THIS screen regardless of whether a schedule
+          version exists yet for the month -- printing/exporting is not
+          gated on PLAN having run (Export.tsx fetches its own data by
+          month). Rendered outside the `view?.current_version` block below,
+          which is specifically about the schedule grid/version lifecycle. */}
+      {showPrint && (
+        <div style={{ marginTop: 12 }}>
+          <Export siteId={siteId} onOpenPrintSettings={onOpenPrintSettings} />
         </div>
       )}
 
@@ -578,10 +614,16 @@ export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteI
 
               <ScheduleGrid
                 monthIso={monthIso} assignments={view.assignments} demandKindByDemandId={demandKindByDemandId}
-                onSelectAssignment={isFinal ? undefined : setEditingAssignmentId}
+                onSelectAssignment={setEditingAssignmentId}
               />
 
-              {!isFinal && editingAssignment && (
+              {/* ROTA-T041 OWNER-T041-04/T41-C06: correction must work even
+                  when current_version is FINAL -- the existing
+                  apply_manual_correction() already creates a new child
+                  WORKING and leaves the FINAL parent's snapshot untouched;
+                  this screen only had to stop blocking the click. No new
+                  correction backend, no FINAL mutation. */}
+              {editingAssignment && (
                 <div className="panel" style={{ marginTop: 12 }}>
                   <div className="panel-title-row">
                     <h3>Ręczna korekta — {editingAssignment.employee_display_name}, {editingAssignment.start_datetime.slice(0, 10)}</h3>
@@ -705,12 +747,6 @@ export default function MonthlyPlanning({ siteId, onOpenPrintSettings }: { siteI
                   {showPrint ? "Ukryj wydruk" : "Wydruk"}
                 </button>
               </div>
-
-              {showPrint && (
-                <div style={{ marginTop: 12 }}>
-                  <Export siteId={siteId} onOpenPrintSettings={onOpenPrintSettings} />
-                </div>
-              )}
 
               {showHistory && (
                 <div className="panel" style={{ marginTop: 12 }}>
