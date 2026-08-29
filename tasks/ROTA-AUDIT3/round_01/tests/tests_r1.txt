@@ -1,0 +1,99 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 1: rdzeń planowania
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/planning/engine.py
+- rota/planning/solver.py
+- rota/planning/validator.py
+- rota/planning/constraints.py
+
+To jest część AUDIT-3, nie werdykt dla całego repozytorium. Nie zmieniono kodu
+produktu, nie uruchomiono solvera ani testów. Klasa LIVE oznacza wyłącznie
+osiągalność produkcyjną; nie oznacza automatycznie, że kształt kodu jest dobry.
+
+NARZĘDZIA I PRÓG DOWODOWY
+- `where.py` nie istnieje na audytowanym SHA. Zgodnie z AGENTS.md użyto
+  ręcznie `git grep`, listy top-level symboli z AST i odczytu wskazanego kodu.
+- Symbol uznano za LIVE dopiero po wskazaniu rzeczywistego call pathu.
+- Sam komentarz, import albo test nie wystarczał.
+
+WYNIK SKRÓCONY
+- LIVE: wszystkie produkcyjne wejścia i helpery czterech plików.
+- UNUSED_RUNTIME: brak potwierdzonych symboli.
+- TEST_ONLY: brak potwierdzonych symboli.
+- DUPLICATED_PATH: nie nadawano w tej partii; rozróżnienie celowej niezależności
+  solver/validator od przypadkowego powielenia należy do AUDIT-4.
+
+1. engine.py — LIVE
+
+Publiczne wejścia:
+- `plan()` (engine.py:77) — `plan_ops.plan_month()` wywołuje je w
+  plan_ops.py:167 i 200; endpoint zaczyna się w api/routers/schedule.py:281-293.
+- `plan_requiring_different_result_narrow()` (engine.py:285) — żywi konsumenci
+  plan_ops.py:459 i 479; endpointy REPLAN są w schedule.py:354-400.
+- `plan_requiring_different_result_wide()` (engine.py:395) — żywy konsument
+  plan_ops.py:502; endpoint wider-search w schedule.py:372-382.
+
+Wszystkie prywatne funkcje top-level mają co najmniej jednego rzeczywistego
+callera wewnątrz engine.py. Nie znaleziono osieroconej alternatywnej ścieżki.
+
+2. solver.py — LIVE
+
+- `solve()` (solver.py:892) — produkcyjnie wywoływane wyłącznie przez engine.py
+  (m.in. linie 115, 123, 173, 357, 381, 453). To prawidłowa jedna granica
+  orkiestracji, nie brak reachability.
+- `fixed_existing_assignments()` (solver.py:121) — używane przez engine.py
+  oraz application/precheck.py:13,31.
+- `eligible_employees_for_demands()` (solver.py:1015) — używane przez
+  engine.py:581 i application/precheck.py:44.
+- `SolverOutcome` (solver.py:93) — kontrakt solver→engine, importowany w
+  engine.py:44-47.
+- `SolverSlot` (solver.py:82) i `_DemandSlotResult` (solver.py:175) — żywe typy
+  wewnętrzne solvera; brak zewnętrznego callera nie oznacza TEST_ONLY.
+
+Każdy pozostały prywatny helper top-level ma lokalnego callera w ścieżce
+`solve()`. Nie znaleziono symbolu o zerowej liczbie odwołań.
+
+3. validator.py — LIVE
+
+- `validate()` (validator.py:645) — używane przez engine.py:200,236,600 oraz
+  żywe use-case'y lifecycle_ops.py:39, manual_edit.py:310 i plan_ops.py:362.
+- `ViolationDetail` (validator.py:27) — używane również przez
+  application/deviation_mapping.py:11,61,74.
+- `IndependentValidationReport` (validator.py:44) — konsumowane w engine.py
+  przy klasyfikacji wyniku i decyzji.
+- `coverage_segments()` (validator.py:69) — poza walidacją używane przez
+  persistence/absence_reference_repository.py:66,350.
+
+Każdy `_check_*` i pozostały prywatny helper jest wywoływany przez `validate()`
+albo inny żywy helper tego modułu. Nie znaleziono martwego checkera.
+
+4. constraints.py — LIVE
+
+Wszystkie nieprywatne wejścia modułu są importowane przez solver.py:30-34 i
+wywoływane w jednej produkcyjnej budowie modelu:
+- `build_fixed_intervals()` — solver.py:949 i 952;
+- `build_fixed_periods()` — solver.py:950;
+- `build_emergency_pair_context()` — solver.py:958;
+- `add_rest_constraints()` — solver.py:960;
+- `add_weekly_rest_constraints()` — solver.py:963;
+- `add_same_person_24h_constraints()` — solver.py:964;
+- `add_load_constraints()` — solver.py:965;
+- `add_max_two_consecutive_night_constraints()` — solver.py:971;
+- `resolve_emergency_overrides()` — solver.py:724 i 781.
+
+Każdy prywatny helper ma callerów wewnątrz powyższych żywych wejść. Nie
+znaleziono oddzielnego, nieosiągalnego zestawu constraintów.
+
+WNIOSEK PARTII 1
+W tych czterech plikach nie ma potwierdzonego martwego ani wyłącznie testowego
+podsystemu. Są duże i mają wiele gałęzi, ale sam rozmiar nie jest dowodem
+przerostu. AUDIT-4 powinien osobno sprawdzić granice:
+- solver constraints ↔ niezależne checkery validatora;
+- `fixed_existing_assignments()` ↔ predykat w replan_reshuffle.py;
+- engine status/fallback ↔ plan_ops orchestration.
+
+Nie usuwać ani nie refaktoryzować niczego na podstawie tej partii.
