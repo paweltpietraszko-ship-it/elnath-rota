@@ -24,3 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| ROTA-T041-PREIMPL | CODEX | CC | task/ROTA-T041 | a0e7d932c8ddcfd038c490ba7046e6c325878645 | CODEX_REPORTED | PASS preimplementation. Raport: `tasks/ROTA-T041/round_01/tests/tests_r1.txt`, commit raportu `1bedff6`. Implementacja dozwolona checkpointami A→B→C, osobne logiczne commity, bez refaktoru poza checkpointami. |
