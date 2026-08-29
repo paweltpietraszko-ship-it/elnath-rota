@@ -13,6 +13,35 @@ brief.md/kontrakcie danego Tasku.
 - If a brief is untestable after 1–2 correction rounds: report and STOP; do not
   use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
 
+## WHERE_MAP
+For every nontrivial Task, its architect/auditor MUST add this block to the
+contract before implementation:
+
+```text
+WHERE_MAP:
+- MODE: REQUIRED | OPTIONAL | NOT_APPLICABLE
+- TARGETS: <production file, optionally `--symbol NAME`; one per line>
+- REASON: <one short sentence>
+```
+
+- Use `REQUIRED` when the Task adds, changes, removes or relocates an owner,
+  helper, endpoint or rule, or makes a DEAD/DUPLICATE/TEST_ONLY/ownership claim.
+- Use `OPTIONAL` for a narrow change whose owners and call path are already
+  frozen. Use `NOT_APPLICABLE` only for documentation/process-only work with no
+  code relation to inspect.
+- After `TASK_SCOPE` is frozen and before implementation/audit, run
+  `python where.py <file>` for each named production file. Run
+  `python where.py <file> --symbol <NAME>` for each named or actually touched
+  symbol. Do not expand this mechanically to every symbol in a large file.
+- `where.py` output is raw search evidence only. Read the reported code on the
+  exact SHA before drawing reachability, ownership, KEEP/DEAD/DUPLICATE or
+  verdict conclusions.
+- Record the commands used and any scope/owner mismatch in the Task evidence.
+  If `where.py` is absent on the Task base, say so and use `git grep` manually;
+  tool absence alone does not block the Task.
+- Do not wire `where.py` into `task_init.py` and do not make it a universal
+  pass/fail gate.
+
 ## PRE_IMPLEMENTATION_REDUCTION_GATE
 TRIGGER = nontrivial Task contract before implementation starts.
 
