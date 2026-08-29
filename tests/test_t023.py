@@ -287,9 +287,16 @@ def test_t23_r5_1c_unselected_replan_child_does_not_hide_accepted_parent(tmp_pat
 
 def test_t23_r5_1d_acceptance_after_recorded_at_is_not_used(tmp_path) -> None:
     conn = _setup(tmp_path)
-    _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime.now() + timedelta(days=3650))  # accepted far in the future -- must not be honored; SICK never falls back to PRE_PLAN, so a wrongly-honored future acceptance would read BOUND=12h
+    _seed_full_month_calendar(conn, date(2027, 3, 8), date(2027, 3, 8))
+    _accept_one(conn, "D-8", "A-8", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), accepted_at=datetime.now() + timedelta(days=3650))  # accepted far in the future -- must not be honored
     record = append_availability(conn, coordinator_id=COORDINATOR, site_id=SITE, availability_id="AV-A-EARLY", employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), active=True)
-    assert get_absence_reference_snapshot(conn, record.availability_version_id).days[0].status == "MISSING"
+    # ROTA-T041 OWNER-T041-02: SICK now falls back to PRE_PLAN_LEAVE (8h,
+    # Monday) when no accepted plan is honored -- a wrongly-honored future
+    # acceptance would instead read BOUND/POST_PLAN_REFERENCE=12h.
+    day = get_absence_reference_snapshot(conn, record.availability_version_id).days[0]
+    assert day.source_mode == "PRE_PLAN_LEAVE"
+    assert day.status == "BOUND"
+    assert day.hours == 8
 
 
 def test_t23_r5_1e_leave_before_vs_after_accepted_plan(tmp_path) -> None:
@@ -324,13 +331,19 @@ def test_t23_pre_02_later_plan_creation_does_not_reclassify_persisted_pre_plan(t
     assert after.days[0].source_mode == "PRE_PLAN_LEAVE"  # unchanged -- captured once, at write time
 
 
-def test_t23_pre_03_pre_plan_source_never_used_as_fallback_for_missing_sick(tmp_path) -> None:
+def test_t23_pre_03_sick_before_first_plan_gets_pre_plan_hours(tmp_path) -> None:
+    """ROTA-T041 OWNER-T041-02 (AUDIT-1 C-02) supersedes this test's prior
+    name/assertion: SICK_LEAVE used to have no pre-PLAN path and fell back
+    to MISSING (raising IncompleteAbsenceReferenceError downstream, an
+    unhandled HTTP 500 for a normal coordinator input). Known sick leave
+    entered before the first accepted plan now counts exactly like pre-plan
+    LEAVE_GRANTED."""
     conn = _setup(tmp_path)
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8), seed_calendar=True)
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
-    assert snapshot.days[0].source_mode == "POST_PLAN_REFERENCE"
-    assert snapshot.days[0].status == "MISSING"  # never silently PRE_PLAN_LEAVE
-    assert snapshot.days[0].hours is None
+    assert snapshot.days[0].source_mode == "PRE_PLAN_LEAVE"
+    assert snapshot.days[0].status == "BOUND"
+    assert snapshot.days[0].hours == 8
 
 
 # --- POST_PLAN arithmetic ----------------------------------------------------
@@ -375,11 +388,15 @@ def test_t23_14_legal_24h_counts_once_on_start_date(tmp_path) -> None:
 def test_t23_15_24h_cross_month_counts_once_no_double(tmp_path) -> None:
     conn = _setup(tmp_path)
     _accept_two(conn, ("D24-1", "A24-1", "A", datetime(2027, 3, 31, 5, 0), datetime(2027, 3, 31, 17, 0)), ("D24-2", "A24-2", "A", datetime(2027, 3, 31, 17, 0), datetime(2027, 4, 1, 5, 0)), work_period_id="WP-X")
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 31), end_date=date(2027, 4, 1))
+    record = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 31), end_date=date(2027, 4, 1), seed_calendar=True)
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert snapshot.days[0].hours == 24  # anchored fully to 03-31
-    assert snapshot.days[1].status == "MISSING"  # 04-01 has no accepted plan of its own -- never guessed 0
-    assert snapshot.days[1].hours is None
+    # ROTA-T041 OWNER-T041-02: 04-01 (Thursday) has no accepted plan of its
+    # own -- never guessed 0, now correctly falls back to PRE_PLAN_LEAVE's
+    # 8h/workday rule instead of the pre-T041 MISSING.
+    assert snapshot.days[1].source_mode == "PRE_PLAN_LEAVE"
+    assert snapshot.days[1].status == "BOUND"
+    assert snapshot.days[1].hours == 8
 
 
 def test_t23_16_accepted_readable_rest_is_zero(tmp_path) -> None:
@@ -402,13 +419,10 @@ def test_t23_17_scheduled_weekend_holiday_counts_scheduled_hours(tmp_path) -> No
 
 
 def test_t23_18_missing_ambiguous_never_guessed(tmp_path) -> None:
-    conn = _setup(tmp_path)
-    record = _leave(conn, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
-    snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
-    assert snapshot.days[0].status == "MISSING"
-    assert snapshot.days[0].hours is None
-    assert snapshot.reference_status == "MISSING"
-
+    """ROTA-T041 OWNER-T041-02 removed SICK's no-accepted-plan MISSING case
+    (now PRE_PLAN_LEAVE, same as LEAVE_GRANTED) -- the AMBIGUOUS half below,
+    a genuinely contradictory accepted plan, is untouched by that change and
+    still proves the never-guessed invariant."""
     conn2 = _setup(tmp_path, db_name="rota2.db")  # Ambiguous half: contradictory overlapping PRIMARY periods, never guessed either.
     _accept_two(conn2, ("D-8a", "A-8a", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0)), ("D-8b", "A-8b", "A", datetime(2027, 3, 8, 9, 0), datetime(2027, 3, 8, 21, 0)))
     ambiguous_record = _leave(conn2, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
@@ -507,6 +521,7 @@ def test_t23_r5_2c_new_coverage_over_realized_rejected(tmp_path) -> None:
 
 def test_t23_r5_2d_elapsed_date_alone_is_not_rejection_reason(tmp_path) -> None:
     conn = _setup(tmp_path)
+    _seed_full_month_calendar(conn, YESTERDAY, YESTERDAY)
     record = append_availability(conn, coordinator_id=COORDINATOR, site_id=SITE, availability_id="AV-A-ELAPSED", employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=YESTERDAY, end_date=YESTERDAY, active=True)  # No Assignment at all on the elapsed date -- nothing to retroactively rewrite.
     assert record is not None
 

@@ -308,22 +308,24 @@ def _prior_bound_post_plan_facts(conn: sqlite3.Connection, *, employee_id: str, 
 
 
 def _resolve_no_accepted_plan_day(
-    conn: sqlite3.Connection, kind: AvailabilityKind, the_date: date, month_cache: dict[date, dict[date, bool]],
+    conn: sqlite3.Connection, the_date: date, month_cache: dict[date, dict[date, bool]],
 ) -> DayReference:
     """No required Site resolved an accepted plan at all -- whether because
     there is no required Site yet, or because every required Site (e.g. an
     enabled LOCAL membership with no schedule ever created) failed to
-    resolve. Frozen addendum section 2.1: this is legitimate PRE_PLAN
-    territory for LEAVE_GRANTED, never MISSING. SICK_LEAVE has no pre-PLAN
-    path (frozen addendum section 2): with no accepted plan anywhere in
-    scope, the reference is incomplete."""
-    if kind == AvailabilityKind.LEAVE_GRANTED:
-        month_start = date(the_date.year, the_date.month, 1)
-        holiday_by_date = _month_holiday_map(conn, month_start, month_cache)
-        is_workday = the_date.isoweekday() <= 5 and not holiday_by_date.get(the_date, False)
-        hours = _PRE_PLAN_HOURS_PER_WORKDAY if is_workday else 0
-        return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, hours, ())
-    return DayReference(the_date, SOURCE_POST_PLAN_REFERENCE, STATUS_MISSING, None, ())
+    resolve. Frozen addendum section 2.1, extended by ROTA-T041
+    OWNER-T041-02 (AUDIT-1 C-02): this is legitimate PRE_PLAN territory for
+    BOTH LEAVE_GRANTED and SICK_LEAVE -- known sick leave entered before the
+    first accepted plan now counts the same 8h/qualified-workday total as
+    pre-plan LEAVE_GRANTED, never MISSING. This superseded the previous
+    SICK-has-no-pre-PLAN-path rule, which produced an unhandled
+    IncompleteAbsenceReferenceError (HTTP 500) for a normal, already-
+    accepted coordinator input."""
+    month_start = date(the_date.year, the_date.month, 1)
+    holiday_by_date = _month_holiday_map(conn, month_start, month_cache)
+    is_workday = the_date.isoweekday() <= 5 and not holiday_by_date.get(the_date, False)
+    hours = _PRE_PLAN_HOURS_PER_WORKDAY if is_workday else 0
+    return DayReference(the_date, SOURCE_PRE_PLAN_LEAVE, STATUS_BOUND, hours, ())
 
 
 def _resolve_from_accepted_periods(
@@ -355,7 +357,7 @@ def _resolve_from_accepted_periods(
 
 
 def _resolve_day(
-    conn: sqlite3.Connection, *, employee_id: str, kind: AvailabilityKind, the_date: date,
+    conn: sqlite3.Connection, *, employee_id: str, the_date: date,
     required_sites: set[str], site_versions: dict[str, str], snapshot_cache: dict[str, object],
     month_cache: dict[date, dict[date, bool]],
 ) -> DayReference:
@@ -367,7 +369,7 @@ def _resolve_day(
         return prior[0]
 
     if not site_versions:
-        return _resolve_no_accepted_plan_day(conn, kind, the_date, month_cache)
+        return _resolve_no_accepted_plan_day(conn, the_date, month_cache)
 
     if required_sites - site_versions.keys():
         # A-R7-5: SOME required Site resolved but at least one other
@@ -452,7 +454,7 @@ def capture_reference(
             )) is not None
         }
         days.append(_resolve_day(
-            conn, employee_id=employee_id, kind=kind, the_date=current, required_sites=required_sites,
+            conn, employee_id=employee_id, the_date=current, required_sites=required_sites,
             site_versions=site_versions, snapshot_cache=snapshot_cache, month_cache=month_cache,
         ))
         current += timedelta(days=1)
