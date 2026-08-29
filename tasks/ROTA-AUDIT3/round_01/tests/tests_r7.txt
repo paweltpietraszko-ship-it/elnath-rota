@@ -1,0 +1,93 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 7: pamięć decyzji, bilanse i nieobecności
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/persistence/absence_reference_repository.py
+- rota/persistence/decision_ledger.py
+- rota/persistence/site_memory.py
+- rota/persistence/work_balance_repository.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Sprawdzono top-level symbole, produkcyjne
+call pathy oraz osobno wywołania testowe. Nie uruchomiono testów i nie zmieniono
+kodu produktu.
+
+WYNIK SKRÓCONY
+- Wszystkie cztery moduły mają żywy rdzeń produkcyjny.
+- TEST_ONLY: dwa wygodne wrappery zapisu oraz pięć odczytów/rekonstrukcji
+  należących do testowych lub niepodłączonych read modeli.
+- UNUSED_RUNTIME: brak symbolu bez callera w całym osiągalnym podgrafie.
+- Brak podstaw do usunięcia całego modułu.
+
+1. absence_reference_repository.py — LIVE
+
+`capture_and_check_in_open_transaction()` jest wywoływane przez
+durable_inputs.append_availability. Na tej ścieżce żywe są:
+- kontrola wstecznej zmiany;
+- wybór zaakceptowanych wersji grafików;
+- wyliczenie referencji dnia i okresów pracy;
+- zapis snapshotu nieobecności.
+
+`get_absence_reference_snapshot()` ma dwóch niezależnych konsumentów:
+schedule_export oraz work_balance_repository. Wszystkie top-level funkcje,
+klasy i helpery modułu są osiągalne przez te ścieżki.
+
+2. decision_ledger.py — żywy rdzeń, wrapper TEST_ONLY
+
+- `record_decision_no_commit()` jest LIVE przez manual_edit.py:200 i
+  rule_decisions.py:73. Produkcja włącza zapis decyzji do większej transakcji.
+- `record_decision()` jest TEST_ONLY. Wywołują go fixtures i testy, ale nie
+  runtime. To samodzielnie commitujący wrapper wokół żywego prymitywu.
+- Wszystkie prywatne helpery oraz `ChainIntegrityError` są żywe w rdzeniu.
+
+3. site_memory.py — głównie LIVE
+
+LIVE są:
+- historia i wybór obowiązującej reguły;
+- zapis/odczyt działań koordynatora;
+- walidacja powiązania działania z pytaniem solvera;
+- zapis, ponowne użycie, odczyt i unieważnianie bieżącego
+  DECISION_REQUIRED;
+- wszystkie związane typy, serializacja oraz kontrola błędów.
+
+TEST_ONLY:
+- `decision_fate()` — bezpośrednio używane tylko przez
+  tests/test_site_memory_decision_ledger.py;
+- `rule_provenance()` i zależne `decision_for_rule_version()` — produkcyjny
+  memory_read wystawia dla nich funkcje, które same nie mają runtime callera;
+  test bezpośrednio sprawdza provenance.
+
+Nie oznacza to martwości całej pamięci decyzji. Żywe ekrany Historia i Decyzje
+korzystają z innych odczytów tego samego modułu.
+
+4. work_balance_repository.py — żywy rdzeń, część raportowa TEST_ONLY
+
+LIVE:
+- `absence_facts_for_employee()` przez rekonstrukcję miesiąca;
+- `absence_facts_for_employees()` przez Analitykę;
+- `write_work_balance_target_in_open_transaction()` przez
+  durable_inputs.set_target_hours;
+- `get_work_balance_target()` przez API, assembler, bootstrap i zapis targetu;
+- `list_work_balance_targets_for_employees()` przez Analitykę;
+- `reconstruct_month_balance()` przez assembler.
+
+TEST_ONLY:
+- `save_work_balance_target()` — samodzielnie commitujący wrapper do fixtures;
+- `reconstruct_quarter_balance()` oraz zależne
+  `list_work_balance_targets()` — osiągalne przez
+  application.balance_read.quarter_balance, które w partii 4 potwierdzono jako
+  TEST_ONLY. Nie mają produkcyjnego endpointu.
+
+WNIOSEK PARTII 7
+Kod referencji nieobecności jest produkcyjnie osiągalny i nie wygląda jak
+osierocony subsystem. Powtarza się natomiast ten sam wzorzec co w partii 6:
+testy korzystają z samodzielnych wrapperów zapisu, podczas gdy runtime używa
+atomowych prymitywów w szerszej operacji.
+
+Osobnym kandydatem do AUDIT-4 jest stary raport kwartalny: rekonstrukcja działa
+i ma testy, ale obecna Analityka korzysta z własnego odczytu zbiorczego. Trzeba
+porównać ich odpowiedzialności i zdecydować, czy jest to zachowany test seam,
+czy druga, niepodłączona powierzchnia raportowa. AUDIT-3 nie zaleca usuwania.
