@@ -1,0 +1,81 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 11: modele domenowe i bilans
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/balance.py
+- rota/constants.py
+- rota/domain.py
+- rota/site_memory_types.py
+
+METODA
+Zebrano wszystkie top-level klasy, funkcje i stałe, a następnie policzono ich
+odwołania w `rota/**`, `api/**`, backend.py oraz osobno w tests/**. Wyniki
+zerowe potwierdzono `git grep`. `where.py` nie istnieje na audytowanym SHA.
+Nie uruchomiono testów i nie zmieniono produktu.
+
+WYNIK SKRÓCONY
+- LIVE: cały kalkulator bilansu, obie stałe planowania, wszystkie typy pamięci
+  decyzji oraz wszystkie modele domenowe poza jednym.
+- TEST_ONLY: brak.
+- UNUSED_RUNTIME: `domain.SiteRule`.
+
+1. balance.py — LIVE
+
+- `quarter_start()` jest używane przez assembler, Analitykę i repository;
+- `compute_month_balance()` zasila assembler, Analitykę i rekonstrukcję
+  bilansu;
+- `compute_quarter_balance()` zasila Analitykę oraz testową starszą
+  powierzchnię raportu kwartalnego;
+- `MissingTargetHoursError` jest rzeczywiście rzucany i obsługiwany.
+
+Wszystkie prywatne helpery mają callerów na tych ścieżkach. Sam kalkulator nie
+jest martwym odpowiednikiem celu fairness — wylicza raport/bilans po danych,
+nie wybiera Assignmentów.
+
+2. constants.py — LIVE
+
+- `REST_MIN_HOURS` jest używane przez work_periods jako zgodność dla starszych
+  danych bez jawnego odpoczynku;
+- `LOAD_WINDOW_DAYS` jest używane przez timeutil do ruchomych okien obciążenia.
+
+Demonstracyjny blok `__main__` tylko wypisuje wartości; nie tworzy drugiej
+logiki stałych.
+
+3. domain.py — jeden relikt UNUSED_RUNTIME
+
+Wszystkie enumy i dataclasses poza `SiteRule` mają produkcyjnych konsumentów w
+API, application, persistence albo planning. Są to rzeczywiste dane obiektu,
+pracownika, katalogu, dostępności, wersji grafiku, demandów, przypisań i
+odchyleń.
+
+UNUSED_RUNTIME:
+- `SiteRule` (linia 231) nie ma importu, konstruktora ani odwołania jako symbol
+  w kodzie lub testach. Aktualny system używa `SiteRuleVersion`, które zawiera
+  wersję, okres obowiązywania, rozstrzygnięcie i parametry strukturalne.
+- Nazwa „SiteRule” występuje licznie w specyfikacji i komentarzach jako pojęcie
+  produktowe, ale nie jako używana klasa Pythona.
+
+To spełnia statyczny próg nieosiągalności, lecz AUDIT-3 nie usuwa klasy.
+AUDIT-4 powinien potwierdzić, czy żaden publiczny kontrakt importu nie wymaga
+zachowania starej nazwy.
+
+4. site_memory_types.py — LIVE
+
+Wszystkie typy są używane przez decision_ledger, site_memory, memory_read,
+rule_decisions lub durable_inputs:
+- decyzje i nowa treść reguły;
+- wybór obowiązującej reguły;
+- rodzaje i źródła działań koordynatora;
+- encje dotknięte działaniem;
+- utrwalone pytanie DECISION_REQUIRED.
+
+Nie znaleziono starego, równoległego typu decyzji bez callera.
+
+WNIOSEK PARTII 11
+Główne modele domenowe nie są napompowane wieloma nieużywanymi klasami.
+Potwierdzono jeden relikt: `SiteRule`, zastąpiony w runtime przez
+`SiteRuleVersion`. To kandydat do mechanicznego usunięcia dopiero po
+sprawdzeniu kompatybilności importów w AUDIT-4.
