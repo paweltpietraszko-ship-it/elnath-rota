@@ -1,0 +1,113 @@
+ROTA-T041 — Checkpoint C, reaudyt mikropoprawki
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+a6b67900e6b94cb40f8fc226da83bff28d523b9d
+
+WERDYKT
+FAIL — mikropoprawka usunęła C-WIP-01, ale Checkpoint C nadal nie spełnia
+zaakceptowanego kontraktu. Znaleziono jeden defekt widoczny dla koordynatora
+oraz dwa braki w obowiązkowym pionie E2E. Nie jest to awaria Vite ani losowa
+niestabilność środowiska.
+
+CO PRZESZŁO
+
+1. Minimalny reproduktor C-WIP-01 po zmianie `kind` na `membership_kind`:
+   wynik `['E']`, bez AttributeError.
+
+2. `tests/test_t009_open_and_assembler.py -q`:
+   5 passed, 1 failed. Jedyna porażka oczekuje starego angielskiego tekstu
+   `omitted from WorkBalance context`, który OWNER-T041-01 celowo zastąpił
+   komunikatem po polsku. To nie jest regresja produktu, tylko nieaktualne
+   oczekiwanie testu.
+
+3. `npx.cmd tsc -b --pretty false`: PASS.
+
+4. `npm.cmd run build`: PASS (TypeScript + Vite).
+
+FINDING C-FIX-01 — komunikat pokazuje wewnętrzny UUID zamiast nazwy osoby
+
+TRACE
+- tasks/ROTA-T041/brief.md:78-80 — koordynator ma widzieć, komu i za jaki
+  miesiąc brakuje targetu.
+- tasks/ROTA-T041/brief.md:271-272 — T41-C01 wymaga komunikatu z osobą,
+  miesiącem i informacją o równym podziale.
+
+OWNERSHIP
+- rota/application/assembler.py:139-158 tworzy tekst ostrzeżenia i wstawia do
+  niego `employee_id`.
+- frontend/src/screens/MonthlyPlanning.tsx:559-566 pokazuje ten tekst bez
+  zamiany identyfikatora na nazwę osoby.
+
+REPRO NA EXACT SHA
+- prawdziwy pion Playwright po PLAN wyświetlił między innymi:
+  `... dla pracownika '2c63a94f-4bfa-4698-b040-d4aaa21c1f75' ...`
+- test tworzył osobę pod czytelną nazwą `Pracownik-...`; nazwa nie pojawiła
+  się w ostrzeżeniu. Ten sam wynik wystąpił w kolejnych uruchomieniach z
+  innymi UUID.
+
+SKUTEK
+Koordynator widzi techniczny identyfikator, po którym nie rozpozna pracownika.
+T41-C01 nie jest spełnione.
+
+DEFECT_GATE
+- TRACE: spełniony.
+- OWNERSHIP: spełniony.
+- REPRO: spełniony na exact SHA w prawdziwym UI/routerze/backendzie.
+
+FINDING C-FIX-02 — trzy przypadki E2E używają za małej obsady i zatrzymują się
+przed testowaną funkcją
+
+TRACE
+- jawne rozstrzygnięcie OWNER dla symulacji/testów obiektu z pojedynczą obsadą:
+  obiekt ma 5 pracowników; test nie może dobierać nierealnej liczby osób.
+- tasks/ROTA-T041/brief.md:379-382 wymaga przejścia Checkpointu C przez
+  prawdziwy router i frontend.
+
+OWNERSHIP
+- frontend/e2e/t041-daily-workflow.spec.ts:111-116, 184-190 i 233-237 tworzy
+  po 2 osoby i zakłada, że wystarczą do całomiesięcznego codziennego demandu.
+
+REPRO NA EXACT SHA
+Polecenie:
+  npx.cmd playwright test e2e/t041-daily-workflow.spec.ts
+
+Wynik:
+  3 failed, 2 passed.
+
+Wszystkie trzy porażki są deterministyczne i następują po PLAN:
+- C08/C09 — nie dochodzi do podglądu ani pobrania PDF;
+- C01-C04 — nie dochodzi do wyboru kandydata ani dalszych asercji warningu;
+- C06 FINAL — nie dochodzi do FINAL ani ręcznej korekty.
+
+W każdym przypadku aplikacja poprawnie pokazuje:
+  `Wymagana decyzja koordynatora — solver nie mógł ukończyć planu...`
+
+Nie ma błędu serwera ani frontendu. Test przygotował obiekt bez wystarczającej
+załogi, więc prawidłowo nie dostał grafiku. W tym kształcie nie jest dowodem
+T41-C01..C04, C06 ani C08/C09.
+
+FINDING C-FIX-03 — przypadek nazwany C01-C04 nie wykonuje C04
+
+TRACE
+- tasks/ROTA-T041/brief.md:276 — warning nie może być fałszywie pokazywany dla
+  EXTERNAL_SUPPORT.
+- tasks/ROTA-T041/brief.md:379-382 — dowód Checkpointu C ma przejść przez realny
+  przepływ, nie samo czytanie kodu.
+
+REPRO / EVIDENCE GAP
+- frontend/e2e/t041-daily-workflow.spec.ts:175 nazywa test `C01-C04` i twierdzi,
+  że obejmuje EXTERNAL_SUPPORT.
+- cały plik nie tworzy ani nie dodaje żadnej osoby EXTERNAL_SUPPORT; ma tylko
+  helper `addLocalEmployee()` z linii 38.
+- filtr w assemblerze wygląda poprawnie po mikrofixie, ale obowiązkowy pion C04
+  nie został wykonany.
+
+ZAKRES NASTĘPNEGO REAUDYTU
+- czytelna nazwa osoby w warningu C01;
+- realna, wystarczająca obsada w trzech scenariuszach planujących grafik;
+- rzeczywisty przypadek EXTERNAL_SUPPORT dla C04;
+- pięć przypadków E2E, TypeScript check i build.
+
+Pełnej regresji repozytorium nie uruchomiono. Zgodnie z briefem i AGENTS.md ma
+być wykonana raz na końcowym SHA, a obecny obowiązkowy pion C nie przechodzi.
