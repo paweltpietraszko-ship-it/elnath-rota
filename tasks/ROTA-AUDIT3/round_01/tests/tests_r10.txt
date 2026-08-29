@@ -1,0 +1,85 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 10: fairness, REPLAN i komunikacja solvera
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/planning/decision_guidance.py
+- rota/planning/engine_types.py
+- rota/planning/fairness.py
+- rota/planning/replan_reshuffle.py
+- rota/planning/state.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Sprawdzono wszystkie top-level symbole i
+ich produkcyjnych callerów w engine, solverze, aplikacji i persistence. Osobno
+sprawdzono testy oraz dokumenty historyczne. Nie uruchomiono solvera ani testów
+i nie zmieniono produktu.
+
+WYNIK SKRÓCONY
+- LIVE: komunikaty DECISION_REQUIRED, wszystkie aktywne składniki
+  sprawiedliwości, REPLAN reshuffle oraz PlanningState.
+- TEST_ONLY: brak.
+- UNUSED_RUNTIME: `engine_types.ValidationResult`.
+- Brak martwego mechanizmu fairness lub REPLAN.
+
+1. decision_guidance.py — LIVE
+
+`build_decision_payload()` jest wywoływane przez wszystkie ścieżki engine,
+które zwracają DECISION_REQUIRED. Jego helpery tłumaczą techniczne blokery na
+tekst dla koordynatora i budują możliwości odblokowania. Wynik jest utrwalany
+w site_memory i odczytywany przez API. Wszystkie symbole są LIVE.
+
+2. engine_types.py — jeden relikt UNUSED_RUNTIME
+
+LIVE:
+- `BlockingDemand`, `Blocker`, `LoadBlocker` i `DecisionRequiredPayload` są
+  budowane przez engine, tłumaczone przez decision_guidance oraz zapisywane i
+  odczytywane przez site_memory;
+- `PlanningResult` jest właściwym wynikiem engine i kontraktem plan_ops/API.
+
+UNUSED_RUNTIME:
+- `ValidationResult` (linia 40) nie ma callera, konstruktora ani importu w
+  produkcji lub testach. Występuje tylko w historycznych dokumentach T003.
+  Aktualny validator zwraca `IndependentValidationReport` z validator.py.
+
+3. fairness.py — LIVE
+
+Wszystkie publiczne składniki są wywoływane w jednej budowie celu solvera:
+- sprawiedliwość weekendów i świąt;
+- zgodność z targetami;
+- awaryjny równy podział przy brakującym targecie;
+- pierwszeństwo LOCAL przed EXTERNAL_SUPPORT;
+- rytm D/N i kara za trzecią zmianę z rzędu.
+
+Wszystkie prywatne helpery mają lokalnych callerów. Nie znaleziono starego,
+niepodłączonego objective obok aktualnego.
+
+4. replan_reshuffle.py — LIVE
+
+- `redistributable_baseline_assignments()` jest używane przez engine i solver;
+- `build_reshuffle_count_expr()` oraz `build_any_difference_expr()` są używane
+  przez solver do minimalizacji zmian oraz wymuszenia wyniku różnego od
+  bazowego.
+
+Wszystkie helpery są LIVE. Pozostaje wcześniejsza luka dowodowa z AUDIT-1:
+predykat wyboru redystrybuowalnych Assignmentów jest podobny do
+`solver.fixed_existing_assignments()`. Nie wykazano jednak rozjazdu wyniku ani
+jednego kanonicznego ownera, więc AUDIT-3 nie nadaje klasy DUPLICATE.
+
+5. state.py — LIVE
+
+`PlanningState` jest składany przez assembler i konsumowany przez cały pion
+precheck → engine → solver → validator. `SiteRuleApplicability` jest składane
+przez site_rule_assembly i używane przy wykonywaniu reguł. Brak martwego pola
+lub alternatywnej klasy stanu potwierdzonej samą analizą symboli.
+
+WNIOSEK PARTII 10
+Rozbudowanie fairness i REPLAN nie wynika z niepodłączonych funkcji — każdy
+składnik uczestniczy w prawdziwym solve. Ewentualna redukcja wymaga AUDIT-4,
+który porówna odpowiedzialności i zachowanie, nie tylko call graph.
+
+Jedynym czystym kandydatem strukturalnym jest `ValidationResult`: brak callera,
+brak testu i zastąpienie przez aktywny `IndependentValidationReport`. AUDIT-3
+nie usuwa tego typu.
