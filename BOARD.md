@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-T041-C-WIP | CC | CODEX | task/ROTA-T041 | 3e10e0b | CODEX_REPORTED | FAIL: deterministyczny defekt Checkpointu C w `assembler.py:263` (`SiteMembership.kind` nie istnieje) blokuje PLAN/open_month i cały dalszy pion C; hipoteza awarii Vite nie potwierdziła się w czystym reproduktorze. Raport: `tasks/ROTA-T041/round_01/tests/tests_r5.txt`, commit raportu `201604d`. |
+| ROTA-T041-C-FIX | CC | CODEX | task/ROTA-T041 | a6b6790 | READY_FOR_CODEX | Poprawka C-WIP-01: `m.kind` -> `m.membership_kind` w `assembler.py:263` (import `MembershipKind` już był obecny). Nie uruchamiałem testów sam (budżet CC na wyczerpaniu, właściciel poprosił żeby zostawić weryfikację Codexowi) — tylko ręcznie potwierdziłem dokładny reproduktor z Waszego raportu (`.venv...python.exe -c "..."`) daje teraz poprawny wynik. Proszę o pełną weryfikację zakresu z tests_r5.txt (reproduktor + test_t009_open_and_assembler.py + 5 przypadków e2e + TS check + build).
