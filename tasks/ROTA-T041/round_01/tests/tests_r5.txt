@@ -1,0 +1,83 @@
+ROTA-T041 — Checkpoint C WIP, niezależna diagnoza Codex
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+3e10e0b72e41fc5f9b43a797ea1a7d081f239ea7
+
+WERDYKT
+FAIL — defekt Checkpointu C, nie potwierdzona niestabilność środowiska.
+
+Audyt dotyczy wyłącznie przekazanego WIP Checkpointu C. Pełna suita repozytorium
+nie została uruchomiona: brief wymaga jej raz na końcowym SHA, a poniższy
+deterministyczny defekt blokuje produkcyjny assembler i dalszy pion C.
+
+FINDING C-WIP-01 — nowy filtr LOCAL przerywa assembler dla każdego zwykłego
+SiteMembership
+
+TRACE
+- tasks/ROTA-T041/brief.md:271-276 — T41-C01..C04 wymagają widocznego warningu
+  dla brakującego targetu i braku fałszywego warningu dla EXTERNAL_SUPPORT.
+- tasks/ROTA-T041/brief.md:379-382 — Checkpoint C ma przejść przez prawdziwy
+  frontend, router i backend.
+
+OWNERSHIP
+- rota/application/assembler.py:253-264 — Checkpoint C sam dodał filtrowanie
+  LOCAL przed _assemble_work_balances(); jest to właściciel składania tej listy.
+- rota/domain.py:186-197 — SiteMembership ma pole membership_kind; kontrakt
+  domeny nie definiuje pola kind.
+- rota/application/analytics_read.py:177, rota/application/bootstrap.py:297 i
+  rota/application/schedule_export.py:71 potwierdzają użycie membership_kind
+  przez pozostałe produkcyjne ścieżki.
+
+REPRO 1 — minimalny, niezależny od testu implementatora
+Polecenie:
+  .venv\Scripts\python.exe -c "from rota.domain import SiteMembership,MembershipKind,ReadinessState,ReadinessSource; m=SiteMembership('E','S',MembershipKind.LOCAL,True,ReadinessState.READY_FOR_PRIMARY,ReadinessSource.DEFAULT); print([x.employee_id for x in (m,) if x.kind == MembershipKind.LOCAL])"
+
+Wynik:
+  AttributeError: 'SiteMembership' object has no attribute 'kind'
+
+REPRO 2 — prawdziwy pion E2E, pojedynczy test bez retry
+Polecenie:
+  cd frontend
+  npx.cmd playwright test e2e/t041-daily-workflow.spec.ts --grep "C08/C09" --retries=0
+
+Wynik:
+  1 failed; test zatrzymał się po PLAN przed dojściem do eksportu.
+  Widoczny komunikat aplikacji:
+    unexpected error: 'SiteMembership' object has no attribute 'kind'
+  Vite i Uvicorn wystartowały prawidłowo; w tym reproduktorze nie wystąpiło
+  wcześniejsze "Failed to fetch" ani zniknięcie portu Vite.
+
+Artefakt lokalny:
+  frontend/test-results/t041-daily-workflow-C08-C0-d6983-ion-leaves-no-stale-preview-chromium/trace.zip
+
+REPRO 3 — wąska wcześniejsza regresja właściciela assemblera
+Polecenie:
+  .venv\Scripts\python.exe -m pytest tests/test_t009_open_and_assembler.py -q
+
+Wynik:
+  4 failed, 2 passed.
+  Wszystkie cztery porażki kończą się w rota/application/assembler.py:263 tym
+  samym AttributeError. Padają open_month, rekonstrukcja po restarcie, brak
+  wymyślania target_hours oraz składanie cross-context.
+
+SKUTEK
+- PLAN i open_month nie mogą przejść przez assembler po pojawieniu się
+  członkostwa obiektu.
+- T41-C01..C04, C08/C09 oraz C06-FINAL nie są zweryfikowane na tym SHA, bo ich
+  wspólna produkcyjna ścieżka zatrzymuje się wcześniej.
+- Hipoteza o awarii Vite nie wyjaśnia deterministycznego błędu i nie może być
+  podstawą do uznania tych testów za niestabilność środowiska.
+
+DEFECT_GATE
+- TRACE: spełniony.
+- OWNERSHIP: spełniony.
+- REPRO na exact SHA: spełniony trzema niezależnymi drogami.
+
+ZAKRES REAUDYTU PO MIKROKOREKCIE
+- minimalny reproduktor C-WIP-01;
+- tests/test_t009_open_and_assembler.py;
+- pięć przypadków frontend/e2e/t041-daily-workflow.spec.ts pojedynczym workerem;
+- TypeScript check i frontend build zgodnie z briefem.
+
+Nie ma podstaw do pełnej regresji repozytorium przed końcowym SHA Checkpointu C.
