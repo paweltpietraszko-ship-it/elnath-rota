@@ -1,0 +1,146 @@
+ROTA-AUDIT3 — RAPORT KOŃCOWY: mapa osiągalności całego repozytorium
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+STATUS
+AUDIT-3 COMPLETE — statyczna mapa osiągalności, bez werdyktu o poprawności
+produktu i bez autoryzacji refaktoru.
+
+POKRYCIE DOWODOWE
+- r1: planning engine/solver/validator/constraints;
+- r2: assembler/plan_ops/open_month/precheck;
+- r3: lifecycle/manual edit/persisted schedule;
+- r4-r7: application reads, konfiguracja, repozytoria i pamięć decyzji;
+- r8-r11: eksport, baza, helpery planowania, fairness, REPLAN, domena;
+- r12: mechaniczne domknięcie wszystkich niepustych rota/**/*.py;
+- r13: backend.py i wszystkie api/**/*.py;
+- r14: wszystkie frontend/src/**/*.ts(x), style i drzewo nawigacji;
+- r15: narzędzia CLI, benchmarki, Symulator, test support i archiwum.
+
+Nie uruchomiono solvera, benchmarków, Playwrighta ani pełnej suity. Audit był
+celowo statyczny i oszczędny. `where.py` nie występuje na audytowanym SHA;
+zastąpiono go AST, `git grep`, mapą importów/callerów i odczytem kodu.
+
+ODPOWIEDŹ NA GŁÓWNE PYTANIE
+
+Nie znaleziono wielkiego, całkowicie martwego drugiego programu. Rdzeń
+planowania, zapis grafiku, reguły, bilanse, eksport, API i wszystkie obecne
+ekrany są osiągalne.
+
+To nie znaczy, że kod jest „dobry tylko do dopieszczenia”. Problem ma inną
+postać: przez wiele Tasków narosły małe relikty, testowe skróty i kilka miejsc,
+gdzie dwie żywe warstwy mogą liczyć podobną rzecz. Statyczna mapa potrafi
+bezpiecznie wskazać kandydatów, ale dopiero AUDIT-4 może udowodnić, które żywe
+warstwy naprawdę dublują odpowiedzialność.
+
+1. NAJSILNIEJSI KANDYDACI — ZERO CALLERÓW
+
+Backend:
+- application.memory_read.provenance_for_rule_version;
+- application.memory_read.decision_for_rule;
+- persistence.coordinator_repository.list_associations_for_site;
+- planning.shift_catalog.standard_shift_for;
+- planning.site_rules.day_only_n_exception_applies;
+- planning.timeutil.rest_hours (poza demonstracyjnym __main__);
+- planning.engine_types.ValidationResult;
+- domain.SiteRule.
+
+Frontend:
+- api.getPrecheck() i obsługujący wyłącznie ten wrapper PrecheckOut;
+- diagnostics.buffer.getEvents();
+- diagnostics.tracking.findEventByActionId().
+
+To jedyne miejsca, dla których mapa wykazała brak produkcyjnego i testowego
+callera. Nadal należy przed usunięciem sprawdzić kontrakt i diff w osobnym,
+wąskim Tasku; sam AUDIT-3 niczego nie usuwa.
+
+2. FLOW WYCOFANE LUB ZASTĄPIONE
+
+- stary flow `training.mark_training_realized()` jest TEST_ONLY. Jawna decyzja
+  OWNER: program liczy godziny szkolenia do grafiku, ale nie sprawdza odbycia
+  szkolenia i nie uzależnia od tego wejścia do obsady. Nie przywracać flow;
+- stara ścieżka `excused_absence_days_in_month()` jest TEST_ONLY. Aktualny
+  produkt używa utrwalonych referencji i canonical_hours_in_range();
+- stare benchmarki real_object/rota_stress/manual_audits są nadal uruchamiane,
+  ale OWNER odrzucił je jako miarodajny dowód realnego doboru załogi.
+
+To są mocni kandydaci do uporządkowania wraz z ich starymi testami i opisami,
+nie do ponownego podłączania.
+
+3. TEST_ONLY, KTÓREGO NIE WOLNO UZNAĆ AUTOMATYCZNIE ZA MARTWE
+
+- proste wrappery save_* używane do budowania fixture'ów;
+- stare odczyty pamięci/bilansu używane przez testy kontraktowe;
+- frontendowy TestHooks i recordNoop dla testów diagnostyki;
+- tests/support/** i reproduktory zachowane w tasks/**;
+- cały pakiet benchmarks/** jako narzędzie testowe/CLI, nawet jeśli utracił
+  autorytet jako oracle produktowe.
+
+Usunięcie tej grupy bez migracji testów obniżyłoby zdolność odtwarzania historii
+i błędów. AUDIT-3 tego nie zaleca.
+
+4. KOD Z KONTRAKTEM, ALE BEZ OBECNEGO EKRANU/API
+
+- durable_inputs.update_coordinator;
+- durable_inputs.update_association;
+- durable_inputs.correct_site_planning_regime;
+- część historycznych odczytów bootstrap/memory/balance wymienionych w r12.
+
+Brak callera może tu oznaczać brak podłączenia zaakceptowanej funkcji, a nie
+zbędną funkcję. Każdy taki przypadek wymaga decyzji OWNER przed zmianą.
+
+5. ZAMROŻONY ZAKRES AUDIT-4 — GDZIE SZUKAĆ PRAWDZIWEGO POWIELENIA
+
+Najpierw należy porównać ownera i zachowanie, nie liczbę podobnych funkcji:
+
+1. constraints solvera kontra niezależny validator;
+2. plan_ops kontra engine orchestration;
+3. lifecycle_ops/manual_edit kontra schedule_lifecycle;
+4. schedule_validation kontra planning/validator;
+5. fixed_existing_assignments kontra predykat zmian REPLAN;
+6. eksportowe odtwarzanie wersji kontra schedule_repository;
+7. precheck kontra późniejsza diagnoza solvera;
+8. wielokrotne składanie PlanningState w jednym use-case;
+9. powtórzone modele payloadu decyzji w routerach schedule/decisions;
+10. powtórzone helpery miesiąca/daty w ekranach React.
+
+DUPLICATE wolno orzec dopiero, gdy dwie osiągalne ścieżki podejmują tę samą
+decyzję produktową dla tego samego wejścia i można wskazać kanonicznego ownera.
+Jeśli dowodu brak, wynik to EVIDENCE_GAP, nie refaktor.
+
+6. DWA PROBLEMY WORKFLOW UJAWNIONE PRZY OKAZJI
+
+- README i komentarz Symulatora nadal przedstawiają stare benchmarki jako
+  źródło oceny poprawności, choć OWNER tę rolę odrzucił. Pełny pytest nadal je
+  zbiera, więc „wszystkie zielone” miesza testy o różnej wartości dowodowej;
+- Symulator zapisuje wynik zwykłego uruchomienia testów bezpośrednio do
+  historycznego, śledzonego raportu T038. Zmienna ROTA_SIM_SEEDS może zmienić
+  ten plik. To należy rozdzielić, aby test nie przepisywał dawnego dowodu.
+
+7. CO AUDIT-3 WYKLUCZYŁ
+
+- brak odłączonego routera API;
+- brak odłączonego ekranu React;
+- brak drugiego runtime solvera;
+- brak całego martwego subsystemu grafiku;
+- brak podstaw do masowego usuwania plików tylko dlatego, że program urósł.
+
+REKOMENDOWANA KOLEJNOŚĆ DALSZEJ PRACY
+
+1. Nie refaktorować teraz produktu na podstawie samej mapy.
+2. W AUDIT-4 najpierw rozstrzygnąć dziesięć par odpowiedzialności z punktu 5.
+3. Osobnym małym Taskiem usunąć wyłącznie relikty z punktu 1, które przejdą
+   jeszcze kontrolę kontraktu.
+4. Uporządkować rangę benchmarków i miejsce zapisu raportu Symulatora, aby
+   pełna suita nie dawała fałszywego poczucia bezpieczeństwa ani nie zmieniała
+   historycznego artefaktu.
+5. Dopiero na podstawie dowodów AUDIT-4 ustalić zakres redukcji kodu.
+
+WERDYKT AUDIT-3
+MAPA OSIĄGALNOŚCI: COMPLETE dla exact SHA
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e.
+
+To nie jest PASS działania aplikacji. To zamknięty inwentarz wejściowy do
+AUDIT-4 i późniejszego, kontrolowanego zmniejszania kodu.
