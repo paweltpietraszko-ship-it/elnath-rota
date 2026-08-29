@@ -1,0 +1,140 @@
+ROTA-AUDIT3 — PODSUMOWANIE BACKENDU PYTHON
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES DOMKNIĘTY
+Wszystkie niepuste pliki `rota/**/*.py`. Mechaniczne porównanie listy plików z
+zakresami raportów r1-r11 nie wykazało brakującego ani dodatkowego pliku.
+Puste `__init__.py` nie wymagały klasyfikacji symboli.
+
+Poza tym podsumowaniem pozostają do osobnego remanentu routery `api/**` i
+frontend. API było dotąd używane jako dowód, że funkcja backendu ma prawdziwy
+punkt wejścia, ale nie klasyfikowano jeszcze każdego symbolu samych routerów.
+
+METODA I OGRANICZENIE
+- `where.py` nie istnieje na audytowanym SHA; użyto AST, `git grep` i odczytu
+  rzeczywistych call pathów.
+- Nie uruchomiono testów ani solvera i nie zmieniono produktu.
+- LIVE oznacza osiągalność, nie poprawność ani zasadność rozmiaru kodu.
+- TEST_ONLY/UNUSED_RUNTIME nie są automatyczną zgodą na usunięcie.
+- DUPLICATE wymaga porównania odpowiedzialności i zachowania w AUDIT-4.
+
+WYNIK GŁÓWNY
+Nie znaleziono całego martwego subsystemu. Rdzeń planowania, walidacja, zapis
+wersji, nieobecności, bilanse, eksport, decyzje i reguły są produkcyjnie
+osiągalne.
+
+Jednocześnie znaleziono trzy realne rodzaje długu:
+1. jawne relikty bez żadnego callera;
+2. publiczne powierzchnie używane wyłącznie przez testy;
+3. stare lub zaakceptowane funkcje, które nie są podłączone do obecnego UI/API.
+
+A. POTWIERDZONE RELIKTY / BRAK CALLERA
+
+Poniższe symbole nie mają produkcyjnego ani testowego użytkownika:
+- `application.memory_read.provenance_for_rule_version`;
+- `application.memory_read.decision_for_rule`;
+- `persistence.coordinator_repository.list_associations_for_site`;
+- `planning.shift_catalog.standard_shift_for`;
+- `planning.site_rules.day_only_n_exception_applies`;
+- `planning.timeutil.rest_hours` — poza demonstracyjnym `__main__`;
+- `planning.engine_types.ValidationResult`;
+- `domain.SiteRule` — runtime używa `SiteRuleVersion`.
+
+To najsilniejsi kandydaci do mechanicznego sprawdzenia w AUDIT-4. Trwałe
+pojęcie produktowe „SiteRule” nie oznacza automatycznie konieczności zachowania
+nieużywanej klasy Pythona.
+
+B. ZACHOWANIE WYCOFANE PRZEZ WŁAŚCICIELA
+
+`application.training.mark_training_realized()` wraz z helperami i osobnym
+`training.save_site_membership()` jest osiągalne wyłącznie z testów.
+
+OWNER 2026-08-29: program nie sprawdza realizacji szkolenia i nie uzależnia od
+niej dopisania do obsady. Uwzględnia wyłącznie godziny szkolenia w grafiku.
+Nie przywracać tego flow. AUDIT-4 może ocenić usunięcie kodu i starych testów.
+
+C. TESTOWE WRAPPERY ZAPISU
+
+Program używa atomowych operacji `*_in_open_transaction` składanych z audytem
+i unieważnianiem decyzji. Fixtures często używają prostszych wrapperów:
+- `availability_repository.append_availability_version`;
+- `calendar_repository.save_calendar_day`;
+- `coordinator_repository.save_coordinator_site_association` i zależny
+  `write_coordinator_site_association_in_open_transaction`;
+- `employee_repository.save_employee`;
+- `employee_repository.save_site_membership`;
+- `employee_repository.save_external_support_window`;
+- `site_profile_repository.save_site_profile`;
+- `site_repository.save_site`;
+- `decision_ledger.record_decision`;
+- `work_balance_repository.save_work_balance_target`;
+- `db.init_schema`.
+
+To nie są produkcyjne alternatywne endpointy. AUDIT-4 powinien zdecydować,
+czy pozostają świadomymi fabrykami stanu testowego, czy można je zastąpić
+wspólną warstwą fixtures bez osłabiania testów.
+
+D. TESTOWE LUB NIEPODŁĄCZONE ODCZYTY
+
+- `availability_matrix.availability_history`;
+- `balance_read.quarter_balance` i zależne
+  `work_balance_repository.reconstruct_quarter_balance` /
+  `list_work_balance_targets`;
+- `memory_read.effective_rules_for_month`;
+- `memory_read.decision_chain_for_rule_family`;
+- `site_memory.decision_fate`, `rule_provenance` i zależne
+  `decision_for_rule_version`;
+- `bootstrap.month_plan_readiness`;
+- `bootstrap.current_roster`;
+- `bootstrap.active_coordinators` / `all_coordinators`;
+- `employee_repository.list_windows_for_employee`;
+- `site_profile_repository.list_site_profile_ids`;
+- `site_rule_assembly.assemble_site_rules`;
+- `availability_repository.list_active_overlapping`.
+
+Część jest świadomie pominięta przez obecne ekrany, część została zastąpiona
+odczytem zbiorczym. Nie usuwać zbiorczo bez porównania kontraktów.
+
+E. KOMENDY Z KONTRAKTEM, ALE BEZ RUNTIME
+
+- `durable_inputs.update_coordinator`;
+- `durable_inputs.update_association`;
+- `durable_inputs.correct_site_planning_regime`.
+
+Pierwsze dwie nie mają ekranu zgodnie z T021. Korekta reżimu ma zaakceptowany
+kontrakt T023b, lecz brak endpointu. To może być brak podłączenia, nie zbędny
+kod; wymaga decyzji produktowej przed zmianą.
+
+F. STARA ŚCIEŻKA NIEOBECNOŚCI
+
+`planning.absence.excused_absence_days_in_month()` wraz z
+`workday_holiday_map`, `_absence_dates_by_employee` i
+`IncompleteAbsenceCalendarError` działa tylko w starych testach. Aktualny
+produkt używa utrwalonych referencji oraz `canonical_hours_in_range()`.
+
+AUDIT-4 musi zachować obowiązującą regułę 8h pon.–pt. bez świąt w aktualnym
+ownerze, nawet jeśli stara ścieżka zostanie usunięta.
+
+G. ŻYWE MIEJSCA DO PORÓWNANIA W AUDIT-4
+
+Osiągalność nie rozstrzyga możliwego powielenia odpowiedzialności:
+- solver constraints ↔ niezależny validator;
+- plan_ops ↔ engine orchestration;
+- lifecycle_ops/manual_edit ↔ schedule_lifecycle;
+- schedule_validation ↔ planning/validator;
+- `fixed_existing_assignments` ↔ predykat REPLAN reshuffle;
+- eksportowe odtwarzanie linii wersji ↔ schedule_repository;
+- precheck ↔ późniejsza diagnoza solvera;
+- wielokrotne składanie PlanningState w jednym use-case.
+
+Te punkty nie są findingami DUPLICATE. Są zamrożoną listą do dowodu lub
+obalenia w AUDIT-4.
+
+WERDYKT CZĘŚCIOWY AUDIT-3
+BACKEND PYTHON REACHABILITY: COMPLETE.
+
+Nie jest to PASS poprawności produktu. Jest to pełna mapa osiągalności backendu
+na exact SHA. Nie autoryzuje refaktoru ani zmian zachowania.
