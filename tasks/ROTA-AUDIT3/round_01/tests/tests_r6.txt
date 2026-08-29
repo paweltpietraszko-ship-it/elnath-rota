@@ -1,0 +1,150 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 6: repozytoria danych podstawowych
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/persistence/availability_repository.py
+- rota/persistence/backup_repository.py
+- rota/persistence/calendar_repository.py
+- rota/persistence/coordinator_repository.py
+- rota/persistence/employee_repository.py
+- rota/persistence/site_profile_repository.py
+- rota/persistence/site_repository.py
+- rota/persistence/site_rule_assembly.py
+- rota/persistence/site_rule_repository.py
+
+NOWE ROZSTRZYGNIĘCIE WŁAŚCICIELA
+Właściciel potwierdził 2026-08-29, że dawne sprawdzanie, czy szkolenie się
+odbyło, oraz uzależnianie dopisania pracownika do obsady od ukończenia
+szkolenia zostało celowo wyłączone. Program ma jedynie uwzględniać w grafiku
+godziny szkolenia.
+
+Sprostowanie do partii 4: `training.mark_training_realized()` i jego podgraf
+nie są brakującym podłączeniem. To testowa pozostałość po wycofanym zachowaniu.
+AUDIT-4 może ocenić ich usunięcie; nie wolno przywracać endpointu ani warunku
+gotowości pracownika.
+
+METODA
+`where.py` nie istnieje na tym SHA. Dla każdego top-level symbolu sprawdzono
+produkcyjne wywołania w `rota/**`, `api/**` i backend.py, a następnie osobno
+callery w tests/**. Nie uruchomiono testów i nie zmieniono kodu produktu.
+
+WYNIK SKRÓCONY
+- LIVE: wszystkie repozytoria mają żywe odczyty albo atomowe prymitywy zapisu.
+- TEST_ONLY: 13 funkcji — głównie samodzielnie commitujące wrappery używane do
+  przygotowania danych testowych oraz pojedyncze odczyty pomocnicze.
+- UNUSED_RUNTIME: `list_associations_for_site()` — brak jakiegokolwiek callera.
+- Nie klasyfikowano DUPLICATED_PATH; podobny kształt wrapperów nie wystarcza.
+
+1. availability_repository.py — głównie LIVE
+
+LIVE:
+- `append_availability_version_in_open_transaction()` →
+  durable_inputs.append_availability;
+- `get_availability_history()` → durable_inputs i availability_matrix;
+- `get_current_availability_for_employee()` → assembler, roster, matrix i
+  work_balance_repository;
+- `list_active_overlapping_for_employees()` → schedule_export oraz bilanse.
+
+TEST_ONLY:
+- `append_availability_version()` — bezpośredni, samodzielnie commitujący
+  wrapper używany przez testy; produkcja przechodzi przez durable_inputs;
+- `list_active_overlapping()` — pojedynczy odczyt używany tylko w
+  tests/test_local_store_master_data.py; produkcja korzysta z wariantu
+  zbiorczego dla wielu pracowników.
+
+2. backup_repository.py — LIVE
+
+`backup_to()` i `diagnostics_payload()` są wywoływane przez żywe operacje
+application/backup.py, które mają endpointy API.
+
+3. calendar_repository.py — częściowo LIVE
+
+LIVE:
+- `write_calendar_day_in_open_transaction()` → durable_inputs.set_calendar_day;
+- `get_calendar_day()` → ta sama komenda przed zapisem;
+- `list_calendar_days()` → API kalendarza, assembler, eksport, bootstrap i
+  referencje nieobecności.
+
+TEST_ONLY:
+- `save_calendar_day()` — szeroko używany do budowania fixtures, ale produkcja
+  używa atomowego wariantu przez durable_inputs.
+
+4. coordinator_repository.py — mieszana osiągalność
+
+LIVE:
+- zapis/odczyt koordynatora zasila dev seed, bootstrap i kontrolę kontekstu;
+- `activate_association_if_not_already_active_in_open_transaction()` oraz
+  `list_associations_for_coordinator()` zasilają bootstrap i autoryzację.
+
+TEST_ONLY:
+- `save_coordinator_site_association()` oraz jego wewnętrzny
+  `write_coordinator_site_association_in_open_transaction()` — produkcyjny
+  caller istnieje tylko przez testową komendę `update_association()`;
+
+UNUSED_RUNTIME:
+- `list_associations_for_site()` (linia 120) nie ma callera ani w produkcji,
+  ani w testach.
+
+5. employee_repository.py — żywy rdzeń, cztery powierzchnie TEST_ONLY
+
+LIVE są wszystkie odczyty pracownika i obsady używane przez API, assembler,
+analitykę, eksport, reguły i nieobecności. Żywe są też trzy warianty zapisu
+`*_in_open_transaction`, ponieważ durable_inputs składa je z audytem i
+unieważnieniem decyzji w jednej transakcji.
+
+TEST_ONLY:
+- `save_employee()`;
+- `save_site_membership()`;
+- `save_external_support_window()`;
+- `list_windows_for_employee()`.
+
+Pierwsze trzy to samodzielnie commitujące wrappery używane w fixtures. Produkcja
+korzysta z wariantów atomowych. `list_windows_for_employee()` ma tylko test
+master-data; żywe ścieżki używają `list_windows_for_site()`.
+
+6. site_profile_repository.py — częściowo LIVE
+
+LIVE są `write_site_profile_in_open_transaction()` i `get_site_profile()`.
+Zasilają bootstrap, ustawienia obiektu, assembler oraz żywe odczyty API.
+
+TEST_ONLY:
+- `save_site_profile()` — wrapper do fixtures;
+- `list_site_profile_ids()` — używane tylko przez test persistence.
+
+7. site_repository.py — głównie LIVE
+
+Żywe są walidacja ustawień wydruku, atomowy zapis Site, korekta reżimu na
+poziomie persistence, odczyty Site/listy Site oraz zapis/odczyt ustawień
+wydruku. Korekta reżimu pozostaje osiągalna tylko przez testową komendę
+application, ale jej prymityw nie jest osierocony wewnątrz tego podgrafu.
+
+TEST_ONLY:
+- `save_site()` — samodzielnie commitujący wrapper używany w fixtures;
+  produkcyjny bootstrap i durable_inputs używają wariantu atomowego.
+
+8. site_rule_assembly.py — częściowo LIVE
+
+- `assemble_monthly_site_rules()` jest LIVE przez assembler,
+  availability_matrix i memory_read.
+- `assemble_site_rules()` jest TEST_ONLY: dwa testy wywołują wariant dla
+  podanej listy dat, lecz produkcja korzysta wyłącznie z wariantu miesięcznego.
+
+9. site_rule_repository.py — LIVE
+
+Wszystkie publiczne funkcje mają produkcyjnych callerów w decision_ledger,
+site_memory, rule_decisions, memory_read albo site_rule_assembly. Wyjątki i
+prywatne helpery są używane na tych samych ścieżkach.
+
+WNIOSEK PARTII 6
+Nie znaleziono całego martwego repozytorium. Znaleziono natomiast regularny
+wzorzec testowych obejść warstwy aplikacyjnej: fixtures zapisują bezpośrednio
+przez wygodne wrappery `save_*`, podczas gdy program używa atomowych
+`*_in_open_transaction` wewnątrz właściwych komend.
+
+To nie jest jeszcze dowód na bezpieczne usunięcie wrapperów — wiele testów
+używa ich jako fabryk stanu. AUDIT-4 powinien ustalić, czy pozostają świadomym
+test seamem, czy można je zastąpić wspólną fabryką testową. Jedyny symbol bez
+żadnego callera w tej partii to `list_associations_for_site()`.
