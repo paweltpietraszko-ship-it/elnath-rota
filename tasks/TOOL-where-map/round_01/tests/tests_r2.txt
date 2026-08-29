@@ -1,0 +1,111 @@
+REAUDYT TOOL-where-map — RUNDA 2
+
+Audytowany branch: tooling/where-map
+Audytowany exact SHA: 3676f3557c0bce798d42d5c1e0bdad36d87adaaa
+Poprzedni audyt: tasks/TOOL-where-map/round_01/tests/tests_r1.txt
+Data: 2026-08-29
+
+WERDYKT
+
+PASS — GOTOWE DO OPCJONALNEGO, RĘCZNEGO UŻYCIA PRZEZ CODEX.
+
+Runda 2 usuwa blokadę z rundy 1. where.py jest teraz uczciwie opisanym
+lokalizatorem surowych trafień. Nie wydaje werdyktu o tym, czy kod jest żywy,
+martwy, testowy albo produkcyjny. W tej roli będę go używał jako pierwszej
+pomocy przed ręcznym sprawdzeniem kodu.
+
+PASS nie oznacza zgody na automatyczne podpięcie do task_init.py. task_init.py
+nie zna jeszcze pliku ani symbolu przyszłego tasku, a where.py świadomie wymaga
+oceny człowieka/modelu. Automatyczna integracja nie jest potrzebna do uzyskania
+wartości z narzędzia i nie była częścią dostawy rundy 2.
+
+Nie zmieniono where.py ani kodu produktu.
+
+ZAKRES REAUDYTU
+
+Powtórzono WM-01..WM-07 z rundy 1 na exact SHA. Dodatkowo ponownie sprawdzono
+aktywny endpoint FastAPI WM-03 oraz TypeScriptowy MonthlyPlanning.
+
+WYNIKI
+
+WM-01 — add_target_equity_fairness: PASS
+
+- pokazuje własną definicję, import/tekst i rzeczywiste wywołanie w solverze;
+- nie wyciąga z tych trafień wniosku o reachability ani ownership.
+
+WM-02 — generate_profile_demands używane w tym samym pliku: PASS
+
+- własna definicja ma oznaczenie DEF/SAME_FILE;
+- wywołanie w assembler.py:212 ma oznaczenie CALL/SAME_FILE;
+- wcześniejsze fałszywe TEST_ONLY nie istnieje.
+
+WM-03 — post_export rejestrowany dekoratorem FastAPI: PASS
+
+- pokazuje definicję endpointu;
+- nie twierdzi już, że brak tekstowego wywołania oznacza TEST_ONLY;
+- narzędzie uczciwie pozostawia rozpoznanie dekoratora audytorowi.
+
+WM-04 — dwie funkcje _is_full_hour: PASS
+
+- definicje są poprawnie odróżnione od wywołań;
+- narzędzie ostrzega, że nazwa jest zdefiniowana w dwóch plikach;
+- nie przypisuje cudzych wywołań automatycznie do analizowanej funkcji.
+
+WM-05 — plik nie-Pythonowy: PASS DLA ZAMROŻONEJ ROLI NARZĘDZIA
+
+- jasno mówi, że nie ma parsera tego języka;
+- z --symbol wykonuje surowe wyszukiwanie w całym HEAD;
+- brak własnego parsera TypeScript nie jest ukrywany jako pełna analiza.
+
+WM-06 — Unicode/Windows: PASS
+
+Komenda:
+
+  python where.py where.py --symbol run
+
+przetworzyła trafienia zawierające znak `→`, zakończyła się bez
+UnicodeEncodeError i zwróciła kod 0.
+
+WM-07 — task_init.py/run_task_init: PASS
+
+- warstwa jest opisana jako root-script zamiast UNKNOWN;
+- definicja i wywołanie wewnątrz task_init.py są widoczne;
+- nie ma werdyktu TEST_ONLY.
+
+FINDING 5 Z RUNDY 1 — MIESZANIE WORKING TREE I HEAD: PASS
+
+where.py sprawdza teraz, czy plik jest śledzony oraz czy różni się od HEAD. W
+takim przypadku ostrzega, że symbole czyta z working tree, a referencje z HEAD.
+Nie ukrywa już porównania dwóch stanów.
+
+ZNANE OGRANICZENIA — NIE BLOKUJĄ RĘCZNEGO UŻYCIA
+
+1. Etykieta PRODUCTION oznacza obecnie tylko „ścieżka nie zaczyna się od
+   tests/, tasks/ ani arch/”. Dlatego np. AGENTS.md, frontend/e2e, benchmarki i
+   pliki diff również dostają tę etykietę. Nie jest to dowód, że plik należy do
+   kodu produktu. Przy ręcznym użyciu traktuję tę kolumnę wyłącznie jako prosty
+   podział ścieżek, nie jako klasyfikację architektury.
+
+2. Dla TypeScript kształt `function Name(...)` może wyglądać jak CALL, ponieważ
+   narzędzie jawnie nie ma parsera TypeScript. Nadal widoczna jest pełna linia,
+   więc ręczne rozpoznanie jest proste.
+
+3. Bardzo pospolita nazwa, np. `run`, daje dużo szumu oraz może zgłosić
+   `UNPARSED` dla dopasowania w pliku binarnym. To obniża wygodę, ale nie tworzy
+   już fałszywego werdyktu.
+
+Te trzy ograniczenia warto kiedyś uprościć, ale nie wymagają rundy 3 przed
+rozpoczęciem ręcznego korzystania z narzędzia.
+
+DECYZJA WORKFLOW
+
+- TAK: używać opcjonalnie jako szybkiej listy miejsc do przeczytania.
+- NIE: traktować DEF/CALL/TEXT jako dowodu ownership lub reachability.
+- NIE: podpinać automatycznie pod task_init.py.
+- NIE: wymagać uruchomienia where.py jako bramki każdego tasku.
+
+Pełna suita produktu nie została uruchomiona. Dostawa zmienia tylko niezależny
+skrypt pomocniczy, a reprodukcje WM-01..WM-07 bezpośrednio sprawdzają jego
+kontrakt.
+
+KONIEC RAPORTU

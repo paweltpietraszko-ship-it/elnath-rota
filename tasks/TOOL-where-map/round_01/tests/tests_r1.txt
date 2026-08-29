@@ -1,0 +1,181 @@
+AUDYT TOOL-where-map — RUNDA 1
+
+Audytowany branch: tooling/where-map
+Audytowany exact SHA: 6fc4778c948a862a7730770cdc04149fcc15ca9f
+Baza: main@a919a8244cc592e6b12f35b9c8e08b40803e07ec
+Zakres dostawy na audytowanym SHA: wyłącznie where.py (149 linii)
+Data: 2026-08-29
+
+WERDYKT
+
+FAIL JAKO AUTOMATYCZNY ELEMENT WORKFLOW.
+
+Nie podpinać obecnej wersji do task_init.py ani nie używać napisu
+REACHABILITY: TEST_ONLY jako klasyfikacji kodu. Narzędzie jest przydatne jako
+ręczny podgląd surowych trafień dla prostych nazw, ale jego najważniejszy wynik
+potrafi być fałszywy na zwykłym, działającym kodzie tego repozytorium.
+
+Nie zmieniono kodu narzędzia ani produktu.
+
+WARSTWY AUDYTU
+
+1. Zweryfikowano exact SHA i pełny diff względem main.
+2. Uruchomiono dwa przykłady wskazane przez autora.
+3. Dodano niezależne przypadki: wywołanie w tym samym module, endpoint
+   rejestrowany dekoratorem, identyczna nazwa w dwóch modułach, plik
+   nie-Pythonowy, skrypt w katalogu głównym oraz drukowanie Unicode na Windows.
+4. Oceniono zakres ścieżek skanowanych przez git grep i zgodność z task_init.py.
+5. Nie uruchamiano testów produktu: dostawa nie zmienia produktu, a pełny pytest
+   nie sprawdza heurystyki where.py.
+
+FINDING 1 — REACHABILITY: TEST_ONLY daje fałszywy wynik dla działającego kodu
+
+Dowód w kodzie:
+
+- where.py:82-84 usuwa wszystkie trafienia pochodzące z analizowanego pliku,
+  zamiast usunąć tylko jego własną definicję;
+- where.py:73-78 uznaje za wywołanie wyłącznie tekst o kształcie NAME(...);
+- where.py:99 drukuje na tej podstawie kategoryczne
+  REACHABILITY: TEST_ONLY.
+
+Niezależne reprodukcje na exact SHA:
+
+WM-02:
+
+  python where.py rota/application/assembler.py --symbol generate_profile_demands
+
+Wynik: REACHABILITY: TEST_ONLY. Funkcja jest jednak używana przez
+assemble_planning_state w tym samym module. Wszystkie trafienia z tego modułu
+zostały odrzucone razem z linią definicji.
+
+WM-03:
+
+  python where.py api/routers/export.py --symbol post_export
+
+Wynik: REACHABILITY: TEST_ONLY oraz 0 referencji. post_export jest czynnym
+endpointem FastAPI rejestrowanym przez @router.post w tym samym pliku. Framework
+wywołuje go przez rejestrację, a nie przez tekst post_export(...).
+
+Skutek dla workflow: działający owner produktu może zostać oznaczony jako kod
+tylko testowy. To dokładnie ten rodzaj fałszywego sygnału, który mógłby skłonić
+audytora do nieprawidłowego usunięcia potrzebnej funkcji.
+
+FINDING 2 — identyczna nazwa w innym module jest mylona z użyciem badanego symbolu
+
+Dowód w kodzie:
+
+- where.py:65-70 wyszukuje wyłącznie samo słowo, bez modułu/importu;
+- where.py:73-78 ocenia kształt pojedynczej linii tekstu, bez AST i bez
+  rozstrzygnięcia, do którego modułu należy nazwa.
+
+Niezależna reprodukcja:
+
+  python where.py rota/persistence/schedule_validation.py --symbol _is_full_hour
+
+Narzędzie zgłosiło 4 CALL w rota/planning/validator.py. Pierwszy CALL jest w
+rzeczywistości cudzą linią `def _is_full_hour(...)`, a pozostałe trzy wywołują
+lokalną funkcję validatora, nie funkcję z schedule_validation.py.
+
+Reprodukcja w drugą stronę daje analogiczny wynik. Oznacza to zarazem:
+
+- definicja `def NAME(...)` jest błędnie liczona jako CALL;
+- dwie niezależne funkcje o tej samej nazwie są mieszane;
+- komentarz, docstring albo string zawierający NAME(...) także ma kształt CALL.
+
+Skutek dla workflow: fałszywy wynik może działać w obie strony — żywy kod może
+wyglądać na TEST_ONLY, a martwy kod może wyglądać na używany przez produkcję.
+
+FINDING 3 — narzędzie kończy się wyjątkiem na zwykłym Windowsowym wyjściu
+
+Dowód w kodzie:
+
+- where.py:67 dekoduje wynik git grep jako UTF-8;
+- where.py:91-97 drukuje go bez zabezpieczenia zgodnego z kodowaniem bieżącej
+  konsoli.
+
+Niezależna reprodukcja w środowisku projektu:
+
+  python where.py where.py --symbol run
+
+Jedno z trafień zawiera znak strzałki `→`. Drukowanie na konsoli cp1250 kończy
+się `UnicodeEncodeError` w where.py:97 oraz kodem wyjścia 1.
+
+Skutek dla workflow: task_init.py mógłby zacząć losowo nie tworzyć tasku tylko
+dlatego, że dowolny znaleziony komentarz zawiera znak niewspierany przez
+kodowanie konsoli.
+
+FINDING 4 — pliki nie-Pythonowe nie są analizowane, a błędne --symbol kończy się sukcesem
+
+Dowód w kodzie:
+
+- where.py:113-115 po rozpoznaniu rozszerzenia różnego od .py wypisuje notatkę
+  i natychmiast wraca.
+
+Niezależna reprodukcja:
+
+  python where.py frontend/src/screens/MonthlyPlanning.tsx --symbol DoesNotExist
+
+Wynik: tylko nazwa warstwy i informacja o pominięciu analizy, kod wyjścia 0.
+Parametr --symbol nie jest sprawdzany ani używany.
+
+Dodatkowo where.py:22-24 traktuje jako produkcję tylko rota, api i
+frontend/src, a jako nieprodukcję tylko tests, tasks i arch. Nie obejmuje m.in.
+frontend/e2e ani wykonywalnych skryptów w katalogu głównym. Przykład:
+
+  python where.py task_init.py --symbol run_task_init
+
+zwraca LAYER: UNKNOWN i REACHABILITY: TEST_ONLY, choć run_task_init jest
+uruchamiane jako wejście CLI w tym samym pliku.
+
+To nie jest błąd parsera TypeScript — obecny prototyp jawnie nie ma takiego
+parsera. Jest to jednak rzeczywista granica: nie może być przedstawiany jako
+mapa całego programu ani jako narzędzie do oceny frontendowych i głównych
+skryptów workflow.
+
+FINDING 5 — analiza może mieszać plik roboczy z innym snapshotem repozytorium
+
+Dowód w kodzie:
+
+- where.py:104-120 czyta analizowany plik bezpośrednio z dysku;
+- where.py:66 wyszukuje referencje zawsze w `HEAD`.
+
+Przy lokalnej, jeszcze niezatwierdzonej zmianie symbole pochodzą więc z working
+tree, a referencje ze starego HEAD. Narzędzie nie ostrzega, że porównuje dwa
+różne stany. Jest to szczególnie niebezpieczne właśnie przed implementacją i
+podczas audytu, gdy worktree często jest brudny.
+
+WYNIKI PRZYPADKÓW
+
+- WM-01 add_target_equity_fairness — PASS jako prosty przypadek bezpośredniego
+  wywołania w innym module; 1 trafienie CALL i 2 trafienia TEXT są użyteczną
+  wskazówką.
+- WM-02 generate_profile_demands, użycie w tym samym module — FAIL, fałszywe
+  TEST_ONLY.
+- WM-03 post_export, rejestracja FastAPI — FAIL, fałszywe TEST_ONLY.
+- WM-04 dwie funkcje _is_full_hour — FAIL, cudza definicja i cudze wywołania
+  policzone jako CALL badanego symbolu.
+- WM-05 plik TSX z nieistniejącym --symbol — FAIL jako kontrola wejścia; exit 0
+  bez analizy.
+- WM-06 Unicode na Windows — FAIL, UnicodeEncodeError i exit 1.
+- WM-07 task_init.py/run_task_init — FAIL jako mapa workflow; UNKNOWN i
+  fałszywe TEST_ONLY.
+
+OCENA INTEGRACJI Z task_init.py
+
+NIE INTEGROWAĆ W OBECNYM KSZTAŁCIE.
+
+task_init.py ma jedno mechaniczne zadanie: utworzyć katalog tasku i zapisać
+exact SHA. Nie otrzymuje ścieżki ani symbolu do analizy. Automatyczne dołączenie
+where.py rozszerzyłoby prostą i niezawodną operację o heurystykę, która:
+
+- nie wie, jaki plik jest przedmiotem przyszłego tasku;
+- potrafi fałszywie nazwać żywy kod TEST_ONLY;
+- nie obejmuje całego repozytorium;
+- może przerwać działanie na kodowaniu konsoli.
+
+Sam pomysł ma ograniczoną wartość jako opcjonalna komenda pomocnicza: lista
+surowych trafień i importów może skrócić pierwsze ręczne szukanie. Nie jest
+jednak dowodem reachability, ownership, KEEP, DEAD ani TEST_ONLY. Wynik musi
+pozostać wskazówką do przeczytania przez audytora.
+
+KONIEC RAPORTU
