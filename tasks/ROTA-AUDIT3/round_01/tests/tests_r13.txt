@@ -1,0 +1,85 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 13: API
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- backend.py
+- wszystkie niepuste pliki api/**/*.py
+
+METODA
+Sprawdzono rejestrację APIRouter w api/main.py, wszystkie dekoracje HTTP,
+modele wejścia/wyjścia, helpery marshallingu, zależność bazy, mapowanie błędów
+i skrypt inicjalnego koordynatora. API służyło wcześniej jako dowód
+osiągalności backendu; tutaj sklasyfikowano same symbole API. Nie uruchomiono
+serwera ani testów i nie zmieniono produktu.
+
+WYNIK SKRÓCONY
+- LIVE: wszystkie routery, endpointy, modele wejścia/wyjścia i helpery API.
+- LIVE jako narzędzie operacyjne: api/dev_seed.py.
+- LIVE jako bramka procesu: backend.py.
+- TEST_ONLY: brak.
+- UNUSED_RUNTIME: brak.
+- Nie znaleziono odłączonego routera.
+
+1. Rejestracja routerów — kompletna
+
+api/main.py rejestruje wszystkie utworzone routery:
+- bootstrap;
+- odczyt i zapis kalendarza;
+- zapisy obsady/danych pracowników;
+- odczyt obsady;
+- reguły pracownika;
+- backup/diagnostykę;
+- katalog zmian;
+- grafik PLAN/REPLAN/lifecycle;
+- Analitykę;
+- Historię;
+- Decyzje;
+- Przegląd;
+- eksport i ustawienia wydruku;
+- Ręczną korektę.
+
+Dodatkowo `/api/health` jest bezpośrednim endpointem głównej aplikacji.
+
+2. Endpointy i modele — LIVE
+
+Każda publiczna funkcja w api/routers ma dekorację GET/POST/PUT/PATCH.
+Wszystkie klasy Pydantic są używane jako payload, response_model, typ pola lub
+wynik helpera. Wszystkie prywatne helpery mają callerów w endpointach tego
+samego albo współdzielonego routera.
+
+Nie znaleziono modelu request/response pozostawionego po usuniętym endpointzie.
+
+3. Wspólna infrastruktura — LIVE
+
+- `api.config.DB_PATH` i `DEV_COORDINATOR_ID` są używane przez zależność bazy,
+  seed oraz komendy koordynatora;
+- `api.deps.get_conn()` jest zależnością wszystkich routerów i zamyka połączenie
+  po żądaniu;
+- `api.errors.to_http_exception()` jest wspólnym tłumaczem błędów używanym
+  przez routery;
+- `api.dev_seed.seed()` jest jawnym, ręcznie uruchamianym krokiem
+  `python -m api.dev_seed`, nie endpointem;
+- backend.py jest niezależną bramką procesu CC→Codex uruchamianą z CLI.
+
+4. Kandydaci do AUDIT-4, nie finding DUPLICATE
+
+- schedule.py i decisions.py mają osobne, bardzo podobne klasy
+  `BlockingDemandOut`, `BlockerOut` i `LoadBlockerOut`. Obsługują dwa różne
+  odczyty tego samego utrwalonego pytania solvera. Trzeba sprawdzić, czy ich
+  kształty mogą korzystać z jednego ownera bez sprzęgania ekranów.
+- Część routerów powtarza schemat `try/except Exception → to_http_exception`.
+  To może być świadoma cienka granica API albo mechaniczny boilerplate do
+  konsolidacji. Sama powtarzalność nie dowodzi drugiej decyzji produktowej.
+- calendar.py i durable_inputs.py mają osobne routery z tym samym prefiksem:
+  jeden odczytuje, drugi zapisuje. Oba są zarejestrowane i mają rozłączne
+  metody/ścieżki; nie są martwym duplikatem.
+
+WNIOSEK PARTII 13
+API nie zawiera odłączonego ekranu backendowego ani zapomnianego routera.
+Statycznie jest cienką, kompletną warstwą wejściową nad application/persistence.
+Możliwy boilerplate i powtórzone modele odpowiedzi należą do AUDIT-4.
+
+Nie zmieniać endpointów ani odpowiedzi na podstawie samego remanentu.
