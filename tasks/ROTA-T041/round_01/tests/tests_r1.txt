@@ -1,0 +1,260 @@
+ROTA-T041 — NIEZALEŻNY AUDYT PRZEDIMPLEMENTACYJNY
+
+Audytowany kontrakt: a0e7d932c8ddcfd038c490ba7046e6c325878645
+Branch: task/ROTA-T041
+Review architekta R2 (dowód pomocniczy, nie mój werdykt):
+8e35cbee097a5db8f02be94013ce8004991c7f05
+Baza produktu kontraktu: main@a919a8244cc592e6b12f35b9c8e08b40803e07ec
+Data: 2026-08-29
+
+WERDYKT
+
+PASS — READY FOR IMPLEMENTATION, CHECKPOINT A FIRST.
+
+PASS dotyczy wyłącznie kontraktu exact SHA
+a0e7d932c8ddcfd038c490ba7046e6c325878645. CC może rozpocząć implementację
+checkpointami A, B, C, w tej kolejności. Nie ma zgody na implementowanie ich
+jako jednego monolitycznego patcha ani na refaktor poza checkpointami.
+
+Nie zmieniono briefu ani kodu produktu.
+
+WARSTWY AUDYTU
+
+1. Zweryfikowano exact SHA kontraktu i potwierdzono, że Architect Review R2 nie
+   zmienił briefu ani kodu produktu.
+2. Przeczytano cały brief, oba review architekta oraz właściwe istniejące
+   mechanizmy produktu.
+3. Wykonano PRE_IMPLEMENTATION_REDUCTION_GATE dla każdego planowanego ownera,
+   adaptera, pola UI i pliku testowego.
+4. Użyto where.py jako surowego lokalizatora, a następnie ręcznie przeczytano
+   wskazany kod na bazie kontraktu.
+5. Sprawdzono macierze A01–A13, B01–B14 i C01–C11 pod kątem pierwotnego
+   reproduktora, granic, przypadków sąsiednich oraz pionu produktu.
+6. Nie uruchamiano testów produktu: kontrakt nie zawiera implementacji. Pełna
+   regresja ma być uruchomiona raz na końcowym SHA, zgodnie z briefem.
+
+WHERE_MAP / RĘCZNA WERYFIKACJA OWNERÓW
+
+Użyte polecenia obejmowały między innymi:
+
+- where.py rota/planning/solver.py --symbol _worked_hours_by_employee
+- where.py rota/planning/validator.py --symbol _check_coverage
+- where.py rota/application/assembler.py --symbol _assemble_work_balances
+- where.py rota/persistence/absence_reference_repository.py
+  --symbol _resolve_no_accepted_plan_day
+- where.py rota/application/plan_ops.py --symbol plan_month
+- where.py rota/persistence/schedule_lifecycle.py
+  --symbol create_schedule_version
+- where.py rota/application/manual_edit.py --symbol apply_manual_correction
+- where.py rota/application/open_month.py --symbol open_month
+
+Wyniki były wyłącznie mapą miejsc do przeczytania. Werdykt nie wynika z etykiet
+DEF/CALL/TEXT.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+
+1. Brak target_hours / sprawiedliwe godziny
+
+SOURCE:
+- OWNER-T041-01;
+- AUDIT-1 C-05;
+- istniejący solver.py::_effective_targets,
+  solver.py::_worked_hours_by_employee i fairness target-equity.
+
+NECESSITY:
+- wynik widoczny dla koordynatora;
+- enforcement należy do jednego istniejącego ownera wyboru kandydata.
+
+WYNIK REDUKCJI:
+- nie powstaje target zastępczy ani zapis do bazy;
+- nie powstaje drugi licznik rzeczywistych godzin;
+- istniejący canonical actual PRIMARY hours ma zostać uogólniony na
+  uczestniczących eligible LOCAL i skonsumowany przez dokładnie jeden z dwóch
+  trybów: targetowy albo fallback spread;
+- gdy wektor jest niekompletny, TARGET-01 i target-equity nie rankują. To
+  literalnie zamyka stary wynik 180/180/180/180/0;
+- assembler pozostaje właścicielem wykrycia i komunikatu o brakującym targecie;
+  solver/fairness pozostają właścicielem rankingu.
+
+Pliki assembler.py, solver.py i fairness.py są uzasadnione. Brief słusznie
+opisuje TASK_SCOPE jako maksimum — wykonawca nie ma obowiązku dotknąć każdego z
+nich, jeżeli wystarczy mniejszy seam.
+
+2. COVERAGE-01 dla legalnych overlapów
+
+SOURCE:
+- arch/spec.md i T012 dopuszczają nakładające się occurrences;
+- T022 wymaga geometrii dla ręcznego/spanning PRIMARY i ochrony przed
+  kłamliwym tagiem;
+- AUDIT-1 C-03 reprodukuje fałszywe excess 2/1.
+
+NECESSITY:
+- enforcement należy do niezależnego validatora.
+
+WYNIK REDUKCJI:
+- validator.py pozostaje jedynym ownerem COVERAGE-01;
+- nie powstaje drugi walidator w API/UI i nie zmienia się solver;
+- A07–A12 chronią legalne nakładanie, rzeczywiste braki/nadmiar, spanning T022
+  i H24;
+- A13 zamyka brakującą stronę: dwa PRIMARY oznaczone dla tego samego
+  równoczesnego demandu nie mogą zostać geometrycznie rozdane pomiędzy dwa
+  niezależne demandy;
+- kontrakt zamraża wyniki, nie narzuca nowego subsystemu ani konkretnego
+  algorytmu przydziału.
+
+Validator.py i jeden test checkpointu A są wystarczające. Zmiana API,
+persistence, domain albo constraints nie jest potrzebna.
+
+3. SICK przed pierwszym PLAN
+
+SOURCE:
+- OWNER-T041-02;
+- AUDIT-1 C-02;
+- absence_reference_repository.py::_resolve_no_accepted_plan_day ma już
+  dokładny mechanizm 8 h × roboczy pon.–pt. × nie-święto dla LEAVE.
+
+NECESSITY:
+- ten persistence owner wiąże źródło godzin nieobecności przed planem.
+
+WYNIK REDUKCJI:
+- rozszerzenie istniejącej gałęzi pre-plan jest wystarczające;
+- nie powstaje kalkulator L4, nowy source_mode, DTO, tabela ani migracja;
+- rodzaj nieobecności nadal określa później oznaczenie C/U, więc solver nie
+  dostaje logiki wydruku;
+- B01–B08 pokrywają weekday/weekend/holiday, sumę zakresu, prawdziwy zapis API,
+  post-plan reference, precedence i restart.
+
+Dozwolony plik absence_reference_repository.py jest wystarczający dla produktu;
+pozostałe warstwy mają być tylko regresją, nie miejscem nowej logiki.
+
+4. Świeży WORKING po zmianie katalogu
+
+SOURCE:
+- OWNER-T041-03;
+- AUDIT-1 C-04;
+- plan_month, generate_profile_demands i istniejące
+  schedule_lifecycle.create_schedule_version.
+
+NECESSITY:
+- plan_ops jest ownerem operacji PLAN i minimalnym adapterem do istniejącego
+  generatora/lifecycle.
+
+WYNIK REDUKCJI:
+- zakres jest poprawnie ograniczony do current WORKING bez Assignmentów;
+- porównanie semantycznych pól persisted/generated demandów nie wymaga
+  fingerprintu ani nowego pola;
+- nowy child używa istniejącego atomowego lifecycle;
+- stary snapshot pozostaje historią; replace_working_snapshot jest zabronione;
+- WORKING z Assignmentem oraz FINAL/REALIZED/frozen nie dostają wymyślonej
+  migracji;
+- B09–B14 obejmują reproduktor, brak mutacji historii, brak pustych wersji przy
+  braku zmiany, FINAL oraz atomic failure.
+
+Plan_ops.py wystarcza jako zmieniany owner. Persistence lifecycle jest używany,
+ale kontrakt słusznie nie otwiera go do modyfikacji.
+
+5. Warning po PLAN i po odświeżeniu
+
+SOURCE:
+- OWNER-T041-01;
+- assembler zwraca warnings;
+- open_month ponownie składa stan;
+- API MonthViewOut już ma warnings;
+- MonthlyPlanning już ma banner i po PLAN wywołuje load().
+
+NECESSITY:
+- wynik widoczny dla koordynatora.
+
+WYNIK REDUKCJI:
+- istniejące pole i banner wystarczają;
+- nie potrzeba nowego DTO, endpointu, persistence ani komponentu;
+- assembler.py jest potrzebny najwyżej do właściwej polskiej treści i
+  rozpoznania brakującego targetu;
+- C01–C04 sprawdzają PLAN, refresh, uzupełnienie targetów i wykluczenie
+  EXTERNAL_SUPPORT.
+
+6. Wspólny ekran korekty i wydruku
+
+SOURCE:
+- OWNER-T041-04;
+- istniejący Room/MonthlyPlanning/Export;
+- istniejący apply_manual_correction i endpoint eksportu.
+
+NECESSITY:
+- jeden wynik widoczny dla koordynatora i minimalne połączenie istniejących
+  właścicieli.
+
+WYNIK REDUKCJI:
+- Room obecnie renderuje MonthlyPlanning dla Planowania/Ręcznej korekty, ale
+  osobny Export dla skrótu Wydruk — potrzebna jest wyłącznie korekta tego seam;
+- MonthlyPlanning już osadza Export i ma istniejący edytor Assignmentu;
+- aktualna blokada onSelectAssignment dla FINAL jest jedyną przeszkodą UI;
+- apply_manual_correction już tworzy child przez create_schedule_version, więc
+  backend manual_edit.py nie wymaga zmiany i słusznie nie należy do TASK_SCOPE;
+- Export już pobiera jedno pdf_base64. T041 przechowuje wynikowy Blob/bytes dla
+  preview i download, bez drugiego requestu/generatora;
+- C05–C11 obejmują dwa skróty, FINAL→child, identyczne bytes, recovery,
+  ustawienia i brak zmian pozostałej nawigacji.
+
+Room.tsx, MonthlyPlanning.tsx i Export.tsx są wystarczającym maksymalnym
+zakresem produktu. Nowy backend, ekran, router albo generator byłby poza
+kontraktem.
+
+TESTY — REDUKCJA
+
+- Checkpoint A: jeden moduł dowodzi nowych szwów fairness/coverage oraz używa
+  istniejących testów T022/T040 jako wąskiej regresji; nie kopiuje ich pełnych
+  kontraktów.
+- Checkpoint B: jeden moduł dowodzi nowych szwów pre-plan SICK i pustego WORKING
+  przez realne application/persistence; niższe lifecycle pozostaje istniejącą
+  regresją.
+- Checkpoint C: Playwright jest właściwym istniejącym harness-em dla jednego
+  ekranu, FINAL selection, warning refresh i jednego requestu PDF. Test samego
+  tekstu źródła nie wystarcza.
+- Jeden końcowy pion i pełna regresja raz na końcu są proporcjonalne. Stare
+  benchmarki i symulator koordynatora nie są potrzebne do odbioru T041.
+
+ZAKRES KOŃCOWY PO REDUKCJI
+
+Konieczne istniejące odpowiedzialności:
+- assembler: wykrycie/komunikat brakującego targetu;
+- solver/fairness: jeden canonical actual-hours i wybór trybu rankingu;
+- validator: COVERAGE-01;
+- absence reference repository: pre-plan SICK;
+- plan_ops + istniejący lifecycle: pusty WORKING;
+- Room/MonthlyPlanning/Export: jeden ekran i jeden PDF response.
+
+Usunięte/zabronione pozostają:
+- nowe encje, migracje, pola DTO i endpointy;
+- target tworzony przez program;
+- drugi licznik godzin albo drugi validator;
+- migracja WORKING z Assignmentami;
+- mutacja starego WORKING lub FINAL;
+- osobny kalkulator SICK;
+- drugi backend korekty, ekran wydruku lub generator PDF;
+- refaktor i benchmark wykonywane „przy okazji”.
+
+NIEZALEŻNE PYTANIA BRAMKI
+
+1. Czy kontrakt zawiera nowe zachowanie bez decyzji OWNER? NIE.
+2. Czy któryś wynik wymaga nowej encji/endpointu/DTO/migracji? NIE.
+3. Czy dwie warstwy miałyby egzekwować tę samą regułę? NIE.
+4. Czy A07–A13 zachowuje T022 i zamyka legalny overlap? TAK.
+5. Czy pusty WORKING jest oddzielony od nieustalonej migracji wersji z pracą?
+   TAK.
+6. Czy FINAL jest korygowany przez istniejącego childa, bez mutacji? TAK.
+7. Czy testy dowodzą nowych szwów bez kopiowania całych niższych macierzy? TAK.
+8. Czy zadanie można bezpiecznie wykonywać trzema małymi commitami? TAK.
+
+WARUNKI DLA IMPLEMENTERA
+
+- Rozpocząć od Checkpoint A i nie mieszać w nim B/C.
+- Jeżeli Checkpoint A wymaga zmiany constraints/API/persistence, zatrzymać się.
+- Jeżeli Checkpoint B wymaga mutacji snapshotu albo migracji wersji z
+  Assignmentami, zatrzymać się.
+- Jeżeli Checkpoint C wymaga nowego endpointu/manual backend/PDF generatora,
+  zatrzymać się.
+- Po mikro-poprawce uruchamiać zakres proporcjonalny; pełną regresję raz na
+  końcowym SHA, chyba że ryzyko konkretnej poprawki wymaga powtórzenia.
+
+KONIEC RAPORTU
