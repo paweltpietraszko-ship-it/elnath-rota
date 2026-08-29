@@ -1,0 +1,21 @@
+ROTA-T041 — mała bramka kompatybilności A+B+C
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+2790b3b447b6b21f4547047c2505f464af01bad7
+(kod produktu i testów identyczny z d5e34b2; 2790b3b dodaje tylko tests_r9.txt)
+
+WERDYKT
+PASS — Checkpointy A, B i C są kompatybilne w uzgodnionym małym zakresie.
+
+DOWÓD
+1. Wspólne uruchomienie A+B:
+   `.venv\Scripts\python.exe -m pytest tests/test_t041_checkpoint_a.py tests/test_t041_checkpoint_b.py -q`
+   Wynik: 25 passed, 1 ostrzeżenie biblioteki, 163,11 s.
+
+2. Checkpoint C na tym samym kodzie produktu:
+   PASS opisany w tests_r9.txt; realny pion C01-C04 przechodzi przez assembler,
+   PLAN, fallback A, zapis targetów, router i frontend.
+
+Pełnej suity repozytorium nie uruchomiono zgodnie z poleceniem OWNER dotyczącym
+oszczędzania limitu. Ten raport nie rozszerza PASS poza T041 A+B+C.
