@@ -18,6 +18,7 @@ TARGET_EQUITY_WEIGHT = 1
 DN_RHYTHM_REWARD_WEIGHT = 1
 THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT = 1
 MAX_COMPLETION_PCT = 100 * MAX_MONTHLY_HOURS
+EQUAL_SPLIT_FAIRNESS_WEIGHT = 1
 
 
 def _demand_hours(demand) -> int:
@@ -151,6 +152,35 @@ def add_target_equity_fairness(
     model.add_max_equality(max_completion, completion_vars)
     model.add_min_equality(min_completion, completion_vars)
     penalties.append(TARGET_EQUITY_WEIGHT * (max_completion - min_completion))
+
+
+def add_equal_split_fairness(
+    model: cp_model.CpModel, worked_hours_by_employee: dict[str, object],
+    employee_ids, penalties: list,
+) -> None:
+    """ROTA-T041 OWNER-T041-01 / AUDIT-1 C-05: fallback used only for a
+    solve whose target vector is incomplete (at least one available LOCAL
+    employee has no target_hours for the month). TARGET-01 and
+    add_target_equity_fairness both need a target to rank against, so
+    solver._add_combined_objective does not call them for that solve --
+    this replaces them with the plain spread (max-min) of actual PRIMARY
+    hours among employee_ids, the smallest achievable difference being the
+    fairest outcome when nobody has a declared quota to aim for.
+    employee_ids is the caller's job to get right (solver.
+    _available_local_employee_ids): EXTERNAL_SUPPORT and anyone HARD rules
+    make fully ineligible this month are never passed in, so they cannot
+    distort the spread just by being absent from the roster of real
+    candidates. worked_hours_by_employee must already be the same
+    canonical actual-hours expression TARGET-01/target-equity use
+    (section 4.1) -- never recomputed here."""
+    hours_vars = [worked_hours_by_employee[e] for e in employee_ids if e in worked_hours_by_employee]
+    if len(hours_vars) < 2:
+        return
+    max_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "equal_split_hours_max")
+    min_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "equal_split_hours_min")
+    model.add_max_equality(max_hours, hours_vars)
+    model.add_min_equality(min_hours, hours_vars)
+    penalties.append(EQUAL_SPLIT_FAIRNESS_WEIGHT * (max_hours - min_hours))
 
 
 def _exactly_one(model: cp_model.CpModel, term: object, name: str) -> object:

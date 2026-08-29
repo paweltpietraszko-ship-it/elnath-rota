@@ -98,14 +98,41 @@ def _coverage_violation_detail(demand, bad_segments: list[tuple]) -> ViolationDe
 
 
 def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """COVERAGE-01: only PRIMARY counts, derived from each PRIMARY's actual interval overlap, not covers_demand_id tagging."""
+    """COVERAGE-01: derived from each PRIMARY's actual interval overlap.
+
+    ROTA-T041 OWNER-T041-01 section 4.2 / AUDIT-1 C-03: pure geometry over
+    every PRIMARY overlapping a demand double-counted a PRIMARY that
+    actually belongs to a DIFFERENT, independently legal, CONCURRENT
+    demand -- two legal overlapping demands, one person each correctly
+    tagged, produced a false COVERAGE-01 excess on both (arch/spec.md:58,
+    485 and ROTA-T012 explicitly allow overlapping catalog occurrences,
+    one demand per occurrence).
+
+    covers_demand_id now disambiguates, but only where it matters: when
+    the assignment's own tagged demand genuinely overlaps (competes in
+    time with) the demand being checked. A ROTA-T022-accepted manual
+    PRIMARY spanning two ADJACENT (non-overlapping) demands with a single
+    tag is still counted by real time for both -- there is no competition
+    to resolve there, so geometry alone still governs exactly as before
+    (T022 requires this: a spanning/manual PRIMARY's real covered time,
+    not its tag, decides what it covers). A tag pointing nowhere in this
+    version's demands, or whose own claimed target it doesn't actually
+    overlap, falls back to plain geometry against whatever it really does
+    overlap -- a false or absent tag can never hide real coverage."""
     primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
+    demand_by_id = {d.demand_id: d for d in state.shift_demands}
     for demand in state.shift_demands:
-        overlapping = [
-            (max(a.start_datetime, demand.start_datetime), min(a.end_datetime, demand.end_datetime))
-            for a in primary
-            if a.start_datetime < demand.end_datetime and a.end_datetime > demand.start_datetime
-        ]
+        overlapping = []
+        for a in primary:
+            if not (a.start_datetime < demand.end_datetime and a.end_datetime > demand.start_datetime):
+                continue
+            tagged = demand_by_id.get(a.covers_demand_id)
+            if tagged is not None and tagged.demand_id != demand.demand_id:
+                competes = tagged.start_datetime < demand.end_datetime and tagged.end_datetime > demand.start_datetime
+                tag_is_real = a.start_datetime < tagged.end_datetime and a.end_datetime > tagged.start_datetime
+                if competes and tag_is_real:
+                    continue  # belongs to its own tagged, competing demand instead
+            overlapping.append((max(a.start_datetime, demand.start_datetime), min(a.end_datetime, demand.end_datetime)))
         segments = coverage_segments(demand.start_datetime, demand.end_datetime, overlapping)
         bad_segments = [s for s in segments if s[2] != demand.required_primary_count]
         if bad_segments:
