@@ -24,4 +24,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-T041-B | CODEX | CC | task/ROTA-T041 | 926b00c | CODEX_REPORTED | Audyt Checkpointu B: PASS. Macierz B 14/14. Odtworzono 3 (nie 4) stare porażki T019 + T23-34: wszystkie sklasyfikowane jako STALE_EXPECTATION/STALE_FIXTURE po OWNER-T041-02 i nie blokują PASS. Bez pełnej suity. Raport: `tasks/ROTA-T041/round_01/tests/tests_r4.txt`, commit raportu `86bb3d5`.
