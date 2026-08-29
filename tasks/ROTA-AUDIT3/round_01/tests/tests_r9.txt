@@ -1,0 +1,112 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 9: pomocnicze reguły planowania
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/planning/absence.py
+- rota/planning/eligibility.py
+- rota/planning/shift_catalog.py
+- rota/planning/site_rules.py
+- rota/planning/timeutil.py
+- rota/planning/work_periods.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Sprawdzono wszystkie top-level symbole,
+ich lokalnych callerów oraz produkcyjne użycie w solverze, validatorze,
+constraints i aplikacji. Osobno sprawdzono testy. Nie uruchomiono solvera ani
+testów i nie zmieniono produktu.
+
+WYNIK SKRÓCONY
+- LIVE: kanoniczne liczenie nieobecności, eligibility, generowanie demandów,
+  wykonywanie reguł obiektu oraz cały model WorkPeriod/odpoczynków.
+- TEST_ONLY: stara ścieżka `excused_absence_days_in_month()` wraz z własnym
+  kalendarzem i helperami.
+- UNUSED_RUNTIME: `standard_shift_for()`, `day_only_n_exception_applies()` i
+  `timeutil.rest_hours()`.
+- Brak całego martwego modułu.
+
+1. absence.py — żywy rdzeń i stara ścieżka TEST_ONLY
+
+LIVE:
+- `canonical_hours_in_range()` → balance.py i Analityka;
+- `canonical_site_absence_days()` → eksport grafiku;
+- `DailyAbsenceFact`, szczegółowe typy oraz wspólna reguła pierwszeństwa
+  nieobecności są używane przez te ścieżki i repozytoria.
+
+TEST_ONLY:
+- `excused_absence_days_in_month()` (linia 86);
+- zależne `workday_holiday_map()`, `_absence_dates_by_employee()` oraz
+  `IncompleteAbsenceCalendarError`.
+
+Ta ścieżka jest sprawdzana przez stare testy T018, ale aktualny bilans używa
+utrwalonych `DailyAbsenceFact` i `canonical_hours_in_range()`. Sam plik mówi,
+że dawny płaski model pozostał wyłącznie jako kontrakt testowy po T026.
+
+2. eligibility.py — LIVE
+
+`check_eligibility()` jest wywoływane przy budowaniu slotów solvera.
+`is_all_24h_profile()` jest dodatkowo używane przez constraints i validator.
+Wszystkie klasy i prywatne helpery mają callerów w tych ścieżkach. Nie ma
+drugiego niepodłączonego filtra pracowników.
+
+3. shift_catalog.py — głównie LIVE
+
+LIVE:
+- `generate_catalog_demands()` → assembler;
+- klasyfikacja demandu → solver i validator;
+- normalizacja, długość oraz walidacja StandardShift → API ustawień obiektu,
+  persistence i eligibility;
+- błędy nieprawidłowego/niejednoznacznego katalogu są rzucane na tych
+  ścieżkach.
+
+UNUSED_RUNTIME:
+- `standard_shift_for()` (linia 67) nie ma callera w produkcji ani w testach.
+  Jest węższym wyszukiwaniem zmiany po rodzaju; działające ścieżki używają
+  klasyfikacji i znormalizowanego katalogu.
+
+4. site_rules.py — głównie LIVE
+
+Walidacja wykonywalnych reguł, `rule_allows_assignment()`, wybór reguły
+zezwalającej na noc dla DAY_ONLY oraz filtrowanie reguł po dniu są LIVE przez
+rule_decisions, engine, eligibility, solver i validator.
+
+UNUSED_RUNTIME:
+- `day_only_n_exception_applies()` (linia 187) nie ma callera. Produkcja
+  korzysta bezpośrednio z bogatszej funkcji
+  `day_only_n_exception_authorizing_rule_version_id()`, ponieważ potrzebuje
+  identyfikatora reguły, a nie tylko odpowiedzi tak/nie.
+
+5. timeutil.py — głównie LIVE
+
+`overlap_hours()`, `intervals_overlap()`, `overlaps_date_range()` oraz
+`rolling_windows()` są używane przez constraints, engine, eligibility i
+validator.
+
+UNUSED_RUNTIME:
+- `rest_hours()` (linia 34) jest wywoływane tylko w demonstracyjnym bloku
+  uruchomienia samego modułu. Program, solver i testy z niego nie korzystają;
+  właściwe odpoczynki liczy model WorkPeriod.
+
+6. work_periods.py — LIVE
+
+Wszystkie publiczne funkcje i typy są używane przez co najmniej jedną żywą
+ścieżkę:
+- solver/constraints budują okresy i pary 24h;
+- validator niezależnie sprawdza strukturę, nakładanie, odpoczynek i odpoczynek
+  tygodniowy;
+- ręczna korekta używa tych samych czystych obliczeń;
+- eksport i referencje nieobecności grupują Assignmenty w te same WorkPeriod.
+
+Nie znaleziono osieroconego drugiego modelu okresu pracy w tym module.
+
+WNIOSEK PARTII 9
+Aktualny rdzeń czasu pracy jest osiągalny. Najbardziej czytelnym kandydatem do
+redukcji jest stary płaski kalkulator nieobecności, ponieważ aktualny produkt
+korzysta z utrwalonych referencji i kanonicznych faktów dziennych.
+
+AUDIT-4 powinien jednak sprawdzić, czy jego stare testy nadal chronią potrzebną
+regułę 8h w dni robocze, zanim usunie funkcję. Trzy symbole UNUSED_RUNTIME są
+wąskimi adapterami lub demonstracją; ich usunięcie nie może zmienić żywych
+ownerów wskazanych wyżej.
