@@ -24,3 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| TOOL-AGENT-PEERS-WINDOWS | Codex | Codex (nowa instancja) | docs/agent-peers-windows-feasibility | 6dd99722383f5bf9d56c1c8aae83585f3d73379d | READY_FOR_CODEX | Audyt wykonalności upstream agent-peers-mcp na natywnym Windowsie; tylko read-only, raport: tasks/TOOL-AGENT-PEERS-WINDOWS/round_01/tests/tests_r1.txt |
