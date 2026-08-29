@@ -14,21 +14,22 @@ brief.md/kontrakcie danego Tasku.
   use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
 
 ## WHERE_MAP
-For every nontrivial Task, its architect/auditor MUST add this block to the
-contract before implementation:
+The architect/auditor MAY require `where.py` on a Task by adding this block to
+the contract before implementation — this is a tool the architect/auditor
+reaches for when it's actually useful, not a checkbox filled on every Task:
 
 ```text
 WHERE_MAP:
-- MODE: REQUIRED | OPTIONAL | NOT_APPLICABLE
+- MODE: REQUIRED | OPTIONAL
 - TARGETS: <production file, optionally `--symbol NAME`; one per line>
 - REASON: <one short sentence>
 ```
 
-- Use `REQUIRED` when the Task adds, changes, removes or relocates an owner,
-  helper, endpoint or rule, or makes a DEAD/DUPLICATE/TEST_ONLY/ownership claim.
-- Use `OPTIONAL` for a narrow change whose owners and call path are already
-  frozen. Use `NOT_APPLICABLE` only for documentation/process-only work with no
-  code relation to inspect.
+- Add the block only when the Task adds, changes, removes or relocates an
+  owner, helper, endpoint or rule, or makes a DEAD/DUPLICATE/TEST_ONLY/
+  ownership claim — use `REQUIRED` there. Use `OPTIONAL` for a narrower change
+  where it may still help. Omit the block entirely otherwise; no
+  `NOT_APPLICABLE` boilerplate to fill in on ordinary Tasks.
 - After `TASK_SCOPE` is frozen and before implementation/audit, run
   `python where.py <file>` for each named production file. Run
   `python where.py <file> --symbol <NAME>` for each named or actually touched
