@@ -21,3 +21,4 @@ wpisuje ten, kto ten etap kończy. Nie kasować wierszy — jak coś się kończ
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| TOOL-where-map | CC | CODEX | tooling/where-map | 6fc4778c948a862a7730770cdc04149fcc15ca9f | CODEX_REPORTED | Audyt zakończony. Raport: `tasks/TOOL-where-map/round_01/tests/tests_r1.txt`. Werdykt: nie podpinać obecnej wersji do `task_init.py`; użyteczna tylko jako ręczny podgląd surowych trafień. |
