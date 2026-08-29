@@ -1,0 +1,97 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 8: eksport i baza danych
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/application/schedule_export.py
+- rota/application/errors.py
+- rota/persistence/db.py
+- rota/persistence/schedule_errors.py
+- rota/persistence/schedule_types.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Sprawdzono wszystkie top-level symbole,
+lokalnych callerów oraz produkcyjne wejścia w API/backendzie. Nie generowano
+PDF, nie otwierano bazy i nie uruchomiono testów. Kod produktu pozostał bez
+zmian.
+
+WYNIK SKRÓCONY
+- LIVE: cały podgraf eksportu PDF, właściwe otwieranie/migrowanie bazy oraz
+  wszystkie błędy i typ snapshotu grafiku.
+- TEST_ONLY: `db.init_schema()`.
+- UNUSED_RUNTIME: brak.
+- Duży rozmiar schedule_export.py nie wynika z martwych helperów.
+
+1. schedule_export.py — LIVE
+
+`generate_schedule_pdf()` (linia 48) ma żywy endpoint w
+api/routers/export.py:130. Wszystkie klasy wyniku i wszystkie prywatne helpery
+mają lokalnego callera na ścieżce:
+
+endpoint → złożenie modelu → wybór wersji grafiku → komórki pracy i
+nieobecności → mapowanie kodów → kontrola układu/fontu → render PDF.
+
+Nie znaleziono osieroconego alternatywnego renderera ani helpera o zerowej
+liczbie odwołań. Kod obsługuje wiele błędów widocznych dla użytkownika, m.in.
+brak ustawień wydruku, niepełne pochodzenie grafiku, niejednoznaczną
+nieobecność, brak fontu oraz zbyt dużą tabelę.
+
+Pytanie dla AUDIT-4 nie dotyczy osiągalności. `schedule_export._reconstruct_lineage()`
+powtarza część przejścia po historii wersji, które istnieje również w
+schedule_repository.reconstruct_lineage(). Komentarz w repozytorium wskazuje,
+że eksport zachowuje własny kształt błędu. Trzeba porównać semantykę, zanim
+uzna się to za duplikat.
+
+2. application/errors.py — LIVE
+
+Wszystkie klasy wyjątków są rzucane przez żywe operacje assemblera,
+bootstrapu, kontekstu, mapowania odchyleń, lifecycle, ręcznej korekty albo
+PLAN/REPLAN. Większość jest mapowana w api/errors.py; pozostałe nadal zmieniają
+rzeczywisty wynik swoich ścieżek.
+
+`require_real_date()` jest używane przez manual_edit, plan_ops i
+rule_decisions. Brak nieużywanego błędu lub walidatora.
+
+3. persistence/db.py — głównie LIVE
+
+- `connect()` jest LIVE przez api/deps.py i api/dev_seed.py;
+- `migrate()` jest wywoływane przez każde `connect()` i odpowiada za
+  doprowadzenie bazy do aktualnego schematu;
+- `UnsupportedSchemaVersion` oraz `_final_guard_triggers()` są żywe na tej
+  ścieżce.
+
+TEST_ONLY:
+- `init_schema()` (linia 584) jest jednowierszowym delegatem do `migrate()`.
+  Nie ma produkcyjnego callera; bezpośrednio używa go tylko
+  tests/test_site_profile_persistence.py. Runtime korzysta z `connect()`.
+
+4. schedule_errors.py — LIVE
+
+Wszystkie wyjątki są używane przez schedule_repository,
+schedule_validation lub schedule_lifecycle:
+- brak/duplikat wersji;
+- błędna linia wersjonowania lub snapshot;
+- zmiana pracy już zrealizowanej;
+- edycja wersji nieedytowalnej;
+- wskazanie wersji innego obiektu/miesiąca.
+
+`NonEditableScheduleVersion` jest dodatkowo mapowany na HTTP 409. Nie
+znaleziono wyłącznie testowego typu błędu.
+
+5. schedule_types.py — LIVE
+
+`ScheduleSnapshot` jest rzeczywistym wynikiem
+schedule_repository.get_schedule_snapshot() i jest używany przez aplikacyjne
+operacje planowania, eksportu, walidacji i korekty.
+
+WNIOSEK PARTII 8
+Eksport jest rozbudowany, ale statycznie spójny i osiągalny. AUDIT-3 nie daje
+podstaw do cięcia funkcji na podstawie samej długości pliku. Jedyny nowy symbol
+tylko testowy to historyczny delegat `init_schema()`.
+
+AUDIT-4 powinien sprawdzić dwa konkretne miejsca redukcji odpowiedzialności:
+- własne odtwarzanie linii wersji w eksporcie kontra wspólny repository owner;
+- czy `init_schema()` jest nadal potrzebnym test seamem, skoro `connect()` i
+  `migrate()` stanowią właściwy runtime.
