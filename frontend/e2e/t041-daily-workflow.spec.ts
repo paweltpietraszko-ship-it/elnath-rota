@@ -60,11 +60,16 @@ async function addFiveLocalEmployees(page: import("@playwright/test").Page, site
 }
 
 function currentMonthDateRange(): { from: string; to: string } {
+  // C-FIX2 mechanical correction: toISOString() converts to UTC, which
+  // shifts the date in any zone ahead of UTC (e.g. Europe/Warsaw in DST) --
+  // August became 2026-07-31..2026-08-30 instead of the full month. Format
+  // from local Date fields directly instead.
   const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const isoLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: iso(from), to: iso(to) };
+  return { from: isoLocal(from), to: isoLocal(to) };
 }
 
 // ROTA-T041 C-FIX-03: T41-C04 requires an actual EXTERNAL_SUPPORT roster
@@ -154,11 +159,18 @@ test("C08/C09: preview and download share one export call; a failed regeneration
   await page.locator('[data-diag-action="shift-catalog-save"]').click();
   await expect(page.getByText("Zapisano.")).toBeVisible();
   // Export refuses to generate anything until print settings exist for the
-  // site (PrintSettings.tsx, embedded on the same "Obiekt" tab) -- save the
-  // defaults as-is, same pattern as saveDefaultCatalogRow above. Scoped to
-  // the PrintSettings panel specifically since the shift-catalog panel's
-  // own "Zapisano." banner may still be visible from the save just above.
+  // site (PrintSettings.tsx, embedded on the same "Obiekt" tab) AND at
+  // least one work code interval matches every assignment it will actually
+  // print (api/routers/export.py WORK_CODE_MAPPING_REQUIRED, rota/
+  // application/schedule_export.py::_map_work_code) -- saving the settings
+  // with every interval still null (the form's default) makes export
+  // correctly refuse. The default catalog (SiteShiftCatalog.tsx blankRow())
+  // is a single D 06:00-18:00 row, so only D1 (12h, per
+  // FROZEN_WORK_CODE_HOURS) needs a matching interval here, no N code.
   const printSettingsPanel = page.locator(".create-panel", { hasText: "Ustawienia wydruku" });
+  const d1Row = printSettingsPanel.locator("tr", { hasText: "D1" });
+  await d1Row.locator('input[type="time"]').first().fill("06:00");
+  await d1Row.locator('input[type="time"]').nth(1).fill("18:00");
   await printSettingsPanel.getByRole("button", { name: "Zapisz ustawienia" }).click();
   await expect(printSettingsPanel.getByText("Zapisano.")).toBeVisible();
   await page.locator('[data-diag-action="control-panel-tab-obsada"]').click();
@@ -251,7 +263,8 @@ test("C01-C04: missing target_hours warning reaches the coordinator, survives re
   // available LOCAL employee has a target -- all five, not just empName.
   // EXTERNAL_SUPPORT is deliberately excluded: target_hours is a LOCAL-only
   // concept (OWNER-T041-01), so it must never need one to clear the warning.
-  await page.locator('[data-diag-action="control-panel-tab-obsada"]').click().catch(() => undefined);
+  await page.locator('[data-diag-action="room-nav-control-panel"]').click();
+  await page.locator('[data-diag-action="control-panel-tab-obsada"]').click();
   for (const target of [empName, ...otherNames]) {
     await page.locator('[data-diag-action="roster-open-employee"]').filter({ hasText: target }).click();
     await expect(page.getByRole("heading", { name: "Godziny docelowe" })).toBeVisible();
