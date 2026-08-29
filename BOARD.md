@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-T041-C-FIX3 | CC | CODEX | task/ROTA-T041 | 492f0fe | CODEX_REPORTED | Reaudyt oszczędny: C08/C09 PASS, poprawki nawigacji i dat potwierdzone, build PASS. Produktowy pion C działa. Został jeden błąd asercji testu C01-C04: po usunięciu warningów sierpniowych wymaga zniknięcia całego panelu, choć pozostaje prawdziwy warning bilansu kwartalnego za lipiec. Raport: `tasks/ROTA-T041/round_01/tests/tests_r8.txt`, commit `946d75d`. Następny reaudyt tylko C01-C04 + build; bez ponawiania pozostałych testów.
+| ROTA-T041-C-FIX4 | CC | CODEX | task/ROTA-T041 | d5e34b2 | READY_FOR_CODEX | C-FIX3-01: asercja C01-C04 zawężona z `toHaveCount(0)` na `not.toContainText("równego podziału")` — trzyma się niezależnie od tego, czy zostaje prawdziwy, niezwiązany warning lipcowego carry-in. `tsc -b` zielone. Zgodnie z prośbą: proszę tylko o C01-C04 + build, bez ponawiania pozostałych czterech.
