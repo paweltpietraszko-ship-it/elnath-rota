@@ -1,6 +1,7 @@
 # ROTA-T041 — stabilizacja codziennej pracy z grafikiem
 
-Status: **PROJEKT KONTRAKTU DO SPRAWDZENIA PRZEZ CC — BEZ IMPLEMENTACJI**
+Status: **SKORYGOWANY PO ARCHITECT REVIEW R1 — READY FOR NIEZALEŻNY
+PREIMPLEMENTATION AUDIT — CC READ-ONLY / BEZ IMPLEMENTACJI**
 
 BASE_MAIN_SHA: `a919a8244cc592e6b12f35b9c8e08b40803e07ec`
 
@@ -8,6 +9,9 @@ BASE_MAIN_SHA: `a919a8244cc592e6b12f35b9c8e08b40803e07ec`
 
 - `audit/ROTA-AUDIT1` @ `e67f57b292d7a44e460e693e5c44350da5843315`,
   raport `tasks/ROTA-AUDIT1/round_01/tests/tests_r1.txt`;
+- `tasks/ROTA-T041/ARCHITECT_REVIEW_R1.md` @
+  `9e048b384d8adce72a36b8457d1af0d1d3f327be` — cztery mechaniczne
+  doprecyzowania kontraktu, bez nowego zachowania produktu;
 - decyzje OWNER, Paweł, 2026-08-29, zapisane w sekcji 2;
 - obecne zamrożone kontrakty, w szczególności `arch/spec.md`, ROTA-T012,
   ROTA-T022, ROTA-T037 i ROTA-T040.
@@ -51,6 +55,17 @@ równo pomiędzy wszystkie dostępne osoby LOCAL. Techniczna miara tego wyniku t
 jak najmniejsza różnica pomiędzy największą i najmniejszą liczbą rzeczywistych
 godzin PRIMARY w tej grupie.
 
+Jeżeli choć jedna uczestnicząca, dostępna osoba LOCAL nie ma `target_hours`,
+wektor targetów jest niekompletny. W tym konkretnym planowaniu dotychczasowe
+`TARGET-01` i target-equity **nie uczestniczą w wyborze lepszego kandydata**.
+Zastępuje je opisany wyżej równy podział niezależny od targetów. Gdy targety są
+kompletne, `TARGET-01` i target-equity działają bez zmian.
+
+Nie wolno tworzyć drugiego sposobu liczenia rzeczywistych godzin. Ten sam
+istniejący, kanoniczny wynik `actual PRIMARY hours` ma być używany albo przez
+bilansowanie targetowe, albo przez awaryjny równy podział — zależnie od tego,
+czy wektor targetów jest kompletny.
+
 - Jeżeli twarde ograniczenia pozwalają na pełną równość, wynik ma być równy.
 - Jeżeli urlop, choroba, dyspozycyjność albo inna reguła twarda uniemożliwia
   równość, solver wybiera najmniejszą osiągalną różnicę.
@@ -76,19 +91,24 @@ rzeczywiście zaplanowanej pracy. T041 nie zmienia tej obecnej zasady.
 
 ### OWNER-T041-03 — katalog zmian i nowa wersja robocza
 
-Jeżeli katalog zmian został materialnie zmieniony po utworzeniu bieżącej wersji
-roboczej (WORKING), następne użycie **Plan** nie może planować starego obrazu
-zapotrzebowania.
+T041 zamyka wyłącznie potwierdzony przypadek C-04: bieżący WORKING **nie ma
+żadnych Assignmentów**, a jego zapisane demandy różnią się materialnie od
+demandów generowanych z aktualnego katalogu. Wtedy następne użycie **Plan** nie
+może planować starego obrazu zapotrzebowania.
 
-Ma powstać świeża wersja robocza z zapotrzebowaniami wyliczonymi z aktualnego
-katalogu. Poprzednia wersja i jej zapotrzebowania pozostają w historii bez
-mutowania. Nie powstaje przycisk „Odśwież”.
+Ma powstać świeży WORKING przez istniejące `create_schedule_version`, z
+zapotrzebowaniami wyliczonymi z aktualnego katalogu. Poprzedni WORKING i jego
+zapotrzebowania pozostają w historii bez mutowania. Nie wolno używać
+`replace_working_snapshot()` do podmiany starej wersji. Nie powstaje przycisk
+„Odśwież”.
 
-T041 zamyka potwierdzony przypadek C-04: istniejący WORKING nie ma przypisań i
-ma pusty albo nieaktualny obraz zapotrzebowania. Istniejące zasady ochrony FINAL,
-REALIZED i frozen pozostają bez zmian. Jeżeli wykonawca uzna, że zamknięcie C-04
-wymaga zmiany tych zasad, ma zatrzymać implementację i zgłosić konkretną
-sprzeczność zamiast wymyślać migrację historii.
+Materialną różnicę należy rozpoznać przez porównanie semantycznych pól zapisanych
+demandów z demandami generowanymi obecnie, ignorując wyłącznie identyfikator
+wersji/scope. Nie powstaje fingerprint ani nowe pole w bazie.
+
+WORKING zawierający choć jeden Assignment nie jest w T041 automatycznie
+migrowany na nowy katalog. Taki przypadek wymaga osobnej decyzji OWNER, jeżeli
+wystąpi. Istniejące zasady ochrony FINAL, REALIZED i frozen pozostają bez zmian.
 
 ### OWNER-T041-04 — korekta i wydruk razem
 
@@ -164,6 +184,12 @@ T041 nie może naprawić tego przez ślepe zaufanie do samego
 sprawdzane według rzeczywiście pokrytego czasu, a fałszywy tag nie mógł ukryć
 H24 albo reguł obiektu.
 
+Dla dwóch równoczesnych, niezależnych demandów `covers_demand_id` rozstrzyga,
+który z nich obsługuje dane PRIMARY, a geometria potwierdza, że przypisanie
+rzeczywiście pokrywa wskazany demand. Jedno PRIMARY nie może w tym samym odcinku
+czasu zaspokoić dwóch niezależnych occurrences. Geometria nadal rozpoznaje
+ręczne PRIMARY obejmujące nierównoczesne, sąsiadujące segmenty zgodnie z T022.
+
 Wymagane wyniki:
 
 - **T41-A07:** dwa legalne, nakładające się demandy po jednej osobie i dwie
@@ -176,7 +202,12 @@ Wymagane wyniki:
 - **T41-A11:** zaakceptowane przez ROTA-T022 ręczne PRIMARY obejmujące
   sąsiadujące segmenty nadal jest oceniane według rzeczywistego czasu;
 - **T41-A12:** zabezpieczenie ROTA-T022 dla dwóch połówek H24 i złośliwego tagu
-  pozostaje zielone.
+  pozostaje zielone;
+- **T41-A13:** dwa nakładające się niezależne demandy, dwie osoby PRIMARY, oba
+  Assignmenty geometrycznie przecinają oba demandy, ale oba
+  `covers_demand_id` wskazują ten sam demand — wskazany demand ma obsadę 2/1, a
+  drugi pozostaje bez obsady; geometria nie może sama „przydzielić” drugiej
+  osoby do drugiego demandu.
 
 Brief zamraża wyniki tej macierzy, nie nowy algorytm. Validator pozostaje jednym
 właścicielem COVERAGE-01; nie wolno budować drugiego walidatora w API ani UI.
@@ -252,8 +283,11 @@ korekty i istniejący osadzony fragment `Export`.
 - **T41-C05:** oba skróty nawigacyjne otwierają ten sam ekran i ten sam wybrany
   obiekt/miesiąc;
 - **T41-C06:** wejście przez „Ręczna korekta” pokazuje instrukcję i pozwala
-  wykonać istniejącą korektę przez produkcyjny endpoint; historia wersji działa
-  jak dotychczas;
+  wykonać istniejącą korektę przez produkcyjny endpoint również wtedy, gdy
+  current version jest FINAL. Koordynator może wybrać istniejący przyszły
+  Assignment; istniejące `apply_manual_correction()` tworzy nowy child WORKING,
+  a parent FINAL i jego snapshot pozostają byte-for-byte bez zmian. Nie powstaje
+  drugi backend korekty ani mutacja FINAL;
 - **T41-C07:** wejście przez „Wydruk Grafiku” pokazuje na tym samym ekranie
   część wydruku bez tworzenia osobnego ekranu;
 - **T41-C08:** podgląd PDF i pobranie używają jednego zestawu bajtów z jednego
@@ -273,7 +307,7 @@ nowa lista okien wsparcia.
 | Fallback równego podziału | OWNER-T041-01 + AUDIT C-05 | wynik widoczny dla koordynatora | mała zmiana w istniejącym ownerze fairness/solver; bez targetu zastępczego |
 | Poprawka COVERAGE-01 | spec/T012/T022 + AUDIT C-03 | walidator dziś odrzuca legalny grafik | jeden owner w validatorze; bez walidacji w API/UI |
 | SICK przed PLAN | OWNER-T041-02 + AUDIT C-02 | zapis L4 dziś może skończyć się 500 | rozszerzyć istniejący mechanizm pre-plan; bez kalkulatora i migracji |
-| Świeży WORKING | OWNER-T041-03 + AUDIT C-04 | PLAN używa starego snapshotu | minimalny adapter w plan_ops do istniejącego generatora i lifecycle |
+| Świeży WORKING | OWNER-T041-03 + AUDIT C-04 | PLAN używa starego snapshotu | wyłącznie WORKING bez Assignmentów; minimalny adapter w plan_ops do istniejącego generatora i lifecycle |
 | Ostrzeżenie | OWNER-T041-01 + AUDIT C-05 | koordynator musi wiedzieć o braku danych | wykorzystać istniejące `warnings` i banner; zero nowego pola DTO |
 | Tryb wejścia ekranu | OWNER-T041-04 | dwa skróty mają otwierać tę samą treść | mały stan UI/parametr do istniejącego MonthlyPlanning |
 | Podgląd PDF | OWNER-T041-04 | użytkownik ma obejrzeć dokładnie pobierany plik | zachować jeden istniejący response jako Blob; bez nowego endpointu |
@@ -387,7 +421,7 @@ CC ma sprawdzić kontrakt, nie pisać jeszcze kodu, i odpowiedzieć krótko:
 
 1. Czy każdy punkt da się zrealizować przez wskazanych istniejących ownerów bez
    nowej encji, endpointu, pola DTO albo migracji?
-2. Czy macierz A07–A12 jednocześnie naprawia legalne nakładanie i zachowuje
+2. Czy macierz A07–A13 jednocześnie naprawia legalne nakładanie i zachowuje
    wcześniejsze zabezpieczenia ROTA-T022?
 3. Czy B09–B14 da się zamknąć istniejącym lifecycle dla potwierdzonego pustego
    WORKING bez zmiany FINAL/REALIZED/frozen?
