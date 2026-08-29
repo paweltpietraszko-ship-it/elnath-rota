@@ -1,0 +1,62 @@
+ROTA-T041 — Checkpoint C, reaudyt fixture round 3
+Data: 2026-08-29
+
+AUDYTOWANY EXACT SHA
+492f0fe0b20d5163d1b3fc85e63b74f98e23efe9
+
+WERDYKT
+FAIL — produktowy pion Checkpointu C jest potwierdzony, ale jeden warunek w
+teście C01-C04 nadal błędnie ocenia poprawny wynik. Nie znaleziono nowego
+defektu produktu.
+
+ZAKRES
+- jedna próba 5 testów E2E, 1 worker, bez retry;
+- jedna próba izolowana C06 w celu rozstrzygnięcia jednorazowego zatrzymania;
+- frontend build (TypeScript + Vite).
+
+Bez pełnej suity repozytorium — zgodnie z poleceniem OWNER oszczędzającym limit
+i dlatego, że obowiązkowy test C nadal wymaga jednej korekty.
+
+WYNIKI
+- C05: PASS.
+- C06/C07/C10/C11: PASS.
+- C08/C09: PASS — D1 zostało poprawnie skonfigurowane, ten sam PDF jest
+  podglądany i pobierany, a błąd ponowienia usuwa stary podgląd.
+- C06 FINAL: pierwsza próba zatrzymała się bez komunikatu podczas dodawania
+  drugiej osoby; izolowane powtórzenie PASS w 3,4 s. Brak deterministycznego
+  REPRO, więc nie jest findingiem.
+- C01/C02/C04: zachowanie potwierdzone. Nazwy LOCAL są czytelne, warning trwa po
+  odświeżeniu, a prawdziwy EXTERNAL_SUPPORT nie jest w nim wymieniany.
+- build: PASS.
+
+FINDING C-FIX3-01 — C01-C04 wymaga zniknięcia całego panelu ostrzeżeń, mimo że
+pozostaje inne, prawdziwe ostrzeżenie z poprzedniego miesiąca
+
+TRACE
+- tasks/ROTA-T041/brief.md:273-274 — po uzupełnieniu targetów ma zniknąć
+  komunikat o brakującym targecie objęty T41-C01, a solver ma wrócić do
+  bilansowania targetowego.
+- kontrakt nie nakazuje ukrywania innych prawdziwych ostrzeżeń.
+
+OWNERSHIP
+- frontend/e2e/t041-daily-workflow.spec.ts:281 sprawdza, że znika cały element
+  `month-warnings`, zamiast sprawdzić zniknięcie komunikatów bieżącego miesiąca.
+
+REPRO NA EXACT SHA
+- po wpisaniu target_hours wszystkim 5 LOCAL i ponownym PLAN zniknęło pięć
+  polskich komunikatów o braku targetu dla sierpnia 2026;
+- pozostał istniejący komunikat o braku danych potrzebnych do bilansu
+  kwartalnego dla lipca 2026, np.:
+  `missing target_hours for employee ..., month 2026-07-01: quarter carry-in
+  reset to 0`;
+- dlatego poprawny panel nadal istnieje, a `toHaveCount(0)` pada.
+
+DEFECT_GATE
+- TRACE: spełniony dla testu wymaganego przez Task.
+- OWNERSHIP: spełniony — błędna asercja jest w teście E2E.
+- REPRO: spełniony na exact SHA.
+
+NASTĘPNY REAUDYT
+Tylko C01-C04 oraz build po zawężeniu asercji do warningu bieżącego miesiąca
+(albo po świadomym uzupełnieniu także brakujących danych poprzedniego miesiąca).
+Nie ma podstaw do ponownego uruchamiania pozostałych czterech przypadków.
