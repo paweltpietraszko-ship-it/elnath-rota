@@ -1,0 +1,122 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 4: odczyty i funkcje pomocnicze aplikacji
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/application/analytics_read.py
+- rota/application/availability_matrix.py
+- rota/application/backup.py
+- rota/application/balance_read.py
+- rota/application/context.py
+- rota/application/memory_read.py
+- rota/application/store.py
+- rota/application/training.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Dla każdego top-level symbolu sprawdzono
+definicję, lokalnych callerów, produkcyjne importy/endpointy oraz osobno użycie
+w testach i trwałych kontraktach. Nie uruchomiono testów i nie zmieniono kodu
+produktu.
+
+KLASY
+- LIVE: istnieje osiągalna ścieżka produkcyjna.
+- TEST_ONLY: repozytorium wywołuje symbol tylko w testach.
+- UNUSED_RUNTIME: brak produkcyjnego i testowego callera.
+
+TEST_ONLY i UNUSED_RUNTIME nie są zgodą na usunięcie. Trwały kontrakt może
+oznaczać niedokończone podłączenie zamiast zbędnego kodu.
+
+WYNIK SKRÓCONY
+- LIVE: analityka, bieżąca macierz dostępności, kopie/diagnostyka, kontrola
+  kontekstu koordynatora oraz używane odczyty historii i decyzji.
+- TEST_ONLY: `availability_history`, `quarter_balance`, `open_store`, dwa
+  węższe odczyty pamięci oraz wejście realizacji szkolenia z jego helperami.
+- UNUSED_RUNTIME: dwa węższe odczyty pamięci reguł.
+- Nie znaleziono podstaw do klasy DEAD ani do usuwania kodu.
+
+1. analytics_read.py — LIVE
+
+`analytics_for_site_month()` (linia 167) jest wywoływane przez endpoint
+api/routers/analytics.py:60, a jego typy i helpery budują rzeczywistą odpowiedź
+ekranu Analityka. Wszystkie top-level symbole modułu są LIVE.
+
+2. availability_matrix.py — częściowo LIVE, częściowo TEST_ONLY
+
+- `employee_availability_matrix()` (linia 53) i
+  `EmployeeAvailabilityMatrix` są LIVE przez endpoint obsady
+  api/routers/roster.py:194.
+- `availability_history()` (linia 75) nie ma produkcyjnego callera. Jest
+  wywoływane w tests/test_t011_a_application_entry_points.py:179,183 i ma
+  trwały kontrakt T011-A. Klasa osiągalności: TEST_ONLY, nie DEAD.
+
+3. backup.py — LIVE
+
+- `backup_database()` → api/routers/backup.py:36;
+- `build_diagnostic_zip()` → api/routers/backup.py:50.
+
+4. balance_read.py — TEST_ONLY
+
+`quarter_balance()` (linia 16) nie ma produkcyjnego callera. Wywołują ją testy
+T011-D, T019 i T023. Żywa Analityka nie deleguje do tej funkcji; korzysta ze
+swojego zbiorczego odczytu. Funkcja ma jawne kontrakty T011-D/T019, dlatego
+wynik brzmi TEST_ONLY, a nie DEAD.
+
+5. context.py — LIVE
+
+`require_active_coordinator_context()` (linia 20) jest wspólną bramką zapisu
+dla bootstrap, durable_inputs, lifecycle_ops, manual_edit, plan_ops i
+rule_decisions. Nie jest osieroconym adapterem.
+
+6. memory_read.py — mieszana osiągalność
+
+LIVE:
+- `rules_history_for_site()` → api/routers/history.py:124;
+- `material_action_history()` → history.py:90;
+- `material_action_detail()` → history.py:103;
+- `current_decision_required()` → api/routers/decisions.py:69 oraz
+  api/routers/schedule.py:249;
+- dataclasses i `_to_summary()` są używane przez powyższe odczyty.
+
+TEST_ONLY:
+- `effective_rules_for_month()` (linia 22) — testy T009/T018;
+- `decision_chain_for_rule_family()` (linia 32) — testy T011 i pionowe.
+
+UNUSED_RUNTIME:
+- `provenance_for_rule_version()` (linia 36);
+- `decision_for_rule()` (linia 40).
+
+Dwa ostatnie symbole nie mają callera także w testach. Są jednak nazwane w
+arch/T021_spec.md:650-658, więc ten raport nie klasyfikuje ich jako DEAD i nie
+zaleca usunięcia. AUDIT-4 powinien ustalić, czy to niepodłączone elementy
+zaakceptowanego odczytu, czy zbędne aliasy wobec żywego `rules_history_for_site`.
+
+7. store.py — TEST_ONLY
+
+`open_store()` (linia 18) nie jest używane przez uruchamiany backend ani API.
+Ma wielu callerów w testach T011 i testach pionowych oraz jawny kontrakt
+T011-A. Produkcyjny runtime otwiera bazę inną ścieżką. Klasa: TEST_ONLY.
+
+8. training.py — TEST_ONLY jako cały osiągalny podgraf
+
+`mark_training_realized()` (linia 122) nie ma produkcyjnego callera ani
+endpointu. Jest wywoływane w testach T009/T016/T019b. Wszystkie prywatne
+helpery i `save_site_membership()` są osiągalne wyłącznie przez to wejście.
+
+To potwierdza wcześniejszy wynik AUDIT-1 na starszym SHA: kontrakty T019b i
+T021 opisują realizację szkolenia jako skutek ręcznej korekty, lecz żywy router
+ręcznej korekty wywołuje tylko `apply_manual_correction`, `freeze_or_unfreeze`
+i `mark_not_worked`. Klasa statyczna pozostaje TEST_ONLY. Sam ten remanent nie
+nadaje klasy DEFECT, bo nie wykonuje pionowego odtworzenia zachowania.
+
+WNIOSEK PARTII 4
+Ta partia znalazła rzeczywisty dług osiągalności, ale nie dowód, że należy go
+usunąć:
+- pięć publicznych powierzchni ma tylko callerów testowych;
+- dwa węższe odczyty pamięci nie mają żadnego callera;
+- wejście szkoleniowe wraz z helperami nie jest podłączone do runtime.
+
+Przed refaktorem AUDIT-4 musi odróżnić trzy sytuacje: brakujące podłączenie
+zaakceptowanej funkcji, zachowany test seam oraz zbędny alias istniejącego
+odczytu. Nie usuwać ani nie dopisywać endpointów na podstawie samego AUDIT-3.
