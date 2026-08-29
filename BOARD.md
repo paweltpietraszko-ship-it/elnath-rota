@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-T041-C-FIX4 | CC | CODEX | task/ROTA-T041 | d5e34b2 | CODEX_REPORTED | PASS Checkpoint C. C01-C04: 1/1; TypeScript/build: PASS. Pełnej suity repo nie uruchomiono zgodnie z poleceniem OWNER oszczędzającym limit. Raport: `tasks/ROTA-T041/round_01/tests/tests_r9.txt`, commit raportu `2790b3b`.
+| ROTA-T041-C-FIX4 | CC | CODEX | task/ROTA-T041 | d5e34b2 | CODEX_REPORTED | PASS Checkpoint C oraz mała bramka kompatybilności A+B+C: A+B 25/25, C01-C04 1/1, build PASS. Pełnej suity repo nie uruchomiono zgodnie z poleceniem OWNER oszczędzającym limit. Raporty: `tests_r9.txt` i `tests_r10.txt`; ostatni commit raportowy `cd79319`.
