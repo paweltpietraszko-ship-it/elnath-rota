@@ -1,0 +1,114 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 14: frontend
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- wszystkie pliki frontend/src/**/*.ts i frontend/src/**/*.tsx;
+- frontend/src/App.css oraz deklaracje kompilatora w vite-env.d.ts;
+- powiązania z frontend/vite.config.ts i testami e2e wyłącznie tam, gdzie
+  rozstrzygały, czy kod jest produkcyjny, czy TEST_ONLY.
+
+METODA
+Od wejścia main.tsx prześledzono importy ekranów, komponentów podrzędnych,
+klienta API i diagnostyki. Dla metod obiektu `api` oraz eksportowanych helperów
+sprawdzono wszystkich callerów w frontend/src, a dla haków diagnostycznych także
+jawne użycie w frontend/e2e. Nie uruchomiono builda, serwera ani Playwrighta.
+Nie zmieniono kodu produktu.
+
+`where.py` nie istnieje na audytowanym SHA. Użyto statycznego przeglądu importów,
+`git grep` i mechanicznego zliczenia użyć symboli, a następnie przeczytano kod
+każdego zgłoszonego kandydata.
+
+WYNIK SKRÓCONY
+- LIVE: główna aplikacja, wszystkie ekrany, komponenty osadzone, style,
+  tłumaczenie kompletności, wspólny klient HTTP i produkcyjna diagnostyka.
+- TEST_ONLY: diagnostics/TestHooks.tsx i obsługujący go `recordNoop()`.
+- UNUSED_RUNTIME: `api.getPrecheck()` wraz z interfejsem `PrecheckOut`;
+  `diagnostics.buffer.getEvents()`;
+  `diagnostics.tracking.findEventByActionId()`.
+- BUILD_ONLY: vite-env.d.ts.
+- Nie znaleziono odłączonego ekranu ani drugiego, nieosiągalnego drzewa
+  nawigacji.
+
+1. Ekrany i nawigacja — LIVE
+
+main.tsx uruchamia App. App przełącza Workspace/Room/EmployeeDetail, a Room
+rejestruje wszystkie widoczne pozycje nawigacji. Każdy plik w screens ma
+produkcyjnego rodzica:
+
+- Workspace i Room — App;
+- Overview, ControlPanel, MonthlyPlanning, Decisions, History i Analytics — Room;
+- EmployeeDetail — ścieżka pracownika obsługiwana przez Room;
+- SiteShiftCatalog i PrintSettings — ControlPanel;
+- Export — osadzony w MonthlyPlanning.
+
+Skróty „Planowanie miesiąca”, „Ręczna korekta” i „Wydruk Grafiku” świadomie
+prowadzą do jednego komponentu MonthlyPlanning. Nie ma pozostawionych trzech
+konkurencyjnych ekranów.
+
+App.css jest importowany przez App i zawiera style używane przez to drzewo.
+vite-env.d.ts nie jest kodem runtime: deklaruje stałe Vite/TypeScript używane
+podczas kompilacji.
+
+2. Klient API — jeden nieużywany wrapper
+
+Wszystkie metody `api` poza jedną mają callerów w osiągalnych ekranach, również
+te zapisane w kodzie wieloliniowo (np. listSites, getShiftCatalog,
+getPrintSettings, getAnalytics i getDecisionMonths).
+
+UNUSED_RUNTIME:
+
+- frontend/src/api/client.ts:144 — `PrecheckOut`;
+- frontend/src/api/client.ts:526 — `api.getPrecheck()`.
+
+W repozytorium nie ma wywołania frontendowego `getPrecheck`. Ekran planowania
+korzysta z planMonth/getMonthView i odpowiedzi samego PLAN. Backendowy endpoint
+prechecku pozostaje osobno osiągalnym endpointem API, więc ten wynik dotyczy
+wyłącznie niepodłączonego wrappera i jego typu w kliencie, nie uprawnia do
+usunięcia endpointu backendowego.
+
+3. Diagnostyka — LIVE z jawną częścią testową
+
+Produkcyjnie osiągalne są: ErrorBoundary, globalne handlery błędów, bufor
+zdarzeń, śledzenie kliknięć i requestów, sanitizacja ścieżek oraz pobranie
+raportu lokalnego lub dołączenie go do diagnostyki backendu.
+
+TEST_ONLY:
+
+- frontend/src/diagnostics/TestHooks.tsx;
+- frontend/src/diagnostics/tracking.ts:168 — `recordNoop()` używany tylko przez
+  TestHooks.
+
+App importuje TestHooks, ale renderowanie jest chronione stałą
+`__E2E_TEST_HOOKS__`, ustawianą przez vite.config wyłącznie dla uruchomień e2e.
+Selektory wszystkich tych haków mają rzeczywistych callerów w testach
+frontend/e2e/diagnostics*.spec.ts. To celowy osprzęt testowy, nie martwy ekran.
+
+UNUSED_RUNTIME (bez callerów także w testach repozytorium):
+
+- frontend/src/diagnostics/buffer.ts:82 — `getEvents()`;
+- frontend/src/diagnostics/tracking.ts:180 — `findEventByActionId()`.
+
+Oba są eksportowane, ale żaden kod produktu ani test nie importuje ich lub nie
+wywołuje. Wewnętrzna funkcja `findLastByActionId()` pozostaje LIVE, bo korzysta
+z niej działający mechanizm tracking.ts.
+
+4. Kandydaci do AUDIT-4, nie finding DUPLICATE
+
+- Overview, MonthlyPlanning, Analytics i Export powtarzają własne helpery
+  bieżącego miesiąca, etykiet polskich miesięcy i przesuwania dat. Mogą być
+  drobnym wspólnym helperem albo świadomą lokalnością ekranów; sam podobny kod
+  nie dowodzi konkurencyjnego ownera.
+- Kilka ekranów powtarza schemat `useEffect -> loading/error -> api`. To zwykły
+  wzorzec React, nie dowód zbędnej warstwy.
+- Produkcyjna diagnostyka jest rozbita na buffer/tracking/report/handlers.
+  Wszystkie te pliki mają rozłączne obowiązki i callerów. Liczba plików sama w
+  sobie nie uzasadnia konsolidacji.
+
+WNIOSEK PARTII 14
+Frontend nie ma odłączonych ekranów ani alternatywnej nawigacji pozostawionej
+po konsolidacji. Są trzy małe, bezpieczne do późniejszej oceny pozostałości
+symboliczne oraz jawny osprzęt TEST_ONLY. Ten remanent nie ocenia poprawności UX
+i nie daje podstawy do usuwania backendowego prechecku.
