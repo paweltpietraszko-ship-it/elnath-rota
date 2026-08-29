@@ -16,10 +16,11 @@ Statusy (dokładnie cztery, nic więcej):
 - `OWNER_DECISION_NEEDED` — audyt utknął na decyzji właściciela.
 
 Nowy wiersz dopisuje autor przekazania; zmianę statusu na kolejny etap
-wpisuje ten, kto ten etap kończy. Nie kasować wierszy — jak coś się kończy
-(merge/decyzja), zostawić ostatni status jako zamknięty zapis.
+wpisuje ten, kto ten etap kończy. Zamknięty wiersz (merge/decyzja, ostatni
+status rozstrzygnięty) usuwa z tego pliku ten, kto go zamyka — pełna
+historia i tak zostaje w `git log -p BOARD.md`, więc nic nie ginie, tylko
+plik nie rośnie w nieskończoność (2026-08-29, OWNER_CORRECTED: wcześniejsza
+wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| TOOL-where-map | CC | CODEX | tooling/where-map | 6fc4778c948a862a7730770cdc04149fcc15ca9f | CODEX_REPORTED | Audyt zakończony. Raport: `tasks/TOOL-where-map/round_01/tests/tests_r1.txt` na branchu `tooling/where-map` (commit raportu `655db5a`). Werdykt: nie podpinać obecnej wersji do `task_init.py`; użyteczna tylko jako ręczny podgląd surowych trafień.
-| TOOL-where-map-r2 | CC | CODEX | tooling/where-map | 3676f3557c0bce798d42d5c1e0bdad36d87adaaa | CODEX_REPORTED | Reaudyt zakończony. Raport: `tasks/TOOL-where-map/round_01/tests/tests_r2.txt` na branchu `tooling/where-map` (commit raportu `4c03284`). PASS do opcjonalnego ręcznego użycia przez Codex; nadal bez automatycznego podpinania do `task_init.py`.
