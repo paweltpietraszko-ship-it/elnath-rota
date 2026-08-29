@@ -1,0 +1,120 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 15: narzędzia i testowe generatory
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- root: guard.py, task_init.py, session_log.py, conftest.py i konfiguracja;
+- benchmarks/**/*.py;
+- tests/property/coordinator_simulator.py i jego pytestowy sterownik;
+- archiwalny POC oraz skrypty zapisane w historycznych katalogach tasks/**
+  tylko na poziomie ich roli w repozytorium.
+
+METODA
+Sprawdzono jawne komendy w CLAUDE.md/README, wejścia `__main__`, importy z tests,
+konfigurację pytest i powiązania modułów benchmarków. Nie uruchomiono benchmarku,
+Symulatora ani pełnej suity. Nie zmieniono kodu produktu.
+
+WYNIK SKRÓCONY
+- PROCESS_LIVE: guard.py, task_init.py, session_log.py oraz wcześniej opisany
+  backend.py.
+- TEST_SUPPORT: conftest.py, tests/support/** i narzędzia w historycznych
+  katalogach tasków.
+- TEST_OR_CLI_ONLY: cały pakiet benchmarks/**.
+- ACCEPTED_REPORTING_TOOL: tests/property/coordinator_simulator.py wraz ze
+  sterownikiem test_coordinator_simulator.py.
+- ARCHIVE_REFERENCE: POC z ELNATH_WARD_HANDOFF_FINAL_2026-08-10.
+- Nie znaleziono drugiego runtime produktu poza rota/**, api/** i frontend/src.
+
+1. Narzędzia procesu — osiągalne z CLI
+
+CLAUDE.md wskazuje konkretne komendy dla:
+
+- guard.py — zamrożenie i kontrola arch/spec.md;
+- task_init.py — utworzenie katalogu Tasku i zapis bazowego SHA;
+- session_log.py — dopisanie rekordu do log/session.txt;
+- backend.py — mechaniczna bramka dostawy.
+
+Ich funkcje pomocnicze mają callerów w tych wejściach CLI. Brak importu z
+aplikacji jest prawidłowy: to narzędzia workflow, nie kod serwera.
+
+conftest.py i tests/support/** są osiągalne wyłącznie podczas testów. Skrypty
+reproducerów i renderowania w tasks/** są zachowanym materiałem dowodowym
+konkretnych rund, nie alternatywnymi wejściami produktu.
+
+2. Stare benchmarki — nie martwe, ale odrzucone jako dowód produktowy
+
+Pakiet benchmarks/** jest osiągalny:
+
+- rota_stress ma komendę opisaną w README i test
+  tests/test_rota_stress_benchmark.py;
+- real_object i wszystkie jego moduły są importowane przez
+  tests/test_real_object_benchmark.py oraz starsze fixture'y T009;
+- manual_audits ma własny wrapper tests/test_manual_audits.py.
+
+Nie wolno więc sklasyfikować tych plików jako DEAD. Są TEST_OR_CLI_ONLY.
+
+Jednocześnie obowiązuje jawna decyzja OWNER z tej pracy: benchmarki dobierające
+nierealistyczną liczbę pracowników oraz dawny generator nie są miarodajnym
+oracle działania aplikacji; tylko Symulator Koordynatora daje użyteczny obraz
+rzeczywistego przebiegu. W konsekwencji zielony wynik tych testów nie jest
+dowodem, że grafik jest praktycznie dobry.
+
+ROZJAZD WORKFLOW/DOKUMENTACJI:
+
+- README.md:11-19 nadal reklamuje rota_stress jako „Automatyczny benchmark
+  PlanningEngine” bez ostrzeżenia, że OWNER odrzucił go jako dowód realnego
+  doboru obsady;
+- tests/property/coordinator_simulator.py:5-6 nadal mówi, że rolę oceny
+  poprawności solvera zachowuje benchmarks/REAL_OBJECT_BENCHMARK.md;
+- pełny pytest nadal zbiera test_real_object_benchmark.py,
+  test_rota_stress_benchmark.py i test_manual_audits.py.
+
+To wyjaśnia część rozbieżności „1100 zielonych testów” kontra problem widoczny
+ręcznie: licznik pełnej suity zawiera obszerne klasy testów, którym OWNER nie
+przypisuje już wartości jako oracle realnego grafiku. Nie jest to defekt
+produktu ani podstawa do automatycznego usunięcia plików; jest to materiał do
+uporządkowania w planie testów/AUDIT-4.
+
+3. Symulator Koordynatora — osobne, osiągalne narzędzie raportujące
+
+tests/property/test_coordinator_simulator.py jest zbierany przez pytest i
+prowadzi przypadki przez TestClient, produkcyjne endpointy i bazę SQLite.
+Początkowa obsada jest wyliczana z obiektu, targety są ustawiane wejściem
+koordynatora, a dodatkowa osoba pojawia się reaktywnie dopiero po rzeczywistym
+DECISION_REQUIRED.
+
+Zgodnie z jego kontraktem narzędzie raportuje przebieg i oblewa wyłącznie przy
+wyjątku/5xx. Nie twierdzi samo, że sprawiedliwość albo decyzja solvera jest
+produktowo prawidłowa. To ograniczenie powinno pozostać jawne.
+
+EFEKT UBOCZNY TESTU DO PÓŹNIEJSZEJ OCENY:
+
+- tests/property/test_coordinator_simulator.py zapisuje raport bezpośrednio do
+  śledzonej ścieżki tasks/ROTA-T038/round_01/tests/simulator_report.md;
+- liczba seedów może zostać zmieniona przez ROTA_SIM_SEEDS;
+- zwykłe uruchomienie pełnego pytest może więc nadpisać historyczny artefakt
+  T038 inną zawartością.
+
+To nie zmienia aplikacji, ale miesza wykonanie testów z trwałym dowodem dawnego
+Tasku. AUDIT-4 powinien zdecydować, czy raport ma trafiać do katalogu
+tymczasowego/nowego artefaktu uruchomienia, bez osłabiania samego Symulatora.
+
+4. Materiały archiwalne — nie runtime
+
+ELNATH_WARD_HANDOFF_FINAL_2026-08-10/05_elnath_rota_cp_sat_poc.py jest wymieniony
+wyłącznie przez dokument startowy i manifest SHA tego zamkniętego handoffu. Nie
+jest importowany przez produkt ani obecną suitę. To ARCHIVE_REFERENCE, nie
+kandydat do przypadkowego „podłączenia”.
+
+Grafiki/**, diffs/**, task_ROTA-T026_diff.txt, Plan.txt, dokumenty arch/** i
+tasks/** są danymi referencyjnymi, kontraktami lub historią procesu, a nie
+kodem runtime.
+
+WNIOSEK PARTII 15
+Repozytorium nie ukrywa kolejnego runtime programu. Największy rozjazd tej
+partii nie polega na martwym kodzie: stare benchmarki są nadal aktywne w pełnej
+suicie i dokumentacji mimo utraty zaufania OWNER. Należy przestać przedstawiać
+ich zieleń jako dowód poprawności realnego grafiku, nie usuwając ich
+mechanicznie na podstawie samego remanentu.
