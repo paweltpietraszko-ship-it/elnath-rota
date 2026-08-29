@@ -1,0 +1,97 @@
+ROTA-AUDIT3 — statyczny remanent osiągalności, partia 5: konfiguracja i reguły
+Data: 2026-08-29
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+
+ZAKRES
+- rota/application/bootstrap.py
+- rota/application/deviation_mapping.py
+- rota/application/durable_inputs.py
+- rota/application/rule_decisions.py
+
+METODA
+`where.py` nie istnieje na tym SHA. Użyto listy symboli, `git grep`, odczytu
+routerów i lokalnych wywołań. Produkcyjne użycie sprawdzono oddzielnie od
+testów i dokumentów. Nie uruchomiono testów i nie zmieniono produktu.
+
+WYNIK SKRÓCONY
+- LIVE: wszystkie produkcyjne komendy konfiguracji obiektu, pracowników,
+  dostępności, reguł, kalendarza, targetów i wydruku.
+- TEST_ONLY: cztery odczyty bootstrap oraz trzy komendy durable_inputs.
+- UNUSED_RUNTIME: brak nowych symboli.
+- Nie znaleziono podstaw do klasy DEAD ani DUPLICATED_PATH.
+
+1. bootstrap.py — mieszana osiągalność
+
+LIVE:
+- `bootstrap_or_resume_coordinator_context()` → api/routers/bootstrap.py:110,157;
+- `coordinator_context_completeness()` → bootstrap router:51;
+- `active_sites_for_coordinator()` i `all_sites_for_coordinator()` → bootstrap
+  router:77-78;
+- wspólne helpery kontroli identyfikatorów, aktywnego kontekstu, kompletności
+  obiektu i zapisu konfiguracji mają callerów na tych ścieżkach.
+
+TEST_ONLY:
+- `month_plan_readiness()` (bootstrap.py:321);
+- `current_roster()` (linia 358);
+- `active_coordinators()` (linia 367);
+- `all_coordinators()` (linia 372).
+
+Cztery funkcje nie mają produkcyjnego callera na audytowanym SHA. Są używane
+w testach T010/T011. T021 jawnie wycofał ekran zarządzania kontami
+koordynatorów, natomiast `month_plan_readiness` i `current_roster` mają starsze
+kontrakty. Klasa osiągalności to TEST_ONLY; nie jest to zgoda na usunięcie.
+
+2. deviation_mapping.py — LIVE
+
+`materialize_deviations()` (linia 73) jest używane przez lifecycle_ops.py:41 i
+manual_edit.py:312. `category_for_rule()` oraz prywatny helper budują wynik tej
+żywej funkcji. Brak osieroconej drugiej ścieżki mapowania w tym module.
+
+3. durable_inputs.py — głównie LIVE, trzy komendy TEST_ONLY
+
+LIVE przez zarejestrowane routery:
+- `add_external_support_window`, `append_availability`, `update_employee`,
+  `update_membership`, `set_target_hours`, `set_calendar_day` →
+  api/routers/durable_inputs.py;
+- `save_print_settings` → api/routers/export.py:122;
+- `update_site_profile` → api/routers/site_profile.py:134;
+- `update_site` → api/routers/bootstrap.py:94.
+
+Prywatne helpery mają callerów w powyższych komendach albo w niżej wymienionej
+kontraktowej korekcie reżimu.
+
+TEST_ONLY:
+- `update_coordinator()` (durable_inputs.py:508);
+- `update_association()` (linia 524);
+- `correct_site_planning_regime()` (linia 540).
+
+Pierwsze dwie operacje są wywoływane przez testy T011-C, ale T021 nie daje im
+ekranu. Korekta reżimu ma kontrakt T023b i testy T023b, lecz nadal nie ma
+produkcyjnego endpointu. To ten sam wynik, który AUDIT-1 uzyskał na starszym
+SHA — brak został utrzymany, nie naprawiony ani pogłębiony.
+
+4. rule_decisions.py — LIVE
+
+Pięć komend ma bezpośrednie endpointy w api/routers/rule_decisions.py:
+- `create_employee_shift_unavailability()` → linia 52;
+- `create_employee_weekday_unavailability()` → linia 73;
+- `create_day_only_n_exception()` → linia 93;
+- `update_employee_matrix_rule_period()` → linia 112;
+- `end_employee_matrix_rule_early()` → linia 130.
+
+Wszystkie prowadzą przez wspólne `record_structured_rule_decision()`. Prywatne
+helpery mają callerów w tym podgrafie. Nie ma drugiego, niepodłączonego zestawu
+komend reguł pracownika.
+
+WNIOSEK PARTII 5
+Na obecnym SHA nadal istnieje siedem publicznych operacji osiągalnych tylko z
+testów. Najbardziej istotna różnica jest produktowa, nie techniczna:
+- zarządzanie kontami koordynatorów zostało świadomie usunięte z UI;
+- korekta reżimu obiektu ma osobny zaakceptowany kontrakt, ale brak wejścia;
+- gotowość miesiąca i stary odczyt obsady są omijane przez obecne ekrany.
+
+AUDIT-4 powinien porównać te umowy z aktualnymi ekranami i wskazać dla każdej
+pozycji: brakujące podłączenie, świadomie zachowany test seam albo zbędna
+powierzchnia. AUDIT-3 nie autoryzuje dopisywania endpointów ani usuwania kodu.
