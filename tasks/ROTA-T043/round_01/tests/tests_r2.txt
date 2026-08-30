@@ -1,0 +1,55 @@
+ROTA-T043 — KOREKTA RAPORTU FALSYFIKACJI PO OWNER_CORRECTED
+
+Poprzedni raport: 69d3ee8319177153e192012a87baf8b6e82af9c8
+Audytowany kontrakt: 4bfa8747d3f83b6ac37f8b673e6b09fe65121558
+Branch: task/ROTA-T043
+Data: 2026-08-30
+
+OWNER_CORRECTED
+
+T43-PRE-01 z tests_r1.txt zostaje wycofane jako nadmiar zakresu audytora.
+
+Program służy do tworzenia grafiku dla obiektu, a nie do prowadzenia modułu
+kadrowego obejmującego współdzielenie pracowników między obiektami. Symulator
+ma generować wiele różnych, niezależnych obiektów i oceniać każdy grafik w
+granicach jego własnej obsady. Nie ma tworzyć wspólnych pracowników między Site,
+budować cross-Site portfela ani dodawać testów cross-Site.
+
+Fakt, że obecny backend posiada mechanizmy cross-Site, nie upoważnia Codexa do
+rozszerzenia T043. Istniejącego zachowania produktu nie zmieniamy w tym Tasku;
+ewentualne usunięcie lub przebudowa byłaby osobną, jawną decyzją OWNERA.
+
+SKUTEK DLA KONTRAKTU T043
+
+- brief:100 (osobna SQLite :memory: dla każdego obiektu) jest poprawne;
+- brief:208 należy rozumieć jako 20 niezależnych przypadków obiektu, nie jeden
+  kadrowy świat 20 Site;
+- nie potrzeba wspólnej bazy, wspólnych employee_id ani kontroli kolizji
+  cross-Site;
+- punkt 1 sekcji „MINIMALNA DECYZJA PRZED IMPLEMENTACJĄ” z tests_r1.txt jest
+  zamknięty decyzją OWNERA i nie wraca jako warunek PASS.
+
+POZOSTAŁY WYNIK R1
+
+Pozostałe ustalenia nie dotyczą modułu kadrowego i pozostają do korekty/review:
+
+1. produkcyjne validate() nie może być przedstawiane jako niezależny dowód
+   zgodności z całym Kodeksem pracy;
+2. kalendarz świąt i oczekiwany target potrzebują niezależnej, zamrożonej
+   fixture, żeby generator nie sprawdzał sam siebie;
+3. „porównywalne godziny” potrzebują wykonywalnego kryterium dla prostych
+   przypadków; przy złożonych ograniczeniach sam raport nie jest werdyktem;
+4. automatyczny EXTERNAL jest testową ścieżką pomocy i nie jest dowodem
+   produkcyjnego ręcznego dodania LOCAL; trzeba zachować istniejący porządek
+   zapisów decision-link;
+5. jeżeli T043 ma potwierdzać kwartalne rozliczanie godzin, potrzebuje jednego
+   przebiegu wielomiesięcznego dla tego samego obiektu. To jest bilans grafiku,
+   nie zarządzanie pracownikiem między obiektami.
+
+WERDYKT PO KOREKCIE
+
+WYMAGA KOREKTY PRZED IMPLEMENTACJĄ — ale NIE z powodu cross-Site. Zakres jest
+mniejszy niż w R1. Nie zmieniono briefu ani kodu produktu i nie uruchamiano
+testów.
+
+KONIEC RAPORTU
