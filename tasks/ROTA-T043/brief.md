@@ -1,6 +1,6 @@
 # ROTA-T043 — Wiarygodny Symulator Koordynatora i bramka zaufania do testów
 
-Status: **PROPOZYCJA CODEX DO NIEZALEŻNEGO PRZEGLĄDU — BEZ IMPLEMENTACJI**
+Status: **OWNER_CORRECTED R2 — DO NIEZALEŻNEGO PRZEGLĄDU, BEZ IMPLEMENTACJI**
 
 Base: `main@c25c73e0332158bae703109e770f3cf83fd970a7`
 
@@ -8,6 +8,51 @@ Autor briefu: Codex jako niezależny tester. CC napisał T038/T039 i celowo nie
 projektuje własnej poprawki. Źródłem zlecenia jest
 `arch/REQUEST_SYMULATOR_INDEPENDENT_DIAGNOSIS_2026-08-30.md` na
 `docs/symulator-repair-diagnosis-request@f248c07d3e6f65164080863b47b694118477574b`.
+
+## 0. OWNER_CORRECTED — czym jest Symulator i gdzie kończy się produkt
+
+Symulator **nie odtwarza zamkniętej listy wymyślonych scenariuszy**. Jest
+seedowanym generatorem pracy koordynatora: przed uruchomieniem solvera zakłada
+wiele różniących się obiektów, wpisuje ich rzeczywiste parametry przez backend,
+naciska PLAN/REPLAN i raportuje wynik. Parametry danego obiektu są ustalone
+przed PLAN i nie wolno ich poprawiać pod wynik solvera.
+
+Przykład OWNERA trzeba rozumieć dosłownie: od poniedziałku do piątku jedna osoba
+pełni D 12 h i jedna osoba N 12 h, a w sobotę i niedzielę jedna osoba pełni H24.
+To nadal **jedno ciągłe stanowisko 24/7**, czyli 168 godzin obsady w tygodniu, a
+nie dwie równoległe obsady po 12 h. Dla tej rodziny roster wynosi 5 LOCAL, nie 8.
+
+Automatyczne wsparcie ma inną granicę w teście i w produkcie:
+
+- pierwszy PLAN Symulator zawsze wykonuje wyłącznie na wygenerowanej załodze
+  LOCAL;
+- dopiero jeżeli ten rzeczywisty PLAN zwróci `DECISION_REQUIRED`, Symulator
+  automatycznie odtwarza zgodę koordynatora: przez produkcyjne operacje tworzy
+  jedną syntetyczną osobę `EXTERNAL_SUPPORT`, bez targetu, dodaje jej okno i
+  ponawia PLAN;
+- ta automatyzacja istnieje wyłącznie po to, żeby test bez człowieka mógł
+  sprawdzić oba etapy: wykrycie braku oraz grafik po udzieleniu pomocy;
+- **nie jest to zachowanie produktu**. W zwykłym programie solver nadal ma
+  zatrzymać się na decyzji, a prawdziwy koordynator ręcznie dopisuje nową osobę
+  do obsady obiektu jako LOCAL;
+- Symulator nigdy nie dodaje reaktywnie kolejnych LOCAL i nigdy z góry nie
+  oznacza obiektu jako „wymagający wsparcia”. To ma wynikać z prawdziwego wyniku
+  pierwszego PLAN.
+
+W `tests/property/coordinator_simulator.py` nad modułem/driverem ma pozostać
+komentarz lub docstring o tej treści merytorycznej (może być krótszy, ale nie
+może zmienić sensu):
+
+```text
+TEST-HARNESS BOUNDARY: ten moduł symuluje działania koordynatora, a nie logikę
+solvera. Wszystkie parametry obiektu powstają przed pierwszym PLAN. Pierwszy
+PLAN używa tylko wygenerowanych LOCAL. Dopiero rzeczywisty DECISION_REQUIRED
+uruchamia testową, automatyczną zgodę: utworzenie SIM-EXTERNAL, okna i ponowny
+PLAN przez produkcyjny backend. To pozwala kontynuować automatyczny eksperyment
+bez człowieka; nie jest funkcją produktu. W programie decyzję widzi koordynator
+i ręcznie dodaje osobę do obsady jako LOCAL. Nie dodawaj reaktywnie LOCAL, nie
+przewiduj z góry potrzeby wsparcia i nie dopasowuj wejść do wyniku solvera.
+```
 
 ## 1. Wynik dla OWNERA
 
@@ -52,20 +97,23 @@ czytelnego raportu. Sam napis „testy PASS” nie jest kryterium odbioru.
 
 ### 2.1 Symulator odtwarza pracę koordynatora
 
-- osobna SQLite `:memory:` dla każdego scenariusza;
+- osobna SQLite `:memory:` dla każdego wygenerowanego obiektu;
 - ustawienia przez istniejące produkcyjne endpointy/operacje backendowe;
 - prawdziwy assembler, PLAN, `select_candidate()` z produkcyjnym `validate()`
   oraz REPLAN;
 - bez ręcznego tworzenia wynikowych `Assignment`, demandów i wzorcowego
   grafiku;
 - bez danych użytkownika, sieci i `rota_dev.db`;
-- generator ustawia wejścia, naciska PLAN/REPLAN i raportuje wynik. Nie kopiuje
+- generator tworzy różne obiekty i wszystkie ich wejścia przed PLAN, następnie
+  naciska PLAN/REPLAN i raportuje wynik. Nie kopiuje
   do testu reguł odpoczynku, urlopu, L4 ani solvera.
 
 ### 2.2 Wielkość załogi wynika z rodzaju obiektu, nie z wygody solvera
 
 - pojedyncza obsada całodobowa: dokładnie **5 LOCAL**;
 - podwójna obsada całodobowa: dokładnie **10 LOCAL**;
+- sposób podziału jednej ciągłej doby na D/N 12 h, H24 albo D/N 12 h w dni
+  robocze i H24 w weekend nie zmienia jej w dodatkową równoległą obsadę;
 - dotyczy również krótkiego miesiąca; symulator nie „zwalnia” pracownika w
   lutym;
 - po `DECISION_REQUIRED` nie wolno dodać szóstego–dziewiątego LOCAL;
@@ -73,16 +121,19 @@ czytelnego raportu. Sam napis „testy PASS” nie jest kryterium odbioru.
   o liczebności załogi. Godziny zapotrzebowania nadal wylicza produkcyjny
   katalog, ale nie mogą niezależnie wylosować dowolnego rosteru.
 
-### 2.3 Target godzin jest prawdziwym wejściem koordynatora
+### 2.3 Target godzin jest prawdziwym wejściem koordynatora, nie stałą testu
 
 - każdy LOCAL dostaje jawny `target_hours` przez produkcyjny endpoint;
 - EXTERNAL_SUPPORT nie dostaje targetu;
-- dla zamrożonego miesiąca raportu `2026-09-01` target pełnego etatu wynosi
-  **176 h**;
+- generator wybiera miesiące i dla każdego LOCAL wpisuje wymiar pełnego etatu
+  wyliczony z kalendarza tego miesiąca zgodnie z art. 130 KP;
+- `2026-09-01 = 176 h` pozostaje małym przypadkiem kontrolnym kalkulatora, ale
+  nie jest centralnym ani jedynym miesiącem raportu;
 - wartość nie jest udziałem `720 / 5` ani stałą `168`/`160`;
-- runtime testu nie korzysta z Internetu. Miesiąc i wartość są zamrożoną
-  fixture z podanym źródłem. Państwowa Inspekcja Pracy opisuje wzór z art. 130
-  KP, a urzędowa tabela dla 2026 r. podaje dla września 176 h:
+- runtime testu nie korzysta z Internetu. Generator korzysta z zapisanego
+  kalendarza i wzoru, a kontrolne wartości są zamrożonymi fixture z podanym
+  źródłem. Państwowa Inspekcja Pracy opisuje wzór z art. 130 KP, a urzędowa
+  tabela dla 2026 r. podaje dla września 176 h:
   https://katowice.pip.gov.pl/aktualnosci/sierpien-2026-r-jak-ustalic-wymiar-czasu-pracy
   oraz
   https://sosnowiec.praca.gov.pl/strona-glowna/-/asset_publisher/Qat7ebECUfDp/content/id/56152826/pop_up.
@@ -100,20 +151,16 @@ czytelnego raportu. Sam napis „testy PASS” nie jest kryterium odbioru.
 
 ### 2.5 Wsparcie zewnętrzne jest reakcją, nie ukrytą nadwyżką
 
-- syntetyczna osoba `SIM-EXTERNAL-*` może istnieć jako przypisanie
-  `EXTERNAL_SUPPORT` do obiektu, bez targetu, ale przed pierwszym PLAN **nie ma
-  aktywnego okna** i solver nie może jej użyć;
-- po rzeczywistym `DECISION_REQUIRED` driver odczytuje produkcyjny zapis
-  decyzji. Okno wolno dodać tylko wtedy, gdy produkcyjne
-  `unblocking_options` naprawdę proponuje skonfigurowanie wsparcia dla tej
-  osoby;
-- wtedy symulator przyjmuje domyślną zgodę koordynatora, dodaje jedno okno
-  przez istniejący endpoint z `responds_to_decision_required_id` i ponownie
-  naciska PLAN;
-- bez takiej propozycji nie dodaje okna, nie dopisuje LOCAL i uczciwie kończy
-  scenariusz jako `DECISION_REQUIRED`;
-- raport osobno pokazuje: osoba istniała / okna nie było / propozycja była lub
-  nie / okno utworzono / czy wsparcie trafiło do grafiku.
+- przed pierwszym PLAN nie istnieje dodatkowa osoba ani aktywne okno wsparcia;
+- rzeczywisty, niepusty `DECISION_REQUIRED` jest wystarczającym sygnałem dla
+  **drivera testowego**, by zasymulował zgodę koordynatora; nie wolno uzależniać
+  tego od brzmienia albo parsowania `unblocking_options`;
+- driver tworzy jedną osobę `SIM-EXTERNAL-*`, membership `EXTERNAL_SUPPORT`
+  bez targetu i okno przez istniejące produkcyjne operacje, dowiązując decyzję
+  tam, gdzie wymaga tego istniejący kontrakt, po czym ponownie naciska PLAN;
+- raport osobno zachowuje wynik pierwszego PLAN, payload decyzji, fakt udzielenia
+  testowej zgody, utworzone okno, wynik drugiego PLAN i faktyczne użycie osoby;
+- ten krok nie może zmieniać liczby LOCAL ani zostać przeniesiony do produktu.
 
 ### 2.6 Brak grafiku może być prawidłowym wynikiem
 
@@ -156,36 +203,49 @@ Wszystkie poniższe działania przechodzą przez te same endpointy, co frontend:
 wykonuje prawdziwy router, aplikację, bazę, assembler, solver i validator. Nie
 wolno monkeypatchować wyniku PLAN, kandydata, walidacji ani analityki.
 
-### 4.2 Zamknięta macierz scenariuszy
+### 4.2 Seedowany generator portfela obiektów, nie macierz scenariuszy
 
-Macierz jest deterministyczna. Losowanie może wybierać datę/osobę w obrębie
-rodziny, ale nie może decydować, czy dana rodzina w ogóle wystąpi. Każdy raport
-zawiera co najmniej:
+Pełny raport domyślnie zakłada **20 niezależnych, różniących się obiektów**.
+Każdy obiekt dostaje przed pierwszym PLAN kompletną, seedowaną konfigurację.
+Ten sam seed odtwarza ten sam portfel i daje gotową komendę reprodukcji jednego
+obiektu, ale narzędzie nie odgrywa stałej listy S01–S12.
 
-| ID | Obiekt | Załoga | Zdarzenie |
-|---|---|---:|---|
-| T43-S01 | D/N po 12 h, pojedyncza obsada | 5 LOCAL | wszyscy dostępni |
-| T43-S02 | D/N po 12 h, pojedyncza obsada | 5 LOCAL | jedna osoba, urlop do 14 dni |
-| T43-S03 | D/N po 12 h, pojedyncza obsada | 5 LOCAL | L4 przed pierwszym PLAN, 1–21 dni |
-| T43-S04 | jedna zmiana 24 h, pojedyncza obsada | 5 LOCAL | wszyscy dostępni |
-| T43-S05 | jedna zmiana 24 h, pojedyncza obsada | 5 LOCAL | urlop albo L4 |
-| T43-S06 | D/N po 12 h, podwójna obsada | 10 LOCAL | wszyscy dostępni |
-| T43-S07 | D/N po 12 h, podwójna obsada | 10 LOCAL | jedna osoba na urlopie i opcjonalne L4 innej osoby |
-| T43-S08 | OCHRONA, granica miesiąca | 5 LOCAL | prawdziwy kontekst końca poprzedniego miesiąca |
-| T43-S09 | D/N po 12 h | 5 LOCAL | aktywna reguła pracownika/DAY_ONLY |
-| T43-S10 | D/N po 12 h | 5 LOCAL | rzeczywisty brak nocnej obsady; oczekiwane niepuste `DECISION_REQUIRED` |
-| T43-S11 | wybrany poprawny grafik | 5 albo 10 LOCAL | nowe L4 po wyborze → produkcyjny REPLAN |
-| T43-S12 | wybrany poprawny grafik | 5 albo 10 LOCAL | zmiana targetu lub parametru obiektu → REPLAN może ułożyć miesiąc od nowa |
+Generator składa poprawne kombinacje co najmniej z następujących osi:
 
-`WEEKDAY_12H_WEEKEND_24H` z T039 można zachować jako dodatkową rodzinę, ale nie
-zamiast S01–S12. Odrzuconego `SPLIT_NIGHT_12_8` nie przywracać.
+- miesiąc z zapisanego kalendarza (w tym miesiące krótkie, święta i kontekst
+  granicy miesiąca);
+- jedna albo dwie pełne, ciągłe warstwy obsady 24/7, czyli odpowiednio 5 albo
+  10 LOCAL;
+- podział doby: D/N po 12 h, H24 oraz
+  `WEEKDAY_12H_WEEKEND_24H` — D+N w dni robocze i jedna H24 w weekend;
+- poprawne godziny rozpoczęcia i istniejący tryb ochrony;
+- wszyscy dostępni albo najwyżej jedna planowa nieobecność do 14 dni;
+- L4 0–21 dni, znane przed PLAN albo dodane przed REPLAN;
+- brak lub aktywna istniejąca reguła pracownika, np. DAY_ONLY;
+- zwykły PLAN albo zmiana wejścia i pełny REPLAN.
+
+Losowanie zachodzi **wewnątrz tych dozwolonych wymiarów**, a raport zawiera
+ledger pokrycia pokazujący, które wartości i pary wartości faktycznie wystąpiły.
+Generator ma deterministycznie zapewnić reprezentację każdej osi w całym
+portfelu, ale nie przez dwanaście ręcznie opisanych gotowych grafików.
+
+Małe przypadki kontrolne generatora sprawdzają tylko jego matematykę i znaczenie
+wejść: jedna pełna warstwa D/N = 5 LOCAL, jedna pełna warstwa H24 = 5 LOCAL,
+`WEEKDAY_12H_WEEKEND_24H` = 5 LOCAL, dwie pełne warstwy = 10 LOCAL. Nie są
+treścią głównego raportu i nie wolno kalibrować pod nie solvera.
+
+T043 nie wymyśla jeszcze obiektu z częściową drugą równoległą warstwą, np. dwie
+osoby tylko przez część tygodnia. Nie ma zamrożonej decyzji, jak z samego takiego
+zapotrzebowania bezpiecznie wyliczyć załogę z uwzględnieniem odpoczynków. Przykład
+OWNERA D/N w tygodniu + H24 w weekend **nie jest** takim obiektem. Odrzuconego
+`SPLIT_NIGHT_12_8` nie przywracać.
 
 ### 4.3 Koszt uruchomienia
 
-- zwykły test celowany uruchamia najwyżej po jednym krótkim scenariuszu z
+- zwykły test celowany uruchamia najwyżej po jednym krótkim obiekcie z
   każdej zmienionej klasy;
-- pełna macierz S01–S12 jest jawnym poleceniem raportowym, uruchamianym raz na
-  finalnym SHA, a nie częścią każdego `pytest`;
+- pełny wygenerowany portfel 20 obiektów jest jawnym poleceniem raportowym,
+  uruchamianym raz na finalnym SHA, a nie częścią każdego `pytest`;
 - pełna regresja całego repo nie jest wymagana i nie wolno jej uruchamiać bez
   osobnej zgody OWNERA;
 - timeout i seed muszą być zapisane. Nie wolno ratować timeoutu przez dodanie
@@ -198,12 +258,13 @@ orakli pochodzących bezpośrednio z decyzji OWNERA i produkcyjnych odczytów.
 
 ### B1. Zamknięty świat
 
-- roster ma dokładnie 5 albo 10 LOCAL;
+- roster ma dokładnie liczbę LOCAL wynikającą z wygenerowanej pełnej warstwy:
+  5 dla jednej albo 10 dla dwóch;
 - po każdym PLAN/REPLAN nadal ma dokładnie tę samą liczbę LOCAL;
 - w grafiku nie ma obcej osoby, obcego Site, obcego demandu ani godzin typu
   INNY;
 - EXTERNAL może wystąpić wyłącznie we własnym aktywnym oknie utworzonym po
-  propozycji.
+  rzeczywistym `DECISION_REQUIRED` pierwszego PLAN.
 
 ### B2. Produkcyjna poprawność
 
@@ -221,20 +282,23 @@ Raport pokazuje dla każdego LOCAL:
 - liczbę i długości zmian;
 - różnicę względem najmniej i najbardziej obciążonego LOCAL.
 
-Dla trzech czystych baz bez absencji — S01, S04 i S06 — 720 h / 5 albo
-1440 h / 10 daje po 144 h na każdego. Jeżeli produkcyjne HARD nie wprowadzają
-innej przeszkody, nierówny rozdział w tych bazach jest FAIL. Dla scenariuszy z
-urlopem, L4 albo regułą pracownika raport pokazuje rozkład i produkcyjne
-effective target, ale nie zgaduje własnego „idealnego” grafiku.
+Dla wygenerowanych czystych obiektów bez absencji i indywidualnych ograniczeń
+raport jawnie ocenia porównywalność godzin między LOCAL z uwzględnieniem
+niepodzielności użytych zmian. Nie wpisuje stałego oczekiwania 144 h dla każdego
+miesiąca. Dla obiektów z urlopem, L4 albo regułą pracownika pokazuje rozkład i
+produkcyjny effective target, ale nie zgaduje własnego „idealnego” grafiku.
 
 ### B4. Uczciwy `DECISION_REQUIRED`
 
 - payload nie jest całkowicie pusty;
 - raport pokazuje blokujące demandy, osoby/warunki, load blocker i opcje;
-- jeżeli brak grafiku jest oczekiwanym skutkiem S10, jest opisany jako
-  poprawne wykrycie warunków, nie awaria;
-- jeśli S01/S04/S06 bez absencji zwraca `DECISION_REQUIRED`, zapisać failure
-  JSON i zgłosić defekt produktu. Nie dodawać ludzi ani nie osłabiać danych.
+- Symulator nie oznacza z góry przypadku jako „wymagający wsparcia”; zapisuje
+  pierwsze `DECISION_REQUIRED`, automatycznie wykonuje testową zgodę opisaną w
+  2.5 i porównuje oba etapy;
+- jeśli certyfikowany przez generator czysty obiekt bez absencji zwraca
+  `DECISION_REQUIRED`, zachować failure JSON. Nadal wolno wykonać reakcję
+  wsparcia dla zebrania dowodu, ale wynik pierwszego PLAN nie przestaje być
+  widoczny i nie wolno osłabiać jego danych wejściowych.
 
 ### B5. REPLAN reaguje na zmianę
 
@@ -244,7 +308,8 @@ Nie wymusza ręcznie konkretnego grafiku.
 
 ### 5.1 Artefakty
 
-Jawne uruchomienie pełnej macierzy tworzy dwa nowe artefakty na exact SHA:
+Jawne uruchomienie pełnego wygenerowanego portfela tworzy dwa nowe artefakty na
+exact SHA:
 
 - `tasks/ROTA-T043/round_01/tests/coordinator_report.md` — polski raport dla
   OWNERA;
@@ -359,10 +424,10 @@ kształtu funkcji:
 
 | Element | SOURCE | Konieczność | Redukcja |
 |---|---|---|---|
-| roster 5/10 | jawna decyzja OWNER | wejście widoczne dla OWNERA | stała rodziny scenariusza, bez algorytmu headcount |
-| target 176 | OWNER + art. 130/PIP | prawdziwe wejście miesiąca | jedna zamrożona fixture, brak sieci runtime |
-| osoba EXTERNAL bez okna | OWNER | pozwala produkcji realnie zaproponować okno | istniejący membership i endpoint; bez nowej encji |
-| reakcja na propozycję | OWNER | odtwarza decyzję koordynatora | istniejący decisions read + support-window endpoint |
+| generator 5/10 | jawna decyzja OWNER | prawdziwy roster pełnej warstwy 24/7 | 5 dla jednej warstwy, 10 dla dwóch; bez reaktywnego LOCAL |
+| target miesiąca | OWNER + art. 130/PIP | prawdziwe wejście koordynatora | jeden kalkulator z kalendarza; 176 tylko kontrola września |
+| seedowany portfel 20 obiektów | OWNER | różne wejścia zamiast benchmarku | kombinacje zamrożonych osi, ledger i reprodukcja z seedu |
+| reakcja po `DECISION_REQUIRED` | OWNER | bezobsługowo odtwarza zgodę w teście | istniejące create-person/membership/support-window; zachowanie poza produktem |
 | godziny/spread | OWNER fairness + T041 | ujawnia bzdury widoczne ręcznie | odczyt assignments/analityki, bez drugiego solvera |
 | produkcyjne validate | istniejący owner | legalność kandydata | select/revalidate, bez kopii walidatora |
 | Markdown + JSON | prośba OWNER | czytelność i reprodukcja | jeden model danych, dwa renderery |
@@ -373,7 +438,7 @@ Usunięte z propozycji:
 
 - nowy solver, validator albo checker reguł HARD;
 - dowolna obsada 4–9 i reaktywne zatrudnianie LOCAL;
-- domyślne aktywne wsparcie przed PLAN;
+- osoba lub aktywne wsparcie przed pierwszym PLAN;
 - liczenie urlopu/L4 w generatorze;
 - sieć w trakcie testu;
 - masowa migracja 1100 testów;
@@ -432,17 +497,21 @@ powodu poszerzać `TASK_SCOPE` na produkt.
 
 ### Checkpoint A
 
-- małe testy generatora bez solvera: roster 5/10, target 176, brak reaktywnego
-  LOCAL, urlop/L4 w dozwolonych granicach;
-- jeden prawdziwy API vertical S01;
-- jeden `DECISION_REQUIRED` bez automatycznego zatrudniania.
+- małe testy generatora bez solvera: znaczenie pełnych warstw 5/10, przykład
+  D/N w tygodniu + H24 w weekend = 5, targety różnych miesięcy, brak
+  reaktywnego LOCAL oraz urlop/L4 w dozwolonych granicach;
+- jeden wygenerowany prawdziwy API vertical;
+- jeden `DECISION_REQUIRED` z automatycznym EXTERNAL i dowodem, że liczba LOCAL
+  nie wzrosła.
 
 ### Checkpoint B
 
-- celowane scenariusze S01, S04, S06 dla godzin 144/144/...;
-- jeden przypadek wsparcia z realnym payloadem i jeden bez propozycji;
+- celowane obiekty jednej i dwóch warstw oraz wariantu
+  `WEEKDAY_12H_WEEKEND_24H`, z raportem faktycznych godzin;
+- jeden przypadek wsparcia po realnym, niepustym payloadzie;
 - jeden REPLAN;
-- pełna S01–S12 raz na finalnym SHA, z raportem Markdown/JSON;
+- pełny seedowany portfel 20 obiektów raz na finalnym SHA, z ledgerem pokrycia i
+  raportem Markdown/JSON;
 - nie uruchamiać całej suity repo.
 
 ### Checkpoint C
@@ -459,7 +528,8 @@ Odbiór końcowy nie brzmi „N testów PASS”. Oczekiwane dowody to:
 2. raport czytelny przez OWNERA z godzinami każdego pracownika;
 3. JSON i komendy reprodukcji;
 4. jawna lista scenariuszy FEASIBLE, DECISION_REQUIRED i defektów produktu;
-5. dowód, że żaden scenariusz nie zwiększył rosteru 5/10;
+5. dowód, że żaden przebieg nie zwiększył liczby LOCAL ponad 5/10, a każda
+   osoba EXTERNAL powstała dopiero po pierwszym `DECISION_REQUIRED`;
 6. dowód, że bramka zrobiła się czerwona dla trzech znanych klas błędu;
 7. lista starych testów, które pozostały UNIT/BENCHMARK i dlatego nie są
    używane jako dowód działania programu.
@@ -468,9 +538,11 @@ Odbiór końcowy nie brzmi „N testów PASS”. Oczekiwane dowody to:
 
 Implementer zatrzymuje się i zgłasza problem, jeżeli:
 
-- wykonanie S01/S04/S06 wymaga więcej niż 5/5/10 LOCAL;
-- produkcja nie potrafi zaproponować wsparcia przy EXTERNAL membership bez
-  okna — nie wolno parsować innej wiadomości ani wymyślać propozycji;
+- generator nie potrafi przed PLAN jednoznacznie przypisać 5 albo 10 LOCAL do
+  dozwolonej pełnej warstwy obsady;
+- automatyczna reakcja wymaga parsowania tekstu `unblocking_options` albo
+  zmiany produktu — wystarczającym triggerem ma być niepusty
+  `DECISION_REQUIRED`, a cała reakcja należy do drivera testowego;
 - raport godzin wymaga nowego endpointu lub zmiany produktu; najpierw wskazać,
   dlaczego obecny month view/analytics nie wystarcza;
 - którykolwiek scenariusz wymaga ręcznego zbudowania wyniku;
@@ -480,11 +552,11 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
 
 ## 13. Pytania do niezależnego review przed implementacją
 
-1. Czy sekcja 2 wiernie zapisuje ostatnie decyzje OWNERA, szczególnie różnicę
-   między EXTERNAL membership a aktywnym oknem?
-2. Czy S01–S12 obejmuje pojedynczą/podwójną obsadę, 12 h/24 h, urlop/L4,
-   ochronę, regułę pracownika, prawdziwy brak nocnej obsady i REPLAN bez
-   dowolnego doboru ludzi?
+1. Czy sekcje 0 i 2 jednoznacznie oddzielają automatyczną reakcję testowego
+   drivera od ręcznego działania koordynatora w produkcie?
+2. Czy generator portfela naprawdę składa różne wejścia przed PLAN, obejmuje
+   jedną/dwie pełne warstwy, 12 h/24 h, urlop/L4, ochronę, regułę pracownika i
+   REPLAN, zamiast odgrywać zamkniętą macierz?
 3. Czy orakle B1–B5 wykrywają „zielony, lecz bzdurny” wynik bez kopiowania
    solvera?
 4. Czy któryś element można usunąć, zachowując raport godzin, realny przepływ
