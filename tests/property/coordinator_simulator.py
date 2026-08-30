@@ -257,7 +257,13 @@ _MAX_SPAN_DAYS = {
 }
 
 
-def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int) -> list[AbsenceDraw]:
+def random_absence_set(
+    seed: int,
+    spec: ObjectSpec,
+    employee_count: int,
+    *,
+    allow_leave_granted: bool = True,
+) -> list[AbsenceDraw]:
     """seed=0 draws zero absences -- the explicit "everyone available"
     baseline. employee_count is passed separately from spec.employee_count
     for callers building a mid-month (REPLAN) draw against the same fixed
@@ -275,22 +281,24 @@ def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int) -> list
 
     R6 fix (T43-R6-02): brief 2.4 also freezes "w scenariuszu planowego
     urlopu nie ma albo ma go najwyżej jedna osoba" -- at most one
-    LEAVE_GRANTED draw per call. If a second LEAVE_GRANTED would be drawn,
-    resample the kind from the non-LEAVE_GRANTED kinds instead of skipping
-    the draw outright, so `count` still reflects the number of absence
-    events actually applied."""
+    LEAVE_GRANTED draw per scenario. The caller uses
+    `allow_leave_granted=False` for a REPLAN draw when the initial PLAN draw
+    already contained vacation. If another LEAVE_GRANTED would otherwise be
+    drawn, resample from the other kinds instead of skipping the event, so
+    `count` still reflects the number of absence events actually applied."""
     if seed == 0 or employee_count == 0:
         return []
     rng = random.Random(seed * 7919 + 1)  # distinct stream from the object generator's own rng
     count = rng.randint(0, 3)
     kinds = [k.value for k in AvailabilityKind]
     kinds_without_leave_granted = [k for k in kinds if k != AvailabilityKind.LEAVE_GRANTED.value]
+    drawable_kinds = kinds if allow_leave_granted else kinds_without_leave_granted
     days = _month_dates(spec.month)
     draws = []
     leave_granted_drawn = False
     for _ in range(count):
         employee_index = rng.randrange(employee_count)
-        kind = rng.choice(kinds)
+        kind = rng.choice(drawable_kinds)
         if kind == AvailabilityKind.LEAVE_GRANTED.value:
             if leave_granted_drawn:
                 kind = rng.choice(kinds_without_leave_granted)
@@ -550,17 +558,23 @@ def run_quarter(client: TestClient, seed: int) -> dict:
     never hand-seeds Assignments to force continuation."""
     spec = quarter_object_spec(seed, QUARTER_MONTHS[0])
     site_id = build_object(client, spec)
+    # Quarter analytics exposes the running quarter only when the
+    # coordinator has already entered targets for all its months. Enter the
+    # later targets before the first PLAN so missing quarter data cannot be
+    # mistaken for a successful oracle comparison.
+    for target_month in QUARTER_MONTHS[1:]:
+        month_target = nominal_monthly_hours_kp(target_month, POLISH_2026_HOLIDAYS)
+        for i in range(spec.employee_count):
+            resp = client.post(
+                f"/api/workspace/employees/{local_employee_id(spec, i)}/target-hours",
+                json={"site_id": site_id, "month": target_month.isoformat(), "target_hours": month_target},
+            )
+            assert resp.status_code == 204, resp.text
+
     months_out = []
     for month in QUARTER_MONTHS:
         if month != QUARTER_MONTHS[0]:
             seed_calendar(client, site_id, month)
-            month_target = nominal_monthly_hours_kp(month, POLISH_2026_HOLIDAYS)
-            for i in range(spec.employee_count):
-                resp = client.post(
-                    f"/api/workspace/employees/{local_employee_id(spec, i)}/target-hours",
-                    json={"site_id": site_id, "month": month.isoformat(), "target_hours": month_target},
-                )
-                assert resp.status_code == 204, resp.text
 
         first_result = run_plan(client, site_id, month)
         external = None
@@ -909,13 +923,22 @@ def compute_quarter_oracle(quarter_result: dict) -> dict:
                     "employee_id": emp, "kind": "month_balance",
                     "expected": expected_month_balance, "product": product_month_balance,
                 })
-            if product_quarter_balance is not None and expected_quarter_balance != product_quarter_balance:
+            if product_quarter_balance is None:
+                month_mismatches.append({
+                    "employee_id": emp, "kind": "quarter_balance_missing",
+                    "expected": expected_quarter_balance, "product": None,
+                })
+            elif expected_quarter_balance != product_quarter_balance:
                 month_mismatches.append({
                     "employee_id": emp, "kind": "quarter_balance",
                     "expected": expected_quarter_balance, "product": product_quarter_balance,
                 })
-            if product_unresolved_carryover is not None and product_quarter_balance is not None \
-                    and product_unresolved_carryover != product_quarter_balance:
+            if product_unresolved_carryover is None:
+                month_mismatches.append({
+                    "employee_id": emp, "kind": "unresolved_carryover_missing",
+                    "expected": product_quarter_balance, "product": None,
+                })
+            elif product_quarter_balance is not None and product_unresolved_carryover != product_quarter_balance:
                 month_mismatches.append({
                     "employee_id": emp, "kind": "unresolved_carryover",
                     "unresolved_carryover": product_unresolved_carryover, "quarter_balance": product_quarter_balance,

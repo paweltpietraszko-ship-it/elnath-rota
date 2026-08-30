@@ -153,7 +153,7 @@
   "assignments": [
     {
       "assignment_id": "solved-2026-11-01-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-01T05:00:00",
@@ -164,12 +164,12 @@
       "covers_demand_id": "2026-11-01-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-01",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-01",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-01-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-01T05:00:00",
@@ -180,12 +180,12 @@
       "covers_demand_id": "2026-11-01-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-01",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-01",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-01-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-01T17:00:00",
@@ -196,12 +196,12 @@
       "covers_demand_id": "2026-11-01-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-01",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-01",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-01-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-01T17:00:00",
@@ -212,12 +212,12 @@
       "covers_demand_id": "2026-11-01-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-01",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-01",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-02-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-02T05:00:00",
@@ -228,12 +228,12 @@
       "covers_demand_id": "2026-11-02-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-02",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-02",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-02-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-02T05:00:00",
@@ -244,12 +244,12 @@
       "covers_demand_id": "2026-11-02-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-02",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-02",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-02-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-02T17:00:00",
@@ -260,12 +260,12 @@
       "covers_demand_id": "2026-11-02-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-02",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-02",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-02-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-02T17:00:00",
@@ -276,12 +276,12 @@
       "covers_demand_id": "2026-11-02-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-02",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-02",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-03-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-03T05:00:00",
@@ -292,12 +292,12 @@
       "covers_demand_id": "2026-11-03-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-03",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-03",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-03-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-03T05:00:00",
@@ -308,12 +308,12 @@
       "covers_demand_id": "2026-11-03-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-03",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-03",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-03-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-03T17:00:00",
@@ -324,12 +324,12 @@
       "covers_demand_id": "2026-11-03-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-03",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-03",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-03-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-03T17:00:00",
@@ -340,12 +340,12 @@
       "covers_demand_id": "2026-11-03-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-03",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-03",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-04-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-04T05:00:00",
@@ -356,12 +356,12 @@
       "covers_demand_id": "2026-11-04-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-04",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-04",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-04-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-04T05:00:00",
@@ -372,12 +372,12 @@
       "covers_demand_id": "2026-11-04-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-04",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-04",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-04-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-04T17:00:00",
@@ -388,12 +388,12 @@
       "covers_demand_id": "2026-11-04-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-04",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-04",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-04-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-04T17:00:00",
@@ -404,12 +404,12 @@
       "covers_demand_id": "2026-11-04-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-04",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-04",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-05-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-05T05:00:00",
@@ -420,12 +420,12 @@
       "covers_demand_id": "2026-11-05-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-05",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-05",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-05-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-05T05:00:00",
@@ -436,12 +436,12 @@
       "covers_demand_id": "2026-11-05-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-05",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-05",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-05-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-05T17:00:00",
@@ -452,12 +452,12 @@
       "covers_demand_id": "2026-11-05-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-05",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-05",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-05-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-05T17:00:00",
@@ -468,12 +468,12 @@
       "covers_demand_id": "2026-11-05-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-05",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-05",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-06-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-06T05:00:00",
@@ -484,12 +484,12 @@
       "covers_demand_id": "2026-11-06-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-06",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-06",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-06-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-06T05:00:00",
@@ -500,12 +500,12 @@
       "covers_demand_id": "2026-11-06-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-06",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-06",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-06-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-06T17:00:00",
@@ -516,12 +516,12 @@
       "covers_demand_id": "2026-11-06-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-06",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-06",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-06-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-06T17:00:00",
@@ -532,12 +532,12 @@
       "covers_demand_id": "2026-11-06-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-06",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-06",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-07-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-07T05:00:00",
@@ -548,12 +548,12 @@
       "covers_demand_id": "2026-11-07-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-07",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-07",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-07-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-07T05:00:00",
@@ -564,12 +564,12 @@
       "covers_demand_id": "2026-11-07-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-07",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-07",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-07-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-07T17:00:00",
@@ -580,12 +580,12 @@
       "covers_demand_id": "2026-11-07-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-07",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-07",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-07-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-07T17:00:00",
@@ -596,12 +596,12 @@
       "covers_demand_id": "2026-11-07-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-07",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-07",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-08-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-08T05:00:00",
@@ -612,12 +612,12 @@
       "covers_demand_id": "2026-11-08-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-08",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-08",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-08-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-08T05:00:00",
@@ -628,12 +628,12 @@
       "covers_demand_id": "2026-11-08-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-08",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-08",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-08-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-08T17:00:00",
@@ -644,12 +644,12 @@
       "covers_demand_id": "2026-11-08-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-08",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-08",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-08-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-08T17:00:00",
@@ -660,12 +660,12 @@
       "covers_demand_id": "2026-11-08-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-08",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-08",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-09-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-09T05:00:00",
@@ -676,12 +676,12 @@
       "covers_demand_id": "2026-11-09-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-09",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-09",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-09-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-09T05:00:00",
@@ -692,12 +692,12 @@
       "covers_demand_id": "2026-11-09-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-09",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-09",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-09-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-09T17:00:00",
@@ -708,12 +708,12 @@
       "covers_demand_id": "2026-11-09-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-09",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-09",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-09-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-09T17:00:00",
@@ -724,12 +724,12 @@
       "covers_demand_id": "2026-11-09-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-09",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-09",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-10-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-10T05:00:00",
@@ -740,12 +740,12 @@
       "covers_demand_id": "2026-11-10-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-10",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-10",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-10-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-10T05:00:00",
@@ -756,12 +756,12 @@
       "covers_demand_id": "2026-11-10-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-10",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-10",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-10-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-10T17:00:00",
@@ -772,12 +772,12 @@
       "covers_demand_id": "2026-11-10-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-10",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-10",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-10-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-10T17:00:00",
@@ -788,12 +788,12 @@
       "covers_demand_id": "2026-11-10-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-10",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-10",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-11-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-11T05:00:00",
@@ -804,12 +804,12 @@
       "covers_demand_id": "2026-11-11-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-11",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-11",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-11-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-11T05:00:00",
@@ -820,12 +820,12 @@
       "covers_demand_id": "2026-11-11-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-11",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-11",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-11-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-11T17:00:00",
@@ -836,12 +836,12 @@
       "covers_demand_id": "2026-11-11-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-11",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-11",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-11-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-11T17:00:00",
@@ -852,12 +852,12 @@
       "covers_demand_id": "2026-11-11-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-11",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-11",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-12-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-12T05:00:00",
@@ -868,12 +868,12 @@
       "covers_demand_id": "2026-11-12-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-12",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-12",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-12-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-12T05:00:00",
@@ -884,12 +884,12 @@
       "covers_demand_id": "2026-11-12-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-12",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-12",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-12-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-12T17:00:00",
@@ -900,12 +900,12 @@
       "covers_demand_id": "2026-11-12-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-12",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-12",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-12-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-12T17:00:00",
@@ -916,12 +916,12 @@
       "covers_demand_id": "2026-11-12-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-12",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-12",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-13-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-13T05:00:00",
@@ -932,12 +932,12 @@
       "covers_demand_id": "2026-11-13-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-13",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-13",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-13-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-13T05:00:00",
@@ -948,12 +948,12 @@
       "covers_demand_id": "2026-11-13-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-13",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-13",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-13-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-13T17:00:00",
@@ -964,12 +964,12 @@
       "covers_demand_id": "2026-11-13-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-13",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-13",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-13-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-13T17:00:00",
@@ -980,12 +980,12 @@
       "covers_demand_id": "2026-11-13-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-13",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-13",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-14-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-14T05:00:00",
@@ -996,12 +996,12 @@
       "covers_demand_id": "2026-11-14-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-14",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-14",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-14-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-14T05:00:00",
@@ -1012,12 +1012,12 @@
       "covers_demand_id": "2026-11-14-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-14",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-14",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-14-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-14T17:00:00",
@@ -1028,12 +1028,12 @@
       "covers_demand_id": "2026-11-14-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-14",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-14",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-14-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-14T17:00:00",
@@ -1044,12 +1044,12 @@
       "covers_demand_id": "2026-11-14-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-14",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-14",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-15-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-15T05:00:00",
@@ -1060,12 +1060,12 @@
       "covers_demand_id": "2026-11-15-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-15",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-15",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-15-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-15T05:00:00",
@@ -1076,12 +1076,12 @@
       "covers_demand_id": "2026-11-15-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-15",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-15",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-15-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-15T17:00:00",
@@ -1092,12 +1092,12 @@
       "covers_demand_id": "2026-11-15-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-15",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-15",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-15-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-15T17:00:00",
@@ -1108,12 +1108,12 @@
       "covers_demand_id": "2026-11-15-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-15",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-15",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-16-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-16T05:00:00",
@@ -1124,12 +1124,12 @@
       "covers_demand_id": "2026-11-16-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-16",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-16",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-16-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-16T05:00:00",
@@ -1140,12 +1140,12 @@
       "covers_demand_id": "2026-11-16-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-16",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-16",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-16-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-16T17:00:00",
@@ -1156,12 +1156,12 @@
       "covers_demand_id": "2026-11-16-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-16",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-16",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-16-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-16T17:00:00",
@@ -1172,12 +1172,12 @@
       "covers_demand_id": "2026-11-16-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-16",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-16",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-17-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-17T05:00:00",
@@ -1188,12 +1188,12 @@
       "covers_demand_id": "2026-11-17-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-17",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-17",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-17-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-17T05:00:00",
@@ -1204,12 +1204,12 @@
       "covers_demand_id": "2026-11-17-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-17",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-17",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-17-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-17T17:00:00",
@@ -1220,12 +1220,12 @@
       "covers_demand_id": "2026-11-17-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-17",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-17",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-17-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-17T17:00:00",
@@ -1236,12 +1236,12 @@
       "covers_demand_id": "2026-11-17-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-17",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-17",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-18-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-18T05:00:00",
@@ -1252,12 +1252,12 @@
       "covers_demand_id": "2026-11-18-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-18",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-18",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-18-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-18T05:00:00",
@@ -1268,12 +1268,12 @@
       "covers_demand_id": "2026-11-18-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-18",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-18",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-18-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-18T17:00:00",
@@ -1284,12 +1284,12 @@
       "covers_demand_id": "2026-11-18-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-18",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-18",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-18-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-18T17:00:00",
@@ -1300,12 +1300,12 @@
       "covers_demand_id": "2026-11-18-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-18",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-18",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-19-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-19T05:00:00",
@@ -1316,12 +1316,12 @@
       "covers_demand_id": "2026-11-19-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-19",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-19",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-19-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-19T05:00:00",
@@ -1332,12 +1332,12 @@
       "covers_demand_id": "2026-11-19-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-19",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-19",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-19-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-19T17:00:00",
@@ -1348,12 +1348,12 @@
       "covers_demand_id": "2026-11-19-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-19",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-19",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-19-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-19T17:00:00",
@@ -1364,12 +1364,12 @@
       "covers_demand_id": "2026-11-19-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-19",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-19",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-20-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-20T05:00:00",
@@ -1380,12 +1380,12 @@
       "covers_demand_id": "2026-11-20-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-20",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-20",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-20-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-20T05:00:00",
@@ -1396,12 +1396,12 @@
       "covers_demand_id": "2026-11-20-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-20",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-20",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-20-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-20T17:00:00",
@@ -1412,12 +1412,12 @@
       "covers_demand_id": "2026-11-20-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-20",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-20",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-20-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-20T17:00:00",
@@ -1428,12 +1428,12 @@
       "covers_demand_id": "2026-11-20-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-20",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-20",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-21-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-21T05:00:00",
@@ -1444,12 +1444,12 @@
       "covers_demand_id": "2026-11-21-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-21",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-21",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-21-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-21T05:00:00",
@@ -1460,12 +1460,12 @@
       "covers_demand_id": "2026-11-21-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-21",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-21",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-21-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-21T17:00:00",
@@ -1476,12 +1476,12 @@
       "covers_demand_id": "2026-11-21-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-21",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-21",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-21-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-21T17:00:00",
@@ -1492,12 +1492,12 @@
       "covers_demand_id": "2026-11-21-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-21",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-21",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-22-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-22T05:00:00",
@@ -1508,12 +1508,12 @@
       "covers_demand_id": "2026-11-22-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-22",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-22",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-22-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-22T05:00:00",
@@ -1524,12 +1524,12 @@
       "covers_demand_id": "2026-11-22-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-22",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-22",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-22-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-22T17:00:00",
@@ -1540,12 +1540,12 @@
       "covers_demand_id": "2026-11-22-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-22",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-22",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-22-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-22T17:00:00",
@@ -1556,12 +1556,12 @@
       "covers_demand_id": "2026-11-22-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-22",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-22",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-23-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-23T05:00:00",
@@ -1572,12 +1572,12 @@
       "covers_demand_id": "2026-11-23-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-23",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-23",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-23-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-23T05:00:00",
@@ -1588,12 +1588,12 @@
       "covers_demand_id": "2026-11-23-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-23",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-23",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-23-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-23T17:00:00",
@@ -1604,12 +1604,12 @@
       "covers_demand_id": "2026-11-23-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-23",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-23",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-23-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-23T17:00:00",
@@ -1620,12 +1620,12 @@
       "covers_demand_id": "2026-11-23-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-23",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-23",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-24-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-24T05:00:00",
@@ -1636,12 +1636,12 @@
       "covers_demand_id": "2026-11-24-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-24",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-24",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-24-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-24T05:00:00",
@@ -1652,12 +1652,12 @@
       "covers_demand_id": "2026-11-24-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-24",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-24",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-24-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-24T17:00:00",
@@ -1668,12 +1668,12 @@
       "covers_demand_id": "2026-11-24-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-24",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-24",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-24-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-24T17:00:00",
@@ -1684,12 +1684,12 @@
       "covers_demand_id": "2026-11-24-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-24",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-24",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-25-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-25T05:00:00",
@@ -1700,12 +1700,12 @@
       "covers_demand_id": "2026-11-25-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-25",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-25",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-25-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-25T05:00:00",
@@ -1716,12 +1716,12 @@
       "covers_demand_id": "2026-11-25-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-25",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-25",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-25-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-25T17:00:00",
@@ -1732,12 +1732,12 @@
       "covers_demand_id": "2026-11-25-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-25",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-25",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-25-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-25T17:00:00",
@@ -1748,12 +1748,12 @@
       "covers_demand_id": "2026-11-25-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-25",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-25",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-26-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-26T05:00:00",
@@ -1764,12 +1764,12 @@
       "covers_demand_id": "2026-11-26-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-26",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-26",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-26-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-26T05:00:00",
@@ -1780,12 +1780,12 @@
       "covers_demand_id": "2026-11-26-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-26",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-26",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-26-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-26T17:00:00",
@@ -1796,12 +1796,12 @@
       "covers_demand_id": "2026-11-26-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-26",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-26",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-26-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-26T17:00:00",
@@ -1812,12 +1812,12 @@
       "covers_demand_id": "2026-11-26-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-26",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-26",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-27-D-SIM-10-EMP-0",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-0",
       "employee_display_name": "SIM-10-EMP-0",
       "start_datetime": "2026-11-27T05:00:00",
@@ -1828,12 +1828,12 @@
       "covers_demand_id": "2026-11-27-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-27",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-27",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-27-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-27T05:00:00",
@@ -1844,12 +1844,12 @@
       "covers_demand_id": "2026-11-27-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-27",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-27",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-27-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-27T17:00:00",
@@ -1860,12 +1860,12 @@
       "covers_demand_id": "2026-11-27-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-27",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-27",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-27-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-27T17:00:00",
@@ -1876,12 +1876,12 @@
       "covers_demand_id": "2026-11-27-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-27",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-27",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-28-D-SIM-10-EMP-3",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-3",
       "employee_display_name": "SIM-10-EMP-3",
       "start_datetime": "2026-11-28T05:00:00",
@@ -1892,12 +1892,12 @@
       "covers_demand_id": "2026-11-28-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-28",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-28",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-28-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-28T05:00:00",
@@ -1908,12 +1908,12 @@
       "covers_demand_id": "2026-11-28-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-28",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-28",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-28-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-28T17:00:00",
@@ -1924,12 +1924,12 @@
       "covers_demand_id": "2026-11-28-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-28",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-28",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-28-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-28T17:00:00",
@@ -1940,12 +1940,12 @@
       "covers_demand_id": "2026-11-28-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-28",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-28",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-29-D-SIM-10-EMP-2",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-2",
       "employee_display_name": "SIM-10-EMP-2",
       "start_datetime": "2026-11-29T05:00:00",
@@ -1956,12 +1956,12 @@
       "covers_demand_id": "2026-11-29-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-29",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-29",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-29-D-SIM-10-EMP-7",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-7",
       "employee_display_name": "SIM-10-EMP-7",
       "start_datetime": "2026-11-29T05:00:00",
@@ -1972,12 +1972,12 @@
       "covers_demand_id": "2026-11-29-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-29",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-29",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-29-N-SIM-10-EMP-5",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-5",
       "employee_display_name": "SIM-10-EMP-5",
       "start_datetime": "2026-11-29T17:00:00",
@@ -1988,12 +1988,12 @@
       "covers_demand_id": "2026-11-29-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-29",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-29",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-29-N-SIM-10-EMP-8",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-8",
       "employee_display_name": "SIM-10-EMP-8",
       "start_datetime": "2026-11-29T17:00:00",
@@ -2004,12 +2004,12 @@
       "covers_demand_id": "2026-11-29-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-29",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-29",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-30-D-SIM-10-EMP-6",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-6",
       "employee_display_name": "SIM-10-EMP-6",
       "start_datetime": "2026-11-30T05:00:00",
@@ -2020,12 +2020,12 @@
       "covers_demand_id": "2026-11-30-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-30",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-30",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-30-D-SIM-10-EMP-9",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-9",
       "employee_display_name": "SIM-10-EMP-9",
       "start_datetime": "2026-11-30T05:00:00",
@@ -2036,12 +2036,12 @@
       "covers_demand_id": "2026-11-30-D",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift0-2026-11-30",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift0-2026-11-30",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-30-N-SIM-10-EMP-1",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-1",
       "employee_display_name": "SIM-10-EMP-1",
       "start_datetime": "2026-11-30T17:00:00",
@@ -2052,12 +2052,12 @@
       "covers_demand_id": "2026-11-30-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-30",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-30",
       "required_rest_after_hours": 11
     },
     {
       "assignment_id": "solved-2026-11-30-N-SIM-10-EMP-4",
-      "schedule_version_id": "SV-a36b0adebcfc427a881aa1fc1490574c",
+      "schedule_version_id": "SV-300ea62f2de1459197b7852aea7875c0",
       "employee_id": "SIM-10-EMP-4",
       "employee_display_name": "SIM-10-EMP-4",
       "start_datetime": "2026-11-30T17:00:00",
@@ -2068,9 +2068,9 @@
       "covers_demand_id": "2026-11-30-N",
       "mentor_primary_assignment_id": null,
       "operational_code": null,
-      "work_period_id": "SITE-9a9d94bd904140af85185d15b5abe2d1:PROF-5f43445a348a40d7a472b2dd16aca44b-shift1-2026-11-30",
+      "work_period_id": "SITE-954326be9f954238b903bd03301968c1:PROF-b10d4b69693846f9bc63f671b070c6c0-shift1-2026-11-30",
       "required_rest_after_hours": 11
     }
   ],
-  "reproduction": "python -c \"from api.deps import get_conn; from api.main import app; from fastapi.testclient import TestClient; from rota.persistence.db import connect; from tests.property.test_coordinator_simulator import _run_one_monthly_object, portfolio_month_for_seed; conn = connect(':memory:'); app.dependency_overrides[get_conn] = lambda: (yield conn); print(_run_one_monthly_object(TestClient(app), 10, portfolio_month_for_seed(10)))\""
+  "reproduction": "& (Get-Command py).Source -c \"from api.deps import get_conn; from api.main import app; from fastapi.testclient import TestClient; from rota.persistence.db import connect; from tests.property.test_coordinator_simulator import _run_one_monthly_object, portfolio_month_for_seed; conn = connect(':memory:'); app.dependency_overrides[get_conn] = lambda: (yield conn); print(_run_one_monthly_object(TestClient(app), 10, portfolio_month_for_seed(10)))\""
 }

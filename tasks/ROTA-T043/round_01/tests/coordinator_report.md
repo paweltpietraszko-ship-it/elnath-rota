@@ -13,7 +13,7 @@ Miesiące portfela: 2026-01-01, 2026-02-01, 2026-03-01, 2026-04-01, 2026-05-01, 
 
 ## Statusy
 
-{'FEASIBLE': 16, 'CRASH': 3, 'DECISION_REQUIRED': 1}
+{'FEASIBLE': 17, 'DECISION_REQUIRED': 1, 'CRASH': 2}
 
 ## Seed 0
 - Kształt: D_N_12H, warstwy: 1, regime ORDINARY, obsada: 5
@@ -32,7 +32,13 @@ Miesiące portfela: 2026-01-01, 2026-02-01, 2026-03-01, 2026-04-01, 2026-05-01, 
 - FAIRNESS: **FAIRNESS_UNPROVEN** -- {'reason': 'not the frozen symmetric control class (B3.1)'}
 
 ## Seed 2
-- **AWARIA (do przejrzenia)**: {"detail":"unexpected error: SIM-2-EMP-1: SICK_LEAVE covering 2026-03-28 would newly cover PRIMARY assignment solved-2026-03-28-D-SIM-2-EMP-1 (state=PLANNED, start=2026-03-28 08:00:00)"}
+- Kształt: SINGLE_24H, warstwy: 1, regime OCHRONA, obsada: 5
+- Absencje: [{'employee_index': 1, 'kind': 'LEAVE_GRANTED', 'start_date': datetime.date(2026, 3, 20), 'end_date': datetime.date(2026, 3, 27), 'employee_id': 'SIM-2-EMP-1'}, {'employee_index': 2, 'kind': 'DAY_SHIFT_OFF', 'start_date': datetime.date(2026, 3, 8), 'end_date': datetime.date(2026, 3, 9), 'employee_id': 'SIM-2-EMP-2'}, {'employee_index': 0, 'kind': 'DAY_SHIFT_OFF', 'start_date': datetime.date(2026, 3, 3), 'end_date': datetime.date(2026, 3, 5), 'employee_id': 'SIM-2-EMP-0'}]
+- PLAN (pierwszy): **FEASIBLE**
+- Wynik finalny: **FEASIBLE**
+- PRODUCT_VALIDATE: **PRODUCT_VALIDATE_PASS**
+- FAIRNESS: **FAIRNESS_UNPROVEN** -- {'reason': 'not the frozen symmetric control class (B3.1)'}
+- REPLAN: NARROW_SEARCH_EXHAUSTED
 
 ## Seed 3
 - Kształt: WEEKDAY_12H_WEEKEND_24H, warstwy: 1, regime OCHRONA, obsada: 5
@@ -141,7 +147,7 @@ Miesiące portfela: 2026-01-01, 2026-02-01, 2026-03-01, 2026-04-01, 2026-05-01, 
 - FAIRNESS: **FAIRNESS_UNPROVEN** -- {'reason': 'not the frozen symmetric control class (B3.1)'}
 
 ## Seed 16
-- **AWARIA (do przejrzenia)**: {"detail":"unexpected error: SIM-16-EMP-1: SICK_LEAVE covering 2026-05-19 would newly cover PRIMARY assignment solved-2026-05-19-D-SIM-16-EMP-1 (state=PLANNED, start=2026-05-19 05:00:00)"}
+- **AWARIA (do przejrzenia)**: None
 
 ## Seed 17
 - Kształt: SINGLE_24H, warstwy: 2, regime OCHRONA, obsada: 10
@@ -152,7 +158,7 @@ Miesiące portfela: 2026-01-01, 2026-02-01, 2026-03-01, 2026-04-01, 2026-05-01, 
 - FAIRNESS: **FAIRNESS_UNPROVEN** -- {'reason': 'not the frozen symmetric control class (B3.1)'}
 
 ## Seed 18
-- **AWARIA (do przejrzenia)**: {"detail":"unexpected error: SIM-18-EMP-4: SICK_LEAVE covering 2026-07-22 would newly cover PRIMARY assignment solved-2026-07-22-D-SIM-18-EMP-4 (state=PLANNED, start=2026-07-22 06:00:00)"}
+- **AWARIA (do przejrzenia)**: None
 
 ## Seed 19
 - Kształt: D_N_12H, warstwy: 1, regime ORDINARY, obsada: 5

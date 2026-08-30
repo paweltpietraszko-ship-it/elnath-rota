@@ -132,6 +132,25 @@ def test_random_absence_set_respects_frozen_urlop_and_l4_bounds():
     assert max_sick_span_seen >= 15, f"expected SICK_LEAVE spans to reach well past the old 5-day cap across 2000 seeds, saw max {max_sick_span_seen}"
 
 
+def test_plan_and_replan_together_never_give_vacation_to_two_people():
+    """The one-person vacation cap applies to the whole scenario, not to
+    the PLAN and REPLAN draws separately."""
+    for seed in range(20):
+        month = portfolio_month_for_seed(seed)
+        spec = sim.random_object_spec(seed, month)
+        initial = sim.random_absence_set(seed, spec, spec.employee_count)
+        replan = sim.random_absence_set(
+            seed * 104729,
+            spec,
+            spec.employee_count,
+            allow_leave_granted=not any(d.kind == "LEAVE_GRANTED" for d in initial),
+        )
+        vacation_people = {
+            d.employee_index for d in initial + replan if d.kind == "LEAVE_GRANTED"
+        }
+        assert len(vacation_people) <= 1, f"seed {seed}: vacation assigned to {vacation_people}"
+
+
 # --- real API verticals -----------------------------------------------------
 
 @pytest.fixture
@@ -325,11 +344,33 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
     # Checkpoint A's own open question -- documented here, not silently
     # resolved: bounds runtime, still deterministic and reproducible).
     if seed % 2 == 0:
-        replan_draws = sim.random_absence_set(seed * 104729, spec, spec.employee_count)
+        replan_draws = sim.random_absence_set(
+            seed * 104729,
+            spec,
+            spec.employee_count,
+            allow_leave_granted=not any(d.kind == "LEAVE_GRANTED" for d in absence_draws),
+        )
         if replan_draws:
             before = {"assignments": view["assignments"], "fairness_verdict": fairness_verdict}
-            sim.apply_absences(client, site_id, spec, replan_draws)
-            replanned = sim.run_replan(client, site_id, month)
+            replan_input = [
+                d.__dict__ | {"employee_id": sim.local_employee_id(spec, d.employee_index)}
+                for d in replan_draws
+            ]
+            try:
+                sim.apply_absences(client, site_id, spec, replan_draws)
+                replanned = sim.run_replan(client, site_id, month)
+            except Exception as exc:  # noqa: BLE001 -- preserve a real product crash
+                row["final_status"] = "CRASH"
+                row["replan"] = {
+                    "status": "CRASH", "error": str(exc), "before": before,
+                    "input_absences": replan_input,
+                }
+                _write_failure_json(
+                    f"seed{seed}-crash",
+                    row | {"assignments": view["assignments"]},
+                    seed=seed,
+                )
+                return row
             row["replan"] = {"status": replanned["status"], "before": before}
             if replanned["status"] == "FEASIBLE" and replanned.get("candidates"):
                 r_validate_status, r_validate_detail, r_candidate = sim.select_first_candidate_reporting_validate(client, site_id, month, replanned)
@@ -518,6 +559,19 @@ def test_quarter_arithmetic_oracle_on_a_real_run():
                 "corrupting unresolved_carryover must make the independent oracle catch it"
             )
 
+        missing = _copy.deepcopy(quarter_result)
+        first_month_data = next(
+            row["month_data"]
+            for row in missing["months"][0]["analytics"]["rows"]
+            if row.get("month_data") is not None
+        )
+        first_month_data["quarter_balance"] = None
+        first_month_data["unresolved_carryover"] = None
+        missing_oracle = sim.compute_quarter_oracle(missing)
+        assert missing_oracle["status"] == "QUARTER_BALANCE_FAIL", (
+            "missing required quarter fields must not silently count as a passing comparison"
+        )
+
 
 # --- Checkpoint B: full 20-object portfolio + Q3 report, gated ------------
 
@@ -646,7 +700,7 @@ def _reproduction_command(seed: int) -> str:
     truncated ellipsis -- rebuilds that exact seed's object through the
     real driver and reruns it standalone."""
     return (
-        "python -c \""
+        "& (Get-Command py).Source -c \""
         "from api.deps import get_conn; from api.main import app; "
         "from fastapi.testclient import TestClient; from rota.persistence.db import connect; "
         "from tests.property.test_coordinator_simulator import _run_one_monthly_object, portfolio_month_for_seed; "
@@ -678,8 +732,19 @@ def test_full_portfolio_and_quarter_report():
             client = TestClient(app)
             rows.append(_run_one_monthly_object(client, seed, portfolio_month_for_seed(seed)))
         except Exception as exc:  # noqa: BLE001 -- a genuine crash is still a reportable finding
-            rows.append({"seed": seed, "crash": str(exc), "final_status": "CRASH"})
-            _write_failure_json(f"seed{seed}-crash", {"seed": seed, "error": str(exc)})
+            month = portfolio_month_for_seed(seed)
+            spec = sim.random_object_spec(seed, month)
+            absence_draws = sim.random_absence_set(seed, spec, spec.employee_count)
+            crash_row = {
+                "seed": seed, "month": month.isoformat(), "final_status": "CRASH",
+                "crash": str(exc), "input_spec": spec.__dict__,
+                "absences": [
+                    d.__dict__ | {"employee_id": sim.local_employee_id(spec, d.employee_index)}
+                    for d in absence_draws
+                ],
+            }
+            rows.append(crash_row)
+            _write_failure_json(f"seed{seed}-crash", crash_row, seed=seed)
         finally:
             app.dependency_overrides.pop(get_conn, None)
             connection.close()
