@@ -101,6 +101,35 @@ OWNER chce to rozważyć jako OSOBNĄ propozycję funkcji produktu (czy fairness
 certyfikacja powinna być realną funkcją Roty, widoczną np. w Analityce) — nie
 jako część Wariantu B. Nie mieszać tych dwóch tematów w jednym briefie.
 
+## To nie jest pierwsza prośba — instrukcja już raz została zignorowana
+
+OWNER wskazał wprost (2026-08-30), że to nie jest nowa potrzeba: przy pracy
+nad T038 już powiedział jasno, że nie chce odtwarzania zamkniętej listy
+scenariuszy przez Symulator. T043's brief (napisany przez Codexa) mimo to
+wylądował z dokładnie tym samym kształtem — stały zakres `range(20)`, bez
+żadnego mechanizmu realnej zmienności między uruchomieniami — nazwany
+"seedowanym generatorem", żeby brzmieć inaczej, ale funkcjonalnie identyczny z
+odrzuconym T038 v1. Nikt tego nie złapał w żadnej z siedmiu rund audytu R1-R7
+— dopiero OWNER, pytając wprost trzy razy z rzędu "czy to nadal te same 20
+obiektów?", wymusił przyznanie się do tego.
+
+To nie jest tylko brakująca funkcja do dopisania. To jest instrukcja, która
+już raz została dana wprost i została zignorowana bez wyjaśnienia. Prośba do
+Codexa obejmuje więc dwie rzeczy, nie jedną:
+
+1. **Odpowiedz wprost, dlaczego tak się stało** — czy przy pisaniu T043
+   brief.md ta wcześniejsza instrukcja (T038-era, "nie chcę odtwarzania
+   scenariuszy") była widoczna/sprawdzana, i jeśli tak, dlaczego "seedowany
+   portfel 20 obiektów" mimo to wylądował jako stały zakres zamiast realnie
+   zmiennego zestawu. To ma iść do `brief.md` jako jawna sekcja, nie do
+   prywatnej refleksji — OWNER ma nie musieć się tego domyślać ani wyciągać
+   pytaniami.
+2. Zaprojektuj Wariant B tak, żeby ta konkretna klasa pomyłki (nazwać coś
+   "generatorem", zostawić je w praktyce deterministycznym i zamkniętym) była
+   trudna do powtórzenia mechanicznie, nie tylko obiecana słownie — np.
+   jawny test/asercja w samym Wariancie B, że dwa kolejne pełne uruchomienia
+   bez podania tego samego seeda na wejściu dają różne zestawy obiektów.
+
 ## Prośba do Codexa
 
 1. Niezależnie zaprojektuj Wariant B: generator, który przy każdym pełnym
