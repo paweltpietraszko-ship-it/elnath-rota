@@ -1,0 +1,142 @@
+ROTA-T044 — niezależny audyt briefu przed napisaniem Tasku
+Data: 2026-08-30
+Branch: task/ROTA-T044
+Exact SHA: 725568e
+
+WERDYKT
+
+OWNER_DECISION_NEEDED / WYMAGA KOREKTY PRZED NAPISANIEM TASKU.
+
+Kierunek Wariantu B jest zgodny z intencją OWNERA: Wariant A zostaje stałym
+czujnikiem regresji, Wariant B ma generować nowe wejścia i zachowywać
+reprodukcję. Brief nie może jednak jeszcze przejść do implementacji. Poniższe
+punkty nie są propozycjami nowych funkcji; zamykają sprzeczności i brakujące
+granice w już zamówionym zachowaniu.
+
+R1 — „minimalna legalna obsada” nie ma zdefiniowanego sposobu liczenia
+
+Dowód:
+- brief.md:70-78 wymaga wyliczenia minimum z ograniczeniami odpoczynku;
+- brief.md:154-157 i 180-181 jednocześnie zakazuje drugiego solvera/validatora;
+- brief.md:80-85 podaje tylko przykłady kontrolne, nie regułę dla dowolnego
+  wygenerowanego katalogu.
+
+Wyliczenie prawdziwego minimum dla dowolnych nakładających się dyżurów, liczby
+stanowisk i odpoczynku jest samo w sobie problemem układania obsady. Implementer
+ma dziś trzy różne możliwości: zastosować wzór kadrowy, pytać produkcyjny solver
+o kolejne liczby osób albo zbudować drugi algorytm układający. Dają one różne
+wyniki, a dwie ostatnie przeczą granicy Symulatora. Nie wolno pozostawić tego do
+wyboru implementera. Przed Taskiem trzeba zamrozić, czym dokładnie jest
+kalkulator i z jakich jawnych danych wyprowadza wynik.
+
+R2 — równość „zadeklarowana = obliczona = faktycznie użyta” daje fałszywe FAIL
+
+Dowód: brief.md:87-93 i 175-176.
+
+Liczba LOCAL potrzebnych do bezpiecznej obsługi obiektu nie musi być równa
+liczbie różnych osób, które solver wykorzystał w jednym gotowym grafiku.
+Przykładowo rzadszy obiekt, absencja, DECISION_REQUIRED albo późniejsze użycie
+EXTERNAL może sprawić, że poprawny wynik nie zawiera Assignmentu dla każdego
+LOCAL. Przy DECISION_REQUIRED gotowego grafiku może w ogóle nie być.
+
+Zamówioną ochronę przed „dopisaniem 8 osób do obiektu 5-osobowego” sprawdza
+równość liczby zadeklarowanych LOCAL z wynikiem kalkulatora oraz zamknięty świat:
+każdy Assignment należy do zadeklarowanego LOCAL albo do dozwolonego EXTERNAL.
+Jeżeli OWNER naprawdę wymaga dodatkowo, aby każdy LOCAL dostał Assignment, musi
+to zostać osobno potwierdzone; obecna rozmowa tego nie zamraża.
+
+R3 — domena losowanych obiektów jest niepełna i częściowo sprzeczna z produktem
+
+Dowód:
+- brief.md:97-106 losuje dzień, rodzaj i godziny, ale nie określa losowania
+  `required_primary_count`, mimo że to pole decyduje o liczbie równoległych
+  stanowisk i jest konieczne dla przykładu „podwójnie w tygodniu, pojedynczo w
+  weekend”;
+- brief.md:100 używa niezdefiniowanego pojęcia „sensowne/legalne czasy”;
+- brief.md:108-116 każe odrzucać nakładające się zmiany jako znany przypadek
+  nieobsługiwany;
+- `rota/planning/shift_catalog.py:250` na exact SHA mówi wprost, że wiele
+  wpisów i nakładanie są legalne i tworzą niezależne occurrence;
+- `tests/test_t041_checkpoint_a.py:209-274` zawiera produkcyjne kontrole
+  legalnych overlapów.
+
+Brief musi opisać pełny zakres generowanego wejścia i wskazać istniejącego
+właściciela walidacji katalogu. Nie wolno odrzucać legalnych overlapów na
+podstawie nieaktualnej diagnozy T038/T039 ani tworzyć w Symulatorze nowego,
+niezdefiniowanego sędziego „sensowności”.
+
+R4 — zniknęły dwie jawne decyzje OWNERA: kwartał i obowiązkowa sprawiedliwość
+
+Dowód:
+- brief.md:123-126 pokazuje sekwencję jednego miesiąca i nie zawiera przejścia
+  przez trzy kolejne miesiące/carry-in;
+- brief.md:159-169 dziedziczy tylko decyzje z sekcji 2 T043, podczas gdy pion
+  kwartalny znajduje się w T043 sekcjach 4.3/B6;
+- brief.md:143-148 mówi, że Wariant B „może” używać evaluatora fairness;
+- OWNER rozstrzygnął wcześniej: rozliczenie ma być kwartalne, a sprawiedliwość
+  ma być oceniana zawsze.
+
+Wariant B musi generować również prawdziwą sekwencję kwartalną na tym samym Site
+i tych samych LOCAL oraz oceniać fairness każdego gotowego FEASIBLE po PLAN i
+REPLAN. To nie oznacza dodania fairness do produktu — nadal jest to ocena
+wyniku przez Symulator.
+
+R5 — kontrakt Hypothesis nie jest jeszcze wykonywalny ani jednoznaczny
+
+Dowód:
+- `pyproject.toml` na exact SHA nie zawiera zależności `hypothesis`, a
+  brief.md:185-200 nie obejmuje pliku zależności;
+- brief.md:121-135 i 225-226 nie zamraża profilu `max_examples`, liczby kroków,
+  bazy przykładów, deadline, sposobu zapisania reproduktora ani zachowania CI;
+- pełny portfel T043 wykonujący tylko 20 obiektów i jeden kwartał trwał w R7
+  749,78 s; domyślne 100 przykładów i 50 kroków stateful byłoby nieadekwatne
+  dla prawdziwego API i solvera.
+
+Oficjalna dokumentacja Hypothesis rozróżnia losowanie, `derandomize`, seed i
+bazę zapisanych awarii. Stały seed odtwarza te same przypadki; baza najpierw
+odtwarza wcześniejsze awarie; shrinking jest osobną fazą. Samo użycie
+`RuleBasedStateMachine` nie gwarantuje więc kontraktu „każdy run nowy i później
+dokładnie odtwarzalny”. Źródło:
+https://hypothesis.readthedocs.io/en/latest/reference/api.html
+
+Brief musi zdefiniować ograniczony profil eksploracyjny, jawny artefakt
+reprodukcji i deterministyczny sposób sprawdzenia zmienności. Asercja „dwa
+losowe uruchomienia muszą się różnić” nie może zależeć od szczęścia; test ma
+kontrolować dwa różne wejściowe seedy/identyfikatory przebiegu i porównać
+kanoniczne wygenerowane obiekty.
+
+R6 — brak izolacji pojedynczego przykładu stateful i granic sekwencji
+
+Dowód: brief.md:121-129 wymienia działania z wielokropkiem, ale nie określa
+świeżej SQLite `:memory:` dla każdego przykładu, warunków kolejności działań ani
+tego, co dokładnie ma zostać po każdym kroku. Bez tego shrinking może odtwarzać
+przypadek na stanie pozostawionym przez poprzedni przykład albo generować
+czynności, których koordynator w danym stanie nie może wykonać.
+
+Kontrakt musi wymagać osobnej bazy i nowego Site dla każdego przykładu oraz
+warunków stanu dla PLAN, select_candidate, absencji i REPLAN. Zły wynik produktu
+pozostaje wynikiem badania; tylko nielegalna kolejność samego generatora jest
+błędem narzędzia.
+
+R7 — brak wymaganego WHERE_MAP i niespójny zakres plików
+
+Task dodaje nowego właściciela kalkulatora i generatora, więc zgodnie z
+AGENTS.md wymaga `WHERE_MAP: REQUIRED`. Brief go nie zawiera. Ponadto
+brief.md:149-150 mówi, że Wariant A pozostaje bez zmian, a brief.md:185-200
+każe dopisywać nowe funkcje do jego modułu. To może nie zmienić zachowania A,
+ale musi zostać nazwane precyzyjnie i sprawdzone mapą użyć. Zakres musi też
+objąć zależność Hypothesis, jeśli zostaje wybrana.
+
+CO JEST JUŻ POPRAWNE
+
+- Wariant A zostaje i ma inną odpowiedzialność niż Wariant B.
+- Wariant B korzysta z prawdziwych operacji backendu, nie tworzy Assignmentów.
+- EXTERNAL powstaje dopiero po prawdziwym DECISION_REQUIRED.
+- Zły grafik/brak grafiku jest wartościowym, zachowanym wynikiem.
+- Pełny UI i Cross-Site pozostają poza zakresem zgodnie z OWNEREM.
+
+NASTĘPNY GATE
+
+Nie pisać Tasku i nie implementować. Najpierw OWNER/autor briefu rozstrzyga R1
+i R2, następnie CC mechanicznie poprawia R3-R7 w jednym podejściu. Po tej jednej
+rundzie Codex sprawdzi wyłącznie poprawione punkty, bez szerokiego audytu.
