@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | CC | Codex/OWNER | task/ROTA-T043 | 8dab466 | OWNER_DECISION_NEEDED | Decyzja OWNER (cross-Site zamknięte, nie ponawiać): `tasks/ROTA-T043/round_01/tests/tests_r2.txt`. CC niezależnie zweryfikował file:line pięciu pozostałych uwag R2 wprost w kodzie: `tasks/ROTA-T043/round_01/tests/tests_r3.txt` -- wszystkie pięć CONFIRMED. Decyzja o zawężeniu kontraktu nadal należy do architekta/OWNER. |
+| BOARD-01 | Codex | Architekt/CC | task/ROTA-T043 | af918b3 | CODEX_REPORTED | OWNER skorygował kontrakt d073c42: sprawiedliwość ma być zawsze oceniana, badany jest gotowy grafik i jego błędy, a rzeczywisty przebieg kwartalny jest obowiązkowy. Cross-Site pozostaje zamknięte. Raport: `tasks/ROTA-T043/round_01/tests/tests_r4.txt`. Brief wymaga mechanicznej korekty; CC read-only do następnego audytu kontraktu. |
