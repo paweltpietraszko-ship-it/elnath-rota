@@ -1,0 +1,81 @@
+ROTA-T043 -- NIEZALEŻNA WERYFIKACJA TECHNICZNA PIĘCIU POZOSTAŁYCH UWAG (R2)
+Audytor: CC (read-only, bez implementacji, bez projektowania poprawki)
+Audytowany raport: tasks/ROTA-T043/round_01/tests/tests_r2.txt (OWNER_CORRECTED,
+cross-Site wycofane)
+Branch: task/ROTA-T043
+Exact SHA: b6814cb0c631730e6e6da358ce94220ff2af6c83
+Data: 2026-08-30
+
+ZAKRES
+Wyłącznie pięć uwag pozostałych po R2 (cross-Site poza zakresem, zamknięte
+decyzją OWNER, nie ponawiane). Dla każdej: sprawdzenie cytowanego file:line
+wprost w bieżącym kodzie produktu. Brak implementacji, brak propozycji
+poprawki, brak werdyktu PASS/FAIL kontraktu -- to nie należy do CC.
+
+WYNIKI
+
+T43-PRE-02 (validate() nie jest niezależnym oraklem prawa) -- CONFIRMED
+- rota/planning/validator.py:622-628: `_check_weekly_rest`, docstring
+  "WEEKLY-REST-01 (ROTA-T023b sec.6/7): OCHRONA only", guard
+  `if state.site.planning_regime != SitePlanningRegime.OCHRONA: return`.
+  Cytat dokładny.
+- rota/planning/solver.py:479-581: `_add_combined_objective`, docstring
+  "ONE weighted objective", kończy się `model.minimize(...)` na linii 581.
+  Cytat dokładny.
+- arch/T026_absence_canonicalization_gaps_architect_brief.md:67: dosłownie
+  "dzisiejszy product spec traktuje coordinator-configured
+  `required_rest_hours` jako authoritative i nie wyprowadza legalności ze
+  statutu nigdzie". Cytat dokładny.
+
+T43-PRE-03 (zapisany kalendarz nie dowodzi, że target jest prawdziwy) --
+CONFIRMED
+- tests/property/coordinator_simulator.py:144:
+  `nominal_monthly_hours_kp(month, holidays: frozenset[date] = frozenset())`
+  -- pusta lista domyślna. Cytat dokładny.
+- tests/property/coordinator_simulator.py:254-256: `seed_calendar()` woła
+  `save_calendar_day(conn, CalendarDay(day, False))` dla każdego dnia --
+  zawsze holiday=False. Cytat dokładny.
+
+T43-PRE-04 (porównywalne godziny bez wykonywalnego kryterium) -- CONFIRMED
+- rota/planning/fairness.py:171-189: `add_equal_split_fairness`, docstring
+  wprost: "fallback used only for a solve whose target vector is
+  incomplete... the smallest achievable difference being the fairest
+  outcome when nobody has a declared quota" -- mechanizm istnieje tylko dla
+  fallbacku brakującego targetu, nie ogólnie. Cytat dokładny.
+- rota/planning/solver.py:479-581 jak wyżej -- wiele współistniejących
+  celów SOFT przy kompletnych targetach. Cytat dokładny.
+
+T43-PRE-05 (testowy EXTERNAL nie dowodzi realnego ręcznego dodania LOCAL) --
+CONFIRMED
+- rota/planning/eligibility.py:229-239: osobna gałąź EXTERNAL_SUPPORT z
+  `external_windows`/kodem odrzucenia `EXTERNAL-01`. Cytat dokładny.
+- rota/application/assembler.py:256-264: `local_employee_ids` filtruje
+  wyłącznie LOCAL do `_assemble_work_balances`; komentarz cytuje wprost
+  OWNER-T041-01 ("EXTERNAL_SUPPORT nie uczestniczy w tym porównaniu").
+  Cytat dokładny.
+- frontend/src/screens/ControlPanel.tsx:292-304: komentarz "only the very
+  FIRST write of this whole chain can ever see a still-current id -- every
+  later write... must pass null, or it hits an already-stale id and
+  500s". Dokładnie potwierdza wymagany porządek trzech zapisów (materialny
+  zapis niesie decision id, kolejne membership/window dostają null).
+  Cytat dokładny.
+
+T43-PRE-06 (świeży pojedynczy miesiąc nie sprawdza bilansu kwartalnego) --
+CONFIRMED
+- rota/balance.py:116-141: `compute_quarter_balance` iteruje 3 miesiące
+  kwartału z `running_balance` przenoszonym między iteracjami. Cytat
+  dokładny.
+- rota/application/assembler.py:112-134 (cytat mówił 114-134, rzeczywisty
+  zakres funkcji `_carry_in_before` to 112-134): sumuje `quarter_balance`
+  od początku kwartału do miesiąca przed planowanym, resetuje do 0 z
+  ostrzeżeniem przy braku target_hours we wcześniejszym miesiącu. Cytat
+  merytorycznie dokładny (drobna rozbieżność zakresu linii o 2, treść bez
+  zastrzeżeń).
+
+WERDYKT
+Wszystkich pięć uwag R2 potwierdzonych wprost w bieżącym kodzie produktu,
+bez rozbieżności merytorycznych. Żadna nie jest przesadą audytora ani
+nieaktualnym cytatem. Decyzja co dalej (czy i jak zawęzić kontrakt T043 w
+odpowiedzi na te pięć punktów) należy do architekta/OWNER, nie do CC.
+
+KONIEC RAPORTU
