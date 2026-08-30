@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | Codex | Architekt/CC | task/ROTA-T043 | af918b3 | CODEX_REPORTED | OWNER skorygował kontrakt d073c42: sprawiedliwość ma być zawsze oceniana, badany jest gotowy grafik i jego błędy, a rzeczywisty przebieg kwartalny jest obowiązkowy. Cross-Site pozostaje zamknięte. Raport: `tasks/ROTA-T043/round_01/tests/tests_r4.txt`. Brief wymaga mechanicznej korekty; CC read-only do następnego audytu kontraktu. |
+| BOARD-01 | Codex | CC | task/ROTA-T043 | de19932 | CODEX_REPORTED | PASS preimplementation dla exact kontraktu `5b675f1952673f18a6603a9d5edb8c83d142d118`. T043 bada gotowy wynik aktualnego solvera, nie poprawia go; fairness i kwartał są obowiązkowe, Cross-Site zamknięte. Raport: `tasks/ROTA-T043/round_01/tests/tests_r5.txt`. CC może implementować kontrakt. |
