@@ -1,0 +1,84 @@
+ROTA-T043 — reaudyt po poprawkach R6
+Data: 2026-08-30
+
+AUDYTOWANA DOSTAWA CC
+- branch: task/ROTA-T043
+- SHA wejściowe: e95b502
+- BOARD przekazania: 26a0768
+
+FINALNE SHA PO WĄSKICH POPRAWKACH CODEXA
+- 6ea0e09f859dd90e0bebfa4055f97c9e8e7186d5
+- zmiany wyłącznie w narzędziu/testach/artefaktach T043;
+- bez zmian rota/**, api/** i kodu produktu.
+
+WYNIK REAUDYTU R6
+
+Pięć ustaleń R6 zostało przez CC zasadniczo naprawionych. Niezależna kontrola
+ujawniła trzy pozostałe usterki samego Symulatora i jedną techniczną usterkę
+komendy reprodukcji. Zgodnie z poleceniem OWNERA poprawiono je od razu:
+
+1. Limit jednej osoby na planowym urlopie obejmuje teraz cały scenariusz
+   PLAN -> REPLAN. W e95b502 limit działał osobno dla dwóch losowań; seed 10
+   przydzielał LEAVE_GRANTED dwóm osobom.
+
+2. Przebieg kwartalny wpisuje targety sierpnia i września przed pierwszym PLAN.
+   Oracle uznaje brak quarter_balance lub unresolved_carryover za błąd danych,
+   zamiast pomijać porównanie i zwracać PASS.
+
+3. Crash podczas dodawania absencji przed REPLAN jest zamieniany w wynik
+   badania. Failure JSON zawiera gotowe Assignmenty sprzed zmiany, dokładne
+   absencje wejściowe, błąd, seed, miesiąc i komendę odtworzenia. Zewnętrzny
+   bezpiecznik pełnego portfela również zachowuje co najmniej pełne wejście.
+
+4. Komenda odtworzenia korzysta z launchera odnalezionego przez PowerShell:
+   `& (Get-Command py).Source -c ...`. Poprzednie `python -c ...` nie było
+   wykonywalne w bieżącym środowisku Windows. Komendę dla seeda 16 uruchomiono
+   dosłownie; exit code 0 i błąd produktu został odtworzony.
+
+WARSTWY WERYFIKACJI
+
+A. Kontrola generatora bez solvera
+- polecenie: python -m pytest tests/property/test_coordinator_simulator.py -q
+  -k "random_absence_set or plan_and_replan_together"
+- wynik: 4 passed, 21 deselected;
+- niezależny sweep 20 seedów: maksymalnie jedna osoba z LEAVE_GRANTED w całym
+  wejściu PLAN + REPLAN.
+
+B. Prawdziwy pion kwartalny
+- test: test_quarter_arithmetic_oracle_on_a_real_run
+- wynik: 1 passed w 136.44 s;
+- wszystkie month_data w finalnym raporcie mają quarter_balance i
+  unresolved_carryover; usunięcie Assignmentów, uszkodzenie pola lub jego brak
+  prowadzi do QUARTER_BALANCE_FAIL.
+
+C. Pełny portfel T043, bez pełnej regresji repozytorium
+- ROTA_SIM_FULL_PORTFOLIO=1;
+- test: test_full_portfolio_and_quarter_report;
+- wynik: 1 passed w 749.78 s;
+- 20 obiektów, wszystkie 12 miesięcy 2026, warstwy 1 i 2;
+- wyniki: 17 FEASIBLE, 1 DECISION_REQUIRED, 2 CRASH;
+- kwartał: QUARTER_OK / QUARTER_BALANCE_PASS;
+- maksymalna liczba osób z planowym urlopem w scenariuszu: 1.
+
+D. Artefakty i reprodukcja
+- seed16-crash.json i seed18-crash.json mają po 124 gotowe Assignmenty sprzed
+  REPLAN, pełne absencje wejściowe, błąd i komendę odtworzenia;
+- stary seed2-crash.json usunięto, ponieważ poprawione wejście seeda 2 nie
+  kończy się już crashem;
+- git diff --check: bez błędów;
+- pełnej regresji repozytorium nie uruchamiano: zakres jest wąski, a AGENTS.md
+  wymaga do niej osobnej zgody OWNERA.
+
+POTWIERDZONY WYNIK PRODUKTU — NIE JEST DEFEKTEM T043
+
+Seedy 16 i 18 nadal wykrywają rzeczywisty błąd produktu: dodanie SICK_LEAVE
+przed REPLAN może zwrócić 500, jeżeli absencja nachodzi na PRIMARY Assignment
+z istniejącego grafiku. Symulator nie pomaga solverowi i nie ukrywa wyniku;
+zachowuje oba przypadki jako pełne reproduktory. Kod produktu pozostawiono
+nietknięty, zgodnie z zakresem T043.
+
+WERDYKT
+
+PASS — kontrakt Symulatora Koordynatora T043 jest spełniony na dokładnym SHA
+6ea0e09f859dd90e0bebfa4055f97c9e8e7186d5. PASS dotyczy narzędzia T043, nie
+oznacza, że dwa zachowane crashe produktu są poprawnym zachowaniem aplikacji.
