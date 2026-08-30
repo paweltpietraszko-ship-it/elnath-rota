@@ -1,0 +1,176 @@
+ROTA-T038 — ponowny audyt „Symulatora Koordynatora” jako realnego warsztatu
+Data: 2026-08-30
+Audytor: Codex
+
+AUDYTOWANE SHA
+071feb7cfaead0dbe8f514184fcb5ea614fa1cbf (aktualny main)
+
+Kod Symulatora nie zmienił się pomiędzy d5e34b2... i tym SHA.
+
+ZAKRES I KOSZT
+- bez pełnej suity;
+- statyczna kontrola całego przepływu Symulatora;
+- czyste wyliczenie pięciu domyślnych seedów;
+- jeden sztuczny, minimalny reproduktor reakcji na DECISION_REQUIRED;
+- jeden realny pion seed=2 przez SQLite :memory: i produkcyjne API PLAN/REPLAN;
+- jeden istniejący, wąski test T041 dla chorobowego przed pierwszym PLAN.
+
+CO JEST DOBRE
+1. Obiekt, katalog zmian, pracownicy, obsada, target_hours i absencje są w
+   większości zapisywane przez prawdziwe endpointy backendu.
+2. PLAN, wybór kandydata i REPLAN przechodzą przez produkcyjne endpointy oraz
+   produkcyjny solver/validator.
+3. W pięciu obecnych seedach początkowa załoga ma dokładnie 5 osób, a każdy
+   LOCAL ma jawny target 176 h dla września 2026. Nie ma początkowego zapasu.
+4. Aktualny realny seed=2 (obiekt 24 h, 5 osób) daje FEASIBLE bez zatrudnienia;
+   REPLAN po chorobowym także daje FEASIBLE. To potwierdza poprawkę H24.
+
+USTALENIA BLOKUJĄCE UZNANIE NARZĘDZIA ZA REALNE ODTWORZENIE PRACY
+
+T38-R4-01 — Symulator dopisuje ludzi po KAŻDYM DECISION_REQUIRED
+Werdykt: FAIL
+
+TRACE:
+Koordynator ma zareagować na faktyczną propozycję/wyjaśnienie solvera.
+Symulator nie może sam zakładać, że każda decyzja oznacza brak człowieka.
+
+OWNERSHIP:
+Decyzję o reakcji podejmuje wyłącznie driver Symulatora.
+
+REPRO:
+tests/property/test_coordinator_simulator.py:109-123 sprawdza tylko status.
+Nie czyta blockers ani unblocking_options. Minimalny wynik solvera:
+  DECISION_REQUIRED, unblocking_options=["Zmień zapisaną regułę"]
+spowodował dopisanie osób o kolejnych numerach 5, 6, 7 i 8. Stan końcowy:
+9 LOCAL, nadal DECISION_REQUIRED.
+
+To dokładnie pozwala Symulatorowi zrobić z realnego obiektu pięcioosobowego
+obiekt dziewięcioosobowy, mimo że problem nie dotyczy obsady.
+
+T38-R4-02 — Brak wariantu podwójnej obsady z 10 osobami
+Werdykt: FAIL
+
+TRACE:
+Zamrożona decyzja OWNER: pojedyncza obsada = 5 pracowników, podwójna obsada
+= 10 pracowników.
+
+OWNERSHIP:
+Kształt obiektu i początkową liczbę pracowników tworzy Symulator.
+
+REPRO:
+tests/property/coordinator_simulator.py:59-73 ma required_primary_count=1
+we wszystkich katalogach. Domyślne seedy 0–4 dały kolejno trzy kształty,
+ale zawsze 720 h zapotrzebowania i zawsze 5 pracowników. Brief T038:80 sam
+zamraża posts=1. Wariant 10-osobowy nie istnieje.
+
+T38-R4-03 — Losowanie nie odtwarza uzgodnionych urlopów i chorobowego
+Werdykt: FAIL
+
+TRACE:
+OWNER ustalił: czasem brak urlopu; maksymalnie jedna osoba na planowanym
+dwutygodniowym urlopie; nie więcej niż 120 h urlopu w miesiącu; chorobowe
+0–21 dni kalendarzowych.
+
+OWNERSHIP:
+Rozkład zdarzeń wejściowych należy do generatora Symulatora, nie solvera.
+
+REPRO:
+tests/property/coordinator_simulator.py:220-246 losuje 0–3 dowolne rekordy,
+dla dowolnych pracowników, każdy o długości tylko 1–5 dni. Nie ma reguły
+„jedna osoba”, dwutygodniowego przypadku, limitu 120 h ani chorobowego do
+21 dni. To nie jest jedynie mała próbka — generator nie potrafi utworzyć
+uzgodnionych granic.
+
+T38-R4-04 — Symulator nadal omija chorobowe przed pierwszym PLAN, choć produkt
+już je obsługuje
+Werdykt: FAIL
+
+TRACE:
+ROTA-T041 zamroziło i wdrożyło chorobowe znane przed pierwszym PLAN: 8 h za
+roboczy pon.–pt., 0 h w weekend/święto, bez błędu 500.
+
+OWNERSHIP:
+Symulator wybiera dozwolone rodzaje absencji przed PLAN.
+
+REPRO:
+- coordinator_simulator.py:226-230 i driver:152-156 nadal wymuszają
+  allow_sick_leave=False, powołując się na już naprawioną lukę;
+- test T041 `test_t41_b05_known_sick_before_first_plan_does_not_500` na exact
+  SHA przeszedł: 1 passed;
+- raport Symulatora:189-191 nadal przedstawia ten obsługiwany przypadek jako
+  „znany brak”.
+
+T38-R4-05 — Kalendarz jest zapisywany bokiem, nie operacją koordynatora
+Werdykt: FAIL DLA DEKLARACJI „PRODUKCYJNE OPERACJE BACKENDOWE”
+
+TRACE:
+Symulator ma odtwarzać działania koordynatora przez produkcyjne operacje,
+nie montować stanu bezpośrednio w repozytorium.
+
+OWNERSHIP:
+Symulator sam przygotowuje kalendarz obiektu.
+
+REPRO:
+coordinator_simulator.py:254-256 woła bezpośrednio persistence
+save_calendar_day(). Produkcyjna operacja istnieje:
+POST /api/workspace/calendar/day w api/routers/durable_inputs.py:41,51-57.
+Pozostałe główne dane wejściowe korzystają z endpointów; kalendarz jest
+wyjątkiem omijającym normalny zapis i jego audyt.
+
+T38-R4-06 — Raport nie pokazuje sprawiedliwości godzin
+Werdykt: FAIL DLA OBECNEGO CELU WARSZTATU
+
+TRACE:
+OWNER wymaga, aby narzędzie pokazywało, jaki grafik wychodzi przy danych
+ustawieniach, w tym czy osoby mają porównywalne godziny względem targetu.
+
+OWNERSHIP:
+Solver przydziela godziny; Symulator ma je tylko rzetelnie odczytać i
+zaraportować. Nie musi powielać reguł solvera.
+
+REPRO:
+test_coordinator_simulator.py:75-76 zbiera tylko unikalne employee_id.
+Raport:201-212 pokazuje wyłącznie listę użytych osób. Osoba z jedną zmianą
+i osoba ze 180 godzinami wyglądają w nim identycznie. Narzędzie nie może więc
+ujawnić głównego zgłoszonego problemu, choć wszystkie Assignmenty już ma.
+
+Najmniejsza konieczna informacja w raporcie (bez nowej logiki produktowej):
+dla każdej osoby rzeczywiste godziny Assignmentów, target_hours i różnica.
+Ocena, czy wynik jest dopuszczalny, nadal należy do produkcyjnego
+validate()/kontraktu, a nie do nowego „wzorcowego grafiku” w Symulatorze.
+
+T38-R4-07 — Dokumentacja nadal nadaje odrzuconemu benchmarkowi rolę wyroczni
+Werdykt: FAIL DLA AKTUALNEGO KONTRAKTU NARZĘDZIA
+
+coordinator_simulator.py:4-6 oraz brief T038:25 mówią, że ocenę poprawności
+solvera pozostawia się benchmarks/REAL_OBJECT_BENCHMARK.md. OWNER później
+jawnie odrzucił stare benchmarki jako niemiarodajne, ponieważ swobodnie
+dobierały załogę. Ten opis jest nieaktualny i ponownie kieruje workflow do
+narzędzia, które nie stanowi już oracle.
+
+UWAGA TECHNICZNA — zapis raportu
+REPORT_PATH wskazuje stale ten sam śledzony simulator_report.md, a
+_write_report() nadpisuje go przy każdym uruchomieniu. Obecny plik nadal
+pokazuje stary fałszywy problem H24 i zatrudnienie do 9 osób. Na aktualnym
+main ten sam seed=2 daje FEASIBLE z 5 osobami. To historyczny raport, nie
+aktualny stan produktu; narzędzie powinno wyraźnie oznaczać SHA albo pisać
+nowy artefakt, aby wynik nie udawał dowodu z innej wersji.
+
+KWESTIA, KTÓREJ TEN AUDYT NIE ROZSTRZYGA
+W historii decyzji występują dwa opisy reakcji po DECISION_REQUIRED:
+EXTERNAL_SUPPORT bez targetu oraz późniejsze dopuszczenie dopisania LOCAL.
+Nie wydaję FAIL wyłącznie za nazwę rodzaju członkostwa. Niezależnie od tej
+decyzji R4-01 pozostaje błędem: żadnej osoby nie wolno dopisywać, dopóki
+rzeczywista odpowiedź solvera nie wskazuje problemu obsady i właściwej
+reakcji koordynatora.
+
+WERDYKT KOŃCOWY
+FAIL — obecny Symulator przechodzi przez prawdziwy solver, ale nie jest jeszcze
+wiernym automatem pracy koordynatora. Sam zmienia załogę bez odczytania powodu,
+nie ma uzgodnionej podwójnej obsady, losuje inne granice absencji, omija już
+obsługiwane chorobowe przed PLAN, zapisuje kalendarz bokiem i nie pokazuje
+rozkładu godzin. Nie należy go dziś traktować jako oracle poprawności solvera.
+
+To nie wymaga rozbudowy solvera ani nowego benchmarku. Wymaga korekty samego
+drivera i raportu Symulatora, przy zachowaniu cienkiej warstwy nad istniejącymi
+operacjami produkcyjnymi.

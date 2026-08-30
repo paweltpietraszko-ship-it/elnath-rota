@@ -1,0 +1,72 @@
+ROTA-AUDIT4-REVIEW — niezależne sprawdzenie ustaleń 8–10
+Data: 2026-08-30
+Audytor: Codex
+
+AUDYTOWANE SHA
+- raport CC: audit/ROTA-AUDIT4@0a1ef882a762965f4fd83632c905df7dd0dac2d2
+- kod produktu wskazany przez raport: d5e34b2b4bde0b70e04abe7249c00dae9866a06e
+- dodatkowa kontrola, czy ustalenia nadal występują na aktualnym main:
+  071feb7cfaead0dbe8f514184fcb5ea614fa1cbf
+
+ZAKRES I KOSZT
+Sprawdzono tylko punkty 8–10. Bez solvera, Playwrighta i pełnej suity.
+Warstwy: niezależne czytanie kodu na exact SHA, sprawdzenie wywołań oraz jeden
+minimalny reproduktor daty lokalnej.
+
+8. PODWÓJNE SKŁADANIE PlanningState — POTWIERDZONE
+
+Dowód:
+- rota/application/plan_ops.py:158-159 w plan() wykonuje dwa kolejne,
+  identyczne assemble_planning_state(); pierwszy wynik jest odrzucony;
+- rota/application/plan_ops.py:426-427 robi to samo w replan();
+- pomiędzy parami wywołań nie ma operacji, która zmieniałaby wejście.
+
+To potwierdzone zbędne podwojenie odczytów. Nie znaleziono zmiany wyniku
+grafiku ani efektu widocznego dla użytkownika. Klasyfikacja CC „DEFECT —
+marnotrawstwo, nie błąd poprawności” jest trafna.
+
+9. DWA SERIALIZERY DecisionRequiredPayload — POTWIERDZONE JAKO DUPLIKACJA
+
+Dowód:
+- api/routers/schedule.py:108-130 oraz 196-210 definiuje modele wewnętrznego
+  payloadu i funkcję mapującą;
+- api/routers/decisions.py:28-57 oraz 69-89 definiuje drugi zestaw tych samych
+  modeli wewnętrznych i drugie mapowanie;
+- oba miejsca czytają ten sam domenowy DecisionRequiredPayload.
+
+Zewnętrzne odpowiedzi endpointów nie są w całości identyczne i nie powinny
+być mechanicznie zlane. Powtórzony jest ich wspólny payload wewnętrzny.
+Nie odtworzono obecnie rozjazdu danych, więc jest to potwierdzone ryzyko
+utrzymaniowe, a nie potwierdzony błąd odpowiedzi użytkownika.
+
+10. todayIso() — POTWIERDZONE: DUPLIKACJA I RZECZYWISTY BŁĄD DATY
+
+TRACE:
+Ekrany używają todayIso() jako dzisiejszej lokalnej daty/miesiąca i jako
+wartości początkowej formularzy PLAN/REPLAN/korekty.
+
+OWNERSHIP:
+Wartość wyliczają bezpośrednio ekrany frontendowe.
+
+REPRO:
+Na komputerze Europe/Warsaw dla chwili 2026-09-01 00:30 czasu lokalnego
+(2026-08-31T22:30:00Z):
+  UTC slice = 2026-08-31
+  lokalne pola Date = 2026-09-01
+
+Dowód w kodzie — identyczne `new Date().toISOString().slice(0, 10)`:
+- frontend/src/screens/Analytics.tsx:7-8;
+- frontend/src/screens/Export.tsx:11-12;
+- frontend/src/screens/MonthlyPlanning.tsx:8-9.
+
+Po lokalnej północy ekrany przez maksymalnie dwie godziny pokazują poprzedni
+dzień/miesiąc i mogą podstawić poprzednią datę do operacji. Ustalenie CC jest
+więc pełnym defektem według DEFECT_GATE.
+
+WERDYKT
+PASS DLA RZETELNOŚCI USTALEŃ 8–10 RAPORTU AUDIT-4.
+
+Punkt 8 jest małą optymalizacją techniczną. Punkt 9 wymaga ostrożnej,
+wspólnej reprezentacji tylko części payloadu. Punkt 10 jest małym, realnym
+błędem użytkowym i powinien zostać naprawiony. Ten raport nie zatwierdza
+żadnej implementacji i nie proponuje refaktoru poza potwierdzeniem zakresu.
