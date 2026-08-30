@@ -23337,5 +23337,40 @@
       }
     ]
   },
-  "reproduction": "python -c \"from tests.property.test_coordinator_simulator import _run_one_monthly_object; ...\""
+  "reproduction": "python -c \"from tests.property.test_coordinator_simulator import _run_one_monthly_object; ...\"",
+  "checkpoint_c": {
+    "classification_table_in_markdown": true,
+    "new_real_pions": [
+      "tests/test_t009_plan_select_replan.py::test_43c_two_legal_overlapping_demands_via_real_assembler_and_validator",
+      "frontend/e2e/t043-coordinator-confidence.spec.ts"
+    ],
+    "playwright_vertical_result": "PASS",
+    "calibration_mutations": [
+      {
+        "id": 1,
+        "description": "H24 occupancy=2*x treated as Boolean (reverted fa70b1c)",
+        "test": "tests/test_t040_h24_rhythm_occupancy.py",
+        "red_under_mutation": true,
+        "green_on_final_sha": true
+      },
+      {
+        "id": 2,
+        "description": "disabled add_equal_split_fairness missing-target fallback",
+        "test": "tests/test_t041_checkpoint_a.py::test_t41_a01_one_missing_target_splits_equally_across_all_five",
+        "red_under_mutation": true,
+        "green_on_final_sha": true
+      },
+      {
+        "id": 3,
+        "description": "old geometric double-counting of overlapping demands (validator tag disambiguation disabled)",
+        "test": [
+          "tests/test_t009_plan_select_replan.py::test_43c_two_legal_overlapping_demands_via_real_assembler_and_validator",
+          "tests/test_t041_checkpoint_a.py::test_t41_a07_two_legal_overlapping_demands_correctly_assigned_passes"
+        ],
+        "red_under_mutation": true,
+        "green_on_final_sha": true
+      }
+    ],
+    "product_diff_after_all_mutations_reverted": "empty (git diff task/ROTA-T043 -- rota/ api/ frontend/src/ benchmarks/)"
+  }
 }

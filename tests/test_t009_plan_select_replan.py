@@ -6,10 +6,13 @@ from datetime import date, datetime
 import pytest
 
 from rota.application import plan_ops
+from rota.application.assembler import assemble_planning_state
 from rota.application.errors import CandidateRejected
-from rota.domain import ExternalSupportWindow, ShiftKind
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ExternalSupportWindow, ShiftDemand, ShiftKind
+from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.db import connect
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
+from rota.planning.validator import validate
 from tests.support.t009_fixtures import seed_real_object
 
 MONTH = date(2026, 8, 1)
@@ -110,3 +113,40 @@ def test_9_replan_creates_child_and_preserves_parent_history_and_frozen(tmp_path
     assert v2.parent_version_id == v1.version_id
     assert get_schedule_snapshot(conn, v1.version_id) == v1_snapshot_before  # parent untouched
     assert get_current_version_id(conn, site_id, MONTH) == v2.version_id
+
+
+# ROTA-T043 Checkpoint C (brief.md section 6.2 "nakładających się demandów"):
+# tests/test_t041_checkpoint_a.py's a07-a13 exercise COVERAGE-01's overlap
+# disambiguation only against a hand-built PlanningState (UNIT_OR_ADAPTER per
+# brief 6.1 -- no real assemble_planning_state read). This is the smallest
+# real pion for the same class: a real Site/roster/calendar (seed_real_object)
+# and two custom, genuinely overlapping ShiftDemands written through the real
+# persistence path (schedule_lifecycle.create_schedule_version, same idiom
+# tests/test_t010_nn.py uses), then assemble_planning_state (real assembler
+# read) + validate (real validator) -- no hand-built PlanningState anywhere.
+def test_43c_two_legal_overlapping_demands_via_real_assembler_and_validator(tmp_path) -> None:
+    conn = connect(tmp_path / "rota.db")
+    pstate = seed_real_object(conn, case_id="overlap-real", month=MONTH, seed=210)
+    site_id = pstate.site.site_id
+    e1, e2 = pstate.memberships[0].employee_id, pstate.memberships[1].employee_id
+
+    d1 = ShiftDemand("OVL-1", "", datetime(2026, 8, 5, 18, 0), datetime(2026, 8, 6, 6, 0), 1, shift_kind=ShiftKind.N)
+    d2 = ShiftDemand("OVL-2", "", datetime(2026, 8, 5, 22, 0), datetime(2026, 8, 6, 10, 0), 1, shift_kind=ShiftKind.N)
+    lifecycle.create_schedule_version(
+        conn, version_id="SV-OVL-1", site_id=site_id, month=MONTH, parent_version_id=None,
+        created_at=datetime(2026, 8, 1), created_by="COORD-1",
+        applied_rule_version_ids=[], shift_demands=[d1, d2], assignments=[], deviations=[],
+        effective_from=date(2026, 8, 1),
+    )
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=MONTH)
+    d1_real = next(d for d in state.shift_demands if d.demand_id == "OVL-1")
+    d2_real = next(d for d in state.shift_demands if d.demand_id == "OVL-2")
+
+    a1 = Assignment("A1", state.schedule_version_id, e1, d1_real.start_datetime, d1_real.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, d1_real.demand_id, None)
+    a2 = Assignment("A2", state.schedule_version_id, e2, d2_real.start_datetime, d2_real.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, d2_real.demand_id, None)
+    report_both = validate(state, [a1, a2])
+    assert report_both.hard_pass, report_both.violations
+
+    report_one_missing = validate(state, [a1])
+    assert not report_one_missing.hard_pass
+    assert any("COVERAGE-01" in v and "OVL-2" in v for v in report_one_missing.violations)
