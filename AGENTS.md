@@ -100,8 +100,10 @@ Implementer tests = supporting evidence, not verdict. On exact SHA run:
 2. full Task matrix: authorized equivalence classes, boundaries, sibling and
    alternate paths of the same bug class;
 3. vertical test through the real relevant chain; it cannot create a contract;
-4. full repo regression/gates once on final SHA (repeat after micro-fix only
-   when scope/risk requires).
+4. after a narrow fix, targeted tests of the changed code and its relevant real
+   vertical path are required. Full repo regression/gates are optional and may
+   run only after explicit OWNER approval; propose them only when scope/risk
+   gives a concrete reason.
 
 Keep original reproducer, then generalize the bug class. Do not blindly repeat
 all implementer tests; target uncovered classes/vertical paths. Classify stale
