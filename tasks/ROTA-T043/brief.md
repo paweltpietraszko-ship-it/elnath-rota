@@ -350,20 +350,17 @@ Raport pokazuje dla każdego LOCAL:
 - liczbę i długości zmian;
 - różnicę względem najmniej i najbardziej obciążonego LOCAL.
 
-Dla scenariuszy z kompletnymi targetami, urlopem, L4 albo indywidualną regułą
-Symulator **nie wydaje własnego automatycznego werdyktu „sprawiedliwy / niesprawiedliwy”**.
-Pokazuje liczby i produkcyjny effective target jako dowód diagnostyczny dla
-OWNERA. Nie zgaduje, czy istniał lepszy legalny grafik i nie buduje drugiego
-optymalizatora.
+Główny portfel Symulatora **nie wydaje własnego automatycznego werdyktu
+„sprawiedliwy / niesprawiedliwy”**. Zgodnie z 2.3 każdy wygenerowany LOCAL ma
+jawny `target_hours`; T043 nie dodaje specjalnego przypadku z brakującym
+targetem tylko po to, żeby uzyskać łatwy oracle. Dla scenariuszy z kompletnymi
+targetami, urlopem, L4 albo indywidualną regułą raport pokazuje liczby i
+produkcyjny effective target jako dowód diagnostyczny dla OWNERA. Nie zgaduje,
+czy istniał lepszy legalny grafik i nie buduje drugiego optymalizatora.
 
-Automatyczny werdykt fairness wolno wydać wyłącznie w już zamrożonym przypadku
-OWNERA z T041: co najmniej jeden uczestniczący LOCAL nie ma targetu, więc
-TARGET-01 nie rankuje kandydatów, a produkcyjny fallback ma minimalizować
-`max(actual PRIMARY hours) - min(actual PRIMARY hours)` pomiędzy wszystkimi
-uprawnionymi LOCAL. W kontrolnym, symetrycznym przypadku, w którym pełna równość
-jest osiągalna, oczekiwany spread wynosi 0. Jeżeli HARD uniemożliwia pełną
-równość, T043 nie oblicza sam „najmniejszego możliwego” spreadu — taki przypadek
-pozostaje raportem diagnostycznym, nie automatycznym oracle.
+Znany OWNER-T041-01 z brakującym targetem pozostaje osobnym, już istniejącym
+pionem testowym. Służy wyłącznie do kalibracji bramki zaufania w 6.4; nie jest
+nową osią generatora T043 i nie trafia do głównego portfela Symulatora.
 
 ### B4. Uczciwy `DECISION_REQUIRED`
 
@@ -459,9 +456,12 @@ Nowa bramka musi wykazać, że potrafi być czerwona. Na oddzielnym tymczasowym
 worktree, bez commitowania mutacji produktu, auditor wykonuje trzy małe próby:
 
 1. przywrócenie starego błędu H24 `occupancy=2*x` traktowanego jak Boolean;
-2. wyłączenie terminu równego podziału dla brakującego targetu — wykrywa go
-   wyłącznie kontrolny pion zgodny z OWNER-T041-01, w którym oczekiwany spread
-   0 jest niezależnie znany z symetrycznych wejść;
+2. wyłączenie terminu równego podziału dla brakującego targetu — auditor
+   uruchamia istniejący prawdziwy pion
+   `tests/test_t041_checkpoint_a.py::test_t41_a01_one_missing_target_splits_equally_across_all_five`,
+   który zamraża OWNER-T041-01 i oczekuje 144 h dla każdego z pięciu LOCAL;
+   nie dodaje brakującego targetu do generatora T043 i nie modyfikuje tego
+   testu bez nowego dowodu, że istniejący pion nie wykrywa mutacji;
 3. przywrócenie starego geometrycznego podwójnego liczenia legalnie
    nakładających się demandów.
 
@@ -511,7 +511,7 @@ kształtu funkcji:
 | target miesiąca | OWNER + art. 130 + zamrożona fixture urzędowa 2026 | prawdziwe wejście koordynatora bez samosprawdzania generatora | kalkulator korzysta z niezależnego kalendarza; obowiązkowe kontrole 160/176 |
 | seedowany portfel 20 obiektów | OWNER | różne wejścia zamiast benchmarku | kombinacje zamrożonych osi, ledger i reprodukcja z seedu; obiekty niezależne |
 | reakcja po `DECISION_REQUIRED` | OWNER + istniejący ControlPanel flow | bezobsługowa **testowa ścieżka wsparcia EXTERNAL** | create-person niesie decision id; membership/window null; bez zmiany LOCAL |
-| godziny/spread | OWNER-T041-01 | ujawnia bzdury widoczne ręcznie | zawsze raport godzin; automatyczny fairness oracle tylko dla zamrożonego fallbacku brakującego targetu |
+| godziny/spread | prośba OWNER + OWNER-T041-01 jako osobna kalibracja | ujawnia bzdury widoczne ręcznie | Symulator tylko raportuje godziny/spread; mutacja fairness używa istniejącego pionu T041, bez nowej osi generatora |
 | produkcyjne validate | istniejący owner | zgodność z regułami sprawdzanymi przez produkt | select/revalidate; bez claimu o całym prawie i bez kopii walidatora |
 | REPLAN | istniejący owner | reakcja na zmianę w tym samym miesiącu | bez rozszerzenia T043 o certyfikację quarter carry-in |
 | Markdown + JSON | prośba OWNER | czytelność i reprodukcja | jeden model danych, dwa renderery |
@@ -526,8 +526,8 @@ Usunięte z propozycji:
 - przedstawianie testowego EXTERNAL jako produkcyjnego dodania LOCAL;
 - liczenie urlopu/L4 w generatorze;
 - sieć w trakcie testu;
-- własny automatyczny oracle fairness dla złożonych scenariuszy z kompletnymi
-  targetami/absencjami/regułami;
+- własny automatyczny oracle fairness w głównym portfelu Symulatora;
+- dodawanie brakującego targetu jako nowej osi generatora T043;
 - wielomiesięczny przebieg tylko po to, by certyfikować bilans kwartalny;
 - masowa migracja 1100 testów;
 - pełna regresja jako automatyczny rytuał;
@@ -559,6 +559,7 @@ Zabronione:
 - mock wyniku PLAN/REPLAN/validate/analityki w bramce zaufania;
 - własny prawny validator albo nowy checker fairness dla złożonych przypadków;
 - test Cross-Site lub współdzielonych pracowników pomiędzy obiektami w T043;
+- dodawanie brakującego targetu jako nowej osi głównego generatora T043;
 - wielomiesięczny scenariusz kwartalny w T043;
 - usuwanie lub wyłączanie starych testów bez osobnego dowodu, że są sprzeczne z
   PRODUCT_TRUTH;
@@ -606,8 +607,8 @@ exact SHA, zgodnie z `AGENTS.md`.
 - celowane obiekty jednej i dwóch warstw oraz wariantu
   `WEEKDAY_12H_WEEKEND_24H`, z raportem faktycznych godzin;
 - jawne oznaczenie wyniku produkcyjnego validate bez claimu „zgodne z prawem”;
-- jeden kontrolny fairness oracle dokładnie dla OWNER-T041-01; pozostałe
-  rozkłady godzin są raportem diagnostycznym;
+- w głównym Symulatorze fairness jest wyłącznie raportowane jako liczby/spread,
+  bez własnego PASS/FAIL i bez brakującego targetu jako osi generatora;
 - jeden przypadek testowej ścieżki wsparcia EXTERNAL po realnym, niepustym
   payloadzie;
 - jeden REPLAN w tym samym miesiącu;
@@ -619,7 +620,8 @@ exact SHA, zgodnie z `AGENTS.md`.
 
 - jeden realny Playwright flow;
 - klasyfikacja tylko testów z obszarów wskazanych w 6.2;
-- trzy kontrolowane mutacje z 6.4 i dowód, że właściwy pion je wykrywa;
+- trzy kontrolowane mutacje z 6.4 i dowód, że właściwy pion je wykrywa; mutacja
+  fairness używa istniejącego T041, a nie nowej osi Symulatora;
 - TypeScript/build tylko jeśli dotknięto testu e2e/helpera wymagającego
   kompilacji.
 
@@ -636,8 +638,9 @@ Odbiór końcowy nie brzmi „N testów PASS”. Oczekiwane dowody to:
 7. dowód, że target nie sprawdza sam siebie: urzędowa fixture kalendarza 2026 i
    kontrolne 160/176 przechodzą niezależnie od wygenerowanego scenariusza;
 8. jawne rozróżnienie „przeszedł produkcyjny validate” od „sprawdzony z prawem”;
-9. automatyczny werdykt fairness tylko dla zakresu OWNER-T041-01; inne rozkłady
-   godzin pozostają danymi do oceny;
+9. główny raport nie wydaje własnego werdyktu fairness; znana klasa błędu
+   brakującego targetu jest kalibrowana istniejącym pionem T041 poza portfelem
+   Symulatora;
 10. dowód, że bramka zrobiła się czerwona dla trzech znanych klas błędu;
 11. lista starych testów, które pozostały UNIT/BENCHMARK i dlatego nie są
    używane jako dowód działania programu;
@@ -656,8 +659,9 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
   EXTERNAL bez zmiany produktu;
 - raport godzin wymaga nowego endpointu lub zmiany produktu; najpierw wskazać,
   dlaczego obecny month view/analytics nie wystarcza;
-- automatyczny werdykt fairness wymaga wymyślenia nowego progu lub drugiego
-  optymalizatora poza OWNER-T041-01 — wtedy raportować liczby bez werdyktu;
+- główny Symulator potrzebowałby nowego progu fairness albo drugiego
+  optymalizatora — wtedy raportować liczby bez werdyktu i nie dodawać
+  brakującego targetu jako obejścia;
 - którykolwiek scenariusz wymaga ręcznego zbudowania wyniku;
 - potrzebna jest zmiana poza TASK_SCOPE;
 - kontrolowana mutacja pozostaje zielona i nie da się jej wykryć bez
@@ -669,9 +673,9 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
    przedstawiania tego jako niezależnego audytu całego prawa pracy?
 2. Czy kalendarz 2026 i kontrolne targety 160/176 są zamrożoną fixture
    niezależną od kalkulatora/generatora, a runtime nie korzysta z sieci?
-3. Czy automatyczny oracle fairness jest ograniczony dokładnie do już
-   zaakceptowanego OWNER-T041-01, a złożone przypadki pokazują dane bez nowego
-   progu wymyślonego przez test?
+3. Czy główny Symulator tylko pokazuje godziny/spread bez własnego werdyktu
+   fairness, a kalibracja brakującego targetu używa istniejącego pionu T041
+   poza generatorem T043?
 4. Czy raport i driver nazywają EXTERNAL testową ścieżką wsparcia i zachowują
    kolejność: pierwszy materialny zapis z decision id, kolejne dwa z null?
 5. Czy T043 jawnie nie rości sobie dowodu kwartalnego carry-in i nie dodaje
