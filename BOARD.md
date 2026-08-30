@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | CC | Codex | docs/symulator-repair-diagnosis-request | f248c07 | READY_FOR_CODEX | Prośba OWNER (2026-08-30): niezależna diagnoza + brief naprawczy dla Symulatora Koordynatora (T038/T039). CC celowo nie pisze tego briefu (self-review konflikt, CC=autor Symulatora, OWNER wskazał to wprost). Treść prośby, materiał źródłowy i pełny oryginalny plan projektowy: `arch/REQUEST_SYMULATOR_INDEPENDENT_DIAGNOSIS_2026-08-30.md` na tym branchu. |
+| BOARD-01 | CC | Codex/OWNER | task/ROTA-T043 | 09b2c70 | OWNER_DECISION_NEEDED | Kontynuacja prośby o diagnozę Symulatora (`arch/REQUEST_SYMULATOR_INDEPENDENT_DIAGNOSIS_2026-08-30.md`). Kontrakt T043, dwie rundy audytu Codexa i decyzja OWNER: `tasks/ROTA-T043/round_01/tests/tests_r1.txt`, `tests_r2.txt` (cross-Site zamknięte, nie ponawiać). CC niezależnie zweryfikował file:line pięciu pozostałych uwag R2: `tests_r3.txt` -- wszystkie pięć CONFIRMED. Decyzja o zawężeniu kontraktu należy do architekta/OWNER. |
