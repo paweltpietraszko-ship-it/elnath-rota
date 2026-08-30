@@ -1,0 +1,4 @@
+{
+  "seed": 16,
+  "error": "{\"detail\":\"unexpected error: SIM-16-EMP-1: SICK_LEAVE covering 2026-05-19 would newly cover PRIMARY assignment solved-2026-05-19-D-SIM-16-EMP-1 (state=PLANNED, start=2026-05-19 05:00:00)\"}"
+}

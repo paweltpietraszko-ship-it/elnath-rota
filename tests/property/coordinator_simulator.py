@@ -241,6 +241,22 @@ class AbsenceDraw:
     end_date: date
 
 
+# R6 fix (T43-R6-02): brief 2.4 freezes two hard bounds the old flat
+# span=1..5-for-every-kind draw broke: LEAVE_GRANTED (urlop) is one range up
+# to 14 calendar days, and at most one person may have it in a given
+# scenario; SICK_LEAVE (L4) is 0-21 calendar days. DAY_SHIFT_OFF/
+# UNAVAILABLE_24H/LEAVE_PLAN keep the old 1-5 day span -- the brief does not
+# freeze their bounds the way it does urlop/L4, so this is a documented,
+# not a mandated, choice.
+_MAX_SPAN_DAYS = {
+    AvailabilityKind.LEAVE_GRANTED.value: 14,
+    AvailabilityKind.SICK_LEAVE.value: 21,
+    AvailabilityKind.DAY_SHIFT_OFF.value: 5,
+    AvailabilityKind.UNAVAILABLE_24H.value: 5,
+    AvailabilityKind.LEAVE_PLAN.value: 5,
+}
+
+
 def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int) -> list[AbsenceDraw]:
     """seed=0 draws zero absences -- the explicit "everyone available"
     baseline. employee_count is passed separately from spec.employee_count
@@ -255,19 +271,34 @@ def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int) -> list
     _resolve_no_accepted_plan_day's docstring); a live POST .../availability
     with kind=SICK_LEAVE followed by a real PLAN on a freshly built site
     returns 200 FEASIBLE, not the old IncompleteAbsenceReferenceError 500.
-    The old allow_sick_leave=False pre-PLAN restriction is gone."""
+    The old allow_sick_leave=False pre-PLAN restriction is gone.
+
+    R6 fix (T43-R6-02): brief 2.4 also freezes "w scenariuszu planowego
+    urlopu nie ma albo ma go najwyżej jedna osoba" -- at most one
+    LEAVE_GRANTED draw per call. If a second LEAVE_GRANTED would be drawn,
+    resample the kind from the non-LEAVE_GRANTED kinds instead of skipping
+    the draw outright, so `count` still reflects the number of absence
+    events actually applied."""
     if seed == 0 or employee_count == 0:
         return []
     rng = random.Random(seed * 7919 + 1)  # distinct stream from the object generator's own rng
     count = rng.randint(0, 3)
     kinds = [k.value for k in AvailabilityKind]
+    kinds_without_leave_granted = [k for k in kinds if k != AvailabilityKind.LEAVE_GRANTED.value]
     days = _month_dates(spec.month)
     draws = []
+    leave_granted_drawn = False
     for _ in range(count):
         employee_index = rng.randrange(employee_count)
         kind = rng.choice(kinds)
+        if kind == AvailabilityKind.LEAVE_GRANTED.value:
+            if leave_granted_drawn:
+                kind = rng.choice(kinds_without_leave_granted)
+            else:
+                leave_granted_drawn = True
         start_idx = rng.randrange(len(days))
-        span = rng.randint(1, min(5, len(days) - start_idx))
+        max_span = min(_MAX_SPAN_DAYS[kind], len(days) - start_idx)
+        span = rng.randint(1, max_span)
         draws.append(AbsenceDraw(
             employee_index=employee_index, kind=kind,
             start_date=days[start_idx], end_date=days[start_idx + span - 1],
@@ -470,6 +501,17 @@ def get_analytics(client: TestClient, site_id: str, month: date) -> dict:
     return resp.json()
 
 
+def get_month_view(client: TestClient, site_id: str, month: date) -> dict:
+    """R6 fix (T43-R6-04): the persisted MonthViewOut (assignments included)
+    -- a different, genuinely independent data path from get_analytics()'s
+    own planned_hours/month_balance/quarter_balance, used by
+    compute_quarter_oracle() to sum actual PRIMARY hours itself rather than
+    trusting the product's own analytics figure as the oracle's input."""
+    resp = client.get(f"/api/workspace/sites/{site_id}/schedule/{month.isoformat()}")
+    resp.raise_for_status()
+    return resp.json()
+
+
 # --- R4 section 4.3: obowiązkowy kontrolny przebieg kwartalny -------------
 
 QUARTER_MONTHS = (date(2026, 7, 1), date(2026, 8, 1), date(2026, 9, 1))
@@ -541,8 +583,10 @@ def run_quarter(client: TestClient, seed: int) -> dict:
 
         select_first_candidate(client, site_id, month, base_for_candidate)
         analytics = get_analytics(client, site_id, month)
+        month_view = get_month_view(client, site_id, month)
         months_out.append({
-            "month": month.isoformat(), "first_plan_result": first_result, "external": external, "analytics": analytics,
+            "month": month.isoformat(), "first_plan_result": first_result, "external": external,
+            "analytics": analytics, "assignments": month_view["assignments"],
         })
 
     return {"status": "QUARTER_OK", "seed": seed, "site_id": site_id, "months": months_out}
@@ -796,16 +840,41 @@ def select_first_candidate_reporting_validate(client: TestClient, site_id: str, 
     return "PRODUCT_VALIDATE_FAIL", resp.text, candidate
 
 
+def _actual_primary_hours_by_employee(assignments: list[dict], month: date) -> dict[str, int]:
+    """R6 fix (T43-R6-04): the oracle's OWN summation over its OWN fetched
+    Assignment data -- mirrors rota/balance.py:52-62's _hours_in_month
+    arithmetic exactly (role==PRIMARY, state==PLANNED, whole-hour floor
+    division of total_seconds by 3600, same-month filter) but never calls
+    into rota.balance or reuses the analytics response's own planned_hours
+    field as the "actual" input -- that would just be comparing the
+    product's number against itself."""
+    hours: dict[str, int] = {}
+    for a in assignments:
+        if a["role"] != "PRIMARY" or a["state"] != "PLANNED":
+            continue
+        start = datetime.fromisoformat(a["start_datetime"])
+        end = datetime.fromisoformat(a["end_datetime"])
+        if (start.year, start.month) != (month.year, month.month):
+            continue
+        emp = a["employee_id"]
+        hours[emp] = hours.get(emp, 0) + int((end - start).total_seconds() // 3600)
+    return hours
+
+
 def compute_quarter_oracle(quarter_result: dict) -> dict:
     """B6: independent arithmetic only -- month_balance_expected = actual
-    PRIMARY hours (from analytics' own planned_hours, since nothing is
-    REALIZED yet in a fresh simulated PLAN) minus target_hours;
-    quarter_balance_expected accumulates month over month, carry-in 0 for
-    the first month. Also cross-checks the product's OWN numbers for
-    internal consistency (quarter_balance - month_balance ==
-    previous quarter_balance) for August/September, per brief 4.3. Pure
-    comparison of already-computed numbers -- no WorkBalance/analytics code
-    touched."""
+    PRIMARY hours, computed by this function's own summation over the real
+    persisted Assignments fetched for each month (see
+    _actual_primary_hours_by_employee -- NOT read from analytics'
+    planned_hours), minus target_hours; quarter_balance_expected
+    accumulates month over month, carry-in 0 for the first month. Also
+    cross-checks the product's OWN numbers for internal consistency
+    (quarter_balance - month_balance == previous quarter_balance) for
+    August/September, AND that the product's own unresolved_carryover
+    equals its own quarter_balance every month (rota/balance.py:104-110
+    defines unresolved_carryover as exactly running_quarter_balance -- a
+    mismatch here would mean that identity broke, which is exactly the
+    kind of drift an independent oracle exists to catch), per brief 4.3."""
     if quarter_result["status"] != "QUARTER_OK":
         return {"status": "QUARTER_BALANCE_NOT_APPLICABLE", "reason": quarter_result.get("reason", quarter_result["status"])}
 
@@ -816,15 +885,17 @@ def compute_quarter_oracle(quarter_result: dict) -> dict:
     mismatches: list[dict] = []
 
     for idx, month_entry in enumerate(months):
-        month = month_entry["month"]
+        month_str = month_entry["month"]
+        month = date.fromisoformat(month_str)
         rows = month_entry["analytics"]["rows"]
+        actual_by_employee = _actual_primary_hours_by_employee(month_entry["assignments"], month)
         month_mismatches: list[dict] = []
         for row in rows:
             md = row.get("month_data")
             if md is None:
                 continue
             emp = row["employee_id"]
-            actual = md["planned_hours"]
+            actual = actual_by_employee.get(emp, 0)
             target = md["target_hours"]
             expected_month_balance = actual - target
             expected_quarter_balance = running_expected.get(emp, 0) + expected_month_balance
@@ -832,6 +903,7 @@ def compute_quarter_oracle(quarter_result: dict) -> dict:
 
             product_month_balance = md["month_balance"]
             product_quarter_balance = md["quarter_balance"]
+            product_unresolved_carryover = md["unresolved_carryover"]
             if expected_month_balance != product_month_balance:
                 month_mismatches.append({
                     "employee_id": emp, "kind": "month_balance",
@@ -842,6 +914,12 @@ def compute_quarter_oracle(quarter_result: dict) -> dict:
                     "employee_id": emp, "kind": "quarter_balance",
                     "expected": expected_quarter_balance, "product": product_quarter_balance,
                 })
+            if product_unresolved_carryover is not None and product_quarter_balance is not None \
+                    and product_unresolved_carryover != product_quarter_balance:
+                month_mismatches.append({
+                    "employee_id": emp, "kind": "unresolved_carryover",
+                    "unresolved_carryover": product_unresolved_carryover, "quarter_balance": product_quarter_balance,
+                })
             if idx > 0 and product_quarter_balance is not None:
                 prev = prev_product_quarter.get(emp)
                 if prev is not None and (product_quarter_balance - product_month_balance) != prev:
@@ -851,7 +929,7 @@ def compute_quarter_oracle(quarter_result: dict) -> dict:
                     })
             prev_product_quarter[emp] = product_quarter_balance
 
-        per_month.append({"month": month, "mismatches": month_mismatches})
+        per_month.append({"month": month_str, "mismatches": month_mismatches})
         mismatches.extend(month_mismatches)
 
     return {"status": "QUARTER_BALANCE_FAIL" if mismatches else "QUARTER_BALANCE_PASS", "per_month": per_month}

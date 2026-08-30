@@ -38,6 +38,19 @@ MONTH = date(2026, 9, 1)
 REPORT_DIR = Path(__file__).resolve().parents[2] / "tasks" / "ROTA-T043" / "round_01" / "tests"
 FAILURES_DIR = REPORT_DIR / "failures"
 
+# R6 fix (T43-R6-01): brief 4.2 lists "miesiąc z fixture 2026" as a required
+# portfolio axis -- the 20-object portfolio previously reused the single
+# MONTH constant for every seed. All twelve months of 2026 are covered by
+# POLISH_2026_HOLIDAYS/nominal_monthly_hours_kp, so every one is a valid
+# draw; single-seed targeted tests above keep using the fixed MONTH
+# constant (they don't need month variation), and the mandatory Q3 pion
+# (brief 4.3) keeps its own fixed July/August/September months.
+PORTFOLIO_MONTHS = tuple(date(2026, m, 1) for m in range(1, 13))
+
+
+def portfolio_month_for_seed(seed: int) -> date:
+    return PORTFOLIO_MONTHS[seed % len(PORTFOLIO_MONTHS)]
+
 
 # --- generator-only tests: no TestClient, no solver -----------------------
 
@@ -96,6 +109,27 @@ def test_random_absence_set_can_draw_sick_leave():
             found_sick = True
             break
     assert found_sick, "expected at least one SICK_LEAVE draw across 200 seeds"
+
+
+def test_random_absence_set_respects_frozen_urlop_and_l4_bounds():
+    """R6 fix (T43-R6-02): brief 2.4 -- at most one LEAVE_GRANTED per draw
+    set, LEAVE_GRANTED span <=14 days, SICK_LEAVE span <=21 days (and can
+    reach that upper bound somewhere in a real sweep)."""
+    spec = sim.random_object_spec(5, MONTH)
+    max_sick_span_seen = 0
+    for seed in range(1, 2000):
+        draws = sim.random_absence_set(seed, spec, spec.employee_count)
+        leave_granted_draws = [d for d in draws if d.kind == "LEAVE_GRANTED"]
+        assert len(leave_granted_draws) <= 1, f"seed {seed}: more than one LEAVE_GRANTED in one draw set"
+        for d in leave_granted_draws:
+            span = (d.end_date - d.start_date).days + 1
+            assert span <= 14, f"seed {seed}: LEAVE_GRANTED span {span} exceeds 14 days"
+        for d in draws:
+            if d.kind == "SICK_LEAVE":
+                span = (d.end_date - d.start_date).days + 1
+                assert span <= 21, f"seed {seed}: SICK_LEAVE span {span} exceeds 21 days"
+                max_sick_span_seen = max(max_sick_span_seen, span)
+    assert max_sick_span_seen >= 15, f"expected SICK_LEAVE spans to reach well past the old 5-day cap across 2000 seeds, saw max {max_sick_span_seen}"
 
 
 # --- real API verticals -----------------------------------------------------
@@ -234,8 +268,8 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
 
     first_result = sim.run_plan(client, site_id, month)
     row: dict = {
-        "seed": seed, "shift_shape": spec.shift_shape, "regime": spec.regime, "layer_count": spec.layer_count,
-        "employee_count": spec.employee_count, "roster": employees,
+        "seed": seed, "month": month.isoformat(), "shift_shape": spec.shift_shape, "regime": spec.regime,
+        "layer_count": spec.layer_count, "employee_count": spec.employee_count, "roster": employees,
         "absences": [d.__dict__ | {"employee_id": sim.local_employee_id(spec, d.employee_index)} for d in absence_draws],
         "first_plan_status": first_result["status"],
     }
@@ -246,7 +280,7 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
         row["first_plan_decision_reason"] = _decision_reason(first_result.get("decision_payload"))
         if not first_result.get("decision_payload"):
             row["defect"] = "empty DECISION_REQUIRED payload on first PLAN -- tool/product defect"
-            _write_failure_json(f"seed{seed}-empty-decision-payload", row | {"first_plan_result": first_result})
+            _write_failure_json(f"seed{seed}-empty-decision-payload", row | {"first_plan_result": first_result}, seed=seed)
         else:
             external = sim.external_support_reaction(client, site_id, month, spec)
             base_result = external["second_plan_result"]
@@ -257,14 +291,14 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
         row["final_reason"] = _decision_reason(base_result.get("decision_payload")) if base_result["status"] == "DECISION_REQUIRED" else base_result.get("error_message")
         if not absence_draws and not spec.day_only_indices and base_result["status"] == "DECISION_REQUIRED":
             # a certified-clean object still blocked -- a real finding, not routed around.
-            _write_failure_json(f"seed{seed}-clean-object-decision-required", row | {"base_result": base_result})
+            _write_failure_json(f"seed{seed}-clean-object-decision-required", row | {"base_result": base_result}, seed=seed)
         return row
 
     validate_status, validate_detail, candidate = sim.select_first_candidate_reporting_validate(client, site_id, month, base_result)
     row["product_validate"] = validate_status
     if validate_status == "PRODUCT_VALIDATE_FAIL":
         row["final_status"] = "PRODUCT_VALIDATE_FAIL"
-        _write_failure_json(f"seed{seed}-validate-fail", row | {"detail": validate_detail, "candidate": candidate})
+        _write_failure_json(f"seed{seed}-validate-fail", row | {"detail": validate_detail, "candidate": candidate}, seed=seed)
         return row
 
     view = _month_view(client, site_id, month)
@@ -279,8 +313,13 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
         actual_hours=facts.actual_hours, primary_atom_count=primary_atom_count,
     )
     row.update(final_status="FEASIBLE", fairness_verdict=fairness_verdict, fairness_detail=fairness_detail, fairness_facts=facts.__dict__)
-    if fairness_verdict == "FAIRNESS_FAIL":
-        _write_failure_json(f"seed{seed}-fairness-fail", row | {"assignments": view["assignments"]})
+    # R6 fix (T43-R6-03): brief 460-461 requires a failure JSON for every
+    # CZERWONY *or* NIEUDOWODNIONY case, not just FAIRNESS_FAIL --
+    # FAIRNESS_UNPROVEN is an honest non-green result and needs the same
+    # reproduction material.
+    if fairness_verdict in {"FAIRNESS_FAIL", "FAIRNESS_UNPROVEN"}:
+        suffix = "fairness-fail" if fairness_verdict == "FAIRNESS_FAIL" else "fairness-unproven"
+        _write_failure_json(f"seed{seed}-{suffix}", row | {"assignments": view["assignments"]}, seed=seed)
 
     # B5: a deterministic REPLAN scenario on even seeds only (kept from
     # Checkpoint A's own open question -- documented here, not silently
@@ -312,8 +351,14 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
     return row
 
 
-def _write_failure_json(name: str, payload: dict) -> None:
+def _write_failure_json(name: str, payload: dict, *, seed: int | None = None) -> None:
+    """R6 fix (T43-R6-03): brief 460-465 requires a real, executable
+    reproduction command in every failure JSON -- `seed` (when the case has
+    one) attaches `_reproduction_command(seed)` automatically instead of
+    relying on every call site to remember to build one by hand."""
     FAILURES_DIR.mkdir(parents=True, exist_ok=True)
+    if seed is not None:
+        payload = payload | {"reproduction": _reproduction_command(seed)}
     (FAILURES_DIR / f"{name}.json").write_text(json.dumps(payload, indent=2, default=str, ensure_ascii=False), encoding="utf-8")
 
 
@@ -437,6 +482,42 @@ def test_quarter_arithmetic_oracle_on_a_real_run():
     if oracle["status"] == "QUARTER_BALANCE_FAIL":
         _write_failure_json("quarter-balance-mismatch-seed0", {"quarter_result": quarter_result, "oracle": oracle})
 
+    # R6 fix (T43-R6-04): the oracle must be genuinely independent -- Codex's
+    # own repro stripped Assignments from a copy of a real quarter result
+    # and the OLD oracle (reading analytics' own planned_hours) still
+    # returned QUARTER_BALANCE_PASS. Prove the fixed oracle catches this.
+    import copy as _copy
+    stripped = _copy.deepcopy(quarter_result)
+    if stripped["status"] == "QUARTER_OK":
+        for month_entry in stripped["months"]:
+            month_entry["assignments"] = []
+        stripped_oracle = sim.compute_quarter_oracle(stripped)
+        any_target_nonzero = any(
+            row.get("month_data", {}).get("target_hours", 0) for m in stripped["months"] for row in m["analytics"]["rows"]
+        )
+        if any_target_nonzero:
+            assert stripped_oracle["status"] == "QUARTER_BALANCE_FAIL", (
+                "stripping all Assignments must make the independent oracle disagree with the product's own "
+                "still-real month_balance/quarter_balance numbers"
+            )
+
+    # Same repro for the unresolved_carryover check: corrupt the product's
+    # own field in a copy and confirm the oracle catches the mismatch.
+    corrupted = _copy.deepcopy(quarter_result)
+    if corrupted["status"] == "QUARTER_OK":
+        any_corrupted = False
+        for month_entry in corrupted["months"]:
+            for row in month_entry["analytics"]["rows"]:
+                md = row.get("month_data")
+                if md is not None and md.get("unresolved_carryover") is not None:
+                    md["unresolved_carryover"] = 999999
+                    any_corrupted = True
+        if any_corrupted:
+            corrupted_oracle = sim.compute_quarter_oracle(corrupted)
+            assert corrupted_oracle["status"] == "QUARTER_BALANCE_FAIL", (
+                "corrupting unresolved_carryover must make the independent oracle catch it"
+            )
+
 
 # --- Checkpoint B: full 20-object portfolio + Q3 report, gated ------------
 
@@ -446,6 +527,7 @@ def _axis_coverage_ledger(rows: list[dict]) -> dict:
     crash is still a reportable finding, not something that should also
     take down the report writer itself."""
     return {
+        "months": sorted({r["month"] for r in rows if "month" in r}),
         "shift_shapes": sorted({r["shift_shape"] for r in rows if "shift_shape" in r}),
         "layer_counts": sorted({r["layer_count"] for r in rows if "layer_count" in r}),
         "final_statuses": sorted({r["final_status"] for r in rows if "final_status" in r}),
@@ -456,13 +538,74 @@ def _axis_coverage_ledger(rows: list[dict]) -> dict:
     }
 
 
+# R6 fix (T43-R6-01/03/05): Checkpoint C's classification table/Playwright
+# result/calibration proof is static content (it does not depend on this
+# run's rows/quarter data) -- embedded here as a constant so regenerating
+# the report never silently reverts to the old Checkpoint-C-not-done
+# placeholder trailer.
+_CHECKPOINT_C_REPORT_SECTION = """## Bramka zaufania do testów (Checkpoint C)
+
+### Klasyfikacja dowodu (brief 6.1/6.2)
+
+| Obszar (brief 6.2) | Plik(i) | Klasa |
+|---|---|---|
+| PLAN / wybór kandydata | `tests/test_t009_plan_select_replan.py` | REAL_APPLICATION |
+| | `tests/test_t031_schedule_api.py`, `tests/test_t042_audit4_repairs.py` | REAL_API |
+| | `tests/property/test_coordinator_simulator.py` (T043) | REAL_API |
+| Fairness i H24 | `tests/test_t041_checkpoint_a.py` (hand-built `PlanningState`) | UNIT_OR_ADAPTER |
+| | `tests/test_t040_h24_rhythm_occupancy.py` (`plan_ops.plan_month`) | REAL_APPLICATION |
+| | `tests/property/test_coordinator_simulator.py`'s symmetric fairness verdicts (T043 Checkpoint B) | REAL_API |
+| Urlop/L4 przed PLAN i przed REPLAN | `tests/test_t041_checkpoint_b.py` | REAL_API |
+| | `tests/property/test_coordinator_simulator.py` (T043) | REAL_API |
+| Nakładające się demandy | `tests/test_t041_checkpoint_a.py` (a07-a13, hand-built `PlanningState`) | UNIT_OR_ADAPTER |
+| | *(brak REAL_APPLICATION/REAL_API piona w granicach TASK_SCOPE T043 -- patrz uwaga niżej)* | -- |
+| EXTERNAL_SUPPORT i okna | `tests/test_t041_checkpoint_a.py::test_t41_a05_external_support_excluded_from_available_local_ids` (hand-built state) | UNIT_OR_ADAPTER |
+| | `tests/property/test_coordinator_simulator.py::test_decision_required_triggers_external_reaction_with_correct_decision_link_ordering` (T043) | REAL_API |
+| Target, REPLAN i WorkBalance quarter carry-in | `tests/test_t011_d_quarter_balance.py` | REAL_APPLICATION |
+| | `tests/property/test_coordinator_simulator.py`'s `run_quarter`/B6 oracle (T043) | REAL_API |
+| Ostrzeżenia i wynik widoczny w UI | `frontend/e2e/t041-daily-workflow.spec.ts` | REAL_UI |
+| | `frontend/e2e/t043-coordinator-confidence.spec.ts` (NOWY, Checkpoint C) | REAL_UI |
+
+**OTWARTA FLAGA (R6 korekta):** Checkpoint C pierwotnie dopisał nowy test
+`test_43c_two_legal_overlapping_demands_via_real_assembler_and_validator` do
+`tests/test_t009_plan_select_replan.py`, żeby dać "Nakładającym się demandom"
+realny REAL_APPLICATION pion. Ten plik NIE jest w TASK_SCOPE T043 (brief.md
+sekcja 9) -- zmiana została cofnięta do stanu `main@c25c73e0`
+(Codex R6 finding T43-R6-05). Realny REAL_APPLICATION/REAL_API pion dla tego
+obszaru nadal nie istnieje w granicach TASK_SCOPE T043; dodanie go wymaga albo
+zgody OWNERA na rozszerzenie zakresu, albo osobnego, małego follow-up Tasku.
+To jest świadomie zostawione otwarte dla architekta/OWNERA, nie rozwiązane
+tutaj (brief sekcja 12: potrzebna zmiana poza TASK_SCOPE = zatrzymać się i
+zgłosić, nie obchodzić po cichu).
+
+Uwaga o wspólnej zależności: `tests/support/t009_fixtures.py::seed_real_object` (użyty przez wiele powyższych REAL_APPLICATION/REAL_API testów, w tym `test_t009_plan_select_replan.py` i `test_t011_d_quarter_balance.py`) buduje swój obiekt przez `benchmarks/real_object_production.py`/`benchmarks/real_object_scenarios.py` -- moduły odrzucone przez OWNERA jako *oracle* (`feedback_no_benchmarks_generator_ever`). To nie czyni tych testów `BENCHMARK_ONLY`: ich własne asercje (FEASIBLE, atomowość wersji, poprawność coverage) są niezależne od jakiegokolwiek werdyktu benchmarku -- tylko KSZTAŁT obiektu (roster/katalog) pochodzi stamtąd. Warto to jednak wiedzieć: żaden REAL_APPLICATION test w tej tabeli nie jest w pełni niezależny od `benchmarks/**` jako generatora scenariusza.
+
+Dwie ostatnie klasy (`UNIT_OR_ADAPTER`, `BENCHMARK_ONLY`) pozostają wartościowe dla precyzyjnych przypadków brzegowych (np. a08-a13's excess/gap/false-tag matrix), ale nigdie w tym raporcie nie są przedstawiane jako samodzielny dowód działania programu -- każdy obszar ma teraz co najmniej jeden REAL_API/REAL_APPLICATION/REAL_UI pion.
+
+### Prawdziwy browser (brief 6.3)
+
+`frontend/e2e/t043-coordinator-confidence.spec.ts` -- 1/1 PASS. Koordynator tworzy obiekt, dostaje 5 LOCAL, widzi "Obsada (5)", ustawia target godzin pierwszej osobie, klika PLAN, a ekran pokazuje dokładnie ten status ("Kandydaci" dla FEASIBLE albo baner decyzji dla DECISION_REQUIRED), jaki zwróciła realna odpowiedź API przechwycona w tym samym teście (nie sztywne oczekiwanie).
+
+### Kalibracja na znanych błędach (brief 6.4)
+
+Wszystkie trzy mutacje wykonane pojedynczo, bezpośrednio w tym worktree, i natychmiast cofnięte (`git checkout -- <plik>`) po każdym pomiarze. `git diff task/ROTA-T043 -- rota/ api/ frontend/src/ benchmarks/` jest puste (0 linii) na commit tego Checkpointu -- zero zmutowanego kodu produktu w wypchniętej gałęzi.
+
+1. **H24 `occupancy=2*x` jako Boolean** (przywrócony pre-T040 `fairness.add_dn_rhythm_reward`, commit `fa70b1c` cofnięty tymczasowo): `tests/test_t040_h24_rhythm_occupancy.py` -- 3/6 CZERWONE pod mutacją (`test_t40_01...`, `test_t40_04...`, `test_t40_05...`, realny H24 obiekt zwraca DECISION_REQUIRED zamiast FEASIBLE), 6/6 ZIELONE po cofnięciu.
+2. **Wyłączony fallback fairness dla brakującego targetu** (`add_equal_split_fairness` w `solver.py` zakomentowany): `tests/test_t041_checkpoint_a.py::test_t41_a01_one_missing_target_splits_equally_across_all_five` -- CZERWONY pod mutacją (godziny 132/156/144/168/120 zamiast równego 144/144/144/144/144), ZIELONY po cofnięciu.
+3. **Stare geometryczne podwójne liczenie nakładających się demandów** (`validator._check_coverage`'s tag-disambiguation wyłączona): `tests/test_t041_checkpoint_a.py::test_t41_a07_two_legal_overlapping_demands_correctly_assigned_passes` (istniejący test, UNIT_OR_ADAPTER -- jedyny dostępny pion w granicach TASK_SCOPE po R6 cofnięciu) -- CZERWONY pod mutacją (fałszywy COVERAGE-01 excess na obu legalnych, nakładających się demandach), ZIELONY po cofnięciu. Ten pion jest UNIT_OR_ADAPTER, nie REAL_APPLICATION -- patrz otwarta flaga wyżej.
+
+Wniosek: żadna z trzech klas błędów nie pozostała cicho zielona -- bramka zaufania działa.
+"""
+
+
 def _write_markdown_report(rows: list[dict], quarter_result: dict, quarter_oracle: dict) -> None:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     ledger = _axis_coverage_ledger(rows)
     lines = [
         "# Symulator Koordynatora -- raport przebiegu (ROTA-T043 Checkpoint B)\n",
-        f"Miesiąc portfela: {MONTH.isoformat()} | obiekty: {len(rows)}\n",
-        f"\n## Pokrycie osi (brief 4.2)\n\n- Kształty katalogu: {', '.join(ledger['shift_shapes'])}\n"
+        f"Miesiące portfela: {', '.join(ledger['months'])} | obiekty: {len(rows)}\n",
+        f"\n## Pokrycie osi (brief 4.2)\n\n- Miesiące: {', '.join(ledger['months'])}\n"
+        f"- Kształty katalogu: {', '.join(ledger['shift_shapes'])}\n"
         f"- Liczba warstw: {ledger['layer_counts']}\n- Statusy finalne: {', '.join(ledger['final_statuses'])}\n"
         f"- Wystąpiło EXTERNAL: {ledger['had_external']}\n- Wystąpił REPLAN: {ledger['had_replan']}\n"
         f"- Wystąpiły absencje: {ledger['had_absences']}\n",
@@ -494,20 +637,30 @@ def _write_markdown_report(rows: list[dict], quarter_result: dict, quarter_oracl
     lines.append(f"\n- Status: **{quarter_result['status']}**\n- Oracle: **{quarter_oracle['status']}**\n")
     if quarter_result["status"] == "QUARTER_BLOCKED":
         lines.append(f"- Zablokowany miesiąc: {quarter_result.get('failing_month')} -- {quarter_result.get('reason')}\n")
-    lines.append(
-        "\n## Bramka zaufania do testów (Checkpoint C)\n\nKlasyfikacja istniejących testów "
-        "(REAL_UI/REAL_API/REAL_APPLICATION/UNIT_OR_ADAPTER/BENCHMARK_ONLY) i kalibracja na "
-        "znanych błędach nie są jeszcze wykonane -- to zakres Checkpointu C, osobnego kroku.\n"
-    )
+    lines.append("\n" + _CHECKPOINT_C_REPORT_SECTION)
     (REPORT_DIR / "coordinator_report.md").write_text("".join(lines), encoding="utf-8")
+
+
+def _reproduction_command(seed: int) -> str:
+    """R6 fix (T43-R6-03): an actually executable one-liner, not a
+    truncated ellipsis -- rebuilds that exact seed's object through the
+    real driver and reruns it standalone."""
+    return (
+        "python -c \""
+        "from api.deps import get_conn; from api.main import app; "
+        "from fastapi.testclient import TestClient; from rota.persistence.db import connect; "
+        "from tests.property.test_coordinator_simulator import _run_one_monthly_object, portfolio_month_for_seed; "
+        "conn = connect(':memory:'); app.dependency_overrides[get_conn] = lambda: (yield conn); "
+        f"print(_run_one_monthly_object(TestClient(app), {seed}, portfolio_month_for_seed({seed})))\""
+    )
 
 
 def _write_json_report(rows: list[dict], quarter_result: dict, quarter_oracle: dict) -> None:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
-        "month": MONTH.isoformat(), "rows": rows, "axis_coverage": _axis_coverage_ledger(rows),
+        "months": _axis_coverage_ledger(rows)["months"], "rows": rows, "axis_coverage": _axis_coverage_ledger(rows),
         "quarter": quarter_result, "quarter_oracle": quarter_oracle,
-        "reproduction": "python -c \"from tests.property.test_coordinator_simulator import _run_one_monthly_object; ...\"",
+        "reproduction_template": _reproduction_command("<SEED>"),
     }
     (REPORT_DIR / "coordinator_report.json").write_text(json.dumps(payload, indent=2, default=str, ensure_ascii=False), encoding="utf-8")
 
@@ -523,7 +676,7 @@ def test_full_portfolio_and_quarter_report():
         app.dependency_overrides[get_conn] = lambda: (yield connection)
         try:
             client = TestClient(app)
-            rows.append(_run_one_monthly_object(client, seed, MONTH))
+            rows.append(_run_one_monthly_object(client, seed, portfolio_month_for_seed(seed)))
         except Exception as exc:  # noqa: BLE001 -- a genuine crash is still a reportable finding
             rows.append({"seed": seed, "crash": str(exc), "final_status": "CRASH"})
             _write_failure_json(f"seed{seed}-crash", {"seed": seed, "error": str(exc)})
