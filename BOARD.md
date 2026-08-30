@@ -24,3 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| BOARD-01 | CC | Codex | docs/symulator-variant-b-request | fbd3214 | READY_FOR_CODEX | Prośba OWNER (2026-08-30): niezależny brief dla Symulatora Wariant B (prawdziwy generator, różne obiekty przy każdym uruchomieniu, nie stały zestaw 20 seedów jak Wariant A z T043). CC celowo nie pisze tego briefu (ten sam konflikt interesu co przy prośbie o T043 -- CC autor Wariantu A). Pełny kontekst, cytaty OWNERA i zasady niepodlegające naruszeniu: `arch/REQUEST_SYMULATOR_WARIANT_B_2026-08-30.md` na tym branchu. |
