@@ -360,13 +360,22 @@ def build_object(client: TestClient, spec: ObjectSpec) -> str:
 
 def apply_absences(client: TestClient, site_id: str, spec: ObjectSpec, draws: list[AbsenceDraw]) -> None:
     """The real 'ticking checkboxes' step -- same endpoint a coordinator's
-    browser calls (api/routers/durable_inputs.py::create_availability)."""
+    browser calls (api/routers/durable_inputs.py::create_availability).
+
+    availability_id includes employee_index (not just the in-call index i
+    and start_date) so two SEPARATE apply_absences() calls on the same site
+    (e.g. the initial draw and a later REPLAN-triggering draw, Checkpoint B)
+    can never collide even when both happen to draw index 0 on the same
+    start_date for a different employee -- confirmed as a real, reproduced
+    collision for seed=8 (initial: EMP-1/2026-09-11, replan: EMP-4/
+    2026-09-11) before this fix, a test-harness bug, not a product defect."""
     for i, draw in enumerate(draws):
         employee_id = local_employee_id(spec, draw.employee_index)
         resp = client.post(
             f"/api/workspace/employees/{employee_id}/availability",
             json={
-                "site_id": site_id, "availability_id": f"SIM-{spec.seed}-AVAIL-{i}-{draw.start_date.isoformat()}",
+                "site_id": site_id,
+                "availability_id": f"SIM-{spec.seed}-AVAIL-{draw.employee_index}-{i}-{draw.start_date.isoformat()}",
                 "kind": draw.kind, "start_date": draw.start_date.isoformat(), "end_date": draw.end_date.isoformat(),
             },
         )
@@ -537,3 +546,312 @@ def run_quarter(client: TestClient, seed: int) -> dict:
         })
 
     return {"status": "QUARTER_OK", "seed": seed, "site_id": site_id, "months": months_out}
+
+
+# --- Checkpoint B: evaluates the READY-MADE schedule the real solver ------
+# --- returned. Never builds a second solver/validator; every fact below --
+# --- is derived from real Assignments/demands/analytics already returned --
+# --- by the production endpoints. -----------------------------------------
+
+# T032 (add_dn_rhythm_reward)/T034 (add_third_consecutive_shift_penalty)
+# only classify D/N atoms as 12h duties -- their window definitions assume a
+# uniform daily atom, so a mixed-shape month like WEEKDAY_12H_WEEKEND_24H has
+# no single well-defined "atom" and is intentionally excluded from the
+# symmetric FAIRNESS_PASS/FAIL class (brief B3.1/B3.2): only UNPROVEN.
+_SYMMETRIC_ATOM_HOURS: dict[str, int] = {"D_N_12H": 12, "SINGLE_24H": 24}
+
+
+def _duration_hours(a: dict) -> float:
+    start = datetime.fromisoformat(a["start_datetime"])
+    end = datetime.fromisoformat(a["end_datetime"])
+    return (end - start).total_seconds() / 3600.0
+
+
+def _is_active_primary(a: dict) -> bool:
+    return a["role"] == "PRIMARY" and a["state"] != "CANCELLED"
+
+
+def demand_kind_by_id(demands: list[dict]) -> dict[str, str | None]:
+    """The demand's own `shift_kind` field, as returned by the real
+    GET .../schedule/{month} endpoint, IS the canonical classification
+    (rota/planning/shift_catalog.py::classify_demand's own primary path:
+    `if demand.shift_kind is not None: return demand.shift_kind`, and every
+    T012-generated demand carries it) -- reading it here is reuse of that
+    one classifier, not a second one."""
+    return {d["demand_id"]: d.get("shift_kind") for d in demands}
+
+
+def actual_hours_by_employee(assignments: list[dict], employees: list[str]) -> dict[str, float]:
+    hours = {e: 0.0 for e in employees}
+    for a in assignments:
+        if _is_active_primary(a) and a["employee_id"] in hours:
+            hours[a["employee_id"]] += _duration_hours(a)
+    return hours
+
+
+def weekend_hours_by_employee(assignments: list[dict], employees: list[str]) -> dict[str, float]:
+    hours = {e: 0.0 for e in employees}
+    for a in assignments:
+        if not _is_active_primary(a) or a["employee_id"] not in hours:
+            continue
+        if datetime.fromisoformat(a["start_datetime"]).date().isoweekday() in WEEKEND:
+            hours[a["employee_id"]] += _duration_hours(a)
+    return hours
+
+
+def holiday_hours_by_employee(assignments: list[dict], employees: list[str], holidays: frozenset[date]) -> dict[str, float]:
+    hours = {e: 0.0 for e in employees}
+    for a in assignments:
+        if not _is_active_primary(a) or a["employee_id"] not in hours:
+            continue
+        if datetime.fromisoformat(a["start_datetime"]).date() in holidays:
+            hours[a["employee_id"]] += _duration_hours(a)
+    return hours
+
+
+def _employee_day_kinds(assignments: list[dict], kind_by_demand: dict[str, str | None]) -> dict[tuple[str, date], str]:
+    """One entry per (employee, calendar date of the shift's start) -- "MULTIPLE"
+    if more than one active PRIMARY start lands on that date for that employee,
+    exactly matching T032/T034's own "exactly one" per-day requirement."""
+    day_kind: dict[tuple[str, date], str] = {}
+    seen: set[tuple[str, date]] = set()
+    for a in assignments:
+        if not _is_active_primary(a):
+            continue
+        emp = a["employee_id"]
+        d = datetime.fromisoformat(a["start_datetime"]).date()
+        key = (emp, d)
+        if key in seen:
+            day_kind[key] = "MULTIPLE"
+        else:
+            seen.add(key)
+            day_kind[key] = kind_by_demand.get(a.get("covers_demand_id")) or "MULTIPLE"
+    return day_kind
+
+
+def count_dn_rhythm_windows(day_kind: dict[tuple[str, date], str], employees: list[str], month: date) -> dict[str, int]:
+    """T032 add_dn_rhythm_reward's own window: d=D exactly, d+1=N exactly,
+    d+2 and d+3 have no start at all for that employee. Diagnostic count
+    only -- never fed back into a threshold or PASS/FAIL by itself."""
+    dates = _month_dates(month)
+    counts = {e: 0 for e in employees}
+    for e in employees:
+        for i in range(len(dates) - 3):
+            d0, d1, d2, d3 = dates[i], dates[i + 1], dates[i + 2], dates[i + 3]
+            if (
+                day_kind.get((e, d0)) == "D" and day_kind.get((e, d1)) == "N"
+                and (e, d2) not in day_kind and (e, d3) not in day_kind
+            ):
+                counts[e] += 1
+    return counts
+
+
+_BAD_THIRD_WINDOW_PATTERNS = {("D", "D", "D"), ("D", "D", "N"), ("D", "N", "N")}
+
+
+def count_bad_third_windows(day_kind: dict[tuple[str, date], str], employees: list[str], month: date) -> dict[str, int]:
+    """T034 add_third_consecutive_shift_penalty's own bad windows -- one
+    count per window even if it happened to match more than one pattern
+    (structurally impossible here, kept for parity with the solver's own
+    "at most one penalty per window" rule). N/N/N stays out of scope, exactly
+    as the solver-side function documents (still HARD elsewhere)."""
+    dates = _month_dates(month)
+    counts = {e: 0 for e in employees}
+    for e in employees:
+        for i in range(len(dates) - 2):
+            d0, d1, d2 = dates[i], dates[i + 1], dates[i + 2]
+            window = (day_kind.get((e, d0)), day_kind.get((e, d1)), day_kind.get((e, d2)))
+            if window in _BAD_THIRD_WINDOW_PATTERNS:
+                counts[e] += 1
+    return counts
+
+
+def count_soft_absence_collisions(assignments: list[dict], absence_draws: list[AbsenceDraw], spec: ObjectSpec) -> int:
+    """DAY_SHIFT_OFF/LEAVE_PLAN are SOFT preferences in the solver, not HARD
+    -- a real Assignment can legally still land on one of those dates. This
+    only counts how often that happened; it is not treated as a defect by
+    itself (brief B3's own wording: "liczbę Assignmentów kolidujących")."""
+    soft_kinds = {"DAY_SHIFT_OFF", "LEAVE_PLAN"}
+    soft_ranges = [
+        (local_employee_id(spec, d.employee_index), d.start_date, d.end_date)
+        for d in absence_draws if d.kind in soft_kinds
+    ]
+    if not soft_ranges:
+        return 0
+    collisions = 0
+    for a in assignments:
+        if not _is_active_primary(a):
+            continue
+        emp = a["employee_id"]
+        d = datetime.fromisoformat(a["start_datetime"]).date()
+        for soft_emp, start, end in soft_ranges:
+            if emp == soft_emp and start <= d <= end:
+                collisions += 1
+    return collisions
+
+
+@dataclass(frozen=True)
+class FairnessFacts:
+    target_hours: dict[str, int]
+    effective_target_hours: dict[str, int]
+    actual_hours: dict[str, float]
+    total_target_deviation: float
+    completion_pct: dict[str, int]
+    target_equity_spread: int
+    weekend_hours: dict[str, float]
+    weekend_spread: float
+    holiday_hours: dict[str, float]
+    holiday_spread: float
+    dn_rhythm_windows: dict[str, int]
+    bad_third_windows: dict[str, int]
+    soft_absence_collisions: int
+
+
+def compute_fairness_facts(
+    *, assignments: list[dict], demands: list[dict], employees: list[str],
+    analytics_rows: list[dict], absence_draws: list[AbsenceDraw], spec: ObjectSpec,
+) -> FairnessFacts:
+    """Pure function -- no HTTP, no CP-SAT, no DB. `analytics_rows` is the
+    real GET .../analytics response's own `rows` (target_hours/
+    effective_target_hours per employee already computed by the product)."""
+    kind_by_demand = demand_kind_by_id(demands)
+    day_kind = _employee_day_kinds(assignments, kind_by_demand)
+    actual = actual_hours_by_employee(assignments, employees)
+    weekend = weekend_hours_by_employee(assignments, employees)
+    holiday = holiday_hours_by_employee(assignments, employees, POLISH_2026_HOLIDAYS)
+
+    target_hours: dict[str, int] = {}
+    effective_target_hours: dict[str, int] = {}
+    for row in analytics_rows:
+        if row["employee_id"] in actual and row.get("month_data"):
+            target_hours[row["employee_id"]] = row["month_data"]["target_hours"]
+            effective_target_hours[row["employee_id"]] = row["month_data"]["effective_target_hours"]
+
+    total_target_deviation = sum(
+        abs(actual[e] - effective_target_hours[e]) for e in effective_target_hours
+    )
+    # T032: floor(100 * actual / effective_target) for effective_target > 0 only.
+    completion_pct = {
+        e: int((100 * actual[e]) // effective_target_hours[e])
+        for e in effective_target_hours if effective_target_hours[e] > 0
+    }
+    target_equity_spread = (max(completion_pct.values()) - min(completion_pct.values())) if completion_pct else 0
+
+    weekend_spread = (max(weekend.values()) - min(weekend.values())) if weekend else 0.0
+    holiday_spread = (max(holiday.values()) - min(holiday.values())) if holiday else 0.0
+
+    return FairnessFacts(
+        target_hours=target_hours, effective_target_hours=effective_target_hours, actual_hours=actual,
+        total_target_deviation=total_target_deviation, completion_pct=completion_pct,
+        target_equity_spread=target_equity_spread, weekend_hours=weekend, weekend_spread=weekend_spread,
+        holiday_hours=holiday, holiday_spread=holiday_spread,
+        dn_rhythm_windows=count_dn_rhythm_windows(day_kind, employees, spec.month),
+        bad_third_windows=count_bad_third_windows(day_kind, employees, spec.month),
+        soft_absence_collisions=count_soft_absence_collisions(assignments, absence_draws, spec),
+    )
+
+
+def is_symmetric_control_object(spec: ObjectSpec, absence_draws: list[AbsenceDraw]) -> bool:
+    """R4/B3.1's REQUIRED control class: pure D/N 12h or pure H24, every
+    LOCAL identical (no DAY_ONLY, no absence, no individual rule), no
+    EXTERNAL_SUPPORT. WEEKDAY_12H_WEEKEND_24H has no single uniform atom
+    across the month and is deliberately excluded -- it stays UNPROVEN."""
+    return spec.shift_shape in _SYMMETRIC_ATOM_HOURS and not spec.day_only_indices and not absence_draws
+
+
+def evaluate_fairness(
+    *, spec: ObjectSpec, absence_draws: list[AbsenceDraw], has_external: bool,
+    actual_hours: dict[str, float], primary_atom_count: int,
+) -> tuple[str, dict]:
+    """B3.1/B3.2: PASS only inside the frozen symmetric class, at the known
+    minimal achievable spread. Never runs a second solver, never invents a
+    threshold. Every other shape/scenario -- including any EXTERNAL
+    reaction, absence, DAY_ONLY, or asymmetric shape -- is UNPROVEN, which
+    must never be treated or rendered as green."""
+    if has_external or not is_symmetric_control_object(spec, absence_draws):
+        return "FAIRNESS_UNPROVEN", {"reason": "not the frozen symmetric control class (B3.1)"}
+    atom_hours = _SYMMETRIC_ATOM_HOURS[spec.shift_shape]
+    r = spec.employee_count
+    n = primary_atom_count
+    expected_min_spread = 0 if (r == 0 or n % r == 0) else atom_hours
+    actual_spread = (max(actual_hours.values()) - min(actual_hours.values())) if actual_hours else 0
+    detail = {"employee_count": r, "atom_count": n, "atom_hours": atom_hours, "expected_min_spread_hours": expected_min_spread, "actual_spread_hours": actual_spread}
+    if actual_spread <= expected_min_spread:
+        return "FAIRNESS_PASS", detail
+    return "FAIRNESS_FAIL", detail
+
+
+def select_first_candidate_reporting_validate(client: TestClient, site_id: str, month: date, result: dict) -> tuple[str, str | None, list[dict]]:
+    """B2: 'did select-candidate return 204 vs an error' IS the real
+    PRODUCT_VALIDATE_PASS/FAIL fact -- select_candidate()
+    (rota/application/plan_ops.py:339-384) calls validate() and raises
+    CandidateRejected on any HARD failure. Returns (status, violation_text,
+    candidate) instead of raising, so a genuine product rejection is
+    reported data, never a test crash."""
+    candidate = result["candidates"][0]
+    body = [{k: v for k, v in a.items() if k != "employee_display_name"} for a in candidate]
+    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{month.isoformat()}/select-candidate", json={"candidate": body})
+    if resp.status_code == 204:
+        return "PRODUCT_VALIDATE_PASS", None, candidate
+    return "PRODUCT_VALIDATE_FAIL", resp.text, candidate
+
+
+def compute_quarter_oracle(quarter_result: dict) -> dict:
+    """B6: independent arithmetic only -- month_balance_expected = actual
+    PRIMARY hours (from analytics' own planned_hours, since nothing is
+    REALIZED yet in a fresh simulated PLAN) minus target_hours;
+    quarter_balance_expected accumulates month over month, carry-in 0 for
+    the first month. Also cross-checks the product's OWN numbers for
+    internal consistency (quarter_balance - month_balance ==
+    previous quarter_balance) for August/September, per brief 4.3. Pure
+    comparison of already-computed numbers -- no WorkBalance/analytics code
+    touched."""
+    if quarter_result["status"] != "QUARTER_OK":
+        return {"status": "QUARTER_BALANCE_NOT_APPLICABLE", "reason": quarter_result.get("reason", quarter_result["status"])}
+
+    months = quarter_result["months"]
+    running_expected: dict[str, float] = {}
+    prev_product_quarter: dict[str, int | None] = {}
+    per_month: list[dict] = []
+    mismatches: list[dict] = []
+
+    for idx, month_entry in enumerate(months):
+        month = month_entry["month"]
+        rows = month_entry["analytics"]["rows"]
+        month_mismatches: list[dict] = []
+        for row in rows:
+            md = row.get("month_data")
+            if md is None:
+                continue
+            emp = row["employee_id"]
+            actual = md["planned_hours"]
+            target = md["target_hours"]
+            expected_month_balance = actual - target
+            expected_quarter_balance = running_expected.get(emp, 0) + expected_month_balance
+            running_expected[emp] = expected_quarter_balance
+
+            product_month_balance = md["month_balance"]
+            product_quarter_balance = md["quarter_balance"]
+            if expected_month_balance != product_month_balance:
+                month_mismatches.append({
+                    "employee_id": emp, "kind": "month_balance",
+                    "expected": expected_month_balance, "product": product_month_balance,
+                })
+            if product_quarter_balance is not None and expected_quarter_balance != product_quarter_balance:
+                month_mismatches.append({
+                    "employee_id": emp, "kind": "quarter_balance",
+                    "expected": expected_quarter_balance, "product": product_quarter_balance,
+                })
+            if idx > 0 and product_quarter_balance is not None:
+                prev = prev_product_quarter.get(emp)
+                if prev is not None and (product_quarter_balance - product_month_balance) != prev:
+                    month_mismatches.append({
+                        "employee_id": emp, "kind": "product_self_consistency",
+                        "quarter_minus_month": product_quarter_balance - product_month_balance, "previous_quarter": prev,
+                    })
+            prev_product_quarter[emp] = product_quarter_balance
+
+        per_month.append({"month": month, "mismatches": month_mismatches})
+        mismatches.extend(month_mismatches)
+
+    return {"status": "QUARTER_BALANCE_FAIL" if mismatches else "QUARTER_BALANCE_PASS", "per_month": per_month}
