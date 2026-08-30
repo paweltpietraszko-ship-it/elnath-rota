@@ -1,0 +1,78 @@
+ROTA-T043 — ROZSTRZYGNIĘCIE OWNERA PO KOREKCIE KONTRAKTU
+
+Audytor: Codex (niezależny tester/audytor; bez implementacji)
+Audytowany kontrakt: d073c42fb98c27a405aee793bf6aa22db89125d2
+Branch: task/ROTA-T043
+Data: 2026-08-30
+
+STATUS
+
+OWNER_CORRECTED — kontrakt d073c42... nie jest jeszcze zaakceptowany do
+implementacji. Nie wydaję werdyktu PASS/FAIL, ponieważ dostarczony kontrakt
+zawiera zachowania sprzeczne z jawną decyzją OWNERA.
+
+OWNER_CORRECTED 1 — SPRAWIEDLIWOŚĆ ZAWSZE JEST OCENIANA
+
+Kontrakt wyłącza automatyczną ocenę sprawiedliwości w głównym Symulatorze i
+ogranicza się do pokazania godzin/spreadu (brief:343-359, 514, 529, 609-611,
+641-643). OWNER tego nie akceptuje.
+
+Symulator ma zawsze oceniać sprawiedliwość gotowego grafiku, a nie tylko
+wyświetlać liczby człowiekowi. Architekt musi zamrozić wykonywalne kryterium
+oceny dla generowanych klas wejścia. Nie wolno Codexowi ani implementatorowi
+samodzielnie wymyślić progu lub nowej reguły produktu. Przypadek bez możliwej
+oceny nie może zostać przedstawiony jako zielony wynik Symulatora.
+
+OWNER_CORRECTED 2 — ORAKLEM JEST POPRAWNOŚĆ GOTOWEGO GRAFIKU
+
+Symulator nie ma kontrolować, czy solver „ładnie” dochodzi do wyniku, ani
+dopasowywać danych wejściowych tak, żeby solver przeszedł próbę. Ma odtworzyć
+działania koordynatora przez produkcyjne operacje, odebrać rzeczywisty wynik i
+ocenić powstały grafik względem zamrożonych reguł HARD, SOFT i rozliczeń.
+
+Zły grafik jest wartościowym wynikiem testu produktu. Należy zachować jego
+wejścia, seed, wynik, przypisania, wykryte naruszenia i komendę odtworzenia.
+Symulator nie może ukryć takiego wyniku, poprawić grafiku samodzielnie ani
+dodawać kolejnych LOCAL dla uzyskania zielonego rezultatu. Znaleziony błąd
+prowadzi później do osobnej poprawki kodu produktu, nie do kalibracji
+generatora pod wynik.
+
+Testowa ścieżka EXTERNAL po rzeczywistym DECISION_REQUIRED może pozostać, ale
+musi zachować i raportować także pierwszy wynik. Ponowienie z pomocą nie może
+zamienić wcześniejszego błędnego wyniku w PASS ani usunąć jego reproduktora.
+
+OWNER_CORRECTED 3 — ROZLICZENIE KWARTALNE JEST OBOWIĄZKOWE
+
+Kontrakt jawnie wyłącza sprawdzenie kwartalne (brief:214-229, 383-385, 516,
+531, 563, 647). OWNER tego nie akceptuje.
+
+Symulator ma zawierać rzeczywisty, wielomiesięczny przebieg tego samego
+obiektu przez kwartał, korzystający z produkcyjnego przenoszenia bilansu.
+Każdy miesiąc ma własne prawdziwe dane wejściowe i target_hours, a wynik ma
+pokazać wpływ wcześniejszych miesięcy na następne. Nie wolno zastąpić tego
+trzema niezależnymi miesięcznymi scenariuszami. Cross-Site pozostaje poza
+zakresem — chodzi o ciągłość jednego obiektu, nie o moduł kadrowy.
+
+OWNER_CONFIRMED — USTALENIA, KTÓRYCH NIE OTWIERAMY PONOWNIE
+
+- Cross-Site nie należy do T043.
+- Pierwszy PLAN używa dokładnie obsady wynikającej z obiektu: 5 LOCAL dla
+  pojedynczej pełnej warstwy i 10 LOCAL dla podwójnej; generator nie dobiera
+  dodatkowych LOCAL pod wynik solvera.
+- EXTERNAL_SUPPORT powstaje automatycznie wyłącznie w Symulatorze i dopiero po
+  rzeczywistym DECISION_REQUIRED. To testowy odpowiednik domyślnej zgody
+  koordynatora, nie zachowanie produkcyjnego UI.
+- W prawdziwym programie koordynator po decyzji ręcznie dodaje nową osobę do
+  LOCAL. Ogólne sformułowanie briefu „wybiera dalsze działanie” (brief:49-50)
+  nie może rozmywać tego zaakceptowanego zachowania.
+- Oficjalny kalendarz i miesięczne target_hours pozostają niezależnymi danymi
+  wejściowymi; generator nie wyprowadza ich z wyniku solvera.
+
+WYMAGANA NASTĘPNA CZYNNOŚĆ
+
+Architekt powinien mechanicznie poprawić brief tylko w granicach powyższych
+decyzji oraz wskazać testowalne kryterium sprawiedliwości i kwartalnego
+przebiegu. CC pozostaje read-only do następnego niezależnego audytu kontraktu.
+Nie zmieniono kodu produktu i nie uruchamiano testów.
+
+KONIEC RAPORTU
