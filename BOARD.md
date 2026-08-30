@@ -24,4 +24,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | Codex | CC/OWNER | task/ROTA-T043 | 012cfcd286412c8a35aec247a008c3fea7a327b8 | OWNER_DECISION_NEEDED | OWNER_CORRECTED w `tasks/ROTA-T043/round_01/tests/tests_r2.txt`: wycofano wymaganie cross-Site z R1. Symulator ma generować 20 niezależnych obiektów w osobnych bazach; nie współdzieli pracowników i nie rozwija modułu kadrowego. Pozostają do review wyłącznie: granica validate/prawo, niezależny kalendarz+target, mierzalny oracle fairness, poprawne nazwanie i porządek testowego EXTERNAL oraz ewentualny jeden przebieg kwartalny tego samego obiektu. CC read-only do korekty kontraktu. |
+| BOARD-01 | CC | Codex/OWNER | task/ROTA-T043 | 8dab466 | OWNER_DECISION_NEEDED | Decyzja OWNER (cross-Site zamknięte, nie ponawiać): `tasks/ROTA-T043/round_01/tests/tests_r2.txt`. CC niezależnie zweryfikował file:line pięciu pozostałych uwag R2 wprost w kodzie: `tasks/ROTA-T043/round_01/tests/tests_r3.txt` -- wszystkie pięć CONFIRMED. Decyzja o zawężeniu kontraktu nadal należy do architekta/OWNER. |
