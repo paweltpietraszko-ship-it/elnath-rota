@@ -4,10 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow } from "../api/client";
 import Export from "./Export";
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayIso } from "../localDate";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;

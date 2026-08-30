@@ -13,6 +13,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from api.decision_payload import BlockerOut, BlockingDemandOut, LoadBlockerOut, decision_payload_out
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.memory_read import current_decision_required
@@ -23,24 +24,6 @@ router = APIRouter(prefix="/workspace", tags=["decisions"])
 
 class DecisionMonthsOut(BaseModel):
     months: list[str]
-
-
-class BlockingDemandOut(BaseModel):
-    demand_id: str
-    start_datetime: str
-    end_datetime: str
-
-
-class BlockerOut(BaseModel):
-    employee_id: str
-    condition: str
-
-
-class LoadBlockerOut(BaseModel):
-    employee_id: str
-    window_start: str
-    window_end: str
-    hours: int
 
 
 class DecisionRequiredOut(BaseModel):
@@ -71,21 +54,12 @@ def get_decision_for_month(site_id: str, month: date, conn=Depends(get_conn)) ->
         raise to_http_exception(exc) from exc
     if readback is None:
         return None
-    dp = readback.payload
+    fields = decision_payload_out(readback.payload)
     return DecisionRequiredOut(
         decision_required_id=readback.decision_required_id, site_id=readback.site_id, month=readback.month.isoformat(),
         schedule_version_id=readback.schedule_version_id, requested_by=readback.requested_by,
         recorded_at=readback.recorded_at.isoformat(),
-        blocking_shift_demands=[
-            BlockingDemandOut(demand_id=b.demand_id, start_datetime=b.start_datetime.isoformat(), end_datetime=b.end_datetime.isoformat())
-            for b in dp.blocking_shift_demands
-        ],
-        blockers=[BlockerOut(employee_id=b.employee_id, condition=b.condition) for b in dp.blockers],
-        load_blocker=LoadBlockerOut(
-            employee_id=dp.load_blocker.employee_id, window_start=dp.load_blocker.window_start.isoformat(),
-            window_end=dp.load_blocker.window_end.isoformat(), hours=dp.load_blocker.hours,
-        ) if dp.load_blocker else None,
-        unblocking_options=list(dp.unblocking_options),
+        **fields.model_dump(),
         linked_action_ids=list(readback.linked_action_ids),
     )
 

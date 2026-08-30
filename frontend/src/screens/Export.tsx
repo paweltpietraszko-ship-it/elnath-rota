@@ -7,10 +7,7 @@
 // re-translates or shows a raw code.
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayIso } from "../localDate";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;

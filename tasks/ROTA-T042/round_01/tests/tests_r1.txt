@@ -1,0 +1,68 @@
+ROTA-T042 — PREIMPLEMENTATION AUDIT R1
+Data: 2026-08-30
+Audytor: Codex
+
+AUDYTOWANY KONTRAKT
+- brief: ac6294fae12f19b1c6b8e3c99362e1e4e244fb01
+- architect review: 2b20e17b33c2208b7bd0ffe4a7ae0593ace62157
+- base produktu: 071feb7cfaead0dbe8f514184fcb5ea614fa1cbf
+
+ZAKRES AUDYTU
+To audyt testowalności, ownership i granic przed implementacją. Nie uruchamiano
+testów ani solvera, ponieważ na branchu nie ma kodu produktu. Codex przygotował
+pierwotną konsolidację briefu; niezależny architect review sprawdził decyzje i
+zakres. Ten raport nie dodaje wymagań architektonicznych.
+
+WARSTWY DOWODU
+1. Exact diff base -> contract: tylko tasks/ROTA-T042/brief.md.
+2. Exact diff contract -> review: tylko ARCHITECT_REVIEW_R1.md.
+3. where.py + ręczne czytanie wskazanych produkcyjnych symboli na base.
+4. Sprawdzenie, czy macierze A/B/C mają osiągalny pion i nie wymagają nowego
+   zachowania produktu.
+
+CHECKPOINT A — PASS
+- Lokalny dzień/miesiąc jest zamrożonym wynikiem widocznym dla OWNER.
+- Analytics, Export, MonthlyPlanning i Overview mają ten sam osiągalny błąd
+  UTC/local; czwarty ekran jest sibling path tej samej klasy defektu.
+- Jeden mały helper wystarcza; brak biblioteki, preferencji timezone i zmian
+  timestampów diagnostycznych.
+- T42-A01..A04 dają testowalny pion. Test musi ustawić prawdziwą strefę
+  Europe/Warsaw oraz chwilę 2026-08-31T22:30:00Z; test uruchomiony w UTC nie
+  spełnia kontraktu.
+
+CHECKPOINT B — PASS
+- W plan_ops.py:158-159 i 426-427 pierwszy wynik identycznego, sąsiedniego
+  assemble_planning_state() jest odrzucany; pomiędzy wywołaniami nie ma zapisu.
+- Po usunięciu martwego odczytu pozostaje jeden wymagany odczyt przed zapisem.
+- Stary test T009 fail_second utrwala liczbę wywołań, nie produkt. Brief
+  prawidłowo zachowuje jego oracle atomowości i zmienia tylko punkt wstrzyknięcia
+  awarii na jedyny odczyt.
+- Nie ma podstaw do cache, zmiany transakcji, lifecycle ani assemblera.
+
+CHECKPOINT C — PASS
+- Oba routery osiągalnie mapują ten sam czteropolowy DecisionRequiredPayload.
+- Ich odpowiedzi zewnętrzne są różne i brief jawnie zabrania ich scalania.
+- Wspólny adapter w api jest minimalnym właścicielem; nie wymaga nowego DTO,
+  endpointu, odczytu domenowego ani zmiany frontend/src/api/client.ts.
+- T42-C01..C04 porównują prawdziwe odpowiedzi endpointów, więc wykryją zmianę
+  pól, typów, optionality lub zagnieżdżenia.
+
+REDUCTION / SCOPE — PASS
+- Każdy nowy helper ma wskazane źródło i konieczność.
+- TASK_SCOPE obejmuje wyłącznie potwierdzone miejsca i dwa małe nowe adaptery.
+- Solver, persistence, schema, klient TS i Symulator są jawnie poza zakresem.
+- WHERE_MAP jest REQUIRED i zawiera faktycznie zmieniane owner-y/konsumentów.
+
+UWAGA O PÓŹNIEJSZYCH TESTACH
+OWNER polecił po naprawie produktu i Symulatora osobno przejrzeć istniejące
+testy: przypadki utrwalające fałszywe założenia lub omijające dostępny
+produkcyjny przepływ mają zostać poprawione. Nie należy dokładać tego remanentu
+do T042. T042 poprawia tylko jeden już wskazany test kształtu T009.
+
+WERDYKT
+PASS — READY FOR IMPLEMENTATION na dokładnym kontrakcie
+ac6294fae12f19b1c6b8e3c99362e1e4e244fb01.
+
+CC może implementować kolejno A, B, C. Każdy checkpoint ma osobny logiczny
+commit i targeted evidence. Bez pełnej suity po każdym checkpointcie; pełna
+regresja raz na końcowym SHA zgodnie z AGENTS.md.

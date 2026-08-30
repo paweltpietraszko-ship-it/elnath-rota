@@ -3,10 +3,7 @@
 // read-only). No write actions live on this screen.
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { AnalyticsMonthDataOut, CoordinatorAnalyticsViewOut, EmployeeAnalyticsRowOut, api } from "../api/client";
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayIso } from "../localDate";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;

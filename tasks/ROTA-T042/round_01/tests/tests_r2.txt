@@ -1,0 +1,60 @@
+ROTA-T042 — IMPLEMENTATION AUDIT R2
+Data: 2026-08-30
+Audytor: Codex
+
+AUDYTOWANY KOD
+- branch: task/ROTA-T042
+- exact implementation SHA: 3a0990fd20d832031a0672df109554f7be1907d6
+- contract SHA: ac6294fae12f19b1c6b8e3c99362e1e4e244fb01
+- base produktu: 071feb7cfaead0dbe8f514184fcb5ea614fa1cbf
+
+ZAKRES I WARSTWY DOWODU
+1. Exact diff i TASK_SCOPE: zmiany produktu mieszczą się w zamrożonym zakresie
+   checkpointów A–C; git diff --check PASS.
+2. WHERE_MAP + ręczne czytanie: jeden właściciel lokalnej daty i wspólnego
+   adaptera payloadu; brak pozostawionych kopii w zmienionych ścieżkach.
+3. Checkpoint A — prawdziwy pion przeglądarkowy Europe/Warsaw na granicy UTC.
+4. Checkpoint B — prawdziwa baza i operacje plan_month()/replan() z niezależnym
+   licznikiem wywołań assemblera oraz testem bezpieczeństwa zapisu.
+5. Checkpoint C — prawdziwe endpointy harmonogramu/decyzji oraz niezależne
+   porównanie całego kontraktu OpenAPI przed i po zmianie.
+6. TypeScript/build dla końcowego SHA.
+
+WYNIKI
+- frontend/e2e/t042-local-date.spec.ts: 2 passed.
+  Potwierdza Europe/Warsaw, 2026-08-31T22:30:00Z => lokalnie 2026-09-01,
+  cztery ekrany oraz zwykłą datę w środku dnia.
+- npm.cmd run build: PASS (tsc -b + vite build).
+- tests/test_t042_audit4_repairs.py + dwa przypadki atomowości z
+  tests/test_audit_t009_r5.py: 4 passed, 12 deselected.
+- niezależny reproduktor B: PLAN assemblies=1, REPLAN assemblies=1.
+- niezależny reproduktor C: pełne OpenAPI na base i implementacji ma ten sam
+  SHA-256 2f59e404dcf9f5426ecd18263ff193e7f6cddb990499aa317aabae277b778ac2
+  oraz ten sam rozmiar 77751 bajtów.
+
+OCENA CHECKPOINTÓW
+- A PASS: cztery osiągalne ekrany używają lokalnego dnia/miesiąca; test działa
+  w rzeczywistej strefie Europe/Warsaw, nie w UTC.
+- B PASS: usunięto tylko dwa odrzucone odczyty; PLAN i REPLAN zachowują po
+  jednym wymaganym odczycie przed pierwszym zapisem.
+- C PASS: wspólne cztery pola mają jednego adaptera, a dwa publiczne kształty
+  odpowiedzi i frontend/src/api/client.ts pozostają bez zmiany.
+
+PEŁNA REGRESJA
+Pełna suita repo została rozpoczęta, następnie kontrolowanie przerwana bez
+końcowego wyniku. Nie jest liczona jako PASS ani FAIL. OWNER 2026-08-30 zmienił
+zasadę procesu: po wąskich poprawkach wymagane są testy celowane zmienionego
+kodu i właściwego pionu; pełna regresja jest opcjonalna i wymaga wcześniejszej
+zgody OWNER. Zasada jest zapisana w main@e6eb0d0. Dla T042 OWNER zaakceptował
+zakończenie audytu na kompletnych dowodach celowanych bez ponownego uruchamiania
+pełnej suity.
+
+FINDINGS
+Brak.
+
+WERDYKT
+PASS — ROTA-T042 spełnia zamrożony kontrakt na dokładnym kodzie
+3a0990fd20d832031a0672df109554f7be1907d6.
+
+PASS dotyczy audytowanego kodu powyżej. Późniejszy commit zawierający wyłącznie
+ten raport nie zmienia ocenionego kodu produktu.

@@ -4,10 +4,7 @@
 // by other screens (decisions, schedule version, roster).
 import { useEffect, useState } from "react";
 import { DecisionRequiredOut, OverviewOut, api } from "../api/client";
-
-function todayYearMonth(): string {
-  return new Date().toISOString().slice(0, 7);
-}
+import { todayYearMonth } from "../localDate";
 
 const MONTH_NAMES_PL = [
   "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",

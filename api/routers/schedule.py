@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.config import DEV_COORDINATOR_ID
+from api.decision_payload import DecisionRequiredPayloadOut, decision_payload_out
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.assembler import assemble_planning_state
@@ -105,31 +106,6 @@ class DeviationOut(BaseModel):
     acknowledged: bool
 
 
-class BlockingDemandOut(BaseModel):
-    demand_id: str
-    start_datetime: str
-    end_datetime: str
-
-
-class BlockerOut(BaseModel):
-    employee_id: str
-    condition: str
-
-
-class LoadBlockerOut(BaseModel):
-    employee_id: str
-    window_start: str
-    window_end: str
-    hours: int
-
-
-class DecisionRequiredPayloadOut(BaseModel):
-    blocking_shift_demands: list[BlockingDemandOut]
-    blockers: list[BlockerOut]
-    load_blocker: LoadBlockerOut | None
-    unblocking_options: list[str]
-
-
 class MonthViewOut(BaseModel):
     current_version: ScheduleVersionOut | None
     version_history: list[ScheduleVersionOut]
@@ -193,28 +169,11 @@ def _deviation_out(d) -> DeviationOut:
     )
 
 
-def _decision_payload_out(dp) -> DecisionRequiredPayloadOut:
-    return DecisionRequiredPayloadOut(
-        blocking_shift_demands=[
-            BlockingDemandOut(
-                demand_id=b.demand_id, start_datetime=b.start_datetime.isoformat(), end_datetime=b.end_datetime.isoformat(),
-            )
-            for b in dp.blocking_shift_demands
-        ],
-        blockers=[BlockerOut(employee_id=b.employee_id, condition=b.condition) for b in dp.blockers],
-        load_blocker=LoadBlockerOut(
-            employee_id=dp.load_blocker.employee_id, window_start=dp.load_blocker.window_start.isoformat(),
-            window_end=dp.load_blocker.window_end.isoformat(), hours=dp.load_blocker.hours,
-        ) if dp.load_blocker else None,
-        unblocking_options=list(dp.unblocking_options),
-    )
-
-
 def _planning_result_out(conn, result) -> PlanningResultOut:
     all_employee_ids = {a.employee_id for candidate in result.candidates for a in candidate}
     employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
     candidates = [[_assignment_out(a, employees_by_id) for a in candidate] for candidate in result.candidates]
-    decision_payload = _decision_payload_out(result.decision_payload) if result.decision_payload is not None else None
+    decision_payload = decision_payload_out(result.decision_payload) if result.decision_payload is not None else None
     return PlanningResultOut(
         status=result.status, candidates=candidates, decision_payload=decision_payload,
         error_message=result.error_message, warnings=list(result.warnings),
@@ -247,7 +206,7 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
             assignments = [_assignment_out(a, employees_by_id) for a in snapshot.assignments]
             deviations = [_deviation_out(d) for d in snapshot.deviations]
         readback = current_decision_required(conn, site_id=site_id, month=month)
-        decision_required = _decision_payload_out(readback.payload) if readback is not None else None
+        decision_required = decision_payload_out(readback.payload) if readback is not None else None
         return MonthViewOut(
             current_version=_version_out(view.current_version) if view.current_version else None,
             version_history=[_version_out(v) for v in view.version_history],

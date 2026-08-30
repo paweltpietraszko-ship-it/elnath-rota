@@ -155,8 +155,7 @@ def plan_month(
     current_id = _require_working_or_absent(conn, site_id, month)
     if current_id is None:
         require_real_date(effective_from)
-        assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
-        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
+        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)  # pre-write
         version_id = f"SV-{uuid.uuid4().hex}"
         demands = tuple(replace(d, schedule_version_id=version_id) for d in state.shift_demands)
         state = replace(state, schedule_version_id=version_id, shift_demands=demands)
@@ -423,8 +422,7 @@ def replan(
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to REPLAN from")
-    assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write; scoped to parent
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # pre-write; scoped to parent
     child_id = f"SV-{uuid.uuid4().hex}"
     demands = tuple(replace(d, schedule_version_id=child_id) for d in state.shift_demands)
     existing = tuple(replace(a, schedule_version_id=child_id) for a in state.existing_assignments)
