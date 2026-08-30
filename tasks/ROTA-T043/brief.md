@@ -1,6 +1,6 @@
 # ROTA-T043 — Wiarygodny Symulator Koordynatora i bramka zaufania do testów
 
-Status: **OWNER_CORRECTED R2 — DO NIEZALEŻNEGO PRZEGLĄDU, BEZ IMPLEMENTACJI**
+Status: **ARCHITECT_CORRECTED R3 — READY FOR NIEZALEŻNY PREIMPLEMENTATION RE-AUDIT — CC READ-ONLY / BEZ IMPLEMENTACJI**
 
 Base: `main@c25c73e0332158bae703109e770f3cf83fd970a7`
 
@@ -8,6 +8,17 @@ Autor briefu: Codex jako niezależny tester. CC napisał T038/T039 i celowo nie
 projektuje własnej poprawki. Źródłem zlecenia jest
 `arch/REQUEST_SYMULATOR_INDEPENDENT_DIAGNOSIS_2026-08-30.md` na
 `docs/symulator-repair-diagnosis-request@f248c07d3e6f65164080863b47b694118477574b`.
+
+Korekta architekta R3 odpowiada wyłącznie na pięć potwierdzonych uwag z:
+
+- `tasks/ROTA-T043/round_01/tests/tests_r1.txt`;
+- `tasks/ROTA-T043/round_01/tests/tests_r2.txt` — OWNER_CORRECTED: Cross-Site
+  wycofane z T043 i zamknięte, nie wraca jako warunek ani pytanie;
+- `tasks/ROTA-T043/round_01/tests/tests_r3.txt` — pięć pozostałych uwag
+  potwierdzonych file:line przez CC.
+
+Ta korekta nie dodaje nowego zachowania produktu ani nowej funkcji Symulatora.
+Zawęża wyłącznie to, co T043 ma prawo nazywać dowodem.
 
 ## 0. OWNER_CORRECTED — czym jest Symulator i gdzie kończy się produkt
 
@@ -27,14 +38,16 @@ Automatyczne wsparcie ma inną granicę w teście i w produkcie:
 - pierwszy PLAN Symulator zawsze wykonuje wyłącznie na wygenerowanej załodze
   LOCAL;
 - dopiero jeżeli ten rzeczywisty PLAN zwróci `DECISION_REQUIRED`, Symulator
-  automatycznie odtwarza zgodę koordynatora: przez produkcyjne operacje tworzy
+  uruchamia **testową ścieżkę wsparcia**: przez produkcyjne operacje tworzy
   jedną syntetyczną osobę `EXTERNAL_SUPPORT`, bez targetu, dodaje jej okno i
   ponawia PLAN;
 - ta automatyzacja istnieje wyłącznie po to, żeby test bez człowieka mógł
   sprawdzić oba etapy: wykrycie braku oraz grafik po udzieleniu pomocy;
-- **nie jest to zachowanie produktu**. W zwykłym programie solver nadal ma
-  zatrzymać się na decyzji, a prawdziwy koordynator ręcznie dopisuje nową osobę
-  do obsady obiektu jako LOCAL;
+- **nie jest to odtworzenie produkcyjnego ręcznego dodania LOCAL ani zachowanie
+  produktu**. LOCAL i EXTERNAL mają inne zasady: LOCAL ma target i uczestniczy
+  w odpowiednim bilansowaniu, EXTERNAL_SUPPORT nie;
+- w zwykłym programie solver nadal ma zatrzymać się na decyzji, a prawdziwy
+  koordynator ręcznie wybiera dalsze działanie;
 - Symulator nigdy nie dodaje reaktywnie kolejnych LOCAL i nigdy z góry nie
   oznacza obiektu jako „wymagający wsparcia”. To ma wynikać z prawdziwego wyniku
   pierwszego PLAN.
@@ -47,11 +60,12 @@ może zmienić sensu):
 TEST-HARNESS BOUNDARY: ten moduł symuluje działania koordynatora, a nie logikę
 solvera. Wszystkie parametry obiektu powstają przed pierwszym PLAN. Pierwszy
 PLAN używa tylko wygenerowanych LOCAL. Dopiero rzeczywisty DECISION_REQUIRED
-uruchamia testową, automatyczną zgodę: utworzenie SIM-EXTERNAL, okna i ponowny
-PLAN przez produkcyjny backend. To pozwala kontynuować automatyczny eksperyment
-bez człowieka; nie jest funkcją produktu. W programie decyzję widzi koordynator
-i ręcznie dodaje osobę do obsady jako LOCAL. Nie dodawaj reaktywnie LOCAL, nie
-przewiduj z góry potrzeby wsparcia i nie dopasowuj wejść do wyniku solvera.
+uruchamia testową ścieżkę wsparcia: utworzenie SIM-EXTERNAL, membership
+EXTERNAL_SUPPORT, okna i ponowny PLAN przez produkcyjny backend. To pozwala
+kontynuować automatyczny eksperyment bez człowieka; nie jest funkcją produktu
+i nie jest dowodem produkcyjnego ręcznego dodania LOCAL. Nie dodawaj reaktywnie
+LOCAL, nie przewiduj z góry potrzeby wsparcia i nie dopasowuj wejść do wyniku
+solvera.
 ```
 
 ## 1. Wynik dla OWNERA
@@ -127,16 +141,35 @@ czytelnego raportu. Sam napis „testy PASS” nie jest kryterium odbioru.
 - EXTERNAL_SUPPORT nie dostaje targetu;
 - generator wybiera miesiące i dla każdego LOCAL wpisuje wymiar pełnego etatu
   wyliczony z kalendarza tego miesiąca zgodnie z art. 130 KP;
-- `2026-09-01 = 176 h` pozostaje małym przypadkiem kontrolnym kalkulatora, ale
-  nie jest centralnym ani jedynym miesiącem raportu;
 - wartość nie jest udziałem `720 / 5` ani stałą `168`/`160`;
-- runtime testu nie korzysta z Internetu. Generator korzysta z zapisanego
-  kalendarza i wzoru, a kontrolne wartości są zamrożonymi fixture z podanym
-  źródłem. Państwowa Inspekcja Pracy opisuje wzór z art. 130 KP, a urzędowa
-  tabela dla 2026 r. podaje dla września 176 h:
-  https://katowice.pip.gov.pl/aktualnosci/sierpien-2026-r-jak-ustalic-wymiar-czasu-pracy
-  oraz
-  https://sosnowiec.praca.gov.pl/strona-glowna/-/asset_publisher/Qat7ebECUfDp/content/id/56152826/pop_up.
+- runtime testu nie korzysta z Internetu.
+
+Kalendarz użyty jako wejście Symulatora **nie może być wymyślony przez ten sam
+kod, który później sprawdza target**. T043 używa zamrożonej, niezależnej fixture
+urzędowej dla 2026 r.:
+
+- lista polskich świąt ustawowo wolnych w 2026 r. jest przepisana jako stałe
+  dane testowe z urzędowego źródła i nie jest wyliczana przez
+  `nominal_monthly_hours_kp()`;
+- źródło kalendarza: Zielona Linia / Centrum Informacyjne Służb Zatrudnienia,
+  „Święta wolne od pracy w 2026 roku”:
+  https://zielonalinia.gov.pl/swieta-wolne-od-pracy-w-2026-roku/;
+- niezależna tabela kontrolna wymiaru godzin 2026 pochodzi z urzędowej tabeli
+  Powiatowego Urzędu Pracy w Sosnowcu:
+  https://sosnowiec.praca.gov.pl/strona-glowna/-/asset_publisher/Qat7ebECUfDp/content/id/56152826/pop_up;
+- dwa obowiązkowe przypadki kontrolne nie są liczone przez generator:
+  **styczeń 2026 = 160 h** oraz **wrzesień 2026 = 176 h**;
+- dla stycznia fixture zawiera co najmniej 1 i 6 stycznia jako święta; dla
+  września nie ma polskiego święta obniżającego wymiar;
+- pełny portfel T043 losuje miesiące wyłącznie z roku 2026 objętego tą fixture.
+  Rozszerzenie na inne lata nie należy do T043;
+- dopiero po zgodności zamrożonego kalendarza z wybranym miesiącem kalkulator
+  może wyliczyć target używany jako wejście produkcyjne. Jeżeli kalkulator nie
+  odtworzy zamrożonej wartości kontrolnej, test generatora ma być czerwony;
+- podczas runtime nie ma pobierania danych z sieci.
+
+Ta fixture sprawdza wejście i matematykę targetu. Nie czyni Symulatora
+niezależnym audytorem całego prawa pracy.
 
 ### 2.4 Nieobecności
 
@@ -153,13 +186,22 @@ czytelnego raportu. Sam napis „testy PASS” nie jest kryterium odbioru.
 
 - przed pierwszym PLAN nie istnieje dodatkowa osoba ani aktywne okno wsparcia;
 - rzeczywisty, niepusty `DECISION_REQUIRED` jest wystarczającym sygnałem dla
-  **drivera testowego**, by zasymulował zgodę koordynatora; nie wolno uzależniać
-  tego od brzmienia albo parsowania `unblocking_options`;
-- driver tworzy jedną osobę `SIM-EXTERNAL-*`, membership `EXTERNAL_SUPPORT`
-  bez targetu i okno przez istniejące produkcyjne operacje, dowiązując decyzję
-  tam, gdzie wymaga tego istniejący kontrakt, po czym ponownie naciska PLAN;
-- raport osobno zachowuje wynik pierwszego PLAN, payload decyzji, fakt udzielenia
-  testowej zgody, utworzone okno, wynik drugiego PLAN i faktyczne użycie osoby;
+  **drivera testowego**, by uruchomił testową ścieżkę wsparcia; nie wolno
+  uzależniać tego od brzmienia albo parsowania `unblocking_options`;
+- driver tworzy jedną nową osobę `SIM-EXTERNAL-*` jako `EXTERNAL_SUPPORT`, bez
+  targetu, i okno przez istniejące produkcyjne operacje;
+- ponieważ utworzenie tej nowej osoby jest pierwszym materialnym zapisem po
+  decyzji, **wyłącznie create-person niesie aktualne
+  `responds_to_decision_required_id`**;
+- następujące po nim attach-membership `EXTERNAL_SUPPORT` oraz utworzenie okna
+  wsparcia przekazują `responds_to_decision_required_id = null`, bo pierwszy
+  materialny zapis już unieważnił poprzednie ID decyzji;
+- dopiero po tych trzech zapisach driver ponownie naciska PLAN;
+- raport nazywa ten etap dokładnie **„testowa ścieżka wsparcia EXTERNAL”** i
+  nie przedstawia go jako produkcyjnego ręcznego dodania LOCAL;
+- raport osobno zachowuje wynik pierwszego PLAN, payload decyzji, ID powiązane
+  z pierwszym zapisem, utworzoną osobę/membership/okno, wynik drugiego PLAN i
+  faktyczne użycie osoby;
 - ten krok nie może zmieniać liczby LOCAL ani zostać przeniesiony do produktu.
 
 ### 2.6 Brak grafiku może być prawidłowym wynikiem
@@ -168,6 +210,25 @@ czytelnego raportu. Sam napis „testy PASS” nie jest kryterium odbioru.
 wynikiem, jeżeli scenariusz rzeczywiście blokuje obsadę i payload zawiera
 konkretny demand, blocker albo opcję działania. Całkowicie pusty payload jest
 błędem narzędzia lub produktu i nie może przejść jako PASS.
+
+### 2.7 Granica twierdzeń o prawie i bilansie kwartalnym
+
+T043 nie rozszerza Symulatora o drugi zestaw reguł prawa pracy.
+
+- produkcyjne `validate()` dowodzi wyłącznie zgodności kandydata z aktualnymi
+  regułami zaimplementowanymi w produkcie;
+- raport nie używa określeń „zgodny z Kodeksem pracy”, „legalny według prawa”
+  ani równoważnych na podstawie samego `validate()`;
+- T043 nie dodaje własnego checkera 11 h/35 h/16 h/24 h ani kopii reguł HARD;
+- kontrola art. 130 w 2.3 dotyczy wyłącznie zamrożonego wejścia
+  `target_hours`, nie certyfikacji całego grafiku.
+
+T043 również **nie certyfikuje kwartalnego przenoszenia salda godzin**.
+Każdy obiekt głównego portfela pozostaje niezależnym przebiegiem miesiąca, a
+REPLAN w T043 sprawdza zmianę w tym samym miesiącu. Istniejący mechanizm
+quarter carry-in pozostaje zachowaniem produktu, ale nie jest dowodem ani
+obietnicą raportu T043. Nie dodajemy wielomiesięcznego scenariusza tylko po to,
+żeby rozszerzyć zakres Symulatora.
 
 ## 3. Jedno zadanie, trzy checkpointy
 
@@ -195,7 +256,8 @@ Wszystkie poniższe działania przechodzą przez te same endpointy, co frontend:
   (usunąć bezpośrednie `save_calendar_day()`);
 - utworzenie pracowników, LOCAL/EXTERNAL membership i targetów LOCAL;
 - zapis nieobecności/reguł pracownika;
-- PLAN, odczyt decyzji, ewentualne okno wsparcia, ponowny PLAN;
+- PLAN, odczyt decyzji, ewentualna testowa ścieżka wsparcia EXTERNAL, ponowny
+  PLAN;
 - wybór kandydata, ponowny odczyt miesiąca/analityki;
 - zmiana wejścia i REPLAN dla scenariuszy REPLAN.
 
@@ -212,8 +274,8 @@ obiektu, ale narzędzie nie odgrywa stałej listy S01–S12.
 
 Generator składa poprawne kombinacje co najmniej z następujących osi:
 
-- miesiąc z zapisanego kalendarza (w tym miesiące krótkie, święta i kontekst
-  granicy miesiąca);
+- miesiąc z zamrożonego kalendarza 2026 (w tym miesiące krótkie, święta i
+  kontekst granicy miesiąca);
 - jedna albo dwie pełne, ciągłe warstwy obsady 24/7, czyli odpowiednio 5 albo
   10 LOCAL;
 - podział doby: D/N po 12 h, H24 oraz
@@ -231,8 +293,9 @@ portfelu, ale nie przez dwanaście ręcznie opisanych gotowych grafików.
 
 Małe przypadki kontrolne generatora sprawdzają tylko jego matematykę i znaczenie
 wejść: jedna pełna warstwa D/N = 5 LOCAL, jedna pełna warstwa H24 = 5 LOCAL,
-`WEEKDAY_12H_WEEKEND_24H` = 5 LOCAL, dwie pełne warstwy = 10 LOCAL. Nie są
-treścią głównego raportu i nie wolno kalibrować pod nie solvera.
+`WEEKDAY_12H_WEEKEND_24H` = 5 LOCAL, dwie pełne warstwy = 10 LOCAL, styczeń
+2026 = 160 h targetu i wrzesień 2026 = 176 h targetu. Nie są treścią głównego
+raportu i nie wolno kalibrować pod nie solvera.
 
 T043 nie wymyśla jeszcze obiektu z częściową drugą równoległą warstwą, np. dwie
 osoby tylko przez część tygodnia. Nie ma zamrożonej decyzji, jak z samego takiego
@@ -266,11 +329,16 @@ orakli pochodzących bezpośrednio z decyzji OWNERA i produkcyjnych odczytów.
 - EXTERNAL może wystąpić wyłącznie we własnym aktywnym oknie utworzonym po
   rzeczywistym `DECISION_REQUIRED` pierwszego PLAN.
 
-### B2. Produkcyjna poprawność
+### B2. Zgodność z produkcyjnym validate
 
 Każdy zwrócony kandydat używany w raporcie przechodzi przez produkcyjne
 `select_candidate()`, a następnie produkcyjny odczyt/revalidate. Symulator nie
 odtwarza COVERAGE, REST, NIGHT-STREAK, urlopu ani L4 własnym kodem.
+
+W raporcie wynik tej kontroli ma być nazwany np. `PRODUCT_VALIDATE_PASS/FAIL`
+lub prostym polskim odpowiednikiem „przeszedł/nie przeszedł reguły sprawdzane
+przez program”. **Nie wolno na tej podstawie pisać, że cały grafik został
+niezależnie sprawdzony z Kodeksem pracy.**
 
 ### B3. Godziny i sprawiedliwość widoczne dla człowieka
 
@@ -282,19 +350,28 @@ Raport pokazuje dla każdego LOCAL:
 - liczbę i długości zmian;
 - różnicę względem najmniej i najbardziej obciążonego LOCAL.
 
-Dla wygenerowanych czystych obiektów bez absencji i indywidualnych ograniczeń
-raport jawnie ocenia porównywalność godzin między LOCAL z uwzględnieniem
-niepodzielności użytych zmian. Nie wpisuje stałego oczekiwania 144 h dla każdego
-miesiąca. Dla obiektów z urlopem, L4 albo regułą pracownika pokazuje rozkład i
-produkcyjny effective target, ale nie zgaduje własnego „idealnego” grafiku.
+Dla scenariuszy z kompletnymi targetami, urlopem, L4 albo indywidualną regułą
+Symulator **nie wydaje własnego automatycznego werdyktu „sprawiedliwy / niesprawiedliwy”**.
+Pokazuje liczby i produkcyjny effective target jako dowód diagnostyczny dla
+OWNERA. Nie zgaduje, czy istniał lepszy legalny grafik i nie buduje drugiego
+optymalizatora.
+
+Automatyczny werdykt fairness wolno wydać wyłącznie w już zamrożonym przypadku
+OWNERA z T041: co najmniej jeden uczestniczący LOCAL nie ma targetu, więc
+TARGET-01 nie rankuje kandydatów, a produkcyjny fallback ma minimalizować
+`max(actual PRIMARY hours) - min(actual PRIMARY hours)` pomiędzy wszystkimi
+uprawnionymi LOCAL. W kontrolnym, symetrycznym przypadku, w którym pełna równość
+jest osiągalna, oczekiwany spread wynosi 0. Jeżeli HARD uniemożliwia pełną
+równość, T043 nie oblicza sam „najmniejszego możliwego” spreadu — taki przypadek
+pozostaje raportem diagnostycznym, nie automatycznym oracle.
 
 ### B4. Uczciwy `DECISION_REQUIRED`
 
 - payload nie jest całkowicie pusty;
 - raport pokazuje blokujące demandy, osoby/warunki, load blocker i opcje;
 - Symulator nie oznacza z góry przypadku jako „wymagający wsparcia”; zapisuje
-  pierwsze `DECISION_REQUIRED`, automatycznie wykonuje testową zgodę opisaną w
-  2.5 i porównuje oba etapy;
+  pierwsze `DECISION_REQUIRED`, automatycznie wykonuje testową ścieżkę wsparcia
+  EXTERNAL opisaną w 2.5 i porównuje oba etapy;
 - jeśli certyfikowany przez generator czysty obiekt bez absencji zwraca
   `DECISION_REQUIRED`, zachować failure JSON. Nadal wolno wykonać reakcję
   wsparcia dla zebrania dowodu, ale wynik pierwszego PLAN nie przestaje być
@@ -305,6 +382,10 @@ produkcyjny effective target, ale nie zgaduje własnego „idealnego” grafiku.
 Raport zachowuje zestaw godzin i przypisań przed zmianą oraz po REPLAN. Pokazuje
 co zmieniono w wejściu i czy backend ponownie zbilansował cały dostępny miesiąc.
 Nie wymusza ręcznie konkretnego grafiku.
+
+B5 **nie jest testem kwartalnego carry-in**. T043 nie tworzy w tym celu
+kolejnych miesięcy tego samego obiektu i nie przedstawia tego wyniku jako dowodu
+rozliczenia kwartału.
 
 ### 5.1 Artefakty
 
@@ -378,7 +459,9 @@ Nowa bramka musi wykazać, że potrafi być czerwona. Na oddzielnym tymczasowym
 worktree, bez commitowania mutacji produktu, auditor wykonuje trzy małe próby:
 
 1. przywrócenie starego błędu H24 `occupancy=2*x` traktowanego jak Boolean;
-2. wyłączenie terminu równego podziału dla brakującego targetu;
+2. wyłączenie terminu równego podziału dla brakującego targetu — wykrywa go
+   wyłącznie kontrolny pion zgodny z OWNER-T041-01, w którym oczekiwany spread
+   0 jest niezależnie znany z symetrycznych wejść;
 3. przywrócenie starego geometrycznego podwójnego liczenia legalnie
    nakładających się demandów.
 
@@ -425,22 +508,27 @@ kształtu funkcji:
 | Element | SOURCE | Konieczność | Redukcja |
 |---|---|---|---|
 | generator 5/10 | jawna decyzja OWNER | prawdziwy roster pełnej warstwy 24/7 | 5 dla jednej warstwy, 10 dla dwóch; bez reaktywnego LOCAL |
-| target miesiąca | OWNER + art. 130/PIP | prawdziwe wejście koordynatora | jeden kalkulator z kalendarza; 176 tylko kontrola września |
-| seedowany portfel 20 obiektów | OWNER | różne wejścia zamiast benchmarku | kombinacje zamrożonych osi, ledger i reprodukcja z seedu |
-| reakcja po `DECISION_REQUIRED` | OWNER | bezobsługowo odtwarza zgodę w teście | istniejące create-person/membership/support-window; zachowanie poza produktem |
-| godziny/spread | OWNER fairness + T041 | ujawnia bzdury widoczne ręcznie | odczyt assignments/analityki, bez drugiego solvera |
-| produkcyjne validate | istniejący owner | legalność kandydata | select/revalidate, bez kopii walidatora |
+| target miesiąca | OWNER + art. 130 + zamrożona fixture urzędowa 2026 | prawdziwe wejście koordynatora bez samosprawdzania generatora | kalkulator korzysta z niezależnego kalendarza; obowiązkowe kontrole 160/176 |
+| seedowany portfel 20 obiektów | OWNER | różne wejścia zamiast benchmarku | kombinacje zamrożonych osi, ledger i reprodukcja z seedu; obiekty niezależne |
+| reakcja po `DECISION_REQUIRED` | OWNER + istniejący ControlPanel flow | bezobsługowa **testowa ścieżka wsparcia EXTERNAL** | create-person niesie decision id; membership/window null; bez zmiany LOCAL |
+| godziny/spread | OWNER-T041-01 | ujawnia bzdury widoczne ręcznie | zawsze raport godzin; automatyczny fairness oracle tylko dla zamrożonego fallbacku brakującego targetu |
+| produkcyjne validate | istniejący owner | zgodność z regułami sprawdzanymi przez produkt | select/revalidate; bez claimu o całym prawie i bez kopii walidatora |
+| REPLAN | istniejący owner | reakcja na zmianę w tym samym miesiącu | bez rozszerzenia T043 o certyfikację quarter carry-in |
 | Markdown + JSON | prośba OWNER | czytelność i reprodukcja | jeden model danych, dwa renderery |
 | jeden UI vertical | luka między API i ekranem | sprawdza realne kliknięcie | jeden flow, nie macierz browserowa |
 | 3 mutacje kontrolne | znane incydenty | dowód, że test umie upaść | tymczasowy worktree, bez nowej zależności |
 
 Usunięte z propozycji:
 
-- nowy solver, validator albo checker reguł HARD;
+- nowy solver, validator albo checker reguł HARD/prawa pracy;
 - dowolna obsada 4–9 i reaktywne zatrudnianie LOCAL;
 - osoba lub aktywne wsparcie przed pierwszym PLAN;
+- przedstawianie testowego EXTERNAL jako produkcyjnego dodania LOCAL;
 - liczenie urlopu/L4 w generatorze;
 - sieć w trakcie testu;
+- własny automatyczny oracle fairness dla złożonych scenariuszy z kompletnymi
+  targetami/absencjami/regułami;
+- wielomiesięczny przebieg tylko po to, by certyfikować bilans kwartalny;
 - masowa migracja 1100 testów;
 - pełna regresja jako automatyczny rytuał;
 - Hypothesis/Schemathesis/mutmut jako nowe stałe zależności T043;
@@ -469,6 +557,9 @@ Zabronione:
 - zmiana kontraktu produktu pod wygodny test;
 - ręczne Assignment/demand/wzorcowy grafik;
 - mock wyniku PLAN/REPLAN/validate/analityki w bramce zaufania;
+- własny prawny validator albo nowy checker fairness dla złożonych przypadków;
+- test Cross-Site lub współdzielonych pracowników pomiędzy obiektami w T043;
+- wielomiesięczny scenariusz kwartalny w T043;
 - usuwanie lub wyłączanie starych testów bez osobnego dowodu, że są sprzeczne z
   PRODUCT_TRUTH;
 - naprawa znalezionego defektu produktu w T043.
@@ -493,23 +584,33 @@ Pierwszy plik jest rzeczywiście konsumowany przez drugi; pozostałe trafienia t
 historyczne briefy/raporty albo niezależne symbole o tej samej nazwie. Nie ma
 powodu poszerzać `TASK_SCOPE` na produkt.
 
+Korekta R3 nie zmienia ownershipu ani TASK_SCOPE, więc nie dodaje kolejnego
+mechanicznego `WHERE_MAP`. Pięć uwag zostało potwierdzonych file:line w R3;
+przed implementacją audytor nadal ma przeczytać rzeczywiste wskazane ownery na
+exact SHA, zgodnie z `AGENTS.md`.
+
 ## 11. Odbiór i sposób testowania
 
 ### Checkpoint A
 
 - małe testy generatora bez solvera: znaczenie pełnych warstw 5/10, przykład
-  D/N w tygodniu + H24 w weekend = 5, targety różnych miesięcy, brak
-  reaktywnego LOCAL oraz urlop/L4 w dozwolonych granicach;
+  D/N w tygodniu + H24 w weekend = 5, niezależna fixture kalendarza 2026,
+  kontrolne targety styczeń=160/wrzesień=176, brak reaktywnego LOCAL oraz
+  urlop/L4 w dozwolonych granicach;
 - jeden wygenerowany prawdziwy API vertical;
-- jeden `DECISION_REQUIRED` z automatycznym EXTERNAL i dowodem, że liczba LOCAL
-  nie wzrosła.
+- jeden `DECISION_REQUIRED` z testową ścieżką wsparcia EXTERNAL i dowodem, że
+  liczba LOCAL nie wzrosła oraz tylko pierwszy zapis użył decision id.
 
 ### Checkpoint B
 
 - celowane obiekty jednej i dwóch warstw oraz wariantu
   `WEEKDAY_12H_WEEKEND_24H`, z raportem faktycznych godzin;
-- jeden przypadek wsparcia po realnym, niepustym payloadzie;
-- jeden REPLAN;
+- jawne oznaczenie wyniku produkcyjnego validate bez claimu „zgodne z prawem”;
+- jeden kontrolny fairness oracle dokładnie dla OWNER-T041-01; pozostałe
+  rozkłady godzin są raportem diagnostycznym;
+- jeden przypadek testowej ścieżki wsparcia EXTERNAL po realnym, niepustym
+  payloadzie;
+- jeden REPLAN w tym samym miesiącu;
 - pełny seedowany portfel 20 obiektów raz na finalnym SHA, z ledgerem pokrycia i
   raportem Markdown/JSON;
 - nie uruchamiać całej suity repo.
@@ -530,9 +631,17 @@ Odbiór końcowy nie brzmi „N testów PASS”. Oczekiwane dowody to:
 4. jawna lista scenariuszy FEASIBLE, DECISION_REQUIRED i defektów produktu;
 5. dowód, że żaden przebieg nie zwiększył liczby LOCAL ponad 5/10, a każda
    osoba EXTERNAL powstała dopiero po pierwszym `DECISION_REQUIRED`;
-6. dowód, że bramka zrobiła się czerwona dla trzech znanych klas błędu;
-7. lista starych testów, które pozostały UNIT/BENCHMARK i dlatego nie są
-   używane jako dowód działania programu.
+6. dowód dokładnego porządku testowego EXTERNAL: create-person z decision id,
+   membership null, support-window null;
+7. dowód, że target nie sprawdza sam siebie: urzędowa fixture kalendarza 2026 i
+   kontrolne 160/176 przechodzą niezależnie od wygenerowanego scenariusza;
+8. jawne rozróżnienie „przeszedł produkcyjny validate” od „sprawdzony z prawem”;
+9. automatyczny werdykt fairness tylko dla zakresu OWNER-T041-01; inne rozkłady
+   godzin pozostają danymi do oceny;
+10. dowód, że bramka zrobiła się czerwona dla trzech znanych klas błędu;
+11. lista starych testów, które pozostały UNIT/BENCHMARK i dlatego nie są
+   używane jako dowód działania programu;
+12. brak twierdzenia, że T043 przetestował kwartalne przenoszenie salda.
 
 ## 12. Warunki zatrzymania
 
@@ -543,8 +652,12 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
 - automatyczna reakcja wymaga parsowania tekstu `unblocking_options` albo
   zmiany produktu — wystarczającym triggerem ma być niepusty
   `DECISION_REQUIRED`, a cała reakcja należy do drivera testowego;
+- nie da się zachować istniejącego porządku decision-link dla testowego
+  EXTERNAL bez zmiany produktu;
 - raport godzin wymaga nowego endpointu lub zmiany produktu; najpierw wskazać,
   dlaczego obecny month view/analytics nie wystarcza;
+- automatyczny werdykt fairness wymaga wymyślenia nowego progu lub drugiego
+  optymalizatora poza OWNER-T041-01 — wtedy raportować liczby bez werdyktu;
 - którykolwiek scenariusz wymaga ręcznego zbudowania wyniku;
 - potrzebna jest zmiana poza TASK_SCOPE;
 - kontrolowana mutacja pozostaje zielona i nie da się jej wykryć bez
@@ -552,16 +665,17 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
 
 ## 13. Pytania do niezależnego review przed implementacją
 
-1. Czy sekcje 0 i 2 jednoznacznie oddzielają automatyczną reakcję testowego
-   drivera od ręcznego działania koordynatora w produkcie?
-2. Czy generator portfela naprawdę składa różne wejścia przed PLAN, obejmuje
-   jedną/dwie pełne warstwy, 12 h/24 h, urlop/L4, ochronę, regułę pracownika i
-   REPLAN, zamiast odgrywać zamkniętą macierz?
-3. Czy orakle B1–B5 wykrywają „zielony, lecz bzdurny” wynik bez kopiowania
-   solvera?
-4. Czy któryś element można usunąć, zachowując raport godzin, realny przepływ
-   i kalibrację na znanych błędach?
-5. Czy zakres C jest wystarczająco mały, aby nie zamienić T043 w przebudowę
-   całej suity?
+1. Czy B2 i raport mówią wyłącznie o zgodności z produkcyjnym validate, bez
+   przedstawiania tego jako niezależnego audytu całego prawa pracy?
+2. Czy kalendarz 2026 i kontrolne targety 160/176 są zamrożoną fixture
+   niezależną od kalkulatora/generatora, a runtime nie korzysta z sieci?
+3. Czy automatyczny oracle fairness jest ograniczony dokładnie do już
+   zaakceptowanego OWNER-T041-01, a złożone przypadki pokazują dane bez nowego
+   progu wymyślonego przez test?
+4. Czy raport i driver nazywają EXTERNAL testową ścieżką wsparcia i zachowują
+   kolejność: pierwszy materialny zapis z decision id, kolejne dwa z null?
+5. Czy T043 jawnie nie rości sobie dowodu kwartalnego carry-in i nie dodaje
+   wielomiesięcznego scenariusza?
+6. Czy Cross-Site pozostaje całkowicie poza T043 zgodnie z OWNER_CORRECTED R2?
 
-Do zamknięcia review: **CC READ-ONLY — NIE IMPLEMENTOWAĆ**.
+Do zamknięcia re-review: **CC READ-ONLY — NIE IMPLEMENTOWAĆ**.
