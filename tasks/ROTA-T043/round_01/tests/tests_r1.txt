@@ -1,0 +1,182 @@
+ROTA-T043 — NIEZALEŻNA PRÓBA SFALSYFIKOWANIA ZAŁOŻEŃ SYMULATORA
+
+Audytowany kontrakt: 4bfa8747d3f83b6ac37f8b673e6b09fe65121558
+Branch: task/ROTA-T043
+Baza produktu kontraktu: main@c25c73e0332158bae703109e770f3cf83fd970a7
+Data: 2026-08-30
+
+WERDYKT
+
+WYMAGA KOREKTY PRZED IMPLEMENTACJĄ.
+
+Nie uruchamiano pełnego solvera ani regresji. To audyt założeń kontraktu, nie
+audyt implementacji. Przeczytano brief, obecny Symulator i rzeczywiste granice
+assemblera, solvera, validatora, kalendarza, bilansu oraz operacji wsparcia.
+Wykonano jedynie tanią kontrolę matematyki katalogu i targetu.
+
+ZAŁOŻENIA SFALSYFIKOWANE
+
+T43-PRE-01 — dwadzieścia osobnych baz nie odtwarza portfela koordynatora
+
+TRACE:
+- brief:100 wymaga osobnej SQLite :memory: dla każdego obiektu;
+- brief:208 nazywa wynik portfelem 20 obiektów;
+- assembler.py:182-190 pobiera assignments tego samego pracownika z innych
+  Site;
+- schedule_repository.py:191-199 dokumentuje, że Employee nie należy do
+  jednego Site, a cross-Site context jest używany przez REST-01/LOAD-01.
+
+FALSYFIKACJA:
+Dwa grafiki mogą być poprawne osobno, ale wzajemnie się wykluczać, gdy ta sama
+osoba pracuje na dwóch obiektach. Oddzielna baza usuwa dokładnie ten kontekst.
+Taki przebieg może dać 20 zielonych wyników, których nie da się wykonać razem.
+
+Wniosek bramki: trzeba jawnie rozdzielić dwa cele. Odizolowane obiekty są dobre
+do szerokiego fuzzowania kształtów. Nie wolno jednak nazywać ich dowodem pracy
+koordynatora z portfelem; ten wymaga co najmniej jednego wspólnego świata z
+pracownikiem używanym na więcej niż jednym Site.
+
+T43-PRE-02 — produkcyjne validate() nie jest niezależnym oraklem prawa
+
+TRACE:
+- brief:269-273 i 432 opiera legalność kandydata na produkcyjnym validate();
+- validator.py:622-628 wykonuje WEEKLY-REST-01 tylko dla OCHRONA;
+- arch/T026_absence_canonicalization_gaps_architect_brief.md:67 zapisuje, że
+  produkt historycznie nie wyprowadza całej legalności wprost z ustawy;
+- solver.py:479-581 ma jeden ważony cel SOFT, obejmujący target, równość,
+  rytm, trzecią zmianę, weekendy, święta i preferencje nieobecności.
+
+FALSYFIKACJA:
+Revalidate potwierdza zgodność wyniku z aktualnym właścicielem reguł produktu.
+Nie wykryje błędu wspólnego dla solvera i validatora ani przepisu, którego
+produkt nie modeluje. PIP potwierdza co najmniej 11 h odpoczynku dobowego, 35 h
+tygodniowego oraz odpoczynek równy przepracowanym godzinom po przedłużonej
+zmianie 16/24 h:
+https://www.pip.gov.pl/dla-pracownikow/porady-prawne/czas-pracy?tmpl=pdf
+
+Wniosek bramki: raport może uczciwie mówić „zgodne z produkcyjnym validate”. Nie
+może bez dodatkowego, niezależnego i zamrożonego zakresu mówić „sprawdzone z
+Kodeksem pracy”. Nie należy kopiować całego validatora; trzeba wskazać mały,
+niezależny zestaw prawnych niezmienników albo zawęzić deklarację raportu.
+
+T43-PRE-03 — zapisany kalendarz nie dowodzi, że target jest prawdziwy
+
+TRACE:
+- brief:128-135 każe generatorowi wyliczać target z zapisanego kalendarza;
+- obecny coordinator_simulator.py:144 ma domyślnie pustą listę świąt;
+- obecny coordinator_simulator.py:254-256 zapisuje wszystkie dni jako
+  holiday=False;
+- CalendarDay jest także źródłem świąt konsumowanym później przez produkt.
+
+REPRO (bez solvera):
+
+  nominal_monthly_hours_kp(2026-01, holidays=empty)        -> 176
+  nominal_monthly_hours_kp(2026-01, {2026-01-01,01-06})   -> 160
+
+Jeżeli ten sam generator wymyśli kalendarz i z niego policzy target, obie
+wartości będą wewnętrznie zgodne nawet wtedy, gdy obie są błędne względem
+rzeczywistego miesiąca. Oficjalne źródła potwierdzają święta 1 i 6 stycznia
+2026 oraz obowiązek obniżania wymiaru także za święto przypadające w innym dniu
+niż niedziela:
+https://www.gov.pl/web/chiny/harmonogram-dni-wolnych-w-roku-2025
+https://www.pip.gov.pl/aktualnosci/wolne-za-15-sierpnia-komu-i-kiedy-przysluguje
+
+Wniosek bramki: kalendarz wejściowy i oczekiwany target muszą mieć niezależną,
+zamrożoną urzędową fixture. Internet nadal nie jest potrzebny podczas testu.
+Wrzesień 176 może zostać kontrolą, ale sam nie wykrywa pominiętych świąt.
+
+T43-PRE-04 — „porównywalne godziny” nie ma wykonywalnego kryterium
+
+TRACE:
+- brief:285-289 wymaga oceny porównywalności „z uwzględnieniem
+  niepodzielności zmian”, lecz nie podaje granicy PASS/FAIL;
+- brief:439 zabrania drugiego validatora;
+- fairness.py:171-189 definiuje najmniejszy osiągalny spread tylko dla
+  fallbacku brakującego targetu;
+- solver.py:479-581 pokazuje, że przy kompletnych targetach wynik jest skutkiem
+  wielu współistniejących celów SOFT.
+
+FALSYFIKACJA:
+Dla dowolnie wygenerowanych absencji i reguł sam widoczny spread nie mówi, czy
+istniał lepszy legalny grafik. Bez liczby granicznej albo niezależnego
+porównania Symulator ponownie tylko pokaże nierówność, ale jej nie wychwyci.
+
+Wniosek bramki: automatyczny werdykt fairness trzeba ograniczyć do rodzin, dla
+których oczekiwanie można policzyć niezależnie i prosto. Dla złożonych obiektów
+raport godzin jest dowodem diagnostycznym, nie oraklem PASS/FAIL. Osobno trzeba
+ustalić, które pozostałe SOFT Symulator tylko raportuje, a które naprawdę
+falsyfikuje.
+
+T43-PRE-05 — testowy EXTERNAL nie dowodzi realnego ręcznego dodania LOCAL
+
+TRACE:
+- brief:24-36 oraz 152-163 świadomie rozdziela automat testowy od produktu;
+- eligibility.py:229-239 ma odrębną ścieżkę EXTERNAL_SUPPORT z oknem;
+- assembler.py:256-264 wyklucza EXTERNAL_SUPPORT z targetów/fairness LOCAL;
+- ControlPanel.tsx:292-304 pokazuje wymagany porządek rzeczywistego łańcucha:
+  tylko pierwszy materialny zapis może nieść decision id, następne niosą null.
+
+FALSYFIKACJA:
+Drugi PLAN z EXTERNAL sprawdza przydatną ścieżkę pomocy, ale nie jest równoważny
+produkcyjnemu działaniu OWNERA „ręcznie dodaj nową osobę jako LOCAL”. LOCAL ma
+target i uczestniczy w fairness, EXTERNAL nie. Ponadto opis „dowiązując decyzję
+tam, gdzie wymaga kontrakt” jest za mało dokładny: błędne dowiązanie do drugiego
+kroku da nieaktualne ID.
+
+Wniosek bramki: raport ma nazywać ten etap „testowa ścieżka wsparcia”, nie
+„odtworzenie produkcyjnego dodania LOCAL”. Kontrakt musi zamrozić istniejący
+porządek: pierwszy materialny zapis niesie decision id; kolejne membership/
+window dostają null. Nie jest potrzebna zmiana produktu.
+
+T43-PRE-06 — świeży pojedynczy miesiąc nie sprawdza bilansu kwartalnego
+
+TRACE:
+- brief:100 rozdziela bazy, a 124-139 wymaga targetu tylko dla wybranego
+  miesiąca;
+- balance.py:1-16 oraz 116-141 przenosi saldo przez trzy miesiące kwartału;
+- assembler.py:114-134 odtwarza carry-in z wcześniejszych miesięcy.
+
+FALSYFIKACJA:
+Losowanie różnych miesięcy w pustych bazach zawsze zaczyna historię od zera.
+Nie sprawdza obietnicy, że niedobór/nadwyżka godzin jest rozliczana kwartalnie,
+ani że REPLAN widzi prawdziwy carry-in.
+
+Wniosek bramki: niezależne obiekty mogą pozostać szybkim przeglądem, ale
+deklaracja „realna praca koordynatora” wymaga co najmniej jednego przebiegu
+wielomiesięcznego w tej samej bazie. Nie trzeba robić tego dla wszystkich 20.
+
+ZAŁOŻENIA, KTÓRE PRZETRWAŁY PRÓBĘ
+
+1. Przykład D/N 12 h pon.–pt. + H24 sob.–nd. jest jedną ciągłą warstwą 24/7.
+   Dla września 2026 katalog daje 720 h, nie podwójną obsadę. Roster 5, nie 8,
+   jest zgodny z zamrożoną decyzją OWNERA.
+2. 5 LOCAL dla jednej pełnej warstwy oraz 10 dla dwóch pełnych warstw jest
+   spójną, wąską domeną generatora. Nie wolno uogólniać tego na częściową
+   drugą warstwę; brief uczciwie ją wyklucza.
+3. Pierwszy PLAN tylko na LOCAL, bez reaktywnego dodawania LOCAL, skutecznie
+   usuwa główny błąd starych benchmarków.
+4. TestClient + prawdziwy router + SQLite + assembler + PLAN/select/revalidate
+   jest właściwym pionem produktu. Problemem nie jest mock, lecz zbyt szeroka
+   obietnica orakla.
+5. Seed, JSON i komenda reprodukcji są właściwe, o ile timeout jest jawnie
+   odróżniany od dowiedzionej niewykonalności.
+
+MINIMALNA DECYZJA PRZED IMPLEMENTACJĄ
+
+Brief nie potrzebuje nowej architektury ani kolejnej wielkiej macierzy. Musi
+jednak przed PASS jednoznacznie odpowiedzieć:
+
+1. czy „20 obiektów” oznacza izolowany fuzzing, a osobny mały przebieg sprawdza
+   wspólny portfel/cross-Site;
+2. czy raport mówi tylko „zgodne z produkcyjnym validate”, czy dostaje mały,
+   niezależny zakres kontroli prawa;
+3. skąd pochodzi zamrożony kalendarz świąt i oczekiwane targety;
+4. jakie konkretne przypadki fairness i pozostałych SOFT mogą dostać automatyczny
+   werdykt;
+5. że EXTERNAL jest testową reakcją, nie dowodem produkcyjnego dodania LOCAL,
+   oraz jaki jest dokładny porządek trzech zapisów;
+6. jaki jeden przebieg zachowuje kontekst wielu Site/miesięcy.
+
+Do tego czasu CC pozostaje read-only. Nie zmieniono briefu ani kodu produktu.
+
+KONIEC RAPORTU

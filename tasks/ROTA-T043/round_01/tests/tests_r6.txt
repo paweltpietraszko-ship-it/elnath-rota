@@ -1,0 +1,170 @@
+ROTA-T043 — NIEZALEŻNY AUDYT IMPLEMENTACJI R6
+
+Audytor: Codex (niezależny tester/audytor; bez zmian produktu)
+Branch: task/ROTA-T043
+Audytowany exact SHA: 744094d9f2638a4dbefad077d27b9e0ad65601ca
+Kontrakt: 5b675f1952673f18a6603a9d5edb8c83d142d118
+Data: 2026-08-30
+
+WERDYKT
+
+FAIL — pięć odtworzonych sprzeczności z zamrożonym kontraktem T043.
+
+To nie jest werdykt o jakości solvera. Prosty rzeczywisty pion D/N przeszedł.
+FAIL dotyczy tego, że Symulator nie bada jeszcze całego zakresu i nie zachowuje
+wszystkich dowodów w sposób wymagany przez kontrakt.
+
+WARSTWY AUDYTU
+
+1. Zakres i exact SHA
+
+- `744094d` jest aktualnym HEAD przekazania; sam commit zmienia wyłącznie
+  BOARD.md, a kod implementacji kończy się na `d5e04c0`.
+- Diff od kontraktu zmienia README, dwa pliki Symulatora, jeden plik Playwright,
+  raporty oraz `tests/test_t009_plan_select_replan.py`.
+- Diff produktu w `rota/**`, `api/**`, `frontend/src/**`, `benchmarks/**` jest
+  pusty.
+- `git diff --check` jest czysty.
+
+2. WHERE_MAP
+
+Uruchomiono:
+
+python where.py tests/property/coordinator_simulator.py
+python where.py tests/property/test_coordinator_simulator.py
+
+Mapa potwierdziła testowy ownership obu plików, ich wzajemne połączenie oraz
+usunięcie starego `hire_one_more_local`. Wynik mapy potraktowano tylko jako
+evidence wyszukiwania; przeczytano kod na exact SHA.
+
+3. Niezależne reproduktory
+
+- generator: seedy 0..19 oraz absencje dla seedów 1..999;
+- artefakty: niezależny odczyt coordinator_report.json i drzewa failures/;
+- kwartał: dwie kontrolowane zmiany kopii zapisanego quarter result, bez
+  modyfikowania repozytorium;
+- realny pion: prawdziwe API/SQLite/assembler/PLAN/select/analytics dla
+  symetrycznego D/N.
+
+4. Wynik realnego pionu
+
+Polecenie:
+
+`.venv\Scripts\python.exe -m pytest -q tests/property/test_coordinator_simulator.py::test_symmetric_dn_control_case_gets_a_fairness_verdict`
+
+Wynik: 1 passed w 45.99 s. To potwierdza działanie jednego prostego pionu, ale
+nie pokrywa poniższych klas defektów narzędzia.
+
+FINDING T43-R6-01 — portfel 20 obiektów nie zmienia miesiąca
+
+TRACE:
+- brief.md:247 wymienia miesiąc z fixture 2026 jako oś generatora;
+- brief.md:256-257 wymaga, aby ledger pokazywał faktyczne pokrycie wartości i
+  par wartości.
+
+OWNERSHIP:
+- miesięczny portfel buduje
+  `tests/property/test_coordinator_simulator.py::test_full_portfolio_and_quarter_report`.
+
+REPRO:
+- `tests/property/test_coordinator_simulator.py:37` ustala jeden stały
+  `MONTH = 2026-09-01`;
+- linia 526 przekazuje ten sam MONTH dla wszystkich seedów 0..19;
+- niezależny odczyt 20 specyfikacji zwrócił:
+  `portfolio_months ['2026-09-01']`;
+- ledger i raport nie mają osi miesięcy.
+
+Skutek: portfel jest nadal skalibrowany do jednego miesiąca, mimo że kontrakt
+zamraża miesiąc jako zmienną wejściową pracy koordynatora.
+
+FINDING T43-R6-02 — generator absencji łamie obie zamrożone granice
+
+TRACE:
+- brief.md:152: planowy urlop ma dotyczyć najwyżej jednej osoby;
+- brief.md:155-156: L4 ma mieć seedowaną długość 0–21 dni.
+
+OWNERSHIP:
+- absencje generuje `coordinator_simulator.py::random_absence_set`.
+
+REPRO:
+- `coordinator_simulator.py:262-270` losuje do trzech niezależnych absencji,
+  wszystkie z długością 1..5 dni;
+- w seedach 1..999 największe znalezione L4 miało 5 dni;
+- seed 2 wygenerował `LEAVE_GRANTED` jednocześnie dla dwóch osób:
+  EMP-1 (20–23 września) i EMP-2 (18 września);
+- ten sam przypadek jest zapisany w dostarczonym raporcie dla seedu 2.
+
+Skutek: Symulator nie potrafi zbadać L4 6–21 dni i tworzy nierealny względem
+kontraktu wariant urlopowy.
+
+FINDING T43-R6-03 — wyniki niezielone nie mają wymaganych reproduktorów
+
+TRACE:
+- brief.md:460-461 wymaga osobnego failure JSON dla każdego czerwonego lub
+  nieudowodnionego przypadku;
+- brief.md:463-465 wymaga pełnego wejścia, wyniku, Assignmentów, seedu i gotowej
+  komendy reprodukcji.
+
+OWNERSHIP:
+- zapis raportów i failures należy do
+  `tests/property/test_coordinator_simulator.py`.
+
+REPRO:
+- coordinator_report.json zawiera 17 `FAIRNESS_UNPROVEN`;
+- katalog `tasks/ROTA-T043/round_01/tests/failures/` nie istnieje na exact SHA;
+- `_write_failure_json` jest wywoływane dla `FAIRNESS_FAIL`, ale nie dla
+  `FAIRNESS_UNPROVEN` (`test_coordinator_simulator.py:282-283`);
+- zwykłe wiersze raportu nie zawierają Assignmentów ani pełnego wyniku PLAN;
+- pole `reproduction` ma dosłownie niedokończone
+  `python -c "... _run_one_monthly_object; ..."`, a nie wykonywalną komendę.
+
+Skutek: raport uczciwie pokazuje UNPROVEN, lecz nie pozostawia obiecanego
+materiału pozwalającego później odtworzyć i zbadać te przypadki.
+
+FINDING T43-R6-04 — oracle kwartalny nie sprawdza Assignmentów ani
+unresolved_carryover
+
+TRACE:
+- brief.md:292 definiuje oczekiwany bilans z `actual PRIMARY hours`;
+- brief.md:299-303 wymaga porównania produkcyjnych `month_balance`,
+  `quarter_balance` i `unresolved_carryover`;
+- brief.md:442-446 powtarza te pola jako obowiązkowy wynik miesięczny.
+
+OWNERSHIP:
+- niezależny oracle należy do
+  `coordinator_simulator.py::compute_quarter_oracle`.
+
+REPRO:
+- funkcja bierze `actual` z produkcyjnego `month_data["planned_hours"]`
+  (`coordinator_simulator.py:827`), zamiast policzyć PRIMARY z Assignmentów;
+- usunięcie wszystkich kandydatów/Assignmentów z kopii trzech zapisanych
+  wyników nadal zwróciło `QUARTER_BALANCE_PASS`;
+- ustawienie `unresolved_carryover = 999999` dla każdego pracownika i miesiąca
+  nadal zwróciło `QUARTER_BALANCE_PASS`;
+- w kodzie oracle nie ma odczytu `unresolved_carryover`.
+
+Skutek: obecny PASS kwartalny może pozostać zielony, kiedy zapisany grafik albo
+jedna z obowiązkowych wartości produktu jest sprzeczna z raportem.
+
+FINDING T43-R6-05 — implementacja zmieniła plik poza TASK_SCOPE
+
+TRACE:
+- zamrożony TASK_SCOPE zaczyna się w brief.md:563 i nie obejmuje
+  `tests/test_t009_plan_select_replan.py`;
+- brief zabrania rozszerzania zakresu bez zatrzymania i zgłoszenia problemu.
+
+OWNERSHIP/REPRO:
+- diff `5b675f1..744094d` zmienia
+  `tests/test_t009_plan_select_replan.py` o nowy test nakładających się demandów;
+- plik nie figuruje w TASK_SCOPE.
+
+Zmiana jest testowa, nie produktowa, ale nadal przekracza zamrożoną granicę
+zadania.
+
+REGRESJA
+
+Nie uruchamiano pełnej suity ani pełnego portfela. Zgodnie z AGENTS.md pełna
+regresja wymaga osobnej zgody OWNERA, a pięć powyższych reproduktorów już
+zamyka tę rundę wynikiem FAIL. Nie powtarzano 22 testów implementatora.
+
+KONIEC RAPORTU

@@ -1,0 +1,95 @@
+ROTA-T043 — NIEZALEŻNY PREIMPLEMENTATION RE-AUDIT R5
+
+Audytor: Codex (niezależny tester/audytor; bez implementacji)
+Branch: task/ROTA-T043
+Audytowany exact SHA: 5b675f1952673f18a6603a9d5edb8c83d142d118
+Porównanie: 4ddc6ad330a0db7fa3a3b1895130864cdebb97be..5b675f1952673f18a6603a9d5edb8c83d142d118
+Data: 2026-08-30
+
+WERDYKT
+
+PASS — ARCHITECT CONTRACT ACCEPTED FOR IMPLEMENTATION.
+
+PASS dotyczy wyłącznie kontraktu na exact SHA powyżej. Nie jest werdyktem dla
+przyszłej implementacji ani dla wyników, które zwróci aktualny solver.
+
+WARSTWY AUDYTU
+
+1. Zakres zmiany
+
+Od 4ddc6ad... zmienił się wyłącznie `tasks/ROTA-T043/brief.md`. Zero kodu
+produktu. `git diff --check` jest czysty, a 4ddc6ad... jest przodkiem
+5b675f1....
+
+2. Zgodność z OWNER_CORRECTED R4
+
+- T043 nie naprawia solvera, a zły grafik zachowuje jako reproduktor
+  (`brief.md:23-27`).
+- Wszystkie wejścia są zamrożone przed PLAN; po wyniku nie wolno zmieniać
+  rosteru, targetów, katalogu, absencji ani reguł (`brief.md:34-40,187-196`).
+- Prawdziwy koordynator po decyzji ręcznie dodaje osobę do LOCAL; automatyczny
+  EXTERNAL pozostaje wyłącznie testową ścieżką po prawdziwym
+  DECISION_REQUIRED (`brief.md:48-63`).
+- Każdy FEASIBLE dostaje wynik fairness. PASS/FAIL jest wystawiany tam, gdzie
+  oracle został zamrożony przed PLAN. `FAIRNESS_UNPROVEN` nie jest zielone i
+  nie wolno zastąpić go wymyślonym progiem ani drugim solverem
+  (`brief.md:345-417,660,683-684`).
+- Obowiązkowy Q3 2026 używa jednego Site, jednej bazy i tych samych pięciu LOCAL
+  przez lipiec, sierpień i wrzesień. Korzysta z rzeczywistych wyników każdego
+  miesiąca i produkcyjnego carry-in; niczego nie seeduje ręcznie
+  (`brief.md:266-304,449-465`).
+- Cross-Site pozostaje poza zakresem (`brief.md:581-590,669`).
+
+3. Granica odpowiedzialności
+
+Kontrakt ocenia gotowy wynik, ale nie kopiuje solvera ani całego validatora.
+Produkcyjny validate jest jawnie raportowany jako stan reguł HARD produktu, a
+nie certyfikat całego Kodeksu pracy (`brief.md:198-207,329-342`). Niezależne
+orakle są ograniczone do wcześniej zamrożonej sprawiedliwości w przypadkach
+policzalnych oraz prostej arytmetyki bilansu kwartalnego. Znaleziony defekt
+prowadzi do późniejszego TASK-u produktu, nie do zmiany danych T043.
+
+4. PREIMPLEMENTATION REDUCTION GATE
+
+Pozostają konieczne: generator wejść 5/10, niezależny kalendarz i targety,
+produkcyjny pion PLAN/REPLAN, zachowana reakcja EXTERNAL po decyzji, evaluator
+gotowego grafiku, jeden pion kwartalny, raport Markdown/JSON, jeden mały pion UI
+i trzy kontrolowane mutacje znanych klas błędów. Każdy element ma wskazane
+źródło oraz wynik widoczny dla OWNERA albo stanowi minimalny adapter do
+istniejącego ownera (`brief.md:529-561`).
+
+Usunięto lub zakazano: drugi solver/optimizer/validator, nowy próg fairness,
+reaktywne LOCAL, wsparcie przed pierwszym PLAN, własny rachunek absencji,
+Cross-Site, nowe rodzaje obiektów, sieć w runtime, masową migrację testów oraz
+zmiany kodu produktu (`brief.md:551-590`). Nie znalazłem elementu wymagającego
+dalszego cięcia przed implementacją.
+
+5. WHERE_MAP i źródła ownerów
+
+Uruchomiono na exact zakresie:
+
+python where.py tests/property/coordinator_simulator.py
+python where.py tests/property/test_coordinator_simulator.py
+
+Mapa potwierdza, że oba pliki są warstwą testową; pierwszy jest konsumowany
+przez drugi, a stary reaktywny `hire_one_more_local` pozostaje konkretnym
+miejscem do usunięcia/zastąpienia w granicach T043. Przeczytano również
+istniejące ownery fairness i quarter: T032/T034/T041, `fairness.py`,
+`balance.py`, `assembler.py` i `balance_read.py`. Nie wykryto potrzeby
+rozszerzenia TASK_SCOPE na kod produktu.
+
+6. Koszt weryfikacji
+
+Nie uruchamiano solvera, pytest, Playwright ani pełnej regresji: to audyt
+kontraktu bez zmian kodu. Brief sam ogranicza zwykłe sprawdzenia do testów
+celowanych, pełny portfel uruchamia raz na finalnym SHA i nie wymaga pełnej
+regresji bez zgody OWNERA (`brief.md:306-315,637-646`).
+
+NASTĘPNY GATE
+
+CC może rozpocząć implementację exact kontraktu 5b675f1.... Audyt
+implementacji ma badać przede wszystkim, czy narzędzie poprawnie rozpoznaje i
+zachowuje zły wynik solvera; nie może wymagać, aby wszystkie wygenerowane
+grafiki były zielone.
+
+KONIEC RAPORTU

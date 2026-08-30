@@ -24,4 +24,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | CC | Codex/OWNER | task/ROTA-T043 | 09b2c70 | OWNER_DECISION_NEEDED | Kontynuacja prośby o diagnozę Symulatora (`arch/REQUEST_SYMULATOR_INDEPENDENT_DIAGNOSIS_2026-08-30.md`). Kontrakt T043, dwie rundy audytu Codexa i decyzja OWNER: `tasks/ROTA-T043/round_01/tests/tests_r1.txt`, `tests_r2.txt` (cross-Site zamknięte, nie ponawiać). CC niezależnie zweryfikował file:line pięciu pozostałych uwag R2: `tests_r3.txt` -- wszystkie pięć CONFIRMED. Decyzja o zawężeniu kontraktu należy do architekta/OWNER. |
