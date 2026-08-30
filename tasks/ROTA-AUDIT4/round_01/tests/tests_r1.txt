@@ -1,0 +1,231 @@
+ROTA-AUDIT4 — RAPORT: rozstrzygnięcie 10 par odpowiedzialności z AUDIT-3 (sekcja 5)
+Data: 2026-08-30
+Audytor: CC (implementator, w tej roli wyłącznie niezależny audytor read-only)
+
+AUDYTOWANY KOD PRODUKTU
+d5e34b2b4bde0b70e04abe7249c00dae9866a06e (ta sama SHA co AUDIT-3)
+
+METODA
+Statyczne czytanie kodu w izolowanym worktree (.worktrees/audit4), bez uruchamiania
+solvera/Playwrighta/pełnej suity. Dla każdej pary: identyfikacja realnej ścieżki
+wywołania (Grep za callerami, nie zgadywanie), sprawdzenie czy to samo wejście trafia
+w oba miejsca i czy podejmują tę samą decyzję produktową. DUPLICATE tylko gdy to
+potwierdzone; w przeciwnym razie KEEP/DEFECT/EVIDENCE_GAP/OWNER_DECISION. Zero
+refaktoru, zero poprawek — to inwentarz dowodowy, nie PASS/FAIL działania aplikacji.
+
+WERDYKTY
+
+1. constraints.py (rota/planning/constraints.py) kontra validator.py (rota/planning/validator.py)
+   KEEP.
+   validator.py:1-2 wprost: "Independent HARD validator (anti-drift rule 12) --
+   re-derives every HARD violation from PlanningState + final Assignment list,
+   from scratch, without CP-SAT." constraints.py buduje ograniczenia CP-SAT
+   konsumowane w trakcie solve() przez solver.py; validator.py re-derywuje te
+   same reguły post-hoc niezależnym kodem, bez CP-SAT. engine._plan() woła
+   solve() (constraints.py), a potem BEZWARUNKOWO validate() (engine.py) --
+   celowa krzyżowa kontrola: rozjazd między nimi to zdefiniowany wynik
+   (TECHNICAL_ERROR), nie błąd. To samo wejście trafiające w oba miejsca jest
+   właśnie sensem tej pary, nie przypadkiem.
+
+2. plan_ops.py (rota/application/plan_ops.py) kontra engine.py (rota/planning/engine.py)
+   KEEP.
+   engine.py to czysta orkiestracja domeny planowania (plan()/_plan(),
+   budżet deadline, 4-etapowy retry, solve()+validate(), zero DB). plan_ops.py
+   to warstwa use-case: transakcje DB, tworzenie ScheduleVersion, zapis
+   DECISION_REQUIRED, log akcji koordynatora, egzekwowanie cutover REPLAN --
+   i woła engine.plan()/plan_requiring_different_result_* jako jeden krok
+   wewnątrz każdej operacji. Jeden kierunek wywołania (plan_ops -> engine),
+   brak dowodu że któryś moduł niezależnie re-derywuje decyzję drugiego.
+
+3. lifecycle_ops.py/manual_edit.py (application) kontra schedule_lifecycle.py (persistence)
+   KEEP.
+   schedule_lifecycle.py eksponuje dokładnie 5 prymitywów zapisu
+   (create_schedule_version, replace_working_snapshot, finalize_schedule_version,
+   exclude_version_from_history, restore_schedule_version). Każda funkcja
+   application mapuje się 1:1 na osobny prymityw bez nakładania się:
+   lifecycle_ops.revalidate->replace_working_snapshot,
+   lifecycle_ops.finalize->finalize_schedule_version,
+   lifecycle_ops.restore->restore_schedule_version,
+   lifecycle_ops.exclude_from_history->exclude_version_from_history,
+   manual_edit.apply_manual_correction->create_schedule_version. Każda funkcja
+   application dokłada własne zachowanie produktowe (kontekst koordynatora,
+   re-derywacja deviation, zapis do site_memory) na WIERZCHU jednego wywołania
+   persistence -- nie duplikuje tego, co schedule_lifecycle już waliduje/zapisuje.
+
+4. schedule_validation.py (persistence) kontra validator.py (planning)
+   KEEP.
+   schedule_validation.py to strażnik strukturalny w momencie zapisu
+   (duplikaty ID, miesiąc=pierwszy dzień, lineage, tożsamość NN, REALIZED
+   zachowane między zapisami) -- wołany wyłącznie z schedule_lifecycle.py.
+   validator.py re-derywuje reguły biznesowe/HARD (COVERAGE-01, REST-01,
+   MEMBERSHIP-01...) z PlanningState, wołany z plan_ops/lifecycle_ops/
+   manual_edit PRZED tymi zapisami. Brak pokrywających się sprawdzeń --
+   schedule_validation nigdy nie sprawdza REST/COVERAGE/membership; validator
+   nigdy nie sprawdza kształtu wiersza/lineage/tożsamości NN. Różni właściciele,
+   brak wspólnej decyzji dla tego samego wejścia.
+
+5. fixed_existing_assignments (solver.py) kontra predykat redystrybucji REPLAN (replan_reshuffle.py)
+   DUPLICATE (potwierdzone, ale jawnie ujawnione i celowe, nie ukryty defekt).
+   solver.py:126-146 fixed_existing_assignments() liczy mentor_linked_ids, potem
+   predykat redistributable: role==PRIMARY and covers_demand_id is not None and
+   state==PLANNED and not frozen and assignment_id not in mentor_linked_ids.
+   replan_reshuffle.py:17-45 _mentor_linked_ids()+redistributable_baseline_
+   assignments() liczą bajt-w-bajt identyczny predykat NIEZALEŻNIE. Własny
+   docstring modułu to przyznaje wprost (replan_reshuffle.py:18-22): "Mirrors
+   solver.fixed_existing_assignments's own mentor_linked_ids computation --
+   duplicated (not imported)... kept in sync by
+   tests/test_replan_reshuffle.py's baseline/fixed partition test." To samo
+   wejście (state.existing_assignments), ta sama decyzja produktowa (podział
+   fixed/redystrybuowalne), liczona dwa razy bez wspólnej funkcji -- synchronizacja
+   pilnowana wyłącznie przez jeden test, nie przez typ ani wspólne wywołanie.
+   Znany, ujawniony, świadomie zaakceptowany kompromis (uniknięcie sprzężenia
+   replan_reshuffle z sygnaturą solvera), nie cichy błąd.
+   Kanoniczny właściciel: solver.fixed_existing_assignments.
+
+6. eksportowe odtwarzanie wersji (schedule_export.py) kontra schedule_repository.py
+   DUPLICATE (potwierdzone, jawnie ujawnione, celowe).
+   schedule_repository.py:246-283 reconstruct_lineage(): idzie CURRENT->root po
+   parent_version_id, sprawdza cykl/brak nagłówka/niezgodność site-month/
+   effective_from is None, podnosi InvalidScheduleVersionLineage.
+   schedule_export.py:93-117 _reconstruct_lineage(): ten sam przebieg, te same
+   cztery sprawdzenia, ta sama reversal -- ale podnosi ExportProblemError z
+   własnymi kodami (PROVENANCE_INCOMPLETE itd.) i dokłada sprawdzenie specyficzne
+   dla eksportu (REGIME_REPLAN_REQUIRED). schedule_repository.py:254-259
+   dokumentuje to wprost: "Shares its walking rule with
+   rota.application.schedule_export._reconstruct_lineage (T020), which predates
+   this shared helper and still has its own copy for its own ExportProblemError
+   shape... does not duplicate its lineage-walk decisions -- only reuses the
+   same rule." To samo wejście (site_id, month) -> ta sama decyzja rdzenia
+   (przebieg lineage), liczona niezależnie w dwóch plikach. Brak rozbieżności
+   poprawności (różnica raise-vs-return-[] przy current_id is None to celowa
+   różnica kontraktu wywołującego, nie błąd). Kanoniczny właściciel:
+   schedule_repository.reconstruct_lineage.
+
+7. precheck.py kontra decision_guidance.py (post-solve)
+   KEEP.
+   precheck.py:37-49 precheck() wołany wyłącznie z GET /schedule/{month}/precheck
+   -- samodzielne zapytanie doradcze na żądanie, PRZED jakąkolwiek próbą solve().
+   decision_guidance.py:139-150 build_decision_payload() wołany wyłącznie
+   wewnątrz engine.py na granicach terminalnych DECISION_REQUIRED (linie 526,
+   561, 589, 716, 794) -- zawsze PO tym jak realny CP-SAT solve() już się
+   wykonał i trafił na granicę. Żadne wspólne wejście nigdy nie trafia w oba
+   miejsca; różne etapy pipeline'u dla różnych celów (szybka heurystyka
+   pre-solve vs. czyste renderowanie już obliczonych faktów Blocker). Oba
+   pliki jawnie zastrzegają brak nakładania się we własnych docstringach.
+
+8. wielokrotne składanie PlanningState w jednym use-case (plan_ops.py)
+   DEFECT (potwierdzone marnotrawstwo, nie błąd poprawności).
+   plan_ops.py:158-159 w plan():
+     assemble_planning_state(conn, site_id=site_id, month=month)  # dry-run; writes nothing
+     state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)  # still pre-write
+   Identyczny wzorzec powtórzony w replan() (plan_ops.py:426-427). Obydwa
+   wywołania mają identyczne argumenty, to samo conn; assemble_planning_state
+   (assembler.py:225-239) to czysty odczyt (site/profil/kalendarz/roster/okna/
+   reguły/treść wersji -- brak zapisu). Wynik pierwszego wywołania jest w
+   całości odrzucany; między dwoma wywołaniami nic się nie wykonuje, co mogłoby
+   zmienić odczyt; jeśli pierwsze wywołanie by rzuciło wyjątek, wykonanie i tak
+   zatrzymałoby się przed jakimkolwiek efektem ubocznym (te zaczynają się dopiero
+   przy _create_first_version/create_schedule_version, dalej w kodzie).
+   Pierwsze wywołanie nie pełni żadnej funkcji: podwaja round-tripy do DB na
+   każde żądanie PLAN/REPLAN bez różnicy w zachowaniu. Potwierdzony identyczny
+   idiom w dwóch miejscach wywołania (nie jednorazowa literówka) -- wygląda na
+   pozostałość po wcześniejszym projekcie, gdzie coś miało się wykonać między
+   dwoma odczytami. Brak ryzyka poprawności (odczyt, to samo połączenie), ale
+   to realne, potwierdzone podwójne wywołanie tej samej odpowiedzialności bez
+   logiki różnicującej oba wywołania.
+
+9. powtórzone modele payloadu decyzji (api/routers/schedule.py kontra api/routers/decisions.py)
+   DUPLICATE (potwierdzone).
+   schedule.py:114-130 definiuje BlockerOut, LoadBlockerOut, BlockingDemandOut,
+   DecisionRequiredPayloadOut, z ręcznym mapowaniem w _decision_payload_out()
+   (schedule.py:196-210). decisions.py:28-57 niezależnie definiuje BlockerOut,
+   LoadBlockerOut, BlockingDemandOut (identyczne pola) plus DecisionRequiredOut
+   (nadzbiór), z ręcznym mapowaniem inline w get_decision_for_month()
+   (decisions.py:75-89) -- ta sama konstrukcja pole-po-polu
+   (blocking_shift_demands, blockers, load_blocker ternary, unblocking_options)
+   co wersja w schedule.py. Oba endpointy serializują ostatecznie ten sam obiekt
+   domenowy: current_decision_required(conn, site_id=site_id, month=month).payload
+   (DecisionRequiredPayload, engine_types.py) -- schedule.py:249 i decisions.py:69
+   wołają identyczną funkcję dla identycznego wejścia. Dwa niezależnie
+   utrzymywane zestawy modeli Pydantic + dwie niezależnie utrzymywane funkcje
+   mapujące serializują tę samą decyzję produktową (jak DecisionRequiredPayload
+   renderuje się do JSON) dla tego samego wejścia, bez kanonicznego właściciela
+   i bez wspólnego serializatora -- pole dodane w jednym a nie w drugim cicho
+   rozjeżdża kształty obu endpointów, bez żadnego sygnału z kompilatora/testu
+   wymuszającego zgodność.
+
+10. powtórzone helpery miesiąca/daty w ekranach React
+    DUPLICATE + DEFECT (dwa odrębne, potwierdzone ustalenia).
+
+    DUPLICATE -- dosłowna kopia, 3x: identyczne ciało funkcji todayIso(),
+    niezależnie zdefiniowane w trzech plikach (potwierdzone Grep):
+    - frontend/src/screens/Analytics.tsx:7-9
+    - frontend/src/screens/Export.tsx:11-13
+    - frontend/src/screens/MonthlyPlanning.tsx:8-10
+    Wszystkie trzy: bajt-w-bajt identyczne
+    `function todayIso(): string { return new Date().toISOString().slice(0, 10); }`,
+    brak wspólnego importu.
+
+    DEFECT -- wspólna logika jest błędna, a poprawna alternatywa już istnieje
+    gdzie indziej w tym samym repo. toISOString() konwertuje do UTC przed
+    slice(). Europe/Warsaw to UTC+1 (zima)/UTC+2 (lato) -- czas lokalny jest
+    PRZED UTC. W oknie od północy lokalnej do 01:00 (zima) lub 02:00 (lato),
+    new Date().toISOString() nadal raportuje POPRZEDNI dzień UTC, więc
+    todayIso() zwraca wczorajszą datę zamiast dzisiejszej.
+    Konkretny scenariusz: koordynator otwiera aplikację o 00:30 czasu
+    lokalnego, 2026-09-01.
+    - Analytics.tsx:75 / Export.tsx:46: currentYearMonth =
+      todayIso().slice(0,7) -> daje "2026-08" zamiast "2026-09". Ekrany
+      Analytics/Export domyślnie pokazują poprzedni miesiąc, cicho oznaczony
+      jako "bieżący".
+    - MonthlyPlanning.tsx:172-177: ten sam błąd currentYearMonth, plus
+      replanFrom (linia 206) i correctionEffectiveFrom (linia 217) domyślnie
+      ustawiane na todayIso() -> domyślna data REPLAN/korekty wypełnia się
+      jako 2026-08-31 zamiast 2026-09-01. Pola są edytowalne, ale koordynator
+      może przeoczyć i wysłać formularz z błędną domyślną wartością.
+    To dokładnie ta sama klasa błędu UTC/dzień-lokalny, którą znaleziono i
+    naprawiono W TYM SAMYM DNIU w helperze testowym (t041-daily-workflow.spec.ts
+    currentMonthDateRange()), ale nigdy nie przeniesiono tej poprawki do kodu
+    produktu, który ma ten sam defekt.
+    Poprawny wzorzec już istnieje w tym samym repo, co dowodzi że to nie jest
+    trudny problem:
+    - EmployeeDetail.tsx:14-15,19-20 -- buduje string z lokalnych
+      getFullYear()/getMonth()/getDate(), odporne na błąd przesunięcia UTC.
+    - Workspace.tsx:8-11 -- ten sam poprawny wzorzec lokalnych komponentów.
+    Poza zakresem tej pary, odnotowane tylko przy okazji: ControlPanel.tsx:215
+    używa Date.UTC(y, m-1, d+1) do kroku nawigacji "+1 dzień" -- inna, celowa
+    technika (arytmetyka na wartości zakotwiczonej w UTC, unikająca DST), nie
+    ten sam kształt błędu.
+
+PODSUMOWANIE
+- KEEP: pary 1, 2, 3, 4, 7 (5 z 10) -- warstwowanie potwierdzone jako celowe,
+  brak wspólnej decyzji dla tego samego wejścia.
+- DUPLICATE (jawnie ujawnione i zaakceptowane w kodzie/testach, nie ukryte):
+  pary 5, 6.
+- DUPLICATE + DEFECT (nieujawnione, realny błąd produktowy): para 10.
+- DEFECT (marnotrawstwo, nie błąd poprawności): para 8.
+- DUPLICATE bez ujawnienia, ryzyko cichej rozbieżności: para 9.
+- EVIDENCE_GAP / OWNER_DECISION: brak -- każda z 10 par miała wystarczający
+  dowód do rozstrzygnięcia bez dalszego badania.
+
+Weryfikacja: 4 pary (1,2,4,7) zbadane przez jeden fork, potwierdzone spójnie z
+dokumentacją modułów; pary 3,5,6 przez drugi fork; pary 8,9 przez trzeci; para
+10 przez czwarty. Koordynująca sesja (ja) niezależnie zweryfikowała surowe
+dowody (file:line) dla par 5, 8 i 10 bezpośrednio w plikach źródłowych przed
+przyjęciem werdyktu -- zgodne z raportami forków.
+
+CO AUDIT-4 NIE ROBI
+- Nie usuwa, nie refaktoryzuje, nie ujednolica żadnego z powyższych.
+- Nie ocenia poprawności produktu poza zakresem 10 par (to był zakres z
+  AUDIT-3 sekcja 5, celowo zamrożony).
+- Para 10 (DEFECT) i para 8 (DEFECT) to konkretne, gotowe do wzięcia w osobny,
+  mały Task poprawki -- ale decyzja o kolejności i zakresie należy do Pawła/
+  architekta, nie do tego audytu.
+
+WERDYKT AUDIT-4
+10/10 par z AUDIT-3 sekcja 5 rozstrzygniętych z dowodem file:line. Dwa realne,
+wcześniej nieznane ustalenia wymagające uwagi: para 10 (błąd UTC w todayIso(),
+3 miejsca) i para 9 (dwa niezsynchronizowane serializery tego samego payloadu
+decyzji). Para 8 to potwierdzone martwe wywołanie (nieszkodliwe funkcjonalnie).
+Pary 5 i 6 to zaakceptowany, udokumentowany dług architektoniczny -- nie nowa
+informacja, ale teraz formalnie potwierdzony zamiast tylko podejrzewany.
