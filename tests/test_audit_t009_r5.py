@@ -248,7 +248,10 @@ def test_r5_invalid_mentor_training_does_not_promote_readiness(tmp_path):
 
 @pytest.mark.parametrize("operation", ["first-plan", "replan"])
 def test_r5_post_write_assembly_failure_leaves_prior_aggregate_intact(tmp_path, monkeypatch, operation):
-    """R4-1 applies after every step, not only to the first dry-run read."""
+    """R4-1: a failure on the single pre-write assemble_planning_state read
+    (ROTA-T042 Checkpoint B removed the earlier duplicate, discarded read
+    that used to precede it) must still leave no half-written version --
+    the exception fires before create_schedule_version is ever called."""
     conn = connect(tmp_path / "rota.db")
     state = seed_real_object(conn, case_id=f"audit-r5-atomic-{operation}", month=MONTH, seed=804)
     if operation == "replan":
@@ -258,14 +261,14 @@ def test_r5_post_write_assembly_failure_leaves_prior_aggregate_intact(tmp_path, 
     original = plan_ops.assemble_planning_state
     calls = 0
 
-    def fail_second(*args, **kwargs):
+    def fail_only_read(*args, **kwargs):
         nonlocal calls
         calls += 1
-        if calls == 2:
-            raise sqlite3.OperationalError("post-write context read failed")
+        if calls == 1:
+            raise sqlite3.OperationalError("pre-write context read failed")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(plan_ops, "assemble_planning_state", fail_second)
+    monkeypatch.setattr(plan_ops, "assemble_planning_state", fail_only_read)
     with pytest.raises(sqlite3.OperationalError):
         if operation == "first-plan":
             plan_ops.plan_month(
