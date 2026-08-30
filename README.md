@@ -22,3 +22,11 @@ python -m benchmarks.rota_stress --cases 100 --seed 20260812
 Opcje `--json` i `--max-case-seconds 5` włączają odpowiednio wynik maszynowy
 oraz lokalny limit wydajności. Seed nieudanego przypadku jest wypisywany, więc
 można go odtworzyć przez `generate_case(index, seed)` bez losowania nowych danych.
+
+**OWNER 2026-08-29/30: ten benchmark (i `benchmarks/**` ogólnie) nie jest
+uznawany za miarodajny dowód poprawności produktu** -- jego świadek grafiku i
+generator scenariuszy nie odzwierciedlają wystarczająco realnej pracy
+koordynatora. Jedynym zaakceptowanym narzędziem tego typu jest **Symulator
+Koordynatora** (`tests/property/coordinator_simulator.py`, ROTA-T038/T043),
+który zakłada realne obiekty przez produkcyjne API i ocenia gotowy wynik, nie
+porównuje z ręcznie skonstruowanym wzorcem.

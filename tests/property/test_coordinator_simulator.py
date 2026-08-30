@@ -1,29 +1,18 @@
-"""ROTA-T038 (tasks/ROTA-T038/brief.md, KOREKTA 3): Symulator Koordynatora
-pytest entry point.
+"""ROTA-T043 Checkpoint A (tasks/ROTA-T043/brief.md, ARCHITECT_CORRECTED R4):
+targeted tests for the rewritten Symulator Koordynatora generator/driver.
 
-This does NOT judge whether the solver is right (see
-coordinator_simulator.py's module docstring). It runs many invented,
-internally-consistent objects (staffing derived from each object's own
-hourly workload, no margin, no pre-provisioned external support) through
-randomly-drawn absence combinations, drives the real PLAN endpoint --
-reactively hiring one more LOCAL employee and re-PLANning on
-DECISION_REQUIRED, exactly as a real coordinator must (owner ruling
-2026-08-28: "musi kogoś znaleźć, choćby miał siedzieć na obiekcie sam") --
-and writes a human-readable report of what happened. REPLAN is a DISTINCT,
-separately-reported mid-month event, never an automatic step after an
-already-successful PLAN. The ONLY assertion is "nothing crashed" -- every
-other outcome is a reported fact, not a pass/fail judgment.
-
-Default run is small (see DEFAULT_SEED_COUNT) -- each seed can run several
-real CP-SAT solves (one per hire attempt, plus REPLAN on the mid-month
-seeds) and must not become a slow sweep that eats session budget.
-ROTA_SIM_SEEDS=<N> for a deeper manual run.
+This file does NOT build the full 20-object portfolio, the fairness/validate
+evaluator, the Markdown/JSON report, or the quarter arithmetic oracle --
+those are Checkpoint B (brief section 5/5.1). This file proves Checkpoint
+A's own contract: fixed 5/10 headcount never derived from workload, no
+reactive hire, a frozen 2026 holiday fixture backing the target-hours
+calculator, the real production write path, one real DECISION_REQUIRED +
+EXTERNAL testowa ścieżka with the correct decision-link ordering, and the
+quarterly driver's own mechanics (not its oracle) running without crashing.
 """
 from __future__ import annotations
 
-import os
 from datetime import date
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,202 +20,172 @@ from fastapi.testclient import TestClient
 from api.deps import get_conn
 from api.main import app
 from rota.persistence.db import connect
-from tests.property.coordinator_simulator import (
-    apply_absences,
-    build_object,
-    declared_roster,
-    hire_one_more_local,
-    local_employee_id,
-    random_absence_set,
-    random_object_spec,
-)
+from tests.property import coordinator_simulator as sim
 
 MONTH = date(2026, 9, 1)
-DEFAULT_SEED_COUNT = 5  # each seed can run several real solves -- keep the default sweep bounded
-MAX_HIRES = 4  # a coordinator keeps finding people, but the simulator caps attempts to keep a seed bounded
-REPORT_PATH = Path(__file__).resolve().parents[2] / "tasks" / "ROTA-T038" / "round_01" / "tests" / "simulator_report.md"
 
 
-def _seeds() -> list[int]:
-    return list(range(int(os.environ.get("ROTA_SIM_SEEDS", DEFAULT_SEED_COUNT))))
+# --- generator-only tests: no TestClient, no solver -----------------------
 
-
-def _absence_lines(draws, spec) -> str:
-    if not draws:
-        return "brak (wszyscy dostępni)"
-    return "; ".join(
-        f"{local_employee_id(spec, d.employee_index)}: {d.kind} {d.start_date.isoformat()}..{d.end_date.isoformat()}"
-        for d in draws
+@pytest.mark.parametrize("shift_shape", list(sim._CATALOG_ROWS))
+@pytest.mark.parametrize("layer_count,expected_headcount", [(1, 5), (2, 10)])
+def test_headcount_is_5_or_10_never_derived_from_workload(shift_shape, layer_count, expected_headcount):
+    hours_one_layer = sim.monthly_hours_for_shape(shift_shape, MONTH, 1)
+    hours_this_layer_count = sim.monthly_hours_for_shape(shift_shape, MONTH, layer_count)
+    assert hours_this_layer_count == hours_one_layer * layer_count
+    # R4: headcount is a pure function of layer_count, independent of the
+    # actual hour total -- proven by constructing an ObjectSpec directly
+    # rather than depending on random_object_spec's own seed-to-layer
+    # mapping for this assertion.
+    spec = sim.ObjectSpec(
+        seed=0, month=MONTH, shift_shape=shift_shape, regime="ORDINARY", rolling_7d_threshold_hours=60,
+        layer_count=layer_count, monthly_hours_needed=hours_this_layer_count, employee_count=5 * layer_count,
+        target_hours_per_employee=176, day_only_indices=(),
     )
+    assert spec.employee_count == expected_headcount
 
 
-def _decision_reason(payload: dict | None) -> str:
-    if payload is None:
-        return "-"
-    parts = [b["condition"] for b in payload.get("blockers", [])]
-    parts += payload.get("unblocking_options", [])
-    return " | ".join(parts) if parts else "(brak szczegółów w payloadzie)"
+def test_random_object_spec_default_portfolio_covers_both_layer_counts():
+    layer_counts = {sim.random_object_spec(seed, MONTH).layer_count for seed in range(20)}
+    assert layer_counts == {1, 2}
 
 
-def _assignment_in(a: dict) -> dict:
-    return {k: v for k, v in a.items() if k != "employee_display_name"}
+def test_random_object_spec_default_portfolio_covers_all_shapes():
+    shapes = {sim.random_object_spec(seed, MONTH).shift_shape for seed in range(20)}
+    assert shapes == set(sim._CATALOG_ROWS)
 
 
-def _used_employees(candidate: list[dict]) -> list[str]:
-    return sorted({a["employee_id"] for a in candidate})
+def test_target_hours_control_values_against_frozen_fixture():
+    # brief.md section 2.3: obowiązkowe kontrole styczeń 2026 = 160h, wrzesień 2026 = 176h.
+    assert sim.nominal_monthly_hours_kp(date(2026, 1, 1), sim.POLISH_2026_HOLIDAYS) == 160
+    assert sim.nominal_monthly_hours_kp(date(2026, 9, 1), sim.POLISH_2026_HOLIDAYS) == 176
 
 
-def _run_plan(client: TestClient, site_id: str) -> dict:
-    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/plan", json={"effective_from": MONTH.isoformat()})
-    resp.raise_for_status()
-    return resp.json()
+def test_no_reactive_hire_code_path_exists():
+    assert not hasattr(sim, "hire_one_more_local")
 
 
-def _select_first_candidate(client: TestClient, site_id: str, result: dict) -> None:
-    candidate = result["candidates"][0]
-    resp = client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/select-candidate",
-        json={"candidate": [_assignment_in(a) for a in candidate]},
-    )
-    resp.raise_for_status()
+def test_random_absence_set_seed_zero_is_everyone_available():
+    spec = sim.random_object_spec(0, MONTH)
+    assert sim.random_absence_set(0, spec, spec.employee_count) == []
 
 
-def _run_replan(client: TestClient, site_id: str) -> dict:
-    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH.isoformat()}/replan", json={"effective_from": MONTH.isoformat()})
-    resp.raise_for_status()
-    return resp.json()
+def test_random_absence_set_can_draw_sick_leave():
+    # R4: SICK_LEAVE is drawable like any other kind now (no allow_sick_leave
+    # parameter any more) -- confirmed empirically against the real API in
+    # test_sick_leave_before_first_plan_is_feasible_not_a_500 below.
+    spec = sim.random_object_spec(3, MONTH)
+    found_sick = False
+    for seed in range(1, 200):
+        draws = sim.random_absence_set(seed, spec, spec.employee_count)
+        if any(d.kind == "SICK_LEAVE" for d in draws):
+            found_sick = True
+            break
+    assert found_sick, "expected at least one SICK_LEAVE draw across 200 seeds"
 
 
-def _phase_facts(result: dict) -> tuple[str, str, list[str]]:
-    status = result["status"]
-    if status == "FEASIBLE":
-        return status, "-", _used_employees(result["candidates"][0]) if result["candidates"] else []
-    if status == "TECHNICAL_ERROR":
-        return status, f"DO PRZEJRZENIA: {result.get('error_message')}", []
-    return status, _decision_reason(result.get("decision_payload")), []
+# --- real API verticals -----------------------------------------------------
 
-
-def _plan_with_reactive_hiring(client: TestClient, site_id: str, spec) -> tuple[dict, int, list[str]]:
-    """PLAN, then -- exactly as a real coordinator must -- hire one more
-    LOCAL and PLAN again on DECISION_REQUIRED, up to MAX_HIRES times.
-    Returns (final plan result, employee_count after hiring, hire log)."""
-    employee_count = spec.employee_count
-    hires: list[str] = []
-    result = _run_plan(client, site_id)
-    attempts = 0
-    while result["status"] == "DECISION_REQUIRED" and attempts < MAX_HIRES:
-        new_id = hire_one_more_local(client, site_id, spec, employee_count)
-        hires.append(new_id)
-        employee_count += 1
-        attempts += 1
-        result = _run_plan(client, site_id)
-    return result, employee_count, hires
-
-
-def _maybe_replan_mid_month(client: TestClient, site_id: str, spec, employee_count: int, seed: int) -> dict:
-    """A DISTINCT, separately-reported scenario -- never automatic after a
-    successful PLAN. Deterministic on seed (even seeds only) so the report
-    is reproducible and this is describable without another hidden draw."""
-    if seed % 2 != 0:
-        return {"status": "nie dotyczy", "reason": "brak zdarzenia w trakcie miesiąca (nieparzysty seed)", "used": []}
-    # Mid-month, post-select-candidate: SICK_LEAVE is the ONE fully-supported
-    # path (see arch/ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md).
-    mid_month_draws = random_absence_set(seed * 104729, spec, employee_count, allow_sick_leave=True)
-    if not mid_month_draws:
-        return {"status": "nie dotyczy", "reason": "wylosowano zero zdarzeń w trakcie miesiąca", "used": []}
-    apply_absences(client, site_id, spec, mid_month_draws)
-    result = _run_replan(client, site_id)
-    status, reason, used = _phase_facts(result)
-    return {"status": status, "reason": reason, "used": used, "absences": _absence_lines(mid_month_draws, spec)}
-
-
-def _run_one_seed(seed: int) -> dict:
-    """Returns one report row dict. Raises only on a genuine crash/5xx --
-    every other outcome is captured as data, not raised."""
-    conn = connect(":memory:")
-    app.dependency_overrides[get_conn] = lambda: (yield conn)
-    row: dict = {"seed": seed}
+@pytest.fixture
+def client():
+    connection = connect(":memory:")
+    app.dependency_overrides[get_conn] = lambda: (yield connection)
     try:
-        client = TestClient(app)
-        spec = random_object_spec(seed, MONTH)
-        # Before any PLAN exists: SICK_LEAVE excluded, see
-        # arch/ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md -- a known,
-        # reported product gap (IncompleteAbsenceReferenceError -> 500),
-        # not something to silently route around by testing it anyway.
-        initial_draws = random_absence_set(seed, spec, spec.employee_count, allow_sick_leave=False)
-        row.update(
-            shift_shape=spec.shift_shape, regime=spec.regime, monthly_hours_needed=spec.monthly_hours_needed,
-            initial_roster=declared_roster(spec, spec.employee_count), absences=_absence_lines(initial_draws, spec),
-        )
-
-        site_id = build_object(client, conn, spec)
-        apply_absences(client, site_id, spec, initial_draws)
-
-        plan_result, final_count, hires = _plan_with_reactive_hiring(client, site_id, spec)
-        plan_status, plan_reason, plan_used = _phase_facts(plan_result)
-        row.update(
-            hires=hires, final_roster=declared_roster(spec, final_count),
-            plan_status=plan_status, plan_reason=plan_reason, plan_used=plan_used,
-        )
-
-        if plan_status != "FEASIBLE" or not plan_result["candidates"]:
-            row["replan"] = {"status": "pominięto", "reason": "brak grafiku bazowego po wyczerpaniu prób zatrudnienia", "used": []}
-            return row
-
-        _select_first_candidate(client, site_id, plan_result)
-        row["replan"] = _maybe_replan_mid_month(client, site_id, spec, final_count, seed)
-        return row
+        yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_conn, None)
-        conn.close()
+        connection.close()
 
 
-def _write_report(rows: list[dict], crashes: list[tuple[int, str]]) -> None:
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "# Symulator Koordynatora -- raport przebiegu\n",
-        f"Miesiąc: {MONTH.isoformat()} | seedy: {len(rows) + len(crashes)}\n",
-        "\nZnany, zgłoszony brak: SICK_LEAVE przed pierwszym PLAN nie jest tu "
-        "testowane (patrz arch/ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md) "
-        "-- SICK_LEAVE po select-candidate/przed REPLAN jest w pełni testowane.\n",
-    ]
-    for row in rows:
-        lines.append(f"\n## Seed {row['seed']}\n")
-        lines.append(f"- Zapotrzebowanie: {row['shift_shape']}, regime {row['regime']}, {row['monthly_hours_needed']}h/mies.\n")
-        lines.append(f"- Obiekt startowy ({len(row['initial_roster'])} osób): {', '.join(row['initial_roster'])}\n")
-        lines.append(f"- Absencje (przed pierwszym PLAN): {row['absences']}\n")
-        if row["hires"]:
-            lines.append(f"- Koordynator dopisał w reakcji na DECISION_REQUIRED: {', '.join(row['hires'])}\n")
-        lines.append(f"- PLAN (finalny): **{row['plan_status']}** -- {row['plan_reason']}\n")
-        if row["plan_used"]:
-            declared = row["final_roster"]
-            mismatch = " *(ROZBIEŻNOŚĆ vs deklaracja!)*" if set(row["plan_used"]) - set(declared) else ""
-            lines.append(f"  - Użyte osoby ({len(row['plan_used'])}): {', '.join(row['plan_used'])}{mismatch}\n")
-        rp = row["replan"]
-        if "absences" in rp:
-            lines.append(f"- Absencje (zdarzenie w trakcie miesiąca): {rp['absences']}\n")
-        lines.append(f"- REPLAN: **{rp['status']}** -- {rp['reason']}\n")
-        if rp["used"]:
-            declared = row["final_roster"]
-            mismatch = " *(ROZBIEŻNOŚĆ vs deklaracja!)*" if set(rp["used"]) - set(declared) else ""
-            lines.append(f"  - Użyte osoby ({len(rp['used'])}): {', '.join(rp['used'])}{mismatch}\n")
-    if crashes:
-        lines.append("\n## Awarie (do przejrzenia)\n")
-        for seed, error in crashes:
-            lines.append(f"- Seed {seed}: {error}\n")
-    REPORT_PATH.write_text("".join(lines), encoding="utf-8")
+def test_one_real_api_vertical_seed_zero(client):
+    spec = sim.random_object_spec(0, MONTH)
+    site_id = sim.build_object(client, spec)
+    assert len(sim.declared_roster(spec)) == 5
+
+    result = sim.run_plan(client, site_id, MONTH)
+    assert result["status"] in {"FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"}
+    if result["status"] == "FEASIBLE":
+        used = sorted({a["employee_id"] for a in result["candidates"][0]})
+        assert set(used) <= set(sim.declared_roster(spec))
 
 
-def test_coordinator_simulator_report() -> None:
-    rows, crashes = [], []
-    for seed in _seeds():
-        try:
-            rows.append(_run_one_seed(seed))
-        except Exception as exc:  # noqa: BLE001 -- deliberately broad: any crash is reported, not swallowed
-            crashes.append((seed, str(exc)))
-    _write_report(rows, crashes)
-    if crashes:
-        pytest.fail(f"{len(crashes)} seed(y) zakończone wyjątkiem/5xx: {crashes}")
+def test_sick_leave_before_first_plan_is_feasible_not_a_500(client):
+    spec = sim.random_object_spec(0, MONTH)
+    site_id = sim.build_object(client, spec)
+    sim.apply_absences(client, site_id, spec, [
+        sim.AbsenceDraw(employee_index=0, kind="SICK_LEAVE", start_date=date(2026, 9, 3), end_date=date(2026, 9, 5)),
+    ])
+    result = sim.run_plan(client, site_id, MONTH)
+    assert result["status"] in {"FEASIBLE", "DECISION_REQUIRED"}
+
+
+def test_decision_required_triggers_external_reaction_with_correct_decision_link_ordering(client):
+    spec = sim.random_object_spec(0, MONTH)  # 5 LOCAL, D_N_12H (2 posts/day)
+    site_id = sim.build_object(client, spec)
+    # Force a real, deterministic DECISION_REQUIRED: disable 4 of the 5
+    # LOCAL through the real roster PATCH, leaving one person to cover a
+    # two-post-per-day catalog -- a genuine, unforced product outcome, not
+    # a fabricated payload.
+    for i in range(1, 5):
+        resp = client.patch(
+            f"/api/workspace/sites/{site_id}/roster/{sim.local_employee_id(spec, i)}", json={"enabled": False},
+        )
+        assert resp.status_code == 204, resp.text
+
+    first_result = sim.run_plan(client, site_id, MONTH)
+    assert first_result["status"] == "DECISION_REQUIRED"
+    assert first_result["decision_payload"]
+
+    reaction = sim.external_support_reaction(client, site_id, MONTH, spec)
+    assert reaction["external_employee_id"] == sim.external_support_employee_id(spec)
+
+    roster = client.get(f"/api/workspace/sites/{site_id}/roster").json()
+    external_rows = [r for r in roster if r["employee_id"] == reaction["external_employee_id"]]
+    assert len(external_rows) == 1
+    assert external_rows[0]["membership_kind"] == "EXTERNAL_SUPPORT"
+    local_rows = [r for r in roster if r["membership_kind"] == "LOCAL"]
+    assert len(local_rows) == 5, "R4: LOCAL headcount must never change as a result of the EXTERNAL reaction"
+
+    # First PLAN's own result is preserved untouched -- the reaction result
+    # is a separate, additional fact.
+    assert first_result["status"] == "DECISION_REQUIRED"
+    assert reaction["second_plan_result"]["status"] in {"FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"}
+
+
+def test_replan_after_material_change_is_a_distinct_reported_event(client):
+    spec = sim.random_object_spec(0, MONTH)
+    site_id = sim.build_object(client, spec)
+    first = sim.run_plan(client, site_id, MONTH)
+    assert first["status"] == "FEASIBLE"
+    sim.select_first_candidate(client, site_id, MONTH, first)
+
+    sim.apply_absences(client, site_id, spec, [
+        sim.AbsenceDraw(employee_index=0, kind="SICK_LEAVE", start_date=date(2026, 9, 10), end_date=date(2026, 9, 12)),
+    ])
+    replanned = sim.run_replan(client, site_id, MONTH)
+    assert replanned["status"] in {"FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"}
+
+
+def test_quarterly_driver_mechanics_run_without_crashing():
+    connection = connect(":memory:")
+    app.dependency_overrides[get_conn] = lambda: (yield connection)
+    try:
+        client = TestClient(app)
+        result = sim.run_quarter(client, seed=0)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+        connection.close()
+
+    assert result["status"] in {"QUARTER_OK", "QUARTER_BLOCKED"}
+    if result["status"] == "QUARTER_OK":
+        assert [m["month"] for m in result["months"]] == [m.isoformat() for m in sim.QUARTER_MONTHS]
+        for m in result["months"]:
+            assert "analytics" in m
+    else:
+        # A genuinely blocked quarter is a valid, reportable Checkpoint B
+        # finding -- this test only proves the mechanics don't crash and
+        # preserve reproduction facts, per brief section 4.3/12.
+        assert "seed" in result and "failing_month" in result and "reason" in result
 
 
 if __name__ == "__main__":

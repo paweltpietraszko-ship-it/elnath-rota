@@ -1,61 +1,95 @@
-"""ROTA-T038 (tasks/ROTA-T038/brief.md, KOREKTA 3 - OWNER_CORRECTED
-2026-08-28, Codex round-1 FAIL fixed): Symulator Koordynatora.
+"""ROTA-T043 (tasks/ROTA-T043/brief.md, ARCHITECT_CORRECTED R4): Symulator
+Koordynatora.
 
-A thin "ticks checkboxes and reports" layer, explicitly NOT a layer that
-judges whether the solver is right (that role stays with
-benchmarks/REAL_OBJECT_BENCHMARK.md, unchanged).
+TEST-HARNESS BOUNDARY: ten moduł symuluje działania koordynatora, a nie
+logikę solvera. Wszystkie parametry obiektu powstają przed pierwszym PLAN.
+Symulator nie poprawia grafiku ani danych pod wynik solvera. Zły grafik jest
+wynikiem badania i zostaje zachowany jako reproduktor. Pierwszy PLAN używa
+tylko wygenerowanych LOCAL. Dopiero rzeczywisty DECISION_REQUIRED uruchamia
+testową ścieżkę wsparcia EXTERNAL przez produkcyjny backend. Nie dodawaj
+reaktywnie LOCAL, nie przewiduj z góry potrzeby wsparcia i nie kalibruj
+wejść pod PASS.
 
-Frozen owner rules (KOREKTA 3, fixing Codex round-1 FINDING T38-R1-01..03):
-- staffing is the EXACT computed minimum for the object's own hourly
-  workload (ceil(monthly_hours / REALISTIC_HOURS_PER_EMPLOYEE), no safety
-  margin -- a coordinator does not pre-provision extra people "just in
-  case"; that assumption is explicitly retired);
-- every LOCAL employee gets a REAL target_hours for the studied month --
-  the statutory full-time norm per Kodeks pracy art. 130 SS1, independent
-  of headcount, never a share of this object's own workload (Codex round-2
-  FINDING T38-R2-01) -- set through the real target-hours endpoint, never
-  left null;
-- external support does NOT exist before PLAN. It is created only as a
-  reaction to a real DECISION_REQUIRED, exactly like a coordinator who
-  "must find someone, even if it means covering the post themselves" --
-  see hire_one_more_local() in the driver, called only after a failure,
-  never during initial object construction.
+Frozen owner rules (R4, replacing T038 KOREKTA 3's workload-derived
+headcount, retired by OWNER 2026-08-30):
+- staffing is NEVER derived from monthly workload. One full continuous
+  24/7 layer of coverage is exactly 5 LOCAL; two full parallel layers are
+  exactly 10 LOCAL. D_N_12H / SINGLE_24H (H24) / WEEKDAY_12H_WEEKEND_24H
+  are three different SHAPES of the same one layer, not different
+  headcounts;
+- headcount never changes after the first PLAN. There is no reactive hire
+  any more -- the old hire_one_more_local() is gone;
+- every LOCAL employee gets a REAL target_hours for the studied month: the
+  statutory full-time norm per Kodeks pracy art. 130 SS1, independent of
+  headcount, computed against a FROZEN, hardcoded 2026 Polish public-holiday
+  fixture (POLISH_2026_HOLIDAYS below) -- never an empty/self-checking
+  holiday set;
+- the calendar is seeded through the real production endpoint
+  (POST /workspace/calendar/day), never a direct persistence write;
+- external support does NOT exist before the first PLAN. It is created only
+  as the TEST-HARNESS's own automatic reaction to a real, non-empty
+  DECISION_REQUIRED -- see external_support_reaction() -- never a
+  simulation of a coordinator manually adding a new LOCAL (that remains the
+  real product's own manual flow, out of this harness's scope).
 
-For each seed this: invents an object (workload-derived staffing, varying
-shift shape/regime), ticks real availability/absence "checkboxes", runs
-PLAN -- reactively hiring one more LOCAL and re-PLANning on
-DECISION_REQUIRED, exactly as a real coordinator must -- and only then,
-if a schedule was actually produced, sometimes exercises REPLAN as a
-DISTINCT, separately-reported mid-month event (never an automatic step
-after an already-successful PLAN). See test_coordinator_simulator.py for
-the driver and report writer. The only judgment made anywhere in this
-module is "did anything crash" -- every status and headcount fact is
-reported, never asserted as right or wrong.
+For each seed this invents an object (fixed 5/10 headcount, varying shift
+shape/layer count/regime), ticks real availability/absence "checkboxes",
+runs PLAN through the real backend, and -- only if PLAN returns a real
+DECISION_REQUIRED -- runs the testowa ścieżka wsparcia EXTERNAL described
+above. A bad or unfair result is a valid, reportable finding, never
+something this module tries to fix. See test_coordinator_simulator.py for
+the driver, the fairness/validate evaluator (Checkpoint B) and the report
+writer.
 """
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from fastapi.testclient import TestClient
 
-from rota.domain import AvailabilityKind, CalendarDay, ShiftKind, StandardShift
-from rota.persistence.calendar_repository import save_calendar_day
+from rota.domain import AvailabilityKind, ShiftKind, StandardShift
 from rota.planning.shift_catalog import shift_duration_hours
-
-REALISTIC_HOURS_PER_EMPLOYEE = 160  # a plain, documented approximation of a full-time month, not a hidden constant
 
 WEEKDAYS = (1, 2, 3, 4, 5)  # ISO Mon-Fri
 WEEKEND = (6, 7)  # ISO Sat-Sun
 ALL_WEEK = (1, 2, 3, 4, 5, 6, 7)
+
+# ROTA-T043 brief.md section 2.3: official Polish 2026 statutory
+# public holidays (ustawowo wolne od pracy), frozen so the calendar input
+# and the target-hours calculator cannot check themselves against each
+# other. Fixed dates verified by hand; the two Easter-dependent dates
+# computed from the Gregorian Easter algorithm for 2026 (Easter Sunday
+# 2026-04-05) and cross-checked against the public sources the brief
+# cites: Zielona Linia / Centrum Informacyjne Służb Zatrudnienia, "Święta
+# wolne od pracy w 2026 roku", and the Powiatowy Urząd Pracy w Sosnowcu
+# 2026 wymiar-czasu-pracy table (both already cited in the brief for the
+# 160h/176h control values below).
+POLISH_2026_HOLIDAYS: frozenset[date] = frozenset([
+    date(2026, 1, 1),   # Nowy Rok
+    date(2026, 1, 6),   # Trzech Króli
+    date(2026, 4, 5),   # Wielkanoc (Niedziela Wielkanocna) -- falls on Sunday
+    date(2026, 4, 6),   # Poniedziałek Wielkanocny
+    date(2026, 5, 1),   # Święto Pracy
+    date(2026, 5, 3),   # Święto Konstytucji 3 Maja -- falls on Sunday
+    date(2026, 5, 24),  # Zielone Świątki (Zesłanie Ducha Świętego) -- falls on Sunday
+    date(2026, 6, 4),   # Boże Ciało
+    date(2026, 8, 15),  # Wniebowzięcie Najświętszej Maryi Panny
+    date(2026, 11, 1),  # Wszystkich Świętych -- falls on Sunday
+    date(2026, 11, 11), # Święto Niepodległości
+    date(2026, 12, 25), # Boże Narodzenie (pierwszy dzień)
+    date(2026, 12, 26), # Boże Narodzenie (drugi dzień)
+])
 
 # Owner request 2026-08-28: heterogeneous catalogs, not just one uniform
 # shift shape per object. Each row is (kind, start, end, required_primary_count,
 # active_weekdays) -- rota/planning/shift_catalog.py::generate_catalog_demands
 # already documents "Multiple entries and overlaps are legal and generate
 # independent occurrences", confirmed by reading the code, not assumed.
+# required_primary_count of 1 is ONE full 24/7 layer's share of this row;
+# _put_shift_catalog multiplies it by ObjectSpec.layer_count for a second
+# parallel layer (R4: two full layers = 10 LOCAL, never a partial layer).
 _CATALOG_ROWS: dict[str, list[tuple[str, time, time, int, tuple[int, ...]]]] = {
     "D_N_12H": [
         ("D", time(5, 0), time(17, 0), 1, ALL_WEEK),
@@ -74,59 +108,45 @@ _CATALOG_ROWS: dict[str, list[tuple[str, time, time, int, tuple[int, ...]]]] = {
 }
 _SHAPES_WITH_NIGHT = ("D_N_12H", "WEEKDAY_12H_WEEKEND_24H")
 
-# NOT IMPLEMENTED (owner ruling 2026-08-28, ROTA-T039 Codex round-1 FAIL):
-# a night post covered by two people of different durations (owner's real
-# example: one works 18-6 continuously (12h), the other only 22-6 (8h)).
-# Two attempts failed for structural reasons, not test bugs:
-#   1. two truly OVERLAPPING demands (18-6 req=1, 22-6 req=1) -- validator's
-#      _check_coverage counts ANY geometrically-overlapping PRIMARY toward
-#      EVERY demand it overlaps (explicitly "not covers_demand_id tagging"),
-#      so they falsely double-count each other as COVERAGE-01 excess
-#      -> TECHNICAL_ERROR;
-#   2. two ADJACENT, non-overlapping demands (18-22 req=1, 22-6 req=2) --
-#      passes the validator, but nothing forces employee continuity across
-#      them: the solver split the actual FEASIBLE candidate into three
-#      unrelated fragments (4h+8h+8h across 3 different employees), never
-#      one continuous 18-6 person (confirmed via Codex's independent
-#      reproduction, tasks/ROTA-T039/round_01/tests/tests_r1.txt T39-R1-01).
-#      The only same-employee-continuity mechanism in the product
-#      (rota/planning/constraints.py:493-535) is hardcoded to
-#      catalog_kind=H24 pairs, not general-purpose.
-# Owner decision: leave this pattern unhandled until a real need shows up --
-# do not keep guessing workarounds. A real fix needs either a validator
-# change (overlapping demands with independent requirements) or a
-# generalized continuity mechanism, both out of this simulator's scope.
+# NOT IMPLEMENTED (owner ruling 2026-08-28, ROTA-T039 Codex round-1 FAIL,
+# reconfirmed unaffected by T043): a night post covered by two people of
+# different durations. See git history of this file (T038/T039) for the
+# full structural reasoning -- out of scope here too; T043 does not add a
+# partial second layer or SPLIT_NIGHT_12_8 (brief section 4.2/8).
 
 
 def _row_hours(start: time, end: time) -> float:
     return shift_duration_hours(StandardShift(ShiftKind.D, start, end, end <= start, 1))
 
 
-def monthly_hours_for_shape(shift_shape: str, month: date) -> int:
+def monthly_hours_for_shape(shift_shape: str, month: date, layer_count: int = 1) -> int:
     """Sums the REAL implied workload from the catalog rows themselves --
-    no separate hardcoded formula to drift out of sync with the catalog."""
+    no separate hardcoded formula to drift out of sync with the catalog.
+    Purely informational/reportable now (R4): never used to derive
+    headcount."""
     rows = _CATALOG_ROWS[shift_shape]
     total = 0.0
     for day in _month_dates(month):
         for _kind, start, end, required, active_weekdays in rows:
             if day.isoweekday() in active_weekdays:
-                total += _row_hours(start, end) * required
+                total += _row_hours(start, end) * required * layer_count
     return round(total)
 
 
 @dataclass(frozen=True)
 class ObjectSpec:
-    """One invented, internally-consistent Site: staffing is the EXACT
-    computed minimum for this object's own hourly workload -- never a
-    margin, never an independent random draw."""
+    """One invented, internally-consistent Site. R4: headcount is a fixed
+    function of layer_count alone (5 or 10), never derived from workload
+    and never changed after the first PLAN."""
 
     seed: int
     month: date
     shift_shape: str  # one of _CATALOG_ROWS's keys
     regime: str  # "ORDINARY" | "OCHRONA"
     rolling_7d_threshold_hours: int
-    monthly_hours_needed: int
-    employee_count: int  # ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE), no margin
+    layer_count: int  # 1 or 2 full parallel 24/7 layers
+    monthly_hours_needed: int  # informational only -- report field, not a headcount input
+    employee_count: int  # exactly 5 * layer_count -- R4 frozen rule
     target_hours_per_employee: int  # real statutory monthly norm (art. 130 KP), independent of headcount
     day_only_indices: tuple[int, ...]
 
@@ -146,9 +166,9 @@ def nominal_monthly_hours_kp(month: date, holidays: frozenset[date] = frozenset(
     statutory full-time monthly norm (Kodeks pracy art. 130 SS1), not a
     per-object workload share. 40h per full Mon-Sun week fully inside the
     month, + 8h per remaining Mon-Fri day outside those weeks, - 8h per
-    holiday landing on a non-Sunday. Verified by hand for 2026-09
-    (3 full weeks + 4+3 remainder weekdays = 120+56 = 176h, no holiday
-    that month) against the owner-cited art. 130 reference."""
+    holiday landing on a non-Sunday. Callers must pass POLISH_2026_HOLIDAYS
+    (T43-PRE-03/brief 2.3) -- the empty default here exists only so this
+    function stays independently testable against an explicit holiday set."""
     days = _month_dates(month)
     hours, i, n = 0, 0, len(days)
     while i < n:
@@ -168,29 +188,33 @@ def nominal_monthly_hours_kp(month: date, holidays: frozenset[date] = frozenset(
 
 def random_object_spec(seed: int, month: date) -> ObjectSpec:
     """seed=0 is reserved for the simplest realistic object (plain D/N,
-    ORDINARY) -- the "everyone available -> nice schedule" baseline from
-    the owner's own description. Every other seed cycles DETERMINISTICALLY
-    through _CATALOG_ROWS's shapes (Codex round-1 FINDING T39-R1-02: a
-    random.choice() left the default 5-seed sweep never exercising any new
-    shape at all) -- guarantees every shape appears within the default seed
-    range instead of leaving it to chance."""
+    ORDINARY, one layer) -- the "everyone available -> nice schedule"
+    baseline from the owner's own description. Every other seed cycles
+    DETERMINISTICALLY through _CATALOG_ROWS's shapes and then through
+    layer_count (Codex round-1 FINDING T39-R1-02: a random.choice() left
+    the default sweep never exercising every axis at all) -- guarantees
+    every shape AND both layer counts appear within the default 20-seed
+    portfolio instead of leaving it to chance."""
     rng = random.Random(seed)
     shapes = list(_CATALOG_ROWS)
 
     if seed == 0:
-        shift_shape, regime = "D_N_12H", "ORDINARY"
+        shift_shape, regime, layer_count = "D_N_12H", "ORDINARY", 1
     else:
         shift_shape = shapes[(seed - 1) % len(shapes)]
         regime = "OCHRONA" if shift_shape in ("SINGLE_24H", "WEEKDAY_12H_WEEKEND_24H") else rng.choice(["ORDINARY", "OCHRONA"])
+        # Deterministic on seed, not re-drawn from rng, so the default
+        # portfolio (seeds 0..19) provably covers both layer counts
+        # instead of leaving it to chance draws.
+        layer_count = 2 if ((seed - 1) // len(shapes)) % 2 == 1 else 1
 
-    # Summed from the actual catalog rows (see monthly_hours_for_shape) --
-    # never a separate hardcoded formula that could drift from the catalog.
-    monthly_hours_needed = monthly_hours_for_shape(shift_shape, month)
-    employee_count = math.ceil(monthly_hours_needed / REALISTIC_HOURS_PER_EMPLOYEE)
-    # T38-R2-01: the REAL statutory monthly norm for every full-time
-    # employee (art. 130 KP), independent of headcount -- never a share of
-    # this object's own workload.
-    target_hours_per_employee = nominal_monthly_hours_kp(month)
+    monthly_hours_needed = monthly_hours_for_shape(shift_shape, month, layer_count)
+    employee_count = 5 * layer_count  # R4 frozen rule -- never derived from workload
+    # T38-R2-01/R4: the REAL statutory monthly norm for every full-time
+    # employee (art. 130 KP), independent of headcount, checked against the
+    # frozen 2026 holiday fixture -- never a share of this object's own
+    # workload.
+    target_hours_per_employee = nominal_monthly_hours_kp(month, POLISH_2026_HOLIDAYS)
 
     if shift_shape in _SHAPES_WITH_NIGHT:
         max_day_only = max(0, employee_count - 3)
@@ -204,35 +228,39 @@ def random_object_spec(seed: int, month: date) -> ObjectSpec:
     return ObjectSpec(
         seed=seed, month=month, shift_shape=shift_shape, regime=regime,
         rolling_7d_threshold_hours=rng.choice([48, 56, 60]) if seed != 0 else 60,
-        monthly_hours_needed=monthly_hours_needed, employee_count=employee_count,
+        layer_count=layer_count, monthly_hours_needed=monthly_hours_needed, employee_count=employee_count,
         target_hours_per_employee=target_hours_per_employee, day_only_indices=day_only_indices,
     )
 
 
 @dataclass(frozen=True)
 class AbsenceDraw:
-    employee_index: int  # index into the LOCAL roster only (as it exists at draw time)
+    employee_index: int  # index into the LOCAL roster only (fixed at generation time)
     kind: str  # AvailabilityKind value
     start_date: date
     end_date: date
 
 
-def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int, *, allow_sick_leave: bool) -> list[AbsenceDraw]:
+def random_absence_set(seed: int, spec: ObjectSpec, employee_count: int) -> list[AbsenceDraw]:
     """seed=0 draws zero absences -- the explicit "everyone available"
     baseline. employee_count is passed separately from spec.employee_count
-    because the roster may have grown via hire_one_more_local() by the time
-    a later absence draw (e.g. before REPLAN) happens.
+    for callers building a mid-month (REPLAN) draw against the same fixed
+    roster.
 
-    allow_sick_leave=False for any draw applied before a plan exists yet:
-    see arch/ARCHITECT_BRIEF_SICK_LEAVE_PRE_PLAN_2026-08-28.md -- SICK_LEAVE
-    with no accepted plan anywhere in scope is a known, reported product
-    gap (IncompleteAbsenceReferenceError -> unhandled 500), not something
-    this simulator should silently route around by testing it anyway."""
+    R4/brief 2.4: SICK_LEAVE is drawable both before the first PLAN and
+    before a REPLAN with no special-casing -- empirically confirmed against
+    this exact worktree (2026-08-30): ROTA-T041 OWNER-T041-02 (AUDIT-1 C-02)
+    already extended rota/persistence/absence_reference_repository.py's
+    PRE_PLAN accounting to cover SICK_LEAVE the same as LEAVE_GRANTED (see
+    _resolve_no_accepted_plan_day's docstring); a live POST .../availability
+    with kind=SICK_LEAVE followed by a real PLAN on a freshly built site
+    returns 200 FEASIBLE, not the old IncompleteAbsenceReferenceError 500.
+    The old allow_sick_leave=False pre-PLAN restriction is gone."""
     if seed == 0 or employee_count == 0:
         return []
     rng = random.Random(seed * 7919 + 1)  # distinct stream from the object generator's own rng
     count = rng.randint(0, 3)
-    kinds = [k.value for k in AvailabilityKind if allow_sick_leave or k != AvailabilityKind.SICK_LEAVE]
+    kinds = [k.value for k in AvailabilityKind]
     days = _month_dates(spec.month)
     draws = []
     for _ in range(count):
@@ -251,9 +279,17 @@ def local_employee_id(spec: ObjectSpec, index: int) -> str:
     return f"SIM-{spec.seed}-EMP-{index}"
 
 
-def seed_calendar(conn, month: date) -> None:
+def seed_calendar(client: TestClient, site_id: str, month: date) -> None:
+    """R4/T43-PRE-03: seeds every day of `month` through the real
+    production endpoint (POST /workspace/calendar/day), using the frozen
+    POLISH_2026_HOLIDAYS fixture for the holiday flag -- never a direct
+    persistence write, never a self-checking empty holiday set."""
     for day in _month_dates(month):
-        save_calendar_day(conn, CalendarDay(day, False))
+        resp = client.post(
+            "/api/workspace/calendar/day",
+            json={"date": day.isoformat(), "holiday": day in POLISH_2026_HOLIDAYS, "site_id": site_id},
+        )
+        assert resp.status_code == 204, resp.text
 
 
 def _create_site(client: TestClient, spec: ObjectSpec) -> str:
@@ -272,7 +308,7 @@ def _put_shift_catalog(client: TestClient, site_id: str, spec: ObjectSpec) -> No
     shifts = [
         {
             "kind": kind, "start_time": start.strftime("%H:%M"), "end_time": end.strftime("%H:%M"),
-            "required_primary_count": required, "active_weekdays": list(active_weekdays),
+            "required_primary_count": required * spec.layer_count, "active_weekdays": list(active_weekdays),
         }
         for kind, start, end, required, active_weekdays in _CATALOG_ROWS[spec.shift_shape]
     ]
@@ -282,8 +318,8 @@ def _put_shift_catalog(client: TestClient, site_id: str, spec: ObjectSpec) -> No
 
 def add_local_employee(client: TestClient, site_id: str, spec: ObjectSpec, index: int, day_only: bool) -> str:
     """One real coordinator action: create + attach roster + set a real
-    target_hours for the studied month. Reused both for the initial roster
-    and for hire_one_more_local()'s reactive hire."""
+    target_hours for the studied month. R4: called only at object
+    construction time -- there is no reactive post-PLAN hire any more."""
     employee_id = local_employee_id(spec, index)
     resp = client.post(
         "/api/workspace/employees",
@@ -305,25 +341,19 @@ def _add_local_roster(client: TestClient, site_id: str, spec: ObjectSpec) -> Non
         add_local_employee(client, site_id, spec, i, day_only=i in spec.day_only_indices)
 
 
-def hire_one_more_local(client: TestClient, site_id: str, spec: ObjectSpec, current_count: int) -> str:
-    """The reactive step, per owner ruling 2026-08-28: a coordinator facing
-    DECISION_REQUIRED must find someone -- this is that hire, never done
-    upfront. Returns the new employee_id."""
-    return add_local_employee(client, site_id, spec, current_count, day_only=False)
+def declared_roster(spec: ObjectSpec) -> list[str]:
+    """The full, fixed LOCAL headcount -- R4: never changes after
+    construction, so no current_count parameter is needed any more."""
+    return [local_employee_id(spec, i) for i in range(spec.employee_count)]
 
 
-def declared_roster(spec: ObjectSpec, current_count: int) -> list[str]:
-    """The FULL, honest headcount as of `current_count` local employees --
-    grows only via hire_one_more_local(), never pre-provisioned."""
-    return [local_employee_id(spec, i) for i in range(current_count)]
-
-
-def build_object(client: TestClient, conn, spec: ObjectSpec) -> str:
-    """The initial object: exactly the computed minimum roster, real
-    target_hours for everyone, no external support -- see module docstring."""
+def build_object(client: TestClient, spec: ObjectSpec) -> str:
+    """The complete object: exactly the R4-frozen 5/10 roster, real
+    target_hours for everyone, real production calendar, no external
+    support -- see module docstring."""
     site_id = _create_site(client, spec)
     _put_shift_catalog(client, site_id, spec)
-    seed_calendar(conn, spec.month)
+    seed_calendar(client, site_id, spec.month)
     _add_local_roster(client, site_id, spec)
     return site_id
 
@@ -341,3 +371,169 @@ def apply_absences(client: TestClient, site_id: str, spec: ObjectSpec, draws: li
             },
         )
         assert resp.status_code == 204, resp.text
+
+
+def external_support_employee_id(spec: ObjectSpec) -> str:
+    return f"SIM-EXTERNAL-{spec.seed}"
+
+
+def external_support_reaction(client: TestClient, site_id: str, month: date, spec: ObjectSpec) -> dict:
+    """R4/brief section 2.5: the TEST-HARNESS's own automatic reaction to a
+    real, non-empty DECISION_REQUIRED from the caller's own first PLAN --
+    NOT a simulation of a coordinator's manual "add a new LOCAL" action.
+    Creates exactly ONE SIM-EXTERNAL-* person as EXTERNAL_SUPPORT (no
+    target_hours -- brief 2.3), through the same three production writes
+    the real ControlPanel.tsx roster-add flow makes, in the exact order
+    frontend/src/screens/ControlPanel.tsx:292-304 requires: only the FIRST
+    material write (create-person) carries the real decision id; every
+    later write (attach-membership, support-window) passes null, or it
+    hits an already-stale id and 500s.
+
+    Caller must have already confirmed the first PLAN returned
+    DECISION_REQUIRED with a non-empty payload before calling this -- it
+    does not re-check that here, since the caller is responsible for
+    preserving the first PLAN's own result untouched regardless of what
+    this reaction returns."""
+    readback = client.get(f"/api/workspace/sites/{site_id}/decisions/{month.isoformat()}")
+    assert readback.status_code == 200, readback.text
+    decision = readback.json()
+    assert decision is not None, "external_support_reaction called with no persisted DECISION_REQUIRED"
+    decision_required_id = decision["decision_required_id"]
+
+    employee_id = external_support_employee_id(spec)
+    resp = client.post(
+        "/api/workspace/employees",
+        json={
+            "employee_id": employee_id, "site_id": site_id, "display_name": employee_id, "day_only": False,
+            "responds_to_decision_required_id": decision_required_id,
+        },
+    )
+    assert resp.status_code == 204, resp.text
+
+    resp = client.post(
+        f"/api/workspace/sites/{site_id}/roster",
+        json={"employee_id": employee_id, "membership_kind": "EXTERNAL_SUPPORT", "responds_to_decision_required_id": None},
+    )
+    assert resp.status_code == 204, resp.text
+
+    window_start = datetime(month.year, month.month, 1)
+    next_month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    window_end = datetime(next_month.year, next_month.month, 1)
+    resp = client.post(
+        f"/api/workspace/employees/{employee_id}/support-window",
+        json={
+            "site_id": site_id, "start_datetime": window_start.isoformat(), "end_datetime": window_end.isoformat(),
+            "allowed_shift_kind": None, "responds_to_decision_required_id": None,
+        },
+    )
+    assert resp.status_code == 204, resp.text
+
+    second_result = run_plan(client, site_id, month)
+    return {"decision_required_id": decision_required_id, "external_employee_id": employee_id, "second_plan_result": second_result}
+
+
+def run_plan(client: TestClient, site_id: str, month: date) -> dict:
+    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{month.isoformat()}/plan", json={"effective_from": month.isoformat()})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def run_replan(client: TestClient, site_id: str, month: date) -> dict:
+    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{month.isoformat()}/replan", json={"effective_from": month.isoformat()})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def select_first_candidate(client: TestClient, site_id: str, month: date, result: dict) -> None:
+    """R4 4.1: 'wybór pierwszego zwróconego kandydata jako deterministycznej
+    decyzji drivera' -- deterministic, not a fairness judgment."""
+    candidate = result["candidates"][0]
+    body = [{k: v for k, v in a.items() if k != "employee_display_name"} for a in candidate]
+    resp = client.post(
+        f"/api/workspace/sites/{site_id}/schedule/{month.isoformat()}/select-candidate", json={"candidate": body},
+    )
+    resp.raise_for_status()
+
+
+def get_analytics(client: TestClient, site_id: str, month: date) -> dict:
+    resp = client.get(f"/api/workspace/sites/{site_id}/analytics", params={"month": month.isoformat()})
+    resp.raise_for_status()
+    return resp.json()
+
+
+# --- R4 section 4.3: obowiązkowy kontrolny przebieg kwartalny -------------
+
+QUARTER_MONTHS = (date(2026, 7, 1), date(2026, 8, 1), date(2026, 9, 1))
+
+
+def quarter_object_spec(seed: int, month: date) -> ObjectSpec:
+    """The one fixed quarterly-control object: D_N_12H, ORDINARY, one
+    layer (5 LOCAL) -- brief 4.3 requires a simple, isolated shape so the
+    quarter pion tests carry-in, not several problems at once."""
+    target_hours = nominal_monthly_hours_kp(month, POLISH_2026_HOLIDAYS)
+    return ObjectSpec(
+        seed=seed, month=month, shift_shape="D_N_12H", regime="ORDINARY",
+        rolling_7d_threshold_hours=60, layer_count=1,
+        monthly_hours_needed=monthly_hours_for_shape("D_N_12H", month, 1),
+        employee_count=5, target_hours_per_employee=target_hours, day_only_indices=(),
+    )
+
+
+def run_quarter(client: TestClient, seed: int) -> dict:
+    """R4 section 4.3 mechanics only (the independent arithmetic
+    cross-check is Checkpoint B's B6, not built here). One Site, one
+    :memory: connection (the caller owns/passes the TestClient already
+    bound to that connection), the same 5 LOCAL reused across
+    July->August->September 2026. For each month: seed that month's
+    calendar via the production endpoint, PLAN, react to a real
+    DECISION_REQUIRED via external_support_reaction() if needed (without
+    ever abandoning or overwriting the first PLAN's own result), pick the
+    first candidate, select_candidate(), read analytics, then move on.
+
+    Returns {"status": "QUARTER_OK", "months": [...]} with one entry per
+    month (spec, first plan result, external reaction facts if any, the
+    analytics snapshot right after select_candidate), or
+    {"status": "QUARTER_BLOCKED", "failing_month": ..., "seed": seed,
+    "first_plan_result": ..., "reason": ...} the first time a month cannot
+    reach a FEASIBLE base schedule even after the external reaction --
+    never hand-seeds Assignments to force continuation."""
+    spec = quarter_object_spec(seed, QUARTER_MONTHS[0])
+    site_id = build_object(client, spec)
+    months_out = []
+    for month in QUARTER_MONTHS:
+        if month != QUARTER_MONTHS[0]:
+            seed_calendar(client, site_id, month)
+            month_target = nominal_monthly_hours_kp(month, POLISH_2026_HOLIDAYS)
+            for i in range(spec.employee_count):
+                resp = client.post(
+                    f"/api/workspace/employees/{local_employee_id(spec, i)}/target-hours",
+                    json={"site_id": site_id, "month": month.isoformat(), "target_hours": month_target},
+                )
+                assert resp.status_code == 204, resp.text
+
+        first_result = run_plan(client, site_id, month)
+        external = None
+        base_for_candidate = first_result
+        if first_result["status"] == "DECISION_REQUIRED":
+            if not first_result.get("decision_payload"):
+                return {
+                    "status": "QUARTER_BLOCKED", "failing_month": month.isoformat(), "seed": seed,
+                    "first_plan_result": first_result, "reason": "empty DECISION_REQUIRED payload -- tool/product defect, not a real block",
+                }
+            external = external_support_reaction(client, site_id, month, spec)
+            base_for_candidate = external["second_plan_result"]
+
+        if base_for_candidate["status"] != "FEASIBLE" or not base_for_candidate.get("candidates"):
+            return {
+                "status": "QUARTER_BLOCKED", "failing_month": month.isoformat(), "seed": seed,
+                "first_plan_result": first_result, "external": external,
+                "reason": f"no FEASIBLE base schedule for {month.isoformat()} even after external reaction",
+            }
+
+        select_first_candidate(client, site_id, month, base_for_candidate)
+        analytics = get_analytics(client, site_id, month)
+        months_out.append({
+            "month": month.isoformat(), "first_plan_result": first_result, "external": external, "analytics": analytics,
+        })
+
+    return {"status": "QUARTER_OK", "seed": seed, "site_id": site_id, "months": months_out}
