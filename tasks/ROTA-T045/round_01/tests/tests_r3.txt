@@ -1,0 +1,66 @@
+ROTA-T045 — CODEX IMPLEMENTATION AUDIT R3
+
+Audytowany exact SHA:
+4fec4ac398828c188587d835aaf0c7578d8174a2
+
+Kontrakt PASS:
+7d9b4468f136068622900ce6fe69076cdf0cc139
+
+Werdykt:
+PASS — IMPLEMENTATION CONFORMS TO CONTRACT na exact SHA
+4fec4ac398828c188587d835aaf0c7578d8174a2.
+
+Zakres sprawdzony niezależnie:
+
+1. Diff i scope
+- produkcyjnie zmieniony wyłącznie rota/planning/validator.py;
+- dwa nowe testy wyłącznie w tests/test_t022_planning_integrity.py;
+- solver, constraints, Symulator B i diagnostyka TECHNICAL_ERROR bez zmian;
+- git diff --check czyste.
+
+2. Kod i ownership
+- istniejąca semantyka atrybucji tag/geometria została mechanicznie
+  wydzielona do _attributed_overlap_intervals();
+- _check_coverage korzysta z tego helpera bez zmiany dotychczasowego
+  algorytmu;
+- _check_24h_same_person buduje oba zbiory pracowników przez ten sam helper,
+  więc niezależny, legalnie nakładający się demand nie jest doliczany do H24;
+- fail-closed dla malformed H24 pozostał bez zmian.
+
+3. Celowane testy audytora
+
+Uruchomiono dokładnie siedem przypadków:
+- dwa nowe: LEGAL_OVERLAP_PASS i MULTI_PRIMARY_H24;
+- prawdziwy mismatch H24;
+- T022 false/wrong tag nie ukrywa realnego pokrycia;
+- malformed single-component H24;
+- T041 legal concurrent coverage;
+- T041 spanning/manual PRIMARY przez sąsiednie demandy.
+
+Wynik: 7 passed in 0.69s.
+
+4. Realny pion
+
+Uruchomiono run_full_scenario_b(TestClient(app), seed=0, num_replans=0)
+przez produkcyjne API/backend i SQLite :memory:.
+
+Wynik:
+- plan_status = FEASIBLE;
+- final_status = FEASIBLE;
+- selected = True;
+- error_message = None.
+
+5. WHERE_MAP po implementacji
+
+Uruchomiono:
+- python where.py rota/planning/validator.py --symbol _attributed_overlap_intervals
+- python where.py rota/planning/validator.py --symbol _check_coverage
+- python where.py rota/planning/validator.py --symbol _check_24h_same_person
+
+Mapa potwierdziła jedną definicję helpera i użycie wyłącznie przez dwa
+zamierzone HARD checks w validator.py. Nie znaleziono nowego ownera ani
+poszerzenia zakresu.
+
+Pełnej suity nie uruchomiono — zgodnie z decyzją OWNERA i kontraktem T045.
+Informacyjnego wyniku implementatora 30/30 seedów nie użyto jako niezależnego
+dowodu werdyktu.

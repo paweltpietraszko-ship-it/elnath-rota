@@ -1,0 +1,79 @@
+ROTA-T045 — CODEX PREIMPLEMENTATION AUDIT R1
+
+Audytowany exact SHA:
+49cd55fe9229a48152f0b2dbe64c781d2a90ca33
+
+Base produktu:
+91c5e56c57fcfc54821ecb1cc9c152d3ea41a187
+
+Werdykt: FAIL — trzy wąskie korekty kontraktu przed implementacją.
+
+Sam kierunek naprawy jest prawidłowy: nie zmieniać Symulatora ani solvera;
+naprawić fałszywe SHIFT-24-PAIR-01 we wspólnej atrybucji pokrycia walidatora.
+
+Warstwy audytu:
+- przeczytany cały brief na exact SHA;
+- przeczytany kod _check_coverage i _check_24h_same_person na base;
+- wykonany wymagany WHERE_MAP dla obu symboli;
+- sprawdzony istniejący inwentarz testów T022, T041, T040 i T012;
+- bez uruchamiania pełnej suity i bez zmian kodu produktu.
+
+FINDING T45-R1-01 — pełna suita bez zgody OWNERA
+
+EVIDENCE:
+- tasks/ROTA-T045/brief.md:182 wymaga „full suite”;
+- AGENTS.md / INDEPENDENT_AUDIT mówi, że po wąskiej poprawce obowiązkowe są
+  testy zmienionego kodu i właściwego pionu, a pełna regresja jest opcjonalna
+  i może ruszyć tylko po jawnej zgodzie OWNERA.
+
+KOREKTA:
+Usunąć pełną suitę z obowiązkowych gates. Pozostawić celowane testy wskazane
+w briefie, ruff dla zmienionego pliku oraz git diff --check. Pełna suita może
+pozostać wyłącznie jako opcjonalna po osobnej zgodzie OWNERA.
+
+FINDING T45-R1-02 — brief nakazuje dublowanie czterech istniejących testów
+
+EVIDENCE:
+- tasks/ROTA-T045/brief.md:162 każe dodać wszystkie sześć pozycji macierzy
+  jako nowe testy;
+- REAL_MISMATCH_FAIL już istnieje jako
+  tests/test_t022_planning_integrity.py::test_c_tagged_component_mismatch_fails;
+- T022_TAG_BYPASS_STILL_FAILS już istnieje jako
+  test_c_interval_covered_component_hidden_behind_other_tag_fails;
+- MALFORMED_H24_STILL_FAILS_CLOSED ma istniejące przypadki w tym samym pliku;
+- T041_CONCURRENT_DISAMBIGUATION_STAYS_GREEN już istnieje jako
+  tests/test_t041_checkpoint_a.py::test_t41_a07_two_legal_overlapping_demands_correctly_assigned_passes.
+
+KOREKTA:
+Macierz ma zostać zachowana, lecz istniejące cztery testy należy wskazać i
+wykorzystać, nie kopiować. Nowe testy są potrzebne tylko dla:
+- LEGAL_OVERLAP_PASS obejmującego parę H24;
+- MULTI_PRIMARY_H24.
+
+To jest mechaniczna redukcja testów, bez zmiany zachowania produktu.
+
+FINDING T45-R1-03 — niepełna identyfikacja dokumentów źródłowych
+
+EVIDENCE:
+- tasks/ROTA-T045/brief.md:6-7 podaje dwa pliki jako CODEX_INPUT i
+  ARCHITECT_INPUT;
+- oba pliki są nieobecne na audytowanym SHA, mimo że sekcja TASK_SCOPE je
+  wymienia;
+- dokument Codexa istnieje na f48a840, a dokument architekta na a8b735e.
+
+KOREKTA:
+Przy nagłówkach wejściowych podać exact SHA każdego dokumentu. Można je także
+dodać do gałęzi Tasku, ale nie jest to konieczne, jeśli odwołania exact-SHA są
+jednoznaczne. Nie przedstawiać nieobecnych plików jako lokalnej zawartości
+TASK_SCOPE bez takiego wskazania.
+
+WHERE_MAP:
+- python where.py rota/planning/validator.py --symbol _check_coverage
+- python where.py rota/planning/validator.py --symbol _check_24h_same_person
+
+Mapa potwierdziła po jednej definicji i po jednym produkcyjnym wywołaniu obu
+funkcji, wewnątrz validator.py::validate(). Nie znaleziono rozjazdu ownera,
+który wymagałby poszerzenia TASK_SCOPE.
+
+Po tych trzech poprawkach wystarczy reaudyt wyłącznie zmienionych fragmentów
+briefu. CC pozostaje read-only do PASS.

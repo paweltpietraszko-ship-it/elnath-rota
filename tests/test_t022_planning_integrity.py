@@ -384,6 +384,35 @@ def test_c_valid_generated_pair_passes():
     assert validate(state, [a1, a2]).hard_pass
 
 
+def test_c_legal_independent_overlap_does_not_false_positive():
+    """ROTA-T045: a legally overlapping, independent demand (ROTA-T012/
+    arch/spec.md:58,485 explicitly allow this) that only touches the first
+    H24 half must never be swept into that half's employee set by raw
+    time-overlap -- E1 alone correctly covers both H24 halves, E2 covers a
+    separate, correctly-tagged demand overlapping only the first half."""
+    profile, (d1, d2) = _h24_demands([_h24_shift(ShiftKind.D, 5, 12)])
+    a1 = _primary("A1", "E1", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
+    a2 = _primary("A2", "E1", d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=d2.required_rest_hours)
+    other = _demand("OTHER-D", d1.start_datetime, d1.start_datetime + timedelta(hours=5))
+    a3 = _primary("A3", "E2", other)
+    state = base_state(profile=profile, shift_demands=(d1, d2, other), memberships=(_membership("E1"), _membership("E2")))
+    report = validate(state, [a1, a2, a3])
+    assert report.hard_pass
+    assert not any("SHIFT-24-PAIR-01" in v for v in report.violations)
+
+
+def test_c_multi_primary_h24_matching_sets_pass():
+    """required_primary_count > 1: the correct matching multi-person set on
+    both H24 halves still passes (ROTA-T045 minimum matrix item 6)."""
+    profile, (d1, d2) = _h24_demands([StandardShift(ShiftKind.D, time(5, 0), time(5, 0), True, 2, catalog_kind=ShiftCatalogKind.H24, required_rest_hours=12)])
+    a1a = _primary("A1A", "E1", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
+    a1b = _primary("A1B", "E2", d1, work_period_id=d1.work_period_template_id, required_rest_after_hours=d1.required_rest_hours)
+    a2a = _primary("A2A", "E1", d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=d2.required_rest_hours)
+    a2b = _primary("A2B", "E2", d2, work_period_id=d2.work_period_template_id, required_rest_after_hours=d2.required_rest_hours)
+    state = base_state(profile=profile, shift_demands=(d1, d2), memberships=(_membership("E1"), _membership("E2")))
+    assert validate(state, [a1a, a1b, a2a, a2b]).hard_pass
+
+
 def test_c_h24_demand_without_template_id_fails_closed():
     """T022-R1-3: explicit catalog_kind=H24 provenance with no
     work_period_template_id is malformed, not exempt from the check."""

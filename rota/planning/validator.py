@@ -97,8 +97,11 @@ def _coverage_violation_detail(demand, bad_segments: list[tuple]) -> ViolationDe
     )
 
 
-def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """COVERAGE-01: derived from each PRIMARY's actual interval overlap.
+def _attributed_overlap_intervals(assignment: Assignment, demand, demand_by_id: dict) -> list[tuple]:
+    """ROTA-T045: single shared owner of "which sub-interval of this PRIMARY
+    actually counts as coverage of this demand", reused by both COVERAGE-01
+    and SHIFT-24-PAIR-01 (previously duplicated only in COVERAGE-01; T045
+    fixed SHIFT-24-PAIR-01 falsely trusting raw time-overlap alone).
 
     ROTA-T041 OWNER-T041-01 section 4.2 / AUDIT-1 C-03: pure geometry over
     every PRIMARY overlapping a demand double-counted a PRIMARY that
@@ -130,30 +133,37 @@ def _check_coverage(state: PlanningState, assignments: list[Assignment], details
     is now excluded; a non-concurrent tail/head of the same assignment
     still counts toward `demand` by plain geometry, exactly as T022
     requires for a spanning/manual PRIMARY."""
+    a_start = max(assignment.start_datetime, demand.start_datetime)
+    a_end = min(assignment.end_datetime, demand.end_datetime)
+    if a_start >= a_end:
+        return []
+    excluded_start = excluded_end = None
+    tagged = demand_by_id.get(assignment.covers_demand_id)
+    if tagged is not None and tagged.demand_id != demand.demand_id:
+        competes = tagged.start_datetime < demand.end_datetime and tagged.end_datetime > demand.start_datetime
+        tag_is_real = assignment.start_datetime < tagged.end_datetime and assignment.end_datetime > tagged.start_datetime
+        if competes and tag_is_real:
+            excluded_start = max(tagged.start_datetime, demand.start_datetime)
+            excluded_end = min(tagged.end_datetime, demand.end_datetime)
+    if excluded_start is None:
+        return [(a_start, a_end)]
+    result = []
+    if a_start < excluded_start:
+        result.append((a_start, min(a_end, excluded_start)))
+    if a_end > excluded_end:
+        result.append((max(a_start, excluded_end), a_end))
+    return result
+
+
+def _check_coverage(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """COVERAGE-01: derived from each PRIMARY's actual interval overlap, via
+    the shared attribution owner `_attributed_overlap_intervals` (ROTA-T045)."""
     primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
     demand_by_id = {d.demand_id: d for d in state.shift_demands}
     for demand in state.shift_demands:
         overlapping = []
         for a in primary:
-            a_start = max(a.start_datetime, demand.start_datetime)
-            a_end = min(a.end_datetime, demand.end_datetime)
-            if a_start >= a_end:
-                continue
-            excluded_start = excluded_end = None
-            tagged = demand_by_id.get(a.covers_demand_id)
-            if tagged is not None and tagged.demand_id != demand.demand_id:
-                competes = tagged.start_datetime < demand.end_datetime and tagged.end_datetime > demand.start_datetime
-                tag_is_real = a.start_datetime < tagged.end_datetime and a.end_datetime > tagged.start_datetime
-                if competes and tag_is_real:
-                    excluded_start = max(tagged.start_datetime, demand.start_datetime)
-                    excluded_end = min(tagged.end_datetime, demand.end_datetime)
-            if excluded_start is None:
-                overlapping.append((a_start, a_end))
-                continue
-            if a_start < excluded_start:
-                overlapping.append((a_start, min(a_end, excluded_start)))
-            if a_end > excluded_end:
-                overlapping.append((max(a_start, excluded_end), a_end))
+            overlapping.extend(_attributed_overlap_intervals(a, demand, demand_by_id))
         segments = coverage_segments(demand.start_datetime, demand.end_datetime, overlapping)
         bad_segments = [s for s in segments if s[2] != demand.required_primary_count]
         if bad_segments:
@@ -450,8 +460,20 @@ def _is_well_formed_normal_h24_pair(d1, d2) -> bool:
 def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
     """SHIFT-24-PAIR-01: a 24h occurrence's two components need identical PRIMARY employee(s). Employee sets are derived
     from actual interval coverage, not covers_demand_id tags (T022-F2); malformed/wrong-cardinality provenance fails
-    closed instead of being skipped (T022-F3), including a missing work_period_template_id itself (T022-R1-3)."""
+    closed instead of being skipped (T022-F3), including a missing work_period_template_id itself (T022-R1-3).
+
+    ROTA-T045: employee sets use the same shared attribution owner as
+    COVERAGE-01 (`_attributed_overlap_intervals`), not raw time-overlap.
+    Raw overlap previously swept in a PRIMARY genuinely covering a
+    DIFFERENT, independently legal, concurrent demand that merely overlapped
+    one H24 half in time -- a false SHIFT-24-PAIR-01 mismatch, the exact
+    COVERAGE-01 false-positive T041/AUDIT-1 C-03 already fixed for the other
+    HARD check. A false/missing/wrong tag still can never hide real H24
+    coverage (T022-F2 unchanged): the shared helper only excludes a
+    sub-interval when the tag both points elsewhere and genuinely competes
+    there."""
     primary = [a for a in assignments if a.role == AssignmentRole.PRIMARY]
+    demand_by_id = {d.demand_id: d for d in state.shift_demands}
     by_template: dict[str, list] = {}
     for d in state.shift_demands:
         if d.catalog_kind == ShiftCatalogKind.H24:
@@ -467,13 +489,12 @@ def _check_24h_same_person(state: PlanningState, assignments: list[Assignment], 
         if not _is_well_formed_normal_h24_pair(d1, d2):
             details.append(ViolationDetail("SHIFT-24-PAIR-01", ids, f"SHIFT-24-PAIR-01: template {template_id} malformed normal-H24 provenance"))
             continue
-        emp1 = {a.employee_id for a in primary if a.start_datetime < d1.end_datetime and a.end_datetime > d1.start_datetime}
-        emp2 = {a.employee_id for a in primary if a.start_datetime < d2.end_datetime and a.end_datetime > d2.start_datetime}
+        emp1 = {a.employee_id for a in primary if _attributed_overlap_intervals(a, d1, demand_by_id)}
+        emp2 = {a.employee_id for a in primary if _attributed_overlap_intervals(a, d2, demand_by_id)}
         if emp1 != emp2:
             coverage_ids = tuple(
                 a.assignment_id for a in primary
-                if (a.start_datetime < d1.end_datetime and a.end_datetime > d1.start_datetime)
-                or (a.start_datetime < d2.end_datetime and a.end_datetime > d2.start_datetime)
+                if _attributed_overlap_intervals(a, d1, demand_by_id) or _attributed_overlap_intervals(a, d2, demand_by_id)
             )
             details.append(ViolationDetail("SHIFT-24-PAIR-01", coverage_ids, f"SHIFT-24-PAIR-01: template {template_id} mismatch {sorted(emp1)} vs {sorted(emp2)}"))
 

@@ -1,0 +1,34 @@
+ROTA-T045 — CODEX PREIMPLEMENTATION REAUDIT R2
+
+Audytowany exact SHA:
+7d9b4468f136068622900ce6fe69076cdf0cc139
+
+Zakres reaudytu:
+- wyłącznie trzy mechaniczne korekty z tests_r1.txt @ 22213f0;
+- diff briefu 22213f0..7d9b446;
+- bez testów wykonawczych i bez zmian kodu produktu.
+
+Weryfikacja:
+
+1. T45-R1-01 — ZAMKNIĘTE.
+   Pełna suita została usunięta z obowiązkowych gates. Brief dopuszcza ją
+   tylko po osobnej, jawnej zgodzie OWNERA.
+
+2. T45-R1-02 — ZAMKNIĘTE.
+   Cztery istniejące przypadki mają wskazane konkretne testy i zakaz
+   dublowania. Nowe testy są wymagane wyłącznie dla LEGAL_OVERLAP_PASS H24
+   i MULTI_PRIMARY_H24, w istniejącym pliku testów T022.
+
+3. T45-R1-03 — ZAMKNIĘTE.
+   CODEX_INPUT i ARCHITECT_INPUT mają dokładne SHA f48a840 i a8b735e,
+   są jawnie opisane jako odwołania do innej gałęzi i zostały usunięte z
+   lokalnego TASK_SCOPE.
+
+Werdykt:
+PASS — READY_FOR_IMPLEMENTATION na exact SHA
+7d9b4468f136068622900ce6fe69076cdf0cc139.
+
+PASS dotyczy kontraktu T045 na tym SHA. Implementacja pozostaje ograniczona
+do naprawy atrybucji SHIFT-24-PAIR-01 w validator.py, dwóch nowych testów oraz
+celowanych regresji wskazanych w briefie. Symulator, solver i diagnostyka
+TECHNICAL_ERROR pozostają poza zakresem.
