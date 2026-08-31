@@ -1,0 +1,85 @@
+ROTA-T044 — ograniczony reaudyt briefu R2
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA briefu: b601f3441d33650c0c752dd9296cda0a311191f4
+
+WERDYKT
+
+OWNER_DECISION_NEEDED — CC zrozumiał granicę Symulatora, ale trzy elementy
+kontraktu nadal nie są zamrożone. Nie pisać Tasku i nie implementować do ich
+jednej korekty.
+
+CO R2 POPRAWIŁO PRAWIDŁOWO
+
+- Kalkulator obsady pozostał jedynym własnym liczeniem Symulatora i działa
+  przed pierwszym PLAN.
+- Po PLAN/REPLAN Symulator nie liczy fairness, grafiku, urlopu/L4 ani bilansu;
+  zapisuje surowy wynik produktu.
+- Poprawiono warunek na: liczba LOCAL = wynik kalkulatora + zamknięty świat.
+- Generator losuje dni, rodzaj zmiany i `required_primary_count`; legalne
+  overlapy nie są odrzucane.
+- EXTERNAL ma domniemaną zgodę dopiero po realnym DECISION_REQUIRED i reakcja
+  może być powtarzana.
+- Dodano zależność Hypothesis do zakresu, świeżą SQLite per przykład,
+  preconditions stateful i WHERE_MAP.
+- Wariant A pozostaje oddzielnym, stałym czujnikiem regresji.
+
+R2-01 — wzór kalkulatora nadal daje dwa różne wyniki dla znanego obiektu
+
+Brief 1.1 mówi: zsumować wszystkie godziny służby, podzielić przez miesięczną
+normę KP. Nie mówi również literalnie o zaokrągleniu w górę.
+
+Dla 30-dniowego miesiąca i podwójnej obsady całodobowej:
+
+- zapotrzebowanie = 30 * 24 * 2 = 1440 h;
+- norma = 160 h;
+- proste dzielenie całej sumy daje dokładnie 9 LOCAL.
+
+Wcześniejsze jawne rozstrzygnięcie OWNERA brzmiało: pojedyncza obsada = 5,
+podwójna obsada = 10. Wynik 10 powstaje dopiero wtedy, gdy każdą równoległą
+warstwę liczy się osobno i każdy ułamek zaokrągla w górę: 5 + 5.
+
+To nie jest szczegół implementacyjny. OWNER musi rozstrzygnąć, czy nowsza
+zasada „łączna suma / norma” świadomie zastępuje wcześniejsze 5/10, czy
+kalkulator ma liczyć i zaokrąglać niezależne stanowiska/warstwy osobno. Brief
+ma potem zawierać pełny wzór z `ceil` i kontrole: jedna warstwa, dwie pełne
+warstwy oraz mieszany obiekt robocze/weekend.
+
+R2-02 — „swobodne losowanie” nadal nie ma realistycznych granic wejścia
+
+Brief nakazuje losować `required_primary_count`, godziny i działania, ale nie
+podaje zakresu liczby stanowisk, liczby wierszy katalogu, dozwolonych długości
+zmian ani miesięcy. Hypothesis bez zamrożonej domeny może wygenerować obiekt z
+dziesiątkami stanowisk albo inną formalnie dopuszczalną, lecz kadrowo
+bezsensowną wartością. Byłby to powrót do danych „z sufitu”.
+
+Brief musi podać jawne, małe granice wynikające z obsługiwanych danych
+koordynatora. Szczególnie `required_primary_count` wymaga decyzji OWNERA
+(np. czy Wariant B obejmuje tylko 1-2 osoby równolegle, czy również większe
+wartości). Implementer nie może wybrać tego sam.
+
+R2-03 — kontrakt Hypothesis i limit EXTERNAL są nadal opisane jako zadanie do
+wyboru, a nie zamrożone wartości
+
+R2 trafnie mówi, że `max_examples`, liczba kroków, deadline i limit prób
+EXTERNAL muszą być jawne, lecz nie podaje żadnej wartości ani reguły
+wyprowadzenia. Warunek zatrzymania „jeśli limit jest za niski/wysoki” przenosi
+decyzję na implementera po napisaniu kodu.
+
+Przed Taskiem trzeba zamrozić:
+
+- tani profil zwykłego pytest oraz osobny jawny profil eksploracyjny;
+- `max_examples`, `stateful_step_count`, deadline/database/derandomize;
+- format reprodukcji;
+- niearbitralny limit EXTERNAL. Najprostsza bezpieczna granica do oceny przez
+  autora briefu to maksymalnie wynik kalkulatora LOCAL: pozwala zastąpić całą
+  chorą załogę, ale nie tworzy nieskończonej liczby osób. Wcześniejsze
+  zakończenie następuje, gdy produkt przestaje zwracać realną propozycję
+  wsparcia.
+
+NASTĘPNY GATE
+
+CC nie powinien ponownie przebudowywać całego briefu. Potrzebne są trzy małe
+uzupełnienia: decyzja o wzorze/zaokrągleniu, realistyczne granice generatora i
+konkretne limity wykonania. Następny reaudyt Codexa ma sprawdzić wyłącznie te
+trzy miejsca.
