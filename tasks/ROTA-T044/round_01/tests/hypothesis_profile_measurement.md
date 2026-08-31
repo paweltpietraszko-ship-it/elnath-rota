@@ -83,3 +83,10 @@ realny czas pełnego przebiegu `pytest ... -k TestVariantBStateMachine` z
 tymi samymi liczbami profilu domyślnego (8/4): **172,65 s**. Nadal wyraźnie
 poniżej ~750 s Wariantu A i w rzędzie "niskich minut" wymaganym kontraktem —
 liczby profilu pozostają bez zmian (8/4 domyślnie, 30/8 `ROTA_SIM_VARIANT_B_FULL=1`).
+
+## Aktualizacja po naprawie R11-01 (niezależny reaudyt, `tests_r11.txt`)
+
+Poprawka rozszerzyła obsługę wyjątków (`except Exception` zamiast tylko
+`AssertionError`) — sam kod ścieżki nie zmienia liczby wywołań API. Zmierzony
+realny czas: **234,19 s**. Nadal wyraźnie poniżej ~750 s Wariantu A; liczby
+profilu (8/4 domyślnie, 30/8 eksploracyjnie) bez zmian.

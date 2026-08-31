@@ -359,6 +359,33 @@ def test_absences_are_written_before_first_plan_never_after():
     )
 
 
+def test_t44_r11_01_non_assertion_backend_failure_still_writes_failure_json(monkeypatch, tmp_path):
+    """R11-01 regression (tests_r11.txt): every wrapped stage used to catch
+    only AssertionError, so a genuine backend crash (any other exception
+    TestClient can propagate) passed through _write_and_reraise unnoticed
+    -- exactly reproduced by the audit with a monkeypatched run_plan()
+    raising RuntimeError. Broadened to `except Exception` everywhere."""
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "FAILURES_DIR", tmp_path)
+
+    machine = CoordinatorVariantBMachine()
+    machine.setup_fresh_object(seed=1)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated backend crash")
+
+    monkeypatch.setattr(sim, "run_plan", _boom)
+    with pytest.raises(RuntimeError):
+        machine.do_plan()
+    machine.teardown()
+
+    failure_files = list(tmp_path.glob("*.json"))
+    assert failure_files, "a non-AssertionError backend failure must still write a failure JSON"
+    payload = json.loads(failure_files[0].read_text(encoding="utf-8"))
+    assert payload["stage"] == "plan"
+    assert payload["seed"] == 1
+
+
 # ===========================================================================
 # Checkpoint C -- Hypothesis stateful, real backend
 # ===========================================================================
@@ -429,7 +456,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             self.absence_draws = sim.initial_absences_b(self.spec, rng)
             self.action_log.append("apply_absences_b")
             sim.apply_absences_b(self.client, self.site_id, self.spec, self.absence_draws)
-        except AssertionError as exc:
+        except Exception as exc:
             self._write_and_reraise("setup", exc)
 
     def _snapshot(self, stage: str) -> dict:
@@ -465,7 +492,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
                 self.externals = loop["externals"]
                 self.final_result = loop["final_result"]
             assert self.plan_result["status"] in _KNOWN_PLAN_STATUSES
-        except AssertionError as exc:
+        except Exception as exc:
             self._write_and_reraise("plan", exc)
 
     @rule()
@@ -475,7 +502,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             self.action_log.append("select_first_candidate")
             sim.select_first_candidate(self.client, self.site_id, self.spec.month, self.final_result)
             self.has_selected = True
-        except AssertionError as exc:
+        except Exception as exc:
             self._write_and_reraise("select_candidate", exc)
 
     @rule()
@@ -486,7 +513,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             result = sim.run_replan(self.client, self.site_id, self.spec.month)
             assert result["status"] in _KNOWN_PLAN_STATUSES
             self.replan_results.append(result)
-        except AssertionError as exc:
+        except Exception as exc:
             self._write_and_reraise("replan", exc)
 
     @rule()
@@ -512,7 +539,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             for replan_result in self.replan_results:
                 if replan_result["status"] == "FEASIBLE":
                     sim.assert_closed_world_b(sim.all_candidate_assignments_b(replan_result), declared, external_ids)
-        except AssertionError as exc:
+        except Exception as exc:
             self._write_and_reraise("invariant", exc)
 
     def teardown(self):
