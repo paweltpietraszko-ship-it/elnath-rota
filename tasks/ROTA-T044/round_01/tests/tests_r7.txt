@@ -1,0 +1,81 @@
+ROTA-T044 — audyt TASK_CHATGPT przed „adwokatem diabła” CC
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA Tasku: bccdc5876df42e83781d735012d8d2dcb8242d83
+
+WERDYKT
+
+FAIL — Task wiernie przenosi większość zaakceptowanego R8, ale kontrakt
+urlopów jest niewykonalny dla załóg, które sam obowiązkowo generuje. CC nie
+powinien jeszcze wykonywać rundy „adwokata diabła” ani implementacji.
+
+WARSTWY AUDYTU
+
+1. Zgodność `TASK_CHATGPT.md` z briefem R8 i `tests_r6.txt`.
+2. Preimplementation reduction: zakres, nowi ownerzy/helpery, reuse Wariantu
+   A i macierz odbioru.
+3. Minimalny reproduktor graniczny dla obsady 5 i 10 LOCAL.
+4. Sprawdzenie kolejności workflow według jawnej korekty OWNERA z tej sesji.
+
+T44-TASK-01 — urlop przydzielany każdemu LOCAL nie mieści się w miesiącu
+
+TRACE
+
+Jawne rozstrzygnięcie OWNERA: jedna osoba ma 2 tygodnie urlopu, druga tydzień,
+a ich terminy się nie pokrywają. Nie ma decyzji, że każdy kolejny pracownik
+również dostaje w tym samym miesiącu następny blok 10/5 dni.
+
+`TASK_CHATGPT.md` §5.1 nakazuje natomiast, aby „kolejni LOCAL dostawali
+naprzemiennie 10/5 dni roboczych” i aby bloki wszystkich LOCAL się nie
+nakładały. T44-B-08 powtarza ten kontrakt.
+
+OWNERSHIP
+
+To Task bezpośrednio definiuje dane generowane przez harness przed wywołaniem
+API. Produkt ani solver nie może poprawić niemożliwego kalendarza generatora.
+
+REPRO na exact SHA
+
+- kalkulator obowiązkowo tworzy obiekt pełny z 5 LOCAL oraz podwójny z 10
+  LOCAL (T44-B-CALC-01/02);
+- 5 LOCAL według reguły Tasku wymaga kolejno `10+5+10+5+10 = 40` dni
+  roboczych niepokrywających się;
+- 10 LOCAL wymaga `5 × 10 + 5 × 5 = 75` dni roboczych;
+- żaden miesiąc 2026 nie ma 40 ani 75 dni roboczych.
+
+Generator musi więc albo wyjść poza miesiąc, nałożyć bloki, albo złamać
+wymaganą długość. Wszystkie trzy możliwości przeczą Taskowi. To
+deterministyczny błąd kontraktu, nie edge case solvera.
+
+WYMAGANA KOREKTA
+
+Task ma odtwarzać dokładnie zaakceptowaną skalę: dla załogi co najmniej
+dwuosobowej dwa niepokrywające się bloki — jednej osoby 10 dni roboczych i
+drugiej 5 dni roboczych. Dla jednego LOCAL pozostaje zaakceptowany przypadek
+jego urlopu prowadzący do DECISION_REQUIRED/EXTERNAL. Nie rozszerzać tego
+cyklicznie na całą załogę bez nowej decyzji OWNERA.
+
+POZOSTAŁE SPRAWDZONE ELEMENTY
+
+- Kalkulator warstwowy 5/10/9 został przeniesiony bez zmiany.
+- `required_primary_count` pozostaje per wiersz/dzień, więc mieszany obiekt
+  robocze=2/weekend=1 jest reprezentowalny.
+- HEADCOUNT i CLOSED WORLD są jedynymi własnymi invariants harnessu;
+  Task nie dodaje oceny solvera.
+- EXTERNAL powstaje dopiero po realnym DECISION_REQUIRED i ma limit równy
+  początkowej liczbie LOCAL.
+- TASK_SCOPE nie wychodzi poza pliki testowe, `pyproject.toml` i artefakty.
+- Pełna regresja pozostaje wyłączona bez zgody OWNERA.
+
+TECHNICAL_ONLY — kolejność gate'ów
+
+Nagłówek i §17 mówią, że Task jest już gotowy bezpośrednio do „adwokata
+diabła” CC. OWNER skorygował kolejność: najpierw niezależny audyt Codexa tego
+Tasku; CC wchodzi dopiero po PASS Codexa. Po naprawie T44-TASK-01 następny
+exact SHA wraca do wąskiego reaudytu Codexa, a dopiero PASS uruchamia CC.
+
+NASTĘPNY GATE
+
+Jedna mechaniczna korekta §5.1, T44-B-08 i statusu/kolejności workflow. Bez
+zmian kalkulatora, generatora wzoru, Hypothesis, EXTERNAL ani zakresu plików.
+Następny audyt ma sprawdzić wyłącznie tę korektę.
