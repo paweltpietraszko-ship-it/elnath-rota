@@ -1,0 +1,709 @@
+{
+  "seed": 25,
+  "month": "2026-07-01",
+  "regime": "OCHRONA",
+  "atoms": [
+    {
+      "kind": "N",
+      "start": "00:00:00",
+      "end": "10:00:00",
+      "required_primary_count": 2,
+      "weekday": 1
+    },
+    {
+      "kind": "N",
+      "start": "20:00:00",
+      "end": "04:00:00",
+      "required_primary_count": 2,
+      "weekday": 1
+    },
+    {
+      "kind": "N",
+      "start": "05:00:00",
+      "end": "05:00:00",
+      "required_primary_count": 1,
+      "weekday": 2
+    },
+    {
+      "kind": "D",
+      "start": "07:00:00",
+      "end": "07:00:00",
+      "required_primary_count": 2,
+      "weekday": 3
+    },
+    {
+      "kind": "N",
+      "start": "06:00:00",
+      "end": "06:00:00",
+      "required_primary_count": 2,
+      "weekday": 3
+    },
+    {
+      "kind": "D",
+      "start": "05:00:00",
+      "end": "13:00:00",
+      "required_primary_count": 2,
+      "weekday": 4
+    },
+    {
+      "kind": "D",
+      "start": "05:00:00",
+      "end": "21:00:00",
+      "required_primary_count": 1,
+      "weekday": 6
+    },
+    {
+      "kind": "N",
+      "start": "06:00:00",
+      "end": "14:00:00",
+      "required_primary_count": 1,
+      "weekday": 6
+    },
+    {
+      "kind": "N",
+      "start": "17:00:00",
+      "end": "17:00:00",
+      "required_primary_count": 2,
+      "weekday": 7
+    }
+  ],
+  "declared_local": [
+    "SIMB-25-EMP-0",
+    "SIMB-25-EMP-1",
+    "SIMB-25-EMP-2",
+    "SIMB-25-EMP-3",
+    "SIMB-25-EMP-4",
+    "SIMB-25-EMP-5",
+    "SIMB-25-EMP-6",
+    "SIMB-25-EMP-7"
+  ],
+  "calculator_result": 8,
+  "target_hours_per_employee": 184,
+  "absence_draws": [
+    {
+      "employee_index": 0,
+      "kind": "LEAVE_GRANTED",
+      "start_date": "2026-07-01",
+      "end_date": "2026-07-14"
+    },
+    {
+      "employee_index": 1,
+      "kind": "LEAVE_GRANTED",
+      "start_date": "2026-07-15",
+      "end_date": "2026-07-21"
+    },
+    {
+      "employee_index": 1,
+      "kind": "SICK_LEAVE",
+      "start_date": "2026-07-16",
+      "end_date": "2026-07-20"
+    }
+  ],
+  "plan_result": {
+    "status": "TECHNICAL_ERROR",
+    "candidates": [],
+    "decision_payload": null,
+    "error_message": "independent validator found HARD violations that cannot be attributed to a known autonomy boundary: SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-01 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-01 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-08 mismatch ['SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-08 mismatch ['SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-15 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-15 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-22 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-22 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-29 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-29 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']",
+    "warnings": [],
+    "optimization_complete": true
+  },
+  "externals": [],
+  "final_result": {
+    "status": "TECHNICAL_ERROR",
+    "candidates": [],
+    "decision_payload": null,
+    "error_message": "independent validator found HARD violations that cannot be attributed to a known autonomy boundary: SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-01 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-01 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-08 mismatch ['SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-08 mismatch ['SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-15 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-15 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-22 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-22 mismatch ['SIMB-25-EMP-1', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6'] vs ['SIMB-25-EMP-1', 'SIMB-25-EMP-2', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift4-2026-07-29 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']; SHIFT-24-PAIR-01: template PROF-7b5b9aa4aa1c4e799dfb478b02680f5c-shift3-2026-07-29 mismatch ['SIMB-25-EMP-3', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7'] vs ['SIMB-25-EMP-0', 'SIMB-25-EMP-3', 'SIMB-25-EMP-4', 'SIMB-25-EMP-5', 'SIMB-25-EMP-6', 'SIMB-25-EMP-7']",
+    "warnings": [],
+    "optimization_complete": true
+  },
+  "selected": false,
+  "replan_results": [],
+  "readback": {
+    "analytics": {
+      "site_id": "SITE-dbb081623dbf4d63884201bf55b86aa5",
+      "month": "2026-07-01",
+      "quarter_first_month": "2026-07-01",
+      "hours_scope": "ALL_SITES",
+      "rows": [
+        {
+          "employee_id": "SIMB-25-EMP-0",
+          "display_name": "SIMB-25-EMP-0",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 104,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -104,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-0': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-1",
+          "display_name": "SIMB-25-EMP-1",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 144,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -144,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-1': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-2",
+          "display_name": "SIMB-25-EMP-2",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 184,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -184,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-2': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-3",
+          "display_name": "SIMB-25-EMP-3",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 184,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -184,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-3': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-4",
+          "display_name": "SIMB-25-EMP-4",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 184,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -184,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-4': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-5",
+          "display_name": "SIMB-25-EMP-5",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 184,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -184,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-5': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-6",
+          "display_name": "SIMB-25-EMP-6",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 184,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -184,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-6': missing target_hours for 2026-08-01"
+          ]
+        },
+        {
+          "employee_id": "SIMB-25-EMP-7",
+          "display_name": "SIMB-25-EMP-7",
+          "status": "MONTH_AVAILABLE_QUARTER_UNAVAILABLE",
+          "month_data": {
+            "month": "2026-07-01",
+            "target_hours": 184,
+            "effective_target_hours": 184,
+            "planned_hours": 0,
+            "realized_hours": 0,
+            "month_balance": -184,
+            "quarter_balance": null,
+            "unresolved_carryover": null
+          },
+          "quarter_months": [],
+          "warnings": [
+            "quarter analytics unavailable for employee 'SIMB-25-EMP-7': missing target_hours for 2026-08-01"
+          ]
+        }
+      ]
+    },
+    "month_view": {
+      "current_version": {
+        "version_id": "SV-829cd3d65c814247b6954daf897808c7",
+        "status": "WORKING",
+        "effective_from": "2026-07-01",
+        "created_at": "2026-08-31T13:17:48.833264",
+        "created_by": "DEV-COORD-1",
+        "parent_version_id": null
+      },
+      "version_history": [
+        {
+          "version_id": "SV-829cd3d65c814247b6954daf897808c7",
+          "status": "WORKING",
+          "effective_from": "2026-07-01",
+          "created_at": "2026-08-31T13:17:48.833264",
+          "created_by": "DEV-COORD-1",
+          "parent_version_id": null
+        }
+      ],
+      "demands": [
+        {
+          "demand_id": "2026-07-01-D-0",
+          "start_datetime": "2026-07-01T07:00:00",
+          "end_datetime": "2026-07-01T19:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-01-D-1",
+          "start_datetime": "2026-07-01T18:00:00",
+          "end_datetime": "2026-07-02T06:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-01-N-0",
+          "start_datetime": "2026-07-01T06:00:00",
+          "end_datetime": "2026-07-01T18:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-01-N-1",
+          "start_datetime": "2026-07-01T19:00:00",
+          "end_datetime": "2026-07-02T07:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-02-D",
+          "start_datetime": "2026-07-02T05:00:00",
+          "end_datetime": "2026-07-02T13:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-04-D",
+          "start_datetime": "2026-07-04T05:00:00",
+          "end_datetime": "2026-07-04T21:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-04-N",
+          "start_datetime": "2026-07-04T06:00:00",
+          "end_datetime": "2026-07-04T14:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-05-N",
+          "start_datetime": "2026-07-05T17:00:00",
+          "end_datetime": "2026-07-06T05:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-06-D",
+          "start_datetime": "2026-07-06T05:00:00",
+          "end_datetime": "2026-07-06T17:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-06-N-0",
+          "start_datetime": "2026-07-06T00:00:00",
+          "end_datetime": "2026-07-06T10:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-06-N-1",
+          "start_datetime": "2026-07-06T20:00:00",
+          "end_datetime": "2026-07-07T04:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-07-D",
+          "start_datetime": "2026-07-07T17:00:00",
+          "end_datetime": "2026-07-08T05:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-07-N",
+          "start_datetime": "2026-07-07T05:00:00",
+          "end_datetime": "2026-07-07T17:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-08-D-0",
+          "start_datetime": "2026-07-08T07:00:00",
+          "end_datetime": "2026-07-08T19:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-08-D-1",
+          "start_datetime": "2026-07-08T18:00:00",
+          "end_datetime": "2026-07-09T06:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-08-N-0",
+          "start_datetime": "2026-07-08T06:00:00",
+          "end_datetime": "2026-07-08T18:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-08-N-1",
+          "start_datetime": "2026-07-08T19:00:00",
+          "end_datetime": "2026-07-09T07:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-09-D",
+          "start_datetime": "2026-07-09T05:00:00",
+          "end_datetime": "2026-07-09T13:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-11-D",
+          "start_datetime": "2026-07-11T05:00:00",
+          "end_datetime": "2026-07-11T21:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-11-N",
+          "start_datetime": "2026-07-11T06:00:00",
+          "end_datetime": "2026-07-11T14:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-12-N",
+          "start_datetime": "2026-07-12T17:00:00",
+          "end_datetime": "2026-07-13T05:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-13-D",
+          "start_datetime": "2026-07-13T05:00:00",
+          "end_datetime": "2026-07-13T17:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-13-N-0",
+          "start_datetime": "2026-07-13T00:00:00",
+          "end_datetime": "2026-07-13T10:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-13-N-1",
+          "start_datetime": "2026-07-13T20:00:00",
+          "end_datetime": "2026-07-14T04:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-14-D",
+          "start_datetime": "2026-07-14T17:00:00",
+          "end_datetime": "2026-07-15T05:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-14-N",
+          "start_datetime": "2026-07-14T05:00:00",
+          "end_datetime": "2026-07-14T17:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-15-D-0",
+          "start_datetime": "2026-07-15T07:00:00",
+          "end_datetime": "2026-07-15T19:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-15-D-1",
+          "start_datetime": "2026-07-15T18:00:00",
+          "end_datetime": "2026-07-16T06:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-15-N-0",
+          "start_datetime": "2026-07-15T06:00:00",
+          "end_datetime": "2026-07-15T18:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-15-N-1",
+          "start_datetime": "2026-07-15T19:00:00",
+          "end_datetime": "2026-07-16T07:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-16-D",
+          "start_datetime": "2026-07-16T05:00:00",
+          "end_datetime": "2026-07-16T13:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-18-D",
+          "start_datetime": "2026-07-18T05:00:00",
+          "end_datetime": "2026-07-18T21:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-18-N",
+          "start_datetime": "2026-07-18T06:00:00",
+          "end_datetime": "2026-07-18T14:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-19-N",
+          "start_datetime": "2026-07-19T17:00:00",
+          "end_datetime": "2026-07-20T05:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-20-D",
+          "start_datetime": "2026-07-20T05:00:00",
+          "end_datetime": "2026-07-20T17:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-20-N-0",
+          "start_datetime": "2026-07-20T00:00:00",
+          "end_datetime": "2026-07-20T10:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-20-N-1",
+          "start_datetime": "2026-07-20T20:00:00",
+          "end_datetime": "2026-07-21T04:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-21-D",
+          "start_datetime": "2026-07-21T17:00:00",
+          "end_datetime": "2026-07-22T05:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-21-N",
+          "start_datetime": "2026-07-21T05:00:00",
+          "end_datetime": "2026-07-21T17:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-22-D-0",
+          "start_datetime": "2026-07-22T07:00:00",
+          "end_datetime": "2026-07-22T19:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-22-D-1",
+          "start_datetime": "2026-07-22T18:00:00",
+          "end_datetime": "2026-07-23T06:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-22-N-0",
+          "start_datetime": "2026-07-22T06:00:00",
+          "end_datetime": "2026-07-22T18:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-22-N-1",
+          "start_datetime": "2026-07-22T19:00:00",
+          "end_datetime": "2026-07-23T07:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-23-D",
+          "start_datetime": "2026-07-23T05:00:00",
+          "end_datetime": "2026-07-23T13:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-25-D",
+          "start_datetime": "2026-07-25T05:00:00",
+          "end_datetime": "2026-07-25T21:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-25-N",
+          "start_datetime": "2026-07-25T06:00:00",
+          "end_datetime": "2026-07-25T14:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-26-N",
+          "start_datetime": "2026-07-26T17:00:00",
+          "end_datetime": "2026-07-27T05:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-27-D",
+          "start_datetime": "2026-07-27T05:00:00",
+          "end_datetime": "2026-07-27T17:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-27-N-0",
+          "start_datetime": "2026-07-27T00:00:00",
+          "end_datetime": "2026-07-27T10:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-27-N-1",
+          "start_datetime": "2026-07-27T20:00:00",
+          "end_datetime": "2026-07-28T04:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-28-D",
+          "start_datetime": "2026-07-28T17:00:00",
+          "end_datetime": "2026-07-29T05:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-28-N",
+          "start_datetime": "2026-07-28T05:00:00",
+          "end_datetime": "2026-07-28T17:00:00",
+          "required_primary_count": 1,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-29-D-0",
+          "start_datetime": "2026-07-29T07:00:00",
+          "end_datetime": "2026-07-29T19:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-29-D-1",
+          "start_datetime": "2026-07-29T18:00:00",
+          "end_datetime": "2026-07-30T06:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        },
+        {
+          "demand_id": "2026-07-29-N-0",
+          "start_datetime": "2026-07-29T06:00:00",
+          "end_datetime": "2026-07-29T18:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-29-N-1",
+          "start_datetime": "2026-07-29T19:00:00",
+          "end_datetime": "2026-07-30T07:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "N"
+        },
+        {
+          "demand_id": "2026-07-30-D",
+          "start_datetime": "2026-07-30T05:00:00",
+          "end_datetime": "2026-07-30T13:00:00",
+          "required_primary_count": 2,
+          "shift_kind": "D"
+        }
+      ],
+      "assignments": [],
+      "deviations": [],
+      "decision_required": null,
+      "warnings": []
+    }
+  },
+  "reproduction": "python -c \"from api.deps import get_conn; from api.main import app; from fastapi.testclient import TestClient; from rota.persistence.db import connect; from tests.property.coordinator_simulator import run_full_scenario_b; conn = connect(':memory:'); app.dependency_overrides[get_conn] = lambda: (yield conn); print(run_full_scenario_b(TestClient(app), 25, num_replans=0))\""
+}
