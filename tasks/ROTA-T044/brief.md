@@ -1,6 +1,6 @@
 # ROTA-T044 — Symulator Koordynatora Wariant B (prawdziwa zmienność zachowania)
 
-Status: **CC AUTOR (OWNER 2026-08-30/31), KOREKTA R7 — DO WĄSKIEGO RE-AUDYTU CODEX (kalkulator bez marginesu, required_primary_count per obiekt), POTEM DO TASKU CZATGPT**
+Status: **CC AUTOR (OWNER 2026-08-30/31), KOREKTA R8 — DO WĄSKIEGO RE-AUDYTU CODEX (required_primary_count przywrócony per wiersz/dzień, kalkulator warstwowy), POTEM DO TASKU CZATGPT**
 
 Pipeline dla tego Tasku, ustalony wprost przez OWNERA: CC pisze ten brief →
 Codex audytuje → ChatGPT pisze Task na jego podstawie → **CC dostanie na końcu
@@ -21,6 +21,16 @@ całkowicie usunięty z kalkulatora (patrz sekcja 0, korekta R7, i 1.1) —
 wynikającą z realnego kalendarza (np. wzory asymetryczne typu "tylko dni
 robocze"), ale już bez marginesu, więc referencyjny obiekt OWNERA (D/N 12h,
 required_primary_count=1) wraca do stabilnych 5, dokładnie jak być powinno.
+
+Ta wersja (R8) zastępuje R7 (`688a165`) po `OWNER_EXPLANATION_GATE` Codexa
+(`tasks/ROTA-T044/round_01/tests/tests_r5.txt`) — R7's uproszczenie
+`required_primary_count` do jednej wartości na cały obiekt było
+NIEAUTORYZOWANĄ zmianą CC, która po cichu wykluczała realny, wcześniej
+wprost wymagany przez OWNERA kształt obiektu (dni robocze = 2 osoby/zmianę,
+weekend = 1 osoba/zmianę). OWNER: **"Tak ma rozróżniać."** R8 przywraca
+`required_primary_count` per wiersz/dzień (jak w R3-R6) i wprowadza
+kalkulator WARSTWOWY (patrz 1.1), żeby obsłużyć mieszane wzory bez powrotu
+do niestabilności z R4-01.
 
 Base: `main@1b6bfbf` (po merge ROTA-T043).
 
@@ -201,17 +211,41 @@ dokładnie ten obiekt z 5 do 6 osób:**
 > realnie czasem pchać solver w stronę DECISION_REQUIRED/EXTERNAL, nie trafiać
 > zawsze w wygodny zapas, którego margines by gwarantował.
 
-**Zmiana wzoru (1.1):** margines urlopowy (`DNI_URLOPU_ROCZNIE`,
-`margines_urlopowy_h`) usunięty całkowicie z kalkulatora. `required_primary_count`
-staje się cechą CAŁEGO obiektu (losowany raz, {1,2}), nie osobno per wiersz
-katalogu — upraszcza matematykę (nie trzeba rozstrzygać co gdy D i N mają
-różne wymagane liczby) i pasuje do referencyjnego przykładu OWNERA, gdzie D i
-N mają tę samą wartość. Kalkulator liczy jedną "warstwę" (poziom
-`required_primary_count=1`) i mnoży przez wylosowaną wartość — to
-odtwarza 5/10 stabilnie, bez marginesu. "Maksimum po 12 miesiącach" z R6
-zostaje, ale teraz jako mechanizm WYŁĄCZNIE na niestabilność wynikającą z
-realnego kalendarza przy wzorach asymetrycznych (np. "tylko dni robocze"),
-nie jako ogólny margines bezpieczeństwa.
+**Zmiana wzoru (1.1), R7:** margines urlopowy (`DNI_URLOPU_ROCZNIE`,
+`margines_urlopowy_h`) usunięty całkowicie z kalkulatora. "Maksimum po 12
+miesiącach" z R6 zostaje jako mechanizm WYŁĄCZNIE na niestabilność
+wynikającą z realnego kalendarza przy wzorach asymetrycznych (np. "tylko
+dni robocze"), nie jako ogólny margines bezpieczeństwa.
+
+**Korekta R8, po `OWNER_EXPLANATION_GATE` Codexa (`tests_r5.txt`) —
+R7's uproszczenie `required_primary_count` do jednej wartości na cały
+obiekt było nieautoryzowaną zmianą CC, uzasadnioną wygodą matematyki, nie
+decyzją OWNERA, i po cichu wykluczało realny kształt obiektu:**
+
+> [Codex, `tests_r5.txt`] "R7 przenosi `required_primary_count` z każdego
+> wiersza zapotrzebowania na jedną wartość dla całego obiektu [...] to
+> wyklucza wcześniej jawnie wymagany przez OWNERA obiekt: poniedziałek–piątek
+> — dwie osoby na zmianie 12h; sobota–niedziela — jedna osoba na zmianie
+> 24h. Jedna wartość dla całego obiektu nie potrafi zapisać jednocześnie
+> `2` dla wierszy roboczych i `1` dla weekendowego."
+
+> [pytanie CC do OWNERA, czy to nie jest powrót do zawężania wariantów
+> ponad miarę] "Tak ma rozróżniać." — OWNER wybrał `OWNER_CORRECTED`:
+> `required_primary_count` wraca do losowania per wiersz/dzień (jak w
+> R3-R6), kalkulator musi to obsłużyć bez odtwarzania niestabilności z
+> R4-01.
+
+**Zmiana wzoru (1.1), R8 — kalkulator WARSTWOWY:** zamiast jednej wartości
+`required_primary_count` na cały obiekt, wymaganie jest rozbite na WARSTWY —
+warstwa *k* to godziny, w których KTÓRYKOLWIEK wiersz/dzień wymaga ≥*k*
+osób jednocześnie. Każda warstwa liczona jest osobno (ta sama logika co
+poprzednio dla jednorodnego przypadku: jedna "warstwa" = jeden ciągle
+rotujący zespół), z osobnym maksimum po 12 miesiącach tam gdzie trzeba, i
+wyniki są SUMOWANE. Zweryfikowane: jednorodne 1 → tylko warstwa 1 → **5**
+(bez zmian); jednorodne 2 → warstwa 1 (5) + warstwa 2, ta sama aktywność
+(5) → **10** (bez zmian); mieszane robocze=2/weekend=1 → warstwa 1 aktywna
+cały tydzień (5) + warstwa 2 aktywna tylko w dni robocze (4) → **9** (nowy,
+poprawnie obsłużony przypadek, którego R7 nie potrafiło zapisać).
 
 ## 1. Czym Symulator jest i czym nie jest — fundament, nie szczegół
 
@@ -229,77 +263,87 @@ jest osobno zgłoszony OWNEROWI, nie jest częścią tego Tasku.)
 
 Kalkulator liczy **dokładnie jedną rzecz, raz, przy tworzeniu obiektu**:
 liczbę LOCAL potrzebną do pokrycia wygenerowanego wzoru zapotrzebowania
-(sekcja 1.2) — **bez żadnego marginesu bezpieczeństwa** (poprawka R7, patrz
-niżej). To NIE jest solver ani drugi algorytm układający dyżury z
-uwzględnieniem odpoczynku — to prosta arytmetyka kadrowa, jaką realny
-koordynator robi ręcznie, zanim w ogóle otworzy Rotę.
+(sekcja 1.2) — **bez żadnego marginesu bezpieczeństwa** (poprawka R7). To
+NIE jest solver ani drugi algorytm układający dyżury z uwzględnieniem
+odpoczynku — to prosta arytmetyka kadrowa, jaką realny koordynator robi
+ręcznie, zanim w ogóle otworzy Rotę.
 
-**Wzór (poprawiony po Codex R3-01/R4-01 i trzech kolejnych korektach OWNERA
-2026-08-31 — patrz cytaty w sekcji 0, korekty R4/R6/R7).** Historia: R5
-liczyła na faktycznie wylosowanym miesiącu, co Codex R4-01 udowodnił jako
-niestabilne (5/10 vs 6/11 zależnie od miesiąca). R6 to poprawiło marginesem
-urlopowym + maksimum po 12 miesiącach — ale OWNER zweryfikował wynik na
-własnym referencyjnym obiekcie (D/N 12h, `required_primary_count=1`, 5 osób)
-i złapał, że margines sam windował ten obiekt do 6: **"jeśli sztucznie
-zawyzysz obsadę to dasz fory solverowi [...] za mało, to solver będzie
-rządać wciąż wsparcia za dużo będzie mieć fory."** R7 usuwa margines
-CAŁKOWICIE. Zostają dwa niezależne mechanizmy: (a) `required_primary_count`
-to teraz cecha CAŁEGO obiektu (losowana raz, {1,2}), nie per wiersz katalogu
-— kalkulator liczy jedną "warstwę" i mnoży przez tę wartość, co odtwarza
-5/10 stabilnie, bez marginesu; (b) "maksimum po 12 miesiącach" z R6 zostaje,
-ale teraz wyłącznie jako mechanizm na niestabilność wynikającą z realnego
-kalendarza dla wzorów ASYMETRYCZNYCH (np. "tylko dni robocze") — nie jako
-ogólny margines. `month` (pole `ObjectSpec`) nadal jest losowany, jeden z 12
-miesięcy 2026 — służy do tego, JAKI realny kalendarz/święta widzi solver
-przy PLAN/REPLAN, nie do ustalenia rozmiaru załogi.
+**Wzór (historia poprawek — patrz cytaty w sekcji 0, korekty R4/R6/R7/R8).**
+R5 liczyła na faktycznie wylosowanym miesiącu — Codex R4-01 udowodnił to
+jako niestabilne. R6 dodała margines urlopowy + maksimum po 12 miesiącach —
+OWNER złapał, że margines sam zawyżał referencyjny obiekt (5→6, "dasz fory
+solverowi"). R7 usunęła margines, ale uprościła `required_primary_count` do
+jednej wartości na cały obiekt — Codex R4-01/`tests_r5.txt` znalazł, że to
+po cichu wyklucza realny mieszany kształt (robocze=2, weekend=1), którego
+OWNER wcześniej wprost wymagał; OWNER: **"Tak ma rozróżniać."** R8
+przywraca `required_primary_count` per wiersz/dzień i wprowadza kalkulator
+WARSTWOWY: wymaganie jest rozbite na warstwy (warstwa *k* = godziny, gdzie
+KTÓRYKOLWIEK wiersz/dzień wymaga ≥*k* osób jednocześnie), każda warstwa
+liczona osobno (z tym samym mechanizmem maksimum-po-12-miesiącach dla
+wzorów asymetrycznych), wyniki SUMOWANE. `month` (pole `ObjectSpec`) nadal
+jest losowany, jeden z 12 miesięcy 2026 — służy do tego, JAKI realny
+kalendarz/święta widzi solver przy PLAN/REPLAN, nie do ustalenia rozmiaru
+załogi.
 
 ```
 # `month` to pole ObjectSpec, losowane jeden z 12 miesięcy 2026 -- używane
 # przy PLAN/REPLAN (kalendarz, święta), NIE przy liczeniu rozmiaru załogi.
-# `required_primary_count` (1 albo 2) to cecha CAŁEGO obiektu, losowana raz
-# -- NIE osobno per wiersz katalogu (R7: upraszcza matematykę, D i N mają tę
-# samą wartość, jak w referencyjnym przykładzie OWNERA)
+# `required_primary_count` (1 albo 2) jest losowany PER WIERSZ/DZIEŃ (1.2) --
+# R8 przywraca to po tym, jak R7's "jedna wartość na cały obiekt" wykluczyła
+# realny mieszany kształt (OWNER: "Tak ma rozróżniać")
 
-def zapotrzebowanie_jednej_warstwy(katalog, m: date) -> int:
-    # katalog opisuje AKTYWNE dni/godziny (1.2), bez required_primary_count
-    # -- liczone jakby całe zapotrzebowanie obsługiwała jedna warstwa (1 osoba
-    # naraz), required_primary_count mnoży dopiero na końcu
+MAX_REQUIRED_PRIMARY_COUNT = 2   # górna granica zakresu {1,2} (Codex R2-02)
+WSZYSTKIE_MIESIACE_2026 = [date(2026, m, 1) for m in range(1, 13)]
+
+def zapotrzebowanie_warstwy(katalog, warstwa: int, m: date) -> int:
+    # Warstwa k = godziny, w których wiersz/dzień wymaga >= k osób naraz.
+    # Wiersz/dzień z required_primary_count < warstwa wnosi 0 do tej warstwy
+    # -- w ten sposób "warstwa 1" zawsze pokrywa całe zapotrzebowanie (bo
+    # required_primary_count >= 1 zawsze), a "warstwa 2" tylko tę część,
+    # gdzie realnie wylosowano required_primary_count=2
     return sum(
         godziny_zmiany(wiersz) * liczba_wystapien_dnia_tygodnia(dzień, m)
         for wiersz in katalog for dzień in wiersz.aktywne_dni_tygodnia
+        if required_primary_count(wiersz, dzień) >= warstwa
     )
 
-WSZYSTKIE_MIESIACE_2026 = [date(2026, m, 1) for m in range(1, 13)]
-
-# Bezpieczne maksimum po 12 miesiącach -- ZERO marginesu, tylko realny
-# kalendarz/normy; różnica między miesiącami istnieje WYŁĄCZNIE dla wzorów
-# asymetrycznych (nie dla "cały tydzień", gdzie każdy miesiąc daje ten sam
-# wynik po zaokrągleniu -- patrz przypadki kontrolne niżej)
-liczba_jednej_warstwy = max(
-    ceil(zapotrzebowanie_jednej_warstwy(wygenerowany_katalog, m)
-         / nominal_monthly_hours_kp(m, POLISH_2026_HOLIDAYS))
-    for m in WSZYSTKIE_MIESIACE_2026
+# Każda warstwa dostaje WŁASNE bezpieczne maksimum po 12 miesiącach (ZERO
+# marginesu) -- różnica między miesiącami istnieje wyłącznie dla wzorów
+# asymetrycznych w danej warstwie, tak jak wcześniej dla całego obiektu
+liczba_LOCAL = sum(
+    max(
+        ceil(zapotrzebowanie_warstwy(wygenerowany_katalog, warstwa, m)
+             / nominal_monthly_hours_kp(m, POLISH_2026_HOLIDAYS))
+        for m in WSZYSTKIE_MIESIACE_2026
+    )
+    for warstwa in range(1, MAX_REQUIRED_PRIMARY_COUNT + 1)
 )
-liczba_LOCAL = required_primary_count * liczba_jednej_warstwy
 ```
+
+Warstwa bez żadnej aktywności (np. warstwa 2, gdy `required_primary_count`
+nigdzie nie wylosowano jako 2) ma zapotrzebowanie 0 w każdym miesiącu, więc
+`ceil(0/norma)=0` — wnosi zero do sumy automatycznie, bez specjalnego
+przypadku w kodzie.
 
 **Przypadki kontrolne, przeliczone dla WSZYSTKICH 12 miesięcy 2026, bez
 marginesu (Codex R2-01 wymagał: jedna warstwa, dwie pełne warstwy, obiekt
-mieszany robocze/weekend):**
+mieszany robocze/weekend — R8 dodaje ten ostatni, którego R7 nie potrafiło
+policzyć):**
 
-| Przypadek | Wynik per miesiąc (I-XII, 2026) | MAKSIMUM = wynik kalkulatora |
-|---|---|---|
-| D/N 12h, `required_primary_count=1`, cały tydzień | 5,5,5,5,5,5,5,5,5,5,5,5 | **5** (zgadza się z referencyjnym obiektem OWNERA) |
-| D/N 12h, `required_primary_count=2`, cały tydzień | 10,10,10,10,10,10,10,10,10,10,10,10 | **10** (= 2×5, zawsze, żadnej niestabilności) |
-| D+N 12h, tylko dni robocze, `required_primary_count=1` | 4,3,3,4,4,4,3,4,3,3,4,4 | **4** (jedyny przypadek z realną rozbieżnością — asymetryczny wzór, stąd maksimum) |
+| Przypadek | Warstwa 1 (max po 12 mies.) | Warstwa 2 (max po 12 mies.) | SUMA = wynik kalkulatora |
+|---|---|---|---|
+| D/N 12h, `required_primary_count=1` wszędzie | **5** (cały tydzień, stabilne) | 0 (nigdzie ≥2) | **5** (referencyjny obiekt OWNERA) |
+| D/N 12h, `required_primary_count=2` wszędzie | **5** (cały tydzień) | **5** (ta sama aktywność, ≥2 wszędzie) | **10** |
+| D/N 12h robocze `required_primary_count=2`, weekend `required_primary_count=1` | **5** (cały tydzień, bo ≥1 zawsze) | **4** (tylko dni robocze, bo ≥2 tylko tam — wynik z wcześniejszej tabeli "tylko dni robocze") | **9** (nowy przypadek, mieszany kształt OWNERA) |
 
-Zauważ: przypadek "cały tydzień" (referencyjny obiekt OWNERA i jego
-podwójna wersja) jest stabilny na WSZYSTKICH 12 miesiącach bez żadnej
-pomocy — margines nie był tam nigdy potrzebny, tylko szkodliwy. Maksimum
-faktycznie coś robi wyłącznie dla wzorów asymetrycznych (trzeci wiersz).
-Implementer odtwarza powyższe trzy wartości (5/10/4) jako testy jednostkowe
-kalkulatora PRZED podłączeniem go do losowego generatora — zgodność z
-powyższym jest warunkiem koniecznym, nie orientacyjnym.
+Zauważ: warstwa 1 jest zawsze aktywna "cały tydzień" (bo
+`required_primary_count >= 1` zawsze prawda), więc zawsze stabilna na
+wszystkich 12 miesiącach bez potrzeby maksimum — maksimum realnie coś robi
+tylko dla warstw AKTYWNYCH ASYMETRYCZNIE (np. warstwa 2 w trzecim wierszu,
+aktywna tylko w dni robocze). Implementer odtwarza powyższe trzy wartości
+(5/10/9) jako testy jednostkowe kalkulatora PRZED podłączeniem go do
+losowego generatora — zgodność z powyższym jest warunkiem koniecznym, nie
+orientacyjnym.
 
 **Warunek zawsze sprawdzany po wygenerowaniu obiektu** (poprawiony po
 audycie Codexa R2 z `tests_r1.txt` — poprzednia wersja żądała fałszywej
@@ -326,14 +370,12 @@ rozmiaru załogi — kalkulator w 1.1 liczy bezpieczne maksimum po wszystkich 12
 miesiącach, nie na tym jednym wylosowanym.
 
 Generator losuje NIEZALEŻNIE, dla każdego rodzaju zmiany (D/N/24h), każdego
-dnia tygodnia z osobna: czy ta zmiana występuje tego dnia i o jakich
-godzinach. `required_primary_count` NIE jest losowany per wiersz (poprawka
-R7) — to cecha CAŁEGO obiektu, losowana raz i stosowana jednolicie do
-wszystkich wierszy katalogu tego obiektu (patrz 1.1: kalkulator liczy jedną
-warstwę i mnoży przez tę jedną wartość). Osobne losowanie per wiersz (wersja
-R3-R6) tworzyłoby niejednoznaczność, której referencyjny przykład OWNERA nie
-ma (D i N mają tę samą wartość) i której kalkulator nie musiałby rozstrzygać
-bez zamieniania się w mini-solver.
+dnia tygodnia z osobna: czy ta zmiana występuje tego dnia, o jakich
+godzinach, i jaki jest `required_primary_count` (przywrócone w R8 — R7's
+próba uproszczenia tego do jednej wartości na cały obiekt po cichu
+wykluczała realny mieszany kształt, np. robocze=2/weekend=1, którego OWNER
+wprost wymaga: "Tak ma rozróżniać"). Kalkulator (1.1) obsługuje to
+mieszanie przez liczenie warstwowe, nie przez zawężanie generatora.
 
 **Zakres `required_primary_count` (Codex R2-02, rozstrzygnięcie OWNERA
 2026-08-31): wąski, `{1, 2}`.** Realne obiekty bywają większe (OWNER: "nawet
@@ -570,14 +612,14 @@ zaimplementowany w produkcie, nie certyfikat całego Kodeksu pracy).
 
 | Element | Źródło | Konieczność | Redukcja |
 |---|---|---|---|
-| kalkulator obsady BEZ marginesu urlopowego, `required_primary_count` per CAŁY obiekt (nie per wiersz), MAKSIMUM po 12 miesiącach tylko dla wzorów asymetrycznych | OWNER 2026-08-31 R3→R7, poprawia Codex R2-01/R3-01/R4-01 | naga suma godzin/norma dawała 9 zamiast 10; margines z R6 sam zawyżał referencyjny obiekt OWNERA (5→6) — "dasz fory solverowi" | jedna warstwa × `required_primary_count`, zero marginesu; `max()` po 12 miesiącach zostaje wyłącznie dla wzorów asymetrycznych |
+| kalkulator obsady WARSTWOWY, BEZ marginesu urlopowego, `required_primary_count` per wiersz/dzień (przywrócone), MAKSIMUM po 12 miesiącach per warstwa tylko dla wzorów asymetrycznych | OWNER 2026-08-31 R3→R8, poprawia Codex R2-01/R3-01/R4-01/`tests_r5.txt` | naga suma godzin/norma dawała 9 zamiast 10; margines z R6 zawyżał (5→6); R7's jedna wartość na obiekt po cichu wykluczała mieszany kształt (robocze=2/weekend=1), którego OWNER wymaga: "Tak ma rozróżniać" | wymaganie rozbite na warstwy (≥k osób), każda liczona i maksymalizowana po 12 miesiącach osobno, sumowane |
 | realistyczne bloki urlopowe (2 tyg./tydzień, bez nakładania) zamiast losowej absencji "z sufitu" | OWNER 2026-08-31 R3 | testuje jak solver radzi sobie z zachowaniem koordynatora, nie z budżetem godzin | deterministyczna rotacja bloków z seeda, osobna od kalkulatora |
 | L4 losowane probabilistycznie (~25%), nie sztywny licznik | OWNER 2026-08-31 R3 (odrzucił "co 4. grafik") | sztywny licznik to powrót do scenariusza-replay | jeden dodatkowy rzut losowy w generatorze |
 | `required_primary_count` zawężony do {1,2} | OWNER 2026-08-31 R3, rozstrzyga Codex R2-02 | szerszy zakres nie testuje nowej ścieżki, tylko wydłuża realny solve i psuje tani profil | stałe dwuwartościowe losowanie |
 | jedyny LOCAL TEŻ dostaje blok urlopowy (wyjątek z R3-02 usunięty w R6), L4 losowane raz na obiekt (nie per krok) | Codex R3-02/R4-01, OWNER 2026-08-31 R6 | pierwsza wersja (wyjątek dla 1 osoby) wykluczała testowanie ścieżki "jedyny LOCAL na urlopie → EXTERNAL"; "~25% per obiekt/krok" dawało ~82% nie 25% | usunięcie wyjątku (ta sama rotacja działa dla 1 osoby) + jedno miejsce losowania L4 zamiast dwóch |
 | pomiar (nie zgadywanie) liczb profilu Hypothesis, jawne `database=None`, limit EXTERNAL = liczba_LOCAL | Codex R2-03/R3-03 | niezmierzone 20/6 nie miało dowodu taniości (Wariant A: ~750s/20 obiektów) | implementer mierzy mały realny przebieg przed zamrożeniem liczb |
 | asercja deklaracja=kalkulacja + zamknięty świat | OWNER 2026-08-30 + Codex R2 (poprawia błędną wersję) | zapobiega "8 osób na obiekcie 5-osobowym" bez fałszywych FAIL | dwa sprawdzenia po każdym przypadku |
-| swobodne dni tygodnia/rodzaj zmiany, `required_primary_count` per CAŁY obiekt | OWNER 2026-08-30 + Codex R3, poprawione R7 | usuwa gotowe kształty i nieaktualny zakaz overlapów; `required_primary_count` per wiersz tworzyłby niejednoznaczność bez odpowiednika w referencyjnym przykładzie OWNERA | losowanie niezależne per (dzień, rodzaj), `required_primary_count` losowany raz na obiekt |
+| swobodne dni tygodnia/rodzaj zmiany/`required_primary_count`, wszystko per wiersz/dzień | OWNER 2026-08-30 + Codex R3, R7 cofnięte w R8 | usuwa gotowe kształty i nieaktualny zakaz overlapów; R7's próba uproszczenia `required_primary_count` do jednej wartości/obiekt wykluczała realny mieszany kształt | losowanie niezależne per (dzień, rodzaj, required_primary_count); kalkulator warstwowy (1.1) obsługuje mieszanie |
 | Hypothesis stateful z jawnym kontraktem | OWNER 2026-08-30 + Codex R5/R6 | prawdziwa zmienność, wykonywalny kontrakt | jeden stateful engine, jawny profil, izolacja per przykład, reużywa produkcyjne helpery Wariantu A |
 | WHERE_MAP: REQUIRED | Codex R7 | nowy właściciel kalkulatora/generatora | mapa na `coordinator_simulator.py` + nową zależność `hypothesis` |
 | brak oceny fairness/kwartału | OWNER 2026-08-30 R2 (fundamentalna korekta) | Symulator nie jest sędzią | usunięte całkowicie, nie "opcjonalne" |
@@ -665,7 +707,7 @@ WEWNĘTRZNĄ SPÓJNOŚĆ, nie kwestionować same decyzje jako niedociągnięcia:
   psuje tani profil Hypothesis. Duże obiekty to świadomie osobny,
   nieotwarty temat, nie brakujący element tego briefu.
 - **Kalkulator nie musi być zweryfikowany dla KAŻDEJ możliwej liczby
-  LOCAL, tylko dla ręcznie policzonych przypadków kontrolnych (5/10/4).**
+  LOCAL, tylko dla ręcznie policzonych przypadków kontrolnych (5/10/9).**
   OWNER wprost: "dochowaliśmy staranności w wyliczeniu [...] jeśli
   udowodnimy że Rota prawidłowo wylicza przy X pracowników to poprawnie
   wyliczy i przy X +/- 1." To test MECHANIZMU (czy solver poprawnie
@@ -691,28 +733,27 @@ WEWNĘTRZNĄ SPÓJNOŚĆ, nie kwestionować same decyzje jako niedociągnięcia:
   wartości. To świadoma decyzja, nie brakujący element: Codex R3-03 słusznie
   odrzucił wcześniejsze niezmierzone `20/6` jako "profil tani" bez dowodu.
 
-## 8. Pytania do wąskiego re-audytu Codexa (kalkulator bez marginesu, R7)
+## 8. Pytania do wąskiego re-audytu Codexa (kalkulator warstwowy, R8)
 
-Zgodnie z `tests_r4.txt`: OWNER podjął obie decyzje z tej rundy, ale po
-weryfikacji na własnym referencyjnym obiekcie zmienił jedną z nich ponownie
-(margines usunięty całkowicie — R7). R3-03 pozostaje zamknięte. Re-audyt
-sprawdza WYŁĄCZNIE poniższe punkty — nie otwierać ponownie zamkniętych
-ustaleń (`{1,2}`, granica Symulatora, limit EXTERNAL, profil Hypothesis).
+Zgodnie z `tests_r5.txt`: OWNER wybrał `OWNER_CORRECTED` — `required_primary_count`
+wraca do losowania per wiersz/dzień, kalkulator obsługuje to warstwowo (1.1).
+Reszta R7 (brak marginesu, granica `liczba_LOCAL==1`, {1,2}, granice
+Symulatora, limit EXTERNAL, profil Hypothesis) pozostaje bez zmian i nie
+powinna być otwierana ponownie. Re-audyt sprawdza WYŁĄCZNIE poniższe punkty.
 
-1. **Kalkulator bez marginesu, `required_primary_count` per obiekt (1.1):**
-   czy `liczba_LOCAL = required_primary_count × max(...)` (maksimum po 12
-   miesiącach 2026 tylko dla jednej-warstwy zapotrzebowania, bez żadnego
-   marginesu) jest teraz jednoznaczne, deterministyczne, i czy trzy
-   przeliczone wartości (5/10/4) są poprawnie policzone — w szczególności
-   czy referencyjny obiekt OWNERA (D/N 12h, `required_primary_count=1`)
-   faktycznie daje stabilne 5 na wszystkich 12 miesiącach?
-2. **Przeniesienie `required_primary_count` z "per wiersz katalogu" na "per
-   cały obiekt" (1.2):** czy ta zmiana jest teraz jednoznaczna i nie
-   wprowadza nowej niejasności (np. co z generatorem, który wcześniej miał
-   je losować per wiersz — czy TASK_SCOPE/WHERE_MAP nadal się zgadzają)?
-3. **Granica `liczba_LOCAL==1` (1.2a, z poprzedniej rundy, bez zmian):** czy
-   usunięcie wyjątku — jedyny LOCAL też dostaje blok urlopowy na tych samych
-   zasadach co reszta — jest nadal jednoznaczne po zmianach w 1.1/1.2?
+1. **Kalkulator warstwowy (1.1):** czy rozbicie wymagania na warstwy (warstwa
+   *k* = godziny, gdzie ≥*k* osób wymaganych) z osobnym maksimum-po-12-miesiącach
+   per warstwa i sumowaniem wyników jest teraz jednoznaczne, deterministyczne,
+   i czy trzy przeliczone wartości (5/10/9) są poprawnie policzone —
+   szczególnie nowy mieszany przypadek OWNERA (robocze=2, weekend=1 → 9)?
+2. **Przywrócenie `required_primary_count` per wiersz/dzień (1.2):** czy
+   generator faktycznie znowu może wylosować dowolną kombinację (w tym
+   dokładnie przykład OWNERA: robocze=2/weekend=1), i czy TASK_SCOPE/WHERE_MAP
+   nadal się zgadzają z tą zmianą?
+3. **Czy kalkulator nadal nie zamienia się w mini-solver:** rozbicie na
+   warstwy to nadal prosta arytmetyka (sumy/maksima/ceil), nie próba układania
+   realnego grafiku z uwzględnieniem tego, KTO konkretnie pokrywa którą
+   warstwę — proszę potwierdzić, że ta granica jest zachowana.
 
 Do zamknięcia audytu: **implementacja czeka na PASS Codexa na tym briefie,
 potem na Task napisany przez ChatGPT, potem na jawne polecenie "adwokat
