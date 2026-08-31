@@ -22,7 +22,30 @@ Zakres: `tasks/ROTA-T044/round_01/tests/reports/batch2/seed30.json` ..
   `final_result.candidates` niepuste i `selected=True` po jednym/dwóch
   EXTERNAL). **BRAK_UWAG dla tej klasy obserwacji.**
 
-## DO_SPRAWDZENIA-01: systematyczny niedobór godzin bez absencji
+## KOREKTA (2026-08-31, po odpowiedzi Codexa i weryfikacji z OWNEREM)
+
+Poniższe DO_SPRAWDZENIA-01 **wycofuję jako nowe znalezisko**. Codex słusznie
+wskazał, że `tasks/ROTA-T044/brief.md:96-102` zawiera dosłowny cytat OWNERA
+sprzed T044, dotyczący dokładnie tej samej klasy zjawiska w surowych danych
+Wariantu A: *"Nie, bo to sprawa kadrowa nie nasza, koordynator musi pamiętać
+o urlopach nie Rota, Rota mu podaje narastająco bilans poprawnie."*
+Sprawdziłem to bezpośrednio z OWNEREM i policzyłem arytmetykę dla seed 47:
+całkowite zapotrzebowanie miesięczne to 472h, przy 5 osobach to 94.4h/osobę —
+daleko poniżej targetu 168h. To dokładnie ten sam mechanizm
+("zapotrzebowanie/osobę < norma pełnoetatowa"), nie osobne zjawisko
+"skupienia zapotrzebowania w tygodniu", jak błędnie założyłem niżej. Moja
+hipoteza mechanizmu (sekcja poniżej, zachowana dla przejrzystości procesu)
+była nietrafiona.
+
+**Jedno węższe, nierozstrzygnięte pytanie zostaje otwarte** (nowe, różne od
+pierwotnego zarzutu): czy `calculator_result=5` dla seed 47 to faktycznie
+minimalna obsada wymagana dla wykonalności (np. przez wymogi odpoczynku po
+H24, szczytowe obciążenie w piątek/sobotę), czy nadmiarowe zawyżenie wobec
+472h realnego zapotrzebowania (472h/168h ≈ 2.8, czyli objętościowo ~3 osoby
+by wystarczyły)? Niesprawdzone — jeśli warto to zbadać, to osobny,
+świadomie nowy wątek, nie kontynuacja tego znaleziska.
+
+## DO_SPRAWDZENIA-01 (WYCOFANE — zobacz KOREKTĘ powyżej): systematyczny niedobór godzin bez absencji
 
 **19/30 (63%)** obiektów ma co najmniej jednego pracownika z
 `effective_target_hours == target_hours_per_employee` (czyli **bez żadnej
