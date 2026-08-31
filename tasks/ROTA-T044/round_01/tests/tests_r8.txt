@@ -1,0 +1,44 @@
+ROTA-T044 — wąski reaudyt TASK_CHATGPT_CORRECTION_R1
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA korekty: 6334c6425172e4985ce73957b5c5df929232228b
+
+WERDYKT
+
+PASS — jedyny blocker z `tests_r7.txt` został usunięty, a kolejność gate'ów
+poprawiona. PASS dotyczy połączonego kontraktu:
+
+- `TASK_CHATGPT.md` @ `bccdc5876df42e83781d735012d8d2dcb8242d83`;
+- nakładka `TASK_CHATGPT_CORRECTION_R1.md` @ exact SHA powyżej.
+
+DOWODY
+
+- Diff od `a5b89cf` do exact SHA dodaje dokładnie jeden plik korekty; nie
+  zmienia briefu, kodu ani pozostałych części Tasku.
+- Dla 1 LOCAL jest dokładnie jeden blok 10 dni roboczych.
+- Dla co najmniej 2 LOCAL są dokładnie dwa bloki: 10 i 5 dni roboczych dla
+  dwóch różnych osób, bez nakładania.
+- Trzeci i kolejni LOCAL nie dostają następnych planowych bloków w tym
+  obiekcie; nie ma już niewykonalnego cyklu `10/5/10/5/...`.
+- T44-B-08 wymaga kontroli rosterów 1, 5 i 10, więc obejmuje pierwotny błąd
+  40/75 dni roboczych.
+- Kolejność jest jawna: najpierw ten PASS Codexa, dopiero potem „adwokat
+  diabła” CC; CC nadal nie implementuje.
+
+ZAKRES ZAMKNIĘTY
+
+Kalkulator 5/10/9, `required_primary_count` per wiersz/dzień, generator,
+Hypothesis, L4, EXTERNAL, HEADCOUNT/CLOSED WORLD, TASK_SCOPE i WHERE_MAP nie
+zostały zmienione ani ponownie ocenione.
+
+TESTY
+
+Nie uruchamiałem kodu ani solvera. To wąski audyt dokumentu przed
+implementacją; sprawdzenie polegało na exact diffie i mechanicznym
+przeliczeniu liczby bloków urlopowych.
+
+NASTĘPNY GATE
+
+CC może teraz wykonać wyłącznie zaplanowaną rundę „adwokata diabła” na tym
+exact SHA. Nadal bez implementacji, dopóki wynik tej rundy nie zostanie
+osobno zamknięty.
