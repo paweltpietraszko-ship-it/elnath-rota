@@ -414,6 +414,32 @@ def test_t44_arch_r1_01_ordinary_feasible_run_persists_a_raw_report(monkeypatch,
     assert payload["reproduction"]
     for required_key in ("atoms", "declared_local", "calculator_result", "absence_draws", "action_log"):
         assert payload[required_key] is not None
+    # R13-01: readback/analytics is part of the same minimal complete
+    # dataset TASK_CHATGPT.md names -- must be present and non-empty for
+    # an example that reached a real, persisted PLAN.
+    assert payload["readback"]["analytics"] is not None
+    assert payload["readback"]["month_view"] is not None
+
+
+def test_t44_r13_02_report_write_failure_propagates_not_swallowed(monkeypatch, tmp_path):
+    """R13-02 regression (tests_r13.txt): _write_completed_report() used to
+    catch and discard any exception from the write itself, so a disk/IO
+    failure left the example green with no report and no visible signal --
+    exactly the silent-loss bug ARCH-R1-01 was meant to close, recreated
+    one level down. The write must now propagate."""
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "REPORTS_DIR", tmp_path)
+
+    machine = CoordinatorVariantBMachine()
+    machine.setup_fresh_object(seed=1)
+    machine.do_plan()
+
+    def _disk_full(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(sys.modules[__name__], "_write_report_json_b", _disk_full)
+    with pytest.raises(OSError):
+        machine.teardown()
 
 
 def test_t44_arch_r1_01_technical_error_is_persisted_not_reinterpreted(monkeypatch, tmp_path):
@@ -502,6 +528,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
         self.connection = None
         self.client = None
         self.spec = None
+        self.site_id = None
         self.absence_draws: list = []
         self.plan_result = None
         self.final_result = None
@@ -534,6 +561,29 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
         except Exception as exc:
             self._write_and_reraise("setup", exc)
 
+    def _readback(self) -> dict:
+        """R13-01 fix: TASK_CHATGPT.md's minimal complete dataset names
+        "istotny readback/analitykę dostępną z produktu" explicitly --
+        get_analytics/get_month_view are existing, already-real endpoints;
+        this only READS them, never computes anything of its own (no new
+        oracle). Best-effort: analytics/month-view can legitimately be
+        empty/unavailable before any PLAN has produced persisted state, so
+        a fetch error here is recorded as data, not raised -- it must never
+        mask the example's own PLAN/REPLAN outcome, which is the primary
+        fact being persisted."""
+        if self.spec is None or self.site_id is None:
+            return {"analytics": None, "month_view": None}
+        readback: dict = {}
+        try:
+            readback["analytics"] = sim.get_analytics(self.client, self.site_id, self.spec.month)
+        except Exception as exc:
+            readback["analytics"] = {"error": str(exc)}
+        try:
+            readback["month_view"] = sim.get_month_view(self.client, self.site_id, self.spec.month)
+        except Exception as exc:
+            readback["month_view"] = {"error": str(exc)}
+        return readback
+
     def _snapshot(self, stage: str) -> dict:
         return {
             "stage": stage, "seed": self.spec.seed if self.spec else None,
@@ -547,6 +597,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             "action_log": self.action_log,
             "plan_result": self.plan_result, "externals": self.externals, "final_result": self.final_result,
             "selected": self.has_selected, "replan_results": self.replan_results,
+            "readback": self._readback(),
             "reproduction": sim.reproduction_command_b(self.spec.seed, len(self.replan_results)) if self.spec else None,
         }
 
@@ -559,17 +610,20 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
         """ARCH-R1-01: unconditional, called from teardown() for every
         example that reached at least one real PLAN -- regardless of
         whether the example ended in FEASIBLE, TECHNICAL_ERROR, an
-        exhausted DECISION_REQUIRED, or any other recognized status. Never
-        raises; a failure here must not mask or replace the example's own
-        outcome. Skipped when a failure snapshot was already written for
-        this example (_write_and_reraise), to avoid two overlapping files
-        for the same seed."""
+        exhausted DECISION_REQUIRED, or any other recognized status.
+        Skipped when a failure snapshot was already written for this
+        example (_write_and_reraise), to avoid two overlapping files for
+        the same seed.
+
+        R13-02 fix: deliberately does NOT swallow a write failure here.
+        This report's whole purpose is to guarantee that a completed
+        example is never silently lost -- catching and discarding the
+        write's own exception would recreate exactly that silent-loss bug
+        one level down, invisible behind a green example. If the write
+        itself fails, the example must fail visibly too."""
         if self.spec is None or self.plan_result is None or self._failed:
             return
-        try:
-            _write_report_json_b(f"stateful-seed{self.spec.seed}-completed", self._snapshot("completed"))
-        except Exception:
-            pass
+        _write_report_json_b(f"stateful-seed{self.spec.seed}-completed", self._snapshot("completed"))
 
     @rule()
     @precondition(lambda self: self.spec is not None and self.plan_result is None)
@@ -635,10 +689,12 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             self._write_and_reraise("invariant", exc)
 
     def teardown(self):
-        self._write_completed_report()
-        if self.connection is not None:
-            app.dependency_overrides.pop(get_conn, None)
-            self.connection.close()
+        try:
+            self._write_completed_report()
+        finally:
+            if self.connection is not None:
+                app.dependency_overrides.pop(get_conn, None)
+                self.connection.close()
 
 
 TestVariantBStateMachine = CoordinatorVariantBMachine.TestCase
