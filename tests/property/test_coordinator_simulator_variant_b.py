@@ -116,6 +116,28 @@ def test_t44_b_07_zero_coverage_object_is_never_produced():
         assert sim.has_any_coverage_b(spec.atoms)
 
 
+def test_t44_r10_01_generator_reaches_h24_and_varied_hours_and_same_day_overlap():
+    """R10-01 regression: the first generator drew only two fixed canonical
+    D 05-17 / N 17-05 windows, so H24 and other durations/start hours were
+    unreachable, and no (kind, weekday) ever had two independent entries."""
+    all_windows = set()
+    h24_count = 0
+    same_kind_weekday_max = 0
+    for seed in range(500):
+        spec = sim.random_object_spec_b(seed)
+        counts: dict[tuple[str, int], int] = {}
+        for a in spec.atoms:
+            all_windows.add((a.kind, a.start, a.end))
+            if a.start == a.end:
+                h24_count += 1
+            counts[(a.kind, a.weekday)] = counts.get((a.kind, a.weekday), 0) + 1
+        if counts:
+            same_kind_weekday_max = max(same_kind_weekday_max, max(counts.values()))
+    assert len(all_windows) > 2, f"only {len(all_windows)} distinct (kind,start,end) windows ever appeared"
+    assert h24_count > 0, "H24 (start==end) never appeared across 500 seeds"
+    assert same_kind_weekday_max >= 2, "same-kind-same-weekday legal overlap never appeared across 500 seeds"
+
+
 def test_generated_objects_vary_across_seeds_not_a_fixed_scenario():
     """Real variety, not scenario-replay: two different seeds produce
     canonically different objects (month and/or atom set differ)."""
@@ -130,6 +152,23 @@ class _FakeSpecForUrlop:
     def __init__(self, month: date, employee_count: int):
         self.month = month
         self.employee_count = employee_count
+
+
+def _workdays_covered(start: date, end: date) -> int:
+    from datetime import timedelta as _td
+    return sum(1 for i in range((end - start).days + 1) if sim._is_workday_b(start + _td(days=i)))
+
+
+@pytest.mark.parametrize("month", [date(2026, 1, 1), date(2026, 4, 1), date(2026, 11, 1), date(2026, 12, 1)])
+def test_t44_r10_02_urlop_blocks_cover_exact_workdays_across_a_holiday(month):
+    """R10-02 regression: months containing a POLISH_2026_HOLIDAYS date
+    used to give a shorter-than-promised block (e.g. 9 working days instead
+    of 10) because the old implementation added a fixed 14/7 calendar days
+    without checking for holidays inside the span."""
+    spec = _FakeSpecForUrlop(month, 5)
+    ten, five = sim.urlop_blocks_b(spec)
+    assert _workdays_covered(ten.start_date, ten.end_date) == 10
+    assert _workdays_covered(five.start_date, five.end_date) == 5
 
 
 @pytest.mark.parametrize("employee_count", [1, 5, 10])
@@ -287,6 +326,24 @@ def test_t44_b_13_closed_world_detects_a_foreign_employee_id():
         sim.assert_closed_world_b(bad_assignments, declared, external)
 
 
+def test_t44_r10_03_all_candidate_assignments_b_covers_every_candidate_not_just_first():
+    """R10-03 regression: a FEASIBLE result with a foreign employee_id
+    hidden in the SECOND candidate must be caught -- checking only
+    candidates[0] silently missed exactly this case."""
+    declared = ["SIMB-1-EMP-0"]
+    result = {
+        "status": "FEASIBLE",
+        "candidates": [
+            [{"assignment_id": "A1", "employee_id": "SIMB-1-EMP-0"}],
+            [{"assignment_id": "A2", "employee_id": "NOT-DECLARED"}],
+        ],
+    }
+    flattened = sim.all_candidate_assignments_b(result)
+    assert len(flattened) == 2
+    with pytest.raises(AssertionError):
+        sim.assert_closed_world_b(flattened, declared, [])
+
+
 def test_absences_are_written_before_first_plan_never_after():
     """CC devil's-advocate finding 1 / CORRECTION_R2: absences are a
     strictly initial-setup-only step in this harness's own driver code --
@@ -344,27 +401,36 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
         self.connection = None
         self.client = None
         self.spec = None
-        self.site_id = None
+        self.absence_draws: list = []
         self.plan_result = None
         self.final_result = None
         self.externals: list[dict] = []
         self.has_selected = False
+        self.replan_results: list[dict] = []
+        self.action_log: list[str] = []
 
     @initialize(seed=st.integers(min_value=0, max_value=2_000_000_000))
     def setup_fresh_object(self, seed):
         self.connection = connect(":memory:")
         app.dependency_overrides[get_conn] = lambda: (yield self.connection)
         self.client = TestClient(app)
-        self.spec = sim.random_object_spec_b(seed)
-        sim.assert_headcount_b(self.spec)
-        self.site_id = sim.build_object_b(self.client, self.spec)
-        rng = random.Random(seed * 104729 + 1)
-        draws = sim.initial_absences_b(self.spec, rng)
-        sim.apply_absences_b(self.client, self.site_id, self.spec, draws)
         self.plan_result = None
         self.final_result = None
         self.externals = []
         self.has_selected = False
+        self.replan_results = []
+        self.action_log = []
+        try:
+            self.spec = sim.random_object_spec_b(seed)
+            sim.assert_headcount_b(self.spec)
+            self.action_log.append("build_object_b")
+            self.site_id = sim.build_object_b(self.client, self.spec)
+            rng = random.Random(seed * 104729 + 1)
+            self.absence_draws = sim.initial_absences_b(self.spec, rng)
+            self.action_log.append("apply_absences_b")
+            sim.apply_absences_b(self.client, self.site_id, self.spec, self.absence_draws)
+        except AssertionError as exc:
+            self._write_and_reraise("setup", exc)
 
     def _snapshot(self, stage: str) -> dict:
         return {
@@ -375,7 +441,11 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             "declared_local": sim.declared_roster_b(self.spec) if self.spec else None,
             "calculator_result": sim.layered_headcount_b(self.spec.atoms) if self.spec else None,
             "target_hours_per_employee": self.spec.target_hours_per_employee if self.spec else None,
-            "plan_result": self.plan_result, "final_result": self.final_result, "externals": self.externals,
+            "absence_draws": [vars(d) for d in self.absence_draws],
+            "action_log": self.action_log,
+            "plan_result": self.plan_result, "externals": self.externals, "final_result": self.final_result,
+            "selected": self.has_selected, "replan_results": self.replan_results,
+            "reproduction": sim.reproduction_command_b(self.spec.seed, len(self.replan_results)) if self.spec else None,
         }
 
     def _write_and_reraise(self, stage: str, exc: Exception) -> None:
@@ -386,9 +456,11 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.spec is not None and self.plan_result is None)
     def do_plan(self):
         try:
+            self.action_log.append("run_plan")
             self.plan_result = sim.run_plan(self.client, self.site_id, self.spec.month)
             self.final_result = self.plan_result
             if self.plan_result["status"] == "DECISION_REQUIRED" and self.plan_result.get("decision_payload"):
+                self.action_log.append("run_with_external_loop_b")
                 loop = sim.run_with_external_loop_b(self.client, self.site_id, self.spec.month, self.spec, self.plan_result)
                 self.externals = loop["externals"]
                 self.final_result = loop["final_result"]
@@ -399,17 +471,33 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
     @rule()
     @precondition(lambda self: self.plan_result is not None and not self.has_selected and self.final_result["status"] == "FEASIBLE")
     def do_select_candidate(self):
-        sim.select_first_candidate(self.client, self.site_id, self.spec.month, self.final_result)
-        self.has_selected = True
+        try:
+            self.action_log.append("select_first_candidate")
+            sim.select_first_candidate(self.client, self.site_id, self.spec.month, self.final_result)
+            self.has_selected = True
+        except AssertionError as exc:
+            self._write_and_reraise("select_candidate", exc)
 
     @rule()
     @precondition(lambda self: self.has_selected)
     def do_replan(self):
         try:
+            self.action_log.append("run_replan")
             result = sim.run_replan(self.client, self.site_id, self.spec.month)
             assert result["status"] in _KNOWN_PLAN_STATUSES
+            self.replan_results.append(result)
         except AssertionError as exc:
             self._write_and_reraise("replan", exc)
+
+    @rule()
+    def observe(self):
+        """Always-available no-op: a terminal PLAN outcome (TECHNICAL_ERROR,
+        an exhausted DECISION_REQUIRED, NARROW_SEARCH_EXHAUSTED, ...) leaves
+        do_plan/do_select_candidate/do_replan all without a true
+        precondition -- Hypothesis's RuleBasedStateMachine requires at
+        least one rule to always be valid, or it raises InvalidDefinition
+        instead of just ending the example. This changes nothing; the
+        @invariant() below still runs after it."""
 
     @invariant()
     def headcount_and_closed_world_hold(self):
@@ -417,9 +505,13 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             return
         try:
             sim.assert_headcount_b(self.spec)
+            declared = sim.declared_roster_b(self.spec)
+            external_ids = [e["external_employee_id"] for e in self.externals]
             if self.final_result is not None and self.final_result["status"] == "FEASIBLE":
-                external_ids = [e["external_employee_id"] for e in self.externals]
-                sim.assert_closed_world_b(self.final_result["candidates"][0], sim.declared_roster_b(self.spec), external_ids)
+                sim.assert_closed_world_b(sim.all_candidate_assignments_b(self.final_result), declared, external_ids)
+            for replan_result in self.replan_results:
+                if replan_result["status"] == "FEASIBLE":
+                    sim.assert_closed_world_b(sim.all_candidate_assignments_b(replan_result), declared, external_ids)
         except AssertionError as exc:
             self._write_and_reraise("invariant", exc)
 

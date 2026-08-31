@@ -1085,25 +1085,39 @@ class ObjectSpecB:
     target_hours_per_employee: int
 
 
+_START_HOUR_CHOICES_B = (time(0, 0), time(5, 0), time(6, 0), time(7, 0), time(8, 0), time(14, 0), time(17, 0), time(20, 0))
+_DURATION_HOURS_CHOICES_B = (8, 10, 12, 16, 24)
+
+
+def _shift_end_b(start: time, duration_hours: int) -> time:
+    """duration_hours=24 always yields end==start (the H24 wraparound
+    encoding _row_hours/shift_duration_hours expect); any other duration
+    may or may not cross midnight depending on `start`, both legal."""
+    end_dt = datetime.combine(date(2000, 1, 1), start) + timedelta(hours=duration_hours)
+    return end_dt.time()
+
+
 def random_atoms_b(rng: random.Random) -> tuple[DemandAtomB, ...]:
-    """Free, independent per-(kind, weekday) generation (brief R8 1.2): for
-    each of D/N and each ISO weekday, decide whether it is active, and if
-    so at what hours (one of three realistic canonical windows -- the
-    freedom OWNER asked for is WHICH days/required_primary_count, not
-    inventing arbitrary new shift-time boundaries the real product's own
-    SiteShiftCatalog UI wouldn't offer) and required_primary_count in
-    {1,2}. Rerolled by the caller until has_any_coverage_b is true."""
-    windows = {
-        "D": (time(5, 0), time(17, 0)),
-        "N": (time(17, 0), time(5, 0)),
-    }
+    """Free, independent per-(kind, weekday) generation (brief R8 1.2; R10-01
+    fix -- the first version only ever drew two fixed canonical D/N 12h
+    windows, so H24 and varied hours were never reachable, contradicting
+    TASK_CHATGPT.md section 4's explicit requirement). For each ISO weekday
+    and each of D/N, draws 0, 1, or 2 INDEPENDENT entries (2 is a legal
+    same-kind-same-day overlap, per rota/planning/shift_catalog.py's own
+    documented rule), each with its own randomly drawn start hour, duration
+    (including 24h, which naturally encodes H24 via start==end regardless
+    of the drawn start hour) and required_primary_count in {1,2}. Rerolled
+    by the caller until has_any_coverage_b is true."""
     atoms = []
     for wd in ALL_WEEK:
-        for kind, (start, end) in windows.items():
-            if rng.random() < 0.5:
-                continue
-            required = rng.choice([1, 2])
-            atoms.append(DemandAtomB(kind, start, end, required, wd))
+        for kind in ("D", "N"):
+            entry_count = rng.choices([0, 1, 2], weights=[45, 45, 10])[0]
+            for _ in range(entry_count):
+                start = rng.choice(_START_HOUR_CHOICES_B)
+                duration = rng.choice(_DURATION_HOURS_CHOICES_B)
+                end = _shift_end_b(start, duration)
+                required = rng.choice([1, 2])
+                atoms.append(DemandAtomB(kind, start, end, required, wd))
     return tuple(atoms)
 
 
@@ -1127,20 +1141,33 @@ def random_object_spec_b(seed: int) -> ObjectSpecB:
 
 def catalog_rows_from_atoms_b(atoms: tuple[DemandAtomB, ...]) -> list[dict]:
     """Groups atoms sharing (kind, start, end, required_primary_count) into
-    one shift-catalog row with a combined active_weekdays list -- an
+    shift-catalog rows with a combined active_weekdays list -- an
     implementation detail (TASK_CHATGPT.md section 4), never losing the
     per-weekday required_primary_count semantics: two atoms with different
-    required_primary_count on the same weekday never collapse into one row."""
-    grouped: dict[tuple[str, time, time, int], list[int]] = {}
+    required_primary_count on the same weekday never collapse into one row.
+
+    Two atoms sharing (kind, start, end, required_primary_count) AND the
+    same weekday (a legal same-day overlap, generate_catalog_demands's own
+    "independent occurrences" rule) must become TWO SEPARATE rows, each
+    carrying that weekday once -- merging them into one row with the
+    weekday listed once would silently drop the second occurrence the
+    calculator already counted (layer_hours_b sums every atom)."""
+    buckets: dict[tuple[str, time, time, int], list[set[int]]] = {}
     for atom in atoms:
         key = (atom.kind, atom.start, atom.end, atom.required_primary_count)
-        grouped.setdefault(key, []).append(atom.weekday)
+        rows_for_key = buckets.setdefault(key, [])
+        target = next((r for r in rows_for_key if atom.weekday not in r), None)
+        if target is None:
+            target = set()
+            rows_for_key.append(target)
+        target.add(atom.weekday)
     return [
         {
             "kind": kind, "start_time": start.strftime("%H:%M"), "end_time": end.strftime("%H:%M"),
             "required_primary_count": required, "active_weekdays": sorted(weekdays),
         }
-        for (kind, start, end, required), weekdays in grouped.items()
+        for (kind, start, end, required), rows_for_key in buckets.items()
+        for weekdays in rows_for_key
     ]
 
 
@@ -1208,24 +1235,33 @@ def build_object_b(client: TestClient, spec: ObjectSpecB) -> str:
 # --- pierwszym PLAN -- nigdy dodawane/rozszerzane później (CC devil's- -----
 # --- advocate finding 1, zamknięte w CORRECTION_R2). -----------------------
 
-def _workday_count_in_range(start: date, days: int) -> date:
-    """Returns the end date of a block that starts on `start` and runs for
-    a fixed number of CALENDAR days such that it covers exactly the
-    intended number of working days when `start` is a Monday (brief 1.2a:
-    OWNER's "10 dni roboczych (2 tygodnie)" / "5 dni roboczych (tydzień)"
-    are literally 2 and 1 calendar weeks). `days` is 14 or 7."""
-    return start + timedelta(days=days - 1)
+def _is_workday_b(d: date) -> bool:
+    """Mon-Fri and not a POLISH_2026_HOLIDAYS date -- R10-02 fix: a real
+    urlop block must cover the STATED number of working days, and a
+    holiday landing inside a fixed 14/7 calendar-day span used to silently
+    shrink it (e.g. 9 working days instead of 10 in a month with a
+    Mon-Fri holiday)."""
+    return d.weekday() < 5 and d not in POLISH_2026_HOLIDAYS
 
 
-def _next_monday_on_or_after(d: date) -> date:
-    return d + timedelta(days=(7 - d.isoweekday() + 1) % 7)
+def _end_after_n_workdays(start: date, n: int) -> date:
+    """The calendar end-date of a block starting on `start` that covers
+    EXACTLY n real working days -- weekends/holidays inside the span
+    extend it (they don't count toward n) rather than shrinking it."""
+    count = 0
+    d = start
+    while True:
+        if _is_workday_b(d):
+            count += 1
+        if count == n:
+            return d
+        d += timedelta(days=1)
 
 
 def urlop_blocks_b(spec: ObjectSpecB) -> list[AbsenceDraw]:
     """TASK_CHATGPT_CORRECTION_R1.md section 1, deterministic w.r.t.
     spec.seed/month:
-    - employee_count == 1: the sole LOCAL gets ONE 10-workday (14 calendar
-      day) block;
+    - employee_count == 1: the sole LOCAL gets ONE 10-workday block;
     - employee_count >= 2: exactly TWO different LOCAL (index 0 and 1, a
       deterministic pick, not cyclic over the whole roster) get one
       10-workday and one 5-workday block respectively, non-overlapping;
@@ -1235,24 +1271,12 @@ def urlop_blocks_b(spec: ObjectSpecB) -> list[AbsenceDraw]:
     if spec.employee_count == 0:
         return []
     days_in_month = _month_dates(spec.month)
-    first_monday = _next_monday_on_or_after(days_in_month[0])
-    ten_day_start = first_monday
-    ten_day_end = _workday_count_in_range(ten_day_start, 14)
+    ten_day_start = days_in_month[0]
+    ten_day_end = _end_after_n_workdays(ten_day_start, 10)
     if spec.employee_count == 1:
-        return [AbsenceDraw(
-            employee_index=0, kind=AvailabilityKind.LEAVE_GRANTED.value,
-            start_date=ten_day_start, end_date=min(ten_day_end, days_in_month[-1]),
-        )]
-    five_day_start = _next_monday_on_or_after(ten_day_end + timedelta(days=1))
-    five_day_end = _workday_count_in_range(five_day_start, 7)
-    if five_day_end > days_in_month[-1] or ten_day_end > days_in_month[-1]:
-        # Degenerate short month: fall back to the earliest non-overlapping
-        # placement (10-day block from day 1, 5-day block right after it)
-        # rather than silently truncating either block's intended length.
-        ten_day_start = days_in_month[0]
-        ten_day_end = _workday_count_in_range(ten_day_start, 14)
-        five_day_start = ten_day_end + timedelta(days=1)
-        five_day_end = _workday_count_in_range(five_day_start, 7)
+        return [AbsenceDraw(employee_index=0, kind=AvailabilityKind.LEAVE_GRANTED.value, start_date=ten_day_start, end_date=ten_day_end)]
+    five_day_start = ten_day_end + timedelta(days=1)
+    five_day_end = _end_after_n_workdays(five_day_start, 5)
     return [
         AbsenceDraw(employee_index=0, kind=AvailabilityKind.LEAVE_GRANTED.value, start_date=ten_day_start, end_date=ten_day_end),
         AbsenceDraw(employee_index=1, kind=AvailabilityKind.LEAVE_GRANTED.value, start_date=five_day_start, end_date=five_day_end),
@@ -1389,3 +1413,65 @@ def assert_closed_world_b(assignments: list[dict], declared_roster: list[str], e
     known = set(declared_roster) | set(external_ids)
     for a in assignments:
         assert a["employee_id"] in known, f"Assignment {a.get('assignment_id')} belongs to unknown employee {a['employee_id']!r}"
+
+
+def all_candidate_assignments_b(result: dict) -> list[dict]:
+    """R10-03 fix: a FEASIBLE PlanningResult can return MULTIPLE candidates
+    -- checking only candidates[0] silently ignores a foreign employee_id
+    in any later candidate. Flattens every candidate's assignments into one
+    list for a single assert_closed_world_b() call."""
+    return [a for candidate in result.get("candidates", []) for a in candidate]
+
+
+def run_full_scenario_b(client: TestClient, seed: int, num_replans: int = 0) -> dict:
+    """One fully reproducible pass for a given seed -- builds the object,
+    applies the deterministic initial absences, PLANs (+ EXTERNAL loop if a
+    real DECISION_REQUIRED appears), selects the first candidate if
+    FEASIBLE, then REPLANs `num_replans` times. Deterministic given
+    (seed, num_replans) because random_object_spec_b/initial_absences_b are
+    pure functions of `seed` and every subsequent step only depends on the
+    real product's own response -- used both as the CoordinatorVariantBMachine's
+    reproduction command (OWNER-08 "gotowa komenda") and for standalone
+    debugging of one failing seed."""
+    spec = random_object_spec_b(seed)
+    assert_headcount_b(spec)
+    site_id = build_object_b(client, spec)
+    rng = random.Random(seed * 104729 + 1)
+    absence_draws = initial_absences_b(spec, rng)
+    apply_absences_b(client, site_id, spec, absence_draws)
+
+    plan_result = run_plan(client, site_id, spec.month)
+    final_result = plan_result
+    externals: list[dict] = []
+    if plan_result["status"] == "DECISION_REQUIRED" and plan_result.get("decision_payload"):
+        loop = run_with_external_loop_b(client, site_id, spec.month, spec, plan_result)
+        externals = loop["externals"]
+        final_result = loop["final_result"]
+
+    selected = False
+    replan_results: list[dict] = []
+    if final_result["status"] == "FEASIBLE":
+        select_first_candidate(client, site_id, spec.month, final_result)
+        selected = True
+        for _ in range(num_replans):
+            replan_results.append(run_replan(client, site_id, spec.month))
+
+    return {
+        "seed": seed, "site_id": site_id, "spec": spec, "absence_draws": absence_draws,
+        "plan_result": plan_result, "externals": externals, "final_result": final_result,
+        "selected": selected, "replan_results": replan_results,
+    }
+
+
+def reproduction_command_b(seed: int, num_replans: int) -> str:
+    """An actually executable one-liner (Wariant A's own
+    `_reproduction_command` pattern) rebuilding this exact seed's object and
+    replaying the exact recorded action sequence through run_full_scenario_b."""
+    return (
+        "python -c \""
+        "from api.deps import get_conn; from api.main import app; "
+        "from fastapi.testclient import TestClient; from rota.persistence.db import connect; "
+        "from tests.property.coordinator_simulator import run_full_scenario_b; "
+        "conn = connect(':memory:'); app.dependency_overrides[get_conn] = lambda: (yield conn); "
+        f"print(run_full_scenario_b(TestClient(app), {seed}, num_replans={num_replans}))\""
+    )

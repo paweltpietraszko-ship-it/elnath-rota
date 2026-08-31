@@ -74,3 +74,12 @@ część zwykłego `pytest`.
 
 `deadline=None`, `database=None`, `derandomize=False` — zamrożone wprost w
 kontrakcie, nie wynikają z tego pomiaru.
+
+## Aktualizacja po naprawie R10-01..R10-04 (niezależny audyt, `tests_r10.txt`)
+
+Po rozszerzeniu generatora (H24, zmienne godziny, legalne nakładanie się
+tego samego rodzaju/dnia) obiekty bywają większe/bardziej złożone. Zmierzony
+realny czas pełnego przebiegu `pytest ... -k TestVariantBStateMachine` z
+tymi samymi liczbami profilu domyślnego (8/4): **172,65 s**. Nadal wyraźnie
+poniżej ~750 s Wariantu A i w rzędzie "niskich minut" wymaganym kontraktem —
+liczby profilu pozostają bez zmian (8/4 domyślnie, 30/8 `ROTA_SIM_VARIANT_B_FULL=1`).
