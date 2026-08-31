@@ -1,0 +1,35 @@
+FILE: tests/property/coordinator_simulator.py
+LAYER: tests
+IMPORTS (8):
+  __future__
+  random
+  dataclasses
+  datetime
+  math
+  fastapi.testclient
+  rota.domain
+  rota.planning.shift_catalog
+
+TOP_LEVEL_SYMBOLS (1):
+  random_object_spec_b
+
+SYMBOL: random_object_spec_b
+  TOTAL_RAW_HITS: 16
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T044/round_01/tests/hypothesis_profile_measurement.md:22: spec = sim.random_object_spec_b(seed)
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T044/round_01/tests/where_map_post_implementation.txt:67: random_object_spec_b
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T044/round_01/tests/where_map_post_implementation.txt:594: SYMBOL: random_object_spec_b
+    DEF  SAME_FILE  TEST_TASK_ARCH tests/property/coordinator_simulator.py:1110: def random_object_spec_b(seed: int) -> ObjectSpecB:
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:82: spec = sim.random_object_spec_b(seed)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:115: spec = sim.random_object_spec_b(seed + rng_seed)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:122: a = sim.random_object_spec_b(1)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:123: b = sim.random_object_spec_b(2)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:156: spec = sim.random_object_spec_b(3)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:167: spec = sim.random_object_spec_b(3)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:189: spec = sim.random_object_spec_b(5)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:203: spec = sim.random_object_spec_b(0)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:358: self.spec = sim.random_object_spec_b(seed)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:444: spec_a = sim.random_object_spec_b(RUN_A)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:445: spec_b = sim.random_object_spec_b(RUN_B)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/property/test_coordinator_simulator_variant_b.py:449: spec_a_again = sim.random_object_spec_b(RUN_A)
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+

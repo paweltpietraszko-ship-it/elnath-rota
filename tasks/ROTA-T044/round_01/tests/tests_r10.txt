@@ -1,0 +1,134 @@
+ROTA-T044 — niezależny audyt implementacji, runda 10
+
+Werdykt: FAIL
+Audytowany branch: task/ROTA-T044
+Audytowany exact SHA: 302f10b4d74502b982964558cbc0ad5ef11d4d61
+Data: 2026-08-31
+
+Zakres audytu
+
+1. Scope/diff od zaakceptowanego gate'u b09b114..302f10b.
+2. WHERE_MAP i nowe symbole Wariantu B.
+3. Niezależne reproduktory generatora, urlopów, CLOSED WORLD i zapisu awarii.
+4. Celowane testy 5/10/9/4, realny pion API PLAN/EXTERNAL i jedna regresja Wariantu A.
+5. Bez pełnej regresji repo — zgodnie z AGENTS.md i bez zgody OWNERA.
+
+Wynik testów celowanych
+
+Komenda:
+
+  C:\Projects\Elnath Rota\.venv\Scripts\python.exe -m pytest -q \
+    tests/property/test_coordinator_simulator_variant_b.py::test_calc_01_uniform_req1_gives_5 \
+    tests/property/test_coordinator_simulator_variant_b.py::test_calc_02_uniform_req2_gives_10 \
+    tests/property/test_coordinator_simulator_variant_b.py::test_calc_03_mixed_workday2_weekend1_gives_9 \
+    tests/property/test_coordinator_simulator_variant_b.py::test_calc_04_devils_advocate_counterexample_gives_4_not_5 \
+    tests/property/test_coordinator_simulator_variant_b.py::test_t44_b_10_first_plan_uses_only_declared_local \
+    tests/property/test_coordinator_simulator_variant_b.py::test_t44_b_11_external_reaction_after_real_decision_required_correct_ordering \
+    tests/property/test_coordinator_simulator_variant_b.py::test_variant_a_headcount_rule_is_unaffected_by_variant_b
+
+Wynik: 7 passed in 2.23s.
+
+FINDING R10-01 — swobodny generator nie generuje H24 ani różnych godzin
+
+TRACE:
+- tasks/ROTA-T044/TASK_CHATGPT.md:97-110 wymaga losowania obecności D/N/H24,
+  godzin rozpoczęcia/zakończenia oraz dopuszczenia wielokrotnych wpisów i
+  legalnych overlapów.
+- tasks/ROTA-T044/ARCHITECT_FINAL_PREIMPLEMENTATION_GATE.md:45-52 zamraża ten
+  generator bez zawężenia klas obiektu.
+
+OWNERSHIP:
+- tests/property/coordinator_simulator.py:1088-1107 jest jedynym generatorem
+  atomów Wariantu B używanym przez random_object_spec_b i state machine.
+
+REPRO na exact SHA:
+- Wygenerowano 1000 obiektów (seedy 0..999) i zebrano wszystkie atomy.
+- Wynik:
+    kinds ['D', 'N']
+    windows [('05:00:00', '17:00:00'), ('17:00:00', '05:00:00')]
+    h24_count 0
+    same_kind_weekday_max 1
+- Kod ma na stałe dokładnie jedno okno D i jedno N. Nie istnieje losowanie H24,
+  innych godzin ani wielokrotnego wpisu tego samego rodzaju w tym samym dniu.
+
+FINDING R10-02 — urlop nazwany „10/5 dni roboczych” ma stałe 14/7 dni
+kalendarzowych i skraca się na świętach
+
+TRACE:
+- tasks/ROTA-T044/TASK_CHATGPT_CORRECTION_R1.md:28-36 i 54-62 wymaga dokładnie
+  10 oraz 5 dni roboczych.
+- tasks/ROTA-T044/TASK_CHATGPT_CORRECTION_R2.md:30-51 zachowuje te długości i
+  przenosi ich zapis do initial setup.
+
+OWNERSHIP:
+- tests/property/coordinator_simulator.py:1211-1259 wyznacza bloki urlopu B.
+
+REPRO na exact SHA:
+- Dla rosteru 5 LOCAL policzono poniedziałki–piątki z wyłączeniem
+  POLISH_2026_HOLIDAYS w zwróconych blokach.
+- Wynik:
+    2026-01: blok „10” = 9 dni roboczych (Święto Trzech Króli)
+    2026-04: blok „10” = 9 dni roboczych (Poniedziałek Wielkanocny)
+    2026-11: blok „10” = 9 dni roboczych (11 listopada)
+    2026-12: blok „5”  = 4 dni robocze (Boże Narodzenie)
+- Implementacja dodaje zawsze 13/6 dni do daty startu i nie uwzględnia świąt.
+
+FINDING R10-03 — CLOSED WORLD nie obejmuje każdego Assignmentu zwróconego
+przez produkt
+
+TRACE:
+- tasks/ROTA-T044/TASK_CHATGPT.md:224-233 wymaga sprawdzenia każdego
+  Assignmentu.
+- tasks/ROTA-T044/TASK_CHATGPT.md:326-336 powtarza to dla realnego pionu.
+
+OWNERSHIP:
+- tests/property/test_coordinator_simulator_variant_b.py:414-424 wykonuje
+  invariant Wariantu B.
+- tests/property/test_coordinator_simulator_variant_b.py:405-412 odbiera
+  również wynik REPLAN.
+
+REPRO na exact SHA:
+- Podano FEASIBLE z kandydatem 1 zawierającym poprawnego LOCAL i kandydatem 2
+  zawierającym employee_id NOT-DECLARED.
+- headcount_and_closed_world_hold() zakończyło się bez AssertionError:
+    candidate_2_foreign_was_not_detected
+- Invariant sprawdza wyłącznie candidates[0]. Wynik REPLAN jest zmienną lokalną
+  i nie jest sprawdzany ani zachowywany.
+
+FINDING R10-04 — trwały reproduktor nie zawiera obowiązkowego kompletu danych
+
+TRACE:
+- tasks/ROTA-T044/TASK_CHATGPT.md:250-268 wymaga m.in. absencji, kolejności
+  działań, wszystkich wyników/Assignmentów, dostępnego readbacku oraz gotowej
+  komendy odtworzenia.
+- tasks/ROTA-T044/TASK_CHATGPT.md:349-368, T44-B-18, wymaga reproduktora,
+  który zawiera komendę odtworzenia.
+- tasks/ROTA-T044/TASK_CHATGPT_CORRECTION_R2.md:75-79 wymaga tego samego path
+  także dla niespodziewanego non-2xx podczas initial setup.
+
+OWNERSHIP:
+- tests/property/test_coordinator_simulator_variant_b.py:319-331 zapisuje JSON.
+- tests/property/test_coordinator_simulator_variant_b.py:342-429 buduje stan,
+  snapshot i obsługę błędów state machine.
+
+REPRO na exact SHA:
+- _snapshot('audit') zwrócił wyłącznie klucze:
+    atoms, calculator_result, declared_local, externals, final_result, month,
+    plan_result, regime, seed, stage, target_hours_per_employee
+- Brakuje zapisanych draws absencji, historii akcji, wyniku REPLAN, readbacku /
+  analityki i gotowej komendy reprodukcji.
+- initial setup (build_object_b/apply_absences_b) oraz select_candidate znajdują
+  się poza blokami zapisującymi failure JSON, więc ich awaria również nie
+  przechodzi przez zadeklarowany wspólny path.
+
+Uwagi nieblokujące
+
+- Diff pozostaje w dozwolonym TASK_SCOPE; nie zmieniono rota/**, api/**,
+  frontend/src/** ani benchmarks/**.
+- Oracle kalkulatora 5/10/9/4 oraz sprawdzony pion PLAN/EXTERNAL przechodzą.
+- Raport WHERE_MAP istnieje, ale nie zastępuje powyższych reproduktorów.
+- Nie oceniano jakości grafików solvera: czerwone wyniki produktu pozostają
+  wynikami badania zgodnie z kontraktem.
+
+FAIL spełnia DEFECT_GATE dla R10-01..R10-04: każdy finding ma wskazany TRACE,
+właściciela w Wariancie B i deterministyczny reproduktor na exact SHA.

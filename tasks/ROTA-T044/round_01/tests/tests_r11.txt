@@ -1,0 +1,90 @@
+ROTA-T044 — niezależny reaudyt implementacji, runda 11
+
+Werdykt: FAIL
+Audytowany branch: task/ROTA-T044
+Audytowany exact SHA: ef419188860221beec4a1b9c6a5b7aa79eb38d6c
+Poprzedni raport: tests_r10.txt
+Data: 2026-08-31
+
+Zakres
+
+Wyłącznie cztery poprawki R10-01..R10-04 oraz dodatkowa reguła `observe`.
+Bez pełnej regresji repo.
+
+Potwierdzone poprawki
+
+1. R10-01 — PASS.
+   Niezależna próba 500 seedów: 80 różnych okien, 969 wystąpień H24 oraz
+   osiągalny legalny overlap dwóch wpisów tego samego rodzaju/dnia.
+
+2. R10-02 — PASS.
+   Celowane granice stycznia, kwietnia, listopada i grudnia 2026 zwracają
+   dokładnie 10 oraz 5 dni roboczych z pominięciem świąt.
+
+3. R10-03 — PASS.
+   CLOSED WORLD spłaszcza wszystkich kandydatów i sprawdza również zachowane
+   wyniki REPLAN.
+
+4. Dodatkowy `observe` — PASS w granicy kodu.
+   Reguła jest zawsze dostępna i nie zmienia wejścia ani wyniku produktu.
+
+5. Realny pion API — PASS.
+   Seed 117: wygenerowany H24, 3 LOCAL, pierwszy PLAN=DECISION_REQUIRED,
+   po dwóch dozwolonych EXTERNAL final=FEASIBLE, następnie
+   REPLAN=NARROW_SEARCH_EXHAUSTED. Wynik produktu nie został poprawiany.
+
+Testy celowane
+
+Uruchomiono nowe reproduktory R10-01/02/03, lifecycle absencji, oracle 4 oraz
+jedną regresję Wariantu A. Wynik: 9 passed in 1.95s.
+
+WHERE_MAP
+
+Uruchomiono:
+
+  python where.py tests/property/coordinator_simulator.py --symbol random_atoms_b
+  python where.py tests/property/coordinator_simulator.py --symbol _end_after_n_workdays
+  python where.py tests/property/coordinator_simulator.py --symbol all_candidate_assignments_b
+  python where.py tests/property/coordinator_simulator.py --symbol run_full_scenario_b
+
+Nie znaleziono konsumentów produktu ani wyjścia poza TASK_SCOPE.
+
+FINDING R11-01 — prawdziwa awaria backendu nadal nie zapisuje failure JSON
+
+TRACE:
+- tasks/ROTA-T044/TASK_CHATGPT.md:250-268 wymaga trwałego kompletu danych dla
+  naruszenia invariantów harnessu lub awarii.
+- tasks/ROTA-T044/TASK_CHATGPT_CORRECTION_R2.md:75-79 wymaga wspólnego
+  failure/reproducer path dla niespodziewanego błędu API.
+- tests_r10.txt R10-04 wskazał, że path ma obejmować każdy etap, nie tylko
+  wybrane asercje.
+
+OWNERSHIP:
+- tests/property/test_coordinator_simulator_variant_b.py:423-433,
+  455-490 i 502-516 są właścicielem przechwycenia awarii state machine.
+- Każdy z tych bloków przechwytuje wyłącznie `AssertionError`.
+
+REPRO na exact SHA:
+- W `do_plan` podstawiono deterministyczną awarię backendu:
+  `run_plan(...): raise RuntimeError("simulated backend crash")`.
+- Użyto tymczasowego `FAILURES_DIR`, bez zapisu do repo.
+- Wynik:
+
+    caught RuntimeError
+    failure_files []
+
+- Ta sama metoda zapisuje JSON dla nieudanego `assert`, ale wyjątek backendu
+  przechodzi obok `_write_and_reraise`. TestClient może propagować nieobsłużone
+  wyjątki aplikacji właśnie w tej postaci, więc jest to realna klasa awarii
+  badanego pionu, a nie nowy wymóg produktowy.
+
+Uwagi
+
+- `reproduction_command_b(117, 1)` został rzeczywiście wykonany i odtworzył
+  pełny przebieg; sama komenda jest działająca.
+- Snapshot zawiera teraz absencje, akcje, PLAN/EXTERNAL/REPLAN i komendę.
+- FAIL dotyczy wyłącznie nieprzechwyconych wyjątków. R10-01..R10-03 nie są
+  ponownie otwierane.
+
+DEFECT_GATE: TRACE, OWNERSHIP i deterministyczny REPRO są spełnione na exact
+SHA ef419188860221beec4a1b9c6a5b7aa79eb38d6c.

@@ -1,0 +1,64 @@
+ROTA-T044 — wąski reaudyt briefu R8
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA briefu: b8fccffa4591fe979fae09a6915a35f161566e12
+
+WERDYKT
+
+PASS — OWNER_CORRECTED jest poprawnie zapisane. Kontrakt kalkulatora
+warstwowego jest jednoznaczny, przywraca mieszaną obsadę per wiersz/dzień i
+nie tworzy drugiego solvera. PASS dotyczy wyłącznie powyższego exact SHA
+briefu przed implementacją.
+
+WARSTWY AUDYTU
+
+1. TRACE: `tests_r5.txt` + OWNER_CORRECTED „Tak ma rozróżniać”.
+2. Niezależne przeliczenie trzech klas wskazanych w `brief.md:328-346`.
+3. Sprawdzenie reprezentowalności mieszanego obiektu w `brief.md:363-385`.
+4. WHERE_MAP zgodnie z kontraktem:
+
+```
+python where.py tests/property/coordinator_simulator.py
+```
+
+`where.py` potwierdził warstwę `tests`, istniejących konsumentów Wariantu A w
+`tests/property/test_coordinator_simulator.py` i brak potrzeby zmiany plików
+produktu. Wynik jest surową mapą użyć, nie osobnym dowodem zachowania.
+
+DOWODY
+
+- Jednorodne wymaganie 1: tylko warstwa 1; wynik 5.
+- Jednorodne wymaganie 2: warstwa 1 = 5 i warstwa 2 = 5; wynik 10.
+- Robocze wymaganie 2 oraz weekend wymaganie 1: warstwa 1 obejmuje cały
+  tydzień i daje 5; warstwa 2 obejmuje tylko dni robocze i daje maksimum 4;
+  wynik 9.
+
+Rachunek używa wyłącznie sum godzin, `ceil`, maksimum po rzeczywistych
+miesiącach i sumę warstw (`brief.md:295-320`). Nie tworzy Assignmentów, nie
+wybiera pracowników, nie sprawdza odpoczynku i nie wpływa na wynik solvera po
+PLAN/REPLAN. Granica „prosty kalkulator koordynatora, nie mini-solver” jest
+zachowana.
+
+Generator ponownie losuje `required_primary_count` w zakresie `{1,2}` dla
+każdego wiersza/dnia (`brief.md:372-385`), więc może utworzyć dokładnie
+przykład OWNERA: robocze=2, weekend=1. Nie ma już cichego zawężenia R7.
+
+TASK_SCOPE / WHERE_MAP
+
+Zakres pozostaje wystarczający: nowe, addytywne funkcje kalkulatora i
+generatora należą do `tests/property/coordinator_simulator.py`, a ich nowy
+pion testowy do `tests/property/test_coordinator_simulator_variant_b.py`.
+Nie ma podstaw do zmian w `rota/**`, `api/**`, `frontend/src/**` ani
+benchmarkach.
+
+TESTY
+
+Nie uruchamiałem solvera ani regresji repozytorium: to audyt kontraktu przed
+implementacją. Testy celowane powstaną dopiero z kodem i mają odtworzyć
+5/10/9 oraz prawdziwy pion API Symulatora.
+
+NASTĘPNY GATE
+
+Brief może przejść do zaplanowanego Tasku ChatGPT, a następnie do jawnej
+rundy „adwokata diabła” CC. Ten PASS nie jest jeszcze zgodą na niezaudytowaną
+implementację.

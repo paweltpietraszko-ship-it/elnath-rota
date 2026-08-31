@@ -1,0 +1,63 @@
+ROTA-T044 — niezależny reaudyt implementacji, runda 12
+
+Werdykt: PASS
+Audytowany branch: task/ROTA-T044
+Audytowany exact SHA: e80103d10e7d980a1d38b3572ecac25731a464b8
+Poprzedni raport: tests_r11.txt
+Data: 2026-08-31
+
+Zakres
+
+Wyłącznie poprawka R11-01. Bez ponownego otwierania zamkniętych R10-01/02/03
+i bez pełnej regresji repo.
+
+Scope
+
+Diff a30c61d..e80103d zmienia tylko:
+
+- tests/property/test_coordinator_simulator_variant_b.py;
+- tasks/ROTA-T044/round_01/tests/hypothesis_profile_measurement.md.
+
+Brak zmian rota/**, api/**, frontend/src/**, benchmarks/** i Wariantu A.
+`git diff --check` czyste.
+
+TRACE
+
+- tasks/ROTA-T044/TASK_CHATGPT.md:250-268 — trwały reproduktor naruszenia
+  harnessu lub awarii;
+- tasks/ROTA-T044/TASK_CHATGPT_CORRECTION_R2.md:75-79 — wspólny
+  failure/reproducer path dla niespodziewanego błędu API;
+- tests_r11.txt R11-01 — wyjątek inny niż AssertionError musi również zapisać
+  snapshot, a następnie zostać ponownie zgłoszony.
+
+OWNERSHIP / przegląd kodu
+
+Bloki setup/plan/select/replan/invariant przechwytują teraz `Exception`,
+wywołują jeden istniejący `_write_and_reraise`, a ten po zapisie ponownie
+zgłasza pierwotny wyjątek. Nie zmieniono zachowania produktu ani wyniku
+solvera.
+
+REPRO
+
+Uruchomiono dokładny przypadek R11-01: `sim.run_plan` rzuca RuntimeError,
+FAILURES_DIR wskazuje katalog tymczasowy.
+
+Komenda:
+
+  C:\Projects\Elnath Rota\.venv\Scripts\python.exe -m pytest -q \
+    tests/property/test_coordinator_simulator_variant_b.py::test_t44_r11_01_non_assertion_backend_failure_still_writes_failure_json
+
+Wynik: 1 passed in 1.09s.
+
+Test potwierdza jednocześnie:
+
+- RuntimeError nadal wychodzi do Hypothesis/pytest;
+- powstaje failure JSON;
+- snapshot ma stage="plan" i właściwy seed;
+- prawdziwy katalog failures nie jest dotykany.
+
+Ocena
+
+R11-01 jest zamknięte. W granicy przekazanego diffa nie znaleziono nowego
+zachowania produktowego ani nowego defektu harnessu. PASS dotyczy wyłącznie
+exact SHA e80103d10e7d980a1d38b3572ecac25731a464b8.

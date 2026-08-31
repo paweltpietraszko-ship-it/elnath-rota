@@ -1,0 +1,60 @@
+ROTA-T044 — niezależny reaudyt poprawki ARCH-R1-01, runda 14
+
+Werdykt: PASS DLA POPRAWKI ARCH-R1-01
+Audytowany branch: task/ROTA-T044
+Audytowany exact SHA: 8e76de2d8f50800e9da1c81850cb44146d07b588
+Poprzedni raport: tests_r13.txt
+Data: 2026-08-31
+
+Zakres
+
+Wyłącznie R13-01 i R13-02 w neutralnym raw-report path. ARCH-R1-02 pozostaje
+poza zakresem zgodnie z decyzją architekta. Bez pełnej regresji repo.
+
+Scope
+
+Diff acef203..8e76de2 zmienia wyłącznie
+tests/property/test_coordinator_simulator_variant_b.py. Brak zmian produktu,
+Wariantu A oraz pozostałych warstw. `git diff --check` czyste.
+
+R13-01 — PASS
+
+- `_readback()` używa istniejących, prawdziwych operacji `get_analytics()` i
+  `get_month_view()`; nie oblicza własnego oracle.
+- `_snapshot()` zapisuje oba odczyty w jednym polu `readback` używanym przez
+  failure JSON i completed report.
+- Niezależny realny przebieg seed=117 dał:
+
+    status DECISION_REQUIRED FEASIBLE
+    readback_keys ['analytics', 'month_view']
+    analytics_type dict
+    month_view_type dict
+    readback_errors {}
+
+- Błąd samego GET jest zapisywany jako surowa informacja `{"error": ...}` i
+  nie zastępuje pierwotnego wyniku PLAN/REPLAN.
+
+R13-02 — PASS
+
+- `_write_completed_report()` nie przechwytuje już błędu zapisu.
+- `teardown()` używa `try/finally`: błąd zapisu pozostaje widoczny, a override
+  i połączenie SQLite są mimo tego sprzątane.
+- Test z `_write_report_json_b(...): raise OSError("disk full")` potwierdza
+  propagację wyjątku zamiast zielonego przebiegu bez pliku.
+
+Testy celowane
+
+Komenda objęła:
+
+- zwykły realny przebieg zapisujący completed report wraz z readbackiem;
+- błąd zapisu completed report;
+- TECHNICAL_ERROR zapisany bez reinterpretacji.
+
+Wynik: 3 passed in 91.57s.
+
+Ocena
+
+Oba findings tests_r13.txt są zamknięte na exact SHA
+8e76de2d8f50800e9da1c81850cb44146d07b588. Ten raport potwierdza poprawkę
+blockera ARCH-R1-01; finalne architektoniczne zamknięcie całego T044 pozostaje
+do oceny architekta. Nie otwierano ani nie implementowano ARCH-R1-02.

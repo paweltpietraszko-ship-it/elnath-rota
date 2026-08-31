@@ -1,0 +1,76 @@
+ROTA-T044 — wąski reaudyt briefu R3
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA briefu: f69c0aebe45a4fa9e3229748b7d3ea640c1464ca
+
+WERDYKT
+
+WYMAGA_KOREKTY — CC zrozumiał zasadę Symulatora i poprawnie zamknął
+R2-02 oraz limit EXTERNAL z R2-03. Brief nie jest jednak jeszcze mechanicznie
+wykonywalny w trzech wąskich miejscach. Nie uruchamiałem testów: audytowanym
+artefaktem jest wyłącznie kontrakt przed implementacją.
+
+ZAMKNIĘTE
+
+- `required_primary_count` jest jednoznacznie ograniczony do `{1, 2}`
+  (`brief.md:211-218`). Implementer nie ma furtki do samodzielnego rozszerzenia.
+- EXTERNAL wolno dodać dopiero po rzeczywistym `DECISION_REQUIRED`, a jego
+  maksymalna liczba równa się wynikowi kalkulatora LOCAL (`brief.md:317-334`).
+- Symulator pozostaje automatem decyzji koordynatora: poza kalkulatorem obsady
+  nie ocenia grafiku, fairness ani bilansu (`brief.md:141-151`, `350-376`).
+
+R3-01 — kalkulator nadal nie ma jednego kalendarza, na którym liczy
+
+Wzór używa jednocześnie `dni_kalkulacji = 31`,
+`nominal_monthly_hours_kp(...)` i wzoru zależnego od dni tygodnia
+(`brief.md:162-173`). Funkcja produkcyjnie reużywana przez test wymaga jednak
+konkretnej daty miesiąca i świąt (`tests/property/coordinator_simulator.py:
+164-183`). Samo „31 dni” nie określa:
+
+- ile w tym okresie wypada poniedziałków, weekendów i świąt, więc nie da się
+  policzyć obiektu „tylko weekend” ani robocze/weekend;
+- jaką przyjąć normę KP — różne 31-dniowe miesiące mają różną normę.
+
+CC ma wskazać jeden jawny kalendarz referencyjny albo równoważną, kompletną
+regułę wyliczenia najgorszego 31-dniowego układu. Bez tego dwa poprawne
+implementacje dadzą inną liczbę LOCAL dla tego samego wzoru zapotrzebowania.
+
+R3-02 — kontrakt urlopu nie działa dla legalnej jednoosobowej załogi
+
+Generator może utworzyć rzadki obiekt, dla którego kalkulator zwróci 1 LOCAL,
+np. pojedynczą krótką zmianę tylko jednego dnia tygodnia. Jednocześnie sekcja
+1.2a nakazuje przydzielić 10 dni roboczych jednej osobie i 5 dni roboczych
+drugiej osobie (`brief.md:240-250`). Przy jednym LOCAL jest to niemożliwe.
+
+Brief musi powiedzieć, co robi koordynator przy załodze mniejszej niż 2. Nie
+wolno implementerowi po cichu dodać drugiego LOCAL, bo naruszyłby wynik
+kalkulatora.
+
+W tej samej sekcji „~25% per wygenerowany obiekt/krok stateful”
+(`brief.md:258-267`) oznacza dwie różne częstości. Przy sześciu niezależnych
+krokach szansa co najmniej jednego L4 wynosi około 82%, a nie 25%. Trzeba
+wybrać jedno: losowanie raz na obiekt albo przy każdym uprawnionym kroku.
+
+R3-03 — domyślny profil Hypothesis nie jest jeszcze profilem tanim
+
+Brief każe zawsze uruchamiać 20 przykładów po 6 kroków (`brief.md:279-285`).
+Istniejący pomiar realnego Wariantu A wynosi 749,78 s dla 20 obiektów
+(`tasks/ROTA-T044/round_01/tests/tests_r1.txt:92`). Wariant B może wykonywać
+więcej niż jeden PLAN/REPLAN na przykład. Nie ma więc dowodu, że 20/6 nadaje
+się do zwykłego, częstego pytest; dostępny dowód wskazuje przeciwnie.
+
+Przed zamrożeniem liczb należy zmierzyć jeden mały przebieg przez prawdziwe
+API+solver i na tej podstawie oddzielić szybki profil od opt-in. Nie narzucam
+nowych liczb bez pomiaru.
+
+R2 żądało też jawnej wartości `database`; R3 zamraża `deadline` i
+`derandomize`, ale `database` nadal pomija (`brief.md:279-285`). Należy ją
+wpisać wprost, aby zapisane przykłady Hypothesis nie zmieniały deklarowanej
+semantyki „nowe wejścia przy każdym uruchomieniu”.
+
+NASTĘPNY GATE
+
+Potrzebna jest jedna mechaniczna korekta tylko tych trzech punktów. Nie
+otwierać ponownie rozstrzygniętych granic Symulatora, zakresu `{1,2}` ani
+reakcji EXTERNAL. Jeżeli po tej korekcie kontrakt nadal będzie wymagał
+projektowania przez audytora, zgodnie z AGENTS.md audyt należy zatrzymać.

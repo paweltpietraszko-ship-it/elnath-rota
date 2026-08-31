@@ -1,0 +1,211 @@
+ROTA-T044 — CC adwokat diabła, runda 1
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA (worktree HEAD w chwili audytu): 9b736167c33514f4db033e9c836a7e13c83d0341
+Dokumenty ocenione:
+  - tasks/ROTA-T044/brief.md @ b8fccffa4591fe979fae09a6915a35f161566e12 (R8)
+  - tasks/ROTA-T044/round_01/tests/tests_r6.txt @ 7c892a8ac1a2816e4f26c015ccc27a270b616c40 (PASS R8)
+  - tasks/ROTA-T044/TASK_CHATGPT.md @ bccdc5876df42e83781d735012d8d2dcb8242d83
+  - tasks/ROTA-T044/TASK_CHATGPT_CORRECTION_R1.md @ 6334c6425172e4985ce73957b5c5df929232228b
+  - tests_r7.txt (FAIL, T44-TASK-01) i tests_r8.txt (PASS korekty) — przeczytane jako
+    historia, nie ponownie audytowane (Codex już to zamknął).
+  - raw `python where.py tests/property/coordinator_simulator.py` uruchomiony na
+    exact HEAD tego worktree — brak konsumentów produktu (rota/**, api/**), zgodnie
+    z TASK_SCOPE.
+
+Rola: wyłącznie adwokat diabła. Nie proponuję ani nie implementuję poprawki
+produktu. Dwa znaleziska poniżej, oba niezależnie zweryfikowane kodem/liczbami.
+
+================================================================================
+FINDING 1 — BLOCKER
+Brak wymogu obsługi znanego wyjątku RetroactiveAbsenceRejected przy pisaniu
+urlopu/L4 — Wariant A potrzebował tego wprost, Wariant B milczy
+================================================================================
+
+TRACE
+
+- brief.md R8, sekcja 1.2a i OWNER-03 (TASK_CHATGPT.md §5, linie 122-145):
+  urlop i L4 są wpisywane "przez istniejące API dostępności"
+  (`POST /workspace/employees/{id}/availability`), ten sam mechanizm co
+  Wariant A.
+- TASK_CHATGPT.md linie 164-172 ("Przykłady preconditions") wymienia TYLKO
+  trzy przykładowe preconditions (select_candidate, REPLAN, EXTERNAL) —
+  słowo "Przykłady" wprost mówi, że lista nie jest wyczerpująca. Nigdzie w
+  TASK_CHATGPT.md ani TASK_CHATGPT_CORRECTION_R1.md nie ma zdania w stylu
+  "absencja (urlop/L4) jest zapisywana dokładnie raz, wyłącznie przed
+  pierwszym PLAN tego obiektu, i nigdy nie jest dodawana ani rozszerzana
+  po jakimkolwiek PLAN/REPLAN dla tego samego miesiąca".
+- OWNER-08 (raport, linie 255-268) wymaga PEŁNEGO, ustrukturyzowanego
+  artefaktu reprodukcji dla każdego naruszenia/awarii (run id, katalog,
+  miesiąc, wynik kalkulatora, roster, targety, absencje, kolejność akcji,
+  statusy/payloady decyzji, zwrócone Assignmenty, readback, gotowa komenda)
+  — nie samego tracebacku z pytest/Hypothesis.
+
+KOD/SEAM NA EXACT SHA (main@1b6bfbf, produkt nietknięty przez ten Task)
+
+- `rota/persistence/absence_reference_repository.py:77-84`:
+  `class RetroactiveAbsenceRejected(Exception)` — podnoszony, gdy nowy/
+  rozszerzony aktywny SICK_LEAVE/LEAVE_GRANTED "newly cover"-uje PRIMARY
+  Assignment, który już się zaczął (`assignment.start_datetime < recorded_at`)
+  albo jest REALIZED (linie 162-170).
+- `api/errors.py:28-52`: `_STATUS_BY_EXCEPTION` NIE zawiera
+  `RetroactiveAbsenceRejected` — wpada w domyślny `return
+  HTTPException(status_code=500, detail=f"unexpected error: {exc}")`
+  (linia 52). To jest surowy, nieopisany 500, nie czytelna odmowa biznesowa.
+- Ten dokładny wyjątek już raz uderzył w Symulatora: T043 (Wariant A) R6/R7
+  musiał dodać explicit "crash→result conversion for pre-REPLAN absence
+  collisions" (seed16-crash.json/seed18-crash.json, wspomniane w
+  `tasks/ROTA-T043/round_01/tests/` tej samej rodziny Tasków) właśnie dla
+  tego przypadku — to nie jest hipotetyczne ryzyko, to już raz naprawiany
+  defekt w bliźniaczym wariancie tego samego mechanizmu.
+
+DLACZEGO TO DOTYCZY WARIANTU B
+
+Task nie definiuje wprost, że urlop/L4 są zapisywane WYŁĄCZNIE raz, przed
+pierwszym PLAN, i nigdy nie dotykają miesiąca, w którym istnieje już
+jakikolwiek PLANNED/REALIZED PRIMARY Assignment. Wariant B ma też
+wielomiesięczne sekwencje (§11 brief.md, TASK_CHATGPT.md nie ogranicza tego
+inaczej niż "Nie buduj kwartalnego oracle'a") — jeśli implementacja (albo
+swoboda Hypothesis w kolejności reguł state machine) kiedykolwiek zapisze
+nową absencję dla miesiąca, który już ma PLANNED Assignment (np. przez
+pomyłkę w granicach dat bloku urlopowego, albo przez potencjalną przyszłą
+regułę "dodaj absencję w trakcie" nieopisaną explicité jako zakazaną), trafi
+dokładnie w ten sam, znany wyjątek — i bez specjalnej obsługi wyjdzie jako
+nieopisany 500/traceback, nie jako ustrukturyzowany artefakt wymagany przez
+OWNER-08.
+
+MINIMALNY PRZYKŁAD
+
+1. Wygeneruj obiekt z `liczba_LOCAL=1`, miesiąc M.
+2. Zapisz urlop dla jedynego LOCAL na dni [5, 6, 7] miesiąca M (zgodnie z
+   TASK_CHATGPT_CORRECTION_R1.md — jeden blok 10 dni roboczych).
+3. Wykonaj PLAN → produkt tworzy PRIMARY Assignment na dzień 10 miesiąca M
+   dla tego LOCAL (dzień poza urlopem).
+4. Harness (albo nowa reguła state machine, gdyby ktoś ją dodał bez
+   przeczytania tego findingu) zapisuje DRUGI wpis SICK_LEAVE dla tego
+   samego LOCAL, obejmujący dzień 10 — narusza już istniejący PRIMARY
+   Assignment.
+5. `POST .../availability` zwraca 500 "unexpected error: ... would newly
+   cover PRIMARY assignment ...".
+6. Bez explicit obsługi tego kodu wyjątku, harness albo się wywali z gołym
+   AssertionError/traceback (nie spełniając OWNER-08), albo — gorzej —
+   jeśli helper nie sprawdza statusu odpowiedzi wcale, cicho zignoruje
+   prawdziwy defekt produktu.
+
+KLASYFIKACJA: BLOCKER
+
+Nie dlatego, że mechanizm na pewno wystąpi w każdym przebiegu — ale dlatego,
+że (a) Task nie zamyka tej możliwości jawnym zakazem/precondition, (b)
+identyczny mechanizm już raz wymagał specjalnej naprawy w Wariancie A, (c)
+OWNER-08 wymaga ustrukturyzowanego artefaktu, którego goły wyjątek nie
+dostarczy automatycznie. Implementer powinien albo dodać jawny precondition
+"żadna nowa absencja nie może dotyczyć miesiąca z istniejącym PLANNED/
+REALIZED Assignmentem tego pracownika" (co per design Wariantu B już powinno
+być prawdą, tylko nie jest zapisane), albo jawnie dodać ten wyjątek do
+listy "zaskakujących wyników produktu do zachowania" w §9.2/§10, tak jak
+zrobił to Wariant A.
+
+================================================================================
+FINDING 2 — NON_BLOCKING
+Kalkulator warstwowy ("suma niezależnych maksimów per warstwa") może dać
+wynik WYŻSZY niż rzeczywisty najgorszy przypadek dla pojedynczego,
+realizowalnego miesiąca — mała, ale realna resztka dokładnie tego problemu
+("fory dla solvera"), który OWNER już dwa razy odrzucił
+================================================================================
+
+TRACE
+
+- brief.md R8 (linie ok. 295-320) i TASK_CHATGPT.md §3.2 (linie 66-95):
+  "dla warstwy weź maksimum z 12 miesięcy" — KAŻDA warstwa dostaje WŁASNE,
+  NIEZALEŻNE maksimum po 12 miesiącach, wyniki są SUMOWANE.
+- Matematyczny fakt (nie interpretacja): dla dowolnych funkcji
+  `warstwa_1(m)`, `warstwa_2(m)` po tych samych 12 miesiącach zawsze
+  zachodzi `max(w1) + max(w2) >= max(w1(m) + w2(m))`, a nierówność bywa
+  OSTRA, gdy szczyty obu warstw wypadają w RÓŻNYCH miesiącach. Brief/Task
+  zakłada milcząco równość — sprawdzone na trzech kontrolnych przypadkach
+  (5/10/9), gdzie akurat zachodzi równość, ale generator (OWNER-02,
+  TASK_CHATGPT.md §4) ma pełną swobodę tworzenia wzorów POZA tymi trzema
+  przypadkami kontrolnymi.
+
+KONKRETNY KONTRPRZYKŁAD (policzony bezpośrednio, nie hipotetyczny)
+
+Obiekt: zmiana 12h, wymagana obecność (required_primary_count=1) w
+poniedziałek-sobotę (bez niedzieli), PLUS drugi wymagany pracownik
+(required_primary_count=2) tylko w poniedziałek/wtorek/sobotę.
+
+- Warstwa 1 (>=1, pon-sob) per miesiąc 2026 (I-XII): [3,2,2,2,2,2,2,2,2,2,2,2]
+  → max = 3 (styczeń).
+- Warstwa 2 (>=2, pon/wt/sob) per miesiąc: [1,1,1,1,1,1,1,2,1,1,1,1]
+  → max = 2 (sierpień).
+- Kalkulator Tasku: 3 + 2 = **5 LOCAL**.
+- Rzeczywisty najgorszy PRAWDZIWY miesiąc: styczeń daje 3+1=4, sierpień
+  daje 2+2=4, każdy inny miesiąc daje 2+1=3. Prawdziwe maksimum "dla
+  jednego, faktycznie możliwego miesiąca" = **4**, nie 5.
+
+Metoda: bezpośrednie przeliczenie `nominal_monthly_hours_kp` (ten sam kod
+co w kalkulatorze) dla wszystkich 12 miesięcy 2026 z `POLISH_2026_HOLIDAYS`,
+zweryfikowane skryptem Python w tej sesji audytu (nie zgadywane).
+
+DLACZEGO TO WAŻNE, MIMO ŻE "BEZPIECZNE"
+
+Ten błąd nigdy nie daje NIEDOBORU (jest bezpieczny w kierunku "za dużo", nie
+"za mało") — ale OWNER dwukrotnie w tym samym Tasku (R6→R7 z marginesem
+urlopowym, potem po weryfikacji na własnym referencyjnym obiekcie) wprost
+odrzucił każde "bezpieczne" zawyżenie jako danie solverowi "fory": "jeśli
+sztucznie zawyzysz obsadę to dasz fory solverowi [...] za mało, to solver
+będzie rządać wciąż wsparcia za dużo będzie mieć fory" (brief.md, korekta
+R7). Ten sam mechanizm — tylko mniejszej skali (różnica 1 osoby, nie 1-2
+jak margines) i ograniczony do bardziej złożonych, asymetrycznych wzorów
+generatora — przetrwał w zaakceptowanej korekcie R8/PASS Codexa, bo trzy
+przypadki kontrolne (5/10/9) akurat nie ujawniają tej rozbieżności.
+
+KLASYFIKACJA: NON_BLOCKING
+
+Nie blokuję PASS-u, bo: (a) błąd jest zawsze w bezpiecznym kierunku (nigdy
+niedobór), (b) dotyczy tylko wzorów POZA trzema zamrożonymi przypadkami
+kontrolnymi, które i tak muszą pozostać dokładnie 5/10/9 niezależnie od tej
+uwagi, (c) zakres skali jest mały (obserwowana różnica: 1 osoba na
+skonstruowanym przykładzie). Zgłaszam to jednak jawnie, bo OWNER position
+na ten temat była powtarzana i silna — to jest dokładnie ten rodzaj rzeczy,
+o którą OWNER prosił mnie sprawdzić przy poprzednich rundach ("nie
+zaszyłeś jeszcze jakiejś stałej reguły, która wyklucza dozwoloną
+losowość/daje fory"). Decyzja, czy to wymaga poprawki (np. liczenie
+`max_m(suma warstw dla m)` zamiast `suma(max warstw)`, co wymagałoby innego,
+bardziej złożonego dowodu niż trzy proste przypadki kontrolne) należy do
+OWNERA — nie proponuję tu konkretnej poprawki, zgodnie z rolą adwokata
+diabła.
+
+================================================================================
+CO SPRAWDZIŁEM I NIE ZNALAZŁEM PROBLEMU
+================================================================================
+
+- TASK_SCOPE/WHERE_MAP: `where.py` na exact HEAD potwierdza zero
+  konsumentów produktu (`rota/**`, `api/**`, `frontend/src/**`) dla
+  `tests/property/coordinator_simulator.py`; jedyny konsument to
+  `tests/property/test_coordinator_simulator.py` (Wariant A, nietknięty).
+- Granica kalkulator-nie-solver: kalkulator warstwowy to nadal wyłącznie
+  sumy/`ceil`/maksima na wygenerowanych danych wejściowych — nie tworzy
+  Assignmentów, nie wybiera osób, nie zna wyniku PLAN/REPLAN. Zgodne z
+  OWNER-01.
+- T44-TASK-01 (niewykonalny "10/5 naprzemiennie dla każdego LOCAL" —
+  błąd, który pochodził z mojego własnego zapisu w brief.md 1.2a) jest
+  poprawnie zamknięty przez TASK_CHATGPT_CORRECTION_R1.md i PASS Codexa
+  (tests_r8.txt) — nie otwieram tego ponownie.
+- Kolejność gate'ów (Codex → dopiero CC adwokat diabła) jest zachowana i
+  udokumentowana w §17 zgodnie z korektą OWNERA z tej sesji.
+- Sprawdzone liczby kontrolne 5/10/9 — zweryfikowane niezależnie
+  (bezpośrednie przeliczenie), zgodne z tym co twierdzi Task.
+
+================================================================================
+WERDYKT KOŃCOWY
+================================================================================
+
+NIE JEST TO `NO_BLOCKER_FOUND`. Finding 1 jest klasyfikowany jako BLOCKER —
+rekomenduję, żeby Task/brief dostał jawne doprecyzowanie zakresu absencji
+(kiedy dokładnie mogą być zapisywane, i co się dzieje z tym konkretnym,
+znanym wyjątkiem produktu) przed implementacją. Finding 2 jest NON_BLOCKING,
+ale jawnie zgłoszony do decyzji OWNERA ze względu na jego wcześniejszą,
+powtarzaną, silną pozycję w tej dokładnej sprawie.
+
+Ten raport nie jest zgodą na implementację. Task wraca do architekta/OWNERA
+do zamknięcia gate'u, zgodnie z TASK_CHATGPT.md §17.
