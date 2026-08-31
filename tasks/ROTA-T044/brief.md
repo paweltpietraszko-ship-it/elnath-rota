@@ -664,6 +664,21 @@ WEWNĘTRZNĄ SPÓJNOŚĆ, nie kwestionować same decyzje jako niedociągnięcia:
   szerszy zakres nie testuje innej ścieżki kodu, tylko wydłuża czas solve i
   psuje tani profil Hypothesis. Duże obiekty to świadomie osobny,
   nieotwarty temat, nie brakujący element tego briefu.
+- **Kalkulator nie musi być zweryfikowany dla KAŻDEJ możliwej liczby
+  LOCAL, tylko dla ręcznie policzonych przypadków kontrolnych (5/10/4).**
+  OWNER wprost: "dochowaliśmy staranności w wyliczeniu [...] jeśli
+  udowodnimy że Rota prawidłowo wylicza przy X pracowników to poprawnie
+  wyliczy i przy X +/- 1." To test MECHANIZMU (czy solver poprawnie
+  przetwarza zadaną, dobrze zweryfikowaną obsadę), nie test każdej
+  możliwej wartości z osobna — nie ma w kodzie solvera żadnego progu
+  specyficznego dla konkretnej liczby osób, więc nie ma podstaw
+  wymagać wyczerpującego pokrycia wszystkich wariantów jako warunku PASS.
+  Dodatkowo: sprawdzono publicznie dostępne źródła branżowe (PZP Ochrona,
+  Polska Izba Ochrony) — obie publikują wyłącznie kalkulatory KOSZTU
+  roboczogodziny (do wyceny kontraktów), nie metodykę wyliczania obsady;
+  żadna "oficjalna, branżowa" formuła obsady nie istnieje do porównania —
+  arytmetyka Kodeksu pracy użyta w kalkulatorze (1.1) to standardowy,
+  ogólny mechanizm prawa pracy, nie coś specyficznego dla ochrony.
 - **Dokładny mechanizm losowania L4 (~25%)** (np. konkretna dystrybucja
   Hypothesis) celowo zostawiony implementerowi w ramach TASK_SCOPE — kontrakt
   wymaga tylko: prawdziwe losowanie, ~25% szans, blok 5-dniowy. To nie jest
