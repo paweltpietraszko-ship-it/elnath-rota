@@ -46,6 +46,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from math import ceil
 
 from fastapi.testclient import TestClient
 
@@ -956,3 +957,435 @@ def compute_quarter_oracle(quarter_result: dict) -> dict:
         mismatches.extend(month_mismatches)
 
     return {"status": "QUARTER_BALANCE_FAIL" if mismatches else "QUARTER_BALANCE_PASS", "per_month": per_month}
+
+
+# ===========================================================================
+# ROTA-T044 (tasks/ROTA-T044/brief.md R8 + TASK_CHATGPT.md + CORRECTION R1/R2
+# + ARCHITECT_FINAL_PREIMPLEMENTATION_GATE.md): Symulator Koordynatora
+# Wariant B -- prawdziwa zmienność zachowania.
+#
+# TEST-HARNESS BOUNDARY, identyczna jak w Wariancie A powyżej: Symulator
+# automatyzuje wyłącznie decyzje koordynatora. Jego JEDYNA własna
+# odpowiedzialność obliczeniowa to kalkulator liczby LOCAL, wykonywany raz,
+# przed pierwszym PLAN. Nie ocenia fairness, bilansu ani jakości grafiku --
+# zły/dziwny wynik produktu jest wynikiem badania, nigdy sygnałem do zmiany
+# wejścia. Wariant A powyżej zostaje całkowicie nietknięty; wszystko poniżej
+# jest addytywne, z osobnymi nazwami (sufiks _b / *B), nawet gdy loguje
+# podobne czynności co Wariant A.
+# ===========================================================================
+
+WSZYSTKIE_MIESIACE_2026: tuple[date, ...] = tuple(date(2026, m, 1) for m in range(1, 13))
+MAX_REQUIRED_PRIMARY_COUNT_B = 2  # zakres {1,2}, Codex R2-02/OWNER 2026-08-31
+
+
+@dataclass(frozen=True)
+class DemandAtomB:
+    """One (shift kind, weekday) slice of a freely generated Wariant B
+    object -- the smallest unit the generator draws independently (brief
+    R8 section 1.2: 'losuje NIEZALEŻNIE ... każdego dnia tygodnia z osobna:
+    czy ta zmiana występuje tego dnia, o jakich godzinach, i jaki jest
+    required_primary_count'). Multiple atoms sharing the same
+    (kind, start, end, required_primary_count) are grouped into one shift-
+    catalog row before being sent to the real API -- grouping is an
+    implementation detail (TASK_CHATGPT.md section 4), the per-weekday
+    semantics and required_primary_count are never lost."""
+
+    kind: str  # "D" or "N" (rota.domain.ShiftKind) -- H24 is kind="D" with start==end
+    start: time
+    end: time
+    required_primary_count: int  # 1 or 2, independent per atom
+    weekday: int  # ISO weekday, 1=Mon .. 7=Sun
+
+
+def _weekday_occurrences_b(weekday: int, month: date) -> int:
+    return sum(1 for d in _month_dates(month) if d.isoweekday() == weekday)
+
+
+def layer_hours_b(atoms: tuple[DemandAtomB, ...], layer: int, month: date) -> float:
+    """Total hours in `month` where AT LEAST `layer` people are required
+    simultaneously -- an atom with required_primary_count >= layer
+    contributes its full hours; a lower atom contributes 0 to this layer."""
+    total = 0.0
+    for atom in atoms:
+        if atom.required_primary_count >= layer:
+            total += _row_hours(atom.start, atom.end) * _weekday_occurrences_b(atom.weekday, month)
+    return total
+
+
+def layered_headcount_b(atoms: tuple[DemandAtomB, ...]) -> int:
+    """ARCHITECT_FINAL_PREIMPLEMENTATION_GATE.md section 3.2, canonical
+    formula after Codex R4-01/CC devil's-advocate finding 2 (own maxima per
+    layer secretly combines peaks from DIFFERENT months -- caught with a
+    constructed counterexample, fixed to sum layers WITHIN the same month
+    first, THEN take the worst month):
+
+        liczba_LOCAL = max_m( sum_k( ceil(layer_hours(k, m) / norm(m)) ) )
+
+    No leave margin anywhere (OWNER R7: "jeśli sztucznie zawyzysz obsadę to
+    dasz fory solverowi"). Pure sum/ceil/max arithmetic on the generated
+    input -- never a second solver, never aware of PLAN/REPLAN results."""
+    best = 0
+    for m in WSZYSTKIE_MIESIACE_2026:
+        norm = nominal_monthly_hours_kp(m, POLISH_2026_HOLIDAYS)
+        total_this_month = sum(
+            ceil(layer_hours_b(atoms, k, m) / norm)
+            for k in range(1, MAX_REQUIRED_PRIMARY_COUNT_B + 1)
+        )
+        best = max(best, total_this_month)
+    return best
+
+
+def has_any_coverage_b(atoms: tuple[DemandAtomB, ...]) -> bool:
+    """The ONLY rejection/reroll rule before building the Site (brief R8
+    1.2): a demand pattern with zero coverage in every month is a useless
+    test object, not a product defect."""
+    return any(layer_hours_b(atoms, 1, m) > 0 for m in WSZYSTKIE_MIESIACE_2026)
+
+
+# --- Control-case catalogs for T44-B-CALC-01/02/03 and the CC devil's-advocate
+# --- counterexample (ARCHITECT_FINAL_PREIMPLEMENTATION_GATE.md section 3.2) --
+
+def _dn_12h_atoms_b(required_primary_count_by_weekday: dict[int, int]) -> tuple[DemandAtomB, ...]:
+    """D 05:00-17:00 + N 17:00-05:00 on every weekday present in the map,
+    at that weekday's own required_primary_count -- the same D/N 12h shape
+    as Wariant A's _CATALOG_ROWS['D_N_12H'], but with per-weekday counts."""
+    atoms = []
+    for wd, count in required_primary_count_by_weekday.items():
+        atoms.append(DemandAtomB("D", time(5, 0), time(17, 0), count, wd))
+        atoms.append(DemandAtomB("N", time(17, 0), time(5, 0), count, wd))
+    return tuple(atoms)
+
+
+CONTROL_ATOMS_UNIFORM_1_B = _dn_12h_atoms_b({wd: 1 for wd in ALL_WEEK})
+CONTROL_ATOMS_UNIFORM_2_B = _dn_12h_atoms_b({wd: 2 for wd in ALL_WEEK})
+CONTROL_ATOMS_MIXED_B = _dn_12h_atoms_b({**{wd: 2 for wd in WEEKDAYS}, **{wd: 1 for wd in WEEKEND}})
+# CC devil's-advocate finding 2 counterexample: one 12h shift, Mon-Sat,
+# required_primary_count=2 on Mon/Tue/Sat and =1 on Wed/Thu/Fri, Sunday
+# closed -- the sum-of-per-layer-maxima formula gave 5, the corrected
+# max-of-per-month-sums formula gives the true 4.
+CONTROL_ATOMS_COUNTEREXAMPLE_B = tuple(
+    DemandAtomB("D", time(8, 0), time(20, 0), (2 if wd in (1, 2, 6) else 1), wd)
+    for wd in (1, 2, 3, 4, 5, 6)
+)
+
+
+@dataclass(frozen=True)
+class ObjectSpecB:
+    """One freely generated Wariant B object. Unlike Wariant A's ObjectSpec,
+    employee_count is DERIVED from atoms via layered_headcount_b -- never a
+    fixed function of a layer_count field, because required_primary_count
+    can differ per (kind, weekday)."""
+
+    seed: int
+    month: date
+    regime: str  # "ORDINARY" | "OCHRONA"
+    rolling_7d_threshold_hours: int
+    atoms: tuple[DemandAtomB, ...]
+    employee_count: int
+    target_hours_per_employee: int
+
+
+def random_atoms_b(rng: random.Random) -> tuple[DemandAtomB, ...]:
+    """Free, independent per-(kind, weekday) generation (brief R8 1.2): for
+    each of D/N and each ISO weekday, decide whether it is active, and if
+    so at what hours (one of three realistic canonical windows -- the
+    freedom OWNER asked for is WHICH days/required_primary_count, not
+    inventing arbitrary new shift-time boundaries the real product's own
+    SiteShiftCatalog UI wouldn't offer) and required_primary_count in
+    {1,2}. Rerolled by the caller until has_any_coverage_b is true."""
+    windows = {
+        "D": (time(5, 0), time(17, 0)),
+        "N": (time(17, 0), time(5, 0)),
+    }
+    atoms = []
+    for wd in ALL_WEEK:
+        for kind, (start, end) in windows.items():
+            if rng.random() < 0.5:
+                continue
+            required = rng.choice([1, 2])
+            atoms.append(DemandAtomB(kind, start, end, required, wd))
+    return tuple(atoms)
+
+
+def random_object_spec_b(seed: int) -> ObjectSpecB:
+    """Rerolls (same seed stream, distinct sub-draws) until a non-empty
+    demand pattern is produced -- the only generator-side rejection rule."""
+    rng = random.Random(seed)
+    atoms = random_atoms_b(rng)
+    while not has_any_coverage_b(atoms):
+        atoms = random_atoms_b(rng)
+    month = rng.choice(WSZYSTKIE_MIESIACE_2026)
+    regime = rng.choice(["ORDINARY", "OCHRONA"])
+    employee_count = layered_headcount_b(atoms)
+    target_hours = nominal_monthly_hours_kp(month, POLISH_2026_HOLIDAYS)
+    return ObjectSpecB(
+        seed=seed, month=month, regime=regime,
+        rolling_7d_threshold_hours=rng.choice([48, 56, 60]),
+        atoms=atoms, employee_count=employee_count, target_hours_per_employee=target_hours,
+    )
+
+
+def catalog_rows_from_atoms_b(atoms: tuple[DemandAtomB, ...]) -> list[dict]:
+    """Groups atoms sharing (kind, start, end, required_primary_count) into
+    one shift-catalog row with a combined active_weekdays list -- an
+    implementation detail (TASK_CHATGPT.md section 4), never losing the
+    per-weekday required_primary_count semantics: two atoms with different
+    required_primary_count on the same weekday never collapse into one row."""
+    grouped: dict[tuple[str, time, time, int], list[int]] = {}
+    for atom in atoms:
+        key = (atom.kind, atom.start, atom.end, atom.required_primary_count)
+        grouped.setdefault(key, []).append(atom.weekday)
+    return [
+        {
+            "kind": kind, "start_time": start.strftime("%H:%M"), "end_time": end.strftime("%H:%M"),
+            "required_primary_count": required, "active_weekdays": sorted(weekdays),
+        }
+        for (kind, start, end, required), weekdays in grouped.items()
+    ]
+
+
+def local_employee_id_b(spec: ObjectSpecB, index: int) -> str:
+    return f"SIMB-{spec.seed}-EMP-{index}"
+
+
+def declared_roster_b(spec: ObjectSpecB) -> list[str]:
+    return [local_employee_id_b(spec, i) for i in range(spec.employee_count)]
+
+
+def _create_site_b(client: TestClient, spec: ObjectSpecB) -> str:
+    resp = client.post(
+        "/api/workspace/sites",
+        json={
+            "display_name": f"SIMB-{spec.seed}", "profile_display_name": f"SIMB-PROFILE-{spec.seed}",
+            "rolling_7d_decision_threshold_hours": spec.rolling_7d_threshold_hours, "planning_regime": spec.regime,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["site_id"]
+
+
+def _put_shift_catalog_b(client: TestClient, site_id: str, spec: ObjectSpecB) -> None:
+    resp = client.put(
+        f"/api/workspace/sites/{site_id}/shift-catalog",
+        json={"shifts": catalog_rows_from_atoms_b(spec.atoms)},
+    )
+    assert resp.status_code == 204, resp.text
+
+
+def add_local_employee_b(client: TestClient, site_id: str, spec: ObjectSpecB, index: int) -> str:
+    employee_id = local_employee_id_b(spec, index)
+    resp = client.post(
+        "/api/workspace/employees",
+        json={"employee_id": employee_id, "site_id": site_id, "display_name": employee_id, "day_only": False},
+    )
+    assert resp.status_code == 204, resp.text
+    resp = client.post(f"/api/workspace/sites/{site_id}/roster", json={"employee_id": employee_id})
+    assert resp.status_code == 204, resp.text
+    resp = client.post(
+        f"/api/workspace/employees/{employee_id}/target-hours",
+        json={"site_id": site_id, "month": spec.month.isoformat(), "target_hours": spec.target_hours_per_employee},
+    )
+    assert resp.status_code == 204, resp.text
+    return employee_id
+
+
+def build_object_b(client: TestClient, spec: ObjectSpecB) -> str:
+    """Mirrors Wariant A's build_object() shape, addytywnie: real Site,
+    real shift-catalog PUT from the generated atoms, real calendar seed,
+    real roster/target_hours per LOCAL. HEADCOUNT invariant
+    (declared_LOCAL_count == layered_headcount_b) holds by construction --
+    spec.employee_count IS layered_headcount_b(spec.atoms)."""
+    site_id = _create_site_b(client, spec)
+    _put_shift_catalog_b(client, site_id, spec)
+    seed_calendar(client, site_id, spec.month)
+    for i in range(spec.employee_count):
+        add_local_employee_b(client, site_id, spec, i)
+    return site_id
+
+
+# --- OWNER-03 / TASK_CHATGPT_CORRECTION_R1+R2: nieobecności to wejścia -----
+# --- koordynatora, zapisywane RAZ, wyłącznie przy initial setup, przed ----
+# --- pierwszym PLAN -- nigdy dodawane/rozszerzane później (CC devil's- -----
+# --- advocate finding 1, zamknięte w CORRECTION_R2). -----------------------
+
+def _workday_count_in_range(start: date, days: int) -> date:
+    """Returns the end date of a block that starts on `start` and runs for
+    a fixed number of CALENDAR days such that it covers exactly the
+    intended number of working days when `start` is a Monday (brief 1.2a:
+    OWNER's "10 dni roboczych (2 tygodnie)" / "5 dni roboczych (tydzień)"
+    are literally 2 and 1 calendar weeks). `days` is 14 or 7."""
+    return start + timedelta(days=days - 1)
+
+
+def _next_monday_on_or_after(d: date) -> date:
+    return d + timedelta(days=(7 - d.isoweekday() + 1) % 7)
+
+
+def urlop_blocks_b(spec: ObjectSpecB) -> list[AbsenceDraw]:
+    """TASK_CHATGPT_CORRECTION_R1.md section 1, deterministic w.r.t.
+    spec.seed/month:
+    - employee_count == 1: the sole LOCAL gets ONE 10-workday (14 calendar
+      day) block;
+    - employee_count >= 2: exactly TWO different LOCAL (index 0 and 1, a
+      deterministic pick, not cyclic over the whole roster) get one
+      10-workday and one 5-workday block respectively, non-overlapping;
+      every other LOCAL gets no planned leave block in this object.
+    Never a per-roster cyclic 10/5/10/5/... schedule (T44-TASK-01, the
+    infeasible math this correction replaced)."""
+    if spec.employee_count == 0:
+        return []
+    days_in_month = _month_dates(spec.month)
+    first_monday = _next_monday_on_or_after(days_in_month[0])
+    ten_day_start = first_monday
+    ten_day_end = _workday_count_in_range(ten_day_start, 14)
+    if spec.employee_count == 1:
+        return [AbsenceDraw(
+            employee_index=0, kind=AvailabilityKind.LEAVE_GRANTED.value,
+            start_date=ten_day_start, end_date=min(ten_day_end, days_in_month[-1]),
+        )]
+    five_day_start = _next_monday_on_or_after(ten_day_end + timedelta(days=1))
+    five_day_end = _workday_count_in_range(five_day_start, 7)
+    if five_day_end > days_in_month[-1] or ten_day_end > days_in_month[-1]:
+        # Degenerate short month: fall back to the earliest non-overlapping
+        # placement (10-day block from day 1, 5-day block right after it)
+        # rather than silently truncating either block's intended length.
+        ten_day_start = days_in_month[0]
+        ten_day_end = _workday_count_in_range(ten_day_start, 14)
+        five_day_start = ten_day_end + timedelta(days=1)
+        five_day_end = _workday_count_in_range(five_day_start, 7)
+    return [
+        AbsenceDraw(employee_index=0, kind=AvailabilityKind.LEAVE_GRANTED.value, start_date=ten_day_start, end_date=ten_day_end),
+        AbsenceDraw(employee_index=1, kind=AvailabilityKind.LEAVE_GRANTED.value, start_date=five_day_start, end_date=five_day_end),
+    ]
+
+
+def sick_leave_draw_b(spec: ObjectSpecB, rng: random.Random) -> AbsenceDraw | None:
+    """OWNER-03 5.2 / CORRECTION history: exactly one probabilistic roll
+    PER OBJECT (never per state-machine step -- that compounded to ~82%
+    over 6 steps in an earlier, rejected draft), ~25% chance, one 5
+    CALENDAR day block (no "roboczych" qualifier for L4, unlike urlop),
+    LOCAL-only, works even for employee_count == 1."""
+    if rng.random() >= 0.25:
+        return None
+    days_in_month = _month_dates(spec.month)
+    employee_index = rng.randrange(spec.employee_count)
+    start_idx = rng.randrange(max(1, len(days_in_month) - 4))
+    start = days_in_month[start_idx]
+    end = days_in_month[min(start_idx + 4, len(days_in_month) - 1)]
+    return AbsenceDraw(employee_index=employee_index, kind=AvailabilityKind.SICK_LEAVE.value, start_date=start, end_date=end)
+
+
+def initial_absences_b(spec: ObjectSpecB, rng: random.Random) -> list[AbsenceDraw]:
+    """The complete initial-setup-only absence set for one object: the
+    deterministic urlop block(s) plus at most one probabilistic L4 --
+    computed once, before the first PLAN, and never revisited afterwards."""
+    draws = urlop_blocks_b(spec)
+    sick = sick_leave_draw_b(spec, rng)
+    if sick is not None:
+        draws.append(sick)
+    return draws
+
+
+def apply_absences_b(client: TestClient, site_id: str, spec: ObjectSpecB, draws: list[AbsenceDraw]) -> None:
+    """Same real endpoint as Wariant A's apply_absences(), addytywny
+    wrapper only because ObjectSpecB has its own local_employee_id_b."""
+    for i, draw in enumerate(draws):
+        employee_id = local_employee_id_b(spec, draw.employee_index)
+        resp = client.post(
+            f"/api/workspace/employees/{employee_id}/availability",
+            json={
+                "site_id": site_id,
+                "availability_id": f"SIMB-{spec.seed}-AVAIL-{draw.employee_index}-{i}-{draw.start_date.isoformat()}",
+                "kind": draw.kind, "start_date": draw.start_date.isoformat(), "end_date": draw.end_date.isoformat(),
+            },
+        )
+        assert resp.status_code == 204, resp.text
+
+
+# --- OWNER-06: EXTERNAL is a repeatable, decision-gated test reaction only -
+
+def external_support_employee_id_b(spec: ObjectSpecB, attempt: int) -> str:
+    return f"SIMB-EXTERNAL-{spec.seed}-{attempt}"
+
+
+def external_support_reaction_b(client: TestClient, site_id: str, month: date, spec: ObjectSpecB, attempt: int) -> dict:
+    """One EXTERNAL_SUPPORT creation + PLAN retry, mirroring Wariant A's
+    external_support_reaction() exactly (same decision-link ordering: only
+    the create-person write carries the real decision id, later writes
+    pass null) but addytywnie named/looped for Wariant B's repeatable
+    reaction (brief 1.4 / TASK_CHATGPT.md OWNER-06)."""
+    readback = client.get(f"/api/workspace/sites/{site_id}/decisions/{month.isoformat()}")
+    assert readback.status_code == 200, readback.text
+    decision = readback.json()
+    assert decision is not None, "external_support_reaction_b called with no persisted DECISION_REQUIRED"
+    decision_required_id = decision["decision_required_id"]
+
+    employee_id = external_support_employee_id_b(spec, attempt)
+    resp = client.post(
+        "/api/workspace/employees",
+        json={
+            "employee_id": employee_id, "site_id": site_id, "display_name": employee_id, "day_only": False,
+            "responds_to_decision_required_id": decision_required_id,
+        },
+    )
+    assert resp.status_code == 204, resp.text
+
+    resp = client.post(
+        f"/api/workspace/sites/{site_id}/roster",
+        json={"employee_id": employee_id, "membership_kind": "EXTERNAL_SUPPORT", "responds_to_decision_required_id": None},
+    )
+    assert resp.status_code == 204, resp.text
+
+    window_start = datetime(month.year, month.month, 1)
+    next_month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    window_end = datetime(next_month.year, next_month.month, 1)
+    resp = client.post(
+        f"/api/workspace/employees/{employee_id}/support-window",
+        json={
+            "site_id": site_id, "start_datetime": window_start.isoformat(), "end_datetime": window_end.isoformat(),
+            "allowed_shift_kind": None, "responds_to_decision_required_id": None,
+        },
+    )
+    assert resp.status_code == 204, resp.text
+
+    retry_result = run_plan(client, site_id, month)
+    return {"decision_required_id": decision_required_id, "external_employee_id": employee_id, "retry_result": retry_result}
+
+
+def run_with_external_loop_b(client: TestClient, site_id: str, month: date, spec: ObjectSpecB, first_result: dict) -> dict:
+    """OWNER-06 (TASK_CHATGPT.md section 8): first PLAN is preserved
+    untouched; if it is a real, non-empty DECISION_REQUIRED, create
+    EXTERNAL_SUPPORT and retry, up to `spec.employee_count` times (the
+    limit frozen in the brief -- enough to replace the whole sick/absent
+    LOCAL crew, never unbounded on a malformed test object). Returns every
+    stage so the caller can build a full reproducer regardless of outcome."""
+    externals: list[dict] = []
+    current = first_result
+    attempt = 0
+    while (
+        current["status"] == "DECISION_REQUIRED"
+        and current.get("decision_payload")
+        and attempt < spec.employee_count
+    ):
+        attempt += 1
+        reaction = external_support_reaction_b(client, site_id, month, spec, attempt)
+        externals.append(reaction)
+        current = reaction["retry_result"]
+    return {
+        "first_result": first_result, "externals": externals, "final_result": current,
+        "exhausted_limit": current["status"] == "DECISION_REQUIRED" and attempt >= spec.employee_count,
+    }
+
+
+# --- OWNER-07: the only two invariants the harness itself checks ----------
+
+def assert_headcount_b(spec: ObjectSpecB) -> None:
+    assert spec.employee_count == layered_headcount_b(spec.atoms), (
+        f"declared LOCAL count {spec.employee_count} != calculator {layered_headcount_b(spec.atoms)}"
+    )
+
+
+def assert_closed_world_b(assignments: list[dict], declared_roster: list[str], external_ids: list[str]) -> None:
+    known = set(declared_roster) | set(external_ids)
+    for a in assignments:
+        assert a["employee_id"] in known, f"Assignment {a.get('assignment_id')} belongs to unknown employee {a['employee_id']!r}"
