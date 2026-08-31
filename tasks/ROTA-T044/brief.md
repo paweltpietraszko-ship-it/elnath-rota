@@ -494,7 +494,7 @@ zaimplementowany w produkcie, nie certyfikat całego Kodeksu pracy).
 
 | Element | Źródło | Konieczność | Redukcja |
 |---|---|---|---|
-| kalkulator obsady z marginesem urlopowym, liczony na 31-dniowym miesiącu | OWNER 2026-08-31 R3, poprawia Codex R2-01 | naga suma godzin/norma dawała 9 zamiast ustalonych 10 i mogła być deficytowa w długich miesiącach | jedno dodatkowe odjęcie stałego marginesu (24h/mies. z 36 dni urlopu/rok) przed dzieleniem |
+| kalkulator obsady z marginesem urlopowym, liczony zawsze na FAKTYCZNIE wylosowanym miesiącu obiektu (nie na jednym stałym) | OWNER 2026-08-31 R3→R5, poprawia Codex R2-01/R3-01 | naga suma godzin/norma dawała 9 zamiast ustalonych 10; pierwsza próba naprawy (jeden stały miesiąc) sama niszczyła zmienność | odjęcie stałego marginesu (24h/mies. z 36 dni urlopu/rok) + liczenie na realnym `month` obiektu, nie na przybliżeniu |
 | realistyczne bloki urlopowe (2 tyg./tydzień, bez nakładania) zamiast losowej absencji "z sufitu" | OWNER 2026-08-31 R3 | testuje jak solver radzi sobie z zachowaniem koordynatora, nie z budżetem godzin | deterministyczna rotacja bloków z seeda, osobna od kalkulatora |
 | L4 losowane probabilistycznie (~25%), nie sztywny licznik | OWNER 2026-08-31 R3 (odrzucił "co 4. grafik") | sztywny licznik to powrót do scenariusza-replay | jeden dodatkowy rzut losowy w generatorze |
 | `required_primary_count` zawężony do {1,2} | OWNER 2026-08-31 R3, rozstrzyga Codex R2-02 | szerszy zakres nie testuje nowej ścieżki, tylko wydłuża realny solve i psuje tani profil | stałe dwuwartościowe losowanie |
