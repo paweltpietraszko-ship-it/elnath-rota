@@ -1,0 +1,69 @@
+ROTA-T044 — wąski reaudyt TASK_CHATGPT_CORRECTION_R2
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA korekty: bb060e68b58a8300d1b6d8b42ede59d169b2b6a1
+
+WERDYKT
+
+PASS — oba findingi z `cc_devils_advocate_r1.txt` są zamknięte bez zmiany
+produktu i bez rozszerzenia roli Symulatora. PASS dotyczy połączonego
+kontraktu `TASK_CHATGPT.md` + korekty R1 + korekty R2 na exact SHA powyżej.
+
+KOREKTA A — LIFECYCLE ABSENCJI
+
+- Urlop i ewentualne L4 są generowane oraz zapisane dokładnie raz podczas
+  initial setup obiektu, przed pierwszym PLAN.
+- Po pierwszym PLAN state machine nie ma transition tworzącego,
+  rozszerzającego, przesuwającego ani ponownie losującego urlop/L4.
+- REPLAN i przejście na kolejny miesiąc nie dopisują absencji.
+- Nie dodano mapowania `RetroactiveAbsenceRejected` ani zmian w `rota/**` lub
+  `api/**`. Nieoczekiwany non-2xx przed PLAN trafia do istniejącego pełnego
+  failure/reproducer path bez zmiany danych wejściowych.
+- Korekta R1 nadal określa wyłącznie skalę: 1 LOCAL → jeden blok 10 dni;
+  >=2 LOCAL → dwa bloki 10+5 dla dwóch osób.
+
+Kontrakt jest jednoznaczny i zamyka możliwość retroaktywnego zapisu przez
+harness zamiast maskować produktowy wyjątek.
+
+KOREKTA B — KOLEJNOŚĆ `max` I `sum`
+
+Kanoniczny wzór jest teraz:
+
+```
+max_m(sum_k(ceil(layer_hours(k, m) / norm(m))))
+```
+
+Każdy składnik sumy pochodzi z tego samego realnego miesiąca. Dopiero potem
+wybierany jest najgorszy miesiąc. Nie ma już sztucznego łączenia maksimum
+warstwy 1 z jednego miesiąca i warstwy 2 z innego.
+
+Niezależne przeliczenie na exact SHA:
+
+```
+pełna warstwa req=1: 5
+pełne req=2:         10
+robocze=2/weekend=1: 9
+kontrprzykład CC: stary wzór 5, poprawiony wzór 4
+```
+
+Dla kontrprzykładu warstwa 1 ma wyniki `[3,2,2,2,2,2,2,2,2,2,2,2]`, a
+warstwa 2 `[1,1,1,1,1,1,1,2,1,1,1,1]`. Suma niezależnych maksimów to 5,
+lecz maksimum sum w tych samych miesiącach to prawidłowe 4.
+
+GRANICA KALKULATORA
+
+Pozostają wyłącznie `sum`, `ceil`, pętla po 12 miesiącach i `max`.
+Kalkulator nie tworzy Assignmentów, nie wybiera pracowników, nie zna
+odpoczynku/fairness ani wyniku PLAN/REPLAN. Nie jest drugim solverem.
+
+ZAKRES / TESTY
+
+Diff od raportu CC do exact SHA dodaje dokładnie jeden plik kontraktowy;
+zero kodu produktu. Nie uruchamiałem solvera ani regresji — reaudyt obejmował
+wyłącznie dwa wskazane kontrakty i niezależne przeliczenie czterech oracle.
+
+NASTĘPNY GATE
+
+Task może wrócić do architekta do finalnego zamknięcia preimplementation
+gate. CC pozostaje bez implementacji, dopóki architekt nie nada osobnego
+`READY_FOR_IMPLEMENTATION`.
