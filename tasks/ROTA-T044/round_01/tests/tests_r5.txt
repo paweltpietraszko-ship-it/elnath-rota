@@ -1,0 +1,77 @@
+ROTA-T044 — bramka wyjaśnienia OWNER dla briefu R7
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA briefu: 688a1655e422e3e9e5dc879a807de2b01dd84544
+
+STATUS
+
+OWNER_EXPLANATION_GATE — BEZ WERDYKTU PASS/FAIL. R7 zawiera zmianę zachowania
+generatora, której OWNER nie zaakceptował i która przeczy wcześniejszemu
+jawnemu przykładowi OWNERA. Audyt czeka na `OWNER_ACCEPTED` albo
+`OWNER_CORRECTED`.
+
+OWNER_CONFIRMED
+
+- Kalkulator nie dodaje marginesu urlopowego i liczy ciasną obsadę przed
+  pierwszym PLAN (`brief.md:228-254`).
+- Dla jednego LOCAL urlop nadal może wystąpić i uruchomić prawdziwą ścieżkę
+  DECISION_REQUIRED → EXTERNAL (`brief.md:382-395`).
+- Maksimum po rzeczywistych miesiącach zapobiega zmniejszaniu załogi tylko
+  dlatego, że konkretny miesiąc ma mniej zapotrzebowania (`brief.md:263-283`).
+
+TECHNICAL_ONLY
+
+Niezależne przeliczenie na exact SHA potwierdza tabelę R7:
+
+```
+H24×1, cały tydzień: 5 we wszystkich 12 miesiącach; max = 5
+H24×2, cały tydzień: 10 we wszystkich 12 miesiącach; max = 10
+D+N 12h, dni robocze: [4,3,3,4,4,4,3,4,3,3,4,4]; max = 4
+```
+
+TASK_SCOPE i WHERE_MAP nadal obejmują plik, w którym ma powstać kalkulator i
+generator (`brief.md:588-612`). Nie potrzeba rozszerzać zakresu produktu.
+
+UNAUTHORIZED — jedna obsada dla całego obiektu
+
+R7 przenosi `required_primary_count` z każdego wiersza zapotrzebowania na
+jedną wartość dla całego obiektu (`brief.md:246-249`, `328-336`). Powodem
+podanym w briefie jest uproszczenie matematyki, nie decyzja OWNERA.
+
+To wyklucza wcześniej jawnie wymagany przez OWNERA obiekt:
+
+- poniedziałek–piątek: dwie osoby na zmianie 12h;
+- sobota–niedziela: jedna osoba na zmianie 24h.
+
+Jedna wartość dla całego obiektu nie potrafi zapisać jednocześnie `2` dla
+wierszy roboczych i `1` dla weekendowego. Nie jest to rzadki próg liczby
+pracowników, lecz odrębny, realny wzór pracy koordynatora.
+
+Skutek widoczny dla OWNERA:
+
+- trigger: generator losuje obiekt z różną wymaganą obsadą zależnie od dnia
+  lub wiersza katalogu;
+- efekt: R7 nie potrafi go utworzyć i po cichu ogranicza wszystkie wiersze do
+  tej samej liczby;
+- dane: zapisuje tylko uproszczony katalog; niczego nie wysyła do sieci i nie
+  czyta danych użytkownika;
+- UI: brak zmiany produktu, ale raport Symulatora nigdy nie pokaże tej klasy
+  obiektów;
+- błąd/odzyskanie: nie pojawi się komunikat — przypadek zostaje cicho
+  wykluczony, więc nie ma reproduktora.
+
+SAFETY_PRIVACY
+
+Brak nowych ryzyk bezpieczeństwa lub prywatności w audytowanym dokumencie.
+
+DECYZJA OWNERA
+
+Proszę potwierdzić jedno z dwóch:
+
+- `OWNER_CORRECTED`: Symulator ma zachować możliwość różnej wymaganej obsady
+  dla różnych wierszy/dni, w tym robocze=2 i weekend=1; kalkulator sumuje
+  rzeczywiste wymaganie każdego wiersza zamiast jednej wartości globalnej;
+- `OWNER_ACCEPTED`: świadomie rezygnujemy z takich obiektów i każda zmiana
+  na jednym obiekcie ma zawsze tę samą wymaganą liczbę osób.
+
+Do decyzji nie wydawać PASS/FAIL i nie implementować R7.
