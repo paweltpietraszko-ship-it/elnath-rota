@@ -1,6 +1,6 @@
 # ROTA-T044 — Symulator Koordynatora Wariant B (prawdziwa zmienność zachowania)
 
-Status: **CC AUTOR (OWNER 2026-08-30), KOREKTA R2 — DO AUDYTU CODEX, POTEM DO TASKU CZATGPT**
+Status: **CC AUTOR (OWNER 2026-08-30/31), KOREKTA R3 — DO WĄSKIEGO RE-AUDYTU CODEX (tylko R2-01/R2-02/R2-03), POTEM DO TASKU CZATGPT**
 
 Pipeline dla tego Tasku, ustalony wprost przez OWNERA: CC pisze ten brief →
 Codex audytuje → ChatGPT pisze Task na jego podstawie → **CC dostanie na końcu
@@ -9,10 +9,12 @@ zanim cokolwiek zostanie zaimplementowane. To jest świadome odwrócenie
 zwykłego zakazu self-review: zamiast liczyć, że CC przypadkiem nie będzie
 bronić własnej roboty, CC dostaje wprost zadanie ją atakować.
 
-Ta wersja (R2) zastępuje `725568e` po niezależnym audycie Codexa
-(`tasks/ROTA-T044/round_01/tests/tests_r1.txt`, WYMAGA KOREKTY) i dalszej
-rozmowie z OWNER, która poprawiła fundamentalne rozumienie tego, co Symulator
-w ogóle ma robić.
+Ta wersja (R3) zastępuje R2 (`b601f34`) po ograniczonym re-audycie Codexa
+(`tasks/ROTA-T044/round_01/tests/tests_r2.txt`, OWNER_DECISION_NEEDED — trzy
+wąskie luki: R2-01 wzór kalkulatora, R2-02 zakres `required_primary_count`,
+R2-03 konkretne wartości kontraktu Hypothesis/limitu EXTERNAL) i dalszej
+rozmowie z OWNER, która rozstrzygnęła wszystkie trzy oraz doprecyzowała, jak
+Symulator ma odgrywać realne zachowanie koordynatora przy urlopach/L4.
 
 Base: `main@1b6bfbf` (po merge ROTA-T043).
 
@@ -87,6 +89,49 @@ wprost w kodzie.)
 > nie Rota, Rota mu podaje narastająco bilans poprawnie." — Rota liczy
 > poprawnie; co koordynator z tym zrobi, to jego sprawa kadrowa. Nie Task.
 
+**Korekta R3, po ograniczonym re-audycie Codexa (`tests_r2.txt`) —
+rozstrzygnięcia OWNERA z 2026-08-31, cytaty dosłowne:**
+
+> [R2-01, na przykładzie podwójnej obsady 24h dającym sprzeczne wyniki 9 vs
+> wcześniej ustalone 10] "kalkulator musi przyjmować maksymalna długość
+> miesiąca czyli 31. Jeśli LOCAL ma 10 osob to w ochronie jest to 360 dni
+> urlopu w roku na obiekt. Na pewno przy 9 osobach kalkulator nie wziął pod
+> uwagę urlopów, ewentualnych L4, musimy dobrze napisać ten algorytm bo
+> będziesz mieć bzdury"
+
+> "ochrona to zakłady pracy chronionej, a my jesteśmy niepełnosprawni, czyli
+> mamy wszyscy po 36 dni urlopu, z małymi wyjątkami. ale pamiętaj my nie
+> robimy programu kadrowego, to koordynator w zakladce Obiekt ustala ilość
+> załogi. czyli liczymy jak najlepiej potrafimy ale to tylko symulacja czy
+> solver poprawnie liczy na zadanych warunkach a nie czy poprawnie odtwarza
+> warunki kadrowe prawdziwej ochrony. My sprawdzamy poprawność działania
+> mechanizmu" — kalkulator jest świadomym, udokumentowanym przybliżeniem, nie
+> próbą odtworzenia realnej kadrowości.
+
+> [o realistycznym wpisywaniu urlopów w Panelu Sterowania, nie o ich
+> matematycznym budżecie] "tak, wogóle nie patrzymy na budżet urlopu na cały
+> rok, patrzymy jak poradzi sobie solver gdy będą te urlopy" — margines
+> urlopowy z kalkulatora (poniżej) ustala TYLKO rozmiar załogi; realnie
+> wpisywane bloki urlopowe (poniżej) nie muszą się sumować do dokładnie tej
+> samej liczby dni w roku.
+
+> [o kształcie realnych urlopów] "żeby było najbardziej realne jedna osoba ma
+> 2 tygodnie wolnego a druga tydzień. [...] w życiu koordynator stara się
+> tylko by daty urlopów się nie pokrywały. tylko CC pamiętaj nie rozmawiamy o
+> solverze tylko o zachowaniu koordynatora w panelu sterowania."
+
+> [R2-02, zakres `required_primary_count`] "dla sprawdzenia solvera chyba
+> wystarczy 1-2 osoby, ale w życiu są obiekty, które mają więcej i np nawet
+> 20 pracowników. ale to nam zakłóci badanie?" — po wyjaśnieniu, że większy
+> zakres zmienia głównie czas rozwiązania (realny CP-SAT solve), nie
+> mechanizm, i zepsułby tani/częsty profil Hypothesis: **"zostaje wąski
+> zakres"** (1-2, patrz 1.2).
+
+> [R2-03, propozycja CC: zamiast sztywnego "co 4. wygenerowany grafik ma
+> L4", losowe prawdopodobieństwo] "tak, twój pomysł jest dobry" — sztywny
+> licznik odrzucony jako powrót do scenariusza-replay; L4 losowane
+> probabilistycznie (patrz 1.2a).
+
 ## 1. Czym Symulator jest i czym nie jest — fundament, nie szczegół
 
 **Symulator automatyzuje wyłącznie decyzje koordynatora.** Nie jest drugim
@@ -102,17 +147,41 @@ jest osobno zgłoszony OWNEROWI, nie jest częścią tego Tasku.)
 ### 1.1 Kalkulator obsady — jedno proste liczenie, raz, na starcie
 
 Kalkulator liczy **dokładnie jedną rzecz, raz, przy tworzeniu obiektu**:
-suma godzin służby wynikająca z wygenerowanego wzoru zapotrzebowania (sekcja
-1.2) podzielona według normy z Kodeksu pracy (art. 130, ten sam wzór co
-`nominal_monthly_hours_kp` w Wariancie A) = liczba obsady LOCAL. To NIE jest
-solver ani drugi algorytm układający dyżury z uwzględnieniem odpoczynku —
-to jest prosta arytmetyka kadrowa, jaką realny koordynator robi ręcznie,
-zanim w ogóle otworzy Rotę.
+liczbę LOCAL potrzebną do pokrycia wygenerowanego wzoru zapotrzebowania
+(sekcja 1.2), ze świadomym, udokumentowanym marginesem na urlop — nie próbą
+odtworzenia realnej kadrowości (patrz cytat OWNERA wyżej: "liczymy jak
+najlepiej potrafimy [...] sprawdzamy poprawność działania mechanizmu", nie
+zgodność z prawdziwą polityką kadrową ZPCh). To NIE jest solver ani drugi
+algorytm układający dyżury z uwzględnieniem odpoczynku — to prosta
+arytmetyka kadrowa, jaką realny koordynator robi ręcznie, zanim w ogóle
+otworzy Rotę.
+
+**Wzór (poprawiony po Codex R2-01):**
+
+```
+dni_kalkulacji = 31                      # zawsze najdłuższy możliwy miesiąc,
+                                          # niezależnie od tego, który miesiąc
+                                          # generator faktycznie wylosuje —
+                                          # kalkulator nie może dać za mało
+                                          # osób akurat w długim miesiącu
+DNI_URLOPU_ROCZNIE = 36                  # ZPCh/niepełnosprawni, ustalone OWNER
+margines_urlopowy_h = DNI_URLOPU_ROCZNIE / 12 * 8   # = 24h/mies., średnia,
+                                          # NIE liczona per konkretny miesiąc
+norma_kp = nominal_monthly_hours_kp(...) # ten sam wzór co w Wariancie A
+dostepne_h_na_osobe = norma_kp - margines_urlopowy_h
+zapotrzebowanie_h = suma_wszystkich_warstw(wzór z 1.2) * dni_kalkulacji
+liczba_LOCAL = ceil(zapotrzebowanie_h / dostepne_h_na_osobe)
+```
+
+`margines_urlopowy_h` jest tu **wyłącznie do ustalenia rozmiaru załogi** —
+nie jest to budżet, który reszta Symulatora musi "wydać" co do godziny (patrz
+1.2a: realnie wpisywane urlopy nie muszą się sumować do tej samej liczby).
 
 Kalkulator ma własne, ręcznie zweryfikowane przypadki kontrolne (ten sam
 wzorzec co `POLISH_2026_HOLIDAYS` + kontrole 160h/176h w Wariancie A) —
-np. "720h/mies. zapotrzebowania przy normie 160h → 5 osób, policzone ręcznie
-i potwierdzone" — zanim zostanie podłączony do losowego generatora.
+policzone i potwierdzone ręcznie dla: jednej warstwy, dwóch pełnych warstw
+(H24×2) i obiektu mieszanego robocze/weekend — zanim kalkulator zostanie
+podłączony do losowego generatora.
 
 **Warunek zawsze sprawdzany po wygenerowaniu obiektu** (poprawiony po
 audycie Codexa R2 z `tests_r1.txt` — poprzednia wersja żądała fałszywej
@@ -135,7 +204,16 @@ Generator losuje NIEZALEŻNIE, dla każdego rodzaju zmiany (D/N/24h), każdego
 dnia tygodnia z osobna: czy ta zmiana występuje tego dnia, o jakich godzinach,
 i jaki jest `required_primary_count` (poprawka po Codex R3 — poprzednia
 wersja o tym nie wspominała, mimo że to pole decyduje o liczbie równoległych
-stanowisk i jest konieczne dla obiektów z podwójną obsadą). To ma naturalnie
+stanowisk i jest konieczne dla obiektów z podwójną obsadą).
+
+**Zakres `required_primary_count` (Codex R2-02, rozstrzygnięcie OWNERA
+2026-08-31): wąski, `{1, 2}`.** Realne obiekty bywają większe (OWNER: "nawet
+20 pracowników"), ale większy zakres nie testuje innej ścieżki kodu — zmienia
+tylko czas realnego solve CP-SAT per przykład, co zepsułoby tani/częsty
+profil Hypothesis (1.3). Duże obiekty świadomie POZA zakresem tego Tasku, bez
+osobnego profilu eksploracyjnego na razie — nie zgadywać szerszego zakresu.
+
+To ma naturalnie
 wytwarzać "tylko weekend", "tylko dni robocze", "tylko noce", i kombinacje,
 których nikt nie nazwał z osobna — bez enumerowania ich jako oddzielne
 "kształty". `SiteShiftCatalog.tsx`'s checkboxy per dzień tygodnia to
@@ -151,26 +229,76 @@ produktu") to wzór dający **zero pokrycia w całym miesiącu** (nic do
 zaplanowania w ogóle) — to nie jest błąd produktu, to bezużyteczny obiekt
 testowy, generator ma go odrzucić/przelosować, nie budować.
 
+### 1.2a Nieobecności realistyczne — urlop blokowy + L4 losowe
+
+Generator (odgrywający koordynatora wpisującego dane w Panelu Sterowania,
+przez prawdziwe API — nie inny mechanizm niż istniejący
+`POST /workspace/employees/{id}/availability`) wpisuje dwie oddzielne
+warstwy nieobecności, każdą wygenerowaną obiektowi:
+
+**Urlop (deterministyczny, blokowy, nie budżetowy):**
+- Bloki mają dwie realistyczne długości: **10 dni roboczych (2 tygodnie)**
+  albo **5 dni roboczych (tydzień)** — nigdy rozdrobnione na mniejsze kawałki
+  (OWNER: "żeby było najbardziej realne jedna osoba ma 2 tygodnie wolnego a
+  druga tydzień").
+- Który LOCAL dostaje 2 tygodnie, a który tydzień — deterministycznie
+  wyprowadzone z seeda (np. rotacja/naprzemienność), nie losowane od nowa za
+  każdym razem — powtarzalność jest wymagana tak samo jak reszta generatora.
+- **Bloki nigdy się nie pokrywają w czasie między różnymi pracownikami** —
+  generator układa je jeden po drugim w kalendarzu, odzwierciedlając to, jak
+  realny koordynator świadomie unika nakładania się urlopów (OWNER: "w życiu
+  koordynator stara się tylko by daty urlopów się nie pokrywały").
+- Świadomie **nie ma kontroli sumy dni w roku** względem marginesu 36
+  dni/rok z 1.1 — to są dwie niezależne rzeczy: kalkulator używa marginesu
+  tylko do ustalenia rozmiaru załogi, generator absencji tylko odgrywa
+  realistyczne zachowanie koordynatora i sprawdza jak solver sobie z tym
+  radzi (OWNER: "wogóle nie patrzymy na budżet urlopu na cały rok, patrzymy
+  jak poradzi sobie solver gdy będą te urlopy").
+
+**L4 (losowe, probabilistyczne, nie sztywny licznik):**
+- Blok 5-dniowy, **losowany przez Hypothesis z prawdopodobieństwem ~25%**
+  per wygenerowany obiekt/krok stateful — nie sztywna reguła w stylu "co 4.
+  wygenerowany grafik" (OWNER odrzucił sztywny licznik jako powrót do
+  scenariusza-replay, zaakceptował losowanie probabilistyczne).
+- Dokładny mechanizm losowania (np. `st.booleans()` ważone, albo osobna
+  `@rule` z `st.floats` progiem) i moment przypisania osoby do L4 (musi być
+  ktoś z zadeklarowanego LOCAL, nie EXTERNAL) implementer dobiera sam w
+  ramach TASK_SCOPE — kontrakt tego briefu wymaga tylko: prawdziwe losowanie
+  Hypothesis, ~25% szans, blok 5-dniowy, nigdy sztywny licznik/harmonogram.
+
 ### 1.3 Hypothesis (stateful) — prawdziwa zmienność, jawny kontrakt
 
 Zamiast `for seed in range(20)` (Wariant A, zostaje bez zmian, osobny plik):
 silnik oparty o Hypothesis (`RuleBasedStateMachine`), losujący przy KAŻDYM
 uruchomieniu nowy zestaw obiektów/sekwencji działań koordynatora.
 
-**Poprawka po Codex R5** (kontrakt nie był wykonywalny w poprzedniej
-wersji): brief musi zamrozić, nie implementer wybierać:
+**Poprawka po Codex R5/R2-03** (kontrakt nie był wykonywalny w poprzednich
+wersjach — brief musi zamrozić konkretne liczby, nie zostawiać implementerowi
+do wyboru):
 - `hypothesis` jako jawna zależność w `pyproject.toml` (nie ma jej dziś);
-- ograniczony profil eksploracyjny: jawny `max_examples` i limit kroków
-  stateful, dobrany tak, żeby zwykły `pytest` pozostał tani (T043's pełny
-  portfel 20 obiektów + kwartał trwał ~750s — domyślne parametry Hypothesis
-  byłyby nieadekwatne dla prawdziwego API+solvera, muszą być jawnie
-  zawężone, nie domyślne);
+- **profil domyślny (`pytest`, uruchamiany zawsze):** `max_examples=20`,
+  `stateful_step_count=6` (jeden generowany obiekt + do 2 miesięcy kroków
+  PLAN/REPLAN + ewentualny EXTERNAL/urlop/L4 w ramach tych kroków),
+  `deadline=None` (realne wywołania API+CP-SAT solve nie mieszczą się w
+  domyślnym timeout-cie Hypothesis, sztuczny deadline dawałby fałszywe
+  FAIL-e), `derandomize=False` (prawdziwa losowość ma być realna, nie
+  odtwarzalna sama z siebie — powtarzalność zapewnia zapisany seed/przykład
+  w artefakcie reprodukcji, nie wyłączenie losowości);
+- **profil eksploracyjny (opt-in, env var** `ROTA_SIM_VARIANT_B_FULL=1`**,
+  analogicznie do `ROTA_SIM_FULL_PORTFOLIO` w Wariancie A):**
+  `max_examples=50`, `stateful_step_count=10` — do ręcznego uruchomienia
+  przed dostarczeniem, nie w normalnym biegu testów;
 - jawny artefakt reprodukcji per znalezione naruszenie (seed/przykład +
   gotowa komenda), zapisany tak jak Wariant A to robi (`failures/**`);
 - jawny, deterministyczny sposób sprawdzenia realnej zmienności: test
   porównuje kanoniczne wygenerowane obiekty z dwóch RÓŻNYCH, jawnie
   podanych identyfikatorów przebiegu — nie polega na "zwykle wychodzi
   inaczej".
+
+Powyższe liczby (20/6/50/10) to decyzja CC jako autora briefu, nie OWNERA —
+jeśli wąski re-audyt Codexa uzna je za nierealistyczne (za drogie albo za
+płytkie dla realnego API+solvera), to jest dokładnie ten rodzaj uwagi, jakiej
+oczekuje się w tym re-audycie.
 
 **Poprawka po Codex R6**: każdy przykład stateful dostaje świeżą SQLite
 `:memory:` i nowy Site — bez tego shrinking może odtwarzać przypadek na
@@ -195,10 +323,11 @@ zwróci prawdziwy, niepusty `DECISION_REQUIRED`:
    Wariant A: create-person niesie decision id, kolejne zapisy null);
 3. ponawia PLAN;
 4. jeśli produkt PONOWNIE zwróci realny `DECISION_REQUIRED` żądający
-   dalszego wsparcia, powtarza krok 2-3 (kolejny EXTERNAL) — z jawnym,
-   bezpiecznym warunkiem zakończenia (limit prób, żeby nie zapętlić się w
-   nieskończoność na wadliwym obiekcie testowym), nie zgadywaniem kiedy
-   przestać;
+   dalszego wsparcia, powtarza krok 2-3 (kolejny EXTERNAL) — **limit prób
+   zamrożony (Codex R2-03): maksymalnie tyle EXTERNAL, ile wynosi
+   `liczba_LOCAL` z kalkulatora (1.1) dla tego obiektu** — wystarczy żeby
+   zastąpić całą chorą/nieobecną załogę, ale nie tworzy nieskończonej liczby
+   syntetycznych osób na wadliwym obiekcie testowym;
 5. jeśli nawet to nie da grafiku, Symulator zachowuje wynik jako
    ograniczenie/błąd produktu. Nie tworzy Assignmentów ręcznie.
 
@@ -247,7 +376,12 @@ Task.
   replay — OWNER świadomie to odpuszcza ("już mi wyjaśnił, zostawmy to").
 - Wszystko, co T043 sekcja 9 już zakazywało (`rota/**`, `api/**`,
   `frontend/src/**`, `benchmarks/**`, drugi solver/validator, Cross-Site,
-  wsparcie przed pierwszym PLAN, własny rachunek urlopu/L4, sieć w runtime).
+  wsparcie przed pierwszym PLAN, sieć w runtime). **Doprecyzowanie dla
+  Wariantu B**: "własny rachunek urlopu/L4" oznacza zakaz duplikowania
+  arytmetyki bilansu (`rota/balance.py`) — nie zakaz generowania realnych
+  rekordów urlopu/L4 przez prawdziwe API, co 1.2a wprost wymaga. Generator
+  wpisuje nieobecności jako dane wejściowe (jak realny koordynator); nie
+  liczy z nich żadnego własnego bilansu godzin.
 
 ## 3. Zamrożone decyzje z Wariantu A, które nadal obowiązują
 
@@ -261,7 +395,11 @@ zaimplementowany w produkcie, nie certyfikat całego Kodeksu pracy).
 
 | Element | Źródło | Konieczność | Redukcja |
 |---|---|---|---|
-| prosty kalkulator obsady (godziny/norma KP) | OWNER 2026-08-30 R2, upraszcza R1 audytu | bez tego generator testuje fikcyjne obiekty | jedno dzielenie + ręcznie zweryfikowane przypadki kontrolne |
+| kalkulator obsady z marginesem urlopowym, liczony na 31-dniowym miesiącu | OWNER 2026-08-31 R3, poprawia Codex R2-01 | naga suma godzin/norma dawała 9 zamiast ustalonych 10 i mogła być deficytowa w długich miesiącach | jedno dodatkowe odjęcie stałego marginesu (24h/mies. z 36 dni urlopu/rok) przed dzieleniem |
+| realistyczne bloki urlopowe (2 tyg./tydzień, bez nakładania) zamiast losowej absencji "z sufitu" | OWNER 2026-08-31 R3 | testuje jak solver radzi sobie z zachowaniem koordynatora, nie z budżetem godzin | deterministyczna rotacja bloków z seeda, osobna od kalkulatora |
+| L4 losowane probabilistycznie (~25%), nie sztywny licznik | OWNER 2026-08-31 R3 (odrzucił "co 4. grafik") | sztywny licznik to powrót do scenariusza-replay | jeden dodatkowy rzut losowy w generatorze |
+| `required_primary_count` zawężony do {1,2} | OWNER 2026-08-31 R3, rozstrzyga Codex R2-02 | szerszy zakres nie testuje nowej ścieżki, tylko wydłuża realny solve i psuje tani profil | stałe dwuwartościowe losowanie |
+| konkretne liczby profilu Hypothesis (20/6 domyślnie, 50/10 eksploracyjnie) i limit EXTERNAL = liczba_LOCAL | CC 2026-08-31, rozstrzyga Codex R2-03 | kontrakt bez liczb nie jest wykonywalny (Codex R5/R2-03) | zamrożone stałe, do weryfikacji w wąskim re-audycie |
 | asercja deklaracja=kalkulacja + zamknięty świat | OWNER 2026-08-30 + Codex R2 (poprawia błędną wersję) | zapobiega "8 osób na obiekcie 5-osobowym" bez fałszywych FAIL | dwa sprawdzenia po każdym przypadku |
 | swobodne dni tygodnia/rodzaj/required_primary_count | OWNER 2026-08-30 + Codex R3 | usuwa gotowe kształty i nieaktualny zakaz overlapów | losowanie niezależne per (dzień, rodzaj, required_primary_count) |
 | Hypothesis stateful z jawnym kontraktem | OWNER 2026-08-30 + Codex R5/R6 | prawdziwa zmienność, wykonywalny kontrakt | jeden stateful engine, jawny profil, izolacja per przykład, reużywa produkcyjne helpery Wariantu A |
@@ -310,22 +448,32 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
 - limit prób EXTERNAL (1.4) okazuje się za niski/wysoki dla realnych
   wygenerowanych obiektów — zgłosić z danymi, nie zgadywać liczby.
 
-## 8. Pytania do niezależnego audytu Codexa
+## 8. Pytania do wąskiego re-audytu Codexa (tylko R2-01/R2-02/R2-03)
 
-1. Czy kalkulator obsady to faktycznie jedno proste dzielenie (godziny
-   zapotrzebowania / norma KP), zgodnie z ostatnią korektą OWNERA — nie
-   powrót do złożonego liczenia z ograniczeniami odpoczynku z R1?
-2. Czy asercja z 1.1 (deklaracja=kalkulacja + zamknięty świat) faktycznie
-   nie generuje fałszywych FAIL na poprawnych wynikach (absencja, DAY_ONLY,
-   DECISION_REQUIRED)?
-3. Czy generator faktycznie losuje `required_primary_count` i nie odrzuca
-   legalnych overlapów?
-4. Czy kontrakt Hypothesis (profil, izolacja per przykład, artefakt
-   reprodukcji, dowód realnej zmienności) jest teraz wykonywalny i
-   jednoznaczny, nie zostawiony do wyboru implementera?
-5. Czy brief jednoznacznie zeruje wszelką ocenę fairness/kwartału w
-   Wariancie B, zamiast zostawiać to jako "opcjonalne"?
-6. Czy Wariant A pozostaje całkowicie nietknięty?
+Zgodnie z zapowiedzią w `tests_r2.txt`: re-audyt sprawdza WYŁĄCZNIE poniższe
+trzy punkty, nie powtarza pełnego przeglądu (R1-R7 z `tests_r1.txt` i punkty
+poprawnie zamknięte w R2 zostają uznane za rozstrzygnięte).
+
+1. **R2-01 (wzór kalkulatora):** czy nowy wzór (1.1 — 31-dniowy miesiąc,
+   margines 24h/mies. z 36 dni urlopu/rok, `ceil` po odjęciu marginesu) jest
+   teraz jednoznaczny, wykonywalny, i czy ręcznie policzone przypadki
+   kontrolne (jedna warstwa, dwie pełne warstwy, obiekt mieszany
+   robocze/weekend) dają spójne, sensowne wyniki?
+2. **R2-02 (zakres `required_primary_count`):** czy zawężenie do `{1, 2}`
+   (1.2) jest teraz jawnie zamrożone, z jawnym uzasadnieniem (nie zmienia
+   testowanej ścieżki, zmienia tylko czas solve) i bez furtki do
+   "implementer dobierze szerszy zakres"?
+3. **R2-03 (kontrakt Hypothesis + limit EXTERNAL):** czy konkretne liczby w
+   1.3 (`max_examples=20`/`stateful_step_count=6` domyślnie,
+   `max_examples=50`/`stateful_step_count=10` eksploracyjnie,
+   `deadline=None`, `derandomize=False`) i limit EXTERNAL w 1.4
+   (`liczba_LOCAL` z kalkulatora) są teraz jawne i wykonywalne — czy któraś
+   z tych liczb jest oczywiście nierealistyczna dla prawdziwego API+solvera?
+
+Dodatkowo, jako efekt uboczny R2-01: nowa sekcja 1.2a (realistyczne bloki
+urlopowe + L4 probabilistyczne) jest nowym elementem kontraktu od R2 — proszę
+potwierdzić, że jest jednoznaczna i wykonywalna, mimo że nie była częścią
+oryginalnych R2-01/02/03.
 
 Do zamknięcia audytu: **implementacja czeka na PASS Codexa na tym briefie,
 potem na Task napisany przez ChatGPT, potem na jawne polecenie "adwokat
