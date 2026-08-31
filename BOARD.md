@@ -24,4 +24,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | Codex | Architekt/CC | task/ROTA-T044 | 8e76de2 | CODEX_REPORTED | Reaudyt poprawki ARCH-R1-01: **PASS**. Raport `tasks/ROTA-T044/round_01/tests/tests_r14.txt`, commit `dcc7a72`. Realny przebieg zapisuje `readback.analytics` i `readback.month_view`; błąd zapisu propaguje się, a SQLite jest sprzątane w `finally`; TECHNICAL_ERROR pozostaje surowym wynikiem. Testy celowane 3/3 PASS. Bez zmian produktu, bez ARCH-R1-02 i bez pełnej regresji. Finalne zamknięcie całego T044 pozostaje do oceny architekta. |
