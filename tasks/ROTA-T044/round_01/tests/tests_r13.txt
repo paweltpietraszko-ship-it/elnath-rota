@@ -1,0 +1,90 @@
+ROTA-T044 — niezależny audyt poprawki ARCH-R1-01, runda 13
+
+Werdykt: FAIL
+Audytowany branch: task/ROTA-T044
+Audytowany exact SHA: 083d4c6d997156e3d260342fd5a286c973b038a8
+Źródło blockera: ARCHITECT_IMPLEMENTATION_REVIEW_R1.md @ 03fbada
+Data: 2026-08-31
+
+Zakres
+
+Wyłącznie poprawka ARCH-R1-01: trwały, neutralny raw report zwykłego
+zakończonego przykładu. Bez ARCH-R1-02 i bez pełnej regresji repo.
+
+Scope
+
+Diff 03fbada..083d4c6 zmienia wyłącznie
+tests/property/test_coordinator_simulator_variant_b.py. Brak zmian produktu,
+Wariantu A i pozostałych warstw. `git diff --check` czyste.
+
+Co działa
+
+- Zwykły przebieg dochodzący do PLAN zapisuje plik JSON w reports/**.
+- TECHNICAL_ERROR jest zapisany jako surowy status produktu i nie jest
+  zamieniany na verdict harnessu.
+- Failure JSON i completed report nie są dublowane dla tego samego przebiegu.
+- Celowane testy implementera: 2 passed in 46.40s.
+
+FINDING R13-01 — completed report nadal nie zawiera wymaganego
+readbacku/analityki
+
+TRACE:
+- tasks/ROTA-T044/TASK_CHATGPT.md:250-264 wymaga maszynowo czytelnego kompletu
+  danych, w tym istotnego readbacku/analityki dostępnej z produktu.
+- tasks/ROTA-T044/ARCHITECT_IMPLEMENTATION_REVIEW_R1.md:139-157 powtarza ten
+  element literalnie w wymaganej korekcie ARCH-R1-01.
+
+OWNERSHIP:
+- tests/property/test_coordinator_simulator_variant_b.py:537-553 buduje cały
+  payload zarówno failure JSON, jak i completed report.
+- tests/property/test_coordinator_simulator_variant_b.py:558-572 zapisuje ten
+  payload po zakończeniu przykładu.
+
+REPRO na exact SHA:
+- Wykonano realny przykład seed=117 do PLAN, następnie teardown do katalogu
+  tymczasowego.
+- Powstał dokładnie jeden JSON.
+- Klucze payloadu:
+
+    absence_draws, action_log, atoms, calculator_result, declared_local,
+    externals, final_result, month, plan_result, regime, replan_results,
+    reproduction, seed, selected, stage, target_hours_per_employee
+
+- Wynik kontroli:
+
+    has_readback False
+
+- Snapshot nie wykonuje ani nie zapisuje istniejących odczytów produktu
+  (`get_analytics` / `get_month_view` są już dostępne w helperach). Raport
+  utrwala odpowiedzi PLAN/REPLAN, ale nie cały zamrożony minimalny komplet.
+
+FINDING R13-02 — awaria zapisu completed report jest bezgłośnie ignorowana
+
+TRACE:
+- ARCH-R1-01 wymaga trwałego raportu dla każdego przykładu, który dotarł do
+  PLAN. Ponieważ Symulator nie ocenia grafiku, brak pliku nie może pozostać
+  niewidoczny.
+- tasks/ROTA-T044/ARCHITECT_IMPLEMENTATION_REVIEW_R1.md:134-157 definiuje ten
+  zapis jako blocker, nie opcjonalną telemetrię.
+
+OWNERSHIP:
+- tests/property/test_coordinator_simulator_variant_b.py:558-572 jest jedyną
+  ścieżką completed report.
+
+REPRO na exact SHA:
+- Przy poprawnym stanie po PLAN podstawiono błąd zapisu:
+  `_write_report_json_b(...): raise OSError("disk full")`.
+- Wywołano teardown().
+- Wynik:
+
+    teardown_returned_without_report_error
+
+- `_write_completed_report()` przechwytuje każde `Exception` i wykonuje
+  `pass`. Przykład pozostaje zielony mimo braku wymaganego raportu, czyli
+  może nadal zniknąć dokładnie tak jak w blockerze architekta.
+
+DEFECT_GATE
+
+Oba findingi mają jednoznaczny TRACE w zamrożonym kontrakcie/korekcie
+architekta, właściciela w nowym report path i deterministyczny REPRO na exact
+SHA. ARCH-R1-01 nie jest jeszcze zamknięte. ARCH-R1-02 pozostaje nietknięte.
