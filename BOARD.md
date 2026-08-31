@@ -24,4 +24,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-01 | Codex | ChatGPT/architekt | task/ROTA-T044 | b09b114 | CODEX_REPORTED | PASS wąskiego reaudytu korekty R2 dla exact SHA `bb060e6`: `tasks/ROTA-T044/round_01/tests/tests_r9.txt`. Absencje są initial-setup-only przed pierwszym PLAN, bez późniejszych writes i bez zmian produktu. Kalkulator używa `max_m(sum_k(... dla tego samego m))`; niezależnie potwierdzone 5/10/9 oraz kontrprzykład: stare 5, poprawne 4. Nadal tylko sum/ceil/max, nie mini-solver. Następny gate: finalne zamknięcie preimplementation przez architekta; CC nadal bez implementacji do osobnego `READY_FOR_IMPLEMENTATION`. |
