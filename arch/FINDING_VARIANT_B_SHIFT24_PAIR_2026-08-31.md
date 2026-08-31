@@ -108,7 +108,42 @@ np. próbą znalezienia grafiku, który tej reguły przestrzega, albo czytelnym
 **Nie rozstrzygam, która hipoteza (albo obie naraz) jest prawdziwa — to
 pytanie do Codexa i architekta.**
 
-## 6. Pytania do Codexa i architekta
+## 6. Trzeci, osobny problem: brak diagnostyki przy TECHNICAL_ERROR
+
+Niezależnie od pytania "kto zawinił" (sekcja 5), sam sposób, w jaki produkt
+zgłasza `TECHNICAL_ERROR`, utrudnia diagnozę — sprawdzone bezpośrednio na
+`seed0` z tej samej paczki batch1.
+
+Gdy `PlanningResult.status == "TECHNICAL_ERROR"`, pole `candidates` w
+odpowiedzi API jest zawsze `[]` (potwierdzone na `seed0`: `plan_result.candidates
+== []`). Sam wygenerowany — ale odrzucony przez niezależny walidator —
+kandydat grafiku (te konkretne przypisania, które doprowadziły do
+naruszenia SHIFT-24-PAIR-01) nigdzie nie trafia do odpowiedzi. Zostaje
+wyłącznie tekstowy `error_message`, np.:
+
+```
+independent validator found HARD violations that cannot be attributed to
+a known autonomy boundary: SHIFT-24-PAIR-01: template <id> mismatch
+[empA,...] vs [empB,...]
+```
+
+Ten komunikat wprawdzie nazywa konkretne `employee_id` i `template_id`, ale
+to nie to samo, co móc zobaczyć realny, wygenerowany harmonogram i jego
+przypisania. Żeby zrekonstruować mechanizm tego zgłoszenia (tak jak zrobiłem
+to w sekcji 3), musiałem czytać kod (`validator.py`, `shift_catalog.py`) i
+odtwarzać go pośrednio z samego katalogu zmian wejściowych — nie mogłem po
+prostu zajrzeć w to, co solver faktycznie złożył.
+
+Innymi słowy: produkt WIE, że coś poszło nie tak (stąd `TECHNICAL_ERROR` i
+nazwane ID w komunikacie), ale wyrzuca dokładnie te dane (kandydata, który
+do naruszenia doprowadził), które pozwoliłyby to zdiagnozować bez odtwarzania
+mechanizmu z kodu.
+
+Nie oceniam, czy to jest błąd, czy świadomy wybór projektowy (np. "nie
+pokazujemy niepoprawnego kandydata, bo mógłby wprowadzić w błąd") — to
+pytanie do Codexa/architekta, analogicznie do hipotez w sekcji 5.
+
+## 7. Pytania do Codexa i architekta
 
 1. Czy `SHIFT-24-PAIR-01` powinien być twardym ograniczeniem CP-SAT
    podczas solvingu, czy pozostać niezależnym post-hoc walidatorem (i wtedy
@@ -124,3 +159,6 @@ pytanie do Codexa i architekta.**
 4. Czy to się nadaje na jeden mały Task (np. dodanie reguły do generatora +
    ewentualna poprawka produktu, jeśli hipoteza B się potwierdzi), czy trzeba
    to rozdzielić na dwa niezależne Taski (Symulator osobno, produkt osobno)?
+5. Czy brak diagnostyki opisany w sekcji 6 (odrzucany kandydat przy
+   TECHNICAL_ERROR) to osobny Task, czy naturalnie wchodzi w zakres tego
+   samego Tasku co punkty 1-4 (bo dotyczy tej samej ścieżki kodu)?
