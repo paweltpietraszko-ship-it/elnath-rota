@@ -34,6 +34,7 @@ from tests.property import coordinator_simulator as sim
 
 REPORT_DIR = Path(__file__).resolve().parents[2] / "tasks" / "ROTA-T044" / "round_01" / "tests"
 FAILURES_DIR = REPORT_DIR / "failures"
+REPORTS_DIR = REPORT_DIR / "reports"
 
 # The complete real status vocabulary (rota/planning/engine_types.py::PlanningResult.status)
 # -- found via a real Hypothesis-generated NARROW_SEARCH_EXHAUSTED case
@@ -386,6 +387,61 @@ def test_t44_r11_01_non_assertion_backend_failure_still_writes_failure_json(monk
     assert payload["seed"] == 1
 
 
+def test_t44_arch_r1_01_ordinary_feasible_run_persists_a_raw_report(monkeypatch, tmp_path):
+    """ARCH-R1-01 (ARCHITECT_IMPLEMENTATION_REVIEW_R1.md): a normal,
+    non-exceptional example -- no HEADCOUNT/CLOSED WORLD violation, no
+    backend crash -- used to leave NOTHING on disk once :memory: closed at
+    teardown(). Wariant B deliberately does not judge the schedule's
+    quality, so this raw record (not a verdict) is the only thing that
+    lets a later diagnosis/external evaluator see it at all."""
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "REPORTS_DIR", tmp_path)
+
+    machine = CoordinatorVariantBMachine()
+    machine.setup_fresh_object(seed=1)
+    machine.do_plan()
+    if machine.final_result["status"] == "FEASIBLE":
+        machine.do_select_candidate()
+        machine.do_replan()
+    machine.teardown()
+
+    report_files = list(tmp_path.glob("*.json"))
+    assert report_files, "an ordinary completed example must persist a raw report even though nothing failed"
+    payload = json.loads(report_files[0].read_text(encoding="utf-8"))
+    assert payload["stage"] == "completed"
+    assert payload["seed"] == 1
+    assert payload["plan_result"] is not None
+    assert payload["reproduction"]
+    for required_key in ("atoms", "declared_local", "calculator_result", "absence_draws", "action_log"):
+        assert payload[required_key] is not None
+
+
+def test_t44_arch_r1_01_technical_error_is_persisted_not_reinterpreted(monkeypatch, tmp_path):
+    """ARCH-R1-01 boundary case: a real, recognized PlanningResult status
+    (TECHNICAL_ERROR) must be written to the raw report exactly as the
+    product returned it -- the harness never converts it into its own
+    error/fairness verdict, and it must not need an exception to be
+    persisted."""
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "REPORTS_DIR", tmp_path)
+
+    machine = CoordinatorVariantBMachine()
+    machine.setup_fresh_object(seed=2)
+
+    def _technical_error(*args, **kwargs):
+        return {"status": "TECHNICAL_ERROR", "candidates": [], "decision_payload": None}
+
+    monkeypatch.setattr(sim, "run_plan", _technical_error)
+    machine.do_plan()
+    machine.teardown()
+
+    report_files = list(tmp_path.glob("*.json"))
+    assert report_files, "a TECHNICAL_ERROR outcome must still be persisted, not silently dropped"
+    payload = json.loads(report_files[0].read_text(encoding="utf-8"))
+    assert payload["plan_result"]["status"] == "TECHNICAL_ERROR"
+    assert payload["final_result"]["status"] == "TECHNICAL_ERROR"
+
+
 # ===========================================================================
 # Checkpoint C -- Hypothesis stateful, real backend
 # ===========================================================================
@@ -415,6 +471,24 @@ def _write_failure_json_b(name: str, payload: dict) -> None:
     )
 
 
+def _write_report_json_b(name: str, payload: dict) -> None:
+    """ARCH-R1-01 fix (ARCHITECT_IMPLEMENTATION_REVIEW_R1.md): a raw,
+    unconditional record of every example that actually reached PLAN --
+    not just the ones that raised. Wariant B deliberately does not judge
+    fairness/schedule quality (brief.md 1.6, OWNER-07), so a formally
+    "green" example (FEASIBLE with a suspicious spread, an accepted
+    TECHNICAL_ERROR, a DECISION_REQUIRED that exhausted EXTERNAL) is
+    exactly the kind of result later diagnosis/an external evaluator needs
+    to see -- if nothing persists it once :memory: closes at teardown(),
+    there is nothing left to diagnose and not even a seed to reproduce it.
+    Same payload shape as a failure snapshot; written regardless of
+    outcome, never re-raising anything."""
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    (REPORTS_DIR / f"{name}.json").write_text(
+        json.dumps(payload, indent=2, default=str, ensure_ascii=False), encoding="utf-8",
+    )
+
+
 class CoordinatorVariantBMachine(RuleBasedStateMachine):
     """Real backend, fresh SQLite :memory: + fresh Site per Hypothesis
     example (via @initialize, run exactly once per example). Preconditions
@@ -435,6 +509,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
         self.has_selected = False
         self.replan_results: list[dict] = []
         self.action_log: list[str] = []
+        self._failed = False
 
     @initialize(seed=st.integers(min_value=0, max_value=2_000_000_000))
     def setup_fresh_object(self, seed):
@@ -476,8 +551,25 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
         }
 
     def _write_and_reraise(self, stage: str, exc: Exception) -> None:
+        self._failed = True
         _write_failure_json_b(f"stateful-seed{self.spec.seed if self.spec else 'unknown'}-{stage}", self._snapshot(stage))
         raise exc
+
+    def _write_completed_report(self) -> None:
+        """ARCH-R1-01: unconditional, called from teardown() for every
+        example that reached at least one real PLAN -- regardless of
+        whether the example ended in FEASIBLE, TECHNICAL_ERROR, an
+        exhausted DECISION_REQUIRED, or any other recognized status. Never
+        raises; a failure here must not mask or replace the example's own
+        outcome. Skipped when a failure snapshot was already written for
+        this example (_write_and_reraise), to avoid two overlapping files
+        for the same seed."""
+        if self.spec is None or self.plan_result is None or self._failed:
+            return
+        try:
+            _write_report_json_b(f"stateful-seed{self.spec.seed}-completed", self._snapshot("completed"))
+        except Exception:
+            pass
 
     @rule()
     @precondition(lambda self: self.spec is not None and self.plan_result is None)
@@ -543,6 +635,7 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
             self._write_and_reraise("invariant", exc)
 
     def teardown(self):
+        self._write_completed_report()
         if self.connection is not None:
             app.dependency_overrides.pop(get_conn, None)
             self.connection.close()
