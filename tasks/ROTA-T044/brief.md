@@ -448,6 +448,43 @@ Implementer zatrzymuje się i zgłasza problem, jeżeli:
 - limit prób EXTERNAL (1.4) okazuje się za niski/wysoki dla realnych
   wygenerowanych obiektów — zgłosić z danymi, nie zgadywać liczby.
 
+## 7a. Świadomie przyjęte uproszczenia — zaakceptowane, nie luki
+
+To nie są przeoczenia. OWNER i CC świadomie wybrali te uproszczenia po
+rozmowie ważącej alternatywy — audyt ma sprawdzać ich WYKONYWALNOŚĆ i
+WEWNĘTRZNĄ SPÓJNOŚĆ, nie kwestionować same decyzje jako niedociągnięcia:
+
+- **Kalkulator to przybliżenie testowe, nie model kadrowy.** Margines
+  urlopowy (24h/mies.) to średnia roczna, nie dokładny rachunek per
+  konkretny miesiąc/pracownika. OWNER wprost: "liczymy jak najlepiej
+  potrafimy [...] sprawdzamy poprawność działania mechanizmu", nie
+  odtwarzamy realnej polityki kadrowej ZPCh co do dnia.
+- **Kalkulator nie uwzględnia L4 w ogóle** (tylko urlop) — świadomie, bo L4
+  jest z natury nieprzewidywalne i ma być pokrywane przez losowy generator
+  W TRAKCIE przebiegu (1.2a), nie przy jednorazowym ustalaniu rozmiaru
+  załogi na starcie.
+- **Realne bloki urlopowe (1.2a) nie muszą sumować się do budżetu 36
+  dni/rok z kalkulatora.** To dwie celowo niezależne rzeczy — margines
+  ustala rozmiar załogi, bloki testują zachowanie solvera. OWNER wprost:
+  "wogóle nie patrzymy na budżet urlopu na cały rok".
+- **`required_primary_count` zawężony do {1,2}, mimo że realne obiekty
+  bywają większe** (OWNER: "nawet 20 pracowników"). Świadomie odrzucone —
+  szerszy zakres nie testuje innej ścieżki kodu, tylko wydłuża czas solve i
+  psuje tani profil Hypothesis. Duże obiekty to świadomie osobny,
+  nieotwarty temat, nie brakujący element tego briefu.
+- **Dokładny mechanizm losowania L4 (~25%)** (np. konkretna dystrybucja
+  Hypothesis) celowo zostawiony implementerowi w ramach TASK_SCOPE — kontrakt
+  wymaga tylko: prawdziwe losowanie, ~25% szans, blok 5-dniowy. To nie jest
+  ten sam rodzaj luki, jaką Codex R5/R2-03 zgłaszał wcześniej (tam brakowało
+  JAKIEJKOLWIEK liczby; tu liczba jest, tylko implementacja mechanizmu
+  losowania — nie jego parametr — zostaje szczegółem kodu).
+- **Konkretne liczby profilu Hypothesis (20/6, 50/10) to szacunek CC**, nie
+  zweryfikowany empirycznie na prawdziwym API+solverze — audyt może je
+  zakwestionować jako nierealistyczne (za drogie/za płytkie), ale sam fakt,
+  że są to liczby "wymyślone przez autora briefu, nie zmierzone" nie jest
+  sam w sobie błędem — dokładnie to zlecił Codex R5/R2-03 (zamrożenie
+  jakichkolwiek konkretnych liczb zamiast "implementer wybierze").
+
 ## 8. Pytania do wąskiego re-audytu Codexa (tylko R2-01/R2-02/R2-03)
 
 Zgodnie z zapowiedzią w `tests_r2.txt`: re-audyt sprawdza WYŁĄCZNIE poniższe
