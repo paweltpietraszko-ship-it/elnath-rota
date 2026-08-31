@@ -1,0 +1,79 @@
+ROTA-T044 — wąski reaudyt briefu R5
+Data: 2026-08-31
+Branch: task/ROTA-T044
+Exact SHA briefu: 1735e0cdd3ddbb4d521b5005a72ad6ac48af507a
+
+WERDYKT
+
+OWNER_DECISION_NEEDED — R3-02 i techniczna część R3-03 zostały opisane
+jednoznacznie, ale R3-01 zawiera sprzeczny wynik liczbowy. Zgodnie z
+AGENTS.md zatrzymuję audyt: po kilku rundach nie będę dalej projektował
+kalkulatora przez kolejne raporty.
+
+WARSTWY AUDYTU
+
+- TRACE: wyłącznie R3-01/R3-02/R3-03 wskazane w `brief.md:598-615`.
+- REPRO: istniejąca funkcja `nominal_monthly_hours_kp`, święta 2026 i wzór
+  literalnie zapisany w `brief.md:188-217`; bez solvera i bez kodu produktu.
+- Nie uruchamiałem testów ani pełnej regresji — audytowany jest kontrakt.
+
+ZAMKNIĘTE
+
+- R3-02: tekst rozróżnia `liczba_LOCAL == 1`, a L4 losuje dokładnie raz na
+  obiekt (`brief.md:303-348`). Kontrakt jest mechanicznie czytelny.
+- R3-03: `database=None`, `deadline=None`, `derandomize=False`, pomiar czasu
+  oraz osobny profil opt-in są zapisane wprost (`brief.md:350-400`). Dokładne
+  liczby mają powstać z pomiaru, a nie ze zgadywania.
+
+R4-01 — sześć kontroli nie dowodzi deklarowanej stabilności kalkulatora
+
+Brief losuje każdy z 12 miesięcy 2026 (`brief.md:188-193`, `259-265`), lecz
+kontrole obejmują tylko luty i lipiec i na tej podstawie twierdzą, że wynik
+5/10/4 jest identyczny niezależnie od miesiąca (`brief.md:224-240`).
+
+Minimalny reproduktor na exact SHA, używający wzoru z briefu:
+
+```
+python -c "from datetime import date; from math import ceil; from tests.property.coordinator_simulator import nominal_monthly_hours_kp,POLISH_2026_HOLIDAYS,_days_in_month; print([(m, _days_in_month(date(2026,m,1)), nominal_monthly_hours_kp(date(2026,m,1),POLISH_2026_HOLIDAYS), ceil(_days_in_month(date(2026,m,1))*24/(nominal_monthly_hours_kp(date(2026,m,1),POLISH_2026_HOLIDAYS)-24)), ceil(_days_in_month(date(2026,m,1))*48/(nominal_monthly_hours_kp(date(2026,m,1),POLISH_2026_HOLIDAYS)-24))) for m in range(1,13)])"
+```
+
+Wynik `(miesiąc, dni, norma, H24×1, H24×2)`:
+
+```
+[(1,31,160,6,11), (2,28,160,5,10), (3,31,176,5,10),
+ (4,30,168,5,10), (5,31,160,6,11), (6,30,168,5,10),
+ (7,31,184,5,10), (8,31,160,6,11), (9,30,176,5,10),
+ (10,31,176,5,10), (11,30,160,6,11), (12,31,168,6,11)]
+```
+
+Zatem wzór daje 6/11 w styczniu, maju, sierpniu, listopadzie i grudniu, a
+5/10 w pozostałych miesiącach. To może być pożądany skutek liczenia na
+rzeczywistym miesiącu, ale jest sprzeczny z obowiązkową kontrolą i zdaniem
+„wynik jest identyczny niezależnie od wylosowanego miesiąca”.
+
+DECYZJA OWNERA
+
+Trzeba wybrać tylko prawdę produktu testowego:
+
+- albo liczba załogi rzeczywiście zmienia się wraz z wylosowanym miesiącem
+  (wtedy 6/11 jest prawidłowym wynikiem i brief/testy nie mogą wymagać zawsze
+  5/10);
+- albo załoga H24 ma pozostać 5/10 niezależnie od miesiąca (wtedy obecny wzór
+  miesiącowy nie realizuje tej decyzji).
+
+Nie wybieram za OWNERA i nie proponuję kolejnej wersji wzoru. Po decyzji CC
+może mechanicznie ujednolicić wzór, tabelę kontrolną i twierdzenia briefu.
+
+DODATKOWA GRANICA OWNERA
+
+R3-02 wprowadza decyzję CC, że przy jednym LOCAL nie generuje się żadnego
+urlopu (`brief.md:317-324`). Jest to czytelne technicznie, ale zmienia zakres
+badania: Symulator nie sprawdzi wtedy realnego przypadku „jedyny LOCAL idzie
+na urlop, produkt prosi o EXTERNAL”. OWNER powinien potwierdzić albo poprawić
+tę jedną zasadę przed PASS; wcześniejsza ogólna zgoda na automatyczny
+EXTERNAL nie rozstrzyga, czy taki urlop ma być generowany.
+
+STOP
+
+To jest końcowy raport tej serii przed decyzją OWNERA. Nie wykonywać kolejnej
+rundy redakcyjnej ani implementacji na podstawie sprzecznego kalkulatora.
