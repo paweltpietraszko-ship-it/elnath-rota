@@ -1,10 +1,11 @@
 # ROTA-T045 — SHIFT-24-PAIR-01 false positive on legal overlapping demands
 
-STATUS: READY FOR CODEX PREIMPLEMENTATION AUDIT — CC READ-ONLY UNTIL PASS
+STATUS: R2 — CODEX R1 MECHANICAL CORRECTIONS APPLIED, READY FOR NARROW REAUDIT — CC READ-ONLY UNTIL PASS
 BASE_PRODUCT_SHA: `91c5e56`
 FINDING: `arch/FINDING_VARIANT_B_SHIFT24_PAIR_2026-08-31.md`
-CODEX_INPUT: `arch/CODEX_RESPONSE_VARIANT_B_SHIFT24_PAIR_2026-08-31.md`
-ARCHITECT_INPUT: `arch/ARCHITECT_RESPONSE_VARIANT_B_SHIFT24_PAIR_2026-08-31.md`
+CODEX_INPUT: `arch/CODEX_RESPONSE_VARIANT_B_SHIFT24_PAIR_2026-08-31.md` @ `f48a840` (docs/variant-b-shift24-pair-finding branch, not present on this branch — exact-SHA reference only)
+ARCHITECT_INPUT: `arch/ARCHITECT_RESPONSE_VARIANT_B_SHIFT24_PAIR_2026-08-31.md` @ `a8b735e` (docs/variant-b-shift24-pair-finding branch, not present on this branch — exact-SHA reference only)
+CODEX_R1_AUDIT: `tasks/ROTA-T045/round_01/tests/tests_r1.txt` @ `22213f0`
 
 No production implementation may start before independent PASS on this exact
 contract HEAD.
@@ -140,30 +141,48 @@ WHERE_MAP:
   `validate()` orchestration) — the map must confirm this is still true
   after refactor and that no other module reimplements this attribution.
 
-## 6. Minimum test matrix (architect's matrix, verbatim)
+## 6. Minimum test matrix (architect's matrix; Codex R1 confirmed 4/6 already
+exist — reuse them, do not duplicate)
 
 1. **LEGAL_OVERLAP_PASS** — E1 covers both components of one H24 occurrence;
    E2 covers an independent, legal demand overlapping only the first half.
-   `SHIFT-24-PAIR-01` does not fire.
+   `SHIFT-24-PAIR-01` does not fire. **NEW TEST REQUIRED** — no existing
+   fixture covers a legally overlapping demand against an H24 pair.
 2. **REAL_MISMATCH_FAIL** — the first and second halves of one H24 occurrence
    are genuinely covered by different people. `SHIFT-24-PAIR-01` fires.
+   **Already exists**: `tests/test_t022_planning_integrity.py::test_c_tagged_component_mismatch_fails`.
+   Confirm it stays green; do not duplicate it.
 3. **T022_TAG_BYPASS_STILL_FAILS** — a spanning/manual PRIMARY genuinely
    covers an H24 component but its `covers_demand_id` tag points to a
    different, non-competing/adjacent demand. The tag must not hide real
-   coverage — T022-F2 protection preserved.
+   coverage — T022-F2 protection preserved. **Already exists**:
+   `tests/test_t022_planning_integrity.py::test_c_interval_covered_component_hidden_behind_other_tag_fails`.
+   Confirm it stays green; do not duplicate it.
 4. **T041_CONCURRENT_DISAMBIGUATION_STAYS_GREEN** — existing legal-concurrent-
    demand `COVERAGE-01` disambiguation (T041/AUDIT-1 C-03) is unaffected by
-   the refactor; existing regression for this must stay green.
+   the refactor; existing regression for this must stay green. **Already
+   exists**: `tests/test_t041_checkpoint_a.py::test_t41_a07_two_legal_overlapping_demands_correctly_assigned_passes`.
+   Confirm it stays green; do not duplicate it.
 5. **MALFORMED_H24_STILL_FAILS_CLOSED** — T022-F3 cardinality/provenance
-   fail-closed behavior is unchanged.
+   fail-closed behavior is unchanged. **Already exists** as multiple cases in
+   `tests/test_t022_planning_integrity.py`:
+   `test_c_malformed_only_one_component_fails_closed`,
+   `test_c_malformed_duplicate_component_number_fails_closed`,
+   `test_c_malformed_wrong_duration_fails_closed`,
+   `test_c_h24_demand_without_template_id_fails_closed`.
+   Confirm they stay green; do not duplicate them.
 6. **MULTI_PRIMARY_H24** — when `required_primary_count > 1`, the correct
-   matching multi-person set on both halves still passes.
+   matching multi-person set on both halves still passes. **NEW TEST
+   REQUIRED** — existing H24 fixtures (`test_c_valid_generated_pair_passes`
+   and the malformed cases above) use `required_primary_count == 1`.
 
-Add these as new test cases in `tests/test_t022_planning_integrity.py`
-(or `tests/test_t040_h24_rhythm_occupancy.py` if that file already owns
-comparable H24 fixtures — implementer's judgment, keep it in whichever file
-already has the closest existing fixture helpers, do not create a third
-home for H24 tests).
+Only items 1 and 6 are new tests. Add them to
+`tests/test_t022_planning_integrity.py` next to the existing `_h24_demands`-
+based cases (section "C: normal H24 (T022-F2/F3)"), reusing that file's
+existing fixture helpers (`_h24_demands`, `_primary`, `_spanning_primary`) —
+do not create a third home for H24 tests, and do not touch
+`tests/test_t040_h24_rhythm_occupancy.py` or `tests/test_t012.py` unless
+implementation discovers a genuine gap there.
 
 The Wariant B batch's seed 0
 (`tasks/ROTA-T044/round_01/tests/reports/batch1/seed0.json`,
@@ -174,14 +193,20 @@ substitute for the unit matrix above.
 
 ## 7. Retained regressions / quality gates
 
+Mandatory gates (no OWNER approval needed — narrow, targeted to the changed
+code and its owning vertical, per AGENTS.md/INDEPENDENT_AUDIT default):
+
 - Full `tests/test_t022_planning_integrity.py`, `tests/test_t040_h24_rhythm_occupancy.py`;
 - `tests/test_t041_checkpoint_a.py` (COVERAGE-01 concurrent-demand tests —
   must stay green, this is the exact regression the shared-helper refactor
   must not break);
 - `tests/test_t012.py` (existing H24/emergency-pair regressions);
-- full suite;
-- Ruff;
+- `ruff check rota/planning/validator.py tests/test_t022_planning_integrity.py`;
 - `git diff --check`.
+
+Full suite is explicitly **optional** and may run only after separate, explicit
+OWNER approval (Codex R1 finding T45-R1-01) — not a default gate for this
+narrow corrective Task.
 
 ## 8. Process
 
@@ -219,10 +244,13 @@ formatting).
 
 TASK_SCOPE:
 - arch/FINDING_VARIANT_B_SHIFT24_PAIR_2026-08-31.md
-- arch/CODEX_RESPONSE_VARIANT_B_SHIFT24_PAIR_2026-08-31.md
-- arch/ARCHITECT_RESPONSE_VARIANT_B_SHIFT24_PAIR_2026-08-31.md
 - tasks/ROTA-T045/brief.md
 - rota/planning/validator.py
 - tests/test_t022_planning_integrity.py
 - tests/test_t040_h24_rhythm_occupancy.py
 - tests/test_t012.py
+
+Note: CODEX_INPUT and ARCHITECT_INPUT documents live on
+`docs/variant-b-shift24-pair-finding` at the exact SHAs given above, not on
+this branch — they are cited by exact SHA as decision provenance, not listed
+here as local TASK_SCOPE content (Codex R1 audit T45-R1-03).
