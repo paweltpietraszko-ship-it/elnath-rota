@@ -1,6 +1,6 @@
 # ROTA-T044 — Symulator Koordynatora Wariant B (prawdziwa zmienność zachowania)
 
-Status: **CC AUTOR (OWNER 2026-08-30/31), KOREKTA R5 — DO WĄSKIEGO RE-AUDYTU CODEX (tylko R3-01/R3-02/R3-03), POTEM DO TASKU CZATGPT**
+Status: **CC AUTOR (OWNER 2026-08-30/31), KOREKTA R6 — DO WĄSKIEGO RE-AUDYTU CODEX (tylko R4-01 i granica liczba_LOCAL==1), POTEM DO TASKU CZATGPT**
 
 Pipeline dla tego Tasku, ustalony wprost przez OWNERA: CC pisze ten brief →
 Codex audytuje → ChatGPT pisze Task na jego podstawie → **CC dostanie na końcu
@@ -9,12 +9,17 @@ zanim cokolwiek zostanie zaimplementowane. To jest świadome odwrócenie
 zwykłego zakazu self-review: zamiast liczyć, że CC przypadkiem nie będzie
 bronić własnej roboty, CC dostaje wprost zadanie ją atakować.
 
-Ta wersja (R5) zastępuje R4 (`22bb560`), którą CC wypchnął do BOARD.md jako
-"gotową do audytu" — ale OWNER złapał błąd w R4's własnej poprawce R3-01
-ZANIM Codex zdążył ją zaudytować: pierwsza próba (jeden stały
-`REFERENCE_MONTH`) sama była powrotem do odtwarzania scenariusza. R5 to
-poprawia (patrz sekcja 0, korekta R4 niżej) — R3-02/R3-03 z R4 pozostają bez
-zmian, tylko R3-01 jest tu inny.
+Ta wersja (R6) zastępuje R5 (`1735e0c`) po wąskim re-audycie Codexa
+(`tasks/ROTA-T044/round_01/tests/tests_r4.txt`, OWNER_DECISION_NEEDED —
+audyt zatrzymany po AGENTS.md, bez dalszego projektowania przez Codexa) i
+dwóch decyzjach OWNERA z 2026-08-31: (1) R4-01 — R5's liczenie na faktycznie
+wylosowanym miesiącu dawało niestabilny wynik (5/10 w większości miesięcy,
+6/11 w pięciu innych) dla tego samego kształtu obiektu; OWNER: zawsze brać
+wyższą liczbę — kalkulator liczy teraz bezpieczne maksimum po wszystkich 12
+miesiącach (patrz sekcja 0, korekta R6, i 1.1); (2) R3-02's wyjątek pomijający
+blok urlopowy przy `liczba_LOCAL == 1` jest błędny i usunięty — OWNER: jedyny
+LOCAL też musi czasem dostać urlop/L4, żeby ta ścieżka była testowana (patrz
+1.2a).
 
 Base: `main@1b6bfbf` (po merge ROTA-T043).
 
@@ -147,6 +152,30 @@ rozstrzygnięcia OWNERA z 2026-08-31, cytaty dosłowne:**
 > kalkulator liczy dokładnie na tym miesiącu, który obiekt naprawdę dostał,
 > co eliminuje ryzyko niedoboru bez poświęcania zmienności.
 
+**Korekta R6, po tym jak Codex R4-01 znalazł realną niespójność w R5:**
+liczenie na faktycznie wylosowanym miesiącu (R5) dawało RÓŻNY wynik dla tego
+samego kształtu obiektu w zależności od miesiąca — H24×1/×2 dawało 5/10 w
+większości miesięcy, ale 6/11 w styczniu/maju/sierpniu/listopadzie/grudniu
+(dowód: `tests_r4.txt`, reproduktor na exact SHA). To przeczyło briefu R5's
+własnemu twierdzeniu "wynik jest identyczny niezależnie od miesiąca".
+
+> [rozstrzygnięcie OWNERA] "jeśli kalkulator daje odpowiedzi, że ilość
+> obsady to między 10 a 11 zawsze ustawia wyższą liczbę." — kalkulator
+> liczy bezpieczne MAKSIMUM po wszystkich 12 miesiącach 2026 dla danego
+> kształtu zapotrzebowania (patrz 1.1), nie wynik dla jednego konkretnego
+> wylosowanego miesiąca. To daje stały, bezpieczny wynik (nigdy niedobór)
+> niezależnie od tego, który miesiąc faktycznie trafi do obiektu przy
+> PLAN/REPLAN — `month` nadal jest losowany (prawdziwa zmienność w tym, jaki
+> kalendarz/święta widzi solver), tylko już nie decyduje o rozmiarze załogi.
+
+> [druga decyzja OWNERA, na granicę zgłoszoną przez Codexa: R3-02 pomijało
+> urlop przy 1 LOCAL, więc nigdy nie testowano ścieżki "jedyny LOCAL idzie na
+> urlop → DECISION_REQUIRED → EXTERNAL"] "jeśli jest tylko 1 LOCAL to
+> oczywiście musi czasem dostać urlop lub L4" — wyjątek "brak bloku
+> urlopowego przy liczba_LOCAL==1" z R3-02 był błędny i jest usunięty (patrz
+> 1.2a): jedyny LOCAL dostaje blok urlopowy na tych samych zasadach co
+> reszta, właśnie po to żeby ta ścieżka była testowana, nie pomijana.
+
 ## 1. Czym Symulator jest i czym nie jest — fundament, nie szczegół
 
 **Symulator automatyzuje wyłącznie decyzje koordynatora.** Nie jest drugim
@@ -171,73 +200,72 @@ algorytm układający dyżury z uwzględnieniem odpoczynku — to prosta
 arytmetyka kadrowa, jaką realny koordynator robi ręcznie, zanim w ogóle
 otworzy Rotę.
 
-**Wzór (poprawiony po Codex R3-01, i po OWNER 2026-08-31 odrzuceniu
-pierwszej próby poprawki — jeden ustalony "miesiąc referencyjny" to
-odtwarzanie scenariusza, dokładnie to czego unikamy: "nie może być jeden
-referencyjny miesiąc bo wracamy do odtwarzania scenariusza. W 2026 ilość
-godzin w miesiącu to 160, 168, 176, 184 i z tych ma losować symulator."**
-Zweryfikowane bezpośrednim przeliczeniem: te cztery wartości (i tylko te
-cztery) faktycznie występują w 2026 (`nominal_monthly_hours_kp` dla
-wszystkich 12 miesięcy 2026 z `POLISH_2026_HOLIDAYS`). Kalkulator NIE ma
-jednego stałego miesiąca — liczy zawsze na **tym konkretnym miesiącu, który
-generator faktycznie wylosował dla danego obiektu** (pole `month` już
-istnieje w `ObjectSpec`, tak jak w Wariancie A). To eliminuje niejednoznaczność
-z R3-01 (dwie implementacje nie mogą się już rozjechać, bo obie liczą na tym
-samym, jawnie znanym miesiącu obiektu) bez poświęcania zmienności.
+**Wzór (poprawiony po Codex R3-01/R4-01 i dwóch kolejnych korektach OWNERA
+2026-08-31 — patrz cytaty w sekcji 0, korekty R4 i R6).** Codex R4-01
+udowodnił reproduktorem, że liczenie na faktycznie wylosowanym miesiącu (R5)
+dawało RÓŻNY wynik dla tego samego kształtu obiektu zależnie od miesiąca —
+sprzeczne z briefu R5's własnym twierdzeniem o stabilności. OWNER
+rozstrzygnął: **"jeśli kalkulator daje odpowiedzi, że ilość obsady to między
+10 a 11 zawsze ustawia wyższą liczbę."** Kalkulator liczy więc bezpieczne
+**MAKSIMUM po wszystkich 12 miesiącach 2026** dla danego kształtu
+zapotrzebowania — nie wynik dla jednego, konkretnego wylosowanego miesiąca.
+`month` (pole `ObjectSpec`) nadal jest losowany, jeden z 12 miesięcy 2026 —
+ale służy do tego, JAKI realny kalendarz/święta widzi solver przy
+PLAN/REPLAN (prawdziwa zmienność tam), nie do ustalenia rozmiaru załogi.
 
 ```
-# `month` to pole ObjectSpec wylosowane przez generator (Hypothesis losuje
-# jeden z 12 miesięcy 2026 -- ten sam rok co POLISH_2026_HOLIDAYS, żaden
-# nowy kalendarz; realny zakres wartości normy w 2026 to {160,168,176,184}h,
-# zweryfikowane, generator NIE ma losować spoza tego, co realny kalendarz da)
-norma_kp = nominal_monthly_hours_kp(month, POLISH_2026_HOLIDAYS)   # realna
-                                          # funkcja produkcyjna, ten sam kod
-                                          # co Wariant A -- nigdy nie
-                                          # przybliżana ręcznie
+# `month` to pole ObjectSpec, losowane jeden z 12 miesięcy 2026 -- używane
+# przy PLAN/REPLAN (kalendarz, święta), NIE przy liczeniu rozmiaru załogi
+
+def zapotrzebowanie_dla_miesiaca(katalog, m: date) -> int:
+    return sum(
+        godziny_zmiany(wiersz) * required_primary_count(wiersz)
+        * liczba_wystapien_dnia_tygodnia(dzień, m)
+        for wiersz in katalog for dzień in wiersz.aktywne_dni_tygodnia
+    )
+
 DNI_URLOPU_ROCZNIE = 36                  # ZPCh/niepełnosprawni, ustalone OWNER
 margines_urlopowy_h = DNI_URLOPU_ROCZNIE / 12 * 8   # = 24h/mies., średnia,
-                                          # NIE liczona per konkretny miesiąc
-                                          # (ta jedna wartość jest świadomie
-                                          # stała niezależnie od miesiąca --
-                                          # to przybliżenie z 1.1's cytatu
-                                          # OWNERA, nie kolejna niejasność)
-dostepne_h_na_osobe = norma_kp - margines_urlopowy_h
+                                          # świadomie stała niezależnie od
+                                          # miesiąca (przybliżenie z cytatu
+                                          # OWNERA w 1.1, nie niejasność)
 
-# Zapotrzebowanie liczone PER WIERSZ katalogu (rodzaj zmiany, godziny,
-# required_primary_count, aktywne dni tygodnia z 1.2) -- każdy wiersz mnoży
-# swoje godziny_zmiany * required_primary_count przez LICZBĘ DNI TEGO
-# KONKRETNEGO dnia tygodnia w TYM konkretnym `month` (nie przez płaskie
-# "31" ani żaden inny stały miesiąc) -- inaczej wzór "tylko weekend"
-# policzyłby się tak, jakby trwał cały miesiąc
-zapotrzebowanie_h = sum(
-    godziny_zmiany(wiersz) * required_primary_count(wiersz)
-    * liczba_wystapien_dnia_tygodnia(dzień, month)
-    for wiersz in wygenerowany_katalog for dzień in wiersz.aktywne_dni_tygodnia
+WSZYSTKIE_MIESIACE_2026 = [date(2026, m, 1) for m in range(1, 13)]
+
+# Kalkulator liczy zapotrzebowanie i dostępne godziny DLA KAŻDEGO z 12
+# miesięcy 2026 z tym samym wygenerowanym katalogiem, i bierze NAJWYŻSZY
+# wynik -- bezpieczna górna granica, stała niezależnie od tego, który
+# miesiąc faktycznie trafi do obiektu (OWNER: "zawsze ustawia wyższą liczbę")
+liczba_LOCAL = max(
+    ceil(
+        zapotrzebowanie_dla_miesiaca(wygenerowany_katalog, m)
+        / (nominal_monthly_hours_kp(m, POLISH_2026_HOLIDAYS) - margines_urlopowy_h)
+    )
+    for m in WSZYSTKIE_MIESIACE_2026
 )
-liczba_LOCAL = ceil(zapotrzebowanie_h / dostepne_h_na_osobe)
 ```
 
 `margines_urlopowy_h` jest tu **wyłącznie do ustalenia rozmiaru załogi** —
 nie jest to budżet, który reszta Symulatora musi "wydać" co do godziny (patrz
 1.2a: realnie wpisywane urlopy nie muszą się sumować do tej samej liczby).
 
-**Przypadki kontrolne, ręcznie policzone na DWÓCH RÓŻNYCH realnych miesiącach
-2026 — luty (28 dni, norma 160h) i lipiec (31 dni, norma 184h) — żeby
-udowodnić, że wzór jest stabilny niezależnie od tego, który miesiąc padnie
-(Codex R2-01 wymagał: jedna warstwa, dwie pełne warstwy, obiekt mieszany
+**Przypadki kontrolne, przeliczone dla WSZYSTKICH 12 miesięcy 2026 metodą
+Codexa (`tests_r4.txt`), maksimum wzięte jako wynik kalkulatora (Codex R2-01
+wymagał: jedna warstwa, dwie pełne warstwy, obiekt mieszany
 robocze/weekend):**
 
-| Przypadek | Luty 2026 (28 dni, norma 160h, dostępne 136h) | Lipiec 2026 (31 dni, norma 184h, dostępne 160h) |
+| Przypadek | Wynik per miesiąc (I-XII, 2026) | MAKSIMUM = wynik kalkulatora |
 |---|---|---|
-| H24×1, cały tydzień | `24×1×28=672h → ceil(672/136)=5` | `24×1×31=744h → ceil(744/160)=5` |
-| H24×2, cały tydzień | `24×2×28=1344h → ceil(1344/136)=10` | `24×2×31=1488h → ceil(1488/160)=10` |
-| D+N 12h, tylko dni robocze | `24×1×20=480h → ceil(480/136)=4` | `24×1×23=552h → ceil(552/160)=4` |
+| H24×1, cały tydzień | 6,5,5,5,6,5,5,6,5,5,6,6 | **6** |
+| H24×2, cały tydzień | 11,10,10,10,11,10,10,11,10,10,11,11 | **11** |
+| D+N 12h, tylko dni robocze | 4,4,4,4,4,4,4,4,4,4,4,4 | **4** |
 
-Wynik jest identyczny niezależnie od wylosowanego miesiąca (5/10/4) — dowód,
-że formuła jest wewnętrznie spójna, nie że akurat trafiliśmy w wygodne
-liczby. Implementer odtwarza te sześć wartości jako testy jednostkowe
-kalkulatora dla OBU miesięcy PRZED podłączeniem go do losowego generatora —
-zgodność z powyższym jest warunkiem koniecznym, nie orientacyjnym.
+Zauważ: mieszany przypadek (D+N tylko robocze) daje **4 we wszystkich 12
+miesiącach** — stabilny bez potrzeby maksimum, tylko dwa przypadki H24 mają
+realną rozbieżność między miesiącami (dokładnie ta, którą znalazł Codex).
+Implementer odtwarza powyższe trzy wartości (6/11/4) jako testy jednostkowe
+kalkulatora PRZED podłączeniem go do losowego generatora — zgodność z
+powyższym jest warunkiem koniecznym, nie orientacyjnym.
 
 **Warunek zawsze sprawdzany po wygenerowaniu obiektu** (poprawiony po
 audycie Codexa R2 z `tests_r1.txt` — poprzednia wersja żądała fałszywej
@@ -257,12 +285,11 @@ wesoło zielone") bez fałszywych FAIL-i na poprawnych wynikach.
 ### 1.2 Swobodne generowanie wzoru zapotrzebowania, nie gotowe kształty
 
 **Miesiąc (`month`, pole `ObjectSpec`) jest losowany, jeden z 12 miesięcy
-2026** (ten sam rok co `POLISH_2026_HOLIDAYS`, żaden nowy kalendarz) —
-poprawka R4, po tym jak próba ustalenia jednego stałego miesiąca
-referencyjnego dla kalkulatora (1.1) została odrzucona jako powrót do
-odtwarzania scenariusza (OWNER: "z tych ma losować symulator", patrz cytat w
-sekcji 0). Kalkulator w 1.1 liczy zawsze na TYM wylosowanym miesiącu, nigdy
-na innym.
+2026** (ten sam rok co `POLISH_2026_HOLIDAYS`, żaden nowy kalendarz) — nadal
+prawdziwa zmienność, ale (poprawka R6, po Codex R4-01) używana przy
+PLAN/REPLAN (realny kalendarz/święta, jakie widzi solver), NIE przy liczeniu
+rozmiaru załogi — kalkulator w 1.1 liczy bezpieczne maksimum po wszystkich 12
+miesiącach, nie na tym jednym wylosowanym.
 
 Generator losuje NIEZALEŻNIE, dla każdego rodzaju zmiany (D/N/24h), każdego
 dnia tygodnia z osobna: czy ta zmiana występuje tego dnia, o jakich godzinach,
@@ -314,14 +341,20 @@ warstwy nieobecności, każdą wygenerowaną obiektowi:
   generator układa je jeden po drugim w kalendarzu, odzwierciedlając to, jak
   realny koordynator świadomie unika nakładania się urlopów (OWNER: "w życiu
   koordynator stara się tylko by daty urlopów się nie pokrywały").
-- **Poprawka po Codex R3-02 — załoga jednoosobowa:** jeśli kalkulator (1.1)
-  zwrócił `liczba_LOCAL == 1`, blok urlopowy deterministyczny **w ogóle nie
-  jest generowany** dla tego obiektu. Nie ma drugiej osoby do zachowania
-  reguły "bez nakładania się urlopów", a jednoosobowa załoga na urlopie to z
-  definicji sytuacja wymagająca EXTERNAL (1.4), nie coś, co ten mechanizm ma
-  próbować obsłużyć. Implementer nie dodaje po cichu drugiego LOCAL, żeby
-  "zmieścić" regułę — to naruszyłoby wynik kalkulatora (Codex R3-02 wprost
-  tego zakazał).
+- **Poprawka R6 — załoga jednoosobowa DOSTAJE urlop, celowo.** R3-02
+  wprowadziło wyjątek pomijający blok urlopowy przy `liczba_LOCAL == 1`;
+  Codex R4-01 słusznie zauważył, że to wyklucza z testowania dokładnie
+  ścieżkę "jedyny LOCAL idzie na urlop → produkt zwraca `DECISION_REQUIRED`
+  → EXTERNAL" — realny, ważny przypadek. OWNER wprost: "jeśli jest tylko 1
+  LOCAL to oczywiście musi czasem dostać urlop lub L4." **Wyjątek jest
+  usunięty**: przy `liczba_LOCAL == 1` jedyny LOCAL dostaje blok urlopowy na
+  tych samych zasadach co reszta (ta sama rotacja z seeda — dla jednej osoby
+  to po prostu pierwsza pozycja w cyklu, np. zawsze 2-tygodniowy blok).
+  Reguła "bloki nigdy się nie pokrywają między pracownikami" jest trywialnie
+  spełniona, bo nie ma z kim się nakładać. Implementer NIE dodaje po cichu
+  drugiego LOCAL, żeby "zmieścić" wcześniejszą regułę — to nadal naruszałoby
+  wynik kalkulatora; poprawka polega na usunięciu wyjątku, nie na obejściu
+  liczby osób.
 - Świadomie **nie ma kontroli sumy dni w roku** względem marginesu 36
   dni/rok z 1.1 — to są dwie niezależne rzeczy: kalkulator używa marginesu
   tylko do ustalenia rozmiaru załogi, generator absencji tylko odgrywa
@@ -341,11 +374,10 @@ warstwy nieobecności, każdą wygenerowaną obiektowi:
   probabilistyczne: "tak, twój pomysł jest dobry").
 - Dokładny mechanizm losowania (np. `st.booleans()` ważone) i moment
   przypisania osoby do L4 (musi być ktoś z zadeklarowanego LOCAL, nie
-  EXTERNAL; przy `liczba_LOCAL == 1` L4 nadal może wystąpić — to nie ma tego
-  samego problemu co blok urlopowy, bo nie wymaga drugiej osoby) implementer
-  dobiera sam w ramach TASK_SCOPE — kontrakt tego briefu wymaga tylko:
-  prawdziwe losowanie Hypothesis, ~25% szans RAZ na obiekt, blok 5-dniowy,
-  nigdy sztywny licznik/harmonogram.
+  EXTERNAL — działa tak samo przy `liczba_LOCAL == 1`, jak i przy każdej
+  innej liczbie) implementer dobiera sam w ramach TASK_SCOPE — kontrakt tego
+  briefu wymaga tylko: prawdziwe losowanie Hypothesis, ~25% szans RAZ na
+  obiekt, blok 5-dniowy, nigdy sztywny licznik/harmonogram.
 
 ### 1.3 Hypothesis (stateful) — prawdziwa zmienność, jawny kontrakt
 
@@ -494,12 +526,11 @@ zaimplementowany w produkcie, nie certyfikat całego Kodeksu pracy).
 
 | Element | Źródło | Konieczność | Redukcja |
 |---|---|---|---|
-| kalkulator obsady z marginesem urlopowym, liczony zawsze na FAKTYCZNIE wylosowanym miesiącu obiektu (nie na jednym stałym) | OWNER 2026-08-31 R3→R5, poprawia Codex R2-01/R3-01 | naga suma godzin/norma dawała 9 zamiast ustalonych 10; pierwsza próba naprawy (jeden stały miesiąc) sama niszczyła zmienność | odjęcie stałego marginesu (24h/mies. z 36 dni urlopu/rok) + liczenie na realnym `month` obiektu, nie na przybliżeniu |
+| kalkulator obsady z marginesem urlopowym, liczony jako MAKSIMUM po wszystkich 12 miesiącach 2026 dla danego kształtu (nie na jednym miesiącu) | OWNER 2026-08-31 R3→R6, poprawia Codex R2-01/R3-01/R4-01 | naga suma godzin/norma dawała 9 zamiast 10; liczenie na jednym stałym miesiącu niszczyło zmienność; liczenie na faktycznie wylosowanym miesiącu dawało niestabilny wynik (5/10 vs 6/11) między miesiącami | odjęcie stałego marginesu (24h/mies.) + `max()` po 12 miesiącach zamiast jednego — OWNER: "zawsze ustawia wyższą liczbę" |
 | realistyczne bloki urlopowe (2 tyg./tydzień, bez nakładania) zamiast losowej absencji "z sufitu" | OWNER 2026-08-31 R3 | testuje jak solver radzi sobie z zachowaniem koordynatora, nie z budżetem godzin | deterministyczna rotacja bloków z seeda, osobna od kalkulatora |
 | L4 losowane probabilistycznie (~25%), nie sztywny licznik | OWNER 2026-08-31 R3 (odrzucił "co 4. grafik") | sztywny licznik to powrót do scenariusza-replay | jeden dodatkowy rzut losowy w generatorze |
 | `required_primary_count` zawężony do {1,2} | OWNER 2026-08-31 R3, rozstrzyga Codex R2-02 | szerszy zakres nie testuje nowej ścieżki, tylko wydłuża realny solve i psuje tani profil | stałe dwuwartościowe losowanie |
-| kalkulator liczy na faktycznie wylosowanym `month` obiektu (nie na jednym stałym), per-wiersz liczenie zamiast płaskiego ×31 | Codex R3-01, poprawione po OWNER 2026-08-31 (pierwsza próba ze stałym miesiącem odrzucona jako scenariusz-replay) | dwie poprawne implementacje dawały różny wynik bez jawnego źródła miesiąca; jeden stały miesiąc niszczyłby zmienność | `month` to pole ObjectSpec jak w Wariancie A, 6 ręcznie policzonych przypadków kontrolnych (5/10/4 LOCAL na DWÓCH różnych miesiącach) |
-| brak bloku urlopowego przy liczba_LOCAL==1, L4 losowane raz na obiekt (nie per krok) | Codex R3-02 | reguła "2 tyg. + tydzień" była niewykonalna dla 1 osoby; "~25% per obiekt/krok" dawało ~82% nie 25% | jawny wyjątek + jedno miejsce losowania zamiast dwóch |
+| jedyny LOCAL TEŻ dostaje blok urlopowy (wyjątek z R3-02 usunięty w R6), L4 losowane raz na obiekt (nie per krok) | Codex R3-02/R4-01, OWNER 2026-08-31 R6 | pierwsza wersja (wyjątek dla 1 osoby) wykluczała testowanie ścieżki "jedyny LOCAL na urlopie → EXTERNAL"; "~25% per obiekt/krok" dawało ~82% nie 25% | usunięcie wyjątku (ta sama rotacja działa dla 1 osoby) + jedno miejsce losowania L4 zamiast dwóch |
 | pomiar (nie zgadywanie) liczb profilu Hypothesis, jawne `database=None`, limit EXTERNAL = liczba_LOCAL | Codex R2-03/R3-03 | niezmierzone 20/6 nie miało dowodu taniości (Wariant A: ~750s/20 obiektów) | implementer mierzy mały realny przebieg przed zamrożeniem liczb |
 | asercja deklaracja=kalkulacja + zamknięty świat | OWNER 2026-08-30 + Codex R2 (poprawia błędną wersję) | zapobiega "8 osób na obiekcie 5-osobowym" bez fałszywych FAIL | dwa sprawdzenia po każdym przypadku |
 | swobodne dni tygodnia/rodzaj/required_primary_count | OWNER 2026-08-30 + Codex R3 | usuwa gotowe kształty i nieaktualny zakaz overlapów | losowanie niezależne per (dzień, rodzaj, required_primary_count) |
@@ -564,6 +595,14 @@ WEWNĘTRZNĄ SPÓJNOŚĆ, nie kwestionować same decyzje jako niedociągnięcia:
   konkretny miesiąc/pracownika. OWNER wprost: "liczymy jak najlepiej
   potrafimy [...] sprawdzamy poprawność działania mechanizmu", nie
   odtwarzamy realnej polityki kadrowej ZPCh co do dnia.
+- **Kalkulator bierze bezpieczne MAKSIMUM po 12 miesiącach (1.1), nie
+  wynik dla konkretnego wylosowanego miesiąca** — świadomie może dać nieco
+  więcej osób niż akurat ten miesiąc by wymagał (np. 6 zamiast 5 dla H24×1 w
+  większości miesięcy). To nie jest błąd zaokrąglenia — to wprost decyzja
+  OWNERA: "jeśli kalkulator daje odpowiedzi, że ilość obsady to między 10 a
+  11 zawsze ustawia wyższą liczbę" — bezpieczeństwo (nigdy niedobór) i
+  stabilność (ten sam kształt zawsze daje ten sam wynik) ważniejsze niż
+  ścisłe dopasowanie do jednego miesiąca.
 - **Kalkulator nie uwzględnia L4 w ogóle** (tylko urlop) — świadomie, bo L4
   jest z natury nieprzewidywalne i ma być pokrywane przez losowy generator
   W TRAKCIE przebiegu (1.2a), nie przy jednorazowym ustalaniu rozmiaru
@@ -590,28 +629,24 @@ WEWNĘTRZNĄ SPÓJNOŚĆ, nie kwestionować same decyzje jako niedociągnięcia:
   sam w sobie błędem — dokładnie to zlecił Codex R5/R2-03 (zamrożenie
   jakichkolwiek konkretnych liczb zamiast "implementer wybierze").
 
-## 8. Pytania do wąskiego re-audytu Codexa (tylko R3-01/R3-02/R3-03)
+## 8. Pytania do wąskiego re-audytu Codexa (tylko R4-01 i granica liczba_LOCAL==1)
 
-Zgodnie z zapowiedzią w `tests_r3.txt`: re-audyt sprawdza WYŁĄCZNIE poniższe
-trzy punkty. R2-02 (zakres `{1,2}`), limit EXTERNAL i granice Symulatora są
-już zamknięte (`tests_r3.txt`: "Nie otwierać ponownie") — proszę nie
-otwierać ich ponownie.
+Zgodnie z `tests_r4.txt`: OWNER podjął obie decyzje, o które prosił Codex.
+R3-03 jest już zamknięte (`tests_r4.txt`: "R3-03 technicznie zamknięte").
+Re-audyt sprawdza WYŁĄCZNIE poniższe dwa punkty — nie otwierać ponownie
+zamkniętych ustaleń (`{1,2}`, granica Symulatora, limit EXTERNAL, profil
+Hypothesis).
 
-1. **R3-01 (źródło miesiąca dla kalkulatora):** czy liczenie zawsze na
-   faktycznie wylosowanym `month` obiektu (nie na jednym stałym miesiącu) +
-   liczenie per-wiersz-katalogu (godziny × wymagana liczba × liczba
-   wystąpień danego dnia tygodnia w TYM `month`) jest teraz jednoznaczne,
-   deterministyczne, i czy sześć przypadków kontrolnych (5/10/4 LOCAL, na
-   dwóch różnych miesiącach) jest poprawnie policzonych?
-2. **R3-02 (kontrakt urlopu + L4):** czy jawny wyjątek dla `liczba_LOCAL==1`
-   (brak bloku urlopowego deterministycznego) i jednoznaczne "L4 losowane
-   RAZ na obiekt, ~25%" (nie per krok) usuwają obie niewykonalności, bez
-   nowych niejasności?
-3. **R3-03 (profil Hypothesis + `database`):** czy wymóg zmierzenia (nie
-   zgadywania) liczb `max_examples`/`stateful_step_count` przed ich
-   zamrożeniem, jawne `database=None`, i jawne kryterium "wyraźnie poniżej
-   ~750s pełnego portfela Wariantu A" są teraz wystarczające, żeby
-   implementer nie musiał projektować kontraktu samodzielnie?
+1. **R4-01 (maksimum po 12 miesiącach):** czy `liczba_LOCAL = max(...)` po
+   wszystkich 12 miesiącach 2026 dla danego kształtu (1.1) jest teraz
+   jednoznaczne, deterministyczne (nie zależy od tego, który `month`
+   faktycznie trafi do obiektu), i czy trzy przeliczone wartości (6/11/4)
+   zgadzają się z reproduktorem Codexa z `tests_r4.txt`?
+2. **Granica `liczba_LOCAL==1` (1.2a):** czy usunięcie wyjątku — jedyny
+   LOCAL też dostaje blok urlopowy na tych samych zasadach co reszta — jest
+   teraz jednoznaczne i wykonywalne, bez nowych niejasności (np. co dokładnie
+   dzieje się z regułą "bloki nie nakładają się", skoro jest tylko jedna
+   osoba)?
 
 Do zamknięcia audytu: **implementacja czeka na PASS Codexa na tym briefie,
 potem na Task napisany przez ChatGPT, potem na jawne polecenie "adwokat
