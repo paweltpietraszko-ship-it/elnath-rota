@@ -1,0 +1,105 @@
+ROTA-T046 — preimplementation audit R1
+
+Audytowany kontrakt: task/T046 @ 61e3c1105140eeec9763412efdfce717f2f3f0e4
+Data: 2026-09-01
+Rola: niezależny audyt przed implementacją; zero zmian kodu produktu
+
+WERDYKT: FAIL — KONTRAKT WYMAGA JEDNEJ KOREKTY PRZED IMPLEMENTACJĄ
+
+## Wynik w prostych słowach
+
+Część B pozostaje potrzebna: zwykłe chorobowe wpisane przed PLAN-em jest
+obecnie drukowane jako urlop. Warstwa wydruku zna prawdziwy rodzaj
+nieobecności, lecz `_decompose_pre_plan()` zawsze wpisuje literę `U`.
+
+Część A należy usunąć z T046. OWNER skorygował zakres 2026-09-01:
+retroaktywne dopisywanie L4/urlopu na rozpoczęty albo wykonany dyżur jest
+scenariuszem kadrowym, którego ten program do układania grafików nie ma
+obsługiwać. Sama zamiana technicznego HTTP 500 na techniczne HTTP 409 nie
+realizuje też docelowej zasady komunikatów przyjaznych dla człowieka.
+
+## TRACE / OWNERSHIP / REPRO
+
+### Część A — usunąć z kontraktu
+
+TRACE:
+- Korekta OWNERA z 2026-09-01 wyłącza ten scenariusz z zakresu programu do
+  grafików i odrzuca zmianę samego numeru błędu jako wynik dla użytkownika.
+- Kontrakt 61e3c11 A.1 nakazuje natomiast dodać mapowanie
+  `RetroactiveAbsenceRejected -> 409`.
+- Jest to konkretna sprzeczność kontraktu z późniejszym rozstrzygnięciem
+  OWNERA.
+
+OWNERSHIP:
+- `api/errors.py` jest właścicielem transportowego mapowania wyjątków, ale
+  nie właścicielem przyjaznego komunikatu i nie powinien w T046 rozszerzać
+  nieobsługiwanego scenariusza kadrowego.
+- Istniejącego zabezpieczenia domenowego w
+  `absence_reference_repository.py` ten audyt nie każe usuwać ani zmieniać.
+
+REPRO na dokładnym kodzie bazowym kontraktu:
+
+    from api.errors import to_http_exception
+    from rota.persistence.absence_reference_repository import RetroactiveAbsenceRejected
+    e = to_http_exception(RetroactiveAbsenceRejected("retro-test"))
+
+Wynik:
+
+    500 unexpected error: retro-test
+
+Reproduktor potwierdza opis stanu obecnego, ale po korekcie OWNERA nie
+uzasadnia implementowania proponowanego 409.
+
+### Część B — pozostawić
+
+TRACE:
+- `CanonicalSiteAbsenceDay.kind` rozróżnia `SICK_LEAVE` i
+  `LEAVE_GRANTED`.
+- `_post_plan_pair()` już prezentuje `SICK_LEAVE` jako `C`, a pozostały
+  urlop jako `U`.
+- `_decompose_pre_plan()` ignoruje dostępne `day.kind` i zawsze przekazuje
+  `"U"`.
+- OWNER potwierdził, że zwykłe L4 ma być na wydruku L4, nie Urlopem; suma
+  godzin ma pozostać bez zmiany.
+
+OWNERSHIP:
+- Błąd powstaje wyłącznie w `rota/application/schedule_export.py`, czyli w
+  warstwie posiadającej prezentację wydruku. Upstream już przenosi prawdziwy
+  rodzaj nieobecności.
+
+REPRO na dokładnym kodzie bazowym kontraktu, dla jednego dnia SICK_LEAVE z
+12 godzinami kanonicznymi:
+
+    _decompose_pre_plan(...) -> [(2026-08-03, "D1", "U1")]
+
+Oczekiwane po poprawce jest `C1`, bez zmiany 12 godzin sumy.
+
+## WHERE_MAP
+
+Uruchomiono:
+
+    python where.py api/errors.py --symbol _STATUS_BY_EXCEPTION
+    python where.py api/errors.py --symbol to_http_exception
+    python where.py rota/application/schedule_export.py --symbol _decompose_pre_plan
+    python where.py rota/application/schedule_export.py --symbol _absence_pairs_for_employee
+
+Wynik:
+- `where.py` nie rozpoznaje stałej `_STATUS_BY_EXCEPTION` jako symbolu
+  najwyższego poziomu; ręczna lektura potwierdza jedną wspólną tabelę.
+- `to_http_exception` jest wspólnym helperem używanym przez routery; oba
+  endpointy zapisu nieobecności już przez niego przechodzą.
+- `_decompose_pre_plan` ma dokładnie jednego rzeczywistego wywołującego:
+  `_absence_pairs_for_employee`.
+- Nie znaleziono potrzeby zmiany routera, solvera, domeny ani persistence.
+
+## Wymagana korekta kontraktu
+
+1. Usunąć Part A z T046: zmianę `api/errors.py`, jej testy oraz wpisy scope.
+2. Pozostawić Part B jako samodzielną, wąską poprawkę wydruku.
+3. W Part B zachować trzy rzeczywiste klasy: samo L4, sam urlop oraz oba
+   rodzaje u jednego pracownika; osobno zachować istniejące fail-closed.
+4. Zamrozić bazę produktu pełnym SHA zamiast napisu `HEAD`; z historii
+   kontraktu wynika `ed6d1efb73b2089d951fb0f188b3b16c00a52fe0`.
+
+Nie uruchamiano pełnej regresji. To audyt kontraktu przed implementacją;
+wykonano tylko lekturę właścicieli i dwa minimalne reproduktory.
