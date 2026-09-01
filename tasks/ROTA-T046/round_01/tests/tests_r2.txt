@@ -1,0 +1,42 @@
+ROTA-T046 — preimplementation reaudyt R2
+
+Audytowany kontrakt: task/T046 @ 6cbe1106ffb25c6ca8ce80eb740a4379ed83eb6d
+Poprzedni raport: tests_r1.txt @ 4aa04e5
+Data: 2026-09-01
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+Zakres tego reaudytu był ograniczony do jedynej wymaganej korekty R1.
+
+Potwierdzono:
+
+1. Usunięta Part A
+   - `api/errors.py` zniknął z TASK_SCOPE i testów Tasku.
+   - Nie ma polecenia mapowania `RetroactiveAbsenceRejected` na HTTP 409.
+   - Zabezpieczenie domenowe pozostaje jawnie nietknięte.
+   - Wzmianka w sekcji 0 jedynie zapisuje decyzję OWNERA i zakazuje
+     implementowania tej części; nie przywraca jej do zakresu.
+
+2. Pozostawiona Part B
+   - Jedyny plik produkcyjny to
+     `rota/application/schedule_export.py`.
+   - Zmiana dotyczy wyłącznie poprawnego przypisania PRE_PLAN SICK_LEAVE do
+     L4/`C`, a LEAVE_GRANTED do Urlop/`U`.
+   - Łączna liczba godzin ma pozostać bez zmiany.
+   - Macierz zachowuje: samo L4, sam urlop, oba rodzaje u jednego pracownika
+     oraz istniejące zachowanie fail-closed.
+
+3. Granice techniczne
+   - BASE_PRODUCT_SHA zamrożono jako
+     `ed6d1efb73b2089d951fb0f188b3b16c00a52fe0`.
+   - Diff od tej bazy do audytowanego HEAD nie zawiera zmian kodu produktu
+     ani testów; zmieniony jest wyłącznie kontrakt i wcześniejszy raport.
+   - WHERE_MAP pozostaje ograniczony do `_decompose_pre_plan` oraz jego
+     jedynego rzeczywistego wywołującego `_absence_pairs_for_employee`.
+   - Nie ma zmian solvera, API, domeny ani persistence.
+
+Nie uruchamiano testów produktu ani pełnej regresji: kod produktu wciąż nie
+istnieje, a reaudyt dotyczył wyłącznie korekty dokumentu kontraktowego.
+
+PASS obowiązuje wyłącznie dla exact SHA
+6cbe1106ffb25c6ca8ce80eb740a4379ed83eb6d.
