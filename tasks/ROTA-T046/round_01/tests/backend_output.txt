@@ -1,0 +1,18 @@
+STATUS: FAIL
+HEAD_SHA: d08f758e846018979a97dab417cda6437593fff4
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FILE: rota/application/schedule_export.py has 603 lines (max 600)
+  - SIZE_FILE: tests/test_t020.py has 770 lines (max 600)
+WYMAGA_DECYZJI:
+  - RATIO: 34/2 = 17.0:1 (threshold 5:1)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_t023_checkpoint_c.py
+  - tests\test_t026.py
+  - tests\test_vertical_full_stack.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_c_audit.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_c_r16_audit.py
+  - tasks\ROTA-T020\round_01\tests\test_t020_implementation_audit.py
+  - tasks\ROTA-T020\round_01\tests\test_t020_round10_audit.py
+  - api\routers\export.py
+EXCLUDED_ARTIFACTS: NONE

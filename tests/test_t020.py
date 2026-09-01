@@ -306,6 +306,35 @@ def test_t20_14_frozen_40h_leave_decomposition():
     assert row.urlop_hours == 40
 
 
+# --- T046: PRE_PLAN SICK_LEAVE must print as L4/C, not Urlop/U --------------
+def test_t046_pre_plan_sick_leave_prints_c_not_u():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    _grant_leave(conn, "EMP-1", start=date(2026, 8, 19), end=date(2026, 8, 25), kind=AvailabilityKind.SICK_LEAVE)
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.plan[18:21] == ["D1", "D1", "N2"]
+    assert row.wyk[18:21] == ["C1", "C1", "C2"]
+    assert row.l4_hours == 40
+    assert row.urlop_hours == 0
+def test_t046_pre_plan_mixed_leave_granted_and_sick_leave_same_employee():
+    conn = connect(":memory:")
+    _seed(conn)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    _grant_leave(conn, "EMP-1", start=date(2026, 8, 3), end=date(2026, 8, 4), av_id="AV-U")  # Mon+Tue, 16h urlop (single N2/U2 symbol, minimal sequence)
+    _grant_leave(conn, "EMP-1", start=date(2026, 8, 19), end=date(2026, 8, 25), kind=AvailabilityKind.SICK_LEAVE, av_id="AV-C")  # 40h L4
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.rows[0]
+    assert row.wyk[2:4] == ["U2", "U~"]
+    assert row.wyk[18:21] == ["C1", "C1", "C2"]
+    assert row.urlop_hours == 16
+    assert row.l4_hours == 40
+    assert row.wyk_hours == 16 + 40
+
+
 # --- T20-19/20/21: conflicts and ambiguity ----------------------------------
 def test_t20_19_overlapping_leave_and_sick_prints_c_only():
     """ROTA-T023 brief.md section 18: superseded by SICK/C precedence --
