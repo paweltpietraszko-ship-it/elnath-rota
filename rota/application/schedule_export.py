@@ -319,8 +319,11 @@ def _decompose(employee_id: str, letter: str, span: list[date], qualifying: list
     pairs += [(d, f"{letter}~", f"{letter}~") for d in span if d not in symbol_dates]
     return pairs
 def _decompose_pre_plan(employee_id, pre_plan_days, settings) -> list[tuple]:
-    span, qualifying = [d for d, _ in pre_plan_days], [(d, day.canonical_hours) for d, day in pre_plan_days if day.canonical_hours]
-    return _decompose(employee_id, "U", span, [d for d, _ in qualifying], sum(h for _, h in qualifying), settings)
+    pairs: list[tuple] = []  # T046: letter follows each day's real kind (C=SICK_LEAVE, U=LEAVE_GRANTED), mirrors _post_plan_pair
+    for kind, letter in ((AvailabilityKind.SICK_LEAVE, "C"), (AvailabilityKind.LEAVE_GRANTED, "U")):
+        span, qualifying = [d for d, day in pre_plan_days if day.kind == kind], [(d, day.canonical_hours) for d, day in pre_plan_days if day.kind == kind and day.canonical_hours]  # noqa: E501
+        pairs += _decompose(employee_id, letter, span, [d for d, _ in qualifying], sum(h for _, h in qualifying), settings)
+    return pairs
 def _detailed_facts(snapshots) -> list[DetailedDailyAbsenceFact]:
     # T026-2: mechanical persisted-to-pure mapping only -- no precedence/range/arithmetic; canonical_site_absence_days owns that.
     facts = []
