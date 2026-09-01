@@ -1,99 +1,36 @@
-# ROTA-T046 — two small, independent corrective fixes
+# ROTA-T046 — PRE_PLAN sick leave prints under the wrong column
 
-STATUS: DRAFT — CC READ-ONLY UNTIL PASS
-BASE_PRODUCT_SHA: `HEAD` at brief time (confirm exact SHA before implementation)
-ORIGIN: findings 1 and 9, `project_small_findings_backlog_2026-08-31` (CC/Paweł
+STATUS: R2 — OWNER_CORRECTED APPLIED, READY FOR NARROW REAUDIT — CC READ-ONLY UNTIL PASS
+BASE_PRODUCT_SHA: `ed6d1efb73b2089d951fb0f188b3b16c00a52fe0`
+CODEX_R1_AUDIT: `tasks/ROTA-T046/round_01/tests/tests_r1.txt` @ `4aa04e5`
+ORIGIN: finding 9, `project_small_findings_backlog_2026-08-31` (CC/Paweł
 evaluator dry-run session, 2026-08-31/2026-09-01) — no separate arch/ finding
-doc exists for either, both are small, code-grounded, single-file fixes found
-by direct reading, not by a Wariant A/B generator run.
+doc exists, a small, code-grounded, single-file fix found by direct reading
+and by reading the actual rendered PDF, not by a Wariant A/B generator run.
 
 No production implementation may start before independent PASS on this exact
 contract HEAD.
 
-This bundles two unrelated, independent, non-overlapping small fixes into one
-Task because both are trivial in scope and neither touches a file the other
-does. They are verified and reviewed as two separate checkpoints; either may
-land without the other being ready.
+## 0. R2 change (OWNER_CORRECTED, do not re-litigate)
 
----
+R1 bundled a second, unrelated fix ("Part A": mapping
+`RetroactiveAbsenceRejected` to HTTP 409 in `api/errors.py`). Codex R1 audit
+(`tests_r1.txt` @ `4aa04e5`) returned FAIL for that part after an OWNER
+correction on 2026-09-01: retroactively appending SICK_LEAVE/LEAVE_GRANTED
+over an already-started or already-realized PRIMARY work period is an HR/
+payroll-adjacent scenario this scheduling program does not aim to support,
+and swapping one technical status code (500) for another (409) does not by
+itself produce a human-friendly message anyway. **Part A is removed from
+this Task entirely** — not fixed, not softened, removed. The underlying
+domain safeguard (`RetroactiveAbsenceRejected`,
+`rota/persistence/absence_reference_repository.py`) is correct and stays
+exactly as it is; this Task does not touch it, does not extend its handling,
+and does not change its current HTTP behavior.
 
-## Part A — `RetroactiveAbsenceRejected` leaks as an unhandled HTTP 500
+This brief now covers only the original R1 "Part B" fix, renumbered as the
+Task's sole scope below.
 
-### A.0 Origin and root cause (confirmed by reading, not guessed)
-
-`rota/persistence/absence_reference_repository.py:81-84` defines
-`RetroactiveAbsenceRejected` — correct, intentional business logic (own unit
-tests already pass in `tests/test_t023.py`): a new/expanded active
-SICK_LEAVE/LEAVE_GRANTED write that would newly cover a non-CANCELLED PRIMARY
-work period that already started, or a REALIZED PRIMARY Assignment, is
-rejected before any persistence (raised inside `check_retroactivity`, called
-from `capture_reference_if_applicable`, itself called from
-`rota.application.durable_inputs.append_availability`).
-
-The shared exception-to-HTTP mapping table, `api/errors.py::_STATUS_BY_EXCEPTION`
-(brief.md section 3.2: "one shared helper, never per-router ad-hoc handling"),
-simply has no entry for `RetroactiveAbsenceRejected`. Both callers of
-`append_availability` — `create_availability` and `update_availability` in
-`api/routers/durable_inputs.py` (lines ~228-238, ~249-261) — already route
-every exception through `to_http_exception(exc)`, which falls through to the
-generic `return HTTPException(status_code=500, detail=f"unexpected error: {exc}")`
-for any exception type not in the table. First seen in Wariant A's
-`coordinator_report.json` (seed16, seed18,
-`tasks/ROTA-T043/round_01/tests/failures/seed16-crash.json`).
-
-### A.1 What must change
-
-Add exactly one entry to `api/errors.py::_STATUS_BY_EXCEPTION`:
-
-- import `RetroactiveAbsenceRejected` from
-  `rota.persistence.absence_reference_repository`;
-- map it to **409** — matching this file's existing precedent for "this write
-  conflicts with already-committed/realized state"
-  (`ScheduleVersionNotWorking`, `NonEditableScheduleVersion`,
-  `SiteRegimeChangeRejected` are all 409 in the same table), not 400/422.
-
-No other change. `to_http_exception` itself, `check_retroactivity`,
-`capture_reference_if_applicable`, and both router endpoints are otherwise
-untouched — the shared-helper pattern already routes every exception through
-one place, so this is a pure table addition.
-
-### A.2 TASK_SCOPE (Part A)
-
-Production files allowed:
-- `api/errors.py`
-
-Test files:
-- `tests/test_t023.py` (existing `RetroactiveAbsenceRejected` unit coverage
-  lives here — read first, add an HTTP-level test near it or in an existing
-  API-level absence test file if one already exercises this endpoint;
-  do not create a new test module for one assertion)
-
-Explicitly out of scope:
-- `rota/persistence/absence_reference_repository.py` (the domain exception
-  and its raising logic are correct and untouched);
-- `api/routers/durable_inputs.py` (both endpoints already correctly funnel
-  through `to_http_exception`; no per-router handling is added, per
-  brief.md section 3.2).
-
-### A.3 Minimum test matrix (Part A)
-
-1. **RETROACTIVE_REJECTED_RETURNS_409** — NEW TEST REQUIRED. Drive
-   `POST /api/workspace/employees/{id}/availability` (or the PATCH
-   equivalent) through the real FastAPI app with a payload that reproduces
-   `RetroactiveAbsenceRejected` (an active SICK_LEAVE/LEAVE_GRANTED write
-   newly covering an already-started PLANNED or REALIZED PRIMARY —
-   `tests/test_t023.py`'s existing domain-level reproducer shows the exact
-   setup). Assert `response.status_code == 409` and the response body's
-   `detail` is the exception's own message (not a generic "unexpected
-   error" string).
-2. **Existing `tests/test_t023.py` `RetroactiveAbsenceRejected` unit tests**
-   stay green, unchanged — confirms the domain exception itself is untouched.
-
----
-
-## Part B — PRE_PLAN SICK_LEAVE prints as "U" (urlop) instead of "C" (chorobowe)
-
-### B.0 Origin and root cause (confirmed by reading the code AND the actual
+## 1. Origin and root cause (confirmed by reading the code AND the actual
 rendered PDF, not just computed data)
 
 `rota/application/schedule_export.py::_decompose_pre_plan` (lines 321-323):
@@ -133,7 +70,7 @@ real damage is that the row's "Urlop g." / "L4 g." summary columns
 misattribute the hours: the affected employee's PRE_PLAN sick leave shows
 entirely under "Urlop g." with "L4 g." = 0.
 
-### B.1 What must change
+## 2. What must change
 
 `_decompose_pre_plan` must group its `pre_plan_days` by `day.kind`
 (preserving date order within each group) instead of treating them as one
@@ -152,7 +89,7 @@ period and a later, separate SICK_LEAVE period, both before the first
 PLAN) — the fix must handle this correctly, not just the common one-kind
 case.
 
-### B.2 Preserve exactly (frozen, do not regress)
+## 3. Preserve exactly (frozen, do not regress)
 
 - `_post_plan_pair`'s existing correct `"C"`/`"U"` branching is untouched.
 - The `ABSENCE_DECOMPOSITION_REQUIRED` fail-closed behavior in `_decompose`
@@ -162,28 +99,46 @@ case.
 - Total hours reported for PRE_PLAN days (sum across both letters) must
   equal what the combined pre-fix calculation would have summed — this fix
   changes attribution (which column/letter), not the total.
+- `RetroactiveAbsenceRejected` and its current HTTP behavior
+  (`api/errors.py`) are untouched by this Task — see section 0.
 
-### B.3 TASK_SCOPE (Part B)
+## 4. TASK_SCOPE
 
 Production files allowed:
 - `rota/application/schedule_export.py`
 
 No other production file — `rota/planning/absence.py` and
 `rota/persistence/absence_reference_repository.py` already carry `kind`
-correctly through to this point; nothing there needs to change.
+correctly through to this point; nothing there needs to change. `api/errors.py`
+is explicitly out of scope per section 0.
 
 Test files:
+- `tasks/ROTA-T046/brief.md`
 - `tests/test_t020.py` (existing PRE_PLAN/absence print tests live here —
   see `test_t20_19_overlapping_leave_and_sick_prints_c_only` and neighboring
   cases for the file's existing fixture helpers; reuse them)
 
 Explicitly out of scope:
+- `api/errors.py`, `rota/persistence/absence_reference_repository.py`,
+  `api/routers/durable_inputs.py` (Part A, removed — see section 0);
 - Any change to `_post_plan_pair`'s own logic (already correct);
 - Any change to how `source_mode`/`kind` are resolved upstream
   (`rota/planning/absence.py`, `rota/persistence/absence_reference_repository.py`)
   — this is a print-layer attribution fix only.
 
-### B.4 Minimum test matrix (Part B)
+## 5. WHERE_MAP
+
+WHERE_MAP:
+- MODE: REQUIRED
+- TARGETS: `rota/application/schedule_export.py`
+  (`_decompose_pre_plan`, `_absence_pairs_for_employee`)
+- REASON: confirm before implementation that `_decompose_pre_plan` has
+  exactly one caller (`_absence_pairs_for_employee`) so the grouping change
+  cannot silently affect an unrelated call path. Codex R1 audit already ran
+  this and confirmed it (`tests_r1.txt`); reconfirm on this exact HEAD if the
+  file changed since.
+
+## 6. Minimum test matrix
 
 1. **PRE_PLAN_SICK_LEAVE_PRINTS_C** — NEW TEST REQUIRED. An employee with a
    PRE_PLAN SICK_LEAVE span (recorded before the first accepted plan) must
@@ -207,55 +162,39 @@ Explicitly out of scope:
    path in `test_t020.py` still passes; add one case scoped to a single kind
    group if no existing case is easily adaptable).
 
----
+Codex R1 confirmed all four items above as the correct, still-needed matrix
+(three real classes: pure L4, pure urlop, mixed; plus the existing
+fail-closed case) — unchanged from R1, reproduced here as the Task's sole
+matrix.
 
-## WHERE_MAP
+## 7. Retained regressions / quality gates
 
-WHERE_MAP:
-- MODE: REQUIRED
-- TARGETS (Part A): `api/errors.py` (`_STATUS_BY_EXCEPTION`, `to_http_exception`)
-- TARGETS (Part B): `rota/application/schedule_export.py`
-  (`_decompose_pre_plan`, `_absence_pairs_for_employee`)
-- REASON: confirm before implementation that `to_http_exception` genuinely
-  has exactly one call site pattern (both `durable_inputs.py` endpoints
-  already route through it — no other router reimplements its own mapping
-  for `RetroactiveAbsenceRejected`), and that `_decompose_pre_plan` has
-  exactly one caller (`_absence_pairs_for_employee`) so the grouping change
-  cannot silently affect an unrelated call path.
-
-## Retained regressions / quality gates
-
-- Part A: `tests/test_t023.py` full file green; new HTTP-level test green.
-- Part B: `tests/test_t020.py` full file green (all existing PRE_PLAN/
-  POST_PLAN print cases); new tests green.
-- `ruff check api/errors.py rota/application/schedule_export.py tests/test_t023.py tests/test_t020.py`
+- `tests/test_t020.py` full file green (all existing PRE_PLAN/POST_PLAN
+  print cases); new tests green.
+- `ruff check rota/application/schedule_export.py tests/test_t020.py`
 - `git diff --check`
 
-Full suite is optional, not a default gate for these two narrow corrective
-fixes.
+Full suite is optional, not a default gate for this narrow corrective fix.
 
-## Process
+## 8. Process
 
-Two independent small corrective fixes, one implementation/review unit each,
-no checkpoint split beyond the Part A / Part B separation above (they may be
-implemented and verified in either order, or in parallel, since they touch
-disjoint files). After PASS on this brief: implementation, then targeted
-matrix + retained regressions + quality gates + independent exact-SHA
-implementation audit (Codex) + architect exact-SHA review. Merge remains an
-explicit owner action — never on CC's own initiative even after green
-backend + Codex.
+One small corrective fix, one implementation/review unit, no checkpoint
+split. After PASS on this brief: implementation, then targeted matrix +
+retained regressions + quality gates + independent exact-SHA implementation
+audit (Codex) + architect exact-SHA review. Merge remains an explicit owner
+action — never on CC's own initiative even after green backend + Codex.
 
-## Final preimplementation verification
+## 9. Final preimplementation verification
 
 Independent verification of this exact HEAD should answer:
 
-1. Part A: does the fix add exactly one table entry (no per-router
-   exception handling introduced), and is 409 the right status code by this
-   file's own existing precedent?
-2. Part B: does the fix preserve the correct monthly TOTAL (only the
-   Urlop/L4 attribution changes), and does it correctly handle an employee
-   with both kinds of PRE_PLAN absence in the same month?
-3. Do both parts stay entirely inside their one allowed production file each,
+1. Is Part A (the `api/errors.py`/`RetroactiveAbsenceRejected` change)
+   fully absent from this contract — no production file, no test, no scope
+   entry referencing it?
+2. Does the fix preserve the correct monthly TOTAL (only the Urlop/L4
+   attribution changes), and does it correctly handle an employee with both
+   kinds of PRE_PLAN absence in the same month?
+3. Does the fix stay entirely inside `rota/application/schedule_export.py`,
    with no solver/domain/persistence-layer change?
 
 Required verdict:
@@ -264,13 +203,12 @@ Required verdict:
 
 Until PASS: `CC READ-ONLY / NOT READY FOR IMPLEMENTATION`.
 
-## EXACT TASK_SCOPE
+## 10. EXACT TASK_SCOPE
 
-Mechanical restatement for backend.py's parser (bare paths, no formatting).
+Mechanical restatement of section 4 for backend.py's parser (bare paths, no
+formatting).
 
 TASK_SCOPE:
 - tasks/ROTA-T046/brief.md
-- api/errors.py
 - rota/application/schedule_export.py
-- tests/test_t023.py
 - tests/test_t020.py
