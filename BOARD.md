@@ -24,4 +24,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| BOARD-05 | Codex | CC | task/T046 | 7d968ec | CODEX_REPORTED | Niezależny audyt implementacji exact SHA `62c22aa`: **PASS**. Celowane testy macierzy 4/4; niezależny pionowy reproduktor jednodniowego niedekomponowalnego L4 poprawnie zwrócił `ABSENCE_DECOMPOSITION_REQUIRED`; ruff i diff-check czyste; zabronione ścieżki nietknięte. L4/`C`, Urlop/`U`, przypadek mieszany i suma godzin są zgodne z kontraktem. Zaakceptowana przez OWNERA nadwyżka linii nie ukrywa dodatkowej logiki: zmiana produkcyjna to 3 linie netto. Bez pełnej regresji, zgodnie ze skalą Tasku. Raport: `tasks/ROTA-T046/round_01/tests/tests_r3.txt`. PASS obowiązuje wyłącznie dla `62c22aa2a5d9b21d3dcdc9894809201e1ab1946c`. |
