@@ -1,0 +1,66 @@
+ROTA-T046 — niezależny audyt implementacji R3
+
+Audytowany exact SHA: 62c22aa2a5d9b21d3dcdc9894809201e1ab1946c
+Implementacja: d08f758e846018979a97dab417cda6437593fff4
+Kontrakt PASS: 6cbe1106ffb25c6ca8ce80eb740a4379ed83eb6d
+Data: 2026-09-01
+
+WERDYKT: PASS
+
+PASS obowiązuje wyłącznie dla exact SHA
+62c22aa2a5d9b21d3dcdc9894809201e1ab1946c.
+
+## Audytowane warstwy
+
+1. Zakres i kod
+   - Jedyna zmiana produkcyjna znajduje się w
+     `rota/application/schedule_export.py::_decompose_pre_plan`.
+   - `api/errors.py`, routery, solver, domena, persistence i istniejące
+     zabezpieczenie `RetroactiveAbsenceRejected` są nietknięte.
+   - Funkcja grupuje PRE_PLAN po prawdziwym `AvailabilityKind` i stosuje tę
+     samą regułę prezentacji co istniejący POST_PLAN:
+     `SICK_LEAVE -> C`, `LEAVE_GRANTED -> U`.
+   - `_decompose_pre_plan` nadal ma jednego rzeczywistego wywołującego:
+     `_absence_pairs_for_employee`.
+
+2. Macierz kontraktu — celowane testy na exact SHA
+
+Uruchomiono:
+
+    tests/test_t020.py::test_t046_pre_plan_sick_leave_prints_c_not_u
+    tests/test_t020.py::test_t046_pre_plan_mixed_leave_granted_and_sick_leave_same_employee
+    tests/test_t020.py::test_t20_14_frozen_40h_leave_decomposition
+    tests/test_t020.py::test_t20_16_12h_regime_forbids_24h_denominations_even_with_can_work_24h
+
+Wynik: 4 passed in 0.48s.
+
+Pokryto odpowiednio: samo L4, mieszane L4+urlop u jednej osoby, zachowanie
+samego urlopu oraz istniejące fail-closed.
+
+3. Niezależny pionowy reproduktor
+   - Utworzono świeżą bazę `:memory:`.
+   - Przez produkcyjny zapis nieobecności dodano jednodniowe PRE_PLAN
+     SICK_LEAVE o 8 godzinach przy konfiguracji bez prawidłowej pary kodów.
+   - Produkcyjny `_assemble_export_model` zwrócił oczekiwane
+     `ABSENCE_DECOMPOSITION_REQUIRED`.
+   - Wynik potwierdza, że rozdzielenie rodzajów nieobecności nie pomija
+     niedekomponowalnego L4 i nadal kończy się bezpiecznie.
+
+4. Jakość i granice
+   - `ruff check rota/application/schedule_export.py tests/test_t020.py`:
+     PASS.
+   - `git diff --check 6cbe110..62c22aa`: PASS.
+   - Kontrola diffu ścieżek zabronionych: brak zmian.
+   - `where.py` uruchomiono ponownie dla `_decompose_pre_plan` i
+     `_absence_pairs_for_employee`; rzeczywista ścieżka wywołania nie
+     rozszerzyła się.
+
+## Mechaniczny limit rozmiaru
+
+Zapisany wynik `backend.py` zgłasza wyłącznie przekroczenie limitu długości
+dwóch istniejących plików oraz proporcję linii testów do małej poprawki.
+OWNER jawnie zaakceptował tę nadwyżkę. Audyt diffu potwierdza, że produkcyjna
+zmiana ma trzy dodatkowe linie netto i nie zawiera ukrytej nowej logiki.
+Nie jest to defekt T046.
+
+Nie uruchamiano pełnej regresji zgodnie z AGENTS.md i skalą poprawki.
