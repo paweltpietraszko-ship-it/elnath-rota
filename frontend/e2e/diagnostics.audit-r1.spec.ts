@@ -24,7 +24,6 @@ test("audit R1: a SITE identifier is removed from recorded endpoint paths", asyn
   await waitForWorkspaceLoaded(page);
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill(`AUDIT-${suffix}`);
-  await page.locator('input[placeholder="np. PROF-NORDPLAST-02"]').fill(`AUDIT-PROF-${suffix}`);
   await page.locator('[data-diag-action="create-site-submit"]').click();
 
   const created = (await (await responsePromise).json()) as { site_id: string };
@@ -73,7 +72,6 @@ test("audit R1: malformed successful JSON is classified as a request failure", a
   await waitForWorkspaceLoaded(page);
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill("AUDIT-PARSE");
-  await page.locator('input[placeholder="np. PROF-NORDPLAST-02"]').fill("AUDIT-PARSE-PROF");
   await page.locator('[data-diag-action="create-site-submit"]').click();
   await page.locator(".banner-error").waitFor();
 

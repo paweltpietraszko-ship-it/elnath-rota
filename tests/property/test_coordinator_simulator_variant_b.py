@@ -292,7 +292,7 @@ def test_t44_b_12_external_limit_stops_at_initial_local_count(client):
     spec = _Spec()
     resp = client.post(
         "/api/workspace/sites",
-        json={"display_name": "SIMB-999", "profile_display_name": "SIMB-PROFILE-999",
+        json={"display_name": "SIMB-999",
               "rolling_7d_decision_threshold_hours": 60, "planning_regime": "ORDINARY"},
     )
     assert resp.status_code == 201, resp.text

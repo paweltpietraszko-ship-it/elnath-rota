@@ -1,0 +1,27 @@
+ROTA-T049 — PREIMPLEMENTATION REAUDIT R2
+
+Audytowany branch: task/ROTA-T049
+Audytowany exact SHA: e46d47d64fea959308bcf6951338245eb608ec7a
+Poprzedni raport: tests_r1.txt na task/ROTA-T049@081b3a7
+
+Werdykt: PASS — READY FOR IMPLEMENTATION
+
+Wąski reaudyt objął wyłącznie trzy korekty R1:
+
+1. PASS — sekcja 5 obejmuje teraz również dwa bezpośrednie użycia usuwanego
+   pola w frontend/e2e/diagnostics.spec.ts:57,96, niezależne od helpera.
+2. PASS — nowa sekcja 1a jawnie zastępuje wcześniejszą decyzję T021 o trzech
+   polach formularza. Po T049 zostają dwa pola; archiwalne dokumenty i testy
+   T021 pozostają nietknięte.
+3. PASS — opis Historii odpowiada kodowi: _profile_state nie serializuje
+   SiteProfile.display_name, a History.tsx mapuje profile_id. Brief nie
+   przypisuje już usuwanej nazwie nieistniejącego miejsca odczytu.
+
+Od poprzedniego raportu zmienił się wyłącznie brief.md. Nie uruchamiano
+testów ani builda, ponieważ kod produktu nadal nie został zmieniony.
+
+Nie jest potrzebny architekt ani kolejna decyzja OWNERA. Implementacja ma
+pozostać w dokładnym TASK_SCOPE i zachować mechaniczny charakter opisany w
+kontrakcie.
+
+PASS obowiązuje wyłącznie dla exact SHA wskazanego powyżej.

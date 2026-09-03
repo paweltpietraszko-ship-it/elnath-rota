@@ -441,7 +441,6 @@ function CreatePanel({
   onCreated: () => void;
 }) {
   const [displayName, setDisplayName] = useState("");
-  const [profileName, setProfileName] = useState("");
   const [threshold, setThreshold] = useState(40);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -452,7 +451,6 @@ function CreatePanel({
     try {
       await api.createSite({
         display_name: displayName,
-        profile_display_name: profileName,
         rolling_7d_decision_threshold_hours: threshold,
         planning_regime: regime,
       });
@@ -478,14 +476,6 @@ function CreatePanel({
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="np. NORDPLAST II" />
         </label>
         <label>
-          <span className="field-label">Nazwa profilu zmianowego</span>
-          <input
-            value={profileName}
-            onChange={(e) => setProfileName(e.target.value)}
-            placeholder="np. PROF-NORDPLAST-02"
-          />
-        </label>
-        <label>
           <span className="field-label">Próg decyzyjny 7-dniowy</span>
           <input type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
           <span className="field-hint">
@@ -499,7 +489,7 @@ function CreatePanel({
           className="btn-primary"
           data-diag-action="create-site-submit"
           onClick={submit}
-          disabled={submitting || !displayName.trim() || !profileName.trim()}
+          disabled={submitting || !displayName.trim()}
         >
           {submitting ? "Tworzenie…" : "Utwórz obiekt"}
         </button>

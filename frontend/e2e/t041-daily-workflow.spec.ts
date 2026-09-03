@@ -104,7 +104,7 @@ async function openViaNav(page: import("@playwright/test").Page, navAction: stri
 
 test("C05: both shortcuts open the same screen and keep the selected month", async ({ page }) => {
   const siteName = `T041-NAV-${uid()}`;
-  await createSite(page, siteName, `T041-NAV-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
 
   await openViaNav(page, "room-nav-manual-correction");
@@ -118,7 +118,7 @@ test("C05: both shortcuts open the same screen and keep the selected month", asy
 
 test("C06/C07/C10: correction instruction, inline print, print settings link, other nav unchanged (C11)", async ({ page }) => {
   const siteName = `T041-SCREEN-${uid()}`;
-  await createSite(page, siteName, `T041-SCREEN-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
 
   await openViaNav(page, "room-nav-manual-correction");
@@ -149,7 +149,7 @@ test("C06/C07/C10: correction instruction, inline print, print settings link, ot
 
 test("C08/C09: preview and download share one export call; a failed regeneration leaves no stale preview", async ({ page }) => {
   const siteName = `T041-PDF-${uid()}`;
-  await createSite(page, siteName, `T041-PDF-PROF-${uid()}`);
+  await createSite(page, siteName);
   // The calendar button lives on Workspace (the site list), not inside Room.
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
@@ -223,7 +223,7 @@ test("C08/C09: preview and download share one export call; a failed regeneration
 test("C01-C04: missing target_hours warning reaches the coordinator, survives reload, clears once fixed, never fires for EXTERNAL_SUPPORT", async ({ page }) => {
   const siteName = `T041-WARN-${uid()}`;
   const empName = `Pracownik-${uid()}`;
-  await createSite(page, siteName, `T041-WARN-PROF-${uid()}`);
+  await createSite(page, siteName);
   // The calendar button lives on Workspace (the site list), not inside
   // Room -- must run before openSite navigates into the object.
   await generateCalendarForCurrentMonth(page);
@@ -290,7 +290,7 @@ test("C01-C04: missing target_hours warning reaches the coordinator, survives re
 test("C06: manual correction works via the Ręczna korekta entry even when current version is FINAL", async ({ page }) => {
   const siteName = `T041-FINAL-${uid()}`;
   const empName = `Pracownik-${uid()}`;
-  await createSite(page, siteName, `T041-FINAL-PROF-${uid()}`);
+  await createSite(page, siteName);
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
 

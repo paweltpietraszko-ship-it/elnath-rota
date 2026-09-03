@@ -14,11 +14,10 @@ export async function waitForWorkspaceLoaded(page: Page) {
     .catch(() => undefined);
 }
 
-export async function createSite(page: Page, displayName: string, profileName: string) {
+export async function createSite(page: Page, displayName: string) {
   await page.goto("/");
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill(displayName);
-  await page.locator('input[placeholder="np. PROF-NORDPLAST-02"]').fill(profileName);
   await page.locator('[data-diag-action="create-site-submit"]').click();
   await page.getByText(displayName, { exact: true }).waitFor();
 }
