@@ -1,0 +1,79 @@
+ROTA-T054 — PREIMPLEMENTATION AUDIT R1
+
+Audytowany exact SHA: 099e1d79f72cdce21f9910d6e7303169ff33f2a0
+Base: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: PASS — READY_FOR_IMPLEMENTATION
+
+Zaakceptowane przez OWNERA zachowanie mieści się w obecnych granicach
+aplikacji. Nie wymaga nowego ScheduleStatus, historii preview ani zmiany
+solvera/validatora.
+
+Potwierdzona ścieżka
+
+- rota/application/plan_ops.py:119 — PLAN zwraca PlanningResult bez zapisu
+  kandydatów;
+- rota/application/plan_ops.py:405 — REPLAN tworzy WORKING child, a wynik
+  solvera nadal pozostaje PlanningResult;
+- rota/application/plan_ops.py:339-385 — select_candidate waliduje wybrany
+  kandydat i zapisuje go przez replace_working_snapshot;
+- rota/persistence/schedule_lifecycle.py:199 — replace_working_snapshot ma
+  istniejący on_success wykonywany w tej samej transakcji;
+- rota/application/open_month.py:45 i api/routers/schedule.py:190-217 — to
+  obecna ścieżka odczytu miesiąca po reloadzie;
+- frontend/src/screens/MonthlyPlanning.tsx:198 — kandydaci są dziś tylko
+  React state i dlatego znikają.
+
+Najmniejsza reprezentacja i ownerzy
+
+- nowa migracja w istniejącym rota/persistence/db.py;
+- jeden mały mutable-current record z kluczem (site_id, month),
+  schedule_version_id oraz jednym serializowanym PlanningResult FEASIBLE;
+- jeden mały repository posiada encode/decode/upsert/get/delete;
+- plan_ops orkiestruje zapis i usunięcie;
+- open_month jest ownerem readbacku, router tylko mapuje odpowiedź HTTP.
+
+Granice atomowe
+
+1. Zapis nowego FEASIBLE preview: pojedynczy repository upsert/replace w
+   transakcji po zakończeniu solvera. Błąd dopisuje ostrzeżenie do zwracanego
+   PlanningResult, ale nie zapisuje kandydata do ScheduleVersion.
+2. Udany select: warunkowe usunięcie preview dla tego samego
+   schedule_version_id w istniejącym on_success replace_working_snapshot.
+   Błąd walidacji/zapisu nie uruchamia hooka, więc preview pozostaje.
+3. REPLAN child: stary preview staje się nieaktualny w chwili atomowej zmiany
+   current version; należy go usunąć w istniejącym hooku tworzenia child albo
+   co najmniej ignorować po version-id check. Odczyt nigdy nie może pokazać
+   go jako preview nowej wersji.
+4. Odrzucenie: osobna mała transakcja delete po sprawdzeniu aktywnego
+   koordynatora; bez zmiany ScheduleVersion.
+
+Ważna granica istniejącego kontraktu (nie nowe wymaganie)
+
+„Wynik REPLAN” obejmuje także dwie produkcyjne kontynuacje tej samej operacji:
+replan_retry_narrow (plan_ops.py:463) i replan_wider_search
+(plan_ops.py:483). Obie mają osobne endpointy (schedule.py:332 i 349) i
+MonthlyPlanning zapisuje ich FEASIBLE do tego samego planResult. Jeżeli któraś
+zwróci FEASIBLE, musi zastąpić persisted preview tak samo jak pierwszy krok
+REPLAN. To samo ostrzeżenie przed zastąpieniem dotyczy świadomego „Szukaj
+dalej”. Jeden parametryzowany test tych alternatywnych wejść wystarcza; nie
+powielać testów solvera.
+
+Odczyt błędów
+
+Błąd odczytu preview musi zostać odseparowany od odczytu bieżącego grafiku:
+MonthView może nadal zawierać current schedule oraz osobny preview_error.
+Nie należy pozwolić, aby wyjątek repository preview wywrócił cały GET month,
+bo naruszyłoby to T54-07.
+
+PREIMPLEMENTATION REDUCTION GATE
+
+Pozostają konieczne: jedna tabela current preview, jeden repository, cienka
+orkiestracja w plan_ops, readback w open_month/API i istniejący UI kandydatów.
+Usunięto jako zbędne: nowy ScheduleStatus, preview history, sesje/locking,
+duplikowanie validatora, osobny ekran i drugi model kandydatury.
+
+Zakres audytu: exact SHA, pełny realny lifecycle PLAN/REPLAN/retry/wider/
+select/open-month, granice transakcji i redukcja. Nie uruchamiano testów,
+ponieważ branch zawiera wyłącznie kontrakt. Pełna regresja nie była potrzebna
+i nie została uruchomiona.
