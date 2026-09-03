@@ -14,7 +14,7 @@ Każdy obiekt został utworzony w osobnej, syntetycznej bazie przez produkcyjne 
 
 Każdy LOCAL dostał wejściowy `target_hours=176` dla września 2026. To 22 dni robocze po 8 godzin; tabelę 176 godzin dla września 2026 publikuje również [Sąd Apelacyjny w Katowicach](https://katowice.sa.gov.pl/print.php?id=734&p=new). Nieobecności nie zostały dodane, ponieważ dokument ich nie określa.
 
-Jeżeli `PLAN` zwracał rzeczywisty `DECISION_REQUIRED`, dodawano jedną osobę `EXTERNAL_SUPPORT` przez normalne operacje Roty i ponawiano `PLAN`. Nie dodawano nikogo z góry.
+Jeżeli `PLAN` zwracał rzeczywisty `DECISION_REQUIRED`, wynik był najpierw czytany jako decyzja koordynatora, a nie automatycznie jako brak człowieka. Pierwszy przebieg Parku błędnie użył progu 40 h i reagował dodaniem EXTERNAL. Po kontroli poprawiono wejście Parku na próg 60 h, zgodny z jego długimi dyżurami; ten sam obiekt dostał wtedy grafik wyłącznie na 17 LOCAL. Błędny obraz z EXTERNAL został zastąpiony.
 
 Obrazy oznaczone na czerwono jako „WIZUALIZACJA KONTROLNA” nie są produkcyjnym wydrukiem. Powstały 1:1 z Assignmentów zapisanych przez Rotę, ponieważ produkt odmówił dla tych obiektów utworzenia PDF. Pełne dane źródłowe są w `wyniki_surowe.json`.
 
@@ -47,13 +47,14 @@ Obrazy oznaczone na czerwono jako „WIZUALIZACJA KONTROLNA” nie są produkcyj
 
 ### 3. Park Logistyczny
 
-- Pierwsze cztery wywołania `PLAN`: `DECISION_REQUIRED` z komunikatem o kolizji z tygodniowym czasem pracy (wskazane okna miały 77–84 h).
-- Po każdej rzeczywistej decyzji dodano jedną osobę wsparcia. Piąte wywołanie zwróciło `FEASIBLE`.
-- Obsada końcowa: 17 LOCAL oraz 4 EXTERNAL_SUPPORT. To ważny rzeczywisty wynik produktu, nie założenie wejściowe.
-- LOCAL otrzymali od 108 do 144 h; każda z czterech osób EXTERNAL_SUPPORT otrzymała 96 h. Łącznie zapisano 2424 h.
+- Poprawiony wynik `PLAN`: `FEASIBLE` za pierwszym razem przy progu decyzyjnym 60 h.
+- Obsada końcowa: dokładnie 17 LOCAL, 0 EXTERNAL_SUPPORT.
+- LOCAL otrzymali od 132 do 144 h. Łącznie zapisano 2424 h.
 - Rota zaakceptowała kandydata i nie zapisała odstępstw.
-- Produkcyjny PDF: **nie powstał** — `ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT` dla 21 widocznych osób.
+- Produkcyjny PDF: **nie powstał** — `ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT` już dla 17 widocznych osób.
 - Obraz: `03_park_logistyczny_obraz_kontrolny.png`.
+
+Pierwszy, wycofany przebieg z progiem 40 h cztery razy zwrócił `DECISION_REQUIRED` z powodu 77–84 h w ruchomym oknie siedmiodniowym. Driver błędnie potraktował każdą taką decyzję jak potrzebę dodatkowej osoby i dodał cztery EXTERNAL. To była zła reakcja próby: komunikat proponował świadomą decyzję o obciążeniu, a nie stwierdzał braku LOCAL. Poprawiony przebieg potwierdza, że Park nie potrzebuje dodatkowej obsady.
 
 ### 4. Urząd
 
@@ -68,7 +69,7 @@ Obrazy oznaczone na czerwono jako „WIZUALIZACJA KONTROLNA” nie są produkcyj
 
 1. **Godziny co najmniej co 30 minut.** Obecny zapis katalogu przyjmuje wyłącznie pełną godzinę. Przez to poprawnego wejścia 06:30–14:30 z dokumentu nie da się wprowadzić. To ograniczenie wejścia, nie solvera.
 2. **Zgodność eksportu z istniejącymi kodami.** Konfiguracja wydruku przyjmuje N2=16 h i D2=4 h, ale produkcyjny eksport odrzucił oba rzeczywiste grafiki jako `UNSUPPORTED_SHIFT_KIND`. Ustawienie, które UI pozwala zapisać, musi być możliwe do wydrukowania.
-3. **Wydruk wielostronicowy dla dużej obsady.** Park Logistyczny ma 17 LOCAL, a po decyzjach solvera łącznie 21 osób. Rota nie powinna odmawiać całego wydruku tylko dlatego, że tabela nie mieści się na jednej stronie; potrzebny jest podział na strony z powtórzonym nagłówkiem.
+3. **Wydruk wielostronicowy dla dużej obsady.** Park Logistyczny ma 17 LOCAL. Rota nie powinna odmawiać całego wydruku tylko dlatego, że tabela nie mieści się na jednej stronie; potrzebny jest podział na strony z powtórzonym nagłówkiem.
 4. **Czytelny podgląd przed pobraniem.** Przy błędzie PDF koordynator nadal powinien móc zobaczyć dokładnie ten sam grafik i przyczynę braku eksportu. W tej próbie konieczne były osobne obrazy kontrolne, bo sam produkt nie udostępnił dokumentu dla trzech z czterech obiektów.
 
 ## Ważne ograniczenia tej próby
