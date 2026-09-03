@@ -1,0 +1,73 @@
+ROTA-T049 — PREIMPLEMENTATION AUDIT R1
+
+Audytowany branch: task/ROTA-T049
+Audytowany exact SHA: b423c725f979718429d8475aa150b5686b5d0e7f
+BASE_MAIN_SHA z kontraktu: 3521b500621fdb8401827e0c73ce60a572eb3678
+
+Werdykt: WYMAGA WĄSKIEJ KOREKTY PRZED IMPLEMENTACJĄ
+
+Nie jest potrzebny architekt ani nowa decyzja OWNERA. Kierunek produktu jest
+jednoznaczny: pole „Nazwa profilu zmianowego” ma zniknąć. Do poprawienia są
+wyłącznie kompletność mechanicznego zasięgu i dwie nieścisłości dowodowe.
+
+WARSTWY AUDYTU
+
+1. Przeczytano cały brief i diff BASE_MAIN_SHA..exact SHA (tylko brief.md).
+2. Wykonano wymagany WHERE_MAP:
+   - python where.py api/routers/bootstrap.py --symbol CreateSiteRequest
+   - python where.py api/routers/bootstrap.py --symbol create_site
+3. Sprawdzono rzeczywiste wystąpienia profile_display_name, profileName oraz
+   placeholdera PROF-NORDPLAST-02 na exact SHA.
+4. Porównano T049 z zamrożonym kontraktem T021 i faktycznym stanem historii.
+5. Nie uruchamiano testów: to audyt samego kontraktu przed implementacją.
+
+FINDING 1 — brief pomija dwa żywe odwołania w diagnostics.spec.ts
+
+TRACE:
+- brief.md:69-95 deklaruje kompletną listę zmian e2e;
+- brief.md:79-81 wymienia w diagnostics.spec.ts wyłącznie osiem wywołań helpera;
+- T49-05 wymaga braku odwołań do usuniętego pola.
+
+REPRO na exact SHA:
+- frontend/e2e/diagnostics.spec.ts:57 bezpośrednio wypełnia usuwane pole;
+- frontend/e2e/diagnostics.spec.ts:96 robi to samo w drugim teście.
+
+Te dwa użycia nie są wywołaniami createSite i nie są objęte instrukcją dla
+diagnostics.audit-r1.spec.ts. Po mechanicznym wykonaniu obecnego opisu
+pozostałyby selektory nieistniejącego pola. Sekcja 5 musi jawnie nakazać
+usunięcie również tych dwóch linii. Plik już jest w TASK_SCOPE, więc nie jest
+to rozszerzenie zadania.
+
+FINDING 2 — T049 musi jawnie zastąpić stary kontrakt trzech pól
+
+TRACE/REPRO:
+- arch/T021_spec.md:401 zamraża formularz z „Nazwą profilu zmianowego”;
+- tasks/ROTA-T021/brief.md:167 mówi, że wejścia UI są dokładnie trzy;
+- tasks/ROTA-T021/brief.md:177 przypisuje SiteProfile.display_name do wejścia UI.
+
+Nowa decyzja OWNERA jest jasna, lecz brief powinien jednym zdaniem wskazać,
+że T049 zastępuje właśnie te trzy wcześniejsze ustalenia. Archiwalne pliki
+audytu T021 nadal mają pozostać nietknięte. To usuwa sprzeczność PRODUCT_TRUTH
+bez zmiany zachowania uzgodnionego w T049.
+
+KOREKTA TECHNICZNA — nie blokuje kierunku rozwiązania
+
+brief.md:27-30 twierdzi, że SiteProfile.display_name występuje w mapie etykiet
+historii. Na exact SHA rota/application/bootstrap.py:116-132 (_profile_state)
+w ogóle nie serializuje display_name, a frontend/src/screens/History.tsx:64
+mapuje profile_id, nie display_name. Należy usunąć to zdanie albo napisać po
+prostu, że nazwa profilu nie jest obecnie odczytywana ani pokazywana. Wniosek
+o zbędności pola pozostaje ten sam, ale dowód powinien odpowiadać kodowi.
+
+REDUCTION GATE
+
+Po tych korektach pozostaje jedna potrzebna zmiana produktu: usunięcie wejścia
+UI/API i użycie istniejącej nazwy obiektu jako technicznego display_name
+profilu. Reszta to minimalne dostosowanie istniejących nadawców i testów.
+Nie znaleziono potrzeby nowego endpointu, pola odpowiedzi, helpera ani logiki.
+
+NASTĘPNY KROK
+
+Poprawić wyłącznie trzy wskazane miejsca w brief.md i przekazać ten sam
+kontrakt do wąskiego reaudytu. Bez kodu produktu i bez kolejnej rundy
+architektonicznej.
