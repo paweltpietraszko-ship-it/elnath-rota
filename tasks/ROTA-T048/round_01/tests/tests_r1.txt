@@ -1,0 +1,145 @@
+ROTA-T048 — PREIMPLEMENTATION AUDIT R1
+
+AUDITED_SHA: ab59c6b907df1b8743d412a7255614debe5106b5
+BASE_MAIN_SHA: 6a61e9aa9e67cc4fd9755ce66a751dce5b90c7e6
+ROLE: audyt kontraktu, bez zmian kodu produktu i bez uruchamiania testów.
+
+STATUS: OWNER_DECISION_NEEDED — BEZ WERDYKTU PASS/FAIL
+
+Pięć miejsc rzeczywiście pokazuje tekst techniczny lub angielski. Wybrani
+ownerzy kodu i ogólna granica „bez solvera/API/refaktoru” są prawidłowe.
+Kontrakt zawiera jednak dwa nowe zachowania widoczne dla człowieka, które
+w określonych realnych przypadkach usuwają potrzebną informację, oraz dwie
+sprzeczności techniczne. Zgodnie z OWNER_EXPLANATION_GATE nie wydaję jeszcze
+PASS/FAIL.
+
+OWNER_CONFIRMED
+
+- DAY_SHIFT_OFF-01 i trzy wystąpienia słowa „checkbox” mają jednego ownera
+  prezentacji w decision_guidance.py; proponowane polskie teksty nie zmieniają
+  decyzji solvera.
+- Surowe statusy grafiku mogą zostać zastąpione czterema podanymi polskimi
+  etykietami bez zmiany lifecycle.
+- employee_id w blocker/load_blocker może być zamienione na display_name
+  przez istniejący roster bieżącego Site, z fallbackiem do ID.
+- coordinator_id pozostaje poza T048 zgodnie z OWNER_CORRECTED.
+- Nie potrzeba nowego endpointu ani architekta dla powyższych zmian.
+
+OWNER_DECISION_NEEDED 1 — HISTORIA WERSJI STRACI ROZRÓŻNIENIE WIERSZY
+
+TRIGGER:
+
+Miesiąc ma dwie lub więcej wcześniejszych wersji o tym samym statusie, np.
+dwie „Wersje robocze” po kolejnych korektach/REPLAN.
+
+OBECNY STAN I EFEKT T048:
+
+`MonthlyPlanning.tsx:763-788` pokazuje w każdym wierszu version_id, status
+oraz przyciski „Przywróć”/„Usuń”. Brief sekcja 4 każe usunąć version_id bez
+zastąpienia go czymkolwiek. Po zmianie dwa wiersze o tym samym statusie będą
+wyglądały identycznie, choć przywracają różne grafiki. To pogarsza możliwość
+bezpiecznego wyboru wersji.
+
+DANE:
+
+API już zwraca `created_at` i `effective_from` w `ScheduleVersionOut`
+(`api/routers/schedule.py:66-72`, `frontend/src/api/client.ts:69-76`). Nie
+trzeba czytać, zapisywać ani wysyłać nowych danych.
+
+DECYZJA POTRZEBNA:
+
+Czy po ukryciu technicznego ID każdy wiersz ma pokazywać czytelną datę
+utworzenia oraz — jeśli istnieje — „obowiązuje od”? Bez takiej etykiety brief
+nie powinien przejść do implementacji.
+
+OWNER_DECISION_NEEDED 2 — SAME DATY NIE MUSZĄ ODRÓŻNIAĆ BLOKUJĄCYCH ZMIAN
+
+TRIGGER:
+
+Obiekt ma dwa legalne, niezależne zapotrzebowania nakładające się całkowicie
+lub mające ten sam przedział czasu.
+
+TRACE:
+
+- `arch/spec.md:58` i `:485` oraz
+  `rota/planning/shift_catalog.py:250` dopuszczają wiele niezależnych,
+  nakładających się occurrence;
+- obecny `BlockingDemand` i odpowiedź API mają tylko demand_id, start i koniec
+  (`rota/planning/engine_types.py:9-13`, `api/decision_payload.py:13-17`);
+- brief sekcja 5 usuwa demand_id, twierdząc, że sam zakres dat
+  „jednoznacznie identyfikuje” zmianę. To twierdzenie jest fałszywe dla
+  dozwolonego overlapu.
+
+EFEKT W UI:
+
+Dwa różne blokery mogą zostać pokazane jako dwie identyczne linie. Nie ma
+wycieku ani zapisu danych, ale koordynator nie wie, czym pozycje się różnią.
+
+DECYZJA POTRZEBNA:
+
+Czy OWNER akceptuje powtórzone, identyczne zakresy jako wystarczające w tym
+małym Tasku, czy blokująca zmiana ma dostać czytelny opis (np. D/N i wymagana
+liczba osób)? Druga opcja wymaga rozszerzenia danych dostępnych ekranowi i
+powinna zostać świadomie zamrożona przed implementacją; dopiero wtedy można
+ocenić, czy potrzebny jest architekt.
+
+UNAUTHORIZED / SPRZECZNOŚĆ 1 — OSTRZEŻENIE NADAL JEST TECHNICZNE I BŁĘDNIE
+NAZYWA BILANS „NADGODZINAMI”
+
+Brief wymaga tekstu z `(target_hours)` i zdaniem „nadgodziny narastające z
+tego kwartału zostały wyzerowane”. Są tu dwa problemy:
+
+1. `target_hours` pozostaje angielską nazwą pola technicznego, mimo wymagania
+   T48-01 „w całości po polsku”.
+2. `rota/balance.py:100-102` liczy saldo jako praca minus efektywna norma;
+   saldo może być dodatnie albo ujemne. Brak targetu zeruje cały bilans, nie
+   tylko nadgodziny. Zamrożony kontrakt analityki wyklucza formalne nazywanie
+   godzin nadgodzinami (`arch/T019_coordinator_analytics_architect_brief.md:
+   43-50 oraz :254`).
+
+TRIGGER/EFEKT:
+
+Brakuje miesięcznego limitu we wcześniejszym miesiącu kwartału; PLAN nadal
+działa z carry-in=0, ale użytkownik dostaje mylący opis. Nie ma nowego zapisu
+ani wysyłki danych. Po uzupełnieniu limitu ostrzeżenie znika w istniejącym
+przepływie.
+
+Potrzebne jest neutralne, całkowicie polskie brzmienie, np.:
+
+„Brak wpisanego miesięcznego limitu godzin dla pracownika {id} w miesiącu
+{month} — bilans godzin z wcześniejszej części kwartału przyjęto jako 0, bo
+bez tego limitu nie da się go policzyć.”
+
+Id pracownika nadal zostanie podmienione przez istniejący resolveWarningText.
+OWNER powinien zaakceptować albo skorygować to brzmienie.
+
+TECHNICAL_ONLY — MAPA `ORDINARY` MUSI ZNAĆ KLUCZ, NIE TYLKO WARTOŚĆ
+
+Sekcja 6 deklaruje tłumaczenie wyłącznie `planning_regime: ORDINARY`, ale
+proponowany `stateValueLabel(value)` zamienia każdy string `ORDINARY` w całym
+rekurencyjnym widoku. Historia zawiera również dane swobodne wpisywane przez
+użytkownika: m.in. `description`, `source` i `reason` wewnątrz `content`
+(`rota/application/rule_decisions.py:35-43, 86-89`). Gdy taka zwykła treść
+brzmi „ORDINARY”, zostałaby fałszywie zmieniona na „standardowy”.
+
+To nie wymaga decyzji produktowej. Mechanizm należy technicznie zawęzić do
+wartości pola o kluczu `planning_regime`; innych stringów nie tłumaczyć.
+
+SAFETY_PRIVACY
+
+Brak nowych zagrożeń. Roster w sekcji 5 jest pobierany tylko dla bieżącego
+Site istniejącym endpointem i nie jest zapisywany ani wysyłany dalej.
+
+PREIMPLEMENTATION REDUCTION
+
+Po rozstrzygnięciu dwóch decyzji wystarczą obecne pliki. Nie dodawać ogólnego
+słownika wszystkich enumów, nowego serwisu nazw ani mechanizmu użytkowników.
+Korekta ostrzeżenia i zawężenie tłumaczenia ORDINARY są lokalne. Architekt
+jest potrzebny tylko wtedy, gdy OWNER zażąda nowego, czytelnego opisu
+blokujących demandów, którego obecna odpowiedź API nie zawiera.
+
+NASTĘPNY KROK
+
+Po OWNER_ACCEPTED/OWNER_CORRECTED poprawić brief jeden raz. Reaudyt ograniczyć
+do czterech punktów powyżej; bez testów, bez ponownego audytu pozostałych
+tekstów.
