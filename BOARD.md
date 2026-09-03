@@ -24,3 +24,6 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| ROTA-T052 | Architect | Codex | `task/ROTA-T052-s1-periodic-training-contract` | `120f4fddeb84064995910e1702e926fd80af2177` | READY_FOR_CODEX | PREIMPLEMENTATION AUDIT only. Read PR #10 and `tasks/ROTA-T052/brief.md`. No product code; verify the proposed minimal S1 architecture against existing PRIMARY/TRAINEE, REST/LOAD/balance semantics. |
+| ROTA-T053 | Architect | Codex | `task/ROTA-T053-global-working-month-contract` | `f463f049973c6a6fe21c1e25a771ba7ab33d7fc3` | READY_FOR_CODEX | PREIMPLEMENTATION AUDIT only. Read PR #11 and `tasks/ROTA-T053/brief.md`. Small frontend state-lifting task; no backend redesign. |
+| ROTA-T054 | Architect | Codex | `task/ROTA-T054-persisted-plan-preview-contract` | `099e1d79f72cdce21f9910d6e7303169ff33f2a0` | READY_FOR_CODEX | PREIMPLEMENTATION AUDIT only. Read PR #12 and `tasks/ROTA-T054/brief.md`. No new ScheduleStatus, no preview history; verify persistence/lifecycle boundaries. |
