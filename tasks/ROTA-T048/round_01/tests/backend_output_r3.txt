@@ -1,0 +1,33 @@
+STATUS: FAIL
+HEAD_SHA: 116b5c318434d7f1b1951d289e255fea95bfc067
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FUNC: rota/application/assembler.py:assemble_planning_state has 53 lines (max 50)
+  - SIZE_FILE: tests/test_t018.py has 842 lines (max 600)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_audit_t009_r4.py
+  - tests\test_audit_t009_r5.py
+  - tests\test_t009_open_and_assembler.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t011_e_pipeline_e2e_happy_path.py
+  - tests\test_t011_e_pipeline_e2e_hard_stop.py
+  - tests\test_t012.py
+  - tests\test_t013.py
+  - tests\test_t017.py
+  - tests\test_t018.py
+  - tests\test_t019b.py
+  - tests\test_t026.py
+  - tests\test_t032_soft_ranking.py
+  - tests\test_t036_rest_deviation_target.py
+  - tests\test_t040_h24_rhythm_occupancy.py
+  - tests\test_vertical_full_stack.py
+  - tasks\ROTA-T026\round_01\tests\test_t026_r2_audit.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+  - rota\application\open_month.py
+  - rota\application\plan_ops.py
+  - rota\planning\engine.py
+  - api\routers\schedule.py
+EXCLUDED_ARTIFACTS: NONE

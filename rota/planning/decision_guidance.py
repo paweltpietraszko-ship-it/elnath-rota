@@ -21,16 +21,17 @@ _HIDDEN_RAW_CONDITIONS = frozenset({
 })
 
 _BUILT_IN_CONDITION_TEXT = {
-    "UNAVAILABLE-01": "Koliduje z checkbox: Ogólna dostępność",
-    "DAY_ONLY-01": "Koliduje z checkbox: Nocka",
+    "UNAVAILABLE-01": "Koliduje z ustawieniem: Ogólna dostępność",
+    "DAY_ONLY-01": "Koliduje z ustawieniem: Nocka",
     "SICK_LEAVE-01": "Koliduje z zapisem: Chorobowe",
     "LEAVE_GRANTED-01": "Koliduje z zapisem: Urlop",
     "REST-01": "Koliduje z odpoczynkiem dobowym",
     "LOAD-01": "Koliduje z tygodniowym czasem pracy",
     "EXTERNAL-01": "Wsparcie zewnętrzne",
     "EXTERNAL_SUPPORT_DISABLED": "Wsparcie zewnętrzne",
-    "SHIFT-24-01": "Koliduje z checkbox: 24",
+    "SHIFT-24-01": "Koliduje z ustawieniem: 24",
     "NIGHT-STREAK-01": "Koliduje z limitem dwóch nocek pod rząd",
+    "DAY_SHIFT_OFF-01": "Koliduje z zapisem: Wolne w dzień",
 }
 _GENERIC_SITE_RULE_TEXT = "Koliduje z zapisaną regułą obiektu"
 
@@ -62,8 +63,6 @@ def _site_rules_by_id(state: PlanningState) -> dict:
 def _render_condition(raw_condition: str, site_rules_by_id: dict) -> str | None:
     if raw_condition in _HIDDEN_RAW_CONDITIONS:
         return None
-    if raw_condition == "DAY_SHIFT_OFF-01":
-        return raw_condition
     if raw_condition in _BUILT_IN_CONDITION_TEXT:
         return _BUILT_IN_CONDITION_TEXT[raw_condition]
     rule = site_rules_by_id.get(raw_condition)

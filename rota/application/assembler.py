@@ -128,8 +128,10 @@ def _carry_in_before(conn, *, employee_id: str, month: date) -> tuple[int, list[
             )
         except MissingTargetHoursError:
             return 0, [
-                f"missing target_hours for employee {employee_id!r}, month {current.isoformat()}: "
-                "quarter carry-in reset to 0"
+                f"Brak wpisanego miesięcznego limitu godzin dla pracownika "
+                f"{employee_id!r} w miesiącu {current.isoformat()} — bilans godzin z "
+                "wcześniejszej części kwartału przyjęto jako 0, bo bez tego limitu "
+                "nie da się go policzyć."
             ]
         running = balance.quarter_balance
         current = _add_one_month(current)

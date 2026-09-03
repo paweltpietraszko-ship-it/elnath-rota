@@ -60,7 +60,7 @@ def test_r25_1a_day_only_does_not_mask_concurrent_sick_leave():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "Koliduje z checkbox: Nocka" in conditions
+    assert "Koliduje z ustawieniem: Nocka" in conditions
     assert "Koliduje z zapisem: Chorobowe" in conditions
 
 

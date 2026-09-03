@@ -570,7 +570,7 @@ def test_b10_7g_day_shift_off_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "DAY_SHIFT_OFF-01" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z zapisem: Wolne w dzień" for b in result.decision_payload.blockers)
 
 
 def test_b10_7h_unavailable_24h_still_blocks_in_fallback_pass():
@@ -585,7 +585,7 @@ def test_b10_7h_unavailable_24h_still_blocks_in_fallback_pass():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "Koliduje z checkbox: Ogólna dostępność" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z ustawieniem: Ogólna dostępność" for b in result.decision_payload.blockers)
 
 
 # B10.8 -----------------------------------------------------------------------

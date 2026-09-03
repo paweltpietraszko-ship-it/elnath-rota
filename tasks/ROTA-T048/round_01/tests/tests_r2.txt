@@ -1,0 +1,39 @@
+ROTA-T048 — PREIMPLEMENTATION REAUDIT R2
+
+AUDITED_SHA: 105efdc
+SCOPE: wyłącznie cztery punkty z tests_r1.txt.
+
+WERDYKT: PASS — READY FOR IMPLEMENTATION
+
+1. HISTORIA WERSJI — ZAMKNIĘTE
+
+Po ukryciu technicznego version_id każda wersja ma polski status i czytelną
+datę utworzenia z istniejącego created_at. Dwie wersje o tym samym statusie
+pozostają rozróżnialne. Nie dodano odczytu ani pola API.
+
+2. BLOKUJĄCE ZMIANY — ZAMKNIĘTE DECYZJĄ OWNERA
+
+Pozycje są numerowane „Zmiana 1”, „Zmiana 2” itd. Dwa legalnie nakładające
+się demandy z identycznymi datami nie tworzą już dwóch nierozróżnialnych
+wierszy. OWNER świadomie odłożył wzbogacenie publicznego payloadu o D/N i
+liczbę osób; T048 nie rozszerza API.
+
+3. OSTRZEŻENIE KWARTALNE — ZAMKNIĘTE
+
+Tekst nie zawiera target_hours ani nie nazywa salda nadgodzinami. Neutralne
+„bilans godzin z wcześniejszej części kwartału przyjęto jako 0” odpowiada
+rzeczywistemu dodatniemu lub ujemnemu saldu i nie zmienia carry_in=0.
+
+4. ORDINARY W HISTORII — ZAMKNIĘTE TECHNICZNIE
+
+Tłumaczenie jest kluczowane przez planning_regime. Literalne ORDINARY w
+description/source/reason lub innym wolnym tekście pozostaje bez zmian.
+Zmiana sygnatury renderStateValue jest lokalna dla jednego pliku i nie tworzy
+ogólnego słownika enumów.
+
+Nie znaleziono nowej sprzeczności. Pozostały zakres nie zmienił się względem
+R1. Nie uruchamiano testów, ponieważ audytowany SHA zawiera wyłącznie kontrakt,
+a reaudyt był ograniczony do czterech poprawek tekstu/UX.
+
+Architekt nie jest potrzebny. CC może rozpocząć implementację dokładnie na
+kontrakcie 105efdc.

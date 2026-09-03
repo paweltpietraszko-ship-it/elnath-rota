@@ -79,17 +79,29 @@ function stateKeyLabel(key: string): string {
   return STATE_KEY_LABEL[key] ?? key;
 }
 
+// T048: translate a leaf VALUE, but only under the specific key it's known
+// to belong to -- never a bare string match, or a coordinator's own free
+// text (description/source/reason) containing e.g. "ORDINARY" would be
+// silently rewritten too.
+const STATE_VALUE_LABEL_BY_KEY: Record<string, Record<string, string>> = {
+  planning_regime: { ORDINARY: "standardowy" },
+};
+
+function stateValueLabel(stateKey: string | undefined, value: string): string {
+  return (stateKey && STATE_VALUE_LABEL_BY_KEY[stateKey]?.[value]) ?? value;
+}
+
 // Round-15 audit FINDING 6: recurse into nested objects/arrays and
 // translate keys at every level, instead of JSON.stringify-ing a nested
 // value opaquely (which left raw English keys visible one level down).
-function renderStateValue(value: unknown): JSX.Element | string {
+function renderStateValue(value: unknown, stateKey?: string): JSX.Element | string {
   if (value === null || value === undefined) return "—";
   if (Array.isArray(value)) {
     if (value.length === 0) return "(brak)";
     return (
       <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
         {value.map((v, i) => (
-          <li key={i}>{renderStateValue(v)}</li>
+          <li key={i}>{renderStateValue(v, stateKey)}</li>
         ))}
       </ul>
     );
@@ -99,12 +111,13 @@ function renderStateValue(value: unknown): JSX.Element | string {
       <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
         {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
           <li key={k}>
-            {stateKeyLabel(k)}: {renderStateValue(v)}
+            {stateKeyLabel(k)}: {renderStateValue(v, k)}
           </li>
         ))}
       </ul>
     );
   }
+  if (typeof value === "string") return stateValueLabel(stateKey, value);
   return String(value);
 }
 
@@ -116,7 +129,7 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
       <ul style={{ margin: "4px 0 0 0", paddingLeft: 18, fontSize: 12.5 }}>
         {Object.entries(state).map(([key, value]) => (
           <li key={key}>
-            {stateKeyLabel(key)}: {renderStateValue(value)}
+            {stateKeyLabel(key)}: {renderStateValue(value, key)}
           </li>
         ))}
       </ul>

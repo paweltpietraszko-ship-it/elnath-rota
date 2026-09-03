@@ -1,0 +1,83 @@
+ROTA-T048 — IMPLEMENTATION AUDIT R3
+
+Audytowany branch: task/ROTA-T048
+Audytowany exact SHA: 235a7eeab1ee3ace9858806c3736cba43d453289
+Kontrakt PASS: task/ROTA-T048@512130fc3d8f896de26a9a924cbfb64328956e41
+
+Werdykt: FAIL — JEDEN WĄSKI DEFECT
+
+FINDING R3-01 — dwie wersje utworzone w tej samej minucie są nadal
+nierozróżnialne dla koordynatora
+
+TRACE
+
+brief.md, T48-05 wymaga, aby dwie wersje o tym samym statusie, utworzone w
+różnym czasie, pokazywały różne daty i dawały się rozróżnić. Sekcja 4 podaje
+wprost realny przykład kolejnych PLAN/REPLAN.
+
+OWNERSHIP
+
+frontend/src/screens/MonthlyPlanning.tsx jest właścicielem widocznej etykiety
+historii wersji. Backend przekazuje pełne created_at; wersje są tworzone z
+datetime.now() (rota/application/plan_ops.py:113,192), więc mogą powstać kilka
+sekund po sobie.
+
+REPRO NA EXACT SHA
+
+Produkcja formatuje created_at przez:
+
+new Date(iso).toLocaleString("pl-PL", {
+  dateStyle: "medium",
+  timeStyle: "short",
+})
+
+Minimalny reproduktor uruchomiony w Node:
+
+2026-09-03T10:00:01 => 3 wrz 2026, 10:00
+2026-09-03T10:00:59 => 3 wrz 2026, 10:00
+2026-09-03T10:01:00 => 3 wrz 2026, 10:01
+
+MonthlyPlanning.tsx:776 używa dokładnie tego formatera. Dwie wersje o tym
+samym statusie utworzone w odstępie 58 sekund dostają więc identyczny widoczny
+tekst. Techniczne version_id jest prawidłowo ukryte, lecz przyciski
+„Przywróć”/„Usuń” przy takich wierszach nie mówią koordynatorowi, którą z
+dwóch identycznie opisanych wersji wybiera.
+
+To nie jest nowy wymóg. Jest to kontrprzykład dla już przyjętego T48-05.
+Preimplementation audit R2 niesłusznie uznał minutową precyzję proponowanego
+formatera za wystarczającą — ujawniona sprzeczność nie może zostać pominięta
+tylko dlatego, że implementacja wiernie powtórzyła przykład z briefu.
+
+POZOSTAŁE WARSTWY — PASS
+
+- TASK_SCOPE: zmieniono wyłącznie dozwolone 5 plików produktu i 6 testów.
+- WHERE_MAP: wykonano dla wszystkich pięciu wskazanych celów; brak nowego
+  właściciela lub równoległej ścieżki.
+- T48-01: realny assembler zwrócił carry_in=0 i neutralny polski warning bez
+  target_hours, „quarter carry-in” i „nadgodziny”.
+- T48-02…04: celowane, niezależnie uruchomione przypadki mapowania warunków
+  przeszły.
+- T48-06: widoczny demand_id usunięty, pozycje są numerowane; blocker i
+  load_blocker używają istniejącego rosteru z zaakceptowanym fallbackiem.
+- T48-07: ORDINARY jest tłumaczone wyłącznie przy kluczu planning_regime;
+  rekurencja przekazuje rzeczywisty klucz liścia.
+- T48-08: requested_by nie został zmieniony.
+- Celowane testy backendu: 5 passed.
+- Frontend: TypeScript i build produkcyjny PASS. Zależności podłączono tylko
+  na czas kompilacji z istniejącego node_modules; łącze następnie usunięto.
+- git diff --check: PASS.
+- Pełnej regresji nie uruchamiano, zgodnie z AGENTS.md i brakiem zgody OWNERA.
+- playwright-interactive nie był dostępny w tej sesji (brak js_repl), więc
+  nie podaję nieistniejącego dowodu wizualnego.
+
+NADWYŻKI I STARY TEST
+
+Zaakceptowane przez OWNERA istniejące nadwyżki assembler.py/test_t018.py nie
+mają związku z findingiem. Stary test T009 z angielskim filtrem także pozostaje
+osobnym zadaniem; nie wpływa na ten werdykt.
+
+WYMAGANE DO REAUDYTU
+
+Wyłącznie dowód, że dwie wersje o tym samym statusie utworzone w tej samej
+minucie dostają dwa różne, czytelne opisy. Nie powtarzać pozostałych 5 testów
+ani całej suity.
