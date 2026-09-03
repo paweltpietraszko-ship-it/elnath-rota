@@ -42,13 +42,19 @@ dwóch analogicznych warningów przy T041. Oba trafiają do tej samej listy
 
 ### Wymagane zachowanie
 
-Zamienić dokładnie na (wzorowane na sąsiednim, już zaakceptowanym tekście):
+**R2 (audyt R1, UNAUTHORIZED/SPRZECZNOŚĆ 1):** pierwsza wersja tego briefu
+nadal zawierała angielskie słowo `target_hours` i błędnie nazywała cały
+bilans „nadgodzinami” — bilans (`rota/balance.py:100-102`, praca minus
+efektywna norma) może być też ujemny, a zamrożony kontrakt analityki
+zabrania formalnie nazywać godziny „nadgodzinami”
+(`arch/T019_coordinator_analytics_architect_brief.md:43-50,254`). Poprawione,
+neutralne brzmienie — zamienić dokładnie na:
 
 ```python
-f"Brak wpisanego miesięcznego limitu godzin (target_hours) dla "
-f"pracownika {employee_id!r} w miesiącu {current.isoformat()} — "
-"nadgodziny narastające z tego kwartału zostały wyzerowane, bo bez "
-"tego limitu nie da się ich policzyć."
+f"Brak wpisanego miesięcznego limitu godzin dla pracownika "
+f"{employee_id!r} w miesiącu {current.isoformat()} — bilans godzin z "
+"wcześniejszej części kwartału przyjęto jako 0, bo bez tego limitu "
+"nie da się go policzyć."
 ```
 
 Zero zmian logiki — tylko treść stringa. `frontend/src/screens/MonthlyPlanning.tsx`
@@ -117,7 +123,9 @@ mapę etykiet dla akcji (`ACTION_KIND_LABEL`), tu nic takiego nie istnieje.
 
 ### Wymagane zachowanie
 
-Dodać w `MonthlyPlanning.tsx` mapę:
+Dodać w `MonthlyPlanning.tsx` mapę i pomocniczy formatter daty (ten sam
+wzorzec co `Decisions.tsx`/`History.tsx`'s `formatDateTime`, którego w tym
+pliku dziś nie ma):
 
 ```tsx
 const SCHEDULE_STATUS_LABEL: Record<ScheduleVersionOut["status"], string> = {
@@ -126,20 +134,32 @@ const SCHEDULE_STATUS_LABEL: Record<ScheduleVersionOut["status"], string> = {
   FINAL_NO_DEVIATIONS: "Zatwierdzona",
   FINAL_WITH_DEVIATIONS: "Zatwierdzona (z odstępstwami)",
 };
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "short" });
+}
 ```
 
 Linia 620 →
 ```tsx
-Status: {SCHEDULE_STATUS_LABEL[view.current_version.status]}
+Status: {SCHEDULE_STATUS_LABEL[view.current_version.status]}, utworzono {formatDateTime(view.current_version.created_at)}
 {view.current_version.effective_from ? ` — obowiązuje od ${view.current_version.effective_from}` : ""}
 ```
-(bez `version_id` — usunąć go z widoku całkowicie, nie zastępować niczym).
+(bez `version_id` — usunąć go z widoku całkowicie, zastąpić czytelną datą
+utworzenia zamiast samego statusu).
 
-Linie 764-766 (`<span>{v.version_id}</span>` + status badge) → usunąć
-`<span>{v.version_id}</span>`, zamienić badge na
-`{SCHEDULE_STATUS_LABEL[v.status]}`. `key={v.version_id}` w linii 763
-zostaje bez zmian — to identyfikator Reacta, niewidoczny dla koordynatora,
-nie dotyczy tego Tasku.
+**R2 (audyt R1, OWNER_DECISION_NEEDED 1, OWNER: dodać datę utworzenia):**
+linie 764-766 (`<span>{v.version_id}</span>` + status badge) → usunąć
+`<span>{v.version_id}</span>`, zamienić na
+`<span>{SCHEDULE_STATUS_LABEL[v.status]}, utworzono {formatDateTime(v.created_at)}</span>`
+(jeden span zamiast dwóch osobnych, żeby zachować istniejący `gap: 8`
+odstęp między elementami wiersza; `ScheduleVersionOut.created_at` już
+istnieje w `api/client.ts:73`, nic nowego nie trzeba pobierać). To
+rozwiązuje realny przypadek z audytu: dwie wcześniejsze wersje o tym samym
+statusie (np. dwie „Wersje robocze” po kolejnych REPLAN) mają teraz różne,
+widoczne daty utworzenia, więc nie są już nierozróżnialne. `key={v.version_id}`
+w linii 763 zostaje bez zmian — to identyfikator Reacta, niewidoczny dla
+koordynatora, nie dotyczy tego Tasku.
 
 Uwaga: `v.status !== "FINAL_NO_DEVIATIONS"` (linia 778) i inne porównania
 surowej wartości enuma w logice (nie w tekście widocznym dla użytkownika)
@@ -157,10 +177,38 @@ zostają bez zmian — dotyczą tylko treści wyświetlanej wprost.
 
 ### Wymagane zachowanie
 
-- Usunąć `{d.demand_id}:` z linii 60 — sam zakres dat (`formatDateTime(d.start_datetime)
-  – formatDateTime(d.end_datetime)`) już jednoznacznie identyfikuje blokującą
-  zmianę, `demand_id` nie dodaje nic czytelnego. `key={d.demand_id}` w linii
-  59 zostaje bez zmian (identyfikator Reacta).
+**R2 (audyt R1, OWNER_DECISION_NEEDED 2, OWNER: numerować pozycje zamiast
+usuwać identyfikator):** pierwsza wersja tego briefu kazała po prostu
+usunąć `demand_id`, zakładając że sam zakres dat jednoznacznie identyfikuje
+blokującą zmianę — audyt słusznie zauważył, że to fałszywe założenie, gdy
+dwa niezależne zapotrzebowania nakładają się w czasie (`arch/spec.md:58,485`
+to dopuszcza). OWNER zdecydował: nie dodawać nowych danych z backendu
+(D/N, liczba osób — to osobny, większy Task z architektem, jeśli kiedyś
+potrzebny), tylko ponumerować pozycje na liście w kolejności wyświetlania,
+żeby dwie identyczne w wyglądzie linie dało się jednoznacznie nazwać w
+rozmowie/notatce. Zamienić linię 58-61:
+
+```tsx
+{detail.blocking_shift_demands.map((d) => (
+  <li key={d.demand_id}>
+    {d.demand_id}: {formatDateTime(d.start_datetime)} – {formatDateTime(d.end_datetime)}
+  </li>
+))}
+```
+
+na:
+
+```tsx
+{detail.blocking_shift_demands.map((d, i) => (
+  <li key={d.demand_id}>
+    Zmiana {i + 1}: {formatDateTime(d.start_datetime)} – {formatDateTime(d.end_datetime)}
+  </li>
+))}
+```
+
+(„Zmiana”, nie „Poprawka” — to drugie słowo w programie już oznacza ręczną
+korektę przypisań, OWNER potwierdził że „Zmiana” nie koliduje). `key={d.demand_id}`
+zostaje bez zmian (identyfikator Reacta, niewidoczny dla koordynatora).
 - Dodać pobranie rosteru identycznie jak `MonthlyPlanning.tsx:220`
   (`api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined)`
   w `useEffect` zależnym od `siteId`) i funkcję pomocniczą:
@@ -188,21 +236,38 @@ tłumaczy klucze słownika w widoku różnicy stanu, ale `renderStateValue`
 
 ### Wymagane zachowanie
 
-Dodać obok istniejącego `STATE_KEY_LABEL` nową, równie prostą mapę tylko
-dla tego jednego, potwierdzonego przypadku:
+**R2 (audyt R1, TECHNICAL_ONLY, bez decyzji OWNERA — czysta korekta):**
+pierwsza wersja tego briefu tłumaczyłaby KAŻDY string `"ORDINARY"` w całym
+rekurencyjnym widoku, w tym wolny tekst wpisywany przez koordynatora
+(`description`/`source`/`reason` wewnątrz `content`,
+`rota/application/rule_decisions.py:35-43,86-89`) — gdyby taka notatka
+akurat zawierała słowo „ORDINARY”, zostałaby błędnie podmieniona. Mechanizm
+musi znać KLUCZ, nie tylko wartość. `renderStateValue` (linia 85-109) jest
+dziś jednoargumentowe (`value: unknown`) i nie ma dostępu do klucza w
+gałęzi liścia — trzeba przekazać klucz jako drugi, opcjonalny parametr z
+jedynego miejsca, gdzie klucz jest znany (`StateDiff`/rekurencja po
+`Object.entries`, linia 100-104):
 
 ```tsx
-const STATE_VALUE_LABEL: Record<string, string> = {
-  ORDINARY: "standardowy",
+const STATE_VALUE_LABEL_BY_KEY: Record<string, Record<string, string>> = {
+  planning_regime: { ORDINARY: "standardowy" },
 };
 
-function stateValueLabel(value: unknown): unknown {
-  return typeof value === "string" && value in STATE_VALUE_LABEL ? STATE_VALUE_LABEL[value] : value;
+function renderStateValue(value: unknown, key?: string): JSX.Element | string {
+  // ... bez zmian dla null/array/object gałęzi, poza przekazaniem `key` dalej
+  // do rekurencyjnych wywołań renderStateValue wewnątrz Object.entries-mapy ...
+  if (typeof value === "string" && key && STATE_VALUE_LABEL_BY_KEY[key]?.[value]) {
+    return STATE_VALUE_LABEL_BY_KEY[key][value];
+  }
+  return String(value);
 }
 ```
 
-W `renderStateValue`, w gałęzi `typeof value !== "object"` (ostatni
-`return String(value)`), zastąpić na `return String(stateValueLabel(value))`.
+(dokładny kształt zmiany sygnatury/wywołań rekurencyjnych do ustalenia przez
+implementatora tak, żeby `key` towarzyszył wartości aż do liścia — powyższe
+jest wymaganym efektem, nie dosłownym diffem). Task NIE wymaga ogólnego
+mechanizmu key+value dla wszystkich pól — tylko dla `planning_regime`,
+zgodnie z zatwierdzonym zakresem.
 
 Task NIE wymaga wyszukania i przetłumaczenia każdej możliwej wartości
 enuma, jaka może się pojawić w tym widoku (`membership_kind`,
@@ -245,17 +310,20 @@ Tasku (nie był zgłoszony, nie ma zatwierdzonego przez OWNERA zamiennika).
 
 | Element | Źródło | Minimalna konieczna zmiana |
 |---|---|---|
-| carry-in warning | dokładny przykład OWNERA | zmiana treści jednego stringa |
+| carry-in warning | dokładny przykład OWNERA, poprawiony R2 po audycie | zmiana treści jednego stringa |
 | DAY_SHIFT_OFF-01 + checkbox | audyt Cursora V-B8 (nienaprawiony) + ten audyt | 4 wpisy w istniejącym słowniku, usunięcie jednego warunku |
-| wersja/status | dokładny przykład OWNERA | usunięcie jednego `<span>`, jedna mapa etykiet, 2 miejsca użycia |
-| demand_id/employee_id w Decyzjach | ten audyt | usunięcie jednego stringa, jeden fetch rosteru (wzorowany na istniejącym), jedna funkcja pomocnicza |
-| wartość enuma w Historii | ten audyt | jedna mapa jednowierszowa, jedno miejsce użycia |
+| wersja/status/data utworzenia | dokładny przykład OWNERA, rozszerzony R2 (OWNER_DECISION_NEEDED 1) | usunięcie jednego `<span>`, jedna mapa etykiet + jeden formatter daty (istniejący wzorzec), 2 miejsca użycia |
+| demand_id/employee_id w Decyzjach | ten audyt, poprawiony R2 (OWNER_DECISION_NEEDED 2) | numeracja pozycji zamiast usunięcia, jeden fetch rosteru (wzorowany na istniejącym), jedna funkcja pomocnicza |
+| wartość enuma w Historii | ten audyt, zawężony R2 (TECHNICAL_ONLY) | jedna mapa key→value→label, przekazanie klucza przez rekurencję do liścia |
 
 Usunięte z propozycji jako zbędne: tłumaczenie `coordinator_id` (poza
 zakresem, sekcja 1), nowy endpoint listy koordynatorów, akcja naprawcza
 dla `DAY_SHIFT_OFF-01` w `_ACTION_TEMPLATES`, wyczerpujące tłumaczenie
-wszystkich możliwych wartości enumów w `History.tsx`, zmiana solvera/API,
-ogólny refaktor którejkolwiek z tych czterech warstw.
+wszystkich możliwych wartości enumów w `History.tsx`, rozszerzenie
+`BlockingDemand`/`DecisionRequiredPayloadOut` o rodzaj zmiany i liczbę
+wymaganych osób (OWNER: osobny, większy Task z architektem, jeśli kiedyś
+potrzebny — nie w T048), zmiana solvera/API, ogólny refaktor którejkolwiek
+z tych czterech warstw.
 
 ## 8. TASK_SCOPE
 
@@ -323,18 +391,27 @@ plików na exact SHA, po jednym miejscu użycia każdy.
   `LEAVE_GRANTED-01`, `REST-01`, `LOAD-01`, `EXTERNAL-01`,
   `EXTERNAL_SUPPORT_DISABLED`, `NIGHT-STREAK-01` dają dokładnie te same
   teksty co przed Taskiem.
-- **T48-05 — status po polsku, bez ID:** `MonthlyPlanning.tsx` nie renderuje
-  nigdzie surowego `version_id` w widocznym tekście; status wersji bieżącej
-  i każdej wersji w historii pokazuje etykietę z sekcji 4, nie surową
-  wartość enuma.
+- **T48-05 — status i data utworzenia po polsku, bez ID:** `MonthlyPlanning.tsx`
+  nie renderuje nigdzie surowego `version_id` w widocznym tekście; status
+  wersji bieżącej i każdej wersji w historii pokazuje etykietę z sekcji 4
+  razem z czytelną datą utworzenia (`formatDateTime(created_at)`), nie
+  surową wartość enuma. Dwie wersje o tym samym statusie utworzone w
+  różnym czasie pokazują różne daty (regresja na dokładny przypadek z
+  audytu R1).
 - **T48-06 — Decyzje bez surowych ID:** blocker i load_blocker pokazują
   imię i nazwisko pracownika (z rosteru), nie `employee_id`; blokująca
-  zmiana pokazuje tylko zakres dat, bez `demand_id`. Nieznany
-  `employee_id` (spoza rosteru) nadal wyświetla się (fallback), nie
-  wywala wyjątku.
-- **T48-07 — reżim planowania w Historii:** wpis zmiany z
-  `planning_regime: "ORDINARY"` w widoku „Przed/Po” pokazuje „standardowy”,
-  nie `ORDINARY`; wartość `"OCHRONA"` pokazuje się bez zmian (już polska).
+  zmiana pokazuje „Zmiana {numer pozycji}: {zakres dat}”, bez `demand_id`.
+  Dwie blokujące zmiany o identycznym zakresie dat (nakładające się
+  zapotrzebowanie) pokazują różne numery pozycji, więc dają się
+  jednoznacznie nazwać, mimo identycznych dat. Nieznany `employee_id`
+  (spoza rosteru) nadal wyświetla się (fallback), nie wywala wyjątku.
+- **T48-07 — reżim planowania w Historii, zawężone do klucza:** wpis
+  zmiany z `planning_regime: "ORDINARY"` w widoku „Przed/Po” pokazuje
+  „standardowy”, nie `ORDINARY`; wartość `"OCHRONA"` pokazuje się bez
+  zmian (już polska). Kontrprzykład z audytu: wolny tekst koordynatora
+  (`description`/`source`/`reason`) zawierający literalnie słowo
+  „ORDINARY” pokazuje się BEZ ZMIAN, nieprzetłumaczony — tłumaczenie
+  działa tylko dla wartości pod kluczem `planning_regime`.
 - **T48-08 — `requested_by` nienaruszone:** `Decisions.tsx` linia 52 i
   odpowiedniki w `History.tsx` nadal pokazują surowy `coordinator_id` —
   potwierdzenie, że ten Task świadomie tego nie dotyka.
@@ -360,8 +437,10 @@ Pełna suita repozytorium jest opcjonalna i wymaga osobnej zgody OWNERA.
 ## 12. Proces i oczekiwany werdykt CC
 
 Pięć niezależnych, nienachodzących się na siebie zamian tekstu/etykiet w
-czterech plikach. Żadna nie zmienia sygnatury funkcji używanej gdzie
-indziej, żadna nie dodaje nowego stanu poza jednym fetchem rosteru w
+pięciu produkcyjnych plikach (sekcja 8). Jedyna sygnatura, która się zmienia,
+jest lokalna do `History.tsx` (`renderStateValue` dostaje drugi, opcjonalny
+parametr `key`, wołana wyłącznie wewnątrz tego samego pliku — patrz sekcja
+6/WHERE_MAP); żadna nie dodaje nowego stanu poza jednym fetchem rosteru w
 `Decisions.tsx` (wzorowanym 1:1 na istniejącym w `MonthlyPlanning.tsx`).
 Architekt nie jest potrzebny, chyba że CC wykaże konkretną sprzeczność
 ownership.
