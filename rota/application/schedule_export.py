@@ -43,7 +43,7 @@ class ExportModel:
     site_id: str; month: date; period_label: str; company_print_name: str; site_print_name: str  # noqa: E702
     base_regime: str; work_code_intervals: dict; reserve_hours: dict; current_version_id: str  # noqa: E702
     lineage: list[tuple[str, Optional[str]]]; days: list[date]; rows: list[RowCells]  # noqa: E702
-    provenance_text: str; holiday_by_date: dict; adjacent_facts: list  # noqa: E702
+    provenance_text: str; provenance_display_text: str; holiday_by_date: dict; adjacent_facts: list  # noqa: E702
 # Entry point
 def generate_schedule_pdf(
     conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str, generated_at: Optional[datetime] = None,
@@ -79,13 +79,15 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
     rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
     provenance = _provenance_text(lineage, adjacent_facts)
+    provenance_display = _provenance_display_text(lineage, adjacent_facts)
     return ExportModel(
         site_id=site_id, month=month, period_label=period_label,
         company_print_name=settings.company_print_name, site_print_name=settings.site_print_name,
         base_regime=settings.base_regime, work_code_intervals=settings.work_code_intervals,
         reserve_hours=settings.reserve_hours, current_version_id=lineage[-1].version_id,
         lineage=[(h.version_id, h.effective_from.isoformat() if h.effective_from else None) for h in lineage],
-        days=days, rows=rows, provenance_text=provenance, holiday_by_date=holiday_by_date, adjacent_facts=adjacent_facts,
+        days=days, rows=rows, provenance_text=provenance, provenance_display_text=provenance_display,
+        holiday_by_date=holiday_by_date, adjacent_facts=adjacent_facts,
     )
 def _month_days(month: date) -> list[date]:
     import calendar as _cal
@@ -121,11 +123,17 @@ def _version_for_date(lineage: list, target: date) -> Optional[str]:
         if header.effective_from <= target:
             selected = header.version_id
     return selected
+def _lineage_digest(lineage: list, adjacent_facts: list) -> str:
+    ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
+    return hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
 def _provenance_text(lineage: list, adjacent_facts: list) -> str:
     # Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3).
-    ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
-    digest = hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
-    return f"Kod weryfikacyjny grafiku: {digest[:10]}"
+    # Full technical value -- feeds ExportReady.schedule_provenance (API-only field, never rendered) and must stay unchanged (T051 R4).
+    digest = _lineage_digest(lineage, adjacent_facts)
+    return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
+def _provenance_display_text(lineage: list, adjacent_facts: list) -> str:
+    # T051 (OWNER_CORRECTED): short, human-facing text drawn on the PDF only -- no SV-..., no English label.
+    return f"Kod weryfikacyjny grafiku: {_lineage_digest(lineage, adjacent_facts)[:10]}"
 # Real work cells (Section 10)
 def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
     # Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2).
@@ -588,7 +596,7 @@ def _draw_page_header(c, model: ExportModel, day_w, revision: str, generated_at:
     y = page_h - MARGIN
     c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
     c.setFont(regular, 9.5); c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"); y -= 12  # noqa: E702
-    c.drawString(MARGIN, y, model.provenance_text); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, model.provenance_display_text); y -= 12  # noqa: E702
     c.drawString(MARGIN, y, f"Rewizja treści: {revision[:10]}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
     return _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
 def _draw_page_footer(c, regular, page_num: int, page_count: int, page_w: float) -> None:
