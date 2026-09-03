@@ -1,0 +1,32 @@
+ROTA-T052 — PREIMPLEMENTATION RE-AUDIT R3
+
+Audytowany exact SHA: 8c9d426d54f57ce719559c22a874de9747a7784b
+Base: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: PASS — READY_FOR_IMPLEMENTATION
+
+Reaudyt ograniczono zgodnie z kontraktem do czterech korekt z R2.
+
+Potwierdzone:
+
+1. S1 zachowuje globalną zasadę pełnych godzin, ale nie ma stałej długości;
+   T52-01 rozróżnia poprawne 2 h/4 h od niedozwolonego końca 14:30.
+2. S1 jest jawnie pomijane zarówno w dobowym REST-01 11 h, jak i
+   tygodniowym WEEKLY-REST-01 35 h; T52-05..T52-07 obejmują oba kierunki i
+   kontrolę zwykłej pracy.
+3. Rzeczywisty overlap pozostaje zabroniony, a LOAD-01 i bilans godzin nadal
+   obejmują S1 (T52-08..T52-10).
+4. rota/persistence/schedule_validation.py jest w TASK_SCOPE i pozostaje
+   ownerem invariantów covers_demand_id/mentor_primary_assignment_id.
+5. api/routers/export.py jest w TASK_SCOPE wyłącznie dla istniejącego flow
+   PrintSettings. Kontrakt nie tworzy drugiego endpointu konfiguracji w
+   schedule.py.
+
+Zmiana od R2 obejmuje wyłącznie tasks/ROTA-T052/brief.md. Nie powstał kod
+produktu ani nie rozszerzono zadania o HR, certyfikaty lub automatyczne
+generowanie S1.
+
+Warstwy audytu: exact SHA, diff od R2 oraz porównanie decyzji OWNERA,
+TASK_SCOPE i T52-01..T52-14. Testów nie uruchamiano, ponieważ zmienił się
+wyłącznie kontrakt. Pełna regresja nie była potrzebna i nie została
+uruchomiona.
