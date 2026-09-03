@@ -4,7 +4,7 @@
 // ready-made Polish text from rota/planning/decision_guidance.py -- this
 // screen never re-translates them.
 import { useEffect, useState } from "react";
-import { DecisionRequiredOut, api } from "../api/client";
+import { DecisionRequiredOut, RosterRow, api } from "../api/client";
 
 const MONTH_NAMES_PL = [
   "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
@@ -40,12 +40,20 @@ function optionTarget(option: string): "obsada" | "obiekt" | null {
 
 function DecisionDetail({
   detail,
+  siteId,
   onOpenControlPanel,
 }: {
   detail: DecisionRequiredOut;
+  siteId: string;
   onOpenControlPanel: (tab: "obsada" | "obiekt", context: { decisionRequiredId: string; month: string }) => void;
 }) {
   const context = { decisionRequiredId: detail.decision_required_id, month: detail.month };
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
+  const nameFor = (employeeId: string): string =>
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? employeeId;
   return (
     <div className="panel" style={{ marginTop: 12 }}>
       <p className="panel-hint">
@@ -55,9 +63,9 @@ function DecisionDetail({
       <div style={{ marginTop: 12 }}>
         <span className="field-label">Blokujące zmiany ({detail.blocking_shift_demands.length})</span>
         <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 13 }}>
-          {detail.blocking_shift_demands.map((d) => (
+          {detail.blocking_shift_demands.map((d, i) => (
             <li key={d.demand_id}>
-              {d.demand_id}: {formatDateTime(d.start_datetime)} – {formatDateTime(d.end_datetime)}
+              Zmiana {i + 1}: {formatDateTime(d.start_datetime)} – {formatDateTime(d.end_datetime)}
             </li>
           ))}
         </ul>
@@ -68,7 +76,7 @@ function DecisionDetail({
         <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 13 }}>
           {detail.blockers.map((b, i) => (
             <li key={i}>
-              {b.employee_id}: {b.condition}
+              {nameFor(b.employee_id)}: {b.condition}
             </li>
           ))}
         </ul>
@@ -78,7 +86,7 @@ function DecisionDetail({
         <div style={{ marginTop: 12 }}>
           <span className="field-label">Przekroczenie tygodniowego czasu pracy</span>
           <p style={{ fontSize: 13, margin: "6px 0 0 0" }}>
-            {detail.load_blocker.employee_id}: {detail.load_blocker.hours}h w tygodniu {formatDateTime(detail.load_blocker.window_start)} –{" "}
+            {nameFor(detail.load_blocker.employee_id)}: {detail.load_blocker.hours}h w tygodniu {formatDateTime(detail.load_blocker.window_start)} –{" "}
             {formatDateTime(detail.load_blocker.window_end)}
           </p>
         </div>
@@ -182,7 +190,7 @@ export default function Decisions({
             ))}
           </div>
 
-          {detailLoading ? <p>Ładowanie…</p> : detail && <DecisionDetail detail={detail} onOpenControlPanel={onOpenControlPanel} />}
+          {detailLoading ? <p>Ładowanie…</p> : detail && <DecisionDetail detail={detail} siteId={siteId} onOpenControlPanel={onOpenControlPanel} />}
         </>
       )}
     </div>

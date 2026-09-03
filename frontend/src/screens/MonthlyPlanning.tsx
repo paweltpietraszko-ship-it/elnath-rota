@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut } from "../api/client";
 import Export from "./Export";
 import { todayIso } from "../localDate";
 
@@ -24,6 +24,17 @@ const MONTH_NAMES_PL = [
 function monthLabel(yearMonth: string): string {
   const [year, month] = yearMonth.split("-").map(Number);
   return `${MONTH_NAMES_PL[month - 1]} ${year}`;
+}
+
+const SCHEDULE_STATUS_LABEL: Record<ScheduleVersionOut["status"], string> = {
+  WORKING: "Wersja robocza",
+  WORKING_WITH_DEVIATIONS: "Wersja robocza (z odstępstwami)",
+  FINAL_NO_DEVIATIONS: "Zatwierdzona",
+  FINAL_WITH_DEVIATIONS: "Zatwierdzona (z odstępstwami)",
+};
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function daysInMonth(monthIso: string): string[] {
@@ -617,7 +628,7 @@ export default function MonthlyPlanning({
           {view?.current_version && (
             <>
               <p className="panel-hint">
-                Wersja: {view.current_version.version_id} — status: {view.current_version.status}
+                Status: {SCHEDULE_STATUS_LABEL[view.current_version.status]}, utworzono {formatDateTime(view.current_version.created_at)}
                 {view.current_version.effective_from ? ` — obowiązuje od ${view.current_version.effective_from}` : ""}
               </p>
 
@@ -762,8 +773,7 @@ export default function MonthlyPlanning({
                   <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                     {view.version_history.map((v) => (
                       <li key={v.version_id} style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
-                        <span>{v.version_id}</span>
-                        <span className="badge-pill badge-on">{v.status}</span>
+                        <span className="badge-pill badge-on">{SCHEDULE_STATUS_LABEL[v.status]}, utworzono {formatDateTime(v.created_at)}</span>
                         {v.version_id !== view.current_version?.version_id && (
                           <button
                             className="btn-ghost"

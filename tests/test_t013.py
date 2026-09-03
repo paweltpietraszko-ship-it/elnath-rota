@@ -95,15 +95,16 @@ def _applicability(rule: SiteRuleVersion) -> SiteRuleApplicability:
 def test_m1_exact_built_in_condition_mapping():
     state = base_state(employees=(_employee("A"),))
     mapping = {
-        "UNAVAILABLE-01": "Koliduje z checkbox: Ogólna dostępność",
-        "DAY_ONLY-01": "Koliduje z checkbox: Nocka",
+        "UNAVAILABLE-01": "Koliduje z ustawieniem: Ogólna dostępność",
+        "DAY_ONLY-01": "Koliduje z ustawieniem: Nocka",
         "SICK_LEAVE-01": "Koliduje z zapisem: Chorobowe",
         "LEAVE_GRANTED-01": "Koliduje z zapisem: Urlop",
         "REST-01": "Koliduje z odpoczynkiem dobowym",
         "LOAD-01": "Koliduje z tygodniowym czasem pracy",
         "EXTERNAL-01": "Wsparcie zewnętrzne",
         "EXTERNAL_SUPPORT_DISABLED": "Wsparcie zewnętrzne",
-        "SHIFT-24-01": "Koliduje z checkbox: 24",
+        "SHIFT-24-01": "Koliduje z ustawieniem: 24",
+        "DAY_SHIFT_OFF-01": "Koliduje z zapisem: Wolne w dzień",
     }
     for raw, expected in mapping.items():
         assert render_coordinator_blockers(state, [Blocker("A", raw)]) == [Blocker("A", expected)]
@@ -133,9 +134,12 @@ def test_m4_emp02_has_no_dedicated_owner():
 # M5 ----------------------------------------------------------------------
 
 
-def test_m5_day_shift_off_remains_raw_and_generates_no_action():
+def test_m5_day_shift_off_has_polish_text_and_generates_no_action():
+    # T048: DAY_SHIFT_OFF-01 used to be the one condition left untranslated;
+    # it now has Polish text like every sibling condition, but still has no
+    # _ACTION_TEMPLATES entry (a separate, unrequested gap -- see brief.md).
     state = base_state(employees=(_employee("A"),))
-    assert render_coordinator_blockers(state, [Blocker("A", "DAY_SHIFT_OFF-01")]) == [Blocker("A", "DAY_SHIFT_OFF-01")]
+    assert render_coordinator_blockers(state, [Blocker("A", "DAY_SHIFT_OFF-01")]) == [Blocker("A", "Koliduje z zapisem: Wolne w dzień")]
     options = build_unblocking_options(state, [Blocker("A", "DAY_SHIFT_OFF-01")], None)
     assert options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
@@ -145,7 +149,7 @@ def test_m5_day_shift_off_remains_raw_and_generates_no_action():
 
 def test_m6_shift_24_uses_24_naming():
     state = base_state(employees=(_employee("A"),))
-    assert render_coordinator_blockers(state, [Blocker("A", "SHIFT-24-01")]) == [Blocker("A", "Koliduje z checkbox: 24")]
+    assert render_coordinator_blockers(state, [Blocker("A", "SHIFT-24-01")]) == [Blocker("A", "Koliduje z ustawieniem: 24")]
     assert build_unblocking_options(state, [Blocker("A", "SHIFT-24-01")], None) == ["Zmień 24: A"]
 
 
@@ -227,7 +231,7 @@ def test_m13_h_final_day_only_gives_nocka_option_only_after_fallback_exhausted(m
     state = base_state(employees=(employee,), memberships=(_membership("A"),), shift_demands=(demand,))
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "Koliduje z checkbox: Nocka" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z ustawieniem: Nocka" for b in result.decision_payload.blockers)
     assert "Zmień Nocka: A" in result.decision_payload.unblocking_options
     # H: T013 does not alter T018's call order/flags. Stage 3's shortage is
     # terminal (no exception ever authorized this employee), so Stage 4 is
@@ -283,7 +287,7 @@ def test_m16_i3_frozen_conflict_gives_unfreeze_option_and_translated_blockers():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert any(b.condition == "Koliduje z checkbox: Ogólna dostępność" for b in result.decision_payload.blockers)
+    assert any(b.condition == "Koliduje z ustawieniem: Ogólna dostępność" for b in result.decision_payload.blockers)
     assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" in result.decision_payload.unblocking_options
 
 

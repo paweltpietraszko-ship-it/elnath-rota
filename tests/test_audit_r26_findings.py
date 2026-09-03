@@ -114,7 +114,7 @@ def test_r26_1b_unavailable_24h_and_sick_leave_no_established_priority_both_repo
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "Koliduje z checkbox: Ogólna dostępność" in conditions
+    assert "Koliduje z ustawieniem: Ogólna dostępność" in conditions
     assert "Koliduje z zapisem: Chorobowe" in conditions
 
 
@@ -153,7 +153,7 @@ def test_r26_2_unavailable_condition_code_is_canonical():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     conditions = {b.condition for b in result.decision_payload.blockers}
-    assert "Koliduje z checkbox: Ogólna dostępność" in conditions
+    assert "Koliduje z ustawieniem: Ogólna dostępność" in conditions
     assert "UNAVAILABLE_24H-01" not in conditions
 
 
