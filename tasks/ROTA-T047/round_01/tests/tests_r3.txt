@@ -1,0 +1,64 @@
+ROTA-T047 — IMPLEMENTATION AUDIT R3
+
+AUDITED_SHA: e15b6a15652fa8cbab904830a72d35d888d4b7ba
+CONTRACT_SHA: 4e510fd30887b9231349fcde8613c934525c2b28
+
+WERDYKT: PASS
+
+PASS dotyczy wyłącznie powyższego exact SHA.
+
+ZAKRES AUDYTU
+
+1. Diff i ownership
+   - zmieniono wyłącznie dozwolone pliki produktu/testów;
+   - kwalifikacja do druku i paginacja pozostały w istniejącym
+     rota/application/schedule_export.py;
+   - nie dodano endpointu, DTO, kodu 14 h ani logiki solvera/frontendu.
+
+2. Niezależny reproduktor mapowania
+   - rzeczywisty export z bazy :memory: dla N/16 h, catalog_kind=OTHER i
+     dokładnego ustawienia N2 15:00-07:00 zwrócił ExportReady;
+   - tekst i raster PDF zawierały N2 w PLAN i WYK oraz 16 godzin;
+   - kontrolny N/14 h bez zamrożonego kodu zwrócił dokładnie
+     WORK_CODE_MAPPING_REQUIRED, bez wymyślonego kodu zastępczego.
+
+3. Niezależna kontrola wielostronicowego PDF
+   - produkcyjny generate_schedule_pdf dla 17 osób utworzył prawdziwy PDF A3
+     o dwóch stronach;
+   - PyMuPDF potwierdził format obu stron 1190.6 x 841.9 pt;
+   - strona 1 zawiera 12 kompletnych par PLAN/WYK, strona 2 pozostałe 5;
+   - obie strony mają firmę/obiekt, okres, prawdziwy zakres dat, provenance,
+     revision i numer X z 2;
+   - legenda występuje na ostatniej stronie;
+   - obie strony wyrenderowano do PNG i obejrzano: brak uciętych wierszy,
+     przecięcia pracownika między stronami, kolizji tabeli z legendą lub
+     stopką oraz tekstu poza stroną. Tym samym brakująca po stronie
+     implementatora kontrola T47-10 została wykonana w audycie.
+
+4. Celowane testy
+   - tests/test_t047_print_export.py: 9 passed;
+   - wybrane zabezpieczenia T020 dla exact mapping, OTHER, zwykłego H24,
+     TRAINEE, sprzecznego przedziału/provenance, wadliwego WorkPeriod i dużej
+     obsady: zielone;
+   - T47-11 w zestawie 9 testów przeszedł przez rzeczywiste plan_month,
+     select_candidate i generate_schedule_pdf bez mockowania eksportu.
+
+Nie uruchamiano pełnej suity repozytorium. Rozpoczętą szerszą kombinację
+regresji przerwano po przekroczeniu uzgodnionego wąskiego zakresu; jej wynik
+nie jest używany jako dowód tego werdyktu.
+
+OCENA IMPLEMENTACJI
+
+- Usunięcie wczesnej odmowy OTHER nie osłabiło fail-closed: _map_work_code
+  nadal wymaga rodziny D/N, dokładnego początku/końca, przejścia przez północ
+  i zamrożonej liczby godzin.
+- Paginacja zachowuje minimalną wysokość wiersza i nierozdzielną parę
+  PLAN/WYK. Zwykły mały grafik pozostaje jednostronicowy.
+- Stare testy T020 zmieniono dokładnie w dwóch punktach jawnie zastąpionych
+  kontraktem T047; pozostałych zabezpieczeń nie przepisano.
+- Jawnie zaakceptowana przez OWNERA nadwyżka SIZE_FILE nie blokuje PASS.
+  Nie wykonywano refaktoru dla samego limitu linii.
+
+FINDINGS: BRAK
+
+T047 na e15b6a1 jest gotowe do dalszego gate/merge zgodnie z decyzją OWNERA.
