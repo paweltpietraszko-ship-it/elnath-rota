@@ -1,0 +1,82 @@
+ROTA-T052 — PREIMPLEMENTATION RE-AUDIT R2
+
+Audytowany exact SHA: 0d8ca1ad53df46cd8231e50d6a9a3be76a7c0024
+Base: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: FAIL — ARCHITECT_CORRECTION_REQUIRED
+
+R1-01 (dobowy REST-01) został poprawiony zgodnie z decyzją OWNERA. Reaudyt
+ujawnił dwie dalsze rozbieżności zachowania oraz dwa mechaniczne braki scope.
+OWNER rozstrzygnął zachowanie 2026-09-03; audytor niczego tu nie projektuje.
+
+OWNER_CONFIRMED — zamrożone zachowanie S1
+
+1. Start i koniec S1 przypadają wyłącznie na pełną godzinę.
+2. S1 nie ma jednej stałej długości: może trwać np. 2 albo 4 godziny.
+3. S1 liczy się do godzin, LOAD-01 i bilansu oraz blokuje rzeczywiste
+   nakładanie pracy.
+4. S1 nie uczestniczy w dobowym REST-01: N -> poranne S1 jest legalne, a
+   S1 nie tworzy ściany 11 godzin przed kolejną pracą.
+5. S1 nie przerywa także odpoczynku tygodniowego WEEKLY-REST-01 (35 h),
+   nawet jeśli szkolenie znajduje się wewnątrz tego okresu.
+
+Finding R2-01 — brief nadal dopuszcza minuty
+
+TRACE/REPRO:
+
+- brief §2 pkt 2 mówi o dowolnym start/end bez minimum lub maksimum;
+- T52-01 wymaga przykładu 10:00-14:30 i akceptacji 4,5 h;
+- rota/persistence/schedule_validation.py:184-186 realizuje zamrożoną zasadę
+  OWNER-T022-01 i odrzuca Assignment, którego start albo koniec nie przypada
+  na pełną godzinę.
+
+Korekta: S1 zachowuje globalną zasadę pełnych godzin. Usunąć 14:30/4,5 h i
+zastąpić przykładami różnych całkowitych długości, np. 10:00-12:00 oraz
+10:00-14:00. Nie wprowadzać jednej stałej długości S1.
+
+Finding R2-02 — tygodniowy odpoczynek nie jest zapisany jawnie
+
+TRACE/REPRO:
+
+- poprawiony brief jawnie wyłącza tylko dobowy REST-01;
+- rota/planning/validator.py:641-663 liczy WEEKLY-REST-01 ze wszystkich
+  nieanulowanych Assignmentów, więc bez jawnego wyjątku S1 przerwie 35 h;
+- rota/application/manual_edit.py:118-148 niezależnie rekonstruuje ten sam
+  tygodniowy odpoczynek dla ręcznej korekty.
+
+Korekta: zapisać w decyzjach, solverze, validatorze, ręcznej korekcie i
+acceptance, że S1 nie uczestniczy w WEEKLY-REST-01. Dodać kontrolę: S1
+wewnątrz 35-godzinnego odpoczynku nie powoduje naruszenia, natomiast zwykła
+praca w tym samym miejscu czasu nadal je powoduje.
+
+Finding R2-03 — brak ownera invariantów Assignment w TASK_SCOPE
+
+Nowa rola musi wymuszać covers_demand_id=None i
+mentor_primary_assignment_id=None. Właścicielem tych invariantów jest
+rota/persistence/schedule_validation.py:212-231, lecz pliku nie ma w §9.
+
+Korekta techniczna: dodać wyłącznie
+rota/persistence/schedule_validation.py do TASK_SCOPE.
+
+Finding R2-04 — brak realnego routera konfiguracji S1 w TASK_SCOPE
+
+PrintSettings czyta i zapisuje konfigurację przez api/routers/export.py
+(endpointy linii 105-123). Brief pozwala zmienić schedule/manual-correction
+router, który nie jest właścicielem tych ustawień.
+
+Korekta techniczna: dodać wyłącznie api/routers/export.py do TASK_SCOPE.
+Nie tworzyć drugiego endpointu w schedule.py.
+
+PREIMPLEMENTATION REDUCTION GATE
+
+AssignmentRole.PERIODIC_TRAINING pozostaje najmniejszym istniejącym nośnikiem
+ręcznego wpisu z pracownikiem, czasem, stanem, wersjonowaniem i historią.
+Nie potrzeba osobnego subsystemu szkoleniowego ani tabeli historii S1.
+Konfiguracja domyślnego przedziału wymaga osobnego pola ustawień, a nie
+dopisania S1 do sztywnego katalogu D/N WORK_CODE_KEYS.
+
+Zakres audytu: exact SHA, diff po R1, wszystkie produkcyjne rozgałęzienia
+AssignmentRole, persistence invariantów, manual edit, solver/validator,
+balance, print settings i eksport. Nie uruchamiano testów, ponieważ branch
+zawiera wyłącznie kontrakt. Po tych czterech korektach potrzebny jest już
+tylko wąski reaudyt tekstu, bez kolejnej rundy projektowania.
