@@ -1,0 +1,29 @@
+ROTA-T047 — PREIMPLEMENTATION REAUDIT R2
+
+AUDITED_SHA: 4e510fd30887b9231349fcde8613c934525c2b28
+SCOPE: wyłącznie korekty R1-01 i R1-02 z tests_r1.txt.
+
+WERDYKT: PASS — READY FOR IMPLEMENTATION
+
+R1-01 — ZAMKNIĘTE
+
+Nowa sekcja 1a jawnie i wąsko zastępuje dwie odwrotne zasady T020:
+
+- INNY/OTHER z dokładnym mapowaniem D/N staje się drukowalny;
+- nadmiar wierszy przechodzi na wielostronicowy A3 zamiast odmowy.
+
+Brief wskazuje dokładne wcześniejsze klauzule oraz dwa stare testy, których
+oczekiwania należy zmienić. Pozostałe zabezpieczenia T020 są jawnie zachowane.
+Implementator nie ma już dwóch konkurencyjnych źródeł prawdy.
+
+R1-02 — ZAMKNIĘTE
+
+Brief poprawnie rozróżnia ShiftKind D/N od kategorii długości OTHER/INNY,
+usuwa nieistniejący „inny rodzaj pracy” i nie nakazuje tworzenia zastępczej
+klasyfikacji. Zachowane odmowy są konkretne i osiągalne: TRAINEE,
+brak/sprzeczne provenance oraz brak dokładnego mapowania. Jawnie zapisano,
+że UNSUPPORTED_SHIFT_KIND nie ma po T047 osobnego osiągalnego przypadku.
+
+Nie znaleziono nowej sprzeczności. Nie uruchamiano testów ani nie czytano
+ponownie całego eksportu, zgodnie z zakresem reaudytu. Architekt nie jest
+potrzebny; implementacja może rozpocząć się na tym kontrakcie.
