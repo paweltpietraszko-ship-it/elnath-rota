@@ -249,16 +249,19 @@ def test_t20_10_effective_trainee_is_unsupported():
     with pytest.raises(SE.ExportProblemError) as exc:
         SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
     assert exc.value.code == "UNSUPPORTED_TRAINEE_PRINT"
-def test_t20_13_inny_catalog_kind_is_unsupported():
+def test_t20_13_inny_catalog_kind_with_exact_mapping_still_prints():
+    # T047: replaces the old "every INNY -> UNSUPPORTED_SHIFT_KIND" expectation.
+    # This item's actual 06:00-18:00/12h interval exactly matches the configured
+    # D1 code, so it is printable even though catalog_kind == OTHER.
     conn = connect(":memory:")
     _seed(conn)
     save_site_print_settings(conn, _settings())
     d1, a1 = _work_item(3, 6, 18, kind=ShiftKind.D)
     d1 = ShiftDemand(d1.demand_id, "", d1.start_datetime, d1.end_datetime, 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.OTHER)
     _create_version(conn, [d1], [a1])
-    with pytest.raises(SE.ExportProblemError) as exc:
-        SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
-    assert exc.value.code == "UNSUPPORTED_SHIFT_KIND"
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert model.rows[0].plan[2] == "D1"
+    assert model.rows[0].wyk[2] == "D1"
 
 
 # --- T20-11: exact interval mapping -----------------------------------------
@@ -516,15 +519,15 @@ def test_t20_30b_corrupt_reserve_json_returns_stable_problem():
     assert isinstance(result, SE.ExportProblem) and result.problem_code == "PRINT_SETTINGS_INVALID"
 
 
-# --- T20-25/T20-36: a roster that cannot fit the accepted layout fails explicitly, never silently overflows
-def test_t20_25_large_roster_fails_before_overflowing_the_sheet():
+# --- T20-25/T20-36: a roster too large for one sheet now paginates instead of failing (T047) --
+def test_t20_25_large_roster_paginates_instead_of_failing():
     employee_ids = tuple(f"EMP-{i:02d}" for i in range(30))
     conn = connect(":memory:")
     _seed(conn, employees=employee_ids)
     save_site_print_settings(conn, _settings())
     _create_version(conn, [], [])
     result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="x")
-    assert isinstance(result, SE.ExportProblem) and result.problem_code == "ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT"
+    assert isinstance(result, SE.ExportReady) and result.pdf_bytes.startswith(b"%PDF")
 
 
 # --- T20-03/04: the pinned production ReportLab dependency renders a real PDF with Polish diacritics, or fails explicitly
