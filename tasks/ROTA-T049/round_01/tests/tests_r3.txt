@@ -1,0 +1,56 @@
+ROTA-T049 — IMPLEMENTATION AUDIT R3
+
+Audytowany branch: task/ROTA-T049
+Audytowany exact SHA: cba913fda1635ea00b48614115f434f7c0a173ce
+Kontrakt PASS: task/ROTA-T049@bec6100a235a657bceb0d528a1a2d77fbdef5116
+
+Werdykt: PASS
+
+OWNER EXPLANATION GATE — JAWNE ODSTĘPSTWO
+
+- OWNER_CONFIRMED: pole „Nazwa profilu zmianowego” usunięto z formularza i
+  żądania; profil przejmuje nazwę obiektu. To jest dokładnie zachowanie T049.
+- TECHNICAL_ONLY: z testu prywatności usunięto zmienną canaryProfile oraz jej
+  wpis w pętli. Pole, do którego była wpisywana, już nie istnieje.
+- SAFETY_PRIVACY: zakres ochrony nie został osłabiony. Ten sam test nadal
+  sprawdza, że do raportu nie wyciekają: nazwa obiektu wpisana w formularzu,
+  nazwa pracownika oraz treść błędu backendu. canarySite nadal jest kanarkiem
+  dla danych formularza.
+- OWNER_DECISION_NEEDED: brak.
+- UNAUTHORIZED: brak.
+
+Sformułowanie DELIVERY o „milczącej akceptacji” jest procesowo błędne — brak
+sprzeciwu nie jest decyzją OWNERA. Tutaj nie wpływa to na werdykt, ponieważ
+zmiana jest wyłącznie dostosowaniem testu do usuniętego pola i nie zmienia
+produktu ani poziomu ochrony.
+
+WARSTWY AUDYTU
+
+- TASK_SCOPE: wszystkie zmienione pliki mieszczą się w zamrożonym zakresie;
+  dodatkowy backend_output.txt jest raportem bramki.
+- WHERE_MAP wykonany ponownie dla CreateSiteRequest i create_site; jeden
+  produkcyjny właściciel i jeden frontendowy odpowiednik, bez nowej ścieżki.
+- Pełne wyszukanie żywego api/frontend/tests: brak profile_display_name,
+  profileName i placeholdera PROF-NORDPLAST-02.
+- Realny POST /api/workspace/sites bez usuniętego pola: 201.
+- Odczyt zapisanego SiteProfile: display_name jest dokładnie nazwą obiektu;
+  profile_id nadal jest niezależnym PROF-<uuid>.
+- Oba harnessy symulatora wykonały swój rzeczywisty krok tworzenia obiektu
+  przez API bez usuniętego pola: PASS. Nie uruchamiano solvera.
+- Celowany Playwright diagnostics.spec.ts „2”: PASS przez prawdziwy frontend
+  i backend; wspólny createSite działa bez usuniętego pola.
+- Frontend TypeScript + build produkcyjny: PASS.
+- git diff --check: PASS.
+- Pełnej regresji nie uruchamiano.
+
+STAŁY, NIEZWIĄZANY BŁĄD TESTU E2E — NIE OBCIĄŻA T049
+
+Celowany test prywatności utworzył obiekt poprawnie, ale następnie trzykrotnie
+zatrzymał się w helpers.ts::openSite. Helper czeka na nagłówek „Panel
+sterowania”, podczas gdy Room od dawna otwiera „Przegląd”. Ten sam helper i
+ten sam domyślny ekran istnieją już na kontrakcie PASS bec6100; lokalne helpery
+T041/T042/T043 opisują ten znany rozjazd wprost. To nie jest regresja T049 ani
+wyciek danych. Wspólny helper jest używany w wielu starszych e2e i powinien
+zostać naprawiony w osobnym małym zadaniu testowym, bez zmiany produktu.
+
+PASS obowiązuje wyłącznie dla exact SHA wskazanego powyżej.
