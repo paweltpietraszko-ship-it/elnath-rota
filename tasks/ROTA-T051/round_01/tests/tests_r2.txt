@@ -1,0 +1,40 @@
+ROTA-T051 — OWNER CORRECTION R2
+
+BRANCH HEAD BEFORE THIS RECORD: 7e1751b5584d37e1e5181ba843d4adff0c587ed6
+CONTRACT SHA STILL UNDER CORRECTION: 1e243f62fa8309ece8d7ea88f82a66404ecf5ee5
+STATUS: OWNER_CORRECTED — brief wymaga mechanicznej korekty przez CC przed
+reaudytem. To nie jest jeszcze werdykt PASS/FAIL.
+
+Dosłowna decyzja OWNERA z 2026-09-03:
+
+„Człowiek nie potrzebuje identyfikatora SV, potrzebuje nazwę obiektu i datę,
+SV może funkcjonowac dla systemu, nie musi dla użytkownika.”
+
+Zamrożona interpretacja
+
+- pełny identyfikator `SV-...` nie jest pokazywany użytkownikowi na PDF ani
+  dokładany do komunikatu ekranu Wydruk;
+- identyfikator `SV-...` może pozostać bez zmian w wewnętrznym modelu i
+  przepływie systemu;
+- użytkownik identyfikuje wydruk przez istniejącą nazwę obiektu oraz
+  istniejący okres/zakres dat;
+- wcześniejsza decyzja OWNERA o pozostawieniu skróconego hasha nadal
+  obowiązuje: krótki kod weryfikacyjny może być widoczny, ale nie zastępuje
+  nazwy obiektu ani daty;
+- pełne hashe i identyfikatory techniczne w API/wewnętrznym modelu pozostają
+  poza zakresem zmiany, o ile nie są wyświetlane użytkownikowi.
+
+Korekta wymagana od CC
+
+1. Usunąć z proponowanego tekstu PDF pełne `lineage[-1].version_id` oraz
+   odpowiednio poprawić T51-03 i wszystkie sprzeczne fragmenty briefu.
+2. Zachować istniejącą nazwę obiektu i okres/zakres dat jako ludzką
+   identyfikację wydruku; nie dodawać nowego duplikatu tych pól.
+3. Poprawić sprzeczność wskazaną w tests_r1.txt: `_provenance_text` po zmianie
+   jest funkcją prezentacyjną ze skróconym kodem, więc T51-06 nie może wymagać
+   od niej pełnego tekstowego digestu. Pełne pozostaje samo obliczenie oraz
+   `_document_revision`/odpowiedź API.
+4. Nie rozszerzać TASK_SCOPE ani nie refaktoryzować eksportu.
+
+Po korekcie potrzebny jest wyłącznie wąski reaudyt zmienionych punktów briefu.
+Nie uruchamiano testów, ponieważ nadal nie ma implementacji.
