@@ -1,0 +1,57 @@
+ROTA-T053 — PREIMPLEMENTATION AUDIT R1
+
+Audytowany exact SHA: f463f049973c6a6fe21c1e25a771ba7ab33d7fc3
+Base: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: FAIL — ARCHITECT_CORRECTION_REQUIRED
+
+Finding R1-01 — plik konieczny do wykonania zaakceptowanego zachowania jest
+poza TASK_SCOPE.
+
+TRACE
+
+Brief §2 pkt 7, §5 i T53-07 wymagają, aby wydruk używał wspólnego miesiąca i
+nie utrzymywał drugiego wyboru miesiąca/opisu tego samego okresu.
+
+REPRO NA EXACT SHA
+
+- frontend/src/screens/Export.tsx:42 — Export nie przyjmuje miesiąca z
+  MonthlyPlanning/Room;
+- frontend/src/screens/Export.tsx:44-45 — tworzy własny monthInput i
+  periodLabel;
+- frontend/src/screens/Export.tsx:82-83 — własne wartości sterują realnym
+  wywołaniem exportSchedule;
+- frontend/src/screens/Export.tsx:132-147 — pokazuje osobny wybór miesiąca i
+  edytowalny opis okresu;
+- frontend/src/screens/MonthlyPlanning.tsx:602 — osadza Export bez month prop.
+
+OWNERSHIP
+
+To Export.tsx posiada i wysyła te dwie wartości. Zmiana samego Room,
+MonthlyPlanning, Analytics i EmployeeDetail nie może usunąć drugiego źródła
+prawdy znajdującego się wewnątrz Export.
+
+Sprzeczność
+
+TASK_SCOPE §7 nie dopuszcza frontend/src/screens/Export.tsx. Implementator
+musiałby albo złamać scope, albo pozostawić T53-07 niespełnione.
+
+Minimalna korekta
+
+Dodać wyłącznie frontend/src/screens/Export.tsx do dozwolonego scope, aby
+przyjmował working month z istniejącego MonthlyPlanning i wyliczał z niego
+opis okresu. Nie jest potrzebny backend, nowy store ani osobny komponent.
+
+PREIMPLEMENTATION REDUCTION GATE
+
+- Room.tsx jest najwęższym istniejącym wspólnym ownerem stanu ekranów.
+- Decisions pozostaje prawidłowym wyjątkiem.
+- W repo nie ma wspólnego helpera localStorage do reuse; jedyne istniejące
+  użycie w Workspace.tsx jest lokalnym zapisem motywu. Mały zapis/odczyt w
+  Room wystarcza — bez frameworka state-management.
+- Niezbędne są tylko propsy working month/onChange do już istniejących
+  ekranów oraz usunięcie ich własnych month state/pickerów.
+
+Zakres audytu: exact SHA, inwentarz wszystkich istniejących month inputs,
+realna ścieżka Room -> MonthlyPlanning -> Export i redukcja proponowanych
+elementów. Nie uruchamiano testów, ponieważ branch zawiera tylko kontrakt.
