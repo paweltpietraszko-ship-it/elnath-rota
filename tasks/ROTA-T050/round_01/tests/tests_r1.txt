@@ -1,0 +1,81 @@
+ROTA-T050 — PREIMPLEMENTATION AUDIT R1
+
+AUDITED SHA: b8434a1b9d12c066a144561b8e2f1e6a136be766
+VERDICT: FAIL — kontrakt nie obejmuje jednego rzeczywistego użytkownika
+zmienianego helpera i dlatego proponowana poprawka pozostawia test czerwony.
+
+Zakres audytu
+
+1. Przeczytano cały brief na dokładnym SHA.
+2. Uruchomiono wymagane WHERE_MAP:
+   C:\Projects\Elnath Rota\.venv\Scripts\python.exe where.py
+   frontend/e2e/helpers.ts --symbol openSite
+3. Przeczytano definicję helpera oraz wszystkie rzeczywiste importy i
+   wywołania współdzielonego openSite.
+4. Odtworzono osobno stary test Pythona.
+5. Tymczasowo podstawiono dokładnie proponowaną w briefie jedną linię
+   openSite i uruchomiono tylko test diagnostyki „privacy canary”, bez pełnej
+   suity. Po reprodukcji zmianę wycofano; worktree pozostał czysty.
+
+R1-01 — BLOCKER: brief błędnie policzył i opisał użytkowników openSite
+
+TRACE
+
+- brief.md:69-74 twierdzi, że istnieje 7 wywołań i każde po openSite wykonuje
+  własną dalszą nawigację;
+- brief.md:101 oraz 148 zamrażają tę samą liczbę i założenie w zakresie oraz
+  macierzy T50-02;
+- brief.md:115-125 i 180-185 nie dopuszcza zmiany
+  frontend/e2e/diagnostics.spec.ts.
+
+OWNERSHIP
+
+Współdzielony helper odpowiada za zakończenie wejścia do obiektu, a każdy
+test wywołujący odpowiada za przejście do potrzebnego mu ekranu. TASK sam
+nakazuje sprawdzić wszystkich użytkowników helpera przed zmianą.
+
+REPRO na kodzie exact SHA
+
+WHERE_MAP oraz odczyt importów pokazują 16 wywołań współdzielonego helpera w
+3 plikach, a nie 7 wywołań w 5 plikach:
+
+- diagnostics.spec.ts: 1;
+- monthly-planning.spec.ts: 7;
+- shift-catalog.spec.ts: 8.
+
+Kluczowy kontrprzykład:
+
+- frontend/e2e/diagnostics.spec.ts:200 wywołuje openSite;
+- linia 201 bez żadnej nawigacji od razu klika roster-add-open;
+- ten przycisk jest dostępny w Panelu sterowania, natomiast po otwarciu
+  obiektu aplikacja pozostaje na domyślnym ekranie Przegląd.
+
+Po tymczasowym zastosowaniu dokładnej zmiany z brief.md:85-88 uruchomiono:
+
+  npm.cmd run test:e2e -- diagnostics.spec.ts -g "privacy canary" --retries=0
+
+Wynik: 1 failed. Test przekroczył 30 s, czekając dokładnie na
+`[data-diag-action="roster-add-open"]` w diagnostics.spec.ts:201. To dowodzi,
+że proponowana zmiana usuwa pierwszy zły warunek oczekiwania, ale nie naprawia
+realnej ścieżki tego testu.
+
+Wymagana korekta kontraktu
+
+Kontrakt musi objąć rzeczywistą liczbę 16 wywołań oraz jawnie naprawić dalszą
+nawigację testu diagnostics.spec.ts przed użyciem roster-add-open. Wymaga to
+dodania tego pliku do TASK_SCOPE i do celowanej weryfikacji. Nie jest potrzebna
+zmiana kodu produktu ani nowa architektura.
+
+Pozostała część
+
+T50-01 jest zasadna i niezależnie odtworzona:
+
+  python -m pytest tests/test_t009_open_and_assembler.py
+  -k test_5_missing_target_hours_not_invented_and_demand_count_unchanged -q
+
+Wynik: 1 failed; stary angielski filtr znajduje 0 ostrzeżeń zamiast 6, podczas
+gdy assembler zwraca wskazany w briefie polski fragment. Nie ma findingu wobec
+proponowanej zmiany tego literału.
+
+Nie uruchamiano pełnej regresji. Na etapie briefu nie byłoby to proporcjonalne
+ani pomocne.

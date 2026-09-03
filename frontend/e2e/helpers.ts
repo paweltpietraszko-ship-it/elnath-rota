@@ -24,6 +24,7 @@ export async function createSite(page: Page, displayName: string) {
 
 export async function openSite(page: Page, displayName: string) {
   await page.getByText(displayName, { exact: true }).click();
+  await page.locator('[data-diag-action="room-nav-control-panel"]').click();
   await page.getByRole("heading", { name: "Panel sterowania" }).waitFor();
 }
 

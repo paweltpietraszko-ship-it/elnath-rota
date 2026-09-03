@@ -9,7 +9,7 @@ import pytest
 from rota.application.assembler import assemble_planning_state
 from rota.application.errors import IncompleteCalendarData
 from rota.application.open_month import open_month
-from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftDemand
+from rota.domain import Assignment, AssignmentRole, AssignmentState, MembershipKind, ShiftDemand
 from rota.persistence.db import connect
 from rota.persistence.schedule_lifecycle import create_schedule_version
 from rota.persistence.work_balance_repository import save_work_balance_target
@@ -88,9 +88,13 @@ def test_5_missing_target_hours_not_invented_and_demand_count_unchanged(tmp_path
     # -- and here requires -- one new warning for first_employee's own
     # genuine earlier-month gap, on top of (never instead of) the unchanged
     # per-employee omission warnings below.
-    omitted_warnings = [w for w in warnings_after if "omitted from WorkBalance context" in w]
+    omitted_warnings = [w for w in warnings_after if "użyto awaryjnego, równego podziału godzin" in w]
     carry_in_warnings = [w for w in warnings_after if "bilans godzin z wcześniejszej części kwartału przyjęto jako 0" in w]
-    assert len(omitted_warnings) == len(pstate.employees) - 1
+    # T050: the missing-target warning is LOCAL-only since T041 (X/Y in this
+    # fixture are EXTERNAL_SUPPORT and never get one) -- comparing against
+    # len(pstate.employees) counted the two EXTERNAL_SUPPORT employees too.
+    local_count = sum(1 for m in pstate.memberships if m.membership_kind == MembershipKind.LOCAL)
+    assert len(omitted_warnings) == local_count - 1
     assert len(carry_in_warnings) == 1
     assert len(warnings_after) == len(omitted_warnings) + len(carry_in_warnings)
 

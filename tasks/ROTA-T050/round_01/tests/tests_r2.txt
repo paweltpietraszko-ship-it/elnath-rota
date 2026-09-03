@@ -1,0 +1,57 @@
+ROTA-T050 — PREIMPLEMENTATION REAUDIT R2
+
+AUDITED SHA: 86ddeaf8579ffddcf040092e9b9b80009c55d3e8
+VERDICT: PASS — READY FOR IMPLEMENTATION
+
+Zakres reaudytu
+
+- sprawdzono wyłącznie korektę blockera R1;
+- porównano brief z `tests_r1.txt` i rzeczywistymi użytkownikami helpera;
+- ponownie odczytano istniejący wzorzec z
+  `t041-daily-workflow.spec.ts::openSite` oraz selektor z `Room.tsx`;
+- tymczasowo zastosowano dokładnie proponowane kliknięcie w helperze i
+  uruchomiono trzy reprezentatywne testy przeglądarkowe, nie pełną suitę.
+
+Zamknięcie R1-01
+
+Brief podaje teraz poprawnie 16 wywołań współdzielonego `openSite` w trzech
+plikach: diagnostics 1, monthly-planning 7 i shift-catalog 8. Trzy pozostałe
+pliki mają własne funkcje o tej samej nazwie i nie są użytkownikami helpera.
+
+Proponowana poprawka odpowiada rzeczywistej przyczynie: po wejściu do obiektu
+helper klika istniejącą nawigację `room-nav-control-panel`, a dopiero potem
+czeka na nagłówek Panelu sterowania. Nie zmienia domyślnego ekranu produktu i
+nie wymaga zmiany `diagnostics.spec.ts`.
+
+Celowana próba proponowanej zmiany
+
+Uruchomiono z `--retries=0`:
+
+  diagnostics.spec.ts      — privacy canary
+  monthly-planning.spec.ts — PLAN -> select candidate -> reload
+  shift-catalog.spec.ts    — add a shift, save, reload
+
+Wynik istotny dla T050:
+
+- diagnostics: PASS — dokładny reproduktor R1 przestał wisieć na
+  `roster-add-open`;
+- shift-catalog: PASS;
+- monthly-planning: wejście przez `openSite`, dalsza nawigacja, PLAN i wybór
+  kandydata wykonały się; test zatrzymał się dopiero na późniejszej, niezależnej
+  asercji `status: WORKING`.
+
+Klasyfikacja niezależnego czerwonego testu
+
+`monthly-planning.spec.ts:48` sprawdza surowy angielski status
+`status: WORKING`. Od zaakceptowanego T048 produkt pokazuje po polsku
+`Status: Wersja robocza` (`MonthlyPlanning.tsx:29-34,635`). To istniejący
+stary test źródłowego tekstu, nie skutek ani element T050. Zgodnie z zasadą,
+że stare oczekiwanie sprzeczne z PRODUCT_TRUTH nie jest regresją, nie blokuje
+PASS i nie zostało dopisane do TASK_SCOPE. W implementacji wynik całych plików
+e2e należy ocenić względem tej znanej czerwonej asercji; bramką T050 jest brak
+nowego błędu na ścieżce `openSite`.
+
+T50-01 pozostaje bez uwag z R1. Implementacja ma ograniczyć się do briefu:
+jednego literału w teście Pythona i jednego kliknięcia we współdzielonym
+helperze. Pełna regresja nie jest wymagana ani uruchamiana.
+

@@ -1,0 +1,35 @@
+ROTA-T050 — IMPLEMENTATION AUDIT R3
+
+AUDITED SHA: 42028562e8fecb347573d2a65055e9c12de1f542
+VERDICT: PASS
+
+Sprawdzony zakres
+
+- diff od kontraktu PASS `7b1259b` do exact delivery;
+- zmieniony filtr i licznik ostrzeżeń w
+  `tests/test_t009_open_and_assembler.py`;
+- współdzielony `frontend/e2e/helpers.ts::openSite`;
+- trzy reprezentatywne prawdziwe ścieżki przeglądarkowe: diagnostics,
+  monthly-planning i shift-catalog;
+- Ruff oraz `git diff --check`.
+
+Wyniki
+
+- `tests/test_t009_open_and_assembler.py`: 6/6 PASS.
+- Ruff zmienionego pliku Pythona: PASS.
+- `git diff --check`: PASS.
+- diagnostics „privacy canary”: PASS — dokładny reproduktor R1.
+- shift-catalog „add a shift, save, reload”: PASS.
+- monthly-planning przeszedł `openSite`, dalszą nawigację, PLAN oraz wybór
+  kandydata. Późniejsza asercja `status: WORKING` nadal jest czerwona zgodnie
+  ze znanym backlogiem #15: od T048 produkt wyświetla „Status: Wersja robocza”.
+  To nie jest regresja T050 ani błąd helpera.
+
+Dodatkowa zmiana testowa w liczniku jest zgodna z istniejącym kontraktem T041:
+ostrzeżenie o brakującym target_hours dotyczy LOCAL, nie EXTERNAL_SUPPORT.
+Formuła liczy teraz faktycznych LOCAL z memberships i poprawnie odejmuje
+jednego LOCAL, któremu test zapisał target. Nie zmienia kodu produktu.
+
+Nie uruchamiano pełnej suity. Zmiana jest ograniczona do testów, a celowane
+ścieżki pokrywają obie poprawki i trzy rodziny użytkowników helpera.
+
