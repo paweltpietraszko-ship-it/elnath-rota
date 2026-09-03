@@ -26,6 +26,28 @@ Po T047 koordynator ma otrzymać czytelny PDF również w obu tych przypadkach.
 Nie zmieniamy grafiku, danych obiektu ani wyniku solvera tylko po to, aby
 zmieściły się w wydruku.
 
+## 1a. Zastępowane decyzje T020 (R1-01)
+
+T047 jawnie zastępuje wyłącznie dwie wcześniejsze, zamrożone zasady wydruku
+T020 — na podstawie tej późniejszej decyzji OWNERA, nie jako ich unieważnienie
+wsteczne:
+
+1. `tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md:241` — „każdy efektywny INNY
+   -> `UNSUPPORTED_SHIFT_KIND`” zastępuje się regułą: zmiana D/N mająca
+   dokładne skonfigurowane mapowanie w `_map_work_code` jest drukowalna mimo
+   `catalog_kind == OTHER`.
+2. `tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md:476` — „akceptowany wydruk tylko
+   na jednej stronie, w przeciwnym razie `ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT`”
+   zastępuje się podziałem na tyle stron A3, ile potrzeba, przy zachowanej
+   minimalnej czytelności (sekcja 3).
+
+Dwa istniejące testy w `tests/test_t020.py` realizują dotychczas te zastąpione
+zasady i mają zostać zmienione na oczekiwania T047, a nie utrzymane jako
+regresje: `test_t20_13_inny_catalog_kind_is_unsupported` oraz
+`test_t20_25_large_roster_fails_before_overflowing_the_sheet`. Pozostałe
+zabezpieczenia T020 (TRAINEE, provenance, exact D/N mapping, 24h składanie,
+czytelność nagłówka) zostają bez zmian.
+
 ## 2. Potwierdzona przyczyna: kody 2/4/16 h
 
 `rota/persistence/site_repository.py::FROZEN_WORK_CODE_HOURS` już zawiera
@@ -54,10 +76,16 @@ przez to skonfigurowane N2=16 h oraz D2=4 h.
 - Jeśli żaden skonfigurowany kod nie odpowiada dokładnie przedziałowi, eksport
   nadal zatrzymuje się istniejącym problemem `WORK_CODE_MAPPING_REQUIRED`.
   Nie wolno wybierać kodu tylko na podstawie zbliżonej liczby godzin.
-- `TRAINEE`, brak provenance, sprzeczny przedział oraz rzeczywiście
-  nieobsługiwany rodzaj pracy zachowują dotychczasowe bezpieczne odmowy.
+- `TRAINEE`, brak/sprzeczne provenance oraz brak dokładnego mapowania
+  (`WORK_CODE_MAPPING_REQUIRED`) zachowują dotychczasowe bezpieczne odmowy —
+  to jedyne rzeczywiste ścieżki odmowy w obecnym modelu.
 - Składanie prawidłowej zmiany 24 h oraz sposób druku nieobecności pozostają
   bez zmian.
+- Obecny model ma wyłącznie rodzaje pracy D i N (`rota/domain.py::ShiftKind`);
+  `OTHER`/„INNY” to kategoria długości zmiany (`ShiftCatalogKind`), nie trzeci
+  rodzaj pracy. Po T047 kod `UNSUPPORTED_SHIFT_KIND` nie ma osiągalnego
+  przypadku produkcyjnego — nie wolno wymyślać mu nowego znaczenia ani
+  tworzyć nowej klasyfikacji tylko po to, by ten kod zachować osiągalnym.
 
 T047 nie dodaje nowego kodu 14 h. Zamrożona legenda go nie zawiera, a OWNER
 nie zlecił jej rozszerzenia. Taki przedział nadal ma zakończyć się
