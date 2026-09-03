@@ -1,6 +1,6 @@
 # ROTA-T053 — jeden wspólny miesiąc roboczy koordynatora
 
-STATUS: READY FOR PREIMPLEMENTATION AUDIT — ZERO KODU PRODUKTU
+STATUS: READY FOR PREIMPLEMENTATION RE-AUDIT — ZERO KODU PRODUKTU
 
 BASE_MAIN_SHA: `7cd5fde8446bd08a02c647d4eabaab9db200acba`
 
@@ -8,6 +8,7 @@ BASE_MAIN_SHA: `7cd5fde8446bd08a02c647d4eabaab9db200acba`
 - `arch/FINDING_2026-09-03_GLOBAL_WORKING_MONTH.md`
 - `arch/ARCHITECT_HANDOFF_UX_BACKLOG_06_08_2026-09-03.md`
 - decyzje OWNERA 2026-09-03
+- PREIMPLEMENTATION AUDIT round_01 — FAIL mechaniczny: `Export.tsx` posiada własny miesiąc i musi wejść do TASK_SCOPE
 
 ## 1. Cel
 
@@ -36,7 +37,8 @@ Trwałość po reloadzie: najprostszy lokalny mechanizm przeglądarki (`localSto
 MUST używać working month:
 - `MonthlyPlanning` — wraz z wejściami „Ręczna korekta” i „Wydruk Grafiku”, które zgodnie z T037/T041 są tą samą instancją ekranu;
 - `Analytics`;
-- miesięczny kontekst w `EmployeeDetail`.
+- miesięczny kontekst w `EmployeeDetail`;
+- `Export.tsx` — jego istniejący własny miesiąc/period source musi zostać przepięty na working month tam, gdzie nadal uczestniczy w aktualnym flow wydruku.
 
 MUST NOT być przepinane:
 - `Decisions` — zachowuje własną listę miesięcy z faktycznymi oczekującymi decyzjami;
@@ -67,6 +69,7 @@ Dozwolony kod produktu:
 - `frontend/src/screens/MonthlyPlanning.tsx`
 - `frontend/src/screens/Analytics.tsx`
 - `frontend/src/screens/EmployeeDetail.tsx`
+- `frontend/src/screens/Export.tsx`
 - tylko istniejący komponent/helper frontendowy dla persistence miesiąca, jeżeli jego użycie pozwala uniknąć duplikacji; bez tworzenia frameworka state-management
 - istniejący CSS dotyczący `Room`/topbar, wyłącznie jeśli potrzebny do umieszczenia selektora
 
@@ -84,7 +87,7 @@ Poza zakresem:
 
 ## 8. Acceptance
 
-T53-01: koordynator wybiera październik na wspólnym selektorze; `MonthlyPlanning`, `Analytics` i `EmployeeDetail` używają października bez ponownego wyboru.
+T53-01: koordynator wybiera październik na wspólnym selektorze; `MonthlyPlanning`, `Analytics`, `EmployeeDetail` i aktualny flow wydruku używają października bez ponownego wyboru.
 
 T53-02: przejście między ekranami nie zmienia miesiąca.
 
@@ -96,16 +99,17 @@ T53-05: zmiana na listopad powoduje, że listopad staje się nowym working month
 
 T53-06: `Decyzje koordynatora` nadal pokazują faktyczne miesiące z oczekującymi decyzjami i nie są filtrowane/sterowane working month.
 
-T53-07: wydruk/preview/download dla bieżącego ekranu planowania używa working month; nie istnieje niezależny wybór okresu reprezentujący ten sam miesiąc.
+T53-07: wydruk/preview/download używa working month; `Export.tsx` nie utrzymuje niezależnego wyboru okresu reprezentującego ten sam miesiąc.
 
 T53-08: uszkodzona wartość storage nie wywraca UI; aplikacja wraca do bieżącego miesiąca.
 
-## 9. PREIMPLEMENTATION AUDIT
+## 9. PREIMPLEMENTATION RE-AUDIT
 
-Codex/niezależny audytor ma przed implementacją potwierdzić:
-- dokładne istniejące month inputs na BASE_MAIN_SHA;
+Codex/niezależny audytor ma po mechanicznej korekcie potwierdzić:
+- dokładne istniejące month inputs;
 - że `Room.tsx` jest najwęższym istniejącym wspólnym ownerem stanu;
 - że `Decisions` jest prawidłowym wyjątkiem;
+- że `Export.tsx` jest już objęty zakresem i nie pozostaje w nim niezależne źródło month/period dla tego samego wydruku;
 - czy w repo istnieje helper do localStorage, który należy reuse zamiast pisać nowy.
 
 PASS nie może rozszerzać kontraktu. Test nie tworzy wymagania.
