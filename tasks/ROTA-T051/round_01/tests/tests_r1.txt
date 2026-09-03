@@ -1,0 +1,63 @@
+ROTA-T051 — OWNER EXPLANATION GATE R1
+
+INSPECTED SHA: 1e243f62fa8309ece8d7ea88f82a66404ecf5ee5
+STATUS: OWNER_DECISION_NEEDED — audyt PASS/FAIL jeszcze nie został wykonany.
+
+Dlaczego audyt został zatrzymany
+
+OWNER zaakceptował skrócenie technicznego hasha i pozostawienie go na ekranie
+oraz wydruku. Kontrakt wybiera jednak bez osobnej akceptacji dokładną długość
+10 znaków, konkretne polskie etykiety i pozostawienie pełnego technicznego
+identyfikatora wersji. Są to szczegóły widoczne dla koordynatora, dlatego
+podlegają OWNER_EXPLANATION_GATE.
+
+OWNER_CONFIRMED
+
+- pełne, 64-znakowe hashe są nieczytelne i mają zostać skrócone;
+- hash nie ma zniknąć całkowicie;
+- zmiana dotyczy prezentacji na PDF i komunikatu na ekranie Wydruk.
+
+OWNER_DECISION_NEEDED
+
+Czy OWNER akceptuje dokładnie następującą prezentację:
+
+- na PDF: „Wersja źródłowa: <pełny identyfikator wersji> — kod
+  weryfikacyjny <pierwsze 10 znaków hasha>”;
+- na PDF: „Rewizja treści: <pierwsze 10 znaków hasha>”;
+- na ekranie po wygenerowaniu: „Gotowe. Wersja dokumentu: <pierwsze 10
+  znaków hasha>.”;
+- techniczny identyfikator wersji `SV-...` pozostaje na PDF w całości.
+
+TECHNICAL_ONLY
+
+- pełne wartości nadal są obliczane tak jak obecnie;
+- odpowiedź API nadal przesyła pełne wartości;
+- nic nowego nie jest zapisywane w bazie ani wysyłane poza istniejący eksport;
+- skrócenie następuje dopiero podczas rysowania PDF i wyświetlania komunikatu;
+- sposób obsługi błędu i ponowienia eksportu nie zmienia się.
+
+UNAUTHORIZED: brak zaimplementowanego zachowania; to nadal propozycja w briefie.
+SAFETY_PRIVACY: nie znaleziono nowego ryzyka.
+
+Korekta techniczna wymagana po decyzji OWNERA
+
+Brief zawiera wewnętrzną sprzeczność. W sekcji 4 `_provenance_text` ma zwracać
+tekst ze skróconym `digest[:10]`, natomiast T51-06 (linie 157-159) wymaga, aby
+ta sama funkcja przy bezpośrednim wywołaniu nadal zwracała pełną, niezmienioną
+wartość. Oba warunki nie mogą być spełnione jednocześnie. Obliczenie digestu
+może pozostać pełne, ale wynik funkcji prezentacyjnej zgodnie z propozycją
+będzie skrócony. To wymaga mechanicznego poprawienia macierzy po decyzji
+OWNERA, bez projektowania nowego zachowania.
+
+Wykonana kontrola techniczna
+
+Uruchomiono WHERE_MAP dla `_provenance_text` i `_document_revision`, a następnie
+przeczytano wskazanych callerów. Potwierdzono, że `_document_revision` ma dwa
+produkcyjne użycia: pełna wartość odpowiedzi API oraz wartość przekazywana do
+rysowania PDF. Granica „pełne w API, skrócone tylko na ekranie/PDF” jest
+technicznie możliwa bez zmiany algorytmu hasha.
+
+Po odpowiedzi `OWNER_ACCEPTED` albo `OWNER_CORRECTED` potrzebna jest jedna
+mechaniczna korekta briefu i dopiero wtedy wąski audyt PASS/FAIL. Nie
+uruchamiano testów ani pełnej regresji, ponieważ kod produktu nie został
+jeszcze zmieniony.

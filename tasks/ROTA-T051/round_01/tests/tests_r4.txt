@@ -1,0 +1,74 @@
+ROTA-T051 — IMPLEMENTATION AUDIT R4
+
+AUDITED SHA: d7e3a189bcf9b2c60400c04884464c8c46e977a4
+VERDICT: FAIL — jeden wąski blocker, bez potrzeby decyzji OWNERA ani zmiany
+architektury.
+
+Zakres audytu
+
+- przeczytano diff od kontraktu PASS `264ffa9` do exact delivery;
+- sprawdzono rzeczywisty PDF wygenerowany przez produkcyjne
+  `generate_schedule_pdf` i tekst odczytany z jego stron;
+- sprawdzono pełne wartości techniczne zwracane przez ten sam produkcyjny
+  eksport i przekazywane przez router API;
+- wykonano produkcyjny build frontendu;
+- Ruff i `git diff --check`: PASS.
+
+R4-01 — `schedule_provenance` w API zostało skrócone wbrew kontraktowi
+
+TRACE
+
+- `brief.md:46-51` wymaga, aby `document_revision` i `schedule_provenance`
+  zwracane przez API pozostały pełnej długości, a skrócenie następowało
+  wyłącznie w widocznym PDF i komunikacie ekranu;
+- `brief.md:115-118` wyklucza zmianę logiki `schedule_provenance`;
+- `brief.md:134-135` wyklucza zmianę kontraktu odpowiedzi API.
+
+OWNERSHIP
+
+`schedule_export.py:58` wkłada `model.provenance_text` bezpośrednio do
+`ExportReady.schedule_provenance`. `api/routers/export.py:133-136` przekazuje
+tę wartość bez przekształcenia do odpowiedzi API. Zmieniony komponent jest
+więc właścicielem wartości, a granicy nie da się ominąć.
+
+REPRO
+
+Niezależny reproduktor:
+
+  tasks/ROTA-T051/round_01/tests/test_t051_audit.py
+
+Komenda:
+
+  python -m pytest tasks/ROTA-T051/round_01/tests/test_t051_audit.py -q
+
+Wynik na exact SHA: 1 failed. Produkcyjny eksport zwrócił:
+
+  schedule_provenance = "Kod weryfikacyjny grafiku: e727328195"
+
+zamiast dotychczasowej pełnej technicznej proweniencji zawierającej `SV-...`
+i 64-znakowy digest.
+
+Pozostałe części tego samego reproduktora przeszły:
+
+- widoczny PDF zawiera nazwę obiektu, okres i zakres dat;
+- PDF pokazuje polskie etykiety i 10-znakowe kody;
+- PDF nie pokazuje `SV-...`, angielskich etykiet ani pełnego 64-znakowego
+  hasha;
+- `document_revision` zwracane technicznie nadal ma 64 znaki.
+
+To zawęża defekt wyłącznie do przypadkowej zmiany technicznego pola
+`schedule_provenance`. Zachowanie widoczne dla koordynatora jest zgodne z
+decyzją OWNERA.
+
+W poprzednim audycie kontraktu przeoczyłem, że `_provenance_text` zasila
+jednocześnie tekst PDF i pole odpowiedzi API. Właśnie dlatego niezależny test
+realnego wyniku eksportu jest zachowany w tej rundzie.
+
+Oczekiwany zakres korekty
+
+Widoczny PDF pozostaje dokładnie taki jak teraz. Pełna techniczna wartość
+`schedule_provenance` w `ExportReady`/API ma zachować wcześniejszy format i
+długość zgodnie z briefem. Nie zmieniać algorytmów hashy, pól API ani
+frontendu. Po korekcie wystarczy uruchomić ten jeden reproduktor, właściwe
+celowane testy implementatora i build frontendu; pełna regresja nie jest
+potrzebna.

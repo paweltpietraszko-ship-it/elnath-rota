@@ -1,0 +1,38 @@
+ROTA-T051 — IMPLEMENTATION REAUDIT R5
+
+AUDITED SHA: 1ec95ed1b253a4433b3d9bf38982f47f25733fd9
+VERDICT: PASS
+
+Sprawdzono wyłącznie korektę R4
+
+- diff produkcyjny od raportu `2cdc2a8` obejmuje tylko
+  `rota/application/schedule_export.py`;
+- `_provenance_text` ponownie zwraca pełną, dotychczasową techniczną wartość
+  zawierającą `SV-...` oraz 64-znakowy digest;
+- nowy tekst prezentacyjny PDF jest liczony osobno i zawiera wyłącznie
+  10-znakowy kod bez `SV-...`;
+- `ExportReady.schedule_provenance`, a przez niego odpowiedź API, otrzymuje
+  pełną wartość techniczną;
+- `_draw_page_header` otrzymuje skrócony tekst przeznaczony dla człowieka.
+
+Niezależny reproduktor zachowany w R4:
+
+  python -m pytest tasks/ROTA-T051/round_01/tests/test_t051_audit.py -q
+
+Wynik: 1/1 PASS. Jeden rzeczywisty eksport potwierdza równocześnie:
+
+- nazwę obiektu, okres i zakres dat na PDF;
+- polskie etykiety oraz krótkie kody na PDF;
+- brak widocznego `SV-...` i pełnych hashy na PDF;
+- pełne, 64-znakowe `document_revision`;
+- pełne techniczne `schedule_provenance` z `SV-...` i 64-znakowym digestem.
+
+Ruff zmienionego modułu i reproduktora: PASS. `git diff --check`: PASS.
+Frontendu nie zmieniono po poprzednim udanym buildzie, więc build nie był
+powtarzany. Pełnej regresji nie uruchamiano.
+
+Backend gate nadal raportuje `SIZE_FILE` 627/600 dla
+`schedule_export.py`. Jest to kontynuacja wcześniej zaakceptowanej nadwyżki
+tego samego pliku. Nowy pomocnik i osobne pole modelu są minimalnym
+technicznym rozdzieleniem pełnej wartości API od skróconej prezentacji PDF;
+nie dodają nowego zachowania produktowego. Ten próg nie blokuje werdyktu.

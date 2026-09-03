@@ -1,0 +1,33 @@
+ROTA-T051 — PREIMPLEMENTATION REAUDIT R3
+
+AUDITED SHA: 0e2ad16f2638b5b7ffb7a576520c341a11baaa43
+VERDICT: PASS — READY FOR IMPLEMENTATION
+
+Zakres reaudytu
+
+Sprawdzono wyłącznie zastosowanie `OWNER_CORRECTED` z tests_r2.txt oraz
+sprzeczność T51-06 wskazaną w tests_r1.txt. Od poprzedniego raportu zmienił się
+tylko brief; kod produktu pozostaje nietknięty.
+
+Wynik
+
+1. Pełny `SV-...` został usunięty z proponowanego tekstu PDF oraz z macierzy.
+   Pozostaje wyłącznie wewnętrznym składnikiem lineage i obliczanego digestu.
+2. Człowiek identyfikuje wydruk przez istniejącą nazwę firmy/obiektu oraz
+   istniejący okres i zakres dat. Brief nie dodaje ich drugi raz.
+3. Widoczna proweniencja ma postać wyłącznie
+   `Kod weryfikacyjny grafiku: <10 znaków>`.
+4. T51-03 wymaga teraz braku widocznego `SV-...`, zgodnie z decyzją OWNERA.
+5. T51-06 dotyczy już tylko pełnej wartości `_document_revision` i nie żąda
+   sprzecznie pełnego tekstu od zmienianej funkcji `_provenance_text`.
+6. Pełne wartości w API oraz sam sposób liczenia obu hashy pozostają bez zmian;
+   skrócenie odbywa się wyłącznie w prezentacji.
+
+WHERE_MAP z R1 pozostaje aktualny, ponieważ między kontrolowanymi SHA nie
+zmieniono kodu ani callerów. Kontrakt ma minimalny zakres: dwa istniejące
+miejsca prezentacji backendowej i jeden komunikat frontendu, bez nowego modelu,
+endpointu lub pola.
+
+Nie uruchamiano testów ani pełnej regresji — na tym SHA nadal nie ma
+implementacji. Po implementacji wystarczą celowane sprawdzenia tekstu PDF,
+komunikatu ekranu, zachowania `null` i niezmienionej pełnej wartości API.

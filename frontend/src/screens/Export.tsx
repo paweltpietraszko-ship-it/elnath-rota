@@ -86,7 +86,10 @@ export default function Export({ siteId, onOpenPrintSettings }: { siteId: string
         setPreviewBlob(blob);
         setPreviewUrl(URL.createObjectURL(blob));
         setPreviewFilename(`grafik-${siteId}-${monthIso}.pdf`);
-        setResult({ ok: true, message: `Gotowe. Wersja dokumentu: ${res.document_revision}.` });
+        setResult({
+          ok: true,
+          message: `Gotowe. Wersja dokumentu: ${res.document_revision ? res.document_revision.slice(0, 10) : res.document_revision}.`,
+        });
       } else {
         setResult({ ok: false, message: res.message ?? "Nieznany problem eksportu." });
       }
