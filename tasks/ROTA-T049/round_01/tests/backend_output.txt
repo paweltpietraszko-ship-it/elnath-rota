@@ -1,0 +1,23 @@
+STATUS: FAIL
+HEAD_SHA: bed6a6df2828bb65288238afaf3d483f28ade6c0
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FILE: tests/property/coordinator_simulator.py has 1477 lines (max 600)
+  - SIZE_FUNC: tests/property/coordinator_simulator.py:compute_quarter_oracle has 81 lines (max 50)
+  - SIZE_FILE: tests/property/test_coordinator_simulator_variant_b.py has 729 lines (max 600)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_audit_t010_r3.py
+  - tests\test_audit_t010_r4_a.py
+  - tests\test_audit_t010_r9_consistency.py
+  - tests\test_t010_bootstrap_roster.py
+  - tests\test_t011_a_application_entry_points.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t019.py
+  - tests\test_t019b.py
+  - tasks\ROTA-T021\round_01\tests\test_t021_r4_audit.py
+  - tasks\ROTA-T021\round_01\tests\test_t021_r5_audit.py
+  - tasks\ROTA-T019b\round_01\tests\test_t019b_implementation_audit.py
+  - tasks\ROTA-T019\round_01\tests\test_t019_implementation_audit.py
+EXCLUDED_ARTIFACTS: NONE
