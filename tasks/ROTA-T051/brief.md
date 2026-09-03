@@ -42,30 +42,48 @@ bez zmian — skracane jest wyłącznie to, co się rysuje/wyświetla.
 ## 3. Co świadomie NIE jest zmieniane
 
 - `_document_revision(model)` (schedule_export.py:436-452) i
-  `_provenance_text`'s wewnętrzny `digest` — same funkcje liczące hash
-  zostają bez zmian. `document_revision`/`schedule_provenance` w
+  `_provenance_text`'s wewnętrzny `digest` — samo **obliczenie** hasha
+  zostaje bez zmian. `document_revision`/`schedule_provenance` w
   odpowiedzi API (`api/routers/export.py:86-87`, zwracane w pełnej
   długości) też zostają bez zmian — to są realne identyfikatory
   techniczne, których długość/format mogą sprawdzać inne narzędzia.
   Skracane jest wyłącznie to, co się **rysuje na PDF** i **wyświetla w
   komunikacie** na ekranie, w miejscu rysowania/wyświetlania, nie u
   źródła.
-- `lineage[-1].version_id` w `_provenance_text` (np. `SV-<uuid>`) — bez
-  zmian. OWNER prosił o skrócenie hasza, nie o usunięcie identyfikatora
-  wersji z wydruku; to osobna sprawa, nietknięta w tym Tasku.
+- **KOREKTA (OWNER_CORRECTED, `tests_r2.txt`):** `lineage[-1].version_id`
+  (`SV-<uuid>`) NIE zostaje na wydruku — dokładna decyzja OWNERA: „Człowiek
+  nie potrzebuje identyfikatora SV, potrzebuje nazwę obiektu i datę, SV
+  może funkcjonować dla systemu, nie musi dla użytkownika." Pierwsza wersja
+  tego briefu błędnie zakładała, że OWNER prosił wyłącznie o skrócenie
+  hasza, zostawiając `SV-...` w pełnej postaci — to było nieporozumienie,
+  poprawione w sekcji 4 niżej. `SV-...` pozostaje bez zmian wyłącznie
+  wewnętrznie (`lineage`/`current_version_id` na modelu, obliczanie
+  digestu) — nigdy nie trafia na wydruk ani do żadnego komunikatu.
+  Istniejące, niezmieniane pola nagłówka PDF (`company_print_name —
+  site_print_name`, `Okres: ... Zakres dat: ...`, rysowane dwie linie
+  wyżej w `_draw_page_header`) już dziś identyfikują wydruk dla człowieka
+  — to jest ta „nazwa obiektu i data/okres", o której mówi OWNER; Task nie
+  dokłada żadnego nowego duplikatu tych pól.
 - Test `tests/test_t020.py:167,169` sprawdza tylko równość/nierówność
   `_document_revision(m1)`/`_document_revision(m2)`/`_document_revision(m3)`
-  — wywołuje funkcję bezpośrednio, nie czyta wydruku ani ekranu, więc nie
-  jest tym Taskiem naruszany (funkcja niezmieniona).
+  — wywołuje `_document_revision` bezpośrednio (nie `_provenance_text`),
+  nie czyta wydruku ani ekranu, więc nie jest tym Taskiem naruszany
+  (`_document_revision`'s obliczenie niezmienione).
 
 ## 4. Wymagane zachowanie
 
-`_provenance_text` (schedule_export.py:124-128) — zamienić zwracany
-string na:
+`_provenance_text` (schedule_export.py:124-128) — **KOREKTA
+(OWNER_CORRECTED)**: zamienić zwracany string na (bez `lineage[-1].version_id`,
+wyłącznie krótki kod weryfikacyjny):
 
 ```python
-return f"Wersja źródłowa: {lineage[-1].version_id} — kod weryfikacyjny {digest[:10]}"
+return f"Kod weryfikacyjny grafiku: {digest[:10]}"
 ```
+
+`lineage`/`lineage[-1].version_id` nadal jest parametrem funkcji i nadal
+wchodzi do obliczenia `digest` (`hashlib.sha256(...)` na linii 127) —
+zmienia się wyłącznie to, co funkcja **zwraca jako tekst do wyświetlenia**,
+nie co liczy.
 
 `_draw_page_header` (schedule_export.py:592) — zamienić rysowaną linię na:
 
@@ -95,9 +113,9 @@ istnieje).
 | `Export.tsx` komunikat sukcesu | dokładny przykład OWNERA | jeden `.slice(0, 10)` w istniejącym template literalu |
 
 Usunięte z propozycji jako zbędne: zmiana `_document_revision`/`_provenance_text`'s
-sposobu liczenia hasha, zmiana pól odpowiedzi API, usunięcie
-`lineage[-1].version_id` z wydruku, jakakolwiek zmiana logiki
-`document_revision`/`schedule_provenance`.
+sposobu **liczenia** hasha, zmiana pól odpowiedzi API, dodanie nowego
+duplikatu nazwy obiektu/okresu obok już istniejących pól nagłówka,
+jakakolwiek zmiana logiki `document_revision`/`schedule_provenance`.
 
 ## 6. TASK_SCOPE
 
@@ -141,22 +159,28 @@ naruszane, bo sama funkcja się nie zmienia.
 ## 8. Macierz odbioru
 
 - **T51-01 — wydruk bez pełnego hasza:** wygenerowany PDF nie zawiera
-  nigdzie 64-znakowego ciągu — ani w linii „Wersja źródłowa", ani w linii
-  „Rewizja treści"; oba pokazują dokładnie 10 pierwszych znaków
-  odpowiedniej wartości.
+  nigdzie 64-znakowego ciągu — ani w linii „Kod weryfikacyjny grafiku",
+  ani w linii „Rewizja treści"; oba pokazują dokładnie 10 pierwszych
+  znaków odpowiedniej wartości.
 - **T51-02 — etykiety po polsku:** żadna z tych dwóch linii nie zawiera
   słów „Schedule provenance" ani „Revision".
-- **T51-03 — identyfikator wersji bez zmian:** `lineage[-1].version_id`
-  nadal pojawia się w linii „Wersja źródłowa" w pełnej, niezmienionej
-  postaci.
+- **T51-03 — brak `SV-...` na wydruku (KOREKTA, zastępuje poprzednią
+  wersję):** wygenerowany PDF nie zawiera nigdzie technicznego
+  identyfikatora wersji (`SV-<uuid>`) w widocznym tekście. Istniejące pola
+  nagłówka (nazwa firmy/obiektu, okres, zakres dat) pozostają jedyną,
+  niezmienioną identyfikacją wydruku dla człowieka.
 - **T51-04 — ekran Wydruku skrócony:** po udanym eksporcie komunikat
   sukcesu pokazuje 10 pierwszych znaków `document_revision`, nie pełne 64.
 - **T51-05 — `null` bez zmian:** jeśli `res.document_revision` jest
   `null`, komunikat wygląda dokładnie tak jak dziś (bez wyjątku, bez
   „undefined").
-- **T51-06 — brak regresji hasza:** `_document_revision`/`_provenance_text`
-  nadal zwracają pełną, niezmienioną wartość przy bezpośrednim wywołaniu;
-  `tests/test_t020.py:167,169` nadal przechodzą bez zmian.
+- **T51-06 — brak regresji obliczenia hasha (KOREKTA — dotyczy tylko
+  `_document_revision`, nie `_provenance_text`):** `_document_revision`
+  nadal zwraca pełną, niezmienioną wartość przy bezpośrednim wywołaniu
+  (samo obliczenie, nie sposób jego wyświetlania); `tests/test_t020.py:167,169`
+  nadal przechodzą bez zmian. `_provenance_text` NIE jest objęte tą
+  asercją — jego zwracana wartość celowo się zmienia (sekcja 4), zmienia
+  się tylko sposób prezentacji, nie samo obliczenie `digest` wewnątrz niej.
 
 ## 9. Weryfikacja proporcjonalna do zmiany
 
