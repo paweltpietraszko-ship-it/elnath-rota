@@ -125,7 +125,7 @@ def _provenance_text(lineage: list, adjacent_facts: list) -> str:
     # Adjacent facts actually used for collapse/suppression must affect displayed provenance, not only document_revision (R6 Section 7 / R10-3).
     ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
     digest = hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
-    return f"Schedule provenance: {lineage[-1].version_id} / lineage-sha256:{digest}"
+    return f"Kod weryfikacyjny grafiku: {digest[:10]}"
 # Real work cells (Section 10)
 def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
     # Adjacent-month leg for linkage detection only, never its own cell; a broken adjacent lineage fails PROVENANCE_INCOMPLETE (R6 Amendment 2.2).
@@ -589,7 +589,7 @@ def _draw_page_header(c, model: ExportModel, day_w, revision: str, generated_at:
     c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
     c.setFont(regular, 9.5); c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"); y -= 12  # noqa: E702
     c.drawString(MARGIN, y, model.provenance_text); y -= 12  # noqa: E702
-    c.drawString(MARGIN, y, f"Revision: {revision}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
+    c.drawString(MARGIN, y, f"Rewizja treści: {revision[:10]}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
     return _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
 def _draw_page_footer(c, regular, page_num: int, page_count: int, page_w: float) -> None:
     c.setFont(regular, 7.5); c.drawCentredString(page_w / 2, MARGIN / 2, f"Strona {page_num} z {page_count}")  # noqa: E702
