@@ -1,0 +1,107 @@
+ROTA-T047 — PREIMPLEMENTATION AUDIT R1
+
+AUDITED_SHA: ffd0031c191dda818261cd4668afcab6f1dfb262
+BASE_MAIN_SHA: 6ff5b827ed1530bb3fc4370727fa1e3784269926
+ROLE: niezależny audyt kontraktu; bez zmian kodu produktu i bez uruchamiania
+pełnej regresji.
+
+WARSTWY SPRAWDZENIA
+
+1. Przeczytano BOARD-06 i pełny brief na exact SHA.
+2. Porównano proponowany zakres z zamrożonym kontraktem T020.
+3. Przeczytano rzeczywistych właścicieli na bazie: ShiftKind,
+   ShiftCatalogKind/normalizację, _validate_item, _map_work_code, _check_fits
+   i _render_pdf.
+4. Potwierdzono WHERE_MAP: każdy z czterech symboli ma jedną definicję i
+   istniejącą ścieżkę wywołania w schedule_export.py.
+5. Nie uruchamiano testów: na tym SHA nie ma implementacji, a spór dotyczy
+   wyłącznie jednoznaczności kontraktu.
+
+WERDYKT: WYMAGA KOREKTY PRZED IMPLEMENTACJĄ
+
+Zakres techniczny jest mały i właściwie umieszczony w istniejącym ownerze.
+Nie ma podstaw do kierowania T047 do architekta. Przed PASS brief musi jednak
+usunąć dwie sprzeczności poniżej.
+
+R1-01 — NOWY KONTRAKT NIE ZASTĘPUJE JAWNIE DWÓCH ODWROTNYCH ZASAD T020
+
+TRACE:
+
+- tasks/ROTA-T020/CHECKPOINT_B_CONTRACT.md:241 nakazuje odrzucić każdy
+  efektywny INNY jako UNSUPPORTED_SHIFT_KIND;
+- ten sam kontrakt:476 nakazuje pozostać przy jednej stronie i odmówić
+  wydruku, zamiast wybrać inny model paginacji;
+- macierz T020:521 utrwala pierwszy przypadek;
+- tests/test_t020.py:252-261 oraz :519-527 nadal wykonują dokładnie te stare
+  oczekiwania;
+- T047 brief, sekcje 2-3 i T47-01..T47-09, nakazuje zachowanie odwrotne.
+
+OWNERSHIP:
+
+To są dwie wcześniejsze, zamrożone decyzje warstwy wydruku, którą T047 ma
+prawo zmienić na podstawie późniejszej decyzji OWNERA. Nie jest potrzebny
+nowy projekt ani architekt; potrzebny jest jawny ślad zastąpienia starego
+kontraktu.
+
+KOREKTA KONTRAKTU:
+
+Brief ma wprost zapisać, że T047 zastępuje wyłącznie:
+
+1. zasadę T020 „każdy INNY -> UNSUPPORTED_SHIFT_KIND” dla zmian D/N mających
+   dokładne skonfigurowane mapowanie;
+2. zasadę T020 „zaakceptowany wydruk tylko na jednej stronie” dla nadmiaru
+   wierszy pracowników.
+
+Ma też nazwać dwa stare testy jako oczekiwania do zastąpienia, nie regresje do
+utrzymania: test_t20_13_inny_catalog_kind_is_unsupported oraz
+test_t20_25_large_roster_fails_before_overflowing_the_sheet. Pozostałe
+zabezpieczenia T020 zostają bez zmian.
+
+R1-02 — „RZECZYWIŚCIE NIEOBSŁUGIWANY RODZAJ PRACY” NIE ISTNIEJE W OBECNYM
+MODELU
+
+TRACE / REPRO Z KODU:
+
+- rota/domain.py:11-13: ShiftKind ma tylko D i N;
+- rota/domain.py:96-99: OTHER/INNY jest kategorią długości, nie trzecim
+  rodzajem pracy;
+- rota/planning/shift_catalog.py:82-92: każda długość inna niż 12 h i 24 h
+  normalizuje się do OTHER;
+- jedyny produkcyjny raise UNSUPPORTED_SHIFT_KIND jest obecnie w
+  rota/application/schedule_export.py:157-158 i sprawdza właśnie OTHER;
+- brief sekcja 2 obiecuje zachować odmowę dla „rzeczywiście
+  nieobsługiwanego rodzaju pracy”, choć po dopuszczeniu exact-mapped OTHER
+  obecny model nie dostarcza takiej osobnej kategorii.
+
+OWNERSHIP:
+
+T047 nie może wymagać od implementatora stworzenia nowej klasyfikacji tylko
+po to, aby zachować nieosiągalny komunikat. To byłoby nowe zachowanie spoza
+decyzji OWNERA.
+
+KOREKTA KONTRAKTU:
+
+Usunąć tę nieokreśloną obietnicę. Zachować tylko rzeczywiste, istniejące
+odmowy wymienione w briefie: TRAINEE, brak/sprzeczne provenance i brak
+dokładnego mapowania (WORK_CODE_MAPPING_REQUIRED). Można jawnie zapisać, że
+po T047 kod UNSUPPORTED_SHIFT_KIND nie ma obecnie osobnego osiągalnego
+przypadku i nie wolno wymyślać mu nowego znaczenia.
+
+POZOSTAŁE USTALENIA
+
+- Istniejący podgląd używa tych samych bajtów co pobieranie; brak zmian
+  frontend/API jest poprawny.
+- Kodów 14 h nie należy dodawać w T047.
+- Paginacja pionowa w jednym rendererze jest minimalnym adapterem, a nie nowym
+  subsystemem.
+- Rozmiar schedule_export.py może przekroczyć obecny limit. Implementator ma
+  pokazać rzeczywisty wynik bramki po zmianie, ale nie wykonywać refaktoru w
+  T047 tylko dla liczby linii.
+- Pełna suita pozostaje zbędna na etapie briefu i opcjonalna po implementacji
+  zgodnie z AGENTS.md.
+
+RE-AUDYT
+
+Wystarczy sprawdzić wyłącznie dwie korekty R1-01 i R1-02 na nowym exact SHA.
+Nie trzeba ponownie analizować całego eksportu ani uruchamiać testów przed
+implementacją.
