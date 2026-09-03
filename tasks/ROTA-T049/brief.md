@@ -22,12 +22,32 @@ nowego obiektu. Koordynator ma podać tylko nazwę obiektu — wewnętrzna nazwa
 `SiteProfile` ma być wyprowadzona automatycznie z nazwy obiektu, bez pytania
 o nią.
 
+## 1a. Zastępowana wcześniejsza decyzja T021 (R2, audyt R1)
+
+`arch/T021_spec.md:401` i `tasks/ROTA-T021/brief.md:167,177` (round-2 audit
+A3, „CORRECTED 2026-08-23”) dokumentują jawnie i świadomie: „UI inputs are
+exactly three (Nazwa obiektu, Nazwa profilu zmianowego, Próg decyzyjny
+7-dniowy)”. T049 jawnie zastępuje tę wcześniejszą, udokumentowaną decyzję —
+na podstawie tej późniejszej decyzji OWNERA, nie jako jej przypadkowe
+pominięcie. Po T049 UI inputs formularza tworzenia obiektu to dwa, nie trzy
+(Nazwa obiektu, Próg decyzyjny 7-dniowy); `SiteProfile.display_name`
+przestaje być wejściem koordynatora, staje się wartością pochodną.
+
 ## 2. Wybrane brzmienie automatycznej nazwy profilu
 
 `SiteProfile.display_name` nigdzie w programie nie jest czytany poza
-jednorazowym zapisem (`rota/persistence/site_profile_repository.py:56`) i
-jednym wpisem w mapie etykiet historii zmian (`History.tsx:64`, pokazuje
-się tylko gdyby ktoś kiedyś edytował profil — nie ma dziś takiego ekranu).
+jednorazowym zapisem (`rota/persistence/site_profile_repository.py:56`).
+
+**Korekta R2 (audyt R1):** pierwsza wersja tego briefu błędnie twierdziła,
+że ta nazwa może się pokazać w widoku „Przed/Po” w Historii
+(`History.tsx:64`). To nieprawda — sprawdzone dokładnie:
+`rota/application/bootstrap.py::_profile_state` (funkcja serializująca
+`SiteProfile` do tego widoku) w ogóle nie zapisuje `display_name` w swoim
+słowniku (linia 119-132: tylko `profile_id`, `active`, `standard_shifts`
+i pola profilu zmianowego, bez `display_name`). `History.tsx:64` mapuje
+klucz `profile_id` → „profil”, nie `display_name`. Usuwana nazwa nie ma
+więc dziś ŻADNEGO miejsca odczytu w całym programie, nawet pośredniego.
+
 Brak wymogu unikalności, brak porównań, brak formatu. Najprostsze,
 przewidywalne rozwiązanie: skopiować dokładnie to, co koordynator wpisał
 jako nazwę obiektu.
@@ -68,17 +88,25 @@ słowników payloadu, nic więcej w tych plikach się nie zmienia.
 
 `frontend/e2e/helpers.ts::createSite(page, displayName, profileName)`
 (linia 17-23) wypełnia to pole i jest wołana **26 razy w 6 plikach spec**.
-Dwa dodatkowe pliki budują formularz ręcznie, bez tego helpera, i też
-wypełniają to pole bezpośrednio po selektorze placeholdera. To jest
-mechaniczna, jednorodna zmiana (usunięcie jednego argumentu/jednej linii w
-każdym miejscu), ale dotyczy realnie ośmiu plików e2e:
+Dwa pliki mają DODATKOWO co najmniej jedno miejsce, gdzie formularz jest
+budowany ręcznie, bez tego helpera, wypełniając to pole bezpośrednio po
+selektorze placeholdera — jeden z nich w całości (`diagnostics.audit-r1.spec.ts`),
+drugi częściowo, obok swoich 8 wywołań helpera
+(`diagnostics.spec.ts` — **poprawione R2, patrz niżej**, pierwsza wersja
+briefu to przeoczyła). To jest mechaniczna, jednorodna zmiana (usunięcie
+jednego argumentu/jednej linii w każdym miejscu), ale dotyczy realnie
+ośmiu plików e2e:
 
 - `frontend/e2e/helpers.ts` — usunąć parametr `profileName` z sygnatury
   `createSite` i linię `.fill(profileName)` dla selektora
   `input[placeholder="np. PROF-NORDPLAST-02"]`.
 - `frontend/e2e/diagnostics.spec.ts` — 8 wywołań `createSite(page, ..., ...)`
   (linie 38, 62, 101, 117, 130, 147, 155, 202): usunąć trzeci argument z
-  każdego.
+  każdego. **Korekta R2 (audyt R1):** ten sam plik ma DODATKOWO dwa
+  bezpośrednie, ręczne wypełnienia pola poza helperem (linie 57, 96,
+  scenariusze błędu/timeoutu backendu) — pierwsza wersja briefu je
+  pominęła. Usunąć linię `.locator('input[placeholder="np. PROF-NORDPLAST-02"]').fill(...)`
+  w obu miejscach, tak samo jak w `diagnostics.audit-r1.spec.ts` niżej.
 - `frontend/e2e/monthly-planning.spec.ts` — 5 wywołań (linie 37, 61, 92,
   114, 143): usunąć trzeci argument.
 - `frontend/e2e/shift-catalog.spec.ts` — 5 wywołań (linie 20, 39, 59, 75,
