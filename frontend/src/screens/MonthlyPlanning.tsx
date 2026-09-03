@@ -34,7 +34,11 @@ const SCHEDULE_STATUS_LABEL: Record<ScheduleVersionOut["status"], string> = {
 };
 
 function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "short" });
+  // T048 R3: "short" only shows HH:MM -- two versions created in the same
+  // minute (e.g. after a quick REPLAN retry) would render identically,
+  // defeating the point of showing this instead of the raw version_id.
+  // "medium" includes seconds, which actually disambiguates.
+  return new Date(iso).toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "medium" });
 }
 
 function daysInMonth(monthIso: string): string[] {
