@@ -154,8 +154,10 @@ def _validate_item(a, demand) -> None:
         raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id} has no coherent covered demand")
     if a.start_datetime != demand.start_datetime or a.end_datetime != demand.end_datetime:
         raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id}: actual interval contradicts its covered demand")
-    if demand.catalog_kind == ShiftCatalogKind.OTHER:
-        raise ExportProblemError("UNSUPPORTED_SHIFT_KIND", f"{a.assignment_id} covers an INNY demand")
+    # T047: catalog_kind == OTHER only means "duration other than 12h/24h" (rota.planning.shift_catalog);
+    # it is not a third unsupported work kind, so it is no longer rejected here. Printability of a
+    # D/N item is decided solely by _map_work_code's exact interval match, which fails closed
+    # (WORK_CODE_MAPPING_REQUIRED) on its own when no configured code matches.
 def _ckey(a) -> str:
     return f"{a.schedule_version_id}::{a.assignment_id}"  # identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)
 def _component(a) -> PeriodComponent:
@@ -500,10 +502,15 @@ def _fit_font_size(text: str, font: str, size: float, max_width: float, min_size
     while size > min_size and pdfmetrics.stringWidth(text, font, size) > max_width:
         size -= 0.5
     return size
-def _check_fits(n_rows: int, row_h: float) -> None:
+def _check_fits(row_h: float) -> int:
+    # T047: a large roster no longer fails the whole export -- it is split across as many pages
+    # as needed (see _render_pdf). Only the pathological case where not even one employee's
+    # PLAN/WYK pair fits at the accepted readability floor remains a real layout failure.
     available = landscape(A3)[1] - 2 * MARGIN - HEADER_H - LEGEND_H - FOOTER_H
-    if n_rows * 2 * row_h > available:
-        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"{n_rows} rows do not fit the accepted single sheet at the {row_h}pt floor")
+    rows_per_page = int(available // (2 * row_h))
+    if rows_per_page < 1:
+        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"not even one employee's PLAN/WYK pair fits at the {row_h}pt floor")
+    return rows_per_page
 def _check_header_fits(model: ExportModel, regular: str, bold: str) -> None:
     # T20-36 -- header/period text must fit at a readable floor size or fail closed, never draw clipped/overflowing text (R10-5).
     available = landscape(A3)[0] - 2 * MARGIN
@@ -577,27 +584,36 @@ def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> floa
     c.setFont(italic, 8); c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h)."); y -= 12  # noqa: E702
     c.drawString(MARGIN, y, "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana — czytelne bez koloru.")
     return y - 12
+def _draw_page_header(c, model: ExportModel, day_w, revision: str, generated_at: datetime, regular, bold, page_h) -> float:
+    y = page_h - MARGIN
+    c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
+    c.setFont(regular, 9.5); c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, model.provenance_text); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, f"Revision: {revision}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
+    return _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
+def _draw_page_footer(c, regular, page_num: int, page_count: int, page_w: float) -> None:
+    c.setFont(regular, 7.5); c.drawCentredString(page_w / 2, MARGIN / 2, f"Strona {page_num} z {page_count}")  # noqa: E702
 def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     regular, bold, italic = _resolve_unicode_font()
     page_w, page_h = landscape(A3)
     day_w = (page_w - 2 * MARGIN - NAME_W - 4 * SUM_W) / len(model.days)
     row_h = _row_height(len(model.rows))
-    _check_fits(len(model.rows), row_h)
+    rows_per_page = _check_fits(row_h)
     _check_header_fits(model, regular, bold)
+    revision = _document_revision(model)
+    pages = [model.rows[i:i + rows_per_page] for i in range(0, len(model.rows), rows_per_page)] or [[]]
+    page_count = len(pages)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=landscape(A3))
-    y = page_h - MARGIN
-    c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
-    c.setFont(regular, 9.5); c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"); y -= 12  # noqa: E702
-    c.drawString(MARGIN, y, model.provenance_text); y -= 12  # noqa: E702
-    c.drawString(MARGIN, y, f"Revision: {_document_revision(model)}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
-    y = _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
-    for row in model.rows:
-        for label, cells in (("PLAN", row.plan), ("WYK", row.wyk)):
-            _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold)
-            y -= row_h
-    y -= 10
-    _draw_legend(c, model, regular, bold, italic, y)
-    c.showPage()
+    for page_num, page_rows in enumerate(pages, start=1):
+        y = _draw_page_header(c, model, day_w, revision, generated_at, regular, bold, page_h)
+        for row in page_rows:
+            for label, cells in (("PLAN", row.plan), ("WYK", row.wyk)):
+                _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold)
+                y -= row_h
+        if page_num == page_count:  # T047: legend printed at least once, not repeated per page
+            _draw_legend(c, model, regular, bold, italic, y - 10)
+        _draw_page_footer(c, regular, page_num, page_count, page_w)
+        c.showPage()
     c.save()
     return buf.getvalue()
