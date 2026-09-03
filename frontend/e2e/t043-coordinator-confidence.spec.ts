@@ -47,7 +47,7 @@ async function backToRoster(page: import("@playwright/test").Page) {
 
 test("T043 Checkpoint C: coordinator sees the real headcount, target write, and PLAN status the API actually returned", async ({ page }) => {
   const siteName = `T043C-${uid()}`;
-  await createSite(page, siteName, `T043C-PROF-${uid()}`);
+  await createSite(page, siteName);
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
   await page.locator('[data-diag-action="room-nav-control-panel"]').click();

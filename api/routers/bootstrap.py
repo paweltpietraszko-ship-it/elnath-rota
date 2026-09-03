@@ -37,7 +37,6 @@ class SiteSummary(BaseModel):
 
 class CreateSiteRequest(BaseModel):
     display_name: str
-    profile_display_name: str
     rolling_7d_decision_threshold_hours: int
     planning_regime: str  # "OCHRONA" | "ORDINARY"
 
@@ -116,10 +115,11 @@ def reactivate_site(site_id: str, conn=Depends(get_conn)) -> None:
 
 @router.post("/sites", response_model=CreateSiteResponse, status_code=201)
 def create_site(payload: CreateSiteRequest, conn=Depends(get_conn)) -> CreateSiteResponse:
-    """brief.md section 4 Writes (round-2 A3 mapping): three UI inputs
-    plus the chosen regime; every other field is generated or a fixed
-    D2 constant. Same handler for both OCHRONA and ORDINARY entry
-    points -- the frontend supplies which."""
+    """ROTA-T049: two UI inputs plus the chosen regime -- SiteProfile.display_name
+    is no longer a coordinator input (it has no reader anywhere in the product),
+    it is derived from the Site's own display_name instead. Every other field
+    is generated or a fixed constant. Same handler for both OCHRONA and
+    ORDINARY entry points -- the frontend supplies which."""
     try:
         regime = SitePlanningRegime(payload.planning_regime)
     except ValueError as exc:
@@ -130,7 +130,7 @@ def create_site(payload: CreateSiteRequest, conn=Depends(get_conn)) -> CreateSit
 
     site_profile = SiteProfile(
         profile_id=profile_id,
-        display_name=payload.profile_display_name,
+        display_name=payload.display_name,
         active=True,
         standard_shifts=[],
         day_only_blocks_n=True,

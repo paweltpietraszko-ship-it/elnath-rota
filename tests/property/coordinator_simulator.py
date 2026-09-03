@@ -336,7 +336,7 @@ def _create_site(client: TestClient, spec: ObjectSpec) -> str:
     resp = client.post(
         "/api/workspace/sites",
         json={
-            "display_name": f"SIM-{spec.seed}", "profile_display_name": f"SIM-PROFILE-{spec.seed}",
+            "display_name": f"SIM-{spec.seed}",
             "rolling_7d_decision_threshold_hours": spec.rolling_7d_threshold_hours, "planning_regime": spec.regime,
         },
     )
@@ -1183,7 +1183,7 @@ def _create_site_b(client: TestClient, spec: ObjectSpecB) -> str:
     resp = client.post(
         "/api/workspace/sites",
         json={
-            "display_name": f"SIMB-{spec.seed}", "profile_display_name": f"SIMB-PROFILE-{spec.seed}",
+            "display_name": f"SIMB-{spec.seed}",
             "rolling_7d_decision_threshold_hours": spec.rolling_7d_threshold_hours, "planning_regime": spec.regime,
         },
     )

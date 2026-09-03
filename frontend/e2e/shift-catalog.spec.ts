@@ -17,7 +17,7 @@ async function openObiektTab(page: import("@playwright/test").Page) {
 
 test("add a shift, save, reload shows it persisted", async ({ page }) => {
   const siteName = `SHIFT-SITE-${uid()}`;
-  await createSite(page, siteName, `SHIFT-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openObiektTab(page);
 
@@ -36,7 +36,7 @@ test("add a shift, save, reload shows it persisted", async ({ page }) => {
 
 test("edit an existing shift and reload reflects the edit", async ({ page }) => {
   const siteName = `SHIFT-EDIT-${uid()}`;
-  await createSite(page, siteName, `SHIFT-EDIT-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openObiektTab(page);
 
@@ -56,7 +56,7 @@ test("edit an existing shift and reload reflects the edit", async ({ page }) => 
 
 test("delete one of two rows; the last remaining row is protected", async ({ page }) => {
   const siteName = `SHIFT-DEL-${uid()}`;
-  await createSite(page, siteName, `SHIFT-DEL-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openObiektTab(page);
 
@@ -72,7 +72,7 @@ test("delete one of two rows; the last remaining row is protected", async ({ pag
 
 test("attempting to uncheck every weekday leaves exactly one checked, and it survives save+reload", async ({ page }) => {
   const siteName = `SHIFT-WD-${uid()}`;
-  await createSite(page, siteName, `SHIFT-WD-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openObiektTab(page);
 
@@ -103,7 +103,7 @@ test("attempting to uncheck every weekday leaves exactly one checked, and it sur
 
 test("save error preserves the draft and shows no false success", async ({ page }) => {
   const siteName = `SHIFT-ERR-${uid()}`;
-  await createSite(page, siteName, `SHIFT-ERR-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openObiektTab(page);
 

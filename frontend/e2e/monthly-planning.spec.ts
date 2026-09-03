@@ -34,7 +34,7 @@ async function generateCalendarForCurrentMonth(page: import("@playwright/test").
 
 test("PLAN -> select candidate -> reload shows persisted version", async ({ page }) => {
   const siteName = `PLAN-SITE-${uid()}`;
-  await createSite(page, siteName, `PLAN-PROF-${uid()}`);
+  await createSite(page, siteName);
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
   await openMonthlyPlanning(page);
@@ -58,7 +58,7 @@ test("PLAN -> select candidate -> reload shows persisted version", async ({ page
 
 test("finalize with no deviations moves to FINAL, then REPLAN creates a new version", async ({ page }) => {
   const siteName = `PLAN-FIN-${uid()}`;
-  await createSite(page, siteName, `PLAN-FIN-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openMonthlyPlanning(page);
 
@@ -89,7 +89,7 @@ test("finalize with no deviations moves to FINAL, then REPLAN creates a new vers
 // changes, not silently keep a stale month's date.
 test("R1-1: exactly three selectable months, changing month resyncs the PLAN date", async ({ page }) => {
   const siteName = `PLAN-MONTHS-${uid()}`;
-  await createSite(page, siteName, `PLAN-MONTHS-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openMonthlyPlanning(page);
 
@@ -111,7 +111,7 @@ test("R1-1: exactly three selectable months, changing month resyncs the PLAN dat
 // needs a primary employee, zero roster.
 test("R1-2: DECISION_REQUIRED is a persistent hard stop that survives reload", async ({ page }) => {
   const siteName = `PLAN-DECREQ-${uid()}`;
-  await createSite(page, siteName, `PLAN-DECREQ-PROF-${uid()}`);
+  await createSite(page, siteName);
   await generateCalendarForCurrentMonth(page);
   await openSite(page, siteName);
 
@@ -140,7 +140,7 @@ test("R1-2: DECISION_REQUIRED is a persistent hard stop that survives reload", a
 // old deviation list with no way to re-confirm correctly.
 test("R1-3: a rejected finalize re-fetches the month view", async ({ page }) => {
   const siteName = `PLAN-FINREFRESH-${uid()}`;
-  await createSite(page, siteName, `PLAN-FINREFRESH-PROF-${uid()}`);
+  await createSite(page, siteName);
   await openSite(page, siteName);
   await openMonthlyPlanning(page);
 

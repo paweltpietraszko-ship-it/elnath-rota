@@ -35,7 +35,7 @@ test("2: window.error and unhandledrejection each produce their own event", asyn
   await page.locator('[data-diag-action="diag-test-unhandled-rejection"]').click();
   await page.waitForTimeout(200);
 
-  await createSite(page, `CHK-SITE-${uid()}`, `CHK-PROF-${uid()}`);
+  await createSite(page, `CHK-SITE-${uid()}`);
   const { frontendReport } = await downloadDiagnosticZip(page);
   const events = (frontendReport!.events as Array<{ kind: string }>).map((e) => e.kind);
   expect(events).toContain("UNHANDLED_ERROR");
@@ -54,12 +54,11 @@ test("3: API 500 -- click, request start and request failed share one action_id"
   await page.goto("/");
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill(`FAIL-SITE-${uid()}`);
-  await page.locator('input[placeholder="np. PROF-NORDPLAST-02"]').fill(`FAIL-PROF-${uid()}`);
   await page.locator('[data-diag-action="create-site-submit"]').click();
   await expect(page.getByText("boom")).toBeVisible();
 
   await page.unroute("**/api/workspace/sites");
-  await createSite(page, `CHK2-SITE-${uid()}`, `CHK2-PROF-${uid()}`);
+  await createSite(page, `CHK2-SITE-${uid()}`);
   const { frontendReport } = await downloadDiagnosticZip(page);
   const events = frontendReport!.events as Array<{ kind: string; action_id?: string | null }>;
 
@@ -93,12 +92,11 @@ test("4: a hung request produces REQUEST_TIMEOUT, not a false ACTION_STALLED", a
   await page.goto("/");
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill(`HANG-SITE-${uid()}`);
-  await page.locator('input[placeholder="np. PROF-NORDPLAST-02"]').fill(`HANG-PROF-${uid()}`);
   await page.locator('[data-diag-action="create-site-submit"]').click();
   await expect(page.getByText("limit czasu")).toBeVisible({ timeout: 25000 });
 
   await page.unroute("**/api/workspace/sites");
-  await createSite(page, `CHK3-SITE-${uid()}`, `CHK3-PROF-${uid()}`);
+  await createSite(page, `CHK3-SITE-${uid()}`);
   const { frontendReport } = await downloadDiagnosticZip(page);
   const events = frontendReport!.events as Array<{ kind: string; action_id?: string | null }>;
 
@@ -114,7 +112,7 @@ test("5: a control with no handler/effect is reported ACTION_STALLED", async ({ 
   await page.locator('[data-diag-action="diag-test-inert"]').click();
   await page.waitForTimeout(1200);
 
-  await createSite(page, `CHK4-SITE-${uid()}`, `CHK4-PROF-${uid()}`);
+  await createSite(page, `CHK4-SITE-${uid()}`);
   const { frontendReport } = await downloadDiagnosticZip(page);
   const events = frontendReport!.events as Array<{ kind: string; action: string }>;
   const stalled = events.find((e) => e.kind === "ACTION_STALLED" && e.action === "diag-test-inert");
@@ -127,7 +125,7 @@ test("6: a valid local no-op and a valid API action never get flagged stalled", 
   await page.waitForTimeout(1200);
 
   const siteName = `CHK5-SITE-${uid()}`;
-  await createSite(page, siteName, `CHK5-PROF-${uid()}`);
+  await createSite(page, siteName);
   await page.waitForTimeout(1200);
 
   const { frontendReport } = await downloadDiagnosticZip(page);
@@ -144,7 +142,7 @@ test("7: events survive a reload after a crash", async ({ page }) => {
   await expect(page.getByText("Coś poszło nie tak")).toBeVisible();
 
   await page.reload();
-  await createSite(page, `CHK6-SITE-${uid()}`, `CHK6-PROF-${uid()}`);
+  await createSite(page, `CHK6-SITE-${uid()}`);
   const { frontendReport } = await downloadDiagnosticZip(page);
   const events = frontendReport!.events as Array<{ kind: string }>;
   expect(events.some((e) => e.kind === "RENDER_ERROR")).toBe(true);
@@ -152,7 +150,7 @@ test("7: events survive a reload after a crash", async ({ page }) => {
 
 test("8: the existing ZIP stays openable, keeps diagnostics.json, and gains the frontend report", async ({ page }) => {
   await page.goto("/");
-  await createSite(page, `CHK7-SITE-${uid()}`, `CHK7-PROF-${uid()}`);
+  await createSite(page, `CHK7-SITE-${uid()}`);
   const { raw, frontendReport } = await downloadDiagnosticZip(page);
 
   const AdmZip = (await import("adm-zip")).default;
@@ -180,7 +178,6 @@ test("10: privacy canary -- names, form content, and failed-request bodies never
   page,
 }) => {
   const canarySite = `CANARY-SITE-${uid()}`;
-  const canaryProfile = `CANARY-PROFILE-${uid()}`;
   const canaryEmployee = `CANARY-EMP-${uid()}`;
   const canaryBody = `CANARY-BODY-${uid()}`;
 
@@ -199,7 +196,7 @@ test("10: privacy canary -- names, form content, and failed-request bodies never
     }
   });
 
-  await createSite(page, canarySite, canaryProfile);
+  await createSite(page, canarySite);
   await openSite(page, canarySite);
   await page.locator('[data-diag-action="roster-add-open"]').click();
   await page.locator('input[placeholder="np. Jan Kowalski"]').fill(canaryEmployee);
@@ -213,7 +210,7 @@ test("10: privacy canary -- names, form content, and failed-request bodies never
   const { raw, frontendReport } = await downloadDiagnosticZip(page);
   const zipText = raw.toString("latin1"); // scan raw bytes too, not just the parsed JSON entry
 
-  for (const canary of [canarySite, canaryProfile, canaryEmployee, canaryBody]) {
+  for (const canary of [canarySite, canaryEmployee, canaryBody]) {
     expect(JSON.stringify(frontendReport)).not.toContain(canary);
     expect(zipText).not.toContain(canary);
   }

@@ -39,7 +39,7 @@ test.describe("T042 Checkpoint A -- local date across the UTC boundary", () => {
     await page.clock.install({ time: new Date("2026-08-31T22:30:00Z") });
 
     const displayName = `T042A-${uid()}`;
-    await createSite(page, displayName, `PROF-T042A-${uid()}`);
+    await createSite(page, displayName);
     await generateCalendarForCurrentMonth(page);
 
     // T42-A02: Room lands on "Przegląd"/Overview by default, so its
@@ -98,7 +98,7 @@ test.describe("T042 Checkpoint A -- local date across the UTC boundary", () => {
     await page.clock.install({ time: new Date("2026-09-15T12:00:00Z") });
 
     const displayName = `T042A4-${uid()}`;
-    await createSite(page, displayName, `PROF-T042A4-${uid()}`);
+    await createSite(page, displayName);
     await openSite(page, displayName);
 
     await page.locator('[data-diag-action="room-nav-analytics"]').click();

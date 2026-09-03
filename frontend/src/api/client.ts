@@ -28,7 +28,6 @@ export interface SiteSummary {
 
 export interface CreateSiteRequest {
   display_name: string;
-  profile_display_name: string;
   rolling_7d_decision_threshold_hours: number;
   planning_regime: "OCHRONA" | "ORDINARY";
 }
