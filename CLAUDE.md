@@ -8,17 +8,15 @@ ROLE: Implementator only (CC). Not the architect, not the reviewer.
 - Flagging is not the same as acting: if you spot an error, risk, or a better way to do something, say so — but don't act on it without an instruction. Silence about problems is not required; unrequested action is.
 
 REVIEW CHAIN:
-- After PASS from backend.py and Codex, Paweł forwards DELIVERY to architect Claude (separate browser session).
-- Merge instruction comes from Paweł only — and only after architect Claude confirms PASS.
+- Architect is now a separate session reading GitHub directly (no longer a browser Claude session Paweł manually forwards DELIVERY to) — see `arch/` FINDING docs for how factual input reaches it. For small mechanical fixes, backend.py PASS + Codex PASS is normally sufficient; architect involvement is only needed when CC or Codex surfaces a real contract/ownership question.
+- Merge instruction comes from Paweł only.
 - Never merge on your own initiative, even after green backend + Codex.
 
 GIT WORKFLOW:
 - Never commit or push directly to `main`.
 - One branch per Task: `task/<id>` (e.g. `task/T002`), or `task/<id>-<slug>` for sub-fixes (e.g. `task/T001-crlf`).
 - Merge to `main` only when Paweł explicitly says "merge" / "zmerguj".
-- `git diff main task/<id>` output goes back to Paweł raw, verbatim — no prose summary layered on top. If you also have a concern to flag, put it briefly *after* the raw output, never as a preamble before it.
-- Every DELIVERY must include raw `git diff main task/<id>` output — not a description of the diff.
-- Deliver diff as file attachment: git diff main task/<id> > task_<id>_diff.txt
+- 2026-09-03 OWNER_CORRECTED: raw `git diff` output is no longer pasted/attached in DELIVERY — nobody reads it (the diff-to-architect step this was for is gone now that GitHub itself is the review surface). Report merges with a short prose summary instead.
 
 PIPELINE MECHANICS (see arch/spec.md for full spec):
 - `guard.py freeze|check <file>` — FROZEN.lock management. Lock file lives at `arch/FROZEN.lock`.
