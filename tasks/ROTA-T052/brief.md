@@ -215,6 +215,7 @@ TASK_SCOPE:
 - rota/planning/solver.py
 - rota/planning/validator.py
 - rota/planning/work_periods.py
+- rota/planning/constraints.py
 - rota/persistence/site_repository.py
 - rota/persistence/schedule_validation.py
 - rota/persistence/schedule_repository.py
