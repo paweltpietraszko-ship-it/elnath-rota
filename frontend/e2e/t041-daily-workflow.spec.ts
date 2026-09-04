@@ -107,13 +107,17 @@ test("C05: both shortcuts open the same screen and keep the selected month", asy
   await createSite(page, siteName);
   await openSite(page, siteName);
 
+  // ROTA-T053: the month is the single Room-level "Miesiąc roboczy" input,
+  // shared by every screen -- no more per-screen "Miesiąc" picker.
   await openViaNav(page, "room-nav-manual-correction");
-  const monthSelect = page.getByLabel("Miesiąc");
-  await monthSelect.selectOption({ index: 0 });
-  const monthAfterKorekta = await monthSelect.inputValue();
+  const monthInput = page.locator('input[type="month"]');
+  const [year, month] = (await monthInput.inputValue()).split("-").map(Number);
+  const previous = new Date(year, month - 2, 1);
+  const monthAfterKorekta = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
+  await monthInput.fill(monthAfterKorekta);
 
   await openViaNav(page, "room-nav-export");
-  await expect(page.getByLabel("Miesiąc")).toHaveValue(monthAfterKorekta);
+  await expect(page.locator('input[type="month"]')).toHaveValue(monthAfterKorekta);
 });
 
 test("C06/C07/C10: correction instruction, inline print, print settings link, other nav unchanged (C11)", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { View } from "../App";
 import Analytics from "./Analytics";
 import ControlPanel from "./ControlPanel";
@@ -7,6 +7,24 @@ import EmployeeDetail from "./EmployeeDetail";
 import History from "./History";
 import MonthlyPlanning from "./MonthlyPlanning";
 import Overview from "./Overview";
+import { todayYearMonth } from "../localDate";
+
+const WORKING_MONTH_STORAGE_KEY = "elnath-rota-working-month";
+const YEAR_MONTH_RE = /^\d{4}-\d{2}$/;
+
+// ROTA-T053: one working month shared across MonthlyPlanning, Analytics,
+// EmployeeDetail and the print flow (Export, embedded in MonthlyPlanning) --
+// "Decyzje koordynatora" is a deliberate exception, it keeps its own list of
+// months with pending decisions (brief §2 point 5).
+function loadStoredWorkingMonth(): string {
+  try {
+    const stored = localStorage.getItem(WORKING_MONTH_STORAGE_KEY);
+    if (stored && YEAR_MONTH_RE.test(stored)) return stored;
+  } catch {
+    // fail-soft to current month, see T53-08
+  }
+  return todayYearMonth();
+}
 
 const NAV_ITEMS = [
   "Przegląd",
@@ -60,6 +78,16 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
   // screen, this carries just enough context to show the coordinator WHICH
   // decision they're resolving on whichever screen they land on.
   const [decisionContext, setDecisionContext] = useState<{ decisionRequiredId: string; month: string } | null>(null);
+  const [workingMonth, setWorkingMonth] = useState<string>(loadStoredWorkingMonth);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKING_MONTH_STORAGE_KEY, workingMonth);
+    } catch {
+      // per-viewer convenience only; ignore storage failures
+    }
+  }, [workingMonth]);
+
   if (view.screen === "workspace") return null;
   const { siteId, siteName } = view;
 
@@ -94,7 +122,15 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
           <span className="room-breadcrumb-sep">/</span>
           <span className="room-breadcrumb-current">{siteName}</span>
         </div>
-        <div />
+        <label className="room-working-month" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="field-label">Miesiąc roboczy</span>
+          <input
+            type="month"
+            value={workingMonth}
+            data-diag-element="room-working-month"
+            onChange={(e) => setWorkingMonth(e.target.value)}
+          />
+        </label>
       </div>
 
       <div className="room-body">
@@ -145,6 +181,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 employeeId={view.employeeId}
                 onBack={() => onNavigate({ screen: "room", siteId, siteName })}
                 respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
+                workingMonth={workingMonth}
               />
             )}
             {/* ROTA-T041 OWNER-T041-04: all three shortcuts are one screen,
@@ -160,12 +197,13 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
                 entryMode={
                   activeNav === "Ręczna korekta" ? "korekta" : activeNav === "Wydruk Grafiku" ? "wydruk" : undefined
                 }
+                workingMonth={workingMonth}
               />
             )}
             {activeNav === "Decyzje koordynatora" && (
               <Decisions siteId={siteId} onOpenControlPanel={(tab, context) => openControlPanel(tab, context)} />
             )}
-            {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} />}
+            {activeNav === "Analityka i bilanse" && <Analytics siteId={siteId} workingMonth={workingMonth} />}
             {activeNav === "Historia i audyt" && <History siteId={siteId} />}
           </div>
         </div>
