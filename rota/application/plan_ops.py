@@ -104,7 +104,18 @@ def _persist_plan_preview(
         try:
             plan_preview_repository.delete_plan_preview(conn, site_id, month)
         except sqlite3.Error:
-            pass  # best-effort cleanup only; a lingering stale preview here is no worse than before this fix
+            # R4-01 (architect audit fix): never swallow this silently -- the
+            # coordinator was told the old preview would be replaced. GET
+            # month's own staleness check (schedule.py) hides any preview
+            # while a DECISION_REQUIRED readback is current for this exact
+            # (site_id, month), which _persist_decision_readback has already
+            # durably persisted before this call ever runs -- so the old
+            # preview is already hidden regardless of this DELETE outcome.
+            # This warning exists only so the row itself isn't silently left
+            # orphaned in the database with no record of the failure.
+            result.warnings = list(result.warnings) + [
+                "PLAN_PREVIEW_CLEANUP_FAILED: usunięcie poprzedniego niezatwierdzonego wyniku nie powiodło się — nie zostanie on jednak ponownie pokazany"
+            ]
         return result
     try:
         plan_preview_repository.save_plan_preview(conn, plan_preview_repository.PlanPreview(

@@ -433,6 +433,18 @@ export default function MonthlyPlanning({
       .finally(() => setLoading(false));
   };
 
+  // R4-02 (architect audit fix): a preview persistence WRITE failure for
+  // this exact result leaves the OLD persisted preview in place. An
+  // immediate load() right after setPlanResult(result) would then let the
+  // reconstruction effect above silently replace this fresh FEASIBLE
+  // result -- and its PLAN_PREVIEW_NOT_PERSISTED warning -- with that
+  // stale preview. Skip only this one reload; any later real
+  // navigation/reload still reflects reality.
+  const loadUnlessFreshPreviewUnpersisted = (result: PlanningResultOut) => {
+    if (result.status === "FEASIBLE" && result.warnings.some((w) => w.startsWith("PLAN_PREVIEW_NOT_PERSISTED"))) return;
+    load();
+  };
+
   useEffect(() => {
     setPlanResult(null);
     setShowReplan(false);
@@ -466,7 +478,7 @@ export default function MonthlyPlanning({
       const result = await api.planMonth(siteId, monthIso, effectiveFrom, 0);
       setPlanResultSource("plan");
       setPlanResult(result);
-      load();
+      loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -485,7 +497,7 @@ export default function MonthlyPlanning({
       setPlanSearchAttempt(nextAttempt);
       setPlanResultSource("plan");
       setPlanResult(result);
-      load();
+      loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -534,7 +546,7 @@ export default function MonthlyPlanning({
       setPlanResultSource("replan");
       setPlanResult(result);
       if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
-      load();
+      loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -553,7 +565,7 @@ export default function MonthlyPlanning({
       setPlanResultSource("replan");
       setPlanResult(result);
       if (result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
-      load();
+      loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -574,7 +586,7 @@ export default function MonthlyPlanning({
       setPlanResultSource("replan");
       setPlanResult(result);
       if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
-      load();
+      loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {

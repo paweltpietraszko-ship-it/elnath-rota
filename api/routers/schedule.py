@@ -261,10 +261,18 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
             # preview computed against the pre-final state is stale, even
             # though the version_id itself did not change (finalize() is a
             # status transition, not a new version).
+            # R4-01 (architect audit fix): a persistent current_decision_
+            # required readback (`readback`, above) is written before this
+            # function's own delete-old-preview cleanup ever runs, so its
+            # mere presence already proves a later non-FEASIBLE result
+            # superseded whatever preview this exact WORKING version still
+            # points at -- hide it even if that cleanup's own DELETE failed,
+            # without needing a new marker for the same fact.
             if (
                 preview is not None and view.current_version is not None
                 and preview.schedule_version_id == view.current_version.version_id
                 and not view.current_version.status.value.startswith("FINAL")
+                and readback is None
             ):
                 plan_preview_out = _plan_preview_out(conn, preview)
         except Exception as exc:  # isolated, never propagated as the whole request's error (T54-07)

@@ -118,13 +118,18 @@ test("T54-06: failed replacement save remains visible with its warning", async (
   );
 
   page.on("dialog", async (dialog) => dialog.accept());
-  const refreshedMonth = page.waitForResponse(
-    (response) => /\/schedule\/\d{4}-\d{2}-\d{2}$/.test(response.url())
-      && response.request().method() === "GET",
+  // R4-02 (architect audit fix): plan_ops.py:_persist_plan_preview's fresh
+  // FEASIBLE result carries PLAN_PREVIEW_NOT_PERSISTED because this UPDATE
+  // was made to fail -- MonthlyPlanning.tsx's loadUnlessFreshPreviewUnpersisted
+  // then deliberately SKIPS its usual immediate GET reload, precisely so
+  // that reload can never resurrect the old (unfailed) persisted preview
+  // over this fresh one. Wait for the POST /plan response itself instead.
+  const planResponse = page.waitForResponse(
+    (response) => /\/schedule\/[^/]+\/plan$/.test(response.url())
+      && response.request().method() === "POST",
   );
   await page.locator('[data-diag-action="plan-month-recompute"]').click();
-  await refreshedMonth;
-  await page.waitForTimeout(100);
+  await planResponse;
 
   await expect(page.getByText(/Ten wynik nie zosta.*zapisany trwale/)).toBeVisible();
 });

@@ -1,0 +1,110 @@
+STATUS: FAIL
+HEAD_SHA: 320d840d8d5e27aae3ea377d415574a8f241e5f2
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FUNC: rota/application/plan_ops.py:plan_month has 91 lines (max 50)
+  - SIZE_FILE: rota/persistence/db.py has 635 lines (max 600)
+WYMAGA_DECYZJI:
+  - RATIO: 494/9 = 54.9:1 (threshold 5:1)
+  - TOTAL_LINES: 503 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - api\deps.py
+  - api\dev_seed.py
+  - tests\test_audit_t007_r3.py
+  - tests\test_audit_t008_r3.py
+  - tests\test_audit_t008_r4.py
+  - tests\test_audit_t009_r4.py
+  - tests\test_audit_t009_r5.py
+  - tests\test_audit_t009_r6.py
+  - tests\test_audit_t010_arch1_nn_descendant_identity.py
+  - tests\test_audit_t010_r10_arch1.py
+  - tests\test_audit_t010_r3.py
+  - tests\test_audit_t010_r4_a.py
+  - tests\test_audit_t010_r5_b.py
+  - tests\test_audit_t010_r6_d.py
+  - tests\test_audit_t010_r7_d.py
+  - tests\test_audit_t010_r9_consistency.py
+  - tests\test_local_store_integration_scenarios.py
+  - tests\test_local_store_master_data.py
+  - tests\test_local_store_operational_queries.py
+  - tests\test_local_store_r3_evidence_gaps.py
+  - tests\test_local_store_schedule_content_rules.py
+  - tests\test_local_store_schedule_version_lifecycle.py
+  - tests\test_local_store_schema_migration.py
+  - tests\test_site_memory_decision_ledger.py
+  - tests\test_site_profile_persistence.py
+  - tests\test_site_rule_execution_integration.py
+  - tests\test_t009_lifecycle_memory_backup_boundary.py
+  - tests\test_t009_manual_edit.py
+  - tests\test_t009_open_and_assembler.py
+  - tests\test_t009_plan_select_replan.py
+  - tests\test_t010_bootstrap_roster.py
+  - tests\test_t010_day_only_n_exception.py
+  - tests\test_t010_nn.py
+  - tests\test_t011_a_application_entry_points.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t012.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t019.py
+  - tests\test_t019b.py
+  - tests\test_t020.py
+  - tests\test_t021b_employee_matrix_wrappers.py
+  - tests\test_t021b_r4_audit.py
+  - tests\test_t021_analytics_api.py
+  - tests\test_t021_decisions_api.py
+  - tests\test_t021_export_api.py
+  - tests\test_t021_external_support_roster.py
+  - tests\test_t021_history_api.py
+  - tests\test_t021_matrix_decision_link.py
+  - tests\test_t021_overview_api.py
+  - tests\test_t022_planning_integrity.py
+  - tests\test_t023.py
+  - tests\test_t023b.py
+  - tests\test_t027_thread_affinity_audit.py
+  - tests\test_t030_shift_catalog_api.py
+  - tests\test_t031_schedule_api.py
+  - tests\test_t033_site_deactivate_reactivate.py
+  - tests\test_t036_rest_deviation_target.py
+  - tests\test_t037_manual_edit_api.py
+  - tests\test_t040_h24_rhythm_occupancy.py
+  - tests\test_t041_checkpoint_b.py
+  - tests\test_t042_audit4_repairs.py
+  - tests\test_t047_print_export.py
+  - tests\property\test_coordinator_simulator.py
+  - tests\property\test_coordinator_simulator_variant_b.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r2_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r4_architect_audit.py
+  - tasks\ROTA-T052\round_01\tests\test_t052_r4_audit.py
+  - tasks\ROTA-T051\round_01\tests\test_t051_audit.py
+  - tasks\ROTA-T037\round_01\tests\audit_r1_reproducer.py
+  - tasks\ROTA-T035\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T035\round_01\tests\test_independent_audit_r1.py
+  - tasks\ROTA-T033\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r2.py
+  - tasks\ROTA-T023b\round_01\tests\test_t023b_r5_audit.py
+  - tasks\ROTA-T021\round_01\tests\test_t021_r4_audit.py
+  - tasks\ROTA-T021\round_01\tests\test_t021_r5_audit.py
+  - tasks\ROTA-T021\round_01\tests\test_t021_r6_audit.py
+  - tasks\ROTA-T020\round_01\tests\test_t020_implementation_audit.py
+  - tasks\ROTA-T020\round_01\tests\test_t020_round10_audit.py
+  - tasks\ROTA-T019b\round_01\tests\test_t019b_implementation_audit.py
+  - tasks\ROTA-T019\round_01\tests\test_t019_implementation_audit.py
+  - rota\application\store.py
+  - frontend\e2e\seed-e2e-db.py
+  - api\routers\manual_edit.py
+  - api\routers\schedule.py
+  - .venv\Lib\site-packages\hypothesis\extra\django\_fields.py
+  - .venv\Lib\site-packages\hypothesis\extra\django\_impl.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T054/brief.md
+  - tasks/ROTA-T054/round_01/tests/backend_output_r1.txt
+  - tasks/ROTA-T054/round_01/tests/backend_output_r2.txt
+  - tasks/ROTA-T054/round_01/tests/backend_output_r3.txt
+  - tasks/ROTA-T054/round_01/tests/test_t054_r2_audit.py
+  - tasks/ROTA-T054/round_01/tests/test_t054_r4_architect_audit.py
+  - tasks/ROTA-T054/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T054/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T054/round_01/tests/tests_r3.txt
