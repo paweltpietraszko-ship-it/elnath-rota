@@ -255,15 +255,23 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
             # T055 is the first path that reaches a coordinator-facing screen,
             # so its wording is rewritten to plain Polish with the employee
             # quoted for MonthlyPlanning.tsx's existing resolveWarningText().
+            # R3-02 audit fix: this rule is about an employee normally
+            # restricted to day-only shifts (Employee.day_only) who has an
+            # authorized shift-rule exception allowing this particular N --
+            # it has nothing to do with DAY_SHIFT_OFF (a day-off/availability
+            # record, a completely different mechanism); the first wording
+            # wrongly said "dnia wolnego" (day off), giving a false reason.
             # The demand/reguła ids stay as parenthetical technical references
-            # (no display-name lookup exists for either today); the "DAY_ONLY-
-            # N-FALLBACK-01 SOFT" prefix stays for grep-based classification
-            # (tests/test_t018.py and others), matching the same "RULE-CODE
-            # SOFT: ..." shape as the REST-01 SOFT/WEEKLY-REST-01 SOFT
-            # warnings added in T052.
+            # (no display-name lookup exists for either today) -- R3-01 audit
+            # fix strips this prefix and these ids from what the coordinator
+            # actually sees, in MonthlyPlanning.tsx's resolveWarningText();
+            # the "DAY_ONLY-N-FALLBACK-01 SOFT" prefix itself stays in this
+            # raw string only for grep-based classification (tests/test_t018.py
+            # and others), matching the "RULE-CODE SOFT: ..." shape the
+            # REST-01 SOFT/WEEKLY-REST-01 SOFT warnings already use (T052).
             warnings.append(
-                f"DAY_ONLY-N-FALLBACK-01 SOFT: '{assignment.employee_id}' ma nockę mimo dnia wolnego "
-                f"dzięki wyjątkowi zmianowemu (zapotrzebowanie {demand.demand_id}, data {anchor_date}, reguła {authorizing_id})"
+                f"DAY_ONLY-N-FALLBACK-01 SOFT: '{assignment.employee_id}' ma nockę mimo ograniczenia do zmian dziennych, "
+                f"na mocy wyjątku zmianowego (zapotrzebowanie {demand.demand_id}, data {anchor_date}, reguła {authorizing_id})"
             )
 
 

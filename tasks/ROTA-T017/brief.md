@@ -292,7 +292,7 @@ Dla 2–3 candidates:
 Przykład T018 (ROTA-T055 R2-01, OWNER 2026-09-04: treść po dwukropku
 przepisana na polski z zacytowanym employee_id -- prefiks
 `candidate=N | RULE-CODE SOFT:` bez zmian):
-`candidate=2 | DAY_ONLY-N-FALLBACK-01 SOFT: 'A' ma nockę mimo dnia wolnego dzięki wyjątkowi zmianowemu (zapotrzebowanie D-N, data 2027-03-17, reguła RV-1)`
+`candidate=2 | DAY_ONLY-N-FALLBACK-01 SOFT: 'A' ma nockę mimo ograniczenia do zmian dziennych, na mocy wyjątku zmianowego (zapotrzebowanie D-N, data 2027-03-17, reguła RV-1)`
 
 Nie deduplikować warningów pomiędzy candidate 1/2/3.
 

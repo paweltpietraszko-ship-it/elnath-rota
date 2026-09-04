@@ -507,7 +507,7 @@ def test_m26_m28_multi_candidate_real_warnings_keep_prefix_order_and_body():
         # with the employee_id quoted for MonthlyPlanning.tsx's
         # resolveWarningText() -- was raw "employee=/demand=/date=/
         # rule_version_id=" English labels.
-        for required in ("ma nockę mimo dnia wolnego", "zapotrzebowanie N2", "data 2026-10-13", "reguła RV-"):
+        for required in ("ma nockę mimo ograniczenia do zmian dziennych", "zapotrzebowanie N2", "data 2026-10-13", "reguła RV-"):
             assert required in warning
 
 

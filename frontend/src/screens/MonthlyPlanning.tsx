@@ -312,11 +312,23 @@ export default function MonthlyPlanning({
   // (Python repr, e.g. 'uuid') -- resolve it to the roster display_name
   // here rather than in the backend, since the roster this screen already
   // fetches is the single canonical id->name lookup, not a second one.
+  //
+  // ROTA-T055 R3-01 audit fix: the validator's SOFT warning strings (see
+  // rota/planning/validator.py) keep a leading "RULE-CODE SOFT: " prefix
+  // and, for DAY_ONLY-N-FALLBACK-01, a trailing "(zapotrzebowanie ...,
+  // data ..., reguła ...)" technical reference -- both stay in the raw
+  // string because many existing tests classify/grep on them, but neither
+  // means anything to a coordinator and there is no display-name lookup
+  // for a demand_id/rule_version_id the way there is for employee_id. Both
+  // are stripped here, display-only, the same way employee_id is resolved
+  // here rather than in the backend.
   const resolveWarningText = (text: string): string => {
     let resolved = text;
     for (const r of rosterEmployees) {
       resolved = resolved.split(`'${r.employee_id}'`).join(r.display_name);
     }
+    resolved = resolved.replace(/^[A-Z][A-Z0-9_]*(-[A-Z0-9]+)*\s+SOFT:\s*/, "");
+    resolved = resolved.replace(/\s*\(zapotrzebowanie[^)]*\)$/, "");
     return resolved;
   };
 
