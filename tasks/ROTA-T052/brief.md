@@ -226,3 +226,6 @@ TASK_SCOPE:
 - frontend/src/screens/MonthlyPlanning.tsx
 - frontend/src/screens/PrintSettings.tsx
 - rota/application/schedule_export.py
+- tests/test_t012.py
+- tests/test_t020.py
+- tests/test_t023b.py
