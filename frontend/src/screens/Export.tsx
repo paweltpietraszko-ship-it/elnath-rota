@@ -7,7 +7,6 @@
 // re-translates or shows a raw code.
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { todayIso } from "../localDate";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
@@ -39,10 +38,20 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export default function Export({ siteId, onOpenPrintSettings }: { siteId: string; onOpenPrintSettings: () => void }) {
-  const currentYearMonth = todayIso().slice(0, 7);
-  const [monthInput, setMonthInput] = useState(currentYearMonth);
-  const [periodLabel, setPeriodLabel] = useState(monthLabel(currentYearMonth));
+export default function Export({
+  siteId,
+  onOpenPrintSettings,
+  workingMonth,
+}: {
+  siteId: string;
+  onOpenPrintSettings: () => void;
+  // ROTA-T053: shared Room-level working month (YYYY-MM); Export no longer
+  // keeps an independent month/period source (brief §4/§7).
+  workingMonth: string;
+}) {
+  // R3-02 (round-3 audit): the period label has no independent source of
+  // truth at all -- it's derived from workingMonth, not a free-text field.
+  const periodLabel = monthLabel(workingMonth);
   const [hasSettings, setHasSettings] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -79,7 +88,7 @@ export default function Export({ siteId, onOpenPrintSettings }: { siteId: string
     setPreviewBlob(null);
     setPreviewFilename(null);
     try {
-      const monthIso = firstOfMonthIso(monthInput);
+      const monthIso = firstOfMonthIso(workingMonth);
       const res = await api.exportSchedule(siteId, monthIso, periodLabel);
       if (res.ok && res.pdf_base64) {
         const blob = base64ToBlob(res.pdf_base64);
@@ -126,26 +135,10 @@ export default function Export({ siteId, onOpenPrintSettings }: { siteId: string
       ) : (
         <>
           <div className="panel-title-row">
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="field-label">Miesiąc</span>
-              <input
-                type="month"
-                value={monthInput}
-                onChange={(e) => {
-                  setMonthInput(e.target.value);
-                  setPeriodLabel(monthLabel(e.target.value));
-                }}
-              />
-            </label>
             <button className="btn-ghost" onClick={onOpenPrintSettings}>
               Ustawienia wydruku
             </button>
           </div>
-
-          <label style={{ display: "block", marginBottom: 16 }}>
-            <span className="field-label">Etykieta okresu na wydruku</span>
-            <input value={periodLabel} onChange={(e) => setPeriodLabel(e.target.value)} />
-          </label>
 
           {result && <div className={result.ok ? "banner-warning" : "banner-error"}>{result.message}</div>}
 

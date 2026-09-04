@@ -1,0 +1,13 @@
+STATUS: FAIL
+HEAD_SHA: 93f8dd6c38698ac256ec85901c4b4830744fb0af
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - DIFF_SCOPE: file outside TASK_SCOPE: frontend/e2e/monthly-planning.spec.ts
+  - DIFF_SCOPE: file outside TASK_SCOPE: frontend/e2e/t041-daily-workflow.spec.ts
+  - DIFF_SCOPE: file outside TASK_SCOPE: frontend/e2e/t042-local-date.spec.ts
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 155 lines changed (threshold 150)
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T053/brief.md
+  - tasks/ROTA-T053/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T053/round_01/tests/tests_r2.txt

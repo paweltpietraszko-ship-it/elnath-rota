@@ -1,0 +1,67 @@
+ROTA-T053 — IMPLEMENTATION AUDIT R3
+
+Audytowany exact SHA: f73cbfb729c1edb83e144507985ae1c00b588729
+Base kontraktu: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: FAIL
+
+Finding R3-01 — uszkodzony miesiąc podobny do YYYY-MM nie przechodzi
+fail-soft.
+
+TRACE
+
+- brief.md:56: nieprawidłowa wartość storage ma wrócić do bieżącego miesiąca;
+- T53-08 (brief.md:104) wymaga tego samego zachowania bez awarii UI.
+
+OWNERSHIP
+
+frontend/src/screens/Room.tsx:13 oraz 19-27 jest jedynym ownerem odczytu i
+walidacji zapisanego working month. Regex /^\d{4}-\d{2}$/ sprawdza wyłącznie
+kształt tekstu, nie sprawdza realnego zakresu miesiąca 01..12.
+
+REPRO NA EXACT SHA
+
+T53-AUD-02 zapisuje w localStorage wartość 2026-99 i otwiera prawdziwy Room.
+Oczekiwano bieżącego miesiąca 2026-09, lecz input type=month otrzymał stan
+2026-99 i pokazał pustą wartość. Test FAIL deterministycznie, bez retry.
+
+Finding R3-02 — wydruk nadal ma drugie, edytowalne źródło opisu okresu.
+
+TRACE
+
+- brief §2 pkt 7 i brief.md:56-57: opis okresu ma wynikać z working month,
+  bez osobnego źródła prawdy;
+- T53-07 (brief.md:102) wymaga, aby Export.tsx nie utrzymywał niezależnego
+  wyboru okresu.
+
+OWNERSHIP
+
+frontend/src/screens/Export.tsx:52 utrzymuje osobny periodLabel w React state,
+linia 96 wysyła go do exportSchedule, a linie 147-149 nadal pokazują
+koordynatorowi edytowalne pole „Etykieta okresu na wydruku”. Komentarz
+określający je jako free-text override nie ma oparcia w zamrożonym kontrakcie.
+
+REPRO NA EXACT SHA
+
+T53-AUD-03 tworzy obiekt, zapisuje ustawienia wydruku przez prawdziwy backend
+i otwiera Wydruk Grafiku. Po zakończeniu ładowania pole „Etykieta okresu na
+wydruku” istnieje (1), podczas gdy T53-07 wymaga braku drugiego źródła (0).
+Test FAIL deterministycznie, bez retry.
+
+Pozytywna kontrola pionowa
+
+T53-AUD-01 przeszła. Jeden wybrany miesiąc 2027-02 został użyty przez realne
+żądania EmployeeDetail, MonthlyPlanning i Analytics, przetrwał reload oraz
+zmianę z obiektu A na B. Decisions.tsx nie znajduje się w diffie i pozostał
+niezależny zgodnie z T53-06.
+
+Wykonane kontrole
+
+- npm.cmd run build: PASS (tsc-b + Vite build);
+- npx.cmd playwright test e2e/t053-independent-audit.spec.ts --retries=0:
+  1 passed, 2 failed zgodnie z findingami powyżej;
+- pełna regresja: nieuruchomiona — dwa celowane, odtworzone defekty zamykają
+  werdykt, a OWNER nie zatwierdzał pełnej suity.
+
+Reproducer zachowany w frontend/e2e/t053-independent-audit.spec.ts.
+Raport dotyczy wyłącznie exact SHA wskazanego powyżej.

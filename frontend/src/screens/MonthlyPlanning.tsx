@@ -10,22 +10,6 @@ function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
 }
 
-function shiftMonth(yearMonth: string, delta: number): string {
-  const [year, month] = yearMonth.split("-").map(Number);
-  const d = new Date(year, month - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-const MONTH_NAMES_PL = [
-  "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
-  "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
-];
-
-function monthLabel(yearMonth: string): string {
-  const [year, month] = yearMonth.split("-").map(Number);
-  return `${MONTH_NAMES_PL[month - 1]} ${year}`;
-}
-
 const SCHEDULE_STATUS_LABEL: Record<ScheduleVersionOut["status"], string> = {
   WORKING: "Wersja robocza",
   WORKING_WITH_DEVIATIONS: "Wersja robocza (z odstępstwami)",
@@ -177,18 +161,14 @@ function ScheduleGrid({
 type EntryMode = "korekta" | "wydruk" | undefined;
 
 export default function MonthlyPlanning({
-  siteId, onOpenPrintSettings, entryMode,
+  siteId, onOpenPrintSettings, entryMode, workingMonth,
 }: {
   siteId: string; onOpenPrintSettings: () => void; entryMode?: EntryMode;
+  // ROTA-T053: shared Room-level working month (YYYY-MM); no independent
+  // month selector on this screen any more.
+  workingMonth: string;
 }) {
-  const currentYearMonth = useMemo(() => todayIso().slice(0, 7), []);
-  const selectableMonths = useMemo(
-    () => [shiftMonth(currentYearMonth, -1), currentYearMonth, shiftMonth(currentYearMonth, 1)],
-    [currentYearMonth],
-  );
-  const [monthInput, setMonthInput] = useState(currentYearMonth);
-  const monthIso = firstOfMonthIso(monthInput);
-  const [scheduledMonths, setScheduledMonths] = useState<Set<string>>(new Set());
+  const monthIso = firstOfMonthIso(workingMonth);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -316,10 +296,6 @@ export default function MonthlyPlanning({
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-    api
-      .getScheduleMonths(siteId)
-      .then((res) => setScheduledMonths(new Set(res.months.map((m) => m.slice(0, 7)))))
-      .catch(() => undefined);
   };
 
   useEffect(() => {
@@ -552,17 +528,6 @@ export default function MonthlyPlanning({
           <h3>Planowanie miesiąca</h3>
           <p className="panel-hint">Otwórz miesiąc, uruchom PLAN, wybierz kandydata, sfinalizuj grafik.</p>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="field-label">Miesiąc</span>
-          <select value={monthInput} onChange={(e) => setMonthInput(e.target.value)}>
-            {selectableMonths.map((m) => (
-              <option key={m} value={m}>
-                {monthLabel(m)}
-                {scheduledMonths.has(m) ? " (ma grafik)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
 
       {error && <div className="banner-error">{error}</div>}
@@ -599,7 +564,7 @@ export default function MonthlyPlanning({
           which is specifically about the schedule grid/version lifecycle. */}
       {showPrint && (
         <div style={{ marginTop: 12 }}>
-          <Export siteId={siteId} onOpenPrintSettings={onOpenPrintSettings} />
+          <Export siteId={siteId} onOpenPrintSettings={onOpenPrintSettings} workingMonth={workingMonth} />
         </div>
       )}
 

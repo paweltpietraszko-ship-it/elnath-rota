@@ -1,0 +1,14 @@
+STATUS: WYMAGA_DECYZJI
+HEAD_SHA: b49aac3ff482a11c29a75c880cf8496f8b529995
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 287 lines changed (threshold 150)
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T053/brief.md
+  - tasks/ROTA-T053/round_01/tests/backend_output_r1.txt
+  - tasks/ROTA-T053/round_01/tests/backend_output_r2.txt
+  - tasks/ROTA-T053/round_01/tests/backend_output_r3.txt
+  - tasks/ROTA-T053/round_01/tests/backend_output_r4.txt
+  - tasks/ROTA-T053/round_01/tests/tests_r1.txt
+  - tasks/ROTA-T053/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T053/round_01/tests/tests_r3.txt

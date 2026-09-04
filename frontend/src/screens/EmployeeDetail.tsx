@@ -15,11 +15,6 @@ const isoToday = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-const currentMonth = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-};
-
 function isActiveToday(c: MatrixCellOut): boolean {
   const today = isoToday();
   return Boolean(c.applies_from && c.applies_to && c.applies_from <= today && c.applies_to >= today);
@@ -38,6 +33,7 @@ export default function EmployeeDetail({
   employeeId,
   onBack,
   respondsToDecisionRequiredId = null,
+  workingMonth,
 }: {
   siteId: string;
   siteName: string;
@@ -48,10 +44,13 @@ export default function EmployeeDetail({
   // koordynatora) -- every matrix mutation below already accepts and
   // forwards this so the resulting DecisionRecord links back correctly.
   respondsToDecisionRequiredId?: string | null;
+  // ROTA-T053: shared Room-level working month (YYYY-MM); no independent
+  // month selector here any more.
+  workingMonth: string;
 }) {
   const [detail, setDetail] = useState<EmployeeDetailOut | null>(null);
   const [cells, setCells] = useState<MatrixCellOut[]>([]);
-  const [month, setMonth] = useState(currentMonth());
+  const month = `${workingMonth}-01`;
   const [targetHours, setTargetHoursState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -340,10 +339,6 @@ export default function EmployeeDetail({
 
       <div className="panel">
         <h3>Godziny docelowe</h3>
-        <div className="field-row">
-          <label>Miesiąc</label>
-          <input type="month" value={month.slice(0, 7)} onChange={(e) => setMonth(`${e.target.value}-01`)} />
-        </div>
         <TargetHoursEditor
           employeeId={employeeId}
           siteId={siteId}
