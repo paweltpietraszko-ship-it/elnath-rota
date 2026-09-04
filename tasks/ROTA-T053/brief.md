@@ -115,3 +115,14 @@ Codex/niezależny audytor ma po mechanicznej korekcie potwierdzić:
 PASS nie może rozszerzać kontraktu. Test nie tworzy wymagania.
 
 Oczekiwany werdykt: `PASS — READY_FOR_IMPLEMENTATION` albo `FAIL` z konkretną sprzecznością w aktualnym kodzie.
+
+## 10. EXACT TASK_SCOPE
+
+TASK_SCOPE:
+- tasks/ROTA-T053/brief.md
+- frontend/src/screens/Room.tsx
+- frontend/src/screens/MonthlyPlanning.tsx
+- frontend/src/screens/Analytics.tsx
+- frontend/src/screens/EmployeeDetail.tsx
+- frontend/src/screens/Export.tsx
+- frontend/src/App.css
