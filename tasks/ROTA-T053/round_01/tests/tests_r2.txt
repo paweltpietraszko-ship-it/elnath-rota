@@ -1,0 +1,29 @@
+ROTA-T053 — PREIMPLEMENTATION RE-AUDIT R2
+
+Audytowany exact SHA: 11cdd0c9b3921ad354f2868f287157fa560f4f53
+Base: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: PASS — READY_FOR_IMPLEMENTATION
+
+Zakres reaudytu był celowo ograniczony do jedynego findingu R1.
+
+Potwierdzenie korekty
+
+- brief §4 obejmuje teraz aktualny flow wydruku i Export.tsx;
+- TASK_SCOPE §7 jawnie dopuszcza frontend/src/screens/Export.tsx;
+- T53-01 i T53-07 wymagają, aby Export używał working month i nie
+  utrzymywał własnego wyboru tego samego okresu.
+
+To zamyka sprzeczność z exact source:
+
+- Export.tsx:42-45 posiada dziś własne monthInput/periodLabel;
+- Export.tsx:82-83 używa ich w realnym exportSchedule;
+- MonthlyPlanning.tsx:602 osadza Export.
+
+Po korekcie wszystkie te miejsca są objęte dozwolonym zakresem. Nadal nie
+jest potrzebny backend, baza danych, nowy store ani redesign ekranów.
+
+Warstwy audytu: exact SHA, diff od R1, ponowne sprawdzenie realnej ścieżki
+Room -> MonthlyPlanning -> Export oraz TASK_SCOPE/acceptance. Nie uruchamiano
+testów, ponieważ zmienił się wyłącznie kontrakt. Pełna regresja nie była
+potrzebna i nie została uruchomiona.

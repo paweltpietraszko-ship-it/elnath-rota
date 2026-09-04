@@ -1,9 +1,8 @@
 // ROTA-T021 (arch/T021_spec.md §Analityka i bilanse): thin client over
 // api/routers/analytics.py -> rota.application.analytics_read (unchanged,
 // read-only). No write actions live on this screen.
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { AnalyticsMonthDataOut, CoordinatorAnalyticsViewOut, EmployeeAnalyticsRowOut, api } from "../api/client";
-import { todayIso } from "../localDate";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
@@ -68,10 +67,8 @@ function QuarterBreakdown({ months }: { months: AnalyticsMonthDataOut[] }) {
   );
 }
 
-export default function Analytics({ siteId }: { siteId: string }) {
-  const currentYearMonth = useMemo(() => todayIso().slice(0, 7), []);
-  const [monthInput, setMonthInput] = useState(currentYearMonth);
-  const monthIso = firstOfMonthIso(monthInput);
+export default function Analytics({ siteId, workingMonth }: { siteId: string; workingMonth: string }) {
+  const monthIso = firstOfMonthIso(workingMonth);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,10 +109,6 @@ export default function Analytics({ siteId }: { siteId: string }) {
             danego pracownika, nie tylko tego obiektu.
           </p>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="field-label">Miesiąc</span>
-          <input type="month" value={monthInput} onChange={(e) => setMonthInput(e.target.value)} />
-        </label>
       </div>
 
       {error && <div className="banner-error">{error}</div>}
