@@ -1,0 +1,43 @@
+ROTA-T052 — PREIMPLEMENTATION AUDIT R1
+
+Audytowany exact SHA: 120f4fddeb84064995910e1702e926fd80af2177
+Base: main@7cd5fde8446bd08a02c647d4eabaab9db200acba
+
+Werdykt: FAIL — ARCHITECT_CORRECTION_REQUIRED
+
+Powód jest jeden i wynika z późniejszej, jawnej korekty OWNERA z 2026-09-03.
+Nie jest to propozycja audytora.
+
+OWNER_CORRECTED
+
+S1 nadal jest ręcznie wpisywanym i liczonym czasem pracy, ale S1 NIE ma
+uruchamiać wymagania 11 godzin odpoczynku REST-01. Pracownik kończący nockę
+może rano uczestniczyć w S1; podobnie samo S1 nie może zablokować późniejszej
+zmiany przez REST-01.
+
+Sprzeczność w kontrakcie:
+
+- brief.md §2 pkt 4 nakazuje wpływ S1 na REST-01;
+- brief.md §3 nazywa S1 normalnym przedziałem dla overlap/rest/load/balance;
+- brief.md §5 nakazuje solverowi i validatorowi stosować rest do S1;
+- T52-05 wymaga przypadku, w którym S1 uczestniczy w blokowaniu przez rest.
+
+Minimalna korekta kontraktu przed implementacją:
+
+1. Usunąć S1 z REST-01 we wskazanych miejscach i powiedzieć wprost, że
+   granica czasu z udziałem S1 nie tworzy wymagania 11 godzin odpoczynku.
+2. Zastąpić T52-05 przypadkiem nocka -> poranne S1, który ma być dozwolony,
+   oraz kontrolą, że REST-01 nadal działa pomiędzy dwiema zwykłymi pracami.
+3. Nie zmieniać pozostałych zaakceptowanych cech: brak nakładania pracy,
+   LOAD-01, bilans godzin, brak coverage/readiness i ręczne utrzymanie w
+   REPLAN pozostają bez zmian.
+
+Zakres audytu:
+
+- sprawdzenie dokładnego SHA i braku kodu produktu w diffie;
+- porównanie kontraktu z jawną decyzją OWNERA;
+- zatrzymanie dalszego audytu architektury, ponieważ implementowanie obecnego
+  tekstu wprost wprowadziłoby zachowanie wycofane przez OWNERA.
+
+Nie uruchamiano testów: branch zawiera wyłącznie brief, a sprzeczność jest w
+samym kontrakcie. PASS/FAIL implementacji nie był oceniany.

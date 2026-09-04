@@ -1,0 +1,97 @@
+ROTA-T052 — niezależny audyt implementacji, runda 4
+
+Werdykt: FAIL
+Audytowany branch: task/ROTA-T052-s1-periodic-training-contract
+Audytowany exact SHA: 8fc022c14026c00ef4e8b0649df269d5f4dca68e
+
+Zakres audytu
+- odczyt całego kontraktu T052 i zmiany produktu na dokładnym SHA;
+- niezależne reproduktory granic S1: przed/po zwykłej zmianie, rzeczywisty
+  pion SQLite -> assembler -> plan_month() -> solver oraz wydruk z zapisanej
+  ScheduleVersion;
+- kontrole dodatnie: konfiguracja S1 o długości 2 h i 4 h, WorkBalance,
+  invariant braku coverage oraz rzeczywiste nakładanie;
+- frontend: produkcyjne `npm.cmd run build`;
+- bez pełnej regresji repozytorium (niepotrzebna przy tym wyniku i bez
+  osobnej zgody OWNERA).
+
+FINDING R4-01 — PLAN nadal traktuje S1 jak twardą ścianę odpoczynku
+
+TRACE
+- tasks/ROTA-T052/brief.md:174 (T52-05): N kończąca się o 05:00 nie może
+  zablokować S1 08:00-12:00 przez REST-01.
+- tasks/ROTA-T052/brief.md:176 (T52-06): S1 08:00-12:00 nie tworzy
+  11-godzinnej ściany przed kolejną niekolidującą zmianą.
+
+OWNERSHIP
+- rota/planning/solver.py:121-145 zachowuje S1 jako fixed assignment, bo
+  redistributable jest wyłącznie PRIMARY pokrywające demand.
+- rota/planning/solver.py:948-962 przekazuje ten nieodfiltrowany S1 przez
+  build_fixed_periods() do add_rest_constraints().
+- rota/planning/constraints.py:65-82 buduje WorkPeriod bez informacji o roli,
+  więc późniejsza warstwa REST nie potrafi już zastosować wyjątku S1.
+- Independent validator ma wyjątek i uznaje oba świadki za HARD-valid;
+  sprzeczność powstaje w modelu solvera.
+
+REPRO
+- tasks/ROTA-T052/round_01/tests/test_t052_r4_audit.py:68-119.
+- Wariant N 17:00-05:00 -> S1 08:00-12:00: validator HARD PASS, solver
+  zwraca INFEASIBLE.
+- Wariant S1 08:00-12:00 -> N 17:00-05:00: validator HARD PASS, solver
+  zwraca INFEASIBLE.
+- Pion produkcyjny w tym samym pliku, linie 150-177: zapisana baza SQLite,
+  assembler i plan_month() zwracają DECISION_REQUIRED zamiast FEASIBLE.
+
+Skutek dla użytkownika
+Koordynator może ręcznie zapisać dozwolone S1, lecz następny PLAN/REPLAN
+może fałszywie oznajmić, że nie da się ułożyć grafiku. To jest dokładnie
+zabroniony przypadek T52-05/T52-06.
+
+FINDING R4-02 — wydruk odrzuca legalne S1 i zwykłą zmianę tego samego dnia
+
+TRACE
+- tasks/ROTA-T052/brief.md:176 (T52-06) dopuszcza niekolidującą zmianę po S1.
+- tasks/ROTA-T052/brief.md:180 (T52-08) zabrania rzeczywistego nakładania
+  przedziałów, nie samej wspólnej daty.
+- tasks/ROTA-T052/brief.md:188 (T52-12) wymaga widoczności S1 w PDF.
+
+OWNERSHIP
+- rota/application/schedule_export.py:249-284 składa komórki wydruku.
+- rota/application/schedule_export.py:276-284 nazywa każdą wspólną datę
+  „collision” i rzuca MULTIPLE_WORK_ITEMS_PER_CELL bez sprawdzenia, czy
+  przedziały faktycznie się nakładają.
+
+REPRO
+- tasks/ROTA-T052/round_01/tests/test_t052_r4_audit.py:122-147.
+- W zapisanej ScheduleVersion pracownik ma S1 10:00-14:00 i N1
+  18:00-06:00 tego samego dnia. Przedziały się nie nakładają, lecz realny
+  assembler wydruku rzuca MULTIPLE_WORK_ITEMS_PER_CELL, więc PDF nie
+  powstaje.
+
+Skutek dla użytkownika
+Poprawny według T052 grafik może być widoczny na ekranie, ale nie da się go
+wydrukować. Audyt nie narzuca sposobu zapisania dwóch kodów w jednej komórce;
+stwierdza tylko, że legalny grafik nie może zostać odrzucony jako overlap.
+
+Wyniki poleceń
+1. python -m pytest tasks/ROTA-T052/round_01/tests/test_t052_r4_audit.py -q
+   -> 4 failed, 4 passed w 0.71 s.
+   Cztery FAIL to: dwa kierunki REST (ten sam bug class), pion plan_month()
+   tego błędu oraz niezależny błąd wydruku.
+2. npm.cmd run build (frontend)
+   -> PASS; tsc -b i vite build zakończone poprawnie.
+
+Potwierdzone działające granice
+- domyślny przedział S1 10:00-12:00 i 10:00-14:00 zapisuje się i odczytuje;
+- S1 liczy się dokładnie raz do planned/realized WorkBalance;
+- persistence odrzuca S1 podszywające się pod coverage demandu;
+- rzeczywiste czasowe nakładanie dwóch S1 pozostaje HARD błędem.
+
+Uwagi nieblokujące
+- Późniejsza decyzja OWNERA o SOFT ostrzeżeniach 11 h/35 h jest zapisana
+  jako korekta po PASS kontraktu. Wiadomo też, że obecny kanał warnings
+  validatora nie dociera jeszcze do użytkownika; OWNER świadomie wydzielił
+  naprawę całego kanału ostrzeżeń do osobnego zadania. Nie otwieram tego
+  ponownie jako finding T052.
+- Zaakceptowane przez OWNERA przekroczenia rozmiaru z backend_output_r2.txt
+  nie są ponownie oceniane.

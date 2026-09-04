@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 10
+LATEST_SCHEMA_VERSION = 11
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -514,6 +514,19 @@ _MIGRATION_10: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 11: ROTA-T052 -- S1 (periodic training) default print interval.
+# Nullable, purely a UI default/config value for MonthlyPlanning/PrintSettings
+# (brief section 4/9) -- NOT a WORK_CODE_KEYS entry, no fixed-duration
+# constraint. assignments.role stays plain TEXT (brief section 3: no CHECK
+# exists today, so no migration is needed there for the new
+# AssignmentRole.PERIODIC_TRAINING value).
+# ---------------------------------------------------------------------------
+_MIGRATION_11: tuple[str, ...] = (
+    "ALTER TABLE site_print_settings ADD COLUMN s1_default_interval_json TEXT",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -525,6 +538,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (8, _MIGRATION_8),
     (9, _MIGRATION_9),
     (10, _MIGRATION_10),
+    (11, _MIGRATION_11),
 )
 
 

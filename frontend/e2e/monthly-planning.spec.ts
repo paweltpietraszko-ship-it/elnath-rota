@@ -84,22 +84,25 @@ test("finalize with no deviations moves to FINAL, then REPLAN creates a new vers
   await expect(page.locator('[data-diag-action="restore-version"]')).toBeVisible();
 });
 
-// R1-1 (round-1 audit): month choice is limited to prev/current/next, and
-// the PLAN-first effective_from date must resync when the selected month
-// changes, not silently keep a stale month's date.
-test("R1-1: exactly three selectable months, changing month resyncs the PLAN date", async ({ page }) => {
+// R1-1 (round-1 audit): the PLAN-first effective_from date must resync when
+// the selected month changes, not silently keep a stale month's date.
+// ROTA-T053: the month is no longer this screen's own <select> (limited to
+// prev/current/next) -- it's the free Room-level "Miesiąc roboczy" input
+// shared across screens.
+test("R1-1: changing the working month resyncs the PLAN date", async ({ page }) => {
   const siteName = `PLAN-MONTHS-${uid()}`;
   await createSite(page, siteName);
   await openSite(page, siteName);
   await openMonthlyPlanning(page);
 
-  const monthSelect = page.getByLabel("Miesiąc");
-  await expect(monthSelect.locator("option")).toHaveCount(3);
-
+  const monthInput = page.locator('input[type="month"]');
   const dateInput = page.locator('input[type="date"]');
   const initialValue = await dateInput.inputValue();
 
-  await monthSelect.selectOption({ index: 0 });
+  const [year, month] = (await monthInput.inputValue()).split("-").map(Number);
+  const previous = new Date(year, month - 2, 1);
+  await monthInput.fill(`${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`);
+
   const newValue = await dateInput.inputValue();
   expect(newValue).not.toBe(initialValue);
 });

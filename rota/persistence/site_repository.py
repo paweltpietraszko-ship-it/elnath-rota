@@ -72,6 +72,11 @@ class SitePrintSettings:
     base_regime: str  # "12h" | "24h"
     work_code_intervals: dict[str, Optional[WorkCodeInterval]]  # exactly WORK_CODE_KEYS
     reserve_hours: dict[str, Optional[int]]  # exactly RESERVE_SLOT_KEYS
+    # ROTA-T052 (brief section 4): S1 is NOT a WORK_CODE_KEYS entry -- it has
+    # no fixed duration, only a default start/end the coordinator can reuse
+    # when entering S1 in MonthlyPlanning. Never validated against
+    # FROZEN_WORK_CODE_HOURS.
+    s1_default_interval: Optional[WorkCodeInterval] = None
 
 
 def _interval_duration_hours(interval: WorkCodeInterval) -> float:
@@ -112,11 +117,24 @@ def _validate_reserve_hours(reserve: dict[str, Optional[int]]) -> None:
             raise InvalidSitePrintSettings(f"{slot} reserve value must be a positive integer or null, got {value!r}")
 
 
+def _validate_s1_default_interval(interval: WorkCodeInterval) -> None:
+    """ROTA-T052 (brief section 4): S1 has no fixed duration -- only full
+    clock hours, same global rule as every other work code."""
+    if not (_TIME_RE.match(interval.start_time) and _TIME_RE.match(interval.end_time)):
+        raise InvalidSitePrintSettings(f"S1 interval: malformed time in {interval!r}")
+    if not interval.start_time.endswith(":00") or not interval.end_time.endswith(":00"):
+        raise InvalidSitePrintSettings(f"S1 interval: start/end must be a full clock hour, got {interval!r}")
+    if _interval_duration_hours(interval) <= 0:
+        raise InvalidSitePrintSettings(f"S1 interval: non-positive duration in {interval!r}")
+
+
 def validate_site_print_settings(settings: SitePrintSettings) -> None:
     if settings.base_regime not in ("12h", "24h"):
         raise InvalidSitePrintSettings(f"base_regime must be '12h' or '24h', got {settings.base_regime!r}")
     _validate_work_code_intervals(settings.work_code_intervals)
     _validate_reserve_hours(settings.reserve_hours)
+    if settings.s1_default_interval is not None:
+        _validate_s1_default_interval(settings.s1_default_interval)
 
 
 def _regime_from_value(value: str) -> SitePlanningRegime:
@@ -231,6 +249,25 @@ def _intervals_from_json(raw: str) -> dict[str, Optional[WorkCodeInterval]]:
     return {code: _interval_from_value(code, value) for code, value in payload.items()}
 
 
+def _s1_interval_to_json(interval: Optional[WorkCodeInterval]) -> Optional[str]:
+    if interval is None:
+        return None
+    return json.dumps(
+        {"start_time": interval.start_time, "end_time": interval.end_time, "end_next_day": interval.end_next_day},
+        sort_keys=True,
+    )
+
+
+def _s1_interval_from_json(raw: Optional[str]) -> Optional[WorkCodeInterval]:
+    if raw is None:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise InvalidSitePrintSettings(f"malformed s1_default_interval_json: {exc}") from exc
+    return _interval_from_value("S1", payload)
+
+
 def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettings) -> None:
     validate_site_print_settings(settings)
     site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (settings.site_id,)).fetchone()
@@ -240,17 +277,19 @@ def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettin
         conn.execute(
             """INSERT INTO site_print_settings
                (site_id, company_print_name, site_print_name, base_regime,
-                work_code_intervals_json, reserve_hours_json)
-               VALUES (?, ?, ?, ?, ?, ?)
+                work_code_intervals_json, reserve_hours_json, s1_default_interval_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(site_id) DO UPDATE SET
                 company_print_name=excluded.company_print_name,
                 site_print_name=excluded.site_print_name,
                 base_regime=excluded.base_regime,
                 work_code_intervals_json=excluded.work_code_intervals_json,
-                reserve_hours_json=excluded.reserve_hours_json""",
+                reserve_hours_json=excluded.reserve_hours_json,
+                s1_default_interval_json=excluded.s1_default_interval_json""",
             (
                 settings.site_id, settings.company_print_name, settings.site_print_name, settings.base_regime,
                 _intervals_to_json(settings.work_code_intervals), json.dumps(settings.reserve_hours, sort_keys=True),
+                _s1_interval_to_json(settings.s1_default_interval),
             ),
         )
 
@@ -258,12 +297,12 @@ def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettin
 def get_site_print_settings(conn: sqlite3.Connection, site_id: str) -> Optional[SitePrintSettings]:
     row = conn.execute(
         "SELECT site_id, company_print_name, site_print_name, base_regime, "
-        "work_code_intervals_json, reserve_hours_json FROM site_print_settings WHERE site_id = ?",
+        "work_code_intervals_json, reserve_hours_json, s1_default_interval_json FROM site_print_settings WHERE site_id = ?",
         (site_id,),
     ).fetchone()
     if row is None:
         return None
-    site_id_, company, site_name, regime, intervals_json, reserve_json = row
+    site_id_, company, site_name, regime, intervals_json, reserve_json, s1_interval_json = row
     try:
         reserve = json.loads(reserve_json)
     except json.JSONDecodeError as exc:
@@ -273,6 +312,7 @@ def get_site_print_settings(conn: sqlite3.Connection, site_id: str) -> Optional[
     settings = SitePrintSettings(
         site_id=site_id_, company_print_name=company, site_print_name=site_name, base_regime=regime,
         work_code_intervals=_intervals_from_json(intervals_json), reserve_hours=reserve,
+        s1_default_interval=_s1_interval_from_json(s1_interval_json),
     )
     validate_site_print_settings(settings)  # revalidate: corrupt persisted rows must fail closed, never silently pass
     return settings

@@ -79,11 +79,10 @@ test.describe("T042 Checkpoint A -- local date across the UTC boundary", () => {
     // cutover date defaults to 2026-09-01, not 2026-08-31.
     await page.locator('[data-diag-action="room-nav-monthly-planning"]').click();
     await expect(page.getByRole("heading", { name: "Planowanie miesiąca" })).toBeVisible();
-    // Room mounts MonthlyPlanning for "Planowanie miesiąca"/"Ręczna
-    // korekta"/"Wydruk Grafiku" alike (it embeds Export internally for the
-    // "wydruk" mode), so a plain label match can hit either screen's own
-    // "Miesiąc" control -- MonthlyPlanning's own picker is the <select>.
-    await expect(page.getByRole("combobox", { name: "Miesiąc" })).toHaveValue("2026-09");
+    // ROTA-T053: MonthlyPlanning no longer has its own month picker -- it
+    // reads the single Room-level "Miesiąc roboczy" input already asserted
+    // above, which stays September across every screen.
+    await expect(page.locator('input[type="month"]')).toHaveValue("2026-09");
 
     await page.locator('[data-diag-action="plan-month-first"]').click();
     await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
