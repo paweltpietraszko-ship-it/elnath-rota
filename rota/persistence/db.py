@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 11
+LATEST_SCHEMA_VERSION = 12
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -527,6 +527,29 @@ _MIGRATION_11: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 12: ROTA-T054 -- persisted PLAN/REPLAN preview. At most one
+# current row per (site_id, month); NOT a ScheduleVersion, NOT a history --
+# candidates_json/warnings_json are a snapshot of one FEASIBLE
+# PlanningResult, overwritten by the next one and deleted on accept/reject
+# (brief section 4). schedule_version_id names the exact WORKING version
+# the preview was computed against, so a reader can tell a stale preview
+# (current version has since changed) apart without a second table.
+# ---------------------------------------------------------------------------
+_MIGRATION_12: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS plan_previews (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
+        candidates_json TEXT NOT NULL,
+        warnings_json TEXT NOT NULL,
+        optimization_complete INTEGER NOT NULL,
+        PRIMARY KEY (site_id, month),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -539,6 +562,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (9, _MIGRATION_9),
     (10, _MIGRATION_10),
     (11, _MIGRATION_11),
+    (12, _MIGRATION_12),
 )
 
 

@@ -17,6 +17,7 @@ from rota.application.errors import (
     require_real_date,
 )
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
+from rota.persistence import plan_preview_repository
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
 from rota.persistence.schedule_repository import (
@@ -68,6 +69,45 @@ def _persist_decision_readback(
             )
         return result
     return result  # TECHNICAL_ERROR: previous current pointer is preserved untouched
+
+
+def _persist_plan_preview(
+    conn, *, site_id: str, month: date, schedule_version_id: str, result: PlanningResult,
+) -> PlanningResult:
+    """ROTA-T054 (brief section 5, "PLAN/REPLAN FEASIBLE"): after a complete
+    FEASIBLE result, atomically save/replace the current (site_id, month)
+    preview, so a reload or navigating away and back shows exactly this
+    result without re-running the solver. Never called for a non-FEASIBLE
+    result -- there is nothing worth remembering (DECISION_REQUIRED already
+    has its own durable readback; the rest are transient search states).
+
+    A persistence failure must never be silently swallowed nor mutate the
+    ScheduleVersion with the candidate -- it stays visible for this
+    response only, flagged via a warning the UI is required to show
+    verbatim (OWNER decision 8: never claim a trwały save that didn't
+    happen)."""
+    if result.status != "FEASIBLE":
+        return result
+    try:
+        plan_preview_repository.save_plan_preview(conn, plan_preview_repository.PlanPreview(
+            site_id=site_id, month=month, schedule_version_id=schedule_version_id,
+            candidates=result.candidates, warnings=list(result.warnings),
+            optimization_complete=result.optimization_complete,
+        ))
+    except sqlite3.Error:
+        result.warnings = list(result.warnings) + [
+            "PLAN_PREVIEW_NOT_PERSISTED: wynik nie został zapisany trwale — zniknie po odświeżeniu strony lub opuszczeniu ekranu"
+        ]
+    return result
+
+
+def reject_plan_preview(conn, *, site_id: str, month: date, coordinator_id: str) -> None:
+    """ROTA-T054 (brief section 5, "ODRZUĆ WYNIK", OWNER decision 5/7): the
+    coordinator's explicit, small operation to discard the current
+    unaccepted PLAN/REPLAN preview. Deletes only the preview row -- never
+    touches ScheduleVersion content or history."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    plan_preview_repository.delete_plan_preview(conn, site_id, month)
 
 
 def _require_working_or_absent(conn, site_id: str, month: date) -> str | None:
@@ -172,10 +212,11 @@ def plan_month(
         # already surfaces them there). Merge, don't replace: plan()'s own
         # solver/validator warnings are still real warnings too.
         result.warnings = list(assembler_warnings) + list(result.warnings)
-        return _persist_decision_readback(
+        result = _persist_decision_readback(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             schedule_version_id=version_id, result=result,
         )
+        return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=version_id, result=result)
     state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     if _stale_empty_working_needs_fresh_demands(state, month):
         # R4-1/R6-1 (same rationale as the two branches above): the read
@@ -198,9 +239,10 @@ def plan_month(
         state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     result = plan(state, search_attempt=search_attempt)
     result.warnings = list(assembler_warnings) + list(result.warnings)  # see note above
-    return _persist_decision_readback(
+    result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
+    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result)
 
 
 def _coerce_unproven_realized_to_planned(candidate: list[Assignment], prior_existing: tuple) -> list[Assignment]:
@@ -332,6 +374,12 @@ def _select_candidate_hook(
             responds_to_decision_required_id=responds_to_decision_required_id,
         )
         site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
+        # ROTA-T054 (brief section 5, "SELECT CANDIDATE", OWNER decision 6):
+        # the accepted preview is removed in the SAME atomic write that
+        # accepts it, so no "ghost" of an already-accepted preview can
+        # survive a reload. A select that fails never reaches this hook, so
+        # the preview correctly stays (T54-05).
+        plan_preview_repository.delete_plan_preview_in_open_transaction(open_conn, site_id, month)
 
     return _hook
 
@@ -455,9 +503,10 @@ def replan(
     # its cutover-preservation check) -- best effort, same as every other
     # cutover-adjacent timestamp in this flow.
     result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now())
-    return _persist_decision_readback(
+    result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
     )
+    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=child_id, result=result)
 
 
 def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0) -> PlanningResult:
@@ -475,9 +524,10 @@ def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str,
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to retry REPLAN on")
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now(), search_attempt=search_attempt)
-    return _persist_decision_readback(
+    result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
+    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result)
 
 
 def replan_wider_search(
@@ -498,6 +548,7 @@ def replan_wider_search(
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to search wider on")
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
     result = plan_requiring_different_result_wide(state, cutover_at=datetime.now(), search_attempt=search_attempt)
-    return _persist_decision_readback(
+    result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
+    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result)

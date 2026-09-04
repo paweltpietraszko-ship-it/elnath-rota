@@ -1,7 +1,7 @@
 // ROTA-T031 (tasks/ROTA-T031/brief.md): Planowanie miesiąca. Thin client
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut } from "../api/client";
 import Export from "./Export";
 import { todayIso } from "../localDate";
@@ -187,6 +187,57 @@ export default function MonthlyPlanning({
   // operation (plan vs. the correct replan stage) rather than guessing.
   const [planResultSource, setPlanResultSource] = useState<"plan" | "replan">("plan");
   const [effectiveFromDraft, setEffectiveFromDraft] = useState(monthIso);
+
+  // ROTA-T054: tracks whether the currently-shown planResult originates
+  // from the persisted, unaccepted preview (view.plan_preview) --
+  // reconstructed on load/reload/navigate-back rather than a fresh
+  // in-session PLAN/REPLAN response. Only gates confirmReplacePreview
+  // below; the "Niezatwierdzony wynik PLAN" label/"Odrzuć wynik" render
+  // for any FEASIBLE planResult, persisted or not (by the time the
+  // coordinator sees it, a successful PLAN/REPLAN has already tried to
+  // persist it).
+  const isPersistedPreviewRef = useRef(false);
+  const [rejectingPreview, setRejectingPreview] = useState(false);
+
+  useEffect(() => {
+    if (view?.plan_preview) {
+      setPlanResult({
+        status: "FEASIBLE",
+        candidates: view.plan_preview.candidates,
+        decision_payload: null,
+        error_message: null,
+        warnings: view.plan_preview.warnings,
+        optimization_complete: view.plan_preview.optimization_complete,
+      });
+      isPersistedPreviewRef.current = true;
+    } else if (isPersistedPreviewRef.current) {
+      // The preview this screen was showing is gone (accepted, rejected,
+      // or invalidated elsewhere) -- never keep showing stale candidates.
+      setPlanResult(null);
+      isPersistedPreviewRef.current = false;
+    }
+  }, [view?.plan_preview]);
+
+  const rejectPreview = async () => {
+    setRejectingPreview(true);
+    setError(null);
+    try {
+      await api.rejectPlanPreview(siteId, monthIso);
+      setPlanResult(null);
+      isPersistedPreviewRef.current = false;
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setRejectingPreview(false);
+    }
+  };
+
+  // OWNER decision 4 (brief section 5/6): before replacing an existing
+  // preview with a fresh PLAN/REPLAN, the coordinator must be told plainly.
+  const confirmReplacePreview = (): boolean =>
+    !isPersistedPreviewRef.current
+    || window.confirm("Obecny niezatwierdzony wynik PLAN zostanie zastąpiony nowym. Kontynuować?");
 
   // R1-1 (round-1 audit): resync the PLAN-first date whenever the selected
   // month changes -- it must never silently keep a stale month's date.
@@ -397,6 +448,7 @@ export default function MonthlyPlanning({
   const [planSearchAttempt, setPlanSearchAttempt] = useState(0);
 
   const runPlan = async () => {
+    if (!confirmReplacePreview()) return;
     setPlanning(true);
     setError(null);
     setPlanSearchAttempt(0);
@@ -462,6 +514,7 @@ export default function MonthlyPlanning({
   const [replanSearchAttempt, setReplanSearchAttempt] = useState(0);
 
   const runReplan = async () => {
+    if (!confirmReplacePreview()) return;
     setPlanning(true);
     setError(null);
     setLastWideSearch(false);
@@ -908,6 +961,14 @@ export default function MonthlyPlanning({
               survives reload) is the single source of truth, avoiding a
               duplicate message once load() catches up. */}
 
+          {/* ROTA-T054 (T54-07): a preview READ failure is shown separately
+              from the current schedule above, which stays untouched. */}
+          {view?.plan_preview_error && (
+            <div className="banner-error" style={{ marginTop: 12 }}>
+              Nie udało się odczytać niezatwierdzonego wyniku PLAN: {view.plan_preview_error}
+            </div>
+          )}
+
           {planResult && planResult.status === "TECHNICAL_ERROR" && (
             <div className="banner-error" style={{ marginTop: 12 }}>
               {planResult.error_message ?? "Błąd techniczny solvera."}
@@ -1002,7 +1063,30 @@ export default function MonthlyPlanning({
 
           {planResult && planResult.status === "FEASIBLE" && planResult.candidates.length > 0 && (
             <div className="panel" style={{ marginTop: 12 }}>
-              <h3>Kandydaci</h3>
+              <div className="panel-title-row">
+                <h3>Kandydaci</h3>
+                <span className="badge-pill badge-off" data-diag-element="plan-preview-label">
+                  Niezatwierdzony wynik PLAN
+                </span>
+              </div>
+              {/* ROTA-T054 (T54-06): a persistence failure never blocks the
+                  save/response, but the coordinator must be told plainly
+                  that this result is session-only and will disappear. */}
+              {planResult.warnings.some((w) => w.startsWith("PLAN_PREVIEW_NOT_PERSISTED")) && (
+                <div className="banner-warning" style={{ marginBottom: 12 }}>
+                  Ten wynik nie został zapisany trwale — zniknie po odświeżeniu strony lub opuszczeniu ekranu.
+                </div>
+              )}
+              <div className="create-panel-actions" style={{ marginBottom: 12 }}>
+                <button
+                  className="btn-ghost"
+                  data-diag-action="reject-plan-preview"
+                  onClick={rejectPreview}
+                  disabled={rejectingPreview || selecting}
+                >
+                  {rejectingPreview ? "Odrzucanie…" : "Odrzuć wynik"}
+                </button>
+              </div>
               {planResult.candidates.map((candidate, i) => (
                 <div key={i} style={{ marginBottom: 16 }}>
                   <p className="panel-hint">Kandydat {i + 1}</p>
