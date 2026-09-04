@@ -204,3 +204,25 @@ Po korekcie round_02 niezależny audytor ma wykonać wyłącznie wąski reaudyt 
 Oczekiwany werdykt: `PASS — READY_FOR_IMPLEMENTATION` albo `FAIL` wyłącznie z konkretną pozostałą sprzecznością tekst ↔ aktualny kod.
 
 Test nie tworzy kontraktu.
+
+## 12. EXACT TASK_SCOPE
+
+TASK_SCOPE:
+- tasks/ROTA-T052/brief.md
+- rota/domain.py
+- rota/application/manual_edit.py
+- rota/balance.py
+- rota/planning/solver.py
+- rota/planning/validator.py
+- rota/planning/work_periods.py
+- rota/persistence/site_repository.py
+- rota/persistence/schedule_validation.py
+- rota/persistence/schedule_repository.py
+- rota/persistence/schedule_lifecycle.py
+- rota/persistence/db.py
+- api/routers/schedule.py
+- api/routers/export.py
+- frontend/src/api/client.ts
+- frontend/src/screens/MonthlyPlanning.tsx
+- frontend/src/screens/PrintSettings.tsx
+- rota/application/schedule_export.py
