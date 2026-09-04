@@ -1,0 +1,30 @@
+ROTA-T053 — IMPLEMENTATION RE-AUDIT R4
+
+Audytowany exact SHA: 49a8d8eccf268a3bb8a89b44b944f73b9e43c769
+
+Werdykt: PASS
+
+Zakres był ograniczony do dwóch findingów R3 i kontroli, że wcześniejszy
+pozytywny pion nadal działa.
+
+R3-01 zamknięty:
+
+- Room.tsx sprawdza teraz realny zakres miesiąca 01..12;
+- reproduktor z localStorage="2026-99" wraca do bieżącego miesiąca.
+
+R3-02 zamknięty:
+
+- Export.tsx wylicza periodLabel bezpośrednio z workingMonth;
+- nie przechowuje osobnego periodLabel state;
+- pole „Etykieta okresu na wydruku” zostało usunięte.
+
+Wyniki:
+
+- npm.cmd run build: PASS;
+- npx.cmd playwright test e2e/t053-independent-audit.spec.ts --retries=0:
+  3 passed;
+- pozytywny pion obejmuje EmployeeDetail, MonthlyPlanning, Analytics, reload
+  i zmianę obiektu; dwa pierwotne reproduktory również PASS.
+
+Pełnej regresji nie uruchamiano — zakres poprawki i ryzyko nie uzasadniały
+jej, a OWNER nie wydał takiej zgody. PASS dotyczy wyłącznie exact SHA wyżej.
