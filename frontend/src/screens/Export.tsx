@@ -49,13 +49,9 @@ export default function Export({
   // keeps an independent month/period source (brief §4/§7).
   workingMonth: string;
 }) {
-  const [periodLabel, setPeriodLabel] = useState(monthLabel(workingMonth));
-  // periodLabel is a free-text override of the label; it must still track
-  // the working month whenever the coordinator hasn't diverged it, so a
-  // month change elsewhere in the app doesn't leave a stale label here.
-  useEffect(() => {
-    setPeriodLabel(monthLabel(workingMonth));
-  }, [workingMonth]);
+  // R3-02 (round-3 audit): the period label has no independent source of
+  // truth at all -- it's derived from workingMonth, not a free-text field.
+  const periodLabel = monthLabel(workingMonth);
   const [hasSettings, setHasSettings] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -143,11 +139,6 @@ export default function Export({
               Ustawienia wydruku
             </button>
           </div>
-
-          <label style={{ display: "block", marginBottom: 16 }}>
-            <span className="field-label">Etykieta okresu na wydruku</span>
-            <input value={periodLabel} onChange={(e) => setPeriodLabel(e.target.value)} />
-          </label>
 
           {result && <div className={result.ok ? "banner-warning" : "banner-error"}>{result.message}</div>}
 

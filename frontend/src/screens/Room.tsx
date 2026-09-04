@@ -10,7 +10,9 @@ import Overview from "./Overview";
 import { todayYearMonth } from "../localDate";
 
 const WORKING_MONTH_STORAGE_KEY = "elnath-rota-working-month";
-const YEAR_MONTH_RE = /^\d{4}-\d{2}$/;
+// R3-01 (round-3 audit): "2026-99" has the right shape but no such month --
+// the regex only checks the text shape, so also range-check the month 01-12.
+const YEAR_MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 // ROTA-T053: one working month shared across MonthlyPlanning, Analytics,
 // EmployeeDetail and the print flow (Export, embedded in MonthlyPlanning) --
