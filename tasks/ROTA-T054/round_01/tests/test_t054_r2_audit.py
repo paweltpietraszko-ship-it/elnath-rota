@@ -188,5 +188,5 @@ def test_reloaded_replan_preview_retains_its_operation_family(tmp_path):
     assert view.plan_preview is not None
     # MonthlyPlanning must know that "Szukaj dalej" continues REPLAN.
     # Without this, its default planResultSource="plan" sends POST /plan.
-    assert getattr(view.plan_preview, "operation_kind", None) == "REPLAN"
+    assert getattr(view.plan_preview, "operation_kind", None) == "replan"
     conn.close()

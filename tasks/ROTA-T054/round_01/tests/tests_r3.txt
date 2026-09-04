@@ -1,0 +1,49 @@
+ROTA-T054 — REAUDYT IMPLEMENTACJI R3
+
+Audytowany exact SHA: 515cca90c5f8a1d43e5cfad89a7ca532be407989
+Werdykt: PASS
+
+Zakres
+
+- ponowiono wyłącznie trzy reproduktory z FAIL R2;
+- pion backendowy używał prawdziwego SQLite, assemblera, solvera,
+  validate(), PLAN/REPLAN/select/finalize i GET month;
+- pion ekranowy używał prawdziwej przeglądarki, API i backendu;
+- pełnej regresji repozytorium nie uruchamiano.
+
+Wyniki
+
+1. `.venv\Scripts\python.exe -m pytest -q
+   tasks/ROTA-T054/round_01/tests/test_t054_r2_audit.py`
+   Wynik: 5 passed.
+
+2. `npm.cmd run test:e2e -- --project=chromium
+   e2e/t054-independent-audit.spec.ts --retries=0`
+   Wynik: 1 passed.
+
+Weryfikacja findingów R2
+
+- R2-01: PASS. GET month nie zwraca plan_preview, gdy odpowiadająca mu
+  bieżąca wersja ma status FINAL. Rzeczywisty cykl PLAN -> select -> ponowny
+  PLAN -> finalize -> GET przeszedł.
+- R2-02: PASS. „Szukaj dalej” dla zapisanego preview otwiera potwierdzenie;
+  odrzucenie potwierdzenia nie wysyła żądania zastępującego wynik. Ta sama
+  bramka jest podłączona do PLAN retry oraz obu kontynuacji REPLAN.
+- R2-03: PASS. operation_kind zapisuje się i odczytuje jako `plan` albo
+  `replan`; rzeczywisty PLAN -> select -> REPLAN -> GET zwrócił `replan`, a
+  frontend odtwarza z niego planResultSource po reloadzie.
+
+Kontrola środowiska
+
+Pierwsza próba przeglądarkowa użyła zachowanej technicznej bazy E2E utworzonej
+na wcześniejszym, niescalonym commicie T054, który miał już user_version=12,
+ale jeszcze nie miał kolumny operation_kind. Finalna migracja 12 jest celowo
+złożona przed scaleniem Tasku; produkcyjny base `main` nadal ma wersję 11.
+Test został więc powtórzony na schemacie odpowiadającym realnej aktualizacji
+main 11 -> T054 12 i przeszedł. Dotychczasową bazę E2E przywrócono bez zmian.
+
+Jedyna zmiana w reproduktorze audytora: oczekiwanie normalizowanego kontraktu
+`replan` małymi literami zamiast `REPLAN`. Backend, API i typ frontendu używają
+zgodnie wartości `plan | replan`; nie była to wada produktu.
+
+PASS dotyczy wyłącznie exact SHA podanego wyżej.
