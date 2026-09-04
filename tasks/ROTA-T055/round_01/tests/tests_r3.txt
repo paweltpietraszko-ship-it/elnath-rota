@@ -1,0 +1,81 @@
+ROTA-T055 — WĄSKI REAUDYT IMPLEMENTACJI R3
+
+Audytowany SHA: 4858dcb06d7d6b6ca2b595fc50105e0a1ef38c7b
+Commit kodu poprawki: ec3a714
+Poprzedni raport: tasks/ROTA-T055/round_01/tests/tests_r2.txt
+
+WERDYKT: FAIL
+
+Zakres i wyniki
+
+1. Obejrzano wyłącznie poprawkę po R2-01 oraz zmienione oczekiwania testów.
+2. Testy T055: 5 passed.
+3. Niezależny pion SQLite -> assembler -> validator -> router GET -> dokładna transformacja `resolveWarningText()`:
+   - UUID został poprawnie zastąpiony nazwą pracownika;
+   - surowy `assignment_id` został poprawnie usunięty z badanego warningu;
+   - widoczny tekst nadal zaczyna się od `DAY_SHIFT_OFF-01 SOFT:`.
+4. Niezależny rzeczywisty wynik DAY_ONLY-N-FALLBACK został wygenerowany przez produkcyjne `plan()`.
+5. `git diff --check`: PASS.
+
+Nie uruchamiano pełnej regresji.
+
+FINDING R3-01 — symbole systemowe nadal są pokazywane koordynatorowi
+
+TRACE
+
+- Jawna decyzja OWNERA przekazana z poprawką: „WSZYSTKO co widzi koordynator jest po polsku i bez nic nie mówiących symboli systemowych” (BOARD.md, przekazanie T055 dla SHA 4858dcb).
+- T055 prowadzi warningi do istniejącego bannera widocznego dla koordynatora (`tasks/ROTA-T055/brief.md`, sekcje 1, 3.1 i 4).
+
+OWNERSHIP
+
+- Pięć zmienionych tekstów w `rota/planning/validator.py:252-271,354-358,410-414,624-627,745-748` zachowuje widoczne prefiksy `DAY_ONLY-N-FALLBACK-01 SOFT`, `DAY_SHIFT_OFF-01 SOFT`, `LEAVE_PLAN-01 SOFT`, `REST-01 SOFT` i `WEEKLY-REST-01 SOFT`.
+- DAY_ONLY pozostawia dodatkowo widoczne identyfikatory `demand_id` oraz `rule_version_id` jako „zapotrzebowanie …” i „reguła …”. Brak resolvera nie zmienia ich w informację zrozumiałą dla koordynatora.
+- `MonthlyPlanning.tsx:315-320` zamienia tylko ID pracownika na nazwę; nie usuwa tych symboli.
+
+REPRO NA EXACT SHA
+
+Rzeczywisty GET po zapisanym DAY_SHIFT_OFF, po zastosowaniu dokładnej transformacji ekranu, daje:
+
+  DAY_SHIFT_OFF-01 SOFT: Emp One ma zmianę kończącą się w trakcie dnia wolnego (2026-08-04)
+
+UUID jest już poprawnie zastąpiony, lecz kod `DAY_SHIFT_OFF-01 SOFT` nadal jest tekstem widocznym dla człowieka.
+
+Rzeczywisty produkcyjny PLAN dla wyjątku DAY_ONLY zwraca między innymi:
+
+  DAY_ONLY-N-FALLBACK-01 SOFT: 'A' ma nockę mimo dnia wolnego dzięki wyjątkowi zmianowemu (zapotrzebowanie N-6, data 2026-10-06, reguła RV-2)
+
+Widoczne pozostają kod warningu, identyfikator zapotrzebowania i identyfikator reguły.
+
+SKUTEK
+
+Poprawka spełnia część decyzji dotyczącą języka i nazwy pracownika, ale nie spełnia zaakceptowanego zakazu pokazywania nic niemówiących symboli systemowych.
+
+DEFECT_GATE: TRACE, OWNERSHIP i REPRO spełnione.
+
+FINDING R3-02 — komunikat DAY_ONLY myli ograniczenie do zmian dziennych z dniem wolnym
+
+TRACE
+
+- `_check_day_only()` obsługuje `Employee.day_only`: pracownik jest ograniczony do zmian dziennych, a potwierdzona reguła wyjątkowa pozwala mu dostać nockę (`rota/planning/validator.py:233-271`).
+- `DAY_SHIFT_OFF` jest oddzielnym mechanizmem dyspozycji/dnia wolnego, sprawdzanym przez `_check_day_shift_off()` (`rota/planning/validator.py:335-358`).
+- OWNER zaakceptował komunikaty po polsku, co nie zezwala na zmianę znaczenia reguły.
+
+OWNERSHIP
+
+- Nowy tekst w `_check_day_only()` brzmi: „ma nockę mimo dnia wolnego”. To tłumaczenie zostało dodane bezpośrednio w poprawce T055.
+
+REPRO NA EXACT SHA
+
+W reproduktorze pracownik `A` ma `day_only=True`, nie ma żadnego `DAY_SHIFT_OFF`, a produkcyjne `plan()` zwraca:
+
+  … ma nockę mimo dnia wolnego …
+
+Nie istnieje żaden dzień wolny, którego komunikat mógłby dotyczyć.
+
+SKUTEK
+
+Koordynator dostaje fałszywą przyczynę ostrzeżenia. Problem dotyczy nocki przy ograniczeniu pracownika do pracy dziennej, a nie pracy podczas dnia wolnego.
+
+DEFECT_GATE: TRACE, OWNERSHIP i REPRO spełnione.
+
+Nie stwierdzono regresji w samym transporcie warningów ani w zamianie cytowanego employee_id na display_name.
