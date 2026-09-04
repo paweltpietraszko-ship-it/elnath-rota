@@ -353,8 +353,10 @@ def test_b10_2_exactly_one_exceptional_n_with_warning():
     assert [a.employee_id for a in result.candidates[0]] == ["A"]
     fallback_warnings = [w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]
     assert len(fallback_warnings) == 1
-    assert "employee=A" in fallback_warnings[0]
-    assert "rule_version_id=RV-2" in fallback_warnings[0]
+    # ROTA-T055 R2-01 (OWNER 2026-09-04): quoted employee_id + Polish body,
+    # was raw "employee=A"/"rule_version_id=RV-2" English labels.
+    assert "'A'" in fallback_warnings[0]
+    assert "reguła RV-2" in fallback_warnings[0]
 
 
 # B10.3 -----------------------------------------------------------------------
@@ -779,8 +781,10 @@ def test_b10_14_durable_provenance_reconstructible_from_applied_rule_version_ids
     applicable = hard_rules_applicable_on([r for r in resolved if r.rule_version_id in applied], applicability, demand.start_datetime.date())
     reconstructed = day_only_n_exception_authorizing_rule_version_id(applicable, emp)
     assert reconstructed == original.rule_version_id
-    assert f"demand={demand.demand_id}" in warning
-    assert f"rule_version_id={reconstructed}" in warning
+    # ROTA-T055 R2-01 (OWNER 2026-09-04): quoted employee_id + Polish body,
+    # was raw "demand=.../rule_version_id=..." English labels.
+    assert f"zapotrzebowanie {demand.demand_id}" in warning
+    assert f"reguła {reconstructed}" in warning
     reopened.close()
 
 
@@ -820,7 +824,8 @@ def test_b10_16_two_equivalent_exception_families_give_one_canonical_id_regardle
     assert result.status == "FEASIBLE"
     fallback_warnings = [w for w in result.warnings if "DAY_ONLY-N-FALLBACK-01" in w]
     assert len(fallback_warnings) == 1
-    assert "rule_version_id=RV-16-A" in fallback_warnings[0]
+    # ROTA-T055 R2-01 (OWNER 2026-09-04): was raw "rule_version_id=RV-16-A".
+    assert "reguła RV-16-A" in fallback_warnings[0]
 
 
 # B10.17 ----------------------------------------------------------------------

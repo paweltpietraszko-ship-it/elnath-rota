@@ -503,7 +503,11 @@ def test_m26_m28_multi_candidate_real_warnings_keep_prefix_order_and_body():
     assert seen_prefixes == sorted(seen_prefixes, key=lambda p: int(p.split("=")[1]))
     for index, warning in enumerate(result.warnings, start=1):
         assert warning.startswith(f"candidate={index} | DAY_ONLY-N-FALLBACK-01 SOFT:")
-        for required in ("employee=", "demand=N2", "date=2026-10-13", "rule_version_id=RV-"):
+        # ROTA-T055 R2-01 (OWNER 2026-09-04): the body is now plain Polish
+        # with the employee_id quoted for MonthlyPlanning.tsx's
+        # resolveWarningText() -- was raw "employee=/demand=/date=/
+        # rule_version_id=" English labels.
+        for required in ("ma nockę mimo ograniczenia do zmian dziennych", "zapotrzebowanie N2", "data 2026-10-13", "reguła RV-"):
             assert required in warning
 
 

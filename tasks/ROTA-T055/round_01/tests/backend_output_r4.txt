@@ -1,0 +1,78 @@
+STATUS: FAIL
+HEAD_SHA: 3dc53261a71deb9cd752585bc764f00e478e4e21
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - DIFF_SCOPE: file outside TASK_SCOPE: tests/test_t017.py
+  - DIFF_SCOPE: file outside TASK_SCOPE: tests/test_t018.py
+  - SIZE_FILE: rota/planning/validator.py has 806 lines (max 600)
+  - SIZE_FUNC: rota/planning/validator.py:_check_rest has 84 lines (max 50)
+  - SIZE_FUNC: api/routers/schedule.py:get_month has 58 lines (max 50)
+WYMAGA_DECYZJI:
+  - RATIO: 67/6 = 11.2:1 (threshold 5:1)
+IMPORTERS_FOR_REVIEW:
+  - benchmarks\rota_stress.py
+  - tests\test_audit_r12_findings.py
+  - tests\test_audit_r13_findings.py
+  - tests\test_audit_r20_r21_findings.py
+  - tests\test_audit_r22_findings.py
+  - tests\test_audit_r23_findings.py
+  - tests\test_audit_r25_findings.py
+  - tests\test_audit_r26_findings.py
+  - tests\test_audit_t009_r5.py
+  - tests\test_audit_t010_r5_b.py
+  - tests\test_eligibility_matrix.py
+  - tests\test_replan_and_soft_ranking.py
+  - tests\test_rota_generic_month.py
+  - tests\test_rota_reg_001.py
+  - tests\test_site_rules_execution.py
+  - tests\test_t009_manual_edit.py
+  - tests\test_t009_open_and_assembler.py
+  - tests\test_t010_day_only_n_exception.py
+  - tests\test_t011_a_application_entry_points.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t011_e_pipeline_e2e_hard_stop.py
+  - tests\test_t012.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t017.py
+  - tests\test_t018.py
+  - tests\test_t019.py
+  - tests\test_t022_planning_integrity.py
+  - tests\test_t023.py
+  - tests\test_t023b.py
+  - tests\test_t031_schedule_api.py
+  - tests\test_t032_soft_ranking.py
+  - tests\test_t034_third_consecutive_shift_soft.py
+  - tests\test_t036_rest_deviation_target.py
+  - tests\test_t040_h24_rhythm_occupancy.py
+  - tests\test_t041_checkpoint_a.py
+  - tasks\ROTA-T055\round_01\tests\test_t055_implementation.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r2_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r4_architect_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r5_independent.py
+  - tasks\ROTA-T052\round_01\tests\test_t052_r4_audit.py
+  - tasks\ROTA-T041\round_01\tests\test_checkpoint_a_audit.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032\round_01\tests\repro_r5.py
+  - tasks\ROTA-T023b\round_01\tests\test_t023b_r5_audit.py
+  - tasks\ROTA-T022\round_01\tests\test_t022_r1_audit.py
+  - tasks\ROTA-T012\scenarios\t012_owner_march_2027_probe.py
+  - rota\application\deviation_mapping.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+  - rota\application\open_month.py
+  - rota\application\plan_ops.py
+  - rota\persistence\absence_reference_repository.py
+  - rota\planning\engine.py
+  - api\routers\manual_edit.py
+  - api\routers\schedule.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T055/round_01/tests/backend_output_r1.txt
+  - tasks/ROTA-T055/round_01/tests/backend_output_r2.txt
+  - tasks/ROTA-T055/round_01/tests/backend_output_r3.txt
+  - tasks/ROTA-T055/round_01/tests/test_t055_implementation.py
+  - tasks/ROTA-T055/round_01/tests/tests_r2.txt
+  - tasks/ROTA-T055/round_01/tests/tests_r3.txt
+  - tasks/ROTA-T055/round_01/tests/tests_r4.txt
+  - tasks/ROTA-T017/brief.md

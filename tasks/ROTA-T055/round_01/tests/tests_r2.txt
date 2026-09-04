@@ -1,0 +1,66 @@
+ROTA-T055 — IMPLEMENTATION AUDIT R2
+
+Audytowany SHA: e3be129a4b604f15dbe3afaa752bbf9abb6f5cd8
+Base użyty przez implementatora: main@2648836
+Zakres diffu: rota/application/open_month.py + nowy test T055; bez zmian validatora, API i frontendu.
+
+WERDYKT: FAIL
+
+Warstwy audytu
+
+1. Przegląd exact diff i rzeczywistego read path: wykonany.
+2. Testy implementatora:
+   `python -m pytest -q tasks/ROTA-T055/round_01/tests/test_t055_implementation.py`
+   Wynik: 4 passed.
+3. Niezależny pion SQLite -> assembler -> open_month -> validator -> router GET:
+   current-state `DAY_SHIFT_OFF-01 SOFT` dotarł do HTTP 200 w `MonthViewOut.warnings`.
+4. Dwa wąskie kontrprzypadki istniejącego zachowania:
+   - solver-side niezapisany `DAY_SHIFT_OFF-01 SOFT` — PASS;
+   - GET miesiąca bez current ScheduleVersion — PASS.
+   Wynik: 2 passed.
+5. `git diff --check`: PASS.
+
+Nie uruchamiano pełnej regresji — zmiana jest wąska, a OWNER nie zatwierdził pełnej suity.
+
+FINDING R2-01 — koordynator dostaje surowy UUID i techniczny angielski komunikat
+
+TRACE
+
+- ROTA-T055 ma dostarczyć warning do koordynatora przez istniejący banner, a nie jedynie przenieść dane między funkcjami (`tasks/ROTA-T055/brief.md`, sekcje 1, 3.1 i 4).
+- Zamrożony pion T041 wymaga ostrzeżenia wskazującego człowiekowi osobę, a jego zaakceptowana korekta zamieniała UUID na `display_name` (`tasks/ROTA-T041/brief.md:78-80, 271-274`; potwierdzenie wyniku: `tasks/ROTA-T041/round_01/tests/tests_r7.txt:24-27`).
+- T048 utrwalił zasadę, że surowe identyfikatory i anglicyzmy nie mają być pokazywane wprost koordynatorowi (`tasks/ROTA-T048/brief.md:8-20`).
+
+OWNERSHIP
+
+- T055 po raz pierwszy dołącza `report.warnings` do pola wyświetlanego w UI (`rota/application/open_month.py:56-59` na audytowanym SHA).
+- Validator tworzy te teksty z niecytowanym `employee_id` oraz technicznymi kodami i angielskimi fragmentami (`rota/planning/validator.py:252,339,391,597-600,718-720`).
+- Istniejący `resolveWarningText()` zamienia wyłącznie identyfikator zapisany jako Python `repr`, czyli w apostrofach: `'employee_id'` (`frontend/src/screens/MonthlyPlanning.tsx:312-320`). Nowe warningi validatora nie używają takiego formatu, więc mechanizm ich nie rozpoznaje.
+
+REPRO NA EXACT SHA
+
+Niezależny pion utworzył pracownika:
+
+  employee_id = 2c63a94f-4bfa-4698-b040-d4aaa21c1f75
+  display_name = Emp One
+
+Zapisał nocną zmianę kończącą się w dniu `DAY_SHIFT_OFF`, a następnie wykonał zwykły:
+
+  GET /api/workspace/sites/SITE-1/schedule/2026-08-01
+
+Rzeczywista odpowiedź warning:
+
+  DAY_SHIFT_OFF-01 SOFT: 2c63a94f-4bfa-4698-b040-d4aaa21c1f75 assignment ASG-3 enters day off 2026-08-04
+
+Zastosowanie dokładnie obecnej transformacji `resolveWarningText()` pozostawiło ten tekst bez zmian; `Emp One` nie pojawiło się w wyniku.
+
+SKUTEK
+
+Sam transport T055 działa, ale banner pokazuje człowiekowi wewnętrzny UUID, identyfikator Assignmentu, kod reguły i angielski tekst. Koordynator nie dostaje czytelnej informacji, kogo i czego dotyczy ostrzeżenie. Ten sam problem formatu dotyczy pozostałych warningów validatora, ponieważ również wstawiają niecytowane `employee_id`.
+
+DEFECT_GATE
+
+- TRACE: spełniony.
+- OWNERSHIP: spełniony — to nowo uruchomiona przez T055 ścieżka prezentacji.
+- REPRO: spełniony na exact SHA przez rzeczywisty router/backend oraz dokładną transformację używaną przez ekran.
+
+Pozostałych defektów w dozwolonym zakresie T055 nie stwierdzono. Testy implementatora są użytecznym dowodem transportu, ale nie obejmują rzeczywistej postaci komunikatu widzianego przez koordynatora.
