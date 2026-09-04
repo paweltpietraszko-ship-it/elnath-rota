@@ -227,6 +227,12 @@ def _validate_assignment_references(
         mentor = assignments_by_id.get(assignment.mentor_primary_assignment_id)
         if mentor is None or mentor.role != AssignmentRole.PRIMARY:
             raise MalformedScheduleSnapshot(f"TRAINEE {assignment.assignment_id!r}: mentor not a same-version PRIMARY")
+    elif assignment.role == AssignmentRole.PERIODIC_TRAINING:
+        # T52-13: S1 never covers a demand and never has a mentor.
+        if assignment.covers_demand_id or assignment.mentor_primary_assignment_id:
+            raise MalformedScheduleSnapshot(
+                f"PERIODIC_TRAINING {assignment.assignment_id!r}: covers_demand_id and mentor_primary_assignment_id forbidden"
+            )
 
 
 def validate_assignments(conn: sqlite3.Connection, month: date, assignments: list[Assignment], demands_by_id: dict) -> dict[str, Assignment]:

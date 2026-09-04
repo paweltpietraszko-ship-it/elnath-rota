@@ -18,6 +18,7 @@ function emptySettings(): SitePrintSettingsIn {
     base_regime: "12h",
     work_code_intervals: Object.fromEntries(WORK_CODE_KEYS.map((k) => [k, null])),
     reserve_hours: Object.fromEntries(RESERVE_SLOT_KEYS.map((k) => [k, null])),
+    s1_default_interval: null,
   };
 }
 
@@ -30,6 +31,7 @@ function toFormState(s: SitePrintSettingsOut): SitePrintSettingsIn {
   return {
     company_print_name: s.company_print_name, site_print_name: s.site_print_name, base_regime: s.base_regime,
     work_code_intervals: s.work_code_intervals, reserve_hours: s.reserve_hours,
+    s1_default_interval: s.s1_default_interval,
   };
 }
 
@@ -63,6 +65,21 @@ export default function PrintSettings({ siteId }: { siteId: string }) {
 
   const setReserve = (slot: string, value: string) => {
     setForm((f) => (f ? { ...f, reserve_hours: { ...f.reserve_hours, [slot]: value === "" ? null : Number(value) } } : f));
+  };
+
+  // ROTA-T052: S1 has no fixed duration (brief section 4) -- this is only a
+  // default interval the coordinator can reuse in MonthlyPlanning, not a
+  // WORK_CODE_KEYS entry.
+  const setS1Interval = (field: keyof WorkCodeIntervalOut, value: string | boolean) => {
+    setForm((f) => {
+      if (!f) return f;
+      const current = f.s1_default_interval ?? { start_time: "", end_time: "", end_next_day: false };
+      return { ...f, s1_default_interval: { ...current, [field]: value } };
+    });
+  };
+
+  const clearS1Interval = () => {
+    setForm((f) => (f ? { ...f, s1_default_interval: null } : f));
   };
 
   const save = async () => {
@@ -161,6 +178,59 @@ export default function PrintSettings({ siteId }: { siteId: string }) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
+        S1 — szkolenie okresowe (domyślny przedział, pełne godziny, zmienna długość)
+      </p>
+      <div className="matrix-table-wrap">
+        <table className="roster-table">
+          <thead>
+            <tr>
+              <th>Kod</th>
+              <th>Start</th>
+              <th>Koniec</th>
+              <th>Koniec nast. dnia</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>S1</td>
+              <td>
+                <input
+                  type="time"
+                  step={3600}
+                  value={form.s1_default_interval?.start_time ?? ""}
+                  onChange={(e) => setS1Interval("start_time", e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  type="time"
+                  step={3600}
+                  value={form.s1_default_interval?.end_time ?? ""}
+                  onChange={(e) => setS1Interval("end_time", e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  type="checkbox"
+                  style={{ width: "auto" }}
+                  checked={form.s1_default_interval?.end_next_day ?? false}
+                  onChange={(e) => setS1Interval("end_next_day", e.target.checked)}
+                />
+              </td>
+              <td>
+                {form.s1_default_interval && (
+                  <button className="btn-ghost" onClick={clearS1Interval}>
+                    Wyczyść
+                  </button>
+                )}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

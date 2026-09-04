@@ -171,10 +171,14 @@ def _ckey(a) -> str:
 def _component(a) -> PeriodComponent:
     return PeriodComponent(_ckey(a), a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
 def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
-    # raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions. Raises on TRAINEE/INNY/bad provenance.
+    # raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions/s1_cells. Raises on TRAINEE/INNY/bad provenance.
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
     demand_by_assignment: dict = {}; assignment_by_id: dict = {}; seen_employee_ids: set[str] = set()  # noqa: E702
+    # ROTA-T052 (brief section 7): S1 never covers a demand and never
+    # participates in 24h-period/demand-coverage validation -- collected
+    # separately, merged into work_cells afterward (see _assemble_export_model).
+    s1_cells: dict[str, dict[date, str]] = {}
     for day in days:
         version_id = daily_version[day]
         if version_id is None:
@@ -185,6 +189,10 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
         demands_by_id = {d.demand_id: d for d in snapshot.shift_demands}
         for a in snapshot.assignments:
             if a.start_datetime.date() != day or a.state == AssignmentState.CANCELLED:
+                continue
+            if a.role == AssignmentRole.PERIODIC_TRAINING:
+                seen_employee_ids.add(a.employee_id)
+                s1_cells.setdefault(a.employee_id, {})[day] = "S1"
                 continue
             demand = demands_by_id.get(a.covers_demand_id) if a.covers_demand_id else None
             _validate_item(a, demand)
@@ -211,7 +219,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
         demand_by_assignment[_ckey(a)] = demand; assignment_by_id[_ckey(a)] = a; boundary_ids.add(_ckey(a))  # noqa: E702
         adjacent_versions[_ckey(a)] = (version_id, effective_from.isoformat() if effective_from else None)
         components.append(_component(a))
-    return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions
+    return raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions, s1_cells
 def _is_legitimate_normal_24h(d0, d1, total_hours: float) -> bool:
     # R5 Amendment Section 4.2 -- unchanged, still owned/re-derived by T020.
     if total_hours != 24 or d0.catalog_kind != ShiftCatalogKind.H24 or d1.catalog_kind != ShiftCatalogKind.H24:
@@ -239,7 +247,7 @@ def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> O
         return "linked"
     return None
 def _apply_24h_periods(collected, settings, days: list[date]):
-    raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions = collected
+    raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions, s1_cells = collected
     work_cells: dict[str, dict[date, str]] = {}; consumed: set[str] = set(); adjacent_facts: list[tuple] = []  # noqa: E702
     for period in group_into_periods(components):
         if len(period.component_ids) < 2:
@@ -265,6 +273,16 @@ def _apply_24h_periods(collected, settings, days: list[date]):
             raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has {len(remaining)} independent work items")
         assignment, demand = remaining[0]
         work_cells.setdefault(employee_id, {})[day] = _map_work_code(assignment, demand, settings)
+    # ROTA-T052 (T52-08): S1 shares the same one-code-per-day-per-employee
+    # cell as every other work item -- a real same-day collision (S1 plus
+    # another work item) reuses the existing MULTIPLE_WORK_ITEMS_PER_CELL
+    # protection rather than silently overwriting one code with the other.
+    for employee_id, by_day in s1_cells.items():
+        for day, code in by_day.items():
+            existing = work_cells.setdefault(employee_id, {})
+            if day in existing:
+                raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has both S1 and another work item")
+            existing[day] = code
     return work_cells, sorted(adjacent_facts)
 def _map_work_code(assignment, demand, settings) -> str:
     duration_hours = (assignment.end_datetime - assignment.start_datetime).total_seconds() / 3600
@@ -492,8 +510,8 @@ def _resolve_unicode_font() -> tuple[str, str, str]:
             return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
     raise ExportProblemError("PRINT_FONT_UNAVAILABLE", "no runtime-resolvable font covers the required Polish glyph set")
 # PDF rendering (Section 18) -- accepted Checkpoint A visual baseline: A3 landscape, headers, grid, weekend cue, full legend.
-_FILL = {"d": HexColor("#dcdcdc"), "n": HexColor("#a6a6a6"), "h24": HexColor("#595959"), "u": white, "c": white}
-_TEXT = {"d": black, "n": black, "h24": white, "u": black, "c": black, "off": HexColor("#8a8a8a")}
+_FILL = {"d": HexColor("#dcdcdc"), "n": HexColor("#a6a6a6"), "h24": HexColor("#595959"), "u": white, "c": white, "s1": white}
+_TEXT = {"d": black, "n": black, "h24": white, "u": black, "c": black, "off": HexColor("#8a8a8a"), "s1": black}
 _WEEKEND_BG = HexColor("#e2e2e2")
 _DOW = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
 MARGIN, NAME_W, SUM_W = 24.0, 170.0, 48.0
@@ -501,6 +519,8 @@ HEADER_H, LEGEND_H, FOOTER_H = 90.0, 150.0, 20.0
 def _family(code: str) -> str:
     if code == "24":
         return "h24"
+    if code == "S1":
+        return "s1"
     if code == BLANK:
         return "off"
     return {"D": "d", "N": "n", "U": "u", "C": "c"}.get(code[0], "off")
@@ -555,6 +575,12 @@ def _draw_cell(c, x, y, row_h, day_w, code, bold) -> None:
         c.setStrokeColor(black); c.setDash(2, 1.5)  # noqa: E702
         c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
         c.setDash()
+    elif fam == "s1":
+        # ROTA-T052: dotted border distinguishes S1 from U (solid) and C
+        # (dashed) in black-and-white print, per the legend's own scheme.
+        c.setStrokeColor(black); c.setDash(1, 1.5)  # noqa: E702
+        c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+        c.setDash()
     c.setFillColor(_TEXT.get(fam, black)); c.setFont(bold, 6.5)  # noqa: E702
     c.drawCentredString(x + day_w / 2, y - row_h + 5, "" if code == BLANK or code.endswith("~") else code)
     c.setFillColor(black)
@@ -589,8 +615,9 @@ def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> floa
             c.setFont(regular, 9); c.drawString(MARGIN + (j // 2) * col_w + (j % 2) * sub_w, y, _legend_line(letter, slot, value, demo))  # noqa: E702
         y -= 12
     c.setFont(regular, 9); c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia"); y -= 14  # noqa: E702
+    c.drawString(MARGIN, y, "S1 = szkolenie okresowe (ręcznie ustalane przez koordynatora, godziny pracy)"); y -= 14  # noqa: E702
     c.setFont(italic, 8); c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h)."); y -= 12  # noqa: E702
-    c.drawString(MARGIN, y, "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana — czytelne bez koloru.")
+    c.drawString(MARGIN, y, "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana, S1 = obwódka kropkowana — czytelne bez koloru.")
     return y - 12
 def _draw_page_header(c, model: ExportModel, day_w, revision: str, generated_at: datetime, regular, bold, page_h) -> float:
     y = page_h - MARGIN

@@ -190,8 +190,9 @@ def _check_trainee_mentor_reference(assignments: list[Assignment], details: list
 
 
 def _check_replan_preserves_fixed(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """REPLAN (SECTION 7, ASSIGN-03/04): REALIZED, frozen, TRAINEE, and any mentor-linked PRIMARY must not change --
-    mirrors solver.fixed_existing_assignments/replan_reshuffle's mentor-linked-PRIMARY protection (T022-F5)."""
+    """REPLAN (SECTION 7, ASSIGN-03/04): REALIZED, frozen, TRAINEE, PERIODIC_TRAINING (T52-11: S1 is a manual
+    coordinator fact, never solver-moved) and any mentor-linked PRIMARY must not change -- mirrors
+    solver.fixed_existing_assignments/replan_reshuffle's mentor-linked-PRIMARY protection (T022-F5)."""
     by_id = {a.assignment_id: a for a in assignments}
     mentor_linked_ids = {
         a.mentor_primary_assignment_id
@@ -203,7 +204,8 @@ def _check_replan_preserves_fixed(state: PlanningState, assignments: list[Assign
             continue
         must_preserve = (
             existing.state == AssignmentState.REALIZED or existing.frozen
-            or existing.role == AssignmentRole.TRAINEE or existing.assignment_id in mentor_linked_ids
+            or existing.role in (AssignmentRole.TRAINEE, AssignmentRole.PERIODIC_TRAINING)
+            or existing.assignment_id in mentor_linked_ids
         )
         if not must_preserve:
             continue
@@ -528,7 +530,7 @@ def _check_emergency_pairs(state: PlanningState, assignments: list[Assignment], 
             details.append(ViolationDetail(finding.code, finding.assignment_ids, f"{finding.code}: {work_period_id}: {finding.reason}"))
 
 
-def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> float | None:
+def _check_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> float | None:
     """REST-01, per-work-period -- 24h pairs have no internal check, earlier period's rest governs, only target-touching edges count.
     ROTA-T023b sec.6/7: under OCHRONA the floor after an exact 24h target-Site WorkPeriod rises to >=24h; never applied to other-Site periods."""
     ochrona = state.site.planning_regime == SitePlanningRegime.OCHRONA
@@ -537,6 +539,11 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
     other_site_list = _not_cancelled(state.other_site_assignments)
     other_site_keys = {(a.schedule_version_id, a.assignment_id) for a in other_site_list}
     all_assignments = list(assignments) + other_site_list + _not_cancelled(state.boundary_assignments)
+    # ROTA-T052: S1 (PERIODIC_TRAINING) still participates in overlap
+    # detection below, but is exempt from the REST-01 gap requirement in
+    # either direction (brief section 2 point 4) -- tracked by component id
+    # since PeriodComponent itself carries no role.
+    periodic_training_ids = {a.assignment_id for a in all_assignments if a.role == AssignmentRole.PERIODIC_TRAINING}
     all_components = [PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in all_assignments]
     for key, ids, reasons in find_malformed_periods(all_components):
         details.append(ViolationDetail("WORK_PERIOD-01", ids, f"WORK_PERIOD-01: period {key}: {'; '.join(reasons)}"))
@@ -565,6 +572,29 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
             ids = (earlier.component_ids[-1], later.component_ids[0])
             if periods_overlap(earlier, later):
                 details.append(ViolationDetail("REST-01", ids, f"REST-01: {employee_id} overlapping assignments", affected_employee_id=employee_id))
+                continue
+            # OWNER 2026-09-04 (T052 correction after contract PASS): S1 no
+            # longer silently skips REST-01's gap requirement -- it never
+            # HARD-blocks (a coordinator placement must never be rejected
+            # for this), but a real rest shortfall around S1 must be
+            # reported as a SOFT warning (Paweł: "nie możemy świadomie
+            # pisać programu łamiącego prawo" -- the tool must not stay
+            # silent about a real labor-law rest violation just because it
+            # won't block it). The zero-gap/illegal-continuous-pair check
+            # stays HARD-exempt for S1: it targets a specific PRIMARY
+            # 12h+12h-hiding-24h pattern, not a real rest measurement, and
+            # does not apply to S1's variable-duration manual fact.
+            involves_periodic_training = any(cid in periodic_training_ids for cid in earlier.component_ids) or any(
+                cid in periodic_training_ids for cid in later.component_ids
+            )
+            if involves_periodic_training:
+                gap = (later.start - earlier.end).total_seconds() / 3600
+                required_rest = effective_required_rest_after_hours(earlier, ochrona=ochrona and not any(k in other_site_keys for k in earlier.component_keys))
+                if gap < required_rest:
+                    warnings.append(
+                        f"REST-01 SOFT: {employee_id} {ids[0]}->{ids[1]}: S1 narusza wymagany odpoczynek "
+                        f"({gap:.1f}h < {required_rest}h)"
+                    )
                 continue
             # CROSS-SITE-ZERO-GAP-01 (T022, OWNER-T022-03): zero-time continuation onto a different Site is illegal regardless of configured rest/can_work_24h.
             cross_site = any(k in other_site_keys for k in earlier.component_keys) != any(k in other_site_keys for k in later.component_keys)
@@ -640,27 +670,52 @@ def _check_full_hour(state: PlanningState, assignments: list[Assignment], detail
             details.append(ViolationDetail("FULL_HOUR-01", (), f"FULL_HOUR-01: profile StandardShift kind={shift.kind.value} start/end is not a full clock hour"))
 
 
-def _check_weekly_rest(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+def _check_weekly_rest(
+    state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str],
+) -> None:
     """WEEKLY-REST-01 (ROTA-T023b sec.6/7): OCHRONA only. Per employee/complete settlement-week window
     (weekly_settlement_windows), target-Site non-CANCELLED work only (PRIMARY+TRAINEE); PASS needs >=35h free somewhere.
     Architect review A1: same-Site state.boundary_assignments (previous-month work spilling into day 1) also occupies
-    time here -- matches solver's target_fixed exactly; state.other_site_assignments stays excluded (sec.7)."""
+    time here -- matches solver's target_fixed exactly; state.other_site_assignments stays excluded (sec.7).
+
+    OWNER 2026-09-04 (T052 correction after contract PASS): S1 still never
+    HARD-blocks this HARD rule (never occupies time for the check above),
+    but if adding S1's hours back in would push a week that otherwise
+    clears 35h below it, that is a real labor-law rest violation the
+    coordinator caused -- reported as a SOFT warning, never silently
+    dropped (Paweł: the tool must not stay quiet about a real violation
+    just because it won't block the save)."""
     if state.site.planning_regime != SitePlanningRegime.OCHRONA:
         return
     windows = weekly_settlement_windows(state.month)
     by_employee: dict[str, list[tuple]] = {}
+    s1_intervals_by_employee: dict[str, list[tuple]] = {}
     for a in list(assignments) + _not_cancelled(state.boundary_assignments):
+        # T52-07: S1 (PERIODIC_TRAINING) does not occupy time for this
+        # check -- it must never interrupt/shorten the 35h weekly rest
+        # window (brief section 2 point 4).
+        if a.role == AssignmentRole.PERIODIC_TRAINING:
+            s1_intervals_by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
+            continue
         by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
     for employee_id, intervals in by_employee.items():
+        s1_intervals = s1_intervals_by_employee.get(employee_id, [])
         for window_start, window_end in windows:
             free = max_uninterrupted_free_hours(window_start, window_end, intervals)
+            week_label = f"{window_start.date()}-{(window_end - timedelta(days=1)).date()}"
             if free < WEEKLY_REST_REQUIRED_HOURS:
                 ids = tuple(
                     a.assignment_id for a in assignments
                     if a.employee_id == employee_id and a.start_datetime < window_end and a.end_datetime > window_start
                 )
-                week_label = f"{window_start.date()}-{(window_end - timedelta(days=1)).date()}"
                 details.append(ViolationDetail("WEEKLY-REST-01", ids, f"WEEKLY-REST-01: {employee_id} only {free:.1f}h uninterrupted rest in week {week_label}", affected_employee_id=employee_id))
+            elif s1_intervals:
+                free_with_s1 = max_uninterrupted_free_hours(window_start, window_end, intervals + s1_intervals)
+                if free_with_s1 < WEEKLY_REST_REQUIRED_HOURS:
+                    warnings.append(
+                        f"WEEKLY-REST-01 SOFT: {employee_id}: S1 narusza 35h nieprzerwanego odpoczynku "
+                        f"w tygodniu {week_label} ({free_with_s1:.1f}h)"
+                    )
 
 
 def validate(state: PlanningState, assignments: list[Assignment]) -> IndependentValidationReport:
@@ -691,8 +746,8 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_site_rules(state, for_eligibility_checks, details)
     _check_24h_same_person(state, assignments, details)
     _check_emergency_pairs(state, assignments, details)
-    min_rest = _check_rest(state, assignments, details)
-    _check_weekly_rest(state, assignments, details)
+    min_rest = _check_rest(state, assignments, details, warnings)
+    _check_weekly_rest(state, assignments, details, warnings)
     max_load, max_window, max_window_datetimes = _check_load(state, assignments, details)
 
     return IndependentValidationReport(
