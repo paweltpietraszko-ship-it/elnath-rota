@@ -129,3 +129,4 @@ TASK_SCOPE:
 - frontend/e2e/monthly-planning.spec.ts
 - frontend/e2e/t041-daily-workflow.spec.ts
 - frontend/e2e/t042-local-date.spec.ts
+- frontend/e2e/t053-independent-audit.spec.ts
