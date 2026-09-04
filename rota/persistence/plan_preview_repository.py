@@ -19,7 +19,11 @@ from typing import Literal, Optional
 
 from rota.domain import Assignment, AssignmentRole, AssignmentState
 
-OperationKind = Literal["plan", "replan"]
+# A-F2 (architect review): "replan" alone loses which REPLAN stage produced
+# it -- a reload could not tell narrow (replan()/replan_retry_narrow()) from
+# wide (replan_wider_search()) apart, so a subsequent "Szukaj dalej" could
+# dispatch to the wrong continuation (retryNarrow instead of widerSearch).
+OperationKind = Literal["plan", "replan_narrow", "replan_wide"]
 
 
 @dataclass(frozen=True)

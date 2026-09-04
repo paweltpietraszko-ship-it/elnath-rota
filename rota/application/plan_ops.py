@@ -87,9 +87,24 @@ def _persist_plan_preview(
     response only, flagged via a warning the UI is required to show
     verbatim (OWNER decision 8: never claim a trwały save that didn't
     happen). operation_kind (R2-03 audit fix) records which family
-    ("plan"/"replan") produced this preview, so a reload can dispatch a
-    further "Szukaj dalej" to the correct continuation."""
+    ("plan"/"replan_narrow"/"replan_wide") produced this preview, so a
+    reload can dispatch a further "Szukaj dalej" to the correct
+    continuation.
+
+    A-F1 (architect review, post-Codex-PASS): OWNER decision 3 -- "kolejny
+    świadomie uruchomiony PLAN/REPLAN zastępuje poprzedni niezatwierdzony
+    wynik" -- is unconditional on the RESULT, not just on FEASIBLE. The
+    coordinator already confirmed the replacement (confirmReplacePreview)
+    before this call ever started; if the fresh attempt does not itself
+    come back FEASIBLE (DECISION_REQUIRED/TECHNICAL_ERROR/
+    NARROW_SEARCH_EXHAUSTED/SEARCH_INCOMPLETE/NO_ALTERNATIVE), the OLD
+    preview must still be gone -- otherwise a reload resurrects a preview
+    the coordinator was explicitly told would be replaced."""
     if result.status != "FEASIBLE":
+        try:
+            plan_preview_repository.delete_plan_preview(conn, site_id, month)
+        except sqlite3.Error:
+            pass  # best-effort cleanup only; a lingering stale preview here is no worse than before this fix
         return result
     try:
         plan_preview_repository.save_plan_preview(conn, plan_preview_repository.PlanPreview(
@@ -514,7 +529,7 @@ def replan(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
     )
     return _persist_plan_preview(
-        conn, site_id=site_id, month=month, schedule_version_id=child_id, result=result, operation_kind="replan",
+        conn, site_id=site_id, month=month, schedule_version_id=child_id, result=result, operation_kind="replan_narrow",
     )
 
 
@@ -537,7 +552,7 @@ def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str,
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
     return _persist_plan_preview(
-        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan",
+        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan_narrow",
     )
 
 
@@ -563,5 +578,5 @@ def replan_wider_search(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
     return _persist_plan_preview(
-        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan",
+        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan_wide",
     )

@@ -211,7 +211,13 @@ export default function MonthlyPlanning({
       });
       // R2-03 audit fix: without this, a "Szukaj dalej" after reload always
       // dispatched to plain PLAN's own retry, even for a REPLAN preview.
-      setPlanResultSource(view.plan_preview.operation_kind);
+      // A-F2 audit fix: operation_kind is now 3-way (plan/replan_narrow/
+      // replan_wide) so a reload can also tell REPLAN's narrow vs. wide
+      // stage apart -- without restoring lastWideSearch too, "Szukaj
+      // dalej" on a reloaded wide-search preview fell back to the narrow
+      // retry instead of continuing the wide search.
+      setPlanResultSource(view.plan_preview.operation_kind === "plan" ? "plan" : "replan");
+      setLastWideSearch(view.plan_preview.operation_kind === "replan_wide");
       isPersistedPreviewRef.current = true;
     } else if (isPersistedPreviewRef.current) {
       // The preview this screen was showing is gone (accepted, rejected,

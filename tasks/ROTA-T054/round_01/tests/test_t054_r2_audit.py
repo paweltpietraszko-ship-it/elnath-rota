@@ -188,5 +188,8 @@ def test_reloaded_replan_preview_retains_its_operation_family(tmp_path):
     assert view.plan_preview is not None
     # MonthlyPlanning must know that "Szukaj dalej" continues REPLAN.
     # Without this, its default planResultSource="plan" sends POST /plan.
-    assert getattr(view.plan_preview, "operation_kind", None) == "replan"
+    # A-F2 architect audit fix: operation_kind is now 3-way (plan/
+    # replan_narrow/replan_wide) so a reload can also tell REPLAN's narrow
+    # vs. wide stage apart -- replan() itself is the narrow stage.
+    assert getattr(view.plan_preview, "operation_kind", None) == "replan_narrow"
     conn.close()

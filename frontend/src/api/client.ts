@@ -116,7 +116,7 @@ export interface PlanPreviewOut {
   candidates: AssignmentOut[][];
   warnings: string[];
   optimization_complete: boolean;
-  operation_kind: "plan" | "replan";
+  operation_kind: "plan" | "replan_narrow" | "replan_wide";
 }
 
 export interface MonthViewOut {

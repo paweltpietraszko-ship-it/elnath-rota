@@ -544,11 +544,13 @@ _MIGRATION_12: tuple[str, ...] = (
         candidates_json TEXT NOT NULL,
         warnings_json TEXT NOT NULL,
         optimization_complete INTEGER NOT NULL,
-        -- R2-03 audit fix (pre-merge, folded into this migration rather than
-        -- a follow-up one): which operation family ("plan"/"replan")
-        -- produced this preview, so a reload can tell which continuation a
-        -- further "Szukaj dalej" should retry.
-        operation_kind TEXT NOT NULL CHECK (operation_kind IN ('plan', 'replan')),
+        -- R2-03/A-F2 audit fixes (pre-merge, folded into this migration
+        -- rather than follow-ups): which operation stage produced this
+        -- preview, so a reload can tell which continuation a further
+        -- "Szukaj dalej" should retry -- replan's narrow (replan()/
+        -- replan_retry_narrow()) and wide (replan_wider_search()) stages
+        -- dispatch to different endpoints and must not be conflated.
+        operation_kind TEXT NOT NULL CHECK (operation_kind IN ('plan', 'replan_narrow', 'replan_wide')),
         PRIMARY KEY (site_id, month),
         CHECK (substr(month, 9, 2) = '01')
     )""",
