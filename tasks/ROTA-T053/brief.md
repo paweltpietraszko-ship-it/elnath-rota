@@ -126,3 +126,6 @@ TASK_SCOPE:
 - frontend/src/screens/EmployeeDetail.tsx
 - frontend/src/screens/Export.tsx
 - frontend/src/App.css
+- frontend/e2e/monthly-planning.spec.ts
+- frontend/e2e/t041-daily-workflow.spec.ts
+- frontend/e2e/t042-local-date.spec.ts
