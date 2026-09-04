@@ -1,0 +1,36 @@
+ROTA-T052 — wąski reaudyt poprawki R5-01, runda 6
+
+Werdykt: PASS
+Audytowany branch: task/ROTA-T052-s1-periodic-training-contract
+Audytowany exact SHA: baed8f8dfa7849feda6bb71cf6d19eabc13973fb
+
+Zakres
+- odczyt zmiany względem raportu R5;
+- ponowienie niezależnego zestawu T052 obejmującego oba pierwotne błędy R4,
+  rzeczywisty pion SQLite -> assembler -> plan_month(), wydruk, bilans,
+  persistence i rzeczywisty overlap;
+- dwa reproduktory R5-01: validator oraz solver przy takim samym lokalnym
+  assignment_id w różnych ScheduleVersion/Site;
+- bez pełnej regresji repozytorium.
+
+Potwierdzenie R5-01
+- rota/planning/constraints.py:65-95 buduje zbiór S1 z pełnych kluczy
+  `(schedule_version_id, assignment_id)`.
+- rota/planning/constraints.py:350-357 porównuje ten zbiór z
+  `WorkPeriod.component_keys`, nie z lokalnymi `component_ids`.
+- rota/planning/validator.py:541-551 i 589-592 stosuje tę samą pełną
+  tożsamość.
+- S1 pracownika E2 nie wyłącza już REST-01 dla niezależnego PRIMARY
+  pracownika E1 o takim samym lokalnym ID: validator zwraca HARD REST-01,
+  a solver odmawia przydziału zmiany oddalonej tylko o 5 h.
+
+Wynik
+`python -m pytest tasks/ROTA-T052/round_01/tests/test_t052_r4_audit.py -q`
+-> 10 passed w 0.78 s.
+
+Frontend nie był ponownie budowany: od SHA z R5 zmieniono wyłącznie
+`rota/planning/constraints.py`, `rota/planning/validator.py` i artefakt
+backend.py. Build frontendu był PASS w R5.
+
+PASS dotyczy wyłącznie SHA
+baed8f8dfa7849feda6bb71cf6d19eabc13973fb.
