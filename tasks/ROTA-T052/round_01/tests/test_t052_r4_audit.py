@@ -116,7 +116,10 @@ def test_solver_does_not_hard_block_a_shift_around_s1(training: Assignment, dema
 
     outcome = solve(state)
 
-    assert outcome.status_name == "FEASIBLE", outcome
+    # CP-SAT may prove this trivial model optimal; both FEASIBLE and OPTIMAL
+    # are successful solver outcomes. The contract forbids INFEASIBLE.
+    assert outcome.status_name in {"FEASIBLE", "OPTIMAL"}, outcome
+    assert outcome.assignments is not None
 
 
 def test_pdf_model_keeps_non_overlapping_s1_and_primary_from_the_same_day() -> None:
@@ -239,3 +242,78 @@ def test_validator_still_rejects_real_s1_overlap() -> None:
     report = validate(base_state(), [first, second])
     assert not report.hard_pass
     assert any(v.startswith("REST-01") for v in report.violations)
+
+
+def _same_bare_id_context():
+    employee = Employee("E1", "Anna", date(2020, 1, 1), None, False)
+    day_only_employee = Employee("E2", "Ewa", date(2020, 1, 1), None, True)
+    memberships = (
+        SiteMembership("E1", SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
+        SiteMembership("E2", SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
+    )
+    # Real S1 on E2, far from the tested edge.
+    training = Assignment(
+        "SAME-LOCAL-ID",
+        "test-v1",
+        "E2",
+        datetime(2026, 10, 15, 8),
+        datetime(2026, 10, 15, 10),
+        AssignmentRole.PERIODIC_TRAINING,
+        AssignmentState.PLANNED,
+        False,
+        None,
+        None,
+    )
+    # Independent assignment on another Site/version happens to reuse that
+    # local id. It is PRIMARY and still owns the ordinary 11-hour rest wall.
+    other_site_primary = Assignment(
+        "SAME-LOCAL-ID",
+        "other-site-v1",
+        "E1",
+        datetime(2026, 10, 2, 0),
+        datetime(2026, 10, 2, 12),
+        AssignmentRole.PRIMARY,
+        AssignmentState.PLANNED,
+        True,
+        "OTHER-DEMAND",
+        None,
+        required_rest_after_hours=11,
+    )
+    demand = _night(datetime(2026, 10, 2, 17), datetime(2026, 10, 3, 5))
+    state = base_state(
+        employees=(employee, day_only_employee),
+        memberships=memberships,
+        shift_demands=(demand,),
+        existing_assignments=(training,),
+        other_site_assignments=(other_site_primary,),
+    )
+
+    witness = Assignment(
+        "N-A1",
+        "test-v1",
+        "E1",
+        demand.start_datetime,
+        demand.end_datetime,
+        AssignmentRole.PRIMARY,
+        AssignmentState.PLANNED,
+        False,
+        demand.demand_id,
+        None,
+        required_rest_after_hours=11,
+    )
+    return state, training, witness
+
+
+def test_validator_s1_exception_does_not_leak_to_primary_with_same_bare_assignment_id() -> None:
+    """Assignment identity is (schedule_version_id, assignment_id), not bare id."""
+    state, training, witness = _same_bare_id_context()
+    validation = validate(state, [training, witness])
+    assert not validation.hard_pass
+    assert any(v.startswith("REST-01") for v in validation.violations)
+
+
+def test_solver_s1_exception_does_not_leak_to_primary_with_same_bare_assignment_id() -> None:
+    state, _, _ = _same_bare_id_context()
+    outcome = solve(state)
+
+    assert outcome.status_name == "INFEASIBLE", outcome

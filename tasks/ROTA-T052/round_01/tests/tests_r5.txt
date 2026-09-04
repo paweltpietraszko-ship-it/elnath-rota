@@ -1,0 +1,67 @@
+ROTA-T052 — wąski reaudyt poprawek R4, runda 5
+
+Werdykt: FAIL
+Audytowany branch: task/ROTA-T052-s1-periodic-training-contract
+Audytowany exact SHA: be518f9d8376d87b6dd33e4d35ab07c3e7643c9d
+
+Zakres
+- ponowienie wyłącznie dwóch reproduktorów R4 i ich bliskich granic;
+- korekta fałszywego założenia w teście audytora: bezpośredni solver może
+  poprawnie zwrócić zarówno FEASIBLE, jak i OPTIMAL;
+- kontrola alternatywnej tożsamości Assignment, wymaganej już przez T036;
+- frontend `npm.cmd run build`;
+- bez pełnej regresji repozytorium.
+
+Poprawki R4
+- R4-01 PASS: N -> S1 oraz S1 -> N nie są już blokowane przez solver;
+  pion SQLite -> assembler -> plan_month() zwraca FEASIBLE.
+- R4-02 PASS: zapisane, niepokrywające się S1 10:00-14:00 i N1
+  18:00-06:00 tego samego dnia przechodzą przez assembler wydruku i obie
+  wartości pozostają w komórce.
+
+FINDING R5-01 — wyjątek S1 wycieka na zwykły PRIMARY o takim samym lokalnym ID
+
+TRACE
+- tasks/ROTA-T036/brief.md:16: tożsamość Assignment jest złożona:
+  `(schedule_version_id, assignment_id)`; sam `assignment_id` nie jest
+  globalnym kluczem.
+- tasks/ROTA-T052/brief.md:35 i 162: wyjątek S1 nie ustanawia żadnego
+  wyjątku REST dla zwykłego D/N/24h ani PRIMARY.
+- tasks/ROTA-T052/brief.md:192 (T52-14): REST-01 zwykłej pracy ma pozostać
+  bez zmiany kontraktu.
+
+OWNERSHIP
+- rota/planning/constraints.py:87 zapisuje zbiór S1 jako same, krótkie
+  `assignment_id`.
+- rota/planning/constraints.py:343-350 uznaje WorkPeriod za S1, gdy jego
+  krótki component_id znajduje się w tym zbiorze. Nie uwzględnia
+  `schedule_version_id` ani pracownika.
+- Identyczny problem istnieje w niezależnym validatorze:
+  rota/planning/validator.py:546 oraz 587-590.
+
+REPRO
+- tasks/ROTA-T052/round_01/tests/test_t052_r4_audit.py:253-319.
+- S1 należy do E2 i bieżącej wersji. Zwykły PRIMARY należy do E1 na innym
+  obiekcie/innej ScheduleVersion, ale legalnie ma taki sam lokalny
+  `assignment_id`. Pięć godzin później zaczyna się N pracownika E1.
+- Oczekiwane: zwykły PRIMARY nadal wymaga 11 h odpoczynku, więc REST-01
+  jest HARD i solver nie może przydzielić N.
+- Faktyczne: validator zwraca `hard_pass=True` i błędny `REST-01 SOFT`
+  sugerujący udział S1; solver zwraca OPTIMAL i przydziela N.
+
+Skutek
+Dodanie S1 jednemu pracownikowi może przypadkowo wyłączyć ochronę odpoczynku
+innemu pracownikowi na innym obiekcie, jeżeli dwa niezależne grafiki użyją
+tego samego lokalnego identyfikatora wpisu. Jest to regresja zwykłego
+PRIMARY, a nie spór o specjalne zasady szkolenia.
+
+Wyniki
+1. `python -m pytest tasks/ROTA-T052/round_01/tests/test_t052_r4_audit.py -q`
+   -> 8 passed, 2 failed w 0.69 s.
+   Oba FAIL są dwoma niezależnymi właścicielami tego samego błędu:
+   validator i solver.
+2. `npm.cmd run build`
+   -> PASS (`tsc -b` + Vite).
+
+Nie uruchomiono pełnej regresji — nie jest potrzebna do potwierdzenia tej
+wąskiej regresji i nie było osobnej zgody OWNERA.
