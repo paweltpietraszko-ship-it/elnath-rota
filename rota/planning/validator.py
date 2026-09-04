@@ -249,7 +249,22 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
             if authorizing_id is None:
                 details.append(ViolationDetail("DAY_ONLY-01", (assignment.assignment_id,), f"DAY_ONLY-01: {assignment.employee_id} has N assignment {assignment.assignment_id} (demand {demand.demand_id})"))
                 continue
-            warnings.append(f"DAY_ONLY-N-FALLBACK-01 SOFT: employee={assignment.employee_id} demand={demand.demand_id} date={anchor_date} rule_version_id={authorizing_id}")
+            # ROTA-T055 R2-01 (OWNER 2026-09-04: "WSZYSTKO co widzi koordynator
+            # jest po polsku i bez nic nie mówiących symboli systemowych"):
+            # this warning was previously computed and discarded everywhere --
+            # T055 is the first path that reaches a coordinator-facing screen,
+            # so its wording is rewritten to plain Polish with the employee
+            # quoted for MonthlyPlanning.tsx's existing resolveWarningText().
+            # The demand/reguła ids stay as parenthetical technical references
+            # (no display-name lookup exists for either today); the "DAY_ONLY-
+            # N-FALLBACK-01 SOFT" prefix stays for grep-based classification
+            # (tests/test_t018.py and others), matching the same "RULE-CODE
+            # SOFT: ..." shape as the REST-01 SOFT/WEEKLY-REST-01 SOFT
+            # warnings added in T052.
+            warnings.append(
+                f"DAY_ONLY-N-FALLBACK-01 SOFT: '{assignment.employee_id}' ma nockę mimo dnia wolnego "
+                f"dzięki wyjątkowi zmianowemu (zapotrzebowanie {demand.demand_id}, data {anchor_date}, reguła {authorizing_id})"
+            )
 
 
 def _covering_demand(assignment: Assignment, state: PlanningState):
@@ -336,7 +351,11 @@ def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], de
                 details.append(ViolationDetail("DAY_SHIFT_OFF-01", (assignment.assignment_id,), f"DAY_SHIFT_OFF-01: {assignment.employee_id} starts assignment {assignment.assignment_id} on day off {start_date}"))
             end_date = assignment.end_datetime.date()
             if end_date != start_date and lo <= end_date <= hi:
-                warnings.append(f"DAY_SHIFT_OFF-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} enters day off {end_date}")
+                # ROTA-T055 R2-01: Polish wording + quoted employee_id, see
+                # the DAY_ONLY-N-FALLBACK-01 SOFT note above. assignment_id
+                # is dropped -- the date already identifies which day off for
+                # a coordinator, and there is no display-name lookup for it.
+                warnings.append(f"DAY_SHIFT_OFF-01 SOFT: '{assignment.employee_id}' ma zmianę kończącą się w trakcie dnia wolnego ({end_date})")
 
 
 _RELEVANT_UNAVAILABILITY_KINDS = (AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)
@@ -388,7 +407,12 @@ def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warni
             if not record.active or record.kind != AvailabilityKind.LEAVE_PLAN:
                 continue
             if overlaps_date_range(assignment.start_datetime, assignment.end_datetime, record.start_date, record.end_date):
-                warnings.append(f"LEAVE_PLAN-01 SOFT: {assignment.employee_id} assignment {assignment.assignment_id} overlaps LEAVE_PLAN {record.start_date}-{record.end_date}")
+                # ROTA-T055 R2-01: Polish wording + quoted employee_id, same
+                # reasoning as DAY_ONLY-N-FALLBACK-01 SOFT above.
+                warnings.append(
+                    f"LEAVE_PLAN-01 SOFT: '{assignment.employee_id}' ma zmianę pokrywającą się z planowanym urlopem "
+                    f"({record.start_date}–{record.end_date})"
+                )
 
 
 def _check_external(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
@@ -594,8 +618,11 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
                 gap = (later.start - earlier.end).total_seconds() / 3600
                 required_rest = effective_required_rest_after_hours(earlier, ochrona=ochrona and not any(k in other_site_keys for k in earlier.component_keys))
                 if gap < required_rest:
+                    # ROTA-T055 R2-01: quote employee_id for MonthlyPlanning.tsx's
+                    # resolveWarningText(); drop the raw assignment-id pair --
+                    # meaningless to a coordinator and covered by no test.
                     warnings.append(
-                        f"REST-01 SOFT: {employee_id} {ids[0]}->{ids[1]}: S1 narusza wymagany odpoczynek "
+                        f"REST-01 SOFT: '{employee_id}': S1 narusza wymagany odpoczynek "
                         f"({gap:.1f}h < {required_rest}h)"
                     )
                 continue
@@ -715,8 +742,9 @@ def _check_weekly_rest(
             elif s1_intervals:
                 free_with_s1 = max_uninterrupted_free_hours(window_start, window_end, intervals + s1_intervals)
                 if free_with_s1 < WEEKLY_REST_REQUIRED_HOURS:
+                    # ROTA-T055 R2-01: quote employee_id for resolveWarningText().
                     warnings.append(
-                        f"WEEKLY-REST-01 SOFT: {employee_id}: S1 narusza 35h nieprzerwanego odpoczynku "
+                        f"WEEKLY-REST-01 SOFT: '{employee_id}': S1 narusza 35h nieprzerwanego odpoczynku "
                         f"w tygodniu {week_label} ({free_with_s1:.1f}h)"
                     )
 

@@ -289,8 +289,10 @@ Dla 2–3 candidates:
   `candidate=<1-based-number> | `;
 - następnie dołączyć istniejący warning body bez zmiany jego obowiązkowych pól.
 
-Przykład T018:
-`candidate=2 | DAY_ONLY-N-FALLBACK-01 SOFT: employee=A demand=D-N date=2027-03-17 rule_version_id=RV-1`
+Przykład T018 (ROTA-T055 R2-01, OWNER 2026-09-04: treść po dwukropku
+przepisana na polski z zacytowanym employee_id -- prefiks
+`candidate=N | RULE-CODE SOFT:` bez zmian):
+`candidate=2 | DAY_ONLY-N-FALLBACK-01 SOFT: 'A' ma nockę mimo dnia wolnego dzięki wyjątkowi zmianowemu (zapotrzebowanie D-N, data 2027-03-17, reguła RV-1)`
 
 Nie deduplikować warningów pomiędzy candidate 1/2/3.
 
