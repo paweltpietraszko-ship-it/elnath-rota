@@ -61,6 +61,8 @@ class SitePrintSettingsOut(BaseModel):
     base_regime: Literal["12h", "24h"]
     work_code_intervals: dict[str, WorkCodeIntervalOut | None]
     reserve_hours: dict[str, int | None]
+    # ROTA-T052: default S1 interval for MonthlyPlanning, not a WORK_CODE_KEYS entry.
+    s1_default_interval: WorkCodeIntervalOut | None = None
 
 
 class SitePrintSettingsIn(BaseModel):
@@ -74,6 +76,7 @@ class SitePrintSettingsIn(BaseModel):
     base_regime: Literal["12h", "24h"]
     work_code_intervals: dict[str, WorkCodeIntervalOut | None]
     reserve_hours: dict[str, int | None]
+    s1_default_interval: WorkCodeIntervalOut | None = None
 
 
 class ExportRequest(BaseModel):
@@ -98,6 +101,15 @@ def _settings_out(s: SitePrintSettings) -> SitePrintSettingsOut:
             for k, v in s.work_code_intervals.items()
         },
         reserve_hours=dict(s.reserve_hours),
+        s1_default_interval=(
+            WorkCodeIntervalOut(
+                start_time=s.s1_default_interval.start_time,
+                end_time=s.s1_default_interval.end_time,
+                end_next_day=s.s1_default_interval.end_next_day,
+            )
+            if s.s1_default_interval
+            else None
+        ),
     )
 
 
@@ -117,6 +129,15 @@ def put_print_settings(site_id: str, payload: SitePrintSettingsIn, conn=Depends(
             for k, v in payload.work_code_intervals.items()
         },
         reserve_hours=dict(payload.reserve_hours),
+        s1_default_interval=(
+            WorkCodeInterval(
+                start_time=payload.s1_default_interval.start_time,
+                end_time=payload.s1_default_interval.end_time,
+                end_next_day=payload.s1_default_interval.end_next_day,
+            )
+            if payload.s1_default_interval
+            else None
+        ),
     )
     try:
         save_print_settings(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, settings=settings)

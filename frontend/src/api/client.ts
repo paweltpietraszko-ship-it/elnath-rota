@@ -89,7 +89,7 @@ export interface AssignmentOut {
   employee_display_name: string;
   start_datetime: string;
   end_datetime: string;
-  role: "PRIMARY" | "TRAINEE";
+  role: "PRIMARY" | "TRAINEE" | "PERIODIC_TRAINING";
   state: "PLANNED" | "REALIZED" | "CANCELLED";
   frozen: boolean;
   covers_demand_id: string | null;
@@ -314,6 +314,8 @@ export interface SitePrintSettingsOut {
   base_regime: "12h" | "24h";
   work_code_intervals: Record<string, WorkCodeIntervalOut | null>;
   reserve_hours: Record<string, number | null>;
+  // ROTA-T052: S1's default interval -- not a WORK_CODE_KEYS entry, no fixed duration.
+  s1_default_interval: WorkCodeIntervalOut | null;
 }
 
 export interface SitePrintSettingsIn {
@@ -322,6 +324,7 @@ export interface SitePrintSettingsIn {
   base_regime: "12h" | "24h";
   work_code_intervals: Record<string, WorkCodeIntervalOut | null>;
   reserve_hours: Record<string, number | null>;
+  s1_default_interval: WorkCodeIntervalOut | null;
 }
 
 export interface ExportResultOut {

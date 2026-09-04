@@ -16,6 +16,12 @@ class ShiftKind(str, Enum):
 class AssignmentRole(str, Enum):
     PRIMARY = "PRIMARY"
     TRAINEE = "TRAINEE"
+    # ROTA-T052: coordinator-only manual periodic training (printed as "S1").
+    # Counts as real work time (overlap, LOAD-01, WorkBalance) but never
+    # covers a ShiftDemand, never has a mentor, and is exempt from both
+    # REST-01 (daily 11h) and WEEKLY-REST-01 (35h) -- see
+    # tasks/ROTA-T052/brief.md section 2.
+    PERIODIC_TRAINING = "PERIODIC_TRAINING"
 
 
 class AssignmentState(str, Enum):

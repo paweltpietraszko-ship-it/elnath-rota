@@ -49,10 +49,16 @@ def quarter_start(month: date) -> date:
     return date(month.year, quarter_index * 3 + 1, 1)
 
 
+_HOURS_COUNTED_ROLES = (AssignmentRole.PRIMARY, AssignmentRole.PERIODIC_TRAINING)
+
+
 def _hours_in_month(assignments: list[Assignment], employee_id: str, month: date, state_filter: AssignmentState) -> int:
+    """ROTA-T052 (T52-10): S1 (PERIODIC_TRAINING) counts as real work time
+    here, exactly once, same as PRIMARY; onboarding TRAINEE stays excluded
+    (unchanged from before T052)."""
     hours = 0
     for assignment in assignments:
-        if assignment.employee_id != employee_id or assignment.role != AssignmentRole.PRIMARY:
+        if assignment.employee_id != employee_id or assignment.role not in _HOURS_COUNTED_ROLES:
             continue
         if assignment.state != state_filter:
             continue

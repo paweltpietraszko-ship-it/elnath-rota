@@ -42,6 +42,9 @@ function cellLabel(a: AssignmentOut, demandKindByDemandId: Map<string, string | 
   // the demand's shift_kind (which still describes the original, now-moot,
   // plan for this slot).
   if (a.operational_code) return a.operational_code;
+  // ROTA-T052: S1 is clearly visible in the grid as its own code, never
+  // folded into the D/N "?" fallback or the TRAINEE "·S" suffix.
+  if (a.role === "PERIODIC_TRAINING") return "S1";
   const kind = a.covers_demand_id ? demandKindByDemandId.get(a.covers_demand_id) : null;
   const base = kind ?? "?";
   return a.role === "TRAINEE" ? `${base}·S` : base;
@@ -169,6 +172,7 @@ export default function MonthlyPlanning({
   workingMonth: string;
 }) {
   const monthIso = firstOfMonthIso(workingMonth);
+  const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +219,35 @@ export default function MonthlyPlanning({
     api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
   }, [siteId]);
 
+  // ROTA-T052: manual S1 (PERIODIC_TRAINING) entry. Start/end are prefilled
+  // from the site's configured default interval when one exists (brief
+  // section 5: "koordynator... może użyć skonfigurowanego przedziału"), but
+  // stay freely editable -- S1 has no fixed duration.
+  const [showAddS1, setShowAddS1] = useState(false);
+  const [s1EmployeeId, setS1EmployeeId] = useState("");
+  const [s1Day, setS1Day] = useState(days[0]);
+  useEffect(() => {
+    setS1Day(days[0]);
+  }, [days]);
+  const [s1Start, setS1Start] = useState("");
+  const [s1End, setS1End] = useState("");
+  const [s1EndNextDay, setS1EndNextDay] = useState(false);
+  const [s1Saving, setS1Saving] = useState(false);
+
+  useEffect(() => {
+    api
+      .getPrintSettings(siteId)
+      .then((settings) => {
+        const interval = settings?.s1_default_interval;
+        if (interval) {
+          setS1Start(interval.start_time);
+          setS1End(interval.end_time);
+          setS1EndNextDay(interval.end_next_day);
+        }
+      })
+      .catch(() => undefined);
+  }, [siteId]);
+
   // ROTA-T041 C-FIX-01: assembler warnings embed the raw employee_id
   // (Python repr, e.g. 'uuid') -- resolve it to the roster display_name
   // here rather than in the backend, since the roster this screen already
@@ -253,6 +286,48 @@ export default function MonthlyPlanning({
   const reassignEmployee = (newEmployeeId: string) => {
     if (!editingAssignment) return;
     runCorrection([{ ...stripDisplayName(editingAssignment), employee_id: newEmployeeId }]);
+  };
+
+  // ROTA-T052 (T52-01/T52-02): S1 start/end must land on a full clock hour;
+  // the server-side check (schedule_validation.py) is authoritative, this is
+  // just an early, friendly rejection before the round-trip.
+  const addS1 = async () => {
+    if (!view?.current_version || !s1EmployeeId || !s1Start || !s1End) return;
+    if (!s1Start.endsWith(":00") || !s1End.endsWith(":00")) {
+      setError("Start i koniec S1 muszą być na pełną godzinę.");
+      return;
+    }
+    const startIso = `${s1Day}T${s1Start}:00`;
+    const endDay = s1EndNextDay ? new Date(new Date(`${s1Day}T00:00:00`).getTime() + 86400000).toISOString().slice(0, 10) : s1Day;
+    const endIso = `${endDay}T${s1End}:00`;
+    if (new Date(endIso) <= new Date(startIso)) {
+      setError("Koniec S1 musi być po starcie.");
+      return;
+    }
+    setS1Saving(true);
+    setError(null);
+    try {
+      await api.applyManualCorrection(siteId, monthIso, correctionEffectiveFrom, [
+        {
+          assignment_id: crypto.randomUUID(), schedule_version_id: view.current_version.version_id,
+          employee_id: s1EmployeeId, start_datetime: startIso, end_datetime: endIso,
+          role: "PERIODIC_TRAINING", state: "PLANNED", frozen: false,
+          covers_demand_id: null, mentor_primary_assignment_id: null, operational_code: null,
+          work_period_id: null, required_rest_after_hours: null,
+        },
+      ]);
+      setShowAddS1(false);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setS1Saving(false);
+    }
+  };
+
+  const cancelS1 = () => {
+    if (!editingAssignment) return;
+    runCorrection([{ ...stripDisplayName(editingAssignment), state: "CANCELLED" }]);
   };
 
   const toggleFreeze = async () => {
@@ -606,6 +681,56 @@ export default function MonthlyPlanning({
                 onSelectAssignment={setEditingAssignmentId}
               />
 
+              <div className="create-panel-actions" style={{ marginTop: 12 }}>
+                <button className="btn-ghost" onClick={() => setShowAddS1((v) => !v)}>
+                  {showAddS1 ? "Anuluj dodawanie S1" : "Dodaj S1 (szkolenie okresowe)"}
+                </button>
+              </div>
+
+              {showAddS1 && (
+                <div className="panel" style={{ marginTop: 12 }}>
+                  <h3>Dodaj S1</h3>
+                  <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                    <label>
+                      <span className="field-label">Pracownik</span>
+                      <select value={s1EmployeeId} onChange={(e) => setS1EmployeeId(e.target.value)}>
+                        <option value="">— wybierz —</option>
+                        {rosterEmployees.map((r) => (
+                          <option key={r.employee_id} value={r.employee_id}>{r.display_name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="field-label">Dzień</span>
+                      <input
+                        type="date" value={s1Day} min={monthIso} max={days[days.length - 1]}
+                        onChange={(e) => setS1Day(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">Start</span>
+                      <input type="time" step={3600} value={s1Start} onChange={(e) => setS1Start(e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="field-label">Koniec</span>
+                      <input type="time" step={3600} value={s1End} onChange={(e) => setS1End(e.target.value)} />
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="checkbox" style={{ width: "auto" }}
+                        checked={s1EndNextDay} onChange={(e) => setS1EndNextDay(e.target.checked)}
+                      />
+                      <span className="field-label">Koniec nast. dnia</span>
+                    </label>
+                  </div>
+                  <div className="create-panel-actions">
+                    <button className="btn-primary" onClick={addS1} disabled={s1Saving || !s1EmployeeId || !s1Start || !s1End}>
+                      {s1Saving ? "Zapisywanie…" : "Zapisz S1"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* ROTA-T041 OWNER-T041-04/T41-C06: correction must work even
                   when current_version is FINAL -- the existing
                   apply_manual_correction() already creates a new child
@@ -640,6 +765,11 @@ export default function MonthlyPlanning({
                     {editingAssignment.role === "PRIMARY" && editingAssignment.state === "PLANNED" && (
                       <button className="btn-ghost" onClick={markNotWorked} disabled={correctionSaving}>
                         Nie przepracował (NN)
+                      </button>
+                    )}
+                    {editingAssignment.role === "PERIODIC_TRAINING" && editingAssignment.state !== "CANCELLED" && (
+                      <button className="btn-ghost" onClick={cancelS1} disabled={correctionSaving}>
+                        Usuń S1
                       </button>
                     )}
                     <button className="btn-ghost" onClick={() => setEditingAssignmentId(null)} disabled={correctionSaving}>

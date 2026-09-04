@@ -40,6 +40,7 @@ from rota.planning.work_periods import (
     forms_illegal_continuous_pair,
     group_into_periods,
     max_uninterrupted_free_hours,
+    periods_overlap,
     violates_rest,
     weekly_settlement_windows,
 )
@@ -70,6 +71,10 @@ def _employee_violating_pairs(
     oracle validator._check_rest uses, never a second calculation. Never
     applied when `earlier` is an other-Site period."""
     by_synthetic_id = {str(id(a)): a for a in assignments}
+    # ROTA-T052 (T52-05/T52-06): S1 (PERIODIC_TRAINING) participates only in
+    # overlap detection below, never the REST-01 gap/zero-gap requirement in
+    # either direction -- mirrors validator._check_rest's own exemption.
+    periodic_training_ids = {sid for sid, a in by_synthetic_id.items() if a.role == AssignmentRole.PERIODIC_TRAINING}
     components = [
         PeriodComponent(str(id(a)), employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
         for a in assignments
@@ -81,6 +86,11 @@ def _employee_violating_pairs(
     pairs = []
     for tp, other in candidates:
         earlier, later = (tp, other) if tp.start <= other.start else (other, tp)
+        involves_periodic_training = any(cid in periodic_training_ids for cid in earlier.component_ids) or any(
+            cid in periodic_training_ids for cid in later.component_ids
+        )
+        if involves_periodic_training and not periods_overlap(earlier, later):
+            continue
         earlier_is_other_site = any(id(by_synthetic_id[cid]) in other_site_ids for cid in earlier.component_ids)
         later_is_other_site = any(id(by_synthetic_id[cid]) in other_site_ids for cid in later.component_ids)
         cross_site = earlier_is_other_site != later_is_other_site
@@ -131,7 +141,9 @@ def _weekly_rest_override_facts(state, corrected_assignments: list[Assignment], 
     windows = weekly_settlement_windows(state.month)
     by_employee: dict[str, list[tuple[datetime, datetime]]] = {}
     for a in list(corrected_assignments) + list(state.boundary_assignments):
-        if a.state != AssignmentState.CANCELLED:
+        # T52-07: S1 does not occupy time for this check, matching
+        # validator._check_weekly_rest's own exclusion.
+        if a.state != AssignmentState.CANCELLED and a.role != AssignmentRole.PERIODIC_TRAINING:
             by_employee.setdefault(a.employee_id, []).append((a.start_datetime, a.end_datetime))
     facts = []
     for employee_id, intervals in by_employee.items():
