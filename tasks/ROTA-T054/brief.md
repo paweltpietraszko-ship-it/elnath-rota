@@ -154,3 +154,15 @@ Audytor przed kodem ma:
 Audit nie może rozszerzyć produktu o sessions/multi-user locking/history previews. Test nie tworzy kontraktu.
 
 Oczekiwany werdykt: `PASS — READY_FOR_IMPLEMENTATION` albo `FAIL` z konkretną sprzecznością i minimalnym correction proposal.
+
+## 11. EXACT TASK_SCOPE
+
+TASK_SCOPE:
+- tasks/ROTA-T054/brief.md
+- rota/application/plan_ops.py
+- rota/application/open_month.py
+- rota/persistence/db.py
+- rota/persistence/plan_preview_repository.py
+- api/routers/schedule.py
+- frontend/src/api/client.ts
+- frontend/src/screens/MonthlyPlanning.tsx
