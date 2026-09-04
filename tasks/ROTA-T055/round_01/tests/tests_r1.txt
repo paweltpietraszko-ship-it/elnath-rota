@@ -1,0 +1,34 @@
+ROTA-T055 — PREIMPLEMENTATION AUDIT R1
+
+Audytowany kontrakt: ff3e20bcf0813282be5e7bdaffde53e084644cc1
+Warstwa produktu: BASE_MAIN_SHA e64ce8f236d7d0125207de62acf8b9bd3b6d9168
+Zakres: brief i statyczny ślad rzeczywistego read path; bez kodu produktu i bez uruchamiania pełnej regresji.
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+1. Komplet stanu bez ponownego składania
+
+`open_month()` już wywołuje `assemble_planning_state()` (`rota/application/open_month.py:49`).
+Assembler pobiera dokładnie bieżący snapshot wersji (`rota/application/assembler.py:220-223`) i przekazuje jego Assignmenty jako `state.existing_assignments` (`rota/application/assembler.py:239-250, 270-277`). Nie jest potrzebne drugie wywołanie assemblera ani odczyt snapshotu w routerze.
+
+2. Bezpieczeństwo GET
+
+`validate()` (`rota/planning/validator.py:724-764`) tworzy lokalne listy wyników, wykonuje wyłącznie obliczeniowe kontrole i zwraca `IndependentValidationReport`. Nie zapisuje do bazy, nie tworzy Deviation i nie zmienia Assignmentów. Wywołanie go w `open_month()` na `state.existing_assignments` zachowuje read-only charakter operacji.
+
+3. Istniejący kanał API i UI wystarcza
+
+Router już mapuje `view.warnings` do istniejącego `MonthViewOut.warnings` (`api/routers/schedule.py:231-284`). Ekran już renderuje to pole w bannerze „Uwaga” (`frontend/src/screens/MonthlyPlanning.tsx:700-708`). Nie są potrzebne nowe DTO, pola odpowiedzi write, endpointy ani zmiana frontendu.
+
+4. Niezapisany podgląd PLAN/REPLAN
+
+`solver.py::_collect_warnings()` jest wywoływany podczas budowania niezapisanego wyniku i jego alternatyw (`rota/planning/solver.py:661-674, 724-727, 781-783`). Bieżący snapshot nie zawiera wtedy kandydata, dlatego tego kanału nie wolno usuwać w T055.
+
+5. Redukcja przed implementacją
+
+Minimalna potrzebna zmiana produktu to import `validate` i warunkowe dołączenie `report.warnings` w `open_month()` wyłącznie wtedy, gdy istnieje current ScheduleVersion. Implementacja nie potrzebuje helpera w validatorze, zmian routera, zmian frontendu, persistence ani nowego modelu warningów. Stabilna deduplikacja identycznych stringów jest dopuszczalna przez brief, lecz nie jest konieczna bez rzeczywistego reproduktora duplikatu.
+
+6. Macierz późniejszego audytu implementacji
+
+Kontrakt wprost obejmuje wszystkie istniejące warningi validatora. T55-01..T55-04 nazywają cztery klasy, natomiast current-state `DAY_SHIFT_OFF-01 SOFT` nie ma osobnego numeru (T55-09 dotyczy kanału solvera przed zapisem). Nie jest to luka produktowa ani blocker briefu: niezależny audyt implementacji ma objąć także zapisany `DAY_SHIFT_OFF-01 SOFT`, zgodnie z zamrożonym punktem 3.6, bez tworzenia nowego wymagania.
+
+Nie znaleziono nowego zachowania wymagającego OWNER_EXPLANATION_GATE ani rozszerzenia TASK_SCOPE.
