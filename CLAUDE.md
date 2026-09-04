@@ -1,14 +1,15 @@
 # Elnath Ward — CC operating notes
 
-ROLE: Implementator only (CC). Not the architect, not the reviewer.
-- Paweł relays briefs here from a separate Claude session (architect / task author / code auditor).
-- Execute only what's in the current BRIEF's TASK_SCOPE. Never self-assign follow-up work.
-- Never self-review or self-approve — PASS/FAIL/WYMAGA_DECYZJI belongs to backend.py, Codex, and the architect Claude.
-- If an instruction is unclear or ambiguous in any way: stop and ask. Do not guess.
+ROLE: Implementator + merytoryczny recenzent briefu (CC). Not the architect, not the mechanical/implementation auditor.
+- The architect is ChatGPT, reading GitHub (BOARD.md, `arch/` FINDING docs, brief.md files) directly — not a Claude session. All information for the architect or Codex goes into BOARD.md, not a verbal relay through Paweł — that's the one shared knowledge surface both instances read from.
+- 2026-09-04 OWNER_CORRECTED (role expansion): before implementing a brief, CC now also evaluates it on the merits — soundness, scope, whether it introduces something ill-conceived — and can send it back for correction instead of just implementing it as-is. Reason: Paweł doesn't want to rely solely on the architect's (OpenAI's) judgment ungated. This is in addition to, not a replacement for, TASK_SCOPE discipline once a brief is accepted and implementation starts.
+- Once implementing an accepted brief: execute only what's in its TASK_SCOPE. Never self-assign follow-up work found during implementation — flag it (a new BOARD.md entry or a FINDING doc) instead.
+- Never self-review or self-approve an IMPLEMENTATION — PASS/FAIL/WYMAGA_DECYZJI on code still belongs to backend.py and Codex only. Brief-evaluation authority (above) is a separate, earlier gate and does not change this.
+- If an instruction or a brief is unclear or ambiguous in any way: stop and ask. Do not guess.
 - Flagging is not the same as acting: if you spot an error, risk, or a better way to do something, say so — but don't act on it without an instruction. Silence about problems is not required; unrequested action is.
 
 REVIEW CHAIN:
-- Architect is now a separate session reading GitHub directly (no longer a browser Claude session Paweł manually forwards DELIVERY to) — see `arch/` FINDING docs for how factual input reaches it. For small mechanical fixes, backend.py PASS + Codex PASS is normally sufficient; architect involvement is only needed when CC or Codex surfaces a real contract/ownership question.
+- Architect (ChatGPT) reads GitHub directly — see `arch/` FINDING docs and BOARD.md for how factual input reaches it. For small mechanical fixes, backend.py PASS + Codex PASS is normally sufficient; architect involvement is only needed when CC or Codex surfaces a real contract/ownership question.
 - Merge instruction comes from Paweł only.
 - Never merge on your own initiative, even after green backend + Codex.
 
