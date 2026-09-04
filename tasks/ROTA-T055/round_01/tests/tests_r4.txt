@@ -1,0 +1,45 @@
+ROTA-T055 — WĄSKI REAUDYT IMPLEMENTACJI R4
+
+Audytowany SHA: 88d2667c02c5b93d6fe9304a220305312dcfbe79
+Commit kodu poprawki: 1fe4881
+Poprzedni raport: tasks/ROTA-T055/round_01/tests/tests_r3.txt
+
+WERDYKT: PASS
+
+PASS dotyczy wyłącznie wskazanego SHA.
+
+Sprawdzony zakres
+
+1. R3-02 — znaczenie DAY_ONLY
+
+Produkcja generuje teraz komunikat o „ograniczeniu do zmian dziennych”, a nie o nieistniejącym dniu wolnym (`rota/planning/validator.py:255-278`). Niezależny reproduktor z `Employee.day_only=True`, bez jakiegokolwiek `DAY_SHIFT_OFF`, przeszedł przez produkcyjne `plan()` i zwrócił poprawną przyczynę.
+
+2. R3-01 — treść widoczna dla koordynatora
+
+`MonthlyPlanning.resolveWarningText()` (`frontend/src/screens/MonthlyPlanning.tsx:315-332`) nadal zamienia cytowany `employee_id` na nazwę z rosteru, a następnie usuwa wyłącznie:
+
+- początkowy kod klasyfikacyjny `RULE-CODE SOFT:`;
+- końcowy techniczny nawias warningu DAY_ONLY z `demand_id` i `rule_version_id`.
+
+W pięciu istniejących kształtach warningów nie pozostaje surowy identyfikator pracownika ani początkowy kod reguły. Nawiasy zawierające godziny albo daty w DAY_SHIFT_OFF, LEAVE_PLAN, REST i WEEKLY-REST nie pasują do drugiego wyrażenia i pozostają widoczne.
+
+Zaakceptowany w przekazaniu R4 wynik DAY_ONLY jest zdaniem bez technicznych identyfikatorów; cały jego końcowy nawias, obejmujący również datę, jest ukrywany. Nie rozszerzano audytu o nowe wymaganie zmiany tej zaakceptowanej prezentacji.
+
+3. Zachowanie backendu
+
+Surowe stringi nadal zachowują prefiksy potrzebne do wewnętrznej klasyfikacji i istniejących testów. Zmiana prezentacyjna nie zmienia reguł validatora ani transportu T055.
+
+Dowody wykonawcze
+
+- `python -m pytest -q tasks/ROTA-T055/round_01/tests/test_t055_implementation.py`
+  Wynik: 5 passed.
+- dwa niezależne przypadki produkcyjnego DAY_ONLY (`test_t017` i `test_t018`)
+  Wynik: 2 passed.
+- TypeScript `tsc -b --pretty false` z istniejącymi zależnościami projektu
+  Wynik: PASS.
+- `git diff --check c16fad5..88d2667`
+  Wynik: PASS.
+
+Pełnej regresji nie uruchamiano — brak zgody OWNERA i brak proporcjonalnej potrzeby po tej wąskiej poprawce.
+
+Nie znaleziono nowego zachowania wymagającego decyzji OWNERA ani dalszego rozszerzenia T055.
