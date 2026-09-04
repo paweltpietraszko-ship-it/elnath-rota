@@ -947,9 +947,16 @@ def solve(
     }
     fixed_assignments = fixed_existing_assignments(state)
     fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
-    fixed_periods, other_site_keys = build_fixed_periods(fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments))
+    fixed_periods, other_site_keys, periodic_training_ids = build_fixed_periods(
+        fixed_assignments, list(state.boundary_assignments), list(state.other_site_assignments)
+    )
     ochrona = state.site.planning_regime == SitePlanningRegime.OCHRONA
-    target_fixed = build_fixed_intervals(fixed_assignments, list(state.boundary_assignments), [])  # T023b sec.7: target-Site only
+    # ROTA-T052 (R4-01 audit fix): S1 (PERIODIC_TRAINING) must never occupy
+    # time for WEEKLY-REST-01's fixed-occupancy check (brief section 2
+    # point 4) -- excluded here, same as validator._check_weekly_rest.
+    weekly_rest_fixed_assignments = [a for a in fixed_assignments if a.role != AssignmentRole.PERIODIC_TRAINING]
+    weekly_rest_boundary_assignments = [a for a in state.boundary_assignments if a.role != AssignmentRole.PERIODIC_TRAINING]
+    target_fixed = build_fixed_intervals(weekly_rest_fixed_assignments, weekly_rest_boundary_assignments, [])  # T023b sec.7: target-Site only
     fixed_primary_by_demand: dict[str, set[str]] = {}
     for a in fixed_assignments:
         if a.role == AssignmentRole.PRIMARY and a.covers_demand_id:
@@ -959,6 +966,7 @@ def solve(
     assumptions = _add_coverage_constraints(model, x, slots, still_needed)
     pair_vars = add_rest_constraints(
         model, x, slots, fixed_periods, state.site.site_id, same_month_by_employee, cross_month_by_employee, other_site_keys, ochrona=ochrona,
+        periodic_training_ids=periodic_training_ids,
     )
     add_weekly_rest_constraints(model, x, slots, target_fixed, state.month, ochrona)
     add_same_person_24h_constraints(model, x, slots, list(state.shift_demands), fixed_primary_by_demand)

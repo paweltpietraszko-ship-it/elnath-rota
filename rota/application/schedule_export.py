@@ -177,8 +177,10 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
     demand_by_assignment: dict = {}; assignment_by_id: dict = {}; seen_employee_ids: set[str] = set()  # noqa: E702
     # ROTA-T052 (brief section 7): S1 never covers a demand and never
     # participates in 24h-period/demand-coverage validation -- collected
-    # separately, merged into work_cells afterward (see _assemble_export_model).
-    s1_cells: dict[str, dict[date, str]] = {}
+    # separately (keyed by its own real interval, not a bare code string, so
+    # the merge below can tell real overlap from mere same-day co-occurrence
+    # -- R4-02 audit fix), merged into work_cells afterward.
+    s1_cells: dict[str, dict[date, tuple[datetime, datetime]]] = {}
     for day in days:
         version_id = daily_version[day]
         if version_id is None:
@@ -192,7 +194,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
                 continue
             if a.role == AssignmentRole.PERIODIC_TRAINING:
                 seen_employee_ids.add(a.employee_id)
-                s1_cells.setdefault(a.employee_id, {})[day] = "S1"
+                s1_cells.setdefault(a.employee_id, {})[day] = (a.start_datetime, a.end_datetime)
                 continue
             demand = demands_by_id.get(a.covers_demand_id) if a.covers_demand_id else None
             _validate_item(a, demand)
@@ -246,9 +248,15 @@ def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> O
     if crosses_boundary and d0.catalog_kind != ShiftCatalogKind.H24 and d1.catalog_kind != ShiftCatalogKind.H24:
         return "linked"
     return None
+def _intervals_overlap(a: tuple[datetime, datetime], b: tuple[datetime, datetime]) -> bool:
+    return a[0] < b[1] and b[0] < a[1]
 def _apply_24h_periods(collected, settings, days: list[date]):
     raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions, s1_cells = collected
     work_cells: dict[str, dict[date, str]] = {}; consumed: set[str] = set(); adjacent_facts: list[tuple] = []  # noqa: E702
+    # ROTA-T052 (R4-02 audit fix): the real interval behind whatever code
+    # currently occupies a cell, so a later S1 sharing that day can tell
+    # genuine time overlap from mere same-day co-occurrence.
+    work_intervals: dict[str, dict[date, tuple[datetime, datetime]]] = {}
     for period in group_into_periods(components):
         if len(period.component_ids) < 2:
             continue
@@ -260,6 +268,7 @@ def _apply_24h_periods(collected, settings, days: list[date]):
         consumed.update(period.component_ids)
         if period.start.date() in days:
             work_cells.setdefault(period.employee_id, {})[period.start.date()] = "24"
+            work_intervals.setdefault(period.employee_id, {})[period.start.date()] = (period.start, period.end)
         if kind == "linked":
             boundary_cid = next(cid for cid in period.component_ids if cid in boundary_ids)
             a = assignment_by_id[boundary_cid]
@@ -273,16 +282,26 @@ def _apply_24h_periods(collected, settings, days: list[date]):
             raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has {len(remaining)} independent work items")
         assignment, demand = remaining[0]
         work_cells.setdefault(employee_id, {})[day] = _map_work_code(assignment, demand, settings)
-    # ROTA-T052 (T52-08): S1 shares the same one-code-per-day-per-employee
-    # cell as every other work item -- a real same-day collision (S1 plus
-    # another work item) reuses the existing MULTIPLE_WORK_ITEMS_PER_CELL
-    # protection rather than silently overwriting one code with the other.
+        work_intervals.setdefault(employee_id, {})[day] = (assignment.start_datetime, assignment.end_datetime)
+    # ROTA-T052 (T52-06/T52-08/T52-12, R4-02 audit fix): S1 sharing a
+    # calendar day with another work item is only a real problem when their
+    # intervals actually overlap -- a HARD violation the validator would
+    # already have flagged, but T037 never blocks a save on a HARD
+    # violation, so a forced-through overlap can still reach export and
+    # must still be rejected here. A legal, non-overlapping same-day pair
+    # (e.g. S1 10-14 + N 18-06) combines into one cell instead.
     for employee_id, by_day in s1_cells.items():
-        for day, code in by_day.items():
-            existing = work_cells.setdefault(employee_id, {})
-            if day in existing:
-                raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has both S1 and another work item")
-            existing[day] = code
+        for day, s1_interval in by_day.items():
+            existing_codes = work_cells.setdefault(employee_id, {})
+            existing_intervals = work_intervals.setdefault(employee_id, {})
+            other_interval = existing_intervals.get(day)
+            if other_interval is not None and _intervals_overlap(s1_interval, other_interval):
+                raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has both S1 and an overlapping work item")
+            if day in existing_codes:
+                existing_codes[day] = f"{existing_codes[day]}/S1"
+            else:
+                existing_codes[day] = "S1"
+            existing_intervals[day] = s1_interval
     return work_cells, sorted(adjacent_facts)
 def _map_work_code(assignment, demand, settings) -> str:
     duration_hours = (assignment.end_datetime - assignment.start_datetime).total_seconds() / 3600
@@ -429,6 +448,13 @@ def _absence_pairs_for_employee(employee_id, canonical_days, work_cells, setting
     return pairs
 # Row assembly (Section 11/16)
 def _hours_of(code: str, reserve_hours: dict) -> int:
+    # ROTA-T052: a combined same-day cell (e.g. "N1/S1", R4-02 audit fix)
+    # sums its parts -- S1 itself has no fixed duration and contributes 0
+    # here (WorkBalance, not this printed column, owns S1's real hours).
+    if "/" in code:
+        return sum(_hours_of(part, reserve_hours) for part in code.split("/"))
+    if code == "S1":
+        return 0
     if code == "24":
         return 24
     if code == BLANK or code.endswith("~"):
@@ -517,13 +543,17 @@ _DOW = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
 MARGIN, NAME_W, SUM_W = 24.0, 170.0, 48.0
 HEADER_H, LEGEND_H, FOOTER_H = 90.0, 150.0, 20.0
 def _family(code: str) -> str:
-    if code == "24":
+    # ROTA-T052 (R4-02 audit fix): a combined same-day cell ("N1/S1",
+    # "24/S1") takes its family from the primary (non-S1) code, so it still
+    # renders as that shift's kind, not as an unstyled fallback.
+    primary = code.split("/", 1)[0]
+    if primary == "24":
         return "h24"
-    if code == "S1":
+    if primary == "S1":
         return "s1"
     if code == BLANK:
         return "off"
-    return {"D": "d", "N": "n", "U": "u", "C": "c"}.get(code[0], "off")
+    return {"D": "d", "N": "n", "U": "u", "C": "c"}.get(primary[0], "off")
 def _row_height(n_rows: int) -> float:
     return max(22.0, min(46.0, (22.0 * 2 * 10) / max(1, 2 * n_rows)))
 def _fit_font_size(text: str, font: str, size: float, max_width: float, min_size: float = 6.5) -> float:

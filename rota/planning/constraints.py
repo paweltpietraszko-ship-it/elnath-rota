@@ -25,7 +25,7 @@ from itertools import combinations
 
 from ortools.sat.python import cp_model
 
-from rota.domain import Assignment, AssignmentState, ShiftCatalogKind
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind
 from rota.planning.eligibility import is_all_24h_profile
 from rota.planning.timeutil import overlap_hours, rolling_windows
 from rota.planning.work_periods import (
@@ -37,6 +37,7 @@ from rota.planning.work_periods import (
     find_same_month_pair_candidates,
     forms_illegal_continuous_pair,
     group_into_periods,
+    periods_overlap,
     violates_rest,
     weekly_settlement_windows,
 )
@@ -64,7 +65,7 @@ def build_fixed_intervals(
 
 def build_fixed_periods(
     fixed_assignments: list[Assignment], boundary_assignments: list[Assignment], other_site_assignments: list[Assignment]
-) -> tuple[dict[str, list[WorkPeriod]], frozenset[tuple[str | None, str]]]:
+) -> tuple[dict[str, list[WorkPeriod]], frozenset[tuple[str | None, str]], frozenset[str]]:
     """REST-01 counterpart of build_fixed_intervals: same source Assignments,
     grouped into WorkPeriods by (employee_id, work_period_id) so a fixed
     24h pair (same-site, same-month or a persisted boundary period) is one
@@ -72,17 +73,26 @@ def build_fixed_periods(
     facts. Also returns the (schedule_version_id, assignment_id) keys drawn
     from other_site_assignments only, so callers can tell a genuinely
     other-Site fixed period apart for CROSS-SITE-ZERO-GAP-01 (T022,
-    OWNER-T022-03) without inventing a travel model or Assignment.site_id."""
+    OWNER-T022-03) without inventing a travel model or Assignment.site_id.
+
+    ROTA-T052 (R4-01 audit fix): also returns the bare component ids of
+    every PERIODIC_TRAINING (S1) assignment among these -- S1 is a fixed
+    fact (never redistributable, solver.fixed_existing_assignments already
+    keeps it untouched) but must not act as a REST-01 wall in either
+    direction, only as real overlap. WorkPeriod itself carries no role, so
+    callers use this set to tell which fixed periods are S1-only."""
     other_site_list = _not_cancelled(other_site_assignments)
     other_site_keys = frozenset((a.schedule_version_id, a.assignment_id) for a in other_site_list)
+    all_fixed = (*fixed_assignments, *_not_cancelled(boundary_assignments), *other_site_list)
+    periodic_training_ids = frozenset(a.assignment_id for a in all_fixed if a.role == AssignmentRole.PERIODIC_TRAINING)
     components = [
         PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
-        for a in (*fixed_assignments, *_not_cancelled(boundary_assignments), *other_site_list)
+        for a in all_fixed
     ]
     by_employee: dict[str, list[WorkPeriod]] = {}
     for period in group_into_periods(components):
         by_employee.setdefault(period.employee_id, []).append(period)
-    return by_employee, other_site_keys
+    return by_employee, other_site_keys, periodic_training_ids
 
 
 def _is_other_site_period(period: WorkPeriod, other_site_keys: frozenset) -> bool:
@@ -116,7 +126,7 @@ def _demand_periods(
 def add_rest_constraints(
     model: cp_model.CpModel, x: dict, slots: list, fixed_periods: dict[str, list[WorkPeriod]], site_id: str,
     same_month_by_employee: dict[str, list] | None = None, cross_month_by_employee: dict[str, dict] | None = None,
-    other_site_keys: frozenset = frozenset(), ochrona: bool = False,
+    other_site_keys: frozenset = frozenset(), ochrona: bool = False, periodic_training_ids: frozenset = frozenset(),
 ) -> dict[tuple[str, str, str], tuple]:
     """T012 Part C: same_month_by_employee/cross_month_by_employee (from
     build_emergency_pair_context) name the exact (employee, candidate) pairs
@@ -152,6 +162,7 @@ def add_rest_constraints(
         }
         pair_vars.update(_add_one_employee_rest(
             model, x, employee_id, periods, relaxed, fixed_periods.get(employee_id, []), other_site_keys, ochrona=ochrona,
+            periodic_training_ids=periodic_training_ids,
         ))
     _add_no_chain_constraints(model, pair_vars)
     return pair_vars
@@ -240,7 +251,7 @@ def _add_ordinary_period_edges(model: cp_model.CpModel, x: dict, employee_id: st
 def _add_merged_pair_edges(
     model: cp_model.CpModel, x: dict, employee_id: str, period_by_id: dict, candidates_by_key: dict,
     periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod], other_site_keys: frozenset,
-    ochrona: bool = False,
+    ochrona: bool = False, periodic_training_ids: frozenset = frozenset(),
 ) -> None:
     """C-R16-1: once pair=1, the two components ARE one 24h work period
     (first.start -> second.end) whose rest (emergency_24h_rest_hours) governs
@@ -266,11 +277,14 @@ def _add_merged_pair_edges(
             # fixed period with zero gap, even though the pair itself is a
             # legal same-Site 24h occurrence.
             cross_site_zero_gap = _is_other_site_period(fixed_period, other_site_keys) and _periods_abut(merged, fixed_period)
-            if violates_rest(merged, fixed_period) or cross_site_zero_gap:
+            if _rest_conflict(merged, fixed_period, periodic_training_ids) or cross_site_zero_gap:
                 model.add(x[employee_id, candidate.first_demand_id] + x[employee_id, candidate.second_demand_id] <= 1)
 
 
-def _add_ordinary_fixed_edges(model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod], paired_member_p: dict, other_site_keys: frozenset) -> None:
+def _add_ordinary_fixed_edges(
+    model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], fixed_periods_for_employee: list[WorkPeriod],
+    paired_member_p: dict, other_site_keys: frozenset, periodic_training_ids: frozenset = frozenset(),
+) -> None:
     for period in periods:
         rep = period.component_ids[0]
         governing_p = paired_member_p.get(rep)
@@ -292,7 +306,7 @@ def _add_ordinary_fixed_edges(model: cp_model.CpModel, x: dict, employee_id: str
             if cross_site_zero_gap:
                 model.add(x[employee_id, rep] == 0)
                 continue
-            if not violates_rest(period, fixed_period):
+            if not _rest_conflict(period, fixed_period, periodic_training_ids):
                 continue
             constraint = model.add(x[employee_id, rep] == 0)
             if governing_p is not None and period.start <= fixed_period.start:
@@ -304,7 +318,7 @@ def _add_ordinary_fixed_edges(model: cp_model.CpModel, x: dict, employee_id: str
 
 def _add_one_employee_rest(
     model: cp_model.CpModel, x: dict, employee_id: str, periods: list[WorkPeriod], relaxed: dict, fixed_periods_for_employee: list[WorkPeriod],
-    other_site_keys: frozenset = frozenset(), ochrona: bool = False,
+    other_site_keys: frozenset = frozenset(), ochrona: bool = False, periodic_training_ids: frozenset = frozenset(),
 ) -> dict[tuple[str, str, str], tuple]:
     periods = _apply_ochrona_floor(periods, ochrona=ochrona)  # always target-Site (prospective demand periods)
     fixed_periods_for_employee = _apply_ochrona_floor(fixed_periods_for_employee, ochrona=ochrona, other_site_keys=other_site_keys)
@@ -315,9 +329,26 @@ def _add_one_employee_rest(
         paired_member_p[candidate.first_demand_id] = p
         paired_member_p[candidate.second_demand_id] = p
     _add_ordinary_period_edges(model, x, employee_id, periods, candidates_by_key, paired_member_p)
-    _add_merged_pair_edges(model, x, employee_id, period_by_id, candidates_by_key, periods, fixed_periods_for_employee, other_site_keys, ochrona=ochrona)
-    _add_ordinary_fixed_edges(model, x, employee_id, periods, fixed_periods_for_employee, paired_member_p, other_site_keys)
+    _add_merged_pair_edges(
+        model, x, employee_id, period_by_id, candidates_by_key, periods, fixed_periods_for_employee, other_site_keys,
+        ochrona=ochrona, periodic_training_ids=periodic_training_ids,
+    )
+    _add_ordinary_fixed_edges(
+        model, x, employee_id, periods, fixed_periods_for_employee, paired_member_p, other_site_keys,
+        periodic_training_ids=periodic_training_ids,
+    )
     return pair_vars
+
+
+def _rest_conflict(period: WorkPeriod, fixed_period: WorkPeriod, periodic_training_ids: frozenset) -> bool:
+    """ROTA-T052 (R4-01 audit fix): a fixed period that is S1
+    (PERIODIC_TRAINING) never creates a REST-01 wall in either direction --
+    only real time overlap against it is still a conflict."""
+    if any(cid in periodic_training_ids for cid in fixed_period.component_ids) or any(
+        cid in periodic_training_ids for cid in period.component_ids
+    ):
+        return periods_overlap(period, fixed_period)
+    return violates_rest(period, fixed_period)
 
 
 def build_emergency_pair_context(state, slots: list) -> tuple[dict[str, list], dict[str, dict]]:
