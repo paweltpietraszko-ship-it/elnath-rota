@@ -317,18 +317,20 @@ export default function MonthlyPlanning({
   // rota/planning/validator.py) keep a leading "RULE-CODE SOFT: " prefix
   // and, for DAY_ONLY-N-FALLBACK-01, a trailing "(zapotrzebowanie ...,
   // data ..., reguła ...)" technical reference -- both stay in the raw
-  // string because many existing tests classify/grep on them, but neither
-  // means anything to a coordinator and there is no display-name lookup
-  // for a demand_id/rule_version_id the way there is for employee_id. Both
-  // are stripped here, display-only, the same way employee_id is resolved
-  // here rather than in the backend.
+  // string because many existing tests classify/grep on them, but the
+  // demand_id/rule_version_id inside that parenthetical mean nothing to a
+  // coordinator and have no display-name lookup the way employee_id does.
+  // Architect audit fix (post-Codex-PASS): the first version of this regex
+  // dropped the ENTIRE parenthetical, silently losing the operationally
+  // important date along with the meaningless ids -- corrected to keep
+  // only "data ..." and drop "zapotrzebowanie .../reguła ..." around it.
   const resolveWarningText = (text: string): string => {
     let resolved = text;
     for (const r of rosterEmployees) {
       resolved = resolved.split(`'${r.employee_id}'`).join(r.display_name);
     }
     resolved = resolved.replace(/^[A-Z][A-Z0-9_]*(-[A-Z0-9]+)*\s+SOFT:\s*/, "");
-    resolved = resolved.replace(/\s*\(zapotrzebowanie[^)]*\)$/, "");
+    resolved = resolved.replace(/\(zapotrzebowanie[^,]*,\s*(data [^,]+),\s*reguła[^)]*\)/, "($1)");
     return resolved;
   };
 
