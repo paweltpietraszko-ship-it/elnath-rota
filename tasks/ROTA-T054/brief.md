@@ -166,3 +166,4 @@ TASK_SCOPE:
 - api/routers/schedule.py
 - frontend/src/api/client.ts
 - frontend/src/screens/MonthlyPlanning.tsx
+- frontend/e2e/t054-independent-audit.spec.ts
