@@ -1,5 +1,10 @@
 # AGENTS.md
 
+## CODEX_START
+Każda nowa instancja Codexa pracująca w tym repo ma przed rozpoczęciem zadania
+przeczytać w całości `CODEX_START_HERE.md`. To przekazanie oczekiwanego sposobu
+współpracy z OWNEREM; nie zastępuje specyfikacji ani kontraktu Tasku.
+
 ## BOARD
 Na początku każdego zadania przeczytaj `BOARD.md` (kolejka przekazań
 CC ↔ Codex: kto/co/branch/SHA/status/gdzie raport). To dziennik
