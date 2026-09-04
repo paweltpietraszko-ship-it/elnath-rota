@@ -1,0 +1,78 @@
+ROTA-T054 — REAUDYT IMPLEMENTACJI R4
+
+Audytowany exact SHA: 320d840d8d5e27aae3ea377d415574a8f241e5f2
+Werdykt: FAIL
+
+Poprzedni PASS Codexa był niepełny. Architekt słusznie wykazał, że nie
+sprawdziłem wyniku kolejnej próby innego niż FEASIBLE ani rozróżnienia
+REPLAN narrow/wide. Obie wskazane przez architekta zwykłe ścieżki są na tym
+SHA naprawione, ale sprawdzenie ich granic błędu ujawniło dwa nadal
+reprodukowalne naruszenia tego samego zamrożonego kontraktu T54-06.
+
+Zakres i wyniki
+
+1. `.venv\Scripts\python.exe -m pytest -q
+   tasks/ROTA-T054/round_01/tests/test_t054_r2_audit.py
+   tasks/ROTA-T054/round_01/tests/test_t054_r4_architect_audit.py`
+   Wynik: 7 passed.
+
+2. `.venv\Scripts\python.exe -m pytest -q
+   tasks/ROTA-T054/round_01/tests/test_t054_r5_independent.py`
+   Wynik: 1 passed, 1 failed.
+
+3. `npm.cmd run test:e2e -- --project=chromium
+   e2e/t054-independent-audit.spec.ts --grep "A-F2" --retries=0`
+   Wynik: 1 passed. Po reloadzie `replan_wide` wywołuje właściwy endpoint
+   `/replan/wider-search`.
+
+4. `npm.cmd run test:e2e -- --project=chromium
+   e2e/t054-independent-audit.spec.ts --grep "T54-06" --retries=0`
+   Wynik: 1 failed. Świeży wynik po błędzie zapisu nie zachował na ekranie
+   komunikatu o braku trwałości.
+
+Pełnej regresji repozytorium nie uruchamiano.
+
+R4-01 — błąd usunięcia preview jest ukrywany, a stary wynik wraca
+
+TRACE: brief.md:31 mówi, że kolejny świadomie uruchomiony PLAN/REPLAN
+zastępuje poprzedni wynik. T54-06 (brief.md:137) wymaga jawnej informacji o
+błędzie persistence i zakazuje „ducha” starego wyniku.
+
+OWNERSHIP: rota/application/plan_ops.py:103-108 jest nową granicą usunięcia
+starego preview po wyniku innym niż FEASIBLE. Wyjątek SQLite w liniach
+106-107 jest bezwarunkowo połykany.
+
+REPRO: prawdziwy pierwszy PLAN zapisał preview. Następnie koordynator wyłączył
+obie osoby LOCAL, więc drugi prawdziwy PLAN zwrócił DECISION_REQUIRED.
+Trigger SQLite odtworzył awarię DELETE. Wynik nie dostał żadnej informacji o
+błędzie, a GET month ponownie zwrócił stare preview dla tej samej WORKING
+version: `failure_reported=false`, `old_preview_hidden=false`.
+
+R4-02 — błąd zapisu nowego wyniku ukrywa świeży wynik i jego ostrzeżenie
+
+TRACE: brief.md:62 oraz T54-06 (brief.md:137) wymagają, aby po błędzie zapisu
+świeży kandydat pozostał widoczny w bieżącej sesji razem z jednoznacznym
+komunikatem, że nie został zapisany trwale.
+
+OWNERSHIP: backend poprawnie dopisuje PLAN_PREVIEW_NOT_PERSISTED w
+rota/application/plan_ops.py:115-118. Frontend następnie zapisuje świeży
+result i wywołuje load() (MonthlyPlanning.tsx:468-469). Ponieważ nieudany
+UPDATE pozostawił poprzedni trwały preview, efekt z linii 203-221 natychmiast
+nadpisuje świeży wynik starym preview, które nie ma nowego ostrzeżenia.
+
+REPRO: rzeczywista przeglądarka wykonała pierwszy PLAN i zapisała preview.
+Trigger SQLite odrzucił UPDATE przy drugim PLAN. Backend zwrócił FEASIBLE z
+ostrzeżeniem, lecz po zakończeniu automatycznego GET użytkownik nie widział
+tekstu „Ten wynik nie został zapisany trwale”. Test przeglądarkowy zakończył
+się na braku tego wymaganego komunikatu.
+
+Potwierdzone poprawki architekta
+
+- A-F1 działa, gdy DELETE się udaje: realny drugi PLAN kończący się
+  DECISION_REQUIRED usuwa poprzedni preview.
+- A-F2 działa w repozytorium i UI: `plan`, `replan_narrow` i `replan_wide`
+  przeżywają reload, a szeroka kontynuacja trafia do szerokiego endpointu.
+- branch zawiera merge aktualnego main wskazany jako A-F3.
+
+PASS może zostać ponowiony wyłącznie dwoma reproduktorami R4-01/R4-02 oraz
+krótką kontrolą A-F2. Pełna suita nie jest potrzebna.

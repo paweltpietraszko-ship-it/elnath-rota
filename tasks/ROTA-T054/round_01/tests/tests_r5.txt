@@ -1,0 +1,57 @@
+ROTA-T054 — REAUDYT IMPLEMENTACJI R5
+
+Audytowany exact SHA: 163e30c3a6f0e6ed49350f06c9f2ebd4e3ee78cc
+Werdykt: FAIL — jeden wąski finding
+
+Zakres
+
+- dwa zachowane reproduktory R4-01;
+- jeden wariant sąsiedni tej samej klasy: wynik bez FEASIBLE i bez
+  current_decision_required;
+- rzeczywisty frontend -> API -> backend dla R4-02 i A-F2;
+- bez pełnej regresji repozytorium.
+
+Wyniki
+
+1. `.venv\Scripts\python.exe -m pytest -q
+   tasks/ROTA-T054/round_01/tests/test_t054_r5_independent.py`
+   Wynik: 2 passed, 1 failed.
+
+2. `npm.cmd run test:e2e -- --project=chromium
+   e2e/t054-independent-audit.spec.ts --grep A-F2 --retries=0`
+   Wynik: 1 passed.
+
+3. `npm.cmd run test:e2e -- --project=chromium
+   e2e/t054-independent-audit.spec.ts --grep T54-06 --retries=0`
+   Wynik: 1 passed.
+
+R5-01 — stary preview nadal wraca po nieudanym cleanupie, jeśli nowy wynik
+nie ma DecisionRequired readback
+
+TRACE: brief.md:31 zamraża zastąpienie poprzedniego wyniku przez kolejną
+świadomą próbę. Brief.md:62 i T54-06 wymagają jawnego błędu persistence oraz
+braku mylącego starego wyniku.
+
+OWNERSHIP: rota/application/plan_ops.py:103-118 dopisuje już prawidłowe
+ostrzeżenie po błędzie DELETE. api/routers/schedule.py:261-278 ukrywa jednak
+pozostały rekord tylko wtedy, gdy `readback is not None`. Taki readback
+powstaje dla DECISION_REQUIRED, ale nie dla TECHNICAL_ERROR,
+SEARCH_INCOMPLETE, NARROW_SEARCH_EXHAUSTED ani NO_ALTERNATIVE.
+
+REPRO: prawdziwy pierwszy PLAN utworzył trwały preview. Następnie trigger
+SQLite odrzucił jego DELETE, a nowa próba zakończyła się TECHNICAL_ERROR bez
+DecisionRequired readback. Backend poprawnie zwrócił
+PLAN_PREVIEW_CLEANUP_FAILED, ale GET month nadal zwrócił stary preview:
+`failure_reported=true`, `old_preview_hidden=false`.
+
+Potwierdzone naprawy
+
+- R4-01 dla DECISION_REQUIRED: PASS. Przy błędzie DELETE warning jest jawny,
+  a GET nie pokazuje starego preview.
+- R4-02: PASS. Przy błędzie UPDATE świeży FEASIBLE i komunikat „nie zapisano
+  trwale” pozostają widoczne w bieżącej sesji.
+- A-F2: PASS. Po reloadzie `replan_wide` kontynuuje przez
+  `/replan/wider-search`.
+
+Do następnej rundy wystarczy reproduktor R5-01 oraz krótka kontrola R4-02.
+Pełna suita nie jest potrzebna.

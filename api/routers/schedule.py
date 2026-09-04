@@ -20,10 +20,18 @@ from rota.application.assembler import assemble_planning_state
 from rota.application.lifecycle_ops import exclude_from_history, finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
 from rota.application.open_month import months_with_schedule, open_month
-from rota.application.plan_ops import plan_month, replan, replan_retry_narrow, replan_wider_search, select_candidate
+from rota.application.plan_ops import (
+    plan_month,
+    reject_plan_preview,
+    replan,
+    replan_retry_narrow,
+    replan_wider_search,
+    select_candidate,
+)
 from rota.application.precheck import precheck
 from rota.domain import Assignment, AssignmentRole, AssignmentState
 from rota.persistence.employee_repository import list_employees_by_ids
+from rota.persistence.plan_preview_repository import get_plan_preview
 from rota.persistence.schedule_repository import get_current_schedule_snapshot, get_current_version_id
 
 router = APIRouter(prefix="/workspace/sites", tags=["schedule"])
@@ -106,6 +114,16 @@ class DeviationOut(BaseModel):
     acknowledged: bool
 
 
+class PlanPreviewOut(BaseModel):
+    schedule_version_id: str
+    candidates: list[list[AssignmentOut]]
+    warnings: list[str]
+    optimization_complete: bool
+    # R2-03 audit fix: "plan" or "replan" -- so the frontend can dispatch a
+    # further "Szukaj dalej" to the correct continuation after a reload.
+    operation_kind: str
+
+
 class MonthViewOut(BaseModel):
     current_version: ScheduleVersionOut | None
     version_history: list[ScheduleVersionOut]
@@ -118,6 +136,14 @@ class MonthViewOut(BaseModel):
     # surfaced here so it survives a reload.
     decision_required: DecisionRequiredPayloadOut | None
     warnings: list[str]
+    # ROTA-T054: the persisted, unaccepted PLAN/REPLAN preview for this
+    # (site_id, month), if one exists and still matches current_version --
+    # a preview tied to an older version is stale and never surfaced here
+    # (brief section 5, "GET MONTH / reload"). plan_preview_error (T54-07)
+    # is set only when reading the preview itself failed; the rest of this
+    # response (current schedule) stays untouched either way.
+    plan_preview: PlanPreviewOut | None = None
+    plan_preview_error: str | None = None
 
 
 class PlanningResultOut(BaseModel):
@@ -169,6 +195,17 @@ def _deviation_out(d) -> DeviationOut:
     )
 
 
+def _plan_preview_out(conn, preview) -> PlanPreviewOut:
+    all_employee_ids = {a.employee_id for candidate in preview.candidates for a in candidate}
+    employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
+    candidates = [[_assignment_out(a, employees_by_id) for a in candidate] for candidate in preview.candidates]
+    return PlanPreviewOut(
+        schedule_version_id=preview.schedule_version_id, candidates=candidates,
+        warnings=list(preview.warnings), optimization_complete=preview.optimization_complete,
+        operation_kind=preview.operation_kind,
+    )
+
+
 def _planning_result_out(conn, result) -> PlanningResultOut:
     all_employee_ids = {a.employee_id for candidate in result.candidates for a in candidate}
     employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
@@ -207,11 +244,45 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
             deviations = [_deviation_out(d) for d in snapshot.deviations]
         readback = current_decision_required(conn, site_id=site_id, month=month)
         decision_required = decision_payload_out(readback.payload) if readback is not None else None
+        # ROTA-T054 (brief section 5, "GET MONTH / reload", T54-07/T54-08):
+        # a preview read failure is isolated here -- it must never fail the
+        # whole month view or hide the current schedule already assembled
+        # above. A preview whose schedule_version_id no longer matches the
+        # CURRENT version is stale (e.g. a REPLAN created a new WORKING
+        # child but its own solve never came back FEASIBLE, so no fresh
+        # preview replaced the old one) and is never surfaced as current.
+        plan_preview_out = None
+        plan_preview_error = None
+        try:
+            preview = get_plan_preview(conn, site_id, month)
+            # R2-01 audit fix: a preview is only "current" while its exact
+            # WORKING version is still the current version AND that version
+            # has not since moved to FINAL -- once finalized, an unselected
+            # preview computed against the pre-final state is stale, even
+            # though the version_id itself did not change (finalize() is a
+            # status transition, not a new version).
+            # R4-01 (architect audit fix): a persistent current_decision_
+            # required readback (`readback`, above) is written before this
+            # function's own delete-old-preview cleanup ever runs, so its
+            # mere presence already proves a later non-FEASIBLE result
+            # superseded whatever preview this exact WORKING version still
+            # points at -- hide it even if that cleanup's own DELETE failed,
+            # without needing a new marker for the same fact.
+            if (
+                preview is not None and view.current_version is not None
+                and preview.schedule_version_id == view.current_version.version_id
+                and not view.current_version.status.value.startswith("FINAL")
+                and readback is None
+            ):
+                plan_preview_out = _plan_preview_out(conn, preview)
+        except Exception as exc:  # isolated, never propagated as the whole request's error (T54-07)
+            plan_preview_error = str(exc)
         return MonthViewOut(
             current_version=_version_out(view.current_version) if view.current_version else None,
             version_history=[_version_out(v) for v in view.version_history],
             demands=demands, assignments=assignments, deviations=deviations,
             decision_required=decision_required, warnings=list(view.warnings),
+            plan_preview=plan_preview_out, plan_preview_error=plan_preview_error,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -299,6 +370,16 @@ def post_select_candidate(site_id: str, month: date, payload: SelectCandidateReq
             conn, site_id=site_id, month=month, candidate=candidate, coordinator_id=DEV_COORDINATOR_ID,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/{site_id}/schedule/{month}/plan-preview/reject", status_code=204)
+def post_reject_plan_preview(site_id: str, month: date, conn=Depends(get_conn)) -> None:
+    """ROTA-T054 (brief section 5, "ODRZUĆ WYNIK"): explicit coordinator
+    rejection of the current unaccepted PLAN/REPLAN preview."""
+    try:
+        reject_plan_preview(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 

@@ -108,6 +108,17 @@ export interface DeviationOut {
   acknowledged: boolean;
 }
 
+// ROTA-T054: the persisted, unaccepted PLAN/REPLAN preview, if one exists
+// and still matches current_version -- a preview tied to an older version
+// is stale and never sent here.
+export interface PlanPreviewOut {
+  schedule_version_id: string;
+  candidates: AssignmentOut[][];
+  warnings: string[];
+  optimization_complete: boolean;
+  operation_kind: "plan" | "replan_narrow" | "replan_wide";
+}
+
 export interface MonthViewOut {
   current_version: ScheduleVersionOut | null;
   version_history: ScheduleVersionOut[];
@@ -116,6 +127,8 @@ export interface MonthViewOut {
   deviations: DeviationOut[];
   decision_required: DecisionRequiredPayloadOut | null;
   warnings: string[];
+  plan_preview: PlanPreviewOut | null;
+  plan_preview_error: string | null;
 }
 
 export interface DecisionRequiredPayloadOut {
@@ -536,6 +549,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ candidate, note: note ?? null }),
     }),
+  rejectPlanPreview: (siteId: string, month: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/plan-preview/reject`, { method: "POST" }),
   replanMonth: (siteId: string, month: string, effectiveFrom: string, note?: string) =>
     req<PlanningResultOut>(`/workspace/sites/${siteId}/schedule/${month}/replan`, {
       method: "POST",
