@@ -1,0 +1,88 @@
+ROTA-T054 — AUDYT IMPLEMENTACJI R2
+
+Audytowany exact SHA: fdd6f8715f5378c62dac944295d9404801545073
+Werdykt: FAIL
+
+Zakres audytu
+
+- mały, niezależny pion backendowy przez prawdziwe SQLite, assembler,
+  plan_month()/replan(), solver, validate(), select_candidate(), finalize()
+  i GET miesiąca;
+- jeden rzeczywisty test przeglądarkowy frontend -> API -> backend;
+- kontrola czterech wejść PLAN/REPLAN/retry/wider i odtworzenia stanu po
+  reloadzie;
+- bez pełnej regresji repozytorium — zgodnie z AGENTS.md i decyzją OWNERA.
+
+Wyniki poleceń
+
+1. `.venv\Scripts\python.exe -m pytest -q
+   tasks/ROTA-T054/round_01/tests/test_t054_r2_audit.py`
+   Wynik: 3 passed, 2 failed.
+
+2. `npm.cmd run test:e2e -- --project=chromium
+   e2e/t054-independent-audit.spec.ts --retries=0`
+   Wynik: 1 failed.
+
+Potwierdzone zachowania
+
+- dokładni kandydaci, warnings i optimization_complete przeżywają zamknięcie
+  i ponowne otwarcie SQLite;
+- jawne odrzucenie usuwa wyłącznie preview, bez zmiany wersji i historii;
+- nieudany select pozostawia preview, a udany select usuwa je atomowo;
+- rzeczywisty błąd zapisu preview pozostawia kandydata w odpowiedzi, dodaje
+  PLAN_PREVIEW_NOT_PERSISTED i nie zapisuje Assignmentów do grafiku;
+- uszkodzony JSON preview nie wywraca GET miesiąca i nie ukrywa bieżącego
+  grafiku;
+- nie dodano nowego ScheduleStatus.
+
+R2-01 — preview pozostaje widoczne po FINAL
+
+TRACE: brief.md:25 i 78 zamrażają preview jako artefakt dokładnej bieżącej
+WORKING version. Po FINAL nie jest już WORKING.
+
+OWNERSHIP: api/routers/schedule.py:254 dopuszcza preview wyłącznie na podstawie
+zgodności schedule_version_id. Nie sprawdza statusu bieżącej wersji.
+
+REPRO: niezależny test wykonał prawdziwe PLAN -> select -> ponowny PLAN ->
+finalize -> GET month. GET zwrócił jednocześnie status FINAL_NO_DEVIATIONS i
+plan_preview dla tej samej wersji. Użytkownik nadal widzi więc przy FINAL
+„Niezatwierdzony wynik PLAN”.
+
+R2-02 — „Szukaj dalej” zastępuje preview bez wymaganego ostrzeżenia
+
+TRACE: brief.md:64-65, 88 i T54-03 wymagają ostrzeżenia przed kolejną operacją,
+która zastąpi istniejące preview. Zaakceptowany audyt przedimplementacyjny
+tests_r1.txt doprecyzował wprost, że obejmuje to świadome „Szukaj dalej”.
+
+OWNERSHIP: frontend/src/screens/MonthlyPlanning.tsx:238-240 ma właściwe
+confirmReplacePreview(), ale używają go tylko runPlan (451) i runReplan (517).
+runPlanSearchAgain (468) oraz replanowe ponowienie (553) rozpoczynają zapis
+nowego wyniku bez tej bramki.
+
+REPRO: rzeczywisty test przeglądarkowy utworzył i zapisał wynik PLAN, odświeżył
+ekran, a następnie kliknął „Szukaj dalej” na poprawnym stanie
+FEASIBLE+optimization_complete=false. Stan faktyczny:
+`confirmationSeen=false`, `replacementPosts=1`. Żądanie POST /plan poszło bez
+ostrzeżenia.
+
+R2-03 — po reloadzie wynik REPLAN traci informację, że pochodzi z REPLAN
+
+TRACE: brief.md:47-49 wymaga całego metadata potrzebnego do wiernego
+odtworzenia UI; zaakceptowany tests_r1.txt wymaga, aby „Szukaj dalej” ponowiło
+tę samą operację. To nie jest nowe wymaganie audytora.
+
+OWNERSHIP: PlanPreview w
+rota/persistence/plan_preview_repository.py:24-33 oraz PlanPreviewOut w
+api/routers/schedule.py:117-121 nie przechowują rodzaju operacji. Frontend ma
+domyślne planResultSource="plan" (MonthlyPlanning.tsx:188), a podczas
+odtworzenia preview w liniach 203-213 nie ustawia źródła. Dispatcher w linii
+578 wybiera więc zwykły PLAN.
+
+REPRO: niezależny pion wykonał prawdziwe PLAN -> select -> REPLAN FEASIBLE na
+nowym WORKING child, po czym GET month zwrócił trwałe preview bez rodzaju
+operacji. Po reloadzie UI nie ma informacji pozwalającej kontynuować REPLAN;
+dla optimization_complete=false „Szukaj dalej” deterministycznie wybiera
+runPlanSearchAgain zamiast runReplanSearchAgain.
+
+PASS może zostać sprawdzony w następnej rundzie trzema celowanymi
+reproduktorami powyżej. Pełna suita nie jest potrzebna.
