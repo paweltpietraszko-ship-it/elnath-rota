@@ -15,9 +15,11 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from rota.domain import Assignment, AssignmentRole, AssignmentState
+
+OperationKind = Literal["plan", "replan"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,11 @@ class PlanPreview:
     candidates: list[list[Assignment]]
     warnings: list[str]
     optimization_complete: bool
+    # R2-03 audit fix: which operation family produced this preview
+    # ("plan" or "replan") -- without it, a reload can't tell which
+    # continuation ("Szukaj dalej" on PLAN vs. on REPLAN's narrow/wide
+    # stage) a further search should retry.
+    operation_kind: OperationKind
 
 
 def _assignment_to_dict(a: Assignment) -> dict:
@@ -68,17 +75,18 @@ def save_plan_preview_in_open_transaction(conn: sqlite3.Connection, preview: Pla
     transaction boundary. At most one current preview per (site_id, month):
     a new save always replaces whatever was there (OWNER decision 3)."""
     conn.execute(
-        """INSERT INTO plan_previews (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete)
-           VALUES (?, ?, ?, ?, ?, ?)
+        """INSERT INTO plan_previews (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(site_id, month) DO UPDATE SET
             schedule_version_id=excluded.schedule_version_id,
             candidates_json=excluded.candidates_json,
             warnings_json=excluded.warnings_json,
-            optimization_complete=excluded.optimization_complete""",
+            optimization_complete=excluded.optimization_complete,
+            operation_kind=excluded.operation_kind""",
         (
             preview.site_id, preview.month.isoformat(), preview.schedule_version_id,
             _candidates_to_json(preview.candidates), json.dumps(list(preview.warnings)),
-            int(preview.optimization_complete),
+            int(preview.optimization_complete), preview.operation_kind,
         ),
     )
 
@@ -90,17 +98,17 @@ def save_plan_preview(conn: sqlite3.Connection, preview: PlanPreview) -> None:
 
 def get_plan_preview(conn: sqlite3.Connection, site_id: str, month: date) -> Optional[PlanPreview]:
     row = conn.execute(
-        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete "
+        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind "
         "FROM plan_previews WHERE site_id = ? AND month = ?",
         (site_id, month.isoformat()),
     ).fetchone()
     if row is None:
         return None
-    schedule_version_id, candidates_json, warnings_json, optimization_complete = row
+    schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind = row
     return PlanPreview(
         site_id=site_id, month=month, schedule_version_id=schedule_version_id,
         candidates=_candidates_from_json(candidates_json), warnings=json.loads(warnings_json),
-        optimization_complete=bool(optimization_complete),
+        optimization_complete=bool(optimization_complete), operation_kind=operation_kind,
     )
 
 

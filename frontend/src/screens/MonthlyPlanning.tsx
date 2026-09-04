@@ -209,6 +209,9 @@ export default function MonthlyPlanning({
         warnings: view.plan_preview.warnings,
         optimization_complete: view.plan_preview.optimization_complete,
       });
+      // R2-03 audit fix: without this, a "Szukaj dalej" after reload always
+      // dispatched to plain PLAN's own retry, even for a REPLAN preview.
+      setPlanResultSource(view.plan_preview.operation_kind);
       isPersistedPreviewRef.current = true;
     } else if (isPersistedPreviewRef.current) {
       // The preview this screen was showing is gone (accepted, rejected,
@@ -466,6 +469,7 @@ export default function MonthlyPlanning({
   };
 
   const runPlanSearchAgain = async () => {
+    if (!confirmReplacePreview()) return;
     const nextAttempt = planSearchAttempt + 1;
     setPlanning(true);
     setError(null);
@@ -533,6 +537,7 @@ export default function MonthlyPlanning({
   };
 
   const runWiderSearch = async () => {
+    if (!confirmReplacePreview()) return;
     setPlanning(true);
     setError(null);
     setLastWideSearch(true);
@@ -551,6 +556,7 @@ export default function MonthlyPlanning({
   };
 
   const runReplanSearchAgain = async () => {
+    if (!confirmReplacePreview()) return;
     const nextAttempt = replanSearchAttempt + 1;
     setPlanning(true);
     setError(null);

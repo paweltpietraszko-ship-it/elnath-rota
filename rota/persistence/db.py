@@ -544,6 +544,11 @@ _MIGRATION_12: tuple[str, ...] = (
         candidates_json TEXT NOT NULL,
         warnings_json TEXT NOT NULL,
         optimization_complete INTEGER NOT NULL,
+        -- R2-03 audit fix (pre-merge, folded into this migration rather than
+        -- a follow-up one): which operation family ("plan"/"replan")
+        -- produced this preview, so a reload can tell which continuation a
+        -- further "Szukaj dalej" should retry.
+        operation_kind TEXT NOT NULL CHECK (operation_kind IN ('plan', 'replan')),
         PRIMARY KEY (site_id, month),
         CHECK (substr(month, 9, 2) = '01')
     )""",

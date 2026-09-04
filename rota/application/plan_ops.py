@@ -73,6 +73,7 @@ def _persist_decision_readback(
 
 def _persist_plan_preview(
     conn, *, site_id: str, month: date, schedule_version_id: str, result: PlanningResult,
+    operation_kind: plan_preview_repository.OperationKind,
 ) -> PlanningResult:
     """ROTA-T054 (brief section 5, "PLAN/REPLAN FEASIBLE"): after a complete
     FEASIBLE result, atomically save/replace the current (site_id, month)
@@ -85,14 +86,16 @@ def _persist_plan_preview(
     ScheduleVersion with the candidate -- it stays visible for this
     response only, flagged via a warning the UI is required to show
     verbatim (OWNER decision 8: never claim a trwały save that didn't
-    happen)."""
+    happen). operation_kind (R2-03 audit fix) records which family
+    ("plan"/"replan") produced this preview, so a reload can dispatch a
+    further "Szukaj dalej" to the correct continuation."""
     if result.status != "FEASIBLE":
         return result
     try:
         plan_preview_repository.save_plan_preview(conn, plan_preview_repository.PlanPreview(
             site_id=site_id, month=month, schedule_version_id=schedule_version_id,
             candidates=result.candidates, warnings=list(result.warnings),
-            optimization_complete=result.optimization_complete,
+            optimization_complete=result.optimization_complete, operation_kind=operation_kind,
         ))
     except sqlite3.Error:
         result.warnings = list(result.warnings) + [
@@ -216,7 +219,9 @@ def plan_month(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             schedule_version_id=version_id, result=result,
         )
-        return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=version_id, result=result)
+        return _persist_plan_preview(
+            conn, site_id=site_id, month=month, schedule_version_id=version_id, result=result, operation_kind="plan",
+        )
     state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     if _stale_empty_working_needs_fresh_demands(state, month):
         # R4-1/R6-1 (same rationale as the two branches above): the read
@@ -242,7 +247,9 @@ def plan_month(
     result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
-    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result)
+    return _persist_plan_preview(
+        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="plan",
+    )
 
 
 def _coerce_unproven_realized_to_planned(candidate: list[Assignment], prior_existing: tuple) -> list[Assignment]:
@@ -506,7 +513,9 @@ def replan(
     result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
     )
-    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=child_id, result=result)
+    return _persist_plan_preview(
+        conn, site_id=site_id, month=month, schedule_version_id=child_id, result=result, operation_kind="replan",
+    )
 
 
 def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0) -> PlanningResult:
@@ -527,7 +536,9 @@ def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str,
     result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
-    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result)
+    return _persist_plan_preview(
+        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan",
+    )
 
 
 def replan_wider_search(
@@ -551,4 +562,6 @@ def replan_wider_search(
     result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
-    return _persist_plan_preview(conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result)
+    return _persist_plan_preview(
+        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan",
+    )

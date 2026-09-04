@@ -119,6 +119,9 @@ class PlanPreviewOut(BaseModel):
     candidates: list[list[AssignmentOut]]
     warnings: list[str]
     optimization_complete: bool
+    # R2-03 audit fix: "plan" or "replan" -- so the frontend can dispatch a
+    # further "Szukaj dalej" to the correct continuation after a reload.
+    operation_kind: str
 
 
 class MonthViewOut(BaseModel):
@@ -199,6 +202,7 @@ def _plan_preview_out(conn, preview) -> PlanPreviewOut:
     return PlanPreviewOut(
         schedule_version_id=preview.schedule_version_id, candidates=candidates,
         warnings=list(preview.warnings), optimization_complete=preview.optimization_complete,
+        operation_kind=preview.operation_kind,
     )
 
 
@@ -251,7 +255,17 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
         plan_preview_error = None
         try:
             preview = get_plan_preview(conn, site_id, month)
-            if preview is not None and view.current_version is not None and preview.schedule_version_id == view.current_version.version_id:
+            # R2-01 audit fix: a preview is only "current" while its exact
+            # WORKING version is still the current version AND that version
+            # has not since moved to FINAL -- once finalized, an unselected
+            # preview computed against the pre-final state is stale, even
+            # though the version_id itself did not change (finalize() is a
+            # status transition, not a new version).
+            if (
+                preview is not None and view.current_version is not None
+                and preview.schedule_version_id == view.current_version.version_id
+                and not view.current_version.status.value.startswith("FINAL")
+            ):
                 plan_preview_out = _plan_preview_out(conn, preview)
         except Exception as exc:  # isolated, never propagated as the whole request's error (T54-07)
             plan_preview_error = str(exc)
