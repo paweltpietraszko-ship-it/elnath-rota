@@ -65,7 +65,7 @@ def build_fixed_intervals(
 
 def build_fixed_periods(
     fixed_assignments: list[Assignment], boundary_assignments: list[Assignment], other_site_assignments: list[Assignment]
-) -> tuple[dict[str, list[WorkPeriod]], frozenset[tuple[str | None, str]], frozenset[str]]:
+) -> tuple[dict[str, list[WorkPeriod]], frozenset[tuple[str | None, str]], frozenset[tuple[str | None, str]]]:
     """REST-01 counterpart of build_fixed_intervals: same source Assignments,
     grouped into WorkPeriods by (employee_id, work_period_id) so a fixed
     24h pair (same-site, same-month or a persisted boundary period) is one
@@ -75,16 +75,23 @@ def build_fixed_periods(
     other-Site fixed period apart for CROSS-SITE-ZERO-GAP-01 (T022,
     OWNER-T022-03) without inventing a travel model or Assignment.site_id.
 
-    ROTA-T052 (R4-01 audit fix): also returns the bare component ids of
-    every PERIODIC_TRAINING (S1) assignment among these -- S1 is a fixed
-    fact (never redistributable, solver.fixed_existing_assignments already
-    keeps it untouched) but must not act as a REST-01 wall in either
-    direction, only as real overlap. WorkPeriod itself carries no role, so
-    callers use this set to tell which fixed periods are S1-only."""
+    ROTA-T052 (R4-01 audit fix, R5-01 audit fix): also returns the real
+    (schedule_version_id, assignment_id) identity of every PERIODIC_TRAINING
+    (S1) assignment among these -- S1 is a fixed fact (never redistributable,
+    solver.fixed_existing_assignments already keeps it untouched) but must
+    not act as a REST-01 wall in either direction, only as real overlap.
+    Never the bare local id: it can legally repeat across different
+    ScheduleVersions/Sites (B-R10-3/T036), and a collision there previously
+    let one employee's S1 accidentally exempt an unrelated employee's
+    ordinary PRIMARY from REST-01. WorkPeriod itself carries no role, so
+    callers use this set (matched against component_keys, never
+    component_ids) to tell which fixed periods are really S1."""
     other_site_list = _not_cancelled(other_site_assignments)
     other_site_keys = frozenset((a.schedule_version_id, a.assignment_id) for a in other_site_list)
     all_fixed = (*fixed_assignments, *_not_cancelled(boundary_assignments), *other_site_list)
-    periodic_training_ids = frozenset(a.assignment_id for a in all_fixed if a.role == AssignmentRole.PERIODIC_TRAINING)
+    periodic_training_ids = frozenset(
+        (a.schedule_version_id, a.assignment_id) for a in all_fixed if a.role == AssignmentRole.PERIODIC_TRAINING
+    )
     components = [
         PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
         for a in all_fixed
@@ -341,12 +348,13 @@ def _add_one_employee_rest(
 
 
 def _rest_conflict(period: WorkPeriod, fixed_period: WorkPeriod, periodic_training_ids: frozenset) -> bool:
-    """ROTA-T052 (R4-01 audit fix): a fixed period that is S1
-    (PERIODIC_TRAINING) never creates a REST-01 wall in either direction --
-    only real time overlap against it is still a conflict."""
-    if any(cid in periodic_training_ids for cid in fixed_period.component_ids) or any(
-        cid in periodic_training_ids for cid in period.component_ids
-    ):
+    """ROTA-T052 (R4-01 audit fix, R5-01 audit fix): a fixed period that is
+    S1 (PERIODIC_TRAINING) never creates a REST-01 wall in either direction
+    -- only real time overlap against it is still a conflict. Matched
+    against component_keys ((schedule_version_id, assignment_id)), never
+    the bare component_ids -- a bare local id can legally repeat across
+    different ScheduleVersions/Sites (B-R10-3/T036)."""
+    if not periodic_training_ids.isdisjoint(fixed_period.component_keys) or not periodic_training_ids.isdisjoint(period.component_keys):
         return periods_overlap(period, fixed_period)
     return violates_rest(period, fixed_period)
 

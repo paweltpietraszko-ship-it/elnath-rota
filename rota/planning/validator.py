@@ -541,9 +541,14 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
     all_assignments = list(assignments) + other_site_list + _not_cancelled(state.boundary_assignments)
     # ROTA-T052: S1 (PERIODIC_TRAINING) still participates in overlap
     # detection below, but is exempt from the REST-01 gap requirement in
-    # either direction (brief section 2 point 4) -- tracked by component id
-    # since PeriodComponent itself carries no role.
-    periodic_training_ids = {a.assignment_id for a in all_assignments if a.role == AssignmentRole.PERIODIC_TRAINING}
+    # either direction (brief section 2 point 4) -- tracked by the real
+    # (schedule_version_id, assignment_id) identity, never the bare local
+    # id (R5-01 audit fix: a bare id can legally repeat across different
+    # ScheduleVersions/Sites, B-R10-3/T036), and checked against
+    # component_keys, not component_ids.
+    periodic_training_keys = {
+        (a.schedule_version_id, a.assignment_id) for a in all_assignments if a.role == AssignmentRole.PERIODIC_TRAINING
+    }
     all_components = [PeriodComponent(a.assignment_id, a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id) for a in all_assignments]
     for key, ids, reasons in find_malformed_periods(all_components):
         details.append(ViolationDetail("WORK_PERIOD-01", ids, f"WORK_PERIOD-01: period {key}: {'; '.join(reasons)}"))
@@ -584,9 +589,7 @@ def _check_rest(state: PlanningState, assignments: list[Assignment], details: li
             # stays HARD-exempt for S1: it targets a specific PRIMARY
             # 12h+12h-hiding-24h pattern, not a real rest measurement, and
             # does not apply to S1's variable-duration manual fact.
-            involves_periodic_training = any(cid in periodic_training_ids for cid in earlier.component_ids) or any(
-                cid in periodic_training_ids for cid in later.component_ids
-            )
+            involves_periodic_training = not periodic_training_keys.isdisjoint(earlier.component_keys) or not periodic_training_keys.isdisjoint(later.component_keys)
             if involves_periodic_training:
                 gap = (later.start - earlier.end).total_seconds() / 3600
                 required_rest = effective_required_rest_after_hours(earlier, ochrona=ochrona and not any(k in other_site_keys for k in earlier.component_keys))
