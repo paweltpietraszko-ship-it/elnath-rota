@@ -174,6 +174,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
               <ControlPanel
                 siteId={siteId} siteName={siteName} onNavigate={onNavigate}
                 initialTab={controlPanelTab} decisionContext={decisionContext}
+                workingMonth={workingMonth}
               />
             )}
             {activeNav === "Panel sterowania" && view.screen === "employee" && (

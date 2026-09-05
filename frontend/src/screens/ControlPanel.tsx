@@ -10,12 +10,14 @@ export default function ControlPanel({
   onNavigate,
   initialTab = "obsada",
   decisionContext = null,
+  workingMonth,
 }: {
   siteId: string;
   siteName: string;
   onNavigate: (v: View) => void;
   initialTab?: "obiekt" | "obsada";
   decisionContext?: { decisionRequiredId: string; month: string } | null;
+  workingMonth: string;
 }) {
   const [tab, setTab] = useState<"obiekt" | "obsada">(initialTab);
   const [roster, setRoster] = useState<RosterRow[]>([]);
@@ -93,7 +95,7 @@ export default function ControlPanel({
       {tab === "obiekt" && (
         <>
           <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} />
-          <PrintSettings siteId={siteId} />
+          <PrintSettings siteId={siteId} workingMonth={workingMonth} />
         </>
       )}
 
