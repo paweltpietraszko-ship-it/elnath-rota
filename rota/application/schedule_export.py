@@ -44,6 +44,7 @@ class ExportModel:
     base_regime: str; work_code_intervals: dict; reserve_hours: dict; current_version_id: str  # noqa: E702
     lineage: list[tuple[str, Optional[str]]]; days: list[date]; rows: list[RowCells]  # noqa: E702
     provenance_text: str; provenance_display_text: str; holiday_by_date: dict; adjacent_facts: list  # noqa: E702
+    extra_work_codes: dict  # ROTA-T056: this exact (site_id, month)'s D6+/N6+ definitions
 # Entry point
 def generate_schedule_pdf(
     conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str, generated_at: Optional[datetime] = None,
@@ -67,17 +68,19 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     days = _month_days(month)
     snapshots: dict[str, "schedule_repository.ScheduleSnapshot"] = {}
     daily_version = {d: _version_for_date(lineage, d) for d in days}
+    extra_codes = site_repository.get_site_monthly_extra_work_codes(conn, site_id, month)
+    extra_hours = {code: int(site_repository.interval_duration_hours(iv)) for code, iv in extra_codes.items()}
     memberships = employee_repository.list_memberships_for_site(conn, site_id)
     local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
-    collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings)
+    collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings, extra_codes)
     seen_employee_ids = collected[2]
-    work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days)
+    work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days, extra_codes)
     calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
     holiday_by_date = {c.date: c.holiday for c in calendar_days}
     absence_by_employee = _collect_absence(conn, days, local_ids, work_cells, settings, site_id)
     roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)  # C-R15-3: a bound Site period keeps an Employee here after REPLAN
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
-    rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours)
+    rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours, extra_hours)
     provenance = _provenance_text(lineage, adjacent_facts)
     provenance_display = _provenance_display_text(lineage, adjacent_facts)
     return ExportModel(
@@ -87,7 +90,7 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
         reserve_hours=settings.reserve_hours, current_version_id=lineage[-1].version_id,
         lineage=[(h.version_id, h.effective_from.isoformat() if h.effective_from else None) for h in lineage],
         days=days, rows=rows, provenance_text=provenance, provenance_display_text=provenance_display,
-        holiday_by_date=holiday_by_date, adjacent_facts=adjacent_facts,
+        holiday_by_date=holiday_by_date, adjacent_facts=adjacent_facts, extra_work_codes=extra_codes,
     )
 def _month_days(month: date) -> list[date]:
     import calendar as _cal
@@ -155,13 +158,38 @@ def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
         if demand is not None:
             items.append((a, demand, version_id, effective_from))
     return items
-def _validate_item(a, demand) -> None:
+def _extra_code_matches(a, demand, extra_codes: dict) -> bool:
+    """ROTA-T056 brief section 9.1 -- the ONE narrow exception to the
+    provenance invariant below. A manually-corrected Assignment may differ
+    from its covered demand's interval ONLY when it is anchored on the
+    demand's own date and exactly matches (start_time, end_time,
+    end_next_day -- not merely the same duration) a saved monthly D6+/N6+
+    definition of the same family for this exact (site, month). Any other
+    discrepancy -- no configured extra code, wrong family, wrong date,
+    same-duration-different-clock, or any other manual divergence -- stays
+    fail-closed (T56-08)."""
+    if demand.shift_kind is None or a.start_datetime.date() != demand.start_datetime.date():
+        return False
+    family = demand.shift_kind.value
+    crosses_midnight = a.end_datetime.date() > a.start_datetime.date()
+    for code, interval in extra_codes.items():
+        if not code.startswith(family):
+            continue
+        if (
+            interval.start_time == a.start_datetime.strftime("%H:%M")
+            and interval.end_time == a.end_datetime.strftime("%H:%M")
+            and interval.end_next_day == crosses_midnight
+        ):
+            return True
+    return False
+def _validate_item(a, demand, extra_codes: dict) -> None:
     if a.role == AssignmentRole.TRAINEE:
         raise ExportProblemError("UNSUPPORTED_TRAINEE_PRINT", f"{a.assignment_id} is an effective TRAINEE assignment")
     if demand is None:
         raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id} has no coherent covered demand")
     if a.start_datetime != demand.start_datetime or a.end_datetime != demand.end_datetime:
-        raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id}: actual interval contradicts its covered demand")
+        if not _extra_code_matches(a, demand, extra_codes):
+            raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"{a.assignment_id}: actual interval contradicts its covered demand")
     # T047: catalog_kind == OTHER only means "duration other than 12h/24h" (rota.planning.shift_catalog);
     # it is not a third unsupported work kind, so it is no longer rejected here. Printability of a
     # D/N item is decided solely by _map_work_code's exact interval match, which fails closed
@@ -170,7 +198,7 @@ def _ckey(a) -> str:
     return f"{a.schedule_version_id}::{a.assignment_id}"  # identity is (schedule_version_id, assignment_id) -- a bare local id may repeat across ScheduleVersions (R10-2)
 def _component(a) -> PeriodComponent:
     return PeriodComponent(_ckey(a), a.employee_id, a.start_datetime, a.end_datetime, a.work_period_id, a.required_rest_after_hours, a.schedule_version_id)
-def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings):
+def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings, extra_codes):
     # raw_items/components/seen_ids/demand_by_assignment/assignment_by_id/boundary_ids/adjacent_versions/s1_cells. Raises on TRAINEE/INNY/bad provenance.
     raw_items: dict[tuple[str, date], list] = {}
     components: list[PeriodComponent] = []
@@ -197,7 +225,7 @@ def _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, sett
                 s1_cells.setdefault(a.employee_id, {})[day] = (a.start_datetime, a.end_datetime)
                 continue
             demand = demands_by_id.get(a.covers_demand_id) if a.covers_demand_id else None
-            _validate_item(a, demand)
+            _validate_item(a, demand, extra_codes)
             seen_employee_ids.add(a.employee_id)
             raw_items.setdefault((a.employee_id, day), []).append((a, demand))
             demand_by_assignment[_ckey(a)] = demand
@@ -250,7 +278,7 @@ def _classify_period(period, demand_by_assignment: dict, boundary_ids: set) -> O
     return None
 def _intervals_overlap(a: tuple[datetime, datetime], b: tuple[datetime, datetime]) -> bool:
     return a[0] < b[1] and b[0] < a[1]
-def _apply_24h_periods(collected, settings, days: list[date]):
+def _apply_24h_periods(collected, settings, days: list[date], extra_codes):
     raw_items, components, seen_employee_ids, demand_by_assignment, assignment_by_id, boundary_ids, adjacent_versions, s1_cells = collected
     work_cells: dict[str, dict[date, str]] = {}; consumed: set[str] = set(); adjacent_facts: list[tuple] = []  # noqa: E702
     # ROTA-T052 (R4-02 audit fix): the real interval behind whatever code
@@ -281,7 +309,7 @@ def _apply_24h_periods(collected, settings, days: list[date]):
         if len(remaining) > 1:
             raise ExportProblemError("MULTIPLE_WORK_ITEMS_PER_CELL", f"{employee_id}/{day} has {len(remaining)} independent work items")
         assignment, demand = remaining[0]
-        work_cells.setdefault(employee_id, {})[day] = _map_work_code(assignment, demand, settings)
+        work_cells.setdefault(employee_id, {})[day] = _map_work_code(assignment, demand, settings, extra_codes)
         work_intervals.setdefault(employee_id, {})[day] = (assignment.start_datetime, assignment.end_datetime)
     # ROTA-T052 (T52-06/T52-08/T52-12, R4-02 audit fix): S1 sharing a
     # calendar day with another work item is only a real problem when their
@@ -303,7 +331,7 @@ def _apply_24h_periods(collected, settings, days: list[date]):
                 existing_codes[day] = "S1"
             existing_intervals[day] = s1_interval
     return work_cells, sorted(adjacent_facts)
-def _map_work_code(assignment, demand, settings) -> str:
+def _map_work_code(assignment, demand, settings, extra_codes: dict) -> str:
     duration_hours = (assignment.end_datetime - assignment.start_datetime).total_seconds() / 3600
     family = demand.shift_kind.value if demand.shift_kind else None
     crosses_midnight = assignment.end_datetime.date() > assignment.start_datetime.date()
@@ -312,6 +340,14 @@ def _map_work_code(assignment, demand, settings) -> str:
         if interval is None or family is None or not code.startswith(family):
             continue
         if site_repository.FROZEN_WORK_CODE_HOURS[code] != duration_hours:
+            continue
+        if interval.start_time == assignment.start_datetime.strftime("%H:%M") and interval.end_time == assignment.end_datetime.strftime("%H:%M") and interval.end_next_day == crosses_midnight:
+            candidates.append(code)
+    # ROTA-T056 section 9.2: monthly D6+/N6+ extra codes -- same exact-match
+    # rule, no FROZEN_WORK_CODE_HOURS lookup (duration is derived from the
+    # interval itself, never a separate stored value).
+    for code, interval in extra_codes.items():
+        if family is None or not code.startswith(family):
             continue
         if interval.start_time == assignment.start_datetime.strftime("%H:%M") and interval.end_time == assignment.end_datetime.strftime("%H:%M") and interval.end_next_day == crosses_midnight:
             candidates.append(code)
@@ -447,12 +483,12 @@ def _absence_pairs_for_employee(employee_id, canonical_days, work_cells, setting
         pairs += _post_plan_pair(employee_id, day, settings)
     return pairs
 # Row assembly (Section 11/16)
-def _hours_of(code: str, reserve_hours: dict) -> int:
+def _hours_of(code: str, reserve_hours: dict, extra_hours: dict) -> int:
     # ROTA-T052: a combined same-day cell (e.g. "N1/S1", R4-02 audit fix)
     # sums its parts -- S1 itself has no fixed duration and contributes 0
     # here (WorkBalance, not this printed column, owns S1's real hours).
     if "/" in code:
-        return sum(_hours_of(part, reserve_hours) for part in code.split("/"))
+        return sum(_hours_of(part, reserve_hours, extra_hours) for part in code.split("/"))
     if code == "S1":
         return 0
     if code == "24":
@@ -461,8 +497,13 @@ def _hours_of(code: str, reserve_hours: dict) -> int:
         return 0
     if code in site_repository.FROZEN_WORK_CODE_HOURS:
         return site_repository.FROZEN_WORK_CODE_HOURS[code]
+    if code in extra_hours:
+        # ROTA-T056 section 9.3: a monthly D6+/N6+ code must never silently
+        # sum as 0h -- its duration comes from the validated monthly
+        # extra-code configuration, never guessed.
+        return extra_hours[code]
     return _legal_uc_value(code, reserve_hours) or 0
-def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, reserve_hours) -> list[RowCells]:
+def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, reserve_hours, extra_hours) -> list[RowCells]:
     rows = []
     for employee_id in roster_ids:
         employee = employees[employee_id]
@@ -479,8 +520,10 @@ def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, re
                 plan.append(BLANK); wyk.append(BLANK)  # noqa: E702
         rows.append(RowCells(
             employee_id=employee_id, display_name=employee.display_name, plan=plan, wyk=wyk,
-            plan_hours=sum(_hours_of(c, reserve_hours) for c in plan), wyk_hours=sum(_hours_of(c, reserve_hours) for c in wyk),
-            urlop_hours=sum(_hours_of(c, reserve_hours) for c in wyk if c.startswith("U")), l4_hours=sum(_hours_of(c, reserve_hours) for c in wyk if c.startswith("C")),
+            plan_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in plan),
+            wyk_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk),
+            urlop_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk if c.startswith("U")),
+            l4_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk if c.startswith("C")),
         ))
     rows.sort(key=lambda r: (r.display_name.casefold(), r.employee_id))
     return rows
@@ -492,6 +535,7 @@ def _document_revision(model: ExportModel) -> str:
         "period_label": model.period_label, "company_print_name": model.company_print_name, "site_print_name": model.site_print_name,
         "base_regime": model.base_regime,
         "work_code_intervals": {k: (None if v is None else [v.start_time, v.end_time, v.end_next_day]) for k, v in sorted(model.work_code_intervals.items())},
+        "extra_work_codes": {k: [v.start_time, v.end_time, v.end_next_day] for k, v in sorted(model.extra_work_codes.items())},
         "reserve_hours": dict(sorted(model.reserve_hours.items())),
         "current_version_id": model.current_version_id, "lineage": model.lineage, "adjacent_facts": model.adjacent_facts,
         "rows": [
@@ -626,29 +670,61 @@ def _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold) -> None:
     for value in (row.plan_hours if label == "PLAN" else row.wyk_hours, "", row.urlop_hours, row.l4_hours):
         c.setFont(regular, 7); c.drawCentredString(x + SUM_W / 2, y - row_h + 5, "" if value == "" else str(value))  # noqa: E702
         x += SUM_W
-def _legend_line(letter: str, slot: int, value, demo: bool) -> str:
-    code = f"{letter}{slot}"
-    return f"{code} = — (rezerwa)" if value is None else f"{code} = {value}h" + (" (konfiguracja demo)" if demo else "")
-def _legend_value(letter: str, slot: int, reserve_hours: dict) -> tuple:
-    if letter in "DN":
-        return site_repository.FROZEN_WORK_CODE_HOURS[f"{letter}{slot}"], False
-    base = {"U1": 12, "U2": 16, "C1": 12, "C2": 16}.get(f"{letter}{slot}")
-    value = base if base is not None else reserve_hours.get(f"{letter}{slot}")
-    return value, base is None and value is not None
+def _used_codes(model: ExportModel) -> list[str]:
+    """ROTA-T056 brief section 9.4/11 (OWNER ruling): the legend shows only
+    codes that actually appear in this rendered document -- never an
+    unused, merely-configured D6+/N6+ or reserve slot. Deterministic order:
+    standard D/N family order, then any monthly extras (sorted), then U/C,
+    then 24/S1."""
+    used: set[str] = set()
+    for row in model.rows:
+        for cells in (row.plan, row.wyk):
+            for cell in cells:
+                if cell == BLANK or cell.endswith("~"):
+                    continue
+                used.update(cell.split("/"))
+    ordered = [c for c in PLAN_PRIORITY if c in used]
+    ordered += sorted(c for c in used if c[0] in "DN" and c not in PLAN_PRIORITY)
+    ordered += [c for c in ("U1", "U2", "U3", "U4", "U5") if c in used]
+    ordered += [c for c in ("C1", "C2", "C3", "C4", "C5") if c in used]
+    ordered += [c for c in ("24", "S1") if c in used]
+    return ordered
+def _legend_entry_text(code: str, model: ExportModel) -> str:
+    if code == "24":
+        return "24 = pełny okres 24h w dniu rozpoczęcia"
+    if code == "S1":
+        return "S1 = szkolenie okresowe (ręcznie ustalane przez koordynatora, godziny pracy)"
+    if code in site_repository.FROZEN_WORK_CODE_HOURS:
+        return f"{code} = {site_repository.FROZEN_WORK_CODE_HOURS[code]}h"
+    if code in model.extra_work_codes:  # ROTA-T056: monthly D6+/N6+
+        hours = int(site_repository.interval_duration_hours(model.extra_work_codes[code]))
+        return f"{code} = {hours}h (dodatkowy kod miesiąca)"
+    value = {"U1": 12, "U2": 16, "C1": 12, "C2": 16}.get(code, model.reserve_hours.get(code))
+    return f"{code} = {value}h" if value is not None else f"{code} = — (rezerwa)"
+_LEGEND_TITLE = "Legenda — użyte w tym wydruku oznaczenia (wartości właściciela, nie normalizowane)"
+_LEGEND_FOOTNOTES = (
+    "Numer przy literze NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h).",
+    "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana, S1 = obwódka kropkowana — czytelne bez koloru.",
+)
+def _legend_required_height(n_entries: int) -> float:
+    # title + ceil(n/2) rows of a 2-column list + fixed footnotes; 0 entries never happens (T56-08 guarantees at least the S1/24/normal work codes if any row exists).
+    rows = -(-max(n_entries, 1) // 2)
+    return 15 + rows * 12 + len(_LEGEND_FOOTNOTES) * 12 + 6
 def _draw_legend(c, model: ExportModel, regular, bold, italic, y: float) -> float:
-    c.setFont(bold, 10); c.drawString(MARGIN, y, "Legenda — tabela wartości godzinowych (wartości właściciela, nie normalizowane)"); y -= 15  # noqa: E702
+    entries = _used_codes(model)
+    c.setFont(bold, 10); c.drawString(MARGIN, y, _LEGEND_TITLE); y -= 15  # noqa: E702
     col_w = (landscape(A3)[0] - 2 * MARGIN) / 2
-    sub_w = col_w / 2
-    for slot in range(1, 6):
-        for j, letter in enumerate("DNUC"):
-            value, demo = _legend_value(letter, slot, model.reserve_hours)
-            c.setFont(regular, 9); c.drawString(MARGIN + (j // 2) * col_w + (j % 2) * sub_w, y, _legend_line(letter, slot, value, demo))  # noqa: E702
+    rows = -(-len(entries) // 2)
+    for i in range(rows):
+        for col, idx in enumerate((i, i + rows)):
+            if idx >= len(entries):
+                continue
+            c.setFont(regular, 9); c.drawString(MARGIN + col * col_w, y, _legend_entry_text(entries[idx], model))  # noqa: E702
         y -= 12
-    c.setFont(regular, 9); c.drawString(MARGIN, y, "24 = pełny okres 24h w dniu rozpoczęcia"); y -= 14  # noqa: E702
-    c.drawString(MARGIN, y, "S1 = szkolenie okresowe (ręcznie ustalane przez koordynatora, godziny pracy)"); y -= 14  # noqa: E702
-    c.setFont(italic, 8); c.drawString(MARGIN, y, "Rezerwa = zdefiniowany slot bez wartości. Numer NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h)."); y -= 12  # noqa: E702
-    c.drawString(MARGIN, y, "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana, S1 = obwódka kropkowana — czytelne bez koloru.")
-    return y - 12
+    c.setFont(italic, 8)
+    for line in _LEGEND_FOOTNOTES:
+        c.drawString(MARGIN, y, line); y -= 12  # noqa: E702
+    return y
 def _draw_page_header(c, model: ExportModel, day_w, revision: str, generated_at: datetime, regular, bold, page_h) -> float:
     y = page_h - MARGIN
     c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
@@ -658,6 +734,14 @@ def _draw_page_header(c, model: ExportModel, day_w, revision: str, generated_at:
     return _draw_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
 def _draw_page_footer(c, regular, page_num: int, page_count: int, page_w: float) -> None:
     c.setFont(regular, 7.5); c.drawCentredString(page_w / 2, MARGIN / 2, f"Strona {page_num} z {page_count}")  # noqa: E702
+def _draw_legend_only_page(c, model: ExportModel, regular, bold, italic, page_h) -> None:
+    # ROTA-T056 brief section 9.4/11 (OWNER ruling): a dedicated legend page
+    # only when the used-codes legend does not fit legibly on the grid
+    # page's leftover space -- never truncated, hidden, or shrunk past the
+    # accepted readable floor (the same fonts/sizes _draw_legend already uses).
+    y = page_h - MARGIN
+    c.setFont(bold, 14); c.drawString(MARGIN, y, "Legenda — ciąg dalszy (wszystkie użyte oznaczenia)"); y -= 24  # noqa: E702
+    _draw_legend(c, model, regular, bold, italic, y)
 def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     regular, bold, italic = _resolve_unicode_font()
     page_w, page_h = landscape(A3)
@@ -667,7 +751,12 @@ def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     _check_header_fits(model, regular, bold)
     revision = _document_revision(model)
     pages = [model.rows[i:i + rows_per_page] for i in range(0, len(model.rows), rows_per_page)] or [[]]
-    page_count = len(pages)
+    grid_page_count = len(pages)
+    legend_h = _legend_required_height(len(_used_codes(model)))
+    last_page_rows = len(pages[-1]) if pages else 0
+    available_on_grid_page = (page_h - MARGIN - HEADER_H) - (last_page_rows * 2 * row_h) - MARGIN
+    legend_needs_own_page = legend_h > available_on_grid_page
+    page_count = grid_page_count + (1 if legend_needs_own_page else 0)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=landscape(A3))
     for page_num, page_rows in enumerate(pages, start=1):
@@ -676,9 +765,13 @@ def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
             for label, cells in (("PLAN", row.plan), ("WYK", row.wyk)):
                 _draw_subrow(c, y, row_h, day_w, label, cells, row, regular, bold)
                 y -= row_h
-        if page_num == page_count:  # T047: legend printed at least once, not repeated per page
+        if page_num == grid_page_count and not legend_needs_own_page:  # T047: legend printed at least once, not repeated per page
             _draw_legend(c, model, regular, bold, italic, y - 10)
         _draw_page_footer(c, regular, page_num, page_count, page_w)
+        c.showPage()
+    if legend_needs_own_page:
+        _draw_legend_only_page(c, model, regular, bold, italic, page_h)
+        _draw_page_footer(c, regular, page_count, page_count, page_w)
         c.showPage()
     c.save()
     return buf.getvalue()

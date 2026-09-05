@@ -90,7 +90,7 @@ def _planned(day, start_h, end_h, *, employee_id="EMP-1", suffix="", demand_id=N
 # --- T23b-01: migration -------------------------------------------------
 def test_t23b_01_migration_v9_adds_planning_regime_with_ordinary_default():
     conn = connect(":memory:")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 11
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 13
     _seed(conn)
     assert get_site(conn, "SITE-1").planning_regime == SitePlanningRegime.ORDINARY
     assert conn.execute("SELECT planning_regime FROM sites WHERE site_id='SITE-1'").fetchone() == ("ORDINARY",)

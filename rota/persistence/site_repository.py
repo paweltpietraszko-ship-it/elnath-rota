@@ -89,6 +89,13 @@ class SitePrintSettings:
     s1_default_interval: Optional[WorkCodeInterval] = None
 
 
+def interval_duration_hours(interval: WorkCodeInterval) -> float:
+    """Public alias -- ROTA-T056: schedule_export.py needs this to compute a
+    validated monthly extra code's real duration (never a separate stored
+    duration_hours field, per brief section 5)."""
+    return _interval_duration_hours(interval)
+
+
 def _interval_duration_hours(interval: WorkCodeInterval) -> float:
     if not (_TIME_RE.match(interval.start_time) and _TIME_RE.match(interval.end_time)):
         raise InvalidSitePrintSettings(f"malformed time in {interval!r}")
