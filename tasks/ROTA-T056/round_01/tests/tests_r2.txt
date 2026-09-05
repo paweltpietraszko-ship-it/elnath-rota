@@ -1,0 +1,83 @@
+ROTA-T056 — KOREKTA PREIMPLEMENTATION AUDIT R2
+
+STATUS: CODEX_REPORTED — przekazanie do Architekta
+WERDYKT IMPLEMENTACYJNY: NIE DOTYCZY; kod T056 jeszcze nie istnieje
+
+AUDYTOWANY BRIEF:
+- tasks/ROTA-T056/brief.md
+- exact SHA: e4260555645c5c00a3829bacf28bcc1233422f47
+- raport korygowany: tasks/ROTA-T056/round_01/tests/tests_r1.txt
+
+POWÓD KOREKTY
+
+OWNER wskazał, że standardowe kody D1–D5/N1–N5 są zamrożone. Brief mówi to
+jednoznacznie:
+- §2 pkt 2: D1–D5/N1–N5 oraz FROZEN_WORK_CODE_HOURS pozostają bez zmian;
+- §6: ekran pokazuje standardowe kody bez możliwości zmiany ich godzin;
+- §9: modyfikowanie D1–D5/N1–N5 jest poza zakresem.
+
+R1 skonstruował scenariusz późniejszej zmiany standardowego D1 na interval
+istniejącego D6. Ten trigger jest sprzeczny z PRODUCT_TRUTH. Nie mógł więc
+uzasadniać OWNER_DECISION_NEEDED ani wymagania technicznego.
+
+KOREKTA R2
+
+1. Wycofane w całości jako fałszywy pozytyw:
+   - „OWNER_DECISION_NEEDED 2 — kolizja może powstać w dwóch kolejnościach
+     zapisu”;
+   - żądanie obsługi kolizji przez zapis zmienianych ustawień standardowych;
+   - część F4 wymagająca dwóch owning write boundaries;
+   - końcowy wniosek redukcji wymagający egzekwowania invariantu niezależnie
+     od kolejności obu zapisów.
+
+2. Nie wymaga się duplicate validation w exporterze. Repository/API zapisu
+   dodatkowych kodów jest owning boundary dla tego invariantu, a standardowe
+   sygnatury są zamrożone. T56-03 prawidłowo wymaga, aby zapis D6+/N6+
+   odrzucał kolizję z kodem standardowym albo innym dodatkowym kodem tej samej
+   rodziny. Dodatkowa walidacja surowo uszkodzonej bazy w read/export może być
+   co najwyżej jawną, nieblokującą propozycją obronną poza zakresem T056; nie
+   jest podstawą audytu ani testu.
+
+3. Nie ma już otwartej decyzji OWNERA dotyczącej kolizji kodów.
+
+OWNER RULING DLA LEGENDY PDF
+
+OWNER_CORRECTED, 2026-09-05:
+- legenda drukuje tylko kody faktycznie użyte w danym wydruku;
+- jeśli wszystkie użyte oznaczenia mieszczą się czytelnie w zaakceptowanym
+  układzie, legenda pozostaje na stronie grafiku;
+- jeśli nie mieszczą się czytelnie, drukowana jest druga strona legendy;
+- pracownik musi otrzymać znaczenie wszystkich zastosowanych oznaczeń;
+- nie wolno kodów obcinać, ukrywać ani zmniejszać do nieczytelnego rozmiaru.
+
+Architekt ma przenieść ruling do briefu i objąć REAL PDF GATE wariantem
+jednostronicowym oraz wariantem z drugą stroną legendy. Ostatecznym dowodem
+pozostaje render prawdziwego PDF i ocena optyczna, nie same zielone testy.
+
+POZOSTAŁE USTALENIA R1
+
+Pozostają aktualne wyłącznie następujące mechaniczne korekty briefu:
+- F1: poprawić frontend/src/Room.tsx na frontend/src/screens/Room.tsx i dodać
+  frontend/src/screens/ControlPanel.tsx do literalnego TASK_SCOPE;
+- F2: podać wąski TECHNICAL_ONLY plan spełnienia istniejącego size gate;
+- F3: jawnie wpisać pliki testowe i miejsce dowodu REAL PDF do TASK_SCOPE oraz
+  sklasyfikować zastane literalne testy wersji migracji;
+- F5: użyć istniejącego unified action history bez nowego subsystemu;
+- F6: dodać WHERE_MAP: REQUIRED dla faktycznie zmienianych ownerów/symboli.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE pozostaje aktualny po usunięciu wymagań
+dotyczących drugiej kolejności zapisu i duplicate read/export validation.
+Nie potrzeba operational_code, nowego apply-code endpointu ani zmian solvera,
+katalogu zmian, WorkBalance, analytics lub U/C.
+
+ARCHITECTURE_PROPOSALS
+
+Brak. R2 nie przemyca dodatkowych zachowań poza TASK_SCOPE. Ewentualne przyszłe
+propozycje będą raportowane osobno, jawnie i jako nieblokujące; nie jako test,
+wymaganie audytu ani warunek werdyktu.
+
+NASTĘPNY KROK
+
+Architekt wykonuje jedną mechaniczną korektę briefu zgodnie z rulingiem PDF i
+pozostającymi F1/F2/F3/F5/F6. Potem Codex wykonuje wąski re-audyt exact SHA.
+Implementacja pozostaje wstrzymana do pozytywnego re-audytu kontraktu.
