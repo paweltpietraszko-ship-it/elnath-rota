@@ -1,13 +1,14 @@
 # ROTA-T056 — dodatkowe miesięczne kody D/N do ręcznej korekty i wydruku
 
-STATUS: READY FOR PREIMPLEMENTATION RE-AUDIT — ZERO KODU PRODUKTU
+STATUS: READY FOR FINAL PREIMPLEMENTATION RE-AUDIT — ZERO KODU PRODUKTU
 
-BASE_MAIN_SHA: `5ce4e464d620d96e036c29212bcdfb61c5dfef26`
+BASE_MAIN_SHA: `b85c46d5e36c5e86d6807c5269960cd331c0f146`
 
 Źródła:
 - `arch/FINDING_2026-09-05_DEFINABLE_WORK_CODE_DURATIONS.md` @ `27425435c03f20b111f855e215c14de8fbc43264`
 - `tasks/ROTA-T056/round_01/tests/tests_r2.txt`
-- decyzje OWNERA 2026-09-05 zapisane w findingu i BOARD
+- `tasks/ROTA-T056/round_01/tests/tests_r4.txt`
+- decyzje OWNERA 2026-09-05 zapisane w findingu/BOARD/R4
 
 ## 1. Cel
 
@@ -20,7 +21,7 @@ Task służy domknięciu dokładnego bilansu godzin na koniec kwartału przez **
 ## 2. Decyzje OWNERA — zamrożone
 
 1. Definiowalne są wyłącznie **dodatkowe** kody rodzin D/N: `D6+` i `N6+`.
-2. `D1–D5` / `N1–N5` oraz `FROZEN_WORK_CODE_HOURS` pozostają dokładnie takie jak dziś. T056 nie dodaje żadnego write path zmieniającego ich wartości ani wymagane długości.
+2. **Długości** `D1–D5` / `N1–N5` oraz `FROZEN_WORK_CODE_HOURS` pozostają zamrożone. Jednocześnie istniejąca per-site edycja **godzin zegarowych start/end/end_next_day** standardowych kodów pozostaje dostępna, bo różne obiekty mogą zaczynać tę samą 12h/24h służbę o różnych godzinach.
 3. Definicje dodatkowych kodów są **per `(site_id, month)`**. Zestaw jednego miesiąca nie wpływa na inny miesiąc, w tym na ponowny wydruk wcześniej zamkniętego miesiąca.
 4. Koordynator najpierw definiuje kod w ustawieniach. Przy korekcie wybiera kod z istniejącej listy. Program nie tworzy ani nie dobiera kodu automatycznie z liczby godzin.
 5. Wybranie dodatkowego kodu naprawdę zmienia realny przedział Assignmentu w bazie. To nie jest etykieta wydruku.
@@ -51,7 +52,7 @@ Potrzebny jest mały current-state persistence seam dla wyłącznie dodatkowych 
 
 Repozytorium pozostaje w `rota/persistence/site_repository.py`; nie tworzyć nowego repository module dla jednej mapy JSON.
 
-## 5. Walidacja definicji dodatkowych kodów
+## 5. Walidacja i jeden wspólny invariant signature
 
 Owning boundary zapisu D6+/N6+ wymusza:
 - tylko rodzina `D` albo `N`;
@@ -59,9 +60,14 @@ Owning boundary zapisu D6+/N6+ wymusza:
 - dokładnie jeden `WorkCodeInterval(start_time,end_time,end_next_day)`;
 - dodatni czas trwania będący całkowitą dodatnią liczbą godzin;
 - brak osobnego `duration_hours` — duration jest pochodną interval;
-- jednoznaczny interval/signature w obrębie rodziny: dodatkowy kod nie może mieć identycznego `(start_time,end_time,end_next_day)` jak inny dodatkowy kod ani jak skonfigurowany standardowy D1–D5/N1–N5 tej samej rodziny.
+- jednoznaczny interval/signature w obrębie rodziny.
 
-Standardowe D1–D5/N1–N5 są zamrożone, więc T056 **nie tworzy drugiego write boundary** dla tego invariantu. Nie dodawać duplicate defensive validation w exporterze tylko na wypadek surowej korupcji bazy. T56-03 jest ownerem tej reguły.
+Wspólny invariant ma **dwa legalne wejścia**, bo standardowa długość jest zamrożona, ale standardowe godziny zegarowe są nadal edytowalne:
+
+1. **monthly-extra save:** D6+/N6+ nie może dostać signature identycznego jak bieżący standardowy kod tej samej rodziny ani jak inny extra code tego samego `(site,month)`;
+2. **istniejący per-site standard print-settings save:** zmiana start/end/end_next_day standardowego D1–D5/N1–N5 — przy zachowaniu jego zamrożonej długości — nie może stworzyć signature kolidującego z żadnym zapisanym miesięcznym D6+/N6+ tej samej rodziny dla tego Site. Ponieważ standardowe ustawienie jest per-site, sprawdzenie obejmuje wszystkie zapisane miesiące tego obiektu.
+
+Odrzucony zapis w obu kierunkach zachowuje wcześniejsze dane i istniejącą semantykę błędu zapisu. **Nie dodawać duplicate defensive validation w exporterze** tylko na wypadek surowej korupcji bazy.
 
 Nie ograniczać liczby dodatkowych kodów do jednego slotu ani do D6/N6.
 
@@ -73,12 +79,12 @@ Opis ekranu ma rozróżniać:
 - istniejące dane trwałe per-site niezależne od miesiąca;
 - osobną sekcję miesięczną „Dodatkowe kody dla YYYY-MM”.
 
-Nie zmieniać istniejących per-site pól `company_print_name`, `site_print_name`, `base_regime`, standardowych `work_code_intervals`, `reserve_hours`, `s1_default_interval` na per-month.
+Nie zmieniać istniejących per-site pól `company_print_name`, `site_print_name`, `base_regime`, standardowych `work_code_intervals`, `reserve_hours`, `s1_default_interval` na per-month. Nie wyłączać istniejącej możliwości ustawiania start/end standardowych kodów przy zachowaniu ich zamrożonych długości.
 
 W `api/routers/export.py` dodać wąski read/write monthly subresource dla extra D/N codes. `frontend/src/api/client.ts` odzwierciedla kontrakt bez reinterpretacji.
 
 `PrintSettings.tsx`:
-- pokazuje standardowe D1–D5/N1–N5 jak dziś;
+- pokazuje standardowe D1–D5/N1–N5 jak dziś i zachowuje ich obecną edycję start/end/end_next_day;
 - dodaje/usuwa D6+/N6+ dla wskazanego miesiąca oraz ustawia start/end/end_next_day;
 - nie generuje kodu automatycznie z godzin;
 - zmiana `workingMonth` pokazuje niezależny zestaw miesiąca.
@@ -129,21 +135,25 @@ Legenda zawiera **wyłącznie oznaczenia faktycznie użyte w renderowanym dokume
 ### Document revision
 Miesięczne definicje dodatkowych kodów wpływają na deterministyczny `document_revision`. Zmiana konfiguracji tego samego `(site,month)` zmienia revision; konfiguracja innego miesiąca nie zmienia revision danego dokumentu.
 
-## 10. Size gate — klasyfikacja architekta
+## 10. Size gate — dokładny OWNER-accepted baseline exception
 
-Na bazie przed T056 repozytoryjny size gate jest już czerwony:
-- `rota/persistence/db.py` > 600 linii;
-- `rota/application/schedule_export.py` > 600 linii;
-- `_apply_24h_periods` > 50 linii.
+OWNER akceptuje dla T056 **dokładnie sześć** zastanych naruszeń size gate, odtworzonych na brief SHA `9d8305dd10202d5e2a4052361523f1bb1344eaef`:
 
-To jest **zastany dług techniczny**, nie zachowanie produktu T056 i nie powód do tworzenia nowych modułów w tym tasku. T056 nie ma refaktoryzować `db.py` ani `schedule_export.py` wyłącznie po to, aby wyzerować metrykę. Test nie tworzy architektury.
+1. `rota/persistence/db.py` — 635 linii > 600;
+2. `rota/application/schedule_export.py` — 684 linie > 600;
+3. `rota/application/schedule_export.py::_apply_24h_periods` — 53 linie > 50;
+4. `tests/test_t012.py` — 1735 linii > 600;
+5. `tests/test_t019b.py` — 907 linii > 600;
+6. `tests/test_t020.py` — 773 linie > 600.
 
-Wymaganie T056:
-- nie osłabiać `backend.py`;
-- nie ukrywać linii ani nie robić szerokiego refaktoru;
-- raport backendu ma wykazać baseline vs HEAD;
-- T056 nie może zwiększyć liczby istniejących naruszeń size gate ani materialnie pompować istniejących ponad niezbędny diff funkcjonalny;
-- istniejące naruszenia są raportowane OWNEROWI jako preexisting/accepted-exception, tak jak w poprzednich taskach; ich usunięcie wymaga osobnego tasku technicznego, jeśli OWNER uzna je za warte pracy.
+Warunki wyjątku:
+- implementacja raportuje dokładne wartości baseline i HEAD;
+- nie osłabia ani nie zmienia `backend.py`;
+- nie tworzy nowej **siódmej** kategorii/naruszenia;
+- zmiany w już nadmiarowych plikach ograniczają się do koniecznego diffu T056;
+- czerwony wynik tych sześciu pozycji jest jawnie klasyfikowany jako `OWNER-accepted baseline exception`, nie ukrywany i nie nazywany PASS `backend.py`.
+
+T056 **nie** ma refaktoryzować dużych plików tylko po to, by wyzerować metrykę. Ewentualny task redukcji pozostaje osobną, nieblokującą propozycją techniczną.
 
 ## 11. Zastane stale schema-version tests
 
@@ -159,7 +169,7 @@ Poza zakresem T056:
 - WorkBalance, analytics, target-hours semantics;
 - U/C, `reserve_hours`, absence decomposition;
 - automatyczne tworzenie/dobieranie kodów;
-- modyfikowanie D1–D5/N1–N5 / `FROZEN_WORK_CODE_HOURS`;
+- zmiana zamrożonych **długości** D1–D5/N1–N5 / `FROZEN_WORK_CODE_HOURS`;
 - nowe `operational_code` semantics;
 - warning/history/audit subsystem specjalnie dla kodów;
 - nowy ogólny custom shift catalog;
@@ -174,7 +184,7 @@ T56-01: Site A / 2026-09 zapisuje `D6=06:00–20:00` 14h i `N6=20:00–06:00 nex
 
 T56-02: 2026-10 ma niezależny zestaw (np. D7 17h); zapis października nie zmienia odczytu ani PDF września.
 
-T56-03: owning API zapisu D6+/N6+ odrzuca D1/N5, złą rodzinę/suffix, zły/nie-dodatni/niecałkowity interval oraz kolizję signature z zamrożonym kodem standardowym lub innym dodatkowym kodem tej samej rodziny. Poprzedni stan pozostaje bez zmian.
+T56-03: wspólny invariant signature jest egzekwowany w obu legalnych kolejnościach zapisu. (A) Standardowy interval istnieje -> próba zapisania kolidującego D6+/N6+ jest odrzucona. (B) Monthly D6+/N6+ istnieje -> próba zmiany start/end/end_next_day standardowego kodu tej samej rodziny na kolidującą signature — przy zachowaniu jego zamrożonej długości — jest odrzucona po sprawdzeniu wszystkich miesięcy tego Site. Odrzucony zapis nie zmienia wcześniejszych danych. Dodatkowo monthly-extra API odrzuca D1/N5, złą rodzinę/suffix, zły/nie-dodatni/niecałkowity interval i kolizję z innym extra code tej samej rodziny.
 
 T56-04: zapis monthly extra codes pojawia się w istniejącym unified action history jako `CONTEXT_CONFIGURATION_SAVED` z właściwym site+month i nie tworzy ScheduleVersion.
 
@@ -192,34 +202,36 @@ T56-10: dla zestawu użytych oznaczeń, który nie mieści się czytelnie na str
 
 T56-11: `document_revision` zmienia się po zmianie miesięcznej definicji w tym samym miesiącu i nie zmienia się wskutek konfiguracji innego miesiąca.
 
-T56-12: D1–D5/N1–N5 zachowują dotychczasowe mapowanie/godziny/wydruk; solver/shift catalog/WorkBalance/analytics pozostają bez zmian w diffie.
+T56-12: D1–D5/N1–N5 zachowują dotychczasowe zamrożone długości i dotychczasową możliwość per-site ustawienia ich godzin zegarowych; solver/shift catalog/WorkBalance/analytics pozostają bez zmian w diffie.
 
 T56-13 — REAL PDF GATE A: wygenerować rzeczywisty PDF na danych demonstracyjnych z D6, N6 i kodem suffix >6, gdzie legenda mieści się na stronie grafiku. Człowiek sprawdza PLAN/WYK, sumy, znaczenie wszystkich użytych oznaczeń, brak kolizji/ucięcia i skalę szarości.
 
 T56-14 — REAL PDF GATE B: wygenerować rzeczywisty PDF na danych demonstracyjnych z taką liczbą faktycznie użytych oznaczeń, aby wymagany był drugi arkusz legendy. Człowiek sprawdza kompletność drugiej strony, czytelność i brak utraty oznaczeń. Zielone testy bez obu gate'ów nie zamykają T056.
 
-## 14. PREIMPLEMENTATION RE-AUDIT
+## 14. FINAL PREIMPLEMENTATION RE-AUDIT
 
 Codex ma sprawdzić wyłącznie:
-- miesięczny current-state seam i brak zmiany semantyki SitePrintSettings;
-- unikalność na owning boundary D6+/N6+ bez wymyślania drugiego standard-code write path;
+- zastosowanie OWNER rulings z `tests_r4.txt` bez otwierania nowego designu;
+- dwa legalne wejścia do invariantu signature, bez duplicate exporter validation;
+- zachowanie zamrożonych długości oraz istniejącej edycji godzin zegarowych standardowych kodów;
+- dokładnie sześć OWNER-accepted size violations i regułę baseline-vs-HEAD/no seventh violation;
+- miesięczny current-state seam i brak zmiany semantyki `SitePrintSettings`;
 - reużycie manual-correction i brak `operational_code`;
 - unified action history przez istniejący `CONTEXT_CONFIGURATION_SAVED`;
 - `Room -> ControlPanel -> PrintSettings` jako jedyny workingMonth flow;
 - export: mapping, `_hours_of`, used-only legend, druga strona legendy, revision;
-- literalny TASK_SCOPE i WHERE_MAP;
-- klasyfikację size-gate i stale schema-version tests zgodnie z sekcjami 10–11.
+- literalny TASK_SCOPE i WHERE_MAP.
 
-Oczekiwany werdykt: `PASS — READY_FOR_IMPLEMENTATION` albo `FAIL` z konkretną pozostałą sprzecznością. Test nie tworzy kontraktu.
+Oczekiwany werdykt: `PASS — READY_FOR_IMPLEMENTATION` albo `FAIL` wyłącznie z konkretną pozostałą sprzecznością. Test nie tworzy kontraktu.
 
 ## 15. WHERE_MAP
 
 WHERE_MAP:
 - MODE: REQUIRED
 - TARGETS:
-  - `rota/persistence/site_repository.py`: `SitePrintSettings`, `WorkCodeInterval`, print-settings persistence + nowy monthly-extra owner/helper
+  - `rota/persistence/site_repository.py`: `SitePrintSettings`, `WorkCodeInterval`, print-settings persistence + monthly-extra owner/helper + cross-check obu write boundaries
   - `rota/persistence/db.py`: schema migration registry
-  - `rota/application/durable_inputs.py`: `save_print_settings`, unified `CONTEXT_CONFIGURATION_SAVED` pattern + nowy monthly-extra wrapper
+  - `rota/application/durable_inputs.py`: `save_print_settings`, unified `CONTEXT_CONFIGURATION_SAVED` pattern + monthly-extra wrapper
   - `api/routers/export.py`: print-settings DTO/endpoints + monthly-extra subresource
   - `rota/application/schedule_export.py`: `_map_work_code`, `_hours_of`, legend/layout owner, `_document_revision`, `generate_schedule_pdf`
   - `frontend/src/screens/Room.tsx`: `workingMonth`
@@ -227,7 +239,7 @@ WHERE_MAP:
   - `frontend/src/screens/PrintSettings.tsx`: settings owner UI
   - `frontend/src/screens/MonthlyPlanning.tsx`: existing manual-correction editor
   - `frontend/src/api/client.ts`: print settings + manual correction API surface
-- REASON: T056 dodaje miesięczny owner danych i endpointy oraz rozszerza istniejące mapping/sum/legend/revision i przekazanie workingMonth. `where.py` służy tylko jako dowód wyszukania; nie tworzy wymagań produktu.
+- REASON: T056 dodaje miesięczny owner danych i endpointy, rozszerza istniejące mapping/sum/legend/revision, przekazuje workingMonth oraz egzekwuje jeden signature invariant na dwóch istniejących write boundaries. `where.py` jest tylko dowodem wyszukania; nie tworzy wymagań produktu.
 
 ## 16. EXACT TASK_SCOPE
 
