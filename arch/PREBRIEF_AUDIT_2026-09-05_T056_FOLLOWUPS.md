@@ -13,15 +13,22 @@ rozwiązania. Kod produktu nie został zmieniony.
 
 ## Wynik w skrócie
 
-Wszystkie trzy problemy są rzeczywiste. Nie są jednak jeszcze jednym w pełni
-testowalnym kontraktem:
+Wszystkie trzy problemy są rzeczywiste. OWNER zamknął brakujące decyzje
+2026-09-05:
 
-1. domyślna data korekty potrzebuje jednej dokładnej decyzji OWNERA o zakresie;
-2. blokada eksportu potrzebuje decyzji, co dokładnie znaczy „acknowledged” bez
-   finalizacji całego grafiku;
-3. czytelność deviations jest brief-ready tylko wtedy, gdy „każdy typ
-   ostrzeżenia” oznacza zamknięty kanał trwałych pozycji w panelu
-   „Odchylenia”, a nie wszystkie komunikaty ostrzegawcze całej aplikacji.
+1. historyczna służba jest faktem rozliczeniowym, a nie planem do swobodnej
+   edycji; jedynym realnym wyjątkiem jest zapisanie po fakcie osoby, która
+   rzeczywiście zastąpiła zaplanowanego pracownika;
+2. potwierdzenie blokującego LAW jest zgodą tylko na jeden wygenerowany wydruk;
+   następny wydruk wymaga ponownej zgody;
+3. z całego UI koordynatora mają zniknąć wszystkie techniczne identyfikatory.
+   Nie wystarczy zastąpić ich równie niejasnym tekstem typu „LAW Godziny”.
+
+Punkty 1 i 2 są gotowe do briefu architekta. Punkt 3 nie wymaga kolejnej
+decyzji OWNERA, ale przed zamrożeniem TASK_SCOPE wymaga pełnego inventory
+wszystkich miejsc UI, w których mogą pojawić się techniczne identyfikatory.
+CC może delegować to przeglądającemu kod agentowi; wynik inventory musi być
+jawny w briefie, a nie przemycony później jako dodatkowe testy.
 
 Findingi 2 i 3 są zależne. Czytelna informacja o blokującym LAW musi istnieć
 przed lub razem z blokadą eksportu.
@@ -48,20 +55,32 @@ Dlatego korekta wpisu z 3 września zapisana z domyślnym 5 września istnieje
 w bieżącej wersji, ale wydruk dnia 3 września zgodnie z lineage nadal bierze
 wersję rodzica. Problem zgłoszony przez CC odpowiada dokładnie kodowi.
 
-### Brakująca decyzja OWNERA
+### OWNER_ACCEPTED — zachowanie do briefu
 
-Propozycja architekta mówi „data Assignmentu/demandu”. To nie jest jedna
-reguła, a panel obsługuje także Assignmenty bez demandu, np. S1.
+Rozstrzygnięcie OWNERA: odbytej lub już rozpoczętej służby nie wolno traktować
+jak planu, który można dowolnie przepisać. Jest podstawą rozliczenia
+pracownika.
 
-Do zamrożenia przed briefem:
+Kontrakt ma rozdzielić dwa przypadki:
 
-> Czy przy każdym otwarciu korekty istniejącego wpisu pole „Obowiązuje od” ma
-> być ustawiane na kalendarzową datę początku wybranego Assignmentu, dla
-> wszystkich operacji tego panelu, z zachowaniem możliwości ręcznej zmiany?
+1. **Służba jeszcze się nie rozpoczęła:** pozostają istniejące operacje korekty
+   planu. Dla korekty konkretnego Assignmentu system wylicza datę obowiązywania
+   z kalendarzowej daty początku tego Assignmentu; koordynator nie ustawia
+   technicznego `effective_from` ręcznie.
+2. **Służba już się rozpoczęła lub zakończyła:** kod, początek, koniec, demand,
+   stan i freeze nie podlegają zmianie. Jedynym dopuszczalnym przypadkiem jest
+   zastąpienie zaplanowanego pracownika osobą, która faktycznie wykonała całą
+   tę służbę. System:
+   - wymaga wskazania pracownika zastępującego i przyczyny;
+   - ustawia skutek na kalendarzową datę początku tej służby;
+   - zachowuje poprzedni zapis i czas wykonania korekty w istniejącej historii;
+   - pokazuje na WYK i w rozliczeniu osobę, która faktycznie pracowała.
 
-Jeżeli OWNER chce regułę tylko dla D6+/N6+ albo chce datę pokrywanego demandu
-zamiast początku Assignmentu, brief musi powiedzieć to wprost. Nie potrzeba
-nowego warning subsystemu ani zmiany semantyki lineage.
+Owning boundary backendu ma odrzucać inne modyfikacje rozpoczętych/odbytych
+służb; sama blokada przycisków w UI byłaby omijalna. Ten finding stał się
+osobnym zadaniem ochrony historycznej służby, a nie kosmetyczną zmianą
+domyślnej wartości pola. Nie rozszerza T056: wybór D6+/N6+ dla służby, która
+już się rozpoczęła, również jest niedozwolony.
 
 ## 2. ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS
 
@@ -79,7 +98,7 @@ bajtów i nie pyta ponownie backendu.
 OWNER zamroził, że blokują wyłącznie niepotwierdzone deviations kategorii
 `LAW`, a pozostałe kategorie nie blokują.
 
-### Sprzeczność wymagająca decyzji OWNERA
+### Rozstrzygnięta sprzeczność
 
 Dzisiejsze checkboxy „Odchylenia” są tylko stanem przeglądarki. Nie zmieniają
 `Deviation.acknowledged`. Potwierdzenie zapisuje dopiero `Finalizuj`, a
@@ -90,18 +109,19 @@ Gdy LAW współistnieje np. z HOURS, samo wymaganie finalizacji pośrednio każe
 potwierdzić także HOURS przed eksportem. To przeczy decyzji „inne kategorie
 nie blokują”. Nie można tego rozstrzygnąć technicznie bez decyzji produktu.
 
-Do zamrożenia przed briefem:
-
-> Jak koordynator ma potwierdzić LAW dla potrzeb eksportu bez obowiązku
-> finalizowania i potwierdzania pozostałych kategorii: czy potwierdzenie przy
-> eksporcie jest jednorazową zgodą na ten wydruk, czy ma trwale ustawić
-> `Deviation.acknowledged` i zapisać kto/kiedy je potwierdził?
+OWNER_ACCEPTED: zgoda dotyczy tylko jednego wygenerowania dokumentu. Podgląd i
+pobranie tych samych bajtów PDF są tym samym wydrukiem. Każde ponowne
+wygenerowanie PDF wymaga nowej zgody, jeżeli nadal istnieje blokujące LAW.
+Zgoda eksportowa nie ustawia trwale `Deviation.acknowledged`, nie finalizuje
+grafiku i nie wymaga potwierdzenia pozostałych kategorii.
 
 ### Konieczne granice techniczne po decyzji
 
 - backend/application export boundary musi być ownerem blokady; UI może tylko
   wcześniej pokazać ten sam stan i czytelny komunikat;
 - bezpośredni POST export nie może omijać blokady;
+- potwierdzony POST może wygenerować dokładnie jeden dokument/revision; zgoda
+  nie może zostać ponownie użyta do wygenerowania następnego PDF;
 - stary podgląd/Blob i przycisk „Pobierz” muszą zostać unieważnione, gdy po
   jego wygenerowaniu zmieni się bieżąca wersja lub zestaw blokujących LAW;
   inaczej stary PDF nadal daje się pobrać bez nowego POST;
@@ -157,19 +177,29 @@ Dodatkowo source może być dynamicznym `SiteRule.rule_version_id`. Brief nie
 może ograniczyć macierzy do LOAD-01 ani do sześciu kategorii enum; musi objąć
 wszystkie powyższe source classes i SiteRule.
 
-### Brakująca granica zakresu OWNERA
+### OWNER_ACCEPTED — pełny zakres UI
 
-Do zamrożenia przed briefem:
+Rozstrzygnięcie obejmuje całe UI dostępne koordynatorowi, nie tylko panel
+„Odchylenia”. Żaden surowy `assignment_id`, `employee_id`, `demand_id`,
+`rule_version_id`, UUID ani wewnętrzny kod techniczny nie może być użyty jako
+treść komunikatu dla koordynatora. Identyfikatory mogą pozostać wewnątrz
+modelu, API i logów, jeżeli są potrzebne do tożsamości lub diagnostyki, ale UI
+ma pokazywać ich znaczenie operacyjne.
 
-> Czy „każdy typ ostrzeżenia pokazywanego w UI” w tym findingu oznacza tylko
-> trwałe pozycje z panelu „Odchylenia”, czy również osobny banner warningów
-> SOFT, DECISION_REQUIRED i komunikaty błędów innych ekranów?
+Tekst typu „LAW Godziny” również nie spełnia kontraktu. Komunikat musi
+odpowiadać co najmniej: kogo lub czego dotyczy, którego dnia/zmiany/okresu,
+co jest nieprawidłowe oraz — gdy ma zastosowanie — jaka jest wartość faktyczna
+i dopuszczalny limit.
 
-Pierwszy wariant jest zamkniętym zakresem jednego tasku. Drugi jest audytem
-komunikatów całej aplikacji i nie powinien być ukryty pod nazwą
-RAW-ASSIGNMENT-ID.
+Przed briefem architekt/CC ma wykonać jawne inventory wszystkich powierzchni
+UI: panel „Odchylenia”, bannery SOFT i DECISION_REQUIRED, formularze, błędy
+endpointów renderowane przez frontend, widoki historii, planowania, eksportu
+i ustawień. Repozytoryjne wyszukiwanie stringów jest początkiem, ale wynik
+trzeba potwierdzić na realnych ścieżkach renderowania. Architekt może po
+inventory podzielić wdrożenie na kilka jawnych Tasków; nie wolno ukrywać
+szerszego zakresu w testach jednego findingu.
 
-### Wymagania dla briefu, jeśli zakres = panel „Odchylenia”
+### Wymagania dla części briefu dotyczącej panelu „Odchylenia”
 
 - dla każdego source określić minimalne fakty widoczne dla człowieka:
   osoba, jeśli reguła dotyczy osoby; data/okres/zmiana; rodzaj naruszenia;
@@ -190,10 +220,12 @@ RAW-ASSIGNMENT-ID.
 
 ## Rekomendowane przekazanie
 
-1. OWNER odpowiada na trzy wąskie pytania powyżej.
-2. Architekt może przygotować osobny mały brief dla defaultu daty korekty.
-3. Czytelne deviations i blokadę eksportu należy opisać w jednym briefie albo
+1. Architekt przygotowuje osobny brief dla ochrony rozpoczętej/historycznej
+   służby i automatycznej daty korekty.
+2. Czytelne deviations i blokadę eksportu należy opisać w jednym briefie albo
    w dwóch briefach z twardą zależnością: najpierw czytelność całej zamkniętej
    macierzy Deviation, następnie blokada LAW.
+3. Przed zamrożeniem zakresu usuwania identyfikatorów CC/architekt wykonuje
+   pełne inventory UI. Jeśli wynik jest duży, jawnie dzieli pracę na Taski.
 4. Audyt preimplementacyjny ma później wykonać reduction gate na gotowym
    kontrakcie. Ten dokument nie zamraża technicznego rozwiązania.
