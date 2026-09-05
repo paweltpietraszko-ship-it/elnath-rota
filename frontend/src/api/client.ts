@@ -340,6 +340,11 @@ export interface SitePrintSettingsIn {
   s1_default_interval: WorkCodeIntervalOut | null;
 }
 
+// ROTA-T056: monthly D6+/N6+ additional work codes, keyed by (site_id, month).
+export interface MonthlyExtraWorkCodesOut {
+  codes: Record<string, WorkCodeIntervalOut>;
+}
+
 export interface ExportResultOut {
   ok: boolean;
   pdf_base64: string | null;
@@ -729,6 +734,11 @@ export const api = {
   getPrintSettings: (siteId: string) => req<SitePrintSettingsOut | null>(`/workspace/sites/${siteId}/print-settings`),
   savePrintSettings: (siteId: string, payload: SitePrintSettingsIn) =>
     req<void>(`/workspace/sites/${siteId}/print-settings`, { method: "PUT", body: JSON.stringify(payload) }),
+  // ROTA-T056: monthly D6+/N6+ extra codes subresource, keyed by (site_id, month).
+  getMonthlyExtraWorkCodes: (siteId: string, month: string) =>
+    req<MonthlyExtraWorkCodesOut>(`/workspace/sites/${siteId}/print-settings/${month}/extra-work-codes`),
+  saveMonthlyExtraWorkCodes: (siteId: string, month: string, codes: Record<string, WorkCodeIntervalOut>) =>
+    req<void>(`/workspace/sites/${siteId}/print-settings/${month}/extra-work-codes`, { method: "PUT", body: JSON.stringify({ codes }) }),
   exportSchedule: (siteId: string, month: string, periodLabel: string) =>
     req<ExportResultOut>(`/workspace/sites/${siteId}/schedule/${month}/export`, {
       method: "POST", body: JSON.stringify({ period_label: periodLabel }),

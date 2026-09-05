@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 import { todayIso } from "../localDate";
 
@@ -274,10 +274,17 @@ export default function MonthlyPlanning({
   const [correctionSaving, setCorrectionSaving] = useState(false);
   const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [showPrint, setShowPrint] = useState(entryMode === "wydruk");
+  // ROTA-T056: this month's D6+/N6+ extra codes, for offering at PRIMARY
+  // manual correction -- defined in PrintSettings, read-only here.
+  const [extraCodesForMonth, setExtraCodesForMonth] = useState<Record<string, WorkCodeIntervalOut>>({});
 
   useEffect(() => {
     api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
   }, [siteId]);
+
+  useEffect(() => {
+    api.getMonthlyExtraWorkCodes(siteId, monthIso).then((r) => setExtraCodesForMonth(r.codes)).catch(() => undefined);
+  }, [siteId, monthIso]);
 
   // ROTA-T052: manual S1 (PERIODIC_TRAINING) entry. Start/end are prefilled
   // from the site's configured default interval when one exists (brief
@@ -360,6 +367,38 @@ export default function MonthlyPlanning({
   const reassignEmployee = (newEmployeeId: string) => {
     if (!editingAssignment) return;
     runCorrection([{ ...stripDisplayName(editingAssignment), employee_id: newEmployeeId }]);
+  };
+
+  // ROTA-T056 brief section 8: choosing a monthly D6+/N6+ code builds a new
+  // real interval anchored on the date of the uniquely covered D/N demand --
+  // same pattern addS1 below already uses for end_next_day. covers_demand_id
+  // and every other field stay exactly as they are (§3: the code is never
+  // stored, only re-derived at export time from the real interval).
+  const editingDemand = editingAssignment?.covers_demand_id
+    ? (view?.demands.find((d) => d.demand_id === editingAssignment.covers_demand_id) ?? null)
+    : null;
+  const editingFamily = editingDemand?.shift_kind ?? null;
+  const eligibleForExtraCode = editingAssignment?.role === "PRIMARY" && editingAssignment.state !== "CANCELLED" && !editingAssignment.operational_code && editingFamily != null;
+  const extraCodeOptions = eligibleForExtraCode ? Object.keys(extraCodesForMonth).filter((c) => c.startsWith(editingFamily as string)).sort() : [];
+
+  const applyExtraCode = (code: string) => {
+    if (!editingAssignment || !editingDemand) return;
+    const interval = extraCodesForMonth[code];
+    if (!interval) return;
+    const anchor = editingDemand.start_datetime.slice(0, 10);
+    const startIso = `${anchor}T${interval.start_time}:00`;
+    // R11-01 fix: local-midnight-plus-86400000-then-toISOString round-trips
+    // through UTC, which in a positive-offset zone (e.g. Europe/Warsaw)
+    // rolls the calendar date back and silently loses "next day". Date.UTC
+    // in and getUTCFullYear/Month/Date out never touches local time, so the
+    // +1 is pure calendar arithmetic regardless of the viewer's timezone.
+    const [y, m, d] = anchor.split("-").map(Number);
+    const endDay = interval.end_next_day ? (() => {
+      const next = new Date(Date.UTC(y, m - 1, d + 1));
+      return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+    })() : anchor;
+    const endIso = `${endDay}T${interval.end_time}:00`;
+    runCorrection([{ ...stripDisplayName(editingAssignment), start_datetime: startIso, end_datetime: endIso }]);
   };
 
   // ROTA-T052 (T52-01/T52-02): S1 start/end must land on a full clock hour;
@@ -853,6 +892,32 @@ export default function MonthlyPlanning({
                     <button className="btn-ghost" onClick={toggleFreeze} disabled={correctionSaving}>
                       {editingAssignment.frozen ? "Odmroź" : "Zamroź"}
                     </button>
+                    {/* ROTA-T056 brief section 8: dodatkowe kody D6+/N6+
+                        zdefiniowane dla tego miesiąca -- tylko rodzina
+                        zgodna z pokrywanym demandem, tylko dla zwykłego
+                        PRIMARY (nie S1/TRAINEE/NN/CANCELLED). */}
+                    {eligibleForExtraCode && extraCodeOptions.length > 0 && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className="field-label">Zamień na dodatkowy kod</span>
+                        <select
+                          defaultValue=""
+                          disabled={correctionSaving}
+                          onChange={(e) => {
+                            if (e.target.value) applyExtraCode(e.target.value);
+                            e.target.value = "";
+                          }}
+                        >
+                          <option value="" disabled>
+                            Wybierz kod…
+                          </option>
+                          {extraCodeOptions.map((code) => (
+                            <option key={code} value={code}>
+                              {code}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     {editingAssignment.role === "PRIMARY" && editingAssignment.state === "PLANNED" && (
                       <button className="btn-ghost" onClick={markNotWorked} disabled={correctionSaving}>
                         Nie przepracował (NN)

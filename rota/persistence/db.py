@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 12
+LATEST_SCHEMA_VERSION = 13
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -557,6 +557,27 @@ _MIGRATION_12: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 13: ROTA-T056 -- monthly additional D6+/N6+ work-code intervals.
+# Current-state, no history: one row per (site_id, month), overwritten
+# whole on save. Keyed by (site_id, month) so one month's definitions never
+# affect another month's read/export (brief section 4 -- OWNER decision 3:
+# per (site_id, month), never per-site-permanent). codes_json maps
+# code -> WorkCodeInterval (same shape as site_print_settings'
+# work_code_intervals); the frozen standard D1-5/N1-5 table is untouched
+# and lives only in site_print_settings.
+# ---------------------------------------------------------------------------
+_MIGRATION_13: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS site_monthly_extra_work_codes (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        codes_json TEXT NOT NULL,
+        PRIMARY KEY (site_id, month),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -570,6 +591,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (10, _MIGRATION_10),
     (11, _MIGRATION_11),
     (12, _MIGRATION_12),
+    (13, _MIGRATION_13),
 )
 
 

@@ -1,0 +1,174 @@
+ROTA-T056 — BACKEND IMPLEMENTATION AUDIT R8
+
+AUDITED_SHA: 4faad52f0dee646fdc5a4adab488885d75eccc75
+AUDITED_BRANCH: task/ROTA-T056
+FROZEN_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+BOARD_HANDOFF_SHA: 71c7aa903aea8ace76c25b1cf5f3644d17d707a9
+COMPARISON_BASE_SHA: 9af8aeb508b5c7bc245a2ad580b569cd6b03591a
+
+WERDYKT: FAIL — BACKEND NIE JEST GOTOWY DO BUDOWY FRONTENDU
+
+To jest wyłącznie checkpoint backendu. Frontend nie został zaimplementowany ani
+audytowany. Końcowy werdykt T056 nadal wymaga obu formalnych REAL PDF GATE i
+oceny optycznej człowieka.
+
+PODSUMOWANIE
+
+Testy implementatora są zielone, ale nie pokrywają czterech klas wymaganych
+przez zamrożony kontrakt. Każdy finding poniżej spełnia DEFECT_GATE: ma TRACE do
+PRODUCT_TRUTH, leży w odpowiedzialności zmienionego komponentu i został
+odtworzony na exact SHA 4faad52.
+
+R8-01 — FAIL — ZAPIS KODÓW I HISTORII NIE JEST ATOMOWY
+
+TRACE
+- brief §7: zapis konfiguracji i action mają być atomowe;
+- T56-04: zapis ma pojawić się w unified action history jako
+  CONTEXT_CONFIGURATION_SAVED.
+
+OWNERSHIP
+- rota/application/durable_inputs.py::save_monthly_extra_work_codes jest
+  wskazanym application wrapperem i jedynym wejściem używanym przez endpoint PUT.
+
+REPRO NA 4faad52
+1. Utworzono prawidłowy obiekt i aktywny kontekst koordynatora.
+2. Na coordinator_action_records dodano trigger odrzucający INSERT, aby
+   deterministycznie odtworzyć awarię drugiej części operacji.
+3. Wywołano rzeczywisty PUT
+   /api/workspace/sites/SITE-1/print-settings/2026-09-01/extra-work-codes.
+4. Endpoint zwrócił HTTP 500 „injected action failure”.
+5. Następny GET zwrócił zapisany D6, a liczba action records wynosiła 0.
+
+Konfiguracja została więc zatwierdzona przed historią. Kod i jego docstring wprost
+opisują dwa osobne commity. To jest przeciwieństwo kontraktu, nie niejasność.
+
+OCZEKIWANA KLASA NAPRAWY
+- zapis current-state i action muszą uczestniczyć w jednej transakcji; awaria
+  action ma cofnąć konfigurację. Nie dublować walidacji produktu.
+
+R8-02 — FAIL — end_next_day AKCEPTUJE TAKŻE KONIEC DWA LUB WIĘCEJ DNI PÓŹNIEJ
+
+TRACE
+- brief §9.1 pkt 5–7: ta sama data demandu i exact start_time/end_time/
+  end_next_day; każda inna rozbieżność pozostaje WORK_PROVENANCE_INCOMPLETE;
+- T56-08: niedokładne end_next_day ma być fail-closed;
+- §9.3 i T56-09: sumy mają zawierać prawdziwą liczbę godzin.
+
+OWNERSHIP
+- rota/application/schedule_export.py::_extra_code_matches, _validate_item,
+  _map_work_code i _hours_of są właścicielami tej decyzji eksportu.
+
+REPRO NA 4faad52 — REALNY PION
+1. Demand D: 2026-08-01 06:00–18:00.
+2. Assignment PLANNED zmieniono przez produkcyjny apply_manual_correction(),
+   zachowując covers_demand_id, na 2026-08-01 06:00–2026-08-03 23:00 = 65 h.
+3. Zapisano miesięczny D7=06:00–23:00, end_next_day=True = 41 h.
+4. generate_schedule_pdf zwrócił ExportReady.
+5. Komórka została rozpoznana jako D7, a PLAN/WYK policzono jako 41 h zamiast
+   realnych 65 h.
+
+Przyczyna: implementacja definiuje end_next_day jako
+end_datetime.date() > start_datetime.date(). Ta sama wartość True oznacza więc
+zarówno dokładnie następny dzień, jak i dowolny późniejszy dzień.
+
+OCZEKIWANA KLASA NAPRAWY
+- porównywać pełny realny datetime z datetime jednoznacznie zbudowanym z daty
+  demandu oraz zapisanych start_time/end_time/end_next_day. Nie wystarcza bool
+  „czy kiedykolwiek przekroczono północ”.
+
+R8-03 — FAIL — POWSTAŁO SIÓDME NARUSZENIE SIZE GATE
+
+TRACE
+- brief §10: dokładnie sześć OWNER-accepted baseline violations;
+- zakaz tworzenia nowej siódmej kategorii/naruszenia i obowiązek raportu
+  baseline-vs-HEAD.
+
+OWNERSHIP
+- T056 dodaje 40 linii netto do rota/application/durable_inputs.py.
+
+REPRO NA 4faad52
+- backend.read_task_scope: 19 ścieżek;
+- backend.check_sizes: 7 pozycji;
+- nowa siódma pozycja:
+  SIZE_FILE: rota/application/durable_inputs.py has 620 lines (max 600).
+
+Dokładne file baseline -> HEAD:
+- rota/persistence/db.py: 635 -> 657 (zaakceptowana istniejąca kategoria);
+- rota/application/durable_inputs.py: 580 -> 620 (NOWA siódma kategoria);
+- rota/application/schedule_export.py: 684 -> 777 (zaakceptowana kategoria);
+- tests/test_t012.py: 1735 -> 1735;
+- tests/test_t019b.py: 907 -> 907;
+- tests/test_t020.py: 773 -> 773.
+
+_apply_24h_periods pozostaje 53 > 50, czyli zaakceptowaną szóstą pozycją.
+
+R8-04 — FAIL — DUŻA LEGALNA LEGENDA JEST UCIĘTA I NACHODZI NA STOPKĘ
+
+TRACE
+- brief §5: nie ograniczać liczby dodatkowych kodów do jednego slotu ani
+  D6/N6;
+- §2 pkt 11 i §9.4: wszystkie faktycznie użyte oznaczenia mają być czytelne,
+  bez obcięcia, ukrycia lub agresywnego zmniejszania;
+- T56-11: druga strona legendy ma być kompletna i czytelna.
+
+OWNERSHIP
+- backendowy rota/application/schedule_export.py::_used_codes,
+  _legend_required_height, _draw_legend, _draw_legend_only_page i _render_pdf.
+
+REPRO NA 4faad52 — RZECZYWISTY PDF I KONTROLA OPTYCZNA
+1. Przez prawdziwe persistence i generate_schedule_pdf zapisano oraz faktycznie
+   użyto 130 legalnych, jednoznacznych kodów D6–D135 dla 130 pracowników.
+2. PDF miał 12 stron; ostatnia była dedykowaną stroną legendy.
+3. Render PNG ostatniej strony pokazał uciętą dolną część legendy i nałożenie
+   tekstu na „Strona 12 z 12”.
+4. Pomiar layoutu: blok legendy kończył się na y=844,8 przy wysokości strony
+   841,9; stopka zajmowała y=824,1–831,6.
+
+CC sprawdził 60 kodów, ale implementacja zawsze tworzy najwyżej jedną osobną
+stronę legendy i nie sprawdza, czy sama legenda mieści się na tej stronie.
+Zielone testy i ekstrakcja tekstu nie wykrywają tego defektu; rozstrzyga render.
+
+Jeśli naprawa ma wprowadzić trzecią lub dalszą stronę legendy, jest to
+user-visible recovery niewypowiedziane literalnie przez OWNERA („druga strona”).
+Należy wtedy jawnie skierować tę jedną decyzję do OWNERA, a nie przemycać jej
+w teście. Niezależnie od wybranej naprawy obecne ucięcie jest sprzeczne z
+zamrożonym zakazem obcinania.
+
+POZYTYWNE DOWODY I WARSTWY AUDYTU
+
+- git diff --check: PASS;
+- diff 9af8aeb..4faad52 obejmuje 10 plików, wszystkie w literalnym TASK_SCOPE;
+  brak zmian frontendu, solvera, demand generation i operational_code;
+- pytest tests/test_t056.py tests/test_t021_export_api.py -q:
+  19 passed, 1 istniejący StarletteDeprecationWarning;
+- prawidłowy pion apply_manual_correction -> persistence -> export dla
+  D7=06:00–23:00 same-day: ExportReady, PLAN/WYK D7, 17 h;
+- prawidłowy PUT/GET monthly extra codes: 204, potem 200 z tym samym D6;
+- document_revision zmienia się po zmianie configu eksportowanego miesiąca i
+  nie zmienia się po zmianie innego miesiąca;
+- used-only smoke: skonfigurowany, ale nieużyty extra code nie pojawił się w
+  _used_codes;
+- odczytano pełny brief 404580b, surowy diff i zmienione produkcyjne ownery;
+- wykonano WHERE_MAP dla zmienionych backendowych ownerów i symboli w db.py,
+  site_repository.py, durable_inputs.py, api/routers/export.py oraz
+  schedule_export.py. Nie stwierdzono duplicate produkcyjnego ownera.
+
+Pełnej regresji repo nie uruchamiano: brak zgody OWNERA i brak potrzeby przed
+naprawą czterech odtworzonych blockerów.
+
+TECHNICAL_ONLY — tests/test_t019b.py expected-new-tables
+
+Dopisanie plan_previews obok site_monthly_extra_work_codes nie tworzy zachowania
+produktu i nie wymaga decyzji OWNERA. plan_previews jest już istniejącą tabelą
+zamrożonej migracji T054; stara lista testu była stale-oracle. Korekta pozostaje
+w tym samym mechanicznie aktualizowanym oczekiwaniu najnowszego schematu. Test
+nie staje się źródłem nowego kontraktu.
+
+ARCHITECTURE_PROPOSALS: BRAK
+
+NEXT
+
+CC pozostaje HOLD przed frontendem. Po wąskiej poprawce wymagany jest nowy exact
+SHA i audyt: cztery reproduktory powyżej, pozytywny rzeczywisty pion oraz
+targetowane testy zmienionego kodu. Nie uruchamiać pełnej regresji bez decyzji
+OWNERA.

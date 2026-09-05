@@ -1,0 +1,118 @@
+ROTA-T056 — AUDYT FRONTENDU R11
+
+AUDITED_SHA: 41e9208a87d8633bfa354bbe1f36b4bba2324a31
+AUDITED_BRANCH: task/ROTA-T056
+FROZEN_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+BOARD_HANDOFF_SHA: 5ce58435d5ea2a5b21afed46206e3eb316279c97
+BACKEND_PASS_REPORT: tasks/ROTA-T056/round_01/tests/tests_r10.txt
+
+WERDYKT: FAIL — FRONTEND WYMAGA WĄSKIEJ POPRAWKI end_next_day
+
+R11-01 — FAIL — N6 next day jest wysyłane jako koniec tego samego dnia
+
+TRACE
+
+- brief §8: wybór kodu ma zbudować realny przedział na dacie jednoznacznie
+  pokrywanego ShiftDemandu zgodnie z definicją kodu;
+- T56-01: jawny przykład N6=20:00–06:00 next day;
+- T56-05: PRIMARY N ma oferować N6+;
+- T56-06/T56-07: wybór ma przejść realny manual-correction flow i zachować
+  dokładny start/end/end_next_day miesięcznej definicji.
+
+OWNERSHIP
+
+- frontend/src/screens/MonthlyPlanning.tsx::applyExtraCode jest nowym ownerem
+  marshallingu wybranego kodu na start_datetime/end_datetime i leży w
+  literalnym TASK_SCOPE T056.
+
+REPRO NA EXACT SHA 41e9208 — PRAWDZIWY BROWSER + PRAWDZIWY BACKEND
+
+1. Uruchomiono produkcyjny Vite i FastAPI na osobnej bazie audytowej.
+2. Chromium działał w strefie Europe/Warsaw, viewport 1600x1000.
+3. W UI zapisano dla 2026-08 m.in. N6=20:00–06:00 z zaznaczonym
+   „Koniec nast. dnia”. PUT monthly extra codes zwrócił 204.
+4. W „Ręcznej korekcie” otwarto zwykły PRIMARY pokrywający demand N z daty
+   2026-08-02. Selektor poprawnie oferował tylko N6.
+5. Normalnym wyborem w selektorze wybrano N6.
+6. Frontend wysłał:
+   start_datetime=2026-08-02T20:00:00,
+   end_datetime=2026-08-02T06:00:00.
+7. Backend słusznie odrzucił żądanie HTTP 500:
+   „assignment 'ASG-2-N': end must be after start”. UI pokazał ten błąd, a
+   korekta nie została zapisana.
+
+Sibling pozytywny:
+
+- D6=06:00–20:00 bez next day został wybrany przez ten sam realny flow;
+- request zawierał dokładnie 2026-08-01T06:00:00–2026-08-01T20:00:00;
+- backend zwrócił 200, panel korekty zamknął się, suma zmieniła się na 14 h.
+
+PRZYCZYNA
+
+Linia 390 dodaje 86400000 ms do lokalnej północy, po czym wywołuje
+toISOString(). W Europe/Warsaw konwersja do UTC cofa godzinę kalendarzową na
+poprzednią datę. Po dodaniu doby wynik ISO nadal ma datę dnia startu, więc
+end_next_day zostaje zgubione.
+
+OCZEKIWANA KLASA NAPRAWY
+
+- dla end_next_day wyznaczyć następny dzień kalendarzowy bez konwersji lokalnej
+  północy przez UTC;
+- nie zmieniać backendu, solvera ani contractu kodów;
+- niezależny reproduktor po poprawce ma sprawdzić N6 w Europe/Warsaw oraz
+  sibling D6 bez next day.
+
+POZYTYWNE DOWODY FRONTENDU
+
+- npm run build: PASS (tsc -b + vite build);
+- miesięczna sekcja „Dodatkowe kody dla YYYY-MM” jest widoczna na ekranie
+  Panel sterowania -> Obiekt i korzysta ze wspólnego workingMonth;
+- błędny D5 i duplikat D6 pokazują czytelne błędy przed zapisem;
+- D6, D7 i N6 zapisują się przez realny PUT; przejście 2026-08 -> 2026-09
+  pokazuje pusty niezależny zestaw, powrót do 2026-08 odtwarza zapisane kody;
+- usunięcie D7, zapis i pełny reload zachowują D6/N6 i nie przywracają D7;
+- selektor PRIMARY D zawiera D6/D7 i nie zawiera N6;
+- selektor PRIMARY N zawiera N6 i nie zawiera D6/D7;
+- realistyczny widok sekcji z D6/N6 oceniono optycznie w 1600x1000 oraz
+  1280x720: kontrolki i tabela są czytelne, nic się nie nakłada ani nie jest
+  ucięte; przy 1280x720 tabela ma bounds left=308/right=1220,
+  top=424/bottom=622 i mieści się w viewportcie;
+- widok błędu korekty N6 oceniono optycznie: błąd i panel korekty są widoczne,
+  bez nakładania kontrolek;
+- targetowane testy backendowego seam na exact SHA:
+  pytest tests/test_t056.py tests/test_t021_export_api.py -q
+  = 22 passed, 1 StarletteDeprecationWarning;
+- git diff --check 1de4736..41e9208: PASS;
+- diff obejmuje wyłącznie BOARD.md oraz pięć frontendowych ścieżek z
+  TASK_SCOPE; produkcyjne zmiany T056 są w tych pięciu ścieżkach.
+
+Pełnej regresji repo nie uruchamiano: brak zgody OWNERA; obecny exact repro
+wymaga najpierw wąskiej poprawki.
+
+ARCHITECTURE_PROPOSALS — NIEBLOKUJĄCE, POZA TASK_SCOPE, RAZ
+
+Obecny stan:
+- istniejący flow S1 w MonthlyPlanning.tsx:405 używa tego samego wzorca
+  lokalna północ + 86400000 + toISOString i w dodatnich strefach czasowych może
+  analogicznie zgubić „następny dzień”. S1 jest jawnie poza zakresem T056 i nie
+  był podstawą werdyktu.
+
+Propozycja:
+- osobnym Taskiem rozważyć jeden współdzielony helper dodający dzień
+  kalendarzowy bez zmiany strefy i użyć go również dla S1.
+
+Korzyść:
+- usuwa istniejące ryzyko S1 i zapobiega ponownemu kopiowaniu błędnego wzorca.
+
+Tradeoff:
+- zmienia istniejące zachowanie S1 i wymaga własnego audytu; nie przemycać tej
+  zmiany do wąskiej poprawki T056 bez decyzji OWNERA.
+
+SAFETY_PRIVACY: brak nowych ryzyk.
+
+NEXT
+
+CC poprawia wyłącznie wyznaczanie następnej daty dla applyExtraCode i przekazuje
+nowy exact SHA. Wąski reaudyt: ten sam realny browserowy N6/D6 reproduktor,
+targetowany build/test oraz kontrola optyczna zmienionego panelu. Pełne REAL PDF
+GATE A/B dopiero po usunięciu tego blockera.

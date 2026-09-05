@@ -1,0 +1,75 @@
+ROTA-T056 — KOŃCOWY WĄSKI RE-CHECK ARTEFAKTÓW R14
+
+AUDITED_SHA: 6b66ac53a368edbd8d114c8bbd44079d79276b97
+AUDITED_BRANCH: task/ROTA-T056
+FROZEN_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+BOARD_HANDOFF_SHA: ae90c8c915c2fd4a7227602642946810733db619
+PREVIOUS_AUDIT: tasks/ROTA-T056/round_01/tests/tests_r13.txt
+
+WERDYKT: PASS — T056 GOTOWY DO DECYZJI OWNERA O MERGE
+
+PASS dotyczy wyłącznie exact SHA 6b66ac5. Nie wykonano merge.
+
+ZAKRES RE-CHECKU
+
+Zgodnie z przekazaniem po R13 sprawdzono wyłącznie poprawiony Gate B i review.
+Gate A nie został zmieniony: jego SHA-256 nadal wynosi
+BBCE5FF50CF60C4DE0A1E80A698E91FDE634730F96FFEFF6E6D5DECC49D577B5, a jego
+niezależny PASS optyczny z R13 pozostaje ważny.
+
+Commit 6b66ac5 zmienia dokładnie:
+
+- tasks/ROTA-T056/round_01/tests/real_pdf_gate_b.pdf;
+- tasks/ROTA-T056/round_01/tests/real_pdf_gate_review.md.
+
+Kod produktu nie został zmieniony.
+
+R13-01 — PASS — GATE B FAKTYCZNIE URUCHAMIA T56-15
+
+real_pdf_gate_b.pdf otwiera się poprawnie i ma 6 stron. Wszystkie strony
+wyrenderowano do PNG i obejrzano. Ekstrakcja tekstu była tylko pomocniczym
+sprawdzeniem kompletności.
+
+Optyczny re-check potwierdził:
+
+- strony 1–5 zawierają wyłącznie kolejne części siatki grafiku, po 12
+  pracowników każda;
+- ostatni pracownik EMP-9 znajduje się na stronie 5;
+- strona 6 nie zawiera siatki, pracowników, PLAN, WYK ani kolumn sum;
+- strona 6 ma jawny nagłówek „Legenda — ciąg dalszy (wszystkie użyte
+  oznaczenia)” i osobny tytuł pełnej legendy;
+- legenda zawiera dokładnie 60 oczekiwanych kodów D6–D65;
+  missing=[] i unexpected=[];
+- wpisy są czytelne w dwóch kolumnach, zachowują stały rozmiar czcionki,
+  nie nachodzą na siebie i nie są ucięte;
+- przypisy kończą się z wyraźnym odstępem przed stopką „Strona 6 z 6”;
+- numeracja całego dokumentu jest spójna: strony 1–6 z 6.
+
+Tym razem zapisany artefakt faktycznie dowodzi dodatkowej strony legendy i
+ścieżki legend_needs_own_page/_draw_legend_only_page wymaganej przez T56-15
+oraz naprawę R8-04.
+
+REVIEW — PASS
+
+real_pdf_gate_review.md:
+
+- używa poprawnych numerów T56-14 dla Gate A i T56-15 dla Gate B;
+- jawnie opisuje zmianę po R13;
+- opisuje 5 stron siatki i dedykowaną stronę 6 wyłącznie na legendę;
+- jego twierdzenia o nagłówku, kompletności, czytelności, braku kolizji oraz
+  stopce są zgodne z zapisanym PDF-em.
+
+Nie uruchamiano testów produktu ani pełnej regresji: exact commit zawiera
+wyłącznie dwa artefakty audytowe, a wymagany re-check był mechaniczny i
+optyczny.
+
+OWNER_EXPLANATION_GATE: NIE URUCHAMIA SIĘ — brak nowego zachowania produktu.
+
+ARCHITECTURE_PROPOSALS: brak.
+
+SAFETY_PRIVACY: brak nowych ryzyk.
+
+NEXT
+
+Task może wrócić do OWNERA z PASS na exact SHA 6b66ac5. Merge wyłącznie po
+jawnej decyzji OWNERA.

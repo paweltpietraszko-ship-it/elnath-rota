@@ -43,12 +43,15 @@ from rota.persistence.employee_repository import (
 from rota.persistence.schedule_repository import list_regime_replan_required_months
 from rota.persistence.site_profile_repository import SiteProfileNotFound, get_site_profile, write_site_profile_in_open_transaction
 from rota.persistence.site_repository import (
+    MonthlyExtraWorkCodes,
     SiteNotFound,
     SitePrintSettings,
     correct_site_planning_regime_in_open_transaction,
     get_site,
+    get_site_monthly_extra_work_codes,
     get_site_print_settings,
     list_sites,
+    save_site_monthly_extra_work_codes_in_open_transaction,
     save_site_print_settings,
     write_site_in_open_transaction,
 )
@@ -357,6 +360,23 @@ def save_print_settings(
             affected_entities=[AffectedEntity("SITE_PRINT_SETTINGS", site_id)],
             before_state={"site_id": site_id, "saved": before is not None},
             after_state={"site_id": site_id, "saved": True},
+            note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE, source_id=site_id,
+            responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=None,
+        )
+
+
+def save_monthly_extra_work_codes(conn, *, coordinator_id: str, site_id: str, month: date, codes: dict, note: str | None = None, responds_to_decision_required_id: str | None = None) -> None:  # noqa: E501
+    """ROTA-T056 section 7: one atomic transaction, config write + action (R8-01 fix)."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    recorded_at = datetime.now(); before = get_site_monthly_extra_work_codes(conn, site_id, month); entity_id = f"{site_id}:{month.isoformat()}"  # noqa: E702
+    with conn:
+        site_memory.validate_decision_required_link_no_commit(conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id)  # noqa: E501
+        save_site_monthly_extra_work_codes_in_open_transaction(conn, MonthlyExtraWorkCodes(site_id, month, codes))
+        _record_action_and_invalidate_no_commit(
+            conn, action_kind=CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED, origin_site_id=site_id, affected_site_ids=[site_id],
+            coordinator_id=coordinator_id, recorded_at=recorded_at, effective_from=None, month=month,
+            affected_entities=[AffectedEntity("SITE_MONTHLY_EXTRA_WORK_CODES", entity_id)],
+            before_state={"site_id": site_id, "month": month.isoformat(), "codes": sorted(before)}, after_state={"site_id": site_id, "month": month.isoformat(), "codes": sorted(codes)},  # noqa: E501
             note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE, source_id=site_id,
             responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=None,
         )
