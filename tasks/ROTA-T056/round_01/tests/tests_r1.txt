@@ -1,0 +1,251 @@
+ROTA-T056 — PREIMPLEMENTATION AUDIT R1
+
+STATUS: OWNER_DECISION_NEEDED — OWNER_EXPLANATION_GATE
+WERDYKT: WSTRZYMANY; bez PASS/FAIL do czasu jawnej decyzji OWNERA i korekty briefu
+
+AUDYTOWANY KONTRAKT:
+- brief: tasks/ROTA-T056/brief.md
+- exact SHA briefu: e4260555645c5c00a3829bacf28bcc1233422f47
+- base produktu wskazany przez brief: 9d8bfd0046062078f11d08f8bd7dc1d1f5d4326a
+- przekazanie BOARD: e9beea495bc0404c82ec47278dd9999261d1cfdd
+- źródło decyzji OWNERA: arch/FINDING_2026-09-05_DEFINABLE_WORK_CODE_DURATIONS.md@27425435c03f20b111f855e215c14de8fbc43264
+
+ROLA I OGRANICZENIA DOWODU:
+- Audyt wyłącznie przedimplementacyjny; na audytowanym SHA nie ma kodu produktu T056.
+- Przeczytano cały brief i wskazane decyzje OWNERA.
+- Sprawdzono istniejących ownerów persistence, API, UI, manual correction, action history i eksportu.
+- Uruchomiono tylko wąskie reproduktory bramki mechanicznej i cztery zastane testy migracji; bez pełnej regresji.
+- Nie oceniano jeszcze PDF T056, ponieważ implementacja i artefakt nie istnieją. REAL PDF GATE pozostaje obowiązkowy po implementacji.
+
+============================================================
+1. OWNER_EXPLANATION_GATE — decyzje potrzebne przed werdyktem
+============================================================
+
+OWNER_CONFIRMED
+
+Potwierdzone decyzjami OWNERA i wystarczająco jednoznaczne:
+- tylko dodatkowe kody D6+/N6+; D1–D5/N1–N5 bez zmian;
+- definicje per (site_id, month);
+- koordynator wybiera wcześniej zdefiniowany kod;
+- wybór zmienia realne start_datetime/end_datetime Assignmentu;
+- zapis korzysta z istniejącego apply_manual_correction() i jego validate()/deviations;
+- dodatkowy kod trafia do PLAN i WYK;
+- U/C, solver, katalog zmian, WorkBalance i analytics pozostają bez zmian;
+- końcowy rzeczywisty PDF i ocena optyczna są obowiązkowe.
+
+OWNER_DECISION_NEEDED 1 — legenda/kod nie mieści się w zaakceptowanym PDF
+
+Trigger:
+- koordynator skonfiguruje tyle dodatkowych kodów albo kod z tak długim suffixem, że wszystkie pozycje legendy lub symbol w komórce nie mieszczą się przy zaakceptowanej czytelności.
+
+Efekt i dane:
+- eksport czyta wszystkie definicje dla (site_id, month) i ma pokazać wszystkie skonfigurowane/używane kody;
+- brief jednocześnie nie ogranicza liczby kodów, a obecny renderer rezerwuje stałe LEGEND_H=150 i ma stałą szerokość komórki dnia.
+
+UI/PDF:
+- kontrakt nie mówi, czy powstać mają dodatkowe strony legendy, czy eksport ma odmówić utworzenia PDF;
+- nie wolno implementatorowi samemu wybrać paginacji, obcięcia, zmniejszenia tekstu ani ukrycia kodów.
+
+Failure/recovery — rekomendowany wariant do decyzji OWNERA:
+- fail-closed przed utworzeniem PDF, z polskim komunikatem o niemieszczącej się legendzie/kodzie;
+- dotychczasowa konfiguracja i grafik pozostają zapisane;
+- koordynator usuwa nieużywane definicje albo wybiera krótsze nazwy, po czym ponawia eksport.
+- Alternatywa produktowa: dodatkowa strona/dodatkowe strony legendy; jest to materialna zmiana zaakceptowanego układu i wymaga jawnej decyzji oraz osobnego gate'u optycznego.
+
+OWNER_DECISION_NEEDED 2 — kolizja może powstać w dwóch kolejnościach zapisu
+
+Trigger:
+- D6 zostaje zapisane jako interval różny od standardowych, a później koordynator zmienia globalny interval standardowego D1–D5 na ten sam podpis; albo odwrotnie.
+
+Efekt i dane:
+- round-trip bez operational_code wymaga unikalnego podpisu w rodzinie;
+- standardowe ustawienia są mutable per Site, a dodatkowe ustawienia mutable per Site+month;
+- T56-03 opisuje tylko odrzucenie kolizji przy zapisie dodatkowego kodu, nie przy późniejszym zapisie standardowego ustawienia.
+
+UI/PDF:
+- bez reguły drugi zapis może stworzyć niejednoznaczny stan; exporter wybierze zły kod albo musi zablokować PDF.
+
+Failure/recovery — rekomendowany wariant do decyzji OWNERA:
+- oba owning write boundaries odrzucają zapis, który tworzy kolizję, zachowują poprzednie dane i pokazują po polsku kolidujący kod/miesiąc;
+- koordynator wybiera inny interval albo usuwa kolidującą definicję i ponawia zapis.
+- Alternatywa produktowa: dopuścić zapis i dopiero zablokować eksport danego miesiąca do czasu naprawy.
+
+TECHNICAL_ONLY
+
+- Nowa migracja, repository/API DTO, prop threading, deterministic JSON/revision, testy i ewentualny mechaniczny podział pliku nie zmieniają zachowania produktu poza decyzjami wyżej.
+- Nie ma powodu do zmiany solvera, katalogu zmian, WorkBalance, analytics ani Assignment.operational_code.
+
+UNAUTHORIZED
+
+- Brak implementacji, więc nie stwierdzono jeszcze nieautoryzowanego zachowania w kodzie.
+- Brief nie może jednak pozostawić implementatorowi wyboru dwóch zachowań opisanych wyżej.
+
+SAFETY_PRIVACY
+
+- T056 nie wymaga commitowania surowych zdjęć klienta. REAL PDF GATE powinien użyć danych demonstracyjnych bez danych osobowych.
+- Normalne deviations ręcznej korekty pozostają widoczne; task nie może ich wyciszyć dla niestandardowej długości.
+
+============================================================
+2. KONKRETNE KOREKTY KONTRAKTU — TECHNICZNE, NIE PRODUKTOWE
+============================================================
+
+F1 — literalny TASK_SCOPE jest niewykonalny dla UI
+
+TRACE:
+- brief §6: PrintSettings ma dostać aktualny workingMonth należący do Room.tsx;
+- brief §12: literalny TASK_SCOPE.
+
+OWNERSHIP:
+- frontend/src/screens/Room.tsx jest istniejącym ownerem workingMonth (T053);
+- frontend/src/screens/ControlPanel.tsx jest realnym pośrednikiem: Room renderuje ControlPanel, a ControlPanel renderuje <PrintSettings siteId={siteId} />.
+
+REPRO na exact bazie:
+- frontend/src/Room.tsx: NIE ISTNIEJE;
+- frontend/src/screens/Room.tsx: ISTNIEJE;
+- frontend/src/screens/ControlPanel.tsx: ISTNIEJE i nie przyjmuje/przekazuje workingMonth.
+
+Wymagana korekta:
+- zastąpić błędną ścieżkę frontend/src/Room.tsx przez frontend/src/screens/Room.tsx;
+- dodać frontend/src/screens/ControlPanel.tsx do TASK_SCOPE;
+- ująć zmianę tekstu „dane trwałe, niezależne od miesiąca”, aby miesięczna sekcja nie przeczyła ekranowi.
+
+F2 — twarda bramka rozmiaru jest czerwona jeszcze przed dopisaniem T056
+
+TRACE:
+- backend.py: MAX_FILE_LINES=600, MAX_FUNC_LINES=50;
+- backend.py::check_sizes sprawdza każdy plik Python wymieniony w TASK_SCOPE;
+- brief §12 obejmuje db.py i schedule_export.py.
+
+OWNERSHIP:
+- kontrakt architekta odpowiada za wykonalny TASK_SCOPE i zgodność z repozytoryjnym gate'em.
+
+REPRO (wywołanie backend.check_sizes na plikach Python z zakresu, dokładny stan produktu T056):
+- SIZE_FILE: rota/persistence/db.py has 635 lines (max 600)
+- SIZE_FILE: rota/application/schedule_export.py has 684 lines (max 600)
+- SIZE_FUNC: rota/application/schedule_export.py:_apply_24h_periods has 53 lines (max 50)
+
+Wymagana korekta:
+- brief musi przed implementacją wskazać wąski TECHNICAL_ONLY sposób spełnienia gate'u i dodać każdy ewentualny nowy plik do TASK_SCOPE;
+- nie wolno naprawiać tego przez osłabienie backend.py, ukrycie linii lub szeroki refaktor;
+- dopuszczalny jest mały podział według istniejącej odpowiedzialności renderera/persistence, jeśli architekt po repo-search uzna go za najmniejszy bezpieczny wariant.
+
+F3 — testy są dozwolone opisowo, ale nie istnieją w literalnym TASK_SCOPE
+
+TRACE:
+- brief §10 wymaga T56-01..T56-12;
+- brief §12 nazywa listę EXACT TASK_SCOPE, lecz nie wymienia ani jednego pliku testowego;
+- backend.py akceptuje tylko literalne wpisy po TASK_SCOPE:, więc zdanie „Dozwolone są małe testy...” nie rozszerza zakresu.
+
+REPRO:
+- tasks/ROTA-T056/round_01/tests/tests_r1.txt nie istniał przed tym audytem;
+- nie istnieje tests/test_t056.py w kontrakcie ani na bazie.
+
+Wymagana korekta:
+- dodać jawnie co najmniej nowy tests/test_t056.py oraz dokładne istniejące testy/e2e, które implementacja ma zmienić;
+- nie kopiować pełnych kontraktów niższych ownerów: nowy test ma objąć miesięczny seam, dwie kolejności kolizji, realny manual-correction vertical, export/revision i PDF artifact;
+- artefakt REAL PDF GATE i sposób zapisania jego oceny również muszą mieć wskazane miejsce.
+
+Klasyfikacja zastanego baseline:
+- uruchomione 4 wąskie testy migracji już na bazie, przed T056: 0 PASS / 4 FAIL;
+- tests/test_t012.py oczekuje literalnie 11 przy LATEST_SCHEMA_VERSION=12;
+- tests/test_t019b.py oczekuje literalnie 10;
+- tests/test_t020.py i tests/test_t023b.py oczekują literalnie 11;
+- to zastane stale/source-shape failures, nie regresja T056;
+- brief ma jawnie zdecydować, czy wykonuje dokładnie mechaniczne aktualizacje tych oracli w T056, czy rejestruje je jako wcześniejszy dług. Nie wolno nazwać ich nowym defektem produktu T056.
+
+F4 — invariant unikalności musi objąć oba zapisy i read/export
+
+TRACE:
+- brief §5: podpis intervalu musi być jednoznaczny wobec aktywnego standardowego i dodatkowego kodu;
+- brief §3: kod nie jest persistowany na Assignment i exporter ma go odtworzyć.
+
+OWNERSHIP:
+- zapis monthly extras i zapis SitePrintSettings są dwoma możliwymi wejściami do wspólnego invariantu;
+- exporter jest fail-closed consumerem na wypadek korupcji/bypassu.
+
+Wymagana korekta:
+- po decyzji OWNERA z punktu 1.2 wpisać obie kolejności do kontraktu i T56-03;
+- read/export musi ponownie walidować połączony effective mapping, aby surowo uszkodzona baza nigdy nie mapowała arbitralnie.
+
+F5 — istniejący unified action history ma zostać użyty, nie pominięty
+
+TRACE:
+- arch/T021_spec.md: coordinator material-action history jest jednym wspólnym strumieniem;
+- rota/application/durable_inputs.py::save_print_settings już zapisuje CONTEXT_CONFIGURATION_SAVED dla ustawień wydruku;
+- brief umieszcza durable_inputs.py w TASK_SCOPE, ale nie opisuje wymaganego efektu ani testu.
+
+Wymagana korekta:
+- nowy miesięczny zapis ma użyć małego wrappera w durable_inputs.py i istniejącego CONTEXT_CONFIGURATION_SAVED; bez nowego action kind/subsystemu;
+- action ma wskazywać site i month oraz nie może tworzyć ScheduleVersion;
+- dodać jeden test nowego seam-u zamiast kopiować pełną macierz historii T021.
+
+F6 — WHERE_MAP
+
+T056 dodaje persistence owner/helper i endpointy oraz zmienia istniejące funkcje mapowania/legendy. Przed implementacją architekt powinien dodać do briefu:
+
+WHERE_MAP:
+- MODE: REQUIRED
+- TARGETS: minimalnie site_repository.py, api/routers/export.py, schedule_export.py z faktycznie dotkniętymi symbolami oraz frontendowe punkty przekazania workingMonth
+- REASON: zmiana dodaje miesięczny owner danych i endpointy oraz rozszerza istniejących ownerów mapowania/sum/legendy.
+
+Po zamrożeniu poprawionego TASK_SCOPE uruchomić where.py dla plików i nazwanych/faktycznie dotkniętych symboli; wynik jest tylko dowodem wyszukania, nie werdyktem.
+
+============================================================
+3. PRE_IMPLEMENTATION_REDUCTION_GATE — JEDNORAZOWA KONSOLIDACJA
+============================================================
+
+Konieczne i źródło:
+
+1. Miesięczny current-state record (site_id, month) -> mapa extra D/N.
+   SOURCE: OWNER decyzja per obiekt+miesiąc.
+   NECESSITY: OWNER-visible result + trwałość ponownego wydruku.
+
+2. CRUD/validation w istniejącym site_repository.py i jedna migracja.
+   SOURCE: powyższy record.
+   NECESSITY: enforcement at owning boundary; minimal adapter do istniejącego ownera kodów.
+
+3. Wąski monthly subresource w istniejącym export routerze + klient frontendowy.
+   SOURCE: koordynator definiuje i odczytuje kody miesiąca.
+   NECESSITY: minimal adapter do istniejącego settings flow.
+
+4. Przekazanie istniejącego workingMonth Room -> ControlPanel -> PrintSettings.
+   SOURCE: OWNER decyzja per month i T053 one-owner workingMonth.
+   NECESSITY: OWNER-visible UI bez drugiego month state.
+
+5. Select D6+/N6+ w istniejącej ręcznej korekcie.
+   SOURCE: OWNER decyzja o wyborze kodu i zmianie realnego intervalu.
+   NECESSITY: OWNER-visible result; reużycie istniejącego applyManualCorrection.
+
+6. Extra mapping/duration/legend/revision w exporterze.
+   SOURCE: PLAN/WYK, sumy, PDF i reprint.
+   NECESSITY: OWNER-visible result w istniejącym ownerze prezentacji.
+
+7. Jeden durable_inputs wrapper reużywający istniejący action kind.
+   SOURCE: istniejący unified coordinator action history.
+   NECESSITY: minimal adapter do istniejącego ownera audytu.
+
+8. Skoncentrowane testy seam-u + prawdziwy PDF.
+   SOURCE: T56-01..T56-12 i jawna decyzja OWNERA o optycznym gate.
+   NECESSITY: integration seam/failure class; nie powtarzać pełnych kontraktów T020/T021/manual_edit.
+
+Usunąć/nie dodawać:
+- żadnego Assignment.operational_code dla D/N;
+- żadnego backendowego apply-code endpointu ani drugiego manual-correction flow;
+- żadnego nowego repository/settings/history/warning subsystemu;
+- żadnych zmian solvera, katalogu zmian, WorkBalance, analytics ani U/C;
+- żadnej duplikacji validate(), duration arithmetic lub pełnych niższych macierzy testów;
+- żadnego limitu „tylko D6/N6” wymyślonego przez implementatora.
+
+Wniosek redukcji:
+- Osobny rekord miesięczny obok SitePrintSettings jest najmniejszym sensownym ownerem trwałości i nie kopiuje globalnych ustawień.
+- Istniejący manual-correction payload wystarcza; operational_code ma pozostać nietknięty.
+- Unikalny podpis w rodzinie wystarcza do round-trip tylko wtedy, gdy invariant jest egzekwowany niezależnie od kolejności obu zapisów i ponownie sprawdzany przy odczycie/eksporcie.
+
+============================================================
+4. WARUNKI NASTĘPNEJ RUNDY
+============================================================
+
+1. Jawna decyzja OWNERA dla dwóch zachowań z sekcji 1.
+2. Architekt poprawia brief mechanicznie w jednej rundzie: scope/path/testy, size-gate plan, oba write paths, read/export fail-closed, existing action history i WHERE_MAP.
+3. Codex wykonuje wąski re-audyt poprawionego exact SHA; nie otwiera nowego design round.
+4. Dopiero PASS — READY_FOR_IMPLEMENTATION zezwala CC pisać kod produktu.
