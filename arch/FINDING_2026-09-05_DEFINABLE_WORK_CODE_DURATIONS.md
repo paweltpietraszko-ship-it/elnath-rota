@@ -197,19 +197,23 @@ prawdziwe — nie jest to "wymyślanie" przez zmęczoną instancję):
 **Korekta 2026-09-05 (R2): poprzednia wersja tej sekcji błędnie
 podpisywała jako "2026-07" legendę, której miesiąca nie dało się
 potwierdzić z kadru `Grafiki/7732.jpg` (Codex to złapał, słusznie) — CC
-pomylił dwa różne źródła zdjęć przy przepisywaniu. Poniżej poprawiona
-wersja, każda liczba re-zweryfikowana wprost z lokalnego `Grafiki/7442.jpg`
-(nagłówek arkusza jawnie potwierdza "lipiec 07 2026") i z dolnej legendy
-`Grafiki/7732.jpg` (nagłówek jawnie potwierdza "wrzesień 09 2026"); górna,
-niepewna-co-do-miesiąca legenda z `7732.jpg` usunięta z tego dokumentu
-całkowicie, żeby nie wprowadzać niepotwierdzonych danych.**
+pomylił dwa różne źródła zdjęć przy przepisywaniu. `Grafiki/7732.jpg` to
+zrzut ekranu roboczego arkusza Excel koordynatora — widoczne tam
+dwukrotnie wyglądające tabele to artefakt widoku roboczego skoroszytu, nie
+dwie równoległe legendy produktu: na realnym wydruku dla danego miesiąca
+istnieje dokładnie jedna legenda, dopasowana do tego miesiąca (Paweł,
+2026-09-05). Poniżej po jednej legendzie na miesiąc, każda liczba
+re-zweryfikowana wprost z właściwego pliku: lipiec z `Grafiki/7442.jpg`
+(nagłówek arkusza jawnie potwierdza "lipiec 07 2026"), wrzesień z
+`Grafiki/7732.jpg` (nagłówek jawnie potwierdza "wrzesień 09 2026").**
 
 Dwie legendy kodów z realnych kart pracy klienta (ten sam obiekt,
-ROYALPACK/APEXIM, dwa różne miesiące tego samego kwartału). Tylko kody i
-wartości godzinowe, bez żadnych danych osobowych ani identyfikujących
-firmę poza tym, co już jawnie widnieje w repozytorium (nazwa
-ROYALPACK/APEXIM pojawia się już w innych, wcześniej zaakceptowanych
-materiałach tego repo).
+ROYALPACK/APEXIM, dwa różne miesiące tego samego kwartału — jedna legenda
+na miesiąc, tak jak wygląda to na realnym wydruku). Tylko kody i wartości
+godzinowe, bez żadnych danych osobowych ani identyfikujących firmę poza
+tym, co już jawnie widnieje w repozytorium (nazwa ROYALPACK/APEXIM
+pojawia się już w innych, wcześniej zaakceptowanych materiałach tego
+repo).
 
 **Legenda, lipiec 2026 (`Grafiki/7442.jpg`, nagłówek arkusza: "lipiec 07 2026"):**
 ```
@@ -221,8 +225,8 @@ C1=12h  C2=16h  C3=0h   C4=24h  C5=20h
 Ta legenda dokładnie odpowiada dzisiejszej zamrożonej
 `FROZEN_WORK_CODE_HOURS` w kodzie — spójne, żadnej rozbieżności.
 
-**Legenda, wrzesień 2026 (`Grafiki/7732.jpg`, dolna legenda, nagłówek
-arkusza: "wrzesień 09 2026", koniec kwartału, ten sam obiekt):**
+**Legenda, wrzesień 2026 (`Grafiki/7732.jpg`, nagłówek arkusza: "wrzesień
+09 2026", koniec kwartału, ten sam obiekt):**
 ```
 D1=12h  D2=24h  D3=7h   D4=3h   D5=6h   D6=14h  <- nowy kod
 N1=12h  N2=16h  N3=8h   N4=24h  N5=24h  N6=10h  <- nowy kod
