@@ -1,0 +1,137 @@
+ROTA-T056 — WĄSKI PREIMPLEMENTATION RE-AUDIT R3
+
+STATUS: OWNER_DECISION_NEEDED — OWNER_EXPLANATION_GATE
+WERDYKT: WSTRZYMANY; bez PASS/FAIL przed doprecyzowaniem dwóch punktów
+
+AUDYTOWANY KONTRAKT:
+- brief: tasks/ROTA-T056/brief.md
+- exact SHA briefu: 9d8305dd10202d5e2a4052361523f1bb1344eaef
+- przekazanie BOARD: e1f8e9dd62c642184b475220841a983224ef0e3c
+- zakres reaudytu: wyłącznie ruling PDF oraz F1/F2/F3/F5/F6 z tests_r2.txt
+
+WARSTWY DOWODU:
+- przeczytano cały poprawiony brief i diff e426055..9d8305d;
+- mechanicznie sparsowano literalny TASK_SCOPE przez backend.read_task_scope;
+- uruchomiono WHERE_MAP dla wszystkich 10 wskazanych plików produkcyjnych oraz
+  nazwanych symboli; wyjście przeczytano jako surowe trafienia, nie werdykt;
+- gdzie where.py nie obsługuje stałych/enumów jako symboli top-level
+  (LATEST_SCHEMA_VERSION, CONTEXT_CONFIGURATION_SAVED), użyto git grep i
+  przeczytano wskazany kod;
+- uruchomiono minimalny reproduktor produkcyjnego validatora ustawień D1;
+- nie uruchamiano pełnej regresji ani testów implementacji — kod T056 nie istnieje.
+
+============================================================
+1. ELEMENTY POPRAWIONE — BEZ UWAG
+============================================================
+
+- Ruling PDF jest zapisany: legenda zawiera tylko faktycznie użyte oznaczenia;
+  mały zestaw pozostaje przy grafiku, a niemieszczący się zestaw przechodzi na
+  drugą stronę; T56-13/T56-14 wymagają dwóch realnych PDF i oceny optycznej.
+- F1: poprawna ścieżka frontend/src/screens/Room.tsx i pełny seam
+  Room -> ControlPanel -> PrintSettings są w opisie, WHERE_MAP i TASK_SCOPE.
+- F3: literalny TASK_SCOPE parsuje się do 19 ścieżek i obejmuje test T056,
+  cztery mechaniczne aktualizacje starych oczekiwań schematu, oba PDF oraz
+  real_pdf_gate_review.md.
+- F5: brief wymaga atomowego wrappera durable_inputs, istniejącego
+  CONTEXT_CONFIGURATION_SAVED, site+month i braku ScheduleVersion/nowego
+  subsystemu. Zakres obejmuje obu potrzebnych ownerów.
+- F6: WHERE_MAP REQUIRED trafia w rzeczywistych ownerów persistence, API,
+  manual correction, workingMonth, mapping, sum, legendy i revision.
+- Redukcja pozostaje właściwa: bez operational_code, apply-code endpointu,
+  zmian solvera/katalogu/WorkBalance/analytics/U-C oraz duplicate validation
+  w exporterze.
+
+============================================================
+2. OWNER_DECISION_NEEDED 1 — CO DOKŁADNIE JEST ZAMROŻONE W D1–D5/N1–N5
+============================================================
+
+To nie jest wycofany przykład zmiany D1 z 12h na 8h/10h. Zamrożona długość
+pozostaje 12h.
+
+TRACE:
+- brief §2.2: standardowe kody pozostają „dokładnie takie jak dziś”, a T056
+  nie dodaje nowego write path;
+- brief §5: na tej podstawie uznaje standardowe sygnatury za zamrożone i nie
+  przewiduje drugiego write boundary;
+- brief §6: PrintSettings pokazuje standardowe kody „jak dziś”.
+
+RZECZYWISTE DZISIEJSZE ZACHOWANIE NA EXACT SHA:
+- PrintSettings.tsx renderuje edytowalne inputy Start/Koniec/end_next_day dla
+  każdego standardowego D1–D5/N1–N5 i wysyła cały SitePrintSettings;
+- save_site_print_settings zapisuje work_code_intervals_json;
+- _validate_work_code_intervals zamraża długość kodu, lecz nie jego dokładne
+  godziny zegarowe;
+- minimalny reproduktor produkcyjnego validatora zaakceptował
+  D1=08:00–20:00 jako nadal poprawne 12h.
+
+NIEJEDNOZNACZNOŚĆ DLA CZŁOWIEKA:
+- trigger: przy D1=06:00–18:00 koordynator definiuje miesięczne
+  D6=08:00–20:00; później istniejący ekran zmienia D1 na 08:00–20:00,
+  nadal 12h;
+- dane: globalny SitePrintSettings, miesięczne D6 i Assignment przechowujący
+  realne godziny bez etykiety kodu;
+- efekt: dla 08:00–20:00 istnieją dwie nazwy tej samej rodziny i eksport nie
+  może jednoznacznie odtworzyć D1 albo D6;
+- UI/failure: bez reguły zapis ustawień standardowych przejdzie, a problem
+  ujawni się dopiero przy wydruku lub jako błędna etykieta;
+- recovery: trzeba przywrócić niekolidujące godziny jednego z kodów.
+
+OWNER musi doprecyzować jedno z dwóch zachowań:
+A. „Zamrożone” oznacza również brak możliwości zmiany start/end standardowych
+   kodów; istniejąca edycja tych pól zostaje wyłączona.
+B. Długość pozostaje zamrożona, lecz start/end standardowego kodu nadal można
+   zmieniać; wtedy zapis globalnych ustawień musi odmówić utworzenia kolizji z
+   miesięcznymi kodami i zachować poprzednie dane.
+
+Nie wolno implementatorowi wybrać A albo B samodzielnie.
+
+============================================================
+3. OWNER_DECISION_NEEDED 2 — WYJĄTEK OD REPOZYTORYJNEGO SIZE GATE
+============================================================
+
+TRACE:
+- arch/spec.md §9: limit dotyczy każdego pliku Python w repo, a backend.py go
+  egzekwuje;
+- backend.py::check_sizes iteruje po każdym istniejącym pliku .py z TASK_SCOPE
+  i bez obsługi baseline/exception ustawia STATUS: FAIL;
+- brief §10 chce zamiast tego ręcznej klasyfikacji baseline-vs-HEAD i nazywa
+  naruszenia accepted-exception, ale nie wskazuje jawnego rulingu OWNERA dla
+  T056.
+
+REPRO NA EXACT SHA:
+- TASK_SCOPE parsuje się poprawnie do 19 ścieżek;
+- backend.check_sizes zwraca nie trzy, lecz sześć zastanych naruszeń:
+  1. rota/persistence/db.py — 635 > 600;
+  2. rota/application/schedule_export.py — 684 > 600;
+  3. schedule_export.py::_apply_24h_periods — 53 > 50;
+  4. tests/test_t012.py — 1735 > 600;
+  5. tests/test_t019b.py — 907 > 600;
+  6. tests/test_t020.py — 773 > 600.
+
+OWNERSHIP:
+- istniejący backend.py, a nie test T056, jest ownerem mechanicznego gate'u;
+- architekt słusznie nie powinien tworzyć nowych modułów wyłącznie dla
+  kosmetycznego wyzerowania starego długu, ale nie może sam nazwać wyjątku
+  OWNER-accepted.
+
+Potrzebna jest jawna decyzja OWNERA:
+- zaakceptować dla T056 dokładnie sześć powyższych zastanych naruszeń jako
+  baseline exception, pod warunkiem że implementacja nie tworzy nowego
+  naruszenia i raportuje dokładne delta baseline-vs-HEAD; albo
+- nie akceptować wyjątku — wtedy kontrakt musi przed implementacją wskazać
+  zgodny z gate'em, techniczny plan redukcji.
+
+ARCHITECTURE_PROPOSALS — ODDZIELNE I NIEBLOKUJĄCE
+
+- Obecny dług size gate można później usunąć osobnym taskiem technicznym.
+  Korzyść: backend wraca do rzeczywistego PASS bez ręcznych wyjątków.
+  Koszt/ryzyko: refaktor dużych, działających ownerów; nie należy przemycać go
+  do T056 ani wymuszać testem tej funkcji.
+
+============================================================
+4. NASTĘPNY KROK
+============================================================
+
+Po dwóch jawnych odpowiedziach OWNERA architekt wykonuje jedną ostatnią,
+mechaniczną korektę briefu. Codex sprawdza wyłącznie zastosowanie odpowiedzi i
+nie otwiera kolejnego design round. Do tego czasu implementacja pozostaje HOLD.
