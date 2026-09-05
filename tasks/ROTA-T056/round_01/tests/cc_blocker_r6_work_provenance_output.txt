@@ -1,0 +1,2 @@
+ExportProblem WORK_PROVENANCE_INCOMPLETE ASG-1: actual interval contradicts its covered demand
+BLOCKER CONFIRMED: schedule_export.py::_validate_item rejects a same-covers_demand_id, changed-duration Assignment before _map_work_code is ever reached.

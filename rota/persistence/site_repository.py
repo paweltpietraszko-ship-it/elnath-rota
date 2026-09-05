@@ -43,7 +43,10 @@ class UnsupportedSitePlanningRegime(Exception):
 class InvalidSitePrintSettings(Exception):
     """ROTA-T020 PRINT_SETTINGS_INVALID: raised at write time, and again if
     already-persisted settings fail revalidation on read (corrupt/legacy
-    data must never silently pass into export)."""
+    data must never silently pass into export). ROTA-T056 reuses this same
+    exception for monthly extra D6+/N6+ code validation and the shared
+    signature-collision invariant -- same family of "print configuration is
+    malformed/inconsistent" errors, no new exception type."""
 
 
 # Frozen owner legend (tasks/ROTA-T020/CHECKPOINT_A_ACCEPTANCE.md A15-6):
@@ -55,6 +58,13 @@ FROZEN_WORK_CODE_HOURS = {
 WORK_CODE_KEYS = tuple(FROZEN_WORK_CODE_HOURS)
 RESERVE_SLOT_KEYS = ("U3", "U4", "U5", "C3", "C4", "C5")
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+# ROTA-T056: monthly-only additional real-work D/N codes (brief section 5).
+# Only the D/N family and only suffix >= 6 -- D1-5/N1-5 stay exclusively in
+# FROZEN_WORK_CODE_HOURS/WORK_CODE_KEYS above, untouched. No upper bound on
+# the suffix or on how many extra codes one (site, month) may define (brief:
+# "Nie ograniczać liczby dodatkowych kodów do jednego slotu ani do D6/N6").
+_EXTRA_CODE_RE = re.compile(r"^([DN])([6-9]|[1-9]\d+)$")
 
 
 @dataclass(frozen=True)
@@ -93,7 +103,21 @@ def _interval_duration_hours(interval: WorkCodeInterval) -> float:
     return duration
 
 
-def _validate_work_code_intervals(intervals: dict[str, Optional[WorkCodeInterval]]) -> None:
+def _signature(interval: WorkCodeInterval) -> tuple[str, str, bool]:
+    return (interval.start_time, interval.end_time, interval.end_next_day)
+
+
+def _standard_signatures_by_family(intervals: dict[str, Optional[WorkCodeInterval]]) -> dict[str, set[tuple]]:
+    by_family: dict[str, set[tuple]] = {"D": set(), "N": set()}
+    for code, interval in intervals.items():
+        if interval is not None:
+            by_family[code[0]].add(_signature(interval))
+    return by_family
+
+
+def _validate_work_code_intervals(
+    intervals: dict[str, Optional[WorkCodeInterval]], *, extra_signatures_by_family: Optional[dict[str, set[tuple]]] = None,
+) -> None:
     if set(intervals) != set(WORK_CODE_KEYS):
         raise InvalidSitePrintSettings(f"work_code_intervals must have exactly keys {WORK_CODE_KEYS}")
     seen_by_family: dict[str, set[tuple[str, str, bool]]] = {"D": set(), "N": set()}
@@ -102,11 +126,20 @@ def _validate_work_code_intervals(intervals: dict[str, Optional[WorkCodeInterval
             continue
         if _interval_duration_hours(interval) != FROZEN_WORK_CODE_HOURS[code]:
             raise InvalidSitePrintSettings(f"{code} interval duration must equal {FROZEN_WORK_CODE_HOURS[code]}h")
-        signature = (interval.start_time, interval.end_time, interval.end_next_day)
+        signature = _signature(interval)
         family = code[0]
         if signature in seen_by_family[family]:
             raise InvalidSitePrintSettings(f"duplicate {family}-family signature {signature}")
         seen_by_family[family].add(signature)
+        # ROTA-T056 write-boundary 2 (brief section 5): editing a standard
+        # code's clock times must not collide with any monthly D6+/N6+
+        # extra code signature already saved for this Site, across every
+        # month -- the standard signature is per-site, so it is checked
+        # against ALL saved months, not just one.
+        if extra_signatures_by_family is not None and signature in extra_signatures_by_family.get(family, ()):
+            raise InvalidSitePrintSettings(
+                f"{code}: interval collides with an already-saved monthly extra {family}-family code for this Site"
+            )
 
 
 def _validate_reserve_hours(reserve: dict[str, Optional[int]]) -> None:
@@ -128,10 +161,12 @@ def _validate_s1_default_interval(interval: WorkCodeInterval) -> None:
         raise InvalidSitePrintSettings(f"S1 interval: non-positive duration in {interval!r}")
 
 
-def validate_site_print_settings(settings: SitePrintSettings) -> None:
+def validate_site_print_settings(
+    settings: SitePrintSettings, *, extra_signatures_by_family: Optional[dict[str, set[tuple]]] = None,
+) -> None:
     if settings.base_regime not in ("12h", "24h"):
         raise InvalidSitePrintSettings(f"base_regime must be '12h' or '24h', got {settings.base_regime!r}")
-    _validate_work_code_intervals(settings.work_code_intervals)
+    _validate_work_code_intervals(settings.work_code_intervals, extra_signatures_by_family=extra_signatures_by_family)
     _validate_reserve_hours(settings.reserve_hours)
     if settings.s1_default_interval is not None:
         _validate_s1_default_interval(settings.s1_default_interval)
@@ -269,7 +304,8 @@ def _s1_interval_from_json(raw: Optional[str]) -> Optional[WorkCodeInterval]:
 
 
 def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettings) -> None:
-    validate_site_print_settings(settings)
+    extra_signatures_by_family = _all_extra_signatures_for_site(conn, settings.site_id)
+    validate_site_print_settings(settings, extra_signatures_by_family=extra_signatures_by_family)
     site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (settings.site_id,)).fetchone()
     if site_row is None:
         raise SiteNotFound(settings.site_id)
@@ -316,6 +352,116 @@ def get_site_print_settings(conn: sqlite3.Connection, site_id: str) -> Optional[
     )
     validate_site_print_settings(settings)  # revalidate: corrupt persisted rows must fail closed, never silently pass
     return settings
+
+
+# ---------------------------------------------------------------------------
+# ROTA-T056: monthly additional D6+/N6+ real-work codes, keyed by
+# (site_id, month). Current-state, no history -- a save always overwrites
+# the whole set for that month (brief section 4/13). D1-5/N1-5 and
+# FROZEN_WORK_CODE_HOURS above are never touched by any function below.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MonthlyExtraWorkCodes:
+    site_id: str
+    month: date  # canonical first-of-month, same caller convention as PlanPreview (plan_preview_repository.py)
+    codes: dict[str, WorkCodeInterval]  # keys match _EXTRA_CODE_RE; never null
+
+
+def _validate_extra_code_shape(code: str, interval: WorkCodeInterval) -> None:
+    if not _EXTRA_CODE_RE.match(code):
+        raise InvalidSitePrintSettings(f"{code}: monthly extra code must be D or N family with an integer suffix >= 6")
+    duration = _interval_duration_hours(interval)  # raises on malformed time / non-positive duration
+    if duration != int(duration):
+        raise InvalidSitePrintSettings(f"{code}: interval duration must be a whole number of hours, got {duration}")
+
+
+def validate_monthly_extra_work_codes(
+    codes: dict[str, WorkCodeInterval], *, standard_intervals: dict[str, Optional[WorkCodeInterval]],
+) -> None:
+    """ROTA-T056 write-boundary 1 (brief section 5): the one legal entry
+    point for saving a (site, month)'s extra D6+/N6+ codes. `standard_intervals`
+    is that Site's CURRENT frozen-duration standard work_code_intervals
+    (site_print_settings) -- an extra code's signature must not collide with
+    a configured standard code of the same family, nor with another extra
+    code saved in this same call."""
+    seen_by_family: dict[str, set[tuple]] = {"D": set(), "N": set()}
+    standard_by_family = _standard_signatures_by_family(standard_intervals)
+    for code, interval in codes.items():
+        _validate_extra_code_shape(code, interval)
+        family = code[0]
+        signature = _signature(interval)
+        if signature in standard_by_family[family]:
+            raise InvalidSitePrintSettings(f"{code}: interval collides with a configured standard {family}-family code")
+        if signature in seen_by_family[family]:
+            raise InvalidSitePrintSettings(f"{code}: duplicate {family}-family signature {signature} within the same month")
+        seen_by_family[family].add(signature)
+
+
+def _extra_codes_to_json(codes: dict[str, WorkCodeInterval]) -> str:
+    payload = {
+        code: {"start_time": iv.start_time, "end_time": iv.end_time, "end_next_day": iv.end_next_day}
+        for code, iv in codes.items()
+    }
+    return json.dumps(payload, sort_keys=True)
+
+
+def _extra_codes_from_json(raw: str) -> dict[str, WorkCodeInterval]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise InvalidSitePrintSettings(f"malformed codes_json: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise InvalidSitePrintSettings("codes_json must decode to a JSON object")
+    result: dict[str, WorkCodeInterval] = {}
+    for code, value in payload.items():
+        interval = _interval_from_value(code, value)
+        if interval is None:
+            raise InvalidSitePrintSettings(f"{code}: monthly extra code interval must not be null")
+        result[code] = interval
+    return result
+
+
+def _all_extra_signatures_for_site(conn: sqlite3.Connection, site_id: str) -> dict[str, set[tuple]]:
+    """ROTA-T056 write-boundary 2 support (brief section 5.2): every
+    monthly extra code's signature across every month saved for this Site
+    -- used to reject a standard-code clock-time edit that would collide
+    with any of them, wherever in time they live."""
+    by_family: dict[str, set[tuple]] = {"D": set(), "N": set()}
+    rows = conn.execute("SELECT codes_json FROM site_monthly_extra_work_codes WHERE site_id = ?", (site_id,)).fetchall()
+    for (codes_json,) in rows:
+        for code, interval in _extra_codes_from_json(codes_json).items():
+            by_family[code[0]].add(_signature(interval))
+    return by_family
+
+
+def save_site_monthly_extra_work_codes(conn: sqlite3.Connection, extra: MonthlyExtraWorkCodes) -> None:
+    site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (extra.site_id,)).fetchone()
+    if site_row is None:
+        raise SiteNotFound(extra.site_id)
+    standard = get_site_print_settings(conn, extra.site_id)
+    standard_intervals: dict[str, Optional[WorkCodeInterval]] = (
+        standard.work_code_intervals if standard is not None else dict.fromkeys(WORK_CODE_KEYS)
+    )
+    validate_monthly_extra_work_codes(extra.codes, standard_intervals=standard_intervals)
+    with conn:
+        conn.execute(
+            """INSERT INTO site_monthly_extra_work_codes (site_id, month, codes_json)
+               VALUES (?, ?, ?)
+               ON CONFLICT(site_id, month) DO UPDATE SET codes_json=excluded.codes_json""",
+            (extra.site_id, extra.month.isoformat(), _extra_codes_to_json(extra.codes)),
+        )
+
+
+def get_site_monthly_extra_work_codes(conn: sqlite3.Connection, site_id: str, month: date) -> dict[str, WorkCodeInterval]:
+    row = conn.execute(
+        "SELECT codes_json FROM site_monthly_extra_work_codes WHERE site_id = ? AND month = ?",
+        (site_id, month.isoformat()),
+    ).fetchone()
+    if row is None:
+        return {}
+    return _extra_codes_from_json(row[0])
 
 
 if __name__ == "__main__":

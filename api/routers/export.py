@@ -18,9 +18,14 @@ from pydantic import BaseModel, ConfigDict
 from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
-from rota.application.durable_inputs import save_print_settings
+from rota.application.durable_inputs import save_monthly_extra_work_codes, save_print_settings
 from rota.application.schedule_export import ExportReady, generate_schedule_pdf
-from rota.persistence.site_repository import SitePrintSettings, WorkCodeInterval, get_site_print_settings
+from rota.persistence.site_repository import (
+    SitePrintSettings,
+    WorkCodeInterval,
+    get_site_monthly_extra_work_codes,
+    get_site_print_settings,
+)
 
 router = APIRouter(prefix="/workspace", tags=["export"])
 
@@ -141,6 +146,44 @@ def put_print_settings(site_id: str, payload: SitePrintSettingsIn, conn=Depends(
     )
     try:
         save_print_settings(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, settings=settings)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class MonthlyExtraWorkCodesOut(BaseModel):
+    codes: dict[str, WorkCodeIntervalOut]
+
+
+class MonthlyExtraWorkCodesIn(BaseModel):
+    # ROTA-T056: same extra="forbid" discipline as SitePrintSettingsIn above.
+    model_config = ConfigDict(extra="forbid")
+    codes: dict[str, WorkCodeIntervalOut]
+
+
+@router.get(
+    "/sites/{site_id}/print-settings/{month}/extra-work-codes",
+    response_model=MonthlyExtraWorkCodesOut,
+)
+def get_monthly_extra_work_codes(site_id: str, month: date, conn=Depends(get_conn)) -> MonthlyExtraWorkCodesOut:
+    codes = get_site_monthly_extra_work_codes(conn, site_id, month)
+    return MonthlyExtraWorkCodesOut(
+        codes={
+            code: WorkCodeIntervalOut(start_time=iv.start_time, end_time=iv.end_time, end_next_day=iv.end_next_day)
+            for code, iv in codes.items()
+        }
+    )
+
+
+@router.put("/sites/{site_id}/print-settings/{month}/extra-work-codes", status_code=204)
+def put_monthly_extra_work_codes(
+    site_id: str, month: date, payload: MonthlyExtraWorkCodesIn, conn=Depends(get_conn),
+) -> None:
+    codes = {
+        code: WorkCodeInterval(start_time=v.start_time, end_time=v.end_time, end_next_day=v.end_next_day)
+        for code, v in payload.codes.items()
+    }
+    try:
+        save_monthly_extra_work_codes(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, month=month, codes=codes)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
