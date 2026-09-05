@@ -129,10 +129,85 @@ mechanizm po stronie realnych zmian roboczych (D/N).
 - `_map_work_code`/`_validate_work_code_intervals` muszą umieć rozpoznać
   taki definiowalny kod obok istniejących 10 zamrożonych, bez naruszania
   ich obecnej sztywności.
-- Otwarte pytanie projektowe: czy taki definiowalny kod jest per-obiekt na
-  stałe, czy per-miesiąc (materiał referencyjny z `Grafiki/7732.jpg`
-  sugeruje per-miesiąc — ten sam obiekt ma różne wartości w różnych
-  legendach) — CC nie rozstrzyga tego sam.
+
+## OWNER decyzje (2026-09-05, po przeglądzie Codexa — patrz BOARD.md ROTA-WORK-CODE-DURATIONS-REVIEW)
+
+Codex przed napisaniem briefu przejrzał ten finding i sprawdził go w
+kodzie (CC niezależnie zweryfikował każdy punkt, wszystkie potwierdzone
+prawdziwe — nie jest to "wymyślanie" przez zmęczoną instancję):
+
+1. **Ekran "Ręczna korekta" (`frontend/src/screens/MonthlyPlanning.tsx:831-871`)
+   nie ma dziś pola do zmiany godziny początku/końca zmiany** — tylko
+   backend (`manual_edit.py::apply_manual_correction`) to umie. UI trzeba
+   rozszerzyć.
+2. **`_hours_of()` (`schedule_export.py:450-464`) cicho zwraca `0`
+   godzin dla nieznanego kodu** (np. hipotetyczne "D6") — pada przez
+   `_legal_uc_value()`, który zna tylko U/C, kończy na `or 0`. Bez
+   naprawy suma na wydruku byłaby CICHO zaniżona, nie zgłosiłaby błędu.
+3. Obecne ustawienia (`SitePrintSettings`) są kluczowane wyłącznie po
+   `site_id` — nie ma wymiaru miesiąca. Legenda ma dziś sztywno 5 slotów
+   na rodzinę (D/N/U/C).
+4. Dowody: `Grafiki/7442.jpg` różni się dziś w working tree od wersji w
+   commicie, `Grafiki/7732.jpg` nie jest w ogóle w gicie — żaden model
+   czytający repo na konkretnym SHA by tego nie zobaczył. **Poprawione
+   niżej: transkrypcja zamiast surowych zdjęć** (RODO — karty klienta
+   mają realną nazwę firmy i czytelny podpis, nie nadają się do
+   commitowania w repo bez zgody klienta).
+
+**Rozstrzygnięcia OWNERA (Paweł) na 4 pytania Codexa:**
+
+1. **Zakres definiowalności**: TYLKO dodatkowe kody (D6, N6, ...) są
+   definiowalne. `D1-D5`/`N1-N5` zostają zamrożone dokładnie tak jak dziś
+   (`FROZEN_WORK_CODE_HOURS` bez zmian dla tych 10 kluczy).
+2. **Kod czy godziny**: koordynator wybiera z listy **zdefiniowany kod**
+   (kod musi istnieć w ustawieniach obiektu, zanim zostanie użyty) —
+   program NIE dobiera/tworzy kodu automatycznie z wpisanej liczby godzin.
+3. **PLAN vs WYK**: definiowalny kod trafia do **obu kolumn** (PLAN i
+   WYK), zgodnie z dokładnie tą samą semantyką co dziś standardowe kody
+   D1-D5/N1-N5 — żadnego nowego, osobnego traktowania.
+4. **D/N vs U/C**: definiowalne kody dotyczą **wyłącznie realnej pracy**
+   (rodzina D/N). Urlop/chorobowe (U/C) zostają jak dziś — mają już
+   własny, elastyczny mechanizm (`reserve_hours` dla U3-U5/C3-C5),
+   niezmieniony przez ten finding.
+
+Otwarte technicznie (do architekta, nie rozstrzygnięte przez OWNERA
+wprost, ale zawężone powyższymi decyzjami): per-obiekt na stałe czy
+per-miesiąc — transkrypcja niżej pokazuje, że u klienta wartości kodów
+różnią się między miesiącami tego samego obiektu, więc per-miesiąc wydaje
+się zgodne z realną praktyką, ale to architekt ustala dokładny kształt
+kontraktu.
+
+## Transkrypcja materiału referencyjnego (zamiast surowych zdjęć — RODO)
+
+Dwie legendy kodów z realnych kart pracy klienta (ten sam obiekt,
+ROYALPACK/APEXIM, dwa różne miesiące — 2026-07 i 2026-09). Tylko kody i
+wartości godzinowe, bez żadnych danych osobowych ani identyfikujących
+firmę poza tym, co już jawnie widnieje w repozytorium (nazwa
+ROYALPACK/APEXIM pojawia się już w innych, wcześniej zaakceptowanych
+materiałach tego repo).
+
+**Legenda, miesiąc 2026-07:**
+```
+D1=12h  D2=24h  D3=24h  D4=24h  D5=2h
+N1=12h  N2=16h  N3=12h  N4=24h  N5=12h
+U1=12h  U2=16h  U3=0h   U4=24h  U5=20h
+C1=12h  C2=16h  C3=0h   C4=24h  C5=20h
+```
+
+**Legenda, miesiąc 2026-09 (koniec kwartału — ten sam obiekt):**
+```
+D1=12h  D2=24h  D3=7h   D4=3h   D5=6h   D6=14h  <- nowy kod
+N1=12h  N2=16h  N3=8h   N4=24h  N5=24h  N6=10h  <- nowy kod
+U1=12h  U2=16h  U3=8h   U4=3h   U5=6h   U6=10h
+C1=12h  C2=16h  C3=8h   C4=3h   C5=6h
+```
+
+Widać: D3/D4/D5 mają różne wartości w obu miesiącach (nie tylko D6/N6 są
+nowe) — to była podstawa wątpliwości Codexa co do kierunku "zamrożone
+D1-D5 + dodatkowe kody obok" (punkt sporny wyżej). OWNER mimo to
+zdecydował: D1-D5/N1-N5 zostają zamrożone, zmienność obsługują wyłącznie
+nowe, dodatkowe kody (patrz decyzja 1 powyżej) — to świadomy wybór węższy
+niż to, co robi klient dziś w Excelu, nie przeoczenie.
 
 ## Powiązane materiały
 
@@ -146,5 +221,10 @@ mechanizm po stronie realnych zmian roboczych (D/N).
   wątek (dekompozycja urlopu), nie część tego findingu, ale ta sama
   rozmowa go ujawniła i może mieć wspólne miejsce naprawy w
   `schedule_export.py`.
-- `Grafiki/7442.jpg`, `Grafiki/7732.jpg` — realne karty pracy klienta
-  (APEXIM/ROYALPACK), materiał referencyjny.
+- `Grafiki/7442.jpg`, `Grafiki/7732.jpg` — lokalne zdjęcia realnych kart
+  pracy klienta (APEXIM/ROYALPACK), które CC obejrzał w rozmowie z
+  Pawłem. NIE traktować jako dowód na konkretnym SHA — `7442.jpg` w
+  working tree różni się od wersji w commicie, `7732.jpg` nie jest wcale
+  w gicie (Codex to poprawnie złapał). Sekcja "Transkrypcja materiału
+  referencyjnego" wyżej jest właściwym, weryfikowalnym źródłem do
+  kontraktu.
