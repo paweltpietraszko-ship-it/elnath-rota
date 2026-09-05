@@ -1,0 +1,123 @@
+ROTA-T056 — WĄSKI REAUDYT BACKENDU R9
+
+AUDITED_SHA: f9f03456217d69cf0ee0285ba869fa9e57e3223f
+AUDITED_BRANCH: task/ROTA-T056
+FROZEN_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+BOARD_HANDOFF_SHA: 6e547ddaf99930a8b25f9475132e99620557471a
+PREVIOUS_AUDIT_REPORT_SHA: b455e093e93e834ece86e0992992dd201b2904d0
+
+STATUS: OWNER_DECISION_NEEDED — BEZ WERDYKTU PASS/FAIL
+
+OWNER_EXPLANATION_GATE uruchamia się, ponieważ dostawa wprowadza nowy,
+widoczny dla użytkownika sposób obsługi legalnej, zbyt dużej legendy: całkowitą
+odmowę eksportu. Zamrożony kontrakt nakazuje kompletną i czytelną legendę oraz
+drugą stronę, gdy legenda nie mieści się przy grafiku, lecz nie rozstrzyga, co
+robić, gdy wszystkie użyte kody nie mieszczą się również na jednej osobnej
+stronie. Implementator świadomie wybrał odmowę zamiast trzeciej/dalszej strony.
+Nie jest to decyzja, którą audytor może dopisać do produktu.
+
+Do decyzji OWNERA nie wydaję werdyktu dla całego SHA. Trzy pozostałe naprawy
+zostały jednak niezależnie potwierdzone na tym exact SHA.
+
+R8-01 — NAPRAWA ODTWORZONA
+
+- Ten sam realny PUT do endpointu, z triggerem odrzucającym INSERT historii,
+  zwrócił HTTP 500.
+- Po awarii GET/repository zwrócił pustą konfigurację, a liczba action records
+  wynosiła 0.
+- Current-state i unified action history wycofały się razem.
+
+R8-02 — NAPRAWA ODTWORZONA NA REALNYM PIONIE
+
+- Demand 06:00–18:00 i Assignment PLANNED zmieniony przez produkcyjny
+  apply_manual_correction() na 06:00 dnia 1 do 23:00 dnia 3 (65 h), przy
+  zapisanym D7=06:00–23:00/end_next_day=True (41 h):
+  ExportProblem(WORK_PROVENANCE_INCOMPLETE).
+- Sibling pozytywny, identyczny poza końcem dokładnie dnia 2 (41 h):
+  ExportReady, kod D7, WYK 41 h.
+- Porównanie pełnych dat usunęło utożsamienie „następnego dnia” z dowolnym
+  późniejszym dniem, nie psując prawidłowego przypadku.
+
+R8-03 — NAPRAWA ODTWORZONA
+
+- backend.read_task_scope: 19 ścieżek.
+- backend.check_sizes: dokładnie 6 zaakceptowanych pozycji.
+- rota/application/durable_inputs.py: dokładnie 600 linii; nie ma siódmego
+  naruszenia.
+
+R8-04 — OBCIĘCIE USUNIĘTE, RECOVERY WYMAGA DECYZJI OWNERA
+
+Niezależna granica na tym układzie:
+- 120 faktycznie użytych legalnych kodów: ExportReady, 11 stron;
+- render ostatniej strony został oceniony optycznie: kompletna, czytelna
+  legenda; brak obcięcia i brak kolizji ze stopką;
+- 121 faktycznie użytych legalnych kodów: ExportProblem
+  ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT; PDF nie powstaje.
+
+OWNER_CONFIRMED
+- drukowane mają być wszystkie i tylko faktycznie użyte oznaczenia;
+- legenda nie może być obcięta, ukryta ani agresywnie zmniejszona;
+- gdy nie mieści się na stronie grafiku, ma przejść na osobną stronę;
+- kontrakt nie ogranicza liczby dodatkowych kodów.
+
+OWNER_DECISION_NEEDED / OBECNIE UNAUTHORIZED
+
+Trigger:
+- liczba użytych oznaczeń przekracza pojemność jednej osobnej strony legendy
+  przy zaakceptowanym progu czytelności (w tym reproduktorze: od 121 kodów).
+
+Obecny efekt:
+- cały eksport zostaje odrzucony; nie powstaje ani grafik, ani legenda.
+
+Dane:
+- program odczytuje zapisane kody miesiąca i aktualny snapshot grafiku;
+- ta ścieżka nie zapisuje nowych danych i nie wysyła PDF;
+- API zwraca kod problemu zamiast pdf_base64.
+
+Wynik UI:
+- istniejące polskie mapowanie kodu brzmi: „Obsada lub nagłówek są zbyt duże,
+  by zmieścić się na jednej stronie wydruku.” Nie informuje wprost, że przyczyną
+  jest legenda.
+
+Failure/recovery:
+- obecnie brak automatycznego recovery; aby uzyskać wydruk, użytkownik musiałby
+  zmniejszyć liczbę użytych kodów albo zmienić dane grafiku;
+- alternatywą wymagającą decyzji OWNERA jest druk kompletnej legendy na tylu
+  kolejnych stronach, ilu potrzeba, bez zmiany progu czytelności.
+
+OWNER powinien jawnie wybrać i zamrozić jedno zachowanie:
+1. OWNER_ACCEPTED — zaakceptować odmowę eksportu, gdy legenda nie mieści się na
+   jednej osobnej stronie (wraz z decyzją, czy obecny komunikat UI jest
+   wystarczający), albo
+2. OWNER_CORRECTED — wymagać kolejnych stron legendy aż do wydrukowania
+   wszystkich użytych oznaczeń.
+
+TECHNICAL_ONLY
+- pomocnicze budowanie oczekiwanego przedziału z pełnych datetime;
+- jedna transakcja na istniejącym połączeniu;
+- obliczenie pojemności strony przed rozpoczęciem renderu.
+
+SAFETY_PRIVACY: brak nowych ryzyk stwierdzonych w tym reaudytowanym diffie.
+
+WARSTWY AUDYTU
+
+- exact SHA i diff b455e09..f9f0345 odczytane;
+- niezależny reproduktor realnego PUT dla atomowości;
+- niezależny pion apply_manual_correction -> persistence -> export dla 65 h
+  oraz prawidłowych 41 h;
+- macierz graniczna PDF 120/121 przez realne persistence i
+  generate_schedule_pdf;
+- realny PDF 120 kodów wyrenderowany do PNG i oceniony optycznie;
+- pytest tests/test_t056.py tests/test_t021_export_api.py -q:
+  22 passed, 1 StarletteDeprecationWarning;
+- git diff --check: PASS;
+- pełnej regresji repo nie uruchamiano: brak zgody OWNERA i zgodnie z kontraktem
+  po wąskiej poprawce nie była potrzebna do tych czterech reproduktorów.
+
+ARCHITECTURE_PROPOSALS: BRAK
+
+NEXT
+
+Implementacja frontendu pozostaje HOLD. Po OWNER_ACCEPTED lub OWNER_CORRECTED
+audytor zamraża decyzję i dopiero wtedy kończy reaudyt werdyktem PASS/FAIL dla
+exact SHA (albo dla nowego SHA, jeśli będzie potrzebna korekta kodu).
