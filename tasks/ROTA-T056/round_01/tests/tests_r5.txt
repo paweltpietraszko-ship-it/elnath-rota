@@ -1,0 +1,82 @@
+ROTA-T056 — FINAL PREIMPLEMENTATION RE-AUDIT R5
+
+AUDITED_BRIEF_SHA: e5dc5e1b5be7e90e75acd97448eba57b08313089
+BOARD_HANDOFF_SHA: 54c9b8d00f42300466ea0c7cb13038e832886a0b
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+PASS dotyczy wyłącznie powyższego exact SHA briefu. Na tym etapie nie istnieje
+jeszcze implementacja T056, więc nie jest to werdykt dla kodu ani PDF.
+
+ZAKRES OSTATNIEGO REAUDYTU
+
+Sprawdzono wyłącznie zastosowanie dwóch jawnych rulingów OWNERA z
+tasks/ROTA-T056/round_01/tests/tests_r4.txt. Nie otwierano nowego designu ani
+wcześniej zamkniętych punktów.
+
+1. STANDARDOWE KODY I WSPÓLNY INVARIANT — PASS
+
+- Zamrożone pozostają długości D1–D5/N1–N5 i FROZEN_WORK_CODE_HOURS.
+- Zachowana jest istniejąca per-site edycja start/end/end_next_day standardów.
+- Brief wskazuje dwa i tylko dwa legalne wejścia do invariantu signature:
+  monthly-extra save oraz istniejący standard print-settings save.
+- Monthly-extra save porównuje D6+/N6+ z bieżącymi standardami i extra codes
+  tego samego miesiąca.
+- Globalny standard-settings save porównuje zmianę standardowego intervalu ze
+  wszystkimi zapisanymi miesiącami extra codes tego Site.
+- Odrzucenie zachowuje wcześniejsze dane.
+- Exporter nie dostaje duplicate defensive validation.
+- T56-03 obejmuje obie kolejności zapisu i zachowanie zamrożonej długości.
+
+2. OWNER-ACCEPTED SIZE BASELINE — PASS
+
+Mechaniczny odczyt literalnego TASK_SCOPE przez backend.read_task_scope zwrócił
+19 ścieżek. backend.check_sizes zwrócił dokładnie sześć zaakceptowanych pozycji
+i wartości zapisanych w briefie:
+
+1. rota/persistence/db.py — 635 > 600;
+2. rota/application/schedule_export.py — 684 > 600;
+3. schedule_export.py::_apply_24h_periods — 53 > 50;
+4. tests/test_t012.py — 1735 > 600;
+5. tests/test_t019b.py — 907 > 600;
+6. tests/test_t020.py — 773 > 600.
+
+Brief wymaga dokładnego raportu baseline-vs-HEAD, zakazuje zmiany backend.py,
+zakazuje nowego siódmego naruszenia i nie nazywa czerwonego wyniku backend.py
+PASS. Nie wymusza refaktoru dużych ownerów w T056.
+
+3. POZOSTAŁY KONTRAKT — ZACHOWANY
+
+- mały current-state seam (site_id, month), bez zmiany semantyki całego
+  SitePrintSettings i bez nowego repository subsystemu;
+- istniejący manual-correction flow, bez apply-code endpointu i bez użycia
+  Assignment.operational_code do pamiętania D6+/N6+;
+- istniejący CONTEXT_CONFIGURATION_SAVED i atomowy durable-input wrapper;
+- jeden workingMonth w przepływie Room -> ControlPanel -> PrintSettings;
+- export rozszerzony lokalnie o mapping, godziny, document_revision i legendę;
+- legenda wyłącznie dla faktycznie użytych kodów, a przy braku miejsca druga
+  strona ze wszystkimi użytymi oznaczeniami;
+- dwa obowiązkowe realne PDF gate'y i końcowa ocena optyczna;
+- solver, shift catalog, WorkBalance, analytics i U/C poza diffem.
+
+4. DOWODY MECHANICZNE I OGRANICZENIA
+
+- przeczytano cały brief e5dc5e1 i diff względem b85c46d;
+- git diff --check: PASS;
+- TASK_SCOPE: 19 poprawnie sparsowanych ścieżek;
+- SIZE baseline: dokładnie 6/6 pozycji zgodnych z rulingiem;
+- WHERE_MAP wykonano i odczytano w R3 dla wszystkich wskazanych plików oraz
+  symboli; finalna korekta nie zmieniła listy ownerów ani plików, tylko
+  doprecyzowała cross-check w tych samych dwóch write boundaries;
+- nie uruchamiano pełnej regresji, testów implementacji ani kontroli wizualnej,
+  ponieważ kod i artefakty T056 jeszcze nie istnieją.
+
+FINDINGS: BRAK
+
+ARCHITECTURE_PROPOSALS: BRAK nowych. Wcześniejsza propozycja osobnego tasku
+redukcji dużych plików pozostaje jawnie poza T056 i nie blokuje implementacji.
+
+CC może rozpocząć implementację dokładnie według briefu
+e5dc5e1b5be7e90e75acd97448eba57b08313089. Końcowy PASS implementacji będzie
+wymagał niezależnego audytu exact SHA oraz obejrzenia obu rzeczywistych PDF;
+same zielone testy nie wystarczą.
