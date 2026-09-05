@@ -1,0 +1,93 @@
+ROTA-T056 — KOŃCOWY WĄSKI REAUDYT BACKENDU R10
+
+AUDITED_SHA: f9f03456217d69cf0ee0285ba869fa9e57e3223f
+AUDITED_BRANCH: task/ROTA-T056
+FROZEN_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+PREVIOUS_REPORT: tasks/ROTA-T056/round_01/tests/tests_r9.txt (commit 7cf44f6)
+
+WERDYKT: PASS — BACKEND GOTOWY DO IMPLEMENTACJI FRONTENDU
+
+PASS dotyczy wyłącznie backendowego checkpointu na exact SHA f9f0345.
+Końcowy werdykt całego T056 nadal wymaga frontendu oraz formalnych REAL PDF
+GATE wskazanych w briefie.
+
+OWNER RULING / KOREKTA AUDYTU R9
+
+OWNER wyjaśnił 2026-09-05, że legenda musi zawierać użyte oznaczenia, ale w
+rzeczywistym zastosowaniu dodatkowych symboli będzie około 2–3, a nie kilkanaście
+czy setki.
+
+W konsekwencji reproduktor z 121/130 faktycznie użytymi dodatkowymi kodami nie
+jest wymaganą klasą akceptacyjną produktu. Audyt R9 zbyt szeroko zinterpretował
+zakaz ograniczania funkcji do jednego slotu D6/N6 jako obowiązek obsługi
+dowolnie dużej liczby użytych kodów na dowolnej liczbie stron. Ten wniosek
+zostaje wycofany; nie może blokować frontendu ani tworzyć wymagania trzeciej
+strony legendy.
+
+Wyjaśnienie OWNERA nie ustanawia sztucznego walidacyjnego limitu trzech kodów.
+Potwierdza natomiast, że mechanizm ma obsługiwać praktyczny mały zbiór różnych
+dodatkowych oznaczeń, a nie syntetyczną legendę liczącą ponad sto pozycji.
+Istniejący fail-closed guard poza pojemnością czytelnej strony pozostaje ochroną
+techniczną, a nie częścią wymaganej macierzy T056.
+
+NIEZALEŻNY REALISTYCZNY PDF — OCENA OPTYCZNA
+
+Na exact SHA f9f0345 wykonano realny pion persistence ->
+generate_schedule_pdf dla trzech faktycznie użytych dodatkowych kodów:
+
+- D6 = 07:00–15:00 = 8 h;
+- D7 = 08:00–17:00 = 9 h;
+- D8 = 09:00–19:00 = 10 h.
+
+Wynik:
+
+- ExportReady, jedna strona;
+- komórki PLAN i WYK zawierają odpowiednio D6, D7 i D8;
+- sumy godzin wynoszą odpowiednio 8, 9 i 10;
+- used_codes zawiera dokładnie D6, D7 i D8;
+- legenda zawiera wszystkie i tylko te trzy dodatkowe oznaczenia;
+- render całej strony oceniono optycznie: legenda jest czytelna, nie jest
+  obcięta, nie nachodzi na tabelę ani stopkę, numeracja strony jest poprawna.
+
+POTWIERDZONE NAPRAWY R8
+
+R8-01 — PASS
+- ten sam realny PUT z deterministyczną awarią zapisu action zwraca HTTP 500;
+- konfiguracja i historia pozostają niezapisane: codes={}, action count=0;
+- zapis jest atomowy.
+
+R8-02 — PASS
+- realny pion apply_manual_correction: 65 h kontra kod 41 h kończy się
+  WORK_PROVENANCE_INCOMPLETE;
+- prawidłowe dokładnie 41 h kończy się ExportReady, D7, WYK 41 h;
+- pełne daty są porównywane bez utożsamiania następnego dnia z dowolnym
+  późniejszym dniem.
+
+R8-03 — PASS
+- TASK_SCOPE: 19 ścieżek;
+- size gate: dokładnie 6 zaakceptowanych pozycji;
+- rota/application/durable_inputs.py: 600 linii.
+
+R8-04 — PASS PO WYJAŚNIENIU OWNERA
+- dla realistycznych trzech dodatkowych oznaczeń kompletność i czytelność
+  legendy zostały potwierdzone na rzeczywistym renderze;
+- wcześniejszy skrajny reproduktor nie jest wymaganiem produktu i nie może być
+  użyty do rozszerzenia Task Scope.
+
+POZOSTAŁE DOWODY Z R9
+
+- pytest tests/test_t056.py tests/test_t021_export_api.py -q:
+  22 passed, 1 StarletteDeprecationWarning;
+- git diff --check: PASS;
+- pełnej regresji repo nie uruchamiano: brak zgody OWNERA i brak konkretnej
+  potrzeby po wąskiej poprawce.
+
+OWNER_EXPLANATION_GATE: ZAMKNIĘTY WYJAŚNIENIEM OWNERA
+ARCHITECTURE_PROPOSALS: BRAK
+SAFETY_PRIVACY: BRAK NOWYCH RYZYK
+
+NEXT
+
+CC może rozpocząć implementację frontendu na backendzie f9f0345. Po dostawie
+frontendu wymagany jest niezależny audyt pełnego pionu i oba formalne REAL PDF
+GATE wraz z ostateczną oceną optyczną wydruków.
