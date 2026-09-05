@@ -158,28 +158,37 @@ def _adjacent_day_items(conn, site_id: str, target_day: date) -> list:
         if demand is not None:
             items.append((a, demand, version_id, effective_from))
     return items
+def _interval_bounds(anchor: date, interval) -> tuple[datetime, datetime]:
+    """R8-02 fix: the ONE exact-match arithmetic shared by _extra_code_matches
+    and _map_work_code. Computes the full expected start/end datetime an
+    interval means when anchored on a given date -- comparing these two full
+    datetimes (not HH:MM strings plus a crosses-midnight bool) is required
+    because `end_datetime.date() > start_datetime.date()` is true for ANY
+    later day, not only exactly one day later: a 65h Assignment was
+    previously accepted as matching a 41h (end_next_day=True) definition
+    because both merely "crossed midnight"."""
+    start = datetime.combine(anchor, datetime.strptime(interval.start_time, "%H:%M").time())
+    end_date = anchor + timedelta(days=1) if interval.end_next_day else anchor
+    end = datetime.combine(end_date, datetime.strptime(interval.end_time, "%H:%M").time())
+    return start, end
 def _extra_code_matches(a, demand, extra_codes: dict) -> bool:
     """ROTA-T056 brief section 9.1 -- the ONE narrow exception to the
     provenance invariant below. A manually-corrected Assignment may differ
     from its covered demand's interval ONLY when it is anchored on the
-    demand's own date and exactly matches (start_time, end_time,
-    end_next_day -- not merely the same duration) a saved monthly D6+/N6+
-    definition of the same family for this exact (site, month). Any other
-    discrepancy -- no configured extra code, wrong family, wrong date,
-    same-duration-different-clock, or any other manual divergence -- stays
-    fail-closed (T56-08)."""
+    demand's own date and exactly matches (full start/end datetime, not
+    merely the same duration) a saved monthly D6+/N6+ definition of the same
+    family for this exact (site, month). Any other discrepancy -- no
+    configured extra code, wrong family, wrong date, same-duration-
+    different-clock, or any other manual divergence -- stays fail-closed
+    (T56-08)."""
     if demand.shift_kind is None or a.start_datetime.date() != demand.start_datetime.date():
         return False
     family = demand.shift_kind.value
-    crosses_midnight = a.end_datetime.date() > a.start_datetime.date()
     for code, interval in extra_codes.items():
         if not code.startswith(family):
             continue
-        if (
-            interval.start_time == a.start_datetime.strftime("%H:%M")
-            and interval.end_time == a.end_datetime.strftime("%H:%M")
-            and interval.end_next_day == crosses_midnight
-        ):
+        start, end = _interval_bounds(demand.start_datetime.date(), interval)
+        if a.start_datetime == start and a.end_datetime == end:
             return True
     return False
 def _validate_item(a, demand, extra_codes: dict) -> None:
@@ -334,22 +343,24 @@ def _apply_24h_periods(collected, settings, days: list[date], extra_codes):
 def _map_work_code(assignment, demand, settings, extra_codes: dict) -> str:
     duration_hours = (assignment.end_datetime - assignment.start_datetime).total_seconds() / 3600
     family = demand.shift_kind.value if demand.shift_kind else None
-    crosses_midnight = assignment.end_datetime.date() > assignment.start_datetime.date()
+    anchor = demand.start_datetime.date()
     candidates = []
     for code, interval in settings.work_code_intervals.items():
         if interval is None or family is None or not code.startswith(family):
             continue
         if site_repository.FROZEN_WORK_CODE_HOURS[code] != duration_hours:
             continue
-        if interval.start_time == assignment.start_datetime.strftime("%H:%M") and interval.end_time == assignment.end_datetime.strftime("%H:%M") and interval.end_next_day == crosses_midnight:
+        start, end = _interval_bounds(anchor, interval)
+        if assignment.start_datetime == start and assignment.end_datetime == end:
             candidates.append(code)
     # ROTA-T056 section 9.2: monthly D6+/N6+ extra codes -- same exact-match
-    # rule, no FROZEN_WORK_CODE_HOURS lookup (duration is derived from the
-    # interval itself, never a separate stored value).
+    # rule (R8-02 fix: full datetime, not HH:MM + crosses-midnight bool), no
+    # FROZEN_WORK_CODE_HOURS lookup (duration is derived from the interval).
     for code, interval in extra_codes.items():
         if family is None or not code.startswith(family):
             continue
-        if interval.start_time == assignment.start_datetime.strftime("%H:%M") and interval.end_time == assignment.end_datetime.strftime("%H:%M") and interval.end_next_day == crosses_midnight:
+        start, end = _interval_bounds(anchor, interval)
+        if assignment.start_datetime == start and assignment.end_datetime == end:
             candidates.append(code)
     if not candidates:
         raise ExportProblemError("WORK_CODE_MAPPING_REQUIRED", f"{assignment.assignment_id}: no configured code matches its interval")
@@ -585,6 +596,7 @@ _TEXT = {"d": black, "n": black, "h24": white, "u": black, "c": black, "off": He
 _WEEKEND_BG = HexColor("#e2e2e2")
 _DOW = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
 MARGIN, NAME_W, SUM_W = 24.0, 170.0, 48.0
+LEGEND_PAGE_TITLE_H = 24.0
 HEADER_H, LEGEND_H, FOOTER_H = 90.0, 150.0, 20.0
 def _family(code: str) -> str:
     # ROTA-T052 (R4-02 audit fix): a combined same-day cell ("N1/S1",
@@ -740,7 +752,7 @@ def _draw_legend_only_page(c, model: ExportModel, regular, bold, italic, page_h)
     # page's leftover space -- never truncated, hidden, or shrunk past the
     # accepted readable floor (the same fonts/sizes _draw_legend already uses).
     y = page_h - MARGIN
-    c.setFont(bold, 14); c.drawString(MARGIN, y, "Legenda — ciąg dalszy (wszystkie użyte oznaczenia)"); y -= 24  # noqa: E702
+    c.setFont(bold, 14); c.drawString(MARGIN, y, "Legenda — ciąg dalszy (wszystkie użyte oznaczenia)"); y -= LEGEND_PAGE_TITLE_H  # noqa: E702
     _draw_legend(c, model, regular, bold, italic, y)
 def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     regular, bold, italic = _resolve_unicode_font()
@@ -756,6 +768,16 @@ def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     last_page_rows = len(pages[-1]) if pages else 0
     available_on_grid_page = (page_h - MARGIN - HEADER_H) - (last_page_rows * 2 * row_h) - MARGIN
     legend_needs_own_page = legend_h > available_on_grid_page
+    # R8-04 fix: a dedicated legend page is only a valid destination if the
+    # legend itself actually fits there -- previously this was assumed
+    # unconditionally, and a large enough used-code set (130 in the audit
+    # repro) overflowed past the footer, truncated and overlapping it.
+    # Brief section 2/11 authorizes exactly one extra page, not an
+    # open-ended one, so an oversized legend fails closed instead of
+    # silently truncating or inventing a third page.
+    available_on_own_page = page_h - 2 * MARGIN - LEGEND_PAGE_TITLE_H
+    if legend_needs_own_page and legend_h > available_on_own_page:
+        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", "used-code legend does not fit even on its own dedicated page at the accepted readability floor")
     page_count = grid_page_count + (1 if legend_needs_own_page else 0)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=landscape(A3))

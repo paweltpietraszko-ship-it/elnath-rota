@@ -196,6 +196,86 @@ def test_t56_08_same_duration_different_clock_still_rejected():
 # --- T56-12: solver/catalog/WorkBalance/analytics untouched (no such imports here) ---
 
 
+# --- R8 audit fixes (2026-09-05): atomicity, exact end_next_day, oversized legend ---
+
+
+def test_t56_r8_01_atomic_write_rolls_back_config_on_action_failure():
+    from rota.domain import CoordinatorSiteAssociation
+    from rota.persistence.coordinator_repository import save_coordinator_site_association
+
+    conn = _conn_with_settings()
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", "SITE-1", True))
+    conn.execute(
+        "CREATE TRIGGER inject_action_failure BEFORE INSERT ON coordinator_action_records "
+        "BEGIN SELECT RAISE(ABORT, 'injected action failure'); END"
+    )
+    conn.commit()
+    with pytest.raises(Exception):
+        save_monthly_extra_work_codes(
+            conn, coordinator_id="COORD-1", site_id="SITE-1", month=SEPT,
+            codes={"D6": WorkCodeInterval("06:00", "20:00", False)},
+        )
+    assert get_site_monthly_extra_work_codes(conn, "SITE-1", SEPT) == {}
+    assert conn.execute("SELECT COUNT(*) FROM coordinator_action_records").fetchone()[0] == 0
+
+
+def test_t56_r8_02_end_next_day_requires_exactly_one_day_not_any_later_day():
+    # A 65h Assignment must NOT match a 41h (end_next_day=True) definition --
+    # both merely "cross midnight", but end_next_day means exactly one day.
+    conn = connect(":memory:")
+    T020._seed(conn)
+    save_site_print_settings(conn, T020._settings())
+    demand, assignment = T020._work_item(1, 6, 18, kind=ShiftKind.D)
+    too_long = replace(assignment, end_datetime=datetime(2026, 8, 3, 23, 0))  # 65h
+    T020._create_version(conn, [demand], [too_long])
+    save_site_monthly_extra_work_codes(
+        conn, MonthlyExtraWorkCodes("SITE-1", T020.MONTH, {"D7": WorkCodeInterval("06:00", "23:00", True)})  # 41h
+    )
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=T020.MONTH, period_label="x")
+    assert isinstance(result, SE.ExportProblem) and result.problem_code == "WORK_PROVENANCE_INCOMPLETE"
+
+    # the genuine, exactly-one-day-later match must still be accepted
+    conn2 = connect(":memory:")
+    T020._seed(conn2)
+    save_site_print_settings(conn2, T020._settings())
+    demand2, assignment2 = T020._work_item(1, 6, 18, kind=ShiftKind.D)
+    exact = replace(assignment2, end_datetime=datetime(2026, 8, 2, 23, 0))  # exactly next day, 41h
+    T020._create_version(conn2, [demand2], [exact])
+    save_site_monthly_extra_work_codes(
+        conn2, MonthlyExtraWorkCodes("SITE-1", T020.MONTH, {"D7": WorkCodeInterval("06:00", "23:00", True)})
+    )
+    result2 = SE.generate_schedule_pdf(conn2, site_id="SITE-1", month=T020.MONTH, period_label="x")
+    assert isinstance(result2, SE.ExportReady)
+    model2 = SE._assemble_export_model(conn2, site_id="SITE-1", month=T020.MONTH, period_label="x")
+    assert model2.rows[0].wyk_hours == 41 and model2.rows[0].wyk[0] == "D7"
+
+
+def test_t56_r8_04_oversized_legend_fails_closed_instead_of_truncating():
+    from datetime import timedelta
+
+    from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind, ShiftDemand
+
+    n = 130
+    conn = connect(":memory:")
+    T020._seed(conn, employees=tuple(f"EMP-{i}" for i in range(1, n + 1)))
+    save_site_print_settings(conn, T020._settings())
+    combos = [(h, d) for h in range(0, 24) for d in range(1, 24)][:n]
+    demands, assignments, extras = [], [], {}
+    for i, (start_h, dur) in enumerate(combos, start=1):
+        day = (i % 28) + 1
+        demand_start = datetime(2026, 8, day, 6, 0)
+        start = datetime(2026, 8, day, start_h, 0)
+        end = start + timedelta(hours=dur)
+        sig = (start.strftime("%H:%M"), end.strftime("%H:%M"), end.date() > start.date())
+        demands.append(ShiftDemand(f"DEM-{i}", "", demand_start, demand_start + timedelta(hours=12), 1, shift_kind=ShiftKind.D, catalog_kind=ShiftCatalogKind.H12))
+        assignments.append(Assignment(f"ASG-{i}", "", f"EMP-{i}", start, end, AssignmentRole.PRIMARY, AssignmentState.REALIZED, False, f"DEM-{i}", None))
+        extras[f"D{i + 5}"] = WorkCodeInterval(*sig)
+    T020._create_version(conn, demands, assignments)
+    save_site_monthly_extra_work_codes(conn, MonthlyExtraWorkCodes("SITE-1", T020.MONTH, extras))
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=T020.MONTH, period_label="x")
+    assert isinstance(result, SE.ExportProblem) and result.problem_code == "ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT"
+
+
 def test_t56_12_schedule_export_never_imports_solver_or_shift_catalog():
     import ast
     source = open("rota/application/schedule_export.py", encoding="utf-8").read()

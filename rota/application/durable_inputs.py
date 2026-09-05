@@ -51,7 +51,7 @@ from rota.persistence.site_repository import (
     get_site_monthly_extra_work_codes,
     get_site_print_settings,
     list_sites,
-    save_site_monthly_extra_work_codes,
+    save_site_monthly_extra_work_codes_in_open_transaction,
     save_site_print_settings,
     write_site_in_open_transaction,
 )
@@ -365,38 +365,18 @@ def save_print_settings(
         )
 
 
-def save_monthly_extra_work_codes(
-    conn, *, coordinator_id: str, site_id: str, month: date, codes: dict,
-    note: str | None = None, responds_to_decision_required_id: str | None = None,
-) -> None:
-    """ROTA-T056 (brief section 7): thin application wrapper for the
-    monthly D6+/N6+ extra-code current-state seam
-    (site_repository.save_site_monthly_extra_work_codes) -- no new
-    validation here, that repository function already enforces the shared
-    signature-collision invariant. Reuses the same
-    CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED pattern
-    save_print_settings above already established; the action additionally
-    carries `month` (unlike print settings, which is site-wide) so history
-    can tell which month's extra codes changed. Same non-atomicity note as
-    save_print_settings: the domain write commits first (repository owns
-    its own transaction), the action record is a second, separate commit --
-    a torn write here affects only the Historia i audyt trail, never
-    planning correctness (this seam has no solver/feasibility impact)."""
+def save_monthly_extra_work_codes(conn, *, coordinator_id: str, site_id: str, month: date, codes: dict, note: str | None = None, responds_to_decision_required_id: str | None = None) -> None:  # noqa: E501
+    """ROTA-T056 section 7: one atomic transaction, config write + action (R8-01 fix)."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    recorded_at = datetime.now()
-    before = get_site_monthly_extra_work_codes(conn, site_id, month)
-    save_site_monthly_extra_work_codes(conn, MonthlyExtraWorkCodes(site_id=site_id, month=month, codes=codes))
+    recorded_at = datetime.now(); before = get_site_monthly_extra_work_codes(conn, site_id, month); entity_id = f"{site_id}:{month.isoformat()}"  # noqa: E702
     with conn:
-        site_memory.validate_decision_required_link_no_commit(
-            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
-        )
+        site_memory.validate_decision_required_link_no_commit(conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id)  # noqa: E501
+        save_site_monthly_extra_work_codes_in_open_transaction(conn, MonthlyExtraWorkCodes(site_id, month, codes))
         _record_action_and_invalidate_no_commit(
-            conn, action_kind=CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED, origin_site_id=site_id,
-            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=None, month=month,
-            affected_entities=[AffectedEntity("SITE_MONTHLY_EXTRA_WORK_CODES", f"{site_id}:{month.isoformat()}")],
-            before_state={"site_id": site_id, "month": month.isoformat(), "codes": sorted(before)},
-            after_state={"site_id": site_id, "month": month.isoformat(), "codes": sorted(codes)},
+            conn, action_kind=CoordinatorActionKind.CONTEXT_CONFIGURATION_SAVED, origin_site_id=site_id, affected_site_ids=[site_id],
+            coordinator_id=coordinator_id, recorded_at=recorded_at, effective_from=None, month=month,
+            affected_entities=[AffectedEntity("SITE_MONTHLY_EXTRA_WORK_CODES", entity_id)],
+            before_state={"site_id": site_id, "month": month.isoformat(), "codes": sorted(before)}, after_state={"site_id": site_id, "month": month.isoformat(), "codes": sorted(codes)},  # noqa: E501
             note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE, source_id=site_id,
             responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=None,
         )

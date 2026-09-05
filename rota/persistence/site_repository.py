@@ -443,7 +443,9 @@ def _all_extra_signatures_for_site(conn: sqlite3.Connection, site_id: str) -> di
     return by_family
 
 
-def save_site_monthly_extra_work_codes(conn: sqlite3.Connection, extra: MonthlyExtraWorkCodes) -> None:
+def save_site_monthly_extra_work_codes_in_open_transaction(conn: sqlite3.Connection, extra: MonthlyExtraWorkCodes) -> None:
+    """R8-01 fix: no own `with conn:` -- durable_inputs.save_monthly_extra_work_codes
+    composes this with its action-history write in one outer transaction."""
     site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (extra.site_id,)).fetchone()
     if site_row is None:
         raise SiteNotFound(extra.site_id)
@@ -452,13 +454,17 @@ def save_site_monthly_extra_work_codes(conn: sqlite3.Connection, extra: MonthlyE
         standard.work_code_intervals if standard is not None else dict.fromkeys(WORK_CODE_KEYS)
     )
     validate_monthly_extra_work_codes(extra.codes, standard_intervals=standard_intervals)
+    conn.execute(
+        """INSERT INTO site_monthly_extra_work_codes (site_id, month, codes_json)
+           VALUES (?, ?, ?)
+           ON CONFLICT(site_id, month) DO UPDATE SET codes_json=excluded.codes_json""",
+        (extra.site_id, extra.month.isoformat(), _extra_codes_to_json(extra.codes)),
+    )
+
+
+def save_site_monthly_extra_work_codes(conn: sqlite3.Connection, extra: MonthlyExtraWorkCodes) -> None:
     with conn:
-        conn.execute(
-            """INSERT INTO site_monthly_extra_work_codes (site_id, month, codes_json)
-               VALUES (?, ?, ?)
-               ON CONFLICT(site_id, month) DO UPDATE SET codes_json=excluded.codes_json""",
-            (extra.site_id, extra.month.isoformat(), _extra_codes_to_json(extra.codes)),
-        )
+        save_site_monthly_extra_work_codes_in_open_transaction(conn, extra)
 
 
 def get_site_monthly_extra_work_codes(conn: sqlite3.Connection, site_id: str, month: date) -> dict[str, WorkCodeInterval]:
