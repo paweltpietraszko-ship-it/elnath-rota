@@ -7,15 +7,19 @@ inne `arch/FINDING_*`) — CC nie pisze tutaj briefu implementacyjnego, to
 zadanie architekta po przekazaniu przez Pawła.
 
 **UWAGA DLA KAŻDEGO MODELU CZYTAJĄCEGO TEN DOKUMENT (Codex, architekt):**
-to zgłoszenie dotyczy WYŁĄCZNIE dwóch warstw: (1) mapowania kodów na
-wydruku (`rota/application/schedule_export.py` +
-`rota/persistence/site_repository.py`) i (2) ręcznej korekty grafiku
-(`rota/application/manual_edit.py`). **NIE dotyka i NIE MA dotykać
-solvera CP-SAT (`rota/planning/solver.py`) ani katalogu zmian obiektu
-(`SiteProfile.standard_shifts`/`ShiftCatalogKind`).** Jeśli po przeczytaniu
-briefu wydaje się, że trzeba poprawić solver — to znaczy, że coś zostało
-źle zrozumiane. PYTAJ, NIE ZGADUJ. Trzy poniższe podsystemy są od siebie
-całkowicie niezależne i to rozróżnienie jest sednem tego findingu:
+zweryfikowany zakres (po R2 przeglądzie Codexa, 2026-09-05) obejmuje
+ustawienia/persistence obiektu (`site_repository.py`), API/UI ręcznej
+korekty grafiku (`manual_edit.py` + `MonthlyPlanning.tsx`) oraz mapowanie/
+sumy/legendę na wydruku (`schedule_export.py`). **NIE dotyka i NIE MA
+dotykać solvera CP-SAT (`rota/planning/solver.py`), katalogu zmian
+obiektu (`SiteProfile.standard_shifts`/`ShiftCatalogKind`) ani samego
+WorkBalance/analityki (`rota/balance.py`,
+`rota/application/analytics_read.py`) — te trzy już dziś liczą/działają
+poprawnie z realnego Assignmentu niezależnie od jego długości, nie
+potrzebują żadnej zmiany.** Jeśli po przeczytaniu briefu wydaje się, że
+trzeba poprawić solver — to znaczy, że coś zostało źle zrozumiane. PYTAJ,
+NIE ZGADUJ. Poniższe trzy podsystemy są od siebie całkowicie niezależne i
+to rozróżnienie jest sednem tego findingu:
 
 1. **Solver (`rota/planning/solver.py`)** — układa PLAN/REPLAN, celuje w
    `target_hours` każdego pracownika (TARGET-01, "ABSOLUTE PRIORITY").
@@ -27,9 +31,12 @@ całkowicie niezależne i to rozróżnienie jest sednem tego findingu:
    `end_datetime`. **Nie patrzy na żaden kod z wydruku.** Dowolna
    długość realnego Assignmentu liczy się tu automatycznie, bez żadnej
    dodatkowej pracy.
-3. **Wydruk (`rota/application/schedule_export.py`)** — zamienia realny
-   Assignment na czytelny dla koordynatora kod (D1/N1/...) do druku.
-   **Tu i tylko tu jest dziś sztywne ograniczenie, które trzeba zmienić.**
+3. **Wydruk + ustawienia + ręczna korekta** (`schedule_export.py`,
+   `site_repository.py`, `manual_edit.py`, `MonthlyPlanning.tsx`) — te
+   trzy pliki razem tworzą jedną ścieżkę: koordynator wybiera zdefiniowany
+   kod przy korekcie → zapisuje się realny Assignment o tej długości →
+   wydruk musi umieć go poprawnie zmapować i zliczyć. **Tu jest cały
+   zweryfikowany zakres zmian tego findingu.**
 
 ## Origin / requirement (Paweł, 2026-09-05)
 
@@ -170,44 +177,66 @@ prawdziwe — nie jest to "wymyślanie" przez zmęczoną instancję):
    własny, elastyczny mechanizm (`reserve_hours` dla U3-U5/C3-C5),
    niezmieniony przez ten finding.
 
-Otwarte technicznie (do architekta, nie rozstrzygnięte przez OWNERA
-wprost, ale zawężone powyższymi decyzjami): per-obiekt na stałe czy
-per-miesiąc — transkrypcja niżej pokazuje, że u klienta wartości kodów
-różnią się między miesiącami tego samego obiektu, więc per-miesiąc wydaje
-się zgodne z realną praktyką, ale to architekt ustala dokładny kształt
-kontraktu.
+**Dodatkowe rozstrzygnięcia OWNERA po drugim przeglądzie Codexa (R2, 2026-09-05):**
+
+5. **Trwałość**: definicje dodatkowych kodów są **per obiekt + miesiąc**
+   (nie per obiekt na stałe) — każdy miesiąc trzyma własny, niezależny
+   zestaw definicji; zmiana konfiguracji w jednym miesiącu nie wpływa na
+   ponowny wydruk innego, już zamkniętego miesiąca. Zgodne z realną
+   praktyką klienta (transkrypcja niżej).
+6. **Skutek wyboru kodu**: wybranie przez koordynatora dodatkowego kodu
+   przy korekcie **naprawdę zmienia realny czas Assignmentu**
+   (`start_datetime`/`end_datetime` w bazie), przechodząc normalną
+   walidację ręcznej korekty (`validate()` — odpoczynek, nakładanie się
+   itd.) — to NIE jest wyłącznie etykieta na wydruku. To jedyny wariant,
+   który faktycznie domyka bilans kwartału, bo WorkBalance/analityka
+   liczą z realnego czasu, nie z kodu.
 
 ## Transkrypcja materiału referencyjnego (zamiast surowych zdjęć — RODO)
 
+**Korekta 2026-09-05 (R2): poprzednia wersja tej sekcji błędnie
+podpisywała jako "2026-07" legendę, której miesiąca nie dało się
+potwierdzić z kadru `Grafiki/7732.jpg` (Codex to złapał, słusznie) — CC
+pomylił dwa różne źródła zdjęć przy przepisywaniu. Poniżej poprawiona
+wersja, każda liczba re-zweryfikowana wprost z lokalnego `Grafiki/7442.jpg`
+(nagłówek arkusza jawnie potwierdza "lipiec 07 2026") i z dolnej legendy
+`Grafiki/7732.jpg` (nagłówek jawnie potwierdza "wrzesień 09 2026"); górna,
+niepewna-co-do-miesiąca legenda z `7732.jpg` usunięta z tego dokumentu
+całkowicie, żeby nie wprowadzać niepotwierdzonych danych.**
+
 Dwie legendy kodów z realnych kart pracy klienta (ten sam obiekt,
-ROYALPACK/APEXIM, dwa różne miesiące — 2026-07 i 2026-09). Tylko kody i
+ROYALPACK/APEXIM, dwa różne miesiące tego samego kwartału). Tylko kody i
 wartości godzinowe, bez żadnych danych osobowych ani identyfikujących
 firmę poza tym, co już jawnie widnieje w repozytorium (nazwa
 ROYALPACK/APEXIM pojawia się już w innych, wcześniej zaakceptowanych
 materiałach tego repo).
 
-**Legenda, miesiąc 2026-07:**
+**Legenda, lipiec 2026 (`Grafiki/7442.jpg`, nagłówek arkusza: "lipiec 07 2026"):**
 ```
-D1=12h  D2=24h  D3=24h  D4=24h  D5=2h
-N1=12h  N2=16h  N3=12h  N4=24h  N5=12h
+D1=12h  D2=4h   D3=24h  D4=2h   D5=24h
+N1=12h  N2=16h  N3=24h  N4=24h  N5=24h
 U1=12h  U2=16h  U3=0h   U4=24h  U5=20h
 C1=12h  C2=16h  C3=0h   C4=24h  C5=20h
 ```
+Ta legenda dokładnie odpowiada dzisiejszej zamrożonej
+`FROZEN_WORK_CODE_HOURS` w kodzie — spójne, żadnej rozbieżności.
 
-**Legenda, miesiąc 2026-09 (koniec kwartału — ten sam obiekt):**
+**Legenda, wrzesień 2026 (`Grafiki/7732.jpg`, dolna legenda, nagłówek
+arkusza: "wrzesień 09 2026", koniec kwartału, ten sam obiekt):**
 ```
 D1=12h  D2=24h  D3=7h   D4=3h   D5=6h   D6=14h  <- nowy kod
 N1=12h  N2=16h  N3=8h   N4=24h  N5=24h  N6=10h  <- nowy kod
 U1=12h  U2=16h  U3=8h   U4=3h   U5=6h   U6=10h
 C1=12h  C2=16h  C3=8h   C4=3h   C5=6h
 ```
-
-Widać: D3/D4/D5 mają różne wartości w obu miesiącach (nie tylko D6/N6 są
-nowe) — to była podstawa wątpliwości Codexa co do kierunku "zamrożone
-D1-D5 + dodatkowe kody obok" (punkt sporny wyżej). OWNER mimo to
-zdecydował: D1-D5/N1-N5 zostają zamrożone, zmienność obsługują wyłącznie
-nowe, dodatkowe kody (patrz decyzja 1 powyżej) — to świadomy wybór węższy
-niż to, co robi klient dziś w Excelu, nie przeoczenie.
+Uwaga: nawet w tej legendzie D1/D2/N1/N2 zgadzają się z zamrożonymi
+wartościami (D1=12,N1=12,N2=16), ale D3/D4/D5/N3 różnią się od lipca i od
+`FROZEN_WORK_CODE_HOURS` — nie tylko D6/N6 są nowe. To była podstawa
+wątpliwości Codexa co do kierunku "zamrożone D1-D5 + dodatkowe kody obok"
+(punkt sporny w R1). OWNER mimo to zdecydował: D1-D5/N1-N5 zostają
+zamrożone, zmienność obsługują wyłącznie nowe, dodatkowe kody (decyzja 1
+powyżej) — to świadomy wybór węższy niż to, co robi klient dziś w
+Excelu, nie przeoczenie.
 
 ## Powiązane materiały
 
