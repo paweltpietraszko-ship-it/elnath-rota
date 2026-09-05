@@ -387,7 +387,16 @@ export default function MonthlyPlanning({
     if (!interval) return;
     const anchor = editingDemand.start_datetime.slice(0, 10);
     const startIso = `${anchor}T${interval.start_time}:00`;
-    const endDay = interval.end_next_day ? new Date(new Date(`${anchor}T00:00:00`).getTime() + 86400000).toISOString().slice(0, 10) : anchor;
+    // R11-01 fix: local-midnight-plus-86400000-then-toISOString round-trips
+    // through UTC, which in a positive-offset zone (e.g. Europe/Warsaw)
+    // rolls the calendar date back and silently loses "next day". Date.UTC
+    // in and getUTCFullYear/Month/Date out never touches local time, so the
+    // +1 is pure calendar arithmetic regardless of the viewer's timezone.
+    const [y, m, d] = anchor.split("-").map(Number);
+    const endDay = interval.end_next_day ? (() => {
+      const next = new Date(Date.UTC(y, m - 1, d + 1));
+      return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+    })() : anchor;
     const endIso = `${endDay}T${interval.end_time}:00`;
     runCorrection([{ ...stripDisplayName(editingAssignment), start_datetime: startIso, end_datetime: endIso }]);
   };
