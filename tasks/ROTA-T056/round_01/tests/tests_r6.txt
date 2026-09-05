@@ -1,0 +1,66 @@
+ROTA-T056 — ocena pytania CC o _validate_item
+Data: 2026-09-05
+
+AUDYTOWANE SHA
+- Implementacja częściowa: 09995f675ab867c72ad8fbaa952f8c65e65e0f16
+- Pytanie zapisane w BOARD.md: 04603b42eacf891fc7e87c159ebbafd95acf518a
+- Kontrakt będący PRODUCT_TRUTH: tasks/ROTA-T056/brief.md @ e5dc5e1b5be7e90e75acd97448eba57b08313089
+
+ZAKRES TEJ OCENY
+To nie jest werdykt PASS/FAIL implementacji T056. Implementacja została świadomie
+zatrzymana przed §8/§9. Sprawdzono wyłącznie, czy pytanie CC prawidłowo definiuje
+sprzeczność oraz czy daje architektowi wystarczającą, wąską granicę korekty briefu.
+
+WARSTWY DOWODU
+1. Odczyt dokładnego kodu 09995f6:
+   rota/application/schedule_export.py::_validate_item odrzuca każdą różnicę
+   start/end Assignmentu względem wskazanego ShiftDemandu, zanim wywołana zostanie
+   _map_work_code.
+2. Niezależny minimalny reproduktor uruchomiony na 09995f6:
+   12h demand D 06:00–18:00, Assignment skorygowany do 06:00–23:00 przy tym samym
+   covers_demand_id -> WORK_PROVENANCE_INCOMPLETE: actual interval contradicts its
+   covered demand.
+3. Trace do PRODUCT_TRUTH:
+   - brief §2 pkt 5–6 i §8 wymagają zmiany realnego przedziału Assignmentu przez
+     istniejący apply_manual_correction(), z zachowaniem jednoznacznie pokrywanego
+     demandu;
+   - brief §3 i §9 wymagają późniejszego rozpoznania kodu z dokładnego realnego
+     przedziału i miesięcznej konfiguracji;
+   - brief §2 pkt 9 oraz §12 wykluczają zmianę solvera, demand generation i katalogu.
+
+OCENA
+TAK — pytanie CC prawidłowo i wystarczająco definiuje problem dla architekta.
+Usuwa też wcześniejsze nieporozumienie: rozwiązanie leży wyłącznie w ścieżce
+ręcznej korekty/eksportu; solver pozostaje nietknięty.
+
+Samo pytanie NIE zamyka jeszcze blockera implementacyjnego. Zamyka go dopiero
+zmieniony i zamrożony brief, który zapisze poniższą regułę wynikającą już z decyzji
+OWNERA i istniejących §3/§8/§9:
+
+- zachować odrzucenie TRAINEE i braku spójnego covers_demand_id;
+- dla zwykłych Assignmentów nadal wymagać dokładnej zgodności Assignment.start/end
+  z ShiftDemand.start/end;
+- rozbieżność z demandem dopuścić wyłącznie wtedy, gdy realny przedział Assignmentu
+  na dacie jednoznacznie pokrywanego demandu dokładnie odpowiada zapisanej definicji
+  dodatkowego kodu dla eksportowanego (site_id, month), a rodzina D/N kodu jest
+  zgodna z demand.shift_kind;
+- nie wystarcza podobny czas trwania ani dowolna rozbieżność; wymagane jest dokładne
+  start_time, end_time i end_next_day;
+- brak takiego dokładnego miesięcznego dopasowania pozostaje fail-closed;
+- _map_work_code nadal wykonuje końcowe dokładne mapowanie kodu;
+- nie tworzyć nowego ShiftDemandu, nie zapisywać operational_code i nie zmieniać
+  solvera/PLAN/REPLAN.
+
+Jest to mechaniczne doprecyzowanie istniejącego zachowania OWNER-visible, a nie nowa
+decyzja produktowa. Sposób przekazania konfiguracji do _validate_item lub podział na
+helpery pozostaje decyzją techniczną implementacji.
+
+TECHNICAL_ONLY — TASK_SCOPE
+Standalone reproduktor cc_blocker_r6_work_provenance.py i jego output nie należą do
+literalnego TASK_SCOPE §16. Przed finalnym delivery nie mogą pozostać jako dodatkowy
+diff poza zakresem: przypadek należy przenieść do dozwolonego tests/test_t056.py albo
+architekt musi jawnie zmienić TASK_SCOPE. To nie zmienia rozstrzygnięcia produktu.
+
+STATUS
+CODEX_REPORTED — brief wymaga jednej korekty architekta utrwalającej powyższą wąską
+regułę. Implementacja §8/§9 pozostaje HOLD do nowego SHA briefu.

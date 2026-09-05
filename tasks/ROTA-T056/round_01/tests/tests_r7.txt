@@ -1,0 +1,85 @@
+ROTA-T056 — FINAL NARROW PREIMPLEMENTATION RE-AUDIT R7
+
+AUDITED_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+BOARD_HANDOFF_SHA: 961a4d434389aea512a5741ebe76084eb2d16894
+PARTIAL_IMPLEMENTATION_REFERENCE_SHA: 09995f675ab867c72ad8fbaa952f8c65e65e0f16
+
+WERDYKT: PASS — READY_FOR_IMPLEMENTATION
+
+PASS dotyczy wyłącznie kontraktu na exact SHA 404580b. Nie jest werdyktem dla
+częściowej implementacji 09995f6, dalszego kodu §8/§9 ani końcowych PDF.
+
+1. WĄSKI WYJĄTEK WORK PROVENANCE — PASS
+
+- Dotychczasowy fail-closed provenance check pozostaje regułą domyślną.
+- Wyjątek dotyczy wyłącznie zwykłego realnego Assignmentu z istniejącym,
+  spójnym covers_demand_id i jednoznacznym demandem D/N.
+- Wymagane jest istnienie zapisanej definicji miesięcznego D6+/N6+ dla
+  dokładnego site_id i month.
+- Rodzina kodu musi odpowiadać demand.shift_kind.
+- Assignment musi pozostać na dacie pokrywanego demandu.
+- Dopasowanie do definicji kodu jest dokładne: start_time, end_time i
+  end_next_day. Sama długość ani podobny przedział nie wystarczają.
+- Brak któregokolwiek warunku pozostaje fail-closed
+  WORK_PROVENANCE_INCOMPLETE.
+- _map_work_code pozostaje końcowym exact mapperem; brak mapowania po przejściu
+  provenance check pozostaje WORK_CODE_MAPPING_REQUIRED.
+
+T56-07 pokrywa pozytywny exact match. T56-08 jawnie pokrywa brak konfiguracji,
+złą rodzinę, złą datę, niedokładne czasy/end_next_day, dowolną inną ręczną
+rozbieżność, niespójny covers_demand_id oraz przypadek zgodnej tylko długości.
+
+2. GRANICA PRODUKTU — PASS
+
+- Solver/PLAN/REPLAN, demand generation, ShiftDemand semantics,
+  SiteProfile.standard_shifts, ShiftCatalogKind, WorkBalance i analytics są
+  jawnie poza zmianą.
+- Nie powstaje nowy ShiftDemand ani nowy endpoint apply-code.
+- D6+/N6+ nie są zapisywane w Assignment.operational_code.
+- Korekta zachowuje covers_demand_id i używa istniejącego
+  apply_manual_correction() oraz istniejącej walidacji/deviations.
+- Długości D1–D5/N1–N5 pozostają zamrożone, a istniejąca per-site edycja ich
+  godzin zegarowych pozostaje dostępna.
+
+3. POZOSTAŁY KONTRAKT — ZACHOWANY
+
+- current-state owner danych nadal jest kluczowany (site_id, month), bez zmiany
+  semantyki SitePrintSettings i bez nowego repository subsystemu;
+- signature invariant nadal ma dokładnie dwa legalne write boundaries i nie
+  jest dublowany w exporterze;
+- unified action history reużywa CONTEXT_CONFIGURATION_SAVED;
+- workingMonth nadal ma jeden przepływ Room -> ControlPanel -> PrintSettings;
+- export nadal obejmuje exact mapping, prawdziwe godziny PLAN/WYK,
+  document_revision i used-only legend;
+- dwa realne PDF gates i końcowa ocena optyczna pozostają obowiązkowe.
+
+Redakcyjne skróty poza §9 nie zmieniają wcześniej zatwierdzonego zachowania.
+
+4. DOWODY MECHANICZNE
+
+- przeczytano cały brief 404580b i diff względem e5dc5e1;
+- diff d2c5b85..404580b zmienia wyłącznie tasks/ROTA-T056/brief.md;
+- git diff --check dla korekty briefu: PASS;
+- backend.read_task_scope: 19 poprawnie sparsowanych ścieżek;
+- backend.check_sizes: dokładnie 6/6 OWNER-accepted baseline violations, z
+  wartościami 635, 684, 53, 1735, 907 i 773 zapisanymi w briefie;
+- wykonano: python where.py rota/application/schedule_export.py --symbol
+  _validate_item; wynik wskazuje jedną definicję i jedno produkcyjne wywołanie
+  w schedule_export.py. Surowy wynik został zweryfikowany przez odczyt kodu;
+- standalone reproduktor/output R6 pozostają diagnostyką poza finalnym
+  TASK_SCOPE; §16 wymaga przeniesienia przypadku do tests/test_t056.py oraz
+  usunięcia standalone plików z finalnego diffu.
+
+5. OGRANICZENIA TEGO WERDYKTU
+
+Nie uruchamiano testów implementacji ani kontroli wizualnej, ponieważ audytowany
+commit zmienia wyłącznie kontrakt. Końcowy audyt implementacji musi sprawdzić
+exact SHA, realny pion ręczna korekta -> persistence -> export oraz oba
+rzeczywiste PDF. Zielone testy nie zastępują oceny optycznej grafiku i legendy.
+
+FINDINGS: BRAK
+
+ARCHITECTURE_PROPOSALS: BRAK
+
+CC może kontynuować implementację §8/§9 wyłącznie według briefu
+404580b354648818f61b2de12ea1c4113d08f3f9.
