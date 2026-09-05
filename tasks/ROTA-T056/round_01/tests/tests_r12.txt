@@ -1,0 +1,96 @@
+ROTA-T056 — KOŃCOWY REAUDYT R12
+
+AUDITED_SHA: 7404873ad4b3ac89e7b6a6a2dabf9c4b10e8bb8f
+AUDITED_BRANCH: task/ROTA-T056
+FROZEN_BRIEF_SHA: 404580b354648818f61b2de12ea1c4113d08f3f9
+BOARD_HANDOFF_SHA: 5f05cfaeef05792685a140190c0b6b825dd4f553
+PREVIOUS_FRONTEND_AUDIT: tasks/ROTA-T056/round_01/tests/tests_r11.txt
+
+WERDYKT: PASS — T056 GOTOWY DO DECYZJI OWNERA O MERGE
+
+PASS dotyczy wyłącznie exact SHA 7404873. Nie wykonano merge.
+
+R11-01 — PASS — end_next_day zachowuje następny dzień w Europe/Warsaw
+
+Ten sam niezależny reproduktor z R11 wykonano przez prawdziwy Vite, FastAPI,
+osobną bazę SQLite i Chromium ze strefą Europe/Warsaw. Wszystkie operacje
+wykonano normalnymi kontrolkami UI.
+
+Wyniki:
+
+- D6=06:00–20:00, bez next day:
+  POST 200, 2026-08-01T06:00:00 -> 2026-08-01T20:00:00;
+- N6=20:00–06:00, next day:
+  POST 200, 2026-08-02T20:00:00 -> 2026-08-03T06:00:00;
+- D7=07:00–23:00, bez next day:
+  POST 200, 2026-08-03T07:00:00 -> 2026-08-03T23:00:00;
+- wszystkie requesty przeszły przez istniejący manual-correction flow;
+- nie wystąpił błąd konsoli ani API;
+- S1 pozostał nietknięty zgodnie z TASK_SCOPE.
+
+Zmiana Date.UTC + getUTCFullYear/getUTCMonth/getUTCDate liczy następny dzień
+czysto kalendarzowo i nie zależy od dodatniego offsetu lokalnej strefy.
+
+REAL PDF GATE A — PASS OPTYCZNY
+
+PDF wygenerowano z prawdziwego UI po trzech powyższych ręcznych korektach i
+odebrano z realnego endpointu export. Wynik ma jedną stronę.
+
+Optyczna kontrola pełnego renderu potwierdziła:
+
+- PLAN i WYK pokazują D6, N6 i D7 we właściwych dniach;
+- sumy wynoszą odpowiednio 14 h, 10 h i 16 h;
+- legenda zawiera wszystkie i tylko użyte D6/N6/D7;
+- N6 w legendzie ma 10 h;
+- skala szarości rozróżnia rodzinę D/N;
+- brak obcięcia, kolizji, nachodzenia tekstu i problemów ze stopką;
+- nagłówek, rewizja i numer „Strona 1 z 1” są czytelne.
+
+REAL PDF GATE B — PASS OPTYCZNY
+
+Formalny wariant layout-stress wygenerowano przez realne persistence i
+generate_schedule_pdf dla 12 pracowników i minimalnego w tej konstrukcji
+zestawu 24 faktycznie użytych, jednoznacznych kodów D6–D29. Ten zestaw służy
+wyłącznie aktywowaniu wymaganego przez T56-15 wariantu drugiej strony; nie jest
+twierdzeniem o normalnej liczbie kodów w pracy, którą OWNER określił jako około
+2–3.
+
+Wynik ma dwie strony. Optyczna kontrola obu pełnych renderów potwierdziła:
+
+- strona 1: kompletny grafik 12 pracowników, PLAN/WYK i sumy godzin;
+- strona 2: osobny nagłówek „Legenda — ciąg dalszy”;
+- wszystkie 24 użyte kody są obecne w legendzie; missing_expected=[];
+- legenda jest czytelna w dwóch kolumnach;
+- nic nie jest obcięte ani ukryte, legenda nie nachodzi na stopkę;
+- numeracja „Strona 1 z 2” / „Strona 2 z 2” jest poprawna.
+
+POZOSTAŁE WARSTWY AUDYTU
+
+- diff df403fb..7404873: jedna produkcyjna ścieżka i 10 linii netto w
+  frontend/src/screens/MonthlyPlanning.tsx;
+- git diff --check: PASS;
+- npm run build: PASS (tsc -b + vite build);
+- pytest tests/test_t056.py tests/test_t021_export_api.py -q:
+  22 passed, 1 istniejący StarletteDeprecationWarning;
+- pozytywne dowody R11 dla add/remove, walidacji, niezależności miesięcy,
+  filtrowania rodzin D/N i viewportów pozostają ważne, ponieważ poprawka nie
+  dotknęła tych ścieżek;
+- backend PASS z R10 pozostaje ważny; poprawka nie zmienia backendu, solvera,
+  demand generation, WorkBalance ani analytics;
+- pełnej regresji repo nie uruchamiano: brak zgody OWNERA, a ryzyko i diff były
+  wąskie oraz pokryte realnym pionem i targetowanymi testami.
+
+OWNER_EXPLANATION_GATE: NIE URUCHAMIA SIĘ — brak nowego zachowania produktu;
+poprawka realizuje już zamrożone end_next_day.
+
+ARCHITECTURE_PROPOSALS
+
+- brak nowych; nieblokująca obserwacja S1 została już zapisana raz w R11 i nie
+  jest ponawiana ani przemycana do T056.
+
+SAFETY_PRIVACY: brak nowych ryzyk.
+
+NEXT
+
+Task może wrócić do OWNERA z PASS na exact SHA 7404873. Merge wyłącznie po
+jawnej decyzji OWNERA.
