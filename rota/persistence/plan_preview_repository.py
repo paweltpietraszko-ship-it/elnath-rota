@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind, ShiftDemand, ShiftKind
 
 # A-F2 (architect review): "replan" alone loses which REPLAN stage produced
 # it -- a reload could not tell narrow (replan()/replan_retry_narrow()) from
@@ -51,6 +51,46 @@ class PlanPreview:
     # carried forward so select_candidate can create that first version at
     # acceptance without asking the caller to resupply it.
     effective_from: Optional[date] = None
+    # ROTA-T057: the demands this preview's candidates were solved against.
+    # Needed so the coordinator-facing grid can show D/N labels for a
+    # not-yet-accepted candidate even when no ScheduleVersion exists yet to
+    # source demands from (GET /schedule/{month} otherwise has nothing to
+    # return demands from before acceptance).
+    shift_demands: list[ShiftDemand] = ()
+
+
+def _shift_demand_to_dict(d: ShiftDemand) -> dict:
+    return {
+        "demand_id": d.demand_id, "schedule_version_id": d.schedule_version_id,
+        "start_datetime": d.start_datetime.isoformat(), "end_datetime": d.end_datetime.isoformat(),
+        "required_primary_count": d.required_primary_count,
+        "shift_kind": d.shift_kind.value if d.shift_kind else None,
+        "catalog_kind": d.catalog_kind.value if d.catalog_kind else None,
+        "required_rest_hours": d.required_rest_hours,
+        "work_period_template_id": d.work_period_template_id, "work_period_component": d.work_period_component,
+        "emergency_24h_rest_hours": d.emergency_24h_rest_hours,
+    }
+
+
+def _shift_demand_from_dict(d: dict) -> ShiftDemand:
+    return ShiftDemand(
+        demand_id=d["demand_id"], schedule_version_id=d["schedule_version_id"],
+        start_datetime=datetime.fromisoformat(d["start_datetime"]), end_datetime=datetime.fromisoformat(d["end_datetime"]),
+        required_primary_count=d["required_primary_count"],
+        shift_kind=ShiftKind(d["shift_kind"]) if d["shift_kind"] else None,
+        catalog_kind=ShiftCatalogKind(d["catalog_kind"]) if d["catalog_kind"] else None,
+        required_rest_hours=d["required_rest_hours"],
+        work_period_template_id=d["work_period_template_id"], work_period_component=d["work_period_component"],
+        emergency_24h_rest_hours=d["emergency_24h_rest_hours"],
+    )
+
+
+def _shift_demands_to_json(demands: list[ShiftDemand]) -> str:
+    return json.dumps([_shift_demand_to_dict(d) for d in demands])
+
+
+def _shift_demands_from_json(raw: str) -> list[ShiftDemand]:
+    return [_shift_demand_from_dict(d) for d in json.loads(raw)]
 
 
 def _assignment_to_dict(a: Assignment) -> dict:
@@ -88,20 +128,22 @@ def save_plan_preview_in_open_transaction(conn: sqlite3.Connection, preview: Pla
     transaction boundary. At most one current preview per (site_id, month):
     a new save always replaces whatever was there (OWNER decision 3)."""
     conn.execute(
-        """INSERT INTO plan_previews (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO plan_previews (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from, shift_demands_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(site_id, month) DO UPDATE SET
             schedule_version_id=excluded.schedule_version_id,
             candidates_json=excluded.candidates_json,
             warnings_json=excluded.warnings_json,
             optimization_complete=excluded.optimization_complete,
             operation_kind=excluded.operation_kind,
-            effective_from=excluded.effective_from""",
+            effective_from=excluded.effective_from,
+            shift_demands_json=excluded.shift_demands_json""",
         (
             preview.site_id, preview.month.isoformat(), preview.schedule_version_id,
             _candidates_to_json(preview.candidates), json.dumps(list(preview.warnings)),
             int(preview.optimization_complete), preview.operation_kind,
             preview.effective_from.isoformat() if preview.effective_from else None,
+            _shift_demands_to_json(list(preview.shift_demands)),
         ),
     )
 
@@ -113,18 +155,20 @@ def save_plan_preview(conn: sqlite3.Connection, preview: PlanPreview) -> None:
 
 def get_plan_preview(conn: sqlite3.Connection, site_id: str, month: date) -> Optional[PlanPreview]:
     row = conn.execute(
-        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from "
+        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from, shift_demands_json "
         "FROM plan_previews WHERE site_id = ? AND month = ?",
         (site_id, month.isoformat()),
     ).fetchone()
     if row is None:
         return None
-    schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from = row
+    (schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind,
+     effective_from, shift_demands_json) = row
     return PlanPreview(
         site_id=site_id, month=month, schedule_version_id=schedule_version_id,
         candidates=_candidates_from_json(candidates_json), warnings=json.loads(warnings_json),
         optimization_complete=bool(optimization_complete), operation_kind=operation_kind,
         effective_from=date.fromisoformat(effective_from) if effective_from else None,
+        shift_demands=_shift_demands_from_json(shift_demands_json) if shift_demands_json else [],
     )
 
 

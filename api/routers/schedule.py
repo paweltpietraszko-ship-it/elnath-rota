@@ -115,7 +115,9 @@ class DeviationOut(BaseModel):
 
 
 class PlanPreviewOut(BaseModel):
-    schedule_version_id: str
+    # ROTA-T057: None before the very first ScheduleVersion for this
+    # (site_id, month) has ever been created (T57-01).
+    schedule_version_id: str | None
     candidates: list[list[AssignmentOut]]
     warnings: list[str]
     optimization_complete: bool
@@ -268,13 +270,27 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
             # superseded whatever preview this exact WORKING version still
             # points at -- hide it even if that cleanup's own DELETE failed,
             # without needing a new marker for the same fact.
-            if (
-                preview is not None and view.current_version is not None
-                and preview.schedule_version_id == view.current_version.version_id
-                and not view.current_version.status.value.startswith("FINAL")
-                and readback is None
-            ):
+            # ROTA-T057 (T57-01): a preview can now legitimately exist BEFORE
+            # any ScheduleVersion does -- current() and stored
+            # schedule_version_id both None is the "no version yet" match,
+            # not a stale leftover.
+            preview_matches_current = preview is not None and (
+                (view.current_version is None and preview.schedule_version_id is None)
+                or (
+                    view.current_version is not None
+                    and preview.schedule_version_id == view.current_version.version_id
+                    and not view.current_version.status.value.startswith("FINAL")
+                )
+            )
+            if preview_matches_current and readback is None:
                 plan_preview_out = _plan_preview_out(conn, preview)
+                if view.current_version is None:
+                    # No ScheduleVersion exists to source demands from yet --
+                    # show the preview's own (the candidates were solved
+                    # against these), so the grid can label D/N instead of
+                    # falling back to "?" (found via a real manual test,
+                    # 2026-09-06).
+                    demands = [_demand_out(d) for d in preview.shift_demands]
         except Exception as exc:  # isolated, never propagated as the whole request's error (T54-07)
             plan_preview_error = str(exc)
         return MonthViewOut(

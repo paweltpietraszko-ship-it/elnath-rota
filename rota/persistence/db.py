@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 16
+LATEST_SCHEMA_VERSION = 17
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -638,6 +638,18 @@ _MIGRATION_16: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 17: ROTA-T057 -- plan_previews.shift_demands_json. The demands a
+# preview's candidates were solved against, so the coordinator-facing grid
+# can show D/N labels for a not-yet-accepted candidate even when no
+# ScheduleVersion exists yet to source demands from (a real click-through
+# found this: "?" instead of D/N with no current_version, 2026-09-06).
+# ---------------------------------------------------------------------------
+_MIGRATION_17: tuple[str, ...] = (
+    "ALTER TABLE plan_previews ADD COLUMN shift_demands_json TEXT NOT NULL DEFAULT '[]'",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -655,6 +667,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (14, _MIGRATION_14),
     (15, _MIGRATION_15),
     (16, _MIGRATION_16),
+    (17, _MIGRATION_17),
 )
 
 

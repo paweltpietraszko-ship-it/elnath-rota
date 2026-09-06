@@ -74,6 +74,7 @@ def _persist_decision_readback(
 def _persist_plan_preview(
     conn, *, site_id: str, month: date, schedule_version_id: str | None, result: PlanningResult,
     operation_kind: plan_preview_repository.OperationKind, effective_from: date | None = None,
+    shift_demands: list = (),
 ) -> PlanningResult:
     """ROTA-T054 (brief section 5, "PLAN/REPLAN FEASIBLE"): after a complete
     FEASIBLE result, atomically save/replace the current (site_id, month)
@@ -122,7 +123,7 @@ def _persist_plan_preview(
             site_id=site_id, month=month, schedule_version_id=schedule_version_id,
             candidates=result.candidates, warnings=list(result.warnings),
             optimization_complete=result.optimization_complete, operation_kind=operation_kind,
-            effective_from=effective_from,
+            effective_from=effective_from, shift_demands=list(shift_demands),
         ))
     except sqlite3.Error:
         result.warnings = list(result.warnings) + [
@@ -276,7 +277,7 @@ def plan_month(
         _record_shown_variants(conn, site_id, month, result)
         return _persist_plan_preview(
             conn, site_id=site_id, month=month, schedule_version_id=None, result=result, operation_kind="plan",
-            effective_from=effective_from,
+            effective_from=effective_from, shift_demands=demands,
         )
     state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
     if _stale_empty_working_needs_fresh_demands(state, month):
@@ -618,7 +619,7 @@ def replan(
         _record_shown_variants(conn, site_id, month, result)
         return _persist_plan_preview(
             conn, site_id=site_id, month=month, schedule_version_id=None, result=result,
-            operation_kind="replan_narrow", effective_from=effective_from,
+            operation_kind="replan_narrow", effective_from=effective_from, shift_demands=demands,
         )
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # pre-write; scoped to parent
     child_id = f"SV-{uuid.uuid4().hex}"
