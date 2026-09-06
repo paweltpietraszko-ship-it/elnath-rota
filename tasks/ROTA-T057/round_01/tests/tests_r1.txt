@@ -1,0 +1,412 @@
+ROTA-T057 — PREIMPLEMENTATION AUDIT R1
+
+AUDITED_BRIEF_SHA: 212015f91d15bde97480a04571bfff2b0d39eef0
+AUDITED_CODE_BASE: dfeec962fd90d249f83606b414801ff67d305d7c
+STATUS: OWNER_DECISION_NEEDED — bez werdyktu PASS/FAIL
+
+To jest audyt kontraktu przed kodem produktu. Nie uruchamiano implementacji ani
+ciężkich testów. Sprawdzono pełny brief, frozen kontrakty T008/T017/T023/T054,
+obecny pion frontend → API → application → solver → persistence oraz wymagane
+mapowanie where.py. Kod produktu nie został zmieniony.
+
+========================================================================
+1. WYNIK W PROSTYM JĘZYKU
+========================================================================
+
+Główny podział produktu jest już zapisany poprawnie:
+
+- PLAN tworzy pierwsze propozycje przed pierwszą akceptacją;
+- REPLAN pokazuje kolejne, wyraźnie inne propozycje przed akceptacją;
+- nieżywy zaakceptowany grafik można zastąpić bez udawania, że był już
+  obowiązującą historią pracy;
+- po rozpoczęciu pierwszej służby solverowa zmiana idzie wyłącznie przez
+  Przelicz Plan, chroni rozpoczęte służby i zachowuje poprzednią wersję;
+- Korekta ręczna pozostaje osobnym mechanizmem.
+
+Brief nie jest jednak jeszcze literalnie testowalny. Brakuje sześciu decyzji,
+które zmieniają to, co zobaczy koordynator albo jak zostaną policzone dane
+pracownika. Zgodnie z OWNER_EXPLANATION_GATE nie wolno ich dopowiedzieć testem
+ani implementacją.
+
+========================================================================
+2. OWNER_CONFIRMED
+========================================================================
+
+OC-01 — cztery rozłączne sytuacje
+
+1. Brak zaakceptowanego grafiku: PLAN.
+2. Są pokazane, lecz niezaakceptowane propozycje: pre-acceptance REPLAN.
+3. Zaakceptowany grafik przed pierwszą służbą: usunięcie + PLAN albo Korekta
+   ręczna; bez Przelicz Plan.
+4. Grafik po rozpoczęciu pierwszej służby: Przelicz Plan albo Korekta ręczna;
+   bez pre-acceptance REPLAN.
+
+OC-02 — granica akceptacji
+
+„Użyj tego grafiku” jest jedynym momentem, w którym kandydat solvera staje się
+ScheduleVersion/current. Preview nie może być current, historią, restore
+targetem, eksportem ani źródłem rozliczeń.
+
+OC-03 — Przelicz Plan
+
+Po ożywieniu grafiku automat zachowuje rozpoczęte służby twardo, minimalizuje
+zmiany przyszłości, a po akceptacji tworzy dokładnie jedną nową wersję i
+pozostawia poprzednią w historii. Failure/reject nie zmienia wersji.
+
+OC-04 — miara 15%
+
+T057 odwołuje się do istniejącej miary T017: solver-controlled PRIMARY
+coverage, K=(15*N+99)//100, jedna podmiana pracownika na demandzie liczy się
+jako jedna zmieniona placement. Nie wolno tworzyć drugiej miary w UI lub
+application layer.
+
+OC-05 — FIRST EXECUTION GATE
+
+E1–E5 ma być realnym przejściem UI/API/persistence przed kosztownym pakietem
+testów. Zielony pytest/build nie zastępuje tego dowodu.
+
+========================================================================
+3. OWNER_DECISION_NEEDED
+========================================================================
+
+OD-01 — kiedy zaczyna się i kończy „to samo podejście” wariantów?
+
+Trigger:
+- pierwszy PLAN pokazuje 1–3 kandydatów;
+- koordynator uruchamia REPLAN, odrzuca wynik, odświeża aplikację albo wraca
+  do miesiąca później.
+
+Brakująca decyzja:
+- czy „Odrzuć wynik” kończy całe podejście i pozwala nowemu PLAN zacząć od
+  zera, czy usuwa tylko aktualnie widoczny preview, ale nadal pamięta wszystkie
+  warianty już pokazane;
+- czy zwykły reload/restart ma zachować to samo podejście (rekomendacja: tak);
+- czy przy aktywnym podejściu PLAN jest niedostępny, a następne uruchomienie
+  odbywa się wyłącznie przez REPLAN.
+
+Dane:
+Backend musi znać niewidoczne dla użytkownika sygnatury wszystkich kandydatów
+pokazanych w tym podejściu. Obecny PlanPreview zachowuje wyłącznie ostatni
+wynik i następny PLAN/REPLAN go nadpisuje.
+
+UI:
+Bez tej decyzji nie wiadomo, czy po „Odrzuć wynik” pokazać PLAN czy REPLAN i
+czy program może ponownie pokazać odrzucony wcześniej układ.
+
+Failure/recovery:
+Utrata tej pamięci po reloadzie może legalnie według obecnego kodu zwrócić
+wariant bliski już odrzuconemu, co łamie sens „od każdego wcześniej
+pokazanego”.
+
+Proponowane jednoznaczne rozstrzygnięcie do akceptacji OWNERA:
+Podejście zaczyna pierwszy PLAN, trwa przez reloady i wszystkie REPLAN-y,
+a kończy je „Użyj tego grafiku” albo jawne „Odrzuć całe podejście”. W trakcie
+podejścia nie można ponownie wywołać PLAN i ominąć pamięci wariantów.
+
+OD-02 — co widzi koordynator, gdy nie ma już kolejnego wariantu >=15%?
+
+Trigger:
+REPLAN dowodzi, że żaden dalszy kandydat spełniający HARD i próg względem
+wszystkich pokazanych wariantów nie istnieje.
+
+Brakująca decyzja:
+T017 pozwala zwrócić FEASIBLE z 1 albo 2 kandydatami w jednym runie, ale nie
+definiuje odpowiedzi kolejnego, osobnego kliknięcia, w którym nie ma ani
+jednego nowego kandydata.
+
+Dane/UI:
+Nie wolno zapisać ScheduleVersion ani zastąpić ostatniego poprawnego preview
+pustym „sukcesem”. Potrzebny jest zaakceptowany komunikat i dalsze dostępne
+akcje.
+
+Proponowane rozstrzygnięcie:
+Pozostawić ostatni preview i wyświetlić: „Nie ma kolejnego wystarczająco innego
+grafiku spełniającego zasady”. Koordynator może wybrać widoczny wariant albo
+odrzucić całe podejście. Nie tworzyć wersji.
+
+OD-03 — czy można wycofać również grafik FINAL, jeżeli pierwsza służba jeszcze
+się nie rozpoczęła?
+
+Trigger:
+Koordynator zaakceptował i następnie sfinalizował grafik przed początkiem
+miesiąca, po czym zauważył błąd przed pierwszą służbą.
+
+Brakująca decyzja:
+T057 mówi „zaakceptowany, ale nieżywy”, bez rozróżnienia statusu WORKING/FINAL.
+T008 zamraża FINAL bezwarunkowo, zakazuje aktualizacji i fizycznego usunięcia.
+Obecne `excluded_from_history` również nie może ukryć FINAL.
+
+Dane/UI:
+Trzeba ustalić, czy przycisk „Usuń grafik” obejmuje oba statusy. Jeżeli obejmuje
+FINAL, bezpieczna realizacja nie może kasować audytu fizycznie: stary rekord
+powinien pozostać technicznie, ale nie być current/history/restore/export.
+
+Failure/recovery:
+Bez decyzji implementer może albo zablokować najczęstszy przypadek (FINAL
+przed miesiącem), albo osłabić zamrożoną niezmienność FINAL.
+
+Proponowane rozstrzygnięcie:
+Pozwolić wycofać także FINAL przed pierwszą służbą, bez fizycznego kasowania
+audytu; wycofany grafik znika z biznesowej historii/current/restore/export.
+Po pierwszej służbie wycofanie jest niedostępne.
+
+OD-04 — co z L4/urlopem wpisanym po akceptacji, ale przed wycofaniem nieżywego
+grafiku?
+
+Trigger:
+1. zaakceptowano nieżywy grafik;
+2. wpisano L4 albo urlop na przyszły dzień;
+3. T023 zapisał niezmienny odnośnik rozliczeniowy do godzin z tego grafiku;
+4. grafik uznano za błędny i wycofano, a PLAN utworzył inny.
+
+Brakująca decyzja:
+Czy nieobecność nadal liczy godziny według wycofanego błędnego grafiku, czy ma
+zostać związana z nowym? Obecny snapshot T023 jest append-only i celowo nie
+przelicza się sam.
+
+Dane/UI:
+To wpływa na liczbę godzin chorobowego/urlopu pracownika. T057 wyłącza ten
+obszar ze scope, ale jednocześnie autoryzuje operację, która może go zmienić.
+
+Failure/recovery:
+Automatyczne przeliczenie naruszyłoby frozen T023; pozostawienie starego
+odniesienia może rozliczyć pracownika według grafiku uznanego za błędny;
+blokada wycofania wymagałaby jasnego komunikatu i osobnej ścieżki naprawy.
+
+Tu nie ma bezpiecznego domysłu audytora. Wymagana jest jawna decyzja OWNERA.
+
+OD-05 — czy Korekta ręczna przed pierwszą służbą tworzy biznesową historię?
+
+Trigger:
+Zaakceptowany, ale nieżywy grafik zostaje punktowo poprawiony Korektą ręczną.
+
+Brakująca decyzja:
+Obecny `apply_manual_correction()` zawsze tworzy dziecko ScheduleVersion i
+zostawia rodzica w historii. OWNER_RULING mówi jednocześnie, że przed
+ożywieniem „nie ma jeszcze nic do zapisania w historii”, a brief pozostawia
+Korektę ręczną poza zmianami T057.
+
+UI/dane:
+Nie wiadomo, czy poprzedni nieżywy układ ma pozostać na ekranie Historia.
+Po ożywieniu odpowiedź jest już jasna: każda zmiana zachowuje historię.
+
+Proponowane rozstrzygnięcie:
+Przed pierwszą służbą także Korekta ręczna zastępuje biznesowy układ bez
+pokazywania starego w historii (techniczny audyt może pozostać). Od pierwszej
+służby tworzy nowe dziecko i zachowuje rodzica.
+
+OD-06 — co dokładnie liczy się jako „pierwsza służba” i jaka jest data
+obowiązywania nowej wersji po Przelicz Plan?
+
+Trigger:
+Grafik może zawierać PRIMARY, TRAINEE, S1 i CANCELLED; może też być poprawnie
+pusty. Przelicz Plan zaakceptowany w środku miesiąca musi dostać
+`effective_from`, którego używa później m.in. rozliczenie L4/urlopu.
+
+Brakująca decyzja:
+- czy ożywia najwcześniejszy start nieanulowanego PRIMARY, czy także TRAINEE/S1;
+- czy poprawnie pusty zaakceptowany grafik pozostaje nieżywy bezterminowo;
+- czy `effective_from` dziecka Przelicz Plan jest automatycznie lokalną datą
+  kliknięcia „Użyj tego grafiku”, datą podaną przez koordynatora, czy dziedziczy
+  datę rodzica.
+
+UI/failure:
+Od tego zależy widoczność „Przelicz Plan”/„Usuń grafik” i wybór wersji do
+rozliczeń. Różne odpowiedzi mogą zmienić wynik pracownika, więc architekt nie
+może wybrać ich sam.
+
+Proponowane rozstrzygnięcie:
+Ożywia najwcześniejszy start nieanulowanej PRIMARY; pusty grafik pozostaje
+nieżywy; dziecko Przelicz Plan dostaje lokalną datę jego akceptacji bez
+ręcznego pola. To wymaga akceptacji OWNERA.
+
+========================================================================
+4. TECHNICAL_ONLY — WSTĘPNA KONSOLIDACJA / ISTNIEJĄCY OWNER
+========================================================================
+
+Formalny PRE_IMPLEMENTATION_REDUCTION_GATE nie został zakończony, ponieważ
+decyzje OD-01..OD-06 nie są jeszcze zamrożone. Poniższe punkty są mechanicznym
+wynikiem wyszukania istniejących ownerów; po decyzjach trzeba wykonać gate raz
+na poprawionym, zamkniętym kontrakcie.
+
+TO-01 — akceptacji nie trzeba modelować nową tabelą ani statusem.
+
+Istniejący, trwały `SCHEDULE_CANDIDATE_SELECTED` jest już frozen dowodem
+akceptacji (T023). Należy go nadal zapisać atomowo z utworzeniem wybranej
+ScheduleVersion.
+
+TO-02 — istniejący PlanPreview nie wystarcza bez rozszerzenia.
+
+Tabela ma FK do już istniejącej ScheduleVersion i przechowuje tylko ostatni
+wynik. T057 wymaga jednocześnie:
+
+- 0 ScheduleVersion przed akceptacją;
+- trwałego preview po reloadzie;
+- pamięci wszystkich pokazanych sygnatur w aktywnym podejściu.
+
+Kandydaci preview muszą więc dostać techniczny scope niezależny od
+ScheduleVersion i zostać przestemplowani na nowy version_id dopiero przy
+akceptacji. Najmniejszym kierunkiem jest rozszerzenie istniejącego seam’u
+preview/attempt, nie trzeci równoległy magazyn. Ostateczny kształt zależy od
+OD-01.
+
+TO-03 — miara 15% ma jednego ownera.
+
+Kanoniczne wyliczenie i cuts są w `rota/planning/solver.py`. Application,
+persistence i frontend mogą przenosić sygnatury/identyfikator podejścia, ale
+nie mogą implementować drugiej definicji różnicy.
+
+TO-04 — current/history mają istniejących ownerów.
+
+Tworzenie oraz atomowe ustawienie current należy do
+`rota/persistence/schedule_lifecycle.py`; odczyt i filtr historii do
+`rota/persistence/schedule_repository.py`. Router/UI nie powinny pisać SQL ani
+samodzielnie decydować, czy wersja jest przywracalna.
+
+TO-05 — twardy cutover można skonsolidować.
+
+Obecne `_replan_cutover_violations` i pinning w solverze realizują tę samą
+klasę ochrony, ale są uzależnione od starego REPLAN/parent_version_id. T057
+powinien przenieść tę istniejącą ochronę do Przelicz Plan, bez drugiej macierzy
+HARD w nowej warstwie.
+
+TO-06 — nie rozszerzać Korekty ręcznej o nowe pola ani reguły.
+
+Jeżeli OD-05 potwierdzi różne wersjonowanie przed/po live, zmiana w
+`manual_edit.py` dotyczy tylko wyboru persistence path. Autoryzacja konkretnych
+zmian po rozpoczęciu służby nadal należy do osobnego kontraktu; T057 nie może
+jej poszerzyć.
+
+TO-07 — limit pliku wymaga jawnego seam’u.
+
+`rota/application/plan_ops.py` ma już 593 linie. T057 nie zmieści realnej nowej
+orkiestracji w 7 liniach. Literalny TASK_SCOPE musi dopuścić jeden mały moduł
+application odpowiedzialny za fazę live/attempt albo jawne wydzielenie
+istniejących helperów. To powód odpowiedzialności, nie refaktor „przy okazji”.
+
+========================================================================
+5. FIRST EXECUTION GATE — KOREKTY KONTRAKTU
+========================================================================
+
+E1–E5 są wartościowe, lecz przed handoffem trzeba dopisać:
+
+1. E1-F: pierwszy PLAN kończy się DECISION_REQUIRED/TECHNICAL_ERROR albo
+   kontrolowanym wyjątkiem persistence — nadal 0 ScheduleVersion/current;
+   czytelny ekran pozwala poprawić dane i ponowić PLAN.
+2. E2 musi testować granicę podejścia po reloadzie i po „Odrzuć”, zgodnie z
+   OD-01, oraz zachowanie po wyczerpaniu wariantów z OD-02.
+3. E3 musi osobno przejść WORKING i FINAL, jeśli OD-03 dopuści oba.
+4. E3 musi objąć przypadek istniejącego snapshotu L4/urlopu albo jawnie
+   potwierdzoną blokadę tej operacji zgodnie z OD-04.
+5. E4 ma załączyć widok/druk starego i nowego grafiku obok siebie. Liczba
+   zmienionych placementów i zielony test nie wystarczają do oceny, czy
+   koordynator rzeczywiście dostał sensowną minimalną korektę.
+6. Każdy gate ma sprawdzić również bezpośredni endpoint: UI nie może być
+   jedyną blokadą niewłaściwej operacji.
+
+========================================================================
+6. PROWIZORYCZNY MINIMALNY TASK_SCOPE
+========================================================================
+
+Nie wolno go jeszcze zamrozić przed OD-01..OD-06. Niezależnie od odpowiedzi
+konieczne są:
+
+PRODUCTION:
+- rota/application/plan_ops.py
+- rota/persistence/plan_preview_repository.py
+- rota/persistence/db.py
+- rota/persistence/schedule_lifecycle.py
+- rota/persistence/schedule_repository.py
+- rota/planning/engine.py
+- rota/planning/solver.py
+- rota/planning/replan_reshuffle.py (tylko współdzielone helpery miary/cutover,
+  jeżeli wydzielenie jest konieczne; bez nowej semantyki)
+- api/routers/schedule.py
+- frontend/src/api/client.ts
+- frontend/src/screens/MonthlyPlanning.tsx
+- maksymalnie jeden mały nowy moduł application dla wspólnej klasyfikacji
+  fazy live/attempt, jeżeli plan_ops.py nie może pozostać ownerem bez
+  przekroczenia size gate.
+
+WARUNKOWO PO DECYZJACH:
+- rota/application/open_month.py — jeśli backend zwróci jedną kanoniczną fazę
+  lifecycle/allowed actions do UI;
+- rota/application/lifecycle_ops.py — wycofanie nieżywego current;
+- rota/application/manual_edit.py — tylko gdy OD-05 zmienia wersjonowanie
+  Korekty ręcznej przed live;
+- rota/persistence/site_memory.py i/lub mała migracja audytu wycofania — tylko
+  gdy OD-03 wymaga logicznego wycofania FINAL;
+- rota/persistence/absence_reference_repository.py — wyłącznie według jawnej
+  decyzji OD-04, nigdy jako ukryta część T057;
+- rota/domain.py — tylko jeżeli architekt udowodni konieczność nowego
+  technicznego pola/stanu; obecny acceptance proof nie wymaga nowego statusu.
+
+TESTS/EVIDENCE:
+- nowy wąski test application/persistence lifecycle T057;
+- jeden pion API z realnym SQLite;
+- istniejący minimalny test UI/e2e rozszerzony o widoczność właściwych akcji;
+- regresje wybranych oracles T017, T023 cutover, T031 API, T041 lifecycle i
+  T054 preview; nie kopiować całych tych macierzy do nowych testów;
+- artefakty E1–E5 oraz widok/druk porównawczy E4.
+
+Nie są konieczne zmiany w analytics/export/history routerach, jeżeli ich
+istniejące odczyty current/history automatycznie respektują poprawiony owner
+persistence. Mają być sprawdzone pionowo, nie duplikowane walidacją.
+
+========================================================================
+7. WHERE_MAP — WYNIK
+========================================================================
+
+Briefowy blok TARGETS zawiera opisy warstw, a AGENTS.md wymaga literalnych
+ścieżek plików. Mapowanie wykonano mechanicznie na code base SHA poleceniami:
+
+- .venv/Scripts/python.exe where.py rota/application/plan_ops.py
+- .venv/Scripts/python.exe where.py rota/application/plan_ops.py --symbol plan_month
+- .venv/Scripts/python.exe where.py rota/application/plan_ops.py --symbol select_candidate
+- .venv/Scripts/python.exe where.py rota/application/plan_ops.py --symbol replan
+- .venv/Scripts/python.exe where.py rota/persistence/plan_preview_repository.py --symbol PlanPreview
+- .venv/Scripts/python.exe where.py rota/persistence/schedule_lifecycle.py --symbol create_schedule_version
+- .venv/Scripts/python.exe where.py frontend/src/screens/MonthlyPlanning.tsx
+- .venv/Scripts/python.exe where.py api/routers/schedule.py
+
+Surowe trafienia odczytano w kodzie. Najważniejsze właścicielstwa:
+
+- UI wywołuje `planMonth`, `replanMonth`, retry/wide i `selectCandidate` w
+  `MonthlyPlanning.tsx`;
+- router deleguje je do `plan_ops.py`;
+- `plan_month` dziś tworzy pustą wersję przed solverem;
+- `replan` dziś tworzy current child przed solverem;
+- `select_candidate` dziś podmienia current WORKING w miejscu;
+- `PlanPreview` ma FK do ScheduleVersion i upsert jednego ostatniego wyniku;
+- `create_schedule_version` jest atomowym ownerem header+content+current;
+- lista historii respektuje wyłącznie istniejące `excluded_from_history`;
+- T017 diversity istnieje wewnątrz jednego modelu/runu, nie pomiędzy
+  kolejnymi requestami.
+
+Po decyzjach architekt powinien zastąpić opisowy WHERE_MAP literalnymi
+ścieżkami i symbolami z sekcji 6, usunąć pozycje warunkowe, które nie będą
+potrzebne, i dopiero wtedy zamrozić TASK_SCOPE.
+
+========================================================================
+8. UNAUTHORIZED / SAFETY_PRIVACY
+========================================================================
+
+UNAUTHORIZED:
+- brak kodu produktu w dostawie;
+- nie autoryzować fizycznego kasowania ScheduleVersion ani osłabienia
+  niezmienności FINAL jako technicznego skrótu;
+- nie autoryzować drugiej miary 15% ani frontendowego liczenia, któremu można
+  wysłać zmanipulowane dane.
+
+SAFETY_PRIVACY:
+- nie znaleziono nowego ryzyka prywatności w briefie;
+- OD-04 jest ryzykiem poprawności rozliczenia pracownika, dlatego nie może
+  zostać pozostawione do decyzji implementera.
+
+========================================================================
+9. NASTĘPNY KROK
+========================================================================
+
+Brak PASS/FAIL zgodnie z OWNER_EXPLANATION_GATE. Po odpowiedzi OWNERA na
+OD-01..OD-06 wystarczy jedna mechaniczna korekta briefu przez architekta i
+jeden wąski re-check Codexa. Implementacja pozostaje HOLD.
