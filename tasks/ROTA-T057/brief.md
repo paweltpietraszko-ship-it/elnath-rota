@@ -10,6 +10,7 @@ PREIMPLEMENTATION_PASS: `tasks/ROTA-T057/round_01/tests/tests_r3.txt` @ `64dc390
 - `arch/FINDING_2026-09-05_PLAN_VS_REPLAN_LIFECYCLE.md` — materiał dowodowy o obecnym kodzie, NIE źródło zakresu produktu
 - `arch/FROZEN_ADDENDUM_MULTI_VARIANT_PLAN_01.md` — istniejący próg 15% różnicy wariantów
 - `tasks/ROTA-T057/round_01/tests/tests_r3.txt` — PASS preimplementation i minimalne seamy
+- `tasks/ROTA-T057/round_01/tests/tests_r4.txt` — wąski reaudyt scope; trzy korekty mechaniczne, bez nowej decyzji produktowej
 
 ## 1. Cel
 
@@ -225,10 +226,11 @@ Poza T057:
 
 Jeżeli implementacja wymaga któregoś z tych tematów lub pliku poza TASK_SCOPE, STOP i powrót do architekta przed zmianą.
 
-## 10. WHERE_MAP — zamknięty po R3
+## 10. WHERE_MAP — wykonany w preimplementation audit
 
 WHERE_MAP:
-- MODE: SATISFIED
+- MODE: REQUIRED
+- EXECUTION_STATUS: SATISFIED_BY_R3
 - TARGETS:
   - `rota/application/plan_ops.py`: PLAN/REPLAN/accept/reject flow
   - `rota/application/planning_lifecycle.py`: nowy mały owner faz i aktywnego podejścia
@@ -244,11 +246,14 @@ WHERE_MAP:
 
 ## 11. EXACT TASK_SCOPE — FROZEN
 
-TASK_SCOPE:
+READ_ONLY_EVIDENCE:
 - tasks/ROTA-T057/brief.md
 - tasks/ROTA-T057/round_01/tests/tests_r1.txt
 - tasks/ROTA-T057/round_01/tests/tests_r2.txt
 - tasks/ROTA-T057/round_01/tests/tests_r3.txt
+- tasks/ROTA-T057/round_01/tests/tests_r4.txt
+
+TASK_SCOPE:
 - rota/application/plan_ops.py
 - rota/application/planning_lifecycle.py
 - rota/application/lifecycle_ops.py
@@ -273,6 +278,11 @@ TASK_SCOPE:
 - tests/test_t033_replan_must_differ.py
 - tests/test_t041_checkpoint_a.py
 - tests/test_t041_checkpoint_b.py
+- tests/test_t009_plan_select_replan.py
+- tests/test_t031_schedule_api.py
+- tests/test_audit_t009_r6.py
+- tests/test_t019b.py
+- tests/test_t023_checkpoint_b.py
 - frontend/e2e/monthly-planning.spec.ts
 - tasks/ROTA-T057/round_01/execution_e1.md
 - tasks/ROTA-T057/round_01/execution_e2.md
@@ -280,4 +290,4 @@ TASK_SCOPE:
 - tasks/ROTA-T057/round_01/execution_e4.md
 - tasks/ROTA-T057/round_01/execution_e5.md
 
-Nie edytować innych istniejących testów „na wszelki wypadek”. Jeśli implementacja naprawdę wymaga pliku spoza tej listy, architekt aktualizuje TASK_SCOPE przed pierwszą zmianą tego pliku.
+Nie edytować innych istniejących testów „na wszelki wypadek”. Pięć testów dodanych po R4 wolno zmienić wyłącznie tam, gdzie ich istniejące oczekiwania zostały literalnie zastąpione przez T057 albo bezpośrednio testują przenoszony cutover. Jeśli implementacja naprawdę wymaga pliku spoza tej listy, architekt aktualizuje TASK_SCOPE przed pierwszą zmianą tego pliku.
