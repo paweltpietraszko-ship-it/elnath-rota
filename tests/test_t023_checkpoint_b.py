@@ -268,7 +268,16 @@ def test_t23_r5_3e_cutover_timestamp_equals_recorded_at(tmp_path, monkeypatch) -
     assert matching[-1].recorded_at == fixed_now
 
 
-def test_t23_r5_3f_initial_plan_not_subject_to_cutover_guard(tmp_path) -> None:
+def test_t23_r5_3f_root_version_is_subject_to_cutover_guard(tmp_path) -> None:
+    """ROTA-T057 (Codex audit R8-02, fixed 2026-09-06): a root version
+    (parent_version_id=None) used to be exempt from this guard, on the
+    theory that a version's very first acceptance can never have anything
+    already-started yet. That stopped being true once Przelicz Plan started
+    recomputing an EXISTING, possibly already-live root repeatedly -- a
+    candidate computed before a service starts can still be ACCEPTED after
+    it starts, and this guard is exactly the acceptance-time check for that
+    race. Mutating an already-started root PRIMARY is now rejected the same
+    way T23-R5-3C already rejects it for a REPLAN child."""
     conn = _setup(tmp_path)
     _seed_full_month_calendar(conn, PAST_MONTH, PAST_MONTH)
     demand = ShiftDemand("D-PAST", "SV-1", PAST, PAST_END, 1)
@@ -278,12 +287,9 @@ def test_t23_r5_3f_initial_plan_not_subject_to_cutover_guard(tmp_path) -> None:
         created_at=datetime(2020, 1, 1, 8, 0), created_by=COORDINATOR, applied_rule_version_ids=[],
         shift_demands=[demand], assignments=[assignment], deviations=[], effective_from=PAST_MONTH,
     )
-    mutated = replace(assignment, frozen=True)  # rejected on a REPLAN child per T23-R5-3C; here parent_version_id is None, so R5-3 does not apply
-    selected = plan_ops.select_candidate(conn, site_id=SITE, month=PAST_MONTH, candidate=[mutated], coordinator_id=COORDINATOR)
-    # ROTA-T057: acceptance always creates a new child now, even from a
-    # parentless base version -- SV-1 stays in history, untouched.
-    assert selected.version_id != "SV-1"
-    assert selected.parent_version_id == "SV-1"
+    mutated = replace(assignment, frozen=True)
+    with pytest.raises(CandidateRejected):
+        plan_ops.select_candidate(conn, site_id=SITE, month=PAST_MONTH, candidate=[mutated], coordinator_id=COORDINATOR)
 
 
 # --- T23-50..54 HARD / regressions -------------------------------------------

@@ -221,7 +221,13 @@ def test_t23b_09_selected_candidate_adopts_current_site_regime():
     d1, a1 = _planned(1, 5, 17)
     _create_version(conn, [d1], [a1])
     correct_site_planning_regime(conn, coordinator_id="COORD-1", site_id="SITE-1", planning_regime=SitePlanningRegime.OCHRONA)
-    header = select_candidate(conn, site_id="SITE-1", month=MONTH, candidate=[a1], coordinator_id="COORD-1")
+    # ROTA-T057 (Codex audit R8-02): the cutover guard now also runs for a
+    # root version -- the candidate must carry the SAME schedule_version_id
+    # as what is actually stored ("SV-1", stamped by create_schedule_version),
+    # not a1's own uninitialized "" from the _planned() helper, or an
+    # unrelated field mismatch would be misread as a real mutation.
+    stored = sr.get_schedule_snapshot(conn, "SV-1").assignments
+    header = select_candidate(conn, site_id="SITE-1", month=MONTH, candidate=stored, coordinator_id="COORD-1")
     assert header.planning_regime == SitePlanningRegime.OCHRONA
     assert sr.version_requires_regime_replan(conn, header.version_id) is False
 

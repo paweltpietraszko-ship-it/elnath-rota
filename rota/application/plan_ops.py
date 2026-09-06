@@ -149,12 +149,20 @@ def reject_plan_preview(conn, *, site_id: str, month: date, coordinator_id: str)
 
 
 def _require_working_or_absent(conn, site_id: str, month: date) -> str | None:
+    """ROTA-T057 (Codex audit R8-01): a live grafik's ONLY solver-driven
+    operation is Przelicz Plan, regardless of WORKING/FINAL -- REPLAN is
+    retired once anything is accepted (_require_no_current_for_replan), so
+    blocking a live FINAL here left it with no recompute path at all. A
+    FINAL that is NOT YET live still has nothing for Przelicz Plan to
+    protect and belongs to "delete + PLAN again" instead (not yet built)."""
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         return None
     header = get_schedule_version_header(conn, current_id)
-    if header.status.value.startswith("FINAL"):
-        raise ScheduleVersionNotWorking(f"{current_id} is FINAL; use REPLAN to create a new WORKING child")
+    if header.status.value.startswith("FINAL") and not is_schedule_version_live(conn, current_id, now=datetime.now()):
+        raise ScheduleVersionNotWorking(
+            f"{current_id} is FINAL and not yet live; delete it and PLAN again instead of Przelicz Plan"
+        )
     return current_id
 
 
@@ -315,8 +323,17 @@ def plan_month(
     result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
     )
+    # ROTA-T057 (Codex audit R8-03): the accepted child must carry ITS OWN
+    # coordinator "Obowiazuje od", never silently inherit the parent's --
+    # T009 review_01/review_02's own-effective-date rule for a new
+    # ScheduleVersion is not waived by T057. effective_from is optional here
+    # (existing callers recompute without resupplying it); when omitted,
+    # today is the coordinator-facing default for "this correction takes
+    # effect from now" -- never the parent's original, possibly ancient date.
+    recompute_effective_from = effective_from if effective_from is not None else date.today()
     return _persist_plan_preview(
         conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="plan",
+        effective_from=recompute_effective_from,
     )
 
 
@@ -401,8 +418,17 @@ def _replan_cutover_violations(
 
 
 def _enforce_replan_cutover(header: ScheduleVersion, prior: tuple, candidate: list[Assignment], cutover_at: datetime) -> None:
-    if header.parent_version_id is None:
-        return
+    """ROTA-T057 (Codex audit R8-02): the `header.parent_version_id is None`
+    skip used to be correct -- a root version's very first acceptance can
+    never have anything "already started" yet. It stopped being correct the
+    moment Przelicz Plan started recomputing an EXISTING, possibly already
+    live root version repeatedly: a candidate computed at T1 can still be
+    accepted at T2 > T1, after a service in it has since started, and this
+    guard is exactly the acceptance-time check that must catch that race
+    regardless of whether the version being extended has a parent.
+    _replan_cutover_violations itself already only reports real overlaps
+    with cutover_at, so removing the skip is safe for a genuinely fresh
+    root with nothing pre-cutover yet -- it simply finds nothing to reject."""
     cutover_violations = _replan_cutover_violations(prior, candidate, cutover_at)
     if cutover_violations:
         raise CandidateRejected("; ".join(cutover_violations))
@@ -529,6 +555,12 @@ def select_candidate(
     # already live; a not-yet-live accepted grafik simply gains a harmless
     # extra history entry.
     header = get_schedule_version_header(conn, current_id)
+    # ROTA-T057 (Codex audit R8-03): the accepted child gets its OWN
+    # coordinator "Obowiazuje od" -- never the parent's, which plan_month
+    # now stores on the preview for exactly this handoff (defaults to today
+    # if the coordinator never supplied one at Przelicz Plan time).
+    preview = plan_preview_repository.get_plan_preview(conn, site_id, month)
+    child_effective_from = preview.effective_from if preview is not None and preview.effective_from is not None else date.today()
     child_id = f"SV-{uuid.uuid4().hex}"
     stamped_demands = [replace(d, schedule_version_id=child_id) for d in state.shift_demands]
     stamped_candidate = [replace(a, schedule_version_id=child_id) for a in candidate]
@@ -544,7 +576,7 @@ def select_candidate(
         site_id=site_id, month=month, coordinator_id=coordinator_id, version_id=child_id,
         before_state=before_state, after_state=after_state, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=recorded_at,
-        planning_regime=state.site.planning_regime, effective_from=header.effective_from,
+        planning_regime=state.site.planning_regime, effective_from=child_effective_from,
     )
     pre_check = _replan_cutover_pre_check(
         current_id=current_id, header=header, candidate=candidate, cutover_at=cutover_at,
@@ -555,7 +587,7 @@ def select_candidate(
         created_at=recorded_at, created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=stamped_demands, assignments=stamped_candidate, deviations=[],
-        effective_from=header.effective_from, on_success=hook, pre_check=pre_check,
+        effective_from=child_effective_from, on_success=hook, pre_check=pre_check,
     )
 
 
