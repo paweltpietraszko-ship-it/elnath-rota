@@ -13,6 +13,7 @@ from rota.application.context import require_active_coordinator_context
 from rota.application.errors import (
     CandidateRejected,
     NoCurrentScheduleVersion,
+    ReplanNotAvailableAfterAcceptance,
     ScheduleVersionNotWorking,
     require_real_date,
 )
@@ -24,6 +25,7 @@ from rota.persistence.schedule_repository import (
     get_current_version_id,
     get_schedule_snapshot,
     get_schedule_version_header,
+    is_schedule_version_live,
     set_schedule_version_planning_regime_in_open_transaction,
 )
 from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
@@ -299,6 +301,15 @@ def plan_month(
         )
         current_id = fresh_id
         state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
+    # ROTA-T057 (BOARD.md OWNER_RULING + Royal finding, 2026-09-06): this is
+    # "Przelicz Plan" the moment the current grafik is already live (its own
+    # first real shift has started) -- from here on, already-started
+    # services must be hard-protected regardless of today's eligibility
+    # rules, never merely soft-preferred to keep. A not-yet-live current
+    # (accepted but not started) has nothing to protect yet.
+    now = datetime.now()
+    if is_schedule_version_live(conn, current_id, now=now):
+        state = replace(state, cutover_at=now)
     result = plan(state, search_attempt=search_attempt)
     result.warnings = list(assembler_warnings) + list(result.warnings)  # see note above
     result = _persist_decision_readback(
@@ -400,8 +411,8 @@ def _enforce_replan_cutover(header: ScheduleVersion, prior: tuple, candidate: li
 def _replan_cutover_pre_check(
     *, current_id, header, candidate, cutover_at, site_id, responds_to_decision_required_id,
 ):
-    """B-R12-2: the cutover comparison must run against the child snapshot
-    CURRENT inside the same atomic replace_working_snapshot transaction it
+    """B-R12-2: the cutover comparison must run against the CURRENT version's
+    snapshot inside the same atomic create_schedule_version transaction it
     guards, not against a `state.existing_assignments` read taken earlier --
     otherwise a concurrent write between that read and this transaction can
     make the checked snapshot stale."""
@@ -415,47 +426,22 @@ def _replan_cutover_pre_check(
     return _check
 
 
-def _select_candidate_hook(
-    *, site_id, month, coordinator_id, header, current_id, before_state, after_state, note,
-    responds_to_decision_required_id, recorded_at, planning_regime,
-):
-    def _hook(open_conn) -> None:
-        # ROTA-T023b (frozen addendum section 4, 'provenance adoption on
-        # selected candidate'): this fresh, freshly-validated candidate
-        # write is the ONLY normal automatic path that may promote an
-        # old-regime WORKING plan -- revalidate/finalize/restore/manual
-        # child creation must never call this primitive.
-        set_schedule_version_planning_regime_in_open_transaction(
-            open_conn, version_id=current_id, planning_regime=planning_regime,
-        )
-        site_memory.record_coordinator_action_no_commit(
-            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED, origin_site_id=site_id,
-            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=header.effective_from, month=month, schedule_version_id=current_id,
-            affected_entities=[AffectedEntity("SCHEDULE_VERSION", current_id)],
-            before_state=before_state, after_state=after_state, note=note,
-            source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=current_id,
-            responds_to_decision_required_id=responds_to_decision_required_id,
-        )
-        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
-        # ROTA-T054 (brief section 5, "SELECT CANDIDATE", OWNER decision 6):
-        # the accepted preview is removed in the SAME atomic write that
-        # accepts it, so no "ghost" of an already-accepted preview can
-        # survive a reload. A select that fails never reaches this hook, so
-        # the preview correctly stays (T54-05).
-        plan_preview_repository.delete_plan_preview_in_open_transaction(open_conn, site_id, month)
-
-    return _hook
-
-
 def _select_first_candidate_hook(
     *, site_id, month, coordinator_id, version_id, before_state, after_state, note,
     responds_to_decision_required_id, recorded_at, planning_regime, effective_from,
 ):
-    """ROTA-T057 (T57-01): counterpart of _select_candidate_hook for the
-    first-ever acceptance of a (site_id, month) -- no prior header/current_id
-    exists yet, so this also clears the pre-acceptance attempt memory
-    (plan_attempt_signatures), not just the preview row."""
+    """ROTA-T057: the on_success hook for EVERY candidate acceptance --
+    the very first ScheduleVersion of a (site_id, month), and (since
+    OWNER_RULING 2026-09-06) every subsequent Przelicz Plan acceptance too,
+    which now always creates a new child instead of overwriting the parent
+    in place. version_id is always the version just created by
+    create_schedule_version, never an existing one.
+
+    ROTA-T023b (frozen addendum section 4, 'provenance adoption on selected
+    candidate'): this fresh, freshly-validated candidate write is the ONLY
+    normal automatic path that may promote an old-regime WORKING plan --
+    revalidate/finalize/restore/manual child creation must never call this
+    primitive."""
     def _hook(open_conn) -> None:
         set_schedule_version_planning_regime_in_open_transaction(
             open_conn, version_id=version_id, planning_regime=planning_regime,
@@ -480,11 +466,14 @@ def select_candidate(
     conn, *, site_id: str, month: date, candidate: list[Assignment], coordinator_id: str,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> ScheduleVersion:
-    """Operation 4. Persists a coordinator-chosen FEASIBLE candidate onto
-    the current WORKING version in place -- this fills in a version that
-    was already created empty/ephemeral by PLAN and has not yet been shown
-    as a real schedule, so it is not the "material correction" the owner
-    versioning rule (review_01) targets; that rule governs operation 8.
+    """Operation 4. Persists a coordinator-chosen FEASIBLE candidate.
+
+    ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): no branch ever overwrites
+    existing content in place any more. If no ScheduleVersion exists yet for
+    (site_id, month), this creates the very first one. Otherwise it always
+    creates exactly one new child from the current version and keeps the
+    parent in history forever (Przelicz Plan acceptance) -- never the
+    in-place replace_working_snapshot this operation used before T057.
 
     ROTA-T019b section 14: coordinator_id is now required -- the previous
     fallback to the ScheduleVersion's own created_by is removed. No other
@@ -533,7 +522,16 @@ def select_candidate(
             ),
         )
 
+    # ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, section 6c): accepting a
+    # Przelicz Plan result always creates exactly ONE new child version and
+    # keeps the parent in history forever -- never overwrites the parent's
+    # own content in place. This applies regardless of whether the parent is
+    # already live; a not-yet-live accepted grafik simply gains a harmless
+    # extra history entry.
     header = get_schedule_version_header(conn, current_id)
+    child_id = f"SV-{uuid.uuid4().hex}"
+    stamped_demands = [replace(d, schedule_version_id=child_id) for d in state.shift_demands]
+    stamped_candidate = [replace(a, schedule_version_id=child_id) for a in candidate]
     before_state, after_state = _candidate_delta(state.existing_assignments, candidate)
     # R5-3/section 10.1: cutover_at is captured once, immediately before the
     # cutover-preservation check and the snapshot replacement it guards, and
@@ -542,146 +540,118 @@ def select_candidate(
     # snapshot current in that same atomic transaction -- not here.
     cutover_at = datetime.now()
     recorded_at = cutover_at
-    hook = _select_candidate_hook(
-        site_id=site_id, month=month, coordinator_id=coordinator_id, header=header, current_id=current_id,
+    hook = _select_first_candidate_hook(
+        site_id=site_id, month=month, coordinator_id=coordinator_id, version_id=child_id,
         before_state=before_state, after_state=after_state, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=recorded_at,
-        planning_regime=state.site.planning_regime,
+        planning_regime=state.site.planning_regime, effective_from=header.effective_from,
     )
     pre_check = _replan_cutover_pre_check(
         current_id=current_id, header=header, candidate=candidate, cutover_at=cutover_at,
         site_id=site_id, responds_to_decision_required_id=responds_to_decision_required_id,
     )
-    return lifecycle.replace_working_snapshot(
-        conn, version_id=current_id, applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
-        shift_demands=state.shift_demands, assignments=candidate, deviations=[], on_success=hook,
-        pre_check=pre_check,
+    return lifecycle.create_schedule_version(
+        conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
+        created_at=recorded_at, created_by=coordinator_id,
+        applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
+        shift_demands=stamped_demands, assignments=stamped_candidate, deviations=[],
+        effective_from=header.effective_from, on_success=hook, pre_check=pre_check,
     )
 
 
-def _replan_action_hook(*, site_id, month, coordinator_id, effective_from, current_id, child_id, note, responds_to_decision_required_id, recorded_at):
-    def _hook(open_conn) -> None:
-        site_memory.record_coordinator_action_no_commit(
-            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_REPLAN_CREATED, origin_site_id=site_id,
-            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
-            effective_from=effective_from, month=month, schedule_version_id=child_id,
-            affected_entities=[AffectedEntity("SCHEDULE_VERSION", child_id)],
-            before_state={"current_version_id": current_id}, after_state={"current_version_id": child_id},
-            note=note, source_kind=ActionSourceKind.SCHEDULE_VERSION, source_id=child_id,
-            responds_to_decision_required_id=responds_to_decision_required_id,
+def _require_no_current_for_replan(conn, site_id: str, month: date) -> None:
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN only exists
+    before a month's first-ever acceptance. Once anything has been
+    accepted, the only solver-driven operation is Przelicz Plan
+    (plan_month). The old behavior here -- clone the parent's raw content
+    as a new "current" child BEFORE the solver ever ran, bypassing the
+    independent validator entirely -- is exactly the mechanism a real
+    click-through caught silently carrying forward a now-illegal assignment
+    (Royal object finding, 2026-09-06). Retired, not fixed in place: this
+    class of bug is structural, not a one-off to patch."""
+    if get_current_version_id(conn, site_id, month) is not None:
+        raise ReplanNotAvailableAfterAcceptance(
+            f"({site_id}, {month}) already has an accepted ScheduleVersion -- use Przelicz Plan (plan_month), not REPLAN"
         )
-        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
 
-    return _hook
+
+def _replan_preacceptance(
+    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date | None,
+    solve_fn, operation_kind: plan_preview_repository.OperationKind, search_attempt: int = 0,
+) -> PlanningResult:
+    """ROTA-T057 2.2 OWNER_RULING: shared mechanics for replan()/
+    replan_retry_narrow()/replan_wider_search() -- REPLAN before the
+    month's first-ever acceptance never creates a ScheduleVersion, only a
+    plan_preview keyed by (site_id, month) with schedule_version_id=None,
+    same preview-only discipline as plan_month's own no-current-version
+    branch. An empty existing_assignments baseline makes
+    plan_requiring_different_result_narrow/_wide solve like plain PLAN
+    (their own documented behavior), which is correct here: nothing has
+    been shown in-process yet for the solver's own baseline-diversity
+    check.
+
+    effective_from, when not explicitly supplied (retry/wider-search calls
+    continuing an already-started podejscie), is read back from whatever
+    preview already exists for it -- those calls never resupply it.
+
+    KNOWN GAP, next increment: this does not yet enforce >=15% against
+    every plan_attempt_signatures entry from earlier in this same
+    podejscie -- only _record_shown_variants below grows that memory;
+    nothing reads it back into the solver yet."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    _require_no_current_for_replan(conn, site_id, month)
+    if effective_from is None:
+        existing_preview = plan_preview_repository.get_plan_preview(conn, site_id, month)
+        effective_from = existing_preview.effective_from if existing_preview is not None else None
+    state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
+    placeholder_id = f"SV-{uuid.uuid4().hex}"
+    demands = tuple(replace(d, schedule_version_id=placeholder_id) for d in state.shift_demands)
+    state = replace(state, schedule_version_id=placeholder_id, shift_demands=demands)
+    result = solve_fn(state, search_attempt=search_attempt)
+    result.warnings = list(assembler_warnings) + list(result.warnings)
+    result = _persist_decision_readback(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=None, result=result,
+    )
+    _record_shown_variants(conn, site_id, month, result)
+    return _persist_plan_preview(
+        conn, site_id=site_id, month=month, schedule_version_id=None, result=result,
+        operation_kind=operation_kind, effective_from=effective_from, shift_demands=demands,
+    )
 
 
 def replan(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> PlanningResult:
-    """Operation 5. Always creates a new WORKING child cloned from the
-    current version's complete content before calling plan(); T008/T006
-    invariants are then enforced by create_schedule_version()/plan()
-    themselves. Never auto-saves the returned candidate.
-
-    R4-1/R6-1: every assemble_planning_state read must happen BEFORE
-    create_schedule_version writes the child (rows can never be physically
-    deleted), and its shift_demands/existing_assignments/deviations are
-    re-stamped in memory to the child's real id first, so a later
-    ASSIGN-03/04 check does not see every fixed fact as "modified" purely
-    by scope."""
-    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    """Operation 5. ROTA-T057: only usable before this month's first-ever
+    acceptance (see _require_no_current_for_replan) -- never creates a
+    ScheduleVersion, only a plan_preview. note/responds_to_decision_required_id
+    are accepted for API-compatibility but unused: nothing is persisted here
+    for them to attach to until acceptance."""
     require_real_date(effective_from)
-    current_id = get_current_version_id(conn, site_id, month)
-    if current_id is None:
-        # ROTA-T057 2.2 OWNER_RULING: REPLAN before the month's first-ever
-        # acceptance must work even when no ScheduleVersion exists yet (e.g.
-        # right after a DECISION_REQUIRED first PLAN) -- never creates one,
-        # same preview-only discipline as plan_month's own current_id-is-None
-        # branch. An empty existing_assignments baseline makes
-        # plan_requiring_different_result_narrow solve like plain PLAN (its
-        # own documented behavior), which is correct here: nothing has been
-        # shown in-process yet for the solver's own baseline-diversity check.
-        # KNOWN GAP, next increment: this does not yet enforce >=15% against
-        # every plan_attempt_signatures entry from earlier in this same
-        # podejscie -- only _record_shown_variants below grows that memory;
-        # nothing reads it back into the solver yet.
-        state, assembler_warnings = assemble_planning_state(conn, site_id=site_id, month=month)
-        placeholder_id = f"SV-{uuid.uuid4().hex}"
-        demands = tuple(replace(d, schedule_version_id=placeholder_id) for d in state.shift_demands)
-        state = replace(state, schedule_version_id=placeholder_id, shift_demands=demands)
-        result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now())
-        result.warnings = list(assembler_warnings) + list(result.warnings)
-        result = _persist_decision_readback(
-            conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
-            schedule_version_id=None, result=result,
-        )
-        _record_shown_variants(conn, site_id, month, result)
-        return _persist_plan_preview(
-            conn, site_id=site_id, month=month, schedule_version_id=None, result=result,
-            operation_kind="replan_narrow", effective_from=effective_from, shift_demands=demands,
-        )
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)  # pre-write; scoped to parent
-    child_id = f"SV-{uuid.uuid4().hex}"
-    demands = tuple(replace(d, schedule_version_id=child_id) for d in state.shift_demands)
-    existing = tuple(replace(a, schedule_version_id=child_id) for a in state.existing_assignments)
-    deviations = tuple(replace(d, schedule_version_id=child_id) for d in state.deviations)
-    state = replace(
-        state, schedule_version_id=child_id, shift_demands=demands,
-        existing_assignments=existing, deviations=deviations,
-    )
-    hook = _replan_action_hook(
-        site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        current_id=current_id, child_id=child_id, note=note,
-        responds_to_decision_required_id=responds_to_decision_required_id, recorded_at=datetime.now(),
-    )
-    lifecycle.create_schedule_version(
-        conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
-        created_at=datetime.now(), created_by=coordinator_id,
-        applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
-        shift_demands=list(demands), assignments=list(existing),
-        deviations=list(deviations), effective_from=effective_from, on_success=hook,
-        pre_check=lambda c: site_memory.validate_decision_required_link_no_commit(
-            c, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+    return _replan_preacceptance(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
+        solve_fn=lambda state, search_attempt: plan_requiring_different_result_narrow(
+            state, cutover_at=datetime.now(), search_attempt=search_attempt,
         ),
-    )
-    # Owner decision 2026-08-26, OWNER_CORRECTED same day: REPLAN must never
-    # hand back the schedule already in place -- see
-    # engine.plan_requiring_different_result_narrow (step 1 of the agreed
-    # two-step flow; step 2 is replan_wider_search below, only on the
-    # coordinator's explicit "Szukaj szerzej"). This cutover_at is a separate
-    # "now" from select_candidate's own (captured later, immediately before
-    # its cutover-preservation check) -- best effort, same as every other
-    # cutover-adjacent timestamp in this flow.
-    result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now())
-    result = _persist_decision_readback(
-        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=child_id, result=result,
-    )
-    return _persist_plan_preview(
-        conn, site_id=site_id, month=month, schedule_version_id=child_id, result=result, operation_kind="replan_narrow",
+        operation_kind="replan_narrow",
     )
 
 
 def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str, search_attempt: int = 0) -> PlanningResult:
     """Integration audit (2026-08-26), point 5/6: retrying step 1 after a
     FEASIBLE-but-optimization_complete=False or SEARCH_INCOMPLETE result
-    must reuse the SAME CURRENT WORKING child replan() already created --
-    never call replan() again, which would clone yet another child on top
-    of it. Mirrors replan_wider_search's own "plan fresh against the
-    existing current WORKING version, create nothing" pattern, but for the
-    narrow (step 1) stage, with search_attempt threaded through to vary the
-    solver's seed/order exactly like plan_month's own retry does."""
-    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    current_id = get_current_version_id(conn, site_id, month)
-    if current_id is None:
-        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to retry REPLAN on")
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    result = plan_requiring_different_result_narrow(state, cutover_at=datetime.now(), search_attempt=search_attempt)
-    result = _persist_decision_readback(
-        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
-    )
-    return _persist_plan_preview(
-        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan_narrow",
+    continues the SAME pre-acceptance podejscie replan() already started --
+    never call replan() again, which would count as a fresh attempt.
+    search_attempt varies the solver's seed/order exactly like plan_month's
+    own retry does. ROTA-T057: only usable before this month's first-ever
+    acceptance, same as replan() itself."""
+    return _replan_preacceptance(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=None,
+        solve_fn=lambda state, search_attempt: plan_requiring_different_result_narrow(
+            state, cutover_at=datetime.now(), search_attempt=search_attempt,
+        ),
+        operation_kind="replan_narrow", search_attempt=search_attempt,
     )
 
 
@@ -690,22 +660,17 @@ def replan_wider_search(
 ) -> PlanningResult:
     """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
     reachable after replan() returns NARROW_SEARCH_EXHAUSTED and the
-    coordinator explicitly asks to widen the search. Runs on the SAME
-    WORKING child replan() already created; creates no further
-    ScheduleVersion (per the agreed contract point 5) -- exactly the same
-    "plan fresh against the existing current WORKING version" read
-    plan_month() itself uses for its own recompute branch. search_attempt
+    coordinator explicitly asks to widen the search. Continues the SAME
+    pre-acceptance podejscie replan() already started; creates no
+    ScheduleVersion (per the agreed contract point 5). search_attempt
     threaded through so a subsequent "Szukaj dalej"/retry on this same
-    stage varies the solver's seed/order instead of repeating identically."""
-    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    current_id = get_current_version_id(conn, site_id, month)
-    if current_id is None:
-        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to search wider on")
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    result = plan_requiring_different_result_wide(state, cutover_at=datetime.now(), search_attempt=search_attempt)
-    result = _persist_decision_readback(
-        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=current_id, result=result,
-    )
-    return _persist_plan_preview(
-        conn, site_id=site_id, month=month, schedule_version_id=current_id, result=result, operation_kind="replan_wide",
+    stage varies the solver's seed/order instead of repeating identically.
+    ROTA-T057: only usable before this month's first-ever acceptance, same
+    as replan() itself."""
+    return _replan_preacceptance(
+        conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=None,
+        solve_fn=lambda state, search_attempt: plan_requiring_different_result_wide(
+            state, cutover_at=datetime.now(), search_attempt=search_attempt,
+        ),
+        operation_kind="replan_wide", search_attempt=search_attempt,
     )

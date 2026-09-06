@@ -39,6 +39,14 @@ class ScheduleVersionNotWorking(Exception):
     WORKING/WORKING_WITH_DEVIATIONS (e.g. PLAN on a FINAL current version)."""
 
 
+class ReplanNotAvailableAfterAcceptance(Exception):
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN only exists
+    before a month's first-ever candidate acceptance. Once anything has been
+    accepted for (site_id, month) -- WORKING or FINAL -- the only
+    solver-driven operation is Przelicz Plan (plan_month on the existing
+    current version); REPLAN is not offered/callable any more."""
+
+
 class CandidateRejected(Exception):
     """Raised when a caller-supplied FEASIBLE candidate fails fresh
     independent validation before being persisted."""

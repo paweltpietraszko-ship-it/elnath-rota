@@ -32,7 +32,8 @@ def _mentor_linked_ids(state: PlanningState) -> set:
 def redistributable_baseline_assignments(state: PlanningState) -> list[Assignment]:
     """The baseline placements REPLAN-MIN-01 is measured against: the exact
     complement of solver.fixed_existing_assignments among non-CANCELLED
-    existing Assignments (same `redistributable` predicate, mirrored)."""
+    existing Assignments (same `redistributable` predicate, mirrored,
+    including the ROTA-T057 state.cutover_at already-live exclusion)."""
     mentor_linked_ids = _mentor_linked_ids(state)
     return [
         a for a in state.existing_assignments
@@ -42,6 +43,7 @@ def redistributable_baseline_assignments(state: PlanningState) -> list[Assignmen
         and a.state == AssignmentState.PLANNED
         and not a.frozen
         and a.assignment_id not in mentor_linked_ids
+        and not (state.cutover_at is not None and a.start_datetime < state.cutover_at)
     ]
 
 

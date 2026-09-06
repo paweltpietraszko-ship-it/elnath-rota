@@ -97,7 +97,12 @@ def test_8_decision_required_then_external_window_then_replan_uses_window(tmp_pa
     assert covering.employee_id == "X"
 
 
-def test_9_replan_creates_child_and_preserves_parent_history_and_frozen(tmp_path) -> None:
+def test_9_przelicz_plan_creates_child_and_preserves_parent_history_and_frozen(tmp_path) -> None:
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN no longer exists
+    once anything has been accepted -- Przelicz Plan (plan_month on the
+    existing current) is now the only solver-driven recompute, and it always
+    creates a new child + keeps the parent in history, never overwrites in
+    place."""
     conn = connect(tmp_path / "rota.db")
     pstate = seed_real_object(conn, case_id="plan-4", month=MONTH, seed=203)
     site_id = pstate.site.site_id
@@ -105,9 +110,9 @@ def test_9_replan_creates_child_and_preserves_parent_history_and_frozen(tmp_path
     _, v1 = _plan_and_select(conn, site_id)
     v1_snapshot_before = get_schedule_snapshot(conn, v1.version_id)
 
-    replanned = plan_ops.replan(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 2))
-    assert replanned.status == "FEASIBLE"
-    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=replanned.candidates[0], coordinator_id="COORD-1")
+    recomputed = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1")
+    assert recomputed.status == "FEASIBLE"
+    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=recomputed.candidates[0], coordinator_id="COORD-1")
 
     assert v2.version_id != v1.version_id
     assert v2.parent_version_id == v1.version_id

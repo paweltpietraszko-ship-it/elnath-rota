@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+from typing import Optional
 
 from rota.domain import (
     Assignment,
@@ -87,6 +88,15 @@ class PlanningState:
     # cross-month emergency 24h pair candidates. Default () keeps every
     # pre-T012-C PlanningState construction (tests, other callers) valid.
     boundary_shift_demands: tuple[ShiftDemand, ...] = ()
+
+    # ROTA-T057 (BOARD.md OWNER_RULING + Royal finding, 2026-09-06): when set,
+    # any redistributable PLANNED PRIMARY whose start_datetime is already
+    # before this instant must be treated as FIXED (fixed_existing_assignments),
+    # not merely "soft-preferred to keep" -- the exact gap that let a newly
+    # recorded absence silently free an already-live slot for reassignment.
+    # None (every caller except Przelicz Plan on an already-live grafik)
+    # keeps prior behavior unchanged.
+    cutover_at: Optional[datetime] = None
 
 
 if __name__ == "__main__":

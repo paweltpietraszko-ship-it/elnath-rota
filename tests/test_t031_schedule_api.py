@@ -163,7 +163,12 @@ def test_select_candidate_rejects_invalid_candidate_with_no_state_change(client,
 
 
 # T31-06: REPLAN after a selection creates a child version and returns fresh candidates.
-def test_replan_after_select_returns_new_candidates(client, site_id):
+def test_przelicz_plan_after_select_returns_new_candidates(client, site_id):
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): once a candidate has
+    been accepted, REPLAN no longer applies at all (409) -- Przelicz Plan
+    (plan again + select-candidate) is the only solver-driven recompute,
+    and its acceptance always creates a new child, keeping the parent in
+    history."""
     plan_result = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR},
     ).json()
@@ -173,13 +178,20 @@ def test_replan_after_select_returns_new_candidates(client, site_id):
     )
     parent_id = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"]["version_id"]
 
-    resp = client.post(
+    replan_resp = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/replan",
         json={"effective_from": MONTH_STR},
     )
+    assert replan_resp.status_code == 409
+
+    resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={})
     assert resp.status_code == 200
-    replan_body = resp.json()
-    assert replan_body["status"] == "FEASIBLE"
+    recompute_body = resp.json()
+    assert recompute_body["status"] == "FEASIBLE"
+    client.post(
+        f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/select-candidate",
+        json={"candidate": [_strip_display_name(a) for a in recompute_body["candidates"][0]]},
+    )
 
     view = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()
     assert view["current_version"]["version_id"] != parent_id
@@ -189,22 +201,18 @@ def test_replan_after_select_returns_new_candidates(client, site_id):
 # ROTA-T033 (owner-corrected 2026-08-26, step 2 "Szukaj szerzej"): reachable
 # from the API, and creates no further ScheduleVersion of its own.
 def test_replan_wider_search_creates_no_new_version(client, site_id):
-    plan_result = client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR},
-    ).json()
-    client.post(
-        f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/select-candidate",
-        json={"candidate": [_strip_display_name(a) for a in plan_result["candidates"][0]]},
-    )
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN (and its
+    "Szukaj szerzej" continuation) only exists BEFORE this month's
+    first-ever acceptance -- no candidate is selected here at all."""
+    client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
     client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/replan", json={"effective_from": MONTH_STR})
-    version_id_before = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"]["version_id"]
+    assert client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"] is None
 
     resp = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/replan/wider-search")
     assert resp.status_code == 200
     assert resp.json()["status"] in {"FEASIBLE", "DECISION_REQUIRED", "NO_ALTERNATIVE", "SEARCH_INCOMPLETE"}
 
-    version_id_after = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"]["version_id"]
-    assert version_id_after == version_id_before
+    assert client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"] is None
 
 
 # T31-07: finalize requires exactly the current deviation set.
@@ -238,6 +246,9 @@ def test_finalize_requires_exact_acknowledged_set(client, site_id):
 
 # T31-08: restore moves the current pointer to an older version without deleting anything.
 def test_restore_moves_current_pointer(client, site_id):
+    """ROTA-T057: getting a second version now goes through Przelicz Plan
+    (plan again on the existing current + select-candidate), not REPLAN --
+    REPLAN no longer exists once anything has been accepted."""
     first_plan = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR},
     ).json()
@@ -246,7 +257,11 @@ def test_restore_moves_current_pointer(client, site_id):
         json={"candidate": [_strip_display_name(a) for a in first_plan["candidates"][0]]},
     )
     parent_id = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"]["version_id"]
-    client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/replan", json={"effective_from": MONTH_STR})
+    second_plan = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={}).json()
+    client.post(
+        f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/select-candidate",
+        json={"candidate": [_strip_display_name(a) for a in second_plan["candidates"][0]]},
+    )
     child_id = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()["current_version"]["version_id"]
     assert child_id != parent_id
 

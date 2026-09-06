@@ -11,6 +11,7 @@ from rota.application.errors import (
     InvalidCoordinatorContext,
     NoCurrentScheduleVersion,
     NotWorkedRequiresPlannedPrimary,
+    ReplanNotAvailableAfterAcceptance,
     ScheduleVersionNotWorking,
 )
 from rota.persistence.employee_repository import EmployeeNotFound
@@ -37,6 +38,7 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (CoordinatorContextAlreadyActive, 409),
     (SiteRegimeChangeRejected, 409),
     (ScheduleVersionNotWorking, 409),
+    (ReplanNotAvailableAfterAcceptance, 409),
     (NonEditableScheduleVersion, 409),
     (InvalidSitePrintSettings, 422),
     (InvalidStandardShift, 400),

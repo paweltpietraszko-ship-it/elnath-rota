@@ -401,12 +401,20 @@ def test_c25_restore_one_action_with_pointer_before_after(tmp_path) -> None:
     assert detail.before_state == {"current_version_id": v2.version_id}
     assert detail.after_state == {"current_version_id": sel.version_id}
 
-def test_c26_replan_one_action_no_solver_attempts(tmp_path) -> None:
+def test_c26_przelicz_plan_accept_one_action(tmp_path) -> None:
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN no longer exists
+    once anything has been accepted, and no longer creates a ScheduleVersion
+    of its own (SCHEDULE_REPLAN_CREATED is dead). Przelicz Plan (plan_month
+    on the existing current) followed by select_candidate is the recompute
+    now, and records exactly one SCHEDULE_CANDIDATE_SELECTED action for the
+    new child -- same mechanism as the very first acceptance."""
     conn = connect(tmp_path / "rota.db")
     _seed_feasible_and_select(conn)
-    plan_ops.replan(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 2))
-    actions = [a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SCHEDULE_REPLAN_CREATED]
-    assert len(actions) == 1
+    recomputed = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD)
+    assert recomputed.status == "FEASIBLE"
+    plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=recomputed.candidates[0], coordinator_id=COORD)
+    actions = [a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED]
+    assert len(actions) == 2  # first-ever accept + this Przelicz Plan accept
 
 def test_c27_candidate_selection_one_action_delta_only(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
@@ -786,12 +794,17 @@ def test_g55_58_training_finalize_restore_replan_rollback(tmp_path, monkeypatch)
         lifecycle_ops.restore(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, version_id=sel.version_id)
     assert get_current_version_id(conn, SITE, MONTH) == v2.version_id
 
+    # ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN no longer exists
+    # once anything has been accepted -- Przelicz Plan (plan_month +
+    # select_candidate) is the recompute now, and its acceptance must roll
+    # back atomically the same way every other accept path here does.
     conn = connect(tmp_path / "rota8.db")
     sel = _seed_feasible_and_select(conn)
     count_before = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
+    recomputed = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD)
     with monkeypatch.context() as mp, pytest.raises(RuntimeError):
         _boom_action_insert(mp, "rota.application.plan_ops.site_memory.record_coordinator_action_no_commit")
-        plan_ops.replan(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 2))
+        plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=recomputed.candidates[0], coordinator_id=COORD)
     assert conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0] == count_before
     assert get_current_version_id(conn, SITE, MONTH) == sel.version_id
 

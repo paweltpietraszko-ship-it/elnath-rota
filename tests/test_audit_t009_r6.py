@@ -96,7 +96,6 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
     conn = connect(tmp_path / "rota.db")
     month = date(2027, 2, 1) if fixed_kind == "trainee" else MONTH
     correction_effective_from = date(month.year, month.month, 2)
-    replan_effective_from = date(month.year, month.month, 3)
     state = seed_real_object(conn, case_id=f"audit-r6-fixed-{fixed_kind}", month=month, seed=902)
     selected = _plan_and_select(conn, state.site.site_id, month)
     snapshot = get_schedule_snapshot(conn, selected.version_id)
@@ -118,10 +117,9 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
         conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1",
         effective_from=correction_effective_from, upsert_assignments=upsert,
     )
-    replanned = plan_ops.replan(
-        conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1",
-        effective_from=replan_effective_from,
-    )
+    # ROTA-T057: REPLAN no longer exists once anything has been accepted --
+    # Przelicz Plan (plan_month on the existing current) is the recompute now.
+    replanned = plan_ops.plan_month(conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1")
     assert replanned.status == "FEASIBLE"
     plan_ops.select_candidate(
         conn, site_id=state.site.site_id, month=month,

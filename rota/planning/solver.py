@@ -122,7 +122,17 @@ def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
     """REPLAN (spec SECTION 7/ASSIGN-03/04): REALIZED/frozen untouchable, TRAINEE
     never moved. PLANNED non-frozen PRIMARY is redistributable (excluded);
     CANCELLED never fixed. A PRIMARY referenced by an active TRAINEE's
-    mentor_primary_assignment_id is fixed regardless of its own state (R20-3)."""
+    mentor_primary_assignment_id is fixed regardless of its own state (R20-3).
+
+    ROTA-T057 (state.cutover_at, Royal finding 2026-09-06): when the caller
+    sets state.cutover_at (Przelicz Plan on an already-live grafik), a
+    redistributable PLANNED PRIMARY whose service has already started
+    (start_datetime < cutover_at) is ALSO fixed -- reserved as a real,
+    eligibility-independent time block, not merely preferred-unchanged by
+    the reshuffle-minimization objective. This is the mechanism a merely
+    eligibility-based exclusion (check_eligibility at slot-building time)
+    cannot provide: an absence recorded after the fact must never be able to
+    free an already-started slot for reassignment."""
     mentor_linked_ids = {
         assignment.mentor_primary_assignment_id
         for assignment in state.existing_assignments
@@ -134,12 +144,14 @@ def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
     for assignment in state.existing_assignments:
         if assignment.state == AssignmentState.CANCELLED:
             continue
+        already_live = state.cutover_at is not None and assignment.start_datetime < state.cutover_at
         redistributable = (
             assignment.role == AssignmentRole.PRIMARY
             and assignment.covers_demand_id is not None
             and assignment.state == AssignmentState.PLANNED
             and not assignment.frozen
             and assignment.assignment_id not in mentor_linked_ids
+            and not already_live
         )
         if not redistributable:
             fixed.append(assignment)
