@@ -1,0 +1,53 @@
+ROTA-T057 — WERDYKT AUDYTU KODU, PRZYROSTY 1–6
+
+AUDITED_DELIVERY_SHA: 7c4265a
+AUDITED_RANGE: f2925c7..7c4265a
+AUDITED_BRIEF_SHA: 6bce439b3d405bbeb0fefea72c8ffee219766255
+STATUS: FAIL — trzy blockery spełniają DEFECT_GATE
+
+OWNER_ACCEPTED 2026-09-06
+
+S1/PERIODIC_TRAINING rozpoczyna życie grafiku. Jeśli S1 zaczyna się o 10:00,
+a pierwsza PRIMARY D/N o 18:00, grafik jest live od 10:00. Obecny helper wybiera
+10:00, więc punkt OWNER_DECISION_NEEDED z tests_r7.txt jest zamknięty jako
+poprawne zachowanie, nie finding.
+
+R8-01 — żywy FINAL nie ma działającego Przelicz Plan
+
+TRACE: brief 2.4 i T57-08 — dla żywego grafiku automatyczna zmiana odbywa się
+przez Przelicz Plan; REPLAN po akceptacji nie jest używany.
+OWNERSHIP: plan_ops._require_working_or_absent / plan_month.
+REPRO exact SHA: zaakceptowany, żywy FINAL; plan_month odrzuca
+ScheduleVersionNotWorking z tekstem „use REPLAN”. REPLAN na zaakceptowanym
+grafiku równocześnie zwraca 409. Brak solverowej ścieżki zmiany.
+
+R8-02 — root omija acceptance guard rozpoczętych służb
+
+TRACE: T57-09 — wszystkie rozpoczęte służby muszą być twardo zachowane.
+OWNERSHIP: plan_ops._enforce_replan_cutover i acceptance pre_check.
+REPRO exact SHA: root z parent_version_id=None oraz kandydat zmieniający
+rozpoczęte PRIMARY; guard zwrócił bez porównania i wynik reproduktora to
+`mutated_started_shift=ALLOWED`. Solver chroni stan z chwili liczenia, lecz
+nie zamyka wyścigu „preview przed startem, akceptacja po starcie”.
+
+R8-03 — dziecko Przelicz Plan dostaje starą datę obowiązywania
+
+TRACE: zamrożony T009 review_01/review_02 wymaga własnego, koordynatorskiego
+`Obowiązuje od` dla nowej ScheduleVersion; T057 nie uchyla tej reguły.
+OWNERSHIP: plan_ops.select_candidate -> lifecycle.create_schedule_version.
+REPRO exact SHA: rodzic effective_from=2026-08-01; dziecko zaakceptowane
+2026-09-06 zapisano również z effective_from=2026-08-01. Konsumenci eksportu
+i rozliczeń wybierają wersję według effective_from, więc dziecko może zasłonić
+rodzica także dla dni sprzed Przelicz Plan.
+
+POZYTYWNE DOWODY
+
+- 10 targetowanych testów lifecycle PASS;
+- 3 testy migracji PASS;
+- 3 testy fixed-facts solvera PASS;
+- 1 test rollbacku akceptacji PASS;
+- pamięć podejścia, demands i preview przeżywają reload i są czyszczone po
+  „Odrzuć wynik”.
+
+Pełna regresja nie była uruchamiana. Po wąskiej naprawie wymagane są reproduktory
+R8-01..R8-03 oraz odpowiadające im realne ścieżki; bez powtarzania całej macierzy.
