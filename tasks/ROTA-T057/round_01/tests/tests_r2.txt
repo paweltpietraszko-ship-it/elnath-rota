@@ -1,0 +1,137 @@
+ROTA-T057 — PREIMPLEMENTATION AUDIT R2, PO KOREKCIE OWNERA
+
+AUDITED_BRIEF_SHA: 212015f91d15bde97480a04571bfff2b0d39eef0
+AUDITED_CODE_BASE: dfeec962fd90d249f83606b414801ff67d305d7c
+SUPERSEDES: tests_r1.txt w zakresie listy pytań do OWNERA
+STATUS: OWNER_DECISION_NEEDED — jedno pytanie o granicę czasu, bez PASS/FAIL
+
+Kod produktu nie został zmieniony. R1 pozostaje historycznym zapisem audytu i
+nie jest nadpisywany.
+
+========================================================================
+1. OWNER_CORRECTED 2026-09-06
+========================================================================
+
+1. Zanim zacznie się miesiąc, grafik można usunąć na każdym etapie. Obejmuje
+   to również grafik, przy którym koordynator zdążył użyć „Użyj tego grafiku”
+   i „Finalizuj”. Status techniczny nie może odbierać tej możliwości.
+2. T057 nie ma projektować ani testować przyszłego, zaplanowanego chorobowego.
+   Koordynator nie wpisuje L4 z wyprzedzeniem do przyszłego grafiku. Scenariusz
+   R1 OD-04 był fałszywym założeniem audytora i zostaje usunięty z zakresu.
+3. Frozen niezmienność FINAL nadal może pozostać fizycznym bezpiecznikiem.
+   „Usuń” oznacza zniknięcie grafiku z current, biznesowej Historii, restore,
+   eksportu i rozliczeń. Zachowanie niewidocznego technicznego śladu audytu nie
+   jest kolejną funkcją dla koordynatora i nie wymaga osłabienia T008.
+
+========================================================================
+2. JEDYNE POZOSTAŁE PYTANIE DO OWNERA
+========================================================================
+
+Przykład:
+
+- jest 1 września, godzina 10:00;
+- miesiąc już się zaczął;
+- pierwsza służba tego grafiku zaczyna się dopiero o 18:00.
+
+Czy o 10:00 koordynator może jeszcze usunąć cały grafik?
+
+- Jeżeli TAK: granicą usuwania i historii pozostaje start pierwszej realnej
+  służby, jak w briefie.
+- Jeżeli NIE: granicą usuwania jest północ rozpoczynająca miesiąc. Od północy
+  zmiana solverem idzie przez Przelicz Plan i tworzy historię, nawet gdy żadna
+  służba jeszcze się nie zaczęła. Twarda ochrona rozpoczętych służb nadal
+  chroni dopiero te, których faktyczny start nastąpił.
+
+Bez tej odpowiedzi backend i UI mogą zgodnie z różnymi fragmentami kontraktu
+pokazać przeciwne przyciski w tych samych godzinach. To zachowanie widoczne dla
+koordynatora, więc architekt nie może go wybrać sam.
+
+========================================================================
+3. POZOSTAŁE PUNKTY NIE WYMAGAJĄ PYTAŃ PRODUKTOWYCH
+========================================================================
+
+3.1 Podejście wariantów
+
+Istniejące ustalenie T054 pozwala zamknąć lukę z R1 mechanicznie:
+
+- podejście zaczyna pierwszy PLAN;
+- trwa przez reload i kolejne REPLAN-y;
+- w aktywnym podejściu kolejny wariant powstaje przez REPLAN, nie ponowny PLAN;
+- „Odrzuć wynik” kończy podejście i usuwa jego roboczą pamięć;
+- „Użyj tego grafiku” kończy podejście akceptacją;
+- następny PLAN po odrzuceniu jest nowym podejściem i może zacząć od zera.
+
+To zachowuje frozen znaczenie „Odrzuć wynik” jako usunięcie niezatwierdzonego
+preview, bez tworzenia historii odrzuconych propozycji.
+
+3.2 Brak kolejnego wariantu >=15%
+
+Nie potrzeba nowego statusu ani decyzji produktu. Należy zachować ostatni
+poprawny preview, nie tworzyć ScheduleVersion i użyć istniejącej klasy wyniku
+„brak alternatywy” z czytelnym tekstem, że nie ma kolejnego wystarczająco
+innego grafiku spełniającego zasady. Koordynator nadal może wybrać widoczny
+wariant albo odrzucić podejście.
+
+3.3 Korekta ręczna
+
+T057 nie rozszerza tego, co wolno ręcznie zmieniać. Zmienia wyłącznie
+wersjonowanie wynikające z granicy czasu:
+
+- po stronie „jeszcze można usunąć grafik” wcześniejszy nieżywy układ nie jest
+  biznesową historią;
+- po stronie „grafik już obowiązuje” Korekta ręczna tworzy nową wersję i
+  zachowuje poprzednią;
+- uprawnienia do zmiany rozpoczętej służby pozostają w osobnym kontrakcie i nie
+  mogą zostać poszerzone przez T057.
+
+3.4 Techniczna data nowej wersji
+
+`effective_from` dziecka po zaakceptowanym Przelicz Plan powinno pochodzić z
+jednego backendowego czasu operacji, a nie z dowolnej daty wpisanej w UI.
+Dokładna implementacja jest zadaniem architekta; nie zmienia to przycisków ani
+decyzji koordynatora. Ten sam czas musi sterować cutover, akcją akceptacji i
+utworzeniem wersji, aby nie powstały trzy różne granice.
+
+========================================================================
+4. TECHNICAL_ONLY — MINIMALNE SEAMY
+========================================================================
+
+- `SCHEDULE_CANDIDATE_SELECTED` pozostaje jedynym dowodem akceptacji; bez nowej
+  tabeli/statusu akceptacji.
+- Obecny PlanPreview ma FK do ScheduleVersion i pamięta tylko ostatni wynik.
+  Musi zostać rozszerzony tak, aby preview istniał bez biznesowej wersji i
+  przechowywał sygnatury wariantów aktywnego podejścia przez reload.
+- Jedyny owner miary 15% pozostaje w `rota/planning/solver.py`; nie kopiować
+  wzoru do UI/application.
+- Atomowe utworzenie wybranej wersji i current pozostaje w
+  `schedule_lifecycle.py`; filtrowanie biznesowej historii w
+  `schedule_repository.py`.
+- Istniejącą ochronę cutover należy przenieść do Przelicz Plan i usunąć
+  zależność od starego znaczenia REPLAN, bez drugiej walidacji tej samej reguły.
+- `plan_ops.py` ma 593 linie, więc TASK_SCOPE musi dopuścić jeden mały moduł
+  application albo wydzielenie istniejących helperów z konkretnym ownerem.
+- Nie potrzeba zmian w `absence_reference_repository.py`; scenariusz L4 z R1
+  został wycofany.
+
+========================================================================
+5. FIRST EXECUTION GATE — NADAL WYMAGANE UZUPEŁNIENIA
+========================================================================
+
+Po ustaleniu jednej granicy czasu E1–E5 powinny dodatkowo dowieść:
+
+1. pierwszy PLAN kończący się bez FEASIBLE nadal pozostawia 0 ScheduleVersion;
+2. podejście i pamięć wariantów przeżywają reload, a „Odrzuć wynik” je kończy;
+3. przed początkiem miesiąca można usunąć także FINAL;
+4. bezpośredni endpoint nie omija dozwolonych faz operacji;
+5. E4 zawiera widok/druk starego i nowego grafiku obok siebie — test liczbowy
+   nie zastępuje optycznej oceny minimalnej zmiany.
+
+Nie dodawać do E3 przyszłego L4/urlopu.
+
+========================================================================
+6. NASTĘPNY KROK
+========================================================================
+
+Po odpowiedzi na przykład „1 września 10:00 / pierwsza służba 18:00” architekt
+może wykonać jedną korektę briefu, wpisać literalny TASK_SCOPE z mapy R1 i
+oddać kontrakt do jednego wąskiego re-checku. Implementacja nadal HOLD.
