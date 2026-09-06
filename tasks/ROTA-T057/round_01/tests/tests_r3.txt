@@ -1,0 +1,100 @@
+ROTA-T057 — PREIMPLEMENTATION AUDIT R3
+
+AUDITED_BRIEF_SHA: 212015f91d15bde97480a04571bfff2b0d39eef0
+AUDITED_CODE_BASE: dfeec962fd90d249f83606b414801ff67d305d7c
+STATUS: PASS_PREIMPLEMENTATION — do zamrożenia literalnego TASK_SCOPE przez architekta
+SUPERSEDES: pytanie pozostawione w tests_r2.txt
+
+Kod produktu nie został zmieniony. PASS dotyczy briefu uzupełnionego poniższym
+rozstrzygnięciem OWNERA, nie przyszłej implementacji.
+
+1. OWNER_CONFIRMED — GRANICA LIVE
+
+OWNER potwierdził 2026-09-06:
+
+- granicą jest faktyczny start pierwszej rzeczywistej służby, a nie północ;
+- 1 września o 10:00 grafik z pierwszą służbą o 18:00 nadal można usunąć,
+  również po akceptacji i finalizacji;
+- dokładnie o 18:00 grafik staje się żywy;
+- przed tą granicą usunięcie usuwa grafik z current, biznesowej Historii,
+  restore, eksportu i rozliczeń; niewidoczny techniczny ślad audytu może zostać;
+- po tej granicy automatyczna zmiana solverem odbywa się przez Przelicz Plan
+  i zachowuje poprzednią obowiązującą wersję w Historii.
+
+T057 nie obejmuje planowania przyszłego L4. OWNER wykluczył ten scenariusz.
+
+2. PRE_IMPLEMENTATION_REDUCTION_GATE — WYNIK JEDNORAZOWY
+
+- Pamięć podejścia PLAN/REPLAN: rozszerzyć istniejący PlanPreview. Bez nowego
+  subsystemu preview i bez biznesowej ScheduleVersion przed „Użyj tego grafiku”.
+- Akceptacja: zachować SCHEDULE_CANDIDATE_SELECTED i istniejący atomowy owner
+  tworzenia ScheduleVersion/current. Bez nowego statusu akceptacji.
+- Różnica 15%: jeden owner w solverze, zgodny z T017. UI i application nie liczą
+  własnej kopii tej miary.
+- Granica live: jeden helper application i jeden backendowy czas operacji.
+  Backend autoryzuje fazę; UI tylko prezentuje wynik i nie może go ominąć.
+- Usunięcie przed live: użyć istniejącego lifecycle/current/history i istniejącego
+  dziennika akcji do technicznego oznaczenia usunięcia. Nie osłabiać fizycznej
+  niezmienności FINAL z T008 i nie tworzyć drugiego systemu historii.
+- Przelicz Plan: przenieść istniejącą ochronę cutover/minimal-change ze starego
+  znaczenia REPLAN. Nie zmieniać pozostałych reguł solvera.
+- Korekta ręczna: zmienić wyłącznie skutek wersjonowania przed/po granicy live;
+  T057 nie rozszerza uprawnień do edycji służb.
+- Testy integracyjne obejmują nowe szwy i możliwość obejścia endpointem; nie
+  powtarzają pełnych kontraktów solvera już należących do T017.
+
+Nie znaleziono kolejnej decyzji produktowej potrzebnej przed briefem architekta.
+
+3. MINIMALNY TASK_SCOPE DO LITERALNEGO ZAMROŻENIA
+
+Production:
+- rota/application/plan_ops.py
+- rota/application/planning_lifecycle.py (nowy mały owner faz/aktywnego podejścia)
+- rota/application/lifecycle_ops.py
+- rota/application/manual_edit.py
+- rota/application/open_month.py
+- rota/application/errors.py
+- rota/persistence/plan_preview_repository.py
+- rota/persistence/db.py
+- rota/persistence/schedule_lifecycle.py
+- rota/persistence/schedule_repository.py
+- rota/site_memory_types.py
+- rota/planning/engine.py
+- rota/planning/solver.py
+- rota/planning/replan_reshuffle.py
+- api/routers/schedule.py
+- api/errors.py
+- frontend/src/api/client.ts
+- frontend/src/screens/MonthlyPlanning.tsx
+
+Tests/evidence:
+- nowy targetowany pakiet T057: application + persistence + API;
+- frontend/e2e/monthly-planning.spec.ts albo nowy dedykowany plik T057;
+- tylko te istniejące testy T017/T023/T033/T041, których oczekiwania zostały
+  literalnie zastąpione przez T057;
+- artefakty E1–E5 w tasks/ROTA-T057/round_01/.
+
+Poza zakresem pozostają routery eksportu/Historii i księgowość: nie dostają
+drugiej walidacji. Targetowany test pionowy ma potwierdzić, że po usunięciu nie
+widzą grafiku przez istniejący current/history owner.
+
+4. FIRST EXECUTION GATE — DOPRECYZOWANIE
+
+E1–E5 z briefu pozostają obowiązkowe. Implementer ma dodatkowo wykazać:
+
+- pierwszy nieudany PLAN pozostawia 0 ScheduleVersion;
+- aktywne podejście i sygnatury wariantów przeżywają reload, a „Odrzuć wynik”
+  kończy podejście;
+- FINAL jest usuwalny chwilę przed pierwszą służbą, a nie jest usuwalny dokładnie
+  w chwili jej startu ani później;
+- bezpośrednie endpointy nie omijają faz lifecycle;
+- dla E4 stary i nowy grafik są pokazane/drukowane obok siebie i ocenione
+  optycznie; same zielone testy i zgodność liczbowa nie wystarczają.
+
+Nie dodawać testu przyszłego L4.
+
+5. WERDYKT
+
+Kontrakt po rozstrzygnięciu granicy czasu jest jednoznaczny i testowalny.
+Może wrócić do architekta po literalne zamrożenie TASK_SCOPE. Implementacja
+pozostaje HOLD do tego zamrożenia.
