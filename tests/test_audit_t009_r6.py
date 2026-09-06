@@ -63,10 +63,21 @@ def test_r6_engine_state_names_the_current_version_it_is_planning(tmp_path, monk
             coordinator_id="COORD-1", effective_from=date(2026, 8, 2),
         )
 
-    current_id = get_current_version_id(conn, state.site.site_id, MONTH)
+    # ROTA-T057 (T57-01): plan()/plan_requiring_different_result_narrow is
+    # mocked to fail before ever producing a FEASIBLE result to accept, so
+    # under the new contract NO ScheduleVersion is ever created here (PLAN
+    # and pre-acceptance REPLAN both stay preview-only) -- current_id is
+    # correctly None for both parametrizations. What this test can still
+    # verify: the ephemeral placeholder id handed to the solver is
+    # non-empty and consistently shared between the state and its demands
+    # (R6-1's original concern). The "matches a real, already-accepted
+    # current_id" case is exercised by tests that DO select a candidate
+    # first (e.g. test_t041_checkpoint_b.py's catalog-change scenario).
+    assert get_current_version_id(conn, state.site.site_id, MONTH) is None
     assert len(captured) == 1
-    assert captured[0].schedule_version_id == current_id
-    assert all(d.schedule_version_id == current_id for d in captured[0].shift_demands)
+    version_id = captured[0].schedule_version_id
+    assert version_id
+    assert all(d.schedule_version_id == version_id for d in captured[0].shift_demands)
 
 
 @pytest.mark.parametrize("fixed_kind", ["frozen", "realized", "trainee"])

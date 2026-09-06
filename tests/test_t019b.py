@@ -131,7 +131,7 @@ def test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables(
 
     conn = connect(db_path)
     tables_after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 15
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 16
     assert conn.execute("SELECT holiday FROM calendar_days WHERE date='2026-08-03'").fetchone() == (1,)
     assert tables_after - tables_before == {
         "coordinator_action_records", "decision_required_snapshots", "current_decision_required", "site_print_settings",
@@ -434,8 +434,9 @@ def test_d28_select_candidate_without_actor_rejected(tmp_path) -> None:
     with pytest.raises(MissingCoordinatorActor):
         plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=None)
     assert len(memory_read.material_action_history(conn)) == before_count
-    assert get_current_version_id(conn, SITE, MONTH) is not None
-    assert get_schedule_snapshot(conn, get_current_version_id(conn, SITE, MONTH)).assignments == []
+    # ROTA-T057 (T57-01): rejected before anything is created -- no
+    # ScheduleVersion exists at all, PLAN never created one either.
+    assert get_current_version_id(conn, SITE, MONTH) is None
 
 def test_d29_candidate_selection_records_actual_actor(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
@@ -743,11 +744,13 @@ def test_g53_54_candidate_and_manual_child_rollback(tmp_path, monkeypatch) -> No
     _employee(conn)
     _fill_calendar(conn)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
-    current = get_current_version_id(conn, SITE, MONTH)
+    # ROTA-T057 (T57-01): PLAN alone creates no ScheduleVersion -- this is
+    # now the "first-ever acceptance" rollback path (_select_first_candidate_hook).
+    assert get_current_version_id(conn, SITE, MONTH) is None
     with monkeypatch.context() as mp, pytest.raises(RuntimeError):
         _boom_action_insert(mp, "rota.application.plan_ops.site_memory.record_coordinator_action_no_commit")
         plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=COORD)
-    assert get_schedule_snapshot(conn, current).assignments == []
+    assert get_current_version_id(conn, SITE, MONTH) is None  # atomic rollback: still no version at all
 
 
 def test_g55_58_training_finalize_restore_replan_rollback(tmp_path, monkeypatch) -> None:

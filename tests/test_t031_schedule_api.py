@@ -96,20 +96,28 @@ def test_plan_creates_first_version_and_returns_candidates(client, site_id):
     assert body["candidates"][0][0]["employee_display_name"]
 
 
-# T31-03: after PLAN (before select), current_version exists with demands but no assignments yet.
+# T31-03 (ROTA-T057 T57-01, rewritten): after PLAN alone, BEFORE accepting
+# any candidate, no ScheduleVersion exists at all yet -- current_version
+# must stay None. Whether/how GET should also surface the pending preview's
+# demands without a current_version is a separate, not-yet-done increment
+# (open_month.py phase-awareness); this test only pins down the version
+# lifecycle side, which is in scope now.
 def test_get_month_after_plan_shows_demands_but_no_assignments_yet(client, site_id):
     client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR})
     resp = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}")
     body = resp.json()
-    assert body["current_version"] is not None
-    assert body["current_version"]["status"] == "WORKING"
-    assert len(body["demands"]) >= 1
+    assert body["current_version"] is None
     assert body["assignments"] == []
 
 
-# T31-04: PLAN again (recompute) on an existing WORKING version does not create a second version.
+# T31-04: PLAN again (recompute) on an existing WORKING version does not
+# create a second version. ROTA-T057: "an existing WORKING version" now
+# requires accepting the first candidate first -- PLAN alone never creates
+# one to recompute against.
 def test_plan_again_on_existing_working_recomputes_without_new_version(client, site_id):
     first = client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR}).json()
+    candidate = [_strip_display_name(a) for a in first["candidates"][0]]
+    client.post(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/select-candidate", json={"candidate": candidate})
     view_before = client.get(f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}").json()
     version_id_before = view_before["current_version"]["version_id"]
 

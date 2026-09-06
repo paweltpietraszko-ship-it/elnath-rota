@@ -29,11 +29,14 @@ def test_3_first_plan_creates_full_profile_version_and_uses_remembered_rules(tmp
 
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
     assert result.status == "FEASIBLE"
-    version_id = get_current_version_id(conn, site_id, MONTH)
-    header = get_schedule_version_header(conn, version_id)
-    snapshot = get_schedule_snapshot(conn, version_id)
+    # ROTA-T057 (T57-01): PLAN alone creates NO ScheduleVersion -- only
+    # accepting the candidate does.
+    assert get_current_version_id(conn, site_id, MONTH) is None
+    version = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
+    header = get_schedule_version_header(conn, version.version_id)
+    snapshot = get_schedule_snapshot(conn, version.version_id)
     assert header.status.value == "WORKING"
-    assert len(snapshot.assignments) == 0  # PLAN doesn't invent/persist assignments, only demands
+    assert len(snapshot.assignments) == len(result.candidates[0])
     demand_kinds = {d.demand_id.rsplit("-", 1)[1] for d in snapshot.shift_demands}
     assert demand_kinds == {"D", "N"}
 
@@ -45,18 +48,18 @@ def test_7_feasible_candidate_not_persisted_until_selected_and_invalid_rejected(
 
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
     assert result.status == "FEASIBLE"
-    version_id = get_current_version_id(conn, site_id, MONTH)
-    assert len(get_schedule_snapshot(conn, version_id).assignments) == 0  # not auto-saved
+    # ROTA-T057 (T57-01): not auto-saved means no ScheduleVersion at all yet.
+    assert get_current_version_id(conn, site_id, MONTH) is None
 
     # HARD-invalid but structurally storable: drop one assignment entirely,
     # leaving its ShiftDemand with zero PRIMARY coverage (COVERAGE-01).
     broken_candidate = list(result.candidates[0])[1:]
     with pytest.raises(CandidateRejected):
         plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=broken_candidate, coordinator_id="COORD-1")
-    assert len(get_schedule_snapshot(conn, version_id).assignments) == 0  # rejection didn't persist anything
+    assert get_current_version_id(conn, site_id, MONTH) is None  # rejection didn't persist anything
 
-    plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
-    assert len(get_schedule_snapshot(conn, version_id).assignments) == len(result.candidates[0])
+    version = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=result.candidates[0], coordinator_id="COORD-1")
+    assert len(get_schedule_snapshot(conn, version.version_id).assignments) == len(result.candidates[0])
 
 
 def test_8_decision_required_then_external_window_then_replan_uses_window(tmp_path) -> None:

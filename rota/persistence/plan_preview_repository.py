@@ -45,6 +45,12 @@ class PlanPreview:
     # continuation ("Szukaj dalej" on PLAN vs. on REPLAN's narrow/wide
     # stage) a further search should retry.
     operation_kind: OperationKind
+    # ROTA-T057: only meaningful (non-None) while schedule_version_id is
+    # None -- the coordinator-supplied effective_from for the very first
+    # ScheduleVersion of this (site_id, month), captured at PLAN time and
+    # carried forward so select_candidate can create that first version at
+    # acceptance without asking the caller to resupply it.
+    effective_from: Optional[date] = None
 
 
 def _assignment_to_dict(a: Assignment) -> dict:
@@ -82,18 +88,20 @@ def save_plan_preview_in_open_transaction(conn: sqlite3.Connection, preview: Pla
     transaction boundary. At most one current preview per (site_id, month):
     a new save always replaces whatever was there (OWNER decision 3)."""
     conn.execute(
-        """INSERT INTO plan_previews (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO plan_previews (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(site_id, month) DO UPDATE SET
             schedule_version_id=excluded.schedule_version_id,
             candidates_json=excluded.candidates_json,
             warnings_json=excluded.warnings_json,
             optimization_complete=excluded.optimization_complete,
-            operation_kind=excluded.operation_kind""",
+            operation_kind=excluded.operation_kind,
+            effective_from=excluded.effective_from""",
         (
             preview.site_id, preview.month.isoformat(), preview.schedule_version_id,
             _candidates_to_json(preview.candidates), json.dumps(list(preview.warnings)),
             int(preview.optimization_complete), preview.operation_kind,
+            preview.effective_from.isoformat() if preview.effective_from else None,
         ),
     )
 
@@ -105,17 +113,18 @@ def save_plan_preview(conn: sqlite3.Connection, preview: PlanPreview) -> None:
 
 def get_plan_preview(conn: sqlite3.Connection, site_id: str, month: date) -> Optional[PlanPreview]:
     row = conn.execute(
-        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind "
+        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from "
         "FROM plan_previews WHERE site_id = ? AND month = ?",
         (site_id, month.isoformat()),
     ).fetchone()
     if row is None:
         return None
-    schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind = row
+    schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from = row
     return PlanPreview(
         site_id=site_id, month=month, schedule_version_id=schedule_version_id,
         candidates=_candidates_from_json(candidates_json), warnings=json.loads(warnings_json),
         optimization_complete=bool(optimization_complete), operation_kind=operation_kind,
+        effective_from=date.fromisoformat(effective_from) if effective_from else None,
     )
 
 

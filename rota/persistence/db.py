@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 15
+LATEST_SCHEMA_VERSION = 16
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -626,6 +626,18 @@ _MIGRATION_15: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 16: ROTA-T057 -- plan_previews.effective_from, nullable. Only
+# meaningful while schedule_version_id IS NULL: the coordinator-supplied
+# effective_from for a month's very first ScheduleVersion, captured at PLAN
+# time and carried forward so select_candidate can create that first
+# version at acceptance without the caller resupplying it after a reload.
+# ---------------------------------------------------------------------------
+_MIGRATION_16: tuple[str, ...] = (
+    "ALTER TABLE plan_previews ADD COLUMN effective_from TEXT",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -642,6 +654,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (13, _MIGRATION_13),
     (14, _MIGRATION_14),
     (15, _MIGRATION_15),
+    (16, _MIGRATION_16),
 )
 
 
