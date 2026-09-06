@@ -265,6 +265,7 @@ TASK_SCOPE:
 - rota/persistence/schedule_lifecycle.py
 - rota/persistence/schedule_repository.py
 - rota/site_memory_types.py
+- rota/planning/state.py
 - rota/planning/engine.py
 - rota/planning/solver.py
 - rota/planning/replan_reshuffle.py
@@ -274,7 +275,9 @@ TASK_SCOPE:
 - frontend/src/screens/MonthlyPlanning.tsx
 - tests/test_t057.py
 - tests/test_t017.py
+- tests/test_t020.py
 - tests/test_t023.py
+- tests/test_t023b.py
 - tests/test_t033_replan_must_differ.py
 - tests/test_t041_checkpoint_a.py
 - tests/test_t041_checkpoint_b.py
