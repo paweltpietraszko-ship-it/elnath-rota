@@ -166,6 +166,25 @@ def get_current_schedule_snapshot(conn: sqlite3.Connection, site_id: str, month:
     return get_schedule_version_header(conn, version_id), get_schedule_snapshot(conn, version_id)
 
 
+def get_first_shift_start(conn: sqlite3.Connection, version_id: str) -> Optional[datetime]:
+    """ROTA-T057: earliest non-CANCELLED Assignment start_datetime for this
+    version, or None if it has no real assignments yet -- a version with
+    only ShiftDemand rows (no Assignment) is by definition not live."""
+    row = conn.execute(
+        "SELECT MIN(start_datetime) FROM assignments WHERE schedule_version_id = ? AND state != 'CANCELLED'",
+        (version_id,),
+    ).fetchone()
+    return datetime.fromisoformat(row[0]) if row and row[0] is not None else None
+
+
+def is_schedule_version_live(conn: sqlite3.Connection, version_id: str, *, now: datetime) -> bool:
+    """ROTA-T057 OWNER_RULING (BOARD.md, 2026-09-06): a grafik is 'zywy'
+    exactly from the moment its own first real shift actually starts, never
+    by calendar date alone. False for a version with no assignments yet."""
+    first_start = get_first_shift_start(conn, version_id)
+    return first_start is not None and first_start <= now
+
+
 def get_current_assignments_in_interval(
     conn: sqlite3.Connection, site_id: str, context_start: datetime, context_end: datetime,
 ) -> list[Assignment]:
