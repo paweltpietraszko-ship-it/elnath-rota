@@ -1,0 +1,55 @@
+ROTA-T057 — WĄSKI REAUDYT BRIEFU PO ZAMROŻENIU SCOPE
+
+AUDITED_BRIEF_SHA: 9efb4b34f390e5764c4e3a740f1116d5d9cc126d
+AUDITED_CODE_BASE: dfeec962fd90d249f83606b414801ff67d305d7c
+STATUS: WYMAGA_KOREKTY_MECHANICZNEJ — bez pytania do OWNERA
+
+Sprawdzono wyłącznie diff briefu 212015f..9efb4b3 i ścieżki wymienione w
+zamrożonym TASK_SCOPE. Kod produktu i poprzednie raporty nie zostały zmienione.
+
+OWNER_CONFIRMED
+
+Brief poprawnie zamraża granicę: przed startem pierwszej rzeczywistej służby
+grafik, także FINAL, można usunąć; dokładnie od startu jest żywy. Poprawnie
+wyklucza przyszłe L4 i wymaga optycznego porównania grafików w E4.
+
+MECHANICAL-01 — niepełny TASK_SCOPE testów
+
+Zmiana T57-01 usuwa istniejącą semantykę „PLAN tworzy pustą/current wersję
+przed wyborem”. Następujące istniejące testy zawierają dokładnie to zastąpione
+oczekiwanie albo bezpośrednio testują przenoszony cutover, lecz nie ma ich w
+TASK_SCOPE:
+
+- tests/test_t009_plan_select_replan.py
+  (`test_3...`, `test_7...`: current i pusta ScheduleVersion po PLAN);
+- tests/test_t031_schedule_api.py
+  (T31-02..04: API PLAN tworzy/pokazuje current przed wyborem);
+- tests/test_audit_t009_r6.py
+  (`test_r6_engine_state...`: initial PLAN planuje do istniejącego current id);
+- tests/test_t019b.py
+  (`test_d28...`: po PLAN przed select oczekuje niepustego current);
+- tests/test_t023_checkpoint_b.py
+  (bezpośredni owner regresji cutover `select_candidate`, który T057 przenosi
+  do Przelicz Plan).
+
+To nie jest prośba o nowe testy ani pełną regresję. Scope ma jedynie dopuścić
+sklasyfikowanie i, gdy PRODUCT_TRUTH tego wymaga, aktualizację istniejących
+testów zastąpionego kontraktu. Bez tego CC musiałby albo zostawić znane stare
+oczekiwania, albo naruszyć literalny scope.
+
+MECHANICAL-02 — artefakty audytu wpisane jako pliki implementacyjne
+
+`brief.md` oraz `tests_r1.txt`–`tests_r3.txt` są zamrożonym kontraktem/dowodem,
+nie plikami do edycji przez implementera. Należy przenieść je z TASK_SCOPE do
+osobnej listy READ_ONLY_EVIDENCE. Raportów nie wolno nadpisywać.
+
+MECHANICAL-03 — niedozwolona wartość WHERE_MAP
+
+AGENTS.md dopuszcza `MODE: REQUIRED | OPTIONAL`; brief wpisał `SATISFIED`.
+Pozostawić `MODE: REQUIRED`, a wykonanie R3 oznaczyć osobnym polem/statussem.
+
+WERDYKT
+
+Nie ma nowej decyzji produktowej. Po jednej korekcie powyższych trzech punktów
+wystarczy wąski re-check samego diffu; nie powtarzać preimplementation audit ani
+odczytu kodu. Implementacja pozostaje HOLD do nowego SHA.
