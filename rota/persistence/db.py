@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 14
+LATEST_SCHEMA_VERSION = 15
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -598,6 +598,34 @@ _MIGRATION_14: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 15: ARCHITECT_DECISION 2026-09-06 (BOARD.md ROTA-T057) -- one
+# PlanPreview, no second subsystem. schedule_version_id becomes optional/
+# NULL: a preview may now exist BEFORE the very first ScheduleVersion for a
+# (site_id, month) is ever created (T57-01, "pierwszy PLAN nie tworzy
+# ScheduleVersion przed akceptacja"). SQLite cannot ALTER a column's
+# NULL-ability in place -- rebuild via the standard create/copy/drop/rename
+# sequence, same shape as the original migration 12 table otherwise.
+# ---------------------------------------------------------------------------
+_MIGRATION_15: tuple[str, ...] = (
+    """CREATE TABLE plan_previews_v15 (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        schedule_version_id TEXT REFERENCES schedule_versions(version_id),
+        candidates_json TEXT NOT NULL,
+        warnings_json TEXT NOT NULL,
+        optimization_complete INTEGER NOT NULL,
+        operation_kind TEXT NOT NULL CHECK (operation_kind IN ('plan', 'replan_narrow', 'replan_wide')),
+        PRIMARY KEY (site_id, month),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+    """INSERT INTO plan_previews_v15 (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind)
+       SELECT site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind FROM plan_previews""",
+    "DROP TABLE plan_previews",
+    "ALTER TABLE plan_previews_v15 RENAME TO plan_previews",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -613,6 +641,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (12, _MIGRATION_12),
     (13, _MIGRATION_13),
     (14, _MIGRATION_14),
+    (15, _MIGRATION_15),
 )
 
 

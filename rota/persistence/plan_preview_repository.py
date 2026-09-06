@@ -33,7 +33,10 @@ class PlanPreview:
     # The exact WORKING version this preview was computed against -- a
     # reader compares this to the CURRENT version to detect a stale preview
     # left behind by e.g. a REPLAN whose own solve never came back FEASIBLE.
-    schedule_version_id: str
+    # ARCHITECT_DECISION 2026-09-06 (BOARD.md ROTA-T057): None before the
+    # very first ScheduleVersion for (site_id, month) has ever been created
+    # -- a preview may now exist before any real version does (T57-01).
+    schedule_version_id: Optional[str]
     candidates: list[list[Assignment]]
     warnings: list[str]
     optimization_complete: bool
