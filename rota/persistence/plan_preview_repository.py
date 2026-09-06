@@ -125,5 +125,60 @@ def delete_plan_preview(conn: sqlite3.Connection, site_id: str, month: date) -> 
         delete_plan_preview_in_open_transaction(conn, site_id, month)
 
 
+# ROTA-T057: pre-acceptance REPLAN "podejscie" (attempt) memory -- OWNER_RULING
+# (BOARD.md, 2026-09-06): each subsequent REPLAN variant must differ by
+# >=15% staffing from EVERY variant already shown in this attempt, not just
+# the last one, and this memory must survive a reload. A "signature" here is
+# the T017 canonical S(C): a list of [demand_id, employee_id] pairs actually
+# selected (mirrors solver._candidate_signature's frozenset shape, JSON has
+# no frozenset so it round-trips as a list of 2-item lists).
+Signature = frozenset
+
+
+def _signature_to_json(signature: frozenset[tuple[str, str]]) -> str:
+    return json.dumps([list(pair) for pair in sorted(signature)])
+
+
+def _signature_from_json(raw: str) -> frozenset[tuple[str, str]]:
+    return frozenset(tuple(pair) for pair in json.loads(raw))
+
+
+def get_attempt_signatures(conn: sqlite3.Connection, site_id: str, month: date) -> list[frozenset[tuple[str, str]]]:
+    rows = conn.execute(
+        "SELECT signature_json FROM plan_attempt_signatures WHERE site_id = ? AND month = ? ORDER BY seq",
+        (site_id, month.isoformat()),
+    ).fetchall()
+    return [_signature_from_json(row[0]) for row in rows]
+
+
+def append_attempt_signature_in_open_transaction(
+    conn: sqlite3.Connection, site_id: str, month: date, signature: frozenset[tuple[str, str]],
+) -> None:
+    """Appends one more shown-variant signature to the active attempt.
+    Caller (plan_ops) is responsible for having cleared prior signatures
+    when a NEW attempt starts (fresh PLAN with no existing preview, or
+    after an explicit reject) -- this function only ever adds."""
+    next_seq = conn.execute(
+        "SELECT COALESCE(MAX(seq), -1) + 1 FROM plan_attempt_signatures WHERE site_id = ? AND month = ?",
+        (site_id, month.isoformat()),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO plan_attempt_signatures (site_id, month, seq, signature_json) VALUES (?, ?, ?, ?)",
+        (site_id, month.isoformat(), next_seq, _signature_to_json(signature)),
+    )
+
+
+def clear_attempt_signatures_in_open_transaction(conn: sqlite3.Connection, site_id: str, month: date) -> None:
+    """Ends the active attempt -- called when a fresh PLAN starts a new one,
+    on explicit 'Odrzuc wynik', and on acceptance (the accepted variant is no
+    longer a 'shown alternative' to diverge from, it's now the schedule)."""
+    conn.execute("DELETE FROM plan_attempt_signatures WHERE site_id = ? AND month = ?", (site_id, month.isoformat()))
+
+
+def clear_attempt_signatures(conn: sqlite3.Connection, site_id: str, month: date) -> None:
+    with conn:
+        clear_attempt_signatures_in_open_transaction(conn, site_id, month)
+
+
 if __name__ == "__main__":
     print("persistence.plan_preview_repository module OK")

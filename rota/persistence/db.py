@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 13
+LATEST_SCHEMA_VERSION = 14
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -578,6 +578,26 @@ _MIGRATION_13: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 14: ROTA-T057 -- pre-acceptance REPLAN "podejscie" (attempt)
+# memory. Every candidate signature shown since the last fresh PLAN or
+# explicit "Odrzuc wynik" for a (site_id, month), so the >=15%-different-
+# from-EVERY-previous-variant rule (not just the last one) survives a
+# reload -- a separate table, not a column on plan_previews, because it is
+# a growing list per attempt, not a single current snapshot.
+# ---------------------------------------------------------------------------
+_MIGRATION_14: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS plan_attempt_signatures (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        signature_json TEXT NOT NULL,
+        PRIMARY KEY (site_id, month, seq),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -592,6 +612,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (11, _MIGRATION_11),
     (12, _MIGRATION_12),
     (13, _MIGRATION_13),
+    (14, _MIGRATION_14),
 )
 
 
