@@ -264,6 +264,7 @@ TASK_SCOPE:
 - rota/persistence/db.py
 - rota/persistence/schedule_lifecycle.py
 - rota/persistence/schedule_repository.py
+- rota/persistence/schedule_errors.py
 - rota/site_memory_types.py
 - rota/planning/state.py
 - rota/planning/engine.py
@@ -273,6 +274,7 @@ TASK_SCOPE:
 - api/errors.py
 - frontend/src/api/client.ts
 - frontend/src/screens/MonthlyPlanning.tsx
+- frontend/src/screens/History.tsx
 - tests/test_t057.py
 - tests/test_t017.py
 - tests/test_t020.py
