@@ -75,6 +75,14 @@ export interface ScheduleVersionOut {
   is_live: boolean;
 }
 
+// ROTA-T057 follow-up: read-only content of one (possibly non-current)
+// ScheduleVersion -- "Podglad" for a live month, where restore is refused.
+export interface VersionSnapshotOut {
+  version_id: string;
+  demands: ShiftDemandOut[];
+  assignments: AssignmentOut[];
+}
+
 export interface ShiftDemandOut {
   demand_id: string;
   start_datetime: string;
@@ -583,6 +591,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ version_id: versionId, note: note ?? null }),
     }),
+  // ROTA-T057 follow-up (2026-09-07): read-only view of an older version's
+  // content -- "Podglad" for a live month, where restore is refused.
+  getVersionSnapshot: (siteId: string, month: string, versionId: string) =>
+    req<VersionSnapshotOut>(`/workspace/sites/${siteId}/schedule/${month}/versions/${versionId}`),
   excludeVersionFromHistory: (siteId: string, month: string, versionId: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/exclude-from-history`, {
       method: "POST",

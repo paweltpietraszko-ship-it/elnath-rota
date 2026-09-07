@@ -15,7 +15,12 @@ from rota.application.errors import (
     ScheduleVersionNotWorking,
 )
 from rota.persistence.employee_repository import EmployeeNotFound
-from rota.persistence.schedule_errors import CannotDeleteLiveScheduleVersion, NonEditableScheduleVersion
+from rota.persistence.schedule_errors import (
+    CannotDeleteLiveScheduleVersion,
+    CannotRestoreLiveScheduleVersion,
+    NonEditableScheduleVersion,
+    ScheduleVersionNotFound,
+)
 from rota.persistence.site_memory import CoordinatorActionNotFound
 from rota.persistence.site_profile_repository import SiteProfileNotFound
 from rota.persistence.site_repository import (
@@ -33,6 +38,7 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (EmployeeNotFound, 404),
     (CoordinatorActionNotFound, 404),
     (NoCurrentScheduleVersion, 404),
+    (ScheduleVersionNotFound, 404),
     (NotWorkedRequiresPlannedPrimary, 400),
     (InvalidCoordinatorContext, 403),
     (CoordinatorContextAlreadyActive, 409),
@@ -41,6 +47,7 @@ _STATUS_BY_EXCEPTION: tuple[tuple[type[Exception], int], ...] = (
     (ReplanNotAvailableAfterAcceptance, 409),
     (NonEditableScheduleVersion, 409),
     (CannotDeleteLiveScheduleVersion, 409),
+    (CannotRestoreLiveScheduleVersion, 409),
     (InvalidSitePrintSettings, 422),
     (InvalidStandardShift, 400),
     (CandidateRejected, 400),

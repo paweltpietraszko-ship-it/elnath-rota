@@ -15,6 +15,7 @@ from rota.domain import Assignment, AssignmentRole, Deviation, ScheduleStatus, S
 from rota.persistence import schedule_validation as validation
 from rota.persistence.schedule_errors import (
     CannotDeleteLiveScheduleVersion,
+    CannotRestoreLiveScheduleVersion,
     DuplicateScheduleVersionId,
     InvalidCurrentVersionTarget,
     MalformedScheduleSnapshot,
@@ -321,10 +322,22 @@ def restore_schedule_version(
 ) -> None:
     """Move the (site_id, month) current reference to version_id (any prior
     version, including a FINAL one already superseded) without deleting or
-    altering any ScheduleVersion's content."""
+    altering any ScheduleVersion's content.
+
+    ROTA-T057 follow-up (owner finding 2026-09-07): refuses outright once
+    the CURRENT version is already live -- Przelicz Plan is the only
+    lifecycle-aware way to change a live grafik's current version (contract
+    point 6); this had no such check at all, so it could silently swap a
+    live month's current pointer back to a pre-Przelicz-Plan snapshot with
+    no regard for already-realized service content. Not live: unchanged."""
     with conn:
         if pre_check is not None:
             pre_check(conn)
+        current_id = get_current_version_id(conn, site_id, month)
+        if current_id is not None and is_schedule_version_live(conn, current_id, now=datetime.now()):
+            raise CannotRestoreLiveScheduleVersion(
+                f"({site_id}, {month}) is already live; use Przelicz Plan instead of restoring an older version"
+            )
         header = get_schedule_version_header(conn, version_id)
         if header.site_id != site_id or header.month != month:
             raise InvalidCurrentVersionTarget(f"{version_id} does not belong to ({site_id}, {month})")

@@ -188,7 +188,12 @@ def _assert_delta_4_predecessor_context(conn) -> None:
     assert {a.assignment_id for a in context} == {f"ASG-JUL-{d}" for d in range(26, 32)}
 
 
-def test_version_restart_restore_integration_scenario(tmp_path: Path) -> None:
+def test_version_restart_restore_integration_scenario(tmp_path: Path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore_schedule_version now refuses
+    # a live month -- this test is about restore's own persistence
+    # mechanics (pointer move, reconstruction across restart, history),
+    # not about live-protection, so liveness is neutralized here.
+    monkeypatch.setattr(lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     db_path = tmp_path / "rota.db"
 
     conn = connect(db_path)

@@ -11,6 +11,7 @@ import pytest
 
 from rota.application import backup, lifecycle_ops, memory_read, plan_ops, rule_decisions, training
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ReadinessSource, ReadinessState
+from rota.persistence import schedule_lifecycle
 from rota.persistence.db import connect
 from rota.persistence.employee_repository import list_memberships_for_site, save_site_membership
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot, get_schedule_version_header
@@ -97,7 +98,17 @@ def test_14_finalize_revalidates_requires_exact_acknowledgement_and_freezes(tmp_
     assert header.status.value.startswith("FINAL")
 
 
-def test_15_restore_moves_only_current_reference(tmp_path) -> None:
+def test_15_restore_refused_once_month_is_live(tmp_path) -> None:
+    """ROTA-T057 follow-up (owner finding 2026-09-07): restore is refused
+    outright once the current version is live -- Przelicz Plan is the only
+    lifecycle-aware way to change it. Rewritten from the original T009
+    item 15 (which restored across a plain REPLAN-created child, a flow
+    retired by yesterday's OWNER_RULING before this test was ever updated
+    for it -- plan_ops.replan raises ReplanNotAvailableAfterAcceptance
+    once anything is accepted) to exercise the current, real contract:
+    MONTH (2026-08-01) is already live relative to real wall-clock "now",
+    so Przelicz Plan (plan_month) is the correct recompute, and restoring
+    the pre-recompute version must now be refused, current unchanged."""
     conn = connect(tmp_path / "rota.db")
     pstate = seed_real_object(conn, case_id="life-3", month=MONTH, seed=402)
     site_id = pstate.site.site_id
@@ -105,12 +116,13 @@ def test_15_restore_moves_only_current_reference(tmp_path) -> None:
     finalized = lifecycle_ops.finalize(
         conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", acknowledged_deviation_ids=set(),
     )
-    replanned = plan_ops.replan(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 2))
-    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=replanned.candidates[0], coordinator_id="COORD-1")
+    recomputed = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1")
+    v2 = plan_ops.select_candidate(conn, site_id=site_id, month=MONTH, candidate=recomputed.candidates[0], coordinator_id="COORD-1")
     assert get_current_version_id(conn, site_id, MONTH) == v2.version_id
 
-    lifecycle_ops.restore(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", version_id=finalized.version_id)
-    assert get_current_version_id(conn, site_id, MONTH) == finalized.version_id
+    with pytest.raises(schedule_lifecycle.CannotRestoreLiveScheduleVersion):
+        lifecycle_ops.restore(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", version_id=finalized.version_id)
+    assert get_current_version_id(conn, site_id, MONTH) == v2.version_id  # unchanged
     assert get_schedule_snapshot(conn, v2.version_id).assignments  # later history still readable/intact
 
 

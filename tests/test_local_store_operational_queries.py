@@ -116,7 +116,12 @@ def test_m4_cancelled_excluded_from_current_only_queries(tmp_path: Path) -> None
     assert found == []
 
 
-def test_m5_restore_changes_query_results_immediately(tmp_path: Path) -> None:
+def test_m5_restore_changes_query_results_immediately(tmp_path: Path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- this test is about restore changing current-only query
+    # results immediately, not about live-protection, so liveness is
+    # neutralized here.
+    monkeypatch.setattr(lc, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota.db")
     seed_base_entities(conn)
     _create(conn)

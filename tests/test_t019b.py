@@ -46,7 +46,7 @@ from rota.domain import (
     StandardShift,
     SitePlanningRegime,
 )
-from rota.persistence import site_memory
+from rota.persistence import schedule_lifecycle, site_memory
 from rota.persistence.availability_repository import get_availability_history
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import LATEST_SCHEMA_VERSION, MIGRATIONS, connect
@@ -389,7 +389,11 @@ def test_c24_finalize_n_deviations_one_action(tmp_path) -> None:
     finalized = [a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SCHEDULE_FINALIZED]
     assert len(finalized) == 1
 
-def test_c25_restore_one_action_with_pointer_before_after(tmp_path) -> None:
+def test_c25_restore_one_action_with_pointer_before_after(tmp_path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- irrelevant to this test's own focus (one action record,
+    # before/after pointer), so liveness is neutralized here.
+    monkeypatch.setattr(schedule_lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota.db")
     sel = _seed_feasible_and_select(conn)
     target = get_schedule_snapshot(conn, sel.version_id).assignments[0]
@@ -762,6 +766,10 @@ def test_g53_54_candidate_and_manual_child_rollback(tmp_path, monkeypatch) -> No
 
 
 def test_g55_58_training_finalize_restore_replan_rollback(tmp_path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- irrelevant to this test's own focus (atomic rollback on a
+    # failed action insert), so liveness is neutralized here.
+    monkeypatch.setattr(schedule_lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota5.db")
     _bootstrap(conn)
     _employee(conn, "E1")

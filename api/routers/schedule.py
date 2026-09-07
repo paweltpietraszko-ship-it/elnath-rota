@@ -35,6 +35,8 @@ from rota.persistence.plan_preview_repository import get_plan_preview
 from rota.persistence.schedule_repository import (
     get_current_schedule_snapshot,
     get_current_version_id,
+    get_schedule_snapshot,
+    get_schedule_version_header,
     is_schedule_version_live,
 )
 
@@ -511,6 +513,34 @@ def post_restore(site_id: str, month: date, payload: RestoreRequest, conn=Depend
         restore(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class VersionSnapshotOut(BaseModel):
+    version_id: str
+    demands: list[ShiftDemandOut]
+    assignments: list[AssignmentOut]
+
+
+@router.get("/{site_id}/schedule/{month}/versions/{version_id}", response_model=VersionSnapshotOut)
+def get_version_snapshot(site_id: str, month: date, version_id: str, conn=Depends(get_conn)) -> VersionSnapshotOut:
+    """ROTA-T057 follow-up (owner finding 2026-09-07): read-only view of an
+    older, non-current version's content -- "Podglad" for a live month,
+    where restore is refused (see restore_schedule_version). Never touches
+    current/history/lifecycle state; a plain read."""
+    try:
+        header = get_schedule_version_header(conn, version_id)
+        if header.site_id != site_id or header.month != month:
+            raise ValueError(f"{version_id} does not belong to ({site_id}, {month})")
+        snapshot = get_schedule_snapshot(conn, version_id)
+        employee_ids = list({a.employee_id for a in snapshot.assignments})
+        employees_by_id = list_employees_by_ids(conn, employee_ids)
+        return VersionSnapshotOut(
+            version_id=version_id,
+            demands=[_demand_out(d) for d in snapshot.shift_demands],
+            assignments=[_assignment_out(a, employees_by_id) for a in snapshot.assignments],
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

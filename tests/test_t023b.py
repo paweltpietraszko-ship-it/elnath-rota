@@ -172,7 +172,11 @@ def test_t23b_05_finalize_rejects_stale_regime_version():
     assert conn.execute("SELECT status FROM schedule_versions WHERE version_id=?", (version.version_id,)).fetchone()[0].startswith("WORKING")
 
 
-def test_t23b_06_restore_rejects_stale_regime_target():
+def test_t23b_06_restore_rejects_stale_regime_target(monkeypatch):
+    # ROTA-T057 follow-up (2026-09-07): restore now also refuses a live
+    # month, checked before the regime check this test targets --
+    # neutralized here so RegimeReplanRequired is still the one raised.
+    monkeypatch.setattr(lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(":memory:")
     _seed(conn)
     d1, a1 = _planned(1, 5, 17)

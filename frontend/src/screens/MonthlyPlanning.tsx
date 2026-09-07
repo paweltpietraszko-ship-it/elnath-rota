@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 import { todayIso } from "../localDate";
 
@@ -260,6 +260,8 @@ export default function MonthlyPlanning({
 
   const [showHistory, setShowHistory] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [versionPreview, setVersionPreview] = useState<VersionSnapshotOut | null>(null);
   const [excluding, setExcluding] = useState(false);
   const [deletingCurrent, setDeletingCurrent] = useState(false);
 
@@ -500,6 +502,7 @@ export default function MonthlyPlanning({
   useEffect(() => {
     setPlanResult(null);
     setShowHistory(false);
+    setVersionPreview(null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, monthIso]);
@@ -709,6 +712,24 @@ export default function MonthlyPlanning({
       setError(String((e as Error).message ?? e));
     } finally {
       setRestoring(false);
+    }
+  };
+
+  // ROTA-T057 follow-up (2026-09-07, owner finding): restoring the current-
+  // version pointer on an already-live month is now refused backend-side
+  // (Przelicz Plan is the only lifecycle-aware way to change it) -- for a
+  // live month "Przywróć" is replaced by a read-only "Podglad" instead,
+  // which never touches current/history.
+  const showVersionPreview = async (versionId: string) => {
+    setPreviewLoading(true);
+    setError(null);
+    try {
+      const snapshot = await api.getVersionSnapshot(siteId, monthIso, versionId);
+      setVersionPreview(snapshot);
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -1052,14 +1073,25 @@ export default function MonthlyPlanning({
                       <li key={v.version_id} style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
                         <span className="badge-pill badge-on">{SCHEDULE_STATUS_LABEL[v.status]}, utworzono {formatDateTime(v.created_at)}</span>
                         {v.version_id !== view.current_version?.version_id && (
-                          <button
-                            className="btn-ghost"
-                            data-diag-action="restore-version"
-                            onClick={() => restore(v.version_id)}
-                            disabled={restoring}
-                          >
-                            Przywróć
-                          </button>
+                          isLive ? (
+                            <button
+                              className="btn-ghost"
+                              data-diag-action="preview-version"
+                              onClick={() => showVersionPreview(v.version_id)}
+                              disabled={previewLoading}
+                            >
+                              {previewLoading ? "Wczytywanie…" : "Podgląd"}
+                            </button>
+                          ) : (
+                            <button
+                              className="btn-ghost"
+                              data-diag-action="restore-version"
+                              onClick={() => restore(v.version_id)}
+                              disabled={restoring}
+                            >
+                              Przywróć
+                            </button>
+                          )
                         )}
                         {v.version_id !== view.current_version?.version_id &&
                           v.status !== "FINAL_NO_DEVIATIONS" &&
@@ -1076,6 +1108,27 @@ export default function MonthlyPlanning({
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {versionPreview && (
+                <div className="panel" style={{ marginTop: 12 }}>
+                  <div className="panel-title-row">
+                    <h3>Podgląd starej wersji</h3>
+                    <button className="btn-ghost" onClick={() => setVersionPreview(null)}>
+                      Zamknij
+                    </button>
+                  </div>
+                  <p className="panel-hint">
+                    Tylko do przeglądania — ta wersja nie jest bieżąca i nie da się jej przywrócić, bo grafik już żyje.
+                  </p>
+                  <ScheduleGrid
+                    monthIso={monthIso}
+                    assignments={versionPreview.assignments}
+                    demandKindByDemandId={
+                      new Map(versionPreview.demands.map((d) => [d.demand_id, d.shift_kind]))
+                    }
+                  />
                 </div>
               )}
             </>
