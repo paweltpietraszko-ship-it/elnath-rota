@@ -284,12 +284,16 @@ def _already_differs_from_baseline(state: PlanningState, candidate: list[Assignm
 
 def plan_requiring_different_result_narrow(
     state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+    prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
 ) -> PlanningResult:
-    return _with_model_error_boundary(_plan_requiring_different_result_narrow, state, cutover_at, search_attempt)
+    return _with_model_error_boundary(
+        _plan_requiring_different_result_narrow, state, cutover_at, search_attempt, prior_variant_signatures,
+    )
 
 
 def _plan_requiring_different_result_narrow(
     state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+    prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
 ) -> PlanningResult:
     """Owner decision 2026-08-26, then OWNER_CORRECTED same day after a Codex
     audit question: REPLAN, by definition, must never hand the coordinator
@@ -345,7 +349,15 @@ def _plan_requiring_different_result_narrow(
         if _is_timeout_technical_error(baseline_check):
             return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
         return baseline_check
-    if _already_differs_from_baseline(state, baseline_check.candidates[0]):
+    # T57-04 (architect FAIL 2026-09-07): this shortcut's baseline is always
+    # empty pre-acceptance (nothing accepted yet), so "differs from it" was
+    # trivially true for any non-empty candidate and this fired on every
+    # call once REPLAN became pre-acceptance-only -- silently skipping the
+    # dedicated diversity solve below, and with it the only place that can
+    # ever enforce >=15% against this podejscie's stored history. Only take
+    # the shortcut when there is no history yet to enforce against (the
+    # podejscie's very first REPLAN call).
+    if not prior_variant_signatures and _already_differs_from_baseline(state, baseline_check.candidates[0]):
         # INT-R3-1: the baseline check's own candidate already satisfies
         # "must differ" (e.g. baseline was empty/partial) -- a second,
         # diversity-only solve would be redundant and, on timeout, would
@@ -356,7 +368,7 @@ def _plan_requiring_different_result_narrow(
         return replace(baseline_check, optimization_complete=False)
     outcome = solve(
         state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
-        search_attempt=search_attempt,
+        search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
@@ -370,6 +382,7 @@ def _plan_requiring_different_result_narrow(
 def _wide_try_diversity_at_stage(
     state: PlanningState, cutover_at: datetime, deadline: float, *,
     enforce_load_cap: bool, allow_day_only_n_fallback: bool, allow_emergency_24h: bool, search_attempt: int = 0,
+    prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
 ) -> PlanningResult | None:
     """Only called once the ORDINARY (non-diversity) solve at these exact
     stage flags already came back cleanly FEASIBLE (see
@@ -381,7 +394,7 @@ def _wide_try_diversity_at_stage(
     outcome = solve(
         state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
         allow_emergency_24h=allow_emergency_24h, require_different_from_baseline=True, cutover_at=cutover_at,
-        deadline=deadline, search_attempt=search_attempt,
+        deadline=deadline, search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
@@ -394,12 +407,16 @@ def _wide_try_diversity_at_stage(
 
 def plan_requiring_different_result_wide(
     state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+    prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
 ) -> PlanningResult:
-    return _with_model_error_boundary(_plan_requiring_different_result_wide, state, cutover_at, search_attempt)
+    return _with_model_error_boundary(
+        _plan_requiring_different_result_wide, state, cutover_at, search_attempt, prior_variant_signatures,
+    )
 
 
 def _plan_requiring_different_result_wide(
     state: PlanningState, cutover_at: datetime, search_attempt: int = 0,
+    prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
 ) -> PlanningResult:
     """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- called
     only after plan_requiring_different_result_narrow returns
@@ -466,7 +483,7 @@ def _plan_requiring_different_result_wide(
             diverse_result = _wide_try_diversity_at_stage(
                 state, cutover_at, deadline, enforce_load_cap=enforce_load_cap,
                 allow_day_only_n_fallback=allow_day_only_n_fallback, allow_emergency_24h=allow_emergency_24h,
-                search_attempt=search_attempt,
+                search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures,
             )
             if diverse_result is not None:
                 return diverse_result

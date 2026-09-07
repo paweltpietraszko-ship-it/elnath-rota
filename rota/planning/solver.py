@@ -50,6 +50,22 @@ from rota.planning.work_periods import resolve_required_rest
 TARGET_DEVIATION_WEIGHT = 100  # ROTA-T032 section 4.4: unchanged -- TARGET-01 stays in the one combined objective, weighted to dominate (owner correction 2026-08-25: no separate proof-then-freeze phase, see _solve_lexicographic_phases).
 SOFT_PENALTY_WEIGHT = 1
 SOLVER_TIME_LIMIT_SECONDS = 30.0
+# OWNER_CORRECTED 2026-09-07 (T057 T57-04 investigation): CP-SAT with an
+# objective never stops early on "found a good schedule" -- only on a
+# proven-optimal certificate or the time limit. The 2026-08-25 comment
+# above already measured this exact plateau ("zero further quality gain
+# out to 120s, only the unproven-optimal proof keeps running") without
+# acting on it -- every solve, PLAN and REPLAN alike, has been paying the
+# full budget for that unused proof ever since equity/rhythm turned the
+# objective from trivial to genuinely hard to certify. A live REPLAN
+# reproducer on a real, loosely-staffed month (owner's own manual test,
+# 2026-09-07) went from >180s unresolved to 2.6s FEASIBLE once a small
+# gap was allowed -- 1% measured as the tightest tried that still gets the
+# speedup (0.1% did not). This never weakens a HARD constraint: every
+# accepted schedule is still fully valid, only possibly up to 1% off the
+# unproven theoretical best on the SOFT objective (equity/rhythm/target
+# weighted sum) -- not distinguishable from "optimal" by a coordinator.
+SOLVER_RELATIVE_GAP_LIMIT = 0.01
 MAX_MONTHLY_HOURS = 744
 # ROTA-T032 section 6.1: one shared deadline for every internal CP-SAT solve
 # of one public plan(state) call -- engine.py creates it once and threads it
@@ -701,6 +717,7 @@ def _run_solver(model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME
     solver.parameters.random_seed = search_attempt
     solver.parameters.randomize_search = search_attempt > 0
     solver.parameters.max_time_in_seconds = max(0.0, time_limit_seconds)
+    solver.parameters.relative_gap_limit = SOLVER_RELATIVE_GAP_LIMIT
     status = solver.solve(model)
     return solver, status
 
@@ -753,6 +770,16 @@ def _candidate_signature(solver: cp_model.CpSolver, x: dict, slots: list[SolverS
     return frozenset((slot.demand.demand_id, slot.employee_id) for slot in slots if solver.value(x[slot.employee_id, slot.demand.demand_id]))
 
 
+def _diversity_min_difference(n: int) -> int:
+    """T017's own single definition of ">=15% different" (ceil(0.15*n) of n
+    total coverage slots) -- the one metric every diversity-vs-signature
+    HARD constraint reuses, whether it is comparing against a same-solve
+    additional candidate (_search_additional_candidates) or a signature
+    stored from an earlier, separate REPLAN call in this same podejscie
+    (solve()'s prior_variant_signatures, ROTA-T057 T57-04)."""
+    return (15 * n + 99) // 100
+
+
 def _search_additional_candidates(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     pair_vars: dict | None, cross_month_by_employee: dict | None,
@@ -782,7 +809,7 @@ def _search_additional_candidates(
     further qualifying variant exists, or the search never needed to run
     at all -- still a complete result)."""
     n = sum(still_needed.values())
-    if n <= 0 or n - (k := (15 * n + 99) // 100) < 0:
+    if n <= 0 or n - (k := _diversity_min_difference(n)) < 0:
         return [], None, False
     signature = _candidate_signature(first_solver, x, slots)
     alternatives: list[tuple[list[Assignment], list[str]]] = []
@@ -905,6 +932,7 @@ def solve(
     state: PlanningState, enforce_load_cap: bool = True, allow_emergency_24h: bool = False,
     allow_day_only_n_fallback: bool = False, deadline: float | None = None, search_attempt: int = 0,
     require_different_from_baseline: bool = False, cutover_at: datetime | None = None,
+    prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
 ) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping,
     no domain judgment. `deadline` (ROTA-T032 section 6.1) is a
@@ -912,6 +940,17 @@ def solve(
     public plan() call -- None (e.g. direct pre-T032 callers/tests) keeps
     the original fixed per-solve budget. `search_attempt` (section 7.2) only
     varies CP-SAT search seed/order, never the model.
+
+    prior_variant_signatures (ROTA-T057 T57-04, architect FAIL 2026-09-07):
+    every (demand_id, employee_id) signature already shown earlier in this
+    same pre-acceptance REPLAN podejscie (plan_attempt_signatures), passed
+    in only when require_different_from_baseline is also True -- the
+    within-state baseline check above answers "different from what's
+    currently accepted" (empty/no-op pre-acceptance, by design), this
+    answers the actually-required "different from EVERY variant already
+    offered this podejscie", using the exact same >=15% floor T017's own
+    same-solve additional-candidate search already established
+    (_diversity_min_difference) -- no new metric.
 
     require_different_from_baseline (owner decision 2026-08-26, REPLAN must
     never hand back the same schedule): used only by
@@ -1011,6 +1050,19 @@ def solve(
         # would wrongly count as a difference it can never actually be.
         baseline_pairs = {(a.employee_id, a.covers_demand_id) for a in baseline_for_diversity}
         model.add(build_any_difference_expr(x, baseline_pairs) >= 1)
+        # T57-04 (architect FAIL 2026-09-07): every variant already shown
+        # earlier in this same pre-acceptance podejscie also gets its own
+        # HARD >=15%-different floor -- the single baseline check above is
+        # empty/no-op pre-acceptance by design (nothing accepted yet), so it
+        # alone never enforced diversity against those prior variants.
+        if prior_variant_signatures:
+            n = sum(still_needed.values())
+            k = _diversity_min_difference(n)
+            if n > 0 and n - k >= 0:
+                for signature in prior_variant_signatures:
+                    overlap_terms = [x[employee_id, demand_id] for demand_id, employee_id in signature if (employee_id, demand_id) in x]
+                    if overlap_terms:
+                        model.add(sum(overlap_terms) <= n - k)
     else:
         baseline = redistributable_baseline_assignments(state)
         if baseline:

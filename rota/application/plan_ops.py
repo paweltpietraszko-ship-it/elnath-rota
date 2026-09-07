@@ -651,10 +651,11 @@ def _replan_preacceptance(
     continuing an already-started podejscie), is read back from whatever
     preview already exists for it -- those calls never resupply it.
 
-    KNOWN GAP, next increment: this does not yet enforce >=15% against
-    every plan_attempt_signatures entry from earlier in this same
-    podejscie -- only _record_shown_variants below grows that memory;
-    nothing reads it back into the solver yet."""
+    ROTA-T057 T57-04 (architect FAIL 2026-09-07, closes the prior KNOWN
+    GAP): every plan_attempt_signatures entry recorded so far in this same
+    podejscie is read back here and handed to solve_fn, which enforces
+    T017's own >=15%-different floor against EACH of them (not just the
+    single, always-empty-pre-acceptance state baseline)."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     _require_no_current_for_replan(conn, site_id, month)
     if effective_from is None:
@@ -664,7 +665,8 @@ def _replan_preacceptance(
     placeholder_id = f"SV-{uuid.uuid4().hex}"
     demands = tuple(replace(d, schedule_version_id=placeholder_id) for d in state.shift_demands)
     state = replace(state, schedule_version_id=placeholder_id, shift_demands=demands)
-    result = solve_fn(state, search_attempt=search_attempt)
+    prior_variant_signatures = tuple(plan_preview_repository.get_attempt_signatures(conn, site_id, month))
+    result = solve_fn(state, search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures)
     result.warnings = list(assembler_warnings) + list(result.warnings)
     result = _persist_decision_readback(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, schedule_version_id=None, result=result,
@@ -688,8 +690,9 @@ def replan(
     require_real_date(effective_from)
     return _replan_preacceptance(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        solve_fn=lambda state, search_attempt: plan_requiring_different_result_narrow(
+        solve_fn=lambda state, search_attempt, prior_variant_signatures: plan_requiring_different_result_narrow(
             state, cutover_at=datetime.now(), search_attempt=search_attempt,
+            prior_variant_signatures=prior_variant_signatures,
         ),
         operation_kind="replan_narrow",
     )
@@ -705,8 +708,9 @@ def replan_retry_narrow(conn, *, site_id: str, month: date, coordinator_id: str,
     acceptance, same as replan() itself."""
     return _replan_preacceptance(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=None,
-        solve_fn=lambda state, search_attempt: plan_requiring_different_result_narrow(
+        solve_fn=lambda state, search_attempt, prior_variant_signatures: plan_requiring_different_result_narrow(
             state, cutover_at=datetime.now(), search_attempt=search_attempt,
+            prior_variant_signatures=prior_variant_signatures,
         ),
         operation_kind="replan_narrow", search_attempt=search_attempt,
     )
@@ -726,8 +730,9 @@ def replan_wider_search(
     as replan() itself."""
     return _replan_preacceptance(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=None,
-        solve_fn=lambda state, search_attempt: plan_requiring_different_result_wide(
+        solve_fn=lambda state, search_attempt, prior_variant_signatures: plan_requiring_different_result_wide(
             state, cutover_at=datetime.now(), search_attempt=search_attempt,
+            prior_variant_signatures=prior_variant_signatures,
         ),
         operation_kind="replan_wide", search_attempt=search_attempt,
     )

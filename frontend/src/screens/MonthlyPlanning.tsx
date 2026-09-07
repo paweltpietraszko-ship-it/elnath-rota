@@ -556,6 +556,34 @@ export default function MonthlyPlanning({
     }
   };
 
+  // ROTA-T057 follow-up (2026-09-07, owner correction): REPLAN (BOARD.md
+  // OWNER_RULING point 2) is the pre-acceptance "I don't like this
+  // proposal, show me a genuinely different one" tool -- distinct from
+  // PLAN's own protective, minimal-change recompute. It never had a
+  // reachable button before T057 either (the old one only ever rendered
+  // once a current_version already existed, where it always failed).
+  // Usable as the very first action (starts a fresh podejscie) or after a
+  // PLAN result is already shown (continues accumulating the same
+  // podejscie's signature history -- replan() never clears it, only a
+  // fresh PLAN or an explicit reject does).
+  const runReplanFresh = async () => {
+    if (!confirmReplacePreview()) return;
+    setPlanning(true);
+    setError(null);
+    setLastWideSearch(false);
+    setReplanSearchAttempt(0);
+    try {
+      const result = await api.replanMonth(siteId, monthIso, effectiveFromDraft);
+      setPlanResultSource("replan");
+      setPlanResult(result);
+      loadUnlessFreshPreviewUnpersisted(result);
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setPlanning(false);
+    }
+  };
+
   const chooseCandidate = async (candidate: AssignmentOut[]) => {
     setSelecting(true);
     setError(null);
@@ -578,12 +606,11 @@ export default function MonthlyPlanning({
   const [lastWideSearch, setLastWideSearch] = useState(false);
   // replanSearchAttempt tracks the CURRENT stage's (narrow or wide) attempt
   // count, for both a SEARCH_INCOMPLETE retry and a FEASIBLE+"Szukaj dalej"
-  // request -- reset to 0 only when a genuinely fresh replan() (new child
-  // version) runs. A retry/­"Szukaj dalej" NEVER calls replan()/runReplan()
-  // again -- that would clone another child on top of the one already
-  // current (integration audit point 5/6) -- it uses replanRetry/
-  // replanWiderSearch instead, which operate on the existing current
-  // version.
+  // request -- reset to 0 only when a genuinely fresh runReplanFresh() call
+  // (a new podejscie-continuing replan()) runs. A retry/"Szukaj dalej"
+  // NEVER calls replan() again -- it uses replanRetry/replanWiderSearch
+  // instead, which continue the SAME pre-acceptance podejscie without
+  // resetting its accumulated diversity history.
   const [replanSearchAttempt, setReplanSearchAttempt] = useState(0);
 
   const runWiderSearch = async () => {
@@ -792,6 +819,9 @@ export default function MonthlyPlanning({
               <div className="create-panel-actions">
                 <button className="btn-primary" data-diag-action="plan-month-first" onClick={runPlan} disabled={planning}>
                   {planning ? "Planowanie…" : "Zaplanuj (PLAN)"}
+                </button>
+                <button className="btn-ghost" data-diag-action="replan-fresh" onClick={runReplanFresh} disabled={planning}>
+                  {planning ? "Planowanie…" : "REPLAN (inny wariant)"}
                 </button>
               </div>
             </div>
@@ -1181,6 +1211,21 @@ export default function MonthlyPlanning({
                 >
                   {rejectingPreview ? "Odrzucanie…" : "Odrzuć wynik"}
                 </button>
+                {/* ROTA-T057 follow-up (2026-09-07): REPLAN's actual entry
+                    point -- "I saw PLAN's proposal, I want a genuinely
+                    different one" -- only makes sense pre-acceptance;
+                    Przelicz Plan's own preview (post-acceptance, same
+                    "Kandydaci" panel) never offers it. */}
+                {!view?.current_version && (
+                  <button
+                    className="btn-ghost"
+                    data-diag-action="replan-fresh-again"
+                    onClick={runReplanFresh}
+                    disabled={rejectingPreview || selecting || planning}
+                  >
+                    {planning ? "Planowanie…" : "Chcę inny wariant (REPLAN)"}
+                  </button>
+                )}
               </div>
               {planResult.candidates.map((candidate, i) => (
                 <div key={i} style={{ marginBottom: 16 }}>
