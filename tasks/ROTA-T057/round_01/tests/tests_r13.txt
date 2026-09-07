@@ -1,0 +1,52 @@
+ROTA-T057 — KOREKTA WERDYKTU PO DOWODZIE OWNERA
+
+AUDITED_PRODUCT_SHA: 7a8e2f31afaa40cd73ed2581d234382edfb91d41
+PRIOR_REPORTS: tests_r11.txt, tests_r12.txt
+STATUS: PASS
+
+POWÓD KOREKTY
+
+R11-01 zostaje wycofany. Audytor potraktował ostrożne zastrzeżenia zapisane
+w artefaktach CC jak dowód niewykonania bramki, mimo że OWNER osobiście
+wykonał rzeczywiste scenariusze na aplikacji i doprecyzował ich wynik.
+
+OWNER_CONFIRMED 2026-09-07
+
+- wynik PLAN był wielokrotnie odrzucany, po czym PLAN uruchamiano ponownie;
+- usunięto również zaakceptowany grafik ze statusem FINAL;
+- E5 / SEARCH_INCOMPLETE był widziany przez OWNERA na własne oczy;
+- w E4 OWNER sprawdził właśnie wszystkie 13 rozpoczętych służb/pracowników;
+- można wykonać PLAN, odrzucić i ponownie zaplanować; stan działa prawidłowo;
+- F5 nie zmienia wyniku ani lifecycle.
+
+„Celowo nieudany PLAN” nie jest normalną operacją dostępną koordynatorowi:
+można nacisnąć PLAN albo go nie nacisnąć, ale nie można polecić solverowi,
+aby specjalnie zakończył się błędem. Wymuszanie tego przez psucie danych
+testowego obiektu nie jest wymagane. Ten nierealny podpunkt bramki nie może
+blokować dostawy; ścieżka braku zapisu bez akceptacji została pokryta kodowo
+i przez testy PLAN/odrzucenie/ponowny PLAN.
+
+ZACHOWANE DOWODY NIEZALEŻNE
+
+- T57-04: trzy rundy wariantów, pełna utrwalona historia, każdy nowy wariant
+  >=15% od każdego wcześniejszego — PASS;
+- pion application -> SQLite -> reconnect -> REPLAN: pamięć wariantów
+  przetrwała, przed akceptacją brak ScheduleVersion/current — PASS;
+- blokada restore żywego grafiku: przed startem dozwolona, dokładnie od startu
+  zablokowana, current bez zmiany — PASS;
+- Podgląd starej wersji jest read-only — PASS;
+- 9/9 testów dokładnie zmienionych przez 7a8e2f3 — PASS;
+- tolerancja 1% tylko kończy wcześniej dowodzenie optimum; nie zmienia liczby
+  wymaganych służb ani nie osłabia HARD i 15% — OWNER_ACCEPTED.
+
+WERDYKT
+
+ROTA-T057 na produkcie 7a8e2f31afaa40cd73ed2581d234382edfb91d41:
+PASS.
+
+Ostatecznym dowodem optycznym jest ręczne sprawdzenie OWNERA na realnej
+aplikacji, w tym pełne 13 rozpoczętych służb w E4. Nie pozostaje żaden blocker
+T57-04, T57-16, 1% ani blokady restore.
+
+Pełnej regresji repo nie ponawiano bez zgody OWNERA; nie jest potrzebna do
+tej korekty werdyktu opartej na uzupełnionym dowodzie wykonania.
