@@ -11,6 +11,7 @@ PREIMPLEMENTATION_PASS: `tasks/ROTA-T057/round_01/tests/tests_r3.txt` @ `64dc390
 - `arch/FROZEN_ADDENDUM_MULTI_VARIANT_PLAN_01.md` — istniejący próg 15% różnicy wariantów
 - `tasks/ROTA-T057/round_01/tests/tests_r3.txt` — PASS preimplementation i minimalne seamy
 - `tasks/ROTA-T057/round_01/tests/tests_r4.txt` — wąski reaudyt scope; trzy korekty mechaniczne, bez nowej decyzji produktowej
+- `tasks/ROTA-T057/round_01/tests/tests_r9.txt` — OWNER_ACCEPTED 2026-09-07; dwie korekty kontraktu opisane niżej
 
 ## 1. Cel
 
@@ -53,7 +54,8 @@ Rozdzielić i naprawić cztery różne operacje koordynatora, które obecny kod 
   - poprawić punktowo Korektą ręczną.
 - Dotyczy to również grafiku FINAL, jeśli pierwsza rzeczywista służba jeszcze się nie rozpoczęła.
 - `Przelicz Plan` nie służy do tego przypadku.
-- Skasowanie nieżywego grafiku usuwa go z `current`, biznesowej Historii, restore, eksportu i rozliczeń. Niewidoczny techniczny ślad audytu może pozostać.
+- Dla WORKING skasowanie nieżywego grafiku usuwa go z `current`, biznesowej Historii, restore, eksportu i rozliczeń. Niewidoczny techniczny ślad audytu może pozostać.
+- **OWNER_CORRECTION 2026-09-07:** dla nieżywego FINAL po `Usuń` na razie wystarczy wyczyszczenie `current`; wersja FINAL może pozostać w biznesowej Historii i może być ponownie przywrócona. Ten wyjątek świadomie odkłada pełne usunięcie FINAL z History/restore na osobny późniejszy temat i ma pierwszeństwo nad wcześniejszym szerszym wymaganiem T57-06.
 - Nie osłabiać fizycznej niezmienności FINAL z T008: użyć istniejącego lifecycle/current/history i dziennika akcji, bez drugiego systemu historii.
 
 ### 2.4 Żywy grafik i Przelicz Plan
@@ -65,7 +67,8 @@ Rozdzielić i naprawić cztery różne operacje koordynatora, które obecny kod 
   - nie może ich zmienić nawet wtedy, gdy bieżące reguły/validator uznałyby je dziś za niepożądane;
   - dla przyszłej części minimalizuje liczbę zmian względem aktualnego obowiązującego grafiku;
   - po akceptacji tworzy dokładnie jedną nową ScheduleVersion;
-  - poprzednia obowiązująca wersja pozostaje w historii na zawsze.
+  - poprzednia obowiązująca wersja pozostaje w historii na zawsze;
+  - **OWNER_CORRECTION 2026-09-07:** zaakceptowane dziecko dostaje `effective_from = dzisiaj` automatycznie; koordynator nie wybiera tej daty.
 - Nieudany, przerwany, `SEARCH_INCOMPLETE` albo odrzucony wynik `Przelicz Plan` pozostawia `current`, historię i liczbę ScheduleVersion bez zmian.
 - T057 nie obejmuje planowania przyszłego L4.
 
@@ -99,7 +102,7 @@ Akceptacja zachowuje istniejący `SCHEDULE_CANDIDATE_SELECTED` i istniejący ato
 - **Granica live:** jeden helper application i jeden backendowy czas operacji. Backend autoryzuje fazę; UI tylko prezentuje wynik i nie może obejść reguły.
 - **Usunięcie przed live:** istniejący lifecycle/current/history + istniejący dziennik akcji; bez drugiego systemu historii.
 - **Przelicz Plan:** przenieść istniejącą ochronę cutover/minimal-change ze starego znaczenia REPLAN. Nie zmieniać pozostałych reguł solvera.
-- **Routery eksportu/Historii i księgowość:** poza zmianą; nie dodawać tam drugiej walidacji lifecycle. Targetowany pion ma potwierdzić, że po usunięciu nie widzą grafiku przez istniejący owner current/history.
+- **Routery eksportu/Historii i księgowość:** poza zmianą; nie dodawać tam drugiej walidacji lifecycle. Targetowany pion ma potwierdzić, że po usunięciu nie widzą grafiku przez istniejący owner current/history, z wyjątkiem świadomie zaakceptowanego 2026-09-07 pozostawienia nieżywego FINAL w History/restore po `Usuń`.
 
 ## 5. Wymagane zachowanie UI
 
@@ -136,7 +139,8 @@ CC wykonuje E1–E5 na osobnej bazie i zapisuje obserwowane `current`, liczbę S
 ### E3 — zaakceptowany, ale nieżywy
 - zaakceptuj grafik z pierwszą służbą o znanej godzinie;
 - chwilę przed startem pierwszej służby: także FINAL można usunąć;
-- po usunięciu brak grafiku w current, biznesowej Historii, restore i eksporcie;
+- po usunięciu WORKING brak grafiku w current, biznesowej Historii, restore i eksporcie;
+- po usunięciu nieżywego FINAL current jest wyczyszczony, ale zgodnie z OWNER_CORRECTION 2026-09-07 FINAL może pozostać w biznesowej Historii i restore;
 - uruchom PLAN od nowa i zaakceptuj nowy wariant;
 - dokładnie w chwili startu pierwszej służby i później operacja usunięcia jest odrzucona przez backend, również przy bezpośrednim endpointzie.
 
@@ -144,7 +148,7 @@ CC wykonuje E1–E5 na osobnej bazie i zapisuje obserwowane `current`, liczbę S
 - przygotuj zaakceptowany grafik, którego pierwsza służba już się rozpoczęła;
 - wykonaj `Przelicz Plan` z realną zmianą dotyczącą przyszłości, ale bez scenariusza przyszłego L4;
 - przed akceptacją preview stary grafik nadal jest `current`;
-- po akceptacji powstaje dokładnie jedna nowa wersja;
+- po akceptacji powstaje dokładnie jedna nowa wersja z `effective_from = dzisiaj`;
 - wszystkie rozpoczęte służby są bit-for-bit zachowane w zakresie pól solverowo modyfikowalnych;
 - przyszłość zmienia się minimalnie względem poprzedniej wersji;
 - poprzednia wersja pozostaje w historii;
@@ -189,7 +193,7 @@ T57-04: każdy kolejny pre-acceptance REPLAN różni się >=15% od wszystkich wc
 
 T57-05: `Odrzuć wynik` kończy aktywne pre-acceptance podejście; `Użyj tego grafiku` po PLAN/REPLAN atomowo tworzy dokładnie jedną zaakceptowaną wersję i ustawia ją jako current.
 
-T57-06: zaakceptowany, także FINAL, ale nieżywy grafik można usunąć przed startem pierwszej rzeczywistej służby; po usunięciu nie jest widoczny w current, biznesowej Historii, restore, eksporcie ani rozliczeniach; PLAN działa od zera.
+T57-06: zaakceptowany, także FINAL, ale nieżywy grafik można usunąć przed startem pierwszej rzeczywistej służby. Dla WORKING po usunięciu nie jest widoczny w current, biznesowej Historii, restore, eksporcie ani rozliczeniach. **Wyjątek OWNER_CORRECTION 2026-09-07:** dla nieżywego FINAL po `Usuń` wystarczy wyczyszczenie current; FINAL może na razie pozostać w biznesowej Historii i restore. PLAN działa od zera po wyczyszczeniu current.
 
 T57-07: granica live/non-live jest wyznaczona przez faktyczny start pierwszej rzeczywistej służby: chwilę przed można usunąć, dokładnie od startu nie można.
 
@@ -199,7 +203,7 @@ T57-09: `Przelicz Plan` twardo zachowuje wszystkie rozpoczęte służby.
 
 T57-10: `Przelicz Plan` minimalizuje zmiany w przyszłości względem current.
 
-T57-11: zaakceptowany `Przelicz Plan` tworzy dokładnie jedno dziecko, ustawia je jako current i zachowuje rodzica w historii.
+T57-11: zaakceptowany `Przelicz Plan` tworzy dokładnie jedno dziecko, ustawia je jako current, zachowuje rodzica w historii i automatycznie nadaje dziecku `effective_from = dzisiaj` bez wyboru daty przez koordynatora.
 
 T57-12: odrzucony/SEARCH_INCOMPLETE/nieudany `Przelicz Plan` nie zmienia current/history/version count.
 
@@ -222,6 +226,7 @@ Poza T057:
 - historyczna korekta faktycznie wykonanej służby i REALIZED — osobny finding;
 - planowanie przyszłego L4;
 - nowy subsystem preview, nowy status akceptacji albo drugi system historii;
+- pełne usunięcie nieżywego FINAL z biznesowej History/restore po `Usuń` — świadomie odłożone przez OWNERA 2026-09-07;
 - refaktoryzacje „przy okazji”.
 
 Jeżeli implementacja wymaga któregoś z tych tematów lub pliku poza TASK_SCOPE, STOP i powrót do architekta przed zmianą.
