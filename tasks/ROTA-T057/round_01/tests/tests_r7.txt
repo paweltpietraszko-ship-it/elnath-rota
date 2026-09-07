@@ -1,0 +1,80 @@
+ROTA-T057 — AUDYT KODU, PRZYROSTY 1–6
+
+AUDITED_DELIVERY_SHA: 7c4265a
+AUDITED_RANGE: f2925c7..7c4265a
+AUDITED_BRIEF_SHA: 6bce439b3d405bbeb0fefea72c8ffee219766255
+STATUS: OWNER_DECISION_NEEDED — bez PASS/FAIL do odpowiedzi o S1
+
+Scope correction 6bce439 jest poprawna. Audyt nie obejmuje świadomie
+nieukończonych przyrostów 7+ (delete, pełne 15%, finalny phase UI/API).
+
+AUDIT LAYERS
+
+- odczyt jednego diffu produkcyjnego dla przyrostów 1–6;
+- 10 targetowanych testów lifecycle: PASS (272.69 s);
+- 3 testy migracji: PASS (0.65 s);
+- 3 testy fixed-facts solvera: PASS (136.36 s);
+- 1 test atomowego rollbacku wyboru: PASS (0.92 s);
+- niezależne minimalne reproduktory poniżej na exact SHA.
+- pełna regresja repo nie była uruchamiana.
+
+OWNER_CONFIRMED / TECHNICAL_ONLY
+
+- pierwszy PLAN nie tworzy ScheduleVersion; akceptacja tworzy pierwszą;
+- preview, sygnatura i demands przeżywają reload; „Odrzuć wynik” usuwa
+  preview i pamięć podejścia;
+- migracje 14–17 zachowują jeden subsystem PlanPreview;
+- REPLAN po pierwszej akceptacji zwraca 409, zgodnie z T057;
+- fixed_existing_assignments chroni rozpoczęte PRIMARY niezależnie od nowej
+  eligibility. Testy tej warstwy przechodzą.
+
+POTWIERDZONE SPRZECZNOŚCI — WERDYKT ODROCZONY PRZEZ OWNER GATE
+
+R7-01 — FINAL nie ma działającego Przelicz Plan
+
+TRACE: brief 2.4/T57-08 — dla żywego grafiku automatyczna zmiana odbywa się
+przez Przelicz Plan; REPLAN po akceptacji jest wycofany.
+OWNERSHIP: plan_ops._require_working_or_absent / plan_month.
+REPRO: zaakceptowany, żywy FINAL; plan_month odrzucił
+ScheduleVersionNotWorking z komunikatem „use REPLAN”, mimo że REPLAN jest już
+zabroniony. Koordynator nie ma żadnej solverowej ścieżki zmiany.
+
+R7-02 — root omija kontrolę rozpoczętych służb przy akceptacji
+
+TRACE: T57-09 — wszystkie rozpoczęte służby mają być twardo zachowane.
+OWNERSHIP: plan_ops._enforce_replan_cutover, acceptance pre_check.
+REPRO: dla root ScheduleVersion (parent_version_id=None) kandydat zmieniający
+rozpoczęte PRIMARY został zaakceptowany przez sam guard jako ALLOWED. Funkcja
+zwraca przed porównaniem. Solver chroni stan z chwili obliczenia, ale ten bypass
+pozostawia wyścig: służba może rozpocząć się między preview i akceptacją.
+
+R7-03 — nowe dziecko obowiązuje wstecz od daty rodzica
+
+TRACE: zamrożony T009 review_01/review_02: każda nowa wersja wymaga własnego,
+koordynatorskiego „Obowiązuje od”; T057 nie uchyla tego kontraktu.
+OWNERSHIP: plan_ops.select_candidate -> lifecycle.create_schedule_version.
+REPRO: rodzic effective_from=2026-08-01; Przelicz Plan zaakceptowany 2026-09-06;
+dziecko zapisano z effective_from=2026-08-01. Eksport/rozliczenia wybierają
+wersję według effective_from, więc dziecko może retroaktywnie zasłonić rodzica.
+
+OWNER_DECISION_NEEDED — czy S1 rozpoczyna „życie” grafiku?
+
+Trigger: grafik ma S1/PERIODIC_TRAINING 1 września 10:00–12:00, a pierwszą
+PRIMARY służbę D/N dopiero o 18:00.
+Obecny efekt: get_first_shift_start bierze MIN z każdego nieanulowanego
+Assignment, więc o 10:00 grafik staje się live.
+Dane: odczytuje godzinę S1; niczego nie zapisuje ani nie wysyła.
+UI: od 10:00 zniknie możliwość usunięcia grafiku i zacznie obowiązywać ścieżka
+Przelicz Plan/historia, mimo że pierwsza D/N zaczyna się o 18:00.
+Failure/recovery: koordynator nie może już skasować grafiku; musi użyć ścieżki
+zmiany żywego planu.
+
+T052 mówi, że S1 jest realnym czasem pracy, ale nie jest demandem D/N i nie
+pokrywa służby PRIMARY. T057 nie rozstrzyga wprost, czy taki ręczny wpis S1 jest
+„pierwszą rzeczywistą służbą”. Reproduktor potwierdził: S1 o 10:00 + PRIMARY o
+18:00 daje reported_first=10:00 i live_at_12=True.
+
+Pytanie do OWNERA: czy grafik ma stać się live od początku S1, czy dopiero od
+pierwszej służby PRIMARY pokrywającej demand D/N?
+
+SAFETY_PRIVACY: brak nowych ryzyk stwierdzonych w audytowanym zakresie.

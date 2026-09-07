@@ -266,10 +266,12 @@ def test_t41_b09_first_plan_empty_catalog_creates_empty_working(tmp_path):
     conn = _setup(tmp_path)
     _seed_month_calendar(conn, MONTH)
     result = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
-    version_id = get_current_version_id(conn, SITE, MONTH)
-    snapshot = get_schedule_snapshot(conn, version_id)
-    assert not snapshot.shift_demands
     assert result.status != "TECHNICAL_ERROR"
+    # ROTA-T057: PLAN alone no longer creates a ScheduleVersion (T57-01) --
+    # accept the candidate first to get one worth inspecting.
+    version = plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=COORDINATOR)
+    snapshot = get_schedule_snapshot(conn, version.version_id)
+    assert not snapshot.shift_demands
 
 
 def _run_catalog_change_scenario(tmp_path):
@@ -278,7 +280,10 @@ def _run_catalog_change_scenario(tmp_path):
     _employee(conn, "A")
     _employee(conn, "B")
     _seed_month_calendar(conn, MONTH)
-    plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    first = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    # ROTA-T057: accept the first candidate so there is a real current
+    # version for the profile-change PLAN below to recompute against.
+    plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=first.candidates[0], coordinator_id=COORDINATOR)
     old_version_id = get_current_version_id(conn, SITE, MONTH)
 
     update_site_profile(conn, coordinator_id=COORDINATOR, site_id=SITE, profile=_dn_profile("PROF-B10"))
@@ -303,13 +308,25 @@ def test_t41_b11_old_working_untouched_in_history(tmp_path):
     assert not old_snapshot.shift_demands  # the original empty-catalog WORKING, never mutated
 
 
-def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_path):
+def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_path, monkeypatch):
     profile = _dn_profile("PROF-B12")
     conn = _setup(tmp_path, profile=profile)
     _employee(conn, "A")
     _seed_month_calendar(conn, MONTH)
-    plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    first = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=first.candidates[0], coordinator_id=COORDINATOR)
     version_id = get_current_version_id(conn, SITE, MONTH)
+    # ROTA-T057 follow-up (2026-09-07): Przelicz Plan now also requires the
+    # grafik to already be live (OWNER_RULING point 3) -- MONTH is future,
+    # so "now" is frozen to just after it starts for this recompute.
+    fixed_now = datetime(MONTH.year, MONTH.month, MONTH.day, 12, 0, 0)
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr(plan_ops, "datetime", _FixedDateTime)
     plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR)
     assert get_current_version_id(conn, SITE, MONTH) == version_id
 
@@ -317,7 +334,8 @@ def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_
 def test_t41_b13_final_current_still_rejects_plan(tmp_path):
     conn = _setup(tmp_path)
     _seed_month_calendar(conn, MONTH)
-    plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    first = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=first.candidates[0], coordinator_id=COORDINATOR)
     version_id = get_current_version_id(conn, SITE, MONTH)
     finalize_schedule_version(conn, version_id=version_id)
     with pytest.raises(ScheduleVersionNotWorking):
@@ -326,15 +344,21 @@ def test_t41_b13_final_current_still_rejects_plan(tmp_path):
 
 
 def test_t41_b14_error_path_leaves_current_pointer_untouched(tmp_path, monkeypatch):
-    fixed = uuid.UUID("11111111-1111-1111-1111-111111111111")
-    monkeypatch.setattr(plan_ops.uuid, "uuid4", lambda: fixed)
-
     profile = _empty_profile("PROF-B14")
     conn = _setup(tmp_path, profile=profile)
     _seed_month_calendar(conn, MONTH)
-    plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    first = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
+    accepted = plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=first.candidates[0], coordinator_id=COORDINATOR)
     version_id = get_current_version_id(conn, SITE, MONTH)
     original_snapshot = get_schedule_snapshot(conn, version_id)
+
+    # ROTA-T057: select_candidate's own action record already consumed a
+    # uuid4() call with a real random value -- freeze uuid4 to REPRODUCE the
+    # just-accepted version's id only now, so the second plan_month below
+    # collides with it, without also colliding with the action record
+    # already inserted above (same shared `uuid` module every caller uses).
+    fixed = uuid.UUID(accepted.version_id.removeprefix("SV-"))
+    monkeypatch.setattr(plan_ops.uuid, "uuid4", lambda: fixed)
 
     update_site_profile(conn, coordinator_id=COORDINATOR, site_id=SITE, profile=_dn_profile("PROF-B14"))
     with pytest.raises(DuplicateScheduleVersionId):

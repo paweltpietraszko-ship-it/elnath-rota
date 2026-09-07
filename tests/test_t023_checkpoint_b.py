@@ -192,17 +192,34 @@ def _seed_parent_and_child(conn, *, prior_facts, extra_child_demands=(), month=M
     return "SV-2", child_assignments
 
 
-def test_t23_r5_3a_candidate_may_change_future_primary_at_or_after_cutover(tmp_path) -> None:
+def test_t23_r5_3a_candidate_may_change_future_primary_at_or_after_cutover(tmp_path, monkeypatch) -> None:
     conn = _setup(tmp_path)
     _employee(conn, "B")
+    # ROTA-T057 follow-up (2026-09-07): select_candidate now also requires
+    # the current grafik to already be live (OWNER_RULING point 3) -- an
+    # already-started D-STARTED fact makes SV-2 live, and "now" is frozen
+    # between it and D-FUT so D-FUT stays genuinely future/at-or-after-
+    # cutover, the exact case this test targets.
     child_id, prior = _seed_parent_and_child(conn, prior_facts=[
+        ("D-STARTED", "A-STARTED", "A", datetime(2027, 3, 1, 5, 0), datetime(2027, 3, 1, 17, 0), AssignmentState.PLANNED),
         ("D-FUT", "A-FUT", "A", datetime(2027, 3, 8, 5, 0), datetime(2027, 3, 8, 17, 0), AssignmentState.PLANNED),
     ], month=MONTH)
-    candidate = [replace(prior[0], employee_id="B")]  # solver reassigns the still-future shift to B
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2027, 3, 2, 0, 0)
+
+    monkeypatch.setattr(plan_ops, "datetime", _FixedDateTime)
+    candidate = [prior[0], replace(prior[1], employee_id="B")]  # solver reassigns the still-future shift to B
     selected = plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=candidate, coordinator_id=COORDINATOR)
-    assert selected.version_id == "SV-2"
-    snapshot = get_schedule_snapshot(conn, "SV-2")
-    assert snapshot.assignments[0].employee_id == "B"
+    # ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): acceptance always creates
+    # a NEW child now, never overwrites "SV-2" in place -- history preserved.
+    assert selected.version_id != "SV-2"
+    assert selected.parent_version_id == "SV-2"
+    snapshot = get_schedule_snapshot(conn, selected.version_id)
+    fut = next(a for a in snapshot.assignments if a.covers_demand_id == "D-FUT")
+    assert fut.employee_id == "B"
 
 
 def test_t23_r5_3b_removing_pre_cutover_primary_rejected(tmp_path) -> None:
@@ -257,13 +274,24 @@ def test_t23_r5_3e_cutover_timestamp_equals_recorded_at(tmp_path, monkeypatch) -
             return fixed_now
 
     monkeypatch.setattr(plan_ops, "datetime", _FixedDateTime)
-    plan_ops.select_candidate(conn, site_id=SITE, month=edge_month, candidate=prior, coordinator_id=COORDINATOR)
+    selected = plan_ops.select_candidate(conn, site_id=SITE, month=edge_month, candidate=prior, coordinator_id=COORDINATOR)
+    # ROTA-T057: the action is now recorded against the newly-created child,
+    # not the pre-existing `child_id` being replaced.
     actions = site_memory.list_coordinator_actions(conn, action_kind=CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED)
-    matching = [a for a in actions if a.schedule_version_id == child_id]
+    matching = [a for a in actions if a.schedule_version_id == selected.version_id]
     assert matching[-1].recorded_at == fixed_now
 
 
-def test_t23_r5_3f_initial_plan_not_subject_to_cutover_guard(tmp_path) -> None:
+def test_t23_r5_3f_root_version_is_subject_to_cutover_guard(tmp_path) -> None:
+    """ROTA-T057 (Codex audit R8-02, fixed 2026-09-06): a root version
+    (parent_version_id=None) used to be exempt from this guard, on the
+    theory that a version's very first acceptance can never have anything
+    already-started yet. That stopped being true once Przelicz Plan started
+    recomputing an EXISTING, possibly already-live root repeatedly -- a
+    candidate computed before a service starts can still be ACCEPTED after
+    it starts, and this guard is exactly the acceptance-time check for that
+    race. Mutating an already-started root PRIMARY is now rejected the same
+    way T23-R5-3C already rejects it for a REPLAN child."""
     conn = _setup(tmp_path)
     _seed_full_month_calendar(conn, PAST_MONTH, PAST_MONTH)
     demand = ShiftDemand("D-PAST", "SV-1", PAST, PAST_END, 1)
@@ -273,9 +301,9 @@ def test_t23_r5_3f_initial_plan_not_subject_to_cutover_guard(tmp_path) -> None:
         created_at=datetime(2020, 1, 1, 8, 0), created_by=COORDINATOR, applied_rule_version_ids=[],
         shift_demands=[demand], assignments=[assignment], deviations=[], effective_from=PAST_MONTH,
     )
-    mutated = replace(assignment, frozen=True)  # rejected on a REPLAN child per T23-R5-3C; here parent_version_id is None, so R5-3 does not apply
-    selected = plan_ops.select_candidate(conn, site_id=SITE, month=PAST_MONTH, candidate=[mutated], coordinator_id=COORDINATOR)
-    assert selected.version_id == "SV-1"
+    mutated = replace(assignment, frozen=True)
+    with pytest.raises(CandidateRejected):
+        plan_ops.select_candidate(conn, site_id=SITE, month=PAST_MONTH, candidate=[mutated], coordinator_id=COORDINATOR)
 
 
 # --- T23-50..54 HARD / regressions -------------------------------------------

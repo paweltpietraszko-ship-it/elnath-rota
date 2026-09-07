@@ -46,7 +46,7 @@ from rota.domain import (
     StandardShift,
     SitePlanningRegime,
 )
-from rota.persistence import site_memory
+from rota.persistence import schedule_lifecycle, site_memory
 from rota.persistence.availability_repository import get_availability_history
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import LATEST_SCHEMA_VERSION, MIGRATIONS, connect
@@ -131,11 +131,11 @@ def test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables(
 
     conn = connect(db_path)
     tables_after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 13
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 17
     assert conn.execute("SELECT holiday FROM calendar_days WHERE date='2026-08-03'").fetchone() == (1,)
     assert tables_after - tables_before == {
         "coordinator_action_records", "decision_required_snapshots", "current_decision_required", "site_print_settings",
-        "absence_reference_snapshots", "plan_previews", "site_monthly_extra_work_codes",
+        "absence_reference_snapshots", "plan_previews", "site_monthly_extra_work_codes", "plan_attempt_signatures",
     }
 
 def test_a2_a5_action_and_snapshot_update_delete_rejected(tmp_path) -> None:
@@ -389,7 +389,11 @@ def test_c24_finalize_n_deviations_one_action(tmp_path) -> None:
     finalized = [a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SCHEDULE_FINALIZED]
     assert len(finalized) == 1
 
-def test_c25_restore_one_action_with_pointer_before_after(tmp_path) -> None:
+def test_c25_restore_one_action_with_pointer_before_after(tmp_path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- irrelevant to this test's own focus (one action record,
+    # before/after pointer), so liveness is neutralized here.
+    monkeypatch.setattr(schedule_lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota.db")
     sel = _seed_feasible_and_select(conn)
     target = get_schedule_snapshot(conn, sel.version_id).assignments[0]
@@ -401,12 +405,20 @@ def test_c25_restore_one_action_with_pointer_before_after(tmp_path) -> None:
     assert detail.before_state == {"current_version_id": v2.version_id}
     assert detail.after_state == {"current_version_id": sel.version_id}
 
-def test_c26_replan_one_action_no_solver_attempts(tmp_path) -> None:
+def test_c26_przelicz_plan_accept_one_action(tmp_path) -> None:
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN no longer exists
+    once anything has been accepted, and no longer creates a ScheduleVersion
+    of its own (SCHEDULE_REPLAN_CREATED is dead). Przelicz Plan (plan_month
+    on the existing current) followed by select_candidate is the recompute
+    now, and records exactly one SCHEDULE_CANDIDATE_SELECTED action for the
+    new child -- same mechanism as the very first acceptance."""
     conn = connect(tmp_path / "rota.db")
     _seed_feasible_and_select(conn)
-    plan_ops.replan(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 2))
-    actions = [a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SCHEDULE_REPLAN_CREATED]
-    assert len(actions) == 1
+    recomputed = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD)
+    assert recomputed.status == "FEASIBLE"
+    plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=recomputed.candidates[0], coordinator_id=COORD)
+    actions = [a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SCHEDULE_CANDIDATE_SELECTED]
+    assert len(actions) == 2  # first-ever accept + this Przelicz Plan accept
 
 def test_c27_candidate_selection_one_action_delta_only(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
@@ -434,8 +446,9 @@ def test_d28_select_candidate_without_actor_rejected(tmp_path) -> None:
     with pytest.raises(MissingCoordinatorActor):
         plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=None)
     assert len(memory_read.material_action_history(conn)) == before_count
-    assert get_current_version_id(conn, SITE, MONTH) is not None
-    assert get_schedule_snapshot(conn, get_current_version_id(conn, SITE, MONTH)).assignments == []
+    # ROTA-T057 (T57-01): rejected before anything is created -- no
+    # ScheduleVersion exists at all, PLAN never created one either.
+    assert get_current_version_id(conn, SITE, MONTH) is None
 
 def test_d29_candidate_selection_records_actual_actor(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
@@ -743,14 +756,20 @@ def test_g53_54_candidate_and_manual_child_rollback(tmp_path, monkeypatch) -> No
     _employee(conn)
     _fill_calendar(conn)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
-    current = get_current_version_id(conn, SITE, MONTH)
+    # ROTA-T057 (T57-01): PLAN alone creates no ScheduleVersion -- this is
+    # now the "first-ever acceptance" rollback path (_select_first_candidate_hook).
+    assert get_current_version_id(conn, SITE, MONTH) is None
     with monkeypatch.context() as mp, pytest.raises(RuntimeError):
         _boom_action_insert(mp, "rota.application.plan_ops.site_memory.record_coordinator_action_no_commit")
         plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=COORD)
-    assert get_schedule_snapshot(conn, current).assignments == []
+    assert get_current_version_id(conn, SITE, MONTH) is None  # atomic rollback: still no version at all
 
 
 def test_g55_58_training_finalize_restore_replan_rollback(tmp_path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- irrelevant to this test's own focus (atomic rollback on a
+    # failed action insert), so liveness is neutralized here.
+    monkeypatch.setattr(schedule_lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota5.db")
     _bootstrap(conn)
     _employee(conn, "E1")
@@ -783,12 +802,17 @@ def test_g55_58_training_finalize_restore_replan_rollback(tmp_path, monkeypatch)
         lifecycle_ops.restore(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, version_id=sel.version_id)
     assert get_current_version_id(conn, SITE, MONTH) == v2.version_id
 
+    # ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): REPLAN no longer exists
+    # once anything has been accepted -- Przelicz Plan (plan_month +
+    # select_candidate) is the recompute now, and its acceptance must roll
+    # back atomically the same way every other accept path here does.
     conn = connect(tmp_path / "rota8.db")
     sel = _seed_feasible_and_select(conn)
     count_before = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
+    recomputed = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD)
     with monkeypatch.context() as mp, pytest.raises(RuntimeError):
         _boom_action_insert(mp, "rota.application.plan_ops.site_memory.record_coordinator_action_no_commit")
-        plan_ops.replan(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 2))
+        plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=recomputed.candidates[0], coordinator_id=COORD)
     assert conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0] == count_before
     assert get_current_version_id(conn, SITE, MONTH) == sel.version_id
 

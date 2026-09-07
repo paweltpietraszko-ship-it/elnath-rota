@@ -1,0 +1,63 @@
+ROTA-T057 — WĄSKI REAUDYT PO R8 I PRZYROŚCIE „USUŃ”
+
+AUDITED_DELIVERY_SHA: 42b4ff0494eb22d657377933af8ed25f80f61989
+AUDITED_FIX_SHA: 82a8f6f
+AUDITED_BRIEF_SHA: 6bce439b3d405bbeb0fefea72c8ffee219766255
+STATUS: CONTRACT_HOLD — kodowo R8-01..R8-03 zamknięte; bez końcowego PASS
+na 42b4ff0 do mechanicznego uzupełnienia TASK_SCOPE.
+
+OWNER_ACCEPTED 2026-09-07
+
+1. Po „Usuń” nieżywy FINAL może na razie pozostać w biznesowej Historii
+   i może być ponownie przywrócony. Problem jest świadomie odłożony.
+2. Dziecko zaakceptowanego Przelicz Plan automatycznie dostaje
+   „Obowiązuje od dzisiaj”; koordynator nie musi wybierać tej daty.
+
+WYNIK WĄSKIEGO REAUDYTU
+
+R8-01 — PASS
+Żywy grafik FINAL ma działającą ścieżkę Przelicz Plan. Niezależny pionowy
+reproduktor na realnym stanie wykonał FINAL -> plan_month -> select_candidate:
+wynik FEASIBLE, powstało dziecko wskazujące FINAL jako rodzica.
+
+R8-02 — PASS
+Root nie omija już acceptance-time cutover guard. Niezależny reproduktor:
+tests/test_t023_checkpoint_b.py::test_t23_r5_3f_root_version_is_subject_to_cutover_guard
+PASS (1 passed in 0.82 s). Kandydat zmieniający rozpoczętą służbę został
+odrzucony także dla parent_version_id=None.
+
+R8-03 — PASS po OWNER_ACCEPTED
+Nowe dziecko nie dziedziczy już starego effective_from rodzica. Pionowy
+reproduktor zapisał rodzica z 2026-08-01, a dziecko Przelicz Plan z własnym
+2026-09-07. Realna ścieżka UI/API wysyła przy istniejącym current wartość
+NULL, plan_month zapisuje w preview date.today(), a select_candidate przenosi
+tę wartość do dziecka. OWNER zaakceptował automatyczne „od dzisiaj”.
+
+NOWY PRZYROST „USUŃ” — ZACHOWANIE
+
+- nieżywy WORKING: po usunięciu current=None i biznesowa Historia=[] — PASS;
+- żywy grafik: usunięcie odrzucone CannotDeleteLiveScheduleVersion, current
+  pozostaje bez zmian — PASS;
+- nieżywy FINAL: current jest czyszczony, wersja pozostaje w biznesowej
+  Historii i restore ponownie ustawia ją jako current — potwierdzone
+  reproduktorem i zaakceptowane przez OWNERA jako świadomie odłożony problem;
+- ręczny test OWNERA przez realny UI: PASS — dowód wspierający, nie zastępuje
+  powyższych reproduktorów.
+
+MECHANICZNY CONTRACT_HOLD
+
+Przyrost 82a8f6f..42b4ff0 zmienił dwa istniejące pliki niewymienione w
+zamrożonym TASK_SCOPE briefu:
+
+- rota/persistence/schedule_errors.py
+- frontend/src/screens/History.tsx
+
+Zmiany są technicznie uzasadnione: pierwszy plik definiuje błąd blokujący
+usunięcie żywego grafiku, drugi nadaje czytelną etykietę zapisanemu zdarzeniu
+„Usunięto wersję grafiku”. Nie wymagają kolejnej decyzji produktowej. Zgodnie
+z literalną regułą briefu architekt musi wyłącznie dopisać te ścieżki do
+TASK_SCOPE. Po nowym SHA briefu wystarczy sprawdzenie tej korekty; nie ma
+powodu ponownie uruchamiać reproduktorów ani czytać mapy zmian.
+
+Pełna regresja repo nie była uruchamiana — OWNER nie udzielił zgody, a wąski
+zakres i wykonane reproduktory nie dają konkretnej podstawy do jej żądania.

@@ -222,7 +222,19 @@ def test_4_cancelled_nn_does_not_increase_hours(tmp_path) -> None:
     assert md.realized_hours == 40 and md.planned_hours == 0
 
 
-def test_5_and_6_historical_version_not_counted_then_restore_switches(tmp_path) -> None:
+def test_5_and_6_historical_version_not_counted_then_restore_switches(tmp_path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore_schedule_version now refuses
+    # a live month (Przelicz Plan is the only way to change one) -- AUG
+    # (2026-08-01) is otherwise already in the past relative to real
+    # wall-clock "now", which is incidental here (this test is about
+    # restore switching analytics data, not liveness), so "now" is frozen
+    # to before AUG.
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 7, 15)
+
+    monkeypatch.setattr(lifecycle, "datetime", _FixedDateTime)
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)

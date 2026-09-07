@@ -75,10 +75,14 @@ def _seed_holiday_matrix(conn) -> None:
     )
 
 
-def test_holiday_history_exclusion_matrix(tmp_path: Path) -> None:
+def test_holiday_history_exclusion_matrix(tmp_path: Path, monkeypatch) -> None:
     """Only current REALIZED PRIMARY work on a stored holiday date qualifies
     -- PLANNED, CANCELLED, TRAINEE, and non-holiday-date work must all be
     excluded, and superseded (non-current) versions must not contribute."""
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- irrelevant to this test's own focus (holiday exclusion
+    # matrix), so liveness is neutralized here.
+    monkeypatch.setattr(lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota.db")
     _seed_holiday_matrix(conn)
     assert {a.assignment_id for a in repo.get_current_realized_primary_on_holidays(conn, "SITE-1")} == {"ASG-REALIZED"}

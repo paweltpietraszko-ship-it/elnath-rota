@@ -97,7 +97,11 @@ def test_f2_child_creation_atomically_switches_current(tmp_path: Path) -> None:
     assert repo.get_current_version_id(conn, "SITE-1", MONTH) == "SV-2"
 
 
-def test_f3_restore_switches_current_without_deleting_history(tmp_path: Path) -> None:
+def test_f3_restore_switches_current_without_deleting_history(tmp_path: Path, monkeypatch) -> None:
+    # ROTA-T057 follow-up (2026-09-07): restore is now refused once a month
+    # is live -- irrelevant to this test's own focus (restore switches
+    # current without deleting history), so liveness is neutralized here.
+    monkeypatch.setattr(lc, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(tmp_path / "rota.db")
     seed_base_entities(conn)
     _create_v1(conn)

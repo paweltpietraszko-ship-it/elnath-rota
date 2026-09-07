@@ -90,7 +90,7 @@ def _planned(day, start_h, end_h, *, employee_id="EMP-1", suffix="", demand_id=N
 # --- T23b-01: migration -------------------------------------------------
 def test_t23b_01_migration_v9_adds_planning_regime_with_ordinary_default():
     conn = connect(":memory:")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 13
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 17
     _seed(conn)
     assert get_site(conn, "SITE-1").planning_regime == SitePlanningRegime.ORDINARY
     assert conn.execute("SELECT planning_regime FROM sites WHERE site_id='SITE-1'").fetchone() == ("ORDINARY",)
@@ -172,7 +172,11 @@ def test_t23b_05_finalize_rejects_stale_regime_version():
     assert conn.execute("SELECT status FROM schedule_versions WHERE version_id=?", (version.version_id,)).fetchone()[0].startswith("WORKING")
 
 
-def test_t23b_06_restore_rejects_stale_regime_target():
+def test_t23b_06_restore_rejects_stale_regime_target(monkeypatch):
+    # ROTA-T057 follow-up (2026-09-07): restore now also refuses a live
+    # month, checked before the regime check this test targets --
+    # neutralized here so RegimeReplanRequired is still the one raised.
+    monkeypatch.setattr(lifecycle, "is_schedule_version_live", lambda conn, version_id, now: False)
     conn = connect(":memory:")
     _seed(conn)
     d1, a1 = _planned(1, 5, 17)
@@ -221,7 +225,13 @@ def test_t23b_09_selected_candidate_adopts_current_site_regime():
     d1, a1 = _planned(1, 5, 17)
     _create_version(conn, [d1], [a1])
     correct_site_planning_regime(conn, coordinator_id="COORD-1", site_id="SITE-1", planning_regime=SitePlanningRegime.OCHRONA)
-    header = select_candidate(conn, site_id="SITE-1", month=MONTH, candidate=[a1], coordinator_id="COORD-1")
+    # ROTA-T057 (Codex audit R8-02): the cutover guard now also runs for a
+    # root version -- the candidate must carry the SAME schedule_version_id
+    # as what is actually stored ("SV-1", stamped by create_schedule_version),
+    # not a1's own uninitialized "" from the _planned() helper, or an
+    # unrelated field mismatch would be misread as a real mutation.
+    stored = sr.get_schedule_snapshot(conn, "SV-1").assignments
+    header = select_candidate(conn, site_id="SITE-1", month=MONTH, candidate=stored, coordinator_id="COORD-1")
     assert header.planning_regime == SitePlanningRegime.OCHRONA
     assert sr.version_requires_regime_replan(conn, header.version_id) is False
 

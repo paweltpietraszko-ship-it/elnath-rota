@@ -1,0 +1,18 @@
+ROTA-T057 — KOŃCOWY WĄSKI RE-CHECK BRIEFU
+
+AUDITED_BRIEF_SHA: 0a06df27a50ae307a86c869b9dac679196ed66ca
+AUDITED_DIFF: 9efb4b34f390e5764c4e3a740f1116d5d9cc126d..0a06df27a50ae307a86c869b9dac679196ed66ca
+AUDITED_CODE_BASE: dfeec962fd90d249f83606b414801ff67d305d7c
+STATUS: PASS_PREIMPLEMENTATION
+
+Sprawdzono wyłącznie trzy mechaniczne korekty wymagane w tests_r4.txt:
+
+1. Wszystkie pięć wskazanych istniejących testów dodano do TASK_SCOPE.
+2. Brief i raporty R1–R4 przeniesiono do READ_ONLY_EVIDENCE.
+3. WHERE_MAP ma legalne MODE: REQUIRED, a wykonanie R3 zapisano osobno.
+
+Nie zmieniono kontraktu produktu, E1–E5 ani zakazu przyszłego L4. Nie było kodu
+produktu do uruchomienia, dlatego w tym re-checku nie wykonywano testów.
+
+WERDYKT: PASS dla briefu dokładnie na SHA 0a06df27a50ae307a86c869b9dac679196ed66ca.
+TASK_SCOPE jest literalnie zamrożony; implementacja może się rozpocząć.

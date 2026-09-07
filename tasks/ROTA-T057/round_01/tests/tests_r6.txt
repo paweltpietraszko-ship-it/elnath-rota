@@ -1,0 +1,26 @@
+ROTA-T057 — AUDYT PRZYROSTÓW 1–6, KONTROLA KONTRAKTU
+
+AUDITED_DELIVERY_SHA: 7c4265a
+AUDITED_RANGE: f2925c7..7c4265a
+FROZEN_BRIEF_SHA: 0a06df27a50ae307a86c869b9dac679196ed66ca
+STATUS: CONTRACT_HOLD — bez PASS/FAIL i bez pytania produktowego do OWNERA
+
+Pierwsza kontrola diffu wykazała trzy zmienione pliki nieobecne w literalnym
+TASK_SCOPE briefu:
+
+- rota/planning/state.py
+- tests/test_t020.py
+- tests/test_t023b.py
+
+`rota/planning/state.py` dodaje techniczny nośnik `cutover_at` konieczny dla
+zaakceptowanej twardej ochrony rozpoczętych służb. Dwa testy aktualizują numer
+schematu po dozwolonych migracjach. Te zmiany nie wymagają decyzji produktowej,
+ale muszą zostać literalnie dopisane do TASK_SCOPE przez architekta.
+
+Wpis/zgoda w BOARD.md nie zastępuje zamrożonego kontraktu Tasku. Sam brief mówi,
+że plik spoza listy wymaga aktualizacji TASK_SCOPE przed jego zmianą.
+
+Nie wydano werdyktu o kodzie i nie uruchomiono testów. Po nowym SHA briefu
+wystarczy potwierdzić dopisanie tych trzech ścieżek; następnie audyt kodu może
+wrócić do tego samego delivery SHA 7c4265a bez ponownego czytania już sprawdzonej
+mapy plików.

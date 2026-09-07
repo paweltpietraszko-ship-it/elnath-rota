@@ -72,6 +72,15 @@ export interface ScheduleVersionOut {
   created_at: string;
   created_by: string;
   parent_version_id: string | null;
+  is_live: boolean;
+}
+
+// ROTA-T057 follow-up: read-only content of one (possibly non-current)
+// ScheduleVersion -- "Podglad" for a live month, where restore is refused.
+export interface VersionSnapshotOut {
+  version_id: string;
+  demands: ShiftDemandOut[];
+  assignments: AssignmentOut[];
 }
 
 export interface ShiftDemandOut {
@@ -271,7 +280,8 @@ export type CoordinatorActionKind =
   | "ASSIGNMENT_NOT_WORKED"
   | "TRAINING_REALIZED"
   | "SCHEDULE_FINALIZED"
-  | "SCHEDULE_RESTORED";
+  | "SCHEDULE_RESTORED"
+  | "SCHEDULE_VERSION_DELETED";
 
 export interface AffectedEntityOut {
   entity_kind: string;
@@ -581,11 +591,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ version_id: versionId, note: note ?? null }),
     }),
+  // ROTA-T057 follow-up (2026-09-07): read-only view of an older version's
+  // content -- "Podglad" for a live month, where restore is refused.
+  getVersionSnapshot: (siteId: string, month: string, versionId: string) =>
+    req<VersionSnapshotOut>(`/workspace/sites/${siteId}/schedule/${month}/versions/${versionId}`),
   excludeVersionFromHistory: (siteId: string, month: string, versionId: string) =>
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/exclude-from-history`, {
       method: "POST",
       body: JSON.stringify({ version_id: versionId }),
     }),
+  deleteCurrentVersion: (siteId: string, month: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/delete-current`, { method: "POST" }),
 
   // Reczna korekta (T037) -- embedded in Planowanie miesiaca, not its own screen.
   applyManualCorrection: (siteId: string, month: string, effectiveFrom: string, upsertAssignments: AssignmentIn[]) =>

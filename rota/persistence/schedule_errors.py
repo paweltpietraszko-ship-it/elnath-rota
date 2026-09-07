@@ -37,5 +37,22 @@ class InvalidCurrentVersionTarget(Exception):
     the requested (site_id, month)."""
 
 
+class CannotDeleteLiveScheduleVersion(Exception):
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, point 3): the current
+    ScheduleVersion can only be deleted (its current-version pointer
+    cleared) while it is not yet live. A live grafik must go through
+    Przelicz Plan or Korekta reczna instead -- never deleted."""
+
+
+class CannotRestoreLiveScheduleVersion(Exception):
+    """ROTA-T057 follow-up (owner finding 2026-09-07): once a month is
+    live, Przelicz Plan is the ONLY way to change its current version
+    (contract point 6) -- restore_schedule_version used to move the
+    current-version pointer to any older version unconditionally, with no
+    check at all against already-realized, protected service content. For
+    a live month that is now refused outright; the frontend offers a
+    read-only "Podglad" of an old version's content there instead."""
+
+
 if __name__ == "__main__":
     print("persistence.schedule_errors module OK")

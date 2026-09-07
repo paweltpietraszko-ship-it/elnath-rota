@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-LATEST_SCHEMA_VERSION = 13
+LATEST_SCHEMA_VERSION = 17
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -578,6 +578,78 @@ _MIGRATION_13: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 14: ROTA-T057 -- pre-acceptance REPLAN "podejscie" (attempt)
+# memory. Every candidate signature shown since the last fresh PLAN or
+# explicit "Odrzuc wynik" for a (site_id, month), so the >=15%-different-
+# from-EVERY-previous-variant rule (not just the last one) survives a
+# reload -- a separate table, not a column on plan_previews, because it is
+# a growing list per attempt, not a single current snapshot.
+# ---------------------------------------------------------------------------
+_MIGRATION_14: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS plan_attempt_signatures (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        signature_json TEXT NOT NULL,
+        PRIMARY KEY (site_id, month, seq),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+)
+
+
+# ---------------------------------------------------------------------------
+# Migration 15: ARCHITECT_DECISION 2026-09-06 (BOARD.md ROTA-T057) -- one
+# PlanPreview, no second subsystem. schedule_version_id becomes optional/
+# NULL: a preview may now exist BEFORE the very first ScheduleVersion for a
+# (site_id, month) is ever created (T57-01, "pierwszy PLAN nie tworzy
+# ScheduleVersion przed akceptacja"). SQLite cannot ALTER a column's
+# NULL-ability in place -- rebuild via the standard create/copy/drop/rename
+# sequence, same shape as the original migration 12 table otherwise.
+# ---------------------------------------------------------------------------
+_MIGRATION_15: tuple[str, ...] = (
+    """CREATE TABLE plan_previews_v15 (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        schedule_version_id TEXT REFERENCES schedule_versions(version_id),
+        candidates_json TEXT NOT NULL,
+        warnings_json TEXT NOT NULL,
+        optimization_complete INTEGER NOT NULL,
+        operation_kind TEXT NOT NULL CHECK (operation_kind IN ('plan', 'replan_narrow', 'replan_wide')),
+        PRIMARY KEY (site_id, month),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+    """INSERT INTO plan_previews_v15 (site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind)
+       SELECT site_id, month, schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind FROM plan_previews""",
+    "DROP TABLE plan_previews",
+    "ALTER TABLE plan_previews_v15 RENAME TO plan_previews",
+)
+
+
+# ---------------------------------------------------------------------------
+# Migration 16: ROTA-T057 -- plan_previews.effective_from, nullable. Only
+# meaningful while schedule_version_id IS NULL: the coordinator-supplied
+# effective_from for a month's very first ScheduleVersion, captured at PLAN
+# time and carried forward so select_candidate can create that first
+# version at acceptance without the caller resupplying it after a reload.
+# ---------------------------------------------------------------------------
+_MIGRATION_16: tuple[str, ...] = (
+    "ALTER TABLE plan_previews ADD COLUMN effective_from TEXT",
+)
+
+
+# ---------------------------------------------------------------------------
+# Migration 17: ROTA-T057 -- plan_previews.shift_demands_json. The demands a
+# preview's candidates were solved against, so the coordinator-facing grid
+# can show D/N labels for a not-yet-accepted candidate even when no
+# ScheduleVersion exists yet to source demands from (a real click-through
+# found this: "?" instead of D/N with no current_version, 2026-09-06).
+# ---------------------------------------------------------------------------
+_MIGRATION_17: tuple[str, ...] = (
+    "ALTER TABLE plan_previews ADD COLUMN shift_demands_json TEXT NOT NULL DEFAULT '[]'",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -592,6 +664,10 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (11, _MIGRATION_11),
     (12, _MIGRATION_12),
     (13, _MIGRATION_13),
+    (14, _MIGRATION_14),
+    (15, _MIGRATION_15),
+    (16, _MIGRATION_16),
+    (17, _MIGRATION_17),
 )
 
 

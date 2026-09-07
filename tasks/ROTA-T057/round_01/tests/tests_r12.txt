@@ -1,0 +1,68 @@
+ROTA-T057 — WĄSKI AUDYT BLOKADY RESTORE ŻYWEGO GRAFIKU
+
+AUDITED_PRODUCT_SHA: 7a8e2f31afaa40cd73ed2581d234382edfb91d41
+OWNER_RULING: OWNER_ACCEPTED 2026-09-07
+PRIOR_REPORT: tasks/ROTA-T057/round_01/tests/tests_r11.txt
+CODE_INCREMENT_STATUS: PASS
+WHOLE_DELIVERY_STATUS: FAIL (bez zmiany — otwarty R11-01 / T57-16)
+
+ZAMROŻONE ZACHOWANIE
+
+Po rozpoczęciu pierwszej rzeczywistej służby obowiązującego grafiku nie wolno
+przywrócić starszej wersji, ponieważ mogłoby to cofnąć już odbyte służby.
+Starszą wersję wolno wtedy wyłącznie otworzyć w Podglądzie tylko do odczytu.
+Przed początkiem pierwszej służby dotychczasowe przywracanie pozostaje
+dozwolone.
+
+OWNER potwierdził wprost: „Tak, to naprawia duży błąd”.
+
+MAPA WŁAŚCICIELI
+
+Uruchomiono:
+- python where.py rota/persistence/schedule_lifecycle.py --symbol restore_schedule_version
+- python where.py api/routers/schedule.py --symbol get_version_snapshot
+- python where.py frontend/src/screens/MonthlyPlanning.tsx --symbol showVersionPreview
+
+Odczyt exact SHA potwierdził jednego backendowego ownera blokady w
+restore_schedule_version. Application i POST /restore dochodzą do niego;
+bezpośrednie API nie omija ochrony. GET wersji jest oddzielną ścieżką odczytu
+i nie zapisuje current, historii ani lifecycle.
+
+NIEZALEŻNY REPRO GRANICY
+
+Na osobnej bazie dla każdego przypadku, przy pierwszej służbie 07:00:
+- 06:59:59: restore dozwolony;
+- 07:00:00: restore odrzucony;
+- 07:00:01: restore odrzucony;
+- w obu odrzuconych przypadkach current pozostał bez zmiany;
+- GET Podglądu zwrócił demands i assignments starej wersji, a current przed
+  i po odczycie pozostał SV-2.
+
+TESTY CELOWANE
+
+Uruchomiono dokładnie 9 testów zmienionych przez przyrost 7a8e2f3.
+Wynik: 9 passed in 3.14s.
+
+Szersze uruchomienie całych ośmiu plików ujawniło zastane awarie niezwiązane
+z restore (pierwsza: test_t019 niekompletny kalendarz). Nie przypisano ich
+temu przyrostowi. Pełnej regresji repo nie uruchamiano bez zgody OWNERA.
+
+UI / OCENA OPTYCZNA
+
+Kod UI pokazuje „Podgląd” zamiast „Przywróć”, gdy backendowy widok current
+ma is_live=true, oraz czytelny opis, że stara wersja jest tylko do oglądania.
+W tej sesji nie było dostępnej uruchomionej aplikacji ani przeglądarki z tym
+stanem. Próba kompilacji w izolowanym worktree była niemiarodajna z powodu
+braku jego node_modules; nie jest klasyfikowana jako defekt produktu.
+Ostateczne optyczne potwierdzenie przycisku i siatki Podglądu nadal musi być
+wykonane na realnej aplikacji i zapisane w artefakcie wykonania.
+
+WERDYKT
+
+Przyrost 7a8e2f3 poprawnie realizuje zaakceptowaną blokadę restore: PASS.
+Nie znaleziono nowego defektu kodu. Nie zamyka to wcześniejszego R11-01:
+cały T057 pozostaje FAIL do rzeczywistego wykonania brakujących podpunktów
+FIRST EXECUTION GATE E1–E5 i uczciwego uzupełnienia artefaktów.
+
+Werdykt przyrostu dotyczy wyłącznie produktu
+7a8e2f31afaa40cd73ed2581d234382edfb91d41.

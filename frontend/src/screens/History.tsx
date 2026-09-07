@@ -24,6 +24,7 @@ const ACTION_KIND_LABEL: Record<CoordinatorActionKind, string> = {
   TRAINING_REALIZED: "Zrealizowano szkolenie",
   SCHEDULE_FINALIZED: "Sfinalizowano grafik",
   SCHEDULE_RESTORED: "Przywrócono wersję grafiku",
+  SCHEDULE_VERSION_DELETED: "Usunięto wersję grafiku",
 };
 
 const REL_LABEL: Record<string, string> = {
