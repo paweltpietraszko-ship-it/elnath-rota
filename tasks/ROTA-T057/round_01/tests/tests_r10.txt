@@ -1,0 +1,36 @@
+ROTA-T057 — KOŃCOWY WĄSKI REAUDYT KONTRAKTU
+
+AUDITED_DELIVERY_SHA: 42b4ff0494eb22d657377933af8ed25f80f61989
+AUDITED_BRIEF_SHA: 47ffdde6d43f5f5adf61d60ad87b16262c0a448e
+PRIOR_EVIDENCE: tasks/ROTA-T057/round_01/tests/tests_r9.txt @ b3ec131
+STATUS: PASS
+
+WARSTWA TEGO RECHECKU
+
+Zgodnie z tests_r9 wykonano wyłącznie literalne sprawdzenie korekty kontraktu,
+bez ponawiania testów i mapy zmian. Commit 47ffdde zmienia tylko brief.md.
+
+Potwierdzone:
+
+1. TASK_SCOPE zawiera teraz oba faktycznie zmienione pliki:
+   - rota/persistence/schedule_errors.py
+   - frontend/src/screens/History.tsx
+2. OWNER_ACCEPTED 2026-09-07 jest zamrożone spójnie w zachowaniu, gate'ach,
+   kryteriach akceptacji i out-of-scope:
+   - nieżywy FINAL po „Usuń” może pozostać w biznesowej Historii i restore;
+   - zaakceptowane dziecko Przelicz Plan automatycznie dostaje
+     effective_from = dzisiaj, bez wyboru daty przez koordynatora.
+3. Korekta briefu nie dodaje żadnego innego zachowania ani zakresu.
+
+WYNIK ŁĄCZNY
+
+R8-01, R8-02 i R8-03 pozostają zamknięte. Przyrost „Usuń” spełnia finalny
+kontrakt wraz z dwoma świadomie zaakceptowanymi wyjątkami. Ręczny test OWNERA
+przez realny UI jest dowodem wspierającym. Niezależne reproduktory i pionowa
+ścieżka są zapisane w tests_r9.txt.
+
+PASS dotyczy wyłącznie kodu 42b4ff0494eb22d657377933af8ed25f80f61989
+względem kontraktu 47ffdde6d43f5f5adf61d60ad87b16262c0a448e.
+
+Pełnej regresji repo nie uruchamiano: ten recheck był wyłącznie mechanicznym
+sprawdzeniem briefu, a OWNER nie udzielił zgody na pełną regresję.
