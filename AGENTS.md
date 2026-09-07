@@ -23,6 +23,12 @@ The architect/auditor MAY require `where.py` on a Task by adding this block to
 the contract before implementation — this is a tool the architect/auditor
 reaches for when it's actually useful, not a checkbox filled on every Task:
 
+- AUDIT REMINDER: at the start of every nontrivial audit, consciously decide
+  whether `where.py` can help trace changed owners/helpers/endpoints/rules or
+  alternate paths that may bypass the audited fix. If yes, use it narrowly for
+  the touched production files and relevant symbols. Do not rerun it for a
+  brief-only or other literal re-check unless the scope or ownership changed.
+
 ```text
 WHERE_MAP:
 - MODE: REQUIRED | OPTIONAL
