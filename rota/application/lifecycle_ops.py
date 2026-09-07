@@ -168,3 +168,31 @@ def exclude_from_history(conn, *, site_id: str, month: date, coordinator_id: str
     schedule_lifecycle.exclude_version_from_history)."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     lifecycle.exclude_version_from_history(conn, site_id=site_id, month=month, version_id=version_id)
+
+
+def delete_current_version(conn, *, site_id: str, month: date, coordinator_id: str) -> None:
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, point 3): coordinator-
+    facing "Usuń" for the current, accepted-but-not-yet-live grafik they
+    consider wrong -- clears the current-version pointer so the next Plan
+    starts completely fresh. Never a physical delete (schedule_versions_no_
+    delete stays absolute); refuses a live current version (see
+    schedule_lifecycle.delete_current_version)."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    current_id = get_current_version_id(conn, site_id, month)
+    if current_id is None:
+        raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
+    recorded_at = datetime.now()
+
+    def _hook(open_conn) -> None:
+        site_memory.record_coordinator_action_no_commit(
+            open_conn, action_kind=CoordinatorActionKind.SCHEDULE_VERSION_DELETED, origin_site_id=site_id,
+            affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+            effective_from=recorded_at.date(), month=month, schedule_version_id=current_id,
+            affected_entities=[AffectedEntity("SCHEDULE_VERSION", current_id)],
+            before_state={"current_version_id": current_id}, after_state={"current_version_id": None},
+            note=None, source_kind=ActionSourceKind.CURRENT_SCHEDULE_POINTER, source_id=current_id,
+            responds_to_decision_required_id=None,
+        )
+        site_memory.invalidate_current_decision_required_no_commit(open_conn, site_ids=[site_id], months=[month])
+
+    lifecycle.delete_current_version(conn, site_id=site_id, month=month, version_id=current_id, on_success=_hook)

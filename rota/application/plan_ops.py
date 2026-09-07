@@ -23,6 +23,7 @@ from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
 from rota.persistence.schedule_repository import (
     get_current_version_id,
+    get_first_shift_start,
     get_schedule_snapshot,
     get_schedule_version_header,
     is_schedule_version_live,
@@ -149,19 +150,41 @@ def reject_plan_preview(conn, *, site_id: str, month: date, coordinator_id: str)
 
 
 def _require_working_or_absent(conn, site_id: str, month: date) -> str | None:
-    """ROTA-T057 (Codex audit R8-01): a live grafik's ONLY solver-driven
-    operation is Przelicz Plan, regardless of WORKING/FINAL -- REPLAN is
-    retired once anything is accepted (_require_no_current_for_replan), so
-    blocking a live FINAL here left it with no recompute path at all. A
-    FINAL that is NOT YET live still has nothing for Przelicz Plan to
-    protect and belongs to "delete + PLAN again" instead (not yet built)."""
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, point 3): once anything
+    is accepted for (site_id, month) and already has real (even future-
+    dated) assignments, but its first shift hasn't started yet, Przelicz
+    Plan does not apply at all -- there is nothing yet to protect or to
+    preserve in history. That applies regardless of WORKING/FINAL status
+    (contract point 1 already treats "accepted" as reached the moment a
+    version exists, well before Finalizuj). The coordinator's path there is
+    deleting it and running Plan again, or a Korekta reczna
+    (delete_current_version, see lifecycle_ops.py).
+
+    A FINAL current version is always blocked unless live (Codex audit
+    R8-01) regardless of content -- Plan never silently reopens a finalized
+    decision. A still-WORKING current version with NO assignments yet at
+    all (e.g. T041's stale-empty-working demand refresh,
+    _stale_empty_working_needs_fresh_demands) is exempt from the not-yet-
+    live block -- there is nothing there to protect either way, and it is
+    not the "recompute a live grafik" operation this guard targets.
+
+    A live grafik's ONLY solver-driven operation is Przelicz Plan, whether
+    WORKING or FINAL -- REPLAN is retired once anything is accepted
+    (_require_no_current_for_replan)."""
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         return None
+    first_start = get_first_shift_start(conn, current_id)
+    if first_start is not None and first_start <= datetime.now():
+        return current_id
     header = get_schedule_version_header(conn, current_id)
-    if header.status.value.startswith("FINAL") and not is_schedule_version_live(conn, current_id, now=datetime.now()):
+    if header.status.value.startswith("FINAL"):
         raise ScheduleVersionNotWorking(
             f"{current_id} is FINAL and not yet live; delete it and PLAN again instead of Przelicz Plan"
+        )
+    if first_start is not None:
+        raise ScheduleVersionNotWorking(
+            f"{current_id} is accepted but not yet live; delete it and PLAN again instead of Przelicz Plan"
         )
     return current_id
 
@@ -551,9 +574,11 @@ def select_candidate(
     # ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, section 6c): accepting a
     # Przelicz Plan result always creates exactly ONE new child version and
     # keeps the parent in history forever -- never overwrites the parent's
-    # own content in place. This applies regardless of whether the parent is
-    # already live; a not-yet-live accepted grafik simply gains a harmless
-    # extra history entry.
+    # own content in place. current_id is only reachable here when it is
+    # already live, or has no real assignments yet at all
+    # (_require_working_or_absent above raises for a not-live parent that
+    # already has real, future-dated content), so this branch never runs
+    # against a not-yet-live parent that has something real to protect.
     header = get_schedule_version_header(conn, current_id)
     # ROTA-T057 (Codex audit R8-03): the accepted child gets its OWN
     # coordinator "Obowiazuje od" -- never the parent's, which plan_month

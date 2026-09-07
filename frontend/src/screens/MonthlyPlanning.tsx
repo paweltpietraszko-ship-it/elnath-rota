@@ -258,11 +258,10 @@ export default function MonthlyPlanning({
   const [ackDeviations, setAckDeviations] = useState<Set<string>>(new Set());
   const [finalizing, setFinalizing] = useState(false);
 
-  const [showReplan, setShowReplan] = useState(false);
-  const [replanFrom, setReplanFrom] = useState(todayIso());
   const [showHistory, setShowHistory] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [excluding, setExcluding] = useState(false);
+  const [deletingCurrent, setDeletingCurrent] = useState(false);
 
   // ROTA-T037 (owner ruling 2026-08-28, narrow scope): Reczna korekta lives
   // inline here, not on a separate screen. No dry-run/preview -- a HARD
@@ -500,7 +499,6 @@ export default function MonthlyPlanning({
 
   useEffect(() => {
     setPlanResult(null);
-    setShowReplan(false);
     setShowHistory(false);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -588,25 +586,6 @@ export default function MonthlyPlanning({
   // version.
   const [replanSearchAttempt, setReplanSearchAttempt] = useState(0);
 
-  const runReplan = async () => {
-    if (!confirmReplacePreview()) return;
-    setPlanning(true);
-    setError(null);
-    setLastWideSearch(false);
-    setReplanSearchAttempt(0);
-    try {
-      const result = await api.replanMonth(siteId, monthIso, replanFrom);
-      setPlanResultSource("replan");
-      setPlanResult(result);
-      if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
-      loadUnlessFreshPreviewUnpersisted(result);
-    } catch (e: unknown) {
-      setError(String((e as Error).message ?? e));
-    } finally {
-      setPlanning(false);
-    }
-  };
-
   const runWiderSearch = async () => {
     if (!confirmReplacePreview()) return;
     setPlanning(true);
@@ -617,7 +596,6 @@ export default function MonthlyPlanning({
       const result = await api.replanWiderSearch(siteId, monthIso, 0);
       setPlanResultSource("replan");
       setPlanResult(result);
-      if (result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -638,7 +616,6 @@ export default function MonthlyPlanning({
       setReplanSearchAttempt(nextAttempt);
       setPlanResultSource("replan");
       setPlanResult(result);
-      if (result.status !== "NARROW_SEARCH_EXHAUSTED" && result.status !== "SEARCH_INCOMPLETE") setShowReplan(false);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -708,6 +685,21 @@ export default function MonthlyPlanning({
     }
   };
 
+  const deleteCurrentVersion = async () => {
+    if (!window.confirm("Ten grafik zostanie usunięty i będzie można zaplanować miesiąc od nowa. Kontynuować?")) return;
+    setDeletingCurrent(true);
+    setError(null);
+    try {
+      await api.deleteCurrentVersion(siteId, monthIso);
+      setShowHistory(false);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setDeletingCurrent(false);
+    }
+  };
+
   const excludeFromHistory = async (versionId: string) => {
     setExcluding(true);
     setError(null);
@@ -723,6 +715,12 @@ export default function MonthlyPlanning({
 
   const status = view?.current_version?.status ?? null;
   const isFinal = status === "FINAL_NO_DEVIATIONS" || status === "FINAL_WITH_DEVIATIONS";
+  // ROTA-T057 follow-up (2026-09-07, owner correction): Przelicz Plan/REPLAN
+  // visibility branches on whether the grafik's own first shift already
+  // started, not on WORKING/FINAL -- an accepted-but-not-yet-live grafik
+  // (this month's "próba", per the owner) gets neither: only Usuń (delete
+  // it and Plan again) or Korekta reczna apply there.
+  const isLive = view?.current_version?.is_live ?? false;
   const hasAssignments = (view?.assignments.length ?? 0) > 0;
   const decisionRequired = view?.decision_required ?? null;
 
@@ -939,42 +937,36 @@ export default function MonthlyPlanning({
                 <p className="panel-hint">Wersja utworzona, ale nikt jeszcze nie został przypisany — uruchom PLAN i wybierz kandydata.</p>
               )}
 
-              {/* Owner decision 2026-08-26: koordynator ma mieć obie opcje w
-                  tym samym miejscu, przed i po finalizacji -- delikatna
-                  korekta (PLAN, minimalna zmiana, np. po zgłoszeniu L4) i
-                  całościowa (REPLAN, zawsze inny wariant, chroni to co już
-                  się wydarzyło). Nie zastępują się nawzajem. */}
-              {!showReplan && (
-                <div className="create-panel-actions" style={{ marginTop: 12 }}>
-                  {!isFinal && (
-                    <button className="btn-primary" data-diag-action="plan-month-recompute" onClick={runPlan} disabled={planning}>
-                      {planning ? "Planowanie…" : "Przelicz (PLAN)"}
-                    </button>
-                  )}
-                  <button className="btn-ghost" data-diag-action="replan-open" onClick={() => setShowReplan(true)}>
-                    REPLAN
+              {/* ROTA-T057 follow-up (2026-09-07, owner correction): REPLAN
+                  is retired the moment anything is accepted for this month
+                  (backend now refuses it outright, any status) -- offering
+                  it here always failed. Przelicz Plan is offered only once
+                  the grafik is live; before that (this month's "próba",
+                  per the owner) the only options are Usuń (delete it, plan
+                  again) and Korekta reczna. */}
+              {!isLive && (
+                <p className="panel-hint">
+                  Ten grafik jeszcze nie zaczął obowiązywać — Przelicz Plan tu nie działa. Usuń go i zaplanuj miesiąc
+                  od nowa, albo popraw punktowo Korektą ręczną.
+                </p>
+              )}
+              <div className="create-panel-actions" style={{ marginTop: 12 }}>
+                {isLive && (
+                  <button className="btn-primary" data-diag-action="plan-month-recompute" onClick={runPlan} disabled={planning}>
+                    {planning ? "Planowanie…" : "Przelicz (PLAN)"}
                   </button>
-                </div>
-              )}
-
-              {showReplan && (
-                <div className="create-panel" style={{ marginTop: 12 }}>
-                  <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr" }}>
-                    <label>
-                      <span className="field-label">Data odcięcia (REPLAN)</span>
-                      <input type="date" value={replanFrom} onChange={(e) => setReplanFrom(e.target.value)} />
-                    </label>
-                  </div>
-                  <div className="create-panel-actions">
-                    <button className="btn-primary" data-diag-action="replan-submit" onClick={runReplan} disabled={planning}>
-                      {planning ? "Przeliczanie…" : "Uruchom REPLAN"}
-                    </button>
-                    <button className="btn-ghost" onClick={() => setShowReplan(false)} disabled={planning}>
-                      Anuluj
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+                {!isLive && (
+                  <button
+                    className="btn-ghost"
+                    data-diag-action="delete-current-version"
+                    onClick={deleteCurrentVersion}
+                    disabled={deletingCurrent}
+                  >
+                    {deletingCurrent ? "Usuwanie…" : "Usuń"}
+                  </button>
+                )}
+              </div>
 
               {view.deviations.length > 0 && (
                 <div className="panel" style={{ marginTop: 12 }}>

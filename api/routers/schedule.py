@@ -17,7 +17,7 @@ from api.decision_payload import DecisionRequiredPayloadOut, decision_payload_ou
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.assembler import assemble_planning_state
-from rota.application.lifecycle_ops import exclude_from_history, finalize, restore, revalidate
+from rota.application.lifecycle_ops import delete_current_version, exclude_from_history, finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
 from rota.application.open_month import months_with_schedule, open_month
 from rota.application.plan_ops import (
@@ -32,7 +32,11 @@ from rota.application.precheck import precheck
 from rota.domain import Assignment, AssignmentRole, AssignmentState
 from rota.persistence.employee_repository import list_employees_by_ids
 from rota.persistence.plan_preview_repository import get_plan_preview
-from rota.persistence.schedule_repository import get_current_schedule_snapshot, get_current_version_id
+from rota.persistence.schedule_repository import (
+    get_current_schedule_snapshot,
+    get_current_version_id,
+    is_schedule_version_live,
+)
 
 router = APIRouter(prefix="/workspace/sites", tags=["schedule"])
 
@@ -78,6 +82,12 @@ class ScheduleVersionOut(BaseModel):
     created_at: str
     created_by: str
     parent_version_id: str | None
+    # ROTA-T057 follow-up (2026-09-07): whether this version's own first
+    # shift has actually started (see schedule_repository.
+    # is_schedule_version_live) -- the frontend needs this to show/hide
+    # Przelicz Plan / Usuń correctly, since those now branch on live vs.
+    # accepted-but-not-yet-live rather than on WORKING/FINAL status.
+    is_live: bool
 
 
 class ShiftDemandOut(BaseModel):
@@ -162,11 +172,12 @@ class PrecheckOut(BaseModel):
     under_covered_demand_ids: list[str]
 
 
-def _version_out(v) -> ScheduleVersionOut:
+def _version_out(conn, v) -> ScheduleVersionOut:
     return ScheduleVersionOut(
         version_id=v.version_id, status=v.status.value,
         effective_from=v.effective_from.isoformat() if v.effective_from else None,
         created_at=v.created_at.isoformat(), created_by=v.created_by, parent_version_id=v.parent_version_id,
+        is_live=is_schedule_version_live(conn, v.version_id, now=datetime.now()),
     )
 
 
@@ -294,8 +305,8 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
         except Exception as exc:  # isolated, never propagated as the whole request's error (T54-07)
             plan_preview_error = str(exc)
         return MonthViewOut(
-            current_version=_version_out(view.current_version) if view.current_version else None,
-            version_history=[_version_out(v) for v in view.version_history],
+            current_version=_version_out(conn, view.current_version) if view.current_version else None,
+            version_history=[_version_out(conn, v) for v in view.version_history],
             demands=demands, assignments=assignments, deviations=deviations,
             decision_required=decision_required, warnings=list(view.warnings),
             plan_preview=plan_preview_out, plan_preview_error=plan_preview_error,
@@ -516,5 +527,13 @@ def post_exclude_from_history(site_id: str, month: date, payload: ExcludeFromHis
         exclude_from_history(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
         )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.post("/{site_id}/schedule/{month}/delete-current", status_code=204)
+def post_delete_current_version(site_id: str, month: date, conn=Depends(get_conn)) -> None:
+    try:
+        delete_current_version(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
     except Exception as exc:
         raise to_http_exception(exc) from exc

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -81,7 +81,7 @@ def test_r6_engine_state_names_the_current_version_it_is_planning(tmp_path, monk
 
 
 @pytest.mark.parametrize("fixed_kind", ["frozen", "realized", "trainee"])
-def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_kind):
+def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_kind, monkeypatch):
     """All T006 fixed-fact branches must survive the new child identity.
 
     ROTA-T023 Checkpoint B (owner-authorized narrow TASK_SCOPE amendment,
@@ -92,7 +92,15 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
     redistribution of the non-fixed PRIMARY it swaps for the TRAINEE's
     mentor then spuriously trips the pre-cutover-PRIMARY guard. A future
     month keeps every shift after cutover_at, matching what R5-3 actually
-    protects (accepted-plan facts, not merely elapsed ones)."""
+    protects (accepted-plan facts, not merely elapsed ones).
+
+    ROTA-T057 follow-up (2026-09-07): Przelicz Plan (plan_month on the
+    existing current version) now also requires the grafik to already be
+    live (OWNER_RULING point 3) -- a future month is otherwise never live,
+    so "now" is frozen to just after the month's own first shift start for
+    the trainee case only, making it live while keeping cutover_at early
+    enough that it protects only that first shift, avoiding the original
+    elapsed-month bug this comment describes."""
     conn = connect(tmp_path / "rota.db")
     month = date(2027, 2, 1) if fixed_kind == "trainee" else MONTH
     correction_effective_from = date(month.year, month.month, 2)
@@ -100,6 +108,16 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
     selected = _plan_and_select(conn, state.site.site_id, month)
     snapshot = get_schedule_snapshot(conn, selected.version_id)
     mentor = snapshot.assignments[0]
+
+    if fixed_kind == "trainee":
+        fixed_now = min(a.start_datetime for a in snapshot.assignments) + timedelta(minutes=1)
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now
+
+        monkeypatch.setattr(plan_ops, "datetime", _FixedDateTime)
 
     if fixed_kind == "frozen":
         upsert = [replace(mentor, frozen=True)]

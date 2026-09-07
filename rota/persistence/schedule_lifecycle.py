@@ -14,6 +14,7 @@ from datetime import date, datetime
 from rota.domain import Assignment, AssignmentRole, Deviation, ScheduleStatus, ScheduleVersion, ShiftDemand, SitePlanningRegime
 from rota.persistence import schedule_validation as validation
 from rota.persistence.schedule_errors import (
+    CannotDeleteLiveScheduleVersion,
     DuplicateScheduleVersionId,
     InvalidCurrentVersionTarget,
     MalformedScheduleSnapshot,
@@ -23,6 +24,7 @@ from rota.persistence.schedule_repository import (
     get_current_version_id,
     get_schedule_snapshot,
     get_schedule_version_header,
+    is_schedule_version_live,
     version_requires_regime_replan,
 )
 
@@ -329,6 +331,42 @@ def restore_schedule_version(
         if version_requires_regime_replan(conn, version_id):
             raise RegimeReplanRequired(f"{version_id}: regime replan required before restore")
         _set_current_reference(conn, site_id, month, version_id)
+        if on_success is not None:
+            on_success(conn)
+
+
+def delete_current_version(
+    conn: sqlite3.Connection, *, site_id: str, month: date, version_id: str,
+    on_success: Callable[[sqlite3.Connection], None] | None = None,
+) -> None:
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, point 3): the
+    coordinator's way to discard an accepted-but-not-yet-live grafik they
+    consider wrong -- clears the current-version pointer so plan_month's
+    "no current version" branch can start a completely fresh Plan. Never a
+    physical delete (schedule_versions_no_delete stays absolute). A WORKING/
+    WORKING_WITH_DEVIATIONS version is also hidden from Historia, same as
+    exclude_version_from_history (it is no longer current once this runs).
+    A FINAL version cannot have excluded_from_history flipped
+    (schedule_versions_no_update_if_final) -- it stays visible in Historia
+    forever, matching the rule that a finalized decision is never silently
+    hidden. Refuses a live current version outright -- that must go through
+    Przelicz Plan or Korekta reczna instead, never deleted."""
+    with conn:
+        header = get_schedule_version_header(conn, version_id)
+        if header.site_id != site_id or header.month != month:
+            raise InvalidCurrentVersionTarget(f"{version_id} does not belong to ({site_id}, {month})")
+        if get_current_version_id(conn, site_id, month) != version_id:
+            raise InvalidCurrentVersionTarget(f"{version_id} is not the current version for ({site_id}, {month})")
+        if is_schedule_version_live(conn, version_id, now=datetime.now()):
+            raise CannotDeleteLiveScheduleVersion(f"{version_id} is already live and cannot be deleted")
+        conn.execute(
+            "DELETE FROM current_schedule_versions WHERE site_id = ? AND month = ?",
+            (site_id, month.isoformat()),
+        )
+        if not header.status.value.startswith("FINAL"):
+            conn.execute(
+                "UPDATE schedule_versions SET excluded_from_history = 1 WHERE version_id = ?", (version_id,),
+            )
         if on_success is not None:
             on_success(conn)
 

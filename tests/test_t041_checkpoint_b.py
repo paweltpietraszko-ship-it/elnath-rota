@@ -308,7 +308,7 @@ def test_t41_b11_old_working_untouched_in_history(tmp_path):
     assert not old_snapshot.shift_demands  # the original empty-catalog WORKING, never mutated
 
 
-def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_path):
+def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_path, monkeypatch):
     profile = _dn_profile("PROF-B12")
     conn = _setup(tmp_path, profile=profile)
     _employee(conn, "A")
@@ -316,6 +316,17 @@ def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_
     first = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
     plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=first.candidates[0], coordinator_id=COORDINATOR)
     version_id = get_current_version_id(conn, SITE, MONTH)
+    # ROTA-T057 follow-up (2026-09-07): Przelicz Plan now also requires the
+    # grafik to already be live (OWNER_RULING point 3) -- MONTH is future,
+    # so "now" is frozen to just after it starts for this recompute.
+    fixed_now = datetime(MONTH.year, MONTH.month, MONTH.day, 12, 0, 0)
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr(plan_ops, "datetime", _FixedDateTime)
     plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR)
     assert get_current_version_id(conn, SITE, MONTH) == version_id
 

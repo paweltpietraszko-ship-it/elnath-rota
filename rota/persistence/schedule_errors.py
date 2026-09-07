@@ -37,5 +37,12 @@ class InvalidCurrentVersionTarget(Exception):
     the requested (site_id, month)."""
 
 
+class CannotDeleteLiveScheduleVersion(Exception):
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06, point 3): the current
+    ScheduleVersion can only be deleted (its current-version pointer
+    cleared) while it is not yet live. A live grafik must go through
+    Przelicz Plan or Korekta reczna instead -- never deleted."""
+
+
 if __name__ == "__main__":
     print("persistence.schedule_errors module OK")

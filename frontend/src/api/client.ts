@@ -72,6 +72,7 @@ export interface ScheduleVersionOut {
   created_at: string;
   created_by: string;
   parent_version_id: string | null;
+  is_live: boolean;
 }
 
 export interface ShiftDemandOut {
@@ -271,7 +272,8 @@ export type CoordinatorActionKind =
   | "ASSIGNMENT_NOT_WORKED"
   | "TRAINING_REALIZED"
   | "SCHEDULE_FINALIZED"
-  | "SCHEDULE_RESTORED";
+  | "SCHEDULE_RESTORED"
+  | "SCHEDULE_VERSION_DELETED";
 
 export interface AffectedEntityOut {
   entity_kind: string;
@@ -586,6 +588,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ version_id: versionId }),
     }),
+  deleteCurrentVersion: (siteId: string, month: string) =>
+    req<void>(`/workspace/sites/${siteId}/schedule/${month}/delete-current`, { method: "POST" }),
 
   // Reczna korekta (T037) -- embedded in Planowanie miesiaca, not its own screen.
   applyManualCorrection: (siteId: string, month: string, effectiveFrom: string, upsertAssignments: AssignmentIn[]) =>
