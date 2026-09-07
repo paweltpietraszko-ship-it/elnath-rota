@@ -1,0 +1,107 @@
+ROTA-T057 — WĄSKI REAUDYT PO UWAGACH ARCHITEKTA
+
+AUDITED_DELIVERY_SHA: da4c1445451f7b64c7d42c3141f67b82db00aa1c
+AUDITED_BRIEF_SHA: 47ffdde6d43f5f5adf61d60ad87b16262c0a448e
+PRIOR_PASS_EVIDENCE: tasks/ROTA-T057/round_01/tests/tests_r10.txt
+STATUS: FAIL
+
+ZAKRES
+
+Reaudyt objął wyłącznie dwa braki wskazane przez architekta po poprzednim
+PASS: egzekwowanie różnicy >=15% względem całej historii prób T57-04 oraz
+artefakty FIRST EXECUTION GATE T57-16. Dodatkowo sprawdzono zaakceptowaną
+przez OWNERA tolerancję optymalizacji 1%.
+
+OWNER RULING — 1%
+
+OWNER potwierdził 2026-09-07: 1% pozwala solverowi wcześniej zakończyć
+dowodzenie matematycznej optymalności. Nie wolno przez to dodać służby,
+zmienić zapotrzebowania ani naruszyć HARD, ochrony rozpoczętych służb lub
+progu różnicy 15%. To zachowanie jest zaakceptowane i nie stanowi findingu.
+
+WARSTWA 1 — MAPA WŁAŚCICIELI I ŚCIEŻEK
+
+Uruchomiono where.py dla faktycznie zmienionych właścicieli i symboli:
+- rota/application/plan_ops.py --symbol _replan_preacceptance
+- rota/planning/engine.py --symbol replan_narrow
+- rota/planning/engine.py --symbol replan_wide
+- rota/planning/solver.py --symbol solve
+- rota/planning/solver.py --symbol _diversity_min_difference
+
+Odczyt kodu na exact SHA potwierdził, że replan, replan_retry_narrow oraz
+replan_wider_search przechodzą przez wspólny helper, odczytują utrwaloną
+historię sygnatur i przekazują ją do obu trybów silnika oraz solvera.
+
+WARSTWA 2 — NIEZALEŻNY REPRO T57-04
+
+1. Minimalny stan syntetyczny: N=7, K=ceil(0,15*N)=2, trzy kolejne rundy po
+   trzy warianty. Wszystkie rundy FEASIBLE, a każdy nowy wariant różnił się
+   od każdego wcześniejszego o co najmniej 2 przypisania.
+2. Pionowa ścieżka application -> SQLite persistence -> ponowne połączenie
+   -> REPLAN dla realnego obiektu (styczeń 2027):
+   - 3 sygnatury widoczne i 3 odczytane po ponownym otwarciu bazy;
+   - N=62, K=10;
+   - wszystkie odległości od wcześniejszych wariantów >=10;
+   - przed akceptacją ScheduleVersion=0 i current=None.
+
+WYNIK T57-04: PASS.
+
+WARSTWA 3 — TESTY CELOWANE
+
+Polecenie:
+python -m pytest tests/test_t017.py tests/test_t033_replan_must_differ.py -q
+
+Wynik: 34 passed, 1 failed.
+
+Jedyny czerwony test:
+tests/test_t017.py::test_m13_first_candidate_matches_pre_t017_deterministic_result
+
+Nie jest regresją da4c144 ani tolerancji 1%. Ten sam test odtworzono na
+wersji bazowej 42b4ff0 i także był czerwony. Na da4c144 ustawienie runtime
+SOLVER_RELATIVE_GAP_LIMIT kolejno na 0.01 i 0.0 dało ten sam wynik, odmienny
+od starego orakla testu. Klasyfikacja: zastany/stary test deterministycznego
+układu, poza findingami tej dostawy.
+
+Pełnej regresji repo nie uruchamiano — OWNER nie udzielił zgody, a zakres
+zmiany nie uzasadnia jej ponowienia po testach celowanych.
+
+FINDING R11-01 — T57-16 NIE ZOSTAŁ WYKONANY W CAŁOŚCI
+
+TRACE:
+- brief.md §6 wymaga wykonania E1-E5 przez realne UI/API/persistence przed
+  ciężkimi testami i handoffem; jeśli którykolwiek punkt nie przejdzie, CC
+  nie przekazuje implementacji dalej;
+- T57-16 wymaga, aby E1-E5 były wykonane i zaraportowane.
+
+OWNERSHIP:
+Wymagane wykonanie i artefakty są częścią dostawy CC. Nie jest to dodatkowa
+walidacja wymyślona przez audytora ani odpowiedzialność dalszej warstwy.
+
+REPRO na da4c144:
+- execution_e1.md: nie wykonano nieudanego PLAN; zastąpiono go inspekcją kodu;
+- execution_e2.md: nie wykonano jawnego przeładowania strony ani osobnego
+  odrzucenia podejścia; wizualna różnica nie zawiera pomiaru wymaganego 15%;
+- execution_e3.md: nie wykonano scenariusza usunięcia nieżywego FINAL;
+- execution_e4.md: tekst deklaruje 13/13 identycznych rozpoczętych służb, lecz
+  jednocześnie podaje, że porównano tylko pierwszych 5;
+- mimo powyższego artefakty nadają E1-E5 status PASS.
+
+Niezależny test Codexa potwierdza poprawność mechanizmu 15% i persistence,
+ale nie może wstecznie zastąpić obowiązkowego FIRST EXECUTION GATE CC ani
+brakujących rzeczywistych kliknięć.
+
+OCZEKIWANA WĄSKA KOREKTA:
+Wykonać pominięte kroki na dokładnym finalnym SHA i uzupełnić artefakty
+rzeczywistymi wynikami. Jeśli krok nie przechodzi, naprawić wyłącznie
+odtworzony defekt. Nie trzeba zmieniać sprawdzonej implementacji T57-04 ani
+projektować nowego zachowania.
+
+WERDYKT
+
+Kodowy blocker T57-04 jest zamknięty. Tolerancja 1% ma zaakceptowany przez
+OWNERA, wąski sens i nie odtworzono przez nią regresji. Cała dostawa pozostaje
+FAIL wyłącznie dlatego, że kontraktowy FIRST EXECUTION GATE został opisany
+jako PASS mimo jawnie niewykonanych podpunktów.
+
+PASS/FAIL dotyczy wyłącznie da4c1445451f7b64c7d42c3141f67b82db00aa1c
+względem briefu 47ffdde6d43f5f5adf61d60ad87b16262c0a448e.
