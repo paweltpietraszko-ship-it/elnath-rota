@@ -189,6 +189,37 @@ implementację, wykorzystując istniejącego właściciela klasyfikacji służb 
 nie rozszerzając wyjątku `DECISION_REQUIRED` z `NIGHT-STREAK-01` na ten nowy
 bezwzględny zakaz.
 
+## OWNER_CORRECTED 2026-09-08 — HARD ogranicza automat, nie władzę człowieka
+
+Paweł wprost: *"program nie może negować decyzji koordynatora, on może tylko
+oflagować odchylenie. Nigdy automatycznie nie blokujemy władzy człowieka,
+program nie łamie Hard ale człowiek na własną odpowiedzialność może, dlatego
+odnotowujemy decyzje koordynatora."*
+
+To doprecyzowanie zastępuje wcześniejsze zbyt szerokie zdania o całkowitym
+zakazie zapisu/akceptacji/eksportu:
+
+1. HARD pozostaje bezwzględny dla automatycznego PLAN/REPLAN/Przelicz Plan:
+   solver nie może sam zaproponować trzeciej kolejnej służby i nie dostaje
+   automatycznej ścieżki wyjątku przez `DECISION_REQUIRED`.
+2. Koordynator zachowuje istniejącą władzę ręcznej korekty. Może świadomie
+   wpisać układ naruszający ten HARD; program ma go oznaczyć jako odchylenie,
+   zapisać decyzję koordynatora i nie przedstawiać wyniku jako automatycznie
+   zgodnego z regułą.
+3. Późniejsza automatyczna operacja nie może cicho negować zaakceptowanej
+   decyzji człowieka ani traktować w pełni istniejącego/odbytego okna jako
+   nierozwiązywalnego błędu blokującego całą przyszłość. Nadal musi jednak
+   uniemożliwić solverowi dołożenie nowej trzeciej kolejnej służby tam, gdzie
+   nie ma zapisanej decyzji człowieka.
+4. T058 nie wprowadza bezwzględnej blokady wydruku. Obsługa wydruku grafiku z
+   odchyleniami podlega osobnemu, zaakceptowanemu kontraktowi jednorazowego
+   potwierdzenia przed każdym wydrukiem.
+
+Architekt ma rozdzielić w briefie dwa istniejące wejścia: automatyczny wynik
+solvera (HARD, bez wyjątku) oraz ręczną korektę koordynatora (dozwolona z
+odchyleniem i śladem decyzji). Nie tworzyć drugiego systemu wyjątków, jeżeli
+istniejące `validate -> materialize_deviations -> coordinator action` wystarcza.
+
 ## Powiązane materiały
 
 - [[project_quarter_closing_overtime_gap]] (pamięć CC) — ta sama
