@@ -231,3 +231,17 @@ isolating experiments above were done by monkeypatching
 `add_target_equity_fairness` with alternate implementations against this
 exact same seeded state, so every number in the table is a controlled,
 apples-to-apples comparison, not different objects.
+
+## OWNER_ACCEPTED 2026-09-08 — podział T058/T059
+
+Paweł jawnie zaakceptował rozdzielenie zakresu po przedstawieniu skutku
+widocznego dla użytkownika:
+
+- T058 kończy i audytuje wyłącznie zakaz trzeciej kolejnej służby PRIMARY;
+- zaakceptowana tolerancja 24 h nie została anulowana — przechodzi do
+  osobnego zadania solver-engineering T059;
+- do czasu wdrożenia T059 istniejące wyrównywanie godzin pozostaje bez zmian
+  i może nadal preferować różnicę mniejszą niż 24 h kosztem rytmu D/N/W/W.
+
+Ta decyzja zamyka `OWNER_EXPLANATION_GATE` dla delivery T058
+`76b3b57e9eb7307904c4e03806cbd1dc41f311e9`.
