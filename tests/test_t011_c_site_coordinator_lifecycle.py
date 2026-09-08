@@ -64,6 +64,7 @@ SITE_OTHER = "SITE-T011C-OTHER"
 PROFILE_A = "PROFILE-T011C-A"
 PROFILE_OTHER = "PROFILE-T011C-OTHER"
 EMP = "EMP-T011C"
+EMP2 = "EMP-T011C-2"
 MONTH = date(2026, 9, 1)
 
 
@@ -98,6 +99,17 @@ def _staff_and_fill_calendar(conn, *, coordinator_id: str, site_id: str, month: 
     update_membership(
         conn, coordinator_id=coordinator_id, site_id=site_id,
         membership=SiteMembership(EMP, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
+    )
+    # ROTA-T058 (owner-authorized fixture fix, 2026-09-08): a single employee
+    # covering every day of the month now genuinely trips the new HARD
+    # max-two-consecutive-PRIMARY-shifts rule -- this helper is about
+    # site/coordinator lifecycle mechanics, not staffing tightness, so a
+    # second employee restores real slack without touching what these tests
+    # actually assert.
+    update_employee(conn, coordinator_id=coordinator_id, site_id=site_id, employee=Employee(EMP2, EMP2, date(2020, 1, 1), None, False))
+    update_membership(
+        conn, coordinator_id=coordinator_id, site_id=site_id,
+        membership=SiteMembership(EMP2, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
     )
     days = _calendar.monthrange(month.year, month.month)[1]
     for d in range(1, days + 1):

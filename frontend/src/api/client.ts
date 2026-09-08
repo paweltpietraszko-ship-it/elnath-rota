@@ -154,7 +154,8 @@ export interface PlanningResultOut {
     | "TECHNICAL_ERROR"
     | "NO_ALTERNATIVE"
     | "NARROW_SEARCH_EXHAUSTED"
-    | "SEARCH_INCOMPLETE";
+    | "SEARCH_INCOMPLETE"
+    | "THIRD_CONSECUTIVE_SHIFT_BLOCKED";
   candidates: AssignmentOut[][];
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;

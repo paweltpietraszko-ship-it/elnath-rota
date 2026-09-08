@@ -28,6 +28,12 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     # frozen categories, activated in B alongside the built-in HARD codes.
     "SHIFT-24-01": DeviationCategory.PREFERENCE,
     "SHIFT-24-PAIR-01": DeviationCategory.COVERAGE,
+    # ROTA-T058 (brief section 2.2, "wąski limit jednego mapowania kategorii"):
+    # same category as REST-01/WEEKLY-REST-01 -- all three protect an
+    # employee from over-work rather than express a coordinator preference,
+    # even though this one is an internal HARD standard, not a statutory
+    # minimum. No new category, per brief.
+    "THIRD-CONSECUTIVE-SHIFT-01": DeviationCategory.LAW,
 }
 
 _SITE_RULE_CATEGORY: dict[RuleCategory, DeviationCategory] = {

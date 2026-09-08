@@ -621,7 +621,7 @@ def add_max_two_consecutive_night_constraints(
     num_days = calendar.monthrange(month.year, month.month)[1]
     month_start = date(month.year, month.month, 1)
     month_end = date(month.year, month.month, num_days)
-    empty = (0, 0, 0, None)
+    empty = (0, 0, 0, None, 0)
     assumptions: dict[tuple[str, date], tuple[object, list[str]]] = {}
     for employee_id, by_date in day_kind_terms.items():
         window_start = month_start - timedelta(days=2)
@@ -649,6 +649,93 @@ def add_max_two_consecutive_night_constraints(
             assume_var = model.new_bool_var(f"assume_night_streak_{employee_id}_{window_start.isoformat()}")
             model.add(sum(terms) <= 2).only_enforce_if(assume_var)
             assumptions[employee_id, window_start] = (assume_var, demand_ids)
+            window_start += timedelta(days=1)
+    return assumptions
+
+
+def add_max_two_consecutive_primary_shift_constraint(
+    model: cp_model.CpModel, day_kind_terms: dict[str, dict], month: date,
+) -> dict[tuple[str, date], object]:
+    """ROTA-T058 HARD (OWNER_CORRECTED 2026-09-08, brief section 2): the same
+    employee never has a real PRIMARY service (any D/N combination) on three
+    consecutive start dates. Uses day_kind_terms[employee_id][d][4]
+    (primary_term, solver._build_day_kind_terms) -- PRIMARY-role occupancy
+    specifically, independent of D/N classification success, and never
+    TRAINEE/PERIODIC_TRAINING (unlike any_term/index 2). A 24h D+N occurrence
+    shares one start date and must count as ONE occupied day, not two, so
+    this constraint compares a per-date OCCUPIED indicator (primary_term >=
+    1), never the raw summed term itself -- mirrors the same H24 double-
+    counting hazard fairness._occupied_bool already guards against for the
+    D/N/wolne/wolne reward.
+
+    Genuinely enforced (assumption literals here are never a relaxation
+    path -- see module docstring below and solver.py's caller, which never
+    offers this assumption set to any coordinator-override diagnosis, only
+    reuses the same proven CP-SAT technique for a readable message): a
+    window built only from already-fixed/boundary facts is enforced
+    unconditionally when it is not already a historical violation (brief
+    section 2.3, first paragraph) -- and, unlike NIGHT-STREAK-01 (out of
+    T058's scope to change), a window that IS already a fully-fixed
+    historical violation (three real already-occurred/accepted PRIMARY
+    starts in a row, no decision variable involved at all) is skipped
+    entirely rather than added as a constraint: it is an unchangeable past
+    fact, so it must not itself make the whole model INFEASIBLE, but it
+    also participates fully -- via its fixed terms -- in blocking a NEW
+    third day next to two already-fixed ones (section 2.3, second
+    paragraph), exactly like any other mixed fixed/decision window below.
+
+    ARCHITECT_RULING 2026-09-08 (brief 2.3A point 3): the window range also
+    reaches forward past month_end into an already-accepted next month's
+    boundary facts (day_kind_terms already carries them --
+    state.boundary_assignments' context window is unbounded, not just "the
+    previous month"), symmetric to the `month_start - 2` backward reach.
+    Without this, a REPLAN of month N that would close a forbidden
+    three-in-a-row using two already-fixed days from an already-selected
+    month N+1 was invisible to this constraint entirely, so only the
+    independent validator caught it afterwards -- as an unattributed
+    TECHNICAL_ERROR instead of a clean, blocked new decision (T58-13)."""
+    num_days = calendar.monthrange(month.year, month.month)[1]
+    month_start = date(month.year, month.month, 1)
+    month_end = date(month.year, month.month, num_days)
+    empty = (0, 0, 0, None, 0)
+    assumptions: dict[tuple[str, date], object] = {}
+    for employee_id, by_date in day_kind_terms.items():
+        window_start = month_start - timedelta(days=2)
+        # last_start = month_end (not month_end - 2): at least one date in
+        # this window must still be an in-month date to have any decision
+        # variable to constrain -- window_start > month_end would have none.
+        last_start = month_end
+        while window_start <= last_start:
+            dates = [window_start, window_start + timedelta(days=1), window_start + timedelta(days=2)]
+            terms = [by_date.get(d, empty)[4] for d in dates]
+            worst_case_occupied = sum(0 if (isinstance(t, int) and t == 0) else 1 for t in terms)
+            if worst_case_occupied <= 2:
+                # No combination of these three dates can ever all be
+                # occupied -- never a candidate for the CP-SAT model.
+                window_start += timedelta(days=1)
+                continue
+            if all(isinstance(t, int) for t in terms):
+                fixed_occupied = sum(1 if t > 0 else 0 for t in terms)
+                if fixed_occupied <= 2:
+                    window_start += timedelta(days=1)
+                    continue
+                # Section 2.3: a fully-fixed, already-occurred/accepted
+                # violation is a past fact, not a new automatic decision --
+                # it must not itself poison the whole model as INFEASIBLE.
+                window_start += timedelta(days=1)
+                continue
+            occupied_terms = []
+            for t in terms:
+                if isinstance(t, int):
+                    occupied_terms.append(1 if t > 0 else 0)
+                    continue
+                occ = model.new_bool_var(f"t058_occupied_{employee_id}_{window_start.isoformat()}_{len(occupied_terms)}")
+                model.add(t >= 1).only_enforce_if(occ)
+                model.add(t == 0).only_enforce_if(occ.Not())
+                occupied_terms.append(occ)
+            assume_var = model.new_bool_var(f"assume_third_shift_{employee_id}_{window_start.isoformat()}")
+            model.add(sum(occupied_terms) <= 2).only_enforce_if(assume_var)
+            assumptions[employee_id, window_start] = assume_var
             window_start += timedelta(days=1)
     return assumptions
 

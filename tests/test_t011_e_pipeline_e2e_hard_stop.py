@@ -216,6 +216,22 @@ def test_4_route_b_decision_ledger_correction_unblocks_feasible(tmp_path: Path) 
         statement="Wycofanie zakazu D w poniedzialki dla EMP-E2-1.", effective_from=MONTH, rel="rejects",
         rule_content=None,
     )
+    # ROTA-T058 (ARCHITECT_RULING 2026-09-08, brief 2.5): once the SiteRule
+    # is withdrawn, EMP1 alone would cover the whole month solo again --
+    # that now genuinely trips the new HARD max-two-consecutive-PRIMARY-
+    # shifts rule, unrelated to what this test isolates (a rejected
+    # Decision Ledger entry unblocking FEASIBLE). Added only here, AFTER
+    # the blocked assertion above, so the first plan_month call above still
+    # exercises EMP1-alone-blocked-by-SiteRule untouched.
+    durable_inputs.update_employee(
+        conn, coordinator_id=COORD, site_id=SITE_ID, employee=Employee(EMP2, EMP2, date(2020, 1, 1), None, False),
+    )
+    durable_inputs.update_membership(
+        conn, coordinator_id=COORD, site_id=SITE_ID,
+        membership=SiteMembership(
+            EMP2, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
+        ),
+    )
 
     unblocked = plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert unblocked.status == "FEASIBLE"
@@ -228,16 +244,29 @@ def test_4_route_b_decision_ledger_correction_unblocks_feasible(tmp_path: Path) 
 
 def test_5_select_candidate_rejects_a_hard_violating_candidate(tmp_path: Path) -> None:
     conn = store.open_store(tmp_path / "rota.db")
-    _bootstrap_and_fill(conn, (EMP1,))
+    # ROTA-T058 (ARCHITECT_RULING 2026-09-08, brief 2.5): the original
+    # candidate put EMP1 on EVERY demand of the month, which now also trips
+    # the independent new HARD max-two-consecutive-PRIMARY-shifts rule --
+    # genuinely true, but not what this test isolates. EMP1/EMP2 alternate
+    # daily below (never more than 1 consecutive day each), with EMP1
+    # specifically kept on BLOCKED_DEMAND_ID so the tested SiteRule
+    # violation still occurs; EMP2 must exist as a real eligible membership
+    # or its presence in the candidate would itself trip MEMBERSHIP-01,
+    # an unrelated HARD violation that would break the isolation this test
+    # needs just as much as the new HARD rule would.
+    _bootstrap_and_fill(conn, (EMP1, EMP2))
     decision = _record_forbidding_rule(conn)
     plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
 
-    # Full coverage everywhere -- EMP1 on every demand, including the one
-    # blocked day -- so the ONLY HARD violation possible is the tested
+    # Full coverage everywhere -- alternating EMP1/EMP2, with EMP1 on the
+    # one blocked day -- so the ONLY HARD violation possible is the tested
     # SiteRule; a candidate that also leaves COVERAGE-01 gaps would get
     # rejected for an independent reason and would not isolate this rule.
     demands = generate_profile_demands(_profile(), MONTH)
-    hard_violating_candidate = [_assignment(demand, EMP1) for demand in demands]
+    hard_violating_candidate = [
+        _assignment(demand, EMP1 if (demand.demand_id == BLOCKED_DEMAND_ID or index % 2 == 1) else EMP2)
+        for index, demand in enumerate(demands)
+    ]
 
     state, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
     report = validate(state, hard_violating_candidate)

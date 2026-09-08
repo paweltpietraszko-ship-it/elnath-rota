@@ -1153,6 +1153,20 @@ export default function MonthlyPlanning({
             </div>
           )}
 
+          {/* ROTA-T058 (OWNER_CORRECTED 2026-09-08): a genuinely non-decision
+              result -- the automatic solver cannot cover this month without
+              giving someone a third consecutive working day, which is HARD
+              and gets no automatic exception. Deliberately no "override"/
+              "accept anyway" action here (brief section 2.1/T58-04) -- only
+              a readable message; recovery is changing staffing/availability
+              and planning again, or a deliberate manual correction. */}
+          {planResult && planResult.status === "THIRD_CONSECUTIVE_SHIFT_BLOCKED" && (
+            <div className="banner-warning" style={{ marginTop: 12 }}>
+              Nie można ułożyć grafiku bez przydzielenia komuś trzeciej służby pod rząd — to niedozwolone. Zmień
+              obsadę lub dostępność i zaplanuj ponownie.
+            </div>
+          )}
+
           {/* Owner decision 2026-08-26: REPLAN never returns the same
               schedule silently -- this is the plain, exhaustively-proven
               fact that no other HARD-valid arrangement exists at all, even

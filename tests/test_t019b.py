@@ -96,14 +96,32 @@ def _unblock_employee(conn, employee_id: str = "E1", *, site_id: str = SITE) -> 
     )
 
 def _seed_decision_required(conn) -> None:
+    # ROTA-T058 (owner-authorized fixture fix, 2026-09-08): E2 is added
+    # (also blocked, so the DECISION_REQUIRED phase below is unaffected --
+    # still 0 eligible employees) purely so that, once a test unblocks E1
+    # again, two employees have enough slack to split the month without
+    # tripping the new HARD max-two-consecutive-PRIMARY-shifts rule. Callers
+    # that also need E2 available must unblock it themselves (see
+    # _unblock_employee(conn, "E2") next to each _unblock_employee(conn)
+    # below) -- this fixture never does that on its own.
     _bootstrap(conn)
-    _employee(conn)
+    _employee(conn, "E1")
+    _employee(conn, "E2")
     _fill_calendar(conn)
-    _block_employee(conn)
+    _block_employee(conn, "E1")
+    _block_employee(conn, "E2")
 
 def _seed_feasible_and_select(conn):
+    # ROTA-T058 (owner-authorized fixture fix, 2026-09-08): a single employee
+    # covering every day of the month now genuinely violates the new HARD
+    # max-two-consecutive-PRIMARY-shifts rule -- this helper is about
+    # exercising the version/pointer/action-log lifecycle elsewhere in this
+    # file, not staffing tightness, so a second employee (giving the solver
+    # real slack to avoid the pattern) restores its original FEASIBLE
+    # baseline without touching what any of these tests actually assert.
     _bootstrap(conn)
-    _employee(conn)
+    _employee(conn, "E1")
+    _employee(conn, "E2")
     _fill_calendar(conn)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert result.status == "FEASIBLE"
@@ -163,6 +181,7 @@ def test_a6_current_pointer_may_replace_and_clear(tmp_path) -> None:
     plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH) is not None
     _unblock_employee(conn)
+    _unblock_employee(conn, "E2")
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert result.status == "FEASIBLE"
     assert site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH) is None
@@ -424,6 +443,7 @@ def test_c27_candidate_selection_one_action_delta_only(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     _employee(conn)
+    _employee(conn, "E2")  # ROTA-T058 fixture fix -- see _seed_feasible_and_select
     _fill_calendar(conn)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=result.candidates[0], coordinator_id=COORD)
@@ -440,6 +460,7 @@ def test_d28_select_candidate_without_actor_rejected(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     _employee(conn)
+    _employee(conn, "E2")  # ROTA-T058 fixture fix -- see _seed_feasible_and_select
     _fill_calendar(conn)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     before_count = len(memory_read.material_action_history(conn))
@@ -454,6 +475,7 @@ def test_d29_candidate_selection_records_actual_actor(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     _employee(conn)
+    _employee(conn, "E2")  # ROTA-T058 fixture fix -- see _seed_feasible_and_select
     from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
     save_coordinator(conn, Coordinator("C2", "Second", True))
     save_coordinator_site_association(conn, CoordinatorSiteAssociation("C2", SITE, True))
@@ -538,6 +560,7 @@ def test_e37_feasible_clears_pointer_not_snapshots(tmp_path) -> None:
     _seed_decision_required(conn)
     plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     _unblock_employee(conn)
+    _unblock_employee(conn, "E2")
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert result.status == "FEASIBLE"
     assert site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH) is None
@@ -573,6 +596,11 @@ def test_e40_e41_persist_failure_fails_closed(tmp_path, monkeypatch, target) -> 
     if target == "clear_current_decision_required_no_commit":
         plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
         _unblock_employee(conn)
+        _unblock_employee(conn, "E2")
+    # "reuse_or_insert_decision_required_snapshot_no_commit" keeps BOTH E1
+    # and E2 blocked (0 eligible employees is itself the DECISION_REQUIRED
+    # trigger this branch exercises) -- unblocking either would change what
+    # is being tested, not just restore HARD-rule slack.
     monkeypatch.setattr(
         f"rota.application.plan_ops.site_memory.{target}",
         lambda *a, **kw: (_ for _ in ()).throw(sqlite3.OperationalError("injected")),
@@ -610,6 +638,7 @@ def test_f43_explicit_link_succeeds_and_detail_shows_historical_question(tmp_pat
 
     # now resolve it for real -- pointer clears, but detail still resolves the historical snapshot.
     _unblock_employee(conn)
+    _unblock_employee(conn, "E2")
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert result.status == "FEASIBLE"
     assert site_memory.get_current_decision_required(conn, site_id=SITE, month=MONTH) is None
@@ -633,6 +662,7 @@ def test_f44_link_to_unknown_or_wrong_site_fails_before_mutation(tmp_path) -> No
     # known, but no longer current (superseded by a later FEASIBLE plan)
     old_dr_id = dr_id
     _unblock_employee(conn)
+    _unblock_employee(conn, "E2")
     feasible = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     assert feasible.status == "FEASIBLE"
     with pytest.raises(site_memory.DecisionRequiredLinkMismatch):
@@ -754,6 +784,7 @@ def test_g53_54_candidate_and_manual_child_rollback(tmp_path, monkeypatch) -> No
     conn = connect(tmp_path / "rota9.db")
     _bootstrap(conn)
     _employee(conn)
+    _employee(conn, "E2")  # ROTA-T058 fixture fix -- see _seed_feasible_and_select
     _fill_calendar(conn)
     result = plan_ops.plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
     # ROTA-T057 (T57-01): PLAN alone creates no ScheduleVersion -- this is
