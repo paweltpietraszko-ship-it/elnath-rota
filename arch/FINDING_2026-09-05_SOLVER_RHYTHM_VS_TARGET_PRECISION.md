@@ -108,17 +108,17 @@ korzystne dla precyzji `target_hours`.
 ## Otwarte pytania projektowe dla architekta (CC nie rozstrzyga)
 
 1. ~~Czy "unikanie 3 zmian pod rząd" ma dostać realny, wysoki priorytet
-   (bliski HARD) w samej funkcji celu, czy ma stać się osobnym,
-   twardym ograniczeniem CP-SAT z ucieczką przez `DECISION_REQUIRED`,
-   gdy solver naprawdę nie może go dochować?~~ **ROZSTRZYGNIĘTE (OWNER,
-   2026-09-08, patrz niżej): drugie — osobne, twarde ograniczenie.**
-2. Czy `add_target_equity_fairness` (wyrównywanie procentu realizacji)
+   (bliski HARD), czy stać się osobnym ograniczeniem HARD?~~
+   **ROZSTRZYGNIĘTE OSTATECZNIE (OWNER, 2026-09-08, patrz niżej): osobne,
+   bezwzględne HARD; bez wyjątku przez `DECISION_REQUIRED`.**
+2. ~~Czy `add_target_equity_fairness` (wyrównywanie procentu realizacji)
    powinno dostać pasmo tolerancji (np. podobne rzędu wielkości do tego,
    które CC empirycznie zaobserwował dla samego trafienia w target —
    solver ląduje w granicach ok. jednego bloku zmianowego od celu), poza
    którym dalsze, drobniejsze wyrównywanie przestaje przebijać rytm/karę
-   za 3 zmiany pod rząd? **NADAL OTWARTE — patrz dodatkowy argument ownera
-   2026-09-08 niżej.**
+   za 3 zmiany pod rząd?~~ **ROZSTRZYGNIĘTE OSTATECZNIE (OWNER,
+   2026-09-08): tak, dopuszczone pasmo różnicy wynosi 24h między
+   pracownikami. To tolerancja SOFT, nie twardy limit obsady.**
 3. ~~Czy to dotyczy też rytmu D/N/W/W (`DN_RHYTHM_REWARD_WEIGHT`), czy tylko
    węższego "3 zmiany pod rząd" — Paweł mówił o obu, ale z różnym
    naciskiem (3 zmiany pod rząd = "coś między Hard a Soft"; ogólny rytm
@@ -134,23 +134,17 @@ rząd musi być zabronione jako Hard nawet kosztem D/N/w/w."*
 
 Rozstrzygnięcie: "3 zmiany pod rząd" (dziś `THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT`,
 `add_third_consecutive_shift_penalty`, ROTA-T034) przestaje być SOFT w
-funkcji celu i staje się osobnym, twardym ograniczeniem CP-SAT — z
-ucieczką przez `DECISION_REQUIRED`, gdy solver naprawdę nie może go
-dochować (ten sam, już istniejący, dojrzały mechanizm co REST-01/LOAD-01/
-MEMBERSHIP-01, patrz punkt 3 wyżej). Ogólny rytm D/N/W/W
+funkcji celu i staje się osobnym, twardym ograniczeniem CP-SAT. Późniejsze
+ostateczne doprecyzowanie OWNERA wykluczyło proponowaną tu wcześniej
+ucieczkę przez `DECISION_REQUIRED`; obowiązuje bezwzględny zakaz opisany
+niżej. Ogólny rytm D/N/W/W
 (`DN_RHYTHM_REWARD_WEIGHT`) pozostaje SOFT i może zostać jawnie poświęcony,
 jeśli to jedyny sposób dochowania nowego twardego zakazu 3 zmian pod rząd
 — czyli priorytet: HARD (3-zmiany-pod-rząd) > TARGET-01 > equity/D-N-W-W
 rytm, w tej kolejności.
 
-Jedyne, co zostaje otwarte, to pytanie 2 (pasmo tolerancji equity) — to
-osobna, nierozstrzygnięta oś tego samego findingu i nie jest tym
-rozstrzygnięciem objęte.
-
-CC nadal nie projektuje implementacji (dotyka solvera, wymaga architekta)
-— to rozstrzygnięcie tylko domyka jedną z trzech otwartych osi, żeby
-architekt mógł napisać brief bez czekania na resztę, jeśli uzna to za
-wystarczające, albo poczekać na rozstrzygnięcie pytania 2 też.
+Pytanie 2 zostało później rozstrzygnięte przez OWNERA — patrz ostateczne
+doprecyzowanie poniżej.
 
 ## Dodatkowy argument ownera (2026-09-08) dla pytania 2 (pasmo tolerancji equity)
 
@@ -165,8 +159,35 @@ do skorygowania — koordynator i tak często jest zmuszony dać komuś wyraźni
 więcej/mniej z powodów niezwiązanych z precyzją algorytmu. To dodatkowe,
 jakościowe wsparcie dla hipotezy CC z pytania 2 (pasmo tolerancji rzędu
 jednego bloku zmianowego), tym razem wprost od ownera, nie tylko z
-empirycznej obserwacji CC — nadal nie jest to ostateczna liczba/decyzja,
-tylko mocniejsza przesłanka dla architekta przy rozstrzyganiu pytania 2.
+empirycznej obserwacji CC. Późniejsze doprecyzowanie poniżej zamraża 24h
+jako ostateczną wartość tego pasma.
+
+## OWNER_FINAL 2026-09-08 — oba pozostałe rozstrzygnięcia
+
+Paweł wprost: *"Wszystkie 3 zmiany pod rząd mają być zakazane, tolerancja
+godzin jest dopuszczona, i może wynosić 24h między pracownikami."*
+
+Zamrożone zachowanie dla briefu:
+
+1. Każda trzecia kolejna służba tego samego pracownika na trzech kolejnych
+   datach rozpoczęcia jest bezwzględnie zabroniona jako HARD. Nie ma ścieżki
+   zatwierdzenia wyjątku przez koordynatora. Jeżeli bez naruszenia zakazu nie
+   da się pokryć grafiku, PLAN nie powstaje; użytkownik dostaje czytelny
+   komunikat i może zmienić obsadę lub dostępność, a następnie spróbować
+   ponownie. Nie zapisuje się ani nie eksportuje grafiku łamiącego zakaz.
+2. Equity dostaje pasmo tolerancji 24h między pracownikami. Różnica mieszcząca
+   się w tym paśmie jest dopuszczalna i solver nie ma psuć rytmu D/N/W/W tylko
+   po to, aby ją dalej zmniejszać. To tolerancja dla rankingu SOFT, a nie nowe
+   ograniczenie HARD zabraniające różnic większych niż 24h; poza pasmem equity
+   może nadal wpływać na wybór rozwiązania zgodnie z architekturą celu.
+3. Ogólny rytm D/N/W/W pozostaje SOFT. Priorytet jest więc: bezwzględne HARD
+   trzech kolejnych służb, następnie istniejące TARGET-01, a niżej equity z
+   pasmem 24h i rytm D/N/W/W.
+
+Finding jest gotowy do przekazania architektowi. Architekt ma opisać
+implementację, wykorzystując istniejącego właściciela klasyfikacji służb i
+nie rozszerzając wyjątku `DECISION_REQUIRED` z `NIGHT-STREAK-01` na ten nowy
+bezwzględny zakaz.
 
 ## Powiązane materiały
 
