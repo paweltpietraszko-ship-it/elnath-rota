@@ -117,7 +117,8 @@ korzystne dla precyzji `target_hours`.
    które CC empirycznie zaobserwował dla samego trafienia w target —
    solver ląduje w granicach ok. jednego bloku zmianowego od celu), poza
    którym dalsze, drobniejsze wyrównywanie przestaje przebijać rytm/karę
-   za 3 zmiany pod rząd? **NADAL OTWARTE.**
+   za 3 zmiany pod rząd? **NADAL OTWARTE — patrz dodatkowy argument ownera
+   2026-09-08 niżej.**
 3. ~~Czy to dotyczy też rytmu D/N/W/W (`DN_RHYTHM_REWARD_WEIGHT`), czy tylko
    węższego "3 zmiany pod rząd" — Paweł mówił o obu, ale z różnym
    naciskiem (3 zmiany pod rząd = "coś między Hard a Soft"; ogólny rytm
@@ -150,6 +151,22 @@ CC nadal nie projektuje implementacji (dotyka solvera, wymaga architekta)
 — to rozstrzygnięcie tylko domyka jedną z trzech otwartych osi, żeby
 architekt mógł napisać brief bez czekania na resztę, jeśli uzna to za
 wystarczające, albo poczekać na rozstrzygnięcie pytania 2 też.
+
+## Dodatkowy argument ownera (2026-09-08) dla pytania 2 (pasmo tolerancji equity)
+
+Paweł: *"Czasami koordynator jest zmuszony dać komuś 180 godzin a innym
+156, czyli solver może mieć luz."* Potwierdzone przez CC jako argument do
+wykorzystania tam, gdzie potrzebny (nie ograniczony do jednego miejsca w
+tym dokumencie).
+
+Odczytanie: różnica rzędu 180h vs 156h (~24h, jeden pełny blok D/N) między
+pracownikami jest w realnej pracy **normalna i akceptowalna**, nie błędem
+do skorygowania — koordynator i tak często jest zmuszony dać komuś wyraźnie
+więcej/mniej z powodów niezwiązanych z precyzją algorytmu. To dodatkowe,
+jakościowe wsparcie dla hipotezy CC z pytania 2 (pasmo tolerancji rzędu
+jednego bloku zmianowego), tym razem wprost od ownera, nie tylko z
+empirycznej obserwacji CC — nadal nie jest to ostateczna liczba/decyzja,
+tylko mocniejsza przesłanka dla architekta przy rozstrzyganiu pytania 2.
 
 ## Powiązane materiały
 
