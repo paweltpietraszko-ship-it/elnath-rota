@@ -1,0 +1,67 @@
+ROTA-REPLAN-BUDGET-FIX — WĄSKI REAUDYT RUNDY 2
+
+AUDITED_SHA: 4436dd3c2b0d22f741c0e859d960555971699035
+PRIOR_FAIL: tasks/ROTA-REPLAN-BUDGET-FIX/round_01/tests/tests_r1.txt
+PRODUCT_TRUTH: ROTA-T057 brief + OWNER rulings 2026-09-07/08
+STATUS: PASS
+
+ZAKRES
+
+Reaudyt objął wyłącznie korektę findingu R1-01. Nie ponawiano mapy where.py,
+bo właściciel i ścieżki nie zmieniły się od rundy 1. Diff produktu względem
+6cba91e zmienia jedną decyzję w engine.py:
+
+- brak wcześniejszych sygnatur (pierwszy REPLAN) -> quality_required=True;
+- istnieją wcześniejsze sygnatury, więc wczesny publiczny return jest
+  nieosiągalny -> quality_required=False, a szybki baseline zostaje wyrzucony.
+
+NIEZALEŻNE REPRODUKTORY
+
+1. Pierwotny kontrolowany reproduktor R1-01:
+   - 60 zmian po 12 h;
+   - 5 równorzędnych pracowników;
+   - target 144 h każdy;
+   - pierwszy REPLAN: FEASIBLE, 144/144/144/144/144 h.
+
+   Poprzedni błędny wynik 72/156/156/168/168 h nie występuje.
+
+2. Realny pion HTTP -> application -> SQLite -> engine -> solver na dwóch
+   identycznych osobnych bazach:
+   - PLAN jako pierwsza operacja: FEASIBLE, 144/144/144/156/156 h;
+   - REPLAN jako pierwsza operacja: FEASIBLE, 144/144/144/156/156 h.
+
+   Poprzedni błędny wynik pierwszego REPLAN 36/168/180/180/180 h nie
+   występuje.
+
+3. Kontrolny normalny przebieg PLAN -> REPLAN w jednym podejściu:
+   - PLAN: FEASIBLE, 3 kandydatów;
+   - REPLAN: FEASIBLE w 2,95 s, 1 kandydat;
+   - N=62, K=10;
+   - różnice od wszystkich kandydatów PLAN: 10, 11, 10;
+   - godziny REPLAN: 144/144/144/156/156.
+
+Wynik: korekta jakości pierwszego REPLAN nie cofnęła naprawy budżetu ani
+twardego progu 15% dla normalnych kolejnych wariantów.
+
+TESTY CELOWANE
+
+Uruchomiono ten sam niezależny zestaw co w rundzie 1:
+- cały tests/test_t033_replan_must_differ.py;
+- wybrane testy T017 jakości wariantów i etapów fallback;
+- zmieniony test API restore.
+
+Wynik: 14 passed, 1 nieistotne ostrzeżenie biblioteki TestClient.
+
+Pełnej regresji repo nie ponawiano. CC podał jej wynik jako dowód wspierający,
+ale po tej jednowierszowej korekcie właściwe były reproduktory findingu,
+normalny realny pion i testy zmienionej klasy zachowania. OWNER nie zlecił
+pełnego przebiegu Codexa.
+
+WERDYKT
+
+R1-01 jest zamknięty. Pierwszy REPLAN zachowuje zwykłą jakość solvera, a
+przyspieszenie działa tylko wtedy, gdy techniczny baseline nie może zostać
+zwrócony do UI. Zwykły PLAN, właściwy solve różnicowy, liczba służb i próg
+15% pozostają bez zmiany.
+
+PASS dotyczy wyłącznie 4436dd3c2b0d22f741c0e859d960555971699035.
