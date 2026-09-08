@@ -1,0 +1,102 @@
+ROTA-T058 — preimplementation audit R1
+Exact audited SHA: a887520f440f75434af88940479867365cc95ef6
+Audit type: brief/WHERE_MAP; no product implementation exists yet
+Result: FAIL — one contract correction required; IMPLEMENTATION HOLD
+
+PRODUCT TRACE
+- OWNER_FINAL: solver must treat every third consecutive service as HARD;
+  D/N/W/W stays SOFT; equity has a 24h SOFT tolerance; TARGET-01 unchanged.
+- OWNER_CORRECTED 2026-09-08 (recorded on main after this audit): HARD binds
+  the automatic solver, not the coordinator. A coordinator may knowingly
+  create the deviation manually; the program flags it and records the human
+  decision instead of blocking or silently undoing it.
+- Existing T057 owner contract: started/performed services are immutable facts.
+
+BLOCKER R1-01 — brief merges solver authority with coordinator authority
+
+Brief 2.1, 2.2, T58-04 and T58-11 prohibit saving/accepting/exporting every
+schedule containing the pattern and prohibit any exception. That is correct
+for an automatic candidate but contradicts the later explicit OWNER ruling
+for a manual correction and an already-performed factual replacement.
+
+Required brief correction:
+1. PLAN/REPLAN/Przelicz Plan never proposes a new third consecutive service
+   and has no automatic DECISION_REQUIRED override for doing so.
+2. Existing manual correction remains the coordinator-authority path. It may
+   save the violation, but validator materializes a named Deviation and the
+   existing coordinator action trail records who made the decision.
+3. A later automatic operation must not silently undo that recorded human
+   decision, and a window made entirely of already-started/performed or
+   explicitly accepted facts must not permanently poison planning of the
+   remaining future. Those facts still participate when deciding whether the
+   solver may add another service that would create a new prohibited window.
+4. Remove T058's unconditional export ban. Printing deviations is owned by
+   the separate per-print acknowledgement contract; do not duplicate it here.
+
+REPRO ON EXACT SHA
+- rota/application/manual_edit.py::apply_manual_correction calls validate(),
+  materializes HARD violations as Deviations and deliberately saves the child.
+- tasks/ROTA-T058/brief.md requires the opposite (no save/export).
+- T057 requires already-started duties to remain unchanged even if today's
+  validator would consider them undesirable. Therefore a fully fixed past
+  three-day window cannot have the brief's stated recovery of changing staff
+  or availability.
+
+WHERE_MAP EXECUTED
+- where.py rota/planning/solver.py --symbol _build_day_kind_terms
+- where.py rota/planning/fairness.py --symbol add_third_consecutive_shift_penalty
+- where.py rota/planning/fairness.py --symbol add_target_equity_fairness
+- where.py rota/planning/validator.py --symbol _check_night_streak
+- where.py rota/planning/engine.py --symbol _decision_for_night_streak
+
+NARROW TECHNICAL CONSOLIDATION FOR THE CORRECTED BRIEF
+- Reuse solver._build_day_kind_terms. Do not use its raw any_term for the new
+  HARD: any_term deliberately includes TRAINEE and PERIODIC_TRAINING. The
+  canonical term needed here is PRIMARY service occupancy per employee/date;
+  one date must count once even for a D+N 24h work period.
+- Put the CP-SAT HARD with other constraints, wire it once in solver, and
+  remove the old third-shift SOFT term and its objective-bound bookkeeping.
+- Validator independently checks PRIMARY start-date occupancy on the final
+  assignment set; it must not create a second D/N classifier. Its violation
+  is what the existing manual-correction path turns into a Deviation.
+- Diagnose the new infeasible class separately from NIGHT-STREAK-01 and
+  REST-01. Do not route it to the existing coordinator exception prompt.
+  Reuse one small non-decision result path and one Polish UI message; do not
+  add a new subsystem or payload.
+- Apply the 24h deadband to the existing canonical worked-hours expressions.
+  Include the alternate missing-target equal-split fairness path, otherwise
+  that path can still sacrifice rhythm for sub-24h equalization.
+- Reuse existing plan preview cleanup, Deviation persistence and coordinator
+  action log. No new table, endpoint, manual-correction DTO or export gate.
+
+PROVISIONAL MINIMAL TASK_SCOPE (architect must freeze after correction)
+Production owners:
+- rota/planning/constraints.py
+- rota/planning/solver.py
+- rota/planning/fairness.py
+- rota/planning/validator.py
+- rota/planning/engine.py
+- rota/planning/engine_types.py (only if a truthful non-decision status is added)
+- rota/application/plan_ops.py (only status/readback integration)
+- frontend/src/api/client.ts (only if the status union changes)
+- frontend/src/screens/MonthlyPlanning.tsx (one readable result state)
+
+Read-only proof seams unless the architect demonstrates necessity:
+- rota/application/manual_edit.py
+- rota/application/deviation_mapping.py
+- api/routers/schedule.py
+- export/lifecycle/persistence schema
+
+Tests:
+- replace/update tests/test_t034_third_consecutive_shift_soft.py for the new
+  HARD and retain focused NIGHT-STREAK sibling coverage;
+- focused fairness/deadband tests for <=24h, >24h, unequal targets and the
+  missing-target fallback;
+- one validator/manual-correction test proving flag+record rather than block;
+- one real plan-operation/API/UI vertical test for automatic infeasibility;
+- boundary tests: two fixed + one new is blocked; fully accepted/past manual
+  deviation is preserved and does not block unrelated future planning.
+
+No full regression was run: this is a brief-only audit and implementation is
+still HOLD. After the architect corrects the contract, Codex can re-check the
+literal diff and TASK_SCOPE without repeating WHERE_MAP.
