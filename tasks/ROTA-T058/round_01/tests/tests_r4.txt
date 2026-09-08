@@ -1,0 +1,121 @@
+ROTA-T058 — CODEX INDEPENDENT CODE AUDIT, ROUND 4
+
+VERDICT: FAIL
+EXACT AUDITED SHA: 76b3b57e9eb7307904c4e03806cbd1dc41f311e9
+BASELINE: 000daf2
+OWNER_ACCEPTED: podział T058 (HARD) / T059 (24 h equity), main@9f6e2d5
+
+AUDIT LAYERS
+
+1. Scope/diff review
+   - 21 plików delivery; wszystkie zmiany produktu/testów mieszczą się w zamrożonym TASK_SCOPE.
+   - T058 nie zmienia semantyki add_target_equity_fairness ani add_equal_split_fairness;
+     stary T034 SOFT został usunięty, a 24 h equity pozostaje poza T058.
+   - where.py nie był uruchamiany ponownie: mapa ownerów/symboli została wykonana w
+     preimplementation, a od tego czasu zakres/ownership nie zmienił się.
+
+2. Targeted implementation matrix
+   COMMAND:
+     python -m pytest -q tests/test_t058.py tests/test_t034_third_consecutive_shift_soft.py
+   RESULT: 15 passed.
+
+3. Zmienione fixture/testy regresyjne
+   COMMAND:
+     python -m pytest -q tests/test_t058.py tests/test_t034_third_consecutive_shift_soft.py
+       tests/test_audit_r13_findings.py tests/test_audit_t007_r3.py
+       tests/test_t011_b_context_discovery.py tests/test_t011_c_site_coordinator_lifecycle.py
+       tests/test_t011_d_quarter_balance.py tests/test_t011_e_pipeline_e2e_hard_stop.py
+       tests/test_t019b.py tests/test_t041_checkpoint_b.py
+   RESULT: 149 passed, 2 failed.
+   CLASSIFICATION: oba failure to wcześniej znana luka lifecycle T057 Route A
+   (manual correction bez istniejącego ScheduleVersion), dokładnie wskazana przez CC;
+   nie są regresją T058 i nie są findingiem tego audytu.
+
+4. Independent repro + real vertical
+   EVIDENCE: tasks/ROTA-T058/round_01/tests/repro_r4.py
+   COMMAND:
+     python -m pytest -q tasks/ROTA-T058/round_01/tests/repro_r4.py
+   RESULT: 2 failed, 2 passed.
+   PASS: realny forward boundary N -> N+1 blokuje nową służbę w ostatnim dniu
+   miesiąca jako THIRD_CONSECUTIVE_SHIFT_BLOCKED; status nie daje decision_payload.
+   FAIL: patrz R4-01.
+
+5. Frontend compile/build
+   - TypeScript: PASS (tsc -b).
+   - Vite production build: PASS (53 modules, 623 ms).
+   - Nie wykonywano audytu optycznego wydruku grafiku: T058 nie zmienia PDF ani
+     układu grafiku; jedyna powierzchnia UI to tekstowy banner nowego statusu.
+
+6. Mechanical gate
+   EVIDENCE: tasks/ROTA-T058/round_01/tests/backend_r4.txt
+   RESULT: FAIL. Większość zgłoszeń SIZE/RUFF istniała już na baseline i nie jest
+   przypisana T058. Nowy task-owned wyjątek opisano jako R4-02.
+   Pełnej regresji repo nie powtarzano: CC już ją wykonał, a AGENTS.md wymaga
+   jawnej zgody OWNERA na ponowne uruchomienie całego repo po wąskiej poprawce.
+
+FINDING R4-01 — unrelated history breaks every later manual correction
+SEVERITY: BLOCKER
+
+TRACE
+  - brief 2.2 / T58-05: ręczna korekta ma się zapisać, a jej własne naruszenie
+    ma zostać zmaterializowane jako Deviation;
+  - brief 2.3 / T58-14: w pełni istniejące/historyczne okno nie może blokować
+    niezwiązanej przyszłości;
+  - T58-10: solver i validator mają zgadzać się co do zakresu nowego HARD.
+
+OWNERSHIP
+  - rota/planning/validator.py::_check_third_consecutive_shift jest niezależnym
+    ownerem zakresu walidacji T058;
+  - rota/application/manual_edit.py wywołuje dokładnie validate ->
+    materialize_deviations; nie istnieje wcześniejsza granica usuwająca
+    niepowiązane, boundary-only okna.
+
+REPRO ON EXACT SHA
+  - direct seam i realny pion SQLite/manual_edit w repro_r4.py zawodzą identycznie;
+  - istniejący, zaakceptowany grafik lipca zawiera PRIMARY 1–3 lipca;
+  - koordynator wykonuje niezwiązaną korektę grafiku sierpnia;
+  - validator skanuje całe nieograniczone boundary_assignments i emituje
+    THIRD-CONSECUTIVE-SHIFT-01 dla lipca bez assignment_ids/demand_ids;
+  - materialize_deviations nie ma celu dla tego obcego okna i rzuca
+    UnknownDeviationSource. Korekta sierpnia nie zostaje zapisana.
+
+ROOT CAUSE
+  Solver ogranicza okna T058 do month_start-2 .. month_end (włącznie, aby widzieć
+  N+1). Validator iteruje wszystkie daty w unbounded boundary_assignments bez
+  analogicznego ograniczenia. To realny solver/validator drift, a nie brak
+  dodatkowego fallbacku w deviation_mapping.
+
+REQUIRED NARROW FIX
+  Validator ma analizować tylko okna T058 przecinające audytowany miesiąc w tym
+  samym zakresie co solver. Musi nadal widzieć mixed backward i forward boundary,
+  lecz nie może emitować naruszeń leżących w całości w obcym, niezwiązanym miesiącu.
+  Zachować oba reproduktory; test manualny nie może mieć wczesnego `return`, który
+  zmienia brak znalezionego scenariusza w zielony wynik.
+
+FINDING R4-02 — new T058 constraint violates SIZE_FUNC
+SEVERITY: MECHANICAL BLOCKER
+
+TRACE
+  arch/spec.md SECTION 9: SIZE_FUNC max 50 linii dla każdego pliku Python.
+
+OWNERSHIP
+  rota/planning/constraints.py::add_max_two_consecutive_primary_shift_constraint
+  jest nową funkcją wprowadzoną wyłącznie przez T058.
+
+REPRO ON EXACT SHA
+  backend.py raportuje 85 linii dla tej funkcji (limit 50).
+
+CLASSIFICATION
+  Stare przekroczenia SIZE_FILE/SIZE_FUNC oraz niezmieniona linia E501 w
+  fairness.py nie są nowymi findingami T058. R4-02 dotyczy tylko nowej funkcji.
+
+REQUIRED NARROW FIX
+  Mechanicznie rozdzielić budowanie/booleanizację okna na małe prywatne helpery
+  w istniejącym ownerze, bez zmiany zachowania i bez nowego subsystemu.
+
+PASS/FAIL SCOPE
+
+FAIL dotyczy wyłącznie exact SHA 76b3b57e9eb7307904c4e03806cbd1dc41f311e9.
+Po poprawce wymagany jest re-check obu reproduktorów R4-01, targeted T058/T034,
+mechaniczny check nowej funkcji oraz realny manual-edit vertical. Pełna regresja
+repo tylko po jawnej zgodzie OWNERA.
