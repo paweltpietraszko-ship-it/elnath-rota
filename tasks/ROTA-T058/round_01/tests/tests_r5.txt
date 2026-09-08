@@ -1,0 +1,62 @@
+ROTA-T058 — CODEX NARROW RE-AUDIT AFTER R4 FIXES
+
+VERDICT: PASS
+EXACT AUDITED SHA: 1f072fa4093f32e2e9a5a73c93d7b68000957cce
+FIX BASE: 80327b421c054794715b324f83997f28107f054f
+SCOPE: wyłącznie R4-01 i R4-02; bez ponownego audytu całej mapy zmian.
+
+R4-01 — PASS
+
+- Zachowany realny pion SQLite/manual_edit z repro_r4.py przechodzi: istniejące
+  trzy służby w lipcu nie blokują niezwiązanej korekty sierpnia.
+- Nowa niezależna macierz repro_r5.py potwierdza:
+  1. dalekie, boundary-only historyczne okno nie jest naruszeniem audytowanego miesiąca;
+  2. mixed boundary wstecz (29–30 IX + 1 X) nadal jest wykrywane;
+  3. mixed boundary w przód (31 X + 1–2 XI) nadal jest wykrywane;
+  4. ręczne naruszenie w bieżącym miesiącu nadal materializuje Deviation LAW.
+- Pierwsza asercja w zachowanym repro_r4.py jest po poprawce celowo nieaktualna:
+  sprawdzała obecność starego, błędnego boundary-only ViolationDetail. Nie została
+  usunięta ani przepisana; zastępuje ją uogólniona macierz repro_r5.py.
+
+R4-02 — PASS
+
+- add_max_two_consecutive_primary_shift_constraint: 24 linie;
+- _third_shift_window_assumption: 22 linie;
+- _third_shift_occupied_terms: 18 linii;
+- limit SIZE_FUNC: 50 linii.
+- Refactor zachowuje semantykę: fixed safe i fixed historical oba kończą się bez
+  assumption; mixed decision window nadal dostaje dokładnie ten sam HARD.
+- Ruff na constraints.py i validator.py: PASS.
+
+COMMANDS / RESULTS
+
+1. Zachowany realny reproduktor + forward boundary + Task matrix:
+   python -m pytest -q
+     tasks/ROTA-T058/round_01/tests/repro_r4.py::test_real_manual_correction_survives_unrelated_prior_month_triple
+     tasks/ROTA-T058/round_01/tests/repro_r4.py::test_real_solver_blocks_current_month_last_day_against_two_next_month_facts
+     tests/test_t058.py tests/test_t034_third_consecutive_shift_soft.py
+   RESULT: 17 passed.
+
+2. Niezależna macierz fixu:
+   python -m pytest -q tasks/ROTA-T058/round_01/tests/repro_r5.py
+   RESULT: 4 passed.
+
+3. Static:
+   ruff check rota/planning/constraints.py rota/planning/validator.py
+   RESULT: All checks passed.
+
+4. git diff --check 80327b4..1f072fa
+   RESULT: PASS.
+
+REGRESSION POLICY
+
+Pełnej regresji repo nie powtarzano: poprawka dotyka tylko dwóch znanych blockerów,
+CC podał niezmieniony wynik pełnego tests/ (20 znanych failure, 1364 passed,
+1 skipped), a AGENTS.md dopuszcza pełne repo po micro-fixie tylko za jawną zgodą
+OWNERA. Frontend nie był zmieniany i nie wymagał ponownego builda.
+
+PASS SCOPE
+
+PASS obowiązuje wyłącznie dla exact SHA
+1f072fa4093f32e2e9a5a73c93d7b68000957cce i zamrożonego hard-only zakresu T058.
+Tolerancja equity 24 h pozostaje osobnym T059 i nie jest warunkiem PASS T058.
