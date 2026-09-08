@@ -1,148 +1,186 @@
 # ROTA-T058 — HARD zakaz trzeciej kolejnej służby + 24h pasmo equity
 
-STATUS: PREIMPLEMENTATION AUDIT REQUIRED — IMPLEMENTATION HOLD
+STATUS: READY FOR NARROW RECHECK — IMPLEMENTATION HOLD
 
 BASE_MAIN_SHA: `298ddb9557455a574959876c38be1ebd7493319a`
 SOURCE_FINDING: `arch/FINDING_2026-09-05_SOLVER_RHYTHM_VS_TARGET_PRECISION.md` @ `c174c2e`
+OWNER_CORRECTION: main@`500b337dd86f43c7d978c9afc2b4a7ccabd13249`
+PREIMPLEMENTATION_AUDIT_R1: `tasks/ROTA-T058/round_01/tests/tests_r1.txt` @ `c21e80f`
 
 ## 1. Cel
 
-Naprawić priorytety solvera bez zmiany znaczenia TARGET-01:
+Naprawić priorytety automatycznego solvera bez odebrania koordynatorowi istniejącej władzy ręcznej korekty i bez zmiany znaczenia TARGET-01:
 
-1. każda trzecia kolejna służba tego samego pracownika na trzech kolejnych datach rozpoczęcia staje się bezwzględnym HARD;
-2. ogólny rytm D/N/W/W pozostaje SOFT;
-3. equity dostaje dopuszczalne pasmo 24h między pracownikami, wewnątrz którego solver nie ma psuć rytmu D/N/W/W tylko po to, aby dalej wyrównywać godziny;
-4. istniejące TARGET-01 pozostaje bez zmian.
+1. automatyczny PLAN/REPLAN/Przelicz Plan nigdy sam nie tworzy trzeciej kolejnej służby tego samego pracownika na trzech kolejnych datach rozpoczęcia;
+2. ręczna korekta koordynatora może świadomie utworzyć taki układ, ale program musi go oflagować jako odchylenie i zapisać ślad decyzji człowieka;
+3. ogólny rytm D/N/W/W pozostaje SOFT;
+4. equity dostaje dopuszczalne pasmo 24h, wewnątrz którego solver nie psuje rytmu tylko dla dalszego wyrównania;
+5. TARGET-01 pozostaje bez zmian.
 
 ## 2. Zamrożony kontrakt OWNERA
 
-### 2.1 Trzecia kolejna służba = HARD
+### 2.1 HARD wiąże automat
 
-Dla jednego pracownika każda sekwencja służb rozpoczynających się na trzech kolejnych datach kalendarzowych jest zabroniona.
+Dla jednego pracownika każda nowa automatyczna sekwencja służb rozpoczynających się na trzech kolejnych datach kalendarzowych jest zabroniona.
 
-Zakaz dotyczy wszystkich kombinacji rodzaju służby, nie tylko nocy. W szczególności obejmuje wzorce, które obecny T034 traktuje jako SOFT, np. D/D/D, D/D/N i D/N/N, oraz każde inne trzy kolejne daty rozpoczęcia z realną służbą pracownika.
+Zakaz dotyczy PRIMARY realnej służby pracownika niezależnie od kombinacji D/N. Nie budować go z surowego `any_term`, bo ten obejmuje również TRAINEE i PERIODIC_TRAINING. Jedna data rozpoczęcia liczy się raz także dla pracy 24h D+N.
 
-Nie wolno tworzyć wyjątku przez `DECISION_REQUIRED`. Nie wolno zapisać, zaakceptować ani wyeksportować grafiku naruszającego ten zakaz.
+PLAN/REPLAN/Przelicz Plan nie dostaje wyjątku przez `DECISION_REQUIRED`. Jeśli solver musiałby dołożyć nową trzecią kolejną służbę, nie może zwrócić takiego kandydata jako FEASIBLE. Użytkownik dostaje czytelny komunikat i recovery przez zmianę obsady/dostępności oraz ponowienie planowania.
 
-Jeżeli bez naruszenia zakazu nie istnieje obsada spełniająca pozostałe HARD, PLAN/REPLAN/Przelicz Plan nie produkuje akceptowalnego grafiku. Koordynator dostaje czytelny komunikat, że trzeba zmienić obsadę lub dostępność i uruchomić planowanie ponownie.
+Istniejący `NIGHT-STREAK-01` pozostaje własnym, węższym HARD i zachowuje swój dotychczasowy lifecycle. T058 nie rozszerza jego ścieżki wyjątku na ogólny zakaz trzech kolejnych służb.
 
-Istniejący `NIGHT-STREAK-01` pozostaje własnym, węższym HARD dla nocy. T058 nie rozszerza jego ścieżki `DECISION_REQUIRED` na ogólny zakaz trzech kolejnych służb.
+### 2.2 HARD nie odbiera władzy koordynatorowi
 
-### 2.2 Granice miesiąca i fixed facts
+Ręczna korekta pozostaje istniejącą ścieżką świadomej decyzji człowieka. Koordynator może utworzyć układ naruszający nowy HARD.
 
-Zakaz musi działać także przez granicę miesiąca. Służby już istniejące/fixed/boundary są faktami i uczestniczą w ocenie trzech kolejnych dat rozpoczęcia tak samo jak nowe zmienne solvera.
+W takim przypadku:
+- validator wykrywa nazwane naruszenie;
+- istniejący mechanizm `validate -> materialize_deviations -> coordinator action` zapisuje odchylenie i ślad decyzji;
+- program nie przedstawia tego wyniku jako automatycznie zgodnego z HARD;
+- nie tworzyć drugiego systemu wyjątków, nowej tabeli, nowego DTO ręcznej korekty ani osobnego subsystemu decyzji.
 
-Jeżeli dwa wcześniejsze dni są już fixed i nowa służba trzeciego dnia tworzyłaby zabronioną sekwencję, solver musi jej zabronić. Nie wolno ignorować okna tylko dlatego, że jego część pochodzi z poprzedniej wersji/miesiąca.
+T058 nie wprowadza własnej blokady wydruku. Wydruk grafiku z odchyleniami należy do osobnego kontraktu jednorazowego potwierdzenia przed każdym wydrukiem.
 
-### 2.3 Rytm D/N/W/W
+### 2.3 Fixed facts, przeszłość i granice miesiąca
 
-Ogólny rytm D/N/W/W pozostaje SOFT. Nie staje się HARD i nie dostaje osobnego `DECISION_REQUIRED`.
+Służby już rozpoczęte/odbyte oraz inne jawnie zapisane fakty pozostają faktami. Późniejszy automat nie może ich cicho cofnąć ani przepisać tylko dlatego, że dzisiejszy validator wykrywa w ich oknie nowy HARD.
 
-Nowy HARD trzech kolejnych służb ma pierwszeństwo przed rytmem D/N/W/W nawet wtedy, gdy wymusza mniej estetyczny wzorzec.
+W pełni istniejące/odbyte okno trzech kolejnych służb nie może samo w sobie zatruć całego planowania przyszłości.
 
-### 2.4 TARGET-01
+Jednocześnie fixed/boundary facts uczestniczą w decyzji, czy solver może dołożyć NOWĄ służbę. Jeśli dwa wcześniejsze dni są już faktami, a kandydat trzeciego dnia tworzyłby nowe zabronione okno, solver musi go zablokować.
 
-Nie zmieniać semantyki TARGET-01 ani jego obecnej dominacji nad zwykłymi SOFT. Minimalizacja sumarycznej odchyłki od target_hours pozostaje obowiązująca.
+Zakaz działa przez granicę miesiąca.
 
-T058 nie zmienia sposobu liczenia target_hours, effective_targets ani fallbacku dla brakujących targetów.
+### 2.4 Rytm D/N/W/W
 
-### 2.5 Equity z pasmem 24h
+Ogólny rytm D/N/W/W pozostaje SOFT. Nowy automatyczny HARD ma przed nim pierwszeństwo.
 
-Obecne equity nie może dalej wymuszać drobnego wyrównywania godzin kosztem rytmu D/N/W/W, jeśli różnica rzeczywistych godzin między pracownikami mieści się w 24h.
+### 2.5 TARGET-01
 
-24h jest martwą strefą/tolerancją rankingu SOFT, a nie HARD:
-- różnica <=24h nie generuje przewagi dla dalszego wyrównywania equity;
-- różnica >24h może nadal wpływać na ranking rozwiązań;
-- rozwiązanie z różnicą >24h jest nadal legalne, jeśli wynika z HARD/TARGET-01 i pozostałej struktury problemu.
+Nie zmieniać semantyki TARGET-01 ani jego danych wejściowych. Minimalizacja sumarycznej odchyłki od target_hours pozostaje obowiązująca.
 
-Nie zamieniać tego w zakaz `max_hours - min_hours <= 24`.
+### 2.6 Equity z pasmem 24h
 
-Architekt preferuje jeden owner actual-hours/equity, bez drugiego równoległego liczenia godzin.
+24h jest martwą strefą rankingu SOFT, nie HARD.
+
+- różnica godzin <=24h nie daje dodatkowej korzyści za dalsze wyrównywanie;
+- różnica >24h może nadal wpływać na ranking;
+- wynik >24h pozostaje legalny;
+- deadband ma działać na istniejących canonical worked-hours expressions;
+- analogiczna tolerancja musi objąć fallback `add_equal_split_fairness`, gdy brakuje targetów, inaczej ta ścieżka nadal może psuć rytm dla sub-24h wyrównania.
+
+Nie tworzyć drugiego równoległego liczenia godzin.
 
 ## 3. Wymagane zachowanie użytkowe
 
-Scenariusz A — możliwy grafik:
-- istnieje rozwiązanie bez trzech kolejnych służb;
+Scenariusz A — automat, rozwiązanie możliwe:
 - solver zwraca legalny wynik;
-- żadna osoba nie ma służb na trzech kolejnych datach rozpoczęcia.
+- nie dokłada pracownikowi nowej trzeciej kolejnej służby.
 
-Scenariusz B — niemożliwy grafik:
-- pełne pokrycie wymagałoby trzeciej kolejnej służby;
-- solver nie zwraca akceptowalnego grafiku łamiącego zakaz;
-- UI/API pokazuje czytelny komunikat o braku możliwości ułożenia bez naruszenia tego HARD;
-- brak ścieżki zatwierdzenia wyjątku.
+Scenariusz B — automat, rozwiązanie niemożliwe:
+- pełne pokrycie wymagałoby dołożenia nowej trzeciej kolejnej służby;
+- solver nie zwraca takiego kandydata;
+- brak automatycznego `DECISION_REQUIRED` override;
+- UI/API pokazuje czytelny komunikat.
 
-Scenariusz C — equity wewnątrz 24h:
-- dwa legalne warianty mają tę samą jakość TARGET-01;
-- jeden ma lepszy D/N/W/W, drugi tylko ciaśniejsze equity wewnątrz 24h;
-- wariant z lepszym rytmem nie może przegrać wyłącznie przez dalsze wyrównanie equity wewnątrz tolerancji.
+Scenariusz C — ręczna korekta:
+- koordynator świadomie tworzy trzecią kolejną służbę;
+- zapis nie jest blokowany przez T058;
+- validator materializuje nazwane odchylenie;
+- coordinator action zachowuje ślad decyzji.
 
-Scenariusz D — equity poza 24h:
-- przy równej jakości wyższych priorytetów equity może preferować wariant zmniejszający różnicę >24h;
-- nie jest to HARD i nie może unieważnić jedynego legalnego grafiku.
+Scenariusz D — equity <=24h:
+- przy równej jakości TARGET-01 solver nie psuje lepszego rytmu tylko po to, by dalej zmniejszyć różnicę mieszczącą się w 24h.
 
-Scenariusz E — granica miesiąca:
-- dwie fixed służby końca poprzedniego/obecnego zakresu + kandydat na trzeci kolejny dzień;
-- kandydat jest zabroniony niezależnie od statusu/frozen/eligibility tych wcześniejszych faktów.
+Scenariusz E — equity >24h:
+- equity może preferować zmniejszenie różnicy, ale pozostaje SOFT.
+
+Scenariusz F — boundary/fixed:
+- dwa istniejące dni + nowa służba trzeciego dnia: nowa służba zablokowana;
+- w pełni istniejące/odbyte trzydniowe okno: zachowane jako fakt i nie blokuje niezwiązanej przyszłości.
 
 ## 4. Zakaz rozszerzania zakresu
 
 Poza T058:
 - zmiana REST-01, LOAD-01, MEMBERSHIP-01;
-- zmiana NIGHT-STREAK-01 poza niezbędnym współistnieniem z nowym szerszym HARD;
+- zmiana NIGHT-STREAK-01 poza współistnieniem z nowym HARD;
 - zmiana TARGET-01 lub jego danych wejściowych;
-- nowe ustawienie w Control Panel do wyłączania zakazu;
-- wyjątek koordynatora/`DECISION_REQUIRED` dla trzech kolejnych służb;
+- nowe ustawienie w Control Panel;
+- nowy system wyjątków lub nowy `DECISION_REQUIRED` dla tego HARD;
+- nowa blokada eksportu/PDF;
 - przebudowa całej funkcji celu;
-- poprawki historycznych testów niezwiązane bezpośrednio z tym kontraktem;
+- rozszerzanie historycznej Korekty ręcznej/REALIZED poza istniejący kontrakt;
 - refaktoryzacje „przy okazji”.
 
-## 5. PREIMPLEMENTATION WHERE_MAP — obowiązkowy Codex
-
-Przed implementacją Codex ma wykonać wąski audyt i wskazać minimalne seamy oraz literalny `TASK_SCOPE`.
+## 5. PREIMPLEMENTATION WHERE_MAP — wykonany w R1
 
 WHERE_MAP:
 - MODE: REQUIRED
-- IMPLEMENTATION: HOLD
-- VERIFY:
-  1. gdzie dokładnie powstaje jeden wspólny `day_kind_terms`/klasyfikacja realnej służby i jak obejmuje fixed/boundary facts;
-  2. czy nowy HARD powinien być zbudowany w `constraints.py`, `solver.py` czy przez przeniesienie logiki z obecnego `add_third_consecutive_shift_penalty`;
-  3. gdzie niezależny validator musi dostać ten sam kontrakt bez kopiowania drugiego klasyfikatora D/N;
-  4. jak obecny engine mapuje INFEASIBLE bez `DECISION_REQUIRED` na czytelny komunikat i czy potrzebny jest mały, deterministyczny reason owner;
-  5. gdzie najlepiej wprowadzić 24h deadband equity przy zachowaniu jednego ownera actual-hours i bez zmiany TARGET-01;
-  6. które istniejące testy T034/T032/NIGHT-STREAK/fairness trzeba zmienić lub zachować i jakie nowe testy są konieczne;
-  7. czy jakikolwiek plik poza proponowanym minimalnym zestawem jest rzeczywiście wymagany.
+- EXECUTION_STATUS: SATISFIED_BY_R1
+- REPORT: `tasks/ROTA-T058/round_01/tests/tests_r1.txt`
+- IMPLEMENTATION: HOLD until narrow re-check PASS
 
-Codex ma zwrócić PASS/FAIL preimplementation oraz proponowany literalny TASK_SCOPE. Nie projektować nowego subsystemu.
+Zamrożone techniczne redukcje z R1:
+- reuse istniejącego ownera klasyfikacji/dzień z `solver._build_day_kind_terms`, ale dla nowego HARD użyć PRIMARY occupancy per employee/date, nie surowego `any_term`;
+- CP-SAT HARD umieścić z constraints, wpiąć raz w solverze i usunąć stary third-shift SOFT oraz jego objective-bound bookkeeping;
+- validator ma niezależnie sprawdzać PRIMARY start-date occupancy bez tworzenia drugiego D/N classifiera;
+- nowy rodzaj infeasible diagnozować osobno od NIGHT-STREAK-01 i REST-01, bez coordinator override;
+- reuse istniejącego preview cleanup, Deviation persistence i coordinator action log;
+- 24h deadband objąć target equity oraz missing-target equal-split fallback.
 
-## 6. Acceptance do późniejszej implementacji
+## 6. Acceptance
 
-T58-01: żadna zaakceptowana propozycja solvera nie zawiera trzech służb tego samego pracownika na trzech kolejnych datach rozpoczęcia.
+T58-01: automatyczny PLAN/REPLAN/Przelicz Plan nie proponuje nowej trzeciej kolejnej służby tego samego pracownika na trzech kolejnych datach rozpoczęcia.
 
-T58-02: zakaz działa dla kombinacji D/N oraz innych realnych służb klasyfikowanych przez istniejącego ownera, a nie tylko dla trzech nocy.
+T58-02: nowy HARD dotyczy PRIMARY realnej służby i jednej okupacji daty, nie TRAINEE/S1 ani podwójnego liczenia D+N 24h.
 
-T58-03: zakaz działa przez granicę miesiąca i wobec fixed/boundary facts.
+T58-03: zakaz działa przez granicę miesiąca i wobec fixed/boundary facts przy dokładaniu nowej służby.
 
-T58-04: brak legalnej obsady nie prowadzi do wyjątku `DECISION_REQUIRED`; użytkownik dostaje czytelny komunikat i brak akceptowalnego grafiku.
+T58-04: brak legalnej automatycznej obsady nie prowadzi do coordinator override; użytkownik dostaje czytelny komunikat i brak FEASIBLE kandydata łamiącego HARD.
 
-T58-05: NIGHT-STREAK-01 pozostaje poprawne i nie jest osłabione.
+T58-05: ręczna korekta może świadomie zapisać naruszenie; validator materializuje nazwane Deviation i istniejący coordinator action trail zapisuje decyzję.
 
-T58-06: D/N/W/W pozostaje SOFT.
+T58-06: późniejszy automat nie cofa po cichu ręcznie zaakceptowanej/odbytej decyzji i w pełni fixed historyczne okno nie blokuje niezwiązanej przyszłości.
 
-T58-07: TARGET-01 zachowuje dotychczasową semantykę i priorytet.
+T58-07: NIGHT-STREAK-01 pozostaje poprawne i nie jest osłabione.
 
-T58-08: equity nie daje dodatkowej korzyści za zmniejszanie różnicy godzin, jeśli wynikowa różnica między porównywanymi pracownikami mieści się w 24h tolerancji.
+T58-08: D/N/W/W pozostaje SOFT.
 
-T58-09: różnica >24h pozostaje legalna; equity może ją preferencyjnie zmniejszać tylko jako SOFT.
+T58-09: TARGET-01 zachowuje dotychczasową semantykę i priorytet.
 
-T58-10: solver i validator zgadzają się co do nowego HARD na reprezentatywnych scenariuszach, bez wspólnego błędnego drugiego klasyfikatora.
+T58-10: target equity nie daje dodatkowej korzyści za zmniejszanie różnicy <=24h.
 
-T58-11: brak nowego ustawienia/wyjątku pozwalającego ominąć zakaz.
+T58-11: missing-target equal-split fairness również respektuje deadband 24h.
 
-## 7. TASK_SCOPE
+T58-12: różnica >24h pozostaje legalna i equity może ją zmniejszać tylko jako SOFT.
 
-Nie jest jeszcze zamrożony. Implementacja HOLD do preimplementation PASS Codexa i dopisania literalnego `TASK_SCOPE` przez Architekta.
+T58-13: solver i validator zgadzają się co do reprezentatywnych scenariuszy nowego HARD, przy zachowaniu niezależności walidacji.
+
+T58-14: T058 nie dodaje własnej blokady PDF/eksportu ani nowego subsystemu wyjątków.
+
+## 7. EXACT TASK_SCOPE — FROZEN
 
 READ_ONLY_EVIDENCE:
-- `arch/FINDING_2026-09-05_SOLVER_RHYTHM_VS_TARGET_PRECISION.md`
-- `BOARD.md`
+- arch/FINDING_2026-09-05_SOLVER_RHYTHM_VS_TARGET_PRECISION.md
+- BOARD.md
+- tasks/ROTA-T058/round_01/tests/tests_r1.txt
+- rota/application/manual_edit.py
+- rota/application/deviation_mapping.py
+- api/routers/schedule.py
+
+TASK_SCOPE:
+- rota/planning/constraints.py
+- rota/planning/solver.py
+- rota/planning/fairness.py
+- rota/planning/validator.py
+- rota/planning/engine.py
+- rota/planning/engine_types.py
+- rota/application/plan_ops.py
+- frontend/src/api/client.ts
+- frontend/src/screens/MonthlyPlanning.tsx
+- tests/test_t034_third_consecutive_shift_soft.py
+- tests/test_t058.py
+
+`engine_types.py`, `plan_ops.py`, `frontend/src/api/client.ts` i `MonthlyPlanning.tsx` wolno zmieniać wyłącznie, jeśli rzeczywiście potrzebny jest truthful non-decision result/status i jego czytelna prezentacja. Nie tworzyć nowego payloadu/subsystemu.
+
+Jeżeli implementacja wymaga innego istniejącego pliku, STOP i powrót do Architekta przed edycją.
