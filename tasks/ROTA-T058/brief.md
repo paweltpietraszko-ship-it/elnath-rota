@@ -52,12 +52,29 @@ W pełni fixed historyczne okno trzech kolejnych służb samo w sobie nie blokuj
 
 Reguła działa przez granicę miesiąca.
 
+### 2.3A ARCHITECT_RULING 2026-09-08 — diagnostyka fixed/mixed boundary
+
+To rozstrzygnięcie jest wiążące dla implementacji T058:
+
+1. **W pełni istniejące/fixed/historyczne okno** trzech kolejnych służb nie jest nową decyzją solvera. Nie wolno mapować go wyłącznie z powodu nowego T058 na `TECHNICAL_ERROR` ani na nowe `DECISION_REQUIRED`, które zatrzymuje niezwiązaną przyszłość. Fakt pozostaje zachowany i może pozostać widoczny jako istniejące odchylenie/ślad decyzji człowieka, ale automat ma móc planować późniejsze, niezwiązane dni.
+2. **Okno mieszane przez granicę miesiąca**, w którym część dni jest już accepted/fixed/boundary, a co najmniej jedna NOWA decyzja solvera domyka zabronione trzy kolejne daty, jest zwykłym przypadkiem nowego HARD. Kandydat ma zostać zablokowany i zdiagnozowany jako truthful non-decision `THIRD_CONSECUTIVE_SHIFT_BLOCKED` (lub dokładnie ten sam publiczny status/komunikat, którego T058 używa dla nowego HARD), nigdy generyczny `TECHNICAL_ERROR` i bez coordinator override.
+3. Jeśli dwa fixed dni leżą w miesiącu N+1, a REPLAN/Przelicz miesiąca N próbowałby dołożyć służbę tworzącą okno przez granicę, accepted miesiąc N+1 pozostaje faktem; solver ma zmienić własną nową propozycję w N, nie przepisywać N+1.
+4. Samo dopisanie `THIRD-CONSECUTIVE-SHIFT-01` do mechanizmu przeznaczonego dla „frozen boundary requires decision” nie jest poprawnym rozwiązaniem, jeżeli skutkiem jest blokowanie w pełni historycznego okna wbrew punktowi 1.
+
 ### 2.4 Bez zmian w pozostałych priorytetach
 
 - NIGHT-STREAK-01 pozostaje własnym HARD i zachowuje dotychczasowy lifecycle.
 - D/N/W/W pozostaje SOFT.
 - TARGET-01 pozostaje bez zmian.
 - T058 NIE zmienia equity, equal-split ani wag objective.
+
+### 2.5 ARCHITECT_RULING 2026-09-08 — wiele prawdziwych HARD naraz
+
+T058 nie wprowadza hierarchii diagnostycznej między niezależnymi regułami HARD tylko po to, aby zachować stare testy.
+
+Jeżeli stan rzeczywiście narusza równocześnie np. LOAD-01/SiteRule i `THIRD-CONSECUTIVE-SHIFT-01`, oba fakty są prawdziwe. Kod nie może uciszać nowego HARD ani sztucznie nadawać starszej regule pierwszeństwa wyłącznie dla stabilności fixture/testu.
+
+Test, którego celem jest izolacja jednej reguły/provenance, ma skonstruować stan, w którym pozostałe niezależne HARD nie są przypadkowo naruszone. Wolno zmienić wyłącznie fixture/setup konieczny do zachowania pierwotnego celu testu; nie wolno osłabiać assertion dotyczącej badanej reguły ani zmieniać kontraktu produktu, żeby test stał się zielony.
 
 ## 3. Acceptance
 
@@ -84,6 +101,10 @@ T58-10: solver i validator zgadzają się co do reprezentatywnych scenariuszy no
 T58-11: T058 nie dodaje blokady PDF/eksportu ani nowego subsystemu wyjątków.
 
 T58-12: T058 nie zmienia `add_target_equity_fairness`, `add_equal_split_fairness`, ich semantyki, wag ani deadbandu; ten temat należy do osobnego tasku solver-engineering.
+
+T58-13: mieszane okno boundary, w którym nowa decyzja solvera domyka trzecie kolejne rozpoczęcie, kończy się czytelnym `THIRD_CONSECUTIVE_SHIFT_BLOCKED`, nie `TECHNICAL_ERROR`.
+
+T58-14: w pełni fixed/historyczne trzydniowe okno nie powoduje samo z siebie nowego `DECISION_REQUIRED` i nie blokuje planowania niezwiązanej przyszłości.
 
 ## 4. Zakaz rozszerzania zakresu
 
@@ -120,6 +141,16 @@ TASK_SCOPE:
 - frontend/src/screens/MonthlyPlanning.tsx
 - tests/test_t034_third_consecutive_shift_soft.py
 - tests/test_t058.py
+- tests/test_t019b.py
+- tests/test_t011_b_context_discovery.py
+- tests/test_t011_c_site_coordinator_lifecycle.py
+- tests/test_t011_d_quarter_balance.py
+- tests/test_t011_e_pipeline_e2e_hard_stop.py
+- tests/test_t041_checkpoint_b.py
+- tests/test_audit_r13_findings.py
+- tests/test_audit_t007_r3.py
+- tests/test_audit_t007_r4.py
+- tests/test_audit_t007_r5.py
 
 `fairness.py` i `solver.py` wolno zmieniać tylko w zakresie usunięcia starego T034 third-shift SOFT i wpięcia nowego HARD; nie wolno zmieniać equity/equal-split/łańcucha wag.
 
@@ -127,10 +158,12 @@ TASK_SCOPE:
 
 `deviation_mapping.py` wyłącznie o mapowanie nowej reguły do istniejącej kategorii; `api/routers/schedule.py` wyłącznie o polską etykietę nowego Deviation.
 
+Dodatkowe pliki testowe powyżej wolno zmieniać wyłącznie w setup/fixture koniecznym do zachowania ich pierwotnej izolacji po wejściu nowego HARD. Nie wolno zmieniać oczekiwanego zachowania reguły, którą dany test faktycznie audytuje.
+
 Jeżeli implementacja wymaga innego istniejącego pliku, STOP i powrót do Architekta przed edycją.
 
 ## 6. Handoff po rozdzieleniu
 
-CC ma zachować działającą część HARD, wycofać z worktree wszystkie eksperymenty deadband/reweight/objective-chain i przygotować czysty delivery T058 tylko dla acceptance T58-01..T58-12.
+CC ma zachować działającą część HARD, wycofać z worktree wszystkie eksperymenty deadband/reweight/objective-chain i przygotować czysty delivery T058 tylko dla acceptance T58-01..T58-14.
 
 Po delivery: targetowane testy + realny pion PLAN + przekazanie Codexowi exact SHA. Pełny redesign objective nie jest warunkiem ukończenia T058.
