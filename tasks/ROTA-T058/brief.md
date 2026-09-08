@@ -1,11 +1,12 @@
 # ROTA-T058 — HARD zakaz trzeciej kolejnej służby + 24h pasmo equity
 
-STATUS: READY FOR NARROW RECHECK — IMPLEMENTATION HOLD
+STATUS: READY FOR FINAL NARROW RECHECK — IMPLEMENTATION HOLD
 
 BASE_MAIN_SHA: `298ddb9557455a574959876c38be1ebd7493319a`
 SOURCE_FINDING: `arch/FINDING_2026-09-05_SOLVER_RHYTHM_VS_TARGET_PRECISION.md` @ `c174c2e`
 OWNER_CORRECTION: main@`500b337dd86f43c7d978c9afc2b4a7ccabd13249`
 PREIMPLEMENTATION_AUDIT_R1: `tasks/ROTA-T058/round_01/tests/tests_r1.txt` @ `c21e80f`
+PREIMPLEMENTATION_AUDIT_R2: `tasks/ROTA-T058/round_01/tests/tests_r2.txt` @ `3e49b1a`
 
 ## 1. Cel
 
@@ -36,6 +37,8 @@ Ręczna korekta pozostaje istniejącą ścieżką świadomej decyzji człowieka.
 W takim przypadku:
 - validator wykrywa nazwane naruszenie;
 - istniejący mechanizm `validate -> materialize_deviations -> coordinator action` zapisuje odchylenie i ślad decyzji;
+- `rota/application/deviation_mapping.py` mapuje nowy built-in rule do istniejącej kategorii Deviation;
+- `api/routers/schedule.py` wystawia dla niego czytelną polską etykietę, bez surowego technicznego kodu w UI;
 - program nie przedstawia tego wyniku jako automatycznie zgodnego z HARD;
 - nie tworzyć drugiego systemu wyjątków, nowej tabeli, nowego DTO ręcznej korekty ani osobnego subsystemu decyzji.
 
@@ -87,7 +90,8 @@ Scenariusz C — ręczna korekta:
 - koordynator świadomie tworzy trzecią kolejną służbę;
 - zapis nie jest blokowany przez T058;
 - validator materializuje nazwane odchylenie;
-- coordinator action zachowuje ślad decyzji.
+- coordinator action zachowuje ślad decyzji;
+- API/UI pokazuje czytelną polską etykietę tego odchylenia, nie surowy kod reguły.
 
 Scenariusz D — equity <=24h:
 - przy równej jakości TARGET-01 solver nie psuje lepszego rytmu tylko po to, by dalej zmniejszyć różnicę mieszczącą się w 24h.
@@ -118,14 +122,16 @@ WHERE_MAP:
 - MODE: REQUIRED
 - EXECUTION_STATUS: SATISFIED_BY_R1
 - REPORT: `tasks/ROTA-T058/round_01/tests/tests_r1.txt`
-- IMPLEMENTATION: HOLD until narrow re-check PASS
+- IMPLEMENTATION: HOLD until final narrow re-check PASS
 
-Zamrożone techniczne redukcje z R1:
+Zamrożone techniczne redukcje z R1/R2:
 - reuse istniejącego ownera klasyfikacji/dzień z `solver._build_day_kind_terms`, ale dla nowego HARD użyć PRIMARY occupancy per employee/date, nie surowego `any_term`;
 - CP-SAT HARD umieścić z constraints, wpiąć raz w solverze i usunąć stary third-shift SOFT oraz jego objective-bound bookkeeping;
 - validator ma niezależnie sprawdzać PRIMARY start-date occupancy bez tworzenia drugiego D/N classifiera;
 - nowy rodzaj infeasible diagnozować osobno od NIGHT-STREAK-01 i REST-01, bez coordinator override;
 - reuse istniejącego preview cleanup, Deviation persistence i coordinator action log;
+- `deviation_mapping.py` dostaje tylko mapowanie nowego built-in rule do istniejącej kategorii;
+- `api/routers/schedule.py` dostaje tylko czytelną polską etykietę nowego Deviation;
 - 24h deadband objąć target equity oraz missing-target equal-split fallback.
 
 ## 6. Acceptance
@@ -138,7 +144,7 @@ T58-03: zakaz działa przez granicę miesiąca i wobec fixed/boundary facts przy
 
 T58-04: brak legalnej automatycznej obsady nie prowadzi do coordinator override; użytkownik dostaje czytelny komunikat i brak FEASIBLE kandydata łamiącego HARD.
 
-T58-05: ręczna korekta może świadomie zapisać naruszenie; validator materializuje nazwane Deviation i istniejący coordinator action trail zapisuje decyzję.
+T58-05: ręczna korekta może świadomie zapisać naruszenie; validator materializuje nazwane Deviation, istniejący coordinator action trail zapisuje decyzję, a API/UI pokazuje czytelną polską etykietę zamiast surowego kodu reguły.
 
 T58-06: późniejszy automat nie cofa po cichu ręcznie zaakceptowanej/odbytej decyzji i w pełni fixed historyczne okno nie blokuje niezwiązanej przyszłości.
 
@@ -164,9 +170,8 @@ READ_ONLY_EVIDENCE:
 - arch/FINDING_2026-09-05_SOLVER_RHYTHM_VS_TARGET_PRECISION.md
 - BOARD.md
 - tasks/ROTA-T058/round_01/tests/tests_r1.txt
+- tasks/ROTA-T058/round_01/tests/tests_r2.txt
 - rota/application/manual_edit.py
-- rota/application/deviation_mapping.py
-- api/routers/schedule.py
 
 TASK_SCOPE:
 - rota/planning/constraints.py
@@ -176,11 +181,13 @@ TASK_SCOPE:
 - rota/planning/engine.py
 - rota/planning/engine_types.py
 - rota/application/plan_ops.py
+- rota/application/deviation_mapping.py
+- api/routers/schedule.py
 - frontend/src/api/client.ts
 - frontend/src/screens/MonthlyPlanning.tsx
 - tests/test_t034_third_consecutive_shift_soft.py
 - tests/test_t058.py
 
-`engine_types.py`, `plan_ops.py`, `frontend/src/api/client.ts` i `MonthlyPlanning.tsx` wolno zmieniać wyłącznie, jeśli rzeczywiście potrzebny jest truthful non-decision result/status i jego czytelna prezentacja. Nie tworzyć nowego payloadu/subsystemu.
+`engine_types.py`, `plan_ops.py`, `frontend/src/api/client.ts` i `MonthlyPlanning.tsx` wolno zmieniać wyłącznie, jeśli rzeczywiście potrzebny jest truthful non-decision result/status i jego czytelna prezentacja. `deviation_mapping.py` wolno zmienić wyłącznie o mapowanie nowego built-in rule do istniejącej kategorii, a `api/routers/schedule.py` wyłącznie o czytelną polską etykietę nowego Deviation. Nie tworzyć nowego payloadu/subsystemu.
 
 Jeżeli implementacja wymaga innego istniejącego pliku, STOP i powrót do Architekta przed edycją.
