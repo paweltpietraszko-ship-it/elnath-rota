@@ -1,0 +1,104 @@
+ROTA-REPLAN-BUDGET-FIX — NIEZALEŻNY AUDYT POPRAWKI BUDŻETU REPLAN
+
+AUDITED_SHA: 6cba91e6a428ef9ff0df1889f580d18b7da5c60c
+PRODUCT_TRUTH: ROTA-T057 brief + OWNER rulings 2026-09-07/08
+STATUS: FAIL
+
+ZAKRES I WŁAŚCICIELE
+
+Zmiana dotyka wyłącznie engine/solver oraz jeden zastany test API. Jest
+traceable do T57-04/T57-12 i zasady z briefu T057 §4, że naprawa lifecycle
+nie zmienia pozostałych reguł jakości solvera.
+
+Użyto where.py dla:
+- rota/planning/engine.py --symbol _plan_requiring_different_result_narrow
+- rota/planning/engine.py --symbol _plan_requiring_different_result_wide
+- rota/planning/engine.py --symbol _wide_try_diversity_at_stage
+- rota/planning/solver.py --symbol solve
+- rota/planning/solver.py --symbol _run_solver
+
+Odczyt exact SHA potwierdził:
+- zwykły PLAN zachowuje dotychczasowe ustawienia jakości;
+- rzeczywisty solve różnicowy, którego wynik widzi koordynator, zachowuje
+  quality_required=True;
+- dodatkowe warianty są wyłączone tylko w wywołaniach potrzebujących jednego
+  kandydata;
+- stop_after_first_solution jest włączony tylko w baseline_check REPLAN.
+
+DOWODY POZYTYWNE
+
+1. Realny pion API -> application -> SQLite -> engine -> solver dla normalnego
+   PLAN, a następnie REPLAN w tym samym podejściu:
+   - PLAN FEASIBLE, 3 kandydatów;
+   - REPLAN FEASIBLE w 0,43 s, 1 kandydat;
+   - N=62, K=10, odległości od wszystkich kandydatów PLAN: 31, 36, 33;
+   - godziny wariantu REPLAN: 144, 144, 144, 156, 156.
+2. Testy celowane: cały test_t033_replan_must_differ, testy zachowania jakości
+   wariantów T017 oraz zmieniony test restore API: 14 passed.
+
+FINDING R1-01 — PIERWSZY REPLAN NA PUSTYM MIESIĄCU POKAZUJE
+NIEOPTYMALIZOWANY GRAFIK
+
+TRACE:
+- T057 §5 wystawia na pustym miesiącu PLAN oraz REPLAN wariantów przed
+  akceptacją; frontend rzeczywiście pokazuje przycisk „REPLAN (inny wariant)”
+  obok PLAN;
+- T057 §4 zabrania zmiany pozostałych reguł solvera;
+- zaakceptowana poprawka 2026-09-08 pozwala zatrzymać się na pierwszym
+  HARD-poprawnym wyniku wyłącznie wtedy, gdy wynik jest niewidocznym,
+  wyrzucanym sprawdzeniem technicznym.
+
+OWNERSHIP:
+engine._plan_requiring_different_result_narrow jest właścicielem decyzji,
+czy baseline_check zostaje wyrzucony, czy staje się publicznym kandydatem.
+API i UI nie mają ani nie powinny mieć drugiej walidacji jakości.
+
+REPRO EXACT SHA — REALNY SOLVER:
+
+Na jednym stanie z 60 zmianami po 12 h, pięcioma równorzędnymi pracownikami
+i targetem 144 h każdy:
+- zwykły PLAN: FEASIBLE, po 144 h dla każdego;
+- plan_requiring_different_result_narrow z pustą historią: FEASIBLE, wynik
+  pokazany jako kandydat: 72, 156, 156, 168, 168 h.
+
+REPRO EXACT SHA — REALNY PION HTTP NA DWÓCH IDENTYCZNYCH, OSOBNYCH BAZACH:
+- POST /plan jako pierwsza operacja: FEASIBLE, rozkład
+  144, 144, 144, 156, 156 h;
+- POST /replan jako pierwsza operacja: FEASIBLE, rozkład
+  36, 168, 180, 180, 180 h.
+
+Przyczyna na exact SHA:
+baseline_check jest liczony z quality_required=False, lecz warunek
+„brak wcześniejszych sygnatur i kandydat różni się od pustego baseline”
+zwraca właśnie ten baseline_check użytkownikowi. Komentarz i założenie zmiany,
+że jego FEASIBLE content jest zawsze wyrzucany, są więc fałszywe dla
+dostępnej w UI ścieżki pierwszego REPLAN.
+
+To nie jest różnica dopuszczona przez tolerancję 1%. Solver w tym przypadku
+w ogóle zatrzymuje się na pierwszym HARD-poprawnym rozwiązaniu i pomija
+zaakceptowaną hierarchię jakości. HARD może pozostać zielone, a grafik nadal
+jest wyraźnie gorszy dla ludzi.
+
+WĄSKA OCZEKIWANA KOREKTA
+
+Pierwszy HARD-poprawny wynik wolno stosować tylko tam, gdzie zostanie naprawdę
+wyrzucony. Każda gałąź, która może zwrócić baseline_check jako kandydat do UI,
+musi zachować zwykłą jakość solvera. Nie zmieniać zwykłego PLAN, właściwego
+solve różnicowego, progu 15% ani liczby wymaganych służb.
+
+OGRANICZENIA AUDYTU
+
+Ścieżki „Szukaj szerzej” przeszły istniejące testy funkcjonalne. Nie
+odtworzono na niej osobnego realnego przypadku niewspółbieżnej granicy CP-SAT,
+więc audyt nie dopisuje drugiego findingu bez REPRO.
+
+Pełnej regresji repo nie uruchamiano: poprawka jest wąska, testy celowane i
+dwa rzeczywiste piony wystarczyły do odtworzenia defektu, a OWNER nie wyraził
+zgody na kosztowny pełny przebieg.
+
+WERDYKT
+
+FAIL dotyczy wyłącznie 6cba91e6a428ef9ff0df1889f580d18b7da5c60c.
+Naprawa przyspiesza normalny PLAN -> REPLAN, ale jednocześnie wprowadza
+odtwarzalną utratę jakości dla REPLAN klikniętego jako pierwsza operacja na
+pustym miesiącu.

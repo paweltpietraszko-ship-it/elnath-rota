@@ -91,7 +91,10 @@ def plan(state: PlanningState, search_attempt: int = 0) -> PlanningResult:
     return _with_model_error_boundary(_plan, state, deadline, search_attempt)
 
 
-def _plan(state: PlanningState, deadline: float | None = None, search_attempt: int = 0) -> PlanningResult:
+def _plan(
+    state: PlanningState, deadline: float | None = None, search_attempt: int = 0, search_variants: bool = True,
+    quality_required: bool = True,
+) -> PlanningResult:
     # ROTA-T007: prevalidate before solve() -- a RESOLVED HARD/SOFT SiteRule
     # that cannot be executed must never be silently ignored just to reach
     # FEASIBLE (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md point 8).
@@ -115,6 +118,7 @@ def _plan(state: PlanningState, deadline: float | None = None, search_attempt: i
         outcome = solve(
             state, enforce_load_cap=True, allow_day_only_n_fallback=allow_day_only_n_fallback,
             allow_emergency_24h=allow_emergency_24h, deadline=deadline, search_attempt=search_attempt,
+            search_variants=search_variants, quality_required=quality_required,
         )
         result = _dispatch_or_continue(state, outcome)
         if result is not None:
@@ -122,7 +126,8 @@ def _plan(state: PlanningState, deadline: float | None = None, search_attempt: i
 
     outcome_3 = solve(
         state, enforce_load_cap=True, allow_day_only_n_fallback=True, allow_emergency_24h=True,
-        deadline=deadline, search_attempt=search_attempt,
+        deadline=deadline, search_attempt=search_attempt, search_variants=search_variants,
+        quality_required=quality_required,
     )
     result = _dispatch_stage3(state, outcome_3)
     if result is not None:
@@ -342,9 +347,37 @@ def _plan_requiring_different_result_narrow(
     invariant: an already-past PRIMARY Assignment is never moved) -- the
     caller computes it once, at the same point in its own flow, so the
     solver never even considers a placement select_candidate would reject
-    later on cutover grounds alone."""
+    later on cutover grounds alone.
+
+    OWNER_CORRECTED 2026-09-08: this baseline check only ever looks at
+    baseline_check.candidates[0] (_already_differs_from_baseline) when it
+    ends up FEASIBLE. T017's own up-to-2-additional-candidate search has no
+    purpose here and, on a large enough state, can burn nearly the entire
+    shared REPLAN_SEARCH_BUDGET_SECONDS budget on two candidates that are
+    never inspected either way (search_variants=False, safe unconditionally).
+
+    CODEX AUDIT FAIL 2026-09-08 (round 1, exact SHA 6cba91e): the earlier
+    version of this docstring also claimed baseline_check's FEASIBLE content
+    is "discarded outright" and applied quality_required=False
+    unconditionally on that basis -- false. When prior_variant_signatures is
+    empty (a podejscie's very first REPLAN call) and the baseline already
+    differs from the pre-REPLAN state, the early return a few lines below
+    hands baseline_check itself back to the coordinator as the shown
+    result -- quality_required=False there let REPLAN stop at the first
+    HARD-valid schedule instead of the normal quality bar, a real,
+    reproduced regression (repro: first REPLAN on a fresh state returned
+    36/168/180/180/180h instead of PLAN's own 144/144/144/156/156h on an
+    otherwise identical state). quality_required is only safe to relax when
+    prior_variant_signatures is non-empty: only then is the early-return
+    branch below (gated on `not prior_variant_signatures`) provably
+    unreachable, so baseline_check is guaranteed discarded and the
+    SOLVER_RELATIVE_GAP_LIMIT non-convergence budget fix (owner finding
+    2026-09-08) can still apply safely."""
     deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
-    baseline_check = _plan(state, deadline, search_attempt)
+    baseline_check = _plan(
+        state, deadline, search_attempt, search_variants=False,
+        quality_required=not prior_variant_signatures,
+    )
     if baseline_check.status != "FEASIBLE":
         if _is_timeout_technical_error(baseline_check):
             return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
@@ -366,9 +399,18 @@ def _plan_requiring_different_result_narrow(
         # pass (which could still have found an even better arrangement) was
         # deliberately skipped, not proven unnecessary.
         return replace(baseline_check, optimization_complete=False)
+    # OWNER_CORRECTED 2026-09-08: same reasoning as the baseline check above
+    # -- T017's up-to-2-additional-candidate search is never required by
+    # T057's own REPLAN contract (each "kolejny wariant" is its own REPLAN
+    # call, see execution_e2.md) and, combined with the new
+    # prior_variant_signatures HARD constraints (T57-04), made this solve
+    # itself burn most of the shared budget hunting for extra candidates
+    # nobody asked for on a large state. search_variants=False here trades
+    # "up to 3 candidates from one click" (never exercised or required) for
+    # "reliably returns its one candidate within budget."
     outcome = solve(
         state, enforce_load_cap=True, require_different_from_baseline=True, cutover_at=cutover_at, deadline=deadline,
-        search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures,
+        search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures, search_variants=False,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
@@ -390,11 +432,17 @@ def _wide_try_diversity_at_stage(
     provably attributable to the diversity requirement alone at THIS
     permissiveness level (coverage/rest are already known solvable without
     it), never a real conflict. Returns None to mean "not diverse at this
-    stage, try the next one"."""
+    stage, try the next one".
+
+    OWNER_CORRECTED 2026-09-08: search_variants=False for the same reason
+    as the narrow search's own diversity solve -- never required, and
+    burns shared budget on discarded extra candidates (see engine._plan
+    /solve()'s search_variants docstring)."""
     outcome = solve(
         state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
         allow_emergency_24h=allow_emergency_24h, require_different_from_baseline=True, cutover_at=cutover_at,
         deadline=deadline, search_attempt=search_attempt, prior_variant_signatures=prior_variant_signatures,
+        search_variants=False,
     )
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
@@ -467,9 +515,14 @@ def _plan_requiring_different_result_wide(
     # reflect reality.
     found_ordinary_feasible = False
     for enforce_load_cap, allow_day_only_n_fallback, allow_emergency_24h in stages:
+        # OWNER_CORRECTED 2026-09-08: search_variants=False -- this ordinary,
+        # per-stage solve only ever needs to know "does coverage work at
+        # this permissiveness level", never its extra T017 candidates (see
+        # solve()'s search_variants docstring).
         ordinary = solve(
             state, enforce_load_cap=enforce_load_cap, allow_day_only_n_fallback=allow_day_only_n_fallback,
             allow_emergency_24h=allow_emergency_24h, deadline=deadline, search_attempt=search_attempt,
+            search_variants=False,
         )
         if ordinary.status_name == "UNKNOWN":
             return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)

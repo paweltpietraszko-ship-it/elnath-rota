@@ -245,10 +245,21 @@ def test_finalize_requires_exact_acknowledged_set(client, site_id):
 
 
 # T31-08: restore moves the current pointer to an older version without deleting anything.
-def test_restore_moves_current_pointer(client, site_id):
+def test_restore_moves_current_pointer(client, site_id, monkeypatch):
     """ROTA-T057: getting a second version now goes through Przelicz Plan
     (plan again on the existing current + select-candidate), not REPLAN --
-    REPLAN no longer exists once anything has been accepted."""
+    REPLAN no longer exists once anything has been accepted.
+
+    ROTA-T057 follow-up (2026-09-08): restore is refused once a month is
+    live (owner finding, 2026-09-07) -- MONTH (2026-08-01) is otherwise
+    already live relative to real wall-clock "now", incidental to this
+    test's own focus (restore moves the pointer without deleting
+    anything), so liveness is neutralized here. Missed in the original
+    2026-09-07 sweep since it drives the API over HTTP, not the
+    persistence layer directly."""
+    monkeypatch.setattr(
+        "rota.persistence.schedule_lifecycle.is_schedule_version_live", lambda conn, version_id, now: False,
+    )
     first_plan = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/plan", json={"effective_from": MONTH_STR},
     ).json()

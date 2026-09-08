@@ -702,7 +702,10 @@ def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) ->
     return warnings
 
 
-def _run_solver(model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME_LIMIT_SECONDS, search_attempt: int = 0) -> tuple[cp_model.CpSolver, int]:
+def _run_solver(
+    model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME_LIMIT_SECONDS, search_attempt: int = 0,
+    stop_at_first_solution: bool = False,
+) -> tuple[cp_model.CpSolver, int]:
     """ROTA-T032 section 6.1/7.2: time_limit_seconds is the REMAINING budget
     to the shared operation deadline, never a fresh per-solve allowance --
     ROTA-T033's plan_requiring_different_result_narrow/_wide share this same
@@ -711,13 +714,25 @@ def _run_solver(model: cp_model.CpModel, time_limit_seconds: float = SOLVER_TIME
     "Szukaj dalej") only varies the CP-SAT search seed/randomization for
     attempt > 0 -- it never touches the model, constraints or objective, so
     it cannot change what counts as a legal or optimal schedule, only which
-    one among equally-good solutions is found."""
+    one among equally-good solutions is found.
+
+    stop_at_first_solution (owner finding 2026-09-08): SOLVER_RELATIVE_GAP_LIMIT
+    only helps when CP-SAT's dual bound actually converges near the found
+    incumbent -- on a real, loosely-staffed 13-employee/62-demand object,
+    the bound stayed pinned near its initial value the ENTIRE solve while a
+    near-final incumbent was already found within ~20s, so no relative gap
+    (1%, even 50%) would ever be satisfied and the solve legitimately ran
+    to the full time budget regardless. True only for callers whose result
+    is either discarded once any HARD-valid schedule exists (a feasibility-
+    only gate) or never itself objective-quality-sensitive; never used for
+    a solve whose content is what the coordinator actually sees."""
     solver = cp_model.CpSolver()
     solver.parameters.num_search_workers = 1
     solver.parameters.random_seed = search_attempt
     solver.parameters.randomize_search = search_attempt > 0
     solver.parameters.max_time_in_seconds = max(0.0, time_limit_seconds)
     solver.parameters.relative_gap_limit = SOLVER_RELATIVE_GAP_LIMIT
+    solver.parameters.stop_after_first_solution = stop_at_first_solution
     status = solver.solve(model)
     return solver, status
 
@@ -837,6 +852,7 @@ def _solve_lexicographic_phases(
     pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
     still_needed: dict[str, int], day_kind_terms: dict[str, dict],
     deadline: float | None = None, search_attempt: int = 0, search_variants: bool = False,
+    quality_required: bool = True,
 ) -> SolverOutcome:
     """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle
     count) and T018 B5 (exceptional_n_count) -- unchanged, still fail-closed
@@ -898,7 +914,9 @@ def _solve_lexicographic_phases(
         model, x, slots, state, worked_by_employee, target_by_employee, by_employee, day_kind_terms,
         fallback_employee_ids=None if target_vector_complete else available_local_ids,
     )
-    final_solver, final_status = _run_solver(model, _remaining_seconds(deadline), search_attempt)
+    final_solver, final_status = _run_solver(
+        model, _remaining_seconds(deadline), search_attempt, stop_at_first_solution=not quality_required,
+    )
     if final_status == cp_model.INFEASIBLE:
         return _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
     if final_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -933,6 +951,7 @@ def solve(
     allow_day_only_n_fallback: bool = False, deadline: float | None = None, search_attempt: int = 0,
     require_different_from_baseline: bool = False, cutover_at: datetime | None = None,
     prior_variant_signatures: tuple[frozenset[tuple[str, str]], ...] = (),
+    search_variants: bool | None = None, quality_required: bool = True,
 ) -> SolverOutcome:
     """Build and solve the CP-SAT model for one PlanningState. Pure mapping,
     no domain judgment. `deadline` (ROTA-T032 section 6.1) is a
@@ -940,6 +959,35 @@ def solve(
     public plan() call -- None (e.g. direct pre-T032 callers/tests) keeps
     the original fixed per-solve budget. `search_attempt` (section 7.2) only
     varies CP-SAT search seed/order, never the model.
+
+    search_variants (owner finding 2026-09-08): None (every existing caller)
+    keeps the original behavior -- T017's up-to-2-additional-candidate
+    search runs whenever enforce_load_cap is True. An explicit False lets a
+    caller that only needs ONE candidate (never surfaces `alternatives`)
+    skip that search entirely. Found via a live REPLAN failure on a large,
+    loosely-staffed real object: engine._plan(), used ONLY as REPLAN's
+    internal "does this state even solve" baseline check (a single
+    candidate is all `_already_differs_from_baseline` ever looks at), was
+    silently burning nearly the ENTIRE shared REPLAN_SEARCH_BUDGET_SECONDS
+    budget on two extra, always-discarded T017 variants -- measured 44.8s
+    of 45s on a 13-employee/62-demand state, leaving 0.04s for the actual
+    diversity solve that follows it (SEARCH_INCOMPLETE every time on any
+    state large enough for T017's variant search to take real time).
+
+    quality_required (owner finding 2026-09-08): False lets the FINAL,
+    combined-objective solve stop at the first HARD-valid solution found
+    (CP-SAT stop_after_first_solution) instead of chasing
+    SOLVER_RELATIVE_GAP_LIMIT, which turned out to help only when the
+    solver's own dual bound converges near the incumbent -- on a real,
+    loosely-staffed object it never did, so the same 44.8s-of-45s waste
+    reappeared even with search_variants=False once the wasted variant
+    search above was fixed. True (default) preserves the original
+    behavior everywhere quality matters -- every ordinary plan()/PLAN
+    call, and every solve whose content can become a real decision payload
+    or an accepted candidate. False is for a caller whose result is
+    thrown away outright once any HARD-valid schedule exists (a pure
+    feasibility gate) -- never for a solve whose content the coordinator
+    actually sees.
 
     prior_variant_signatures (ROTA-T057 T57-04, architect FAIL 2026-09-07):
     every (demand_id, employee_id) signature already shown earlier in this
@@ -1073,7 +1121,8 @@ def solve(
     return _solve_lexicographic_phases(
         model, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars,
         cross_month_by_employee, phase_exprs, still_needed, day_kind_terms,
-        deadline=deadline, search_attempt=search_attempt, search_variants=enforce_load_cap,
+        deadline=deadline, search_attempt=search_attempt, quality_required=quality_required,
+        search_variants=enforce_load_cap if search_variants is None else search_variants,
     )
 
 
