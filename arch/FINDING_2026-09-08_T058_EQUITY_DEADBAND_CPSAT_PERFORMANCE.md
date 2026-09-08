@@ -1,6 +1,11 @@
 # FINDING 2026-09-08 — ROTA-T058's 24h equity deadband breaks CP-SAT's ability
 to prove optimality on real objects (verified, root-caused, NOT an encoding bug)
 
+**UPDATE 2026-09-08 (same day, after further owner-directed investigation):
+the problem is broader and more fundamental than the deadband encoding
+itself -- see "The weighted-dominance chain is fragile to ANY change,
+not just the deadband" below. Read that section first.**
+
 STATUS: finding + reproduced root cause, NOT a design document. Input for
 the architect (same role as other `arch/FINDING_*` docs) — CC does not
 design the solver-engineering solution here; this needs real architect/
@@ -121,6 +126,67 @@ mistake CC made in wiring it up four different ways.
   coordinator actually sees, which the T058 brief explicitly forbids
   changing.
 
+## The weighted-dominance chain is fragile to ANY change, not just the deadband
+
+Paweł's own challenge, correctly aimed: if the deadband costs more than it
+buys, is asking "how do we encode the deadband better" even the right
+question? CC proposed a candidate alternative -- skip the deadband
+entirely, and instead simply give `DN_RHYTHM_REWARD_WEIGHT` a value that
+outright dominates `TARGET_EQUITY_WEIGHT`'s max swing, so rhythm always
+wins ties against equity instead of the reverse (today's accidental
+ordering, since both nominally have weight=1 but equity's raw magnitude --
+percentage points, 0..74400 -- dwarfs rhythm's raw magnitude -- a small
+match count). This is a PURE CONSTANT change: no new variable, no
+reification, no piecewise structure, the same "size a weight to strictly
+dominate" pattern already used four times elsewhere in this exact codebase
+(`TARGET_DEVIATION_WEIGHT`, `equal_split_weight`, `prefer_local_weight`,
+and T058's own `target_weight`/`equal_split_weight` extensions).
+
+**This candidate also fails, and fails immediately -- not just at an
+extreme value:**
+
+Using the same real object (seed=42, equal_split-fallback branch) with
+BOTH equity paths reverted to their original, confirmed-fast form (0.75s
+baseline, matching the "HARD ban alone" numbers above), only
+`DN_RHYTHM_REWARD_WEIGHT` was varied:
+
+| `DN_RHYTHM_REWARD_WEIGHT` | Result |
+|---|---|
+| 1 (today's value) | 0.95s, OPTIMAL |
+| 10 | **45.0s, budget exhausted, never proves anything** |
+| 100 | 45.0s, budget exhausted |
+| 1,000 | 45.0s, budget exhausted |
+| 10,000 | 45.0s, budget exhausted |
+| 74,401 (the exact "dominates equity's max swing" threshold) | 45.0s, budget exhausted |
+| 100,000 | 45.0s, budget exhausted |
+
+**A 10x bump in one existing constant -- no new model structure whatsoever
+-- is enough to break it.** The achieved rhythm-match count did not even
+improve across any of these (112 in every run, including weight=1), so
+this was pure cost with zero observed benefit at every tested weight.
+
+Root cause (plausible, not yet fully proven): `DN_RHYTHM_REWARD_WEIGHT`
+does not stay isolated -- in the equal_split-fallback branch it is
+multiplied by `rhythm_match_count` (~112 on this object) INSIDE
+`equal_split_weight`'s own formula
+(`solver._add_combined_objective`), and `equal_split_weight` is then
+ITSELF multiplied again by `(MAX_MONTHLY_HOURS + 1)` = 745 to produce
+`prefer_local_weight`. A change to one base constant cascades through two
+further multiplications already present in the existing, shipped
+"strictly dominate" chain. Whether that cascade is the full explanation or
+CP-SAT's B&B/LP-relaxation is simply this sensitive to coefficient scale
+changes in this specific model shape either way, the practical conclusion
+is the same: **this weighted-objective architecture appears to already be
+running close to whatever limit lets CP-SAT prove optimality for this
+object in reasonable time, and it is NOT specific to the equity deadband
+or to CC's proposed alternative -- both hit the same wall.**
+
+This reframes the open question below: it is no longer only "how do we
+encode a 24h dead zone efficiently", but "is this cascading-weight-
+dominance architecture itself safe to extend further at all, by any
+means, without a real solver-engineering pass" -- exactly Paweł's
+instinct that this is core, not a side matter.
+
 ## Open question for the architect (CC does not design this)
 
 How should ROTA-T058's owner-mandated 24h equity dead zone actually be
@@ -140,6 +206,13 @@ here:
   CC's).
 - Deciding the deadband is not worth this cost at all, and shipping T058's
   HARD ban alone for now while this is investigated separately.
+- Given the reweight experiment above: investigating whether the existing
+  "strictly dominate" weight-chain architecture itself
+  (`_add_combined_objective`'s `target_weight`/`equal_split_weight`/
+  `prefer_local_weight` cascade) needs to be restructured so a single
+  constant change stops cascading into fragile coefficient blowups -- a
+  question about the existing, already-shipped design, not only about
+  T058's new addition to it.
 
 CC's recommendation, stated plainly (not a decision): part 1 (the HARD
 ban) is fully working, tested, and has no dependency on part 2 -- it could
