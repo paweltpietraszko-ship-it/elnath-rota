@@ -7,6 +7,9 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, time, timedelta
 
+import pytest
+
+from rota.planning.absence import IncompleteAbsenceCalendarError
 from rota.application.analytics_read import (
     AnalyticsDataStatus,
     AnalyticsHoursScope,
@@ -298,23 +301,42 @@ def test_9_other_quarter_month_missing_target(tmp_path) -> None:
 
 
 def test_10_requested_month_incomplete_calendar_with_qualifying_absence(tmp_path) -> None:
+    """ROTA-T041 OWNER-T041-02 superseded the old T023 "SICK_LEAVE has no
+    PRE_PLAN_LEAVE path" rule (see absence_reference_repository.py's
+    _resolve_no_accepted_plan_day docstring): a SICK_LEAVE with no accepted
+    plan anywhere now resolves the same flat 8h/qualified-workday total as
+    pre-plan LEAVE_GRANTED -- which requires a complete CalendarDay for the
+    month to know which days are workdays. With no CalendarDay entries for
+    AUG at all, recording the absence itself now fails fast at write time
+    (IncompleteAbsenceCalendarError), rather than degrading gracefully to
+    an UNAVAILABLE analytics row read later -- updated from the superseded
+    MISSING-reference expectation accordingly."""
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
-    _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 8, 3), end=date(2026, 8, 3))
     # No CalendarDay entries for AUG at all.
-    view = analytics_for_site_month(conn, site_id=SITE, month=AUG)
-    row = view.rows[0]
-    assert row.status == AnalyticsDataStatus.UNAVAILABLE
-    assert row.month_data is None
-    assert row.warnings[0].startswith(f"analytics unavailable for employee '{EMP_A}', month {AUG.isoformat()}: ")
-    # ROTA-T023 Checkpoint B: SICK_LEAVE has no PRE_PLAN_LEAVE path (frozen
-    # addendum section 2) -- with no accepted plan anywhere, the reference is
-    # MISSING (POST_PLAN_REFERENCE), not a CalendarDay-completeness gap.
-    assert "MISSING accepted reference for SICK_LEAVE" in row.warnings[0]
+    with pytest.raises(IncompleteAbsenceCalendarError):
+        _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 8, 3), end=date(2026, 8, 3))
 
 
+@pytest.mark.skip(
+    reason="ROTA-TEST-CLEANUP (2026-09-08): this test's scenario is no longer "
+    "constructible. ROTA-T041 OWNER-T041-02 made a SICK_LEAVE-no-accepted-plan "
+    "capture require a complete CalendarDay for its own month (see "
+    "test_10/test_12, fixed in this same cleanup) -- so JUL's absence with "
+    "JUL's calendar left incomplete (the whole premise here) now fails fast "
+    "at _absence()/write time with IncompleteAbsenceCalendarError, never "
+    "reaching analytics_for_site_month to produce the "
+    "MONTH_AVAILABLE_QUARTER_UNAVAILABLE-via-incomplete-calendar-in-another-"
+    "month shape this test asserts. Filling JUL's calendar too makes the "
+    "absence fully resolvable (verified: status becomes plain AVAILABLE, "
+    "quarter fully available) -- a different, no-longer-interesting scenario. "
+    "Needs an owner/architect decision: is there still a real product path "
+    "to MONTH_AVAILABLE_QUARTER_UNAVAILABLE for a different reason (e.g. a "
+    "genuine multi-site resolution ambiguity), or should this test be "
+    "deleted as testing dead ground? Flagged, not decided here.",
+)
 def test_11_other_quarter_month_incomplete_reference_blocks_quarter_only(tmp_path) -> None:
     """ROTA-T023 Checkpoint B: JUL's qualifying SICK_LEAVE has no accepted
     plan anywhere -- MISSING POST_PLAN_REFERENCE, discovered lazily at read
@@ -336,12 +358,16 @@ def test_11_other_quarter_month_incomplete_reference_blocks_quarter_only(tmp_pat
     assert row.warnings[0].startswith(f"quarter analytics unavailable for employee '{EMP_A}', month {JUL.isoformat()}: ")
 
 
-def test_12_sick_leave_with_no_accepted_plan_is_missing_reference(tmp_path) -> None:
-    """ROTA-T023 Checkpoint B: the T018/T019 flat weekday/holiday-exclusion
-    arithmetic for SICK_LEAVE is superseded (brief.md section 18) -- SICK_LEAVE
-    has no PRE_PLAN_LEAVE path, so with no accepted plan the reference is
-    MISSING regardless of CalendarDay completeness, and the row degrades to
-    UNAVAILABLE rather than producing a weekday-derived effective_target."""
+def test_12_sick_leave_with_no_accepted_plan_uses_weekday_holiday_exclusion(tmp_path) -> None:
+    """ROTA-T041 OWNER-T041-02 superseded the T023 Checkpoint B rule this
+    test originally locked in (brief.md section 18: "SICK_LEAVE has no
+    PRE_PLAN_LEAVE path, reference is MISSING regardless of CalendarDay
+    completeness"). A SICK_LEAVE with no accepted plan anywhere now resolves
+    via the same flat 8h/qualified-workday arithmetic as pre-plan
+    LEAVE_GRANTED (_resolve_no_accepted_plan_day), so a complete calendar
+    produces a real weekday/holiday-derived effective_target instead of
+    MISSING/UNAVAILABLE. Aug 1-9 2026 with day 3 (Monday) a holiday: 4
+    genuine workdays (4, 5, 6, 7) x 8h = 32h excluded from the 100h target."""
     conn = connect(tmp_path / "rota.db")
     _bootstrap_site(conn, site_id=SITE, profile_id=PROFILE)
     _member(conn, site_id=SITE, employee_id=EMP_A)
@@ -351,9 +377,10 @@ def test_12_sick_leave_with_no_accepted_plan_is_missing_reference(tmp_path) -> N
     _absence(conn, employee_id=EMP_A, kind=AvailabilityKind.SICK_LEAVE, start=date(2026, 8, 1), end=date(2026, 8, 9))
     view = analytics_for_site_month(conn, site_id=SITE, month=AUG)
     row = view.rows[0]
-    assert row.status == AnalyticsDataStatus.UNAVAILABLE
-    assert row.month_data is None
-    assert "MISSING accepted reference for SICK_LEAVE" in row.warnings[0]
+    assert row.status == AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE
+    assert row.month_data is not None
+    assert row.month_data.effective_target_hours == 68
+    assert row.warnings[0] == f"quarter analytics unavailable for employee '{EMP_A}': missing target_hours for {date(2026, 7, 1).isoformat()}"
 
 
 def test_13_leave_granted_weekend_holiday_same_semantics(tmp_path) -> None:

@@ -1427,7 +1427,10 @@ def run_full_scenario_b(client: TestClient, seed: int, num_replans: int = 0) -> 
     """One fully reproducible pass for a given seed -- builds the object,
     applies the deterministic initial absences, PLANs (+ EXTERNAL loop if a
     real DECISION_REQUIRED appears), selects the first candidate if
-    FEASIBLE, then REPLANs `num_replans` times. Deterministic given
+    FEASIBLE, then recomputes via Przelicz Plan (ROTA-T057, OWNER_RULING
+    2026-09-06: REPLAN only exists pre-acceptance) `num_replans` times,
+    keeping the parameter name for reproduction-command compatibility.
+    Deterministic given
     (seed, num_replans) because random_object_spec_b/initial_absences_b are
     pure functions of `seed` and every subsequent step only depends on the
     real product's own response -- used both as the CoordinatorVariantBMachine's
@@ -1454,7 +1457,7 @@ def run_full_scenario_b(client: TestClient, seed: int, num_replans: int = 0) -> 
         select_first_candidate(client, site_id, spec.month, final_result)
         selected = True
         for _ in range(num_replans):
-            replan_results.append(run_replan(client, site_id, spec.month))
+            replan_results.append(run_plan(client, site_id, spec.month))
 
     return {
         "seed": seed, "site_id": site_id, "spec": spec, "absence_draws": absence_draws,

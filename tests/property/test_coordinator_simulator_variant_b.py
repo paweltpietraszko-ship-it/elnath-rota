@@ -654,9 +654,15 @@ class CoordinatorVariantBMachine(RuleBasedStateMachine):
     @rule()
     @precondition(lambda self: self.has_selected)
     def do_replan(self):
+        """ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only exists pre-
+        acceptance -- this rule's precondition (has_selected) means every
+        call happens post-acceptance, so it now recomputes via Przelicz
+        Plan (run_plan) instead of REPLAN, which would otherwise 409 here.
+        Method/log/field names kept as "replan" for reproduction-command
+        compatibility (reproduction_command_b's num_replans)."""
         try:
             self.action_log.append("run_replan")
-            result = sim.run_replan(self.client, self.site_id, self.spec.month)
+            result = sim.run_plan(self.client, self.site_id, self.spec.month)
             assert result["status"] in _KNOWN_PLAN_STATUSES
             self.replan_results.append(result)
         except Exception as exc:

@@ -176,11 +176,18 @@ def test_r4_precheck_respects_existing_full_coverage(tmp_path):
     assert target.covers_demand_id not in result.under_covered_demand_ids
 
 
-@pytest.mark.parametrize("operation", ["first-plan", "replan"])
+@pytest.mark.parametrize("operation", ["first-plan", "przelicz-plan"])
 def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, operation):
+    """ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only exists pre-
+    acceptance; the post-acceptance atomicity case (was "replan", calling
+    plan_ops.replan on an already-accepted month) now exercises Przelicz
+    Plan (plan_ops.plan_month) instead, since that is the only solver-
+    driven operation left once a version is accepted. Same invariant under
+    test either way: a mid-operation failure leaves the prior aggregate
+    untouched."""
     conn = connect(tmp_path / "rota.db")
     state = seed_real_object(conn, case_id="audit-first-plan", month=MONTH, seed=712)
-    if operation == "replan":
+    if operation == "przelicz-plan":
         _plan_select(conn, state.site.site_id)
     before_current = get_current_version_id(conn, state.site.site_id, MONTH)
     before_count = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
@@ -192,7 +199,7 @@ def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, ope
                 coordinator_id="COORD-1", effective_from=MONTH,
             )
         else:
-            plan_ops.replan(
+            plan_ops.plan_month(
                 conn, site_id=state.site.site_id, month=MONTH,
                 coordinator_id="COORD-1", effective_from=date(2026, 8, 2),
             )
@@ -492,6 +499,13 @@ def test_r4_cross_demand_assignment_still_requires_real_demand_reference(tmp_pat
 
 @pytest.mark.parametrize("bypass", ["availability", "day-only", "external-window"])
 def test_r4_select_candidate_does_not_trust_caller_fabricated_realized(tmp_path, bypass):
+    """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): PLAN/REPLAN never
+    create a ScheduleVersion before first acceptance -- there is no longer
+    an "empty WORKING version" placeholder for select_candidate to have
+    populated before validation. A rejected select_candidate on a fresh
+    month therefore leaves no current version at all (None), not an empty
+    one; updated from asserting an empty snapshot to asserting no version
+    exists."""
     conn = connect(tmp_path / "rota.db")
     state = seed_real_object(conn, case_id=f"audit-realized-{bypass}", month=MONTH, seed=720)
     result = plan_ops.plan_month(
@@ -528,8 +542,7 @@ def test_r4_select_candidate_does_not_trust_caller_fabricated_realized(tmp_path,
         plan_ops.select_candidate(
             conn, site_id=state.site.site_id, month=MONTH, candidate=candidate, coordinator_id="COORD-1",
         )
-    current = get_current_version_id(conn, state.site.site_id, MONTH)
-    assert get_schedule_snapshot(conn, current).assignments == []
+    assert get_current_version_id(conn, state.site.site_id, MONTH) is None
 
 
 def test_r4_application_package_contains_no_sql_or_table_names():
