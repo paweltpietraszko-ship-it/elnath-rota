@@ -351,21 +351,33 @@ def _plan_requiring_different_result_narrow(
 
     OWNER_CORRECTED 2026-09-08: this baseline check only ever looks at
     baseline_check.candidates[0] (_already_differs_from_baseline) when it
-    ends up FEASIBLE -- content is otherwise discarded outright (a
-    DECISION_REQUIRED/conflict here is returned to the caller as-is,
-    unaffected by either flag below). T017's own up-to-2-additional-
-    candidate search has no purpose here and, on a large enough state, can
-    burn nearly the entire shared REPLAN_SEARCH_BUDGET_SECONDS budget on
-    two candidates that are immediately discarded (search_variants=False).
-    Separately, even the ONE real solve can itself burn the whole budget
-    chasing SOLVER_RELATIVE_GAP_LIMIT when CP-SAT's dual bound never
-    converges near the incumbent (real-object measurement, owner finding
-    2026-09-08) -- quality_required=False lets it stop at the first
-    HARD-valid schedule instead, since this call's FEASIBLE content is
-    never shown to the coordinator either way (see solve()'s
-    search_variants/quality_required docstrings)."""
+    ends up FEASIBLE. T017's own up-to-2-additional-candidate search has no
+    purpose here and, on a large enough state, can burn nearly the entire
+    shared REPLAN_SEARCH_BUDGET_SECONDS budget on two candidates that are
+    never inspected either way (search_variants=False, safe unconditionally).
+
+    CODEX AUDIT FAIL 2026-09-08 (round 1, exact SHA 6cba91e): the earlier
+    version of this docstring also claimed baseline_check's FEASIBLE content
+    is "discarded outright" and applied quality_required=False
+    unconditionally on that basis -- false. When prior_variant_signatures is
+    empty (a podejscie's very first REPLAN call) and the baseline already
+    differs from the pre-REPLAN state, the early return a few lines below
+    hands baseline_check itself back to the coordinator as the shown
+    result -- quality_required=False there let REPLAN stop at the first
+    HARD-valid schedule instead of the normal quality bar, a real,
+    reproduced regression (repro: first REPLAN on a fresh state returned
+    36/168/180/180/180h instead of PLAN's own 144/144/144/156/156h on an
+    otherwise identical state). quality_required is only safe to relax when
+    prior_variant_signatures is non-empty: only then is the early-return
+    branch below (gated on `not prior_variant_signatures`) provably
+    unreachable, so baseline_check is guaranteed discarded and the
+    SOLVER_RELATIVE_GAP_LIMIT non-convergence budget fix (owner finding
+    2026-09-08) can still apply safely."""
     deadline = time.monotonic() + REPLAN_SEARCH_BUDGET_SECONDS
-    baseline_check = _plan(state, deadline, search_attempt, search_variants=False, quality_required=False)
+    baseline_check = _plan(
+        state, deadline, search_attempt, search_variants=False,
+        quality_required=not prior_variant_signatures,
+    )
     if baseline_check.status != "FEASIBLE":
         if _is_timeout_technical_error(baseline_check):
             return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
