@@ -107,21 +107,49 @@ korzystne dla precyzji `target_hours`.
 
 ## Otwarte pytania projektowe dla architekta (CC nie rozstrzyga)
 
-1. Czy "unikanie 3 zmian pod rząd" ma dostać realny, wysoki priorytet
+1. ~~Czy "unikanie 3 zmian pod rząd" ma dostać realny, wysoki priorytet
    (bliski HARD) w samej funkcji celu, czy ma stać się osobnym,
    twardym ograniczeniem CP-SAT z ucieczką przez `DECISION_REQUIRED`,
-   gdy solver naprawdę nie może go dochować?
+   gdy solver naprawdę nie może go dochować?~~ **ROZSTRZYGNIĘTE (OWNER,
+   2026-09-08, patrz niżej): drugie — osobne, twarde ograniczenie.**
 2. Czy `add_target_equity_fairness` (wyrównywanie procentu realizacji)
    powinno dostać pasmo tolerancji (np. podobne rzędu wielkości do tego,
    które CC empirycznie zaobserwował dla samego trafienia w target —
    solver ląduje w granicach ok. jednego bloku zmianowego od celu), poza
    którym dalsze, drobniejsze wyrównywanie przestaje przebijać rytm/karę
-   za 3 zmiany pod rząd?
-3. Czy to dotyczy też rytmu D/N/W/W (`DN_RHYTHM_REWARD_WEIGHT`), czy tylko
+   za 3 zmiany pod rząd? **NADAL OTWARTE.**
+3. ~~Czy to dotyczy też rytmu D/N/W/W (`DN_RHYTHM_REWARD_WEIGHT`), czy tylko
    węższego "3 zmiany pod rząd" — Paweł mówił o obu, ale z różnym
    naciskiem (3 zmiany pod rząd = "coś między Hard a Soft"; ogólny rytm
    D/N/W/W = "ważniejszy niż" precyzja equity, ale niekoniecznie tej samej
-   siły).
+   siły).~~ **ROZSTRZYGNIĘTE (OWNER, 2026-09-08): tylko węższe "3 zmiany
+   pod rząd" dostaje HARD; ogólny rytm D/N/W/W zostaje SOFT i może zostać
+   poświęcony na rzecz tego nowego twardego ograniczenia.**
+
+## OWNER_CORRECTED 2026-09-08 — rozstrzygnięcie pytań 1 i 3
+
+Paweł wprost: *"jak będziesz robić rytm to pamiętaj, że trzy zmiany pod
+rząd musi być zabronione jako Hard nawet kosztem D/N/w/w."*
+
+Rozstrzygnięcie: "3 zmiany pod rząd" (dziś `THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT`,
+`add_third_consecutive_shift_penalty`, ROTA-T034) przestaje być SOFT w
+funkcji celu i staje się osobnym, twardym ograniczeniem CP-SAT — z
+ucieczką przez `DECISION_REQUIRED`, gdy solver naprawdę nie może go
+dochować (ten sam, już istniejący, dojrzały mechanizm co REST-01/LOAD-01/
+MEMBERSHIP-01, patrz punkt 3 wyżej). Ogólny rytm D/N/W/W
+(`DN_RHYTHM_REWARD_WEIGHT`) pozostaje SOFT i może zostać jawnie poświęcony,
+jeśli to jedyny sposób dochowania nowego twardego zakazu 3 zmian pod rząd
+— czyli priorytet: HARD (3-zmiany-pod-rząd) > TARGET-01 > equity/D-N-W-W
+rytm, w tej kolejności.
+
+Jedyne, co zostaje otwarte, to pytanie 2 (pasmo tolerancji equity) — to
+osobna, nierozstrzygnięta oś tego samego findingu i nie jest tym
+rozstrzygnięciem objęte.
+
+CC nadal nie projektuje implementacji (dotyka solvera, wymaga architekta)
+— to rozstrzygnięcie tylko domyka jedną z trzech otwartych osi, żeby
+architekt mógł napisać brief bez czekania na resztę, jeśli uzna to za
+wystarczające, albo poczekać na rozstrzygnięcie pytania 2 też.
 
 ## Powiązane materiały
 
