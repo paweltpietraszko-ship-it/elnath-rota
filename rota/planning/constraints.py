@@ -653,47 +653,54 @@ def add_max_two_consecutive_night_constraints(
     return assumptions
 
 
+# ROTA-T058 HARD (OWNER_CORRECTED 2026-09-08, brief section 2): the same
+# employee never has a real PRIMARY service (any D/N combination) on three
+# consecutive start dates. Uses day_kind_terms[employee_id][d][4]
+# (primary_term, solver._build_day_kind_terms) -- PRIMARY-role occupancy
+# specifically, independent of D/N classification success, and never
+# TRAINEE/PERIODIC_TRAINING (unlike any_term/index 2). A 24h D+N occurrence
+# shares one start date and must count as ONE occupied day, not two, so
+# this constraint compares a per-date OCCUPIED indicator (primary_term >=
+# 1), never the raw summed term itself -- mirrors the same H24 double-
+# counting hazard fairness._occupied_bool already guards against for the
+# D/N/wolne/wolne reward.
+#
+# Genuinely enforced (assumption literals here are never a relaxation
+# path -- see module docstring below and solver.py's caller, which never
+# offers this assumption set to any coordinator-override diagnosis, only
+# reuses the same proven CP-SAT technique for a readable message): a
+# window built only from already-fixed/boundary facts is enforced
+# unconditionally when it is not already a historical violation (brief
+# section 2.3, first paragraph) -- and, unlike NIGHT-STREAK-01 (out of
+# T058's scope to change), a window that IS already a fully-fixed
+# historical violation (three real already-occurred/accepted PRIMARY
+# starts in a row, no decision variable involved at all) is skipped
+# entirely rather than added as a constraint: it is an unchangeable past
+# fact, so it must not itself make the whole model INFEASIBLE, but it
+# also participates fully -- via its fixed terms -- in blocking a NEW
+# third day next to two already-fixed ones (section 2.3, second
+# paragraph), exactly like any other mixed fixed/decision window below.
+#
+# ARCHITECT_RULING 2026-09-08 (brief 2.3A point 3): the window range also
+# reaches forward past month_end into an already-accepted next month's
+# boundary facts (day_kind_terms already carries them --
+# state.boundary_assignments' context window is unbounded, not just "the
+# previous month"), symmetric to the `month_start - 2` backward reach.
+# Without this, a REPLAN of month N that would close a forbidden
+# three-in-a-row using two already-fixed days from an already-selected
+# month N+1 was invisible to this constraint entirely, so only the
+# independent validator caught it afterwards -- as an unattributed
+# TECHNICAL_ERROR instead of a clean, blocked new decision (T58-13).
+#
+# Code audit round 4 (tests_r4.txt R4-02): this rationale moved from the
+# function's own docstring to this comment block (mechanical SIZE_FUNC
+# split, no behavior change) -- see _third_shift_window_assumption/
+# _third_shift_occupied_terms below for the extracted per-window body.
 def add_max_two_consecutive_primary_shift_constraint(
     model: cp_model.CpModel, day_kind_terms: dict[str, dict], month: date,
 ) -> dict[tuple[str, date], object]:
-    """ROTA-T058 HARD (OWNER_CORRECTED 2026-09-08, brief section 2): the same
-    employee never has a real PRIMARY service (any D/N combination) on three
-    consecutive start dates. Uses day_kind_terms[employee_id][d][4]
-    (primary_term, solver._build_day_kind_terms) -- PRIMARY-role occupancy
-    specifically, independent of D/N classification success, and never
-    TRAINEE/PERIODIC_TRAINING (unlike any_term/index 2). A 24h D+N occurrence
-    shares one start date and must count as ONE occupied day, not two, so
-    this constraint compares a per-date OCCUPIED indicator (primary_term >=
-    1), never the raw summed term itself -- mirrors the same H24 double-
-    counting hazard fairness._occupied_bool already guards against for the
-    D/N/wolne/wolne reward.
-
-    Genuinely enforced (assumption literals here are never a relaxation
-    path -- see module docstring below and solver.py's caller, which never
-    offers this assumption set to any coordinator-override diagnosis, only
-    reuses the same proven CP-SAT technique for a readable message): a
-    window built only from already-fixed/boundary facts is enforced
-    unconditionally when it is not already a historical violation (brief
-    section 2.3, first paragraph) -- and, unlike NIGHT-STREAK-01 (out of
-    T058's scope to change), a window that IS already a fully-fixed
-    historical violation (three real already-occurred/accepted PRIMARY
-    starts in a row, no decision variable involved at all) is skipped
-    entirely rather than added as a constraint: it is an unchangeable past
-    fact, so it must not itself make the whole model INFEASIBLE, but it
-    also participates fully -- via its fixed terms -- in blocking a NEW
-    third day next to two already-fixed ones (section 2.3, second
-    paragraph), exactly like any other mixed fixed/decision window below.
-
-    ARCHITECT_RULING 2026-09-08 (brief 2.3A point 3): the window range also
-    reaches forward past month_end into an already-accepted next month's
-    boundary facts (day_kind_terms already carries them --
-    state.boundary_assignments' context window is unbounded, not just "the
-    previous month"), symmetric to the `month_start - 2` backward reach.
-    Without this, a REPLAN of month N that would close a forbidden
-    three-in-a-row using two already-fixed days from an already-selected
-    month N+1 was invisible to this constraint entirely, so only the
-    independent validator caught it afterwards -- as an unattributed
-    TECHNICAL_ERROR instead of a clean, blocked new decision (T58-13)."""
+    """See the comment block directly above this function for the full
+    rationale (ROTA-T058 HARD + ARCHITECT_RULING 2026-09-08 boundary reach)."""
     num_days = calendar.monthrange(month.year, month.month)[1]
     month_start = date(month.year, month.month, 1)
     month_end = date(month.year, month.month, num_days)
@@ -708,36 +715,55 @@ def add_max_two_consecutive_primary_shift_constraint(
         while window_start <= last_start:
             dates = [window_start, window_start + timedelta(days=1), window_start + timedelta(days=2)]
             terms = [by_date.get(d, empty)[4] for d in dates]
-            worst_case_occupied = sum(0 if (isinstance(t, int) and t == 0) else 1 for t in terms)
-            if worst_case_occupied <= 2:
-                # No combination of these three dates can ever all be
-                # occupied -- never a candidate for the CP-SAT model.
-                window_start += timedelta(days=1)
-                continue
-            if all(isinstance(t, int) for t in terms):
-                fixed_occupied = sum(1 if t > 0 else 0 for t in terms)
-                if fixed_occupied <= 2:
-                    window_start += timedelta(days=1)
-                    continue
-                # Section 2.3: a fully-fixed, already-occurred/accepted
-                # violation is a past fact, not a new automatic decision --
-                # it must not itself poison the whole model as INFEASIBLE.
-                window_start += timedelta(days=1)
-                continue
-            occupied_terms = []
-            for t in terms:
-                if isinstance(t, int):
-                    occupied_terms.append(1 if t > 0 else 0)
-                    continue
-                occ = model.new_bool_var(f"t058_occupied_{employee_id}_{window_start.isoformat()}_{len(occupied_terms)}")
-                model.add(t >= 1).only_enforce_if(occ)
-                model.add(t == 0).only_enforce_if(occ.Not())
-                occupied_terms.append(occ)
-            assume_var = model.new_bool_var(f"assume_third_shift_{employee_id}_{window_start.isoformat()}")
-            model.add(sum(occupied_terms) <= 2).only_enforce_if(assume_var)
-            assumptions[employee_id, window_start] = assume_var
+            assume_var = _third_shift_window_assumption(model, employee_id, window_start, terms)
+            if assume_var is not None:
+                assumptions[employee_id, window_start] = assume_var
             window_start += timedelta(days=1)
     return assumptions
+
+
+def _third_shift_window_assumption(
+    model: cp_model.CpModel, employee_id: str, window_start: date, terms: list,
+) -> object | None:
+    """Code audit round 4 (tests_r4.txt R4-02, mechanical SIZE_FUNC split,
+    no behavior change): one 3-date window's worth of
+    add_max_two_consecutive_primary_shift_constraint's own body. Returns
+    None when this window needs no CP-SAT assumption at all -- covers BOTH
+    of that function's docstring cases: no combination of these three dates
+    can ever all be occupied (worst_case_occupied <= 2), and a fully-fixed
+    window that is either safe (fixed_occupied <= 2) or already a past,
+    unchangeable historical violation (section 2.3) that must not itself
+    poison the model as INFEASIBLE -- both skip identically, only the
+    reason differs."""
+    worst_case_occupied = sum(0 if (isinstance(t, int) and t == 0) else 1 for t in terms)
+    if worst_case_occupied <= 2:
+        return None
+    if all(isinstance(t, int) for t in terms):
+        return None
+    occupied_terms = _third_shift_occupied_terms(model, employee_id, window_start, terms)
+    assume_var = model.new_bool_var(f"assume_third_shift_{employee_id}_{window_start.isoformat()}")
+    model.add(sum(occupied_terms) <= 2).only_enforce_if(assume_var)
+    return assume_var
+
+
+def _third_shift_occupied_terms(
+    model: cp_model.CpModel, employee_id: str, window_start: date, terms: list,
+) -> list:
+    """Code audit round 4 (tests_r4.txt R4-02, mechanical SIZE_FUNC split,
+    no behavior change): per-date OCCUPIED boolean reification for a mixed
+    fixed/decision window -- a 24h D+N occurrence still shares one start
+    date and must count as ONE occupied day, not two (see
+    add_max_two_consecutive_primary_shift_constraint's own docstring)."""
+    occupied_terms = []
+    for t in terms:
+        if isinstance(t, int):
+            occupied_terms.append(1 if t > 0 else 0)
+            continue
+        occ = model.new_bool_var(f"t058_occupied_{employee_id}_{window_start.isoformat()}_{len(occupied_terms)}")
+        model.add(t >= 1).only_enforce_if(occ)
+        model.add(t == 0).only_enforce_if(occ.Not())
+        occupied_terms.append(occ)
+    return occupied_terms
 
 
 if __name__ == "__main__":
