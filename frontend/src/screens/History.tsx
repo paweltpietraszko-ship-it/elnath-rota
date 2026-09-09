@@ -100,10 +100,27 @@ function stateValueLabel(stateKey: string | undefined, value: string): string {
 // employee_id, which resolves to a real name below); showing a neutral
 // placeholder instead is not a data change (brief 2.8: the real value stays
 // in before_state/after_state/persistence), only a presentation choice.
+// Codex R4 audit (tasks/ROTA-T060/round_01/tests/tests_r4.txt): the first
+// version of this set was hand-picked and missed the actual keys real
+// writers produce. This list is now derived directly from every
+// before_state/after_state producer in rota/application/ that can reach
+// this screen's action trail, not from guessing at plausible names:
+//   - manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact
+//     (manual correction + candidate-delta Assignment facts)
+//   - manual_edit.py's own child/parent wrapper keys
+//   - lifecycle_ops.py::_deviation_fact (Deviation lifecycle records)
+// employee_id is deliberately excluded -- it resolves to a real name above.
 const ID_ONLY_STATE_KEYS = new Set([
   "current_version_id", "decision_id", "predecessor_decision_id", "predecessor_rule_version_id",
   "rule_version_id", "site", "site_id", "availability_id", "availability_version_id",
   "supersedes_availability_version_id", "profile_id",
+  // Assignment facts (manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact)
+  "schedule_version_id", "assignment_id", "covers_demand_id", "mentor_primary_assignment_id",
+  "work_period_id",
+  // manual_edit.py before/after wrapper keys
+  "parent_version_id", "child_version_id",
+  // lifecycle_ops.py::_deviation_fact (Deviation lifecycle)
+  "deviation_id", "source_reference", "affected_assignment_or_employee", "acknowledged_by",
 ]);
 const REDACTED_ID_PLACEHOLDER = "(zapisano)";
 
