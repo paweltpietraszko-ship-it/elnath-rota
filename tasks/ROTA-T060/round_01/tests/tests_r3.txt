@@ -1,0 +1,41 @@
+ROTA-T060 — PREIMPLEMENTATION LITERAL RE-CHECK R3
+
+VERDICT: PASS
+EXACT BRIEF SHA: f5f76cd712697150302f7a64b199e2d8caa38825
+SCOPE: wyłącznie R2-01, R2-02 i zamrożony TASK_SCOPE.
+
+R2-01 — PASS
+
+- `api/errors.py` jest jedynym ownerem wspólnego helpera i znacznika
+  `X-Elnath-Public-Error: 1`.
+- Klient renderuje `detail` tylko przy dokładnym znaczniku i typie string;
+  poza kontraktem używa neutralnego fallbacku.
+- Nie ma regexu ID, whitelisty tekstów ani drugiego słownika.
+- Roster bypass używa tego samego helpera.
+- Jest jawnie dopuszczona zmiana transportowego formatu w `api/errors.py` i
+  `client.ts`, bez DTO domenowego/persistence.
+- Frontend wywołuje względne `/api`; Vite proxy zachowuje ten sam origin, więc
+  odczyt nagłówka nie wymaga rozszerzenia `api/main.py`/CORS w tym Tasku.
+
+R2-02 — PASS
+
+- `_collect_warnings` dostaje `PlanningState` albo mapę z `state.employees`.
+- Publiczny DAY_SHIFT_OFF-01 używa canonical `Employee.display_name`.
+- Brak lookupu daje neutralne „pracownik”, nigdy employee_id.
+- T060 nie zależy od quoted-ID parsera/`resolveWarningText()`; jego legacy
+  użycia poza tym warningiem pozostają poza zakresem.
+- Dozwolone są tylko bezpośrednie call-site potrzebne do przekazania mapy;
+  constraints/objective/wybór kandydata pozostają zamrożone.
+
+TASK_SCOPE — PASS
+
+Scope obejmuje dokładnie ownerów i powierzchnie wskazane w R1/R2. Analytics,
+coordinator identity model, persistence/DTO i redesign pozostają poza Taskiem.
+Hash PDF T051 pozostaje; ekranowy document_revision i siteId w nazwie pliku
+znikają. Testy pionowe mają osobne klasy: kontrolowany błąd, niekontrolowany
+błąd i warning z nazwą/brakiem lookupu.
+
+PREIMPLEMENTATION PASS dotyczy tylko briefu
+f5f76cd712697150302f7a64b199e2d8caa38825. Implementation HOLD może zostać
+zdjęty dla literalnego TASK_SCOPE; kod po implementacji wymaga osobnego audytu
+exact SHA i rzeczywistej oceny UI.

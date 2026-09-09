@@ -1,0 +1,38 @@
+ROTA-E2E-STALE-STATUS-TEXT — MERGE AUDIT R1
+
+VERDICT: PASS / MOŻNA MERGOWAĆ
+EXACT AUDITED SHA: af056b68bec4dd6283d9b267176901d193f3f92f
+TARGET: aktualny main po ROTA-T060
+
+TRACE / ZAKRES
+
+- T048 usunął techniczne version ID z UI; testy prawidłowo używają obecnych
+  polskich statusów i czasu utworzenia zamiast martwego `Wersja: SV-*`.
+- T057 zastąpił post-acceptance REPLAN: stary test FINAL -> REPLAN nie opisuje
+  już produktu i został usunięty, a nie pozostawiony jako fałszywy `skip`.
+- T057 usunął wybieraną w UI datę odcięcia REPLAN; usunięta część T42-A03 jest
+  literalnie zastąpiona przez nowy lifecycle, natomiast lokalny miesiąc nadal
+  jest sprawdzany.
+- T060 wymaga publicznego nagłówka błędu. Mock R1-3 używa teraz rzeczywistego
+  kontraktu i bezpiecznego polskiego komunikatu, zachowując właściwy cel testu:
+  po odrzuconej finalizacji ekran ponownie pobiera aktualny miesiąc.
+
+NIEZALEŻNA WERYFIKACJA NA EXACT SHA
+
+Command:
+`npm exec playwright test -- e2e/monthly-planning.spec.ts e2e/t041-daily-workflow.spec.ts e2e/t042-local-date.spec.ts --workers=1`
+
+Result: 11 passed, 0 failed, 0 skipped; real backend, real frontend i Chromium.
+
+- `git diff --check origin/main...af056b6`: PASS.
+- Three-way merge z aktualnym main: czysty, bez konfliktów.
+- Diff obejmuje wyłącznie trzy pliki E2E; brak zmian produktu.
+
+UWAGA NIEBLOKUJĄCA
+
+Komentarz w `t042-local-date.spec.ts` nadal mówi o
+`monthly-planning.spec.ts` jako o „skipped test”, mimo że poprawka usunęła ten
+test. Nie wpływa to na wykonanie ani wyrocznię; warto skrócić komentarz przy
+najbliższym porządku redakcyjnym.
+
+PASS dotyczy dokładnego SHA wskazanego powyżej.

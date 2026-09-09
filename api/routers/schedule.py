@@ -59,6 +59,8 @@ _DEVIATION_LABELS = {
     "EXTERNAL-01": "wsparcie zewnętrzne poza oknem",
     "SHIFT-24-01": "niedostępność 24h",
     "SHIFT-24-PAIR-01": "niekompletna para 24h",
+    # ROTA-T058 (brief section 2.2, "wąski limit jednej polskiej etykiety").
+    "THIRD-CONSECUTIVE-SHIFT-01": "trzecia służba pod rząd",
 }
 
 

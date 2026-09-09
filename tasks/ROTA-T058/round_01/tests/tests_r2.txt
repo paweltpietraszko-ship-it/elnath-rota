@@ -1,0 +1,52 @@
+ROTA-T058 — preimplementation narrow re-check R2
+Exact audited SHA: 54968c6c6d5cdf784843c8afb1ae32ddb0d76575
+Scope: literal diff a887520..54968c6 + frozen TASK_SCOPE only
+WHERE_MAP: not repeated; R1 evidence remains valid
+Result: FAIL — one mechanical TASK_SCOPE correction; IMPLEMENTATION HOLD
+
+OWNER CONTRACT — PASS
+
+The corrected brief now cleanly separates the two paths:
+- the automatic solver never creates the third consecutive PRIMARY service
+  and has no automatic coordinator override;
+- manual correction remains allowed, materializes a Deviation and records
+  the coordinator action;
+- fixed/performed/accepted facts are preserved without poisoning unrelated
+  future planning, while they still prevent the solver adding a new third;
+- T058 no longer owns PDF blocking;
+- 24h deadband covers both target equity and missing-target equal split.
+
+FINDING R2-01 — two required writers are incorrectly READ_ONLY
+
+TRACE
+- brief 2.2 / T58-05 requires the validator's new named violation to become
+  a persisted Deviation through the existing manual-correction path.
+- AGENTS/CODEX_START require coordinator-visible text to be Polish and not a
+  raw internal rule code.
+
+OWNERSHIP + EXACT-SHA REPRO
+1. rota/application/deviation_mapping.py::_BUILTIN_RULE_CATEGORY is a closed
+   lookup. A new validator rule not added there raises UnknownDeviationSource
+   in materialize_deviations(), so apply_manual_correction fails instead of
+   saving the coordinator's decision. The file is currently READ_ONLY_EVIDENCE.
+2. api/routers/schedule.py::_DEVIATION_LABELS is the owner of Polish labels.
+   Unknown rules fall back to raw source_reference, so the new technical code
+   would be shown in MonthlyPlanning. The file is also READ_ONLY_EVIDENCE.
+
+REQUIRED MECHANICAL CORRECTION
+- Move rota/application/deviation_mapping.py from READ_ONLY_EVIDENCE into
+  TASK_SCOPE, limited to one built-in category mapping for the new rule.
+- Move api/routers/schedule.py from READ_ONLY_EVIDENCE into TASK_SCOPE,
+  limited to one plain-Polish label for the new deviation.
+- Keep rota/application/manual_edit.py READ_ONLY: its existing
+  validate -> materialize_deviations -> coordinator action chain is enough.
+- tests/test_t058.py must prove the real manual-correction seam saves the
+  deviation/action and the API returns the readable label, so no extra test
+  file is required.
+
+No other brief or scope issue was found in this literal re-check. After these
+two paths are added, Codex can perform a final text-only re-check without
+re-reading production code or repeating WHERE_MAP.
+
+No test suite was run: this is a preimplementation contract audit and no
+product implementation exists on the audited SHA.

@@ -107,21 +107,118 @@ korzystne dla precyzji `target_hours`.
 
 ## Otwarte pytania projektowe dla architekta (CC nie rozstrzyga)
 
-1. Czy "unikanie 3 zmian pod rząd" ma dostać realny, wysoki priorytet
-   (bliski HARD) w samej funkcji celu, czy ma stać się osobnym,
-   twardym ograniczeniem CP-SAT z ucieczką przez `DECISION_REQUIRED`,
-   gdy solver naprawdę nie może go dochować?
-2. Czy `add_target_equity_fairness` (wyrównywanie procentu realizacji)
+1. ~~Czy "unikanie 3 zmian pod rząd" ma dostać realny, wysoki priorytet
+   (bliski HARD), czy stać się osobnym ograniczeniem HARD?~~
+   **ROZSTRZYGNIĘTE OSTATECZNIE (OWNER, 2026-09-08, patrz niżej): osobne,
+   bezwzględne HARD; bez wyjątku przez `DECISION_REQUIRED`.**
+2. ~~Czy `add_target_equity_fairness` (wyrównywanie procentu realizacji)
    powinno dostać pasmo tolerancji (np. podobne rzędu wielkości do tego,
    które CC empirycznie zaobserwował dla samego trafienia w target —
    solver ląduje w granicach ok. jednego bloku zmianowego od celu), poza
    którym dalsze, drobniejsze wyrównywanie przestaje przebijać rytm/karę
-   za 3 zmiany pod rząd?
-3. Czy to dotyczy też rytmu D/N/W/W (`DN_RHYTHM_REWARD_WEIGHT`), czy tylko
+   za 3 zmiany pod rząd?~~ **ROZSTRZYGNIĘTE OSTATECZNIE (OWNER,
+   2026-09-08): tak, dopuszczone pasmo różnicy wynosi 24h między
+   pracownikami. To tolerancja SOFT, nie twardy limit obsady.**
+3. ~~Czy to dotyczy też rytmu D/N/W/W (`DN_RHYTHM_REWARD_WEIGHT`), czy tylko
    węższego "3 zmiany pod rząd" — Paweł mówił o obu, ale z różnym
    naciskiem (3 zmiany pod rząd = "coś między Hard a Soft"; ogólny rytm
    D/N/W/W = "ważniejszy niż" precyzja equity, ale niekoniecznie tej samej
-   siły).
+   siły).~~ **ROZSTRZYGNIĘTE (OWNER, 2026-09-08): tylko węższe "3 zmiany
+   pod rząd" dostaje HARD; ogólny rytm D/N/W/W zostaje SOFT i może zostać
+   poświęcony na rzecz tego nowego twardego ograniczenia.**
+
+## OWNER_CORRECTED 2026-09-08 — rozstrzygnięcie pytań 1 i 3
+
+Paweł wprost: *"jak będziesz robić rytm to pamiętaj, że trzy zmiany pod
+rząd musi być zabronione jako Hard nawet kosztem D/N/w/w."*
+
+Rozstrzygnięcie: "3 zmiany pod rząd" (dziś `THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT`,
+`add_third_consecutive_shift_penalty`, ROTA-T034) przestaje być SOFT w
+funkcji celu i staje się osobnym, twardym ograniczeniem CP-SAT. Późniejsze
+ostateczne doprecyzowanie OWNERA wykluczyło proponowaną tu wcześniej
+ucieczkę przez `DECISION_REQUIRED`; obowiązuje bezwzględny zakaz opisany
+niżej. Ogólny rytm D/N/W/W
+(`DN_RHYTHM_REWARD_WEIGHT`) pozostaje SOFT i może zostać jawnie poświęcony,
+jeśli to jedyny sposób dochowania nowego twardego zakazu 3 zmian pod rząd
+— czyli priorytet: HARD (3-zmiany-pod-rząd) > TARGET-01 > equity/D-N-W-W
+rytm, w tej kolejności.
+
+Pytanie 2 zostało później rozstrzygnięte przez OWNERA — patrz ostateczne
+doprecyzowanie poniżej.
+
+## Dodatkowy argument ownera (2026-09-08) dla pytania 2 (pasmo tolerancji equity)
+
+Paweł: *"Czasami koordynator jest zmuszony dać komuś 180 godzin a innym
+156, czyli solver może mieć luz."* Potwierdzone przez CC jako argument do
+wykorzystania tam, gdzie potrzebny (nie ograniczony do jednego miejsca w
+tym dokumencie).
+
+Odczytanie: różnica rzędu 180h vs 156h (~24h, jeden pełny blok D/N) między
+pracownikami jest w realnej pracy **normalna i akceptowalna**, nie błędem
+do skorygowania — koordynator i tak często jest zmuszony dać komuś wyraźnie
+więcej/mniej z powodów niezwiązanych z precyzją algorytmu. To dodatkowe,
+jakościowe wsparcie dla hipotezy CC z pytania 2 (pasmo tolerancji rzędu
+jednego bloku zmianowego), tym razem wprost od ownera, nie tylko z
+empirycznej obserwacji CC. Późniejsze doprecyzowanie poniżej zamraża 24h
+jako ostateczną wartość tego pasma.
+
+## OWNER_FINAL 2026-09-08 — oba pozostałe rozstrzygnięcia
+
+Paweł wprost: *"Wszystkie 3 zmiany pod rząd mają być zakazane, tolerancja
+godzin jest dopuszczona, i może wynosić 24h między pracownikami."*
+
+Zamrożone zachowanie dla briefu:
+
+1. Każda trzecia kolejna służba tego samego pracownika na trzech kolejnych
+   datach rozpoczęcia jest bezwzględnie zabroniona jako HARD. Nie ma ścieżki
+   zatwierdzenia wyjątku przez koordynatora. Jeżeli bez naruszenia zakazu nie
+   da się pokryć grafiku, PLAN nie powstaje; użytkownik dostaje czytelny
+   komunikat i może zmienić obsadę lub dostępność, a następnie spróbować
+   ponownie. Nie zapisuje się ani nie eksportuje grafiku łamiącego zakaz.
+2. Equity dostaje pasmo tolerancji 24h między pracownikami. Różnica mieszcząca
+   się w tym paśmie jest dopuszczalna i solver nie ma psuć rytmu D/N/W/W tylko
+   po to, aby ją dalej zmniejszać. To tolerancja dla rankingu SOFT, a nie nowe
+   ograniczenie HARD zabraniające różnic większych niż 24h; poza pasmem equity
+   może nadal wpływać na wybór rozwiązania zgodnie z architekturą celu.
+3. Ogólny rytm D/N/W/W pozostaje SOFT. Priorytet jest więc: bezwzględne HARD
+   trzech kolejnych służb, następnie istniejące TARGET-01, a niżej equity z
+   pasmem 24h i rytm D/N/W/W.
+
+Finding jest gotowy do przekazania architektowi. Architekt ma opisać
+implementację, wykorzystując istniejącego właściciela klasyfikacji służb i
+nie rozszerzając wyjątku `DECISION_REQUIRED` z `NIGHT-STREAK-01` na ten nowy
+bezwzględny zakaz.
+
+## OWNER_CORRECTED 2026-09-08 — HARD ogranicza automat, nie władzę człowieka
+
+Paweł wprost: *"program nie może negować decyzji koordynatora, on może tylko
+oflagować odchylenie. Nigdy automatycznie nie blokujemy władzy człowieka,
+program nie łamie Hard ale człowiek na własną odpowiedzialność może, dlatego
+odnotowujemy decyzje koordynatora."*
+
+To doprecyzowanie zastępuje wcześniejsze zbyt szerokie zdania o całkowitym
+zakazie zapisu/akceptacji/eksportu:
+
+1. HARD pozostaje bezwzględny dla automatycznego PLAN/REPLAN/Przelicz Plan:
+   solver nie może sam zaproponować trzeciej kolejnej służby i nie dostaje
+   automatycznej ścieżki wyjątku przez `DECISION_REQUIRED`.
+2. Koordynator zachowuje istniejącą władzę ręcznej korekty. Może świadomie
+   wpisać układ naruszający ten HARD; program ma go oznaczyć jako odchylenie,
+   zapisać decyzję koordynatora i nie przedstawiać wyniku jako automatycznie
+   zgodnego z regułą.
+3. Późniejsza automatyczna operacja nie może cicho negować zaakceptowanej
+   decyzji człowieka ani traktować w pełni istniejącego/odbytego okna jako
+   nierozwiązywalnego błędu blokującego całą przyszłość. Nadal musi jednak
+   uniemożliwić solverowi dołożenie nowej trzeciej kolejnej służby tam, gdzie
+   nie ma zapisanej decyzji człowieka.
+4. T058 nie wprowadza bezwzględnej blokady wydruku. Obsługa wydruku grafiku z
+   odchyleniami podlega osobnemu, zaakceptowanemu kontraktowi jednorazowego
+   potwierdzenia przed każdym wydrukiem.
+
+Architekt ma rozdzielić w briefie dwa istniejące wejścia: automatyczny wynik
+solvera (HARD, bez wyjątku) oraz ręczną korektę koordynatora (dozwolona z
+odchyleniem i śladem decyzji). Nie tworzyć drugiego systemu wyjątków, jeżeli
+istniejące `validate -> materialize_deviations -> coordinator action` wystarcza.
 
 ## Powiązane materiały
 

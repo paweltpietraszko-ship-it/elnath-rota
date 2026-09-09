@@ -78,6 +78,17 @@ def _staff(conn, *, coordinator_id: str, site_id: str, employee_id: str = EMP) -
         conn, coordinator_id=coordinator_id, site_id=site_id,
         membership=SiteMembership(employee_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
     )
+    # ROTA-T058 (owner-authorized fixture fix, 2026-09-08): a single employee
+    # covering every day of the month now genuinely trips the new HARD
+    # max-two-consecutive-PRIMARY-shifts rule -- this file is about
+    # context-discovery reads, not staffing tightness, so a second employee
+    # per site restores real slack without touching what these tests assert.
+    twin_id = f"{employee_id}-2"
+    update_employee(conn, coordinator_id=coordinator_id, site_id=site_id, employee=Employee(twin_id, twin_id, date(2020, 1, 1), None, False))
+    update_membership(
+        conn, coordinator_id=coordinator_id, site_id=site_id,
+        membership=SiteMembership(twin_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
+    )
 
 
 def _fill_calendar(conn, *, coordinator_id: str, site_id: str, month: date) -> None:

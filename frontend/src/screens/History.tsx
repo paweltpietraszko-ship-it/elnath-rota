@@ -3,7 +3,7 @@
 // read-only). No Polish presentation strings exist server-side for
 // action_kind/rel -- this screen supplies them (spec explicitly says so).
 import { Fragment, useEffect, useState } from "react";
-import { CoordinatorActionKind, DecisionRecordOut, MaterialActionDetailOut, MaterialActionSummaryOut, api } from "../api/client";
+import { CoordinatorActionKind, DecisionRecordOut, MaterialActionDetailOut, MaterialActionSummaryOut, RosterRow, api } from "../api/client";
 
 const ACTION_KIND_LABEL: Record<CoordinatorActionKind, string> = {
   CONTEXT_CONFIGURATION_SAVED: "Zapisano konfigurację obiektu",
@@ -51,6 +51,39 @@ function formatDateTime(iso: string): string {
 // (ground truth, not guessed). Anglicism rule applies even to this raw
 // diagnostic diff view; an unmapped future key falls back to the raw key
 // rather than crashing, but should get its own entry here when noticed.
+// ROTA-T060 (ARCHITECT_RULING, brief T60-06): the recursive before/after
+// renderer translates VALUES for these keys to a neutral placeholder --
+// every key here names a value that is purely a technical identifier with
+// no human-readable form of its own (unlike employee_id, which resolves to
+// a real name below); showing a neutral placeholder instead is not a data
+// change (brief 2.8: the real value stays in before_state/after_state/
+// persistence), only a presentation choice.
+// Codex R4 audit (tasks/ROTA-T060/round_01/tests/tests_r4.txt): the first
+// version of this set was hand-picked and missed the actual keys real
+// writers produce. This list is now derived directly from every
+// before_state/after_state producer in rota/application/ that can reach
+// this screen's action trail, not from guessing at plausible names:
+//   - manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact
+//     (manual correction + candidate-delta Assignment facts)
+//   - manual_edit.py's own child/parent wrapper keys
+//   - lifecycle_ops.py::_deviation_fact (Deviation lifecycle records)
+// employee_id is deliberately excluded -- it resolves to a real name below.
+// Declared before STATE_KEY_LABEL/stateKeyLabel (which reference it) so the
+// key fallback below can be defined in one place.
+const ID_ONLY_STATE_KEYS = new Set([
+  "current_version_id", "decision_id", "predecessor_decision_id", "predecessor_rule_version_id",
+  "rule_version_id", "site", "site_id", "availability_id", "availability_version_id",
+  "supersedes_availability_version_id", "profile_id",
+  // Assignment facts (manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact)
+  "schedule_version_id", "assignment_id", "covers_demand_id", "mentor_primary_assignment_id",
+  "work_period_id",
+  // manual_edit.py before/after wrapper keys
+  "parent_version_id", "child_version_id",
+  // lifecycle_ops.py::_deviation_fact (Deviation lifecycle)
+  "deviation_id", "source_reference", "affected_assignment_or_employee", "acknowledged_by",
+]);
+const REDACTED_ID_PLACEHOLDER = "(zapisano)";
+
 const STATE_KEY_LABEL: Record<string, string> = {
   active: "aktywne", content: "treść", current_version_id: "id bieżącej wersji", date: "data",
   day_only: "tylko dniówka", decision_id: "id decyzji", deviations: "odchylenia", employee_id: "pracownik",
@@ -74,10 +107,24 @@ const STATE_KEY_LABEL: Record<string, string> = {
   training_s_enabled: "szkolenie włączone", training_s_weekdays_only: "szkolenie tylko w dni robocze",
   training_s_default_readiness_threshold: "domyślny próg gotowości szkolenia",
   rolling_7d_decision_threshold_hours: "próg decyzyjny 7-dniowy (h)",
+  // Codex R5 audit (tasks/ROTA-T060/round_01/tests/tests_r5.txt): these keys
+  // were added to ID_ONLY_STATE_KEYS (R4) but never given a Polish label, so
+  // the raw English key name itself (e.g. "assignment_id") was still shown
+  // as UI content next to the redacted value.
+  schedule_version_id: "wersja grafiku", assignment_id: "przypisanie", covers_demand_id: "pokrywane zapotrzebowanie",
+  mentor_primary_assignment_id: "przypisanie mentora", work_period_id: "okres pracy",
+  parent_version_id: "wersja nadrzędna", child_version_id: "wersja podrzędna", deviation_id: "odstępstwo",
+  source_reference: "reguła źródłowa", affected_assignment_or_employee: "dotyczy",
+  acknowledged_by: "potwierdzone przez",
 };
 
+// Codex R5 audit: a key can land in ID_ONLY_STATE_KEYS without ever being
+// added to STATE_KEY_LABEL (exactly what happened above) and silently fall
+// back to its raw English name. This generic fallback closes that class of
+// gap for any future key too, instead of relying on every addition to
+// remember a matching label.
 function stateKeyLabel(key: string): string {
-  return STATE_KEY_LABEL[key] ?? key;
+  return STATE_KEY_LABEL[key] ?? (ID_ONLY_STATE_KEYS.has(key) ? "identyfikator techniczny" : key);
 }
 
 // T048: translate a leaf VALUE, but only under the specific key it's known
@@ -95,14 +142,16 @@ function stateValueLabel(stateKey: string | undefined, value: string): string {
 // Round-15 audit FINDING 6: recurse into nested objects/arrays and
 // translate keys at every level, instead of JSON.stringify-ing a nested
 // value opaquely (which left raw English keys visible one level down).
-function renderStateValue(value: unknown, stateKey?: string): JSX.Element | string {
+function renderStateValue(value: unknown, stateKey: string | undefined, nameForEmployee: (id: string) => string): JSX.Element | string {
   if (value === null || value === undefined) return "—";
+  if (stateKey && ID_ONLY_STATE_KEYS.has(stateKey) && typeof value === "string") return REDACTED_ID_PLACEHOLDER;
+  if (stateKey === "employee_id" && typeof value === "string") return nameForEmployee(value);
   if (Array.isArray(value)) {
     if (value.length === 0) return "(brak)";
     return (
       <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
         {value.map((v, i) => (
-          <li key={i}>{renderStateValue(v, stateKey)}</li>
+          <li key={i}>{renderStateValue(v, stateKey, nameForEmployee)}</li>
         ))}
       </ul>
     );
@@ -112,7 +161,7 @@ function renderStateValue(value: unknown, stateKey?: string): JSX.Element | stri
       <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
         {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
           <li key={k}>
-            {stateKeyLabel(k)}: {renderStateValue(v, k)}
+            {stateKeyLabel(k)}: {renderStateValue(v, k, nameForEmployee)}
           </li>
         ))}
       </ul>
@@ -122,7 +171,11 @@ function renderStateValue(value: unknown, stateKey?: string): JSX.Element | stri
   return String(value);
 }
 
-function StateDiff({ label, state }: { label: string; state: Record<string, unknown> | null }) {
+function StateDiff({
+  label, state, nameForEmployee,
+}: {
+  label: string; state: Record<string, unknown> | null; nameForEmployee: (id: string) => string;
+}) {
   if (!state) return null;
   return (
     <div style={{ marginTop: 6 }}>
@@ -130,7 +183,7 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
       <ul style={{ margin: "4px 0 0 0", paddingLeft: 18, fontSize: 12.5 }}>
         {Object.entries(state).map(([key, value]) => (
           <li key={key}>
-            {stateKeyLabel(key)}: {renderStateValue(value, key)}
+            {stateKeyLabel(key)}: {renderStateValue(value, key, nameForEmployee)}
           </li>
         ))}
       </ul>
@@ -140,15 +193,26 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
 
 function ActionsTab({ siteId }: { siteId: string }) {
   const [actionKindFilter, setActionKindFilter] = useState<CoordinatorActionKind | "">("");
-  const [coordinatorFilter, setCoordinatorFilter] = useState("");
   const [recordedFrom, setRecordedFrom] = useState("");
   const [recordedTo, setRecordedTo] = useState("");
   const [rows, setRows] = useState<MaterialActionSummaryOut[]>([]);
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<MaterialActionDetailOut | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // ROTA-T060 (ARCHITECT_RULING, brief 2.9/T60-06): before/after diffs can
+  // name an arbitrary employee_id -- resolve it the same way every other
+  // screen does; a name that can't be resolved is a neutral label, never
+  // the raw id.
+  const nameForEmployee = (employeeId: string): string =>
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? "nieznany pracownik";
+
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
 
   useEffect(() => {
     setLoading(true);
@@ -156,14 +220,13 @@ function ActionsTab({ siteId }: { siteId: string }) {
     api
       .getActionHistory(siteId, {
         actionKind: actionKindFilter || undefined,
-        coordinatorId: coordinatorFilter.trim() || undefined,
         recordedFrom: recordedFrom ? `${recordedFrom}T00:00:00` : undefined,
         recordedTo: recordedTo ? `${recordedTo}T23:59:59` : undefined,
       })
       .then(setRows)
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [siteId, actionKindFilter, coordinatorFilter, recordedFrom, recordedTo]);
+  }, [siteId, actionKindFilter, recordedFrom, recordedTo]);
 
   const toggleExpanded = (actionId: string) => {
     if (expandedId === actionId) {
@@ -201,10 +264,6 @@ function ActionsTab({ siteId }: { siteId: string }) {
             </select>
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="field-label">Koordynator</span>
-            <input value={coordinatorFilter} onChange={(e) => setCoordinatorFilter(e.target.value)} placeholder="id koordynatora" style={{ width: 140 }} />
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className="field-label">Od</span>
             <input type="date" value={recordedFrom} onChange={(e) => setRecordedFrom(e.target.value)} />
           </label>
@@ -238,7 +297,7 @@ function ActionsTab({ siteId }: { siteId: string }) {
                   <tr>
                     <td>{formatDateTime(row.recorded_at)}</td>
                     <td>{ACTION_KIND_LABEL[row.action_kind]}</td>
-                    <td>{row.coordinator_id}</td>
+                    <td>Koordynator</td>
                     <td>{row.month ?? "—"}</td>
                     <td>{row.note ?? "—"}</td>
                     <td>
@@ -256,23 +315,30 @@ function ActionsTab({ siteId }: { siteId: string }) {
                           detail && (
                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                               <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: 0 }}>
+                                {/* ROTA-T060: source_id is a raw technical id
+                                    (schedule_version_id/availability_version_id/
+                                    decision_id depending on source_kind) with no
+                                    human-readable form -- the kind label alone
+                                    is the safe, useful part. */}
                                 Źródło: {SOURCE_KIND_LABEL[detail.source_kind] ?? detail.source_kind}
-                                {detail.source_id ? ` (${detail.source_id})` : ""}
                               </p>
                               <div style={{ display: "flex", gap: 32 }}>
-                                <StateDiff label="Przed" state={detail.before_state} />
-                                <StateDiff label="Po" state={detail.after_state} />
+                                <StateDiff label="Przed" state={detail.before_state} nameForEmployee={nameForEmployee} />
+                                <StateDiff label="Po" state={detail.after_state} nameForEmployee={nameForEmployee} />
                               </div>
                               {detail.responds_to && (
                                 <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+                                  {/* ROTA-T060: decision_required_id has no
+                                      human-readable form; requested_by is a raw
+                                      coordinator_id -- neutral "Koordynator"
+                                      per the owner-decided identity shape. */}
                                   <p style={{ margin: 0 }}>
-                                    Odpowiedź na decyzję koordynatora {detail.responds_to.decision_required_id} z miesiąca{" "}
-                                    {detail.responds_to.month}, zgłoszoną przez {detail.responds_to.requested_by} (
-                                    {formatDateTime(detail.responds_to.recorded_at)}).
+                                    Odpowiedź na decyzję koordynatora z miesiąca {detail.responds_to.month}, zgłoszoną przez
+                                    Koordynator ({formatDateTime(detail.responds_to.recorded_at)}).
                                   </p>
                                   {detail.responds_to.linked_action_ids.length > 0 && (
                                     <p style={{ margin: "4px 0 0 0" }}>
-                                      Powiązane akcje: {detail.responds_to.linked_action_ids.join(", ")}
+                                      Powiązane akcje: {detail.responds_to.linked_action_ids.length}
                                     </p>
                                   )}
                                 </div>
@@ -300,10 +366,65 @@ function ActionsTab({ siteId }: { siteId: string }) {
   );
 }
 
+// Codex R6 audit (tasks/ROTA-T060/round_01/tests/tests_r6.txt): the R5 fix
+// only redacted REST-OVERRIDE and left every other rule_id shape raw on the
+// theory that an opaque uuid ("not correlatable to anything else") wasn't
+// the class of leak T60-05 is about. Codex correctly rejected that carve-out
+// -- brief 1/2.1/3.6/T60-05 ban technical identifiers on this screen with no
+// judgment-call exception for "how correlatable is this one". Every real
+// rule_id shape (exhaustively: rota/application/manual_edit.py::
+// _rest_override_rule_content's `REST-OVERRIDE:<child_id>`, and
+// rota/application/rule_decisions.py::_new_matrix_rule_id's
+// `R-EMP-MATRIX-<uuid>`) now gets a neutral Polish label; nothing falls
+// through to the raw string.
+const REST_OVERRIDE_RULE_ID = /^REST-OVERRIDE:(.+)$/;
+const MATRIX_RULE_ID = /^R-EMP-MATRIX-/;
+
+function ruleDisplayLabel(ruleId: string): string {
+  if (REST_OVERRIDE_RULE_ID.test(ruleId)) return "Wyjątek odpoczynku (korekta ręczna)";
+  if (MATRIX_RULE_ID.test(ruleId)) return "Reguła macierzy pracownika";
+  return "Reguła obiektu";
+}
+
+// Codex R6: hiding the two raw VALUES (child_id, employee_id) from R5 wasn't
+// enough -- the surrounding sentence was still the backend's own English
+// system copy ("Manual correction ... knowingly overrides REST-01 ...").
+// Backend data/semantics are untouched (Codex: "naprawa należy do
+// prezentacji Historii"); this fully reconstructs a Polish sentence from
+// the statement's known, deterministic shape (manual_edit.py::
+// _rest_override_rule_content: `f"Manual correction {child_id} knowingly
+// overrides " + " and ".join(parts) + f", employees {...}."`, where parts
+// is "REST-01 for N pair(s)" and/or "WEEKLY-REST-01 for N employee-week(s)")
+// instead of patching individual values into it. Employee ids resolve
+// through the same roster lookup every other tab uses. If a future backend
+// change ever produces a shape this doesn't recognize, the safe neutral
+// fallback below is shown instead of the raw English/system text.
+function ruleDisplayStatement(ruleId: string, statement: string, nameForEmployee: (id: string) => string): string {
+  if (!REST_OVERRIDE_RULE_ID.test(ruleId)) return statement;
+  const FALLBACK = "Ręczna korekta zarejestrowana jako świadomy wyjątek od reguł odpoczynku.";
+  const employeesMatch = statement.match(/employees ([^.]+)\.\s*$/);
+  if (!employeesMatch) return FALLBACK;
+  const names = employeesMatch[1].split(",").map((id) => nameForEmployee(id.trim())).join(", ");
+  const withoutWeekly = statement.replace(/WEEKLY-REST-01/g, "");
+  const overridesDaily = /\bREST-01\b/.test(withoutWeekly);
+  const overridesWeekly = /WEEKLY-REST-01/.test(statement);
+  const kinds = [overridesDaily && "dobowy", overridesWeekly && "tygodniowy"].filter(Boolean) as string[];
+  if (kinds.length === 0) return FALLBACK;
+  return `Ręczna korekta świadomie pomija wymagany odpoczynek ${kinds.join(" i ")} — pracownicy: ${names}.`;
+}
+
 function RulesTab({ siteId }: { siteId: string }) {
   const [history, setHistory] = useState<Record<string, DecisionRecordOut[]>>({});
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const nameForEmployee = (employeeId: string): string =>
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? "nieznany pracownik";
+
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
 
   useEffect(() => {
     setLoading(true);
@@ -335,7 +456,7 @@ function RulesTab({ siteId }: { siteId: string }) {
         ruleIds.map((ruleId) => (
           <div key={ruleId} className="matrix-table-wrap" style={{ marginBottom: 20 }}>
             <p className="field-label" style={{ marginBottom: 6 }}>
-              Reguła: {ruleId}
+              Reguła: {ruleDisplayLabel(ruleId)}
             </p>
             <table className="roster-table">
               <thead>
@@ -351,8 +472,8 @@ function RulesTab({ siteId }: { siteId: string }) {
                 {history[ruleId].map((d) => (
                   <tr key={d.decision_id}>
                     <td>{formatDateTime(d.recorded_at)}</td>
-                    <td>{d.coordinator_id}</td>
-                    <td>{d.statement}</td>
+                    <td>Koordynator</td>
+                    <td>{ruleDisplayStatement(ruleId, d.statement, nameForEmployee)}</td>
                     <td>{d.effective_from}</td>
                     <td>{d.rel ? REL_LABEL[d.rel] ?? d.rel : "—"}</td>
                   </tr>

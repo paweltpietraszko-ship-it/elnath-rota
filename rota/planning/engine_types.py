@@ -47,6 +47,12 @@ class PlanningResult:
     status: Literal[
         "FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR", "NO_ALTERNATIVE",
         "NARROW_SEARCH_EXHAUSTED", "SEARCH_INCOMPLETE",
+        # ROTA-T058 (OWNER_CORRECTED 2026-09-08, brief section 7): a
+        # genuinely non-decision result -- the automatic max-two-consecutive-
+        # PRIMARY-shifts HARD blocked every legal candidate, but there is
+        # nothing for the coordinator to decide (no automatic exception,
+        # no override); deliberately NOT DECISION_REQUIRED.
+        "THIRD_CONSECUTIVE_SHIFT_BLOCKED",
     ]
     candidates: list[list[Assignment]]
     decision_payload: Optional[DecisionRequiredPayload]

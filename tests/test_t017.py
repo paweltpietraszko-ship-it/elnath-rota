@@ -513,7 +513,12 @@ def test_m26_m28_multi_candidate_real_warnings_keep_prefix_order_and_body():
 
 def test_m27_single_candidate_real_warning_shape_is_legacy_unprefixed():
     """A real DAY_SHIFT_OFF-01 SOFT warning on a single-candidate result
-    keeps the exact legacy unprefixed body, not just an empty warning list."""
+    keeps the exact legacy unprefixed body, not just an empty warning list.
+
+    ROTA-T060 (ARCHITECT_RULING R2, brief 2.2): the body is now Polish and
+    resolves Employee.display_name (here == employee_id "A" by this
+    fixture's own _employee() helper) instead of the old raw
+    "{employee_id} prior N enters ..." English text."""
     n1 = _n_demand("N1", 6)
     day_off = AvailabilityRecord("a-dayoff", "v1", "A", AvailabilityKind.DAY_SHIFT_OFF, date(2026, 10, 7), date(2026, 10, 7), True, None, None)
     state = base_state(
@@ -526,7 +531,7 @@ def test_m27_single_candidate_real_warning_shape_is_legacy_unprefixed():
     assert result.status == "FEASIBLE"
     assert len(result.candidates) == 1
     assert not any(w.startswith("candidate=") for w in result.warnings)
-    assert "DAY_SHIFT_OFF-01 SOFT: A prior N enters day off until 05:00 on 2026-10-07" in result.warnings
+    assert "DAY_SHIFT_OFF-01 SOFT: A ma dzień wolny po nocnej służbie do 05:00 w dniu 2026-10-07" in result.warnings
 
 
 

@@ -154,7 +154,8 @@ export interface PlanningResultOut {
     | "TECHNICAL_ERROR"
     | "NO_ALTERNATIVE"
     | "NARROW_SEARCH_EXHAUSTED"
-    | "SEARCH_INCOMPLETE";
+    | "SEARCH_INCOMPLETE"
+    | "THIRD_CONSECUTIVE_SHIFT_BLOCKED";
   candidates: AssignmentOut[][];
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;
@@ -476,7 +477,15 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
       duration_ms: duration,
     });
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
+    // ROTA-T060 (ARCHITECT_RULING R2, brief 2.1.4/2.1.7): fail-closed --
+    // `detail` is only ever shown to the coordinator when the backend
+    // marked this exact response as its own public-error contract
+    // (api/errors.py is the only writer of this header). No UUID/id regex,
+    // no client-side error dictionary: anything outside the contract (a
+    // missing header, or a non-string detail) falls back to one neutral
+    // Polish message instead of ever risking a raw technical string.
+    const isPublicError = res.headers.get("X-Elnath-Public-Error") === "1" && typeof body.detail === "string";
+    throw new Error(isPublicError ? body.detail : "Nie udało się wykonać operacji. Spróbuj ponownie.");
   }
 
   // R1-3 (round-1 audit): an HTTP-successful response can still fail to

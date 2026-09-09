@@ -312,6 +312,12 @@ def test_t41_b12_replan_without_material_change_does_not_create_new_version(tmp_
     profile = _dn_profile("PROF-B12")
     conn = _setup(tmp_path, profile=profile)
     _employee(conn, "A")
+    # ROTA-T058 (owner-authorized fixture fix, 2026-09-08): a single employee
+    # covering every day of the month now genuinely trips the new HARD
+    # max-two-consecutive-PRIMARY-shifts rule -- this test is about replan
+    # version-identity, not staffing tightness, so a second employee restores
+    # real slack.
+    _employee(conn, "B")
     _seed_month_calendar(conn, MONTH)
     first = plan_month(conn, site_id=SITE, month=MONTH, coordinator_id=COORDINATOR, effective_from=MONTH)
     plan_ops.select_candidate(conn, site_id=SITE, month=MONTH, candidate=first.candidates[0], coordinator_id=COORDINATOR)

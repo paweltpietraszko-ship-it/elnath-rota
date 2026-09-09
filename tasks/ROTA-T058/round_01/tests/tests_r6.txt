@@ -1,0 +1,74 @@
+ROTA-T058 — CODEX MERYTORYCZNY RE-AUDIT NA ŻĄDANIE OWNERA
+
+VERDICT: FAIL
+EXACT AUDITED PRODUCT SHA: 1f072fa4093f32e2e9a5a73c93d7b68000957cce
+PREVIOUS AUDIT COMMIT: 6cc3204ddf30a4efb79437d9ab1056f188a14dcc
+SCOPE: semantyka pełnego T058, ze szczególnym sprawdzeniem T58-06.
+
+R6-01 — PRZELICZ PLAN COFA PRZYSZŁĄ RĘCZNĄ DECYZJĘ KOORDYNATORA
+
+TRACE
+
+- brief 2.2: ręczna korekta jest świadomą decyzją człowieka, a program zapisuje
+  Deviation i ślad tej decyzji;
+- brief 2.3: zapisane fakty nie mogą być cofane przez automat;
+- acceptance T58-06: „późniejszy automat nie cofa ręcznie
+  zaakceptowanej/odbytej decyzji”.
+
+OWNERSHIP
+
+- `manual_edit.apply_manual_correction` zapisuje poprawkę jako nową bieżącą
+  ScheduleVersion, materializuje `Deviation LAW` i zapisuje
+  `MANUAL_SCHEDULE_CORRECTION` w action trail;
+- `plan_ops.plan_month -> solver.fixed_existing_assignments` jest właścicielem
+  ochrony wcześniejszych przypisań podczas „Przelicz Plan”;
+- ręcznie zmieniona przyszła PRIMARY pozostaje `PLANNED`, `frozen=False`, więc
+  automat traktuje ją jak zwykłą własną zmienną i może ją przepisać;
+- nie ma osobnego etapu acknowledgement dla bieżącego WORKING: potwierdzenie
+  odchyleń jest atomową częścią FINAL, a FINAL nie wchodzi do Przelicz Plan.
+  Zapisana korekta wraz z action trail jest więc realnym stanem T58-06, a nie
+  testowym obejściem brakującego kroku użytkownika.
+
+REPRO (repro_r6.py)
+
+1. Żywy grafik sierpniowy: służba 1 VIII już rozpoczęta; E1 ma zamrożone
+   służby 20 i 21 VIII; 22 VIII należy do E2.
+2. 9 VIII koordynator ręcznie zmienia dokładnie Assignment 22 VIII na E1.
+3. Zapis przechodzi zgodnie z T58-05; powstaje
+   `Deviation LAW / THIRD-CONSECUTIVE-SHIFT-01` oraz action trail
+   `MANUAL_SCHEDULE_CORRECTION`.
+4. 10 VIII uruchomione „Przelicz Plan” zwraca FEASIBLE, ale kandydat zmienia
+   dokładnie ręcznie ustawione D-22 z E1 z powrotem na E2.
+
+Oczekiwane wg T58-06: D-22 pozostaje E1; w pełni zapisane/fixed okno nie zatruwa
+niezwiązanej przyszłości. Rzeczywiste: D-22=E2 — automat bezpośrednio cofa
+decyzję koordynatora.
+
+COMMAND / RESULT
+
+`python -m pytest -q tasks/ROTA-T058/round_01/tests/repro_r6.py -vv`
+
+RESULT: 1 failed:
+`test_przelicz_plan_preserves_recorded_future_manual_decision`
+
+`actual {'D-22': 'E2'} != expected {'D-22': 'E1'}`
+
+DEFECT GATE
+
+- TRACE: spełniony (brief 2.2, 2.3, T58-06);
+- OWNERSHIP: spełniony (realny pion manual_edit -> bieżąca wersja ->
+  plan_month -> fixed_existing_assignments);
+- REPRO: spełniony na exact product SHA 1f072fa.
+
+WPŁYW NA POPRZEDNI RAPORT
+
+`tests_r5.txt` pozostaje poprawnym wąskim potwierdzeniem zamknięcia R4-01 i
+R4-02. Sam jawnie nie powtarzał audytu całej mapy zmian. Nie stanowi jednak
+merytorycznego PASS całego T058 po ujawnieniu R6-01.
+
+REGRESSION POLICY
+
+Nie uruchamiano ponownie pełnego repo ani wcześniejszych 21 testów na tym samym
+SHA: nowe ustalenie pochodzi z jednej brakującej klasy acceptance, nie z nowej
+poprawki produktu. Po poprawce wymagany jest zachowany repro_r6.py oraz
+targetowany realny pion T058/T057; pełna regresja tylko za zgodą OWNERA.

@@ -186,7 +186,7 @@ test("C08/C09: preview and download share one export call; a failed regeneration
   await page.locator('[data-diag-action="plan-month-first"]').click();
   await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
   await page.locator('[data-diag-action="select-candidate"]').first().click();
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
 
   await openViaNav(page, "room-nav-export");
 
@@ -309,12 +309,19 @@ test("C06: manual correction works via the Ręczna korekta entry even when curre
   await page.locator('[data-diag-action="plan-month-first"]').click();
   await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
   await page.locator('[data-diag-action="select-candidate"]').first().click();
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
 
   await page.locator('[data-diag-action="finalize-month"]').click();
-  await expect(page.getByText(/status: FINAL_/)).toBeVisible();
-  const finalVersionText = await page.getByText(/Wersja: SV-/).textContent();
-  const finalVersionId = finalVersionText?.match(/SV-[a-f0-9]+/)?.[0];
+  await expect(page.getByText(/Status: Zatwierdzona/)).toBeVisible();
+  // ROTA-T048 removed the raw version_id display -- the status+timestamp
+  // line (second-precision, see MonthlyPlanning.tsx's formatDateTime) is
+  // the current, correct way to tell two versions apart on screen. The
+  // history list's own badge renders the SAME "{label}, utworzono ..." text
+  // per row, but without the current-version panel's "Status: " prefix or
+  // its extra " — obowiązuje od ..." suffix -- strip both before reusing
+  // the captured string for the history lookup below.
+  const finalStatusFull = await page.getByText(/Status: .+, utworzono .+/).textContent();
+  const finalStatusText = finalStatusFull?.replace("Status: ", "").split(" — obowiązuje")[0];
 
   await openViaNav(page, "room-nav-manual-correction");
   await expect(page.getByText(/Kliknij dowolny wpis w grafiku/)).toBeVisible();
@@ -326,12 +333,11 @@ test("C06: manual correction works via the Ręczna korekta entry even when curre
   await expect(page.getByText(/Ręczna korekta —/)).toBeVisible();
   await page.getByRole("button", { name: /Zamroź|Odmroź/ }).click();
 
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
-  const childVersionText = await page.getByText(/Wersja: SV-/).textContent();
-  const childVersionId = childVersionText?.match(/SV-[a-f0-9]+/)?.[0];
-  expect(childVersionId).not.toBe(finalVersionId);
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
+  const childStatusText = await page.getByText(/Status: .+, utworzono .+/).textContent();
+  expect(childStatusText).not.toBe(finalStatusText);
 
   // The FINAL parent must still exist, unchanged, in history.
   await page.locator('[data-diag-action="history-toggle"]').click();
-  await expect(page.getByText(new RegExp(finalVersionId!))).toBeVisible();
+  await expect(page.getByText(finalStatusText!)).toBeVisible();
 });
