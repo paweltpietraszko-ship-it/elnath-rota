@@ -52,12 +52,18 @@ function DecisionDetail({
   useEffect(() => {
     api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
   }, [siteId]);
+  // ROTA-T060 (ARCHITECT_RULING, brief section 2.9): a name that can't be
+  // resolved falls back to a neutral label, never the raw employee_id.
   const nameFor = (employeeId: string): string =>
-    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? employeeId;
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? "nieznany pracownik";
   return (
     <div className="panel" style={{ marginTop: 12 }}>
+      {/* ROTA-T060 (ARCHITECT_RULING 2026-09-09, brief 2.10): coordinator
+          identity has no name-resolution mechanism yet -- the owner-decided
+          shape until a dedicated identity Task is neutral "Koordynator",
+          never the raw coordinator_id. */}
       <p className="panel-hint">
-        Zgłoszono przez {detail.requested_by}, {formatDateTime(detail.recorded_at)}.
+        Zgłoszono przez Koordynator, {formatDateTime(detail.recorded_at)}.
       </p>
 
       <div style={{ marginTop: 12 }}>
@@ -114,12 +120,10 @@ function DecisionDetail({
 
       {detail.linked_action_ids.length > 0 && (
         <div style={{ marginTop: 12 }}>
+          {/* ROTA-T060: action ids have no coordinator-facing representation
+              -- the count alone is the safe, useful part; the list of raw
+              ids conveyed nothing a coordinator could act on. */}
           <span className="field-label">Powiązane akcje ({detail.linked_action_ids.length})</span>
-          <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 13 }}>
-            {detail.linked_action_ids.map((id) => (
-              <li key={id}>{id}</li>
-            ))}
-          </ul>
         </div>
       )}
     </div>

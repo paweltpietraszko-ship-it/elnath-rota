@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api.deps import get_conn
-from api.errors import to_http_exception
+from api.errors import public_http_exception, to_http_exception
 from rota.application.availability_matrix import employee_availability_matrix
 from rota.persistence.employee_repository import (
     get_employee,
@@ -160,7 +160,10 @@ def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) 
         raise to_http_exception(exc) from exc
     membership = next((m for m in list_memberships_for_site(conn, site_id) if m.employee_id == employee_id), None)
     if membership is None:
-        raise HTTPException(status_code=404, detail=f"employee {employee_id!r} has no membership at site {site_id!r}")
+        # ROTA-T060 (ARCHITECT_RULING R2, brief 2.1.3): this direct bypass
+        # must use the same shared public-error contract as to_http_exception
+        # -- never a locally copied header/message.
+        raise public_http_exception(404, "Pracownik nie jest przypisany do tego obiektu.")
     availability = get_current_availability_for_employee(conn, employee_id)
     return EmployeeDetailOut(
         employee=EmployeeOut(employee_id=employee.employee_id, display_name=employee.display_name, day_only=employee.day_only),

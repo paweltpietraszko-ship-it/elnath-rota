@@ -1,0 +1,52 @@
+ROTA-T060 — CODE AUDIT R7
+
+VERDICT: PASS
+EXACT AUDITED SHA: f921f21ae47e0c289292842f6c36da53a5765bb8
+BASE / FROZEN BRIEF: f5f76cd712697150302f7a64b199e2d8caa38825
+
+WĄSKI RE-CHECK R6
+
+1. Zachowany niezależny reproduktor `t060-audit-r6.spec.ts` uruchomił
+   prawdziwy ekran Historia w Chromium: 2/2 PASS.
+2. REST OVERRIDE:
+   - nie pokazuje `schedule_version_id`, `employee_id`, `Manual correction`
+     ani kodów `REST-01`/`WEEKLY-REST-01`;
+   - pokazuje neutralną polską nazwę reguły, nazwę pracownika albo bezpieczny
+     neutralny fallback;
+   - nierozpoznany kształt statementu nie wraca do surowego tekstu.
+3. Rzeczywisty `R-EMP-MATRIX-<uuid>` nie trafia do DOM; pozostałe/nieznane
+   rule ID również mają neutralny fallback „Reguła obiektu”.
+4. Zmiana dotyczy wyłącznie prezentacji `History.tsx`; backend, persistence,
+   lifecycle i semantyka reguł nie zostały zmienione.
+
+AUDIT LAYERS / WYNIKI
+
+- Independent Chromium reproducer:
+  `npm exec playwright test -- --config playwright.audit-t060-r6.config.ts --timeout 15000`
+  -> 2 passed.
+- Targeted Task matrix:
+  `python -m pytest -q tests/test_t060.py` -> 11 passed.
+- Frontend build:
+  `npm run build` -> PASS (`tsc -b` + Vite, 53 modules).
+- Scope/diff:
+  `git diff --check 408fa6b..f921f21` -> PASS; produktowo zmieniono wyłącznie
+  dozwolony `frontend/src/screens/History.tsx` i wąski test prezentacji.
+- Pełnej regresji repo nie uruchamiano zgodnie z zamrożonym kontraktem audytu
+  wąskiej poprawki.
+
+KLASYFIKACJA ZACHOWANYCH REPRODUKTORÓW
+
+Starszy `t060-audit-r5.spec.ts` celowo oczekuje obecności tekstu
+`Manual correction` wyłącznie jako dowodu wcześniejszego stanu. Po poprawce R6
+ta pojedyncza asercja jest przedawniona względem PRODUCT_TRUTH; nie jest
+regresją produktu i plik pozostaje zachowany zgodnie z zasadą zachowania
+oryginalnego reproduktora.
+
+UWAGA NIEBLOKUJĄCA — REDAKCJA UI
+
+Wariant dobowy składa zdanie „pomija wymagany odpoczynek dobowego”. Sens jest
+czytelny i nie ma wycieku technicznego, więc nie jest to blocker T060, ale przy
+najbliższej korekcie tekstów warto zmienić formę na „odpoczynek dobowy” (oraz
+analogicznie dopracować wariant łączony).
+
+PASS dotyczy wyłącznie dokładnego SHA wskazanego powyżej.

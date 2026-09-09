@@ -1,0 +1,73 @@
+ROTA-T060 — CODE AUDIT R6
+
+VERDICT: FAIL
+EXACT AUDITED SHA: 408fa6b3f5e4f686dbf81f251138602b0c2a2c48
+BASE / FROZEN BRIEF: f5f76cd712697150302f7a64b199e2d8caa38825
+
+R5-01 — CZĘŚCIOWO NAPRAWIONE
+
+- Zachowane reproduktory R5: 2/2 PASS.
+- `before_state`/`after_state` pokazuje teraz czytelne polskie etykiety i nie
+  pokazuje technicznych nazw kluczy.
+- REST OVERRIDE nie pokazuje już `child_id` ani `employee_id`; pracownik jest
+  rozwiązywany do nazwy.
+
+R6-01 — zakładka „Reguły” nadal publikuje techniczny identyfikator i surowy
+komunikat systemowy
+
+TRACE
+
+- Zamrożony brief 1 oraz 2.1: koordynator nie może widzieć technicznych
+  identyfikatorów ani surowych technicznych komunikatów; zakaz obejmuje
+  `... ani podobnego technicznego identyfikatora`.
+- Punkt 3.6 i T60-05 obejmują CAŁĄ powierzchnię Historii. Brief nie tworzy
+  wyjątku dla technicznego UUID tylko dlatego, że implementer uznał go za
+  „nieskorelowany”.
+- Raport R5 wymagał bezpiecznej prezentacji rule ID/statement, a nie tylko
+  usunięcia dwóch wartości z angielskiego statementu.
+
+OWNERSHIP
+
+- `rota/application/rule_decisions.py::_new_matrix_rule_id` produkuje realny
+  `R-EMP-MATRIX-<uuid>`.
+- `frontend/src/screens/History.tsx::ruleDisplayLabel` redaguje wyłącznie
+  `REST-OVERRIDE:*`, a dla każdego innego rule ID zwraca surowy `ruleId`.
+- `ruleDisplayStatement` usuwa wartości ID z REST OVERRIDE, ale pozostawia
+  użytkownikowi systemowy tekst `Manual correction ... knowingly overrides
+  REST-01 ... employees ...`.
+
+REPRO NA EXACT SHA
+
+Niezależny Chromium render prawdziwego ekranu Historia potwierdził:
+
+1. REST OVERRIDE pokazuje:
+   `Manual correction (zapisano) knowingly overrides REST-01 for 1 pair(s),
+   employees Jan Kowalski.`
+2. Rzeczywisty rekord macierzy pokazuje:
+   `Reguła: R-EMP-MATRIX-0123456789abcdef0123456789abcdef`.
+
+Command:
+`npm exec playwright test -- --config playwright.audit-t060-r6.config.ts --timeout 15000`
+
+Result: 2/2 kontraktowe asercje FAIL. Evidence:
+`frontend/e2e/t060-audit-r6.spec.ts` oraz
+`frontend/playwright.audit-t060-r6.config.ts`.
+
+WYMAGANA WĄSKA KOREKTA
+
+- Wszystkie techniczne rule ID na ekranie Historii zastąpić czytelną neutralną
+  etykietą albo nie renderować ich jako treści. Bez wyjątku opartego na ocenie,
+  czy UUID jest „korelowalny”.
+- Dla REST OVERRIDE pokazać czytelny polski opis decyzji bez surowego
+  `Manual correction`, `REST-01` i technicznej składni systemowej.
+- Dane backendowe, persistence i semantyka reguł pozostają bez zmian.
+
+POZOSTAŁE WĄSKIE GATE'Y
+
+- Zachowany reproduktor R5: 2/2 PASS.
+- `python -m pytest -q tests/test_t060.py`: 11 passed.
+- `npm run build`: PASS (`tsc -b` + Vite, 53 modules).
+- `git diff --check 22b1805..408fa6b`: PASS.
+
+FAIL jest ograniczony do prezentacji zakładki „Reguły”. Nie wykonano pełnej
+regresji repo zgodnie z kontraktem audytu po wąskiej poprawce.

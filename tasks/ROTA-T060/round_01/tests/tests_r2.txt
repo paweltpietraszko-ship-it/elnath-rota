@@ -1,0 +1,40 @@
+ROTA-T060 — PREIMPLEMENTATION LITERAL RE-CHECK R2
+
+VERDICT: WYMAGA JEDNEJ KOREKTY TECHNICZNEGO KONTRAKTU
+EXACT BRIEF SHA: 3f9ddebbc4e4c1ce846bf69fb385cafcaaa38a89
+SCOPE: wyłącznie korekta R1; inventory nie powtarzano.
+
+ZAMKNIĘTE
+
+- roster.py:163 jest w scope i acceptance;
+- pełna powierzchnia Historii jest wymieniona;
+- decyzja „Koordynator” zachowuje wewnętrzne coordinator_id/plumbing;
+- Export, Analytics i hash PDF mają jednoznaczne granice;
+- literalny TASK_SCOPE jest zamrożony.
+
+BLOCKER R2-01 — klient nie ma jak rozpoznać bezpiecznego detail
+
+Brief wymaga, aby klient renderował kontrolowany komunikat backendu, ale
+odrzucał arbitralny `detail`. Oba docierają dziś w identycznej postaci
+`{detail: string}`. Bez zamrożonego znacznika/envelope/schema klient nie może
+poznać, czy tekst powstał w `api/errors.py`, czy w omijającym kontrakt
+HTTPException. Regex jest słusznie zakazany, a whitelist tekstów byłby drugim
+słownikiem, również zakazanym.
+
+Jednocześnie TASK_SCOPE mówi STOP przy zmianie DTO. W obecnym brzmieniu
+T60-04/T60-14 są więc wzajemnie niewykonalne. Architekt musi wskazać jeden
+minimalny, maszynowo rozpoznawalny publiczny format i jawnie dopuścić jego
+zmianę w `api/errors.py` + `client.ts` (bez persistence/modelu domenowego),
+albo zrezygnować z drugiej bariery frontendowej. To techniczny wybór
+architekta; nie wymaga nowej decyzji produktowej OWNERA.
+
+BLOCKER R2-02 — sprzeczny kontrakt warningu
+
+Brief każe `_collect_warnings` użyć istniejącego friendly-label flow, ale
+bieżący flow w `MonthlyPlanning.tsx` rozpoznaje employee_id właśnie przez
+kruchy format „ID w cudzysłowie”, którego kontrakt zabrania jako jedynej
+sanitizacji. Architekt musi literalnie wskazać minimalny seam: np. dostarczyć
+czytelną nazwę przy tworzeniu warningu albo jawnie dopuścić zmianę istniejącego
+flow. Implementer nie może sam rozstrzygnąć tej sprzeczności.
+
+Po tej jednej korekcie wystarczy kolejny literalny re-check tych dwóch zdań.
