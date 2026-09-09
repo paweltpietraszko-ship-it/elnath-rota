@@ -366,39 +366,51 @@ function ActionsTab({ siteId }: { siteId: string }) {
   );
 }
 
-// Codex R5 audit (tasks/ROTA-T060/round_01/tests/tests_r5.txt): the only
-// rule_id shape carrying a real, correlatable technical identifier is the
-// REST OVERRIDE audit record built by
-// rota/application/manual_edit.py::_rest_override_rule_content --
-// `f"REST-OVERRIDE:{child_id}"` -- and its statement embeds that same
-// child_id plus raw employee_ids (`f"Manual correction {child_id} ...
-// employees {', '.join(employee_ids)}."`). Every other rule_id in the repo
-// (rota/application/rule_decisions.py::_new_matrix_rule_id, `R-EMP-MATRIX-
-// <uuid>`) is an opaque, non-correlatable identifier with no matching
-// statement leak, so it's left as-is here (a bare uuid suffix isn't the
-// class of leak T60-05 is about -- it names nothing else in the system).
+// Codex R6 audit (tasks/ROTA-T060/round_01/tests/tests_r6.txt): the R5 fix
+// only redacted REST-OVERRIDE and left every other rule_id shape raw on the
+// theory that an opaque uuid ("not correlatable to anything else") wasn't
+// the class of leak T60-05 is about. Codex correctly rejected that carve-out
+// -- brief 1/2.1/3.6/T60-05 ban technical identifiers on this screen with no
+// judgment-call exception for "how correlatable is this one". Every real
+// rule_id shape (exhaustively: rota/application/manual_edit.py::
+// _rest_override_rule_content's `REST-OVERRIDE:<child_id>`, and
+// rota/application/rule_decisions.py::_new_matrix_rule_id's
+// `R-EMP-MATRIX-<uuid>`) now gets a neutral Polish label; nothing falls
+// through to the raw string.
 const REST_OVERRIDE_RULE_ID = /^REST-OVERRIDE:(.+)$/;
+const MATRIX_RULE_ID = /^R-EMP-MATRIX-/;
 
 function ruleDisplayLabel(ruleId: string): string {
-  return REST_OVERRIDE_RULE_ID.test(ruleId) ? "Wyjątek odpoczynku (korekta ręczna)" : ruleId;
+  if (REST_OVERRIDE_RULE_ID.test(ruleId)) return "Wyjątek odpoczynku (korekta ręczna)";
+  if (MATRIX_RULE_ID.test(ruleId)) return "Reguła macierzy pracownika";
+  return "Reguła obiektu";
 }
 
-// Backend data/semantics are untouched (Codex R5: "naprawa należy do
-// prezentacji Historii") -- this only redacts the two known raw values the
-// statement can contain, using the same child_id already exposed via the
-// rule_id itself, then resolves any employee_id substring through the same
-// roster lookup every other tab uses.
+// Codex R6: hiding the two raw VALUES (child_id, employee_id) from R5 wasn't
+// enough -- the surrounding sentence was still the backend's own English
+// system copy ("Manual correction ... knowingly overrides REST-01 ...").
+// Backend data/semantics are untouched (Codex: "naprawa należy do
+// prezentacji Historii"); this fully reconstructs a Polish sentence from
+// the statement's known, deterministic shape (manual_edit.py::
+// _rest_override_rule_content: `f"Manual correction {child_id} knowingly
+// overrides " + " and ".join(parts) + f", employees {...}."`, where parts
+// is "REST-01 for N pair(s)" and/or "WEEKLY-REST-01 for N employee-week(s)")
+// instead of patching individual values into it. Employee ids resolve
+// through the same roster lookup every other tab uses. If a future backend
+// change ever produces a shape this doesn't recognize, the safe neutral
+// fallback below is shown instead of the raw English/system text.
 function ruleDisplayStatement(ruleId: string, statement: string, nameForEmployee: (id: string) => string): string {
-  const idMatch = ruleId.match(REST_OVERRIDE_RULE_ID);
-  if (!idMatch) return statement;
-  const childId = idMatch[1];
-  let redacted = statement.split(childId).join(REDACTED_ID_PLACEHOLDER);
-  const employeesMatch = redacted.match(/employees ([^.]+)\.\s*$/);
-  if (employeesMatch) {
-    const names = employeesMatch[1].split(",").map((id) => nameForEmployee(id.trim())).join(", ");
-    redacted = redacted.slice(0, employeesMatch.index) + `employees ${names}.`;
-  }
-  return redacted;
+  if (!REST_OVERRIDE_RULE_ID.test(ruleId)) return statement;
+  const FALLBACK = "Ręczna korekta zarejestrowana jako świadomy wyjątek od reguł odpoczynku.";
+  const employeesMatch = statement.match(/employees ([^.]+)\.\s*$/);
+  if (!employeesMatch) return FALLBACK;
+  const names = employeesMatch[1].split(",").map((id) => nameForEmployee(id.trim())).join(", ");
+  const withoutWeekly = statement.replace(/WEEKLY-REST-01/g, "");
+  const overridesDaily = /\bREST-01\b/.test(withoutWeekly);
+  const overridesWeekly = /WEEKLY-REST-01/.test(statement);
+  const kinds = [overridesDaily && "dobowego", overridesWeekly && "tygodniowego"].filter(Boolean) as string[];
+  if (kinds.length === 0) return FALLBACK;
+  return `Ręczna korekta świadomie pomija wymagany odpoczynek ${kinds.join(" i ")} — pracownicy: ${names}.`;
 }
 
 function RulesTab({ siteId }: { siteId: string }) {

@@ -102,12 +102,23 @@ test("T060 R4 regresja: Historia redaguje pełny zestaw technicznych ID z Assign
 // employee_ids. Backend data/semantics are untouched by this fix (Codex:
 // "naprawa należy do prezentacji Historii") -- only History.tsx's RulesTab
 // presentation of an already-fetched DecisionRecordOut changes.
-test("T060 R5 regresja: zakładka Reguły nie ujawnia id grafiku ani pracownika z REST OVERRIDE", async ({ page }) => {
+//
+// Codex R6 audit (tasks/ROTA-T060/round_01/tests/tests_r6.txt): hiding the
+// two raw id VALUES wasn't enough -- the surrounding English "Manual
+// correction ... knowingly overrides REST-01 ..." system copy was still
+// shown verbatim, and the OTHER real rule_id shape
+// (rule_decisions.py::_new_matrix_rule_id, `R-EMP-MATRIX-<uuid>`) was left
+// completely raw on the theory that an uncorrelated uuid wasn't the class
+// of leak T60-05 covers. Codex rejected that carve-out: no technical
+// identifier is exempt, whether or not it's "correlatable". This test now
+// covers both real rule_id shapes in one fixture.
+test("T060 R5/R6 regresja: zakładka Reguły nie ujawnia surowego ID ani systemowego komunikatu", async ({ page }) => {
   const site2 = {
     site_id: "SITE-INTERNAL-SECRET", display_name: "Obiekt Audyt T060 Reguly", planning_regime: "ORDINARY",
     complete: true, missing: [], decision_required_months: [], print_settings_missing: false, active: true,
   };
   const roster2 = [{ employee_id: "EMPLOYEE-SECRET", display_name: "Jan Kowalski", active: true }];
+  const matrixRuleId = "R-EMP-MATRIX-0123456789abcdef0123456789abcdef";
 
   await page.route("**/api/workspace/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -124,6 +135,12 @@ test("T060 R5 regresja: zakładka Reguły nie ujawnia id grafiku ani pracownika 
         coordinator_id: "COORD-SECRET", recorded_at: "2026-09-09T12:00:00",
         effective_from: "2026-09-09", rule_version_id: null, rel: null, predecessor_decision_id: null,
       }],
+      [matrixRuleId]: [{
+        decision_id: "DECISION-MATRIX", site_id: site2.site_id, rule_id: matrixRuleId, chain_seq: 1,
+        statement: "Dniówka: niedostępna od 09.09.2026, bezterminowo",
+        coordinator_id: "COORD-SECRET", recorded_at: "2026-09-09T13:00:00", effective_from: "2026-09-09",
+        rule_version_id: "RULE-VERSION-SECRET", rel: null, predecessor_decision_id: null,
+      }],
     };
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
@@ -133,10 +150,14 @@ test("T060 R5 regresja: zakładka Reguły nie ujawnia id grafiku ani pracownika 
   await page.getByRole("button", { name: "Historia i audyt", exact: true }).click();
   await page.getByRole("button", { name: "Reguły", exact: true }).click();
   await expect(page.getByText("Wyjątek odpoczynku (korekta ręczna)")).toBeVisible();
+  await expect(page.getByText("Reguła macierzy pracownika")).toBeVisible();
+  await expect(page.getByText("Dniówka: niedostępna od 09.09.2026, bezterminowo")).toBeVisible();
 
   const bodyText = await page.locator("body").innerText();
   expect(bodyText).not.toContain("SV-RULE-SECRET");
   expect(bodyText).not.toContain("EMPLOYEE-SECRET");
-  expect(bodyText).toContain("Manual correction");
+  expect(bodyText).not.toContain(matrixRuleId);
+  expect(bodyText).not.toContain("Manual correction");
+  expect(bodyText).not.toContain("REST-01");
   await expect(page.getByText("Jan Kowalski")).toBeVisible();
 });
