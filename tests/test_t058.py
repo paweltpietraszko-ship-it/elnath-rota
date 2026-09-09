@@ -326,3 +326,76 @@ def test_t58_13_manual_correction_creates_flagged_deviation_not_a_block():
 def test_t58_14_third_consecutive_shift_rule_maps_to_an_existing_category():
     assert category_for_rule("THIRD-CONSECUTIVE-SHIFT-01", {}) == DeviationCategory.LAW
 
+
+# --- T58-15 (ARCHITECT_RULING 2026-09-09, R6-01 regression): a manually --
+# edited future PRIMARY that deliberately closes a THIRD-CONSECUTIVE-SHIFT-01
+# violation survives a later automatic Przelicz Plan -- promoted from
+# tasks/ROTA-T058/round_01/tests/repro_r6.py's real-DB reproducer.
+
+
+def test_t58_15_manual_third_consecutive_shift_survives_later_przelicz_plan(monkeypatch):
+    from datetime import datetime
+    from dataclasses import replace
+
+    from rota.application import plan_ops
+    from rota.domain import ShiftDemand
+    from rota.persistence import schedule_lifecycle
+    from rota.persistence.schedule_repository import get_schedule_snapshot
+    from tests.test_t019b import COORD, MONTH, SITE, _bootstrap, _employee, _fill_calendar
+
+    class _August10(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 8, 10, 12, 0)
+            return value if tz is None else value.replace(tzinfo=tz)
+
+    def _demand(day: int) -> ShiftDemand:
+        return ShiftDemand(f"D-{day}", "V0", datetime(2026, 8, day, 6), datetime(2026, 8, day, 18), 1)
+
+    def _assignment(day: int, employee_id: str) -> Assignment:
+        return Assignment(
+            f"A-{day}", "V0", employee_id, datetime(2026, 8, day, 6), datetime(2026, 8, day, 18),
+            AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, f"D-{day}", None,
+        )
+
+    conn = connect(":memory:")
+    _bootstrap(conn)
+    _employee(conn, "E1")
+    _employee(conn, "E2")
+    _fill_calendar(conn)
+
+    demands = [_demand(day) for day in (1, 20, 21, 22)]
+    assignments = [
+        _assignment(1, "E2"),
+        replace(_assignment(20, "E1"), frozen=True),
+        replace(_assignment(21, "E1"), frozen=True),
+        _assignment(22, "E2"),
+    ]
+    schedule_lifecycle.create_schedule_version(
+        conn, version_id="V0", site_id=SITE, month=MONTH, parent_version_id=None,
+        created_at=datetime(2026, 7, 25, 12), created_by=COORD, applied_rule_version_ids=[],
+        shift_demands=demands, assignments=assignments, deviations=[], effective_from=MONTH,
+    )
+
+    # The coordinator deliberately closes 20-21-22 August as a three-day
+    # sequence -- a knowing HARD override, not a solver decision.
+    manual = manual_edit.apply_manual_correction(
+        conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 9),
+        upsert_assignments=[replace(assignments[-1], employee_id="E1")], note="świadoma decyzja koordynatora",
+    )
+    manual_snapshot = get_schedule_snapshot(conn, manual.version_id)
+    assert any(d.category == DeviationCategory.LAW and d.source_reference == "THIRD-CONSECUTIVE-SHIFT-01"
+               for d in manual_snapshot.deviations)
+    corrected = next(a for a in manual_snapshot.assignments if a.assignment_id == "A-22")
+    assert corrected.employee_id == "E1" and corrected.frozen is True
+
+    # A later Przelicz Plan must not silently move it back.
+    monkeypatch.setattr(plan_ops, "datetime", _August10)
+    result = plan_ops.plan_month(
+        conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=date(2026, 8, 10),
+    )
+    assert result.status == "FEASIBLE"
+    for candidate in result.candidates:
+        actual = {a.employee_id for a in candidate if a.covers_demand_id == "D-22"}
+        assert actual == {"E1"}
+
