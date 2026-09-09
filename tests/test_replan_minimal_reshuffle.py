@@ -121,6 +121,25 @@ def test_c_soft_ranking_breaks_a_tie_between_equal_reshuffle_counts():
     demand1, demand2, demand3 = _demand_d("D1", 1), _demand_d("D2", 2), _demand_d("D3", 3)
     baseline2, baseline3 = _baseline("orig-2", "B", demand2), _baseline("orig-1", "A", demand1)
     baseline_c = _baseline("orig-3", "C", demand3)
+    # A is unavailable for D1's day only (2026-10-01), not the whole month --
+    # A therefore still counts as an "available LOCAL employee this solve"
+    # (solver._available_local_employee_ids only excludes someone with zero
+    # eligible slots at all). Omitting A's own WorkBalance below used to
+    # silently trip T041's OWNER-T041-01 incomplete-target-vector fallback
+    # (solver._add_combined_objective: target_vector_complete becomes False
+    # the moment any available LOCAL employee has no target_hours), which
+    # replaces this test's intended TARGET-01 ranking with plain equal-split
+    # max-min spread -- and A's own hours are then structurally pinned at 0
+    # (A can't take D1 itself, and touching D2/D3 would cost a second
+    # reshuffle), which anchors that spread's minimum regardless of how B
+    # and C split D1, making the two solutions this test compares
+    # indistinguishable under that fallback metric. A's target below is 0
+    # (never eligible to earn hours within the 1-reshuffle constraint this
+    # test fixes), just enough to complete the vector and exercise the real
+    # per-employee TARGET-01 ranking the test's own comment describes.
+    # Confirmed live: without it, the solver returns the OTHER (C, D1) tied
+    # solution first; with it, this test's exact expected assignment is the
+    # sole, non-tied optimum (objective 12 vs. 1_788_210 for the runner-up).
     gone = AvailabilityRecord("u1", "u1v1", "A", AvailabilityKind.UNAVAILABLE_24H, date(2026, 10, 1), date(2026, 10, 1), True, None, None)
     # Both B and C are free to also take the vacated demand1 -- either choice
     # is a 1-reshuffle solution (only demand1's baseline changes). B's target
@@ -129,7 +148,7 @@ def test_c_soft_ranking_breaks_a_tie_between_equal_reshuffle_counts():
         employees=(_employee("A"), _employee("B"), _employee("C")),
         memberships=(_membership("A"), _membership("B"), _membership("C")),
         shift_demands=(demand1, demand2, demand3), existing_assignments=(baseline_c, baseline2, baseline3),
-        availability_records=(gone,), work_balances=(_balance("B", 24), _balance("C", 12)),
+        availability_records=(gone,), work_balances=(_balance("A", 0), _balance("B", 24), _balance("C", 12)),
     )
     result = plan(state)
     assert result.status == "FEASIBLE"

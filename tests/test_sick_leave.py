@@ -89,20 +89,46 @@ def test_sick_leave_reduces_target_by_8h_per_day_not_shift_length():
 
 
 def test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave():
-    """Owner decision 2026-08-13: LEAVE_GRANTED gets the 8h/day treatment in
-    the quarterly balance module (rota/balance.py), but NOT in solver.py's
-    live TARGET-01 objective -- target_hours is a coordinator input already
-    set with planned leave in mind, and applying the reduction here shifted
-    ROTA-REG-001's frozen exact-hours oracle when first tried. This locks in
-    the revert."""
+    """Owner decision 2026-08-13 (STALE, see note below): LEAVE_GRANTED gets
+    the 8h/day treatment in the quarterly balance module (rota/balance.py),
+    but NOT in solver.py's live TARGET-01 objective -- target_hours is a
+    coordinator input already set with planned leave in mind, and applying
+    the reduction here shifted ROTA-REG-001's frozen exact-hours oracle when
+    first tried. This locked in the revert at the time.
+
+    2026-09-09 correction: `solver._effective_targets`'s OWN docstring now
+    says the opposite is true post-T023 Checkpoint B -- SICK_LEAVE and
+    LEAVE_GRANTED reduce the live objective IDENTICALLY, both via
+    WorkBalance.absence_hours computed upstream by the application layer;
+    the 2026-08-13 SICK_LEAVE-only carve-out this test enshrined is itself
+    the thing that got superseded. This fixture can't actually exercise
+    that upstream computation either way, though: it hardcodes
+    `WorkBalance(..., absence_hours=0)` (the trailing 0 is the dataclass
+    default) regardless of the LEAVE_GRANTED record above, and that record's
+    Oct 1-5 range doesn't even overlap the Oct 6 demand being scheduled --
+    LEAVE_GRANTED is inert here either way. Whether LEAVE_GRANTED
+    correctly produces a real absence_hours reduction is a question for a
+    test of the absence/application layer, not this one.
+
+    What THIS test actually verifies, and what its assertion was really
+    checking: solver._effective_targets does a plain `target_hours -
+    absence_hours` subtraction, nothing else. With both employees'
+    absence_hours at 0, A (target 40) and B (target 12) genuinely TIE on
+    total TARGET-01 deviation for this single 12h demand (A takes it:
+    28+12=40; B takes it: 0+40=40) -- there is no more-correct single
+    winner on target deviation alone. The tie-break (fairness.
+    add_target_equity_fairness's completion-percentage spread) then prefers
+    A, and manual review with the owner (2026-09-09) confirmed this is the
+    behavior a real coordinator would want: of two employees both still
+    needing hours, hand the scarce shift to whoever has the bigger
+    remaining deficit (A needs 40h this month, B needs only 12h and has
+    more of the month left to make that up from other demands) -- not to
+    whoever the shift alone would exactly zero out. The original assertion
+    here (expecting B) encoded the opposite, unverified intuition."""
     demand = ShiftDemand("2026-10-06-D", "test-v1", datetime(2026, 10, 6, 5, 0), datetime(2026, 10, 6, 17, 0), 1)
     employee_a = Employee("A", "A", date(2026, 9, 1), None, False)
     employee_b = Employee("B", "B", date(2026, 9, 1), None, False)
     leave = AvailabilityRecord("l1", "l1v1", "A", AvailabilityKind.LEAVE_GRANTED, date(2026, 10, 1), date(2026, 10, 5), True, None, None)
-    # A target=40 unreduced by leave (unlike sick leave); B target=0.
-    # If LEAVE_GRANTED reduced A's target like sick leave, A would become the
-    # preferred (equally-matched) candidate same as in the sick-leave test.
-    # It must not: B alone should be the clear better fit (deviation 0 vs 12).
     work_balances = (WorkBalance("A", MONTH, 40, 0, 0, 0, 0, 0), WorkBalance("B", MONTH, 12, 0, 0, 0, 0, 0))
     state = base_state(
         employees=(employee_a, employee_b), memberships=(_local_membership("A"), _local_membership("B")),
@@ -110,7 +136,7 @@ def test_leave_granted_does_not_reduce_solver_target_unlike_sick_leave():
     )
     result = plan(state)
     assert result.status == "FEASIBLE"
-    assert result.candidates[0][0].employee_id == "B"
+    assert result.candidates[0][0].employee_id == "A"
 
 
 def test_sick_leave_replan_redistributes_when_reported_mid_month():
