@@ -1,0 +1,111 @@
+ROTA-T061 — preimplementation audit, round 1
+
+AUDITED BRIEF SHA: 36350638d30451f7cdef319df75f1b6fe8ca1fa2
+RESULT: OWNER_DECISION_NEEDED — no PASS/FAIL under OWNER_EXPLANATION_GATE
+
+OWNER_CONFIRMED
+
+- Solver never persists an automatic HARD violation.
+- A first blocked PLAN leaves no ScheduleVersion/current/history/export.
+- An explicit coordinator action may create the first durable root version;
+  a knowingly accepted violation remains visible as Deviation and in the
+  action trail.
+- Existing-current manual correction and T057 preview lifecycle stay unchanged.
+
+OWNER_DECISION_NEEDED 1 — current DECISION_REQUIRED versus legal replacement
+
+The contract point 2.6 permits first-manual creation only while the current
+DECISION_REQUIRED/blocked context still exists. The mandatory source test_2
+first adds EMP2/update_membership and only then creates the manual schedule.
+Production update_membership is a material input action and calls
+invalidate_current_decision_required_no_commit for the Site. Therefore the
+required decision is no longer current before the manual action. The unchanged
+test_2 and point 2.6 cannot both pass.
+
+OWNER must choose one behavior:
+
+A. After changing staffing/input the coordinator must run PLAN again. If PLAN
+   becomes FEASIBLE, they accept its candidate; first-manual creation is only
+   for an unchanged, still-blocked context. Then source test_2 must change and
+   T61-03 cannot require its current sequence.
+
+B. One explicit resolution chain may continue after a linked staffing/input
+   action invalidates the current pointer, provided there is still no accepted
+   version and no later PLAN/decision. Then the contract must define that
+   bounded historical-link rule; this is broader than the present "current
+   DECISION_REQUIRED only" rule but preserves source test_2's intended flow.
+
+Trigger: a blocked first PLAN followed by a material input change.
+Effect: determines whether a subsequent manual first schedule is allowed.
+Data read/stored: decision snapshot/current pointer, linked coordinator actions,
+current inputs, first ScheduleVersion and Deviations. Nothing is sent externally
+or exported at this step. UI result: either manual scheduling remains available
+as part of the same resolution, or the coordinator is told to run PLAN again.
+Failure/recovery: rejected attempts must write nothing; recovery follows the
+chosen A or B path.
+
+OWNER_DECISION_NEEDED 2 — what the empty manual editor creates
+
+Today manual correction can only edit an Assignment already visible in a
+current schedule grid. With no current version there are no Assignments and the
+DECISION_REQUIRED branch hides the grid. The stored decision snapshot contains
+only blocking demands, not the complete month's demands. The brief does not say
+whether the coordinator must:
+
+A. manually assign the complete month before the first version is saved; or
+B. assign only selected/blocking shifts and knowingly save a partial first
+   schedule with coverage Deviations for all remaining gaps.
+
+This changes what the coordinator sees and what durable schedule is created, so
+CC must not choose it. The source test_2/test_3 supplies a complete month, which
+suggests A, but a test is not an OWNER ruling.
+
+Trigger: opening manual Route A after the first blocked PLAN.
+Effect: defines which shifts must be assigned before Save and whether a partial
+root schedule is legal. Data read/stored: current Site profile/catalog, calendar,
+roster, complete generated demands, chosen employees, root ScheduleVersion,
+Deviations and action link. Nothing is sent externally; export stays unavailable
+until the root version exists. UI result: a new editor must present assignable
+shifts because the existing grid cannot. Failure/recovery: validation or atomic
+write failure leaves zero version/current/action/deviation and preserves the
+blocked decision.
+
+TECHNICAL_ONLY — verified existing owners
+
+1. Canonical demands without current already come from
+   assembler.assemble_planning_state -> generate_profile_demands. The decision
+   snapshot alone is insufficient because it stores only blocking demands.
+2. schedule_lifecycle.create_schedule_version already accepts
+   parent_version_id=None and atomically writes header, complete content,
+   current pointer, pre_check and on_success hook. No second persistence owner
+   or seed-parent is necessary.
+3. site_memory.validate_decision_required_link_no_commit is atomic but currently
+   allows None and validates the snapshot's own Site/month rather than requiring
+   the command's target month. T061 needs a required, exact (site, month) check
+   at the same transaction boundary.
+4. manual_edit already owns validate -> materialize_deviations, T058 manual
+   freeze semantics, REST audit facts and coordinator action creation. These
+   must be extracted/reused, not copied. Existing helpers assume a parent and
+   therefore need a narrow root-compatible consolidation.
+5. The current API endpoint and frontend client are correction-only. A separate
+   first-manual endpoint is justified, but its payload and UI cannot be frozen
+   until OWNER_DECISION_NEEDED 2 is answered.
+
+UNAUTHORIZED: none delivered; implementation has not started.
+SAFETY_PRIVACY: no new immediate risk found in the brief.
+
+WHERE_MAP commands used on exact SHA
+
+- python where.py rota/application/manual_edit.py --symbol apply_manual_correction
+- python where.py rota/application/plan_ops.py --symbol plan_month
+- python where.py rota/application/plan_ops.py --symbol select_candidate
+- python where.py rota/persistence/schedule_lifecycle.py --symbol create_schedule_version
+- python where.py rota/persistence/site_memory.py --symbol validate_decision_required_link_no_commit
+- python where.py rota/application/assembler.py --symbol assemble_planning_state
+- python where.py api/routers/manual_edit.py --symbol post_manual_correction
+- python where.py frontend/src/screens/MonthlyPlanning.tsx
+
+No production code or tests were changed/run. Frozen simulators and benchmarks
+were not used. After the two OWNER decisions, the architect can amend the brief
+once with the literal UI/payload flow and TASK_SCOPE; Codex can then perform one
+narrow literal re-check without repeating this ownership map.
