@@ -36,6 +36,25 @@ są w obecnym stanie bezużyteczne i zamrożone.
 - Powrót do używania lub edycji wymaga nowej, jawnej decyzji OWNERA i osobnego
   kontraktu Tasku poświęconego symulatorom.
 
+## LEGACY_BENCHMARKS_FROZEN
+OWNER_RULING_2026-09-09: istniejący wspólny zestaw benchmarków jest w obecnym
+stanie bezużyteczny jako dowód jakości produktu i zostaje zamrożony.
+
+- Zakres zamrożenia:
+  - cały katalog `benchmarks/`;
+  - `tests/test_rota_stress_benchmark.py`;
+  - `tests/test_real_object_benchmark.py`.
+- NIE uruchamiaj, nie cytuj ani nie używaj tych plików jako części audytu,
+  regresji, gate'u, diagnozy lub dowodu wydajności. Gdy szersze polecenie pytest
+  zebrałoby testy benchmarków, wyklucz je jawnie i odnotuj to w raporcie.
+- NIE poprawiaj, nie usuwaj i nie przebudowuj ich przy okazji innych Tasków.
+- Zamrożenie nie zabrania wąskiego pomiaru czasu lub jakości, jeżeli wymaga go
+  zamrożony kontrakt konkretnego Tasku i kontrakt określa przypadki, metodę oraz
+  oceniane wyniki. Taki pomiar nie może importować ani wykorzystywać zamrożonego
+  zestawu `benchmarks/`.
+- Powrót do używania lub edycji zamrożonych benchmarków wymaga nowej, jawnej
+  decyzji OWNERA i osobnego kontraktu Tasku poświęconego benchmarkom.
+
 ## WHERE_MAP
 The architect/auditor MAY require `where.py` on a Task by adding this block to
 the contract before implementation — this is a tool the architect/auditor
