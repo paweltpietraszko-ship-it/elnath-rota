@@ -713,18 +713,28 @@ def _extract_assignments(
     return assignments
 
 
-def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot]) -> list[str]:
+def _collect_warnings(assignments: list[Assignment], slots: list[SolverSlot], state: PlanningState) -> list[str]:
     """DAY_SHIFT_OFF-01 SOFT only; LEAVE_PLAN-01 SOFT moved to
-    validator._check_leave_plan (R17-4) to avoid duplicating the warning."""
+    validator._check_leave_plan (R17-4) to avoid duplicating the warning.
+
+    ROTA-T060 (ARCHITECT_RULING R2, brief 2.2): resolves employee_id ->
+    Employee.display_name from `state.employees` before building the
+    warning text -- the coordinator-facing message never carries the raw
+    id, and never relies on client.ts's quoted-id resolveWarningText()
+    convention as its safety net. A genuinely unresolvable id (should not
+    happen in practice; state.employees is the same source slots were
+    built from) falls back to a neutral, still ID-free noun."""
+    display_name_by_id = {employee.employee_id: employee.display_name for employee in state.employees}
     warnings = []
     assigned = {(a.employee_id, a.covers_demand_id) for a in assignments}
     for slot in slots:
         if (slot.employee_id, slot.demand.demand_id) not in assigned:
             continue
         if slot.day_off_soft_entry:
+            who = display_name_by_id.get(slot.employee_id, "pracownik")
             warnings.append(
-                f"DAY_SHIFT_OFF-01 SOFT: {slot.employee_id} prior N enters day off until 05:00 "
-                f"on {slot.demand.end_datetime.date()}"
+                f"DAY_SHIFT_OFF-01 SOFT: {who} ma dzień wolny po nocnej służbie do 05:00 "
+                f"w dniu {slot.demand.end_datetime.date()}"
             )
     return warnings
 
@@ -814,7 +824,7 @@ def _finalize(
         )
     overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
     assignments = _extract_assignments(solver, x, slots, state, overrides)
-    warnings = _collect_warnings(assignments, slots)
+    warnings = _collect_warnings(assignments, slots, state)
     return SolverOutcome(status_name, assignments, warnings, [], {}, [], site_rule_exclusions)
 
 
@@ -881,7 +891,7 @@ def _search_additional_candidates(
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
             assignments = _extract_assignments(solver, x, slots, state, overrides)
-            alternatives.append((assignments, _collect_warnings(assignments, slots)))
+            alternatives.append((assignments, _collect_warnings(assignments, slots, state)))
             signature = _candidate_signature(solver, x, slots)
         elif status == cp_model.INFEASIBLE:
             break  # proof no further qualifying variant exists -- a valid, complete result

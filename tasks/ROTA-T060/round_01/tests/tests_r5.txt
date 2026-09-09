@@ -1,0 +1,73 @@
+ROTA-T060 — CODE AUDIT R5
+
+VERDICT: FAIL
+EXACT AUDITED SHA: 22b180578e7614585bef72ffea98679418a9058a
+BASE / FROZEN BRIEF: f5f76cd712697150302f7a64b199e2d8caa38825
+
+R4-01 — CZĘŚCIOWO NAPRAWIONE
+
+Nowa lista `ID_ONLY_STATE_KEYS` obejmuje rzeczywiste wartości ID Assignmentu,
+candidate delta i Deviation. Niezależny render Chromium potwierdził, że m.in.
+`ASSIGNMENT-SECRET` i `DEV-SECRET` nie trafiają już do DOM. Test implementera
+również pokrywa te wartości i czytelną nazwę pracownika.
+
+R5-01 — Historia nadal pokazuje techniczne identyfikatory jako treść UI
+
+TRACE
+
+- Zamrożony brief 2.1 i T60-05 zabrania renderowania `assignment_id`,
+  `schedule_version_id` i podobnych technicznych identyfikatorów jako treści
+  UI. Punkt 3.6 obejmuje CAŁĄ powierzchnię Historii.
+- T60-06 obejmuje również generyczny renderer `before_state`/`after_state`.
+
+OWNERSHIP
+
+- `frontend/src/screens/History.tsx::stateKeyLabel` zwraca surową nazwę klucza,
+  jeżeli nie ma jej w `STATE_KEY_LABEL`. Nowo chronione wartości dodano tylko
+  do `ID_ONLY_STATE_KEYS`, bez czytelnych etykiet dla ich kluczy.
+- Ten sam ekran wyświetla w zakładce „Reguły” surowy `ruleId` i `d.statement`.
+  `rota/application/manual_edit.py::_rest_override_rule_content` produkuje dla
+  realnej ręcznej korekty `REST-OVERRIDE:<child_id>` oraz angielski statement
+  zawierający `child_id` i `employee_id`.
+
+REPRO NA EXACT SHA
+
+Niezależny test Chromium uruchomił prawdziwy ekran Historia z kształtami
+rzeczywistych writerów. Potwierdził dwie niezależne ścieżki:
+
+1. „Przed/Po” maskuje wartości, lecz DOM nadal pokazuje m.in.:
+   - `schedule_version_id: (zapisano)`
+   - `assignment_id: (zapisano)`
+   - `covers_demand_id: (zapisano)`
+   - `deviation_id: (zapisano)`
+   - `source_reference: (zapisano)`
+2. „Reguły” pokazuje:
+   - `Reguła: REST-OVERRIDE:SV-RULE-SECRET`
+   - `Manual correction SV-RULE-SECRET ... employees EMPLOYEE-SECRET.`
+
+Command:
+`npm exec playwright test -- --config playwright.audit-t060-r5.config.ts --timeout 15000`
+
+Result: 2 kontraktowe asercje FAIL na rzeczywistym DOM. Evidence:
+`frontend/e2e/t060-audit-r5.spec.ts` oraz
+`frontend/playwright.audit-t060-r5.config.ts`.
+
+WYMAGANA WĄSKA KOREKTA
+
+- Nadać czytelne polskie etykiety nowym kluczom lub nie renderować technicznej
+  nazwy klucza; samo ukrycie wartości nie wystarcza.
+- W zakładce „Reguły” nie pokazywać technicznego `ruleId` ani surowego
+  statementu z ID. Dane backendowe mogą pozostać bez zmian; naprawa należy do
+  prezentacji Historii objętej TASK_SCOPE.
+- Rozszerzyć test renderu o brak technicznych nazw kluczy oraz realny rekord
+  REST_OVERRIDE. Nie zmieniać semantyki manual edit ani persistence.
+
+POZOSTAŁE WĄSKIE GATE'Y
+
+- `python -m pytest -q tests/test_t060.py`: 11 passed.
+- `npm run build`: PASS (`tsc -b` + Vite, 53 modules).
+- Exact diff R4 zmienia tylko dozwolony ekran Historii i wąski test frontendowy.
+
+FAIL dotyczy wyłącznie prezentacji Historii. Naprawa wartości ID z R4 działa;
+backend public-error marker, warning solvera, Export/PDF i semantyka planowania
+nie zostały ponownie podważone ani ponownie audytowane.

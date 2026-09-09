@@ -1,0 +1,70 @@
+ROTA-T060 — PREIMPLEMENTATION AUDIT R1
+
+VERDICT: WYMAGA_KOREKTY BRIEFU / IMPLEMENTATION HOLD
+EXACT BRIEF SHA: deacb17
+
+Cel OWNERA jest spójny: techniczne identyfikatory nie mogą być pokazywane
+koordynatorowi, backend jest główną barierą, komunikaty mają pozostać
+użyteczne, a hash weryfikacyjny PDF z T051 pozostaje wyjątkiem.
+
+BLOCKERY KONTRAKTU
+
+1. Brakuje realnego obejścia centralnego mappera.
+   `api/routers/roster.py:163` sam tworzy HTTPException z employee_id i
+   site_id. Samo poprawienie `api/errors.py` nie zamknie kanału. Ścieżka musi
+   wejść do literalnego TASK_SCOPE i T60-01/T60-09.
+
+2. Historia ma większy zakres niż zapisano w sekcji 3.
+   Oprócz source_id/responds_to/linked_action_ids renderuje coordinator_id w
+   obu tabelach, przyjmuje go w filtrze z tekstem „id koordynatora” oraz
+   rekurencyjnie pokazuje techniczne wartości z before_state/after_state.
+   TASK_SCOPE i test UI muszą objąć te miejsca; samo usunięcie kilku jawnych
+   wierszy nie spełni kontraktu.
+
+3. Brakuje zamrożonego zachowania dla koordynatora bez czytelnej nazwy.
+   Repo przechowuje/renderuje coordinator_id, a brief nie mówi, czy Historia
+   ma pokazać neutralne „Koordynator” i usunąć filtr po ID, czy produkt ma
+   dostać nazwę koordynatora. To jest decyzja widoczna dla użytkownika, nie
+   wolno pozostawić jej implementerowi.
+
+4. Fail-closed frontend jest obecnie nietestowalny.
+   `client.ts` dostaje dowolny tekst `detail`; brief nie określa, jak ma
+   odróżnić bezpieczny komunikat od identyfikatora. Regex UUID nie obejmie
+   wszystkich ID, a ignorowanie każdego detail złamie wymaganie użytecznego
+   komunikatu. Architekt musi zamrozić jeden minimalny kontrakt: kontrolowane
+   publiczne komunikaty w centralnym mapperze backendu oraz dokładnie opisana
+   awaryjna reakcja klienta na odpowiedź spoza tego kontraktu. Nie wolno
+   kazać CC wymyślić słownika ani filtra podczas implementacji.
+
+MINIMALNY LITERALNY TASK_SCOPE PO DECYZJI
+
+- `api/errors.py`
+- `api/routers/roster.py`
+- `frontend/src/api/client.ts`
+- `frontend/src/screens/Overview.tsx`
+- `frontend/src/screens/Decisions.tsx`
+- `frontend/src/screens/History.tsx`
+- `frontend/src/screens/Export.tsx`
+- `rota/planning/solver.py` (`_collect_warnings` only)
+- wąskie testy mappera/API, tych czterech ekranów oraz realny pion warningu.
+
+Nie dodawać Analytics tylko dlatego, że siteId jest parametrem/key — brak
+dowodu renderu. Nie zmieniać DTO/persistence, dopóki decyzja o nazwie
+koordynatora tego jawnie nie wymaga. W Export usunąć skrót document_revision
+z ekranu i siteId z nazwy pliku; hash w samym PDF pozostawić bez zmian.
+
+WHERE_MAP / READ-ONLY EVIDENCE
+
+`python where.py api/errors.py --symbol to_http_exception`
+- jeden owner; 73 surowe trafienia, produkcyjne wywołania ze wspólnego helpera
+  w routerach.
+
+`python where.py rota/planning/solver.py --symbol _collect_warnings`
+- jedna definicja, dwa produkcyjne wywołania; warning trafia do niezapisanego
+  wyniku PLAN/alternatyw.
+
+`git grep HTTPException/detail api`
+- poza mapperem znaleziono bezpośredni wyciek w `api/routers/roster.py:163`.
+
+Po jednej korekcie briefu wystarczy literalny re-check; nie trzeba ponownie
+czytać całego repo.
