@@ -94,9 +94,9 @@ test.describe("T042 Checkpoint A -- local date across the UTC boundary", () => {
     // (REPLAN)" field it used to reveal don't exist anywhere in current
     // source (2026-09-09, found while fixing this file's stale
     // "status: WORKING" text). Same pre-existing T057 REPLAN-flow
-    // restructuring gap as monthly-planning.spec.ts's skipped finalize
-    // test -- flagging, not guessing at where the cutover-date default is
-    // asserted now.
+    // restructuring gap tracked in BOARD.md/ROTA-TEST-CLEANUP's
+    // test_t011_e Route A finding -- flagging, not guessing at where the
+    // cutover-date default is asserted now.
   });
 
   test("T42-A04: an ordinary midday moment still resolves the correct local date", async ({ page }) => {
