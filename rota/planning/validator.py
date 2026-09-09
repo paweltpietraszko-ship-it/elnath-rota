@@ -384,12 +384,19 @@ def _check_third_consecutive_shift(state: PlanningState, assignments: list[Assig
     relevant_end = month_end + timedelta(days=2)
 
     dates_by_employee: dict[str, set] = {}
-    assignment_by_employee_date: dict[tuple[str, date], str] = {}
+    # Code audit round 7 (tests_r7.txt R7-01): a real 24h service is TWO
+    # Assignments (D+N components) sharing one start date -- a plain dict
+    # keyed by (employee_id, date) kept only the last one written, silently
+    # dropping the other's assignment_id from this rule's own violation
+    # attribution (manual_edit's freeze-the-cause fix could then only ever
+    # freeze one of the two, leaving the other redistributable). Every id
+    # for a given (employee_id, date) is kept, not just one.
+    assignment_ids_by_employee_date: dict[tuple[str, date], list[str]] = {}
     for assignment in assignments:
         if assignment.role != AssignmentRole.PRIMARY:
             continue
         d = assignment.start_datetime.date()
-        assignment_by_employee_date[assignment.employee_id, d] = assignment.assignment_id
+        assignment_ids_by_employee_date.setdefault((assignment.employee_id, d), []).append(assignment.assignment_id)
         dates_by_employee.setdefault(assignment.employee_id, set()).add(d)
 
     for boundary in state.boundary_assignments:
@@ -404,9 +411,9 @@ def _check_third_consecutive_shift(state: PlanningState, assignments: list[Assig
         for d in dates:
             if (d + timedelta(days=1)) in dates and (d + timedelta(days=2)) in dates:
                 ids = tuple(
-                    assignment_by_employee_date[employee_id, dd]
+                    assignment_id
                     for dd in (d, d + timedelta(days=1), d + timedelta(days=2))
-                    if (employee_id, dd) in assignment_by_employee_date
+                    for assignment_id in assignment_ids_by_employee_date.get((employee_id, dd), ())
                 )
                 details.append(ViolationDetail(
                     "THIRD-CONSECUTIVE-SHIFT-01", ids,
