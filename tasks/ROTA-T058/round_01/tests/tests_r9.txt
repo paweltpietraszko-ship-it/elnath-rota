@@ -1,0 +1,68 @@
+ROTA-T058 — POST-PASS OPERATIONAL IMPACT RECHECK
+
+VERDICT: PASS REMAINS VALID
+EXACT AUDITED PRODUCT SHA: f44f7c391edf91c2f6ef62e4468d7c95b48626d8
+COUNTERFACTUAL BASE SHA: 298ddb9557455a574959876c38be1ebd7493319a
+TRIGGER: OWNER concern that the solver historically used three consecutive
+PRIMARY shifts and that the new HARD could therefore make PLAN fail.
+
+CONCLUSION
+
+T058 materially changes some chosen schedules, but no tested case lost a
+feasible plan. On one saved real object the pre-T058 solver selected 6
+three-day windows; exact f44f7c3 solved the same input with 0 such windows.
+The new solution remained FEASIBLE.
+
+REAL SAVED-DATA PROBE
+
+The probe used disposable copies of local rota_dev.db. The original database
+was not opened for writes. September 2026 contained five current objects:
+
+- four objects were independently replanned FEASIBLE on f44f7c3 with zero
+  three-consecutive-shift windows (LOCAL staffing: 5, 5, 7 and 6;
+  60 demands each);
+- the fifth object returned the same TECHNICAL_ERROR on f44f7c3 and on the
+  pre-T058 base, both after about 45 seconds. The detailed error points to
+  already-existing August NIGHT-STREAK-01 violations. It is not introduced
+  by T058;
+- the saved current September schedules themselves contained zero
+  three-consecutive-shift windows.
+
+The strongest counterfactual was the six-employee object: pre-T058 produced
+6 triple windows, while f44f7c3 produced 0 and stayed FEASIBLE. This confirms
+that the check exercised a case where the old solver actually used triples,
+not only an easy fixture where the rule was irrelevant.
+
+CALENDAR SWEEP
+
+`python -m benchmarks.real_object --suite calendar`
+
+RESULT: 24/24 consecutive calendar-month cases FEASIBLE on f44f7c3.
+
+CONTROLLED STRESS COMPARISON
+
+Identical generated cases and seed were run on both versions:
+
+`python -m benchmarks.rota_stress --cases 30 --seed 20260812 --max-case-seconds 30`
+
+- f44f7c3: all 30 returned a valid FEASIBLE candidate; 25 met the extra 30s
+  audit deadline, 5 exceeded it; p50 0.368s, p95 45.020s, total 232.583s;
+- pre-T058 base: all 30 returned a valid FEASIBLE candidate; 25 met the same
+  deadline, 5 exceeded it; p50 0.463s, p95 45.021s, total 277.238s.
+
+The benchmark labels the five over-deadline cases FAIL solely because of the
+extra 30s measurement gate; none was a missing/invalid plan. T058 did not
+increase the count of slow cases and was faster in aggregate in this sample.
+
+BOUND OF THE VERDICT
+
+An absolute HARD necessarily means that an input whose only mathematical
+solutions require a third consecutive shift must return no automatic plan.
+That is the frozen OWNER behavior, not a solver defect. This recheck does not
+prove such inputs can never occur; it shows that they did not occur in the
+saved September objects, the 24-month sweep or the 30 witnessed feasible
+stress cases. A defect would require a reproduced input where a no-triples
+solution exists but f44f7c3 fails to find it; none was found.
+
+No product code, frontend or PDF code was changed. Visual PDF evaluation is
+not a relevant gate for this operational solver-only recheck.

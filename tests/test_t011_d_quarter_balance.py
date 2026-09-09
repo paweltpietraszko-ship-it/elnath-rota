@@ -177,7 +177,12 @@ def test_5_first_month_of_quarter_has_zero_carry_in(tmp_path) -> None:
 
 def test_6_missing_earlier_norm_does_not_block_plan(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    _bootstrap(conn)
+    # ROTA-T058 (owner-authorized fixture fix, 2026-09-08): a single employee
+    # covering every day of AUG now genuinely trips the new HARD
+    # max-two-consecutive-PRIMARY-shifts rule -- this test is about the
+    # missing-earlier-quarter-norm warning not blocking PLAN, not staffing
+    # tightness, so a second employee restores real slack.
+    _bootstrap(conn, employee_ids=(EMP_A, EMP_B))
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
     # JUL (earlier month of the same quarter) has no target_hours.
     _fill_calendar(conn, AUG)

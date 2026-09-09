@@ -1,0 +1,76 @@
+ROTA-T058 — CODEX NARROW RE-AUDIT AFTER R7-01 FIX
+
+VERDICT: PASS
+EXACT AUDITED SHA: f44f7c391edf91c2f6ef62e4468d7c95b48626d8
+FIX BASE / PRIOR AUDIT: 010c7c2
+SCOPE: wyłącznie R7-01 i najbliższe granice tej samej klasy.
+
+R7-01 — PASS
+
+- Exact diff zmienia wyłącznie `rota/planning/validator.py`.
+- `_check_third_consecutive_shift` przechowuje teraz listę wszystkich
+  assignment_id dla pary `(employee_id, start_date)` i spłaszcza wszystkie
+  listy z trzech dat naruszenia.
+- Dla realnej H24 służby D+N na tej samej dacie `ViolationDetail.assignment_ids`
+  zawiera oba komponenty. Istniejący helper w manual_edit przecina je z
+  faktycznymi `upsert_assignments`, dlatego zamraża oba ręcznie edytowane
+  komponenty, a nie inne Assignmenty z okna.
+- Do action hook przekazywana jest już przekształcona lista upsertów;
+  `after_state` powstaje z tej samej listy, więc odzwierciedla rzeczywiście
+  zapisane `frozen=True`.
+
+INDEPENDENT MATRIX / REAL VERTICAL
+
+1. Zachowany realny reproduktor H24 (`repro_r7.py`) na mieszanym profilu
+   12h/24h, SQLite i produkcyjnych operacjach:
+   - oba ręcznie przeniesione komponenty D+N są zapisane `frozen=True`;
+   - późniejszy Przelicz Plan jest FEASIBLE i zachowuje E1 na obu komponentach;
+   - jawne późniejsze unfreeze pozostaje skuteczne.
+   RESULT: 3 passed.
+
+2. Zachowany pierwotny reproduktor R6 oraz pełna macierz T058:
+   - zwykła jednoczęściowa ręczna służba nadal jest chroniona;
+   - solver/validator, fixed history, granice i ręczny Deviation zachowują
+     wcześniejszą semantykę.
+
+COMMAND / RESULT
+
+`python -m pytest -q tasks/ROTA-T058/round_01/tests/repro_r7.py tasks/ROTA-T058/round_01/tests/repro_r6.py tests/test_t058.py`
+
+RESULT: 19 passed.
+
+STATIC
+
+`ruff check rota/planning/validator.py rota/application/manual_edit.py tests/test_t058.py repro_r7.py`
+
+RESULT: All checks passed.
+
+`git diff --check 010c7c2..f44f7c3`
+
+RESULT: PASS.
+
+WHERE.PY EVIDENCE
+
+`python where.py rota/planning/validator.py --symbol _check_third_consecutive_shift`
+
+The map confirmed one production definition, one production call from
+`validate()`, and the existing engine consumer of `ViolationDetail`.
+Inspection confirmed that expanding assignment_ids preserves the engine's
+fully-historical test: it still compares the complete ID set with fixed IDs.
+
+REGRESSION POLICY / LIMITS
+
+Full repository regression was not repeated: CC supplied the unchanged full
+result, the fix is one validator data-shape change, and AGENTS.md requires
+explicit OWNER approval for a full rerun after a narrow fix. The original
+failure, its H24 generalization, the single-component sibling and explicit
+unfreeze control were all exercised on the exact SHA.
+
+No PDF/frontend/layout code changed in this fix; visual schedule-print
+evaluation is therefore not a relevant gate for this micro-fix.
+
+PASS SCOPE
+
+PASS applies only to exact SHA
+f44f7c391edf91c2f6ef62e4468d7c95b48626d8 and the frozen hard-only T058
+contract. The separate 24-hour equity tolerance remains outside T058.

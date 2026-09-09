@@ -1,0 +1,127 @@
+STATUS: FAIL
+HEAD_SHA: 76b3b57e9eb7307904c4e03806cbd1dc41f311e9
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - RUFF: E501 Line too long (619 > 600)
+  - RUFF:   --> rota\planning\fairness.py:20:601
+  - RUFF:    |
+  - RUFF: 18 | â€¦
+  - RUFF: 19 | â€¦
+  - RUFF: 20 | â€¦ller (e.g. an isolated unit test) does not thread a computed weight through.
+  - RUFF:    |                                                           ^^^^^^^^^^^^^^^^^^^
+  - RUFF: 21 | â€¦
+  - RUFF: 22 | â€¦
+  - RUFF:    |
+  - RUFF: Found 1 error.
+  - SIZE_FILE: rota/planning/constraints.py has 744 lines (max 600)
+  - SIZE_FUNC: rota/planning/constraints.py:add_max_two_consecutive_primary_shift_constraint has 85 lines (max 50)
+  - SIZE_FILE: rota/planning/solver.py has 1216 lines (max 600)
+  - SIZE_FUNC: rota/planning/solver.py:solve has 189 lines (max 50)
+  - SIZE_FUNC: rota/planning/fairness.py:add_dn_rhythm_reward has 100 lines (max 50)
+  - SIZE_FILE: rota/planning/validator.py has 854 lines (max 600)
+  - SIZE_FUNC: rota/planning/validator.py:_check_rest has 84 lines (max 50)
+  - SIZE_FILE: rota/planning/engine.py has 968 lines (max 600)
+  - SIZE_FUNC: rota/planning/engine.py:_plan_requiring_different_result_narrow has 123 lines (max 50)
+  - SIZE_FILE: rota/application/plan_ops.py has 738 lines (max 600)
+  - SIZE_FUNC: rota/application/plan_ops.py:plan_month has 117 lines (max 50)
+  - SIZE_FUNC: api/routers/schedule.py:get_month has 72 lines (max 50)
+  - SIZE_FILE: tests/test_t019b.py has 962 lines (max 600)
+  - SIZE_FUNC: tests/test_audit_t007_r3.py:test_r3_load_fallback_preserves_site_rule_provenance has 56 lines (max 50)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 1387 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - benchmarks\manual_audits.py
+  - benchmarks\real_object.py
+  - benchmarks\rota_stress.py
+  - rota\site_memory_types.py
+  - tests\test_audit_r12_findings.py
+  - tests\test_audit_r13_findings.py
+  - tests\test_audit_r14_findings.py
+  - tests\test_audit_r15_findings.py
+  - tests\test_audit_r16_findings.py
+  - tests\test_audit_r17_findings.py
+  - tests\test_audit_r20_r21_findings.py
+  - tests\test_audit_r22_findings.py
+  - tests\test_audit_r23_findings.py
+  - tests\test_audit_r25_findings.py
+  - tests\test_audit_r26_findings.py
+  - tests\test_audit_t007_r3.py
+  - tests\test_audit_t007_r4.py
+  - tests\test_audit_t007_r5.py
+  - tests\test_audit_t009_r4.py
+  - tests\test_audit_t009_r5.py
+  - tests\test_audit_t009_r6.py
+  - tests\test_audit_t010_r3.py
+  - tests\test_audit_t010_r5_b.py
+  - tests\test_eligibility_matrix.py
+  - tests\test_real_object_benchmark.py
+  - tests\test_replan_and_soft_ranking.py
+  - tests\test_replan_minimal_reshuffle.py
+  - tests\test_rota_generic_month.py
+  - tests\test_rota_reg_001.py
+  - tests\test_sick_leave.py
+  - tests\test_site_rules_execution.py
+  - tests\test_site_rule_execution_integration.py
+  - tests\test_t009_manual_edit.py
+  - tests\test_t010_c_readiness_regression.py
+  - tests\test_t010_day_only_n_exception.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t011_e_pipeline_e2e_hard_stop.py
+  - tests\test_t012.py
+  - tests\test_t013.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t017.py
+  - tests\test_t018.py
+  - tests\test_t019b.py
+  - tests\test_t022_planning_integrity.py
+  - tests\test_t023.py
+  - tests\test_t023b.py
+  - tests\test_t023_checkpoint_b.py
+  - tests\test_t026.py
+  - tests\test_t031_schedule_api.py
+  - tests\test_t032_soft_ranking.py
+  - tests\test_t033_replan_must_differ.py
+  - tests\test_t034_third_consecutive_shift_soft.py
+  - tests\test_t036_rest_deviation_target.py
+  - tests\test_t040_h24_rhythm_occupancy.py
+  - tests\test_t041_checkpoint_a.py
+  - tests\test_t041_checkpoint_b.py
+  - tests\test_t042_audit4_repairs.py
+  - tests\test_t058.py
+  - tasks\ROTA-T058\round_01\tests\repro_r4.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r2_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r4_architect_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r5_independent.py
+  - tasks\ROTA-T052\round_01\tests\test_t052_r4_audit.py
+  - tasks\ROTA-T041\round_01\tests\test_checkpoint_a_audit.py
+  - tasks\ROTA-T037\round_01\tests\audit_r1_reproducer.py
+  - tasks\ROTA-T033\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r2.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r3.py
+  - tasks\ROTA-T032\round_01\tests\repro_r5.py
+  - tasks\ROTA-T032\round_01\tests\repro_r7.py
+  - tasks\ROTA-T026\round_01\tests\test_t026_r2_audit.py
+  - tasks\ROTA-T023b\round_01\tests\test_t023b_r5_audit.py
+  - tasks\ROTA-T022\round_01\tests\test_t022_r1_audit.py
+  - tasks\ROTA-T012\scenarios\t012_owner_march_2027_probe.py
+  - tasks\ROTA-T012\round_01\tests\test_absence_workday_accounting_r23.py
+  - tasks\ROTA-T003\round_01\implementation\rota_stress_edge_generator.py
+  - rota\application\deviation_mapping.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+  - rota\application\memory_read.py
+  - rota\application\open_month.py
+  - rota\application\plan_ops.py
+  - rota\application\precheck.py
+  - rota\persistence\absence_reference_repository.py
+  - rota\persistence\site_memory.py
+  - rota\planning\decision_guidance.py
+  - rota\planning\engine.py
+  - rota\planning\solver.py
+  - api\routers\manual_edit.py
+  - api\routers\schedule.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-T058/brief.md

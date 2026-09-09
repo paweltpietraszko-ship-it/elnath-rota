@@ -344,6 +344,83 @@ def _check_night_streak(state: PlanningState, assignments: list[Assignment], det
                 ))
 
 
+def _check_third_consecutive_shift(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """THIRD-CONSECUTIVE-SHIFT-01 (ROTA-T058, OWNER_CORRECTED 2026-09-08):
+    independent from-scratch mirror of the solver HARD
+    (constraints.add_max_two_consecutive_primary_shift_constraint) -- the
+    same employee never has non-CANCELLED PRIMARY service (any D/N
+    combination, not just N) on three consecutive start dates. Unlike
+    _check_night_streak, no D/N classification is needed at all -- any real
+    PRIMARY occupies its start date regardless of covering-demand kind, and
+    a 24h D+N occurrence still shares one start date (this only tracks
+    dates, never double-counts same-date components). This is the automatic
+    solver's own HARD, but this check runs on EVERY assignments list
+    validate() sees, including a manual correction's -- section 2.2: the
+    HARD does not block a coordinator's deliberate manual write, it only
+    ever materializes as a named Deviation via the existing
+    validate -> materialize_deviations -> coordinator action path.
+    `assignments` is already CANCELLED-filtered by validate(); target-Site
+    boundary_assignments extend the check across the month boundary,
+    exactly like NIGHT-STREAK-01 -- other_site_assignments and TRAINEE/
+    PERIODIC_TRAINING never participate.
+
+    Code audit round 4 (tests_r4.txt R4-01): state.boundary_assignments'
+    own context window is genuinely unbounded (any date, arbitrarily far in
+    the past or future), unlike constraints.add_max_two_consecutive_
+    primary_shift_constraint's solver-side window, which only ever reaches
+    [month_start-2, month_end+2]. Without the same bound here, a fully
+    unrelated triple from some other month (e.g. real history from months
+    ago) surfaced as a THIRD-CONSECUTIVE-SHIFT-01 ViolationDetail with no
+    assignment_ids at all, and materialize_deviations then had nothing to
+    attach it to -- UnknownDeviationSource on every subsequent unrelated
+    manual correction. Only boundary facts inside this month's own solver
+    window can ever combine with something in `assignments` anyway (a
+    window entirely outside it is already this month's own past/future
+    problem, not something this validate() call is even asked about)."""
+    num_days = calendar.monthrange(state.month.year, state.month.month)[1]
+    month_start = date(state.month.year, state.month.month, 1)
+    month_end = date(state.month.year, state.month.month, num_days)
+    relevant_start = month_start - timedelta(days=2)
+    relevant_end = month_end + timedelta(days=2)
+
+    dates_by_employee: dict[str, set] = {}
+    # Code audit round 7 (tests_r7.txt R7-01): a real 24h service is TWO
+    # Assignments (D+N components) sharing one start date -- a plain dict
+    # keyed by (employee_id, date) kept only the last one written, silently
+    # dropping the other's assignment_id from this rule's own violation
+    # attribution (manual_edit's freeze-the-cause fix could then only ever
+    # freeze one of the two, leaving the other redistributable). Every id
+    # for a given (employee_id, date) is kept, not just one.
+    assignment_ids_by_employee_date: dict[tuple[str, date], list[str]] = {}
+    for assignment in assignments:
+        if assignment.role != AssignmentRole.PRIMARY:
+            continue
+        d = assignment.start_datetime.date()
+        assignment_ids_by_employee_date.setdefault((assignment.employee_id, d), []).append(assignment.assignment_id)
+        dates_by_employee.setdefault(assignment.employee_id, set()).add(d)
+
+    for boundary in state.boundary_assignments:
+        if boundary.role != AssignmentRole.PRIMARY or boundary.state == AssignmentState.CANCELLED:
+            continue
+        d = boundary.start_datetime.date()
+        if not (relevant_start <= d <= relevant_end):
+            continue
+        dates_by_employee.setdefault(boundary.employee_id, set()).add(d)
+
+    for employee_id, dates in dates_by_employee.items():
+        for d in dates:
+            if (d + timedelta(days=1)) in dates and (d + timedelta(days=2)) in dates:
+                ids = tuple(
+                    assignment_id
+                    for dd in (d, d + timedelta(days=1), d + timedelta(days=2))
+                    for assignment_id in assignment_ids_by_employee_date.get((employee_id, dd), ())
+                )
+                details.append(ViolationDetail(
+                    "THIRD-CONSECUTIVE-SHIFT-01", ids,
+                    f"THIRD-CONSECUTIVE-SHIFT-01: {employee_id} has a real service on three consecutive dates starting {d}",
+                ))
+
+
 def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
     off_dates_by_employee: dict[str, set] = {}
     for record in state.availability_records:
@@ -778,6 +855,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_membership_enabled(state, for_eligibility_checks, details)
     _check_day_only(state, for_eligibility_checks, details, warnings)
     _check_night_streak(state, assignments, details)
+    _check_third_consecutive_shift(state, assignments, details)
     _check_day_shift_off(state, for_eligibility_checks, details, warnings)
     _check_leave_and_unavailable(state, for_eligibility_checks, details)
     _check_leave_plan(state, for_eligibility_checks, warnings)

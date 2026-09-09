@@ -185,6 +185,8 @@ def _resolve_without_load_cap(
         return _decision_for_load(state, fallback)
     if fallback.night_streak_conflicts:
         return _decision_for_night_streak(state, fallback)
+    if fallback.third_shift_conflicts:
+        return _blocked_for_third_shift(fallback)
     if fallback.conflicting_demand_ids:
         return _decision_for_conflict(state, fallback)
     return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [], fallback.optimization_complete)
@@ -203,11 +205,11 @@ def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[As
 def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
-    if report.hard_pass:
+    if _gating_hard_pass(state, report):
         return _feasible_result(
             state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives, outcome.optimization_complete,
         )
-    if _has_non_load_violations(report):
+    if _has_non_load_violations(state, report):
         return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
     # never gets a SolverSlot, so the LOAD-01 cap constraint is never added
@@ -239,7 +241,7 @@ def _feasible_result(
     for solved, solver_warnings in alternatives:
         full = _full_assignments(state, solved)
         report = validate(state, full)
-        if not report.hard_pass:
+        if not _gating_hard_pass(state, report):
             return PlanningResult(
                 "TECHNICAL_ERROR", [], None,
                 "independent validator rejected an additional T017 variant candidate", [],
@@ -561,6 +563,8 @@ def _plan_requiring_different_result_wide(
             if not enforce_load_cap and not found_ordinary_feasible:
                 if ordinary.night_streak_conflicts:
                     return _decision_for_night_streak(state, ordinary)
+                if ordinary.third_shift_conflicts:
+                    return _blocked_for_third_shift(ordinary)
                 if ordinary.conflicting_demand_ids:
                     return _decision_for_conflict(state, ordinary)
             continue  # a genuine ordinary conflict at this permissiveness -- a later stage may still rescue it
@@ -637,6 +641,28 @@ def _decision_for_night_streak(state: PlanningState, outcome: SolverOutcome) -> 
     return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 
+def _blocked_for_third_shift(outcome: SolverOutcome) -> PlanningResult:
+    """ROTA-T058 (OWNER_CORRECTED 2026-09-08, brief sections 2.1/5): a
+    genuinely non-decision outcome, deliberately NOT DECISION_REQUIRED and
+    NOT sharing _decision_for_night_streak/_decision_for_conflict's
+    diagnosis functions -- "PLAN/REPLAN/Przelicz Plan nie dostaje wyjatku
+    przez DECISION_REQUIRED" (no automatic coordinator-override path for
+    this HARD at all; the automatic solve simply cannot produce a legal
+    candidate). No decision_payload/blockers -- there is nothing to decide,
+    only a readable message and manual recovery (change staffing/
+    availability, replan) per T58-04. engine_types.PlanningResult.status
+    gained the new "THIRD_CONSECUTIVE_SHIFT_BLOCKED" value for exactly this
+    truthful non-decision result (brief section 7 EXACT TASK_SCOPE grants
+    engine_types.py this one purpose)."""
+    employee_ids = sorted({employee_id for employee_id, _ in outcome.third_shift_conflicts})
+    warnings = [
+        "THIRD-CONSECUTIVE-SHIFT-01: automatic PLAN/REPLAN/Przelicz Plan cannot cover this month without giving "
+        f"at least one of {employee_ids} a third consecutive working day -- HARD, no automatic exception. "
+        "Change staffing/availability and plan again."
+    ]
+    return PlanningResult("THIRD_CONSECUTIVE_SHIFT_BLOCKED", [], None, None, warnings)
+
+
 def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     """Audit round 12 FINDING 3: a minimal set of demands that cannot be jointly
     satisfied (typically a REST-01 conflict) is a normal autonomy boundary, not a
@@ -668,7 +694,7 @@ def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> Plan
 def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
-    if _has_non_load_violations(report):
+    if _has_non_load_violations(state, report):
         # Round 15 audit (tests_r15.txt FINDING R15-2): the uncapped fallback
         # candidate is still a candidate and must pass full independent HARD
         # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
@@ -678,8 +704,11 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
     return _load_decision(state, report, list(outcome.warnings), full, outcome.site_rule_exclusions)
 
 
-def _has_non_load_violations(report: IndependentValidationReport) -> bool:
-    return any(d.rule != "LOAD-01" for d in report.violation_details)
+def _has_non_load_violations(state: PlanningState, report: IndependentValidationReport) -> bool:
+    return any(
+        d.rule != "LOAD-01" for d in report.violation_details
+        if not _is_fully_historical_third_shift(state, d)
+    )
 
 
 def _fixed_non_realized_ids(state: PlanningState) -> set:
@@ -707,7 +736,60 @@ _FROZEN_BOUNDARY_RULES = frozenset({
     # (REALIZED/frozen/mentor-linked) Assignments is the same kind of
     # coordinator autonomy boundary REST-01 already is -- never a solver bug.
     "NIGHT-STREAK-01",
+    # ROTA-T058 (found live, test_m18-style regression 2026-09-08; corrected
+    # per ARCHITECT_RULING 2026-09-08, brief 2.3A): when a THIRD-CONSECUTIVE-
+    # SHIFT-01 violation entirely among already-fixed facts coexists with
+    # ANOTHER real HARD/LOAD issue, this entry keeps it "explained" here so
+    # it never falls through to the generic "unattributed HARD violation"
+    # TECHNICAL_ERROR safety net -- the same role NIGHT-STREAK-01 above
+    # already plays. When it is the ONLY violation present, it must not gate
+    # anything at all (not even a new DECISION_REQUIRED) -- see
+    # _is_fully_historical_third_shift/_gating_hard_pass/_has_non_load_
+    # violations below, which filter it out before this whitelist is ever
+    # consulted. Unlike REST-01/NIGHT-STREAK-01, this rule did not exist
+    # before T058, so real pre-existing schedule data can contain it purely
+    # because the rule is new -- it must never retroactively stall unrelated
+    # future planning.
+    "THIRD-CONSECUTIVE-SHIFT-01",
 })
+
+
+def _is_fully_historical_third_shift(state: PlanningState, detail: ViolationDetail) -> bool:
+    """ARCHITECT_RULING 2026-09-08 (brief 2.3A point 1): a THIRD-CONSECUTIVE-
+    SHIFT-01 violation is "fully historical" when every one of its three
+    dates already existed before this solve (same-month fixed_existing_
+    assignments -- REALIZED/frozen/mentor-linked/TRAINEE -- or the adjacent
+    month's boundary_assignments), i.e. no NEW solver decision took part in
+    it. Such a violation is not a new solver decision and must never by
+    itself gate FEASIBLE into DECISION_REQUIRED/TECHNICAL_ERROR.
+
+    validator._check_third_consecutive_shift only records an assignment_id
+    for a date it can match in the CURRENT month's assignments list -- a
+    window entirely inside state.boundary_assignments (cross-month) gets
+    NO ids at all, which unambiguously means every one of its dates predates
+    this solve (a "fully new" or "mixed" window always has at least one id,
+    since at least one date is always in the current month's list)."""
+    if detail.rule != "THIRD-CONSECUTIVE-SHIFT-01":
+        return False
+    if not detail.assignment_ids:
+        return True
+    fixed_ids = {a.assignment_id for a in fixed_existing_assignments(state)}
+    return set(detail.assignment_ids) <= fixed_ids
+
+
+def _gating_hard_pass(state: PlanningState, report: IndependentValidationReport) -> bool:
+    """Like report.hard_pass, but a fully-historical THIRD-CONSECUTIVE-
+    SHIFT-01 violation (see above) never counts against it. report.hard_pass
+    is the base signal, never overridden to True by an empty
+    violation_details list alone -- a report can (e.g. in a test double)
+    carry hard_pass=False with violation_details left empty, and that must
+    still gate; `all()` over an empty list is vacuously True and would
+    silently swallow exactly that case otherwise."""
+    if report.hard_pass:
+        return True
+    return bool(report.violation_details) and all(
+        _is_fully_historical_third_shift(state, d) for d in report.violation_details
+    )
 
 
 def _split_frozen_violations(

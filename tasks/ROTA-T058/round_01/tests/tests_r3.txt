@@ -1,0 +1,28 @@
+ROTA-T058 — final preimplementation narrow re-check R3
+Exact audited SHA: c0331412b76de6db9ae5b01fe3c926002919217f
+Scope: literal diff 54968c6..c033141 and EXACT TASK_SCOPE only
+Verdict: PASS PREIMPLEMENTATION
+
+Verified:
+- rota/application/deviation_mapping.py moved from READ_ONLY_EVIDENCE to
+  TASK_SCOPE, limited to one category mapping for the new built-in rule;
+- api/routers/schedule.py moved from READ_ONLY_EVIDENCE to TASK_SCOPE,
+  limited to one readable Polish deviation label;
+- rota/application/manual_edit.py remains READ_ONLY and the brief continues
+  to reuse its existing validator -> Deviation -> coordinator-action seam;
+- tests/test_t058.py must exercise the real manual-correction persistence and
+  readable API label;
+- product behavior, acceptance criteria, 24h deadband, PDF boundary and the
+  R1 WHERE_MAP/reduction were not broadened or changed.
+
+The frozen TASK_SCOPE is sufficient for the contracted implementation.
+Implementation may be released from HOLD for exact brief SHA c033141.
+
+Audit layers:
+- exact brief diff: PASS;
+- mechanical scope ownership: PASS;
+- product-code reread/tests: intentionally not repeated; this was the
+  requested final text-only preimplementation re-check and no implementation
+  exists yet.
+
+PASS applies only to c0331412b76de6db9ae5b01fe3c926002919217f.

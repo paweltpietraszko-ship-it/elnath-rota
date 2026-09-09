@@ -28,16 +28,17 @@ from rota.domain import (
     SitePlanningRegime,
 )
 from rota.planning.constraints import (
-    add_load_constraints, add_max_two_consecutive_night_constraints, add_rest_constraints,
+    add_load_constraints, add_max_two_consecutive_night_constraints,
+    add_max_two_consecutive_primary_shift_constraint, add_rest_constraints,
     add_same_person_24h_constraints, add_weekly_rest_constraints, build_emergency_pair_context,
     build_fixed_intervals, build_fixed_periods, resolve_emergency_overrides,
 )
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import (
     DN_RHYTHM_REWARD_WEIGHT, EQUAL_SPLIT_FAIRNESS_WEIGHT, HOLIDAY_FAIRNESS_WEIGHT, MAX_COMPLETION_PCT,
-    TARGET_EQUITY_WEIGHT, THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT, WEEKEND_FAIRNESS_WEIGHT,
+    TARGET_EQUITY_WEIGHT, WEEKEND_FAIRNESS_WEIGHT,
     add_dn_rhythm_reward, add_equal_split_fairness, add_holiday_fairness, add_local_over_external_preference,
-    add_target_equity_fairness, add_third_consecutive_shift_penalty, add_weekend_fairness,
+    add_target_equity_fairness, add_weekend_fairness,
 )
 from rota.planning.replan_reshuffle import (
     build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
@@ -124,6 +125,13 @@ class SolverOutcome:
     # in that window, populated only on INFEASIBLE whose minimal unsat core
     # includes a NIGHT-STREAK-01 assumption literal (mirrors conflicting_demand_ids).
     night_streak_conflicts: dict[tuple[str, date], list[str]] = field(default_factory=dict)
+    # ROTA-T058: (employee_id, window_start_date) entries whose HARD max-two-
+    # consecutive-PRIMARY-shifts assumption is in the minimal unsat core,
+    # populated only on INFEASIBLE (mirrors night_streak_conflicts). Used
+    # only to build a readable, non-decision message -- never a coordinator-
+    # override diagnosis (brief section 2.1/5): engine.py must not map this
+    # to DECISION_REQUIRED.
+    third_shift_conflicts: list[tuple[str, date]] = field(default_factory=list)
 
 
 def _demand_hours(demand: ShiftDemand) -> int:
@@ -359,32 +367,42 @@ def _remaining_seconds(deadline: float | None) -> float:
 def _build_day_kind_terms(
     state: PlanningState, x: dict, slots: list[SolverSlot], fixed_assignments: list[Assignment],
 ) -> dict[str, dict]:
-    """Single shared per-employee/start-date D/N/'any occupied' term builder
-    for NIGHT-STREAK-01 (constraints.add_max_two_consecutive_night_constraints)
-    and the D/N/wolne/wolne reward (fairness.add_dn_rhythm_reward) -- ROTA-T032
-    section 2, so neither can ever disagree about what counts as D or N.
-    Each date maps to (d_term, n_term, any_term, n_demand_id): d_term/n_term
-    are raw 0/1-or-summed CP-SAT terms (a "exactly one" tightening, where a
-    caller genuinely needs it, is its own responsibility and done lazily --
-    see fairness.add_dn_rhythm_reward -- never eagerly here, so a HARD rule
-    that only ever needs the cheap raw sum, like NIGHT-STREAK-01, never pays
-    for reification it does not use). any_term is used only for the section
-    5.4 'wolne' (no non-CANCELLED Assignment at all, ANY role) condition --
-    so a TRAINEE occupying that day, or a fixed Assignment whose covering
-    demand cannot be resolved (never guessed as D/N, but it still occupies
-    the day), both correctly block 'wolne' without ever being counted as a D
-    or N match. Fixed target-Site facts and target-Site boundary_assignments
-    both participate; CANCELLED and other_site_assignments never do."""
+    """Single shared per-employee/start-date D/N/'any occupied'/'PRIMARY
+    occupied' term builder for NIGHT-STREAK-01
+    (constraints.add_max_two_consecutive_night_constraints), the D/N/wolne/
+    wolne reward (fairness.add_dn_rhythm_reward) and ROTA-T058's HARD
+    max-two-consecutive-PRIMARY-shifts constraint
+    (constraints.add_max_two_consecutive_primary_shift_constraint) -- ROTA-
+    T032 section 2 (extended by T058), so none of them can ever disagree
+    about what counts as D, N, or a real PRIMARY service. Each date maps to
+    (d_term, n_term, any_term, n_demand_id, primary_term): d_term/n_term/
+    primary_term are raw 0/1-or-summed CP-SAT terms (a "exactly one"
+    tightening, where a caller genuinely needs it, is its own responsibility
+    and done lazily -- see fairness.add_dn_rhythm_reward -- never eagerly
+    here, so a HARD rule that only ever needs the cheap raw sum, like
+    NIGHT-STREAK-01/T058, never pays for reification it does not use).
+    any_term is used only for the section 5.4 'wolne' (no non-CANCELLED
+    Assignment at all, ANY role) condition -- so a TRAINEE occupying that
+    day, or a fixed Assignment whose covering demand cannot be resolved
+    (never guessed as D/N, but it still occupies the day), both correctly
+    block 'wolne' without ever being counted as a D or N match.
+    primary_term (ROTA-T058) is PRIMARY-role occupancy specifically,
+    independent of D/N classification success -- unlike any_term, it never
+    counts TRAINEE/PERIODIC_TRAINING, and unlike d_term+n_term, it still
+    counts a PRIMARY fact whose covering demand cannot be classified.
+    Fixed target-Site facts and target-Site boundary_assignments both
+    participate; CANCELLED and other_site_assignments never do."""
     by_employee: dict[str, dict[date, list]] = {}
 
     def _entry(employee_id: str, d) -> list:
-        return by_employee.setdefault(employee_id, {}).setdefault(d, [0, 0, 0, None])
+        return by_employee.setdefault(employee_id, {}).setdefault(d, [0, 0, 0, None, 0])
 
     for slot in slots:
         d = slot.demand.start_datetime.date()
         e = _entry(slot.employee_id, d)
         term = x[slot.employee_id, slot.demand.demand_id]
         e[2] = e[2] + term
+        e[4] = e[4] + term  # every slot/x decision variable is a PRIMARY candidate
         if slot.shift_kind == ShiftKind.D:
             e[0] = e[0] + term
         elif slot.shift_kind == ShiftKind.N:
@@ -401,6 +419,8 @@ def _build_day_kind_terms(
         d = a.start_datetime.date()
         e = _entry(a.employee_id, d)
         e[2] = e[2] + 1
+        if a.role == AssignmentRole.PRIMARY:
+            e[4] = e[4] + 1
         if a.role != AssignmentRole.PRIMARY or not a.covers_demand_id:
             continue
         demand = demand_by_id.get(a.covers_demand_id)
@@ -421,6 +441,8 @@ def _build_day_kind_terms(
         d = a.start_datetime.date()
         e = _entry(a.employee_id, d)
         e[2] = e[2] + 1
+        if a.role == AssignmentRole.PRIMARY:
+            e[4] = e[4] + 1
         if a.role != AssignmentRole.PRIMARY or not a.covers_demand_id:
             continue
         demand = boundary_demand_by_id.get(a.covers_demand_id)
@@ -514,32 +536,41 @@ def _add_combined_objective(
     _solve_lexicographic_phases docstring for why this is one solve, not a
     proof-then-freeze phase split): DAY_SHIFT_OFF-01/LEAVE_PLAN-01 SOFT,
     weekend/holiday fairness (unchanged pre-T032 terms), target equity
-    (section 4), the D/N/wolne/wolne reward (section 5) and the third
-    consecutive day-shift-adjacent SOFT penalty (ROTA-T034: D/D/D, D/D/N,
-    D/N/N) all minimized together with TARGET-01.
+    (section 4) and the D/N/wolne/wolne reward (section 5) all minimized
+    together with TARGET-01.
+
+    ROTA-T058 (OWNER_CORRECTED 2026-09-08): the third-consecutive-day-shift-
+    adjacent SOFT penalty (ROTA-T034: D/D/D, D/D/N, D/N/N) that used to live
+    here is GONE -- replaced by a genuine HARD CP-SAT constraint
+    (constraints.add_max_two_consecutive_primary_shift_constraint, wired in
+    solve() before this objective is ever built), never traded away for
+    target/equity precision at all, automatic PLAN/REPLAN/Przelicz Plan
+    never proposes it and gets no DECISION_REQUIRED escape. D/N/W/W rhythm
+    (add_dn_rhythm_reward) remains SOFT, subordinate to that new HARD but
+    otherwise unchanged here. T058's own brief also called for a 24h SOFT
+    dead zone on target equity/equal-split (section 2.6) -- DROPPED, not
+    shipped, after live testing found every CP-SAT encoding of it broke
+    optimality-proving on real objects (see
+    arch/FINDING_2026-09-08_T058_EQUITY_DEADBAND_CPSAT_PERFORMANCE.md);
+    add_target_equity_fairness/add_equal_split_fairness below are their
+    original, pre-T058 forms.
 
     OWNER_CORRECTED 2026-08-25 (second correction): TARGET-01 has ABSOLUTE
     priority over equity/rhythm specifically -- not just a large weight
     ratio that happens to hold, a mathematical guarantee. Equity's maximum
     possible swing is the compile-time constant TARGET_EQUITY_WEIGHT *
     MAX_COMPLETION_PCT (fairness.add_target_equity_fairness's own declared
-    variable bounds); rhythm's is DN_RHYTHM_REWARD_WEIGHT * the exact number
-    of match variables it created this solve (its return value -- always a
-    tighter, real bound, never a worst-case guess). The per-solve target
-    weight is set strictly above the SUM of both, so degrading total target
-    deviation by even one hour always costs more than the entire equity+
-    rhythm swing could ever be worth combined -- equity/rhythm can only ever
-    break ties among candidates that already share the same optimal target
-    deviation, never trade it for a better tie-break score. This does not
-    extend to the pre-T032 weekend/holiday/leave_plan terms (out of scope
-    for this correction, unchanged in shape and relative weight).
-
-    ROTA-T034 (contract f4a1e0b) extends this same protection by exactly one
-    term: THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * the exact number of
-    bad_window variables add_third_consecutive_shift_penalty created this
-    solve (its own return value, same tighter-real-bound pattern as
-    rhythm_match_count) -- so this new SOFT can never outweigh TARGET-01
-    either.
+    variable bounds); rhythm's is DN_RHYTHM_REWARD_WEIGHT * the
+    exact number of match variables it created this solve (its return value
+    -- always a tighter, real bound, never a worst-case guess). The
+    per-solve target weight is set strictly above the SUM of both, so
+    degrading total target deviation by even one hour always costs more
+    than the entire equity+rhythm swing could ever be worth combined --
+    equity/rhythm can only ever break ties among candidates that already
+    share the same optimal target deviation, never trade it for a better
+    tie-break score. This does not extend to the pre-T032 weekend/holiday/
+    leave_plan terms (out of scope for this correction, unchanged in shape
+    and relative weight).
 
     ROTA-T041 OWNER-T041-01 / AUDIT-1 C-05: `fallback_employee_ids` is set
     only when this solve's target vector is incomplete (assembler omitted
@@ -555,8 +586,8 @@ def _add_combined_objective(
     LOCAL at 0h is trivially "equal". Fixed the same way TARGET-01 already
     dominates equity/rhythm above: equal_split_weight is computed to
     strictly exceed the SUM of every other coexisting term's real bound
-    this solve (weekend/holiday's own returned bounds plus rhythm/third-
-    shift's real counts), and add_local_over_external_preference is given a
+    this solve (weekend/holiday's own returned bounds plus rhythm's real
+    count), and add_local_over_external_preference is given a
     weight that in turn strictly exceeds equal_split_weight's own maximum
     possible swing -- so no combination of weekend/holiday/rhythm/third-
     shift/equal-split gain can ever be worth handing one hour to a
@@ -564,11 +595,9 @@ def _add_combined_objective(
     LOCAL one. The ordinary complete-vector branch below is unchanged."""
     penalties = []
 
-    # Rhythm and the third-shift penalty are built first so their real
-    # counts (never a worst-case guess) are known before
-    # TARGET_DEVIATION_WEIGHT is sized against them.
+    # Rhythm is built first so its real count (never a worst-case guess) is
+    # known before TARGET_DEVIATION_WEIGHT is sized against it.
     rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
-    third_shift_penalty_count = add_third_consecutive_shift_penalty(model, state.month, day_kind_terms, penalties)
     weekend_bound = add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
     holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
     holiday_bound = add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
@@ -578,7 +607,6 @@ def _add_combined_objective(
             TARGET_DEVIATION_WEIGHT
             + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT
             + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
-            + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
         )
         for employee_id, target in target_by_employee.items():
             worked = worked_by_employee[employee_id]
@@ -591,7 +619,6 @@ def _add_combined_objective(
         equal_split_weight = (
             EQUAL_SPLIT_FAIRNESS_WEIGHT
             + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
-            + THIRD_CONSECUTIVE_SHIFT_PENALTY_WEIGHT * third_shift_penalty_count
             + WEEKEND_FAIRNESS_WEIGHT * weekend_bound
             + HOLIDAY_FAIRNESS_WEIGHT * holiday_bound
         )
@@ -753,18 +780,38 @@ def _conflicting_night_streak(
     }
 
 
+def _conflicting_third_shift(
+    solver: cp_model.CpSolver, status: int, third_shift_assumptions: dict[tuple[str, date], object],
+) -> list[tuple[str, date]]:
+    """ROTA-T058: mirrors _conflicting_night_streak for the max-two-
+    consecutive-PRIMARY-shifts assumption literals -- only meaningful on a
+    proven INFEASIBLE. No demand_ids (unlike night streak): this HARD spans
+    D and N alike, so a per-window demand list is not a single owner the
+    way N-only demand_ids was; (employee_id, window_start_date) alone is
+    enough for engine.py's readable, non-decision message."""
+    if status != cp_model.INFEASIBLE or not third_shift_assumptions:
+        return []
+    core_indices = set(solver.sufficient_assumptions_for_infeasibility())
+    return [key for key, var in third_shift_assumptions.items() if var.index in core_indices]
+
+
 def _finalize(
     solver: cp_model.CpSolver, status: int, x: dict, slots: list[SolverSlot],
     state: PlanningState, assumptions: dict[str, object],
     night_streak_assumptions: dict[tuple[str, date], tuple[object, list[str]]],
     site_rule_exclusions: dict[str, list[tuple[str, str]]],
     pair_vars: dict | None = None, cross_month_by_employee: dict | None = None,
+    third_shift_assumptions: dict[tuple[str, date], object] | None = None,
 ) -> SolverOutcome:
     status_name = solver.status_name(status)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         conflicting = _conflicting_demand_ids(solver, status, assumptions)
         night_streak_conflicts = _conflicting_night_streak(solver, status, night_streak_assumptions)
-        return SolverOutcome(status_name, None, [], [], {}, conflicting, site_rule_exclusions, night_streak_conflicts=night_streak_conflicts)
+        third_shift_conflicts = _conflicting_third_shift(solver, status, third_shift_assumptions or {})
+        return SolverOutcome(
+            status_name, None, [], [], {}, conflicting, site_rule_exclusions,
+            night_streak_conflicts=night_streak_conflicts, third_shift_conflicts=third_shift_conflicts,
+        )
     overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
     assignments = _extract_assignments(solver, x, slots, state, overrides)
     warnings = _collect_warnings(assignments, slots)
@@ -852,7 +899,7 @@ def _solve_lexicographic_phases(
     pair_vars: dict | None, cross_month_by_employee: dict | None, phase_exprs: list,
     still_needed: dict[str, int], day_kind_terms: dict[str, dict],
     deadline: float | None = None, search_attempt: int = 0, search_variants: bool = False,
-    quality_required: bool = True,
+    quality_required: bool = True, third_shift_assumptions: dict[tuple[str, date], object] | None = None,
 ) -> SolverOutcome:
     """Shared lexicographic-minimum engine for REPLAN-MIN-01 (reshuffle
     count) and T018 B5 (exceptional_n_count) -- unchanged, still fail-closed
@@ -891,7 +938,11 @@ def _solve_lexicographic_phases(
         if phase_status == cp_model.INFEASIBLE:
             # Rigorous proof, not approximation -- existing infeasibility/
             # conflict path (round 2 FINDING R2-1).
-            return _finalize(phase_solver, phase_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+            return _finalize(
+                phase_solver, phase_status, x, slots, state, assumptions, night_streak_assumptions,
+                site_rule_exclusions, pair_vars, cross_month_by_employee,
+                third_shift_assumptions=third_shift_assumptions,
+            )
         if phase_status != cp_model.OPTIMAL:
             # FEASIBLE/UNKNOWN/MODEL_INVALID don't PROVE this phase's
             # minimum -- fail closed to TECHNICAL_ERROR rather than freeze
@@ -918,10 +969,18 @@ def _solve_lexicographic_phases(
         model, _remaining_seconds(deadline), search_attempt, stop_at_first_solution=not quality_required,
     )
     if final_status == cp_model.INFEASIBLE:
-        return _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+        return _finalize(
+            final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions,
+            site_rule_exclusions, pair_vars, cross_month_by_employee,
+            third_shift_assumptions=third_shift_assumptions,
+        )
     if final_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return SolverOutcome(final_solver.status_name(final_status), None, [], [], {}, [], site_rule_exclusions, optimization_complete=False)
-    outcome = _finalize(final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions, site_rule_exclusions, pair_vars, cross_month_by_employee)
+    outcome = _finalize(
+        final_solver, final_status, x, slots, state, assumptions, night_streak_assumptions,
+        site_rule_exclusions, pair_vars, cross_month_by_employee,
+        third_shift_assumptions=third_shift_assumptions,
+    )
     outcome.optimization_complete = final_status == cp_model.OPTIMAL
     # OWNER_CORRECTED 2026-08-25 (live testing): T017's up-to-3-candidates
     # search must run whenever a valid first candidate exists, regardless of
@@ -1076,7 +1135,17 @@ def solve(
     # day_kind_terms source also reused by the D/N/wolne/wolne reward below.
     day_kind_terms = _build_day_kind_terms(state, x, slots, fixed_assignments)
     night_streak_assumptions = add_max_two_consecutive_night_constraints(model, day_kind_terms, state.month)
-    model.add_assumptions(list(assumptions.values()) + [var for var, _ in night_streak_assumptions.values()])
+    # ROTA-T058 (OWNER_CORRECTED 2026-09-08): HARD max-two-consecutive-
+    # PRIMARY-shifts, genuinely enforced (never a coordinator-override
+    # relaxation path -- see constraints.py's own docstring); the assumption
+    # technique here is used only so an INFEASIBLE can be diagnosed with a
+    # readable message, exactly like NIGHT-STREAK-01 above.
+    third_shift_assumptions = add_max_two_consecutive_primary_shift_constraint(model, day_kind_terms, state.month)
+    model.add_assumptions(
+        list(assumptions.values())
+        + [var for var, _ in night_streak_assumptions.values()]
+        + list(third_shift_assumptions.values())
+    )
     # T018 B5: reshuffle (REPLAN-MIN-01) precedes exceptional_n; the exceptional phase needs allow_day_only_n_fallback.
     phase_exprs = []
     if require_different_from_baseline:
@@ -1123,6 +1192,7 @@ def solve(
         cross_month_by_employee, phase_exprs, still_needed, day_kind_terms,
         deadline=deadline, search_attempt=search_attempt, quality_required=quality_required,
         search_variants=enforce_load_cap if search_variants is None else search_variants,
+        third_shift_assumptions=third_shift_assumptions,
     )
 
 

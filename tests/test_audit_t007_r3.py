@@ -304,8 +304,23 @@ def test_r3_load_fallback_preserves_site_rule_provenance(
     rule_kind: str, parameters: object
 ) -> None:
     """The same provenance invariant applies when SiteRule exclusions force
-    the only eligible employee over LOAD-01 rather than into REST-01."""
-    demands = tuple(_demand(f"D{day}", day) for day in range(1, 7))
+    the only eligible employee over LOAD-01 rather than into REST-01.
+
+    ROTA-T058 (ARCHITECT_RULING 2026-09-08, brief 2.5): the original fixture
+    put all 6 demands on 6 CONSECUTIVE calendar days, which now also trips
+    the independent new HARD max-two-consecutive-PRIMARY-shifts rule --
+    genuinely true, but not what this test isolates. Demands are spread over
+    days 1,2,4,5 (max run of 2, same as the new HARD allows; day 3 is
+    skipped, and day 3's weekday, Wednesday, is deliberately the one weekday
+    the EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS variant below does NOT
+    forbid -- so it must not host a demand or B would sneak back in as
+    eligible there). Shift length stays the original 12h (lengthening it
+    instead ate into the required daily rest between the two back-to-back
+    days and tripped REST-01 instead of LOAD-01) -- the rolling-7d threshold
+    is lowered instead so the same 4-day, 48h total still breaches it,
+    exactly like the original 6-day/72h fixture breached the default 60h."""
+    demand_days = (1, 2, 4, 5)
+    demands = tuple(_demand(f"D{day}", day) for day in demand_days)
     rule = SiteRuleVersion(
         "RV-load-cause",
         "R-load-cause",
@@ -331,6 +346,7 @@ def test_r3_load_fallback_preserves_site_rule_provenance(
         site_rules=(rule,),
         site_rule_applicability=(SiteRuleApplicability("RV-load-cause", MONTH, MONTH_END),),
     )
+    state = replace(state, profile=replace(state.profile, rolling_7d_decision_threshold_hours=40))
 
     result = plan(state)
 

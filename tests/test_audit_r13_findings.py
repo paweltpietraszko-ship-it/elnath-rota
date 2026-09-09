@@ -47,16 +47,29 @@ def test_r13_1a_pure_load_conflict_is_load01_not_rest01():
 
 
 def test_r13_1b_load_conflict_crossing_month_boundary_is_load01():
+    # ROTA-T058 (ARCHITECT_RULING 2026-09-08, brief 2.5): the original
+    # fixture had 5 CONSECUTIVE boundary days (26-30) immediately followed
+    # by the new Oct-1 demand -- the last two boundary days (29,30) plus the
+    # new Oct-1 assignment now genuinely trip the new HARD mixed-boundary
+    # rule (2 fixed days + 1 new solver decision closing a forbidden third),
+    # which is real but not what this test isolates. Day 29 is left
+    # unworked so day 30 + Oct-1 is only a run of 2 (allowed); 26-27-28
+    # still forms its own fully-historical 3-in-a-row, which is fine here --
+    # it never gates anything on its own (see engine._is_fully_historical_
+    # third_shift). The rolling-7d threshold is lowered so the same 5
+    # worked days (26,27,28,30,Oct-1 = 60h) still breach it, exactly like
+    # the original fixture's 6 consecutive days (72h) breached the default.
     employee = Employee("C", "C", date(2026, 9, 1), None, False)
     boundary = tuple(
         Assignment(f"boundary-{d}", "prev-v1", "C", datetime(2026, 9, d, 5, 0), datetime(2026, 9, d, 17, 0),
                    AssignmentRole.PRIMARY, AssignmentState.REALIZED, True, None, None)
-        for d in range(26, 31)
+        for d in (26, 27, 28, 30)
     )
     state = base_state(
         employees=(employee,), memberships=(_local_membership("C"),),
         shift_demands=(DEMAND_D,), boundary_assignments=boundary,
     )
+    state = replace(state, profile=replace(state.profile, rolling_7d_decision_threshold_hours=40))
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None

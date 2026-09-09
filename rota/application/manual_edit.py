@@ -294,6 +294,35 @@ def _build_correction_hook(
     )
 
 
+def _freeze_third_consecutive_shift_targets(
+    upsert_assignments: list[Assignment], violation_details,
+) -> list[Assignment]:
+    """ROTA-T058 (ARCHITECT_RULING 2026-09-09, brief 2.2A/T58-06/T58-15): a
+    future PRIMARY the coordinator just manually edited, which participates
+    in a THIRD-CONSECUTIVE-SHIFT-01 violation this same correction creates
+    or preserves, must survive a later automatic Przelicz Plan --
+    `frozen=True` is the existing "automat never redistributes this" marker,
+    reused here rather than inventing new semantics (fixed_existing_
+    assignments already treats it that way). Only the intersection of the
+    violation's own assignment_ids with the Assignments actually named in
+    THIS correction's upsert_assignments is frozen -- never the rest of the
+    3-day window (e.g. an already-frozen earlier day), and never derived
+    from Deviation.affected_assignment_or_employee (which only ever names
+    one, arbitrary assignment_id from the window, not "the cause")."""
+    target_ids = {
+        assignment_id
+        for detail in violation_details
+        if detail.rule == "THIRD-CONSECUTIVE-SHIFT-01"
+        for assignment_id in detail.assignment_ids
+    }
+    if not target_ids:
+        return upsert_assignments
+    return [
+        replace(a, frozen=True) if a.assignment_id in target_ids and not a.frozen else a
+        for a in upsert_assignments
+    ]
+
+
 def apply_manual_correction(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
     upsert_assignments: list[Assignment], on_success=None, note: Optional[str] = None,
@@ -322,6 +351,21 @@ def apply_manual_correction(
     report = validate(state, corrected_assignments)  # step 7
     all_rules = state.site_rules + state.unresolved_site_rules
     deviations = materialize_deviations(report.violation_details, all_rules)  # step 8
+
+    # ROTA-T058 (ARCHITECT_RULING 2026-09-09, brief 2.2A/T58-06/T58-15): a
+    # future PRIMARY this correction just edited, which participates in a
+    # THIRD-CONSECUTIVE-SHIFT-01 violation, is frozen so a later automatic
+    # Przelicz Plan cannot silently redistribute it away -- recomputed here
+    # (not before validate()) since frozen has no bearing on HARD detection,
+    # and the action trail/after-state below must reflect what is actually
+    # saved, not the caller's original, pre-freeze upsert_assignments.
+    # Skipped for an explicit freeze/unfreeze action itself (brief 2.2A
+    # point 7): that call already IS the coordinator's deliberate freeze-
+    # state decision (including turning it off) and must not be silently
+    # overridden back to frozen=True by this heuristic.
+    if _action_kind != CoordinatorActionKind.ASSIGNMENT_FREEZE_CHANGED:
+        upsert_assignments = _freeze_third_consecutive_shift_targets(upsert_assignments, report.violation_details)
+        corrected_assignments = _cloned_and_corrected(parent_snapshot.assignments, upsert_assignments)
 
     child_id = f"SV-{uuid.uuid4().hex}"
     rest_pairs = _rest_override_pairs(state, corrected_assignments, report)

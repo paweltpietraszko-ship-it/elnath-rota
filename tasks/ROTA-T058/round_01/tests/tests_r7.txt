@@ -1,0 +1,111 @@
+ROTA-T058 — CODEX NARROW CODE AUDIT AFTER R6-01 FIX
+
+VERDICT: FAIL
+EXACT AUDITED SHA: 3c8185b74d3edf87ee9abdc9c987090eceb33d50
+FIX BASE / PRIOR AUDIT: 2466f4e
+SCOPE: R6-01/T58-15 fix plus sibling and H24 boundary of the same bug class.
+
+R7-01 — MANUAL 24H D+N IS ONLY HALF-PROTECTED AND LATER BLOCKS PRZELICZ PLAN
+
+TRACE
+
+- brief 2.2A points 1-4 and 8: all actually edited Assignments belonging to
+  the THIRD-CONSECUTIVE violation are saved frozen and action state reflects
+  the real saved facts;
+- T58-02: an H24 D+N occurrence is one occupied calendar start date;
+- T58-06/T58-15: exactly the manually edited future decision is protected;
+- T58-14: a fully fixed/accepted three-day window does not block unrelated
+  future planning.
+
+OWNERSHIP
+
+- the real chain is `manual_edit.apply_manual_correction -> validate ->
+  ViolationDetail.assignment_ids -> _freeze_third_consecutive_shift_targets`;
+- `validator._check_third_consecutive_shift` currently stores only one
+  assignment_id for `(employee_id, start_date)`. For H24, the N component
+  overwrites the D component from the same date;
+- the new helper therefore cannot freeze both edited H24 components even
+  though both are in `upsert_assignments` and both form the single manual
+  24-hour decision. This is the owning chain named by the frozen contract,
+  not a demand for duplicate downstream validation.
+
+REPRO — `repro_r7.py`
+
+Real SQLite/application scenario on a mixed 12h/24h SiteProfile:
+
+1. E1 has fixed PRIMARY on 20 and 21 August; E2 has the paired H24 D+N
+   components on 22 August.
+2. One manual correction moves BOTH H24 components to E1, deliberately
+   closing the three-day sequence. The named LAW Deviation is persisted.
+3. Expected: both actually edited H24 Assignments are frozen as one protected
+   manual decision. Actual: `A-22-D.frozen=False`, `A-22-N.frozen=True`.
+4. On 10 August, while the schedule is live and these services are still in
+   the future, later `Przelicz Plan` should preserve the fully accepted/fixed
+   window and remain FEASIBLE. Actual status:
+   `THIRD_CONSECUTIVE_SHIFT_BLOCKED`.
+
+This is user-visible: after a legal manual H24 override the coordinator cannot
+recompute unrelated future work, despite T58-14. It is not merely an internal
+flag mismatch.
+
+COMMANDS / RESULTS
+
+1. Preserved original R6 reproducer + implementer T058 matrix:
+
+   `python -m pytest -q tasks/ROTA-T058/round_01/tests/repro_r6.py tests/test_t058.py`
+
+   RESULT: 16 passed.
+
+2. Independent H24/generalized matrix:
+
+   `python -m pytest -q tasks/ROTA-T058/round_01/tests/repro_r7.py`
+
+   RESULT: 2 failed, 1 passed.
+   - FAIL: both manually edited H24 components are not frozen;
+   - FAIL: later Przelicz Plan returns THIRD_CONSECUTIVE_SHIFT_BLOCKED;
+   - PASS control: explicit later unfreeze remains authoritative and is not
+     immediately re-frozen by the T058 heuristic.
+
+3. Sibling manual action/freeze audit:
+
+   `tests/test_t019b.py::test_c20_generic_manual_correction_one_action`
+   and both variants of
+   `tests/test_t019b.py::test_c21_c22_freeze_and_nn_one_action_each`
+
+   RESULT: 3 passed.
+
+   `tests/test_t009_manual_edit.py::test_12_freeze_affects_later_replan`
+   remains one of the known stale T057 failures: it calls REPLAN after an
+   accepted version, which the frozen T057 contract now forbids. It is not a
+   regression introduced by 3c8185b and is not used for this verdict.
+
+4. Static:
+
+   `ruff check rota/application/manual_edit.py tests/test_t058.py repro_r7.py`
+
+   RESULT: All checks passed.
+
+5. `git diff --check 2466f4e..3c8185b`: PASS.
+
+WHERE.PY EVIDENCE
+
+- `python where.py rota/application/manual_edit.py`
+- `python where.py rota/application/manual_edit.py --symbol _freeze_third_consecutive_shift_targets`
+- `python where.py rota/application/manual_edit.py --symbol apply_manual_correction`
+
+The map confirmed the new helper has one production call and that the shared
+entrypoint is also reached by freeze/unfreeze, mark-not-worked and training.
+The explicit unfreeze control was therefore tested independently.
+
+DEFECT GATE
+
+- TRACE: met (brief 2.2A, T58-02, T58-06, T58-14, T58-15);
+- OWNERSHIP: met (real validator -> manual_edit -> plan_month chain);
+- REPRO: met on exact SHA 3c8185b with real SQLite/application operations.
+
+REGRESSION POLICY
+
+No full repository rerun: the delivery changes only manual_edit and one Task
+test, CC already supplied the full-suite result, and AGENTS.md requires OWNER
+approval for a full rerun after a narrow fix. The preserved reproducer,
+changed-code matrix, same-class H24 boundary and sibling controls were run.
