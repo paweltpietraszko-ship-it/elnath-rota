@@ -15,7 +15,8 @@ REVIEW CHAIN:
 - 2026-09-09 OWNER_CORRECTED: for a fairness/tie-break/equity-style product-behavior question (which of two mathematically-tied-or-close outcomes is actually the right one for a human coordinator), ask Paweł FIRST, before writing it up as a BOARD.md finding for the architect. Reason, in Paweł's own words: "ja mam wyobraźnię człowieka, architekt pewne rzeczy widzi matematycznie a nie realnie" — a real case (ROTA-TEST-CLEANUP's equity tie-break investigation, 2026-09-09) was resolved correctly in one exchange by his plain human reasoning ("komu brakuje więcej godzin, temu się daje zmianę") after CC had already concluded it needed an architect brief. This does not change who has FINAL authority on solver/architecture changes (still architect+Codex+owner per TASK_SCOPE discipline) — it changes the ORDER: bring the plain-language question to Paweł before routing it onward, not after.
 
 GIT WORKFLOW:
-- Never commit or push directly to `main`.
+- Never commit or push directly to `main`, except `BOARD.md` and `ODLOZONE.md` — pure bookkeeping files, not product code, not audited.
+- 2026-09-09: `ODLOZONE.md` is a deferred-topics backlog Paweł created so a "not worth the effort now" finding doesn't keep resurfacing on its own via BOARD.md or CC's cross-session memory — one dated entry per topic, read only when Paweł chooses to revisit it. Add an entry there (never in memory, never as a BOARD.md row) whenever a topic is explicitly deferred as low-priority/not-now.
 - One branch per Task: `task/<id>` (e.g. `task/T002`), or `task/<id>-<slug>` for sub-fixes (e.g. `task/T001-crlf`).
 - Merge to `main` only when Paweł explicitly says "merge" / "zmerguj".
 - 2026-09-03 OWNER_CORRECTED: raw `git diff` output is no longer pasted/attached in DELIVERY — nobody reads it (the diff-to-architect step this was for is gone now that GitHub itself is the review surface). Report merges with a short prose summary instead.
