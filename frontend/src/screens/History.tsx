@@ -51,6 +51,39 @@ function formatDateTime(iso: string): string {
 // (ground truth, not guessed). Anglicism rule applies even to this raw
 // diagnostic diff view; an unmapped future key falls back to the raw key
 // rather than crashing, but should get its own entry here when noticed.
+// ROTA-T060 (ARCHITECT_RULING, brief T60-06): the recursive before/after
+// renderer translates VALUES for these keys to a neutral placeholder --
+// every key here names a value that is purely a technical identifier with
+// no human-readable form of its own (unlike employee_id, which resolves to
+// a real name below); showing a neutral placeholder instead is not a data
+// change (brief 2.8: the real value stays in before_state/after_state/
+// persistence), only a presentation choice.
+// Codex R4 audit (tasks/ROTA-T060/round_01/tests/tests_r4.txt): the first
+// version of this set was hand-picked and missed the actual keys real
+// writers produce. This list is now derived directly from every
+// before_state/after_state producer in rota/application/ that can reach
+// this screen's action trail, not from guessing at plausible names:
+//   - manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact
+//     (manual correction + candidate-delta Assignment facts)
+//   - manual_edit.py's own child/parent wrapper keys
+//   - lifecycle_ops.py::_deviation_fact (Deviation lifecycle records)
+// employee_id is deliberately excluded -- it resolves to a real name below.
+// Declared before STATE_KEY_LABEL/stateKeyLabel (which reference it) so the
+// key fallback below can be defined in one place.
+const ID_ONLY_STATE_KEYS = new Set([
+  "current_version_id", "decision_id", "predecessor_decision_id", "predecessor_rule_version_id",
+  "rule_version_id", "site", "site_id", "availability_id", "availability_version_id",
+  "supersedes_availability_version_id", "profile_id",
+  // Assignment facts (manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact)
+  "schedule_version_id", "assignment_id", "covers_demand_id", "mentor_primary_assignment_id",
+  "work_period_id",
+  // manual_edit.py before/after wrapper keys
+  "parent_version_id", "child_version_id",
+  // lifecycle_ops.py::_deviation_fact (Deviation lifecycle)
+  "deviation_id", "source_reference", "affected_assignment_or_employee", "acknowledged_by",
+]);
+const REDACTED_ID_PLACEHOLDER = "(zapisano)";
+
 const STATE_KEY_LABEL: Record<string, string> = {
   active: "aktywne", content: "treść", current_version_id: "id bieżącej wersji", date: "data",
   day_only: "tylko dniówka", decision_id: "id decyzji", deviations: "odchylenia", employee_id: "pracownik",
@@ -74,10 +107,24 @@ const STATE_KEY_LABEL: Record<string, string> = {
   training_s_enabled: "szkolenie włączone", training_s_weekdays_only: "szkolenie tylko w dni robocze",
   training_s_default_readiness_threshold: "domyślny próg gotowości szkolenia",
   rolling_7d_decision_threshold_hours: "próg decyzyjny 7-dniowy (h)",
+  // Codex R5 audit (tasks/ROTA-T060/round_01/tests/tests_r5.txt): these keys
+  // were added to ID_ONLY_STATE_KEYS (R4) but never given a Polish label, so
+  // the raw English key name itself (e.g. "assignment_id") was still shown
+  // as UI content next to the redacted value.
+  schedule_version_id: "wersja grafiku", assignment_id: "przypisanie", covers_demand_id: "pokrywane zapotrzebowanie",
+  mentor_primary_assignment_id: "przypisanie mentora", work_period_id: "okres pracy",
+  parent_version_id: "wersja nadrzędna", child_version_id: "wersja podrzędna", deviation_id: "odstępstwo",
+  source_reference: "reguła źródłowa", affected_assignment_or_employee: "dotyczy",
+  acknowledged_by: "potwierdzone przez",
 };
 
+// Codex R5 audit: a key can land in ID_ONLY_STATE_KEYS without ever being
+// added to STATE_KEY_LABEL (exactly what happened above) and silently fall
+// back to its raw English name. This generic fallback closes that class of
+// gap for any future key too, instead of relying on every addition to
+// remember a matching label.
 function stateKeyLabel(key: string): string {
-  return STATE_KEY_LABEL[key] ?? key;
+  return STATE_KEY_LABEL[key] ?? (ID_ONLY_STATE_KEYS.has(key) ? "identyfikator techniczny" : key);
 }
 
 // T048: translate a leaf VALUE, but only under the specific key it's known
@@ -91,38 +138,6 @@ const STATE_VALUE_LABEL_BY_KEY: Record<string, Record<string, string>> = {
 function stateValueLabel(stateKey: string | undefined, value: string): string {
   return (stateKey && STATE_VALUE_LABEL_BY_KEY[stateKey]?.[value]) ?? value;
 }
-
-// ROTA-T060 (ARCHITECT_RULING, brief T60-06): the recursive before/after
-// renderer already translates KEYS (STATE_KEY_LABEL above), but was still
-// printing the raw technical VALUE under a translated key -- e.g. "id
-// bieżącej wersji: SV-<hash>". Every key here names a value that is purely
-// a technical identifier with no human-readable form of its own (unlike
-// employee_id, which resolves to a real name below); showing a neutral
-// placeholder instead is not a data change (brief 2.8: the real value stays
-// in before_state/after_state/persistence), only a presentation choice.
-// Codex R4 audit (tasks/ROTA-T060/round_01/tests/tests_r4.txt): the first
-// version of this set was hand-picked and missed the actual keys real
-// writers produce. This list is now derived directly from every
-// before_state/after_state producer in rota/application/ that can reach
-// this screen's action trail, not from guessing at plausible names:
-//   - manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact
-//     (manual correction + candidate-delta Assignment facts)
-//   - manual_edit.py's own child/parent wrapper keys
-//   - lifecycle_ops.py::_deviation_fact (Deviation lifecycle records)
-// employee_id is deliberately excluded -- it resolves to a real name above.
-const ID_ONLY_STATE_KEYS = new Set([
-  "current_version_id", "decision_id", "predecessor_decision_id", "predecessor_rule_version_id",
-  "rule_version_id", "site", "site_id", "availability_id", "availability_version_id",
-  "supersedes_availability_version_id", "profile_id",
-  // Assignment facts (manual_edit.py::_assignment_state, plan_ops.py::_assignment_fact)
-  "schedule_version_id", "assignment_id", "covers_demand_id", "mentor_primary_assignment_id",
-  "work_period_id",
-  // manual_edit.py before/after wrapper keys
-  "parent_version_id", "child_version_id",
-  // lifecycle_ops.py::_deviation_fact (Deviation lifecycle)
-  "deviation_id", "source_reference", "affected_assignment_or_employee", "acknowledged_by",
-]);
-const REDACTED_ID_PLACEHOLDER = "(zapisano)";
 
 // Round-15 audit FINDING 6: recurse into nested objects/arrays and
 // translate keys at every level, instead of JSON.stringify-ing a nested
@@ -351,10 +366,53 @@ function ActionsTab({ siteId }: { siteId: string }) {
   );
 }
 
+// Codex R5 audit (tasks/ROTA-T060/round_01/tests/tests_r5.txt): the only
+// rule_id shape carrying a real, correlatable technical identifier is the
+// REST OVERRIDE audit record built by
+// rota/application/manual_edit.py::_rest_override_rule_content --
+// `f"REST-OVERRIDE:{child_id}"` -- and its statement embeds that same
+// child_id plus raw employee_ids (`f"Manual correction {child_id} ...
+// employees {', '.join(employee_ids)}."`). Every other rule_id in the repo
+// (rota/application/rule_decisions.py::_new_matrix_rule_id, `R-EMP-MATRIX-
+// <uuid>`) is an opaque, non-correlatable identifier with no matching
+// statement leak, so it's left as-is here (a bare uuid suffix isn't the
+// class of leak T60-05 is about -- it names nothing else in the system).
+const REST_OVERRIDE_RULE_ID = /^REST-OVERRIDE:(.+)$/;
+
+function ruleDisplayLabel(ruleId: string): string {
+  return REST_OVERRIDE_RULE_ID.test(ruleId) ? "Wyjątek odpoczynku (korekta ręczna)" : ruleId;
+}
+
+// Backend data/semantics are untouched (Codex R5: "naprawa należy do
+// prezentacji Historii") -- this only redacts the two known raw values the
+// statement can contain, using the same child_id already exposed via the
+// rule_id itself, then resolves any employee_id substring through the same
+// roster lookup every other tab uses.
+function ruleDisplayStatement(ruleId: string, statement: string, nameForEmployee: (id: string) => string): string {
+  const idMatch = ruleId.match(REST_OVERRIDE_RULE_ID);
+  if (!idMatch) return statement;
+  const childId = idMatch[1];
+  let redacted = statement.split(childId).join(REDACTED_ID_PLACEHOLDER);
+  const employeesMatch = redacted.match(/employees ([^.]+)\.\s*$/);
+  if (employeesMatch) {
+    const names = employeesMatch[1].split(",").map((id) => nameForEmployee(id.trim())).join(", ");
+    redacted = redacted.slice(0, employeesMatch.index) + `employees ${names}.`;
+  }
+  return redacted;
+}
+
 function RulesTab({ siteId }: { siteId: string }) {
   const [history, setHistory] = useState<Record<string, DecisionRecordOut[]>>({});
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const nameForEmployee = (employeeId: string): string =>
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? "nieznany pracownik";
+
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
 
   useEffect(() => {
     setLoading(true);
@@ -386,7 +444,7 @@ function RulesTab({ siteId }: { siteId: string }) {
         ruleIds.map((ruleId) => (
           <div key={ruleId} className="matrix-table-wrap" style={{ marginBottom: 20 }}>
             <p className="field-label" style={{ marginBottom: 6 }}>
-              Reguła: {ruleId}
+              Reguła: {ruleDisplayLabel(ruleId)}
             </p>
             <table className="roster-table">
               <thead>
@@ -403,7 +461,7 @@ function RulesTab({ siteId }: { siteId: string }) {
                   <tr key={d.decision_id}>
                     <td>{formatDateTime(d.recorded_at)}</td>
                     <td>Koordynator</td>
-                    <td>{d.statement}</td>
+                    <td>{ruleDisplayStatement(ruleId, d.statement, nameForEmployee)}</td>
                     <td>{d.effective_from}</td>
                     <td>{d.rel ? REL_LABEL[d.rel] ?? d.rel : "—"}</td>
                   </tr>

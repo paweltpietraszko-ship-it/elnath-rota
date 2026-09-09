@@ -82,4 +82,61 @@ test("T060 R4 regresja: Historia redaguje pełny zestaw technicznych ID z Assign
   // never silently dropped.
   await expect(page.getByText("Jan Kowalski").first()).toBeVisible();
   await expect(page.getByText("EMPLOYEE-SECRET")).toHaveCount(0);
+
+  // Codex R5 audit (tasts_r5.txt): redacting the VALUE isn't enough when the
+  // KEY itself is still the raw English technical name -- assert none of
+  // the newly-added ID_ONLY_STATE_KEYS leak their own key name either.
+  for (const rawKey of [
+    "assignment_id", "schedule_version_id", "covers_demand_id", "mentor_primary_assignment_id",
+    "work_period_id", "parent_version_id", "child_version_id", "deviation_id", "source_reference",
+    "affected_assignment_or_employee", "acknowledged_by",
+  ]) {
+    expect(bodyText).not.toContain(rawKey);
+  }
+});
+
+// Codex R5 audit (tasks/ROTA-T060/round_01/tests/tests_r5.txt): the "Reguły"
+// tab has its own, independent leak path -- manual_edit.py::
+// _rest_override_rule_content builds `rule_id = f"REST-OVERRIDE:{child_id}"`
+// and an English `statement` embedding that same child_id plus raw
+// employee_ids. Backend data/semantics are untouched by this fix (Codex:
+// "naprawa należy do prezentacji Historii") -- only History.tsx's RulesTab
+// presentation of an already-fetched DecisionRecordOut changes.
+test("T060 R5 regresja: zakładka Reguły nie ujawnia id grafiku ani pracownika z REST OVERRIDE", async ({ page }) => {
+  const site2 = {
+    site_id: "SITE-INTERNAL-SECRET", display_name: "Obiekt Audyt T060 Reguly", planning_regime: "ORDINARY",
+    complete: true, missing: [], decision_required_months: [], print_settings_missing: false, active: true,
+  };
+  const roster2 = [{ employee_id: "EMPLOYEE-SECRET", display_name: "Jan Kowalski", active: true }];
+
+  await page.route("**/api/workspace/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    let body: unknown = {};
+    if (path === "/api/workspace/sites") body = [site2];
+    else if (path.endsWith("/overview")) body = { decision_months: [], version_status: null, resumable: false, headcount: 0 };
+    else if (path.endsWith("/roster")) body = roster2;
+    else if (path.endsWith("/history/actions")) body = [];
+    else if (path.endsWith("/history/rules")) body = {
+      "REST-OVERRIDE:SV-RULE-SECRET": [{
+        decision_id: "DECISION-SECRET", site_id: site2.site_id,
+        rule_id: "REST-OVERRIDE:SV-RULE-SECRET", chain_seq: 1,
+        statement: "Manual correction SV-RULE-SECRET knowingly overrides REST-01 for 1 pair(s), employees EMPLOYEE-SECRET.",
+        coordinator_id: "COORD-SECRET", recorded_at: "2026-09-09T12:00:00",
+        effective_from: "2026-09-09", rule_version_id: null, rel: null, predecessor_decision_id: null,
+      }],
+    };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+
+  await page.goto("/");
+  await page.getByText(site2.display_name, { exact: true }).click();
+  await page.getByRole("button", { name: "Historia i audyt", exact: true }).click();
+  await page.getByRole("button", { name: "Reguły", exact: true }).click();
+  await expect(page.getByText("Wyjątek odpoczynku (korekta ręczna)")).toBeVisible();
+
+  const bodyText = await page.locator("body").innerText();
+  expect(bodyText).not.toContain("SV-RULE-SECRET");
+  expect(bodyText).not.toContain("EMPLOYEE-SECRET");
+  expect(bodyText).toContain("Manual correction");
+  await expect(page.getByText("Jan Kowalski")).toBeVisible();
 });
