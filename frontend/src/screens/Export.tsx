@@ -29,6 +29,12 @@ function base64ToBlob(base64: string): Blob {
   return new Blob([array], { type: "application/pdf" });
 }
 
+// ROTA-T060 (brief 3.7/T60-10): filesystem-safe slug of a human-readable
+// name, used instead of the raw siteId in the downloaded filename.
+function slugForFilename(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "obiekt";
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -53,6 +59,12 @@ export default function Export({
   // truth at all -- it's derived from workingMonth, not a free-text field.
   const periodLabel = monthLabel(workingMonth);
   const [hasSettings, setHasSettings] = useState<boolean | null>(null);
+  // ROTA-T060 (ARCHITECT_RULING, brief 3.7/T60-10): the downloaded filename
+  // must not carry the raw siteId -- the site's own print name (already
+  // configured on Panel sterowania -> Obiekt) is the human-readable
+  // replacement; a site with no settings yet falls back to a generic,
+  // still ID-free label.
+  const [sitePrintName, setSitePrintName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -73,7 +85,10 @@ export default function Export({
     setLoading(true);
     api
       .getPrintSettings(siteId)
-      .then((s) => setHasSettings(s !== null))
+      .then((s) => {
+        setHasSettings(s !== null);
+        setSitePrintName(s?.site_print_name ?? null);
+      })
       .finally(() => setLoading(false));
   }, [siteId]);
 
@@ -94,11 +109,12 @@ export default function Export({
         const blob = base64ToBlob(res.pdf_base64);
         setPreviewBlob(blob);
         setPreviewUrl(URL.createObjectURL(blob));
-        setPreviewFilename(`grafik-${siteId}-${monthIso}.pdf`);
-        setResult({
-          ok: true,
-          message: `Gotowe. Wersja dokumentu: ${res.document_revision ? res.document_revision.slice(0, 10) : res.document_revision}.`,
-        });
+        setPreviewFilename(`grafik-${slugForFilename(sitePrintName ?? "obiekt")}-${monthIso}.pdf`);
+        // ROTA-T060 (brief 3.7/T60-10): the on-screen success message no
+        // longer shows the document_revision shortcut -- this is separate
+        // from, and does not touch, the T051 verification hash printed
+        // inside the PDF itself, which stays exactly as it is.
+        setResult({ ok: true, message: "Gotowe." });
       } else {
         setResult({ ok: false, message: res.message ?? "Nieznany problem eksportu." });
       }

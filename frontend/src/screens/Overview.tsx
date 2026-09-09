@@ -3,7 +3,7 @@
 // backend module for this screen, per spec) over reads already covered
 // by other screens (decisions, schedule version, roster).
 import { useEffect, useState } from "react";
-import { DecisionRequiredOut, OverviewOut, api } from "../api/client";
+import { DecisionRequiredOut, OverviewOut, RosterRow, api } from "../api/client";
 import { todayYearMonth } from "../localDate";
 
 const MONTH_NAMES_PL = [
@@ -38,8 +38,22 @@ export default function Overview({
 }) {
   const [overview, setOverview] = useState<OverviewOut | null>(null);
   const [decisionPreviews, setDecisionPreviews] = useState<Record<string, DecisionRequiredOut | null>>({});
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ROTA-T060 (ARCHITECT_RULING, brief section 2.9): a coordinator-facing
+  // blocker summary must name the employee, not their raw id -- same
+  // roster-lookup pattern Decisions.tsx already uses for the same DTO
+  // shape. A name that can't be resolved falls back to a neutral label,
+  // never the raw id (brief: "brak resolvowalnej nazwy nie upoważnia do
+  // fallbacku na surowe ID").
+  const nameFor = (employeeId: string): string =>
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? "nieznany pracownik";
+
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +100,7 @@ export default function Overview({
                 const preview = decisionPreviews[m];
                 const summary = preview
                   ? preview.blockers[0]
-                    ? `${preview.blockers[0].employee_id}: ${preview.blockers[0].condition}`
+                    ? `${nameFor(preview.blockers[0].employee_id)}: ${preview.blockers[0].condition}`
                     : `${preview.blocking_shift_demands.length} blokujących zmian`
                   : null;
                 return (

@@ -3,7 +3,7 @@
 // read-only). No Polish presentation strings exist server-side for
 // action_kind/rel -- this screen supplies them (spec explicitly says so).
 import { Fragment, useEffect, useState } from "react";
-import { CoordinatorActionKind, DecisionRecordOut, MaterialActionDetailOut, MaterialActionSummaryOut, api } from "../api/client";
+import { CoordinatorActionKind, DecisionRecordOut, MaterialActionDetailOut, MaterialActionSummaryOut, RosterRow, api } from "../api/client";
 
 const ACTION_KIND_LABEL: Record<CoordinatorActionKind, string> = {
   CONTEXT_CONFIGURATION_SAVED: "Zapisano konfigurację obiektu",
@@ -92,17 +92,34 @@ function stateValueLabel(stateKey: string | undefined, value: string): string {
   return (stateKey && STATE_VALUE_LABEL_BY_KEY[stateKey]?.[value]) ?? value;
 }
 
+// ROTA-T060 (ARCHITECT_RULING, brief T60-06): the recursive before/after
+// renderer already translates KEYS (STATE_KEY_LABEL above), but was still
+// printing the raw technical VALUE under a translated key -- e.g. "id
+// bieżącej wersji: SV-<hash>". Every key here names a value that is purely
+// a technical identifier with no human-readable form of its own (unlike
+// employee_id, which resolves to a real name below); showing a neutral
+// placeholder instead is not a data change (brief 2.8: the real value stays
+// in before_state/after_state/persistence), only a presentation choice.
+const ID_ONLY_STATE_KEYS = new Set([
+  "current_version_id", "decision_id", "predecessor_decision_id", "predecessor_rule_version_id",
+  "rule_version_id", "site", "site_id", "availability_id", "availability_version_id",
+  "supersedes_availability_version_id", "profile_id",
+]);
+const REDACTED_ID_PLACEHOLDER = "(zapisano)";
+
 // Round-15 audit FINDING 6: recurse into nested objects/arrays and
 // translate keys at every level, instead of JSON.stringify-ing a nested
 // value opaquely (which left raw English keys visible one level down).
-function renderStateValue(value: unknown, stateKey?: string): JSX.Element | string {
+function renderStateValue(value: unknown, stateKey: string | undefined, nameForEmployee: (id: string) => string): JSX.Element | string {
   if (value === null || value === undefined) return "—";
+  if (stateKey && ID_ONLY_STATE_KEYS.has(stateKey) && typeof value === "string") return REDACTED_ID_PLACEHOLDER;
+  if (stateKey === "employee_id" && typeof value === "string") return nameForEmployee(value);
   if (Array.isArray(value)) {
     if (value.length === 0) return "(brak)";
     return (
       <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
         {value.map((v, i) => (
-          <li key={i}>{renderStateValue(v, stateKey)}</li>
+          <li key={i}>{renderStateValue(v, stateKey, nameForEmployee)}</li>
         ))}
       </ul>
     );
@@ -112,7 +129,7 @@ function renderStateValue(value: unknown, stateKey?: string): JSX.Element | stri
       <ul style={{ margin: "2px 0 0 0", paddingLeft: 16 }}>
         {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
           <li key={k}>
-            {stateKeyLabel(k)}: {renderStateValue(v, k)}
+            {stateKeyLabel(k)}: {renderStateValue(v, k, nameForEmployee)}
           </li>
         ))}
       </ul>
@@ -122,7 +139,11 @@ function renderStateValue(value: unknown, stateKey?: string): JSX.Element | stri
   return String(value);
 }
 
-function StateDiff({ label, state }: { label: string; state: Record<string, unknown> | null }) {
+function StateDiff({
+  label, state, nameForEmployee,
+}: {
+  label: string; state: Record<string, unknown> | null; nameForEmployee: (id: string) => string;
+}) {
   if (!state) return null;
   return (
     <div style={{ marginTop: 6 }}>
@@ -130,7 +151,7 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
       <ul style={{ margin: "4px 0 0 0", paddingLeft: 18, fontSize: 12.5 }}>
         {Object.entries(state).map(([key, value]) => (
           <li key={key}>
-            {stateKeyLabel(key)}: {renderStateValue(value, key)}
+            {stateKeyLabel(key)}: {renderStateValue(value, key, nameForEmployee)}
           </li>
         ))}
       </ul>
@@ -140,15 +161,26 @@ function StateDiff({ label, state }: { label: string; state: Record<string, unkn
 
 function ActionsTab({ siteId }: { siteId: string }) {
   const [actionKindFilter, setActionKindFilter] = useState<CoordinatorActionKind | "">("");
-  const [coordinatorFilter, setCoordinatorFilter] = useState("");
   const [recordedFrom, setRecordedFrom] = useState("");
   const [recordedTo, setRecordedTo] = useState("");
   const [rows, setRows] = useState<MaterialActionSummaryOut[]>([]);
+  const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<MaterialActionDetailOut | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // ROTA-T060 (ARCHITECT_RULING, brief 2.9/T60-06): before/after diffs can
+  // name an arbitrary employee_id -- resolve it the same way every other
+  // screen does; a name that can't be resolved is a neutral label, never
+  // the raw id.
+  const nameForEmployee = (employeeId: string): string =>
+    rosterEmployees.find((r) => r.employee_id === employeeId)?.display_name ?? "nieznany pracownik";
+
+  useEffect(() => {
+    api.listRoster(siteId).then(setRosterEmployees).catch(() => undefined);
+  }, [siteId]);
 
   useEffect(() => {
     setLoading(true);
@@ -156,14 +188,13 @@ function ActionsTab({ siteId }: { siteId: string }) {
     api
       .getActionHistory(siteId, {
         actionKind: actionKindFilter || undefined,
-        coordinatorId: coordinatorFilter.trim() || undefined,
         recordedFrom: recordedFrom ? `${recordedFrom}T00:00:00` : undefined,
         recordedTo: recordedTo ? `${recordedTo}T23:59:59` : undefined,
       })
       .then(setRows)
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [siteId, actionKindFilter, coordinatorFilter, recordedFrom, recordedTo]);
+  }, [siteId, actionKindFilter, recordedFrom, recordedTo]);
 
   const toggleExpanded = (actionId: string) => {
     if (expandedId === actionId) {
@@ -201,10 +232,6 @@ function ActionsTab({ siteId }: { siteId: string }) {
             </select>
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="field-label">Koordynator</span>
-            <input value={coordinatorFilter} onChange={(e) => setCoordinatorFilter(e.target.value)} placeholder="id koordynatora" style={{ width: 140 }} />
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className="field-label">Od</span>
             <input type="date" value={recordedFrom} onChange={(e) => setRecordedFrom(e.target.value)} />
           </label>
@@ -238,7 +265,7 @@ function ActionsTab({ siteId }: { siteId: string }) {
                   <tr>
                     <td>{formatDateTime(row.recorded_at)}</td>
                     <td>{ACTION_KIND_LABEL[row.action_kind]}</td>
-                    <td>{row.coordinator_id}</td>
+                    <td>Koordynator</td>
                     <td>{row.month ?? "—"}</td>
                     <td>{row.note ?? "—"}</td>
                     <td>
@@ -256,23 +283,30 @@ function ActionsTab({ siteId }: { siteId: string }) {
                           detail && (
                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                               <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: 0 }}>
+                                {/* ROTA-T060: source_id is a raw technical id
+                                    (schedule_version_id/availability_version_id/
+                                    decision_id depending on source_kind) with no
+                                    human-readable form -- the kind label alone
+                                    is the safe, useful part. */}
                                 Źródło: {SOURCE_KIND_LABEL[detail.source_kind] ?? detail.source_kind}
-                                {detail.source_id ? ` (${detail.source_id})` : ""}
                               </p>
                               <div style={{ display: "flex", gap: 32 }}>
-                                <StateDiff label="Przed" state={detail.before_state} />
-                                <StateDiff label="Po" state={detail.after_state} />
+                                <StateDiff label="Przed" state={detail.before_state} nameForEmployee={nameForEmployee} />
+                                <StateDiff label="Po" state={detail.after_state} nameForEmployee={nameForEmployee} />
                               </div>
                               {detail.responds_to && (
                                 <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+                                  {/* ROTA-T060: decision_required_id has no
+                                      human-readable form; requested_by is a raw
+                                      coordinator_id -- neutral "Koordynator"
+                                      per the owner-decided identity shape. */}
                                   <p style={{ margin: 0 }}>
-                                    Odpowiedź na decyzję koordynatora {detail.responds_to.decision_required_id} z miesiąca{" "}
-                                    {detail.responds_to.month}, zgłoszoną przez {detail.responds_to.requested_by} (
-                                    {formatDateTime(detail.responds_to.recorded_at)}).
+                                    Odpowiedź na decyzję koordynatora z miesiąca {detail.responds_to.month}, zgłoszoną przez
+                                    Koordynator ({formatDateTime(detail.responds_to.recorded_at)}).
                                   </p>
                                   {detail.responds_to.linked_action_ids.length > 0 && (
                                     <p style={{ margin: "4px 0 0 0" }}>
-                                      Powiązane akcje: {detail.responds_to.linked_action_ids.join(", ")}
+                                      Powiązane akcje: {detail.responds_to.linked_action_ids.length}
                                     </p>
                                   )}
                                 </div>
@@ -351,7 +385,7 @@ function RulesTab({ siteId }: { siteId: string }) {
                 {history[ruleId].map((d) => (
                   <tr key={d.decision_id}>
                     <td>{formatDateTime(d.recorded_at)}</td>
-                    <td>{d.coordinator_id}</td>
+                    <td>Koordynator</td>
                     <td>{d.statement}</td>
                     <td>{d.effective_from}</td>
                     <td>{d.rel ? REL_LABEL[d.rel] ?? d.rel : "—"}</td>
