@@ -18,6 +18,24 @@ brief.md/kontrakcie danego Tasku.
 - If a brief is untestable after 1–2 correction rounds: report and STOP; do not
   use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
 
+## COORDINATOR_SIMULATORS_FROZEN
+OWNER_RULING_2026-09-09: Symulator Koordynatora A i Symulator Koordynatora B
+są w obecnym stanie bezużyteczne i zamrożone.
+
+- Zakres zamrożenia:
+  - `tests/property/coordinator_simulator.py`;
+  - `tests/property/test_coordinator_simulator.py`;
+  - `tests/property/test_coordinator_simulator_variant_b.py`.
+- NIE uruchamiaj ich jako części audytu, regresji, gate'u, benchmarku ani
+  diagnozy innego Tasku. Nie cytuj ich PASS/FAIL jako dowodu jakości produktu
+  i nie pozwalaj, aby ich wynik blokował werdykt.
+- Gdy szersze polecenie pytest zebrałoby te pliki automatycznie, wyklucz je
+  jawnie i odnotuj wykluczenie w raporcie.
+- NIE poprawiaj, nie usuwaj i nie przebudowuj ich przy okazji innych Tasków.
+  Zamrożenie nie oznacza zgody na dostosowywanie ich do bieżącego kodu.
+- Powrót do używania lub edycji wymaga nowej, jawnej decyzji OWNERA i osobnego
+  kontraktu Tasku poświęconego symulatorom.
+
 ## WHERE_MAP
 The architect/auditor MAY require `where.py` on a Task by adding this block to
 the contract before implementation — this is a tool the architect/auditor
