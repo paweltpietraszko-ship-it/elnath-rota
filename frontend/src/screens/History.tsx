@@ -408,7 +408,7 @@ function ruleDisplayStatement(ruleId: string, statement: string, nameForEmployee
   const withoutWeekly = statement.replace(/WEEKLY-REST-01/g, "");
   const overridesDaily = /\bREST-01\b/.test(withoutWeekly);
   const overridesWeekly = /WEEKLY-REST-01/.test(statement);
-  const kinds = [overridesDaily && "dobowego", overridesWeekly && "tygodniowego"].filter(Boolean) as string[];
+  const kinds = [overridesDaily && "dobowy", overridesWeekly && "tygodniowy"].filter(Boolean) as string[];
   if (kinds.length === 0) return FALLBACK;
   return `Ręczna korekta świadomie pomija wymagany odpoczynek ${kinds.join(" i ")} — pracownicy: ${names}.`;
 }
