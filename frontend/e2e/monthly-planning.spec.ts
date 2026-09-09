@@ -1,8 +1,9 @@
 // ROTA-T031 (tasks/ROTA-T031/brief.md section 6, T31-10): E2E coverage
 // for Planowanie miesiąca. Backend contract (compute, validation, exact
 // deviation-set finalize) is covered by tests/test_t031_schedule_api.py --
-// this file exercises the PLAN -> select -> reload -> finalize -> REPLAN
-// UI loop against the real dev build + real backend. A freshly created
+// this file exercises the PLAN -> select -> reload -> finalize UI loop
+// against the real dev build + real backend (see the removed-test note
+// below for why this no longer includes REPLAN). A freshly created
 // site has an empty shift catalog/roster, so the solver's own job is
 // trivial (zero demands/candidate assignments) -- that is enough to prove
 // the screen's mechanics without duplicating rota/'s own solver test
@@ -59,46 +60,23 @@ test("PLAN -> select candidate -> reload shows persisted version", async ({ page
   await expect(page.getByText(statusText!)).toBeVisible();
 });
 
-// SKIPPED (2026-09-09, found while fixing this file's stale "status: WORKING"
-// text): this test's post-finalize step assumed a `replan-open` ->
-// `replan-submit` two-step dialog, which no longer exists anywhere in
-// MonthlyPlanning.tsx. Per that screen's own T057-follow-up comment
-// (2026-09-07): "REPLAN's actual entry point ... only makes sense
-// pre-acceptance; Przelicz Plan's own preview (post-acceptance, same
-// 'Kandydaci' panel) never offers it." So a finalized month's "give me a
-// new version" flow is now Przelicz Plan, going back through the ordinary
-// PLAN-candidates panel -- a different UI flow than what this test
-// exercises, not a renamed button. Same class of pre-existing T057 gap
-// already flagged elsewhere this project (BOARD.md/ROTA-TEST-CLEANUP's
-// test_t011_e Route A finding) -- flagging, not guessing at a rewrite.
-test.skip("finalize with no deviations moves to FINAL, then REPLAN creates a new version", async ({ page }) => {
-  const siteName = `PLAN-FIN-${uid()}`;
-  await createSite(page, siteName);
-  await openSite(page, siteName);
-  await openMonthlyPlanning(page);
-
-  await page.locator('[data-diag-action="plan-month-first"]').click();
-  await page.locator('[data-diag-action="select-candidate"]').first().click();
-  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
-
-  // ROTA-T048 removed the raw version_id display -- the status+timestamp
-  // line (second-precision) is the current, correct way to tell two
-  // versions apart on screen.
-  const parentStatusText = await page.getByText(/Status: .+, utworzono .+/).textContent();
-
-  await page.locator('[data-diag-action="finalize-month"]').click();
-  await expect(page.getByText(/Status: Zatwierdzona,/)).toBeVisible();
-
-  await page.locator('[data-diag-action="replan-open"]').click();
-  await page.locator('[data-diag-action="replan-submit"]').click();
-
-  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
-  const childStatusText = await page.getByText(/Status: .+, utworzono .+/).textContent();
-  expect(childStatusText).not.toBe(parentStatusText);
-
-  await page.locator('[data-diag-action="history-toggle"]').click();
-  await expect(page.locator('[data-diag-action="restore-version"]')).toBeVisible();
-});
+// REMOVED (2026-09-09, architect merit review of test/e2e-stale-status-text):
+// this file used to carry a "finalize with no deviations moves to FINAL,
+// then REPLAN creates a new version" test, skipped rather than fixed
+// because its post-finalize step assumed a `replan-open` -> `replan-submit`
+// two-step dialog that no longer exists in MonthlyPlanning.tsx. That test
+// is superseded by T057, not merely stale: per MonthlyPlanning.tsx's own
+// T057-follow-up comment, REPLAN's entry point only makes sense
+// pre-acceptance, and a finalized month's "new version" flow is Przelicz
+// Plan -- which only becomes available once the schedule is live
+// (`isLive`, i.e. its effective_from has actually passed), not merely
+// finalized. Reconstructing this test on the current lifecycle would need
+// a way to make a freshly created test site's schedule "live" without
+// waiting for real time to pass, which no test helper here provides --
+// rewriting it accurately is out of this branch's scope, not a mechanical
+// text fix. Tracked as the same class of pre-existing T057 gap already
+// flagged in BOARD.md/ROTA-TEST-CLEANUP's test_t011_e Route A finding;
+// left there rather than resurrected here as a second half-fixed skip.
 
 // R1-1 (round-1 audit): the PLAN-first effective_from date must resync when
 // the selected month changes, not silently keep a stale month's date.
@@ -167,9 +145,17 @@ test("R1-3: a rejected finalize re-fetches the month view", async ({ page }) => 
   await page.locator('[data-diag-action="select-candidate"]').first().click();
   await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
 
+  // ROTA-T060 (api/errors.py): a stale acknowledged set is a real backend
+  // ValueError, mapped by `to_http_exception` to a fixed Polish message
+  // ("Nieprawidłowe dane wejściowe.") with the X-Elnath-Public-Error header
+  // -- client.ts only renders `detail` when that exact header is present.
+  // Mocking the real contract instead of a raw English `detail` string.
   await page.route("**/schedule/*/finalize", async (route) => {
     if (route.request().method() === "POST") {
-      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "stale deviation set" }) });
+      await route.fulfill({
+        status: 400, contentType: "application/json", headers: { "X-Elnath-Public-Error": "1" },
+        body: JSON.stringify({ detail: "Nieprawidłowe dane wejściowe." }),
+      });
     } else {
       await route.continue();
     }
@@ -179,6 +165,6 @@ test("R1-3: a rejected finalize re-fetches the month view", async ({ page }) => 
     (r) => /\/schedule\/\d{4}-\d{2}-\d{2}$/.test(r.url()) && r.request().method() === "GET",
   );
   await page.locator('[data-diag-action="finalize-month"]').click();
-  await expect(page.getByText("stale deviation set")).toBeVisible();
+  await expect(page.getByText("Nieprawidłowe dane wejściowe.")).toBeVisible();
   await refreshedGet;
 });
