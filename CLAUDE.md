@@ -12,6 +12,7 @@ REVIEW CHAIN:
 - Architect (ChatGPT) reads GitHub directly — see `arch/` FINDING docs and BOARD.md for how factual input reaches it. For small mechanical fixes, backend.py PASS + Codex PASS is normally sufficient; architect involvement is only needed when CC or Codex surfaces a real contract/ownership question.
 - Merge instruction comes from Paweł only.
 - Never merge on your own initiative, even after green backend + Codex.
+- 2026-09-09 OWNER_CORRECTED: for a fairness/tie-break/equity-style product-behavior question (which of two mathematically-tied-or-close outcomes is actually the right one for a human coordinator), ask Paweł FIRST, before writing it up as a BOARD.md finding for the architect. Reason, in Paweł's own words: "ja mam wyobraźnię człowieka, architekt pewne rzeczy widzi matematycznie a nie realnie" — a real case (ROTA-TEST-CLEANUP's equity tie-break investigation, 2026-09-09) was resolved correctly in one exchange by his plain human reasoning ("komu brakuje więcej godzin, temu się daje zmianę") after CC had already concluded it needed an architect brief. This does not change who has FINAL authority on solver/architecture changes (still architect+Codex+owner per TASK_SCOPE discipline) — it changes the ORDER: bring the plain-language question to Paweł before routing it onward, not after.
 
 GIT WORKFLOW:
 - Never commit or push directly to `main`.
