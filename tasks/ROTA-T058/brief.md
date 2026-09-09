@@ -8,6 +8,7 @@ OWNER_CORRECTION: main@`500b337dd86f43c7d978c9afc2b4a7ccabd13249`
 PREIMPLEMENTATION_AUDIT_R1: `tasks/ROTA-T058/round_01/tests/tests_r1.txt` @ `c21e80f`
 PREIMPLEMENTATION_AUDIT_R2: `tasks/ROTA-T058/round_01/tests/tests_r2.txt` @ `3e49b1a`
 ARCHITECT_SPLIT_EVIDENCE: `arch/FINDING_2026-09-08_T058_EQUITY_DEADBAND_CPSAT_PERFORMANCE.md`
+R6_EVIDENCE: `tasks/ROTA-T058/round_01/tests/tests_r6.txt` @ `2466f4e`
 
 ## 1. Cel
 
@@ -43,6 +44,23 @@ Wtedy istniejący pion `validate -> materialize_deviations -> coordinator action
 Nie tworzyć nowej tabeli, DTO, systemu wyjątków ani osobnego `DECISION_REQUIRED`.
 
 T058 nie dodaje własnej blokady PDF/eksportu.
+
+### 2.2A ARCHITECT_RULING 2026-09-09 — trwałość świadomej przyszłej korekty
+
+R6-01 potwierdził lukę T58-06: przyszła PRIMARY ręcznie zmieniona przez koordynatora pozostaje `PLANNED` i `frozen=False`, więc późniejszy Przelicz Plan traktuje ją jak zwykły redistributable Assignment i może cicho cofnąć dokładnie tę decyzję człowieka.
+
+W T058 obowiązuje następujące rozwiązanie:
+
+1. W `apply_manual_correction`, po walidacji skorygowanego stanu i PRZED utworzeniem wersji potomnej, należy wykorzystać pełne `ViolationDetail.assignment_ids` dostępne w `report.violation_details`.
+2. Dla `ViolationDetail.rule == "THIRD-CONSECUTIVE-SHIFT-01"` należy wyznaczyć przecięcie `assignment_ids` z Assignmentami faktycznie przekazanymi w `upsert_assignments` tej korekty.
+3. Wyłącznie te faktycznie edytowane Assignmenty, które należą do naruszenia utworzonego/utrzymanego przez świadomą korektę, mają zostać zapisane z `frozen=True` w wersji potomnej.
+4. Nie wolno automatycznie zamrażać pozostałych Assignmentów z trzydniowego okna. W szczególności nie zamrażać pierwszego elementu okna tylko dlatego, że `Deviation.affected_assignment_or_employee` na niego wskazuje.
+5. Nie wolno definiować ochrony przez ogólne „Assignment ma powiązany Deviation”, bo zmieniłoby to redistributability dla innych reguł (np. REST-01/LOAD-01) poza T058.
+6. `frozen=True` jest tutaj istniejącym markerem „automat nie redystrybuuje tego Assignmentu”; nie tworzymy nowego statusu, tabeli ani równoległej pamięci decyzji.
+7. Późniejsza jawna ręczna korekta koordynatora nadal może zmienić/unfreeze taki Assignment zgodnie z istniejącymi prawami ręcznej korekty. T058 blokuje tylko ciche cofnięcie przez automat.
+8. Action trail i after-state muszą odzwierciedlać rzeczywiście zapisany `frozen=True`, a nie pierwotny obiekt z `upsert_assignments` przed tą transformacją.
+
+Ta zmiana jest ograniczona wyłącznie do ochrony jawnej ręcznej decyzji, która uczestniczy w `THIRD-CONSECUTIVE-SHIFT-01`. Nie rozszerza praw koordynatora ani semantyki innych Deviation.
 
 ### 2.3 Fixed facts i granice miesiąca
 
@@ -88,7 +106,7 @@ T58-04: brak legalnej automatycznej obsady nie prowadzi do coordinator override;
 
 T58-05: ręczna korekta może świadomie zapisać naruszenie; validator materializuje nazwane Deviation, action trail zapisuje decyzję, API/UI pokazuje polską etykietę.
 
-T58-06: późniejszy automat nie cofa ręcznie zaakceptowanej/odbytej decyzji; historyczne fixed okno nie blokuje niezwiązanej przyszłości.
+T58-06: późniejszy automat nie cofa ręcznie zaakceptowanej/odbytej decyzji; jeśli przyszły ręcznie edytowany Assignment uczestniczy w świadomie zapisanym `THIRD-CONSECUTIVE-SHIFT-01`, dokładnie ten edytowany Assignment jest chroniony przed późniejszą automatyczną redystrybucją.
 
 T58-07: NIGHT-STREAK-01 nie jest osłabione.
 
@@ -105,6 +123,8 @@ T58-12: T058 nie zmienia `add_target_equity_fairness`, `add_equal_split_fairness
 T58-13: mieszane okno boundary, w którym nowa decyzja solvera domyka trzecie kolejne rozpoczęcie, kończy się czytelnym `THIRD_CONSECUTIVE_SHIFT_BLOCKED`, nie `TECHNICAL_ERROR`.
 
 T58-14: w pełni fixed/historyczne trzydniowe okno nie powoduje samo z siebie nowego `DECISION_REQUIRED` i nie blokuje planowania niezwiązanej przyszłości.
+
+T58-15: R6 repro: ręczna przyszła zmiana Assignmentu, która świadomie domyka `THIRD-CONSECUTIVE-SHIFT-01`, pozostaje na tym Assignmentie po późniejszym Przelicz Plan; ochrona nie przenosi się na inne Assignmenty z okna i nie opiera się na skróconym `Deviation.affected_assignment_or_employee`.
 
 ## 4. Zakaz rozszerzania zakresu
 
@@ -125,7 +145,7 @@ READ_ONLY_EVIDENCE:
 - BOARD.md
 - tasks/ROTA-T058/round_01/tests/tests_r1.txt
 - tasks/ROTA-T058/round_01/tests/tests_r2.txt
-- rota/application/manual_edit.py
+- tasks/ROTA-T058/round_01/tests/tests_r6.txt
 
 TASK_SCOPE:
 - rota/planning/constraints.py
@@ -135,6 +155,7 @@ TASK_SCOPE:
 - rota/planning/engine.py
 - rota/planning/engine_types.py
 - rota/application/plan_ops.py
+- rota/application/manual_edit.py
 - rota/application/deviation_mapping.py
 - api/routers/schedule.py
 - frontend/src/api/client.ts
@@ -156,6 +177,8 @@ TASK_SCOPE:
 
 `engine_types.py`, `plan_ops.py`, `frontend/src/api/client.ts` i `MonthlyPlanning.tsx` wolno zmieniać wyłącznie dla truthful non-decision statusu i jego czytelnej prezentacji.
 
+`manual_edit.py` wolno zmienić wyłącznie w celu T58-06/T58-15: po `validate()` użyć pełnych `ViolationDetail.assignment_ids` nowej reguły i zapisać `frozen=True` tylko na faktycznie edytowanych Assignmentach z `upsert_assignments`, które należą do tego naruszenia; nie zmieniać ogólnej semantyki manual correction, REALIZED ani innych Deviation.
+
 `deviation_mapping.py` wyłącznie o mapowanie nowej reguły do istniejącej kategorii; `api/routers/schedule.py` wyłącznie o polską etykietę nowego Deviation.
 
 Dodatkowe pliki testowe powyżej wolno zmieniać wyłącznie w setup/fixture koniecznym do zachowania ich pierwotnej izolacji po wejściu nowego HARD. Nie wolno zmieniać oczekiwanego zachowania reguły, którą dany test faktycznie audytuje.
@@ -164,6 +187,6 @@ Jeżeli implementacja wymaga innego istniejącego pliku, STOP i powrót do Archi
 
 ## 6. Handoff po rozdzieleniu
 
-CC ma zachować działającą część HARD, wycofać z worktree wszystkie eksperymenty deadband/reweight/objective-chain i przygotować czysty delivery T058 tylko dla acceptance T58-01..T58-14.
+CC ma zachować działającą część HARD, wycofać z worktree wszystkie eksperymenty deadband/reweight/objective-chain i przygotować czysty delivery T058 tylko dla acceptance T58-01..T58-15.
 
-Po delivery: targetowane testy + realny pion PLAN + przekazanie Codexowi exact SHA. Pełny redesign objective nie jest warunkiem ukończenia T058.
+Po delivery: targetowane testy + realny pion PLAN/Przelicz Plan, w tym R6 repro, + przekazanie Codexowi exact SHA. Pełny redesign objective nie jest warunkiem ukończenia T058.
