@@ -45,18 +45,33 @@ test("PLAN -> select candidate -> reload shows persisted version", async ({ page
   await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
   await page.locator('[data-diag-action="select-candidate"]').first().click();
 
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
-  const versionText = await page.getByText(/Wersja: SV-/).textContent();
-  const versionId = versionText?.match(/SV-[a-f0-9]+/)?.[0];
-  expect(versionId).toBeTruthy();
+  // ROTA-T048 removed the raw version_id display entirely -- "Status: {label},
+  // utworzono {timestamp}" (second-precision, see formatDateTime's own
+  // comment) is what a coordinator actually sees now, and disambiguates
+  // versions just as well as the old SV-... id did.
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
+  const statusText = await page.getByText(/Status: .+, utworzono .+/).textContent();
+  expect(statusText).toBeTruthy();
 
   await page.reload();
   await openSite(page, siteName);
   await openMonthlyPlanning(page);
-  await expect(page.getByText(new RegExp(`Wersja: ${versionId}`))).toBeVisible();
+  await expect(page.getByText(statusText!)).toBeVisible();
 });
 
-test("finalize with no deviations moves to FINAL, then REPLAN creates a new version", async ({ page }) => {
+// SKIPPED (2026-09-09, found while fixing this file's stale "status: WORKING"
+// text): this test's post-finalize step assumed a `replan-open` ->
+// `replan-submit` two-step dialog, which no longer exists anywhere in
+// MonthlyPlanning.tsx. Per that screen's own T057-follow-up comment
+// (2026-09-07): "REPLAN's actual entry point ... only makes sense
+// pre-acceptance; Przelicz Plan's own preview (post-acceptance, same
+// 'Kandydaci' panel) never offers it." So a finalized month's "give me a
+// new version" flow is now Przelicz Plan, going back through the ordinary
+// PLAN-candidates panel -- a different UI flow than what this test
+// exercises, not a renamed button. Same class of pre-existing T057 gap
+// already flagged elsewhere this project (BOARD.md/ROTA-TEST-CLEANUP's
+// test_t011_e Route A finding) -- flagging, not guessing at a rewrite.
+test.skip("finalize with no deviations moves to FINAL, then REPLAN creates a new version", async ({ page }) => {
   const siteName = `PLAN-FIN-${uid()}`;
   await createSite(page, siteName);
   await openSite(page, siteName);
@@ -64,21 +79,22 @@ test("finalize with no deviations moves to FINAL, then REPLAN creates a new vers
 
   await page.locator('[data-diag-action="plan-month-first"]').click();
   await page.locator('[data-diag-action="select-candidate"]').first().click();
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
 
-  const parentVersionText = await page.getByText(/Wersja: SV-/).textContent();
-  const parentVersionId = parentVersionText?.match(/SV-[a-f0-9]+/)?.[0];
+  // ROTA-T048 removed the raw version_id display -- the status+timestamp
+  // line (second-precision) is the current, correct way to tell two
+  // versions apart on screen.
+  const parentStatusText = await page.getByText(/Status: .+, utworzono .+/).textContent();
 
   await page.locator('[data-diag-action="finalize-month"]').click();
-  await expect(page.getByText(/status: FINAL_NO_DEVIATIONS/)).toBeVisible();
+  await expect(page.getByText(/Status: Zatwierdzona,/)).toBeVisible();
 
   await page.locator('[data-diag-action="replan-open"]').click();
   await page.locator('[data-diag-action="replan-submit"]').click();
 
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
-  const childVersionText = await page.getByText(/Wersja: SV-/).textContent();
-  const childVersionId = childVersionText?.match(/SV-[a-f0-9]+/)?.[0];
-  expect(childVersionId).not.toBe(parentVersionId);
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
+  const childStatusText = await page.getByText(/Status: .+, utworzono .+/).textContent();
+  expect(childStatusText).not.toBe(parentStatusText);
 
   await page.locator('[data-diag-action="history-toggle"]').click();
   await expect(page.locator('[data-diag-action="restore-version"]')).toBeVisible();
@@ -149,7 +165,7 @@ test("R1-3: a rejected finalize re-fetches the month view", async ({ page }) => 
 
   await page.locator('[data-diag-action="plan-month-first"]').click();
   await page.locator('[data-diag-action="select-candidate"]').first().click();
-  await expect(page.getByText(/status: WORKING/)).toBeVisible();
+  await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
 
   await page.route("**/schedule/*/finalize", async (route) => {
     if (route.request().method() === "POST") {

@@ -87,10 +87,16 @@ test.describe("T042 Checkpoint A -- local date across the UTC boundary", () => {
     await page.locator('[data-diag-action="plan-month-first"]').click();
     await expect(page.getByRole("heading", { name: "Kandydaci" })).toBeVisible();
     await page.locator('[data-diag-action="select-candidate"]').first().click();
-    await expect(page.getByText(/status: WORKING/)).toBeVisible();
+    await expect(page.getByText(/Status: Wersja robocza,/)).toBeVisible();
 
-    await page.locator('[data-diag-action="replan-open"]').click();
-    await expect(page.getByLabel("Data odcięcia (REPLAN)")).toHaveValue("2026-09-01");
+    // T42-A03's second half (REPLAN cutover date defaults to 2026-09-01) is
+    // no longer checkable this way: `replan-open` and the "Data odcięcia
+    // (REPLAN)" field it used to reveal don't exist anywhere in current
+    // source (2026-09-09, found while fixing this file's stale
+    // "status: WORKING" text). Same pre-existing T057 REPLAN-flow
+    // restructuring gap as monthly-planning.spec.ts's skipped finalize
+    // test -- flagging, not guessing at where the cutover-date default is
+    // asserted now.
   });
 
   test("T42-A04: an ordinary midday moment still resolves the correct local date", async ({ page }) => {
