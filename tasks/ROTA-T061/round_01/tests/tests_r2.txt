@@ -1,0 +1,95 @@
+ROTA-T061 — preimplementation literal re-check, round 2
+
+AUDITED BRIEF SHA: 1815ce2de1d3747de2426c22d2c9f65f77ec6df6
+VERDICT: PREIMPLEMENTATION PASS
+
+The two R1 contradictions are closed by explicit OWNER rulings in the frozen
+contract:
+
+- any material input change invalidates the blocked context and requires a new
+  PLAN; a FEASIBLE retry uses the normal candidate flow, never Route A;
+- Route A is available only after a current blocked first PLAN and may persist
+  only a complete first root schedule, not a partial schedule with uncovered
+  required PRIMARY demand.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+
+What remains necessary
+
+1. `rota/application/manual_edit.py`
+   SOURCE: OWNER ruling and T61-05..T61-08.
+   NECESSITY: owning application boundary for manual validate -> deviation ->
+   T058 freeze -> REST audit -> coordinator action semantics. Extract/reuse the
+   existing logic and add one root-compatible command; do not clone the flow.
+
+2. `rota/persistence/site_memory.py`
+   SOURCE: T61-02/T61-03/T61-07.
+   NECESSITY: owning transaction pre-check must require the current decision for
+   the exact target `(site, month)`. Existing optional, Site-only caller check is
+   insufficient for this new command. No other decision lifecycle change.
+
+3. `api/routers/manual_edit.py`
+   SOURCE: T61-05 and the existing manual-correction router ownership.
+   NECESSITY: one separate first-manual endpoint with a narrow payload. It must
+   not overload ordinary correction and must not accept a seed/current version.
+
+4. `frontend/src/screens/MonthlyPlanning.tsx`
+   SOURCE: OWNER-confirmed complete manual root and T61-05/T61-06.
+   NECESSITY: one minimal editor in the existing current DECISION_REQUIRED
+   branch. It presents every required PRIMARY slot and disables/rejects Save
+   until all required slots are assigned. No T062 diagnostic redesign.
+
+5. `frontend/src/api/client.ts`
+   SOURCE: the new endpoint.
+   NECESSITY: one payload/result type and one call only.
+
+Existing owners reused unchanged
+
+- `assembler.assemble_planning_state` supplies canonical complete demands with
+  no current version; do not edit `assembler.py`.
+- `schedule_lifecycle.create_schedule_version(parent_version_id=None)` already
+  owns the atomic header/content/current/pre_check/on_success write; do not edit
+  `schedule_lifecycle.py` and do not add another persistence owner.
+- existing validator and deviation mapping remain the single rule owners; do
+  not duplicate their matrices or alter the solver.
+- the frontend can use the month view's demands and existing roster read. No
+  change to `api/routers/schedule.py`, `Decisions.tsx`, `Room.tsx`, database
+  schema, PlanPreview or history/export is necessary.
+
+Exact allowed test scope under the brief's "wąskie testy T061"
+
+- `tests/test_t061.py` — new focused backend/API matrix for T61-01..T61-10;
+- `tests/test_t011_e_pipeline_e2e_hard_stop.py` — only the specified source
+  test_2/test_3 correction from T61-11/T61-12;
+- `frontend/e2e/t061-first-manual-root.spec.ts` — one real browser vertical:
+  blocked first PLAN -> complete manual editor -> incomplete Save refused with
+  zero durable writes -> complete Save -> one current root with visible
+  Deviation. No mocked backend.
+
+If CC needs a different production or test path, the literal Task scope must be
+amended before the code audit. No source-shape test, frozen simulator, frozen
+benchmark, full diagnostic flow or solver-completes-around-override mechanism
+belongs to T061.
+
+Audit layers
+
+- complete corrected brief and literal diff read on exact SHA;
+- prior round's WHERE_MAP reused as explicitly required; ownership/scope did not
+  change, so it was not rerun;
+- exact current application/persistence/router/UI seams checked for scope
+  sufficiency;
+- no product code and no tests were run in this preimplementation literal
+  re-check.
+
+PASS applies only to brief SHA 1815ce2de1d3747de2426c22d2c9f65f77ec6df6.
+Implementation HOLD may be removed for the exact scope above.
+
+ARCHITECTURE_PROPOSAL (nonblocking, once only)
+
+Current behavior: frontend writes may carry technical decision IDs, while this
+new action always targets the one current decision for its exact Site/month.
+Proposal: let the backend command resolve and lock that current decision itself
+instead of asking the browser to send an identifier. Benefit: smaller UI payload,
+no technical ID exposure and no wrong-month selection. Tradeoff: the command is
+intentionally restricted to the current decision and cannot answer a historical
+one — which matches the frozen T061 contract.
