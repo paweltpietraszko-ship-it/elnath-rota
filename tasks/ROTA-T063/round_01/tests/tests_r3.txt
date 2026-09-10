@@ -1,0 +1,39 @@
+ROTA-T063 — FINAL PREIMPLEMENTATION RE-CHECK R3
+
+AUDITED BRIEF: task/ROTA-T063@85b05d606e0976165a02d2ba5e248f688606c87d
+SCENARIO_PACK v0.1 CONTENT SHA: 1379444aff68daa5c981ab0ad3158b39679c58c2 — VERIFIED
+RESULT: OWNER_DECISION_NEEDED — IMPLEMENTATION HOLD
+
+Zgodne i zamknięte:
+- S01, S02-V1, S02-V2 i S03 są konkretnymi, małymi scenariuszami; nie powstaje Symulator C.
+- Tylko S02 tworzy synthetic external, jawnie przez operacje produktu; V1 ma 1 osobę, V2 ma 3 osoby i osobny czysty start.
+- Nie ma pętli dobierającej ludzi do skutku ani możliwości użycia osoby niewpisanej przed daną próbą.
+- Wszystkie osoby podlegają HARD, a dodatnie wyniki wymagają dokładnie FEASIBLE, pełnego D/N, UI/reloadu, screenshotu i PDF.
+- Zakres nie obejmuje kodu produkcyjnego, solvera, zamrożonych symulatorów ani benchmarków.
+
+KONKRETNE LUKI PRZED PASS
+
+1. S02 i S03 ustawiają chorobę przed pierwszym PLANEM.
+   To jest sprzeczne z wcześniejszym jawnym OWNER ruling: chorobowego nie wpisuje się z góry do przyszłego grafiku; pojawia się ono po powstaniu/rozpoczęciu grafiku i prowadzi do „Przelicz Plan”, które zachowuje odbyte służby. S02/S03 powinny więc startować od rzeczywiście zapisanego bazowego grafiku, następnie wprowadzić SICK_LEAVE i użyć właściwej operacji zmiany planu. T064 rozwiązuje wybór października, ale nie czyni przyszłego październikowego grafiku „żywym”; brief musi wskazać uczciwy sposób wykonania tego lifecycle albo inną OWNER-zatwierdzoną datę/scenariusz. Codex nie może uznać obecnego zapisu za ciche odwołanie wcześniejszej decyzji.
+
+2. S02 przed dodaniem external nie ma dokładnego oczekiwanego statusu.
+   Tekst „nie powstaje pełny grafik” pozwoliłby zaliczyć zarówno prawidłowe DECISION_REQUIRED, jak i TECHNICAL_ERROR/crash. SCENARIO_PACK musi wymagać dokładnie DECISION_REQUIRED (oraz braku utworzonego pełnego current/kandydata), jeżeli to jest zatwierdzone oczekiwanie OWNERA.
+
+3. D/E w S02 i D w S03 mają zapis „choroba / niedostępność”.
+   To są różne możliwe dane/operacje produktu. Z kontekstu OWNERA wynika choroba; kontrakt musi zapisać literalnie SICK_LEAVE, bez alternatywy dla implementera.
+
+4. SCENARIO_PACK nie określa target_hours A–E.
+   To wpływa na ranking i kształt grafiku. Należy jawnie zamrozić jedną wartość dla każdej osoby albo jawnie `BRAK/NULL dla wszystkich`; external pozostaje bez targetu zgodnie z istniejącym produktem. Tego wyboru Codex nie może dopisać za OWNERA.
+
+5. Pełna izolacja nie jest gwarantowana samym dozwolonym `global-setup.ts`, ponieważ wyłączony ze scope `playwright.config.ts` ma lokalnie `reuseExistingServer=true`.
+   Minimalna korekta bez rozszerzania plików: kontrakt wykonania T063 ma wymagać uruchomienia z `CI=1`, aby nie użyć starego backendu, a global setup ma utworzyć świeżą dedykowaną bazę przed startem serwera. Alternatywnie trzeba jawnie dodać config do TASK_SCOPE.
+
+6. Aby nie dublować nowego acceptance, T043 powinien zostać tylko uczciwie przeklasyfikowany jako test połączenia UI/API. Realny D/N z twardym wynikiem należy wyłącznie do nowego `t063-business-outcomes.spec.ts`.
+
+DECYZJE OWNERA
+1. Czy najnowsze zatwierdzenie miało świadomie odwołać wcześniejszą zasadę, że chorobowe pojawia się dopiero po utworzeniu grafiku? Jeśli nie, S02/S03 muszą zostać przebudowane jako zmiana istniejącego grafiku przez „Przelicz Plan”.
+2. Czy A–E mają w tych scenariuszach godziny docelowe? Jeśli tak, podać dokładne wartości; jeśli nie, zatwierdzić jawne `target_hours = NULL` dla wszystkich LOCAL.
+
+Pozostałe punkty są mechaniczną korektą kontraktu według już przyjętych ustaleń.
+
+Nie uruchamiano testów ani nie powtarzano inwentaryzacji E2E. Re-check objął wyłącznie finalny brief, pełny SCENARIO_PACK, jego hash i literalny TASK_SCOPE.
