@@ -4,242 +4,215 @@ STATUS: FINAL PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD UNTIL 
 
 BASELINE: `main@af7d5c6f15dbc424a24b9647e725085afa662284`
 
-SOURCE: `arch/PREBRIEF_AUDIT_2026-09-10_T063_ACTIVE_E2E_MATRIX.md` + OWNER rulings 2026-09-10 + OWNER-approved `tasks/ROTA-T063/scenario_pack.md` at content SHA `1379444aff68daa5c981ab0ad3158b39679c58c2` (approval commit `5cad1a6adb8e14a223214cd03d98729f5941d04f`).
+SOURCE:
+- `arch/PREBRIEF_AUDIT_2026-09-10_T063_ACTIVE_E2E_MATRIX.md`
+- Codex R3: `tasks/ROTA-T063/round_01/tests/tests_r3.txt`
+- OWNER rulings 2026-09-10
+- normatywny `tasks/ROTA-T063/scenario_pack.md` v0.2, content SHA `675e4b5de1ab684bf93bf61854b6617c9f126a27`
 
 ## 1. Cel
 
-T063 ma zbudować małą, wiarygodną warstwę testów akceptacyjnych, które dowodzą rzeczywistego wyniku biznesowego programu.
+T063 buduje małą warstwę wiarygodnych testów acceptance kończących się rzeczywistym wynikiem biznesowym programu.
 
-Zielony test nie wystarcza dlatego, że frontend kliknął PLAN, API odpowiedziało albo solver zwrócił dowolny status. Test ma dowodzić z góry określonego rezultatu biznesowego na z góry określonych danych.
+Zielony test nie wystarcza dlatego, że UI kliknęło PLAN, API odpowiedziało albo solver zwrócił jakiś status. Test ma dowodzić z góry zamrożonego zachowania na z góry zamrożonych danych.
 
-T063 jest zadaniem testowym. Nie zmienia produktu, solvera, reguł planowania ani UI.
+T063 jest wyłącznie zadaniem testowym. Nie zmienia solvera, produkcyjnej logiki planowania, reguł biznesowych ani UI.
 
-## 2. Zasada nadrzędna — test nie symuluje rzeczywistości, której nie zna
+## 2. Zasada nadrzędna
 
-Dane kadrowe scenariusza są częścią kontraktu testu.
+Test nie tworzy rzeczywistości, której nie zna.
 
-Fixture, helper, test, solver, fallback ani implementer nie mogą samodzielnie:
-- zwiększyć liczby pracowników lokalnych,
-- dodać wsparcia zewnętrznego,
-- rozszerzyć okresu dostępności wsparcia,
-- poluzować urlopu, chorobowego, DAY_ONLY, dostępności ani innych danych,
-- zmienić zapotrzebowania obiektu,
-- dobrać wygodniejszej obsady tylko po to, aby test przeszedł.
+Dane kadrowe scenariusza są częścią kontraktu. Fixture, helper, test ani implementer nie mogą samodzielnie zwiększać LOCAL, dodawać external, poluzowywać urlopów/chorobowego/DAY_ONLY/dostępności, zmieniać zapotrzebowania ani dobierać wygodniejszej obsady pod PASS.
 
-Jeżeli scenariusz mówi `5 LOCAL`, test ma dokładnie `5 LOCAL`.
+T063 NIE buduje Symulatora C. Automat nie ocenia ogólnej „rozsądności” decyzji koordynatora. Może wyłącznie odtworzyć literalną decyzję wpisaną w `SCENARIO_PACK` i sprawdzić obserwowalny rezultat.
 
-T063 NIE buduje kolejnego Symulatora. Automat testowy nie ocenia, co jest rozsądne dla koordynatora i nie improwizuje jego decyzji. Jeżeli scenariusz zawiera decyzję człowieka, automat może wyłącznie odtworzyć literalną, wcześniej zamrożoną odpowiedź z `SCENARIO_PACK`.
+## 3. Chorobowe — zamrożony lifecycle OWNERA
 
-## 3. External support — ostatnia droga ratunku, ale nie automatyczny fallback
+Chorobowego nie planuje się z góry.
 
-W realnym procesie niedobór lokalnej obsady nie oznacza automatycznie końca planowania. Jeżeli bez wsparcia zewnętrznego nie da się zbudować grafiku, koordynator musi takie wsparcie znaleźć.
+Jeżeli scenariusz T063 używa `SICK_LEAVE`, musi:
+1. najpierw utworzyć rzeczywisty zapisany grafik przez PLAN,
+2. dopiero potem wprowadzić chorobowe,
+3. następnie użyć `Przelicz Plan` zgodnie z istniejącym lifecycle.
 
-Jednocześnie external support nie jest równorzędnym pierwszym wyborem i nie może być użyty przedwcześnie, jeżeli istnieje inna dozwolona ścieżka rozwiązania rozpoznana przez produkt.
+T063 nie może zastępować tej ścieżki przyszłą „niedostępnością” ani wpisywać choroby przed pierwszym PLANEM.
 
-T063 nie próbuje jednak automatycznie dowodzić ogólnej „mądrości” tej hierarchii. Może sprawdzić kolejność tylko tam, gdzie `SCENARIO_PACK` jawnie zamraża oczekiwany krok dla konkretnego stanu.
+## 4. target_hours — dwa osobne tryby testowe
 
-W jednym wybranym scenariuszu wsparcia zewnętrznego sterownik testu może odgrywać koordynatora i przez zwykłe operacje produktu dodać syntetyczne osoby external. Ten scenariusz musi osobno sprawdzić:
-- wariant z jedną osobą wsparcia,
-- wariant z kilkoma osobami wsparcia.
+T063 ma pokryć oba istniejące tryby, ale nie mieszać ich w jednym scenariuszu:
 
-To NIE jest ogólny mechanizm ratowania testów. Pozostałe scenariusze nie mogą automatycznie dopisywać ludzi.
+- S01: A–E mają jawnie ustawione `target_hours = 168` jako syntetyczne dane testowe;
+- S02 i S03: A–E mają jawnie `target_hours = NULL`;
+- external w S02 pozostaje bez targetu zgodnie z istniejącym produktem.
 
-Solver może użyć wyłącznie osób istniejących przed danym uruchomieniem PLAN/REPLAN. Nie dostaje helpera tworzenia pracowników. Każda osoba external podlega tym samym właściwym ograniczeniom co inni pracownicy, w tym odpoczynkowi i dostępności.
+Wartość `168` jest wyłącznie wejściem testowym i nie ustanawia ogólnej reguły biznesowej.
 
-Nieznany employee albo ręcznie zbudowany Assignment spoza zwykłych operacji produktu oznacza FAIL testu.
+## 5. Normatywny SCENARIO_PACK
 
-## 4. SCENARIO_PACK jest normatywnym wejściem do implementacji
+OWNER zatwierdził `SCENARIO_PACK v0.2` o content SHA `675e4b5de1ab684bf93bf61854b6617c9f126a27`.
 
-OWNER zatwierdził `SCENARIO_PACK v0.1` 2026-09-10. Normatywna treść to `tasks/ROTA-T063/scenario_pack.md` o content SHA `1379444aff68daa5c981ab0ad3158b39679c58c2`.
+Implementer odwzorowuje go 1:1. Jeśli produkt nie daje zamrożonego wyniku, test ma FAIL i powstaje finding. CC nie zmienia scenariusza pod wynik.
 
-CC nie projektuje scenariuszy. CC odwzorowuje je 1:1 w fixture/testach. Zmiana któregokolwiek z siedmiu zatwierdzonych punktów wymaga nowej jawnej decyzji OWNERA.
+Minimalna macierz:
 
-Każdy scenariusz określa:
-1. miesiąc i obiekt,
-2. katalog wymaganych zmian/służb,
-3. dokładną liczbę i role pracowników LOCAL,
-4. indywidualne ograniczenia istotne dla scenariusza,
-5. urlopy/chorobowe/dostępność lub ich brak,
-6. external support: dokładny stan wejściowy i — jeżeli scenariusz przewiduje jego dodanie — dokładną liczbę/zakres po jawnej decyzji koordynatora,
-7. kolejne operacje użytkownika,
-8. każdą wymaganą decyzję koordynatora jako literalne `YES/NO` albo konkretną akcję,
-9. oczekiwany wynik po każdym istotnym kroku,
-10. oczekiwany wynik końcowy,
-11. artefakty dowodowe.
+### S01 — dodatni D/N z target_hours
 
-Implementer nie uzupełnia ani nie „naprawia” zatwierdzonego scenariusza rozsądnymi założeniami. Jeżeli produkt nie daje wyniku zamrożonego w `SCENARIO_PACK`, test ma FAIL i powstaje finding.
+- dokładnie 5 LOCAL: A, B, D, E = D/N; C = DAY_ONLY;
+- `target_hours = 168` dla A–E;
+- bez absencji i external;
+- PLAN;
+- oczekiwane dokładnie `FEASIBLE`;
+- pełny niepusty D/N;
+- reload;
+- screenshot i PDF.
 
-## 5. Co test może mierzyć wiarygodnie
+### S02 — chorobowe po grafiku, kontrolowany external
 
-T063 może automatycznie sprawdzać tylko rzeczy obserwowalne i wcześniej zamrożone:
-- dokładny stan wejściowy,
-- dokładny wynik PLAN/REPLAN,
-- czy powstał lub nie powstał ScheduleVersion/current zgodnie ze scenariuszem,
-- czy powstały konkretne służby i assignmenty,
-- czy program wystawił określoną kategorię decyzji/działania, jeżeli scenariusz tego oczekuje,
-- czy nie wystawił niedozwolonego/przedwczesnego działania, jeżeli scenariusz jawnie to zabrania,
-- czy po literalnej decyzji koordynatora następny krok zachował oczekiwane zachowanie,
-- czy użyto wyłącznie osób obecnych w danym stanie wejściowym,
-- ile external support było dostępne i faktycznie użyte,
-- czy końcowy grafik jest widoczny po reloadzie i eksportowalny do PDF.
+Stan bazowy:
+- 5 LOCAL, `target_hours = NULL`;
+- C ma zatwierdzony urlop 12–18.10;
+- D/E zdrowi;
+- PLAN ma dać `FEASIBLE` i zapisany current.
 
-T063 nie ma automatycznie oceniać:
-- czy sugestia solvera jest „rozsądna” w sensie ogólnym,
-- czy tekst komunikatu jest wystarczająco czytelny dla człowieka,
-- czy grafik jest operacyjnie elegancki poza literalnymi asercjami scenariusza.
+Następnie:
+- D i E otrzymują `SICK_LEAVE` 12–18.10;
+- `Przelicz Plan` bez external ma dać dokładnie `DECISION_REQUIRED`;
+- crash, TECHNICAL_ERROR, timeout ani pusty sukces nie spełniają expectation;
+- jeśli guidance wskazuje możliwość korekty urlopu C, test odnotowuje ją przed external;
+- literalna decyzja koordynatora: `NIE COFAJ URLOPU C`.
 
-Te elementy pozostają do oceny człowieka przez screenshot, treść komunikatu i PDF.
+S02-V1:
+- dodaj dokładnie 1 external X1 na 12–18.10;
+- `Przelicz Plan`;
+- oczekiwane dokładnie `FEASIBLE`.
 
-## 6. Minimalna macierz referencyjna
+S02-V2:
+- osobny czysty start S02;
+- po tej samej decyzji dodaj dokładnie X1–X3 na 12–18.10;
+- `Przelicz Plan`;
+- oczekiwane dokładnie `FEASIBLE`.
 
-### A. Realny dodatni D/N
+Brak pętli „dodawaj ludzi aż zadziała”. Solver może używać tylko osób wpisanych przed daną próbą.
 
-Ścisły scenariusz obiektu całodobowego D/N z realną obsadą według S01 z zatwierdzonego `SCENARIO_PACK`.
+### S03 — krótka choroba bez external
 
-Acceptance:
-- normalne operacje koordynatora,
-- prawdziwy PLAN i prawdziwy solver,
-- z góry oczekiwany `FEASIBLE`,
-- niepusty pełny grafik,
-- wymagane D/N faktycznie obsadzone,
-- wynik zapisany zgodnie z lifecycle,
-- reload zachowuje grafik,
-- UI pokazuje rzeczywiste assignmenty,
-- zapisany screenshot i PDF.
+- bazowy PLAN na 5 LOCAL, `target_hours = NULL`, bez absencji ma dać `FEASIBLE` i zapisany current;
+- dopiero potem D otrzymuje `SICK_LEAVE` 12–14.10;
+- `Przelicz Plan`;
+- oczekiwane dokładnie `FEASIBLE`;
+- brak external;
+- zachowanie fixed/odbytych służb zgodnie z istniejącym lifecycle;
+- reload, screenshot i PDF.
 
-### B. Jeden kontrolowany scenariusz external support
+## 6. Co test może wiarygodnie mierzyć
 
-Literalnie S02 z zatwierdzonego `SCENARIO_PACK`.
+Automatycznie wolno sprawdzać wyłącznie rzeczy obserwowalne i zamrożone: wejściowe dane, status PLAN/Przelicz Plan, powstanie lub brak current/kandydata, komplet D/N, roster użyty w assignmentach, respektowanie zakresu external, oczekiwany krok guidance, brak przedwczesnej niedozwolonej akcji, reload i eksport PDF.
 
-Scenariusz zawiera dokładny stan bez wsparcia oraz oczekiwany wynik tego stanu. Jeżeli istniejąca guidance wskazuje możliwość skorygowania urlopu C, test odnotowuje ten krok i respektuje zamrożoną decyzję `NIE COFAJ URLOPU C`.
-
-Następnie sterownik testu dodaje przez normalne operacje produktu dokładnie zamrożoną liczbę osób external.
-
-Wariant S02-V1: dokładnie jedna osoba external, wynik `FEASIBLE`.
-
-Wariant S02-V2: dokładnie trzy osoby external, wynik `FEASIBLE`.
-
-Test nie może zwiększać wsparcia aż do uzyskania PASS ani rozszerzać dostępności external.
-
-### C. Realny ruch kadrowy / absencja
-
-Literalnie S03 z zatwierdzonego `SCENARIO_PACK`: trzydniowa choroba D, external = NONE, oczekiwany `FEASIBLE` z istniejącego rosteru.
-
-Scenariusz określa stan przed zmianą, samą zmianę i oczekiwany wynik. Automat nie wybiera odpowiedzi ani alternatywnego sposobu ratowania scenariusza.
+Automat nie ocenia ogólnej jakości grafiku ani czy tekst jest „dobry dla człowieka”. Te elementy pozostają do oceny przez screenshot/PDF.
 
 ## 7. Zakaz fałszywych pozytywów
 
-Test T063 nie może uznać się za PASS, gdy:
+PASS jest niedopuszczalny, gdy:
 - PLAN ma zerowe zapotrzebowanie,
 - akceptowane są przeciwne wyniki typu `FEASIBLE lub DECISION_REQUIRED`,
 - utworzono pusty ScheduleVersion,
-- solver nie był uruchomiony,
-- dane kadrowe zostały rozszerzone poza `SCENARIO_PACK`,
-- external support został dodany automatycznie poza jednym zamrożonym scenariuszem,
+- solver nie został uruchomiony,
+- staffing został rozszerzony poza `SCENARIO_PACK`,
+- external dodano poza S02,
 - sterownik testu improwizował decyzję koordynatora,
-- UI tylko powtórzył status API bez oczekiwanego rezultatu biznesowego,
-- retry Playwright przykrył deterministycznie zły wynik produktu.
+- crash/TECHNICAL_ERROR został potraktowany jak biznesowe zatrzymanie,
+- UI tylko powtórzyło status API bez oczekiwanego biznesowego rezultatu,
+- retry przykrył deterministyczny błąd produktu.
 
-Jeżeli w scenariuszu istnieje oczekiwany etap `DECISION_REQUIRED`/guidance, PASS wymaga zgodności tego etapu z kontraktem scenariusza. Sam fakt, że końcowy PDF wygląda poprawnie, nie wystarcza, jeżeli program doszedł do niego przez jawnie niedozwolony krok.
+## 8. Izolacja wykonania
 
-## 8. Izolacja
+Każdy referencyjny przebieg ma używać świeżej dedykowanej bazy i własnego backendu.
 
-Każdy referencyjny scenariusz zaczyna się od czystej dedykowanej bazy albo równoważnie pełnej izolacji.
+T063 musi być uruchamiany z `CI=1`, aby `playwright.config.ts` nie używał `reuseExistingServer=true`. `global-setup.ts` ma zapewnić świeżą dedykowaną bazę przed uruchomieniem scenariuszy.
 
-Test nie może pozostawiać globalnych triggerów, nieskopowanych UPDATE ani danych wpływających na kolejny scenariusz. Retry infrastrukturalny nie zmienia oczekiwanego wyniku biznesowego i musi być odróżniony od PASS produktu.
+Jeżeli ten warunek okaże się niewystarczający bez zmiany `playwright.config.ts`, implementacja zatrzymuje się i wraca do architekta; CC nie rozszerza scope samodzielnie.
 
-## 9. Relacja do istniejących testów
+## 9. T043
 
-Małe testy jednostkowe, integracyjne i UI pozostają potrzebne. T063 ich nie zastępuje.
+`frontend/e2e/t043-coordinator-confidence.spec.ts` ma zostać wyłącznie uczciwie przeklasyfikowany jako test połączenia UI/API. Nie może dublować nowego acceptance D/N i nie jest dowodem biznesowego grafiku.
 
-Jednocześnie:
-- test bez realnego zapotrzebowania nie jest dowodem ułożenia grafiku,
-- test jednej kontrolnej zmiany może pozostać testem mechaniki, ale nie zastępuje referencyjnego D/N,
-- T043 ma zostać poprawiony albo przeklasyfikowany,
-- zamrożone Symulatory A/B i stare benchmarki pozostają poza zakresem i nie mogą wrócić jako generator „realistycznej” obsady.
+## 10. Zależność T064
 
-## 10. Zależności
+Scenariusze używają października 2026 i wykonawczo zależą od T064. T063 nie może maskować braku T064 przez podrobienie zegara.
 
-T062 dostarcza docelowe guidance dla kontrolowanego zatrzymania planowania. T063 może je sprawdzać tylko w zakresie literalnie wymaganym przez `SCENARIO_PACK`; nie projektuje tej logiki ponownie.
-
-T064 dotyczy prawdziwego wyboru/generowania miesiąca. T063 nie może maskować jego braku przez podrobienie daty. Scenariusze wymagające października 2026 pozostają wykonawczo HOLD do T064; finalny preimplementation PASS T063 nie znosi tej zależności wykonawczej.
+Finalny preimplementation PASS T063 nie znosi tej zależności wykonawczej.
 
 ## 11. Artefakty dowodowe
 
 Każdy referencyjny przebieg zachowuje:
 - nazwę scenariusza i wersję `SCENARIO_PACK`,
-- wejściowe dane kadrowe,
-- sekwencję rzeczywistych kroków i wyników programu,
-- decyzje koordynatora odtworzone przez test, jeżeli występują,
-- wynik PLAN/REPLAN,
-- faktycznie wykorzystany external support,
-- screenshot istotnego guidance, jeżeli scenariusz obejmuje decyzję,
-- screenshot końcowego grafiku, jeżeli powstał,
-- PDF końcowego grafiku, jeżeli powstał.
+- wejściowy roster i target_hours,
+- sekwencję operacji i statusów,
+- decyzję koordynatora, jeśli występuje,
+- roster faktycznie użyty w assignmentach,
+- external dostępny i użyty,
+- screenshot guidance, jeśli scenariusz jest decyzyjny,
+- screenshot końcowego grafiku,
+- PDF końcowego grafiku.
 
-Artefakty służą do oceny przez człowieka. Automat nie udaje, że rozumie operacyjną jakość grafiku poza literalnymi asercjami.
+## 12. Literalny TASK_SCOPE
 
-## 12. Acceptance T063
+T063 może zmienić wyłącznie:
 
-T63-01 — OWNER-zatwierdzony `SCENARIO_PACK v0.1` o content SHA `1379444aff68daa5c981ab0ad3158b39679c58c2` jest normatywnym wejściem; implementer nie tworzy własnej rzeczywistości kadrowej.
+1. `tasks/ROTA-T063/brief.md`
+2. `tasks/ROTA-T063/scenario_pack.md`
+3. `frontend/e2e/t063-business-outcomes.spec.ts`
+4. `frontend/e2e/t043-coordinator-confidence.spec.ts`
+5. `frontend/e2e/global-setup.ts`
 
-T63-02 — Fixture/test nie zwiększa LOCAL ani external poza dokładny kontrakt scenariusza.
+Poza scope pozostają bez nowej zgody architekta:
+- `rota/**`
+- `api/**`
+- `frontend/src/**`
+- `frontend/e2e/helpers.ts`
+- `frontend/e2e/seed-e2e-db.py`
+- `frontend/playwright.config.ts`
+- `tests/property/**`
+- `benchmarks/**`
+- nowe ogólne runnery, generatory obsady, symulatory koordynatora i fallbacki external.
 
-T63-03 — T063 nie tworzy uniwersalnego symulatora koordynatora ani fallbacku dobierającego ludzi do skutku.
+## 13. Acceptance
 
-T63-04 — S01 kończy się pełnym, niepustym D/N widocznym po reloadzie i w PDF, z dokładnym wynikiem `FEASIBLE`.
+T63-01 — obowiązuje dokładnie OWNER-approved `SCENARIO_PACK v0.2` SHA `675e4b5de1ab684bf93bf61854b6617c9f126a27`.
 
-T63-05 — S02 jest jedynym referencyjnym scenariuszem external support; osobno sprawdza S02-V1 = 1 external / `FEASIBLE` oraz S02-V2 = 3 external / `FEASIBLE`.
+T63-02 — S01 używa ustawionych target_hours; S02/S03 używają jawnie NULL. Trybów nie mieszać w jednym scenariuszu.
 
-T63-06 — S03 obejmuje realny ruch kadrowy/absencję: trzydniową chorobę D, external = NONE, wynik `FEASIBLE`.
+T63-03 — każde SICK_LEAVE pojawia się dopiero po istniejącym grafiku i dalsza operacja to `Przelicz Plan`.
 
-T63-07 — Jeżeli scenariusz oczekuje decyzji koordynatora, automat może iść dalej tylko przez literalnie zamrożoną odpowiedź; nie interpretuje sytuacji sam.
+T63-04 — S01 kończy się dokładnie `FEASIBLE`, pełnym D/N, reloadem, screenshotem i PDF.
 
-T63-08 — Scenariusz może wymagać sprawdzenia, że konkretna akcja nie została zaproponowana przedwcześnie, ale tylko gdy ta kolejność jest jawnie wpisana w `SCENARIO_PACK`.
+T63-05 — S02 bez external po chorobowym kończy się dokładnie `DECISION_REQUIRED`, nie TECHNICAL_ERROR.
 
-T63-09 — Żaden referencyjny acceptance nie akceptuje przeciwstawnych statusów jako równoważnego PASS.
+T63-06 — S02-V1 = dokładnie 1 external i `FEASIBLE`; S02-V2 = dokładnie 3 external i `FEASIBLE`.
 
-T63-10 — Brak zapotrzebowania/pusty plan nie jest dowodem biznesowego grafiku.
+T63-07 — S03 = trzydniowy SICK_LEAVE D po zapisanym grafiku, external NONE, `FEASIBLE` po `Przelicz Plan`.
 
-T63-11 — Każdy scenariusz ma pełną izolację danych.
+T63-08 — żaden helper nie rozszerza staffing poza scenariusz.
 
-T63-12 — Dodatni scenariusz zapisuje screenshot i PDF; scenariusz decyzyjny zapisuje także dowód istotnego guidance.
+T63-09 — tylko S02 może dodawać synthetic external.
 
-T63-13 — T063 nie zmienia kodu produkcyjnego, solvera ani reguł biznesowych w celu dopasowania produktu do testu.
+T63-10 — T043 pozostaje testem mechaniki UI/API, nie drugim acceptance D/N.
 
-T63-14 — Odkryty błąd produktu powoduje FAIL/finding, a nie zmianę scenariusza, zwiększenie obsady lub poluzowanie oczekiwania.
+T63-11 — uruchomienie T063 wymaga `CI=1` i świeżej dedykowanej bazy.
 
-## 13. Finalny preimplementation re-check Codexa
+T63-12 — T063 nie zmienia produkcji ani solvera pod test.
 
-IMPLEMENTATION HOLD do PASS Codexa na dokładnym SHA briefu zawierającym OWNER-approved `SCENARIO_PACK` i literalny TASK_SCOPE.
+T63-13 — odkryta niezgodność daje FAIL/finding, nie korektę danych scenariusza.
 
-Codex ma wykonać wyłącznie krótki re-check:
-1. potwierdzić, że brief wskazuje dokładny OWNER-approved `SCENARIO_PACK` i nie zostawia implementerowi decyzji o danych/oczekiwanych wynikach;
-2. potwierdzić, że literalny TASK_SCOPE jest wystarczający i nie wymaga zmian produkcyjnych;
-3. sprawdzić spójność S01, S02-V1, S02-V2 i S03 z wcześniejszym zaakceptowanym kontraktem T063;
-4. potwierdzić, że T063 nadal nie tworzy Symulatora C, ogólnego fallbacku external ani pętli dobierania ludzi;
-5. jeśli kontrakt jest spójny — wydać finalny PREIMPLEMENTATION PASS dla dokładnego SHA; jeśli nie — wskazać wyłącznie konkretną sprzeczność.
+## 14. Finalny re-check Codexa
 
-Codex nie ma ponownie projektować scenariuszy ani powtarzać pełnej inwentaryzacji E2E.
+IMPLEMENTATION HOLD pozostaje do literalnego PASS Codexa na dokładnym SHA briefu i `SCENARIO_PACK v0.2`.
 
-## 14. Literalny TASK_SCOPE plików
+Codex ma sprawdzić tylko:
+1. zgodność zmian z R3 i OWNER rulingami o chorobowym/target_hours;
+2. jednoznaczność S02 `DECISION_REQUIRED`;
+3. `CI=1` + świeżą bazę jako wystarczającą izolację bez rozszerzania scope;
+4. literalny TASK_SCOPE;
+5. brak nowego Symulatora C lub ukrytego fallbacku external.
 
-T063 po finalnym PREIMPLEMENTATION PASS może zmienić wyłącznie następujące pliki:
-
-1. `tasks/ROTA-T063/brief.md` — kontrakt zadania i finalne SHA `SCENARIO_PACK`.
-2. `tasks/ROTA-T063/scenario_pack.md` — OWNER-zatwierdzone, literalne dane i oczekiwane wyniki referencyjnych scenariuszy.
-3. `frontend/e2e/t063-business-outcomes.spec.ts` — nowy plik z referencyjnymi testami T063; helper dodający external, jeżeli potrzebny, pozostaje lokalny wyłącznie w tym pliku.
-4. `frontend/e2e/t043-coordinator-confidence.spec.ts` — wyłącznie mechaniczne przeklasyfikowanie/zaostrzenie istniejącego T043, aby nie udawał biznesowego acceptance przy zerowym zapotrzebowaniu lub alternatywnych statusach.
-5. `frontend/e2e/global-setup.ts` — wyłącznie minimalne zapewnienie świeżego stanu dedykowanej bazy E2E przed przebiegiem, bez zmian produkcyjnych.
-
-Poza scope bez nowej zgody architekta pozostają w szczególności:
-- `rota/**`,
-- `api/**`,
-- `frontend/src/**`,
-- `frontend/e2e/helpers.ts`,
-- `frontend/e2e/seed-e2e-db.py`,
-- `frontend/playwright.config.ts`,
-- zamrożone `tests/property/**` i `benchmarks/**`,
-- wszelkie nowe ogólne frameworki, runner-y, generatory obsady, symulatory koordynatora lub fallbacki external.
-
-Jeżeli podczas implementacji okaże się, że literalnego kontraktu nie da się dowieść w tych pięciu plikach bez zmiany produkcji albo rozszerzenia harnessu, CC ma zatrzymać pracę i wrócić do architekta. Nie rozszerza scope samodzielnie.
+Bez ponownego szerokiego audytu.
