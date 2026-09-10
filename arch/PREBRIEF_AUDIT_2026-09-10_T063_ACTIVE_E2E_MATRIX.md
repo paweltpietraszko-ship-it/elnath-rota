@@ -12,6 +12,13 @@ służby. Brakuje natomiast stabilnej i jawnie nazwanej macierzy akceptacyjnej,
 która odróżnia „program rzeczywiście ułożył grafik” od „ekran poprawnie obsłużył
 dowolny status backendu”.
 
+**OWNER_RULING 2026-09-10:** celem T063 jest, aby testy dowodziły rzeczywistego
+wyniku biznesowego programu, a nie jedynie tego, że API odpowiedziało i frontend
+wyświetlił zwrócony status. Zielony test pionowy musi wykazać z góry określony
+rezultat: dla scenariusza dodatniego powstał niepusty grafik ze służbami
+widocznymi dla koordynatora; dla scenariusza ujemnego PLAN zatrzymał się z
+konkretnie oczekiwanej przyczyny.
+
 ## Fakty z aktywnego `frontend/e2e/**`
 
 Jedenaście testów w pięciu plikach uruchamia prawdziwy PLAN przez przeglądarkę i
@@ -54,7 +61,8 @@ zapotrzebowanie. Dodatkowo test akceptuje zamiennie `FEASIBLE` i
 2. Zachować testy mechaniki ekranów tam, gdzie są przydatne, lecz nie nazywać
    pustego PLANU dowodem ułożenia grafiku.
 3. Poprawić albo przeklasyfikować T043: wynik musi być z góry określony, bez
-   alternatywy „FEASIBLE lub DECISION_REQUIRED”.
+   alternatywy „FEASIBLE lub DECISION_REQUIRED”. Samo porównanie odpowiedzi API
+   z napisem na ekranie nie spełnia celu T063.
 4. Dodać co najmniej dwa jawne scenariusze akceptacyjne, zbudowane wyłącznie
    przez normalne operacje koordynatora:
    - dodatni: istniejący, OWNER-zaakceptowany prosty obiekt D/N 12 h, jedna
