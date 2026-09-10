@@ -603,6 +603,13 @@ button {
   width: 520px;
 }
 
+.calendar-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .modal h2 {
   font-size: 16px;
   font-weight: 600;

@@ -1,11 +1,9 @@
 """Wraps rota.application.durable_inputs (brief.md section 3.2: one router
 module per rota/application/*.py module it wraps). Marshalling only.
 
-Bulk-fill (brief.md section 4, round-2 audit A4) is NOT an API-layer or
-application-layer operation: brief.md section 6 forbids this task from
-modifying rota/**, so the missing-date loop is composed on the frontend
-from the calendar read it already has, calling this single-day write once
-per missing date.
+ROTA-T064 (brief.md section 4): month generation is a thin batch command
+in rota/application/durable_inputs.py (generate_calendar_month), backed by
+the existing CalendarDay persistence path -- no new domain layer.
 """
 from __future__ import annotations
 
@@ -20,6 +18,7 @@ from api.errors import to_http_exception
 from rota.application.durable_inputs import (
     add_external_support_window,
     append_availability,
+    generate_calendar_month,
     set_calendar_day,
     set_target_hours,
     update_employee,
@@ -56,6 +55,29 @@ def set_day(payload: SetDayRequest, conn=Depends(get_conn)) -> None:
             conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
             day=CalendarDay(day_date, payload.holiday),
         )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class GenerateMonthRequest(BaseModel):
+    month: str  # "YYYY-MM-01" or "YYYY-MM" -- normalized below
+    site_id: str  # any one of the coordinator's own site_ids -- auth only, never data scope
+
+
+class GenerateMonthResponse(BaseModel):
+    created: int
+
+
+@calendar_router.post("/generate", response_model=GenerateMonthResponse)
+def generate_month(payload: GenerateMonthRequest, conn=Depends(get_conn)) -> GenerateMonthResponse:
+    """ROTA-T064: fill-missing-only batch generation for one month, PL
+    public holidays via the `holidays` library. Never overwrites an
+    existing CalendarDay (manual correction or earlier generate)."""
+    try:
+        month_str = payload.month if len(payload.month) > 7 else f"{payload.month}-01"
+        month_date = date.fromisoformat(month_str)
+        created = generate_calendar_month(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, month=month_date)
+        return GenerateMonthResponse(created=created)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 

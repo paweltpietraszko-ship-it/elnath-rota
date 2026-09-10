@@ -9,7 +9,9 @@ atomically with its domain write and any stale-current-question invalidation.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+
+import holidays as holidays_lib
 
 from rota.application.context import require_active_coordinator_context
 from rota.application.errors import InvalidCoordinatorContext
@@ -28,7 +30,7 @@ from rota.domain import (
 from rota.persistence import site_memory
 from rota.persistence.absence_reference_repository import capture_and_check_in_open_transaction
 from rota.persistence.availability_repository import append_availability_version_in_open_transaction, get_availability_history
-from rota.persistence.calendar_repository import get_calendar_day, write_calendar_day_in_open_transaction
+from rota.persistence.calendar_repository import get_calendar_day, list_calendar_days, write_calendar_day_in_open_transaction
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
 from rota.persistence.employee_repository import (
     EmployeeNotFound,
@@ -414,6 +416,47 @@ def set_calendar_day(
                 responds_to_decision_required_id=responds_to_decision_required_id,
                 invalidate_months=[date(day.date.year, day.date.month, 1)],
             )
+
+
+def generate_calendar_month(
+    conn, *, coordinator_id: str, site_id: str, month: date,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
+) -> int:
+    """ROTA-T064 (brief.md section 4): fill-missing-only batch generation for
+    one calendar month, classifying Polish public holidays via the
+    `holidays` library. Never overwrites a CalendarDay that already exists
+    -- a coordinator's manual correction (or an earlier generate) always
+    wins. Returns the count of dates newly created."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    if month.day != 1:
+        raise ValueError(f"month {month} is not the first day of its month")
+    recorded_at = datetime.now()
+    month_end = _add_month(month) - timedelta(days=1)
+    existing_dates = {d.date for d in list_calendar_days(conn, month, month_end)}
+    pl_holidays = holidays_lib.country_holidays("PL", years=[month.year])
+    created: list[date] = []
+    with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        cursor = month
+        while cursor <= month_end:
+            if cursor not in existing_dates:
+                write_calendar_day_in_open_transaction(conn, CalendarDay(cursor, cursor in pl_holidays))
+                created.append(cursor)
+            cursor += timedelta(days=1)
+        if created:
+            affected_site_ids = [s.site_id for s in list_sites(conn)]
+            _record_action_and_invalidate_no_commit(
+                conn, action_kind=CoordinatorActionKind.CALENDAR_DAY_CHANGED, origin_site_id=site_id,
+                affected_site_ids=affected_site_ids or [site_id], coordinator_id=coordinator_id,
+                recorded_at=recorded_at, effective_from=month, month=month,
+                affected_entities=[AffectedEntity("CALENDAR_DAY", d.isoformat()) for d in created],
+                before_state=None, after_state={"dates_created": [d.isoformat() for d in created]},
+                note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE, source_id=month.isoformat(),
+                responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=[month],
+            )
+    return len(created)
 
 
 def _profile_planning_fields(p):
