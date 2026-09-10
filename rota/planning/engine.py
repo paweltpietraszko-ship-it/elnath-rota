@@ -30,7 +30,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from rota.domain import Assignment, AssignmentState
-from rota.planning.decision_guidance import build_decision_payload
+from rota.planning.decision_guidance import build_decision_payload, build_third_shift_payload
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
     BlockingDemand,
@@ -186,7 +186,7 @@ def _resolve_without_load_cap(
     if fallback.night_streak_conflicts:
         return _decision_for_night_streak(state, fallback)
     if fallback.third_shift_conflicts:
-        return _blocked_for_third_shift(fallback)
+        return _blocked_for_third_shift(state, fallback)
     if fallback.conflicting_demand_ids:
         return _decision_for_conflict(state, fallback)
     return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [], fallback.optimization_complete)
@@ -564,7 +564,7 @@ def _plan_requiring_different_result_wide(
                 if ordinary.night_streak_conflicts:
                     return _decision_for_night_streak(state, ordinary)
                 if ordinary.third_shift_conflicts:
-                    return _blocked_for_third_shift(ordinary)
+                    return _blocked_for_third_shift(state, ordinary)
                 if ordinary.conflicting_demand_ids:
                     return _decision_for_conflict(state, ordinary)
             continue  # a genuine ordinary conflict at this permissiveness -- a later stage may still rescue it
@@ -641,26 +641,31 @@ def _decision_for_night_streak(state: PlanningState, outcome: SolverOutcome) -> 
     return PlanningResult("DECISION_REQUIRED", [], payload, None, warnings)
 
 
-def _blocked_for_third_shift(outcome: SolverOutcome) -> PlanningResult:
+def _blocked_for_third_shift(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     """ROTA-T058 (OWNER_CORRECTED 2026-09-08, brief sections 2.1/5): a
     genuinely non-decision outcome, deliberately NOT DECISION_REQUIRED and
     NOT sharing _decision_for_night_streak/_decision_for_conflict's
     diagnosis functions -- "PLAN/REPLAN/Przelicz Plan nie dostaje wyjatku
     przez DECISION_REQUIRED" (no automatic coordinator-override path for
     this HARD at all; the automatic solve simply cannot produce a legal
-    candidate). No decision_payload/blockers -- there is nothing to decide,
-    only a readable message and manual recovery (change staffing/
-    availability, replan) per T58-04. engine_types.PlanningResult.status
-    gained the new "THIRD_CONSECUTIVE_SHIFT_BLOCKED" value for exactly this
-    truthful non-decision result (brief section 7 EXACT TASK_SCOPE grants
-    engine_types.py this one purpose)."""
+    candidate). Status stays THIRD_CONSECUTIVE_SHIFT_BLOCKED, never
+    DECISION_REQUIRED (engine_types.PlanningResult.status keeps this
+    distinct value, brief section 7 EXACT TASK_SCOPE).
+
+    ROTA-T062 (brief section 4 point 6): decision_payload/blockers are no
+    longer empty -- this now shares decision_guidance's one coordinator-
+    facing guidance family (staffing/availability + replan) instead of
+    leaving the coordinator with only a warning string and nothing to
+    click. Still no solver override, no rule-breaking candidate, no
+    DECISION_REQUIRED conversion."""
     employee_ids = sorted({employee_id for employee_id, _ in outcome.third_shift_conflicts})
     warnings = [
         "THIRD-CONSECUTIVE-SHIFT-01: automatic PLAN/REPLAN/Przelicz Plan cannot cover this month without giving "
         f"at least one of {employee_ids} a third consecutive working day -- HARD, no automatic exception. "
         "Change staffing/availability and plan again."
     ]
-    return PlanningResult("THIRD_CONSECUTIVE_SHIFT_BLOCKED", [], None, None, warnings)
+    payload = build_third_shift_payload(state, employee_ids)
+    return PlanningResult("THIRD_CONSECUTIVE_SHIFT_BLOCKED", [], payload, None, warnings)
 
 
 def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:

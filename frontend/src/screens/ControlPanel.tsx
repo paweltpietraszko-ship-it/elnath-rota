@@ -68,8 +68,8 @@ export default function ControlPanel({
 
       {decisionContext && (
         <div className="banner-warning" style={{ marginBottom: 16 }}>
-          Rozwiązujesz decyzję koordynatora zgłoszoną dla miesiąca {decisionContext.month.slice(0, 7)} (
-          {decisionContext.decisionRequiredId}). Po zmianie wróć do Decyzji koordynatora.
+          Rozwiązujesz decyzję koordynatora zgłoszoną dla miesiąca {decisionContext.month.slice(0, 7)}. Po zmianie
+          wróć do Decyzji koordynatora.
         </div>
       )}
 

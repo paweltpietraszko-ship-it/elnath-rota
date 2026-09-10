@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from rota.persistence.site_rule_repository import get_site_rule_version
-from rota.planning.engine_types import BlockingDemand, Blocker, DecisionRequiredPayload, LoadBlocker
+from rota.planning.engine_types import BlockingDemand, Blocker, DecisionRequiredPayload, LoadBlocker, UnblockingOption
 from rota.site_memory_types import (
     ActionSourceKind,
     AffectedEntity,
@@ -155,8 +155,22 @@ def _payload_to_dict(payload: DecisionRequiredPayload) -> dict:
                 "hours": payload.load_blocker.hours,
             }
         ),
-        "unblocking_options": list(payload.unblocking_options),
+        "unblocking_options": [
+            {"text": o.text, "target": o.target, "requires_existing_schedule": o.requires_existing_schedule}
+            for o in payload.unblocking_options
+        ],
     }
+
+
+def _unblocking_option_from_raw(raw) -> UnblockingOption:
+    """ROTA-T062 (brief section 4 point 4): old snapshots persisted
+    `unblocking_options` as a bare list[str] -- read back as a target-less
+    informational option, no table migration. New snapshots are dicts."""
+    if isinstance(raw, str):
+        return UnblockingOption(text=raw)
+    return UnblockingOption(
+        text=raw["text"], target=raw.get("target"), requires_existing_schedule=raw.get("requires_existing_schedule", False),
+    )
 
 
 def _payload_from_dict(data: dict) -> DecisionRequiredPayload:
@@ -178,7 +192,7 @@ def _payload_from_dict(data: dict) -> DecisionRequiredPayload:
                 hours=load_blocker["hours"],
             )
         ),
-        unblocking_options=list(data["unblocking_options"]),
+        unblocking_options=[_unblocking_option_from_raw(o) for o in data["unblocking_options"]],
     )
 
 

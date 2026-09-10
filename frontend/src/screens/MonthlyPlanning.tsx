@@ -823,8 +823,24 @@ export default function MonthlyPlanning({
         <p>Ładowanie…</p>
       ) : decisionRequired ? (
         <div className="banner-error">
-          Wymagana decyzja koordynatora — solver nie mógł ukończyć planu bez rozstrzygnięcia. Rozstrzygnięcie będzie
-          dostępne na ekranie „Decyzje koordynatora”. Ten ekran nie tworzy siatki, dopóki decyzja nie zostanie podjęta.
+          {/* ROTA-T062 (brief section 4 point 1/T62-03, R1 audit finding):
+              this used to be one generic sentence naming "solver" -- a
+              technical word T62-03 forbids -- instead of the real,
+              evidence-backed actions decision_guidance.py already builds.
+              Same one shared guidance text this screen's own THIRD banner
+              and Decyzje koordynatora already use; clicking through to act
+              on it still lives on Decyzje koordynatora (the only place
+              wired to Panel sterowania navigation). */}
+          <p style={{ margin: 0 }}>Wymagana decyzja koordynatora — automatyczne planowanie nie ułożyło grafiku bez rozstrzygnięcia:</p>
+          <ul style={{ margin: "6px 0 0 0", paddingLeft: 18 }}>
+            {decisionRequired.unblocking_options.map((o, i) => (
+              <li key={i}>{o.text}</li>
+            ))}
+          </ul>
+          <p style={{ margin: "6px 0 0 0" }}>
+            Szczegóły i możliwe działania: ekran „Decyzje koordynatora”. Ten ekran nie tworzy siatki, dopóki decyzja
+            nie zostanie podjęta.
+          </p>
         </div>
       ) : (
         <>
@@ -1159,11 +1175,17 @@ export default function MonthlyPlanning({
               and gets no automatic exception. Deliberately no "override"/
               "accept anyway" action here (brief section 2.1/T58-04) -- only
               a readable message; recovery is changing staffing/availability
-              and planning again, or a deliberate manual correction. */}
+              and planning again. ROTA-T062 (brief section 4 point 6): the
+              text itself now comes from the same shared coordinator
+              guidance Decyzje koordynatora uses (decision_guidance.py),
+              instead of a second, hand-written copy here -- this is
+              deliberately information-only (no button): the target
+              screens for these suggestions are reachable via "Decyzje
+              koordynatora", not from this banner. */}
           {planResult && planResult.status === "THIRD_CONSECUTIVE_SHIFT_BLOCKED" && (
             <div className="banner-warning" style={{ marginTop: 12 }}>
-              Nie można ułożyć grafiku bez przydzielenia komuś trzeciej służby pod rząd — to niedozwolone. Zmień
-              obsadę lub dostępność i zaplanuj ponownie.
+              {planResult.decision_payload?.unblocking_options.map((o) => o.text).join(" ") ??
+                "Nie można ułożyć grafiku bez przydzielenia komuś trzeciej służby pod rząd — to niedozwolone. Zmień obsadę lub dostępność i zaplanuj ponownie."}
             </div>
           )}
 
