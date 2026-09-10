@@ -5,9 +5,6 @@ import { translateMissingReason } from "../api/completeness";
 type FilterChip = "ALL" | "DECISION_REQUIRED" | "CONFIG_INCOMPLETE";
 type Regime = "OCHRONA" | "ORDINARY";
 
-const today = new Date();
-const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const isConfigComplete = (s: SiteSummary) => s.complete && !s.print_settings_missing;
@@ -502,9 +499,20 @@ function CreatePanel({
 }
 
 function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onClose: () => void }) {
+  // ROTA-T064: own explicitly-selected month, independent of today's real
+  // date -- only the INITIAL value defaults to the current month; every
+  // later read/write/navigation uses monthStart, never a re-derived
+  // `new Date()`. No page.clock/fake clock is used anywhere here or in its
+  // tests -- a real future month is reachable through real navigation.
+  const [monthStart, setMonthStart] = useState(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
   const [days, setDays] = useState<Map<string, boolean>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -519,7 +527,10 @@ function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onCl
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(load, [monthStart]);
+
+  const goToPreviousMonth = () => setMonthStart((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
+  const goToNextMonth = () => setMonthStart((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
 
   const dates: Date[] = [];
   for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1)) {
@@ -535,25 +546,39 @@ function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onCl
     }
   };
 
+  // ROTA-T064: real backend batch generation (fill-missing-only, PL public
+  // holidays via the `holidays` library) -- replaces the old per-day
+  // `setCalendarDay(..., holiday=false)` loop, which never knew about
+  // holidays at all and required every one clicked by hand.
   const generate = async () => {
+    setGenerating(true);
     try {
-      const missingDates = dates.map(iso).filter((d) => !days.has(d));
-      for (const dateIso of missingDates) {
-        await api.setCalendarDay(dateIso, false, siteIdForAuth);
-      }
+      await api.generateCalendarMonth(iso(monthStart), siteIdForAuth);
       load();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
+    } finally {
+      setGenerating(false);
     }
   };
+
+  const monthLabel = monthStart.toLocaleString("pl-PL", { month: "long", year: "numeric" });
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <h2>Kalendarz — {monthStart.toLocaleString("pl-PL", { month: "long", year: "numeric" })}</h2>
+        <div className="calendar-month-nav">
+          <button className="btn-ghost" data-diag-action="calendar-prev-month" onClick={goToPreviousMonth}>
+            ← Poprzedni
+          </button>
+          <h2 style={{ margin: 0 }}>Kalendarz — {monthLabel}</h2>
+          <button className="btn-ghost" data-diag-action="calendar-next-month" onClick={goToNextMonth}>
+            Następny →
+          </button>
+        </div>
         {error && <div className="banner-error">{error}</div>}
-        <button className="btn-secondary" onClick={generate}>
-          Wygeneruj kalendarz na miesiąc {monthStart.toLocaleString("pl-PL", { month: "long", year: "numeric" })}
+        <button className="btn-secondary" onClick={generate} disabled={generating}>
+          {generating ? "Generowanie…" : `Wygeneruj kalendarz na miesiąc ${monthLabel}`}
         </button>
         {loading ? (
           <p>Ładowanie…</p>

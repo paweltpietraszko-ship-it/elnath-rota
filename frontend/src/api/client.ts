@@ -646,6 +646,12 @@ export const api = {
       body: JSON.stringify({ date, holiday, site_id }),
     }),
 
+  generateCalendarMonth: (month: string, site_id: string) =>
+    req<{ created: number }>("/workspace/calendar/generate", {
+      method: "POST",
+      body: JSON.stringify({ month, site_id }),
+    }),
+
   downloadBackup: () => downloadPost("/workspace/backup"),
   downloadDiagnostics: () => {
     let body: string | undefined;
