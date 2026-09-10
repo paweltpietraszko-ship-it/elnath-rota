@@ -43,6 +43,13 @@ from tests.support.minimal_state import SITE_ID, base_state
 MONTH = date(2026, 10, 1)
 
 
+def _texts(options) -> list[str]:
+    """ROTA-T062: unblocking_options is now a list[UnblockingOption]
+    (text + stable navigation target), not bare strings -- this file's
+    assertions only care about the rendered text, same as before."""
+    return [o.text for o in options]
+
+
 def _employee(employee_id: str, display_name: str | None = None, *, day_only: bool = False) -> Employee:
     return Employee(employee_id, display_name or employee_id, date(2020, 1, 1), None, day_only)
 
@@ -118,7 +125,7 @@ def test_m2_m3_membership_conditions_hidden():
     for raw in ("MEMBERSHIP_DISABLED", "MEMBERSHIP-01"):
         assert render_coordinator_blockers(state, [Blocker("A", raw)]) == []
         options = build_unblocking_options(state, [Blocker("A", raw)], None)
-        assert options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
+        assert _texts(options) == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 # M4 ----------------------------------------------------------------------
@@ -141,7 +148,7 @@ def test_m5_day_shift_off_has_polish_text_and_generates_no_action():
     state = base_state(employees=(_employee("A"),))
     assert render_coordinator_blockers(state, [Blocker("A", "DAY_SHIFT_OFF-01")]) == [Blocker("A", "Koliduje z zapisem: Wolne w dzień")]
     options = build_unblocking_options(state, [Blocker("A", "DAY_SHIFT_OFF-01")], None)
-    assert options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
+    assert _texts(options) == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 # M6 ----------------------------------------------------------------------
@@ -150,7 +157,7 @@ def test_m5_day_shift_off_has_polish_text_and_generates_no_action():
 def test_m6_shift_24_uses_24_naming():
     state = base_state(employees=(_employee("A"),))
     assert render_coordinator_blockers(state, [Blocker("A", "SHIFT-24-01")]) == [Blocker("A", "Koliduje z ustawieniem: 24")]
-    assert build_unblocking_options(state, [Blocker("A", "SHIFT-24-01")], None) == ["Zmień 24: A"]
+    assert _texts(build_unblocking_options(state, [Blocker("A", "SHIFT-24-01")], None)) == ["Zmień 24: A"]
 
 
 # M7/M8 ---------------------------------------------------------------------
@@ -184,7 +191,7 @@ def test_m9_m10_i1_unassignable_options_are_evidence_backed():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.blocking_shift_demands
     assert all(b.condition == "Koliduje z zapisem: Chorobowe" for b in result.decision_payload.blockers)
-    assert result.decision_payload.unblocking_options == ["Ręczna korekta mimo zapisu Chorobowe zgodnie z kontraktem: A"]
+    assert _texts(result.decision_payload.unblocking_options) == ["Ręczna korekta mimo zapisu Chorobowe zgodnie z kontraktem: A"]
 
 
 # M11/M12 -- external support -------------------------------------------------
@@ -198,8 +205,8 @@ def test_m11_external_blocker_gets_human_text_and_dynamic_option():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert any(b.condition == "Wsparcie zewnętrzne" for b in result.decision_payload.blockers)
-    assert result.decision_payload.unblocking_options == ["Skonfiguruj Wsparcie zewnętrzne: Anna Zewnętrzna"]
-    assert not any("X/Y" in o for o in result.decision_payload.unblocking_options)
+    assert _texts(result.decision_payload.unblocking_options) == ["Skonfiguruj Wsparcie zewnętrzne: Anna Zewnętrzna"]
+    assert not any("X/Y" in o for o in _texts(result.decision_payload.unblocking_options))
 
 
 def test_m12_no_external_blocker_means_no_external_option():
@@ -210,7 +217,7 @@ def test_m12_no_external_blocker_means_no_external_option():
     state = _replace(state, profile=_replace(state.profile, rolling_7d_decision_threshold_hours=11))
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert not any("Wsparcie zewnętrzne" in o for o in result.decision_payload.unblocking_options)
+    assert not any("Wsparcie zewnętrzne" in o for o in _texts(result.decision_payload.unblocking_options))
     assert not any(b.condition == "Wsparcie zewnętrzne" for b in result.decision_payload.blockers)
 
 
@@ -232,7 +239,7 @@ def test_m13_h_final_day_only_gives_nocka_option_only_after_fallback_exhausted(m
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert any(b.condition == "Koliduje z ustawieniem: Nocka" for b in result.decision_payload.blockers)
-    assert "Zmień Nocka: A" in result.decision_payload.unblocking_options
+    assert "Zmień Nocka: A" in _texts(result.decision_payload.unblocking_options)
     # H: T013 does not alter T018's call order/flags. Stage 3's shortage is
     # terminal (no exception ever authorized this employee), so Stage 4 is
     # never reached -- unchanged T018 semantics.
@@ -266,8 +273,8 @@ def test_m15_i2_rest_conflict_gives_only_relevant_rest_guidance():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert any(b.condition == "Koliduje z odpoczynkiem dobowym" for b in result.decision_payload.blockers)
-    assert result.decision_payload.unblocking_options == ["Ręczna korekta z uwzględnieniem odpoczynku dobowego zgodnie z kontraktem: Anna"]
-    assert not any("Wsparcie zewnętrzne" in o or "Nocka" in o for o in result.decision_payload.unblocking_options)
+    assert _texts(result.decision_payload.unblocking_options) == ["Ręczna korekta z uwzględnieniem odpoczynku dobowego zgodnie z kontraktem: Anna"]
+    assert not any("Wsparcie zewnętrzne" in o or "Nocka" in o for o in _texts(result.decision_payload.unblocking_options))
 
 
 # M16/I.3 -- frozen conflict --------------------------------------------------
@@ -288,7 +295,7 @@ def test_m16_i3_frozen_conflict_gives_unfreeze_option_and_translated_blockers():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     assert any(b.condition == "Koliduje z ustawieniem: Ogólna dostępność" for b in result.decision_payload.blockers)
-    assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" in result.decision_payload.unblocking_options
+    assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" in _texts(result.decision_payload.unblocking_options)
 
 
 # M17/I.4 -- LOAD only --------------------------------------------------------
@@ -304,8 +311,8 @@ def test_m17_i4_load_only_gives_load_option_and_human_condition():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None
     assert all(b.condition == "Koliduje z tygodniowym czasem pracy" for b in result.decision_payload.blockers)
-    assert "Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy" in result.decision_payload.unblocking_options
-    assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" not in result.decision_payload.unblocking_options
+    assert "Dodaj pracownika do obsady i zaplanuj ponownie" in _texts(result.decision_payload.unblocking_options)
+    assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" not in _texts(result.decision_payload.unblocking_options)
 
 
 # M18 -- frozen + LOAD together ----------------------------------------------
@@ -331,9 +338,9 @@ def test_m18_frozen_and_load_gives_both_option_families():
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    options = result.decision_payload.unblocking_options
+    options = _texts(result.decision_payload.unblocking_options)
     assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" in options
-    assert "Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy" in options
+    assert "Dodaj pracownika do obsady i zaplanuj ponownie" in options
     conditions = {b.condition for b in result.decision_payload.blockers}
     assert "Koliduje z tygodniowym czasem pracy" in conditions
     assert "Koliduje z zapisem: Chorobowe" in conditions
@@ -347,7 +354,7 @@ def test_m19_hidden_only_diagnosis_gives_exact_no_solution_fallback():
     state = base_state(employees=(employee,), memberships=(), shift_demands=(_d_demand("D1", 6),))
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
-    assert result.decision_payload.unblocking_options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
+    assert _texts(result.decision_payload.unblocking_options) == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 # M20/K -- determinism / dedup -----------------------------------------------
@@ -362,7 +369,7 @@ def test_m20_k_deterministic_order_and_dedup_independent_of_input_order():
     forward_options = build_unblocking_options(state, forward, None)
     reversed_options = build_unblocking_options(state, reversed_, None)
     assert forward_options == reversed_options
-    assert forward_options == ["Ręczna korekta z uwzględnieniem odpoczynku dobowego zgodnie z kontraktem: Adam, Zofia"]
+    assert _texts(forward_options) == ["Ręczna korekta z uwzględnieniem odpoczynku dobowego zgodnie z kontraktem: Adam, Zofia"]
 
 
 def test_m20_multiple_site_rule_versions_same_description_give_one_action():
@@ -370,7 +377,14 @@ def test_m20_multiple_site_rule_versions_same_description_give_one_action():
     rule_b = _site_rule("RV-B", description="Zakaz nocek")
     state = base_state(employees=(_employee("A"),), site_rules=(rule_a, rule_b))
     options = build_unblocking_options(state, [Blocker("A", "RV-A"), Blocker("A", "RV-B")], None)
-    assert options == ["Zmień zapisaną regułę: Zakaz nocek"]
+    assert _texts(options) == ["Zmień zapisaną regułę: Zakaz nocek"]
+    # ROTA-T062 (brief section 4 point 9, R1 audit finding): this option
+    # used to get target="obiekt" -- verified against the real "Obiekt" tab
+    # (ControlPanel.tsx: shift catalog + print settings only, no editor for
+    # an arbitrary saved SiteRuleVersion) that this is a fake button
+    # pointing nowhere useful. An unrecognized/general rule with no real
+    # editor stays information only.
+    assert options[0].target is None
 
 
 def test_m20_rule_version_id_never_appears_in_coordinator_text():
@@ -379,7 +393,7 @@ def test_m20_rule_version_id_never_appears_in_coordinator_text():
     blockers = render_coordinator_blockers(state, [Blocker("A", "RV-SECRET-ID")])
     options = build_unblocking_options(state, [Blocker("A", "RV-SECRET-ID")], None)
     assert "RV-SECRET-ID" not in blockers[0].condition
-    assert not any("RV-SECRET-ID" in o for o in options)
+    assert not any("RV-SECRET-ID" in o for o in _texts(options))
 
 
 # M21/M22/M23 -- payload shape / status mapping unchanged -------------------
@@ -417,7 +431,7 @@ def test_l_no_stage_or_solver_internals_leak_into_coordinator_payload():
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"
     forbidden = ("Stage 1", "Stage 2", "Stage 3", "Stage 4", "allow_day_only_n_fallback", "allow_emergency_24h", "uncapped")
-    haystack = " ".join(result.decision_payload.unblocking_options) + " ".join(b.condition for b in result.decision_payload.blockers)
+    haystack = " ".join(_texts(result.decision_payload.unblocking_options)) + " ".join(b.condition for b in result.decision_payload.blockers)
     assert not any(term in haystack for term in forbidden)
 
 

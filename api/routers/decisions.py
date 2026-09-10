@@ -13,7 +13,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from api.decision_payload import BlockerOut, BlockingDemandOut, LoadBlockerOut, decision_payload_out
+from api.decision_payload import BlockerOut, BlockingDemandOut, LoadBlockerOut, UnblockingOptionOut, decision_payload_out
 from api.deps import get_conn
 from api.errors import to_http_exception
 from rota.application.memory_read import current_decision_required
@@ -36,7 +36,7 @@ class DecisionRequiredOut(BaseModel):
     blocking_shift_demands: list[BlockingDemandOut]
     blockers: list[BlockerOut]
     load_blocker: LoadBlockerOut | None
-    unblocking_options: list[str]
+    unblocking_options: list[UnblockingOptionOut]
     linked_action_ids: list[str]
 
 

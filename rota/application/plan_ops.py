@@ -29,6 +29,7 @@ from rota.persistence.schedule_repository import (
     is_schedule_version_live,
     set_schedule_version_planning_regime_in_open_transaction,
 )
+from rota.planning.decision_guidance import drop_options_requiring_existing_schedule
 from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
 from rota.planning.engine_types import PlanningResult
 from rota.planning.validator import validate
@@ -47,8 +48,16 @@ def _persist_decision_readback(
     """ROTA-T019b section 11: after plan()'s FINAL public result, persist or
     clear the current DECISION_REQUIRED readback. Fails closed: a
     persistence failure here becomes TECHNICAL_ERROR, never an unpersisted
-    DECISION_REQUIRED or a FEASIBLE with a stale pointer left behind."""
-    if result.status == "DECISION_REQUIRED":
+    DECISION_REQUIRED or a FEASIBLE with a stale pointer left behind.
+
+    ROTA-T062 (brief section 4 point 7): THIRD_CONSECUTIVE_SHIFT_BLOCKED
+    shares this same readback -- before this, a fresh THIRD result left an
+    earlier, now-stale DECISION_REQUIRED readback untouched (the old
+    fallthrough at the bottom of this function), so a reload could show a
+    problem that no longer describes the current attempt. Status itself
+    still never becomes DECISION_REQUIRED; only the persisted guidance
+    pointer is shared."""
+    if result.status in ("DECISION_REQUIRED", "THIRD_CONSECUTIVE_SHIFT_BLOCKED"):
         try:
             with conn:
                 site_memory.reuse_or_insert_decision_required_snapshot_no_commit(
@@ -291,6 +300,12 @@ def plan_month(
         demands = tuple(replace(d, schedule_version_id=placeholder_id) for d in state.shift_demands)
         state = replace(state, schedule_version_id=placeholder_id, shift_demands=demands)
         result = plan(state, search_attempt=search_attempt)
+        # ROTA-T062 (brief section 4 point 8): no current ScheduleVersion
+        # exists on this branch -- a manual-correction-style suggestion
+        # would point at a dead end (ROTA-T061 is retired), so strip those
+        # before anything is persisted or returned.
+        if result.decision_payload is not None:
+            result.decision_payload = drop_options_requiring_existing_schedule(result.decision_payload)
         # ROTA-T041 C-05/OWNER-T041-01: assemble_planning_state's own
         # warnings (e.g. missing target_hours) are produced before plan()
         # is even called and plan() never sees them (they don't travel on

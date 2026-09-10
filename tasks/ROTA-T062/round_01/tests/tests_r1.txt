@@ -1,0 +1,159 @@
+ROTA-T062 — audyt przedimplementacyjny R1
+
+Brief: task/ROTA-T062@c3399fbed2c5fd37de74304e807683846e87c082
+Baseline inspected: main@f1cfb05e85ef19ad4bfa714a51b7e187e57caaa4
+Result: WYMAGA_DECYZJI — IMPLEMENTATION HOLD pozostaje
+
+Nie uruchamiano testów: to audyt kontraktu przed implementacją. Sprawdzono
+realny kod właściciela diagnozy, zapis/odczyt, wspólny adapter API i oba
+miejsca UI. Zamrożonych symulatorów i benchmarków nie używano.
+
+WHERE_MAP (jednorazowo, baseline):
+- where.py rota/planning/decision_guidance.py --symbol build_unblocking_options
+- where.py rota/planning/decision_guidance.py --symbol build_decision_payload
+- where.py api/routers/schedule.py --symbol DecisionRequiredPayloadOut
+  (symbol jest importowany z api/decision_payload.py, więc narzędzie poprawnie
+  nie znalazło definicji lokalnej)
+- where.py frontend/src/screens/Decisions.tsx --symbol optionTarget
+- where.py frontend/src/screens/MonthlyPlanning.tsx --symbol decision_required
+
+OWNER_CONFIRMED
+
+- Pierwszy grafik powstaje tylko przez PLAN; T061/manual root pozostaje
+  wycofany.
+- Po zmianie obsady/dostępności/nieobecności potrzebny jest nowy PLAN.
+- Brak grafiku przy aktualnych danych jest dopuszczalnym wynikiem biznesowym,
+  nie awarią techniczną.
+- NIGHT-STREAK i THIRD-CONSECUTIVE mogą prowadzić do istniejących zmian obsady
+  lub dostępności i ponownego PLAN; nie ma automatycznego wyjątku.
+- TECHNICAL_ERROR/HTTP/timeout pozostają poza T062.
+
+ODPOWIEDŹ 1 — właściciel i pominięte ścieżki
+
+Zwykłe końcowe DECISION_REQUIRED ma jednego właściciela:
+engine.py wywołuje build_decision_payload(), plan_ops.py zapisuje ten sam
+payload w site_memory, a api/decision_payload.py zasila oba endpointy.
+PLAN i późniejsze Przelicz Plan używają tego samego plan_month() oraz tego
+samego _persist_decision_readback(); preacceptance REPLAN też używa tego
+helpera. Nie znaleziono drugiego konstruktora zwykłej diagnozy.
+
+Brief słusznie wskazuje wyjątek: THIRD_CONSECUTIVE_SHIFT_BLOCKED jest osobną,
+wyłącznie chwilową ścieżką bez payloadu i zapisu. Dodatkowo NO_ALTERNATIVE,
+NARROW_SEARCH_EXHAUSTED i SEARCH_INCOMPLETE są osobnymi stanami wyszukiwania
+preacceptance REPLAN. Nie są drugimi diagnozami blockerów i T062 nie powinien
+ich przebudowywać; brief powinien wpisać to jawnie, aby „jedna ścieżka” nie
+została odczytana jako nakaz wciągnięcia całego lifecycle REPLAN.
+
+Istnieje konkretna luka aktualnego kodu: _persist_decision_readback() zapisuje
+tylko DECISION_REQUIRED, czyści tylko przy FEASIBLE, a dla THIRD pozostawia
+poprzedni current_decision_required bez zmian. Po świeżym wyniku THIRD ekran
+może więc nadal pokazywać starszą, inną diagnozę. T062 musi objąć ten przypadek.
+
+ODPOWIEDŹ 2 — minimalny TASK_SCOPE
+
+Konieczne production paths:
+- rota/planning/engine_types.py — ustrukturyzowana pojedyncza opcja działania;
+- rota/planning/decision_guidance.py — jeden owner treści i celu działania;
+- rota/planning/engine.py — NIGHT-STREAK oraz THIRD przez wspólną guidance,
+  przy zachowaniu osobnego statusu THIRD i bez solver override;
+- rota/application/plan_ops.py — zapis/wyczyszczenie aktualnej guidance także
+  dla THIRD, bez pozostawienia starego pointera;
+- rota/persistence/site_memory.py — zapis/odczyt nowego kształtu oraz zgodny
+  odczyt wcześniej zapisanych payloadów list[str];
+- api/decision_payload.py — jeden wspólny adapter;
+- api/routers/decisions.py — wspólny typ pola opcji;
+- frontend/src/api/client.ts — ten sam typ;
+- frontend/src/screens/Decisions.tsx — nawigacja po stabilnym celu, bez
+  rozpoznawania prefiksu tekstu;
+- frontend/src/screens/MonthlyPlanning.tsx — neutralny komunikat dla
+  utrwalonego problemu oraz brak surowego statusu THIRD po świeżej odpowiedzi.
+
+Nie są konieczne: solver.py, validator, manual_edit.py, lifecycle ScheduleVersion,
+nowy endpoint, nowa tabela, nowy ekran, Room.tsx/ControlPanel.tsx/EmployeeDetail.tsx,
+jeżeli cele pozostaną na istniejącym poziomie „Obsada”/„Obiekt”. Bez jawnej
+decyzji nie dodawać przejścia do Korekty ręcznej.
+
+Test scope:
+- nowy tests/test_t062.py;
+- aktualizacja oczekiwań kształtu w tests/test_t013.py i wspólnego API w
+  tests/test_t042_audit4_repairs.py;
+- wąski realny pion API persistence/reload dla zwykłego DECISION_REQUIRED i
+  THIRD;
+- jeden Playwright przez realny backend: PLAN blocked -> czytelne działania ->
+  rzeczywiste przejście do Obsady -> zmiana danych -> stara diagnoza znika ->
+  ponowny PLAN. Optycznie sprawdzić oba miejsca UI.
+
+ODPOWIEDŹ 3 — minimalne usunięcie prefix matching
+
+Zastąpić element listy stringów małym istniejącym-w-payloadzie obiektem, np.
+tekst + stabilny cel (OBSADA, OBIEKT albo brak celu). Nie dodawać workflow
+engine ani URL-i z backendu. UI renderuje przycisk tylko dla celu, który zna;
+brak celu jest uczciwą informacją, nie martwym przyciskiem.
+
+site_memory musi czytać stare snapshoty list[str] bez migracji tabeli i
+traktować je jako tekst bez celu. To usuwa prefix matching dla nowych danych,
+nie fałszuje nawigacji historycznych i zachowuje jednego właściciela.
+
+ODPOWIEDŹ 4 — obecne akcje
+
+Rzeczywista droga w UI istnieje dla:
+- zmiany obsady/dodania osoby/wsparcia zewnętrznego -> Panel sterowania/Obsada;
+- Ogólnej dostępności, Nocki i ograniczeń pracownika -> Obsada -> pracownik;
+- ustawienia 24h -> Obsada;
+- edycji lub zakończenia urlopu/chorobowego/wolnego -> karta pracownika;
+- katalogu standardowych zmian/obsady zmian -> Obiekt.
+
+Nie ma potwierdzonej bezpośredniej akcji dla:
+- dowolnej ogólnej „zapisanej reguły obiektu” (obecny target „Obiekt” otwiera
+  katalog zmian, nie ogólny edytor reguł);
+- „Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy” jako osobnej
+  operacji;
+- REST/NIGHT/THIRD jako osobnego przełącznika;
+- wskazanego zestawu frozen assignments z poziomu ekranu Decyzji.
+
+NIGHT/THIRD nie wymagają nowej decyzji: owner zaakceptował ogólne sprawdzenie
+obsady/dostępności i ponowny PLAN, bez gwarancji wyniku. Obecne teksty
+„Ręczna korekta mimo Chorobowe/Urlop/REST” są niepoprawne dla pierwszego
+grafiku po wycofaniu T061 i nie mogą pozostać bez rozróżnienia stanu.
+Najmniejszy zakres T062 może w ogóle nie proponować Korekty ręcznej; istniejąca
+funkcja pozostaje dostępna osobno dla istniejącego grafiku.
+
+OWNER_DECISION_NEEDED — jedno pytanie
+
+Gdy blocker wynika z niestandardowej zapisanej reguły obiektu, której nie da
+się dziś edytować w istniejących ekranach: czy T062 ma pokazać ją wyłącznie
+jako informację bez klikalnej akcji, czy ma powstać nowe przejście/możliwość
+wycofania tej reguły? Obecne kierowanie „Zmień zapisaną regułę” do katalogu
+zmian jest fałszywe i nie może pozostać.
+
+ODPOWIEDŹ 5 — THIRD bez reaktywacji T061
+
+Zachować publiczny status THIRD_CONSECUTIVE_SHIFT_BLOCKED i zakaz automatycznego
+wyjątku. Zbudować dla niego ten sam ustrukturyzowany, koordynatorowy payload z
+realnym celem Obsada oraz uczciwym tekstem „sprawdź obsadę/dostępność i
+zaplanuj ponownie”. Zapisać go tym samym mechanizmem current guidance, aby
+przetrwał reload i zastąpił starszy problem. Nie tworzyć ScheduleVersion,
+kandydata, Deviation ani linku do first-manual-root.
+
+ODPOWIEDŹ 6 — konieczna macierz acceptance
+
+1. no-current: SICK/LEAVE/REST nigdy nie oferują pełnej Korekty ręcznej;
+2. no-current: NIGHT oraz THIRD pokazują realne Obsada/dostępność + ponowny
+   PLAN albo uczciwy brak rozwiązania; zero ScheduleVersion/current;
+3. THIRD zachowuje osobny status, payload/readback przeżywa reload i zastępuje
+   wcześniejszą diagnozę zamiast ją pozostawić;
+4. istniejący current: T062 nie tworzy nowej korekty i nie zmienia ani nie
+   nadpisuje zapisanej wersji grafiku;
+5. kilka niezależnych blockerów: wszystkie materialne działania/informacje są
+   zachowane deterministycznie;
+6. każdy przycisk prowadzi do istniejącego miejsca; informacja bez celu nie
+   udaje przycisku; zmiana tekstu nie zmienia nawigacji;
+7. materialna zmiana danych unieważnia readback, a kolejny PLAN liczy od nowa;
+8. schedule endpoint i Decisions endpoint zwracają te same pola/semantykę;
+9. TECHNICAL_ERROR/HTTP/timeout oraz search-only statuses nie dostają guidance
+   T062;
+10. UI nie pokazuje HARD, kodów statusów/reguł ani technicznych identyfikatorów.
+
+Po odpowiedzi OWNERA architekt powinien wykonać jedną korektę briefu: wpisać
+decyzję, literalny TASK_SCOPE powyżej (z redukcją albo rozszerzeniem wynikającym
+wyłącznie z odpowiedzi) i dopiero wtedy wrócić do krótkiego re-checku Codexa.

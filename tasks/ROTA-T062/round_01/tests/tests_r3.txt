@@ -1,0 +1,18 @@
+ROTA-T062 — PREIMPLEMENTATION LITERAL RE-CHECK R3
+
+AUDITED BRIEF: task/ROTA-T062@6e550a5373d6143d5298335efa48119d90965ab5
+TYPE: krótki re-check kontraktu po korekcie; bez audytu kodu i bez uruchamiania testów
+
+VERDICT: PASS
+
+Sprawdzone literalnie:
+1. Usunięto nieuprawniony trop „niestandardowej reguły” i nie dodano edytora reguł ani nowego źródła konfiguracji.
+2. T061 pozostaje wycofane: T062 nie tworzy pustego grafiku ani awaryjnej ręcznej ścieżki budowy całego miesiąca.
+3. DECISION_REQUIRED oraz THIRD_CONSECUTIVE_SHIFT_BLOCKED dostają czytelną, trwałą wskazówkę dla koordynatora, ale bez obejścia solvera i bez obietnicy, że wskazana zmiana zagwarantuje wynik.
+4. Akcje prowadzą wyłącznie do istniejących miejsc programu albo są informacyjne; stary zapis listy tekstów pozostaje odczytywalny bez migracji tabeli.
+5. Kontrakt obejmuje usunięcie nieaktualnej diagnozy po kolejnym wyniku oraz nie oferuje ręcznej korekty, gdy nie istnieje bieżący wynik PLAN.
+6. Zakres produkcyjny i testowy jest zamknięty, a statusy wyszukiwania i obsługa awarii technicznych pozostają jawnie poza T062.
+
+Nie powtarzano WHERE_MAP ani mapy kodu, ponieważ właściciele i zakres nie zmieniły się od R2. Nie uruchamiano testów: implementacja jest jeszcze na HOLD, a przedmiotem kontroli był wyłącznie poprawiony brief.
+
+PASS zwalnia IMPLEMENTATION HOLD wyłącznie dla literalnego TASK_SCOPE z powyższego SHA. Jeśli implementacja wymagałaby zmiany pliku spoza listy (np. dla bezpośredniego przejścia do karty pracownika), CC ma użyć dopuszczonego istniejącego celu „Obsada” albo wrócić po korektę kontraktu — bez cichego rozszerzenia zakresu.

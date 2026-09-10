@@ -29,11 +29,19 @@ class LoadBlockerOut(BaseModel):
     hours: int
 
 
+class UnblockingOptionOut(BaseModel):
+    """ROTA-T062: text plus a stable navigation target (or None, information
+    only) -- replaces the old bare string the frontend used to parse by
+    matching Polish text prefixes."""
+    text: str
+    target: str | None = None
+
+
 class DecisionRequiredPayloadOut(BaseModel):
     blocking_shift_demands: list[BlockingDemandOut]
     blockers: list[BlockerOut]
     load_blocker: LoadBlockerOut | None
-    unblocking_options: list[str]
+    unblocking_options: list[UnblockingOptionOut]
 
 
 def decision_payload_out(dp) -> DecisionRequiredPayloadOut:
@@ -49,5 +57,5 @@ def decision_payload_out(dp) -> DecisionRequiredPayloadOut:
             employee_id=dp.load_blocker.employee_id, window_start=dp.load_blocker.window_start.isoformat(),
             window_end=dp.load_blocker.window_end.isoformat(), hours=dp.load_blocker.hours,
         ) if dp.load_blocker else None,
-        unblocking_options=list(dp.unblocking_options),
+        unblocking_options=[UnblockingOptionOut(text=o.text, target=o.target) for o in dp.unblocking_options],
     )

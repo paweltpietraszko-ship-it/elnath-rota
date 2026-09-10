@@ -1,0 +1,65 @@
+ROTA-T062 — niezależny re-audyt poprawki R5-01, runda 6
+
+AUDYTOWANY KOD: task/ROTA-T062@54cccfff17196c23c0ac4a48f1a982471039acae
+KONTRAKT: task/ROTA-T062@a59caffb9a4f0188b8665a871b7d6caaf0dc87ee
+OWNER_CORRECTED: 2026-09-10 — T062 ma prostym językiem powiedzieć
+koordynatorowi, co ma zrobić, np. „Dodaj pracownika do obsady”. Koordynator
+zna panel; przycisk, link i instrukcja nawigacji nie są wymagane.
+WERDYKT: FAIL
+
+Zakres re-audytu
+1. Surowy diff 172ee7b..54cccff: tylko trzy zadeklarowane pliki; bez nowej
+   funkcji akceptacji przekroczenia i bez zmian solvera.
+2. Wąskie testy backendu `tests/test_t013.py tests/test_t062.py`: 32/32 PASS.
+3. Niezależny reproduktor `repro_r6.py`: PASS; potwierdził dokładny tekst i
+   target zwracane na exact SHA.
+4. Realny pion Playwright z prawdziwym backendem, workers=1, retries=0:
+   1/1 PASS; powtórzony z jednorazowym zapisem ekranu: 1/1 PASS.
+5. Optycznie sprawdzono `t062_r6_load_guidance.png`.
+6. Pełnej regresji repo nie uruchamiano — poprawka jest wąska, a OWNER nie
+   udzielił zgody na pełną regresję.
+
+R6-01 — komunikat nadal nie mówi, co koordynator ma zmienić
+
+TRACE
+- cel §1 i OWNER §2.3 briefu: główna informacja ma praktycznie mówić, co
+  koordynator może zrobić dalej; zaakceptowane klasy to zmiana obsady, dodanie
+  pracownika/wsparcia, zmiana dostępności lub korekta nieobecności;
+- jawna korekta OWNERA 2026-09-10: wystarczy prosta informacja typu „Dodaj
+  pracownika do obsady”; nie wymaga się prowadzenia użytkownika po panelach;
+- T62-02/T62-05: działanie ma być rzeczywiste i oparte na ustalonym blockerze.
+
+OWNERSHIP
+`rota/planning/decision_guidance.py` jest kontraktowym ownerem treści. Zmieniona
+opcja LOAD brzmi:
+
+„Sprawdź obsadę i dostępność: Anna, i zaplanuj ponownie”.
+
+„Sprawdź” opisuje ogląd, ale nie wskazuje żadnej zmiany. Użytkownik nadal musi
+sam zdecydować, czy dodać osobę, zmienić dostępność czy skorygować nieobecność.
+
+REPRO na exact SHA
+- `repro_r6.py` wywołuje realny `plan()` dla kontrolowanego LOAD i potwierdza,
+  że jedyną opcją jest powyższy tekst z `target="obsada"`; tekst nie zawiera
+  żadnej czynności zmieniającej dane („Dodaj”, „Zmień”, „Skoryguj”);
+- realny pion pokazuje na ekranie „Sprawdź obsadę i dostępność:
+  T062RV-...-E3, i zaplanuj ponownie”;
+- E3 jest pracownikiem przeciążonym, lecz test nie zmienia E3. Po kliknięciu
+  przycisku test otwiera innego pracownika `...-Blocked` i kończy jego
+  niedostępność. Jest to konkretna naprawa znana autorowi testu, ale nadal
+  niewskazana koordynatorowi przez komunikat;
+- zielony pion dowodzi nawigacji i możliwości odzyskania FEASIBLE, nie dowodzi,
+  że program powiedział użytkownikowi, co ma zrobić.
+
+WYMAGANE DOMKNIĘCIE — bez rozszerzania T062
+Komunikat LOAD ma nazwać prostą, realną zmianę danych, np. „Dodaj pracownika
+do obsady i zaplanuj ponownie”. Nie wymaga się przycisku ani instrukcji wejścia
+do panelu. Jeśli pion wybiera inną zaakceptowaną naprawę, jego komunikat ma
+nazwać właśnie ten rodzaj zmiany; test nie może pokazywać ogólnego „sprawdź”,
+a następnie wykonywać konkretnej, niewypowiedzianej naprawy.
+
+Poza findingiem
+- `target="obsada"` jest technicznie poprawny, ale nie jest wymagany przez
+  najnowszą decyzję OWNERA;
+- nowa funkcja akceptacji przekroczenia nie powstała;
+- naprawa nie naruszyła sprawdzonych ścieżek T062 w wąskiej macierzy.

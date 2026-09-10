@@ -1,8 +1,13 @@
 // ROTA-T021 (arch/T021_spec.md §Decyzje koordynatora): thin client over
 // api/routers/decisions.py -> rota.application.memory_read (unchanged,
-// read-only). blockers[].condition and unblocking_options are already
+// read-only). blockers[].condition and unblocking_options.text are already
 // ready-made Polish text from rota/planning/decision_guidance.py -- this
 // screen never re-translates them.
+//
+// ROTA-T062: navigation used to be prefix-matched off that same Polish
+// text (fragile -- any wording change silently broke the button). Each
+// option now carries its own stable target from the backend; this screen
+// only renders it.
 import { useEffect, useState } from "react";
 import { DecisionRequiredOut, RosterRow, api } from "../api/client";
 
@@ -18,24 +23,6 @@ function monthLabel(monthIso: string): string {
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "short" });
-}
-
-// Spec caveat (arch/T021_spec.md §Decyzje koordynatora): unblocking_options
-// are bare Polish strings with no structured screen/action id -- this is
-// prefix matching on that text, fragile if backend wording changes. Only
-// options with an actually built destination today become links;
-// everything else stays plain text rather than a broken navigation.
-function optionTarget(option: string): "obsada" | "obiekt" | null {
-  if (option.startsWith("Zmień Ogólna dostępność") || option.startsWith("Zmień Nocka") || option.startsWith("Zmień 24")) {
-    return "obsada";
-  }
-  if (option.startsWith("Zmień zapisaną regułę")) return "obiekt";
-  // OWNER_CORRECTED (2026-08-27): "Wsparcie zewnętrzne" is the same Obsada
-  // "+ Dodaj osobę" flow (membership_kind=EXTERNAL_SUPPORT + one date
-  // range), not a separate per-employee support-window list screen --
-  // Obsada is the real, complete destination now, not a partial fallback.
-  if (option.startsWith("Skonfiguruj Wsparcie zewnętrzne")) return "obsada";
-  return null;
 }
 
 function DecisionDetail({
@@ -102,15 +89,15 @@ function DecisionDetail({
         <span className="field-label">Możliwe rozwiązania</span>
         <ul style={{ margin: "6px 0 0 0", paddingLeft: 18, fontSize: 13 }}>
           {detail.unblocking_options.map((option, i) => {
-            const target = optionTarget(option);
+            const target = option.target;
             return (
               <li key={i}>
                 {target ? (
                   <button className="roster-name-link" onClick={() => onOpenControlPanel(target, context)}>
-                    {option}
+                    {option.text}
                   </button>
                 ) : (
-                  option
+                  option.text
                 )}
               </li>
             );

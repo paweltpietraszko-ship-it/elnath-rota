@@ -72,7 +72,7 @@ def test_r17_2a_missing_membership_gives_concrete_blocker():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.blocking_shift_demands
     assert not any(b.employee_id == "A" for b in result.decision_payload.blockers)
-    assert result.decision_payload.unblocking_options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
+    assert [o.text for o in result.decision_payload.unblocking_options] == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 def test_r17_2b_other_site_only_membership_gives_concrete_blocker():
@@ -85,7 +85,7 @@ def test_r17_2b_other_site_only_membership_gives_concrete_blocker():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.blocking_shift_demands
     assert not any(b.employee_id == "A" for b in result.decision_payload.blockers)
-    assert result.decision_payload.unblocking_options == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
+    assert [o.text for o in result.decision_payload.unblocking_options] == ["Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach."]
 
 
 # FINDING R17-3 -------------------------------------------------------------

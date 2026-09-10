@@ -1,0 +1,37 @@
+ROTA-T062 — niezależny re-audyt poprawki R6-01, runda 7
+
+AUDYTOWANY KOD: task/ROTA-T062@4d6fe41db5cf4c6933f465391b37a8cb2096ae1c
+KONTRAKT: task/ROTA-T062@a59caffb9a4f0188b8665a871b7d6caaf0dc87ee
+OWNER_CORRECTED: 2026-09-10 — T062 ma prostym językiem wskazać rodzaj
+działania, np. dodanie pracownika do obsady. Koordynator sam wybiera osobę;
+program nie ma oceniać tego wyboru ani prowadzić użytkownika krok po kroku.
+WERDYKT: PASS na dokładnym SHA 4d6fe41db5cf4c6933f465391b37a8cb2096ae1c
+
+Warstwy wąskiego re-audytu
+1. Surowy diff 54cccff..4d6fe41: trzy pliki z literalnego TASK_SCOPE;
+   bez zmian solvera i bez nowej funkcji produktu.
+2. Niezależny reproduktor `repro_r7.py`: 1/1 PASS. Realny `plan()` zwraca
+   dokładnie „Dodaj pracownika do obsady i zaplanuj ponownie”, cel `obsada`,
+   bez nazwiska lub identyfikatora wybieranego za koordynatora.
+3. Wąskie macierze `tests/test_t013.py tests/test_t062.py`: 32/32 PASS.
+4. Realny pion Playwright przez prawdziwy backend, workers=1, retries=0:
+   dwukrotnie 1/1 PASS. Po komunikacie test otwiera Obsady, dodaje nowego
+   pracownika, potwierdza natychmiastowe usunięcie starej diagnozy i ponownie
+   uruchamia PLAN, który osiąga FEASIBLE.
+5. Kontrola optyczna `t062_r7_load_guidance.png`: komunikat jest czytelny,
+   prosty i nie wskazuje konkretnej osoby do dodania.
+6. Ruff niezależnego reproduktora: PASS.
+7. Pełnej regresji repo nie uruchamiano — wąska poprawka i brak zgody OWNERA.
+
+Domknięcie R6-01
+- guidance nazywa konkretny rodzaj zmiany danych („Dodaj pracownika”);
+- nie wybiera pracownika za koordynatora;
+- pion wykonuje ten sam rodzaj czynności, który widzi użytkownik;
+- `target="obsada"` pozostaje pomocniczą nawigacją, a nie warunkiem decyzji
+  OWNERA;
+- nie dodano funkcji akceptacji przekroczenia ani nowej logiki solvera.
+
+Zakres werdyktu
+PASS dotyczy wyłącznie poprawki T062 na exact SHA 4d6fe41. Pozostałe warstwy
+T062 zachowują wynik wcześniejszego audytu R5; nie były ponownie czytane ani
+mechanicznie testowane w pełnym zakresie.

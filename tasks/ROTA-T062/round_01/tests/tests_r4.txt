@@ -1,0 +1,40 @@
+ROTA-T062 — audyt implementacji, runda 4
+
+AUDYTOWANY SHA KODU: task/ROTA-T062@172ee7b
+ZAMROŻONY BRIEF: task/ROTA-T062@6e550a5
+STAN: AUDYT ZATRZYMANY PRZED WERDYKTEM — NIESPÓJNY TASK_SCOPE
+
+Nie wydano PASS ani FAIL i nie uruchomiono warstw audytu kodu na exact SHA.
+Przyczyną jest czysto mechaniczna niespójność kontraktu, nie ocena
+merytoryczna zaimplementowanego zachowania.
+
+TRACE
+- brief sekcja 7 nazywa zakres literalnym i wyłącza
+  frontend/src/screens/ControlPanel.tsx bez odrębnej zgody architekta;
+- brief sekcja 9 wymienia trzy konkretne pliki testów Python oraz jeden
+  Playwright przez realny backend;
+- AGENTS.md/BOARD: BOARD.md jest dziennikiem technicznym, nie źródłem zmian
+  kontraktu Tasku.
+
+Różnica 783d342..172ee7b zawiera ścieżki niewłączone do zamrożonego briefu:
+- frontend/src/screens/ControlPanel.tsx (w briefie jawnie poza scope);
+- tests/test_audit_r17_findings.py;
+- tests/test_t058.py;
+- frontend/e2e/t062-guidance.spec.ts;
+- frontend/e2e/t062-third-shift.spec.ts;
+- frontend/e2e/t062-real-vertical.spec.ts.
+
+BOARD main@fadd1a1 zapisuje zgodę architekta na te ścieżki, ale nie zmienia
+brief.md. Tak samo jak w poprzednich Taskach, BOARD nie może sam rozszerzyć
+literalnego TASK_SCOPE.
+
+WYMAGANA KOREKTA
+Architekt ma dopisać powyższe sześć ścieżek do tasks/ROTA-T062/brief.md i
+usunąć sprzeczne jawne wyłączenie ControlPanel.tsx. Nie potrzeba zmiany kodu
+produktu ani decyzji Ownera.
+
+PO KOREKCIE
+Codex wraca bezpośrednio do audytu implementacji na niezmienionym kodzie
+172ee7b / nowym SHA zawierającym korektę briefu. Nie powtarzać mapy zmian ani
+roboczego przeglądu WIP; wykonać dopiero niezależne reproduktory, macierz Tasku
+i realny pion.

@@ -29,11 +29,30 @@ class LoadBlocker:
 
 
 @dataclass
+class UnblockingOption:
+    """ROTA-T062: one coordinator-facing suggestion -- text plus a STABLE
+    navigation target (or none, for pure information). Replaces the old
+    bare-string list that frontend/src/screens/Decisions.tsx used to parse
+    by matching Polish text prefixes; text may change freely now without
+    touching navigation.
+
+    target is one of the existing product places T062 is allowed to point
+    at ("obsada", "obiekt") or None (information only, no button).
+    requires_existing_schedule marks an option that only makes sense once a
+    current ScheduleVersion exists (e.g. a manual-correction-style
+    suggestion) -- ROTA-T061 is retired, so the application layer (plan_ops)
+    must drop these when there is no current version yet."""
+    text: str
+    target: Optional[Literal["obsada", "obiekt"]] = None
+    requires_existing_schedule: bool = False
+
+
+@dataclass
 class DecisionRequiredPayload:
     blocking_shift_demands: list[BlockingDemand]
     blockers: list[Blocker]
     load_blocker: Optional[LoadBlocker]
-    unblocking_options: list[str]
+    unblocking_options: list[UnblockingOption]
 
 
 @dataclass
