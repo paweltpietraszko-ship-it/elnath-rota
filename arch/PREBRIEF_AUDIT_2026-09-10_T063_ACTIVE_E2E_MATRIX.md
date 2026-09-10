@@ -46,6 +46,20 @@ nieznany employee, Assignment utworzony ręcznie przez test albo osoba dodana
 przez solver oznacza FAIL. Osoby syntetyczne i ich dane nie przechodzą do innych
 scenariuszy dzięki wymaganej izolacji.
 
+**OWNER_CLARIFICATION 2026-09-10 — absencja przed PLANEM i target godzin:**
+test nie może wpisywać chorobowego z góry. W przedplanowych scenariuszach S02
+i S03 architekt ma zastąpić chorobę jednoznacznym, zatwierdzonym urlopem (tym
+samym istniejącym rodzajem danych produktu, którego scenariusz używa już dla
+zatwierdzonego urlopu). Nie zmienia to rzeczywistego lifecycle chorobowego:
+choroba pojawia się dopiero po powstaniu grafiku i prowadzi do „Przelicz Plan”.
+
+Macierz ma świadomie objąć oba istniejące tryby targetu godzin: część
+scenariuszy może podać pracownikom dokładne wartości, a część ma pozostawić
+target nieustawiony, co oznacza domyślne równe traktowanie pracowników.
+Architekt zapisuje w SCENARIO_PACK dokładnie, który scenariusz używa którego
+trybu oraz wszystkie wartości albo jawny brak wartości. Wykonawca testu nie
+może dobierać tego sam podczas implementacji.
+
 ## Fakty z aktywnego `frontend/e2e/**`
 
 Jedenaście testów w pięciu plikach uruchamia prawdziwy PLAN przez przeglądarkę i
