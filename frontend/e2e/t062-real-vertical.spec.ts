@@ -111,8 +111,14 @@ test("T062 real vertical: blocked PLAN -> real guidance -> real Obsada change ->
   await page.getByRole("button", { name: blockedName, exact: true }).click();
   await page.getByRole("button", { name: "+ Zgłoś nieobecność" }).click();
   const { from, to } = monthBounds();
-  await page.locator('label:has-text("Od") input[type="date"]').fill(from);
-  await page.locator('label:has-text("Do") input[type="date"]').fill(to);
+  // ROTA-T064: AddAbsenceForm now uses a real @daypicker/react range picker
+  // (defaulting to workingMonth) instead of two raw <input type="date">
+  // fields -- day buttons carry a "data-day" attribute with the exact ISO
+  // date (see frontend/e2e/t064-calendar-dates.spec.ts for the same
+  // pattern). This was a dead selector after a legal T064 control swap,
+  // not a product regression (Codex R3, main@dc9f979).
+  await page.locator(`[data-day="${from}"]`).click();
+  await page.locator(`[data-day="${to}"]`).click();
   await page.getByRole("button", { name: "Zgłoś", exact: true }).click();
   await expect(page.getByText(`Ogólna niedostępność — od ${from} do ${to}`)).toBeVisible();
   await backToRoster(page);
