@@ -1,10 +1,10 @@
-# ROTA-T063 — SCENARIO_PACK v0.1 OWNER APPROVED
+# ROTA-T063 — SCENARIO_PACK v0.2 OWNER APPROVED
 
 STATUS: OWNER APPROVED 2026-09-10 — NORMATIVE TEST INPUT
 
-OWNER zatwierdził 2026-09-10 wszystkie siedem punktów z sekcji „Kryterium OWNER approval”. Daty i nazwy pracowników są syntetyczne i służą wyłącznie deterministyczności testu. Reguły operacyjne, liczebność i oczekiwane zachowanie poniżej są normatywnym wejściem T063 i nie mogą być rozszerzane ani reinterpretowane przez implementera.
+Ten plik zastępuje `SCENARIO_PACK v0.1`. Daty, nazwy i wartości testowe są syntetyczne i służą deterministyczności acceptance. Nie są twierdzeniem o jednym rzeczywistym obiekcie. Implementer odwzorowuje scenariusze literalnie i nie rozszerza ich pod wynik testu.
 
-## Wspólna baza wszystkich scenariuszy
+## Wspólna baza
 
 Miesiąc: `2026-10` — wykonanie zależne od T064; bez podrobienia zegara przeglądarki.
 
@@ -13,8 +13,7 @@ Obiekt: syntetyczny `T063-24H`.
 Zapotrzebowanie:
 - jedna służba D każdego dnia, `05:00–17:00`;
 - jedna służba N każdego dnia, `17:00–05:00`;
-- pełne 100% pokrycia D+N;
-- brak dodatkowych zmian poza literalnie wskazanymi w tym pliku.
+- wymagane 100% pokrycia D+N.
 
 LOCAL roster — dokładnie 5 osób:
 - `A` — D/N;
@@ -23,133 +22,169 @@ LOCAL roster — dokładnie 5 osób:
 - `D` — D/N;
 - `E` — D/N.
 
-Test ani helper nie może utworzyć szóstej osoby LOCAL. External może powstać tylko w scenariuszu S02 i tylko w liczbie wskazanej w danym wariancie.
+Test ani helper nie może utworzyć szóstej osoby LOCAL. External może zostać dodany tylko w S02 i tylko w liczbie wskazanej w wariancie. Solver może użyć wyłącznie osób istniejących przed danym uruchomieniem PLAN/Przelicz Plan.
 
-Wszystkie osoby, w tym external, podlegają normalnym regułom produktu. Test nie może tworzyć Assignmentów ręcznie ani omijać zwykłych operacji koordynatora.
+## Zasada target_hours
 
-## S01 — bazowy pełny grafik bez absencji
+T063 ma dowieść obu istniejących trybów bez mieszania ich w jednym scenariuszu:
+
+- S01: `target_hours` są jawnie ustawione dla wszystkich LOCAL na syntetyczną wartość testową `168` godzin na osobę;
+- S02 i S03: `target_hours = NULL` dla wszystkich LOCAL;
+- osoby external w S02 pozostają bez targetu zgodnie z istniejącym produktem.
+
+Wartość `168` jest wyłącznie deterministycznym wejściem testowym. T063 nie ustanawia nią reguły biznesowej dla innych miesięcy ani obiektów.
+
+## S01 — bazowy pełny grafik, target_hours ustawione
 
 Stan wejściowy:
 - dokładnie LOCAL A–E;
 - C = DAY_ONLY;
-- brak urlopu, choroby i innych ograniczeń poza zwykłymi regułami produktu;
+- `target_hours = 168` dla A, B, C, D, E;
+- brak urlopu, choroby i innych dodatkowych ograniczeń;
 - external = NONE.
 
 Operacja:
-1. Koordynator konfiguruje obiekt i roster przez normalne operacje produktu.
-2. Koordynator uruchamia PLAN.
+1. Koordynator konfiguruje obiekt, roster, katalog D/N i target_hours przez normalne operacje produktu.
+2. Uruchamia PLAN.
+3. Wybiera dodatni kandydat zgodnie z aktualnym lifecycle.
 
 Oczekiwany wynik:
 - dokładnie `FEASIBLE`;
-- powstaje niepusty kandydat pełnego grafiku D/N;
-- po wyborze zgodnie z aktualnym lifecycle istnieje zapisany grafik;
+- niepusty pełny grafik D/N;
 - wszystkie wymagane D/N są obsadzone wyłącznie przez A–E;
 - po reloadzie grafik nadal jest widoczny;
-- PDF istnieje i odpowiada widocznemu grafikowi.
+- PDF odpowiada widocznemu grafikowi.
 
 Dowody:
-- zamknięty roster A–E przed PLAN;
+- roster A–E i target_hours przed PLAN;
 - wynik PLAN;
-- lista employee użytych w assignmentach;
-- screenshot grafiku po reloadzie;
+- lista employee z assignmentów;
+- screenshot po reloadzie;
 - PDF.
 
-## S02 — external support dopiero po wyczerpaniu zamrożonej drogi wewnętrznej
+## S02 — chorobowe po powstaniu grafiku, potem external support
 
-Cel: jeden kontrolowany scenariusz, w którym test może odgrywać literalną decyzję koordynatora dotyczącą external support. Nie jest to ogólny fallback.
+Cel: sprawdzić realny lifecycle chorobowego i kontrolowane wsparcie zewnętrzne. Chorobowego nie planuje się z góry.
 
-Wspólny stan przed pierwszym PLAN:
-- LOCAL A–E jak wyżej;
-- okres krytyczny: `2026-10-12` do `2026-10-18` włącznie — 7 kolejnych dat startu służby;
-- `C`: zatwierdzony urlop obejmujący cały okres krytyczny;
-- `D`: choroba / niedostępność obejmująca cały okres krytyczny;
-- `E`: choroba / niedostępność obejmująca cały okres krytyczny;
-- w okresie krytycznym faktycznie dostępni LOCAL są więc tylko `A` i `B`;
-- external przed pierwszym PLAN = NONE.
+Stan do utworzenia bazowego grafiku:
+- LOCAL A–E;
+- `target_hours = NULL` dla A–E;
+- C ma zatwierdzony urlop `2026-10-12`–`2026-10-18`;
+- D i E są zdrowi i dostępni;
+- external = NONE.
 
-Twardy fakt testowy:
-- okres krytyczny wymaga 14 służb × 12 h = 168 h pokrycia;
-- dwie dostępne osoby A+B mogą przy limicie >60 h w dowolnych 7 dniach dostarczyć maksymalnie 120 h bez naruszenia tego ograniczenia;
-- test nie zakłada więc, że dwie osoby mogą legalnie pokryć okres krytyczny.
+Krok bazowy:
+1. Koordynator uruchamia PLAN.
+2. Oczekiwany wynik: dokładnie `FEASIBLE`.
+3. Koordynator wybiera/zapisuje grafik zgodnie z lifecycle.
+4. Test potwierdza, że istnieje rzeczywisty current i niepusty D/N.
 
-Pierwszy krok:
-1. PLAN uruchamiany bez external.
-2. Oczekiwany wynik: nie powstaje pełny grafik przy tym stanie.
-3. Jeżeli istniejąca guidance wskazuje możliwość skorygowania zatwierdzonego urlopu C, test zachowuje ten fakt jako poprawny krok pośredni i NIE dodaje external przed jego odnotowaniem.
-4. Literalna decyzja koordynatora dla tego scenariusza: `NIE COFAJ URLOPU C` — wpis pozostaje bez zmian.
-5. Test nie interpretuje innych możliwych działań i nie tworzy pętli poszukiwania rozwiązania.
+Zdarzenie po powstaniu grafiku:
+- D otrzymuje `SICK_LEAVE` `2026-10-12`–`2026-10-18`;
+- E otrzymuje `SICK_LEAVE` `2026-10-12`–`2026-10-18`;
+- C pozostaje na wcześniej zatwierdzonym urlopie;
+- w krytycznym oknie dostępni LOCAL pozostają A i B.
+
+Twardy fakt scenariusza:
+- 7 dni wymagają 14 służb × 12 h = 168 h pokrycia;
+- A+B mogą przy granicy 60 h / dowolne 7 dni dostarczyć najwyżej 120 h bez przekroczenia ograniczenia;
+- test nie może uznać A+B za wystarczających.
+
+Pierwszy `Przelicz Plan` bez external:
+1. Koordynator uruchamia `Przelicz Plan` na istniejącym grafiku po zapisaniu SICK_LEAVE D/E.
+2. Oczekiwany rezultat biznesowy: dokładnie `DECISION_REQUIRED` oraz brak nowego zaakceptowanego pełnego current z tej próby.
+3. TECHNICAL_ERROR, crash, timeout ani pusty sukces nie spełniają tego kroku.
+4. Jeżeli guidance wskazuje możliwość skorygowania zatwierdzonego urlopu C, test zapisuje ten fakt jako oczekiwany krok przed external.
+5. Literalna decyzja koordynatora: `NIE COFAJ URLOPU C`.
+6. Dopiero po tej decyzji scenariusz może dodać external.
 
 ### S02-V1 — dokładnie 1 external
 
-Po kroku powyżej koordynator przez zwykłe operacje produktu dodaje dokładnie:
-- `X1` — external, D/N, dostępny wyłącznie `2026-10-12`–`2026-10-18`.
+Scenariusz startuje od własnego czystego przebiegu S02.
 
-Następnie ponownie uruchamia właściwe planowanie na aktualnych danych.
+Po `DECISION_REQUIRED` i literalnym `NIE COFAJ URLOPU C` koordynator dodaje przez normalne operacje produktu:
+- `X1` — external, D/N, dostępny tylko `2026-10-12`–`2026-10-18`.
+
+Następnie uruchamia właściwe `Przelicz Plan`.
 
 Oczekiwany wynik:
-- `FEASIBLE`;
-- pełne D/N w całym miesiącu;
-- w okresie krytycznym solver używa wyłącznie A, B i istniejącego X1 spośród osób dostępnych do tych służb;
-- żaden nieznany employee nie pojawia się w assignmentach;
-- external użyty <= 1 osoba i wyłącznie w dozwolonym okresie;
+- dokładnie `FEASIBLE`;
+- pełne wymagane D/N;
+- solver używa wyłącznie osób wpisanych przed próbą;
+- X1 nie jest używany poza zakresem dostępności;
+- brak nieznanego employee;
 - screenshot + PDF.
 
 ### S02-V2 — dokładnie 3 external
 
-Scenariusz startuje ponownie od czystego stanu S02 przed pierwszym PLAN; nie dziedziczy X1 z V1.
+Scenariusz startuje od osobnego czystego przebiegu S02 i nie dziedziczy X1 z V1.
 
-Po literalnej decyzji `NIE COFAJ URLOPU C` koordynator dodaje przez zwykłe operacje dokładnie:
-- `X1` — external, D/N, dostępny `2026-10-12`–`2026-10-18`;
-- `X2` — external, D/N, dostępny `2026-10-12`–`2026-10-18`;
-- `X3` — external, D/N, dostępny `2026-10-12`–`2026-10-18`.
+Po `DECISION_REQUIRED` i literalnym `NIE COFAJ URLOPU C` koordynator dodaje:
+- `X1` — external, D/N, `2026-10-12`–`2026-10-18`;
+- `X2` — external, D/N, `2026-10-12`–`2026-10-18`;
+- `X3` — external, D/N, `2026-10-12`–`2026-10-18`.
+
+Następnie uruchamia `Przelicz Plan`.
 
 Oczekiwany wynik:
-- `FEASIBLE`;
+- dokładnie `FEASIBLE`;
 - pełne D/N;
-- solver może użyć dowolnego podzbioru X1–X3 zgodnie z normalnymi regułami, ale nie może użyć nikogo spoza zamkniętego rosteru;
-- żadna osoba external nie jest używana poza zakresem swojej dostępności;
-- test raportuje dokładnie, ilu external faktycznie użyto;
+- solver może użyć dowolnego podzbioru X1–X3 zgodnie z normalnymi regułami;
+- nikt spoza zamkniętego rosteru nie pojawia się w assignmentach;
+- external nie jest używany poza swoją dostępnością;
+- test raportuje, ilu external faktycznie użyto;
 - screenshot + PDF.
 
-Zakaz dla obu wariantów:
+Zakazy S02:
+- brak planowania chorobowego przed bazowym PLAN;
 - brak automatycznego „dodaj jeszcze jednego i spróbuj ponownie”;
-- brak zwiększania zakresu dostępności X;
-- brak cofnięcia urlopu C po literalnej decyzji `NIE`;
-- brak poluzowania choroby D/E;
-- brak ręcznie tworzonych Assignmentów.
+- brak zwiększania zakresu dostępności external;
+- brak cofnięcia urlopu C po literalnym `NIE`;
+- brak ręcznie budowanych Assignmentów.
 
-## S03 — zwykła absencja, którą istniejąca obsada ma przejąć bez external
+## S03 — krótka choroba po zapisanym grafiku, bez external
 
-Stan wejściowy:
-- LOCAL A–E jak w S01;
-- `D`: choroba / niedostępność `2026-10-12`–`2026-10-14`;
-- pozostałe osoby bez dodatkowych ograniczeń;
+Stan bazowy:
+- LOCAL A–E;
+- C = DAY_ONLY;
+- `target_hours = NULL` dla A–E;
+- brak urlopu i choroby;
 - external = NONE.
 
+Krok bazowy:
+1. PLAN.
+2. Oczekiwany wynik: dokładnie `FEASIBLE`.
+3. Koordynator wybiera/zapisuje grafik.
+4. Test potwierdza istniejący current i pełny D/N.
+
+Zdarzenie:
+- po powstaniu grafiku D otrzymuje `SICK_LEAVE` `2026-10-12`–`2026-10-14`.
+
 Operacja:
-1. Koordynator zapisuje absencję D przez normalną operację produktu.
-2. Uruchamia PLAN na tym stanie.
+1. Koordynator zapisuje SICK_LEAVE D przez normalną operację produktu.
+2. Uruchamia `Przelicz Plan`.
 
 Oczekiwany wynik:
-- `FEASIBLE`;
-- pełny, niepusty D/N;
-- D nie ma assignmentu kolidującego z absencją;
-- nie istnieje ani nie zostaje utworzona żadna osoba external;
+- dokładnie `FEASIBLE`;
+- pełny niepusty D/N;
+- D nie ma assignmentu kolidującego z chorobowym w części podlegającej przeliczeniu;
+- żadna osoba external nie istnieje ani nie zostaje dodana;
 - solver używa wyłącznie A–E;
+- lifecycle zachowuje odbyte/fixed służby zgodnie z istniejącym kontraktem;
 - reload zachowuje grafik;
 - screenshot + PDF.
 
-Ten scenariusz nie twierdzi, że automat rozumie ogólną hierarchię decyzji. Sprawdza wyłącznie konkretny, zamrożony przypadek: przy tej krótkiej absencji oczekujemy poprawnego grafiku z istniejącego rosteru i bez external.
+## Zatwierdzone decyzje OWNERA — 2026-09-10
 
-## Kryterium OWNER approval — ZATWIERDZONE 2026-09-10
+OWNER potwierdził:
+1. chorobowego nie planuje się z góry; jeśli T063 używa SICK_LEAVE, musi najpierw istnieć grafik, a dalsza operacja to `Przelicz Plan`;
+2. testy mają objąć oba tryby target_hours w osobnych scenariuszach: w jednym targety są ustawione, w innym jawnie nieustawione;
+3. S01 używa jawnych target_hours `168` dla A–E jako syntetycznych danych testowych;
+4. S02 i S03 używają `target_hours = NULL` dla A–E;
+5. S02 po SICK_LEAVE D/E i bez external oczekuje dokładnie `DECISION_REQUIRED`; crash/TECHNICAL_ERROR nie jest akceptowalnym odpowiednikiem;
+6. w S02 urlop C pozostaje zatwierdzony, a external może zostać dodany dopiero po literalnej decyzji `NIE COFAJ URLOPU C`;
+7. S02-V1 używa dokładnie 1 external i oczekuje `FEASIBLE`;
+8. S02-V2 używa dokładnie 3 external i oczekuje `FEASIBLE`;
+9. S03 sprawdza trzydniowy SICK_LEAVE D po powstaniu grafiku, bez external, i oczekuje `FEASIBLE` po `Przelicz Plan`.
 
-OWNER zatwierdził łącznie następujące fakty:
-1. bazowy roster `5 LOCAL`, z `C = DAY_ONLY`;
-2. bazowe oczekiwanie S01 = `FEASIBLE`;
-3. okres S02 i stan `C urlop + D/E choroba`, pozostawiający A/B jako jedynych dostępnych LOCAL w 7-dniowym oknie;
-4. literalną decyzję S02: urlop C pozostaje, external dopiero po tym kroku;
-5. S02-V1: dokładnie 1 external i oczekiwane `FEASIBLE`;
-6. S02-V2: dokładnie 3 external i oczekiwane `FEASIBLE`;
-7. S03: 3-dniowa choroba D bez external i oczekiwane `FEASIBLE`.
-
-Zmiana któregokolwiek z tych siedmiu punktów wymaga nowej jawnej decyzji OWNERA; implementer nie może korygować scenariusza pod wynik testu.
+Implementer nie może zmienić tych danych ani kolejności pod wynik testu. Odkryta niezgodność produktu z oczekiwaniem daje FAIL/finding.
