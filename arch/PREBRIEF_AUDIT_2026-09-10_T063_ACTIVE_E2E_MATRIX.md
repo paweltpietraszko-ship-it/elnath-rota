@@ -19,6 +19,19 @@ rezultat: dla scenariusza dodatniego powstał niepusty grafik ze służbami
 widocznymi dla koordynatora; dla scenariusza ujemnego PLAN zatrzymał się z
 konkretnie oczekiwanej przyczyny.
 
+**OWNER_RULING 2026-09-10 — absencje i wsparcie zewnętrzne:** urlop, choroba i
+nagła absencja są zwykłą rzeczywistością obiektu i T063 ma je obejmować.
+Koordynator ręcznie wpisuje konkretne osoby wsparcia zewnętrznego; teoretycznie
+każdą służbę może wykonywać inna osoba. Solver nie może tworzyć osób ani
+traktować wsparcia jako anonimowej, nieskończonej puli. Może używać wyłącznie
+osób rzeczywiście wpisanych przez koordynatora i dla każdej z nich nadal musi
+respektować wszystkie HARD, w tym odpoczynek i dostępność. Jeżeli pierwsza osoba
+zewnętrzna nie może objąć kolejnej służby z powodu HARD, solver ma użyć innej
+wpisanej i dostępnej osoby; nie wolno mu złamać HARD. Oczekiwanym realnym
+procesem jest uzupełnienie obsady i stworzenie pełnego grafiku. Brak możliwości
+ułożenia grafiku pozostaje dopuszczalną możliwością teoretyczną, a nie domyślnym
+wynikiem niedoboru lokalnej załogi.
+
 ## Fakty z aktywnego `frontend/e2e/**`
 
 Jedenaście testów w pięciu plikach uruchamia prawdziwy PLAN przez przeglądarkę i
@@ -63,14 +76,18 @@ zapotrzebowanie. Dodatkowo test akceptuje zamiennie `FEASIBLE` i
 3. Poprawić albo przeklasyfikować T043: wynik musi być z góry określony, bez
    alternatywy „FEASIBLE lub DECISION_REQUIRED”. Samo porównanie odpowiedzi API
    z napisem na ekranie nie spełnia celu T063.
-4. Dodać co najmniej dwa jawne scenariusze akceptacyjne, zbudowane wyłącznie
+4. Dodać jawne scenariusze akceptacyjne, zbudowane wyłącznie
    przez normalne operacje koordynatora:
    - dodatni: istniejący, OWNER-zaakceptowany prosty obiekt D/N 12 h, jedna
      pełna warstwa i pięciu LOCAL; PLAN musi zwrócić `FEASIBLE`, kandydat ma
      zostać wybrany, na ekranie muszą być widoczne rzeczywiste służby, a wynik
      ma przetrwać odświeżenie;
-   - ujemny: zapisane zapotrzebowanie bez wystarczającej obsady; PLAN musi
-     zakończyć się dokładnie oczekiwanym zatrzymaniem, nie dowolnym statusem.
+   - absencja i wsparcie: po realnej absencji koordynator wpisuje konkretne
+     osoby zewnętrzne, każda podlega HARD, a ponowne planowanie ma obsadzić
+     służby, o ile wpisany zestaw faktycznie wystarcza;
+   - ujemny przypadek technicznie dopuszczalny: jeżeli jawnie wpisana obsada
+     lokalna i zewnętrzna naprawdę nie wystarcza, test oczekuje konkretnego
+     zatrzymania, nigdy złamania HARD ani stworzenia niewpisanej osoby.
 5. Każdy przebieg zaczyna się od czystej, dedykowanej bazy albo równoważnej
    pełnej izolacji. Żaden test nie zmienia wszystkich rekordów ani nie zostawia
    triggera dla kolejnych testów.
