@@ -1,30 +1,25 @@
-// ROTA-T062 (brief section 9 Test scope, R1 audit finding 1): the two
-// mocked t062-*.spec.ts files prove the frontend renders a given API shape
-// correctly, but neither exercises the real vertical the brief's own Test
-// scope calls for -- "PLAN blocked -> czytelne działania -> rzeczywiste
-// przejście do Obsady -> zmiana danych -> stara diagnoza znika -> ponowny
-// PLAN". This is that test: a real backend, a real DECISION_REQUIRED, a
-// real availability change, and a real re-plan proving the stale readback
-// doesn't survive it (T62-03/08/14).
+// ROTA-T062 (brief section 9 Test scope; R1 audit finding 1, R5 audit
+// finding R5-01): the two mocked t062-*.spec.ts files prove the frontend
+// renders a given API shape correctly, but neither exercises the real
+// vertical the brief's own Test scope calls for -- "PLAN blocked -> czytelne
+// działania -> rzeczywiste przejście do Obsady -> zmiana danych -> stara
+// diagnoza znika -> ponowny PLAN". This is that test: a real backend, a real
+// DECISION_REQUIRED, a real click-through to Obsada, a real availability
+// change, and a real re-plan proving the stale readback doesn't survive it
+// (T62-02/03/04/08/14).
 //
-// SCOPE NOTE on which blocker this exercises: multiple staffing shapes were
-// tried (see task/session history) to reach the availability-specific
-// UNAVAILABLE-01 blocker (target="obsada", clickable through to Obsada,
-// T62-02/04) via the real UI. Every shape that removed one of a full 24/7
-// D/N layer's 5 employees (owner ruling, T038/T039/T043) for the whole
-// month produced a genuine, structural weekly-hours LOAD blocker instead
-// (the remaining 4 covering the whole layer alone breaches the rolling
-// 7-day threshold before any single-employee/day attribution is possible),
-// and a single-shift/day catalog with fewer employees instead reliably hit
-// THIRD_CONSECUTIVE_SHIFT_BLOCKED. Reaching UNAVAILABLE-01 specifically
-// through the real solver would need staffing-math engineering beyond this
-// brief's TASK_SCOPE (a product/solver judgment call, not a test-selector
-// fix) -- flagged to the architect/Codex in BOARD.md rather than decided
-// here. UNAVAILABLE-01's target="obsada" rendering and click-through are
-// already proven at the frontend layer by t062-guidance.spec.ts (mocked)
-// and at the backend layer by tests/test_t013.py and tests/test_t062.py.
-// This real-vertical test instead proves the vertical end-to-end for the
-// LOAD blocker, which is just as real and covers T62-03/08/14 fully.
+// The scenario reliably reaches a real LOAD-driven DECISION_REQUIRED: a full
+// 24/7 D/N layer (owner ruling, T038/T039/T043: 5 LOCAL employees is the
+// realistic baseline) with one employee blocked the whole month breaches the
+// remaining four's weekly rolling-hours threshold. R5-01 found the OLD LOAD
+// guidance text named an action ("accept the overtime") the product has no
+// feature for, so an earlier version of this test performed a DIFFERENT,
+// unannounced fix (ending the block) instead of the one shown on screen.
+// decision_guidance.py's LOAD option now names the real overworked employee
+// with the same real, existing "check staffing/availability and replan"
+// action as NIGHT-STREAK-01/THIRD (target="obsada") -- this test now clicks
+// through THAT exact displayed action to reach Obsada, matching Codex's R5
+// requirement that the vertical perform the path actually shown.
 import { expect, test } from "@playwright/test";
 import { createSite, openSite } from "./helpers";
 
@@ -130,22 +125,27 @@ test("T062 real vertical: blocked PLAN -> real guidance -> real Obsada change ->
   await expect(page.getByText(/Wymagana decyzja koordynatora/)).toBeVisible();
   // T62-03: no raw technical word leaks into this screen's own banner.
   await expect(page.getByText("solver", { exact: false })).toHaveCount(0);
-  // T62-02: concrete, evidence-backed action text shown here directly.
-  const loadOptionText = "Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy";
-  await expect(page.getByText(loadOptionText)).toBeVisible();
+  // T62-02: concrete, evidence-backed action text shown here directly --
+  // names the real overworked employee, not blockedName (who is UNAVAILABLE
+  // and so carries no hours at all): the LOAD blocker's "worst offender" is
+  // necessarily one of the four employees actually covering the layer.
+  const loadOptionPattern = /Sprawdź obsadę i dostępność: .+, i zaplanuj ponownie/;
+  await expect(page.getByText(loadOptionPattern)).toBeVisible();
 
-  // The LOAD option has no obsada target (there is nothing to click
-  // through to -- it asks the coordinator to consciously accept overtime,
-  // not to fix a roster record) -- Decyzje koordynatora shows the SAME
-  // guidance text but never as a fake button. UNAVAILABLE-01's real
-  // target="obsada" click-through is covered by t062-guidance.spec.ts.
+  // Real click-through to Decyzje koordynatora -> real navigation to Obsada
+  // (T62-04): the LOAD option now carries target="obsada", a real, existing
+  // place -- click exactly the action shown, not a different unannounced fix
+  // (R5-01: the vertical must perform the displayed path).
   await page.locator('[data-diag-action="room-nav-decisions"]').click();
-  await expect(page.getByText(loadOptionText)).toBeVisible();
-  await expect(page.getByRole("button", { name: loadOptionText })).toHaveCount(0);
+  const actionButton = page.getByRole("button", { name: loadOptionPattern });
+  await expect(actionButton).toBeVisible();
+  await actionButton.click();
+  await expect(page.getByRole("heading", { name: "Lista pracowników" })).toBeVisible();
 
-  // Real data change: end the blocking availability record via Obsada.
-  await page.locator('[data-diag-action="room-nav-control-panel"]').click();
-  await page.locator('[data-diag-action="control-panel-tab-obsada"]').click();
+  // Real data change on Obsada: end the blocking availability record. The
+  // shown action says "check staffing/availability and replan" -- it does
+  // not promise a specific fix (T62-07), and Obsada is exactly where any
+  // employee's availability, including the blocked one's, is fixed.
   await page.getByRole("button", { name: blockedName, exact: true }).click();
   await page.getByRole("button", { name: "Zakończ teraz" }).click();
   await expect(page.getByText(`Ogólna niedostępność — od ${from} do ${to} (zakończone)`)).toBeVisible();

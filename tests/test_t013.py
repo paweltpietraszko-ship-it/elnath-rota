@@ -311,7 +311,7 @@ def test_m17_i4_load_only_gives_load_option_and_human_condition():
     assert result.status == "DECISION_REQUIRED"
     assert result.decision_payload.load_blocker is not None
     assert all(b.condition == "Koliduje z tygodniowym czasem pracy" for b in result.decision_payload.blockers)
-    assert "Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy" in _texts(result.decision_payload.unblocking_options)
+    assert "Sprawdź obsadę i dostępność: Anna, i zaplanuj ponownie" in _texts(result.decision_payload.unblocking_options)
     assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" not in _texts(result.decision_payload.unblocking_options)
 
 
@@ -340,7 +340,7 @@ def test_m18_frozen_and_load_gives_both_option_families():
     assert result.status == "DECISION_REQUIRED"
     options = _texts(result.decision_payload.unblocking_options)
     assert "Odmroź zapisane przypisania i uruchom planowanie ponownie" in options
-    assert "Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy" in options
+    assert "Sprawdź obsadę i dostępność: A, i zaplanuj ponownie" in options
     conditions = {b.condition for b in result.decision_payload.blockers}
     assert "Koliduje z tygodniowym czasem pracy" in conditions
     assert "Koliduje z zapisem: Chorobowe" in conditions
