@@ -64,13 +64,14 @@ _ACTION_TEMPLATES = {
 }
 _EXTERNAL_CONDITIONS = ("EXTERNAL-01", "EXTERNAL_SUPPORT_DISABLED")
 _UNFREEZE_OPTION = UnblockingOption("Odmroź zapisane przypisania i uruchom planowanie ponownie")
-# ROTA-T062 R5 audit finding (R5-01): the old text ("Świadomie zaakceptuj
+# ROTA-T062 R5/R6 audit findings: the old text ("Świadomie zaakceptuj
 # przekroczenie tygodniowego czasu pracy") named an action the product has
-# no feature for -- there is no "accept the overtime" control anywhere.
-# Same real, existing recovery as NIGHT-STREAK-01/THIRD: check staffing/
-# availability for the employee actually driving the overrun and replan:
-# a real Obsada-screen action, not an invented one.
-_LOAD_OPTION_TEMPLATE = UnblockingOption("Sprawdź obsadę i dostępność: {names}, i zaplanuj ponownie", target="obsada")
+# no feature for; the R5 fix ("Sprawdź obsadę i dostępność: {overworked
+# employee}, i zaplanuj ponownie") still only described looking, not a data
+# change (R6-01). OWNER_CORRECTED 2026-09-10: the coordinator picks who to
+# add themselves -- T062 neither names a candidate nor judges that choice --
+# so the option names the real change directly, with no employee to format.
+_LOAD_OPTION = UnblockingOption("Dodaj pracownika do obsady i zaplanuj ponownie", target="obsada")
 _NO_SOLUTION_OPTION = UnblockingOption("Brak automatycznego rozwiązania przy obecnej obsadzie i zapisanych ograniczeniach.")
 # ROTA-T062 (brief section 4 point 6): THIRD_CONSECUTIVE_SHIFT_BLOCKED never
 # built a decision_payload before -- same guidance family as NIGHT-STREAK-01
@@ -172,7 +173,7 @@ def build_unblocking_options(
     if frozen_boundary:
         options.append(_UNFREEZE_OPTION)
     if load_blocker is not None:
-        options.append(_formatted(_LOAD_OPTION_TEMPLATE, [_display_name(state, load_blocker.employee_id)]))
+        options.append(_LOAD_OPTION)
 
     return options or [_NO_SOLUTION_OPTION]
 

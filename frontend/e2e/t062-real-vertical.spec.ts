@@ -1,25 +1,29 @@
-// ROTA-T062 (brief section 9 Test scope; R1 audit finding 1, R5 audit
-// finding R5-01): the two mocked t062-*.spec.ts files prove the frontend
+// ROTA-T062 (brief section 9 Test scope; R1 finding 1, R5 finding R5-01, R6
+// finding R6-01): the two mocked t062-*.spec.ts files prove the frontend
 // renders a given API shape correctly, but neither exercises the real
 // vertical the brief's own Test scope calls for -- "PLAN blocked -> czytelne
 // działania -> rzeczywiste przejście do Obsady -> zmiana danych -> stara
 // diagnoza znika -> ponowny PLAN". This is that test: a real backend, a real
-// DECISION_REQUIRED, a real click-through to Obsada, a real availability
-// change, and a real re-plan proving the stale readback doesn't survive it
+// DECISION_REQUIRED, a real click-through to Obsada, a real data change, and
+// a real re-plan proving the stale readback doesn't survive it
 // (T62-02/03/04/08/14).
 //
 // The scenario reliably reaches a real LOAD-driven DECISION_REQUIRED: a full
 // 24/7 D/N layer (owner ruling, T038/T039/T043: 5 LOCAL employees is the
 // realistic baseline) with one employee blocked the whole month breaches the
-// remaining four's weekly rolling-hours threshold. R5-01 found the OLD LOAD
-// guidance text named an action ("accept the overtime") the product has no
-// feature for, so an earlier version of this test performed a DIFFERENT,
-// unannounced fix (ending the block) instead of the one shown on screen.
-// decision_guidance.py's LOAD option now names the real overworked employee
-// with the same real, existing "check staffing/availability and replan"
-// action as NIGHT-STREAK-01/THIRD (target="obsada") -- this test now clicks
-// through THAT exact displayed action to reach Obsada, matching Codex's R5
-// requirement that the vertical perform the path actually shown.
+// remaining four's weekly rolling-hours threshold. Two rounds of audit
+// findings on the LOAD guidance text itself: R5-01 found the original text
+// named an action ("accept the overtime") the product has no feature for;
+// the R5 fix ("check staffing/availability for the overworked employee")
+// still only described looking, not a change, and the test then performed a
+// DIFFERENT, unannounced fix (ending an absence) than the employee it named
+// (R6-01). OWNER_CORRECTED 2026-09-10: the coordinator picks who to add
+// themselves -- T062 neither names a candidate nor judges that choice -- so
+// decision_guidance.py's LOAD option now names the change directly, with no
+// employee to get wrong: "Dodaj pracownika do obsady i zaplanuj ponownie".
+// This test performs exactly that: adds a new employee (not the same type
+// of fix as an earlier round, but now the ONLY type of fix the message
+// names, so there is nothing left for the test to silently substitute).
 import { expect, test } from "@playwright/test";
 import { createSite, openSite } from "./helpers";
 
@@ -125,38 +129,36 @@ test("T062 real vertical: blocked PLAN -> real guidance -> real Obsada change ->
   await expect(page.getByText(/Wymagana decyzja koordynatora/)).toBeVisible();
   // T62-03: no raw technical word leaks into this screen's own banner.
   await expect(page.getByText("solver", { exact: false })).toHaveCount(0);
-  // T62-02: concrete, evidence-backed action text shown here directly --
-  // names the real overworked employee, not blockedName (who is UNAVAILABLE
-  // and so carries no hours at all): the LOAD blocker's "worst offender" is
-  // necessarily one of the four employees actually covering the layer.
-  const loadOptionPattern = /Sprawdź obsadę i dostępność: .+, i zaplanuj ponownie/;
-  await expect(page.getByText(loadOptionPattern)).toBeVisible();
+  // T62-02: concrete, evidence-backed action text shown here directly -- a
+  // real change ("add"), not just an observation ("check") (R6-01). No
+  // employee name to get wrong (OWNER_CORRECTED: coordinator's own choice).
+  const loadOptionText = "Dodaj pracownika do obsady i zaplanuj ponownie";
+  await expect(page.getByText(loadOptionText)).toBeVisible();
 
   // Real click-through to Decyzje koordynatora -> real navigation to Obsada
-  // (T62-04): the LOAD option now carries target="obsada", a real, existing
-  // place -- click exactly the action shown, not a different unannounced fix
-  // (R5-01: the vertical must perform the displayed path).
+  // (T62-04): the LOAD option carries target="obsada", a real, existing
+  // place -- click exactly the action shown.
   await page.locator('[data-diag-action="room-nav-decisions"]').click();
-  const actionButton = page.getByRole("button", { name: loadOptionPattern });
+  const actionButton = page.getByRole("button", { name: loadOptionText });
   await expect(actionButton).toBeVisible();
   await actionButton.click();
   await expect(page.getByRole("heading", { name: "Lista pracowników" })).toBeVisible();
 
-  // Real data change on Obsada: end the blocking availability record. The
-  // shown action says "check staffing/availability and replan" -- it does
-  // not promise a specific fix (T62-07), and Obsada is exactly where any
-  // employee's availability, including the blocked one's, is fixed.
-  await page.getByRole("button", { name: blockedName, exact: true }).click();
-  await page.getByRole("button", { name: "Zakończ teraz" }).click();
-  await expect(page.getByText(`Ogólna niedostępność — od ${from} do ${to} (zakończone)`)).toBeVisible();
+  // Real data change on Obsada: perform EXACTLY the shown action -- add a
+  // new employee to staffing (R6-01: the vertical must not substitute a
+  // different, unannounced fix for the one displayed). "Lista pracowników"
+  // is the roster section of this same Panel sterowania/Obsada screen, not
+  // a separate page -- addLocalEmployee can be called directly here.
+  await addLocalEmployee(page, `${siteName}-E6`);
+  await setTargetHours(page, 170);
   await backToRoster(page);
 
   // T62-08: the stale DECISION_REQUIRED must not survive the real data
-  // change that made it moot (durable_inputs.py invalidates the persisted
-  // readback the moment the underlying availability record changes) -- the
-  // banner must already be gone here, BEFORE any new PLAN runs, and a
-  // fresh PLAN must be both required and reach FEASIBLE (the full 5-person
-  // layer is the established sufficient baseline, T038/T039/T043).
+  // change that made it moot (durable_inputs.py's update_membership
+  // invalidates the persisted readback for any new roster membership) --
+  // the banner must already be gone here, BEFORE any new PLAN runs, and a
+  // fresh PLAN must be both required and reach FEASIBLE (6 employees now
+  // cover the 5-person baseline, T038/T039/T043, plus the still-blocked one).
   await page.locator('[data-diag-action="room-nav-monthly-planning"]').click();
   await expect(page.getByRole("heading", { name: "Planowanie miesiąca" })).toBeVisible();
   await expect(page.getByText(/Wymagana decyzja koordynatora/)).toHaveCount(0);
