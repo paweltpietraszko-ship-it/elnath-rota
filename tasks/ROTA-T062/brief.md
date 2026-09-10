@@ -1,10 +1,10 @@
 # ROTA-T062 — Jedna ścieżka po nieudanym planowaniu
 
-STATUS: PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
+STATUS: IMPLEMENTATION AUDIT IN PROGRESS — CODEX VERDICT PENDING
 
 BASELINE: `main@f1cfb05e85ef19ad4bfa714a51b7e187e57caaa4`
 
-SOURCE: OWNER decisions 2026-09-10 + Codex R1/R2 + inspekcja CC obecnego `decision_guidance`/UI.
+SOURCE: OWNER decisions 2026-09-10 + Codex R1/R2/R4 + inspekcja CC obecnego `decision_guidance`/UI.
 
 ## 1. Cel produktu
 
@@ -85,7 +85,18 @@ Production paths:
 - `api/routers/decisions.py` — wspólny typ pola opcji;
 - `frontend/src/api/client.ts` — ten sam typ;
 - `frontend/src/screens/Decisions.tsx` — nawigacja po stabilnym celu, bez prefix matching;
-- `frontend/src/screens/MonthlyPlanning.tsx` — czytelna prezentacja utrwalonego problemu i brak surowego statusu THIRD w UI.
+- `frontend/src/screens/MonthlyPlanning.tsx` — czytelna prezentacja utrwalonego problemu i brak surowego statusu THIRD w UI;
+- `frontend/src/screens/ControlPanel.tsx` — wyłącznie usunięcie surowego `decisionRequiredId` z koordynatorowej ścieżki klik-przejścia; bez nowego flow i bez nowej logiki diagnozy.
+
+Test paths dopuszczone literalnie:
+- `tests/test_t062.py`;
+- `tests/test_t013.py`;
+- `tests/test_t042_audit4_repairs.py`;
+- `tests/test_audit_r17_findings.py`;
+- `tests/test_t058.py`;
+- `frontend/e2e/t062-guidance.spec.ts`;
+- `frontend/e2e/t062-third-shift.spec.ts`;
+- `frontend/e2e/t062-real-vertical.spec.ts`.
 
 Poza scope:
 - `solver.py`;
@@ -100,9 +111,11 @@ Poza scope:
 - first manual root;
 - solver override;
 - przebudowa search-only statuses;
-- obsługa awarii technicznych.
+- obsługa awarii technicznych;
+- `Room.tsx`;
+- `EmployeeDetail.tsx`.
 
-Nie dodawać `Room.tsx`/`ControlPanel.tsx`/`EmployeeDetail.tsx` do scope, jeśli istniejące cele można wykorzystać bez zmian tych ekranów. Rozszerzenie scope wymaga konkretnego dowodu z implementacji/audytu, nie przypuszczenia.
+Rozszerzenie scope poza powyższe wymaga nowej konkretnej decyzji architekta.
 
 ## 8. Acceptance
 
@@ -140,21 +153,11 @@ T62-16 — Dla nierozpoznanej starej/ogólnej reguły bez istniejącego edytora 
 
 ## 9. Test scope
 
-- nowy `tests/test_t062.py`;
-- aktualizacja oczekiwań kształtu w `tests/test_t013.py` i wspólnego API w `tests/test_t042_audit4_repairs.py`;
-- wąski realny pion API persistence/reload dla zwykłego `DECISION_REQUIRED` i THIRD;
-- jeden Playwright przez realny backend: `PLAN blocked -> czytelne działania -> rzeczywiste przejście do Obsady -> zmiana danych -> stara diagnoza znika -> ponowny PLAN`;
-- optyczna/behawioralna zgodność obu istniejących miejsc UI.
+Dowód T062 obejmuje literalnie wskazane wyżej test paths, w tym realny pion Playwright przez prawdziwy backend:
+`PLAN blocked -> czytelne działania -> rzeczywiste przejście do Obsady -> zmiana danych -> stara diagnoza znika -> ponowny PLAN`.
 
 Zamrożone symulatory A/B i stare benchmarki nie są materiałem dowodowym T062.
 
 ## 10. Następny krok
 
-Codex ma wykonać wyłącznie krótki literalny re-check tego SHA względem raportu R2. Nie powtarzać WHERE_MAP ani szerokiej mapy kodu, o ile scope/ownership nie zmienił się materialnie.
-
-Do sprawdzenia:
-1. czy brief dokładnie odzwierciedla R2;
-2. czy literalny TASK_SCOPE nie zawiera nowej funkcji produktu;
-3. czy zachowano osobny status THIRD bez starego readbacku;
-4. czy nie reaktywowano T061 ani żadnego nowego edytora;
-5. czy można po re-checku zwolnić IMPLEMENTATION HOLD.
+Codex wraca bezpośrednio do audytu implementacji na niezmienionym kodzie `task/ROTA-T062@172ee7b` oraz niniejszym skorygowanym briefie. Nie powtarzać WHERE_MAP ani szerokiego przeglądu WIP. Wykonać niezależne reproduktory, macierz Tasku i realny pion, a następnie wydać formalny PASS/FAIL na exact SHA.
