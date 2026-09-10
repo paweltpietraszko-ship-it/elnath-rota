@@ -1,0 +1,60 @@
+ROTA-T061 — krótki re-check briefu przed implementacją
+
+Audytowany SHA: task/ROTA-T061@2b799ff4e56081d0a7a28191cedb31297fb358f0
+Wynik: OWNER_DECISION_NEEDED — bez werdyktu PASS/FAIL
+
+Zakres re-checku
+- cały brief.md na exact SHA;
+- porównanie z poprzednim briefem 1815ce2 i ostatnim przekazaniem OWNERA w BOARD;
+- wąska kontrola ownera spóźnionego wyniku PLAN w aktualnym kodzie;
+- bez testów i bez ponawiania wcześniejszej mapy całego T061.
+
+OWNER_CONFIRMED
+- Jedna funkcja produktowa „Korekta ręczna”, bez drugiego edytora „Ułóż ręcznie”.
+- Przy istniejącym current pozostaje dotychczasowa korekta; bez current może powstać jeden kompletny manualny root.
+- Manualny root nie używa solvera, ale wymaga czytelnych canonical demands i pozostałych danych miesiąca.
+- Niepełny ani pusty root nie jest trwale zapisywany.
+- Świadomy dozwolony manual override materializuje Deviation i action trail; solver nadal sam nie łamie HARD.
+- T061 nie jest recovery dla awarii całej aplikacji i nie przejmuje diagnostyki T062.
+- Spóźniony PLAN nie może po manualnym root przywrócić starego preview/DECISION_REQUIRED ani zmienić current.
+
+OWNER_DECISION_NEEDED
+Brief w OWNER_RULING_2026-09-10_A/B oraz T61-01/T61-03/T61-12 wprowadza warunek:
+koordynator musi najpierw uruchomić PLAN i dopiero jego niepowodzenie otwiera Korektę ręczną bez current.
+To nie jest zgodne z ostatnim przekazaniem zapisanym na BOARD, według którego ta sama Korekta ręczna
+jest dostępna niezależnie od użycia i wyniku solvera, również jako świadomie wybrana alternatywa bez PLAN.
+
+Skutek widoczny dla użytkownika:
+- wariant z briefu: na nowym miesiącu nie da się wejść do ręcznej siatki przed nieudanym PLAN;
+- wariant z ostatniego przekazania: PLAN pozostaje zalecaną zwykłą drogą, ale Korekta ręczna jest od razu dostępna;
+- w obu wariantach używane są obiekt, miesiąc, pracownicy i canonical demands; zapis następuje dopiero po
+  kompletnym obsadzeniu, a brak tych danych kończy się komunikatem technicznym/restartem/wsparciem.
+
+Jeżeli wybrany zostaje wariant „dopiero po nieudanym PLAN”, kontrakt musi także zamrozić dokładnie:
+- które wyniki są niepowodzeniem (DECISION_REQUIRED, THIRD_CONSECUTIVE_SHIFT_BLOCKED, TECHNICAL_ERROR,
+  timeout/HTTP error, SEARCH_INCOMPLETE itd.);
+- czy jest to tylko sposób pokazania przycisku w UI, czy również obowiązkowy warunek backendu;
+- jak backend ma potwierdzić timeout/HTTP error, które obecnie nie tworzą trwałego kontekstu.
+Bez tego implementacja albo doda niezamówiony rejestr awarii, albo bezpośredni endpoint ominie warunek.
+
+TECHNICAL_ONLY — minimalny scope po decyzji OWNERA
+- Dawny site_memory current-decision pre-check jest zbędny jako autoryzacja manualnego root, ponieważ brief
+  prawidłowo usuwa zależność od aktualnego DECISION_REQUIRED.
+- Wąskie WHERE_MAP potwierdza, że spóźnione DECISION_REQUIRED i preview zapisują funkcje
+  _persist_decision_readback oraz _persist_plan_preview w rota/application/plan_ops.py.
+- Dlatego literalny TASK_SCOPE musi jawnie dopuścić rota/application/plan_ops.py. Ogólne
+  „persistence/lifecycle tylko tam, gdzie trzeba” nie obejmuje rzeczywistego ownera tego zapisu.
+- Minimalna ochrona to sprawdzenie w transakcji zapisu wyniku PLAN, czy kontekst nadal jest tym, dla którego
+  PLAN wystartował. Jeżeli w międzyczasie powstał manualny root, stary readback/preview nie jest ustawiany.
+  Nie potrzeba nowego subsystemu anulowania solvera.
+- schedule_lifecycle może pozostać niezmienionym ownerem atomowego root write. Edycja site_memory.py nie jest
+  wymagana z góry; istniejące operacje czyszczenia/inwalidacji można wykorzystać z manualnego success hooka.
+
+Użyte polecenia WHERE_MAP
+- .venv/Scripts/python.exe where.py rota/application/plan_ops.py --symbol _persist_decision_readback
+- .venv/Scripts/python.exe where.py rota/application/plan_ops.py --symbol _persist_plan_preview
+
+Następny krok
+OWNER wybiera jeden z dwóch wariantów dostępności. Architekt usuwa sprzeczność, zamraża listę wyników
+nieudanego PLAN (jeśli pozostaje gate) i dopisuje plan_ops.py do literalnego scope. Potem wystarczy jeden
+krótki re-check; implementacja pozostaje HOLD.
