@@ -1,0 +1,48 @@
+ROTA-T063 — finalny wąski re-check preimplementation
+
+AUDYTOWANY SHA: task/ROTA-T063@ef58e6c
+SCENARIO_PACK v0.2 blob/content SHA: 675e4b5de1ab684bf93bf61854b6617c9f126a27
+WERDYKT: PREIMPLEMENTATION PASS
+
+Zakres re-checku
+- wyłącznie różnica brief.md i scenario_pack.md względem poprzednio audytowanego
+  kontraktu 85b05d6;
+- bez ponownej inwentaryzacji E2E, bez testów kodu i bez użycia zamrożonych
+  Symulatorów A/B lub benchmarków;
+- git diff --check: PASS;
+- zmienione od raportu R3: tylko tasks/ROTA-T063/brief.md oraz
+  tasks/ROTA-T063/scenario_pack.md.
+
+Potwierdzone korekty R3
+1. S02 i S03 nie planują chorobowego z góry. Najpierw PLAN daje rzeczywisty,
+   zapisany current, dopiero potem powstaje SICK_LEAVE i wykonywany jest
+   Przelicz Plan.
+2. Target-hours są zamrożone per scenariusz: S01 ma 168 dla A–E, S02/S03 mają
+   jawne NULL. Wartość 168 pozostaje syntetycznym wejściem testu, nie regułą
+   produktu.
+3. Pierwszy Przelicz Plan S02 ma jeden dokładny wynik DECISION_REQUIRED;
+   TECHNICAL_ERROR, crash, timeout i pusty sukces są jawnie wykluczone.
+4. S02-V1 i S02-V2 startują osobno z czystego stanu, dodają odpowiednio
+   dokładnie 1 i 3 external i nie zawierają pętli dobierającej osoby do PASS.
+5. Izolacja wymaga CI=1, własnego backendu i świeżej dedykowanej bazy.
+   global-setup.ts jest w TASK_SCOPE; jeżeli nie wystarczy bez zmiany configu,
+   wykonawca ma się zatrzymać zamiast rozszerzać zakres.
+6. T043 jest wyłącznie przeklasyfikowany jako test połączenia UI/API.
+
+Preimplementation reduction gate
+- konieczne pozostają: jeden nowy test scenariuszy, mechaniczna korekta opisu
+  T043 i minimalne czyszczenie dedykowanej bazy w global setup;
+- nie ma nowego ownera, endpointu, pola odpowiedzi, helpera produkcyjnego,
+  walidacji ani zmian solvera/UI;
+- pięcioplikowy TASK_SCOPE jest wystarczający i wyraźnie zabrania zmian
+  produkcyjnych, ogólnego Symulatora C oraz fallbacku external;
+- brak elementu do dalszego usunięcia bez utraty izolacji albo dowodu
+  biznesowego wymaganego przez Ownera.
+
+Granica werdyktu
+PASS dotyczy wyłącznie gotowości kontraktu ef58e6c do implementacji. Nie
+potwierdza jeszcze, że obecny produkt osiąga zamrożone wyniki FEASIBLE lub
+DECISION_REQUIRED. Jeżeli realny pion ich nie osiągnie, test ma ujawnić błąd i
+powstać ma osobny finding; danych scenariusza nie wolno dopasować do wyniku.
+Wykonanie scenariuszy październikowych pozostaje zależne od T064 zgodnie z
+briefem.
