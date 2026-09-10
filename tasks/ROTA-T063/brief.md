@@ -222,3 +222,25 @@ Codex ma sfalsyfikować wyłącznie kontrakt testowy i odpowiedzieć:
 6. Czy którykolwiek punkt briefu wymaga zmiany produkcji zamiast samego test harnessu? Jeśli tak — FAIL zakresu i osobny finding.
 
 Codex NIE projektuje konkretnych danych kadrowych scenariuszy. Brak konkretnego `SCENARIO_PACK` jest celowym IMPLEMENTATION HOLD, nie luką do wypełnienia przez model.
+
+## 14. Literalny TASK_SCOPE plików
+
+T063 po zatwierdzeniu `SCENARIO_PACK` może zmienić wyłącznie następujące pliki:
+
+1. `tasks/ROTA-T063/brief.md` — kontrakt zadania i finalne SHA `SCENARIO_PACK`.
+2. `tasks/ROTA-T063/scenario_pack.md` — OWNER-zatwierdzone, literalne dane i oczekiwane wyniki referencyjnych scenariuszy.
+3. `frontend/e2e/t063-business-outcomes.spec.ts` — nowy plik z referencyjnymi testami T063; helper dodający external, jeżeli potrzebny, pozostaje lokalny wyłącznie w tym pliku.
+4. `frontend/e2e/t043-coordinator-confidence.spec.ts` — wyłącznie mechaniczne przeklasyfikowanie/zaostrzenie istniejącego T043, aby nie udawał biznesowego acceptance przy zerowym zapotrzebowaniu lub alternatywnych statusach.
+5. `frontend/e2e/global-setup.ts` — wyłącznie minimalne zapewnienie świeżego stanu dedykowanej bazy E2E przed przebiegiem, bez zmian produkcyjnych.
+
+Poza scope bez nowej zgody architekta pozostają w szczególności:
+- `rota/**`,
+- `api/**`,
+- `frontend/src/**`,
+- `frontend/e2e/helpers.ts`,
+- `frontend/e2e/seed-e2e-db.py`,
+- `frontend/playwright.config.ts`,
+- zamrożone `tests/property/**` i `benchmarks/**`,
+- wszelkie nowe ogólne frameworki, runner-y, generatory obsady, symulatory koordynatora lub fallbacki external.
+
+Jeżeli podczas implementacji okaże się, że literalnego kontraktu nie da się dowieść w tych pięciu plikach bez zmiany produkcji albo rozszerzenia harnessu, CC ma zatrzymać pracę i wrócić do architekta. Nie rozszerza scope samodzielnie.
