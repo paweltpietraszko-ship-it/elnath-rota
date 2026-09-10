@@ -1,10 +1,10 @@
 # ROTA-T063 — Referencyjne testy biznesowego grafiku
 
-STATUS: PREIMPLEMENTATION AUDIT REQUIRED — IMPLEMENTATION HOLD
+STATUS: FINAL PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD UNTIL CODEX PASS
 
 BASELINE: `main@af7d5c6f15dbc424a24b9647e725085afa662284`
 
-SOURCE: `arch/PREBRIEF_AUDIT_2026-09-10_T063_ACTIVE_E2E_MATRIX.md` + OWNER rulings 2026-09-10.
+SOURCE: `arch/PREBRIEF_AUDIT_2026-09-10_T063_ACTIVE_E2E_MATRIX.md` + OWNER rulings 2026-09-10 + OWNER-approved `tasks/ROTA-T063/scenario_pack.md` at content SHA `1379444aff68daa5c981ab0ad3158b39679c58c2` (approval commit `5cad1a6adb8e14a223214cd03d98729f5941d04f`).
 
 ## 1. Cel
 
@@ -50,11 +50,11 @@ Nieznany employee albo ręcznie zbudowany Assignment spoza zwykłych operacji pr
 
 ## 4. SCENARIO_PACK jest normatywnym wejściem do implementacji
 
-Przed rozpoczęciem implementacji T063 musi istnieć OWNER-zatwierdzony `SCENARIO_PACK` z konkretnymi danymi operacyjnymi.
+OWNER zatwierdził `SCENARIO_PACK v0.1` 2026-09-10. Normatywna treść to `tasks/ROTA-T063/scenario_pack.md` o content SHA `1379444aff68daa5c981ab0ad3158b39679c58c2`.
 
-CC nie projektuje scenariuszy. CC odwzorowuje je 1:1 w fixture/testach.
+CC nie projektuje scenariuszy. CC odwzorowuje je 1:1 w fixture/testach. Zmiana któregokolwiek z siedmiu zatwierdzonych punktów wymaga nowej jawnej decyzji OWNERA.
 
-Każdy scenariusz musi określać co najmniej:
+Każdy scenariusz określa:
 1. miesiąc i obiekt,
 2. katalog wymaganych zmian/służb,
 3. dokładną liczbę i role pracowników LOCAL,
@@ -67,7 +67,7 @@ Każdy scenariusz musi określać co najmniej:
 10. oczekiwany wynik końcowy,
 11. artefakty dowodowe.
 
-Jeżeli czegoś o rzeczywistym scenariuszu nie wiadomo, implementacja tego scenariusza pozostaje HOLD i wraca do OWNERA. Nie uzupełniać braków „rozsądnymi założeniami”.
+Implementer nie uzupełnia ani nie „naprawia” zatwierdzonego scenariusza rozsądnymi założeniami. Jeżeli produkt nie daje wyniku zamrożonego w `SCENARIO_PACK`, test ma FAIL i powstaje finding.
 
 ## 5. Co test może mierzyć wiarygodnie
 
@@ -94,7 +94,7 @@ Te elementy pozostają do oceny człowieka przez screenshot, treść komunikatu 
 
 ### A. Realny dodatni D/N
 
-Ścisły scenariusz obiektu całodobowego D/N z realną obsadą.
+Ścisły scenariusz obiektu całodobowego D/N z realną obsadą według S01 z zatwierdzonego `SCENARIO_PACK`.
 
 Acceptance:
 - normalne operacje koordynatora,
@@ -109,23 +109,23 @@ Acceptance:
 
 ### B. Jeden kontrolowany scenariusz external support
 
-Scenariusz musi zawierać dokładny stan bez wsparcia oraz oczekiwany wynik tego stanu. Jeżeli zamrożony scenariusz mówi, że program powinien najpierw zatrzymać się po konkretną decyzję koordynatora, test sprawdza właśnie to i nie dodaje jeszcze external.
+Literalnie S02 z zatwierdzonego `SCENARIO_PACK`.
 
-Następnie sterownik testu może odtworzyć literalną decyzję koordynatora i dodać dokładnie zamrożoną liczbę osób przez normalne operacje produktu.
+Scenariusz zawiera dokładny stan bez wsparcia oraz oczekiwany wynik tego stanu. Jeżeli istniejąca guidance wskazuje możliwość skorygowania urlopu C, test odnotowuje ten krok i respektuje zamrożoną decyzję `NIE COFAJ URLOPU C`.
 
-Wariant 1: dokładnie jedna osoba external.
+Następnie sterownik testu dodaje przez normalne operacje produktu dokładnie zamrożoną liczbę osób external.
 
-Wariant 2: dokładnie kilka osób external.
+Wariant S02-V1: dokładnie jedna osoba external, wynik `FEASIBLE`.
 
-Dla obu wariantów `SCENARIO_PACK` zamraża wynik. Jeżeli wpisany zestaw osób wystarcza, oczekiwaniem jest pełny grafik. Test nie może zwiększać wsparcia aż do uzyskania PASS.
+Wariant S02-V2: dokładnie trzy osoby external, wynik `FEASIBLE`.
+
+Test nie może zwiększać wsparcia aż do uzyskania PASS ani rozszerzać dostępności external.
 
 ### C. Realny ruch kadrowy / absencja
 
-Co najmniej jeden przypadek obejmujący zwykłą rzeczywistość obiektu: urlop, chorobę albo nagłą absencję.
+Literalnie S03 z zatwierdzonego `SCENARIO_PACK`: trzydniowa choroba D, external = NONE, oczekiwany `FEASIBLE` z istniejącego rosteru.
 
-Scenariusz określa stan przed zmianą, samą zmianę i oczekiwany następny krok. Jeżeli program ma zatrzymać się po decyzję koordynatora, test sprawdza dokładnie tę decyzję jako poprawny wynik pośredni.
-
-Dalsze przejście jest dozwolone tylko wtedy, gdy `SCENARIO_PACK` zawiera literalną odpowiedź koordynatora. Automat nie wybiera odpowiedzi sam.
+Scenariusz określa stan przed zmianą, samą zmianę i oczekiwany wynik. Automat nie wybiera odpowiedzi ani alternatywnego sposobu ratowania scenariusza.
 
 ## 7. Zakaz fałszywych pozytywów
 
@@ -162,7 +162,7 @@ Jednocześnie:
 
 T062 dostarcza docelowe guidance dla kontrolowanego zatrzymania planowania. T063 może je sprawdzać tylko w zakresie literalnie wymaganym przez `SCENARIO_PACK`; nie projektuje tej logiki ponownie.
 
-T064 dotyczy prawdziwego wyboru/generowania miesiąca. T063 nie może maskować jego braku przez podrobienie daty. Scenariusze wymagające T064 pozostają wykonawczo HOLD do T064; pozostałe nie są automatycznie blokowane.
+T064 dotyczy prawdziwego wyboru/generowania miesiąca. T063 nie może maskować jego braku przez podrobienie daty. Scenariusze wymagające października 2026 pozostają wykonawczo HOLD do T064; finalny preimplementation PASS T063 nie znosi tej zależności wykonawczej.
 
 ## 11. Artefakty dowodowe
 
@@ -181,17 +181,17 @@ Artefakty służą do oceny przez człowieka. Automat nie udaje, że rozumie ope
 
 ## 12. Acceptance T063
 
-T63-01 — Istnieje OWNER-zatwierdzony `SCENARIO_PACK`; implementer nie tworzy własnej rzeczywistości kadrowej.
+T63-01 — OWNER-zatwierdzony `SCENARIO_PACK v0.1` o content SHA `1379444aff68daa5c981ab0ad3158b39679c58c2` jest normatywnym wejściem; implementer nie tworzy własnej rzeczywistości kadrowej.
 
 T63-02 — Fixture/test nie zwiększa LOCAL ani external poza dokładny kontrakt scenariusza.
 
 T63-03 — T063 nie tworzy uniwersalnego symulatora koordynatora ani fallbacku dobierającego ludzi do skutku.
 
-T63-04 — Co najmniej jeden referencyjny dodatni scenariusz kończy się pełnym, niepustym D/N widocznym po reloadzie i w PDF.
+T63-04 — S01 kończy się pełnym, niepustym D/N widocznym po reloadzie i w PDF, z dokładnym wynikiem `FEASIBLE`.
 
-T63-05 — Dokładnie jeden referencyjny scenariusz external support odgrywa koordynatora i osobno sprawdza wariant jednej oraz kilku osób external.
+T63-05 — S02 jest jedynym referencyjnym scenariuszem external support; osobno sprawdza S02-V1 = 1 external / `FEASIBLE` oraz S02-V2 = 3 external / `FEASIBLE`.
 
-T63-06 — Co najmniej jeden scenariusz obejmuje realny ruch kadrowy/absencję.
+T63-06 — S03 obejmuje realny ruch kadrowy/absencję: trzydniową chorobę D, external = NONE, wynik `FEASIBLE`.
 
 T63-07 — Jeżeli scenariusz oczekuje decyzji koordynatora, automat może iść dalej tylko przez literalnie zamrożoną odpowiedź; nie interpretuje sytuacji sam.
 
@@ -209,23 +209,22 @@ T63-13 — T063 nie zmienia kodu produkcyjnego, solvera ani reguł biznesowych w
 
 T63-14 — Odkryty błąd produktu powoduje FAIL/finding, a nie zmianę scenariusza, zwiększenie obsady lub poluzowanie oczekiwania.
 
-## 13. Preimplementation audit Codexa
+## 13. Finalny preimplementation re-check Codexa
 
-IMPLEMENTATION HOLD.
+IMPLEMENTATION HOLD do PASS Codexa na dokładnym SHA briefu zawierającym OWNER-approved `SCENARIO_PACK` i literalny TASK_SCOPE.
 
-Codex ma sfalsyfikować wyłącznie kontrakt testowy i odpowiedzieć:
-1. Czy obecna infrastruktura E2E pozwala wymusić literalne dane z `SCENARIO_PACK` bez ukrytych helperów dodających obsadę/external?
-2. Jak zagwarantować, że tylko jeden wskazany scenariusz może jawnie tworzyć external przez normalne operacje produktu?
-3. Jak najprościej zagwarantować czystą bazę/izolację dla każdego przebiegu?
-4. Czy można obserwować i asertywnie sprawdzić oczekiwany krok decyzyjny bez budowania nowego symulatora logiki koordynatora?
-5. Czy screenshot guidance oraz screenshot/PDF końcowego grafiku mogą być deterministycznie zachowane bez zmian produktu?
-6. Czy którykolwiek punkt briefu wymaga zmiany produkcji zamiast samego test harnessu? Jeśli tak — FAIL zakresu i osobny finding.
+Codex ma wykonać wyłącznie krótki re-check:
+1. potwierdzić, że brief wskazuje dokładny OWNER-approved `SCENARIO_PACK` i nie zostawia implementerowi decyzji o danych/oczekiwanych wynikach;
+2. potwierdzić, że literalny TASK_SCOPE jest wystarczający i nie wymaga zmian produkcyjnych;
+3. sprawdzić spójność S01, S02-V1, S02-V2 i S03 z wcześniejszym zaakceptowanym kontraktem T063;
+4. potwierdzić, że T063 nadal nie tworzy Symulatora C, ogólnego fallbacku external ani pętli dobierania ludzi;
+5. jeśli kontrakt jest spójny — wydać finalny PREIMPLEMENTATION PASS dla dokładnego SHA; jeśli nie — wskazać wyłącznie konkretną sprzeczność.
 
-Codex NIE projektuje konkretnych danych kadrowych scenariuszy. Brak konkretnego `SCENARIO_PACK` jest celowym IMPLEMENTATION HOLD, nie luką do wypełnienia przez model.
+Codex nie ma ponownie projektować scenariuszy ani powtarzać pełnej inwentaryzacji E2E.
 
 ## 14. Literalny TASK_SCOPE plików
 
-T063 po zatwierdzeniu `SCENARIO_PACK` może zmienić wyłącznie następujące pliki:
+T063 po finalnym PREIMPLEMENTATION PASS może zmienić wyłącznie następujące pliki:
 
 1. `tasks/ROTA-T063/brief.md` — kontrakt zadania i finalne SHA `SCENARIO_PACK`.
 2. `tasks/ROTA-T063/scenario_pack.md` — OWNER-zatwierdzone, literalne dane i oczekiwane wyniki referencyjnych scenariuszy.
