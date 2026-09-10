@@ -1,0 +1,69 @@
+ROTA-T061 — finalny krótki re-check briefu przed implementacją
+
+Audytowany SHA: task/ROTA-T061@97e3574a0114e19a85bfa84825b64f84f9e311f1
+Werdykt: PREIMPLEMENTATION PASS
+
+Zakres
+- Pełny brief na exact SHA 97e3574.
+- Ostateczne doprecyzowanie OWNERA z 2026-09-10.
+- Wcześniejszy wąski WHERE_MAP ownerów spóźnionego wyniku PLAN.
+- Bez uruchamiania testów: to re-check kontraktu, nie audyt implementacji.
+
+Potwierdzenie kontraktu
+1. Normalny nowy miesiąc zaczyna się od PLAN. T061 nie udostępnia manualnego root przed PLAN.
+2. HARD ogranicza automat, nie świadomą decyzję koordynatora. Solver sam nie łamie HARD.
+3. Po rozpoznanym problemie biznesowym T062 ma podać praktyczne następne kroki. Jeżeli koordynator
+   zamiast poprawy danych świadomie wybiera wyjątek, używa istniejącej Korekty ręcznej.
+4. T061 daje tej samej Korekcie ręcznej możliwość utworzenia kompletnego pierwszego root bez current.
+   Nie powstaje drugi edytor, seed-parent ani częściowa trwała wersja.
+5. DECISION_REQUIRED i THIRD_CONSECUTIVE_SHIFT_BLOCKED nie zmieniają semantyki. Sam status nie wykonuje
+   automatycznego przekierowania; ręczny zapis jest odrębną jawną czynnością koordynatora.
+6. TECHNICAL_ERROR, HTTP error, timeout i REPLAN SEARCH_INCOMPLETE nie otrzymują logiki w T061.
+   OWNER doprecyzował, że awaria techniczna ma mieć osobny czytelny komunikat restart/wsparcie;
+   nie wolno mieszać jej z rozpoznanym problemem biznesowym ani obiecywać działającej Korekty ręcznej.
+7. Spóźniony PLAN nie może po manualnym root ustawić starego preview/blocker state ani zmienić current.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE — zamrożony minimalny scope
+
+Dozwolone pliki produktu:
+- rota/application/manual_edit.py
+  SOURCE/NECESSITY: istniejący owner validate -> Deviation -> audit; root-compatible command jest
+  enforcementem kompletnego, atomowego manualnego root bez kopiowania tej logiki.
+- rota/application/plan_ops.py
+  SOURCE/NECESSITY: wyłącznie transakcyjny guard przed zapisem spóźnionego preview/blocker state.
+- api/routers/manual_edit.py
+  SOURCE/NECESSITY: minimalny adapter HTTP dla root-compatible command.
+- frontend/src/screens/MonthlyPlanning.tsx
+  SOURCE/NECESSITY: widoczna, świadomie wybrana Korekta ręczna bez current i kompletna siatka demands;
+  bez T062 redesignu i bez obsługi awarii technicznych.
+- frontend/src/api/client.ts
+  SOURCE/NECESSITY: tylko typ i wywołanie nowego commandu.
+
+Dozwolone pliki testowe:
+- tests/test_t061.py — nowa wąska macierz T061;
+- tests/test_t011_e_pipeline_e2e_hard_stop.py — tylko korekta źródłowych test_2/test_3;
+- frontend/e2e/t061-first-manual-root.spec.ts — jeden real-browser vertical bez mocked backendu.
+
+Reuse bez zmian:
+- rota/application/assembler.py i generate_profile_demands;
+- rota/persistence/schedule_lifecycle.py i atomowy create_schedule_version;
+- rota/persistence/site_memory.py — istniejące action/decision helpers;
+- validator/deviation owners oraz T058 freeze/REST audit.
+
+Usunięte jako zbędne
+- Brak nowego current-DECISION_REQUIRED pre-check w site_memory: DECISION_REQUIRED nie jest autoryzacją
+  manualnego root.
+- Brak trwałego rejestru „PLAN już był uruchomiony”, nowego recovery subsystemu, logiki solvera,
+  schematu DB, drugiego edytora i automatycznego przekierowania po każdym blockerze.
+- Ogólne „persistence/lifecycle gdzie potrzeba” nie jest zgodą na edycje. Jeżeli implementacja naprawdę
+  wymaga innego pliku niż powyższe, wraca przed zmianą po korektę literalnego TASK_SCOPE.
+
+Minimalny guard spóźnionego PLAN
+Wąski WHERE_MAP potwierdził, że _persist_decision_readback i _persist_plan_preview należą do
+rota/application/plan_ops.py. W transakcji zapisu wyniku trzeba potwierdzić, że kontekst PLAN nadal jest
+aktualny; jeżeli powstał już manualny root, stary readback/preview nie jest ustawiany. Nie potrzeba
+subsystemu anulowania solvera ani zmian lifecycle.
+
+Ograniczenie PASS
+PASS dotyczy wyłącznie briefu 97e3574 i powyższego literalnego scope. Osobny komunikat/recovery po
+awarii technicznej wymaga odrębnego findingu/kontraktu i nie może zostać przemycony do T061.
