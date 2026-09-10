@@ -1,8 +1,8 @@
-# ROTA-T063 — SCENARIO_PACK v0.1 PROPOSED
+# ROTA-T063 — SCENARIO_PACK v0.1 OWNER APPROVED
 
-STATUS: OWNER APPROVAL REQUIRED — NIE IMPLEMENTOWAĆ
+STATUS: OWNER APPROVED 2026-09-10 — NORMATIVE TEST INPUT
 
-Ten plik jest konkretnym kandydatem do zatwierdzenia przez OWNERA. Daty i nazwy pracowników są syntetyczne i służą wyłącznie deterministyczności testu. Reguły operacyjne, liczebność i oczekiwane zachowanie muszą zostać jawnie zaakceptowane przez OWNERA przed zwolnieniem IMPLEMENTATION HOLD.
+OWNER zatwierdził 2026-09-10 wszystkie siedem punktów z sekcji „Kryterium OWNER approval”. Daty i nazwy pracowników są syntetyczne i służą wyłącznie deterministyczności testu. Reguły operacyjne, liczebność i oczekiwane zachowanie poniżej są normatywnym wejściem T063 i nie mogą być rozszerzane ani reinterpretowane przez implementera.
 
 ## Wspólna baza wszystkich scenariuszy
 
@@ -86,7 +86,7 @@ Po kroku powyżej koordynator przez zwykłe operacje produktu dodaje dokładnie:
 
 Następnie ponownie uruchamia właściwe planowanie na aktualnych danych.
 
-Oczekiwany wynik do zatwierdzenia przez OWNERA:
+Oczekiwany wynik:
 - `FEASIBLE`;
 - pełne D/N w całym miesiącu;
 - w okresie krytycznym solver używa wyłącznie A, B i istniejącego X1 spośród osób dostępnych do tych służb;
@@ -103,7 +103,7 @@ Po literalnej decyzji `NIE COFAJ URLOPU C` koordynator dodaje przez zwykłe oper
 - `X2` — external, D/N, dostępny `2026-10-12`–`2026-10-18`;
 - `X3` — external, D/N, dostępny `2026-10-12`–`2026-10-18`.
 
-Oczekiwany wynik do zatwierdzenia przez OWNERA:
+Oczekiwany wynik:
 - `FEASIBLE`;
 - pełne D/N;
 - solver może użyć dowolnego podzbioru X1–X3 zgodnie z normalnymi regułami, ale nie może użyć nikogo spoza zamkniętego rosteru;
@@ -130,7 +130,7 @@ Operacja:
 1. Koordynator zapisuje absencję D przez normalną operację produktu.
 2. Uruchamia PLAN na tym stanie.
 
-Oczekiwany wynik do zatwierdzenia przez OWNERA:
+Oczekiwany wynik:
 - `FEASIBLE`;
 - pełny, niepusty D/N;
 - D nie ma assignmentu kolidującego z absencją;
@@ -141,9 +141,9 @@ Oczekiwany wynik do zatwierdzenia przez OWNERA:
 
 Ten scenariusz nie twierdzi, że automat rozumie ogólną hierarchię decyzji. Sprawdza wyłącznie konkretny, zamrożony przypadek: przy tej krótkiej absencji oczekujemy poprawnego grafiku z istniejącego rosteru i bez external.
 
-## Kryterium OWNER approval
+## Kryterium OWNER approval — ZATWIERDZONE 2026-09-10
 
-OWNER zatwierdza albo koryguje łącznie następujące fakty:
+OWNER zatwierdził łącznie następujące fakty:
 1. bazowy roster `5 LOCAL`, z `C = DAY_ONLY`;
 2. bazowe oczekiwanie S01 = `FEASIBLE`;
 3. okres S02 i stan `C urlop + D/E choroba`, pozostawiający A/B jako jedynych dostępnych LOCAL w 7-dniowym oknie;
@@ -152,4 +152,4 @@ OWNER zatwierdza albo koryguje łącznie następujące fakty:
 6. S02-V2: dokładnie 3 external i oczekiwane `FEASIBLE`;
 7. S03: 3-dniowa choroba D bez external i oczekiwane `FEASIBLE`.
 
-Do czasu jawnego zatwierdzenia tych siedmiu punktów plik pozostaje `PROPOSED`, a IMPLEMENTATION HOLD obowiązuje.
+Zmiana któregokolwiek z tych siedmiu punktów wymaga nowej jawnej decyzji OWNERA; implementer nie może korygować scenariusza pod wynik testu.
