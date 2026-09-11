@@ -180,8 +180,14 @@ def test_r1_5_6_7_child_creation_and_effective_from_provenance(tmp_path) -> None
                          target.start_datetime.replace(hour=13), AssignmentRole.PRIMARY, AssignmentState.PLANNED,
                          False, target.covers_demand_id, None)
 
+    # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: the client is no longer the
+    # owner of effective_from at all -- any caller-supplied value is now
+    # ignored (ROTA-T009's own review_01 clarification for R1-6 pinned the
+    # opposite; OWNER_CORRECTED 2026-09-11 supersedes it). The backend
+    # always computes it itself as today's date (this Assignment is still
+    # in the future relative to conftest's frozen manual_edit._now()).
     v2 = manual_edit.apply_manual_correction(
-        conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 5),
+        conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1",
         upsert_assignments=[edited],
     )
     # R1-5: one child, parent unchanged/readable, child becomes current.
@@ -189,19 +195,21 @@ def test_r1_5_6_7_child_creation_and_effective_from_provenance(tmp_path) -> None
     assert v2.parent_version_id == v1.version_id
     assert get_schedule_snapshot(conn, v1.version_id) == v1_snapshot_before
     assert get_current_version_id(conn, site_id, MONTH) == v2.version_id
-    # R1-6: automatic created_at + coordinator-entered effective_from, not derived.
+    # R1-6 (superseded): automatic created_at + backend-computed effective_from.
     assert v2.created_at is not None
-    assert v2.effective_from == date(2026, 8, 5)
+    assert v2.effective_from == manual_edit._now().date()
 
-    # R1-7: changing effective_from creates another child, not a history rewrite.
+    # R1-7: a second correction still creates another child, not a history
+    # rewrite -- both get the same backend-computed effective_from since
+    # this Task never varies "today" within one test/process.
     snapshot2 = get_schedule_snapshot(conn, v2.version_id)
     target2 = next(a for a in snapshot2.assignments if a.assignment_id == target.assignment_id)
     v3 = manual_edit.apply_manual_correction(
-        conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 9),
+        conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1",
         upsert_assignments=[target2],
     )
     assert v3.version_id != v2.version_id
-    assert v3.effective_from == date(2026, 8, 9)
+    assert v3.effective_from == manual_edit._now().date()
     assert get_schedule_snapshot(conn, v2.version_id).assignments == snapshot2.assignments  # v2 untouched
 
 

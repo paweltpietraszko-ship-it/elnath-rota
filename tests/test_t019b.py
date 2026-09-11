@@ -369,7 +369,16 @@ def test_c21_c22_freeze_and_nn_one_action_each(tmp_path, mode) -> None:
         manual_edit.mark_not_worked(conn, site_id=SITE, month=MONTH, coordinator_id=COORD, effective_from=MONTH, assignment_id=target.assignment_id)
         expected = CoordinatorActionKind.ASSIGNMENT_NOT_WORKED
     kinds = [a.action_kind for a in memory_read.material_action_history(conn)]
-    assert kinds[0] == expected
+    # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT R3-01 fix: manual_edit's action
+    # recorded_at now shares the exact same captured instant as
+    # effective_from (manual_edit._now(), frozen far in the past by
+    # conftest.py's autouse fixture) -- plan_ops.py's own action recording
+    # is untouched by that fixture and still uses real wall-clock time, so
+    # kinds[0] (newest-first ordering) is no longer reliable in tests that
+    # mix both. The actual intent -- exactly one action of the right kind,
+    # never a generic MANUAL_SCHEDULE_CORRECTION -- does not depend on
+    # cross-module ordering.
+    assert kinds.count(expected) == 1
     assert CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION not in kinds
 
 def _build_trainee(primary, trainee_employee_id: str):

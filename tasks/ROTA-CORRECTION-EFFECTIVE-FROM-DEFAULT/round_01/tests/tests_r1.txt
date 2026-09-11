@@ -1,0 +1,64 @@
+ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — preimplementation re-check R1
+
+RESULT: NEEDS ONE MECHANICAL SCOPE CORRECTION — no PASS yet
+EXACT BRIEF SHA: 9234bb5a43420fb51b8684eeef41734a8c4c4403
+BASELINE INSPECTED: main@1198071074b3548727731d78c2f6df48e49f203c
+
+This was the requested narrow four-point re-check. Solver and restore/lifecycle
+were not re-audited. No product tests were run because this SHA contains only
+the corrected brief.
+
+Answers to section 11
+---------------------
+
+1. YES. apply_manual_correction is the shared backend owner reached by the
+   generic correction, freeze/unfreeze and NN wrappers. The existing internal
+   TRAINING_REALIZED call is distinguishable by role and _action_kind, so the
+   PRIMARY protection and rejection of caller-forged PRIMARY REALIZED can be
+   added without breaking the legitimate TRAINEE transition. One recorded_at
+   can be captured before classification and passed to both the child version
+   and the existing CoordinatorAction hook.
+
+2. YES. The one-date rule is coherent with the existing version model:
+   all-future batches use recorded_at.date(); a batch containing an authorised
+   historical actual-worker correction uses the earliest start date among only
+   those historical exceptions. The guard ensures the earlier effective date
+   cannot carry any other mutation of historical facts.
+
+3. YES. plan_ops.py already owns the acceptance-time cutover and uses `<` in
+   the two relevant selections. Changing these comparisons to `<=` does not
+   require a solver/model change.
+
+4. NO, but only because two mechanically necessary production paths are
+   missing from literal TASK_SCOPE:
+
+   - rota/application/errors.py — a typed controlled rejection for an
+     attempted historical/started-service mutation;
+   - api/errors.py — the sole T060 owner mapping that rejection to a fixed,
+     coordinator-readable Polish public error.
+
+   This path is necessary even though the UI hides/disables forbidden actions:
+   a service can begin after the screen was loaded but before Save, and a
+   direct request can bypass the UI. Today no existing mapped exception
+   truthfully describes this case. RealizedWorkAltered is not publicly mapped;
+   CandidateRejected describes a solver candidate; NonEditableScheduleVersion
+   incorrectly says the whole version cannot be edited while future services
+   remain editable. Falling through to the unknown-error mapping would tell
+   the coordinator that an unexpected technical failure occurred, which is
+   false.
+
+   Also resolve the existing conditional in scope: frontend/src/api/client.ts
+   definitely requires a mechanical change because all three current manual
+   correction client methods require and send effective_from.
+
+Required correction only
+------------------------
+
+Add rota/application/errors.py and api/errors.py to Production TASK_SCOPE and
+require one narrow router/API race-or-bypass assertion proving a controlled,
+Polish public rejection. Make client.ts an unconditional mechanical scope path.
+No new workflow, endpoint, screen, database object, solver behavior or restore
+behavior is needed.
+
+After that literal correction, the brief can return for a final short re-check
+without reopening points 1-3.

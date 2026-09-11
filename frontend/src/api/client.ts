@@ -621,20 +621,23 @@ export const api = {
     req<void>(`/workspace/sites/${siteId}/schedule/${month}/delete-current`, { method: "POST" }),
 
   // Reczna korekta (T037) -- embedded in Planowanie miesiaca, not its own screen.
-  applyManualCorrection: (siteId: string, month: string, effectiveFrom: string, upsertAssignments: AssignmentIn[]) =>
+  // ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: effective_from is no longer a
+  // client-supplied field for any of these three -- the backend always
+  // computes it itself.
+  applyManualCorrection: (siteId: string, month: string, upsertAssignments: AssignmentIn[], note?: string) =>
     req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction`, {
       method: "POST",
-      body: JSON.stringify({ effective_from: effectiveFrom, upsert_assignments: upsertAssignments }),
+      body: JSON.stringify({ upsert_assignments: upsertAssignments, note: note ?? null }),
     }),
-  freezeOrUnfreeze: (siteId: string, month: string, effectiveFrom: string, assignmentId: string, frozen: boolean) =>
+  freezeOrUnfreeze: (siteId: string, month: string, assignmentId: string, frozen: boolean) =>
     req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction/freeze`, {
       method: "POST",
-      body: JSON.stringify({ effective_from: effectiveFrom, assignment_id: assignmentId, frozen }),
+      body: JSON.stringify({ assignment_id: assignmentId, frozen }),
     }),
-  markNotWorked: (siteId: string, month: string, effectiveFrom: string, assignmentId: string) =>
+  markNotWorked: (siteId: string, month: string, assignmentId: string) =>
     req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction/mark-not-worked`, {
       method: "POST",
-      body: JSON.stringify({ effective_from: effectiveFrom, assignment_id: assignmentId }),
+      body: JSON.stringify({ assignment_id: assignmentId }),
     }),
 
   getCalendarRange: (start: string, end: string) =>

@@ -59,6 +59,19 @@ class ScheduleVersionContextMismatch(Exception):
     tuple, not just an existing version_id."""
 
 
+class HistoricalServiceMutationRejected(Exception):
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: raised by apply_manual_correction
+    when an ordinary manual correction (CoordinatorActionKind.
+    MANUAL_SCHEDULE_CORRECTION) tries to mutate an Assignment whose
+    start_datetime <= now -- a controlled business rejection, never a
+    technical error. The only allowed historical touch is recording, with a
+    mandatory reason, which employee actually worked an already-identical
+    started Assignment (employee_id the sole differing field). freeze/unfreeze,
+    mark_not_worked, and mark_training_realized are separate, pre-existing
+    mechanisms that are inherently retrospective by design and are not
+    subject to this guard."""
+
+
 class UnknownDeviationSource(Exception):
     """Raised when a validator ViolationDetail's rule has no entry in the
     brief.md section 8 source_reference -> DeviationCategory mapping table

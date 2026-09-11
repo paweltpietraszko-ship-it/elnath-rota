@@ -17,7 +17,12 @@ from typing import Optional
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.deviation_mapping import materialize_deviations
-from rota.application.errors import NoCurrentScheduleVersion, NotWorkedRequiresPlannedPrimary, require_real_date
+from rota.application.errors import (
+    HistoricalServiceMutationRejected,
+    NoCurrentScheduleVersion,
+    NotWorkedRequiresPlannedPrimary,
+    require_real_date,
+)
 from rota.domain import (
     Assignment,
     AssignmentRole,
@@ -45,6 +50,14 @@ from rota.planning.work_periods import (
     weekly_settlement_windows,
 )
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind, NewRuleContent
+
+
+def _now() -> datetime:
+    """Thin seam so apply_manual_correction's historical-mutation guard
+    (ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT) can be monkeypatched in tests
+    unrelated to this feature that fix their fixture month to a specific
+    calendar date -- see tests/conftest.py's autouse fixture."""
+    return datetime.now()
 
 
 def _cloned_and_corrected(parent_assignments: tuple[Assignment, ...], upsert: list[Assignment]) -> list[Assignment]:
@@ -203,7 +216,7 @@ def _rest_override_rule_content(
     return f"REST-OVERRIDE:{child_id}", statement, rule_content, min(start_dates)
 
 
-def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, caller_on_success):
+def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, recorded_at: datetime, caller_on_success):
     if rest_override is None:
         return caller_on_success
     rule_id, statement, rule_content, earliest_date = rest_override
@@ -211,7 +224,7 @@ def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, c
     def _hook(conn) -> None:
         record_decision_no_commit(
             conn, site_id=site_id, rule_id=rule_id, statement=statement, coordinator_id=coordinator_id,
-            recorded_at=datetime.now(), effective_from=earliest_date, rel=None, rule_content=rule_content,
+            recorded_at=recorded_at, effective_from=earliest_date, rel=None, rule_content=rule_content,
         )
         if caller_on_success is not None:
             caller_on_success(conn)
@@ -231,7 +244,7 @@ def _assignment_state(a: Assignment) -> dict:
 
 def _with_manual_action_hook(
     *, action_kind: CoordinatorActionKind, site_id: str, month: date, coordinator_id: str,
-    effective_from: date, parent_id: str, child_id: str, parent_snapshot_by_id: dict,
+    effective_from: date, recorded_at: datetime, parent_id: str, child_id: str, parent_snapshot_by_id: dict,
     upsert_assignments: list[Assignment],
     note: Optional[str], responds_to_decision_required_id: Optional[str], caller_on_success, extra_state=None,
 ):
@@ -239,8 +252,11 @@ def _with_manual_action_hook(
     any REST_OVERRIDE_RECORD hook already composed in. before/after are the
     caller-supplied changed Assignment facts (section 7.4) -- never the whole
     snapshot. extra_state (training only) runs AFTER caller_on_success so it
-    can read the just-written derived readiness fact (section 19)."""
-    recorded_at = datetime.now()
+    can read the just-written derived readiness fact (section 19).
+    ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT R3-01: recorded_at is the SAME
+    captured instant apply_manual_correction used to compute effective_from
+    -- never a second, independent datetime.now() call, which could
+    otherwise straddle a midnight boundary and disagree with it."""
 
     def _hook(conn) -> None:
         if caller_on_success is not None:
@@ -280,13 +296,13 @@ def _with_manual_action_hook(
 
 
 def _build_correction_hook(
-    *, site_id, month, coordinator_id, effective_from, parent_id, child_id, parent_snapshot_by_id, upsert_assignments,
-    note, responds_to_decision_required_id, action_kind, extra_state, rest_override, on_success,
+    *, site_id, month, coordinator_id, effective_from, recorded_at, parent_id, child_id, parent_snapshot_by_id,
+    upsert_assignments, note, responds_to_decision_required_id, action_kind, extra_state, rest_override, on_success,
 ):
-    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, on_success)
+    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, recorded_at, on_success)
     return _with_manual_action_hook(
         action_kind=action_kind, site_id=site_id, month=month, coordinator_id=coordinator_id,
-        effective_from=effective_from, parent_id=parent_id, child_id=child_id,
+        effective_from=effective_from, recorded_at=recorded_at, parent_id=parent_id, child_id=child_id,
         parent_snapshot_by_id=parent_snapshot_by_id,
         upsert_assignments=upsert_assignments, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, caller_on_success=hook,
@@ -323,9 +339,72 @@ def _freeze_third_consecutive_shift_targets(
     ]
 
 
+_PROTECTED_FIELDS_UNCHANGED = (
+    "start_datetime", "end_datetime", "covers_demand_id", "role", "state", "frozen",
+    "operational_code", "work_period_id", "required_rest_after_hours", "mentor_primary_assignment_id",
+)
+
+
+def _is_allowed_historical_employee_swap(parent: Assignment, updated: Assignment) -> bool:
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 4: the only legal
+    mutation of an already-started Assignment is recording which employee
+    actually worked it -- every other field named in section 4 must stay
+    byte-identical to the currently obtaining (parent) fact."""
+    return all(getattr(parent, field) == getattr(updated, field) for field in _PROTECTED_FIELDS_UNCHANGED)
+
+
+def _classify_and_compute_effective_from(
+    parent_snapshot_by_id: dict[str, Assignment], upsert_assignments: list[Assignment],
+    note: Optional[str], now: datetime,
+) -> date:
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT sections 2/3/4/5/6: the single
+    boundary is `assignment.start_datetime <= now` (rozpoczęta/historyczna),
+    checked against the PARENT's own recorded start_datetime for an existing
+    Assignment (never the caller-supplied value, which is exactly one of the
+    fields under attack) -- a brand-new Assignment (no parent row) has no
+    "obowiązujący zapis" to swap onto, so a past start_datetime for it is
+    always rejected outright, never eligible for the employee-swap exception.
+    Runs for MANUAL_SCHEDULE_CORRECTION and ASSIGNMENT_FREEZE_CHANGED --
+    freeze/unfreeze never touches employee_id, so it can never satisfy the
+    swap exception either: any freeze/unfreeze of an already-started
+    Assignment is unconditionally rejected (OWNER_CONFIRMED 2026-09-11 --
+    the existing REPLAN/select cutover already fully protects a started
+    PRIMARY from automatic redistribution regardless of `frozen`, so there
+    is no product need to allow it). mark_not_worked and
+    mark_training_realized stay exempt -- inherently retrospective,
+    pre-existing mechanisms this Task does not touch (see
+    apply_manual_correction's _action_kind gate)."""
+    historical_start_dates: list[date] = []
+    for assignment in upsert_assignments:
+        parent = parent_snapshot_by_id.get(assignment.assignment_id)
+        anchor_start = parent.start_datetime if parent is not None else assignment.start_datetime
+        if anchor_start > now:
+            continue  # section 3: ordinary future correction, no restriction
+        if parent is None:
+            raise HistoricalServiceMutationRejected(
+                f"assignment {assignment.assignment_id!r}: cannot create a new Assignment fact with a "
+                "start_datetime in the past"
+            )
+        if not _is_allowed_historical_employee_swap(parent, assignment):
+            raise HistoricalServiceMutationRejected(
+                f"assignment {assignment.assignment_id!r} has already started (start_datetime <= now) -- "
+                "only recording who actually worked it is allowed, with every other field unchanged"
+            )
+        if not note or not note.strip():
+            raise HistoricalServiceMutationRejected(
+                f"assignment {assignment.assignment_id!r} has already started -- a reason is required to "
+                "record who actually worked it"
+            )
+        historical_start_dates.append(parent.start_datetime.date())
+    if historical_start_dates:
+        return min(historical_start_dates)  # section 5
+    return now.date()  # section 3
+
+
 def apply_manual_correction(
-    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
+    conn, *, site_id: str, month: date, coordinator_id: str,
     upsert_assignments: list[Assignment], on_success=None, note: Optional[str] = None,
+    effective_from: Optional[date] = None,
     responds_to_decision_required_id: Optional[str] = None,
     _action_kind: CoordinatorActionKind = CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION,
     _extra_state=None,
@@ -337,12 +416,31 @@ def apply_manual_correction(
     training.mark_training_realized pass their own kind through this same
     mechanism instead of a second, generic action row."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
-    require_real_date(effective_from)
     current_id = get_current_version_id(conn, site_id, month)  # step 1
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month}) to correct")
     parent_snapshot = get_schedule_snapshot(conn, current_id)
     parent_snapshot_by_id = {a.assignment_id: a for a in parent_snapshot.assignments}
+    # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT sections 1/3/6: the client is
+    # never the owner of effective_from -- for an ordinary manual correction
+    # the backend always computes it itself (any caller-supplied value is
+    # ignored, not merely defaulted), classifying every upsert against the
+    # single now-vs-start_datetime boundary and rejecting a disallowed
+    # historical mutation before anything is persisted. OWNER_CONFIRMED
+    # 2026-09-11: freeze/unfreeze is guarded the same way -- it can never
+    # satisfy the employee-swap exception (it never touches employee_id),
+    # so any freeze/unfreeze of an already-started Assignment is
+    # unconditionally rejected; the existing REPLAN/select cutover already
+    # fully protects it from automatic redistribution regardless of
+    # `frozen`. mark_not_worked and mark_training_realized keep their own
+    # pre-existing, inherently retrospective semantics -- not subject to
+    # this guard.
+    now = _now()
+    if _action_kind in (CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION, CoordinatorActionKind.ASSIGNMENT_FREEZE_CHANGED):
+        effective_from = _classify_and_compute_effective_from(parent_snapshot_by_id, upsert_assignments, note, now)
+    elif effective_from is None:
+        effective_from = now.date()
+    require_real_date(effective_from)
     corrected_assignments = _cloned_and_corrected(parent_snapshot.assignments, upsert_assignments)  # steps 4-5
     state, _ = assemble_planning_state(  # step 6
         conn, site_id=site_id, month=month, schedule_version_id=current_id,
@@ -373,14 +471,14 @@ def apply_manual_correction(
     rest_override = _rest_override_rule_content(child_id, rest_pairs, weekly_facts) if (rest_pairs or weekly_facts) else None
     hook = _build_correction_hook(
         site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        parent_id=current_id, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
+        recorded_at=now, parent_id=current_id, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
         upsert_assignments=upsert_assignments,
         note=note, responds_to_decision_required_id=responds_to_decision_required_id, action_kind=_action_kind,
         extra_state=_extra_state, rest_override=rest_override, on_success=on_success,
     )
     return lifecycle.create_schedule_version(  # steps 9-10
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
-        created_at=datetime.now(), created_by=coordinator_id,
+        created_at=now, created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=parent_snapshot.shift_demands, assignments=corrected_assignments, deviations=deviations,
         effective_from=effective_from, on_success=hook,
@@ -391,13 +489,21 @@ def apply_manual_correction(
 
 
 def freeze_or_unfreeze(
-    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date,
+    conn, *, site_id: str, month: date, coordinator_id: str,
     assignment_id: str, frozen: bool, note: Optional[str] = None,
+    effective_from: Optional[date] = None,
     responds_to_decision_required_id: Optional[str] = None,
 ) -> ScheduleVersion:
     """freeze/unfreeze is the same material-correction mechanism with a
     single field changed; kept as a named entry point for callers rather
-    than making them hand-build the Assignment copy themselves."""
+    than making them hand-build the Assignment copy themselves.
+    ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: the client no longer supplies
+    effective_from (apply_manual_correction computes today for a future
+    Assignment). OWNER_CONFIRMED 2026-09-11: unlike mark_not_worked, this
+    IS subject to the historical-mutation guard -- freezing/unfreezing an
+    already-started Assignment is unconditionally rejected, since the
+    existing REPLAN/select cutover already fully protects it from
+    automatic redistribution regardless of `frozen`."""
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
@@ -412,8 +518,9 @@ def freeze_or_unfreeze(
 
 
 def mark_not_worked(
-    conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date, assignment_id: str,
-    note: Optional[str] = None, responds_to_decision_required_id: Optional[str] = None,
+    conn, *, site_id: str, month: date, coordinator_id: str, assignment_id: str,
+    note: Optional[str] = None, effective_from: Optional[date] = None,
+    responds_to_decision_required_id: Optional[str] = None,
 ) -> ScheduleVersion:
     """ROTA-T010-D (part_d_nn.md): a previously PLANNED PRIMARY the employee
     did not work becomes state=CANCELLED + operational_code="NN" on the
@@ -421,7 +528,11 @@ def mark_not_worked(
     unchanged. Same manual-correction mechanism as freeze_or_unfreeze --
     the demand is untouched, so a normal REPLAN-free re-validation
     materializes a COVERAGE Deviation unless the coordinator also supplies
-    a replacement Assignment in a later manual correction."""
+    a replacement Assignment in a later manual correction.
+    ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: the client no longer supplies
+    effective_from (defaults to today); NN is inherently retrospective by
+    design (you only know a shift was not worked once it should have
+    happened) and is not subject to the historical-mutation guard."""
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")

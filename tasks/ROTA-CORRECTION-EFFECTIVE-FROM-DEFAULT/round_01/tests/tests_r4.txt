@@ -1,0 +1,69 @@
+ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — narrow correction re-check R4
+
+RESULT: FAIL
+EXACT IMPLEMENTATION SHA: 184b4290d6bc073a759024caa2bbb8181dfd85a4
+BASE FAILED SHA: 1291f5c765c7b4a47de8fa74113402204470b65a
+PRIOR REPORT/REPRODUCERS SHA: 73836ddfdeceffeef1cbede9ee66e03e2d304f3f
+
+Scope
+-----
+
+This was only the OWNER-requested narrow re-check:
+
+1. inspected diff 1291f5c..184b429;
+2. ran the three retained tests in audit_r3_repro.py;
+3. rendered and visually inspected the changed started-service panel message.
+
+The Task matrix, full repository regression, coordinator simulators and legacy
+benchmarks were not run. The implementation was not reread outside the changed
+diff hunks.
+
+Results
+-------
+
+R3-01: PASS.
+audit_r3_repro.py::test_one_recorded_at_owns_future_correction_effective_date
+passes. The changed diff captures one `now` in apply_manual_correction and
+reuses it for effective_from classification, CoordinatorAction.recorded_at,
+ScheduleVersion.created_at and REST_OVERRIDE_RECORD.recorded_at.
+
+R3-02: FAIL, unchanged.
+
+TRACE: OWNER_ACCEPTED 2026-09-11 permits NN as a historical fact; brief
+section 7/H10 requires started PRIMARY facts to remain unchanged when accepting
+Przelicz Plan/REPLAN results.
+
+OWNERSHIP: plan_ops.py remains the Task's acceptance-time owner. The correction
+diff does not change that owner or add preservation of historical
+PRIMARY+CANCELLED+NN facts.
+
+REPRO on exact SHA:
+
+- test_recompute_after_historical_nn_preserves_the_recorded_fact: FAIL;
+  after a real NN -> Przelicz Plan -> accept path, no Assignment with the
+  original id and operational_code=NN remains in the accepted child.
+- test_cutover_guard_rejects_rewriting_historical_nn_with_same_id: FAIL;
+  _replan_cutover_violations still returns an empty list for a historical
+  PRIMARY+CANCELLED+NN rewritten under the same id as PLANNED for another
+  employee.
+
+Both retained reproductions therefore continue to satisfy DEFECT_GATE on
+184b429. CC also explicitly identifies R3-02 as not fixed and requiring an
+architect/OWNER scope decision.
+
+R3-03: PASS.
+The real rendered panel for a started PRIMARY+PLANNED Assignment visibly says:
+"Można tylko zapisać, kto faktycznie ją wykonał, podając powód, albo
+zaznaczyć, że pracownik nie przepracował (NN) — pozostałe zmiany są
+niedostępne."
+The sentence and the adjacent "Nie przepracował (NN)" action were readable,
+not clipped and not overlapped in the inspected 1440x1000 browser viewport.
+
+Command result
+--------------
+
+`python -m pytest -q tasks/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT/round_01/tests/audit_r3_repro.py`
+
+Result: 1 passed, 2 failed in 2.60s.
+
+PASS/FAIL applies only to 184b4290d6bc073a759024caa2bbb8181dfd85a4.

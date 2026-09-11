@@ -1,0 +1,99 @@
+ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — implementation audit R3
+
+RESULT: FAIL
+EXACT IMPLEMENTATION SHA: 1291f5c765c7b4a47de8fa74113402204470b65a
+FROZEN BRIEF SHA: 8aac3bcba1083d6cdb632cf9fce726971d0a5b7e
+OWNER RULING APPLIED: NN remains a permitted historical fact; freeze/unfreeze
+after service start is forbidden.
+
+Audit scope
+-----------
+
+Narrow diff and owner-path review only. The Task matrix covered historical
+manual correction, the real manual-edit API path and the acceptance cutover.
+No full-repository regression was run. Frozen coordinator simulators and legacy
+benchmarks were not collected. TypeScript build and targeted ruff passed.
+Visual browser verification was deferred because the two backend blockers below
+make the delivered flow non-final.
+
+Independent evidence is retained in audit_r3_repro.py.
+
+R3-01 — one correction uses two different clocks
+--------------------------------------------------
+
+TRACE: brief sections 3 and 6 plus H1/H2 require one recorded_at captured once
+for the atomic operation, with all-future effective_from = recorded_at.date().
+
+OWNERSHIP: rota/application/manual_edit.py owns both the computed effective_from
+and the CoordinatorAction written for this operation.
+
+REPRO: audit_r3_repro.py::test_one_recorded_at_owns_future_correction_effective_date
+fails on the exact SHA. apply_manual_correction reads _now() for effective_from,
+but _with_manual_action_hook independently calls datetime.now() for recorded_at.
+The deterministic reproduction persisted effective_from=2000-01-01 while its
+own action recorded_at was 2026-09-11. In production the same defect is a real
+midnight race: one correction can be assigned to the previous date while its
+history says it was recorded on the next date.
+
+Required narrow correction: capture recorded_at once in the owning operation
+and reuse that exact value for classification/effective_from and the action
+history. The repository-wide autouse fixture added to conftest.py must also be
+removed or narrowed: it currently forces manual-edit time to year 2000 in every
+test and lets legacy tests accept a result that contradicts H1/H2.
+
+R3-02 — Przelicz Plan does not preserve an already-recorded historical NN
+-------------------------------------------------------------------------
+
+TRACE: OWNER_ACCEPTED 2026-09-11 makes NN a permitted historical fact. Brief
+section 7/H10 requires started PRIMARY facts to remain unchanged when accepting
+Przelicz Plan/REPLAN results.
+
+OWNERSHIP: plan_ops.py is the Task's acceptance-time owner. Its cutover filter
+still excludes every CANCELLED PRIMARY, although NN is represented precisely as
+PRIMARY state=CANCELLED + operational_code=NN.
+
+REPRO 1 (deterministic owner check):
+audit_r3_repro.py::test_cutover_guard_rejects_rewriting_historical_nn_with_same_id
+passes a historical PRIMARY CANCELLED+NN and a candidate reusing the same id as
+PLANNED for another employee. _replan_cutover_violations returns an empty list,
+so the acceptance owner does not recognize that the historical fact was erased.
+
+REPRO 2 (real vertical):
+audit_r3_repro.py::test_recompute_after_historical_nn_preserves_the_recorded_fact
+creates and accepts a real plan, records NN at the service-start boundary, then
+runs Przelicz Plan. The FEASIBLE result does not carry the NN forward. Depending
+on the candidate shape this can reach the unprotected same-id rewrite above or
+be rejected for adding a new pre-cutover PRIMARY; in the captured final run it
+raised CandidateRejected. Either outcome violates the required usable path:
+Przelicz Plan does not return an accepted child that preserves the NN fact.
+
+Required correction: the real Przelicz Plan path must carry the already-recorded
+historical NN unchanged; at minimum the acceptance guard may not silently exempt
+it. If preserving it requires a production path outside frozen TASK_SCOPE, CC
+must stop and return to the architect instead of changing solver behavior.
+
+R3-03 — the started-service UI instruction contradicts the accepted NN action
+-----------------------------------------------------------------------------
+
+TRACE: the same OWNER ruling permits two historical actions: record the actual
+worker with a reason, or record NN. The screen must give the coordinator a
+truthful, simple instruction.
+
+OWNERSHIP/REPRO: MonthlyPlanning.tsx on this exact SHA renders the sentence
+"Można tylko zapisać, kto faktycznie ją wykonał ... pozostałe zmiany są
+niedostępne", while the NN button is intentionally rendered directly below it.
+
+Required narrow correction: make the instruction mention NN as the second
+allowed action. Confirm the final panel visually after the backend fixes.
+
+Supporting checks
+-----------------
+
+- Dedicated historical/manual API/cutover matrix: command completed without a
+  new failure in the selected existing tests.
+- npx tsc -b: PASS.
+- targeted ruff on changed Python paths and independent reproducer: PASS.
+- Independent reproducer: the timestamp check, deterministic NN cutover check
+  and real NN -> Przelicz Plan vertical all FAIL as described above.
+
+PASS/FAIL applies only to 1291f5c765c7b4a47de8fa74113402204470b65a.
