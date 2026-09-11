@@ -35,3 +35,22 @@ architekta jako `ROTA-T057-ROUTE-A-REGRESSION`, main@2f7c43c). Nie
 podejmować bez konkretnego, powtarzającego się przypadku z życia.
 
 ---
+
+## 2026-09-11 T063 może być fałszywie czerwony 1. dnia miesiąca przed pierwszą służbą
+
+Znalezisko architekta przy końcowym PASS T063 (`task/ROTA-T063@305d069`,
+main@f0a2ab5). Test opiera się na tym, że dzień 1 bieżącego miesiąca już
+minął względem realnego zegara serwera, żeby `is_schedule_version_live`
+było prawdziwe i przycisk „Przelicz (PLAN)” się pojawił (SCENARIO_PACK v0.3,
+`frontend/e2e/t063-business-outcomes.spec.ts`). W wąskim oknie między
+północą a startem pierwszej służby obiektu (u nas 05:00, godzina D-zmiany)
+1. dnia miesiąca to założenie jest fałszywe — test uruchomiony akurat w tym
+oknie dostałby fałszywy czerwony wynik, nie realny defekt produktu.
+
+Odłożone: architekt nie blokuje przez to merge; naprawić dopiero, jeśli T063
+ma być traktowane jako długowieczny test referencyjny uruchamiany
+regularnie (np. w CI o stałej porze). Nie podejmować bez takiej decyzji —
+naprawa to prawdopodobnie proste przesunięcie okna (np. start dnia 2, nie
+dnia 1) albo świadome pominięcie testu w tym wąskim oknie czasowym.
+
+---
