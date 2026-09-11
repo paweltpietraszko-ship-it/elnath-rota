@@ -182,12 +182,39 @@ def fixed_existing_assignments(state: PlanningState) -> list[Assignment]:
     return fixed
 
 
+def _historical_nn_facts(state: PlanningState) -> list[Assignment]:
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 7: an already-started
+    PRIMARY the coordinator recorded as CANCELLED+operational_code="NN" is a
+    permanent historical fact of non-work, not a redistributable gap --
+    Przelicz Plan/REPLAN must carry it through unchanged and must never
+    generate a replacement PRIMARY for its past demand. Deliberately NOT
+    folded into fixed_existing_assignments() itself: that function's
+    CANCELLED exclusion is a load-bearing invariant for several other
+    callers in this module (fixed hours/weekend/holiday hours, the shared
+    day-occupancy term builder for NIGHT-STREAK-01/T058's HARD/DN-rhythm
+    fairness) that must never count a non-worked NN fact as actual work,
+    occupancy or fairness hours -- widening that one function would force
+    auditing and patching every one of those call sites instead of this
+    single, narrow, additive one."""
+    if state.cutover_at is None:
+        return []
+    return [
+        a for a in state.existing_assignments
+        if a.role == AssignmentRole.PRIMARY and a.state == AssignmentState.CANCELLED
+        and a.operational_code == "NN" and a.start_datetime <= state.cutover_at
+    ]
+
+
 def _already_covered_counts(state: PlanningState) -> dict[str, int]:
     """Count only fixed (REALIZED/frozen) PRIMARY coverage -- a redistributable
     (PLANNED, non-frozen) PRIMARY does not count, REPLAN may reassign its
-    demand (round 12 FINDING 1 CANCELLED/TRAINEE exclusion, extended here)."""
+    demand (round 12 FINDING 1 CANCELLED/TRAINEE exclusion, extended here).
+    A historical NN's past demand is counted here too (but NOT via
+    fixed_existing_assignments -- see _historical_nn_facts) purely to stop
+    _process_demand from generating a replacement slot for it; this has no
+    effect on hours/fairness/HARD-rule accounting, which never sees NN."""
     counts: dict[str, int] = {}
-    for assignment in fixed_existing_assignments(state):
+    for assignment in fixed_existing_assignments(state) + _historical_nn_facts(state):
         if assignment.role != AssignmentRole.PRIMARY or not assignment.covers_demand_id:
             continue
         counts[assignment.covers_demand_id] = counts.get(assignment.covers_demand_id, 0) + 1
@@ -825,6 +852,12 @@ def _finalize(
     overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
     assignments = _extract_assignments(solver, x, slots, state, overrides)
     warnings = _collect_warnings(assignments, slots, state)
+    # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 7: carry any historical
+    # NN fact through to the candidate unchanged -- engine.py's
+    # _full_assignments (fixed_existing_assignments(state) + list(solved))
+    # already appends this outcome's assignments verbatim, so appending it
+    # here is the one place needed for it to reach the final candidate.
+    assignments = assignments + _historical_nn_facts(state)
     return SolverOutcome(status_name, assignments, warnings, [], {}, [], site_rule_exclusions)
 
 
@@ -891,7 +924,12 @@ def _search_additional_candidates(
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             overrides = resolve_emergency_overrides(solver, pair_vars or {}, cross_month_by_employee or {}, state.site.site_id)
             assignments = _extract_assignments(solver, x, slots, state, overrides)
-            alternatives.append((assignments, _collect_warnings(assignments, slots, state)))
+            warnings = _collect_warnings(assignments, slots, state)
+            # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 7: every
+            # candidate variant must carry a historical NN through, not just
+            # the primary one _finalize returns -- matches _finalize's own
+            # append immediately below in solve().
+            alternatives.append((assignments + _historical_nn_facts(state), warnings))
             signature = _candidate_signature(solver, x, slots)
         elif status == cp_model.INFEASIBLE:
             break  # proof no further qualifying variant exists -- a valid, complete result

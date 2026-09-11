@@ -440,8 +440,11 @@ def _replan_cutover_violations(
         aid: a for aid, a in prior_by_id.items()
         # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 7: the same single
         # boundary as manual correction (start_datetime <= now is
-        # started/protected), not the old strict "<".
-        if a.role == AssignmentRole.PRIMARY and a.state != AssignmentState.CANCELLED and a.start_datetime <= cutover_at
+        # started/protected), not the old strict "<". A historical NN
+        # (CANCELLED + operational_code "NN") is also a protected past fact
+        # -- it must not be silently dropped or rewritten by REPLAN either.
+        if a.role == AssignmentRole.PRIMARY and a.start_datetime <= cutover_at
+        and (a.state != AssignmentState.CANCELLED or a.operational_code == "NN")
     }
     violations = []
     for aid, prior_a in pre_cutover_prior.items():
