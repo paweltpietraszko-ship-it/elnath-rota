@@ -1,10 +1,10 @@
 # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — ochrona rozpoczętej służby i jedna data atomowej korekty
 
-STATUS: FINAL PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
+STATUS: ARCHITECT CORRECTION AFTER R4 — NARROW IMPLEMENTATION ALLOWED
 
 BASELINE: `main@1198071074b3548727731d78c2f6df48e49f203c`
 
-SOURCE: OWNER_ACCEPTED 2026-09-05 w `arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md`, re-audyt `arch/PREBRIEF_REAUDIT_2026-09-05_HISTORICAL_SERVICE_REALIZED.md`, OWNER_CORRECTED 2026-09-11 w BOARD `main@ce97c0ff70921532c7f025124d017af841b9a272`, narrow re-check R1 `task/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT@7c9366c3325bf7779187a022950c4214d9a2fdbf`.
+SOURCE: OWNER_ACCEPTED 2026-09-05 w `arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md`, re-audyt `arch/PREBRIEF_REAUDIT_2026-09-05_HISTORICAL_SERVICE_REALIZED.md`, OWNER_CORRECTED 2026-09-11 w BOARD `main@ce97c0ff70921532c7f025124d017af841b9a272`, narrow re-check R1 `task/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT@7c9366c3325bf7779187a022950c4214d9a2fdbf`, R4 FAIL `task/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT@eff7ec1fc30e2d3ce1596752f1a9c4e49a944521`.
 
 ## 1. Cel
 
@@ -13,7 +13,8 @@ Zamknąć wyłącznie potwierdzone luki istniejącej Korekty ręcznej/historyczn
 1. klient nie może być ownerem technicznego `effective_from`;
 2. zwykła Korekta ręczna może nadal obejmować jedną lub wiele służb w jednej atomowej operacji;
 3. po rozpoczęciu służby jej fakty operacyjne nie mogą być swobodnie zmieniane;
-4. jedyny wyjątek historyczny to zapisanie po fakcie innego pracownika, który rzeczywiście wykonał całą rozpoczętą służbę, z obowiązkową przyczyną i trwałą historią.
+4. jedyny wyjątek historyczny to zapisanie po fakcie innego pracownika, który rzeczywiście wykonał całą rozpoczętą służbę, z obowiązkową przyczyną i trwałą historią;
+5. zapisane historyczne `NN` jest faktem wykonania/nie-wykonania i musi przetrwać późniejsze `Przelicz Plan`/REPLAN bez ponownego układania tej przeszłej służby.
 
 Nie tworzymy nowego rejestru wykonanej pracy ani nowego workflow. Wykorzystujemy istniejący Assignment, ScheduleVersion lineage i CoordinatorAction history.
 
@@ -99,22 +100,31 @@ Publiczny klient nie może sfabrykować `PRIMARY state=REALIZED` dla przyszłej 
 
 `REALIZED` może pozostać dodatkowym istniejącym bezpiecznikiem, ale nie jest nowym źródłem prawdy ani wymaganym rozwiązaniem tego Tasku.
 
-## 7. Przelicz Plan / REPLAN / select candidate
+## 7. Przelicz Plan / REPLAN / select candidate — w tym historyczne NN
 
-Istniejący cutover ma zostać ponownie użyty, nie zastąpiony nowym mechanizmem.
+Istniejący cutover pozostaje ownerem ochrony przy akceptacji wyniku. Acceptance-time ochrona musi traktować `start_datetime <= cutover_at` jako rozpoczęte fakty PRIMARY.
 
-Acceptance-time ochrona musi traktować `start_datetime <= cutover_at` jako rozpoczęte i niezmienne PRIMARY.
+R4 ujawnił szczególny przypadek, którego poprzedni scope nie obejjmował poprawnie: po zapisaniu historycznego `NN` istniejący Assignment jest `PRIMARY + CANCELLED + operational_code=NN`. Taki wpis nie oznacza pracy ani pokrycia, ale jest trwałym faktem historycznym.
+
+Zamrożony wynik:
+- `Przelicz Plan`/REPLAN nie może usunąć, przepisać ani zastąpić rozpoczętego `PRIMARY+CANCELLED+NN`;
+- przeszły demand związany z takim NN nie jest ponownie obsadzany przez automat po fakcie;
+- dokładny historyczny Assignment NN przechodzi do zaakceptowanego dziecka jako fakt;
+- NN nadal **nie** liczy się jako wykonana praca, pokrycie, zajętość, godziny TARGET/fairness ani odpoczynek;
+- automat rozwiązuje wyłącznie część planu, która nadal jest planem, nie przepisuje historii.
+
+Dozwolone jest wąskie użycie `rota/planning/solver.py` wyłącznie do przeniesienia/ochrony historycznego NN w istniejącym pionie solve-output. Nie wolno zmieniać reguł kwalifikacji, objective, fairness, limitów ani semantyki przyszłych CANCELLED.
+
+`rota/application/plan_ops.py` musi równolegle egzekwować acceptance guard także dla rozpoczętego `PRIMARY+CANCELLED+NN`: brak wpisu, zmiana jego pól albo rewrite pod tym samym `assignment_id` jako inny stan/pracownik jest odrzucany.
 
 Automatyczna ścieżka nie ma wyjątku „faktycznie pracował ktoś inny”. Taki wyjątek jest świadomą Korektą ręczną z przyczyną.
-
-Nie zmieniać solvera ani jego modelu. To guard przed zapisem/akceptacją wyniku.
 
 ## 8. UI
 
 `frontend/src/screens/MonthlyPlanning.tsx`:
 - nie pokazuje koordynatorowi edytowalnego technicznego `effective_from` dla Korekty ręcznej;
 - zwykła korekta może nadal zawierać serię zmian;
-- dla rozpoczętego Assignmentu udostępnia wyłącznie zmianę faktycznie pracującej osoby + obowiązkową przyczynę;
+- dla rozpoczętego Assignmentu udostępnia wyłącznie zmianę faktycznie pracującej osoby + obowiązkową przyczynę oraz istniejącą akcję NN, jeżeli jest dostępna;
 - pozostałe akcje historyczne są ukryte/disabled z krótkim wyjaśnieniem;
 - UI nie jest granicą bezpieczeństwa — backend odrzuca obejście API.
 
@@ -132,7 +142,7 @@ H2. Atomowa korekta wielu przyszłych służb zapisuje jeden child / jedną akcj
 
 H3. Dokładnie przed początkiem (`now < start`) zwykłe korekty działają.
 
-H4. Dokładnie w chwili początku i po niej (`now >= start`) zmiana kodu/czasu/demandu/state/freeze/NN jest odrzucona.
+H4. Dokładnie w chwili początku i po niej (`now >= start`) zwykła zmiana kodu/czasu/demandu/state/freeze jest odrzucona; istniejąca jawna akcja NN pozostaje dozwolonym zapisem faktu nieprzepracowania.
 
 H5. Rozpoczęty Assignment: zmiana tylko `employee_id` + niepusta przyczyna przechodzi i zostawia trwałe before/after w istniejącej historii.
 
@@ -144,9 +154,13 @@ H8. Seria z historycznym wyjątkiem nie może przy okazji zmienić żadnego inne
 
 H9. Bezpośredni endpoint nie może oznaczyć przyszłego PRIMARY jako `REALIZED` ani obejść ochrony historycznej przez własny `effective_from`.
 
-H10. Przelicz Plan/REPLAN/select nie może zmienić Assignmentu z `start_datetime <= acceptance_time`.
+H10. Przelicz Plan/REPLAN/select nie może zmienić żadnego rozpoczętego faktu PRIMARY, w tym `PRIMARY+CANCELLED+NN`.
 
-H11. Po restarcie/reloadzie aktualny grafik, wydruk i istniejące odczyty rozliczeniowe wskazują pracownika zapisanego jako faktycznie pracujący.
+H10a. Po realnym historycznym NN -> `Przelicz Plan` -> akceptacja: dokładny wpis NN pozostaje w child/current, nie liczy się jako praca/pokrycie i jego przeszły demand nie zostaje automatycznie ponownie obsadzony.
+
+H10b. Acceptance guard odrzuca kandydat, który usuwa historyczne NN albo pod tym samym `assignment_id` zamienia je na PLANNED/innego pracownika.
+
+H11. Po restarcie/reloadzie aktualny grafik, wydruk i istniejące odczyty rozliczeniowe wskazują pracownika zapisanego jako faktycznie pracujący albo zachowują zapis historycznego NN.
 
 H12. Wewnętrzne oznaczanie zrealizowanego szkolenia TRAINEE nie zostaje złamane.
 
@@ -158,7 +172,8 @@ H14. Race/bypass API: jeżeli służba rozpocznie się po otwarciu ekranu, ale p
 
 Production:
 - `rota/application/manual_edit.py` — centralna ochrona korekty, klasyfikacja serii i backendowe wyliczenie jednej daty `effective_from`;
-- `rota/application/plan_ops.py` — wyłącznie ujednolicenie cutover `<=` i zachowanie istniejącej ochrony select;
+- `rota/application/plan_ops.py` — cutover `<=`, ochrona wszystkich rozpoczętych PRIMARY przy acceptance, w tym historycznego `PRIMARY+CANCELLED+NN`;
+- `rota/planning/solver.py` — **wyłącznie** minimalne zachowanie historycznego `PRIMARY+CANCELLED+NN` przez Przelicz Plan/REPLAN tak, aby nie był re-solved jako przeszłe pokrycie i wracał w kandydacie jako niepracujący fakt; bez zmian eligibility/objective/fairness/HARD dla przyszłości;
 - `rota/application/errors.py` — dedykowany kontrolowany typ odmowy niedozwolonej zmiany rozpoczętej/historycznej służby;
 - `api/errors.py` — istniejące publiczne mapowanie tego typu na stały, polski komunikat dla koordynatora;
 - `api/routers/manual_edit.py` — tylko marshalling konieczny, aby klient nie był ownerem `effective_from` / historycznego wyjątku;
@@ -166,8 +181,9 @@ Production:
 - `frontend/src/api/client.ts` — obowiązkowa mechaniczna korekta trzech obecnych metod Korekty ręcznej po usunięciu klientowego `effective_from`.
 
 Tests:
-- nowy wąski `tests/test_historical_service_correction.py`;
-- jeden wąski test router/API dla H14: bezpośredni request albo race po starcie służby daje kontrolowaną polską odmowę i nie tworzy zmiany grafiku;
+- `tests/test_historical_service_correction.py`;
+- istniejący `tasks/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT/round_01/tests/audit_r3_repro.py` pozostaje obowiązkowym reproduktorem R3-01/R3-02;
+- jeden wąski test router/API dla H14;
 - istniejące testy cutover/manual correction/error mapping mogą być aktualizowane wyłącznie tam, gdzie utrwalają sprzeczną starą granicę lub nowy jawny typ błędu;
 - wąski E2E istniejącego panelu Korekty ręcznej, jeśli można go dopisać bez nowej infrastruktury.
 
@@ -175,23 +191,20 @@ Jawnie poza scope:
 - `rota/application/lifecycle_ops.py` i restore;
 - `api/routers/schedule.py` w części restore;
 - jakakolwiek zmiana przywracania starszych wersji;
-- `rota/planning/solver.py` i solver rules;
+- nowe solver rules, zmiana eligibility/objective/fairness/limitów lub budżetu;
 - nowa tabela/rejestr wykonanej pracy;
-- zmiana analityki REALIZED, historii świąt lub fairness;
+- zmiana analityki REALIZED, historii świąt lub fairness poza koniecznym brakiem liczenia NN jako pracy;
 - przebudowa ScheduleVersion lifecycle;
-- cross-context Deviation target (osobny Task wykonywany wcześniej);
+- cross-context Deviation target;
 - print LAW acknowledgement i inne findingi T056.
 
-Jeżeli potrzebna jest nowa production path poza listą, CC zatrzymuje pracę i wraca do architekta.
+Jeżeli rozwiązanie wymaga production path poza powyższą listą albo zmiany semantyki solvera wykraczającej poza historyczne NN, CC zatrzymuje pracę i wraca do architekta.
 
-## 11. Finalny preimplementation re-check Codexa
+## 11. Następny re-check Codexa
 
-To ma być wyłącznie literalny re-check korekty R1, bez ponownego otwierania punktów 1–3 z raportu `7c9366c` i bez audytu solvera/lifecycle.
-
-Sprawdzić tylko:
-1. czy `rota/application/errors.py` + `api/errors.py` wystarczają jako istniejąca ścieżka kontrolowanej publicznej odmowy dla H14;
-2. czy `frontend/src/api/client.ts` jest teraz literalnym, obowiązkowym mechanical scope dla usunięcia klientowego `effective_from`;
-3. czy test scope jawnie obejmuje jeden router/API race-or-bypass assertion dla H14;
-4. czy po tych trzech poprawkach literalny scope jest kompletny bez nowego workflow/endpointu/ekranu, solvera i restore.
-
-Jeżeli wszystkie cztery = tak: PASS exact SHA i zwolnienie IMPLEMENTATION HOLD. Jeżeli nie: wskazać tylko konkretną brakującą ścieżkę; bez redesignu.
+Po implementacji poprawki R3-02 wykonać wyłącznie wąski re-check:
+1. trzy retained tests z `audit_r3_repro.py` muszą być PASS;
+2. sprawdzić, że historyczne NN pozostaje w zaakceptowanym child/current po `Przelicz Plan`;
+3. sprawdzić, że jego przeszły demand nie jest re-solved i NN nie jest liczone jako work/coverage/fairness/REST;
+4. potwierdzić, że diff w `solver.py` nie zmienia zachowania przyszłych CANCELLED ani innych solver rules;
+5. bez ponownego pełnego audytu solvera, bez symulatorów i legacy benchmarków.
