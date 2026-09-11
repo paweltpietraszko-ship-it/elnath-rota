@@ -1,0 +1,56 @@
+ROTA-T063 — niezależny re-audyt poprawki R5, runda 6
+
+AUDYTOWANY SHA: task/ROTA-T063@9c7cb55
+KONTRAKT: brief/scenario pack v0.3
+WERDYKT: FAIL — R5-01 naprawione, R5-02 naprawione tylko częściowo
+
+Zweryfikowane poprawki
+- literalny diff od raportu R5 zmienia tylko dozwolony test T063;
+- każdy describe ma lokalnie `retries: 0` i `timeout: 120_000`, więc nie
+  dziedziczy dwóch retry ani 30-sekundowego limitu;
+- realny niezależny pion bez ręcznych flag timeout/retry: S02-V1 i S03
+  2/2 PASS, odpowiednio 53,4 s i 51,6 s;
+- błędy zapisu wymaganych screenshotów i PDF nie są już połykane;
+- dodane asercje są wywoływane dla D/E oraz X1–X3.
+
+R6-01 — nowe asercje nadal nie sprawdzają pełnego przedziału nocki
+
+TRACE
+- scenario pack S02-V1/V2: external może pracować tylko wewnątrz własnego
+  OKNO_7D;
+- scenario pack S03/T63-07: D nie może mieć assignmentu kolidującego z
+  SICK_LEAVE w części podlegającej przeliczeniu;
+- produkcyjna semantyka obu ograniczeń jest godzinowa: availability używa
+  `overlaps_date_range(start_datetime, end_datetime, ...)`, a external wymaga,
+  aby okno obejmowało cały demand (`window.start <= demand.start` i
+  `window.end >= demand.end`).
+
+OWNERSHIP
+- test ma `start_datetime` i `end_datetime` każdego assignmentu oraz dokładne
+  granice nieobecności/okna external. Sam posiada komplet danych do
+  sprawdzenia pełnego przedziału bez zmiany produktu.
+
+REPRO exact SHA
+- `assertNoAssignmentDuringAbsence` porównuje wyłącznie pierwsze 10 znaków
+  `start_datetime`. Przepuszcza nockę D 11.09 17:00–12.09 05:00 przy
+  SICK_LEAVE od 12.09, choć godziny rzeczywiście się nakładają;
+- `assertExternalWithinWindow` również porównuje tylko datę startu. Przepuszcza
+  nockę X1 18.09 17:00–19.09 05:00 przy oknie kończącym się po całym 18.09,
+  choć służba wychodzi pięć godzin poza okno;
+- `repro_r6_interval_boundaries.mjs`: PASS — oba niepoprawne przedziały są
+  akceptowane przez logikę asercji z 9c7cb55.
+
+To nie dowodzi, że bieżący solver utworzył taki zły grafik. Dowodzi, że T063
+nadal dałby zielony wynik, gdyby owner tych reguł uległ regresji dokładnie na
+granicy nocki. W zadaniu poświęconym twardym asercjom biznesowym jest to
+blokująca luka testu.
+
+Minimalna korekta
+- porównać pełne daty i godziny przedziałów tak jak istniejąca semantyka
+  produkcyjna: kolizja nieobecności = nakładanie przedziałów; external = cały
+  assignment zawarty w oknie. Nie kopiować nowej reguły biznesowej ani nie
+  zmieniać produkcji.
+
+Pozostałe findingi R5 są zamknięte. Pełnej regresji ani całej macierzy nie
+powtarzano; zgodnie z wąskim re-checkiem uruchomiono dwa realne scenariusze.
+Zamrożonych symulatorów i benchmarków nie uruchamiano.
