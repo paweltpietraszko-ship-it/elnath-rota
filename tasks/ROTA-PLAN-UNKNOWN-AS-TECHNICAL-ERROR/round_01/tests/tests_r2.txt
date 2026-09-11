@@ -1,0 +1,30 @@
+ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR — preimplementation re-check R2
+
+Exact brief SHA: 0f3d789abd89e7131a8ec60d233ba7c59519c764
+Prior report: task/ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR@03919f5
+Werdykt: PASS — IMPLEMENTATION HOLD zwolniony; zadanie może iść do CC.
+
+Zakres re-checku
+
+Sprawdzono wyłącznie korektę briefu względem 50b91a6, zgodnie z punktem 8.
+Nie powtarzano audytu solvera, ownership ani projektu rozwiązania.
+
+1. TAK. Dopisano dokładnie cztery aktywne ścieżki wskazane w R1:
+   - tests/test_audit_r14_findings.py;
+   - tests/test_t012.py;
+   - tests/test_t018.py;
+   - tests/test_replan_minimal_reshuffle.py.
+
+2. TAK. Dozwolona zmiana jest ograniczona do oczekiwania, nazwy i komentarza
+   dla dokładnego UNKNOWN -> SEARCH_INCOMPLETE. Brief jawnie zachowuje liczbę
+   wywołań solvera w jednej próbie, zakaz cichego retry oraz wszystkie granice
+   MODEL_INVALID i pozostałych TECHNICAL_ERROR.
+
+3. TAK. Production scope nie zmienił się: wyłącznie
+   rota/planning/engine.py oraz frontend/src/screens/MonthlyPlanning.tsx.
+
+Redukcja pozostaje zachowana: istniejący status, endpoint, search_attempt,
+funkcje retry, źródło wyniku i banner są ponownie używane. Nie powstaje nowa
+ścieżka produktu, status, endpoint, model danych ani mechanizm solvera.
+
+PASS dotyczy wyłącznie briefu na exact SHA 0f3d789abd89e7131a8ec60d233ba7c59519c764.
