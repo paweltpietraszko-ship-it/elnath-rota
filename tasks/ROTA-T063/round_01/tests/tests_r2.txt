@@ -1,0 +1,29 @@
+ROTA-T063 — PREIMPLEMENTATION RE-CHECK R2
+
+AUDITED BRIEF: task/ROTA-T063@a5471dbdc1067beb36fec452737d54280188b2cc
+BASELINE: main@af7d5c6f15dbc424a24b9647e725085afa662284
+RESULT: KOREKTA KONTRAKTU PRZYJĘTA; IMPLEMENTATION HOLD POZOSTAJE
+
+Literalny re-check potwierdza:
+1. T063 pozostaje zadaniem wyłącznie testowym i nie zmienia produktu ani solvera.
+2. Test wymaga z góry określonego wyniku biznesowego, nie samej odpowiedzi API.
+3. Dokładnie jeden wybrany scenariusz może odgrywać koordynatora dodającego syntetyczne osoby zewnętrzne przez normalne operacje produktu.
+4. Ten scenariusz osobno sprawdza wariant jednej oraz kilku osób; nie tworzy wspólnego fallbacku, pętli dobierającej ludzi do skutku ani ukrytej obsady innych testów.
+5. Solver może użyć tylko osób istniejących przed daną próbą i nadal respektuje HARD, odpoczynek oraz dostępność każdej osoby zewnętrznej.
+6. Absencja/ruch kadrowy jest częścią macierzy, ale automat może wykonać wyłącznie decyzję koordynatora literalnie zapisaną w SCENARIO_PACK.
+7. Dodatni D/N wymaga dokładnie FEASIBLE, niepustych widocznych służb, reloadu, screenshotu i PDF.
+
+TECHNICAL FEASIBILITY
+- Dane scenariusza można wprowadzić przez istniejące operacje/UI bez helpera w kodzie produkcyjnym.
+- Helper dodający external może pozostać lokalny dla jednego pliku/scenariusza; brak potrzeby tworzenia ogólnego sterownika.
+- Zamknięty roster przed każdą próbą i kontrola employee z wyniku są obserwowalne.
+- Screenshot guidance/grafiku oraz pobranie istniejącego PDF są możliwe bez zmiany produktu.
+- Izolację można uzyskać po stronie test harnessu przez świeżą dedykowaną bazę i bez ponownego użycia starego backendu; T063 nie potrzebuje zmiany produkcji.
+- Jawny przyszły miesiąc nadal zależy wykonawczo od T064 i nie może być obchodzony podrobieniem zegara.
+
+POZOSTAŁY HOLD — ZAMIERZONY, NIE FINDING
+Brief nie zawiera jeszcze OWNER-zatwierdzonego SCENARIO_PACK z literalnymi danymi i wynikami obu wariantów ani wynikającego z niego zamkniętego TASK_SCOPE plików. Bez tych elementów CC nie może rozpocząć implementacji. Następny krok należy do architekta: przygotować konkretny SCENARIO_PACK do prostego zatwierdzenia przez OWNERA, następnie dopisać literalny TASK_SCOPE i oddać całość do krótkiego re-checku Codexa.
+
+Sformułowanie „ostatnia droga ratunku” nie ustanawia samoistnej ogólnej reguły preferencji solvera. Test może sprawdzać kolejność użycia wsparcia tylko w jednym scenariuszu i tylko według zatwierdzonego SCENARIO_PACK.
+
+Nie powtarzano inwentaryzacji E2E ani nie uruchamiano Playwright; przedmiotem był wyłącznie poprawiony kontrakt.

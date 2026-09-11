@@ -1,0 +1,33 @@
+ROTA-T063 — PREIMPLEMENTATION AUDIT R1
+
+AUDITED BRIEF: task/ROTA-T063@ac1076c702eba3921f84023dde16895f65d4ea6a
+BASELINE: main@af7d5c6f15dbc424a24b9647e725085afa662284
+RESULT: OWNER_DECISION_NEEDED — bez werdyktu PASS/FAIL
+
+OWNER_CONFIRMED
+- T063 jest zadaniem testowym i ma dowodzić wyniku biznesowego, nie tylko działania API.
+- Dodatni pion ma uruchomić prawdziwy PLAN, uzyskać dokładnie FEASIBLE, wybrać wynik i pokazać niepusty grafik D/N także po odświeżeniu.
+- Potrzebny jest osobny, deterministyczny przypadek ujemny z konkretnie oczekiwanym zatrzymaniem.
+- Zamrożone Symulatory A/B i benchmarki nie mogą być użyte jako generator ani dowód.
+- Screenshot i PDF pozostają dowodem do oceny optycznej przez człowieka.
+
+OWNER_DECISION_NEEDED
+Brief dodał jako obowiązkowe acceptance dwa nowe scenariusze, których OWNER dotąd nie zatwierdził:
+1. przypadek z ograniczonym wsparciem zewnętrznym (sekcja B, T63-05),
+2. ruch kadrowy po/podczas planowania (sekcja C, T63-06).
+
+To nie są techniczne szczegóły naprawy T043. Wymagają nowych danych i nowych oczekiwań biznesowych. Jednocześnie brief nie zachował wprost obowiązkowego prostego scenariusza ujemnego „zapotrzebowanie bez wystarczającej obsady -> konkretnie oczekiwane zatrzymanie”, który znajduje się w zatwierdzonym findingu.
+
+Rekomendowana redukcja pierwszej wersji T063: poprawiony T043 jako jeden dodatni D/N z twardymi asercjami + jeden prosty ujemny przypadek niedoboru obsady. External support i późniejszy ruch kadrowy pozostawić na następne OWNER-zatwierdzone rozszerzenia. Jeżeli OWNER chce B i C już teraz, musi jawnie zatwierdzić ich obecność i dostarczyć brakujące dane SCENARIO_PACK.
+
+TECHNICAL_ONLY
+- Obecne wspólne helpery nie dodają po cichu LOCAL ani external support. Dodawanie pięciu LOCAL występuje w lokalnym helperze T041 i jest jawne. T043 również dodaje dokładnie pięciu, lecz nie zapisuje katalogu D/N.
+- W `monthly-planning.spec.ts` nie ma eksportowanego helpera oczekiwania na wynik. Można wydzielić mały helper testowy do `frontend/e2e/helpers.ts`, ale musi oczekiwać jednego konkretnego statusu; nie może przyjmować alternatywy FEASIBLE/DECISION_REQUIRED.
+- Screenshot Playwright i pobranie istniejącego PDF są możliwe bez zmiany produktu.
+- Czysta baza jest wykonalna w test harnessie. Najprostsza granica to świeża dedykowana baza dla przebiegu referencyjnego oraz zakaz nieskopowanych UPDATE/trwałych triggerów. `reuseExistingServer` nie może podłączyć testu do starego backendu z inną bazą.
+- Produkcja nie musi być zmieniana przez T063. Jawny, przyszły miesiąc pozostaje zależnością od T064; T063 nie może obchodzić tego zmianą zegara.
+
+Jedno pytanie do OWNERA:
+Czy pierwsze T063 ograniczamy do (A) realnego dodatniego D/N oraz (B) prostego, deterministycznego niedoboru obsady, a test external support i ruchu kadrowego odkładamy do późniejszych scenariuszy?
+
+Nie uruchamiano Playwright: audyt dotyczył kompletności i autoryzacji kontraktu przed implementacją.

@@ -1,0 +1,82 @@
+ROTA-T063 — niezależny audyt implementacji, runda 5
+
+AUDYTOWANY SHA: task/ROTA-T063@01acdd3
+KONTRAKT: brief/scenario pack v0.3 na tym samym SHA
+WERDYKT: FAIL
+
+Zakres
+- commit implementacyjny zmienia wyłącznie pięć ścieżek dozwolonych przez
+  literalny TASK_SCOPE;
+- nie zmienia produkcji, solvera ani UI;
+- global setup usuwa dedykowaną bazę przy CI i rzeczywiście zapewnił świeży
+  start audytu;
+- T043 został uczciwie opisany jako test połączenia UI/API.
+
+R5-01 — domyślne wykonanie zabija cztery scenariusze przed odpowiedzią
+
+TRACE:
+- brief §1, §7, §8 i T63-04–T63-07 wymagają działającej referencyjnej macierzy
+  z dokładnymi wynikami biznesowymi; timeout nie jest takim wynikiem;
+- brief §7 zabrania, aby retry przykrywał błąd.
+
+OWNERSHIP:
+- T063 jest zadaniem testowym i `t063-business-outcomes.spec.ts` może lokalnie
+  ustawić wystarczający timeout oraz retries=0; nie wymaga to zmiany
+  `playwright.config.ts` ani produktu.
+
+REPRO exact SHA:
+- `CI=1 ... t063-business-outcomes.spec.ts --workers=1 --retries=0`:
+  1/5 PASS; S02, S02-V1, S02-V2 i S03 po 30,2 s zakończyły się
+  `Test timeout of 30000ms exceeded` podczas oczekiwania na odpowiedź PLAN;
+- pojedynczy S02 przy technicznie wydłużonym limicie 90 s: PASS w 49,4 s,
+  dokładnie `DECISION_REQUIRED`;
+- V1, V2 i S03 z limitem 90 s, workers=1, retries=0: 3/3 PASS w 48–50 s.
+
+Wniosek: podstawowe wyniki produktu są osiągalne, ale dostarczony test ich nie
+czeka. Dodatkowo repozytoryjny config ma `retries: 2`, a plik T063 nie ustawia
+zera, więc standardowe uruchomienie może ukryć zarówno timeout, jak i znaną
+niestabilność V1. Deklaracja „zero retry” nie jest zakodowana w teście.
+
+R5-02 — zielony test nie dowodzi dwóch wymaganych ograniczeń biznesowych
+
+TRACE:
+- scenario pack S02-V1/V2 wymaga, aby external nie był użyty poza OKNO_7D;
+- scenario pack S03 i T63-07 wymagają, aby D nie miał assignmentu kolidującego
+  z SICK_LEAVE w części podlegającej przeliczeniu;
+- §1 i §7 wymagają twardych wyników biznesowych, nie samego statusu/countu.
+
+OWNERSHIP:
+- odpowiedź kandydata zawiera `employee_display_name`, `start_datetime` i
+  `end_datetime`; test ma wszystkie dane potrzebne do obu asercji i sam
+  deklaruje te pola, ale ich nie używa.
+
+REPRO exact SHA:
+- jedyny wspólny predykat sprawdza tylko, czy nazwa jest na zamkniętej liście
+  oraz czy liczba assignmentów wynosi `dni * 2`;
+- `repro_r5_assertion_gap.mjs` odwzorowuje ten predykat i potwierdza, że
+  zaakceptuje zarówno 60 kolidujących służb chorego D, jak i X1 użytego poza
+  OKNO_7D. Reproduktor: PASS, czyli fałszywie zielona ścieżka istnieje.
+
+Dodatkowe nieblokujące ustalenia
+- przy limicie 90 s wszystkie sprawdzone wyniki biznesowe produktu były
+  zgodne: S02 dokładnie DECISION_REQUIRED; V1/V2/S03 dokładnie FEASIBLE;
+- realne PDF-y V1, V2 i S03 zostały wyrenderowane i ocenione optycznie:
+  pełne, czytelne, jedna strona, bez ucięć; reprezentacja urlopu/chorobowego
+  i external odpowiadała widocznym danym badanego przebiegu;
+- zapis dowodów ma `.catch(() => undefined)`, więc awaria zapisu screenshotu
+  albo PDF nie obleje testu. To również należy uszczelnić w ramach T063;
+- screenshot ujawnił istniejący, niezależny od T063 problem produktu:
+  koordynator widzi techniczny identyfikator `(target_hours)` w ostrzeżeniu.
+  T063 nie posiada tego UI, więc nie jest to blocker jego TASK_SCOPE; wymaga
+  osobnego powrotu do ustalenia OWNERA o usuwaniu technicznych identyfikatorów.
+
+Pełnej regresji repo nie uruchamiano. Zamrożone Symulatory A/B i benchmarki
+zostały wyłączone. Nie używano fake clock ani zamrożonych narzędzi.
+
+Minimalna korekta przed re-audytem
+1. W samym pliku T063 zakodować wystarczający timeout i bezwarunkowe retries=0.
+2. Dodać twarde sprawdzenie dni/godzin SICK_LEAVE D oraz zakresu użycia X1–X3.
+3. Nie połykać błędu zapisu wymaganych screenshotów/PDF.
+
+Nie wymaga to decyzji produktowej ani zmiany produkcji. Po poprawce wystarczy
+wąski re-check zmienionego testu na nowym dokładnym SHA.
