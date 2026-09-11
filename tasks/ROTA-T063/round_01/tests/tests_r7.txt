@@ -1,0 +1,40 @@
+ROTA-T063 — niezależny finalny re-audyt, runda 7
+
+AUDYTOWANY SHA: task/ROTA-T063@305d069
+KONTRAKT: brief/scenario pack v0.3
+WERDYKT: PASS — wyłącznie dla dokładnego SHA 305d069
+
+Zakres re-checku
+- diff względem raportu R6 zmienia tylko dozwolony
+  `frontend/e2e/t063-business-outcomes.spec.ts`;
+- brak zmian produkcji, solvera, danych i UI;
+- sprawdzono wyłącznie ostatni finding R6-01 oraz jego realny pion.
+
+R6-01 — zamknięte
+- nieobecność jest teraz sprawdzana jako nakładanie całych półotwartych
+  przedziałów `[assignment.start, assignment.end)` i pełnych dni absencji;
+- external jest sprawdzany jako pełne zawarcie assignmentu w oknie wsparcia;
+- granica `to` jest poprawnie zamieniana na północ dnia następnego, zgodnie
+  z istniejącym wejściem produktu;
+- niezależny `repro_r7_interval_boundaries.mjs` potwierdza, że nocka wchodząca
+  w pierwszy dzień chorobowego oraz nocka kończąca się po oknie external są
+  obie odrzucane;
+- realny S02-V1 pod `CI=1`, bez ręcznych flag timeout/retry: 1/1 PASS,
+  FEASIBLE w 50,4 s.
+
+Utrzymane zamknięcia z R5/R6
+- testy kodują lokalnie timeout 120 s i retries=0;
+- twarde asercje są podłączone do D/E oraz X1–X3;
+- błędy zapisu screenshotów i PDF nie są połykane;
+- implementerowa pełna macierz exact SHA: 5/5 PASS pod `CI=1` bez ręcznych
+  flag CLI; jest dowodem wspierającym, nie samodzielnym werdyktem;
+- wcześniejszy niezależny re-check na poprzednim SHA potwierdził S02-V1/S03,
+  a ostatnia zmiana dotyczyła wyłącznie poprawienia ich asercji przedziałów.
+
+Kontrola optyczna PDF została wykonana w R5 i nie wykazała ucięć ani błędnego
+układu. Kod produktu i renderer nie zmieniły się w R6/R7, więc nie powtarzano
+identycznego renderowania.
+
+Pełnej regresji repo nie uruchamiano. Zamrożonych Symulatorów A/B i benchmarków
+nie uruchamiano. T063 może zostać zmergowane. Osobny finding widocznego
+`(target_hours)` pozostaje poza T063 i nie zmienia tego PASS.
