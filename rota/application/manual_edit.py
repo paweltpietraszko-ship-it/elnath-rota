@@ -216,7 +216,7 @@ def _rest_override_rule_content(
     return f"REST-OVERRIDE:{child_id}", statement, rule_content, min(start_dates)
 
 
-def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, caller_on_success):
+def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, recorded_at: datetime, caller_on_success):
     if rest_override is None:
         return caller_on_success
     rule_id, statement, rule_content, earliest_date = rest_override
@@ -224,7 +224,7 @@ def _with_rest_override_hook(site_id: str, coordinator_id: str, rest_override, c
     def _hook(conn) -> None:
         record_decision_no_commit(
             conn, site_id=site_id, rule_id=rule_id, statement=statement, coordinator_id=coordinator_id,
-            recorded_at=datetime.now(), effective_from=earliest_date, rel=None, rule_content=rule_content,
+            recorded_at=recorded_at, effective_from=earliest_date, rel=None, rule_content=rule_content,
         )
         if caller_on_success is not None:
             caller_on_success(conn)
@@ -244,7 +244,7 @@ def _assignment_state(a: Assignment) -> dict:
 
 def _with_manual_action_hook(
     *, action_kind: CoordinatorActionKind, site_id: str, month: date, coordinator_id: str,
-    effective_from: date, parent_id: str, child_id: str, parent_snapshot_by_id: dict,
+    effective_from: date, recorded_at: datetime, parent_id: str, child_id: str, parent_snapshot_by_id: dict,
     upsert_assignments: list[Assignment],
     note: Optional[str], responds_to_decision_required_id: Optional[str], caller_on_success, extra_state=None,
 ):
@@ -252,8 +252,11 @@ def _with_manual_action_hook(
     any REST_OVERRIDE_RECORD hook already composed in. before/after are the
     caller-supplied changed Assignment facts (section 7.4) -- never the whole
     snapshot. extra_state (training only) runs AFTER caller_on_success so it
-    can read the just-written derived readiness fact (section 19)."""
-    recorded_at = datetime.now()
+    can read the just-written derived readiness fact (section 19).
+    ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT R3-01: recorded_at is the SAME
+    captured instant apply_manual_correction used to compute effective_from
+    -- never a second, independent datetime.now() call, which could
+    otherwise straddle a midnight boundary and disagree with it."""
 
     def _hook(conn) -> None:
         if caller_on_success is not None:
@@ -293,13 +296,13 @@ def _with_manual_action_hook(
 
 
 def _build_correction_hook(
-    *, site_id, month, coordinator_id, effective_from, parent_id, child_id, parent_snapshot_by_id, upsert_assignments,
-    note, responds_to_decision_required_id, action_kind, extra_state, rest_override, on_success,
+    *, site_id, month, coordinator_id, effective_from, recorded_at, parent_id, child_id, parent_snapshot_by_id,
+    upsert_assignments, note, responds_to_decision_required_id, action_kind, extra_state, rest_override, on_success,
 ):
-    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, on_success)
+    hook = _with_rest_override_hook(site_id, coordinator_id, rest_override, recorded_at, on_success)
     return _with_manual_action_hook(
         action_kind=action_kind, site_id=site_id, month=month, coordinator_id=coordinator_id,
-        effective_from=effective_from, parent_id=parent_id, child_id=child_id,
+        effective_from=effective_from, recorded_at=recorded_at, parent_id=parent_id, child_id=child_id,
         parent_snapshot_by_id=parent_snapshot_by_id,
         upsert_assignments=upsert_assignments, note=note,
         responds_to_decision_required_id=responds_to_decision_required_id, caller_on_success=hook,
@@ -468,14 +471,14 @@ def apply_manual_correction(
     rest_override = _rest_override_rule_content(child_id, rest_pairs, weekly_facts) if (rest_pairs or weekly_facts) else None
     hook = _build_correction_hook(
         site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
-        parent_id=current_id, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
+        recorded_at=now, parent_id=current_id, child_id=child_id, parent_snapshot_by_id=parent_snapshot_by_id,
         upsert_assignments=upsert_assignments,
         note=note, responds_to_decision_required_id=responds_to_decision_required_id, action_kind=_action_kind,
         extra_state=_extra_state, rest_override=rest_override, on_success=on_success,
     )
     return lifecycle.create_schedule_version(  # steps 9-10
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
-        created_at=datetime.now(), created_by=coordinator_id,
+        created_at=now, created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
         shift_demands=parent_snapshot.shift_demands, assignments=corrected_assignments, deviations=deviations,
         effective_from=effective_from, on_success=hook,

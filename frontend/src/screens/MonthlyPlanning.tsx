@@ -979,8 +979,11 @@ export default function MonthlyPlanning({
                       security boundary). */}
                   {isAssignmentStarted && (
                     <p className="panel-hint">
-                      Ta służba już się rozpoczęła. Można tylko zapisać, kto faktycznie ją wykonał, podając powód —
-                      pozostałe zmiany są niedostępne.
+                      Ta służba już się rozpoczęła. Można tylko zapisać, kto faktycznie ją wykonał, podając powód
+                      {editingAssignment.role === "PRIMARY" && editingAssignment.state === "PLANNED"
+                        ? ", albo zaznaczyć, że pracownik nie przepracował (NN)"
+                        : ""}
+                      {" "}— pozostałe zmiany są niedostępne.
                     </p>
                   )}
                   <div className="create-panel-actions">
