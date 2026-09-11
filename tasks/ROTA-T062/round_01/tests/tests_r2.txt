@@ -1,0 +1,61 @@
+ROTA-T062 — korekta audytu przedimplementacyjnego R2
+
+Brief: task/ROTA-T062@c3399fbed2c5fd37de74304e807683846e87c082
+Baseline: main@f1cfb05e85ef19ad4bfa714a51b7e187e57caaa4
+Poprzedni raport: task/ROTA-T062@3150e87 / tests_r1.txt
+Wynik: WYMAGA JEDNEJ MECHANICZNEJ KOREKTY BRIEFU — brak decyzji OWNERA
+IMPLEMENTATION HOLD pozostaje do nowego SHA briefu.
+
+KOREKTA FALSE POSITIVE R1
+
+Pytanie R1 o „niestandardową zapisaną regułę obiektu” zostaje wycofane.
+Repozytorium nie udostępnia koordynatorowi ogólnego kreatora takich reguł:
+
+- publiczne routery i frontend tworzą/zmieniają wyłącznie konkretne reguły
+  macierzy pracownika (Dniówka/Nocka/dzień tygodnia/czasowy wyjątek);
+- katalog standardowych zmian ma własny istniejący ekran;
+- pozostałe produkcyjne NewRuleContent są wewnętrznym zapisem wyjątku
+  odpoczynku po istniejącej Korekcie ręcznej;
+- ogólny record_structured_rule_decision nie ma publicznego dowolnego formularza
+  ani endpointu UI.
+
+Nie wolno rozszerzać T062 o nowy edytor reguł z powodu ogólnego fallbacku w
+kodzie lub danych historycznych. Dla znanej reguły macierzy guidance może
+prowadzić do istniejącej karty pracownika. Dla nierozpoznanego starego wpisu
+może pozostać uczciwą informacją bez przycisku; testowy/wewnętrzny przypadek
+nie tworzy nowej funkcji produktu.
+
+CO POZOSTAJE WAŻNE Z R1
+
+1. Jeden właściciel zwykłego DECISION_REQUIRED został potwierdzony.
+2. THIRD_CONSECUTIVE_SHIFT_BLOCKED nadal wymaga podłączenia do tego samego
+   utrwalonego guidance bez zmiany osobnego statusu, bez override i bez T061.
+3. _persist_decision_readback dziś pozostawia wcześniejszą diagnozę po świeżym
+   wyniku THIRD; brief musi objąć zastąpienie/wyczyszczenie starego pointera.
+4. Ręczna korekta mimo Chorobowe/Urlop/REST nie może być sugerowana przy braku
+   pierwszego grafiku. Najmniejszy T062 nie musi proponować Korekty ręcznej w
+   ogóle; istniejąca funkcja pozostaje osobno dla istniejącego grafiku.
+5. list[str] + frontendowe rozpoznawanie prefiksu należy zastąpić małym
+   obiektem „tekst + stabilny cel lub brak celu”, z kompatybilnym odczytem
+   starych snapshotów jako tekst bez celu.
+6. NIGHT/THIRD mają już OWNER-accepted recovery: sprawdź obsadę/dostępność,
+   uruchom ponownie; jeśli nadal się nie da, brak grafiku jest poprawny.
+7. NO_ALTERNATIVE/NARROW_SEARCH_EXHAUSTED/SEARCH_INCOMPLETE są istniejącymi
+   stanami lifecycle wyszukiwania, nie drugą diagnozą blockerów; nie wciągać
+   ich do T062.
+
+ARCHITECT ACTION
+
+Bez kolejnej decyzji OWNERA przygotować jedno nowe SHA briefu:
+
+- dopisać literalny TASK_SCOPE z tests_r1.txt po powyższej redukcji;
+- zamrozić mapę tylko istniejących celów: Obsada, karta pracownika, Obiekt lub
+  informacja bez przycisku;
+- jawnie zakazać nowego edytora reguł, nowej Korekty ręcznej oraz zmian
+  solvera/validatora/lifecycle ScheduleVersion;
+- objąć trwałość/reload THIRD oraz brak starego readbacku;
+- objąć no-current i existing-current, ale bez projektowania manual root;
+- zachować osobno awarie techniczne i search-only statuses.
+
+Po tym wystarczy krótki literalny re-check Codexa; nie powtarzać mapy kodu ani
+WHERE_MAP, o ile scope/ownership się nie zmieni.

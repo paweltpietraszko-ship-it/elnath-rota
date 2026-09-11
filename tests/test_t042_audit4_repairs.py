@@ -32,7 +32,7 @@ from rota.domain import (
 )
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import connect
-from rota.planning.engine_types import Blocker, BlockingDemand, DecisionRequiredPayload, LoadBlocker
+from rota.planning.engine_types import Blocker, BlockingDemand, DecisionRequiredPayload, LoadBlocker, UnblockingOption
 
 MONTH = date(2026, 8, 1)
 MONTH_STR = MONTH.isoformat()
@@ -119,13 +119,13 @@ def test_t42_c02_shared_adapter_preserves_shape_with_and_without_load_blocker():
         blocking_shift_demands=[BlockingDemand("D-1", MONTH, MONTH)],
         blockers=[Blocker("E-1", "no eligible employee")],
         load_blocker=None,
-        unblocking_options=["dodaj pracownika"],
+        unblocking_options=[UnblockingOption("dodaj pracownika")],
     )
     with_load = DecisionRequiredPayload(
         blocking_shift_demands=[BlockingDemand("D-1", MONTH, MONTH)],
         blockers=[Blocker("E-1", "no eligible employee")],
         load_blocker=LoadBlocker("E-1", MONTH, MONTH, 72),
-        unblocking_options=["dodaj pracownika"],
+        unblocking_options=[UnblockingOption("dodaj pracownika")],
     )
 
     out_without = decision_payload_out(without).model_dump()

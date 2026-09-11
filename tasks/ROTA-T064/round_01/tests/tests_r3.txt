@@ -1,0 +1,55 @@
+ROTA-T064 — niezależny audyt implementacji, runda 3
+
+AUDYTOWANY KOD: task/ROTA-T064@67ba547
+KONTRAKT: task/ROTA-T064@4750a56
+WERDYKT: PASS — wyłącznie dla dokładnego SHA 67ba547.
+
+Decyzja OWNERA domykająca audyt
+- OWNER_ACCEPTED 2026-09-10: gotowego komponentu kalendarza nie przepisujemy;
+  angielskie nazwy miesiąca i dni tygodnia wewnątrz DayPicker są świadomie
+  dopuszczonym wyjątkiem. Nie stanowią defektu T064.
+
+Zakres i zgodność kontraktowa
+- zmienione pliki produkcyjne, zależności i testy mieszczą się w literalnym
+  TASK_SCOPE;
+- brak zmian solvera, reguł HARD/SOFT, lifecycle ScheduleVersion, modeli
+  Availability/CalendarDay oraz T063;
+- generator jest backendowy, fill-missing-only i zachowuje ręczne korekty.
+
+Warstwy niezależnego audytu exact SHA
+1. Backend: `tests/test_t064.py` — 6/6 PASS. Pokryto komplet miesiąca,
+   polskie święto i dzień zwykły, zachowanie ręcznej korekty, idempotencję,
+   autoryzację oraz walidację miesiąca.
+2. Realny pion UI na świeżej, usuniętej przed uruchomieniem bazie E2E:
+   `frontend/e2e/t064-calendar-dates.spec.ts`, workers=1, retries=0 — 4/4 PASS.
+   Pokryto przyszły miesiąc/generowanie/reload, ręczną korektę i ponowne
+   generowanie, picker/range oraz filtr i kolejność listy nieobecności.
+3. Niezależny reproduktor `repro_r2.spec.ts` — 1/1 PASS. Otwarty picker
+   aktualizuje widoczny miesiąc po zmianie `workingMonth`; podejrzenie obejścia
+   T64-11 przez `defaultMonth` zostało sfalsyfikowane.
+4. Gate techniczny: ruff dla zmienionego backendu/testu PASS; TypeScript
+   `tsc -b` PASS; produkcyjny build Vite PASS (995 modułów).
+5. Kontrola optyczna jest rozstrzygająca dla UI:
+   - `t064_r3_calendar_modal.png`: październik 2026 ma 31 dni, nawigacja,
+     legenda i zamknięcie są widoczne; brak ucięcia i fałszywego święta 1.10;
+   - `t064_r3_absence_log.png`: jawny miesiąc wrzesień 2026, oba zakresy
+     przecinające miesiąc w poprawnej kolejności; przyciski nie są ucięte;
+   - `t064_r2_picker_detail.png`: właściwy miesiąc roboczy; angielskie etykiety
+     pozostają zgodnie z późniejszą decyzją OWNERA.
+
+Klasyfikacja techniczna, nieblokująca
+- stary test T062 używa selektora natywnego pola daty, które T064 legalnie
+  zastąpił DayPickerem. To martwa asercja testowa, nie regresja produktu i nie
+  należy do zakresu T064;
+- `frontend/e2e/global-setup.ts` zachowuje poprzednią bazę `rota_e2e.db`, więc
+  kolejne uruchomienie samo w sobie nie dowodzi ponownego utworzenia danych.
+  Dlatego dowód końcowy wykonano na świeżej bazie. To uwaga dla utrzymania
+  testów, nie finding produktu T064.
+
+Nie uruchamiano pełnej regresji repo — brak zgody OWNERA i brak potrzeby po
+wąskiej zmianie. Zamrożone symulatory koordynatora i benchmarki zostały jawnie
+wyłączone z dowodu.
+
+Wniosek
+T064 spełnia acceptance T64-01–T64-14 w przypisanych warstwach. Implementacja
+na 67ba547 może zostać przekazana dalej do merge.

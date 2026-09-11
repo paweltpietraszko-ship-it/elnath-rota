@@ -252,7 +252,15 @@ def test_t58_11_genuinely_unavoidable_third_day_blocks_with_no_decision_required
     result = plan(state)
     assert result.status == "THIRD_CONSECUTIVE_SHIFT_BLOCKED"
     assert result.candidates == []
-    assert result.decision_payload is None
+    # ROTA-T062 (brief section 4 point 6): THIRD_CONSECUTIVE_SHIFT_BLOCKED
+    # now shares decision_guidance's one coordinator-facing guidance family
+    # instead of leaving decision_payload empty -- still no solver override,
+    # no rule-breaking candidate, and status stays THIRD (never becomes
+    # DECISION_REQUIRED).
+    assert result.decision_payload is not None
+    assert result.decision_payload.blocking_shift_demands == []
+    assert result.decision_payload.blockers == []
+    assert [o.text for o in result.decision_payload.unblocking_options] == ["Sprawdź obsadę i dostępność: A, i zaplanuj ponownie"]
     assert result.warnings
 
 

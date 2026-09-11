@@ -1,0 +1,52 @@
+ROTA-T064 — niezależny audyt implementacji, runda 2
+
+AUDYTOWANY KOD: task/ROTA-T064@67ba547
+KONTRAKT: task/ROTA-T064@4750a56
+STATUS: OWNER_DECISION_NEEDED — bez werdyktu PASS/FAIL zgodnie z
+OWNER_EXPLANATION_GATE.
+
+Powód zatrzymania
+Nowy kalendarz wyboru zakresu nieobecności pokazuje koordynatorowi angielskie
+nazwy: „October 2026” oraz „Su Mo Tu We Th Fr Sa”. Brief wymaga nazwy miesiąca
+i interfejsu używanego przez koordynatora, ale nie zawiera jawnej zgody OWNERA
+na angielski fragment w polskim programie. Nie dopisuję po cichu zachowania do
+kontraktu i nie wydaję werdyktu przed decyzją OWNERA.
+
+OWNER_CONFIRMED
+- T064 jest pełnym zadaniem i obejmuje przyszły miesiąc, generator świąt,
+  ręczne korekty, date picker oraz miesięczną listę nieobecności;
+- picker otwiera się na `workingMonth`, może przechodzić przez granicę miesiąca
+  i zapisuje lokalne ISO;
+- T063 pozostaje HOLD do przyjęcia całego T064.
+
+OWNER_DECISION_NEEDED
+- Czy wszystkie widoczne elementy nowego DayPicker mają być po polsku:
+  nazwa miesiąca, skróty dni tygodnia oraz etykiety nawigacji?
+
+TECHNICAL_ONLY
+- `@daypicker/react` v10 obsługuje przekazanie locale; nie wymaga to zmiany
+  modelu danych, API, solvera ani architektury;
+- zadeklarowany przez CC stary selektor testu T062 jest nieaktualny po legalnej
+  zmianie UI T064; to mechaniczna korekta testu, nie nowe zachowanie produktu.
+
+UNAUTHORIZED
+- angielski locale pojawił się jako domyślne zachowanie biblioteki; nie ma dla
+  niego decyzji OWNERA w briefie.
+
+SAFETY_PRIVACY
+- nie stwierdzono nowego ryzyka bezpieczeństwa ani wysyłania danych.
+
+Dotychczasowa weryfikacja exact SHA
+- surowy diff: wszystkie zmiany produkcyjne mieszczą się w TASK_SCOPE;
+- `tests/test_t064.py`: 6/6 PASS;
+- niezależny realny pion `repro_r2.spec.ts`: PASS — już otwarty picker zmienia
+  miesiąc razem z `workingMonth`, więc podejrzenie dotyczące `defaultMonth`
+  zostało sfalsyfikowane;
+- kontrola optyczna: `t064_r2_picker_detail.png` potwierdza poprawny październik
+  2026, ale angielskie nazwy; pełny ekran zapisano jako
+  `t064_r2_picker_after_working_month_change.png`;
+- pełnej regresji repo nie uruchamiano; zamrożonych symulatorów i benchmarków
+  nie uruchamiano.
+
+Po OWNER_ACCEPTED/OWNER_CORRECTED Codex wraca bezpośrednio do wąskiego audytu
+na nowym dokładnym SHA; nie powtarza mapy zmian ani sprawdzonych warstw.

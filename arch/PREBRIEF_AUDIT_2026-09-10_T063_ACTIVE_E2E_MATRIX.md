@@ -19,6 +19,47 @@ rezultat: dla scenariusza dodatniego powstał niepusty grafik ze służbami
 widocznymi dla koordynatora; dla scenariusza ujemnego PLAN zatrzymał się z
 konkretnie oczekiwanej przyczyny.
 
+**OWNER_RULING 2026-09-10 — absencje i wsparcie zewnętrzne:** urlop, choroba i
+nagła absencja są zwykłą rzeczywistością obiektu i T063 ma je obejmować.
+Koordynator ręcznie wpisuje konkretne osoby wsparcia zewnętrznego; teoretycznie
+każdą służbę może wykonywać inna osoba. Solver nie może tworzyć osób ani
+traktować wsparcia jako anonimowej, nieskończonej puli. Może używać wyłącznie
+osób rzeczywiście wpisanych przez koordynatora i dla każdej z nich nadal musi
+respektować wszystkie HARD, w tym odpoczynek i dostępność. Jeżeli pierwsza osoba
+zewnętrzna nie może objąć kolejnej służby z powodu HARD, solver ma użyć innej
+wpisanej i dostępnej osoby; nie wolno mu złamać HARD. Oczekiwanym realnym
+procesem jest uzupełnienie obsady i stworzenie pełnego grafiku. Brak możliwości
+ułożenia grafiku pozostaje dopuszczalną możliwością teoretyczną, a nie domyślnym
+wynikiem niedoboru lokalnej załogi.
+
+**OWNER_CLARIFICATION 2026-09-10 — jeden wybrany scenariusz wsparcia:** w
+realnym świecie koordynator znajduje i wpisuje kolejne osoby; nie istnieje stała
+„lista rezerwowa”. Tylko w jednym jawnie wybranym scenariuszu T063 sterownik
+testu odgrywa tę czynność: tworzy syntetyczną osobę przez zwykłą produkcyjną
+operację, z jawnym oknem dostępności, i uruchamia PLAN. Następnie ten sam
+scenariusz sprawdza osobno wariant z jedną osobą wsparcia oraz wariant z kilkoma
+osobami, aby wykazać, czy solver potrafi rozdzielić służby z zachowaniem HARD.
+Nie jest to ogólny fallback, helper wszystkich testów ani pętla ratująca każdy
+nieudany PLAN. Pozostałe testy nie mogą automatycznie dopisywać wsparcia.
+W tym scenariuszu solver może użyć wyłącznie osób istniejących przed daną próbą;
+nieznany employee, Assignment utworzony ręcznie przez test albo osoba dodana
+przez solver oznacza FAIL. Osoby syntetyczne i ich dane nie przechodzą do innych
+scenariuszy dzięki wymaganej izolacji.
+
+**OWNER_CLARIFICATION 2026-09-10 — absencja przed PLANEM i target godzin:**
+test nie może wpisywać chorobowego z góry. W przedplanowych scenariuszach S02
+i S03 architekt ma zastąpić chorobę jednoznacznym, zatwierdzonym urlopem (tym
+samym istniejącym rodzajem danych produktu, którego scenariusz używa już dla
+zatwierdzonego urlopu). Nie zmienia to rzeczywistego lifecycle chorobowego:
+choroba pojawia się dopiero po powstaniu grafiku i prowadzi do „Przelicz Plan”.
+
+Macierz ma świadomie objąć oba istniejące tryby targetu godzin: część
+scenariuszy może podać pracownikom dokładne wartości, a część ma pozostawić
+target nieustawiony, co oznacza domyślne równe traktowanie pracowników.
+Architekt zapisuje w SCENARIO_PACK dokładnie, który scenariusz używa którego
+trybu oraz wszystkie wartości albo jawny brak wartości. Wykonawca testu nie
+może dobierać tego sam podczas implementacji.
+
 ## Fakty z aktywnego `frontend/e2e/**`
 
 Jedenaście testów w pięciu plikach uruchamia prawdziwy PLAN przez przeglądarkę i
@@ -63,14 +104,19 @@ zapotrzebowanie. Dodatkowo test akceptuje zamiennie `FEASIBLE` i
 3. Poprawić albo przeklasyfikować T043: wynik musi być z góry określony, bez
    alternatywy „FEASIBLE lub DECISION_REQUIRED”. Samo porównanie odpowiedzi API
    z napisem na ekranie nie spełnia celu T063.
-4. Dodać co najmniej dwa jawne scenariusze akceptacyjne, zbudowane wyłącznie
+4. Dodać jawne scenariusze akceptacyjne, zbudowane wyłącznie
    przez normalne operacje koordynatora:
    - dodatni: istniejący, OWNER-zaakceptowany prosty obiekt D/N 12 h, jedna
      pełna warstwa i pięciu LOCAL; PLAN musi zwrócić `FEASIBLE`, kandydat ma
      zostać wybrany, na ekranie muszą być widoczne rzeczywiste służby, a wynik
      ma przetrwać odświeżenie;
-   - ujemny: zapisane zapotrzebowanie bez wystarczającej obsady; PLAN musi
-     zakończyć się dokładnie oczekiwanym zatrzymaniem, nie dowolnym statusem.
+   - jeden scenariusz absencji i wsparcia: jawny sterownik testu wpisuje
+     konkretną osobę zewnętrzną, sprawdza wariant z jednym wsparciem, a następnie
+     osobno wariant z kilkoma; każda osoba podlega HARD i każda próba PLAN ma
+     zamkniętą listę osób istniejących przed jej uruchomieniem;
+   - ujemny przypadek technicznie dopuszczalny: jeżeli jawnie wpisana obsada
+     lokalna i zewnętrzna naprawdę nie wystarcza, test oczekuje konkretnego
+     zatrzymania, nigdy złamania HARD ani stworzenia niewpisanej osoby.
 5. Każdy przebieg zaczyna się od czystej, dedykowanej bazy albo równoważnej
    pełnej izolacji. Żaden test nie zmienia wszystkich rekordów ani nie zostawia
    triggera dla kolejnych testów.

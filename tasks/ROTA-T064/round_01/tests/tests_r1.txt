@@ -1,0 +1,60 @@
+ROTA-T064 — audyt przedimplementacyjny, runda 1
+
+AUDYTOWANY BRIEF: task/ROTA-T064@4750a564adfd7c1a034471266b58ef0b4c1c7d80
+BASELINE: main@021a230989480b07ec0d9a5950ea03591cee098c
+WERDYKT: PASS — IMPLEMENTATION HOLD może zostać zwolniony dla literalnego
+TASK_SCOPE briefu.
+
+Zakres audytu
+1. Przeczytano pełny brief i jego pojedynczy commit.
+2. Punktowo sprawdzono obecnych właścicieli: zapis CalendarDay, routery
+   kalendarza/durable inputs, CalendarModal, EmployeeDetail, AddAbsenceForm,
+   AbsenceLog i klient API.
+3. Sprawdzono zależności w rejestrze npm: `@daypicker/react` 10.0.1 istnieje,
+   a jego peer dependency React >=16.8 obejmuje używany React 18.
+4. Sprawdzono różnicę między baseline briefu a bieżącym main dla wszystkich
+   dozwolonych production paths: brak zmian/konfliktu zakresu.
+5. Nie uruchamiano testów ani aplikacji — to audyt kontraktu przed kodem.
+   Nie uruchamiano zamrożonych symulatorów ani benchmarków.
+
+Wyniki sześciu pytań kontraktu
+1. Fill-missing-only da się wykonać przez istniejące `get_calendar_day`,
+   `write_calendar_day_in_open_transaction` oraz istniejący zapis audytu i
+   inwalidacji. Ręcznie zapisany dzień można rozpoznać przed zapisem i pominąć;
+   nie potrzeba nowego modelu ani repozytorium.
+2. Cienki batch command pasuje do `rota/application/durable_inputs.py`.
+   Istniejący `set_calendar_day` już pokazuje wymagane: autoryzację kontekstu,
+   globalny klucz daty, audyt i inwalidację wszystkich obiektów.
+3. `@daypicker/react` v10 jest dostępny i zgodny z React 18; nie wymaga nowego
+   frameworka UI.
+4. `workingMonth` już dociera do `EmployeeDetail` jako `YYYY-MM` i jest tam
+   używany do innych operacji miesięcznych. Wystarczy przekazać ten prop do
+   `AddAbsenceForm` i `AbsenceLog`; nowy global state jest zbędny.
+5. Literalny TASK_SCOPE obejmuje konieczne pliki backendu, API, zależności,
+   dwóch ekranów, stylów i dwóch nowych plików testowych. Repo nie ma osobnego
+   Python lockfile wymagającego dopisania. `Room.tsx` nie wymaga zmiany, bo już
+   przekazuje `workingMonth` do `EmployeeDetail`.
+6. Acceptance pozostaje w zatwierdzonej powierzchni kalendarza/dat. Nie wymaga
+   zmiany solvera, lifecycle, semantyki nieobecności ani T063.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+Konieczne pozostają:
+- jeden backendowy generator miesiąca oparty na `holidays`;
+- lokalny wybór miesiąca w istniejącym CalendarModal;
+- DayPicker w istniejącym formularzu dodawania nieobecności;
+- filtrowanie i sortowanie istniejącej listy nieobecności;
+- jeden backendowy i jeden realny test E2E pokrywające nowe szwy.
+
+Do usunięcia/uniknięcia podczas implementacji:
+- nie zmieniać `api/routers/calendar.py`, jeżeli obecny GET wystarczy;
+- nie dodawać nowego globalnego stanu, tabeli, repozytorium, algorytmu świąt,
+  modelu absencji ani osobnego komponentu kalendarza;
+- test E2E ma sprawdzić cały przepływ użytkownika, a backendowy tylko batch,
+  święta, zachowanie ręcznej wartości, idempotencję i autoryzację — bez
+  kopiowania istniejących kontraktów niższych warstw.
+
+Granice PASS
+- T064 musi zostać wykonane i później niezależnie sprawdzone jako całość;
+- T063 pozostaje HOLD do przyjęcia całego T064;
+- wyjście poza literalny TASK_SCOPE wymaga powrotu do architekta;
+- PASS dotyczy wyłącznie briefu `4750a56`, nie przyszłej implementacji.

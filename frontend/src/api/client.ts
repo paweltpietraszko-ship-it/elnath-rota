@@ -140,11 +140,19 @@ export interface MonthViewOut {
   plan_preview_error: string | null;
 }
 
+// ROTA-T062: text plus a stable navigation target (or null, information
+// only) -- replaces the old bare string this screen used to parse by
+// matching Polish text prefixes.
+export interface UnblockingOptionOut {
+  text: string;
+  target: "obsada" | "obiekt" | null;
+}
+
 export interface DecisionRequiredPayloadOut {
   blocking_shift_demands: { demand_id: string; start_datetime: string; end_datetime: string }[];
   blockers: { employee_id: string; condition: string }[];
   load_blocker: { employee_id: string; window_start: string; window_end: string; hours: number } | null;
-  unblocking_options: string[];
+  unblocking_options: UnblockingOptionOut[];
 }
 
 export interface PlanningResultOut {
@@ -384,7 +392,7 @@ export interface DecisionRequiredOut {
   blocking_shift_demands: { demand_id: string; start_datetime: string; end_datetime: string }[];
   blockers: { employee_id: string; condition: string }[];
   load_blocker: { employee_id: string; window_start: string; window_end: string; hours: number } | null;
-  unblocking_options: string[];
+  unblocking_options: UnblockingOptionOut[];
   linked_action_ids: string[];
 }
 
@@ -636,6 +644,12 @@ export const api = {
     req<void>("/workspace/calendar/day", {
       method: "POST",
       body: JSON.stringify({ date, holiday, site_id }),
+    }),
+
+  generateCalendarMonth: (month: string, site_id: string) =>
+    req<{ created: number }>("/workspace/calendar/generate", {
+      method: "POST",
+      body: JSON.stringify({ month, site_id }),
     }),
 
   downloadBackup: () => downloadPost("/workspace/backup"),

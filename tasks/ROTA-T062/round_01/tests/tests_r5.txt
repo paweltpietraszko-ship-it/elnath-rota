@@ -1,0 +1,71 @@
+ROTA-T062 — niezależny audyt implementacji, runda 5
+
+AUDYTOWANY KOD: task/ROTA-T062@172ee7b
+KONTRAKT: task/ROTA-T062@a59caff
+WERDYKT: FAIL
+
+Warstwy audytu
+1. Korekta TASK_SCOPE a59caff: PASS. Wszystkie 19 ścieżek zmienionych przez
+   implementację są literalnie dozwolone; brak zmian solvera, validatora,
+   lifecycle ScheduleVersion lub nowego ekranu.
+2. Niezależny reproduktor repro_r5.py + wąska macierz T062/T013/T042/T058/R17:
+   57/57 PASS.
+3. Ruff dla wszystkich zmienionych plików Python i reproduktora: PASS.
+4. TypeScript `tsc -b`: PASS.
+5. Playwright z CI=1, własnym backendem, jednym workerem i retries=0:
+   3/3 PASS. Realny pion wykonał PLAN -> DECISION_REQUIRED -> zmianę
+   dostępności -> zniknięcie readbacku -> ponowny PLAN -> FEASIBLE.
+6. Powtórzenie realnego pionu i testu nawigacji z zapisem obrazów: 2/2 PASS.
+   Zrzuty oceniono optycznie.
+7. Pełna regresja repo nie była uruchamiana (brak zgody Ownera; finding ma
+   niezależny reproduktor w wąskim zakresie).
+
+R5-01 — wyświetlana czynność LOAD nie istnieje w produkcie
+
+TRACE
+- brief §1: po nieudanym planowaniu program ma powiedzieć, co użytkownik może
+  zrobić dalej;
+- OWNER §2.3 i T62-02: następne działanie ma być rzeczywiste i praktyczne;
+- T62-04: element z celem prowadzi do istniejącego miejsca, a element bez celu
+  jest informacją, nie martwą czynnością;
+- §3/§5: decision_guidance.py jest ownerem treści i celu działania; sugestia
+  nie może być wymyślona.
+
+OWNERSHIP
+`rota/planning/decision_guidance.py` jest zmienianym przez T062, kontraktowym
+ownerem. `_LOAD_OPTION` tworzy tekst
+„Świadomie zaakceptuj przekroczenie tygodniowego czasu pracy”, ale ma
+`target=None`. Repo nie zawiera koordynatorowej operacji/przycisku, który z tej
+ścieżki przyjmuje takie przekroczenie.
+
+REPRO na exact SHA
+- realny test `frontend/e2e/t062-real-vertical.spec.ts` osiągnął rzeczywisty
+  DECISION_REQUIRED z LOAD;
+- ekran pokazał powyższe polecenie jako możliwe działanie;
+- sam test jawnie potwierdził brak przycisku dla tej pozycji;
+- następnie nie wykonał wyświetlonej czynności. Ominął ją, ręcznie wszedł do
+  Obsady i zakończył niedostępność pracownika, choć ekran nie podał tej drogi;
+- zapis `t062_r5_monthly_guidance.png` potwierdza ten stan optycznie.
+
+SKUTEK
+Zielony pion dowodzi, że model potrafi odzyskać FEASIBLE po zmianie znanej
+autorowi testu. Nie dowodzi celu T062: koordynator nadal dostaje instrukcję,
+której nie może wykonać, i musi sam wymyślić inną drogę. To ściana ukryta pod
+tekstem wyglądającym jak działanie.
+
+WYMAGANE DOMKNIĘCIE
+Nie dodawać przy okazji nowej funkcji akceptacji przekroczenia. W granicach
+zamrożonego T062 guidance dla LOAD ma przedstawiać wyłącznie realnie dostępne
+działanie albo uczciwą informację; pion musi następnie wykonać właśnie tę
+wyświetloną drogę, zamiast przechodzić do niezapowiedzianej zmiany.
+
+Potwierdzone jako poprawne
+- stabilne cele nie zależą od polskiego tekstu;
+- nierozpoznana reguła bez edytora nie tworzy fałszywego przycisku;
+- no-current usuwa podpowiedzi wymagające istniejącego grafiku;
+- stary snapshot list[str] przechodzi przez odczyt persistence i publiczny
+  adapter jako tekst bez celu;
+- THIRD zachowuje osobny status, dostaje wspólne guidance i zastępuje stary
+  readback;
+- surowy decisionRequiredId zniknął z widoku Panelu sterowania;
+- dwa miejsca UI pokazują tę samą treść guidance bez surowego statusu THIRD.
