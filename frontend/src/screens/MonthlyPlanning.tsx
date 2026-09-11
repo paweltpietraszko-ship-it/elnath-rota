@@ -531,6 +531,13 @@ export default function MonthlyPlanning({
       const effectiveFrom = view?.current_version ? null : effectiveFromDraft;
       const result = await api.planMonth(siteId, monthIso, effectiveFrom, 0);
       setPlanResultSource("plan");
+      // ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR R3-01 audit fix: this result is
+      // fresh, not a reconstruction of the persisted preview -- if the ref
+      // was still true from a PRIOR persisted preview, the reload below
+      // would otherwise let the "preview is gone" cleanup effect wipe this
+      // exact result out (e.g. a non-FEASIBLE SEARCH_INCOMPLETE, which never
+      // gets persisted as a preview at all).
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -550,6 +557,7 @@ export default function MonthlyPlanning({
       const result = await api.planMonth(siteId, monthIso, effectiveFrom, nextAttempt);
       setPlanSearchAttempt(nextAttempt);
       setPlanResultSource("plan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -578,6 +586,7 @@ export default function MonthlyPlanning({
     try {
       const result = await api.replanMonth(siteId, monthIso, effectiveFromDraft);
       setPlanResultSource("replan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -625,6 +634,7 @@ export default function MonthlyPlanning({
     try {
       const result = await api.replanWiderSearch(siteId, monthIso, 0);
       setPlanResultSource("replan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -645,6 +655,7 @@ export default function MonthlyPlanning({
         : await api.replanRetry(siteId, monthIso, nextAttempt);
       setReplanSearchAttempt(nextAttempt);
       setPlanResultSource("replan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
