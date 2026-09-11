@@ -1,10 +1,10 @@
 # ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — ochrona rozpoczętej służby i jedna data atomowej korekty
 
-STATUS: PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
+STATUS: FINAL PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
 
 BASELINE: `main@1198071074b3548727731d78c2f6df48e49f203c`
 
-SOURCE: OWNER_ACCEPTED 2026-09-05 w `arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md`, re-audyt `arch/PREBRIEF_REAUDIT_2026-09-05_HISTORICAL_SERVICE_REALIZED.md`, OWNER_CORRECTED 2026-09-11 w BOARD `main@ce97c0ff70921532c7f025124d017af841b9a272`.
+SOURCE: OWNER_ACCEPTED 2026-09-05 w `arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md`, re-audyt `arch/PREBRIEF_REAUDIT_2026-09-05_HISTORICAL_SERVICE_REALIZED.md`, OWNER_CORRECTED 2026-09-11 w BOARD `main@ce97c0ff70921532c7f025124d017af841b9a272`, narrow re-check R1 `task/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT@7c9366c3325bf7779187a022950c4214d9a2fdbf`.
 
 ## 1. Cel
 
@@ -89,6 +89,12 @@ Blokada nie może żyć tylko w UI.
 - wyliczyć jedną backendową datę `effective_from` całej operacji zgodnie z sekcjami 3 i 5;
 - uchwycić jeden `recorded_at` dla spójnej historii tej atomowej operacji.
 
+Odrzucenie próby niedozwolonej zmiany rozpoczętej/historycznej służby jest kontrolowanym wynikiem biznesowym, nie awarią techniczną:
+- `rota/application/errors.py` ma posiadać dedykowany typ wyjątku dla tej odmowy;
+- `api/errors.py`, jako istniejący owner publicznego mapowania błędów po T060, mapuje go na stały, prosty polski komunikat dla koordynatora;
+- komunikat nie może ujawniać tracebacku, identyfikatorów technicznych ani sugerować „nieoczekiwanej awarii”;
+- nie tworzyć nowego endpointu ani równoległego systemu błędów.
+
 Publiczny klient nie może sfabrykować `PRIMARY state=REALIZED` dla przyszłej ani zwykłej służby. Istniejące wewnętrzne użycie `REALIZED` dla szkolenia `TRAINEE` pozostaje poza zmianą.
 
 `REALIZED` może pozostać dodatkowym istniejącym bezpiecznikiem, ale nie jest nowym źródłem prawdy ani wymaganym rozwiązaniem tego Tasku.
@@ -111,6 +117,8 @@ Nie zmieniać solvera ani jego modelu. To guard przed zapisem/akceptacją wyniku
 - dla rozpoczętego Assignmentu udostępnia wyłącznie zmianę faktycznie pracującej osoby + obowiązkową przyczynę;
 - pozostałe akcje historyczne są ukryte/disabled z krótkim wyjaśnieniem;
 - UI nie jest granicą bezpieczeństwa — backend odrzuca obejście API.
+
+`frontend/src/api/client.ts` jest obowiązkowym mechanical scope: istniejące trzy metody Korekty ręcznej przestają wymagać i wysyłać klientowe `effective_from`; data pozostaje wyłącznie własnością backendu.
 
 Nie projektować nowego ekranu.
 
@@ -144,18 +152,23 @@ H12. Wewnętrzne oznaczanie zrealizowanego szkolenia TRAINEE nie zostaje złaman
 
 H13. Istniejące zachowanie starszych wersji jako `Podgląd` po rozpoczęciu pozostaje bez zmian; ten Task nie otwiera restore.
 
+H14. Race/bypass API: jeżeli służba rozpocznie się po otwarciu ekranu, ale przed zapisem, albo request ominie UI, niedozwolona mutacja historyczna jest odrzucona kontrolowanym publicznym błędem z prostym polskim komunikatem; nie wpada w generic/technical unexpected error i nie zapisuje child/current mutation.
+
 ## 10. Literalny TASK_SCOPE
 
 Production:
 - `rota/application/manual_edit.py` — centralna ochrona korekty, klasyfikacja serii i backendowe wyliczenie jednej daty `effective_from`;
 - `rota/application/plan_ops.py` — wyłącznie ujednolicenie cutover `<=` i zachowanie istniejącej ochrony select;
+- `rota/application/errors.py` — dedykowany kontrolowany typ odmowy niedozwolonej zmiany rozpoczętej/historycznej służby;
+- `api/errors.py` — istniejące publiczne mapowanie tego typu na stały, polski komunikat dla koordynatora;
 - `api/routers/manual_edit.py` — tylko marshalling konieczny, aby klient nie był ownerem `effective_from` / historycznego wyjątku;
 - `frontend/src/screens/MonthlyPlanning.tsx` — istniejący panel Korekty ręcznej, bez nowego ekranu;
-- `frontend/src/api/client.ts` — tylko jeżeli istniejący request type wymaga mechanicznej korekty po usunięciu klientowego `effective_from`.
+- `frontend/src/api/client.ts` — obowiązkowa mechaniczna korekta trzech obecnych metod Korekty ręcznej po usunięciu klientowego `effective_from`.
 
 Tests:
 - nowy wąski `tests/test_historical_service_correction.py`;
-- istniejące testy cutover/manual correction mogą być aktualizowane wyłącznie tam, gdzie utrwalają sprzeczną starą granicę;
+- jeden wąski test router/API dla H14: bezpośredni request albo race po starcie służby daje kontrolowaną polską odmowę i nie tworzy zmiany grafiku;
+- istniejące testy cutover/manual correction/error mapping mogą być aktualizowane wyłącznie tam, gdzie utrwalają sprzeczną starą granicę lub nowy jawny typ błędu;
 - wąski E2E istniejącego panelu Korekty ręcznej, jeśli można go dopisać bez nowej infrastruktury.
 
 Jawnie poza scope:
@@ -171,14 +184,14 @@ Jawnie poza scope:
 
 Jeżeli potrzebna jest nowa production path poza listą, CC zatrzymuje pracę i wraca do architekta.
 
-## 11. Preimplementation re-check Codexa
+## 11. Finalny preimplementation re-check Codexa
 
-To ma być wąski re-check poprawionego briefu, bez ponownego audytu całego solvera/lifecycle.
+To ma być wyłącznie literalny re-check korekty R1, bez ponownego otwierania punktów 1–3 z raportu `7c9366c` i bez audytu solvera/lifecycle.
 
 Sprawdzić tylko:
-1. czy `apply_manual_correction` jest wystarczającym wspólnym ownerem serii ręcznych mutacji i może atomowo wyliczyć `recorded_at` / `effective_from` bez łamania TRAINING REALIZED;
-2. czy reguła jednej daty wersji jest spójna: all-future -> `recorded_at.date()`, seria z historycznym wyjątkiem -> najwcześniejsza data takiej służby;
-3. czy istniejący cutover w `plan_ops.py` można ujednolicić do `<=` bez zmiany solvera;
-4. czy po usunięciu restore literalny production/test scope jest kompletny.
+1. czy `rota/application/errors.py` + `api/errors.py` wystarczają jako istniejąca ścieżka kontrolowanej publicznej odmowy dla H14;
+2. czy `frontend/src/api/client.ts` jest teraz literalnym, obowiązkowym mechanical scope dla usunięcia klientowego `effective_from`;
+3. czy test scope jawnie obejmuje jeden router/API race-or-bypass assertion dla H14;
+4. czy po tych trzech poprawkach literalny scope jest kompletny bez nowego workflow/endpointu/ekranu, solvera i restore.
 
-Jeżeli problem jest mechaniczny — wskazać konkretną brakującą ścieżkę. Bez redesignu i bez nowego rejestru.
+Jeżeli wszystkie cztery = tak: PASS exact SHA i zwolnienie IMPLEMENTATION HOLD. Jeżeli nie: wskazać tylko konkretną brakującą ścieżkę; bez redesignu.
