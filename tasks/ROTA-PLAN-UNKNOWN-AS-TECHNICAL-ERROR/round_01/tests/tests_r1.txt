@@ -1,0 +1,81 @@
+ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR — audyt przedimplementacyjny R1
+
+Exact brief SHA: 50b91a6fd2b72f9f46f2487aeabdb82e85645ae2
+Baseline: main@00f7355a6847c8f6a5debefc3691e80f3de415a7
+Werdykt: WYMAGA JEDNEJ MECHANICZNEJ KOREKTY BRIEFU; IMPLEMENTATION HOLD pozostaje.
+
+Odpowiedzi na cztery pytania z punktu 8
+
+1. TAK. Dokładny brak kandydata ze statusem UNKNOWN można w trzech wskazanych
+   dispatchach zmapować na istniejący SEARCH_INCOMPLETE. Warunek musi pozostać
+   dokładny; MODEL_INVALID i pozostałe błędy nadal są TECHNICAL_ERROR. Nie
+   uruchamia to wewnętrznego retry i nie narusza dawnego R14-2.
+
+2. TAK. runPlanSearchAgain wywołuje istniejące api.planMonth z rosnącym
+   search_attempt. Rozróżnia pierwszy PLAN i Przelicz Plan przez istniejący
+   current_version/effectiveFrom; nie potrzeba nowej operacji.
+
+3. TAK. planResultSource jest ustawiany na "plan" lub "replan" przed pokazaniem
+   świeżego wyniku. SEARCH_INCOMPLETE nie jest trwałym preview, więc routing
+   retrySearchIncomplete po tym stanie wystarcza bez nowej ścieżki.
+
+4. TAK dla produkcji: engine.py i MonthlyPlanning.tsx wystarczają. NIE dla
+   całego literalnego TASK_SCOPE: dozwolona lista testów pomija cztery aktywne
+   testy, które po zgodnej z briefem zmianie będą wymagały aktualizacji.
+
+Jedyny finding — literalny test scope jest za wąski
+
+TRACE:
+- brief 2.1 i A1/A2: UNKNOWN bez kandydata ma dawać SEARCH_INCOMPLETE;
+- brief 2.4 i A4: MODEL_INVALID nadal ma dawać TECHNICAL_ERROR;
+- OWNER_ACCEPTED 2026-09-11: wykorzystać istniejący mechanizm, bez dublowania.
+
+OWNERSHIP:
+Poniższe aktywne testy bezpośrednio utrwalają publiczną klasyfikację plan() i
+należą do zmienianej granicy engine:
+
+- tests/test_audit_r14_findings.py
+  test_r14_2a_unknown_status_is_technical_error_not_decision_required;
+- tests/test_t012.py
+  test_c_first_pass_unknown_status_technical_error_without_emergency_retry;
+- tests/test_t018.py
+  test_b10_9_technical_stage1_status_stops_without_retry;
+- tests/test_replan_minimal_reshuffle.py
+  test_i_phase1_unknown_fails_closed_to_technical_error.
+
+REPRO na exact SHA:
+Bezpośredni odczyt powyższych asercji pokazuje oczekiwanie TECHNICAL_ERROR dla
+UNKNOWN. Brief zezwala jedynie na dwa nowe pliki testowe, więc CC nie może
+legalnie dostosować tych aktywnych testów do nowej PRODUCT_TRUTH.
+
+Wymagana korekta architekta
+
+Dopisać powyższe cztery ścieżki do dozwolonego test scope, wyłącznie dla
+mechanicznej zmiany oczekiwania/nazwy/komentarza dotyczącego UNKNOWN. Zachować
+w nich dotychczasową ochronę przed cichym retry: liczba wywołań solvera w ramach
+jednej próby nadal ma pozostać taka sama. Asercje MODEL_INVALID i pozostałe
+granice TECHNICAL_ERROR pozostają bez zmian.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+
+- SOURCE i NECESSITY są kompletne dla obu zmian produkcyjnych.
+- Reużywane są istniejące: SEARCH_INCOMPLETE, planMonth, search_attempt,
+  runPlanSearchAgain, runReplanSearchAgain i planResultSource.
+- Nie potrzeba nowego endpointu, statusu, modelu, komponentu ani warstwy.
+- Nowy test backendowy nadal jest potrzebny tylko dla niepokrytych dispatchy;
+  nie powinien kopiować całego kontraktu solvera.
+- Frontendowy test ma sprawdzić wyłącznie seam routingu PLAN/REPLAN w obecnym
+  frameworku; brief prawidłowo zabrania budowy nowej infrastruktury.
+
+Warstwy audytu
+
+- pełny brief i BOARD na podanych exact SHA;
+- ancestry i diff briefu względem baseline;
+- bezpośredni odczyt engine.py, MonthlyPlanning.tsx i client.ts;
+- repo search aktywnych oczekiwań UNKNOWN;
+- bez uruchamiania testów: to kontrola kontraktu przed implementacją.
+- where.py nie uruchamiano ponownie: to literalny re-check tej samej mapy
+  dotknięcia, sprawdzonej wcześniej; scope i ownership produkcji nie zmieniły się.
+
+Po dopisaniu czterech ścieżek wystarczy krótki literalny re-check. Nie ma
+potrzeby ponownego projektowania ani ponownego czytania solvera.
