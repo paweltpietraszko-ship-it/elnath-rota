@@ -1,0 +1,34 @@
+ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — final preimplementation re-check R2
+
+RESULT: PASS — IMPLEMENTATION HOLD may be released
+EXACT BRIEF SHA: 8aac3bcba1083d6cdb632cf9fce726971d0a5b7e
+PREVIOUS NARROW REPORT: 7c9366c3325bf7779187a022950c4214d9a2fdbf
+
+This was only the literal four-point re-check requested by section 11. Points
+1–3 accepted in R1 were not reopened. Solver, lifecycle and restore were not
+re-audited. No product tests were run because the audited change is brief-only.
+
+Answers to section 11
+---------------------
+
+1. YES. rota/application/errors.py supplies the dedicated controlled business
+   rejection, and the existing central owner api/errors.py maps it to the fixed
+   coordinator-readable Polish response required by H14. No parallel error
+   path or endpoint is introduced.
+
+2. YES. frontend/src/api/client.ts is now unconditional mechanical scope for
+   removing effective_from from all three existing manual-correction methods.
+
+3. YES. Test scope explicitly requires one router/API race-or-bypass test for
+   H14, including the public Polish rejection and proof that no child/current
+   schedule mutation is persisted.
+
+4. YES. The corrected literal production and test scope is complete for the
+   frozen behavior. It adds no workflow, endpoint or screen and leaves solver
+   and restore outside scope.
+
+VERDICT
+-------
+
+PASS applies only to exact brief SHA 8aac3bcba1083d6cdb632cf9fce726971d0a5b7e.
+The implementation hold may be released for this frozen TASK_SCOPE.
