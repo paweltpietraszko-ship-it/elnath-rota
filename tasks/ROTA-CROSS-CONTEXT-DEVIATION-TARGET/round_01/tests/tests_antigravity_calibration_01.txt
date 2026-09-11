@@ -1,0 +1,127 @@
+AUDIT REPORT: ANTIGRAVITY-CALIBRATION-01
+TASK: ROTA-CROSS-CONTEXT-DEVIATION-TARGET
+EXACT BRIEF SHA: 6b9d64f26bec94a4783bfe2042d339d3264bf317
+EXACT IMPLEMENTATION SHA: 424ee7b30999b8bfe1fcd6bf504b9c7a834b0826
+AUDITOR: Antigravity (independent auditor)
+DATE: 2026-09-11
+
+================================================================================
+WERDYKT: FAIL (premisa briefu nieaktualna / martwa ścieżka w kodzie produkcyjnym)
+================================================================================
+
+1. PYTANIE AUDYTU KALIBRACYJNEGO
+Czy premisa briefu (że dziś istnieje osiągalny, aktualny crash MalformedScheduleSnapshot
+dla LAW-Deviation z cross-context targetem) jest wciąż prawdziwa na dokładnym SHA 424ee7b?
+
+ODPOWIEDŹ: NIE. Premisa jest nieaktualna. Na badanym commicie 424ee7b w całym systemie
+nie istnieje żadna reguła kategorii LAW, która emitowałaby cross-context assignment_id
+jako target Deviation. Crash opisywany w briefie nie występuje w rzeczywistym pionie.
+
+================================================================================
+2. DOWÓD W KODZIE ŹRÓDŁOWYM (EXACT SHA 424ee7b)
+================================================================================
+
+KROK 1: Które reguły mapują się na DeviationCategory.LAW?
+Plik: rota/application/deviation_mapping.py:
+- _BUILTIN_RULE_CATEGORY definiuje wprost:
+    "REST-01": DeviationCategory.LAW,
+    "WEEKLY-REST-01": DeviationCategory.LAW,
+    "THIRD-CONSECUTIVE-SHIFT-01": DeviationCategory.LAW,
+- _SITE_RULE_CATEGORY mapuje reguły obiektowe wyłącznie na:
+    RuleCategory.CLIENT_REQUIREMENT -> DeviationCategory.CLIENT_REQUIREMENT,
+    RuleCategory.LOCAL_RULE -> DeviationCategory.PREFERENCE,
+    RuleCategory.CONFIRMED_EXCEPTION -> DeviationCategory.PREFERENCE.
+Wniosek: Dokładnie 3 reguły w całej aplikacji mają kategorię LAW:
+1) REST-01
+2) WEEKLY-REST-01
+3) THIRD-CONSECUTIVE-SHIFT-01
+
+---
+
+KROK 2: Jaki target emitują REST-01 i WEEKLY-REST-01?
+Plik: rota/application/deviation_mapping.py:
+```python
+_EMPLOYEE_TARGETED_SOURCES = frozenset({"REST-01", "WEEKLY-REST-01"})
+
+def _affected_target(detail: ViolationDetail) -> str:
+    if detail.rule in _EMPLOYEE_TARGETED_SOURCES:
+        if not detail.affected_employee_id:
+            raise UnknownDeviationSource(f"rule {detail.rule!r} has no affected_employee_id")
+        return detail.affected_employee_id
+    ...
+```
+W wyniku działania ROTA-T036 obie te reguły zawsze i bezwzględnie jako target wpisują
+`affected_employee_id`. W warstwie walidacji zapisu (rota/persistence/schedule_validation.py::_validate_one_deviation):
+```python
+is_employee = conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (target,)).fetchone() is not None
+```
+Cel ten jest natychmiast uznawany za poprawny Employee. REST-01 i WEEKLY-REST-01 NIGDY
+nie emitują assignment_id, a w szczególności cross-context assignment_id.
+
+---
+
+KROK 3: Jaki target emituje THIRD-CONSECUTIVE-SHIFT-01?
+Plik: rota/planning/validator.py::_check_third_consecutive_shift:
+```python
+assignment_ids_by_employee_date: dict[tuple[str, date], list[str]] = {}
+for assignment in assignments:
+    if assignment.role != AssignmentRole.PRIMARY:
+        continue
+    d = assignment.start_datetime.date()
+    assignment_ids_by_employee_date.setdefault((assignment.employee_id, d), []).append(assignment.assignment_id)
+    dates_by_employee.setdefault(assignment.employee_id, set()).add(d)
+
+for boundary in state.boundary_assignments:
+    if boundary.role != AssignmentRole.PRIMARY or boundary.state == AssignmentState.CANCELLED:
+        continue
+    d = boundary.start_datetime.date()
+    if not (relevant_start <= d <= relevant_end):
+        continue
+    dates_by_employee.setdefault(boundary.employee_id, set()).add(d)
+```
+Zauważmy:
+- Słownik `assignment_ids_by_employee_date` jest wypełniany WYŁĄCZNIE ze zbioru `assignments`
+  (czyli służb bieżącej, zapisywanej wersji ScheduleVersion).
+- `state.boundary_assignments` dostarcza jedynie datę (`dates_by_employee`). Identyfikatory
+  służb granicznych (`boundary.assignment_id`) NIGDY nie trafiają do `assignment_ids_by_employee_date`.
+- Następnie naruszenie jest budowane tak:
+```python
+ids = tuple(
+    assignment_id
+    for dd in (d, d + timedelta(days=1), d + timedelta(days=2))
+    for assignment_id in assignment_ids_by_employee_date.get((employee_id, dd), ())
+)
+details.append(ViolationDetail("THIRD-CONSECUTIVE-SHIFT-01", ids, ...))
+```
+Krotka `ids` zawiera wyłącznie identyfikatory pochodzące z `assignments`.
+Gdy `_affected_target()` pobiera `detail.assignment_ids[0]`, pobiera identyfikator
+zapisywany w bieżącej wersji. W warstwie walidacji zapisu warunek `target in assignments_by_id`
+jest spełniony. THIRD-CONSECUTIVE-SHIFT-01 NIGDY nie emituje cross-context assignment_id.
+
+---
+
+KROK 4: Weryfikacja zmiany w rota/persistence/schedule_validation.py
+W commicie 424ee7b dodano:
+```python
+is_current_cross_context_law_target = deviation.category == DeviationCategory.LAW and conn.execute(
+    """SELECT 1 FROM assignments a
+       JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
+       WHERE a.assignment_id = ?""",
+    (target,),
+).fetchone() is not None
+```
+Ponieważ żaden komponent produkcyjny nie generuje Deviation z category=LAW i targetem
+będącym cross-context assignment_id:
+1. Nowa gałąź `is_current_cross_context_law_target` jest całkowicie nieosiągalna (dead code)
+   w rzeczywistym pionie aplikacji.
+2. Zmiana chroni przed sytuacją czysto syntetyczną (ręcznie spreparowany obiekt Deviation
+   w teście jednostkowym), a nie przed realnym błędem aplikacji.
+
+================================================================================
+3. KONKLUZJA AUDYTU
+================================================================================
+Zgodnie z zasadami AGENTS.md (zasada minimalnego kodu, DEFECT_GATE):
+- Premisa briefu 6b9d64f jest fałszywa/nieaktualna na stanie kodu 424ee7b.
+- Nie ma realnego crasha MalformedScheduleSnapshot do naprawienia.
+- Wprowadzona zmiana w rota/persistence/schedule_validation.py jest zbędna w obecnym kształcie systemu.
+- Werdykt audytu: FAIL (premisa nieaktualna).
