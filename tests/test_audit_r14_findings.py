@@ -8,7 +8,10 @@ FINDING R14-2: engine.plan() retried without the LOAD-01 cap for *any*
 non-assignments outcome, including a genuine solver failure (UNKNOWN,
 MODEL_INVALID), and then guessed a LOAD-01 cause from whatever the uncapped
 solve happened to return -- producing an untyped DECISION_REQUIRED
-(load_blocker=None) instead of TECHNICAL_ERROR.
+(load_blocker=None) instead of a real terminal result. Still true today;
+only the terminal result UNKNOWN itself resolves to has changed (ROTA-
+PLAN-UNKNOWN-AS-TECHNICAL-ERROR: SEARCH_INCOMPLETE, not TECHNICAL_ERROR --
+MODEL_INVALID is unaffected and still TECHNICAL_ERROR).
 """
 from __future__ import annotations
 
@@ -61,11 +64,16 @@ def _fake_solve_always(status_name: str):
     return _fake
 
 
-def test_r14_2a_unknown_status_is_technical_error_not_decision_required(monkeypatch):
+def test_r14_2a_unknown_status_is_search_incomplete_not_decision_required(monkeypatch):
+    # ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR: UNKNOWN (deadline ran out, no
+    # candidate proven anywhere) is now SEARCH_INCOMPLETE, matching the
+    # existing REPLAN product truth -- still never a guessed
+    # DECISION_REQUIRED (the original R14-2 finding), and still never a
+    # silent retry inside plan() itself.
     monkeypatch.setattr(engine_module, "solve", _fake_solve_always("UNKNOWN"))
     state = base_state(shift_demands=(DEMAND_D,))
     result = plan(state)
-    assert result.status == "TECHNICAL_ERROR"
+    assert result.status == "SEARCH_INCOMPLETE"
 
 
 def test_r14_2b_model_invalid_status_is_technical_error_not_decision_required(monkeypatch):

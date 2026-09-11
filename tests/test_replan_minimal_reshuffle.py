@@ -293,11 +293,14 @@ def _replan_state_with_baseline():
     )
 
 
-def _assert_phase1_status_fails_closed(monkeypatch, forced_status_name: str):
+def _assert_phase1_status_fails_closed(monkeypatch, forced_status_name: str, expected_status: str = "TECHNICAL_ERROR"):
     """Regression for FINDING R2-1: forces solver.py's phase-1 _run_solver
     call to return the given non-OPTIMAL, non-INFEASIBLE status and
-    confirms plan() fails closed to TECHNICAL_ERROR instead of treating an
-    unproven incumbent as the proven reshuffle minimum."""
+    confirms plan() fails closed to `expected_status` instead of treating an
+    unproven incumbent as the proven reshuffle minimum. ROTA-PLAN-UNKNOWN-
+    AS-TECHNICAL-ERROR: UNKNOWN's own fail-closed result is now
+    SEARCH_INCOMPLETE, not TECHNICAL_ERROR -- FEASIBLE-without-proof and
+    MODEL_INVALID are unaffected and keep the default."""
     from ortools.sat.python import cp_model
 
     import rota.planning.solver as solver_module
@@ -322,15 +325,15 @@ def _assert_phase1_status_fails_closed(monkeypatch, forced_status_name: str):
 
     monkeypatch.setattr(solver_module, "_run_solver", fake_run_solver)
     result = plan(_replan_state_with_baseline())
-    assert result.status == "TECHNICAL_ERROR"
+    assert result.status == expected_status
 
 
 def test_i_phase1_feasible_without_proof_fails_closed_to_technical_error(monkeypatch):
     _assert_phase1_status_fails_closed(monkeypatch, "FEASIBLE")
 
 
-def test_i_phase1_unknown_fails_closed_to_technical_error(monkeypatch):
-    _assert_phase1_status_fails_closed(monkeypatch, "UNKNOWN")
+def test_i_phase1_unknown_fails_closed_to_search_incomplete(monkeypatch):
+    _assert_phase1_status_fails_closed(monkeypatch, "UNKNOWN", expected_status="SEARCH_INCOMPLETE")
 
 
 def test_i_phase1_model_invalid_fails_closed_to_technical_error(monkeypatch):

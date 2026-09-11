@@ -654,7 +654,11 @@ export default function MonthlyPlanning({
     }
   };
 
-  const retrySearchIncomplete = () => runReplanSearchAgain();
+  // ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR: was hard-wired to REPLAN's own
+  // retry, which silently mis-routed a PLAN/Przelicz Plan SEARCH_INCOMPLETE
+  // (now possible since the backend maps UNKNOWN to it for that family too)
+  // -- same planResultSource dispatch searchAgainForFeasible already uses.
+  const retrySearchIncomplete = () => (planResultSource === "plan" ? runPlanSearchAgain() : runReplanSearchAgain());
 
   // FEASIBLE+optimization_complete=false "Szukaj dalej" dispatches to
   // whichever family (PLAN vs. REPLAN narrow/wide) actually produced the
@@ -1224,7 +1228,7 @@ export default function MonthlyPlanning({
               unproven "maybe", never reported as exhausted/no-alternative. */}
           {planResult && planResult.status === "SEARCH_INCOMPLETE" && (
             <div className="banner-warning" style={{ marginTop: 12 }}>
-              <p style={{ margin: 0 }}>Wyszukiwanie nie zostało zakończone w wyznaczonym czasie — spróbuj ponownie.</p>
+              <p style={{ margin: 0 }}>Program nie zdążył ułożyć grafiku w dostępnym czasie. Możesz ponowić wyszukiwanie.</p>
               <div className="create-panel-actions" style={{ marginTop: 8 }}>
                 <button className="btn-primary" data-diag-action="replan-retry-incomplete" onClick={retrySearchIncomplete} disabled={planning}>
                   {planning ? "Szukanie…" : "Ponów wyszukiwanie"}

@@ -1054,7 +1054,10 @@ def test_c_first_pass_feasible_never_invokes_emergency(monkeypatch):
     assert calls == [False]
 
 
-def test_c_first_pass_unknown_status_technical_error_without_emergency_retry(monkeypatch):
+def test_c_first_pass_unknown_status_search_incomplete_without_emergency_retry(monkeypatch):
+    # ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR: UNKNOWN is now SEARCH_INCOMPLETE,
+    # not TECHNICAL_ERROR -- still no silent internal retry (calls == [False]
+    # unchanged).
     calls = []
 
     def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
@@ -1064,7 +1067,7 @@ def test_c_first_pass_unknown_status_technical_error_without_emergency_retry(mon
     monkeypatch.setattr(engine_module, "solve", _fake)
     state = base_state(shift_demands=(_demand("d1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)),))
     result = engine_module.plan(state)
-    assert result.status == "TECHNICAL_ERROR"
+    assert result.status == "SEARCH_INCOMPLETE"
     assert calls == [False]
 
 

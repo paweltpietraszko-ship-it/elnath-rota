@@ -141,21 +141,32 @@ def _plan(
     )
 
 
+def _technical_error_or_search_incomplete(status_name: str, optimization_complete: bool) -> PlanningResult:
+    """ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR: a shared deadline running out
+    with no candidate proven anywhere (`UNKNOWN`) is an honest "didn't
+    finish in time", never a technical failure -- the PLAN/Przelicz Plan
+    family gets the same SEARCH_INCOMPLETE product truth REPLAN already
+    has, via the existing retry (search_attempt), never a silent retry
+    here. Any other unresolved status (MODEL_INVALID, etc.) is still a
+    genuine technical failure (round 14 audit tests_r14.txt FINDING R14-2)."""
+    if status_name == "UNKNOWN":
+        return PlanningResult("SEARCH_INCOMPLETE", [], None, None, [], optimization_complete=False)
+    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {status_name}", [], optimization_complete)
+
+
 def _dispatch_or_continue(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
     """Stage 1/2 only: a found candidate is always terminal (delegated to
     _evaluate_candidate's own FEASIBLE/conflict/load disposition). A proven
     INFEASIBLE or a pre-model coverage shortage (NO_ELIGIBLE_EMPLOYEE) means
     None -- the caller must still try the next fallback stage. Any other
-    status (UNKNOWN/MODEL_INVALID) is a genuine technical failure, never
-    masked by a further retry (round 14 audit tests_r14.txt FINDING R14-2).
-    ROTA-T032 section 6.3: a technical failure caused by the shared deadline
-    running out with no candidate proven anywhere carries
-    optimization_complete=False through to the final PlanningResult."""
+    status (UNKNOWN/MODEL_INVALID) is terminal, never masked by a further
+    retry here (round 14 audit tests_r14.txt FINDING R14-2) -- UNKNOWN maps
+    to SEARCH_INCOMPLETE, everything else stays TECHNICAL_ERROR."""
     if outcome.assignments is not None:
         return _evaluate_candidate(state, outcome)
     if outcome.unassignable_demand_ids or outcome.status_name == "INFEASIBLE":
         return None
-    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete)
+    return _technical_error_or_search_incomplete(outcome.status_name, outcome.optimization_complete)
 
 
 def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningResult | None:
@@ -167,7 +178,7 @@ def _dispatch_stage3(state: PlanningState, outcome: SolverOutcome) -> PlanningRe
     if outcome.unassignable_demand_ids:
         return _decision_for_unassignable(state, outcome)
     if outcome.status_name != "INFEASIBLE":
-        return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {outcome.status_name}", [], outcome.optimization_complete)
+        return _technical_error_or_search_incomplete(outcome.status_name, outcome.optimization_complete)
     return None
 
 
@@ -189,7 +200,7 @@ def _resolve_without_load_cap(
         return _blocked_for_third_shift(state, fallback)
     if fallback.conflicting_demand_ids:
         return _decision_for_conflict(state, fallback)
-    return PlanningResult("TECHNICAL_ERROR", [], None, f"solver status: {fallback.status_name}", [], fallback.optimization_complete)
+    return _technical_error_or_search_incomplete(fallback.status_name, fallback.optimization_complete)
 
 
 def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[Assignment]:
