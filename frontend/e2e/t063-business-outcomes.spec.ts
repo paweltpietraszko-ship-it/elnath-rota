@@ -223,16 +223,47 @@ function assertFullCoverageAndClosedRoster(candidateAssignments: AssignmentOut[]
   expect(candidateAssignments.length).toBe(daysInCurrentMonth() * 2);
 }
 
+function dateOnly(dateTime: string): string {
+  return dateTime.slice(0, 10);
+}
+
+// R5-02 (Codex round 5): assertFullCoverageAndClosedRoster only checked
+// headcount and total shift count -- it would accept an employee assigned
+// on their own SICK_LEAVE day just as happily as a correct schedule
+// (Codex's reproducer proved this). scenario_pack.md T63-07/S03 "D nie ma
+// assignmentu kolidującego z chorobowym": no assignment for this employee
+// may START on any day inside [from, to] (shifts are calendar-day-keyed,
+// so the start date alone identifies which day's D/N a shift covers).
+function assertNoAssignmentDuringAbsence(assignments: AssignmentOut[], employeeName: string, from: string, to: string) {
+  const colliding = assignments.filter(
+    (a) => a.employee_display_name === employeeName && dateOnly(a.start_datetime) >= from && dateOnly(a.start_datetime) <= to,
+  );
+  expect(colliding, `${employeeName} must have no assignment during their SICK_LEAVE ${from}..${to}`).toEqual([]);
+}
+
+// R5-02: scenario_pack.md S02-V1/V2 "external nie jest używany poza swoją
+// dostępnością" -- every assignment for any of these names must start
+// inside [from, to], the exact support window they were added with.
+function assertExternalWithinWindow(assignments: AssignmentOut[], externalNames: string[], from: string, to: string) {
+  const outOfWindow = assignments.filter(
+    (a) => externalNames.includes(a.employee_display_name) && (dateOnly(a.start_datetime) < from || dateOnly(a.start_datetime) > to),
+  );
+  expect(outOfWindow, `external assignments must stay within ${from}..${to}`).toEqual([]);
+}
+
+// R5-02: swallowing a screenshot/PDF write failure would let a test pass
+// without the evidentiary artifacts brief.md section 11 actually requires
+// -- no more .catch(() => undefined) on these.
 async function exportAndCapturePdf(page: import("@playwright/test").Page, label: string) {
   await page.locator('[data-diag-action="room-nav-export"]').click();
   await page.locator('button:has-text("Wygeneruj podgląd PDF")').click();
   await expect(page.locator('[data-diag-element="export-preview"]')).toBeVisible({ timeout: 15000 });
-  await page.screenshot({ path: `test-results/t063-evidence/${label}-preview.png`, fullPage: true }).catch(() => undefined);
+  await page.screenshot({ path: `test-results/t063-evidence/${label}-preview.png`, fullPage: true });
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.locator('[data-diag-action="export-download"]').click(),
   ]);
-  await download.saveAs(`test-results/t063-evidence/${label}.pdf`).catch(() => undefined);
+  await download.saveAs(`test-results/t063-evidence/${label}.pdf`);
 }
 
 // scenario_pack.md S01/S02/S03 "Stan wejściowy: dokładnie LOCAL A-E; C =
@@ -248,7 +279,17 @@ async function addFiveLocalEmployees(page: import("@playwright/test").Page, site
   return names;
 }
 
+// R5-01 (Codex round 5): the repo's playwright.config.ts sets no file-level
+// `timeout` (Playwright's 30s default applies) and a global `retries: 2` --
+// a real PLAN/Przelicz Plan here genuinely takes 48-50s, and this task's
+// own "no retry masks a failure" claim (brief.md section 7) is worthless
+// unless retries=0 is actually encoded here, not just typed on a CLI
+// nobody else will remember to use. Every describe block below fixes both.
+const T063_TEST_CONFIG = { retries: 0, timeout: 120_000 } as const;
+
 test.describe("T063 S01: dodatni D/N z target_hours", () => {
+  test.describe.configure(T063_TEST_CONFIG);
+
   test("S01: FEASIBLE, pełny D/N wyłącznie A-E, reload, PDF", async ({ page }) => {
     const siteName = `T063S01-${uid()}`;
     await createT063Site(page, siteName);
@@ -273,6 +314,8 @@ test.describe("T063 S01: dodatni D/N z target_hours", () => {
 });
 
 test.describe("T063 S02: chorobowe po powstaniu grafiku, kontrolowany external", () => {
+  test.describe.configure(T063_TEST_CONFIG);
+
   const okno7d = futureWindowInCurrentMonth(7);
 
   // Shared S02 base: real PLAN with C on approved leave, real candidate
@@ -298,7 +341,7 @@ test.describe("T063 S02: chorobowe po powstaniu grafiku, kontrolowany external",
     // T63-05: dokładnie DECISION_REQUIRED, nigdy TECHNICAL_ERROR/crash/pusty sukces.
     expect(decisionBody.status).toBe("DECISION_REQUIRED");
     await expect(page.getByText(/Wymagana decyzja koordynatora/)).toBeVisible();
-    await page.screenshot({ path: `test-results/t063-evidence/S02-${siteName}-guidance.png` }).catch(() => undefined);
+    await page.screenshot({ path: `test-results/t063-evidence/S02-${siteName}-guidance.png` });
 
     // Literalna decyzja koordynatora: NIE COFAJ URLOPU C -- satisfied by
     // never touching C's leave record anywhere in this file.
@@ -322,7 +365,13 @@ test.describe("T063 S02: chorobowe po powstaniu grafiku, kontrolowany external",
     const feasibleBody = await runRecompute(page);
     expect(feasibleBody.status).toBe("FEASIBLE");
     const allowed = [...Object.values(names), x1];
-    assertFullCoverageAndClosedRoster(feasibleBody.candidates[0] as AssignmentOut[], allowed);
+    const assignments = feasibleBody.candidates[0] as AssignmentOut[];
+    assertFullCoverageAndClosedRoster(assignments, allowed);
+    // R5-02: D/E's SICK_LEAVE and X1's own declared availability window
+    // must both be genuinely respected, not just headcount/total-count.
+    assertNoAssignmentDuringAbsence(assignments, names.D, okno7d.from, okno7d.to);
+    assertNoAssignmentDuringAbsence(assignments, names.E, okno7d.from, okno7d.to);
+    assertExternalWithinWindow(assignments, [x1], okno7d.from, okno7d.to);
     await selectFirstCandidate(page);
     await exportAndCapturePdf(page, `S02V1-${siteName}`);
   });
@@ -342,6 +391,9 @@ test.describe("T063 S02: chorobowe po powstaniu grafiku, kontrolowany external",
     const allowed = [...Object.values(names), x1, x2, x3];
     const assignments = feasibleBody.candidates[0] as AssignmentOut[];
     assertFullCoverageAndClosedRoster(assignments, allowed);
+    assertNoAssignmentDuringAbsence(assignments, names.D, okno7d.from, okno7d.to);
+    assertNoAssignmentDuringAbsence(assignments, names.E, okno7d.from, okno7d.to);
+    assertExternalWithinWindow(assignments, [x1, x2, x3], okno7d.from, okno7d.to);
     const usedNames = new Set(assignments.map((a) => a.employee_display_name));
     const usedExternalCount = [x1, x2, x3].filter((x) => usedNames.has(x)).length;
     // eslint-disable-next-line no-console
@@ -352,6 +404,8 @@ test.describe("T063 S02: chorobowe po powstaniu grafiku, kontrolowany external",
 });
 
 test.describe("T063 S03: krótka choroba bez external", () => {
+  test.describe.configure(T063_TEST_CONFIG);
+
   test("S03: trzydniowy SICK_LEAVE D po zapisanym grafiku, FEASIBLE po Przelicz Plan", async ({ page }) => {
     const siteName = `T063S03-${uid()}`;
     const okno3d = futureWindowInCurrentMonth(3);
@@ -369,7 +423,10 @@ test.describe("T063 S03: krótka choroba bez external", () => {
 
     const feasibleBody = await runRecompute(page);
     expect(feasibleBody.status).toBe("FEASIBLE");
-    assertFullCoverageAndClosedRoster(feasibleBody.candidates[0] as AssignmentOut[], Object.values(names));
+    const assignments = feasibleBody.candidates[0] as AssignmentOut[];
+    assertFullCoverageAndClosedRoster(assignments, Object.values(names));
+    // T63-07: D must have no assignment colliding with their own SICK_LEAVE.
+    assertNoAssignmentDuringAbsence(assignments, names.D, okno3d.from, okno3d.to);
     await selectFirstCandidate(page);
 
     await page.reload();
