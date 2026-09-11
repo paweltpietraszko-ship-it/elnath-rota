@@ -1,0 +1,61 @@
+ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — final narrow re-check R5
+
+RESULT: PASS WITH OWNER-ACCEPTED LIMITATION
+EXACT IMPLEMENTATION SHA: c633e53926899c0299546b07520af2c4746c6668
+OWNER DECISION: main@c1b194c — do not pursue the rare historical-NN
+TECHNICAL_ERROR path further; it is an accepted compromise, not a defect.
+
+Scope
+-----
+
+Only the requested narrow re-check was performed: production diff from
+184b429 to c633e53, the three retained audit_r3_repro.py tests, and inspection
+of the changed NN carry-through conditions. No Task matrix, full regression,
+solver re-audit, coordinator simulators or legacy benchmarks were run.
+
+Evidence
+--------
+
+Command:
+`python -m pytest -q tasks/ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT/round_01/tests/audit_r3_repro.py`
+
+Result: 2 passed, 1 failed in 2.57s.
+
+PASS:
+- one recorded_at still owns the future correction effective date;
+- the acceptance cutover guard now rejects rewriting a historical
+  PRIMARY+CANCELLED+NN under the same Assignment id.
+
+The remaining failure is
+test_recompute_after_historical_nn_preserves_the_recorded_fact. It stops at
+`recomputed.status == "TECHNICAL_ERROR"` instead of reaching FEASIBLE. This is
+the exact COVERAGE-01 limitation explicitly accepted by OWNER on main@c1b194c.
+The old expectation that all three retained tests must be green is therefore
+stale against the later OWNER ruling and is not a defect or a FAIL basis.
+
+Narrow diff findings
+--------------------
+
+- `_historical_nn_facts` selects only past/present-at-cutover PRIMARY facts
+  with state CANCELLED and operational_code NN. Future CANCELLED Assignments
+  and every other CANCELLED kind remain outside the added path.
+- `_already_covered_counts` uses those facts only to prevent their past demand
+  from being solved again.
+- NN is appended to returned candidates after ordinary solver extraction and
+  warning calculation. It is not added to fixed_existing_assignments, so it
+  is not counted as worked time, occupancy, fairness or REST input.
+- `_replan_cutover_violations` now protects historical NN from removal or
+  mutation under the same id. No other solver rule, eligibility, objective,
+  fairness or limit behavior is changed by the reviewed diff.
+
+Accepted limitation
+-------------------
+
+For the rare Przelicz Plan/REPLAN crossing a historical NN, independent
+COVERAGE-01 validation may return TECHNICAL_ERROR rather than FEASIBLE. OWNER
+explicitly accepted this user-visible recovery limitation and rejected further
+scope expansion. It is recorded here so it is not reopened without a new OWNER
+ruling or a new contradiction.
+
+PASS applies only to c633e53926899c0299546b07520af2c4746c6668 under the OWNER
+decision recorded at main@c1b194c.
