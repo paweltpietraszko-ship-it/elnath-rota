@@ -1,0 +1,78 @@
+ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR — niezależny audyt kodu R3
+
+Exact audited SHA: 9b57cecb4727c27da4b485da3bda54624173e86f
+Frozen brief SHA: 0f3d789abd89e7131a8ec60d233ba7c59519c764
+Werdykt: FAIL — jeden reprodukowany blocker UI; backend PASS.
+
+FINDING R3-01 — po zapisanym podglądzie nowy SEARCH_INCOMPLETE znika z ekranu
+
+TRACE
+
+- brief 2.1: po UNKNOWN użytkownik ma zobaczyć prostą informację i móc
+  kontynuować wyszukiwanie;
+- acceptance A6/A7: SEARCH_INCOMPLETE ma kierować do właściwego retry, a każde
+  jawne ponowienie ma korzystać z istniejącego search_attempt;
+- OWNER_ACCEPTED 2026-09-11: wykorzystać istniejący mechanizm kontynuowania,
+  bez tworzenia nowej ścieżki.
+
+OWNERSHIP
+
+MonthlyPlanning.tsx jest właścicielem świeżego planResult, odświeżenia widoku
+i renderowania bannera/przycisku. Po wyniku z POST komponent wywołuje load().
+Gdy poprzedni ekran pochodził z trwałego plan_preview, ref
+isPersistedPreviewRef nadal ma wartość true. Następny GET prawidłowo zwraca już
+brak preview, a effect w gałęzi `else if (isPersistedPreviewRef.current)`
+bezwarunkowo wykonuje `setPlanResult(null)`. Kasuje w ten sposób świeży
+SEARCH_INCOMPLETE, choć miał usuwać tylko stary kandydat.
+
+REPRO na exact SHA
+
+Pion w prawdziwym Chromium, przez produkcyjny MonthlyPlanning:
+
+1. Ekran otwiera zapisany podgląd PLAN z optimization_complete=false.
+2. Koordynator klika istniejące „Szukaj dalej” i potwierdza zastąpienie.
+3. POST /plan zwraca SEARCH_INCOMPLETE bez kandydata; następny GET zgodnie z
+   lifecycle nie zawiera już starego preview.
+4. Oczekiwany komunikat i „Ponów wyszukiwanie” pojawiają się tylko chwilowo,
+   po czym effect je usuwa. Ekran wraca do „Brak grafiku na ten miesiąc” z
+   przyciskami PLAN/REPLAN; użytkownik nie dostaje ustalonej informacji i nie
+   może kontynuować istniejącym retry.
+
+Wynik Playwright: 2 scenariusze podstawowe PASS, ten scenariusz FAIL na trzech
+automatycznych wykonaniach; osobne potwierdzenie bez retry również FAIL.
+Zrzut stanu po błędzie został obejrzany: banner i przycisk są faktycznie
+nieobecne, nie tylko ukryte selektorem.
+
+Minimalna granica poprawki
+
+Bez nowego flow i bez zmiany briefu: w istniejącym MonthlyPlanning.tsx
+odróżnić usunięcie starego persisted preview od świeżego nie-FEASIBLE wyniku,
+tak aby odświeżenie po POST nie kasowało SEARCH_INCOMPLETE. Zachować obecne
+czyszczenie naprawdę nieaktualnego kandydata po akceptacji/odrzuceniu.
+Istniejący reproduktor R3 ma po poprawce przejść bez zmiany oczekiwań.
+
+Pozostałe warstwy
+
+- Niezależny backend: wszystkie trzy dispatch funkcje × UNKNOWN/MODEL_INVALID:
+  6/6 PASS. UNKNOWN daje pusty SEARCH_INCOMPLETE; MODEL_INVALID nadal daje
+  TECHNICAL_ERROR.
+- Wąskie testy zmienionego kodu i granic CC: 10/10 PASS.
+- Pierwszy PLAN bez wcześniejszego preview: routing PLAN i ponowienie z
+  search_attempt=1 PASS; komunikat pozostaje po kolejnym UNKNOWN.
+- REPLAN bez wcześniejszego preview: routing do /replan/retry PASS.
+- Optyczna kontrola podstawowego bannera 1280×720: prosty polski tekst,
+  czytelny przycisk, brak ucięcia i nakładania. Optyczna kontrola reproduktora
+  potwierdziła pusty stan po błędzie.
+- TypeScript/full suite CC potraktowano jako supporting evidence. Nie
+  powtarzano pełnej regresji ani dwóch zgłoszonych niezwiązanych failów.
+- Zamrożone symulatory i benchmarki nie były uruchamiane.
+- Skill playwright-interactive wymaga niedostępnego w tej sesji js_repl;
+  użyto istniejącego runnera Playwright z prawdziwym Chromium i osobnej
+  inspekcji obu zrzutów ekranu.
+
+Artefakty audytu
+
+- tasks/ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR/round_01/tests/test_audit_r3.py
+- frontend/e2e/plan-search-incomplete-routing.spec.ts
+
+FAIL dotyczy wyłącznie exact SHA 9b57cecb4727c27da4b485da3bda54624173e86f.

@@ -611,7 +611,10 @@ def test_b10_8_stage1_no_eligible_employee_reaches_stage2(monkeypatch):
 # B10.9 -----------------------------------------------------------------------
 
 
-def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
+def test_b10_9_unknown_stage1_status_stops_without_retry(monkeypatch):
+    # ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR: UNKNOWN is now SEARCH_INCOMPLETE,
+    # not TECHNICAL_ERROR -- still stops without an internal retry
+    # (calls == [False] unchanged).
     calls = []
 
     def _fake(state, enforce_load_cap=True, allow_day_only_n_fallback=False, allow_emergency_24h=False, **_kwargs):
@@ -621,7 +624,7 @@ def test_b10_9_technical_stage1_status_stops_without_retry(monkeypatch):
     monkeypatch.setattr(engine_module, "solve", _fake)
     state = base_state(shift_demands=(_n_demand(6),), month=B_MONTH)
     result = plan(state)
-    assert result.status == "TECHNICAL_ERROR"
+    assert result.status == "SEARCH_INCOMPLETE"
     assert calls == [False]
 
 

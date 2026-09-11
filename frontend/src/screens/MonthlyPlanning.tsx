@@ -531,6 +531,13 @@ export default function MonthlyPlanning({
       const effectiveFrom = view?.current_version ? null : effectiveFromDraft;
       const result = await api.planMonth(siteId, monthIso, effectiveFrom, 0);
       setPlanResultSource("plan");
+      // ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR R3-01 audit fix: this result is
+      // fresh, not a reconstruction of the persisted preview -- if the ref
+      // was still true from a PRIOR persisted preview, the reload below
+      // would otherwise let the "preview is gone" cleanup effect wipe this
+      // exact result out (e.g. a non-FEASIBLE SEARCH_INCOMPLETE, which never
+      // gets persisted as a preview at all).
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -550,6 +557,7 @@ export default function MonthlyPlanning({
       const result = await api.planMonth(siteId, monthIso, effectiveFrom, nextAttempt);
       setPlanSearchAttempt(nextAttempt);
       setPlanResultSource("plan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -578,6 +586,7 @@ export default function MonthlyPlanning({
     try {
       const result = await api.replanMonth(siteId, monthIso, effectiveFromDraft);
       setPlanResultSource("replan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -625,6 +634,7 @@ export default function MonthlyPlanning({
     try {
       const result = await api.replanWiderSearch(siteId, monthIso, 0);
       setPlanResultSource("replan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -645,6 +655,7 @@ export default function MonthlyPlanning({
         : await api.replanRetry(siteId, monthIso, nextAttempt);
       setReplanSearchAttempt(nextAttempt);
       setPlanResultSource("replan");
+      isPersistedPreviewRef.current = false;
       setPlanResult(result);
       loadUnlessFreshPreviewUnpersisted(result);
     } catch (e: unknown) {
@@ -654,7 +665,11 @@ export default function MonthlyPlanning({
     }
   };
 
-  const retrySearchIncomplete = () => runReplanSearchAgain();
+  // ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR: was hard-wired to REPLAN's own
+  // retry, which silently mis-routed a PLAN/Przelicz Plan SEARCH_INCOMPLETE
+  // (now possible since the backend maps UNKNOWN to it for that family too)
+  // -- same planResultSource dispatch searchAgainForFeasible already uses.
+  const retrySearchIncomplete = () => (planResultSource === "plan" ? runPlanSearchAgain() : runReplanSearchAgain());
 
   // FEASIBLE+optimization_complete=false "Szukaj dalej" dispatches to
   // whichever family (PLAN vs. REPLAN narrow/wide) actually produced the
@@ -1224,7 +1239,7 @@ export default function MonthlyPlanning({
               unproven "maybe", never reported as exhausted/no-alternative. */}
           {planResult && planResult.status === "SEARCH_INCOMPLETE" && (
             <div className="banner-warning" style={{ marginTop: 12 }}>
-              <p style={{ margin: 0 }}>Wyszukiwanie nie zostało zakończone w wyznaczonym czasie — spróbuj ponownie.</p>
+              <p style={{ margin: 0 }}>Program nie zdążył ułożyć grafiku w dostępnym czasie. Możesz ponowić wyszukiwanie.</p>
               <div className="create-panel-actions" style={{ marginTop: 8 }}>
                 <button className="btn-primary" data-diag-action="replan-retry-incomplete" onClick={retrySearchIncomplete} disabled={planning}>
                   {planning ? "Szukanie…" : "Ponów wyszukiwanie"}
