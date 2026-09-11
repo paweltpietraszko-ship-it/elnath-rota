@@ -75,7 +75,7 @@ def test_5_missing_target_hours_not_invented_and_demand_count_unchanged(tmp_path
     state_before, warnings_before = assemble_planning_state(conn, site_id=pstate.site.site_id, month=MONTH)
     demand_count_before = len(state_before.shift_demands)
     assert state_before.work_balances == ()
-    assert any("target_hours" in w for w in warnings_before)
+    assert any("użyto awaryjnego, równego podziału godzin" in w for w in warnings_before)
 
     first_employee = pstate.employees[0].employee_id
     save_work_balance_target(conn, employee_id=first_employee, month=MONTH, target_hours=160)

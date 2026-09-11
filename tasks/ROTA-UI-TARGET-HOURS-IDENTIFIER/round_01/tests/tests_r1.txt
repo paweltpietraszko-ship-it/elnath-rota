@@ -1,0 +1,42 @@
+ROTA-UI-TARGET-HOURS-IDENTIFIER — niezależny audyt R1
+
+Exact audited SHA: 31dd43bd82e415b92aeee131ed02b95f44be351a
+Źródło PRODUCT_TRUTH: BOARD finding ROTA-UI-TARGET-HOURS-IDENTIFIER oraz jawna
+decyzja OWNERA o usuwaniu technicznych identyfikatorów z UI.
+Werdykt: PASS.
+
+Zakres zmiany
+
+- rota/application/assembler.py: z jednego ostrzeżenia usunięto wyłącznie
+  tekst `(target_hours)`;
+- tests/test_t009_open_and_assembler.py: filtr testu opiera się teraz na
+  stabilnej polskiej treści, nie na usuniętym identyfikatorze pola.
+
+Nie zmieniono fallbacku, obliczeń, solvera, danych ani sposobu przekazywania
+ostrzeżeń do ekranu i wydruku.
+
+Niezależne sprawdzenie
+
+- Reproduktor assemblera + wskazany test implementatora: 2/2 PASS.
+- Potwierdzone: brak work balance nadal uruchamia awaryjny równy podział;
+  ostrzeżenie nadal zawiera jasne „Brak wpisanego miesięcznego limitu godzin”
+  i „użyto awaryjnego, równego podziału godzin”; żadne takie ostrzeżenie nie
+  zawiera `target_hours`.
+- Search produkcji: stary dokładny tekst z `(target_hours)` jest nieobecny.
+- Rzeczywisty pion MonthlyPlanning w Chromium, istniejący scenariusz C01-C04:
+  1/1 PASS. Ostrzeżenie jest widoczne, zawiera właściwego pracownika i równy
+  podział, przeżywa reload, znika po uzupełnieniu godzin i nie obejmuje
+  EXTERNAL_SUPPORT.
+
+Ograniczenia audytu
+
+- Nie uruchamiano pełnej regresji; dla dwuwierszowej zmiany tekstowej nie ma
+  konkretnego uzasadnienia kosztu.
+- Nie uruchamiano zamrożonych symulatorów ani benchmarków.
+- Nie zmieniono układu PDF ani UI. Sprawdzono realne renderowanie ostrzeżenia,
+  ale nie generowano nowego wydruku wyłącznie dla usunięcia jednego nawiasu.
+
+Artefakt niezależny:
+tasks/ROTA-UI-TARGET-HOURS-IDENTIFIER/round_01/tests/test_audit_r1.py
+
+PASS dotyczy wyłącznie exact SHA 31dd43bd82e415b92aeee131ed02b95f44be351a.

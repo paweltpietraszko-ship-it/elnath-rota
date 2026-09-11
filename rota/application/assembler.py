@@ -154,7 +154,7 @@ def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple
             # `warnings` list plan_ops now threads through to the PLAN response
             # and open_month already threads to GET /schedule/{month}.
             warnings.append(
-                f"Brak wpisanego miesięcznego limitu godzin (target_hours) dla "
+                f"Brak wpisanego miesięcznego limitu godzin dla "
                 f"pracownika {employee_id!r} w miesiącu {month.isoformat()} — "
                 "użyto awaryjnego, równego podziału godzin."
             )
