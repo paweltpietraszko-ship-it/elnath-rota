@@ -327,24 +327,10 @@ def _validate_one_deviation(
     # blame when nothing covers it -- a same-version ShiftDemand is also a
     # legal target, but only for category=COVERAGE.
     is_demand = target in demands_by_id and deviation.category == DeviationCategory.COVERAGE
-    # ROTA-CROSS-CONTEXT-DEVIATION-TARGET (brief 6b9d64f): a LAW deviation
-    # (e.g. REST-01/WEEKLY-REST-01/THIRD-CONSECUTIVE-SHIFT-01) can legally
-    # name an Assignment from a cross-context source (same-Site adjacent
-    # month, or another Site) that the validator itself compares against --
-    # never resolvable in this version's own assignments_by_id. Legal only
-    # while that Assignment still belongs to some CURRENT ScheduleVersion; a
-    # superseded (non-current) version's Assignment stays rejected.
-    is_current_cross_context_law_target = deviation.category == DeviationCategory.LAW and conn.execute(
-        """SELECT 1 FROM assignments a
-           JOIN current_schedule_versions c ON c.version_id = a.schedule_version_id
-           WHERE a.assignment_id = ?""",
-        (target,),
-    ).fetchone() is not None
-    if not target or not (is_employee or target in assignments_by_id or is_demand or is_current_cross_context_law_target):
+    if not target or not (is_employee or target in assignments_by_id or is_demand):
         raise MalformedScheduleSnapshot(
             f"deviation {deviation.deviation_id!r}: affected_assignment_or_employee must resolve to an "
-            "Employee, a same-version Assignment, (for COVERAGE) a same-version ShiftDemand, or (for LAW) "
-            "a current cross-context Assignment"
+            "Employee, a same-version Assignment, or (for COVERAGE) a same-version ShiftDemand"
         )
     if deviation.acknowledged:
         if not deviation.acknowledged_by or not deviation.acknowledged_at:
