@@ -135,7 +135,13 @@ Dozwolone production paths:
 
 Dozwolone test paths:
 - nowy `tests/test_plan_unknown_search_incomplete.py`;
-- nowy `frontend/e2e/plan-search-incomplete-routing.spec.ts` wyłącznie jeżeli istniejący test seam pozwala sprawdzić routing bez budowania nowego frameworka/mock systemu.
+- nowy `frontend/e2e/plan-search-incomplete-routing.spec.ts` wyłącznie jeżeli istniejący test seam pozwala sprawdzić routing bez budowania nowego frameworka/mock systemu;
+- `tests/test_audit_r14_findings.py` — wyłącznie mechaniczna aktualizacja oczekiwania/nazwy/komentarza dla dokładnego `UNKNOWN`; zachować ochronę przed cichym retry;
+- `tests/test_t012.py` — wyłącznie mechaniczna aktualizacja oczekiwania/nazwy/komentarza dla dokładnego `UNKNOWN`; zachować ochronę przed cichym retry;
+- `tests/test_t018.py` — wyłącznie mechaniczna aktualizacja oczekiwania/nazwy/komentarza dla dokładnego `UNKNOWN`; zachować ochronę przed cichym retry;
+- `tests/test_replan_minimal_reshuffle.py` — wyłącznie mechaniczna aktualizacja oczekiwania/nazwy/komentarza dla dokładnego `UNKNOWN`; zachować ochronę przed cichym retry.
+
+W czterech istniejących testach powyżej nie zmieniać żadnej innej granicy produktu. Asercje `MODEL_INVALID` i pozostałe klasy `TECHNICAL_ERROR` pozostają bez zmian. Liczba wywołań solvera w ramach jednej próby ma pozostać taka sama; zmiana `UNKNOWN -> SEARCH_INCOMPLETE` nie jest zgodą na wewnętrzny retry.
 
 Jeżeli frontendowego E2E nie da się zrobić bez nowej infrastruktury testowej, nie budować jej. Wtedy wystarczy istniejący poziom testów komponentu/API, jeżeli taki już jest, albo wąski test statyczny/behavioural w obecnym frameworku wskazany przez Codexa przed implementacją.
 
@@ -156,11 +162,12 @@ Jeżeli implementacja wymaga wyjścia poza ten zakres, CC zatrzymuje pracę i wr
 
 ## 8. Preimplementation check Codexa
 
-Codex ma odpowiedzieć tylko na cztery pytania:
-1. Czy dokładny `UNKNOWN` można bezpiecznie zmapować na istniejący `SEARCH_INCOMPLETE` w trzech wskazanych dispatchach bez naruszania innych statusów?
-2. Czy `runPlanSearchAgain` rzeczywiście obsługuje zarówno pierwszy PLAN, jak i `Przelicz Plan` przez istniejący `search_attempt`?
-3. Czy routing `retrySearchIncomplete` po istniejącym `planResultSource` wystarcza dla PLAN vs REPLAN bez nowej ścieżki?
-4. Czy literalny scope dwóch plików produkcyjnych jest wystarczający?
+Po mechanicznej korekcie scope Codex ma wykonać tylko krótki literalny re-check:
+1. Czy cztery dopisane ścieżki testowe dokładnie odpowiadają aktywnym testom wskazanym w raporcie R1?
+2. Czy ich dozwolona zmiana jest ograniczona do nowej PRODUCT_TRUTH `UNKNOWN -> SEARCH_INCOMPLETE`, przy zachowaniu dotychczasowej ochrony przed cichym retry i bez ruszania `MODEL_INVALID`/pozostałych `TECHNICAL_ERROR`?
+3. Czy production scope nadal pozostaje wyłącznie `engine.py` + `MonthlyPlanning.tsx`?
 
-Jeżeli odpowiedź na wszystkie cztery = tak: PASS exact SHA i zwolnienie IMPLEMENTATION HOLD.
+Nie powtarzać audytu solvera, mapy ownership ani redesignu zadania.
+
+Jeżeli odpowiedź na wszystkie trzy = tak: PASS exact SHA i zwolnienie IMPLEMENTATION HOLD.
 Jeżeli nie: wskazać jedną konkretną sprzeczność; bez redesignu zadania.
