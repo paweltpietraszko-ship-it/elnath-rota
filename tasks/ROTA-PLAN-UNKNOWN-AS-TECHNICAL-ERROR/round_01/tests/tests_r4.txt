@@ -1,0 +1,44 @@
+ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR — re-audyt poprawki R4
+
+Exact audited SHA: ecd6e0d62673eb78f8e2ff20620d1cd80a0cbc5a
+Frozen brief SHA: 0f3d789abd89e7131a8ec60d233ba7c59519c764
+Prior FAIL/reproducer: task/ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR@38272f8
+Werdykt: PASS.
+
+Zakres zmiany
+
+Od poprzedniego raportu zmienił się wyłącznie
+frontend/src/screens/MonthlyPlanning.tsx. Backend i klasyfikacja statusów nie
+uległy zmianie, dlatego nie powtarzano ich audytu.
+
+R3-01 — PASS
+
+Każdy z pięciu istniejących handlerów ustawiających świeży wynik PLAN/REPLAN
+zeruje teraz isPersistedPreviewRef przed setPlanResult i load(). Odświeżenie,
+które potwierdza usunięcie poprzedniego persisted preview, nie myli już
+świeżego SEARCH_INCOMPLETE ze starym kandydatem i nie kasuje komunikatu.
+
+Niezależny reproduktor Codexa na exact SHA: 3/3 PASS w prawdziwym Chromium:
+
+1. pierwszy PLAN bez wyniku pokazuje prosty komunikat, ponawia /plan z
+   search_attempt=1 i pozostawia możliwość kolejnej próby;
+2. REPLAN bez wyniku nadal ponawia /replan/retry;
+3. po zapisanym podglądzie PLAN i kliknięciu „Szukaj dalej” wynik
+   SEARCH_INCOMPLETE pozostaje widoczny po następnym GET bez starego preview.
+
+Optyczna kontrola trzeciego stanu 1280×720: banner i przycisk „Ponów
+wyszukiwanie” są widoczne, czytelne, nieucięte i nie nakładają się na inne
+elementy. Stan jest zgodny z podstawowym wariantem bez wcześniejszego preview.
+
+Granice
+
+- brak nowej ścieżki, endpointu, statusu lub logiki solvera;
+- zachowane kierowanie PLAN vs REPLAN;
+- zachowane czyszczenie starego preview przy jego rzeczywistym zniknięciu;
+- pełnej regresji nie uruchamiano; poprawka jest wąska, a CC podał dodatkowe
+  targeted testy i czysty TypeScript jako supporting evidence;
+- zamrożone symulatory i benchmarki nie były uruchamiane;
+- interaktywny js_repl wymagany przez skill nie był dostępny w tej sesji;
+  użyto projektu Playwright z rzeczywistym Chromium i obejrzano końcowy zrzut.
+
+PASS dotyczy wyłącznie exact SHA ecd6e0d62673eb78f8e2ff20620d1cd80a0cbc5a.
