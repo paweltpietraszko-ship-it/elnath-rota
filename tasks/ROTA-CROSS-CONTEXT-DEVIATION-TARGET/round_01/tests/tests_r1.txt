@@ -1,0 +1,45 @@
+ROTA-CROSS-CONTEXT-DEVIATION-TARGET — preimplementation audit R1
+
+VERDICT: PASS
+EXACT BRIEF SHA: 6b9d64f26bec94a4783bfe2042d339d3264bf317
+BASELINE INSPECTED: main@1198071074b3548727731d78c2f6df48e49f203c
+
+Audit layers:
+- full literal brief and cited finding/BOARD scope decision;
+- narrow owner/path inspection on the exact baseline;
+- PRE_IMPLEMENTATION_REDUCTION_GATE for the proposed query, production file and tests;
+- where.py evidence previously recorded for
+  schedule_validation.py::_validate_one_deviation, followed by direct code reading.
+
+Answers to brief section 7:
+
+1. YES. The existing cross-context assembly reads Assignments only through
+   assignments joined to current_schedule_versions. Both same-Site boundary
+   and other-Site context therefore share the proposed current-version
+   lifetime rule. _validate_one_deviation owns reference legality, not a
+   second reconstruction of REST/WEEKLY-REST semantics; reproducing roster,
+   interval and pair validation here would duplicate the upstream owner.
+
+2. YES. The additional branch is explicitly gated by
+   deviation.category == DeviationCategory.LAW. Existing Employee,
+   same-version Assignment and COVERAGE/same-version ShiftDemand cases remain
+   unchanged; no other category gains cross-context Assignment resolution.
+
+3. YES. The crash occurs at the persistence reference check and can be fixed
+   entirely in rota/persistence/schedule_validation.py. No change is needed in
+   manual_edit.py, deviation mapping, planning validator or solver.
+
+Reduction result:
+- necessary: one narrow current-Assignment existence check at the existing
+  persistence owner;
+- necessary tests: current adjacent-month, current other-Site, non-current
+  rejection, non-LAW rejection, existing COVERAGE preservation, and the real
+  manual-correction crash path;
+- remove/avoid: new registry/table/helper layer and duplicate REST semantic
+  validation at persistence.
+
+No product tests were run: this is a brief-only preimplementation audit and no
+production code exists on the audited SHA.
+
+PASS applies only to the exact brief SHA above. IMPLEMENTATION HOLD may be
+released for this Task.
