@@ -142,6 +142,8 @@ Scenariusze używają października 2026 i wykonawczo zależą od T064. T063 nie
 
 Finalny preimplementation PASS T063 nie znosi tej zależności wykonawczej.
 
+**OWNER_CORRECTED 2026-09-11 (`SCENARIO_PACK v0.3`):** podczas implementacji ujawnił się drugi, niezależny od T064 blocker -- `is_schedule_version_live` (i jedyny UI-owy konsument, przycisk „Przelicz (PLAN)") wymaga, żeby pierwsza realna służba grafiku już się zaczęła względem PRAWDZIWEGO zegara serwera, nie względem wybranego miesiąca roboczego. Sztywny październik 2026 pozostaje przyszłością nawet po T064 (T064 naprawia tylko przygotowanie kalendarza, nie upływ czasu), więc „Przelicz Plan" nigdy by się nie pojawił dla S02/S02-V1/S02-V2/S03. OWNER zatwierdził jedyną zmianę: miesiąc scenariusza to zawsze bieżący miesiąc kalendarzowy w chwili uruchomienia testu, a sztywne daty absencji to przesunięcia względem dnia uruchomienia (`OKNO_7D`/`OKNO_3D`) -- pełne uzasadnienie i szczegóły w `scenario_pack.md`. Nadal zero fałszowania zegara przeglądarki/systemu.
+
 ## 11. Artefakty dowodowe
 
 Każdy referencyjny przebieg zachowuje:

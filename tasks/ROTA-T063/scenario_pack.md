@@ -1,14 +1,20 @@
-# ROTA-T063 — SCENARIO_PACK v0.2 OWNER APPROVED
+# ROTA-T063 — SCENARIO_PACK v0.3 OWNER APPROVED
 
-STATUS: OWNER APPROVED 2026-09-10 — NORMATIVE TEST INPUT
+STATUS: OWNER APPROVED 2026-09-11 — NORMATIVE TEST INPUT (supersedes v0.2)
 
-Ten plik zastępuje `SCENARIO_PACK v0.1`. Daty, nazwy i wartości testowe są syntetyczne i służą deterministyczności acceptance. Nie są twierdzeniem o jednym rzeczywistym obiekcie. Implementer odwzorowuje scenariusze literalnie i nie rozszerza ich pod wynik testu.
+Ten plik zastępuje `SCENARIO_PACK v0.1`/`v0.2`. Daty, nazwy i wartości testowe są syntetyczne i służą deterministyczności acceptance. Nie są twierdzeniem o jednym rzeczywistym obiekcie. Implementer odwzorowuje scenariusze literalnie i nie rozszerza ich pod wynik testu.
+
+## OWNER_CORRECTED 2026-09-11 — miesiąc zamieniony na bieżący, sztywne daty na przesunięcia
+
+Podczas implementacji CC potwierdził w kodzie realny blocker niezależny od T064: `rota/persistence/schedule_repository.py::is_schedule_version_live` (i jego jedyny konsument w UI, przycisk „Przelicz (PLAN)” w `MonthlyPlanning.tsx`) uznaje grafik za „żywy” wyłącznie wtedy, gdy pierwsza realna służba już się zaczęła względem PRAWDZIWEGO zegara serwera — nie względem wybranego miesiąca roboczego. `SCENARIO_PACK v0.2` zamrażał `2026-10`, który pozostaje przyszłością względem realnego zegara nawet po T064 (T064 naprawił tylko przygotowanie kalendarza na przyszły miesiąc, nie upływ czasu). Efekt: „Przelicz Plan" nigdy by się nie pojawił dla S02/S02-V1/S02-V2/S03 — nie brak danych kalendarza, tylko brak upływu czasu.
+
+OWNER (2026-09-11) zatwierdził jedyną zmianę: **miesiąc to zawsze bieżący miesiąc kalendarzowy w chwili uruchomienia testu**, nie sztywny `2026-10`. Dzień 1 bieżącego miesiąca z definicji już minął względem realnego zegara (poza pierwszymi godzinami 1. dnia), więc „Przelicz Plan" jest zawsze dostępny — bez żadnego fałszowania zegara przeglądarki/systemu. Wszystkie sztywne daty absencji (`OKNO_7D` (patrz OWNER_CORRECTED), `OKNO_3D` (patrz OWNER_CORRECTED)) zamienione na przesunięcia względem dnia uruchomienia testu: **okno 7 dni** zaczynające się jutro (dziś+1) w bieżącym miesiącu dla urlopu C i chorobowego D/E w S02/S02-V1/S02-V2, **okno 3 dni** zaczynające się jutro dla chorobowego D w S03 — licznik dni musi zostać bezpiecznie w tym samym miesiącu kalendarzowym (jeśli okno wykroczyłoby poza koniec miesiąca, cofa się tak, by zmieścić się w miesiącu). Reszta kontraktu (roster, target_hours, kolejność operacji, oczekiwane statusy, zakazy) bez zmian względem v0.2.
 
 ## Wspólna baza
 
-Miesiąc: `2026-10` — wykonanie zależne od T064; bez podrobienia zegara przeglądarki.
+Miesiąc: bieżący miesiąc kalendarzowy w chwili uruchomienia testu (patrz OWNER_CORRECTED wyżej) — wykonanie zależne od T064; bez podrobienia zegara przeglądarki/systemu.
 
-Obiekt: syntetyczny `T063-24H`.
+Obiekt: syntetyczny `T063-24H`. Próg decyzyjny 7-dniowy (`rolling_7d_decision_threshold_hours`) ustawiony na `60` przy tworzeniu obiektu -- dokładnie ta wartość, na której opiera się już "Twardy fakt scenariusza" w S02 (granica 60h/dowolne 7 dni). Domyślne `40` z formularza tworzenia obiektu jest zbyt niskie dla tego kształtu zapotrzebowania (2 x 12h/dzień) i samo w sobie generuje LOAD nawet bez zdarzeń S02 -- potwierdzone empirycznie podczas implementacji.
 
 Zapotrzebowanie:
 - jedna służba D każdego dnia, `05:00–17:00`;
@@ -69,7 +75,7 @@ Cel: sprawdzić realny lifecycle chorobowego i kontrolowane wsparcie zewnętrzne
 Stan do utworzenia bazowego grafiku:
 - LOCAL A–E;
 - `target_hours = NULL` dla A–E;
-- C ma zatwierdzony urlop `2026-10-12`–`2026-10-18`;
+- C ma zatwierdzony urlop `OKNO_7D` (patrz OWNER_CORRECTED);
 - D i E są zdrowi i dostępni;
 - external = NONE.
 
@@ -80,8 +86,8 @@ Krok bazowy:
 4. Test potwierdza, że istnieje rzeczywisty current i niepusty D/N.
 
 Zdarzenie po powstaniu grafiku:
-- D otrzymuje `SICK_LEAVE` `2026-10-12`–`2026-10-18`;
-- E otrzymuje `SICK_LEAVE` `2026-10-12`–`2026-10-18`;
+- D otrzymuje `SICK_LEAVE` `OKNO_7D` (patrz OWNER_CORRECTED);
+- E otrzymuje `SICK_LEAVE` `OKNO_7D` (patrz OWNER_CORRECTED);
 - C pozostaje na wcześniej zatwierdzonym urlopie;
 - w krytycznym oknie dostępni LOCAL pozostają A i B.
 
@@ -103,7 +109,7 @@ Pierwszy `Przelicz Plan` bez external:
 Scenariusz startuje od własnego czystego przebiegu S02.
 
 Po `DECISION_REQUIRED` i literalnym `NIE COFAJ URLOPU C` koordynator dodaje przez normalne operacje produktu:
-- `X1` — external, D/N, dostępny tylko `2026-10-12`–`2026-10-18`.
+- `X1` — external, D/N, dostępny tylko `OKNO_7D` (patrz OWNER_CORRECTED).
 
 Następnie uruchamia właściwe `Przelicz Plan`.
 
@@ -120,9 +126,9 @@ Oczekiwany wynik:
 Scenariusz startuje od osobnego czystego przebiegu S02 i nie dziedziczy X1 z V1.
 
 Po `DECISION_REQUIRED` i literalnym `NIE COFAJ URLOPU C` koordynator dodaje:
-- `X1` — external, D/N, `2026-10-12`–`2026-10-18`;
-- `X2` — external, D/N, `2026-10-12`–`2026-10-18`;
-- `X3` — external, D/N, `2026-10-12`–`2026-10-18`.
+- `X1` — external, D/N, `OKNO_7D` (patrz OWNER_CORRECTED);
+- `X2` — external, D/N, `OKNO_7D` (patrz OWNER_CORRECTED);
+- `X3` — external, D/N, `OKNO_7D` (patrz OWNER_CORRECTED).
 
 Następnie uruchamia `Przelicz Plan`.
 
@@ -158,7 +164,7 @@ Krok bazowy:
 4. Test potwierdza istniejący current i pełny D/N.
 
 Zdarzenie:
-- po powstaniu grafiku D otrzymuje `SICK_LEAVE` `2026-10-12`–`2026-10-14`.
+- po powstaniu grafiku D otrzymuje `SICK_LEAVE` `OKNO_3D` (patrz OWNER_CORRECTED).
 
 Operacja:
 1. Koordynator zapisuje SICK_LEAVE D przez normalną operację produktu.
@@ -188,3 +194,9 @@ OWNER potwierdził:
 9. S03 sprawdza trzydniowy SICK_LEAVE D po powstaniu grafiku, bez external, i oczekuje `FEASIBLE` po `Przelicz Plan`.
 
 Implementer nie może zmienić tych danych ani kolejności pod wynik testu. Odkryta niezgodność produktu z oczekiwaniem daje FAIL/finding.
+
+## Zatwierdzone decyzje OWNERA — 2026-09-11 (v0.3)
+
+OWNER potwierdził:
+10. miesiąc scenariusza to zawsze bieżący miesiąc kalendarzowy w chwili uruchomienia testu, nie sztywny `2026-10` — zob. sekcję OWNER_CORRECTED na początku pliku dla pełnego uzasadnienia (blocker `is_schedule_version_live` niezależny od T064);
+11. wszystkie sztywne daty absencji zamienione na `OKNO_7D`/`OKNO_3D` — okna liczone od dnia uruchomienia testu (jutro + N dni), zawsze wewnątrz tego samego miesiąca kalendarzowego.

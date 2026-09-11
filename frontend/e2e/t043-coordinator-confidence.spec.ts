@@ -5,6 +5,14 @@
 // solver scenario (that is the Symulator's own job, tests/property/**);
 // it proves the screen renders what the backend actually said, not a
 // stubbed network response.
+//
+// ROTA-T063 (brief.md section 9, T63-10): this is a UI/API CONNECTIVITY
+// test, not a business-outcome acceptance test. It deliberately accepts
+// either FEASIBLE or DECISION_REQUIRED as a valid PLAN outcome -- exactly
+// the kind of "either result passes" shape T063's own acceptance matrix
+// forbids (brief.md section 7) for a scenario claiming a frozen business
+// result. It does not duplicate, and must never be read as satisfying,
+// the frozen D/N acceptance matrix in t063-business-outcomes.spec.ts.
 import { test, expect } from "@playwright/test";
 import { createSite } from "./helpers";
 
@@ -45,7 +53,7 @@ async function backToRoster(page: import("@playwright/test").Page) {
   await expect(page.getByRole("heading", { name: "Panel sterowania" })).toBeVisible();
 }
 
-test("T043 Checkpoint C: coordinator sees the real headcount, target write, and PLAN status the API actually returned", async ({ page }) => {
+test("T043 Checkpoint C (UI/API connectivity, not a business-outcome acceptance test): coordinator sees the real headcount, target write, and PLAN status the API actually returned", async ({ page }) => {
   const siteName = `T043C-${uid()}`;
   await createSite(page, siteName);
   await generateCalendarForCurrentMonth(page);
