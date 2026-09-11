@@ -4,10 +4,15 @@ effective_from for an ordinary manual correction (client-supplied values
 are ignored, not merely defaulted), and an already-started Assignment
 (start_datetime <= now) may only have its employee_id swapped, with a
 mandatory reason, to record who actually worked it -- every other field
-named in brief section 4 stays byte-identical. freeze_or_unfreeze,
-mark_not_worked and mark_training_realized are explicitly NOT subject to
-this guard (OWNER_CONFIRMED during implementation: they are inherently
-retrospective, pre-existing mechanisms this Task does not touch).
+named in brief section 4 stays byte-identical. mark_not_worked and
+mark_training_realized are explicitly NOT subject to this guard
+(OWNER_CONFIRMED during implementation: they are inherently retrospective,
+pre-existing mechanisms this Task does not touch -- NN in particular can
+only ever be used after a shift's start has passed). freeze/unfreeze IS
+subject to the guard (OWNER_CONFIRMED 2026-09-11, correcting the
+implementation's initial exemption): it never touches employee_id, so it
+can never satisfy the swap exception, and the existing REPLAN/select
+cutover already fully protects a started PRIMARY regardless of `frozen`.
 
 Each test here monkeypatches manual_edit._now() directly (overriding
 conftest.py's autouse freeze) to control which side of the now-vs-
@@ -176,11 +181,27 @@ def test_h8_historical_exception_does_not_open_a_side_door_for_another_historica
 # --- freeze/unfreeze and mark_not_worked stay retrospective, unguarded -----
 
 
-def test_freeze_on_an_already_started_assignment_is_not_subject_to_the_guard(monkeypatch):
+def test_freeze_on_an_already_started_assignment_is_rejected(monkeypatch):
+    """OWNER_CONFIRMED 2026-09-11: unlike NN, freeze/unfreeze IS subject to
+    the historical-mutation guard -- it never touches employee_id, so it
+    can never satisfy the swap exception, and the existing REPLAN/select
+    cutover already fully protects a started PRIMARY from automatic
+    redistribution regardless of `frozen`."""
     conn, site_id, _pstate, v1 = _seed_and_plan("hist-freeze", 507)
     snapshot = get_schedule_snapshot(conn, v1.version_id)
     target = next(a for a in snapshot.assignments if a.covers_demand_id == "2026-08-01-D")
     _freeze_now(monkeypatch, target.start_datetime)
+    with pytest.raises(HistoricalServiceMutationRejected):
+        manual_edit.freeze_or_unfreeze(
+            conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", assignment_id=target.assignment_id, frozen=True,
+        )
+
+
+def test_freeze_on_a_future_assignment_still_works(monkeypatch):
+    conn, site_id, _pstate, v1 = _seed_and_plan("hist-freeze-future", 509)
+    snapshot = get_schedule_snapshot(conn, v1.version_id)
+    target = next(a for a in snapshot.assignments if a.covers_demand_id == "2026-08-01-D")
+    _freeze_now(monkeypatch, datetime(2026, 7, 1))  # target is still in the future
     v2 = manual_edit.freeze_or_unfreeze(
         conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", assignment_id=target.assignment_id, frozen=True,
     )

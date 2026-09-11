@@ -970,10 +970,11 @@ export default function MonthlyPlanning({
                       started service can only have its actually-worked
                       employee recorded, with a mandatory reason -- other
                       actions that mutate a protected field (extra code,
-                      Usuń S1) are hidden, not just disabled. freeze/unfreeze
-                      and NN are separate, pre-existing mechanisms this
-                      guard never touches (see their own comments below) and
-                      stay available. Backend re-enforces the guarded path
+                      Usuń S1, and -- OWNER_CONFIRMED 2026-09-11 -- freeze/
+                      unfreeze) are hidden, not just disabled. NN is a
+                      separate, pre-existing, inherently retrospective
+                      mechanism this guard never touches and stays
+                      available. Backend re-enforces the guarded path
                       regardless of what this screen shows (UI is not a
                       security boundary). */}
                   {isAssignmentStarted && (
@@ -1005,12 +1006,16 @@ export default function MonthlyPlanning({
                         />
                       </label>
                     )}
-                    {/* freeze/unfreeze is a separate, pre-existing mechanism
-                        (not routed through the guarded correction path) --
-                        stays available regardless of start time. */}
-                    <button className="btn-ghost" onClick={toggleFreeze} disabled={correctionSaving}>
-                      {editingAssignment.frozen ? "Odmroź" : "Zamroź"}
-                    </button>
+                    {/* OWNER_CONFIRMED 2026-09-11: freeze/unfreeze IS
+                        subject to the historical-mutation guard, unlike NN
+                        -- the existing cutover already fully protects a
+                        started PRIMARY regardless of `frozen`, so there is
+                        no product need to allow it after start. */}
+                    {!isAssignmentStarted && (
+                      <button className="btn-ghost" onClick={toggleFreeze} disabled={correctionSaving}>
+                        {editingAssignment.frozen ? "Odmroź" : "Zamroź"}
+                      </button>
+                    )}
                     {/* ROTA-T056 brief section 8: dodatkowe kody D6+/N6+
                         zdefiniowane dla tego miesiąca -- tylko rodzina
                         zgodna z pokrywanym demandem, tylko dla zwykłego

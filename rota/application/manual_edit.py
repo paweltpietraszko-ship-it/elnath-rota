@@ -361,10 +361,16 @@ def _classify_and_compute_effective_from(
     fields under attack) -- a brand-new Assignment (no parent row) has no
     "obowiązujący zapis" to swap onto, so a past start_datetime for it is
     always rejected outright, never eligible for the employee-swap exception.
-    Only the MANUAL_SCHEDULE_CORRECTION action kind runs this at all --
-    freeze/unfreeze, mark_not_worked and mark_training_realized are
-    inherently retrospective, pre-existing mechanisms this Task does not
-    touch (see apply_manual_correction's _action_kind gate)."""
+    Runs for MANUAL_SCHEDULE_CORRECTION and ASSIGNMENT_FREEZE_CHANGED --
+    freeze/unfreeze never touches employee_id, so it can never satisfy the
+    swap exception either: any freeze/unfreeze of an already-started
+    Assignment is unconditionally rejected (OWNER_CONFIRMED 2026-09-11 --
+    the existing REPLAN/select cutover already fully protects a started
+    PRIMARY from automatic redistribution regardless of `frozen`, so there
+    is no product need to allow it). mark_not_worked and
+    mark_training_realized stay exempt -- inherently retrospective,
+    pre-existing mechanisms this Task does not touch (see
+    apply_manual_correction's _action_kind gate)."""
     historical_start_dates: list[date] = []
     for assignment in upsert_assignments:
         parent = parent_snapshot_by_id.get(assignment.assignment_id)
@@ -417,11 +423,17 @@ def apply_manual_correction(
     # the backend always computes it itself (any caller-supplied value is
     # ignored, not merely defaulted), classifying every upsert against the
     # single now-vs-start_datetime boundary and rejecting a disallowed
-    # historical mutation before anything is persisted. freeze/unfreeze,
-    # mark_not_worked and mark_training_realized keep their own pre-existing,
-    # inherently retrospective semantics -- not subject to this guard.
+    # historical mutation before anything is persisted. OWNER_CONFIRMED
+    # 2026-09-11: freeze/unfreeze is guarded the same way -- it can never
+    # satisfy the employee-swap exception (it never touches employee_id),
+    # so any freeze/unfreeze of an already-started Assignment is
+    # unconditionally rejected; the existing REPLAN/select cutover already
+    # fully protects it from automatic redistribution regardless of
+    # `frozen`. mark_not_worked and mark_training_realized keep their own
+    # pre-existing, inherently retrospective semantics -- not subject to
+    # this guard.
     now = _now()
-    if _action_kind == CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION:
+    if _action_kind in (CoordinatorActionKind.MANUAL_SCHEDULE_CORRECTION, CoordinatorActionKind.ASSIGNMENT_FREEZE_CHANGED):
         effective_from = _classify_and_compute_effective_from(parent_snapshot_by_id, upsert_assignments, note, now)
     elif effective_from is None:
         effective_from = now.date()
@@ -483,9 +495,12 @@ def freeze_or_unfreeze(
     single field changed; kept as a named entry point for callers rather
     than making them hand-build the Assignment copy themselves.
     ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: the client no longer supplies
-    effective_from (apply_manual_correction defaults it to today for this
-    action kind); this stays retrospective by design and is not subject to
-    the historical-mutation guard."""
+    effective_from (apply_manual_correction computes today for a future
+    Assignment). OWNER_CONFIRMED 2026-09-11: unlike mark_not_worked, this
+    IS subject to the historical-mutation guard -- freezing/unfreezing an
+    already-started Assignment is unconditionally rejected, since the
+    existing REPLAN/select cutover already fully protects it from
+    automatic redistribution regardless of `frozen`."""
     current_id = get_current_version_id(conn, site_id, month)
     if current_id is None:
         raise NoCurrentScheduleVersion(f"no current ScheduleVersion for ({site_id}, {month})")
