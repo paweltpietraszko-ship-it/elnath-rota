@@ -223,32 +223,60 @@ function assertFullCoverageAndClosedRoster(candidateAssignments: AssignmentOut[]
   expect(candidateAssignments.length).toBe(daysInCurrentMonth() * 2);
 }
 
-function dateOnly(dateTime: string): string {
-  return dateTime.slice(0, 10);
+// R6-01 (Codex round 6): comparing only the START DATE (first 10 chars)
+// missed both real production semantics -- availability collision is
+// `overlaps_date_range` on the full [start_datetime, end_datetime)
+// interval (an N-shift starting the day before a SICK_LEAVE window still
+// overlaps it, since it runs past midnight into the first sick day), and
+// an external support window requires the WHOLE assignment interval
+// contained within it (window.start <= demand.start AND window.end >=
+// demand.end) -- a shift starting on the window's last day but crossing
+// midnight can still end hours past the window's own end. Parse full
+// local datetimes (no timezone suffix, same convention the app uses
+// throughout) instead of substring-comparing dates.
+function parseLocalIso(dateTime: string): Date {
+  const [datePart, timePart] = dateTime.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm, ss] = (timePart ?? "00:00:00").split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm, ss || 0);
 }
 
-// R5-02 (Codex round 5): assertFullCoverageAndClosedRoster only checked
-// headcount and total shift count -- it would accept an employee assigned
-// on their own SICK_LEAVE day just as happily as a correct schedule
-// (Codex's reproducer proved this). scenario_pack.md T63-07/S03 "D nie ma
-// assignmentu kolidującego z chorobowym": no assignment for this employee
-// may START on any day inside [from, to] (shifts are calendar-day-keyed,
-// so the start date alone identifies which day's D/N a shift covers).
+// [from 00:00, to+1 day 00:00) -- the same "whole day, do <day> included"
+// construction the product itself uses for both absence and support
+// windows (ControlPanel.tsx's addSupportWindowIfNeeded: end_datetime is
+// midnight of the day AFTER the picked end date).
+function fullDayRangeBounds(from: string, to: string): { start: Date; end: Date } {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return { start: new Date(fy, fm - 1, fd, 0, 0, 0), end: new Date(ty, tm - 1, td + 1, 0, 0, 0) };
+}
+
+// scenario_pack.md T63-07/S03 "D nie ma assignmentu kolidującego z
+// chorobowym": no assignment for this employee may OVERLAP [from, to] at
+// all (real interval overlap, not just a matching start date).
 function assertNoAssignmentDuringAbsence(assignments: AssignmentOut[], employeeName: string, from: string, to: string) {
-  const colliding = assignments.filter(
-    (a) => a.employee_display_name === employeeName && dateOnly(a.start_datetime) >= from && dateOnly(a.start_datetime) <= to,
-  );
-  expect(colliding, `${employeeName} must have no assignment during their SICK_LEAVE ${from}..${to}`).toEqual([]);
+  const { start, end } = fullDayRangeBounds(from, to);
+  const colliding = assignments.filter((a) => {
+    if (a.employee_display_name !== employeeName) return false;
+    const aStart = parseLocalIso(a.start_datetime);
+    const aEnd = parseLocalIso(a.end_datetime);
+    return aStart < end && aEnd > start;
+  });
+  expect(colliding, `${employeeName} must have no assignment overlapping their SICK_LEAVE ${from}..${to}`).toEqual([]);
 }
 
-// R5-02: scenario_pack.md S02-V1/V2 "external nie jest używany poza swoją
-// dostępnością" -- every assignment for any of these names must start
-// inside [from, to], the exact support window they were added with.
+// scenario_pack.md S02-V1/V2 "external nie jest używany poza swoją
+// dostępnością": the WHOLE assignment interval must be contained within
+// [from, to] (not just its start).
 function assertExternalWithinWindow(assignments: AssignmentOut[], externalNames: string[], from: string, to: string) {
-  const outOfWindow = assignments.filter(
-    (a) => externalNames.includes(a.employee_display_name) && (dateOnly(a.start_datetime) < from || dateOnly(a.start_datetime) > to),
-  );
-  expect(outOfWindow, `external assignments must stay within ${from}..${to}`).toEqual([]);
+  const { start, end } = fullDayRangeBounds(from, to);
+  const outOfWindow = assignments.filter((a) => {
+    if (!externalNames.includes(a.employee_display_name)) return false;
+    const aStart = parseLocalIso(a.start_datetime);
+    const aEnd = parseLocalIso(a.end_datetime);
+    return aStart < start || aEnd > end;
+  });
+  expect(outOfWindow, `external assignments must be fully contained within ${from}..${to}`).toEqual([]);
 }
 
 // R5-02: swallowing a screenshot/PDF write failure would let a test pass
