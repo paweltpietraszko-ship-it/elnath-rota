@@ -1,17 +1,19 @@
-# ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — ochrona rozpoczętej służby i data korekty z Assignmentu
+# ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT — ochrona rozpoczętej służby i jedna data atomowej korekty
 
-STATUS: PREIMPLEMENTATION AUDIT REQUIRED — IMPLEMENTATION HOLD
+STATUS: PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
 
 BASELINE: `main@1198071074b3548727731d78c2f6df48e49f203c`
 
-SOURCE: OWNER_ACCEPTED 2026-09-05 w `arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md`, re-audyt `arch/PREBRIEF_REAUDIT_2026-09-05_HISTORICAL_SERVICE_REALIZED.md`, BOARD `ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT` + scope review 2026-09-11.
+SOURCE: OWNER_ACCEPTED 2026-09-05 w `arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md`, re-audyt `arch/PREBRIEF_REAUDIT_2026-09-05_HISTORICAL_SERVICE_REALIZED.md`, OWNER_CORRECTED 2026-09-11 w BOARD `main@ce97c0ff70921532c7f025124d017af841b9a272`.
 
 ## 1. Cel
 
-Zamknąć wyłącznie dwie potwierdzone luki istniejącej Korekty ręcznej/historycznej ochrony:
+Zamknąć wyłącznie potwierdzone luki istniejącej Korekty ręcznej/historycznej ochrony:
 
-1. korekta konkretnego Assignmentu nie może dostawać technicznego `effective_from` z dzisiejszej daty — data skutku wynika z kalendarzowej daty początku tego Assignmentu;
-2. po rozpoczęciu służby jej fakty operacyjne nie mogą być swobodnie zmieniane. Jedyny wyjątek: zapisanie po fakcie innego pracownika, który rzeczywiście wykonał całą służbę, z obowiązkową przyczyną i historią.
+1. klient nie może być ownerem technicznego `effective_from`;
+2. zwykła Korekta ręczna może nadal obejmować jedną lub wiele służb w jednej atomowej operacji;
+3. po rozpoczęciu służby jej fakty operacyjne nie mogą być swobodnie zmieniane;
+4. jedyny wyjątek historyczny to zapisanie po fakcie innego pracownika, który rzeczywiście wykonał całą rozpoczętą służbę, z obowiązkową przyczyną i trwałą historią.
 
 Nie tworzymy nowego rejestru wykonanej pracy ani nowego workflow. Wykorzystujemy istniejący Assignment, ScheduleVersion lineage i CoordinatorAction history.
 
@@ -21,18 +23,23 @@ Dla PRIMARY:
 - `assignment.start_datetime > now` — służba jeszcze się nie rozpoczęła;
 - `assignment.start_datetime <= now` — służba rozpoczęta/historyczna i podlega ochronie.
 
-Ta sama semantyka ma obowiązywać Korektę ręczną, akceptację wyniku Przelicz Plan/REPLAN i restore. Nie tworzyć drugiej definicji „rozpoczęta”.
+Ta sama semantyka ma obowiązywać Korektę ręczną i akceptację wyniku Przelicz Plan/REPLAN. Nie tworzyć drugiej definicji „rozpoczęta”.
 
-## 3. Służba przed rozpoczęciem
+Starsze wersje grafiku po rozpoczęciu miesiąca pozostają wyłącznie do `Podglądu`. Ten Task nie zmienia ani nie rozszerza restore.
 
-Pozostają obecne operacje korekty planu.
+## 3. Zwykła atomowa Korekta ręczna — jedna lub wiele przyszłych służb
 
-Dla każdej operacji dotyczącej konkretnego Assignmentu:
-- backend wylicza `effective_from = assignment.start_datetime.date()`;
-- UI może tę datę pokazać informacyjnie, ale koordynator nie ustawia jej ręcznie;
-- publiczne API nie może pozwolić na zmianę wyniku przez przesłanie innego `effective_from`.
+Istniejący request-list i jedna atomowa ScheduleVersion/CoordinatorAction pozostają bez zmian co do modelu operacji.
 
-Dotyczy istniejących operacji tego panelu: zmiana pracownika, kod D6+/N6+, freeze/unfreeze, NN i inne istniejące mutacje Assignmentu.
+Jeżeli wszystkie zmieniane Assignmenty są jeszcze nierozpoczęte:
+- zwykłe istniejące operacje korekty planu pozostają dozwolone;
+- korekta może dotyczyć jednej albo wielu służb;
+- backend wylicza jedną datę `effective_from` dla całej nowej wersji;
+- `effective_from = recorded_at.date()`, gdzie `recorded_at` jest uchwycone raz dla tej atomowej operacji;
+- data nie pochodzi z dat przyszłych Assignmentów;
+- klient nie podaje i nie wybiera `effective_from`.
+
+Dotyczy istniejących operacji panelu: zmiana pracownika, kod D6+/N6+, freeze/unfreeze, NN i inne istniejące mutacje Assignmentu, o ile dotyczą wyłącznie nierozpoczętych służb.
 
 ## 4. Służba rozpoczęta/historyczna
 
@@ -55,23 +62,38 @@ Można zmienić wyłącznie `employee_id`, jeżeli koordynator zapisuje osobę, 
 Warunki:
 - wszystkie pozostałe pola Assignmentu są identyczne jak w obowiązującym zapisie;
 - `note` / przyczyna jest obowiązkowa i nie może być pusta;
-- `effective_from` = data początku Assignmentu;
-- istniejąca historia wersji i CoordinatorAction zachowuje before/after, autora i czas korekty;
+- istniejąca historia wersji i CoordinatorAction zachowuje before/after, autora oraz `recorded_at` pokazujący kiedy zapisano fakt;
 - po reloadzie, wydruku i w istniejących odczytach rozliczeniowych aktualny grafik wskazuje faktycznie pracującą osobę.
 
 Nie dodawać osobnego typu „actual worker record”, jeśli istniejąca wersja + action trail wystarcza.
 
-## 5. Backend jest ownerem
+## 5. Reguła `effective_from` dla serii zawierającej historyczny wyjątek
+
+Jedna atomowa Korekta ręczna może zawierać wiele zmian. Jeżeli zawiera co najmniej jeden dozwolony historyczny zapis faktycznie pracującej osoby:
+- `effective_from` całej nowej ScheduleVersion = najwcześniejsza kalendarzowa data początku spośród tych wyjątkowych, rozpoczętych/historycznych służb;
+- nie używać dat przyszłych Assignmentów do wyliczenia tej wartości;
+- guard z sekcji 4 musi gwarantować, że żadna inna historyczna służba ani inny historyczny fakt nie został zmieniony;
+- przyszłe zmiany zawarte w tej samej atomowej operacji pozostają zwykłymi przyszłymi korektami, ale dziedziczą tę jedną wersyjną datę zgodnie z istniejącym modelem lineage.
+
+Klient nadal nie podaje `effective_from`.
+
+## 6. Backend jest ownerem
 
 Blokada nie może żyć tylko w UI.
 
-`rota/application/manual_edit.py::apply_manual_correction` ma przed utworzeniem dziecka porównać upsert z aktualnym Assignmentem i egzekwować powyższą granicę.
+`rota/application/manual_edit.py::apply_manual_correction` ma przed utworzeniem dziecka:
+- porównać każdy upsert z aktualnym Assignmentem;
+- sklasyfikować go jako przyszły albo rozpoczęty/historyczny według jednej granicy czasu;
+- odrzucić każdą niedozwoloną zmianę historyczną;
+- rozpoznać dozwolony wyjątek `employee_id` + obowiązkowa przyczyna;
+- wyliczyć jedną backendową datę `effective_from` całej operacji zgodnie z sekcjami 3 i 5;
+- uchwycić jeden `recorded_at` dla spójnej historii tej atomowej operacji.
 
 Publiczny klient nie może sfabrykować `PRIMARY state=REALIZED` dla przyszłej ani zwykłej służby. Istniejące wewnętrzne użycie `REALIZED` dla szkolenia `TRAINEE` pozostaje poza zmianą.
 
 `REALIZED` może pozostać dodatkowym istniejącym bezpiecznikiem, ale nie jest nowym źródłem prawdy ani wymaganym rozwiązaniem tego Tasku.
 
-## 6. Przelicz Plan / REPLAN / select candidate
+## 7. Przelicz Plan / REPLAN / select candidate
 
 Istniejący cutover ma zostać ponownie użyty, nie zastąpiony nowym mechanizmem.
 
@@ -81,69 +103,65 @@ Automatyczna ścieżka nie ma wyjątku „faktycznie pracował ktoś inny”. Ta
 
 Nie zmieniać solvera ani jego modelu. To guard przed zapisem/akceptacją wyniku.
 
-## 7. Restore
-
-`restore` nie może przestawić current na starszą wersję, jeśli spowodowałoby to zmianę któregokolwiek rozpoczętego PRIMARY względem obecnie obowiązujących faktów.
-
-Przed zmianą current pointer backend porównuje rozpoczęte PRIMARY obecnego current z docelową wersją:
-- identyczne fakty historyczne -> restore może działać według istniejących zasad;
-- brak Assignmentu albo jakakolwiek różnica chronionych pól/pracownika -> restore odrzucony, current pozostaje bez zmian.
-
-Czytelny komunikat ma wskazać, że rozpoczętej służby nie można cofnąć przez przywrócenie starszego planu i że zmianę faktycznie pracującej osoby robi się przez Korektę ręczną.
-
-Nie tworzyć nowej gałęzi historii ani automatycznej korekty podczas restore.
-
 ## 8. UI
 
 `frontend/src/screens/MonthlyPlanning.tsx`:
-- dla wybranego przyszłego Assignmentu nie pokazuje edytowalnego technicznego `effective_from`; używa daty Assignmentu;
+- nie pokazuje koordynatorowi edytowalnego technicznego `effective_from` dla Korekty ręcznej;
+- zwykła korekta może nadal zawierać serię zmian;
 - dla rozpoczętego Assignmentu udostępnia wyłącznie zmianę faktycznie pracującej osoby + obowiązkową przyczynę;
-- pozostałe akcje są ukryte/disabled z krótkim wyjaśnieniem;
+- pozostałe akcje historyczne są ukryte/disabled z krótkim wyjaśnieniem;
 - UI nie jest granicą bezpieczeństwa — backend odrzuca obejście API.
 
 Nie projektować nowego ekranu.
 
+Starsze wersje po starcie są wyłącznie do `Podglądu`; ten Task nie dodaje ani nie zmienia UI restore.
+
 ## 9. Acceptance
 
-H1. Przyszły Assignment: korekta zapisuje child z `effective_from = start_datetime.date()`, niezależnie od dzisiejszej daty.
+H1. Atomowa korekta jednej przyszłej służby zapisuje child z `effective_from = recorded_at.date()`, nie z daty tej służby i nie z wartości klienta.
 
-H2. Dokładnie przed początkiem (`now < start`) zwykłe korekty działają.
+H2. Atomowa korekta wielu przyszłych służb zapisuje jeden child / jedną akcję i jedną datę `effective_from = recorded_at.date()`.
 
-H3. Dokładnie w chwili początku i po niej (`now >= start`) zmiana kodu/czasu/demandu/state/freeze/NN jest odrzucona.
+H3. Dokładnie przed początkiem (`now < start`) zwykłe korekty działają.
 
-H4. Rozpoczęty Assignment: zmiana tylko `employee_id` + niepusta przyczyna przechodzi i zostawia trwałe before/after w istniejącej historii.
+H4. Dokładnie w chwili początku i po niej (`now >= start`) zmiana kodu/czasu/demandu/state/freeze/NN jest odrzucona.
 
-H5. Ta sama zmiana bez przyczyny jest odrzucona.
+H5. Rozpoczęty Assignment: zmiana tylko `employee_id` + niepusta przyczyna przechodzi i zostawia trwałe before/after w istniejącej historii.
 
-H6. Bezpośredni endpoint nie może oznaczyć przyszłego PRIMARY jako `REALIZED` ani obejść ochrony historycznej przez własny `effective_from`.
+H6. Ta sama zmiana bez przyczyny jest odrzucona.
 
-H7. Przelicz Plan/REPLAN/select nie może zmienić Assignmentu z `start_datetime <= acceptance_time`.
+H7. Seria zawierająca jeden lub więcej dozwolonych historycznych wyjątków dostaje `effective_from` równy najwcześniejszej dacie początku spośród tych historycznych służb.
 
-H8. Restore starszej wersji nie może cofnąć ani zmienić rozpoczętego Assignmentu; current pozostaje bez zmian.
+H8. Seria z historycznym wyjątkiem nie może przy okazji zmienić żadnego innego chronionego pola rozpoczętej służby.
 
-H9. Restore wersji, która zachowuje wszystkie rozpoczęte fakty identycznie, nadal działa.
+H9. Bezpośredni endpoint nie może oznaczyć przyszłego PRIMARY jako `REALIZED` ani obejść ochrony historycznej przez własny `effective_from`.
 
-H10. Po restarcie/reloadzie aktualny grafik, wydruk i istniejące odczyty rozliczeniowe wskazują pracownika zapisanego jako faktycznie pracujący.
+H10. Przelicz Plan/REPLAN/select nie może zmienić Assignmentu z `start_datetime <= acceptance_time`.
 
-H11. Wewnętrzne oznaczanie zrealizowanego szkolenia TRAINEE nie zostaje złamane.
+H11. Po restarcie/reloadzie aktualny grafik, wydruk i istniejące odczyty rozliczeniowe wskazują pracownika zapisanego jako faktycznie pracujący.
+
+H12. Wewnętrzne oznaczanie zrealizowanego szkolenia TRAINEE nie zostaje złamane.
+
+H13. Istniejące zachowanie starszych wersji jako `Podgląd` po rozpoczęciu pozostaje bez zmian; ten Task nie otwiera restore.
 
 ## 10. Literalny TASK_SCOPE
 
 Production:
-- `rota/application/manual_edit.py` — centralna ochrona korekty i wyliczenie daty z Assignmentu;
+- `rota/application/manual_edit.py` — centralna ochrona korekty, klasyfikacja serii i backendowe wyliczenie jednej daty `effective_from`;
 - `rota/application/plan_ops.py` — wyłącznie ujednolicenie cutover `<=` i zachowanie istniejącej ochrony select;
-- `rota/application/lifecycle_ops.py` — guard restore względem rozpoczętych faktów;
-- `api/routers/manual_edit.py` — tylko marshalling konieczny, aby klient nie był ownerem effective_from / historycznego wyjątku;
-- `api/routers/schedule.py` — tylko jeśli restore wymaga czytelnego istniejącego mapowania błędu bez nowego endpointu;
+- `api/routers/manual_edit.py` — tylko marshalling konieczny, aby klient nie był ownerem `effective_from` / historycznego wyjątku;
 - `frontend/src/screens/MonthlyPlanning.tsx` — istniejący panel Korekty ręcznej, bez nowego ekranu;
-- `frontend/src/api/client.ts` — tylko jeżeli istniejący request type wymaga mechanicznej korekty po usunięciu klientowego effective_from.
+- `frontend/src/api/client.ts` — tylko jeżeli istniejący request type wymaga mechanicznej korekty po usunięciu klientowego `effective_from`.
 
 Tests:
 - nowy wąski `tests/test_historical_service_correction.py`;
-- istniejące testy cutover/restore/manual correction mogą być aktualizowane wyłącznie tam, gdzie utrwalają sprzeczną starą granicę;
+- istniejące testy cutover/manual correction mogą być aktualizowane wyłącznie tam, gdzie utrwalają sprzeczną starą granicę;
 - wąski E2E istniejącego panelu Korekty ręcznej, jeśli można go dopisać bez nowej infrastruktury.
 
-Poza scope:
+Jawnie poza scope:
+- `rota/application/lifecycle_ops.py` i restore;
+- `api/routers/schedule.py` w części restore;
+- jakakolwiek zmiana przywracania starszych wersji;
 - `rota/planning/solver.py` i solver rules;
 - nowa tabela/rejestr wykonanej pracy;
 - zmiana analityki REALIZED, historii świąt lub fairness;
@@ -153,12 +171,14 @@ Poza scope:
 
 Jeżeli potrzebna jest nowa production path poza listą, CC zatrzymuje pracę i wraca do architekta.
 
-## 11. Preimplementation check Codexa
+## 11. Preimplementation re-check Codexa
+
+To ma być wąski re-check poprawionego briefu, bez ponownego audytu całego solvera/lifecycle.
 
 Sprawdzić tylko:
-1. czy `apply_manual_correction` jest wystarczającym wspólnym ownerem wszystkich wymienionych ręcznych mutacji bez łamania TRAINING REALIZED;
-2. czy istniejący cutover w `plan_ops.py` można ujednolicić do `<=` bez zmiany solvera;
-3. czy `lifecycle_ops.restore` ma wszystkie dane do porównania current vs target przed przesunięciem pointera;
-4. czy literalny production/test scope jest kompletny.
+1. czy `apply_manual_correction` jest wystarczającym wspólnym ownerem serii ręcznych mutacji i może atomowo wyliczyć `recorded_at` / `effective_from` bez łamania TRAINING REALIZED;
+2. czy reguła jednej daty wersji jest spójna: all-future -> `recorded_at.date()`, seria z historycznym wyjątkiem -> najwcześniejsza data takiej służby;
+3. czy istniejący cutover w `plan_ops.py` można ujednolicić do `<=` bez zmiany solvera;
+4. czy po usunięciu restore literalny production/test scope jest kompletny.
 
 Jeżeli problem jest mechaniczny — wskazać konkretną brakującą ścieżkę. Bez redesignu i bez nowego rejestru.
