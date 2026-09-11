@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from rota.application.errors import (
     CandidateRejected,
     CoordinatorContextAlreadyActive,
+    HistoricalServiceMutationRejected,
     InvalidCoordinatorContext,
     NoCurrentScheduleVersion,
     NotWorkedRequiresPlannedPrimary,
@@ -66,6 +67,11 @@ _STATUS_AND_DETAIL_BY_EXCEPTION: tuple[tuple[type[Exception], int, str], ...] = 
     (InvalidSitePrintSettings, 422, "Nieprawidłowe ustawienia wydruku dla tego obiektu."),
     (InvalidStandardShift, 400, "Nieprawidłowa definicja zmiany w katalogu zmian."),
     (CandidateRejected, 400, "Wybrany kandydat narusza twardą regułę planowania i nie może zostać zaakceptowany."),
+    (
+        HistoricalServiceMutationRejected, 409,
+        "Ta służba już się rozpoczęła — jej danych nie można już zmienić. Można jedynie zapisać, "
+        "kto faktycznie ją wykonał, podając powód.",
+    ),
     (ValueError, 400, "Nieprawidłowe dane wejściowe."),
 )
 

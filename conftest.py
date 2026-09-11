@@ -1,10 +1,34 @@
 """Shared pytest fixtures for Elnath Ward test suite."""
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from rota.application import manual_edit
+
 REPO_ROOT = Path(__file__).parent
+
+
+@pytest.fixture(autouse=True)
+def _frozen_manual_correction_now(monkeypatch):
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: apply_manual_correction's new
+    historical-mutation guard compares each Assignment's start_datetime
+    against the real wall clock (manual_edit._now()) -- section 2's single
+    boundary. Pre-existing tests unrelated to this feature fix their
+    fixture months to a specific calendar date (most commonly 2026-08),
+    which has nothing to do with the guard and predates it; without this,
+    they would start hitting HistoricalServiceMutationRejected purely
+    because real wall-clock time marched past their fixture month, not
+    because of anything the guard is meant to catch. Freezing this one
+    narrow seam to a reference point BEFORE every fixture month used
+    anywhere in this suite makes every one of those Assignments read as
+    "not yet started" (future), exactly their pre-Task classification --
+    pinning it to a future point would do the opposite (make every fixture
+    MORE historical, not less). tests/test_historical_service_correction.py
+    overrides this fixture locally (a nested monkeypatch of the same
+    attribute) to exercise the actual now-vs-start_datetime boundary."""
+    monkeypatch.setattr(manual_edit, "_now", lambda: datetime(2000, 1, 1))
 
 
 def _run_git(args: list[str], cwd: Path) -> None:

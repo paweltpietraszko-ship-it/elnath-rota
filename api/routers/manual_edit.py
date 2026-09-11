@@ -41,8 +41,10 @@ def _result_out(conn, version) -> ManualCorrectionResultOut:
 
 
 class ManualCorrectionRequest(BaseModel):
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: effective_from is no longer a
+    client-supplied field -- apply_manual_correction computes it itself
+    (sections 1/3/6: the client is never its owner)."""
     model_config = ConfigDict(extra="forbid")
-    effective_from: str
     upsert_assignments: list[AssignmentIn]
     note: str | None = None
     responds_to_decision_required_id: str | None = None
@@ -57,7 +59,6 @@ def post_manual_correction(
     try:
         version = apply_manual_correction(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
-            effective_from=date.fromisoformat(payload.effective_from),
             upsert_assignments=[_assignment_from_in(a) for a in payload.upsert_assignments],
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -68,7 +69,6 @@ def post_manual_correction(
 
 class FreezeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    effective_from: str
     assignment_id: str
     frozen: bool
     note: str | None = None
@@ -83,8 +83,7 @@ def post_freeze_or_unfreeze(
 ) -> ManualCorrectionResultOut:
     try:
         version = freeze_or_unfreeze(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
-            effective_from=date.fromisoformat(payload.effective_from), assignment_id=payload.assignment_id,
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, assignment_id=payload.assignment_id,
             frozen=payload.frozen, note=payload.note,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -95,7 +94,6 @@ def post_freeze_or_unfreeze(
 
 class MarkNotWorkedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    effective_from: str
     assignment_id: str
     note: str | None = None
     responds_to_decision_required_id: str | None = None
@@ -109,8 +107,7 @@ def post_mark_not_worked(
 ) -> ManualCorrectionResultOut:
     try:
         version = mark_not_worked(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
-            effective_from=date.fromisoformat(payload.effective_from), assignment_id=payload.assignment_id,
+            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, assignment_id=payload.assignment_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
         return _result_out(conn, version)

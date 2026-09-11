@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
-import { todayIso } from "../localDate";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
@@ -271,7 +270,11 @@ export default function MonthlyPlanning({
   // already shown by the existing "Odchylenia" panel below after reload,
   // which is the whole warning mechanism (no separate banner needed).
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
-  const [correctionEffectiveFrom, setCorrectionEffectiveFrom] = useState(todayIso());
+  // ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: effective_from is no longer a
+  // client-supplied field -- the backend always computes it itself. For an
+  // already-started Assignment, the only allowed action is recording who
+  // actually worked it, which requires this mandatory reason.
+  const [correctionReason, setCorrectionReason] = useState("");
   const [correctionSaving, setCorrectionSaving] = useState(false);
   const [rosterEmployees, setRosterEmployees] = useState<RosterRow[]>([]);
   const [showPrint, setShowPrint] = useState(entryMode === "wydruk");
@@ -350,12 +353,20 @@ export default function MonthlyPlanning({
   }, [entryMode]);
 
   const editingAssignment = view?.assignments.find((a) => a.assignment_id === editingAssignmentId) ?? null;
+  // ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 2: same single boundary
+  // as the backend (start_datetime <= now) -- purely a UI gate, the backend
+  // re-enforces this regardless of what this screen shows/hides.
+  const isAssignmentStarted = editingAssignment ? new Date(editingAssignment.start_datetime) <= new Date() : false;
 
-  const runCorrection = async (upsert: AssignmentIn[]) => {
+  useEffect(() => {
+    setCorrectionReason("");
+  }, [editingAssignmentId]);
+
+  const runCorrection = async (upsert: AssignmentIn[], note?: string) => {
     setCorrectionSaving(true);
     setError(null);
     try {
-      await api.applyManualCorrection(siteId, monthIso, correctionEffectiveFrom, upsert);
+      await api.applyManualCorrection(siteId, monthIso, upsert, note);
       setEditingAssignmentId(null);
       load();
     } catch (e: unknown) {
@@ -367,7 +378,10 @@ export default function MonthlyPlanning({
 
   const reassignEmployee = (newEmployeeId: string) => {
     if (!editingAssignment) return;
-    runCorrection([{ ...stripDisplayName(editingAssignment), employee_id: newEmployeeId }]);
+    runCorrection(
+      [{ ...stripDisplayName(editingAssignment), employee_id: newEmployeeId }],
+      isAssignmentStarted ? correctionReason : undefined,
+    );
   };
 
   // ROTA-T056 brief section 8: choosing a monthly D6+/N6+ code builds a new
@@ -421,7 +435,7 @@ export default function MonthlyPlanning({
     setS1Saving(true);
     setError(null);
     try {
-      await api.applyManualCorrection(siteId, monthIso, correctionEffectiveFrom, [
+      await api.applyManualCorrection(siteId, monthIso, [
         {
           assignment_id: crypto.randomUUID(), schedule_version_id: view.current_version.version_id,
           employee_id: s1EmployeeId, start_datetime: startIso, end_datetime: endIso,
@@ -449,7 +463,7 @@ export default function MonthlyPlanning({
     setCorrectionSaving(true);
     setError(null);
     try {
-      await api.freezeOrUnfreeze(siteId, monthIso, correctionEffectiveFrom, editingAssignment.assignment_id, !editingAssignment.frozen);
+      await api.freezeOrUnfreeze(siteId, monthIso, editingAssignment.assignment_id, !editingAssignment.frozen);
       setEditingAssignmentId(null);
       load();
     } catch (e: unknown) {
@@ -464,7 +478,7 @@ export default function MonthlyPlanning({
     setCorrectionSaving(true);
     setError(null);
     try {
-      await api.markNotWorked(siteId, monthIso, correctionEffectiveFrom, editingAssignment.assignment_id);
+      await api.markNotWorked(siteId, monthIso, editingAssignment.assignment_id);
       setEditingAssignmentId(null);
       load();
     } catch (e: unknown) {
@@ -951,17 +965,29 @@ export default function MonthlyPlanning({
                 <div className="panel" style={{ marginTop: 12 }}>
                   <div className="panel-title-row">
                     <h3>Ręczna korekta — {editingAssignment.employee_display_name}, {editingAssignment.start_datetime.slice(0, 10)}</h3>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span className="field-label">Obowiązuje od</span>
-                      <input type="date" value={correctionEffectiveFrom} onChange={(e) => setCorrectionEffectiveFrom(e.target.value)} />
-                    </label>
                   </div>
+                  {/* ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT section 8: a
+                      started service can only have its actually-worked
+                      employee recorded, with a mandatory reason -- other
+                      actions that mutate a protected field (extra code,
+                      Usuń S1) are hidden, not just disabled. freeze/unfreeze
+                      and NN are separate, pre-existing mechanisms this
+                      guard never touches (see their own comments below) and
+                      stay available. Backend re-enforces the guarded path
+                      regardless of what this screen shows (UI is not a
+                      security boundary). */}
+                  {isAssignmentStarted && (
+                    <p className="panel-hint">
+                      Ta służba już się rozpoczęła. Można tylko zapisać, kto faktycznie ją wykonał, podając powód —
+                      pozostałe zmiany są niedostępne.
+                    </p>
+                  )}
                   <div className="create-panel-actions">
                     <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span className="field-label">Przypisz innej osobie</span>
                       <select
                         value={editingAssignment.employee_id}
-                        disabled={correctionSaving}
+                        disabled={correctionSaving || (isAssignmentStarted && !correctionReason.trim())}
                         onChange={(e) => reassignEmployee(e.target.value)}
                       >
                         {rosterEmployees.map((r) => (
@@ -969,6 +995,19 @@ export default function MonthlyPlanning({
                         ))}
                       </select>
                     </label>
+                    {isAssignmentStarted && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className="field-label">Powód (wymagany)</span>
+                        <input
+                          type="text" value={correctionReason} disabled={correctionSaving}
+                          onChange={(e) => setCorrectionReason(e.target.value)}
+                          placeholder="np. faktycznie służbę wykonał..."
+                        />
+                      </label>
+                    )}
+                    {/* freeze/unfreeze is a separate, pre-existing mechanism
+                        (not routed through the guarded correction path) --
+                        stays available regardless of start time. */}
                     <button className="btn-ghost" onClick={toggleFreeze} disabled={correctionSaving}>
                       {editingAssignment.frozen ? "Odmroź" : "Zamroź"}
                     </button>
@@ -976,7 +1015,7 @@ export default function MonthlyPlanning({
                         zdefiniowane dla tego miesiąca -- tylko rodzina
                         zgodna z pokrywanym demandem, tylko dla zwykłego
                         PRIMARY (nie S1/TRAINEE/NN/CANCELLED). */}
-                    {eligibleForExtraCode && extraCodeOptions.length > 0 && (
+                    {!isAssignmentStarted && eligibleForExtraCode && extraCodeOptions.length > 0 && (
                       <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span className="field-label">Zamień na dodatkowy kod</span>
                         <select
@@ -998,12 +1037,16 @@ export default function MonthlyPlanning({
                         </select>
                       </label>
                     )}
+                    {/* mark_not_worked is also a separate, pre-existing
+                        mechanism -- inherently retrospective (you only know
+                        a shift was not worked once it should have started),
+                        so it stays available regardless of start time. */}
                     {editingAssignment.role === "PRIMARY" && editingAssignment.state === "PLANNED" && (
                       <button className="btn-ghost" onClick={markNotWorked} disabled={correctionSaving}>
                         Nie przepracował (NN)
                       </button>
                     )}
-                    {editingAssignment.role === "PERIODIC_TRAINING" && editingAssignment.state !== "CANCELLED" && (
+                    {!isAssignmentStarted && editingAssignment.role === "PERIODIC_TRAINING" && editingAssignment.state !== "CANCELLED" && (
                       <button className="btn-ghost" onClick={cancelS1} disabled={correctionSaving}>
                         Usuń S1
                       </button>

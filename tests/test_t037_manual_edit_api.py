@@ -76,7 +76,7 @@ def test_manual_correction_shrink_creates_deviation_and_does_not_block(client, c
 
     resp = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/manual-correction",
-        json={"effective_from": "2026-08-02", "upsert_assignments": [shrunk]},
+        json={"upsert_assignments": [shrunk]},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -95,7 +95,7 @@ def test_manual_correction_no_deviation_is_empty_list(client, conn, site_id, pla
 
     resp = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/manual-correction",
-        json={"effective_from": "2026-08-02", "upsert_assignments": [unchanged]},
+        json={"upsert_assignments": [unchanged]},
     )
     assert resp.status_code == 200
     assert resp.json()["deviations"] == []
@@ -107,7 +107,7 @@ def test_freeze_then_unfreeze_roundtrip(client, conn, site_id, planned_version):
 
     resp = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/manual-correction/freeze",
-        json={"effective_from": "2026-08-02", "assignment_id": target.assignment_id, "frozen": True},
+        json={"assignment_id": target.assignment_id, "frozen": True},
     )
     assert resp.status_code == 200
     v2_id = resp.json()["version_id"]
@@ -124,7 +124,7 @@ def test_mark_not_worked_on_planned_primary(client, conn, site_id, planned_versi
 
     resp = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/manual-correction/mark-not-worked",
-        json={"effective_from": "2026-08-02", "assignment_id": target.assignment_id},
+        json={"assignment_id": target.assignment_id},
     )
     assert resp.status_code == 200
     v2_snapshot = get_schedule_snapshot(conn, resp.json()["version_id"])
@@ -143,13 +143,13 @@ def test_mark_not_worked_on_already_cancelled_rejected(client, conn, site_id, pl
     )
     first = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/manual-correction/mark-not-worked",
-        json={"effective_from": "2026-08-02", "assignment_id": target.assignment_id},
+        json={"assignment_id": target.assignment_id},
     )
     assert first.status_code == 200
 
     second = client.post(
         f"/api/workspace/sites/{site_id}/schedule/{MONTH_STR}/manual-correction/mark-not-worked",
-        json={"effective_from": "2026-08-03", "assignment_id": target.assignment_id},
+        json={"assignment_id": target.assignment_id},
     )
     assert second.status_code == 400
 

@@ -367,9 +367,16 @@ def test_r4_mark_training_realized_enforces_profile_qualification(tmp_path, rest
     assert updated.readiness_state != ReadinessState.READY_FOR_PRIMARY
 
 
-@pytest.mark.parametrize("operation", ["first-plan", "replan", "manual"])
+@pytest.mark.parametrize("operation", ["first-plan", "replan"])
 @pytest.mark.parametrize("bad_value", [None, datetime(2026, 8, 2, 9, 30)])
 def test_r4_new_versions_require_a_real_date_effective_from(tmp_path, operation, bad_value):
+    """ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: the "manual" case was dropped
+    from this parametrization -- apply_manual_correction no longer accepts a
+    caller-supplied effective_from for an ordinary correction at all (the
+    backend always computes it itself; section 1/6), so a bad client value
+    is no longer even looked at, let alone rejected with TypeError/ValueError.
+    plan_month/replan are untouched by that Task and keep this exact
+    contract."""
     conn = connect(tmp_path / "rota.db")
     state = seed_real_object(conn, case_id=f"audit-date-{operation}", month=MONTH, seed=714)
     version = None if operation == "first-plan" else _plan_select(conn, state.site.site_id)
@@ -380,17 +387,10 @@ def test_r4_new_versions_require_a_real_date_effective_from(tmp_path, operation,
                 conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1",
                 effective_from=bad_value,  # type: ignore[arg-type]
             )
-        elif operation == "replan":
+        else:
             plan_ops.replan(
                 conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1",
                 effective_from=bad_value,  # type: ignore[arg-type]
-            )
-        else:
-            assert version is not None
-            assignment = get_schedule_snapshot(conn, version.version_id).assignments[0]
-            manual_edit.apply_manual_correction(
-                conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1",
-                effective_from=bad_value, upsert_assignments=[assignment],  # type: ignore[arg-type]
             )
     assert conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0] == before_count
     assert get_current_version_id(conn, state.site.site_id, MONTH) == (
