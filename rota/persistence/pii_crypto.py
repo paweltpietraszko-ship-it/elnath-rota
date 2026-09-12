@@ -64,6 +64,7 @@ MAGIC = b"RNAM"
 FORMAT_VERSION = b"\x02"
 KEYSTORE_SUFFIX = ".pii_keystore"
 RECOVERY_SIDECAR_SUFFIX = ".pii_recovery"
+PROTECTED_IDS_SUFFIX = ".pii_protected_ids"
 RECOVERY_MAGIC = b"RREC\x01"
 CENTRAL_KEK_ENV_VAR = "ROTA_CENTRAL_KEK"
 
@@ -85,6 +86,15 @@ class RecoveryFailed(ValueError):
     material -- wrong secret or corrupted/tampered package. Never
     produces a substitute DEK. Subclasses ValueError for the same reason
     as KeyProtectionUnavailable above."""
+
+
+class RecoveryKitRequired(ValueError):
+    """LOCAL_WINDOWS: raised by rota/application/backup.py when a backup
+    is requested before any recovery kit has ever been created for this
+    database. Refusing here (R5-02) is deliberate: silently producing a
+    backup with no recoverable DEK representation would look identical to
+    a real one until the moment the installation is actually lost, which
+    is exactly the false sense of security brief.md section 4 forbids."""
 
 
 # Keyed by the real file path (a stable, safe identity -- unlike id(conn),
@@ -245,6 +255,49 @@ def _main_db_file(conn: sqlite3.Connection) -> str:
         if name == "main":
             return file
     return ""
+
+
+def _protected_ids_path(db_path: Path) -> Path:
+    return db_path.with_name(db_path.name + PROTECTED_IDS_SUFFIX)
+
+
+def _read_protected_ids(reg_path: Path) -> set[str]:
+    if not reg_path.exists():
+        return set()
+    return {line for line in reg_path.read_text(encoding="utf-8").splitlines() if line}
+
+
+def mark_encrypted(conn: sqlite3.Connection, employee_id: str) -> None:
+    """R5-01: a genuine legacy row (written before this feature existed)
+    is the ONLY thing decrypt_name should ever trust as plain `str` --
+    but SQLite's storage class alone cannot prove that on its own: a
+    single UPDATE can put an ordinary Python `str` into a column that
+    used to hold ciphertext, and nothing about that byte sequence records
+    it was ever anything else. This sidecar registry (same pattern as the
+    keystore/recovery-package files) is the record: once an employee_id
+    has ever been written through encrypt_name, decrypt_display_names_*
+    callers refuse to accept a `str` for that id ever again, no matter
+    what the column's storage class says later. :memory: has no file and
+    no persisted downgrade threat model, so this is a no-op there."""
+    path = _main_db_file(conn)
+    if not path:
+        return
+    reg_path = _protected_ids_path(Path(path))
+    ids = _read_protected_ids(reg_path)
+    if employee_id in ids:
+        return
+    ids.add(employee_id)
+    _write_atomic(reg_path, ("\n".join(sorted(ids)) + "\n").encode("utf-8"))
+
+
+def load_protected_ids(conn: sqlite3.Connection) -> frozenset[str]:
+    """Callers resolve this ONCE per repository-level call, same
+    N+1-safety rule as resolve_key -- it is a file read, not a SQL
+    statement, but there is no reason to repeat it per row either."""
+    path = _main_db_file(conn)
+    if not path:
+        return frozenset()
+    return frozenset(_read_protected_ids(_protected_ids_path(Path(path))))
 
 
 def resolve_key(conn: sqlite3.Connection) -> bytes:

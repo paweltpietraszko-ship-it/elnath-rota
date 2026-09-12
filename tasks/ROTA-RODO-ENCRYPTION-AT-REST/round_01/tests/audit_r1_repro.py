@@ -85,6 +85,27 @@ def test_wrong_format_version_is_rejected(tmp_path) -> None:
         pii_crypto.decrypt_name(key, forged)
 
 
+def test_storage_class_change_cannot_downgrade_ciphertext_to_legacy_plaintext(tmp_path) -> None:
+    """R5-01 (Codex round-5 audit): SQLite storage class alone (BLOB vs
+    TEXT) cannot prove a value is genuine legacy plaintext -- a single
+    UPDATE can put an ordinary `str` where ciphertext used to be. The
+    persisted protected-ids registry (pii_crypto.mark_encrypted) is the
+    tamper-evident record: once an employee_id has ever been encrypted, a
+    later `str` for it is a downgrade, never legacy, no matter what the
+    column's storage class says."""
+    conn = connect(tmp_path / "downgrade.db")
+    save_employee(conn, Employee("E1", "Jan Kowalski", date(2020, 1, 1), None, False))
+
+    conn.execute(
+        "UPDATE employees SET display_name = ? WHERE employee_id = ?",
+        ("Injected Plaintext", "E1"),
+    )
+    conn.commit()
+
+    with pytest.raises(ValueError, match="downgraded"):
+        get_employee(conn, "E1")
+
+
 @pytest.fixture
 def local_windows_only():
     if not pii_crypto._is_windows():
@@ -95,18 +116,37 @@ class TestLocalWindowsDeployment:
     """brief.md section 2.2.A / 5.1: DPAPI runtime protector + an
     independent recovery kit that survives losing this installation."""
 
-    def test_backup_without_recovery_kit_is_honest_about_it(self, tmp_path, local_windows_only) -> None:
+    def test_backup_refuses_before_any_recovery_kit_exists(self, tmp_path, local_windows_only) -> None:
+        """R5-02 (Codex round-5 audit): a backup ZIP is a single artifact
+        that leaves the server the moment it is downloaded -- there is no
+        way to retroactively patch an already-downloaded file once a
+        recovery kit is created afterward. The only architecturally sound
+        fix is to refuse the backup outright until a recovery kit exists,
+        never to silently hand over one that looks valid but is not
+        recoverable (brief.md section 4's "at least one recoverable
+        wrapped DEK representation" is not optional)."""
         db_path = tmp_path / "rota.db"
         conn = connect(db_path)
         save_employee(conn, Employee("E1", "No Kit Yet", date(2020, 1, 1), None, False))
+        backup_zip = tmp_path / "backup.zip"
+
+        with pytest.raises(pii_crypto.RecoveryKitRequired):
+            backup_database(conn, str(backup_zip), db_path=str(db_path))
+        assert not backup_zip.exists()
+
+    def test_backup_after_recovery_kit_created_has_recovery_material(self, tmp_path, local_windows_only) -> None:
+        db_path = tmp_path / "rota.db"
+        conn = connect(db_path)
+        save_employee(conn, Employee("E1", "Has Kit Now", date(2020, 1, 1), None, False))
+        create_local_recovery_kit(conn, db_path=str(db_path))
         backup_zip = tmp_path / "backup.zip"
         backup_database(conn, str(backup_zip), db_path=str(db_path))
 
         with zipfile.ZipFile(backup_zip) as archive:
             manifest = archive.read("manifest.json").decode("utf-8")
             assert '"protector_kind": "DPAPI"' in manifest
-            assert '"recovery_available": false' in manifest
-            assert "wrapped_dek.bin" not in archive.namelist()
+            assert '"recovery_available": true' in manifest
+            assert "wrapped_dek.bin" in archive.namelist()
 
     def test_recovery_survives_losing_the_original_installation(self, tmp_path, local_windows_only) -> None:
         original_dir = tmp_path / "original"

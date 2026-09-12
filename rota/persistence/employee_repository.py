@@ -51,6 +51,11 @@ def write_employee_in_open_transaction(conn: sqlite3.Connection, employee: Emplo
             employee.active_to.isoformat() if employee.active_to else None, int(employee.day_only),
         ),
     )
+    # R5-01: once this employee_id has ever been written as ciphertext, a
+    # later `str` found in this column is a downgrade, never legacy --
+    # see pii_crypto.mark_encrypted's own docstring for why storage class
+    # alone cannot prove that on its own.
+    pii_crypto.mark_encrypted(conn, employee.employee_id)
 
 
 def save_employee(conn: sqlite3.Connection, employee: Employee) -> None:
@@ -58,8 +63,16 @@ def save_employee(conn: sqlite3.Connection, employee: Employee) -> None:
         write_employee_in_open_transaction(conn, employee)
 
 
-def _row_to_employee(key: bytes, row: tuple) -> Employee:
+def _row_to_employee(key: bytes, protected_ids: frozenset[str], row: tuple) -> Employee:
     employee_id, display_name, active_from, active_to, day_only = row
+    if isinstance(display_name, str) and employee_id in protected_ids:
+        # R5-01: this employee_id was encrypted at least once before --
+        # a `str` here now is a downgrade (a raw UPDATE, or any other
+        # write that bypassed encrypt_name), never genuine legacy data.
+        raise ValueError(
+            f"employee display_name for {employee_id} was downgraded to plaintext after "
+            "encryption was already active for it -- refusing to trust it as legacy"
+        )
     return Employee(
         employee_id=employee_id, display_name=pii_crypto.decrypt_name(key, display_name),
         active_from=date.fromisoformat(active_from),
@@ -75,7 +88,7 @@ def get_employee(conn: sqlite3.Connection, employee_id: str) -> Employee:
     ).fetchone()
     if row is None:
         raise EmployeeNotFound(employee_id)
-    return _row_to_employee(pii_crypto.resolve_key(conn), row)
+    return _row_to_employee(pii_crypto.resolve_key(conn), pii_crypto.load_protected_ids(conn), row)
 
 
 def decrypt_display_names_with_key(conn: sqlite3.Connection, key: bytes) -> dict[str, str]:
@@ -95,7 +108,8 @@ def list_employees(conn: sqlite3.Connection) -> list[Employee]:
         "SELECT employee_id, display_name, active_from, active_to, day_only FROM employees ORDER BY employee_id"
     ).fetchall()
     key = pii_crypto.resolve_key(conn)
-    return [_row_to_employee(key, row) for row in rows]
+    protected_ids = pii_crypto.load_protected_ids(conn)
+    return [_row_to_employee(key, protected_ids, row) for row in rows]
 
 
 def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, Employee]:
@@ -111,7 +125,8 @@ def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> 
         (*employee_ids,),
     ).fetchall()
     key = pii_crypto.resolve_key(conn)
-    return {row[0]: _row_to_employee(key, row) for row in rows}
+    protected_ids = pii_crypto.load_protected_ids(conn)
+    return {row[0]: _row_to_employee(key, protected_ids, row) for row in rows}
 
 
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:

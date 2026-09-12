@@ -35,7 +35,11 @@ def _timestamp() -> str:
 def download_backup(background_tasks: BackgroundTasks, conn=Depends(get_conn)) -> FileResponse:
     fd, path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
-    backup_database(conn, path, db_path=DB_PATH)
+    try:
+        backup_database(conn, path, db_path=DB_PATH)
+    except Exception as exc:
+        os.remove(path)
+        raise to_http_exception(exc) from exc
     background_tasks.add_task(os.remove, path)
     return FileResponse(path, filename=f"rota-backup-{_timestamp()}.zip", media_type="application/zip")
 

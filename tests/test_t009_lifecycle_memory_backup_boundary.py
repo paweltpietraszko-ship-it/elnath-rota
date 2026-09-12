@@ -153,7 +153,10 @@ def test_17_backup_openable_and_diagnostic_zip_excludes_prohibited_data(tmp_path
     # ROTA-RODO-ENCRYPTION-AT-REST: backup_database now composes a ZIP
     # artifact (snapshot + recovery manifest, brief.md section 4), not a
     # raw .db -- extract the embedded snapshot to prove it is still a
-    # real, openable LocalStore.
+    # real, openable LocalStore. A LOCAL_WINDOWS backup refuses without a
+    # recovery kit (R5-02), so create one first, matching the order the
+    # production UI now enforces.
+    backup.create_local_recovery_kit(conn, db_path=str(db_path))
     backup_zip = tmp_path / "backup.zip"
     backup.backup_database(conn, str(backup_zip), db_path=str(db_path))
     with zipfile.ZipFile(backup_zip) as archive:

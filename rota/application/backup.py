@@ -42,8 +42,17 @@ def backup_database(conn: sqlite3.Connection, destination: str, *, db_path: str)
         wrapped_dek = pii_crypto.wrap_dek_for_central_backup(dek)
     elif protector_kind == "DPAPI":
         sidecar = pii_crypto.recovery_sidecar_path(db_path)
-        if sidecar.exists():
-            wrapped_dek = sidecar.read_bytes()
+        if not sidecar.exists():
+            # R5-02: producing a backup with no recoverable DEK
+            # representation would look identical to a real one until the
+            # installation is actually lost -- refuse instead of handing
+            # over a false sense of security (brief.md section 4).
+            raise pii_crypto.RecoveryKitRequired(
+                "no recovery kit exists yet for this database -- create one "
+                "(\"Pobierz klucz odzyskiwania\") before the first backup, "
+                "or this backup cannot be recovered after losing this computer"
+            )
+        wrapped_dek = sidecar.read_bytes()
     manifest = {
         "backup_format_version": BACKUP_FORMAT_VERSION,
         "protector_kind": protector_kind,
