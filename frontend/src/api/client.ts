@@ -656,6 +656,7 @@ export const api = {
     }),
 
   downloadBackup: () => downloadPost("/workspace/backup"),
+  downloadRecoveryKey: () => downloadPost("/workspace/backup/recovery-key"),
   downloadDiagnostics: () => {
     let body: string | undefined;
     try {

@@ -1,0 +1,42 @@
+ROTA-RODO-ENCRYPTION-AT-REST — ZAMKNIĘCIE AUDYTU CODEX R8
+
+WERDYKT: PASS
+AUDYTOWANY SHA: 016894aba67d60b1c90ee3ca595af1fc6c565373
+KONTRAKT: 37620cf
+OWNER_DECISION: main@d58742d619b8047ca6bc8a756921f13e4fe06a6f
+
+Podstawa zamknięcia
+-------------------
+OWNER jawnie ograniczył model zagrożeń do proporcjonalnej ochrony danych
+programu do grafików przed przypadkową/pasywną ekspozycją, w szczególności
+przy utracie komputera lub backupu. Skoordynowana akcja polegająca jednocześnie
+na usunięciu keystore i celowej podmianie rekordów SQLite nie jest wymaganą
+granicą bezpieczeństwa tego produktu.
+
+W konsekwencji finding R7 z audit_r7_repro.py zostaje zamknięty jako
+zaakceptowane ryzyko poza PRODUCT_TRUTH, a nie defekt implementacji. Nie wolno
+go ponownie otwierać bez nowej sprzeczności albo nowej decyzji OWNERA.
+
+Stan findings
+-------------
+- R5-01: zamknięty przez 016894a w granicach modelu zagrożeń zatwierdzonego
+  przez OWNERA;
+- R5-02: zamknięty przez 194e264 — LOCAL_WINDOWS odmawia utworzenia backupu
+  bez recovery kitu, a UI prowadzi użytkownika we właściwej kolejności;
+- R7: zamknięty decyzją OWNERA main@d58742d, bez dalszego kodu.
+
+Dowody wykorzystane w końcowym audycie
+--------------------------------------
+- niezależne reproduktory R5–R7 zachowane w repozytorium;
+- audit_r1_repro.py na 016894a: 18 passed;
+- wąskie testy backup/recovery na 194e264: 17 passed;
+- optyczna kontrola UI na 194e264: poprawny komunikat i kolejność klucz przed
+  backupem;
+- diff check poprawek: PASS;
+- pełna regresja, symulatory i benchmarki nie były uruchamiane przez Codexa.
+
+Wniosek
+-------
+PASS dotyczy wyłącznie implementacji 016894a względem briefu 37620cf wraz z
+jawną korektą modelu zagrożeń OWNERA z main@d58742d. Audyt jest zamknięty;
+nie jest wymagany dalszy kod dla R5/R7.

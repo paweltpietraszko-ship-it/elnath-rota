@@ -12,8 +12,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from api.config import DB_PATH
 from api.deps import get_conn
-from rota.application.backup import backup_database, build_diagnostic_zip
+from api.errors import to_http_exception
+from rota.application.backup import backup_database, build_diagnostic_zip, create_local_recovery_kit
 
 router = APIRouter(prefix="/workspace", tags=["backup"])
 
@@ -31,11 +33,36 @@ def _timestamp() -> str:
 
 @router.post("/backup")
 def download_backup(background_tasks: BackgroundTasks, conn=Depends(get_conn)) -> FileResponse:
-    fd, path = tempfile.mkstemp(suffix=".db")
+    fd, path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
-    backup_database(conn, path)
+    try:
+        backup_database(conn, path, db_path=DB_PATH)
+    except Exception as exc:
+        os.remove(path)
+        raise to_http_exception(exc) from exc
     background_tasks.add_task(os.remove, path)
-    return FileResponse(path, filename=f"rota-backup-{_timestamp()}.db", media_type="application/octet-stream")
+    return FileResponse(path, filename=f"rota-backup-{_timestamp()}.zip", media_type="application/zip")
+
+
+@router.post("/backup/recovery-key")
+def download_recovery_key(background_tasks: BackgroundTasks, conn=Depends(get_conn)) -> FileResponse:
+    """LOCAL_WINDOWS only (brief.md section 5.1/6): creates -- or
+    re-creates -- the recovery kit for this installation's database and
+    returns the raw recovery key as a small text file. The coordinator/
+    installation owner must store this file somewhere OTHER than this
+    computer; it is never written to disk by the backend itself.
+    CENTRAL_SERVICE installations reuse their own deployment KEK for
+    recovery instead and have no separate key to download here."""
+    try:
+        recovery_key = create_local_recovery_kit(conn, db_path=DB_PATH)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+    fd, path = tempfile.mkstemp(suffix=".txt")
+    os.close(fd)
+    with open(path, "w", encoding="ascii") as f:
+        f.write(recovery_key.hex())
+    background_tasks.add_task(os.remove, path)
+    return FileResponse(path, filename=f"rota-recovery-key-{_timestamp()}.txt", media_type="text/plain")
 
 
 @router.post("/diagnostics")

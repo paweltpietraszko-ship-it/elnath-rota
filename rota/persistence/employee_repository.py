@@ -17,6 +17,7 @@ from rota.domain import (
     ShiftKind,
     SiteMembership,
 )
+from rota.persistence import pii_crypto
 
 
 class EmployeeNotFound(Exception):
@@ -38,6 +39,7 @@ def write_employee_in_open_transaction(conn: sqlite3.Connection, employee: Emplo
     open transaction."""
     if employee.active_to is not None and employee.active_to < employee.active_from:
         raise InvalidEmployeeActivePeriod((employee.active_from, employee.active_to))
+    key = pii_crypto.resolve_key(conn)
     conn.execute(
         """INSERT INTO employees (employee_id, display_name, active_from, active_to, day_only)
            VALUES (?, ?, ?, ?, ?)
@@ -45,10 +47,15 @@ def write_employee_in_open_transaction(conn: sqlite3.Connection, employee: Emplo
             display_name=excluded.display_name, active_from=excluded.active_from,
             active_to=excluded.active_to, day_only=excluded.day_only""",
         (
-            employee.employee_id, employee.display_name, employee.active_from.isoformat(),
+            employee.employee_id, pii_crypto.encrypt_name(key, employee.display_name), employee.active_from.isoformat(),
             employee.active_to.isoformat() if employee.active_to else None, int(employee.day_only),
         ),
     )
+    # R5-01: once this employee_id has ever been written as ciphertext, a
+    # later `str` found in this column is a downgrade, never legacy --
+    # see pii_crypto.mark_encrypted's own docstring for why storage class
+    # alone cannot prove that on its own.
+    pii_crypto.mark_encrypted(conn, employee.employee_id)
 
 
 def save_employee(conn: sqlite3.Connection, employee: Employee) -> None:
@@ -56,10 +63,18 @@ def save_employee(conn: sqlite3.Connection, employee: Employee) -> None:
         write_employee_in_open_transaction(conn, employee)
 
 
-def _row_to_employee(row: tuple) -> Employee:
+def _row_to_employee(key: bytes, protected_ids: frozenset[str], row: tuple) -> Employee:
     employee_id, display_name, active_from, active_to, day_only = row
+    if isinstance(display_name, str) and employee_id in protected_ids:
+        # R5-01: this employee_id was encrypted at least once before --
+        # a `str` here now is a downgrade (a raw UPDATE, or any other
+        # write that bypassed encrypt_name), never genuine legacy data.
+        raise ValueError(
+            f"employee display_name for {employee_id} was downgraded to plaintext after "
+            "encryption was already active for it -- refusing to trust it as legacy"
+        )
     return Employee(
-        employee_id=employee_id, display_name=display_name,
+        employee_id=employee_id, display_name=pii_crypto.decrypt_name(key, display_name),
         active_from=date.fromisoformat(active_from),
         active_to=date.fromisoformat(active_to) if active_to else None,
         day_only=bool(day_only),
@@ -73,14 +88,28 @@ def get_employee(conn: sqlite3.Connection, employee_id: str) -> Employee:
     ).fetchone()
     if row is None:
         raise EmployeeNotFound(employee_id)
-    return _row_to_employee(row)
+    return _row_to_employee(pii_crypto.resolve_key(conn), pii_crypto.load_protected_ids(conn), row)
+
+
+def decrypt_display_names_with_key(conn: sqlite3.Connection, key: bytes) -> dict[str, str]:
+    """R4-11-B DEPENDENCY BOUNDARY: rota/application/ contains no SQL or
+    table names, so this is the persistence-layer owner of the one raw
+    read a disaster-recovery flow needs -- rota/application/backup.py's
+    recover_employee_names_from_backup, decrypting with an independently
+    recovered DEK rather than the one resolve_key(conn) would derive for
+    this connection's own path (a detached snapshot copy has no
+    meaningful keystore of its own to resolve)."""
+    rows = conn.execute("SELECT employee_id, display_name FROM employees ORDER BY employee_id").fetchall()
+    return {employee_id: pii_crypto.decrypt_name(key, display_name) for employee_id, display_name in rows}
 
 
 def list_employees(conn: sqlite3.Connection) -> list[Employee]:
     rows = conn.execute(
         "SELECT employee_id, display_name, active_from, active_to, day_only FROM employees ORDER BY employee_id"
     ).fetchall()
-    return [_row_to_employee(row) for row in rows]
+    key = pii_crypto.resolve_key(conn)
+    protected_ids = pii_crypto.load_protected_ids(conn)
+    return [_row_to_employee(key, protected_ids, row) for row in rows]
 
 
 def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, Employee]:
@@ -95,7 +124,9 @@ def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> 
         f"FROM employees WHERE employee_id IN ({placeholders})",
         (*employee_ids,),
     ).fetchall()
-    return {row[0]: _row_to_employee(row) for row in rows}
+    key = pii_crypto.resolve_key(conn)
+    protected_ids = pii_crypto.load_protected_ids(conn)
+    return {row[0]: _row_to_employee(key, protected_ids, row) for row in rows}
 
 
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
