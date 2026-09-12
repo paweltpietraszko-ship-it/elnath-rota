@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Callable
 
-LATEST_SCHEMA_VERSION = 17
+LATEST_SCHEMA_VERSION = 18
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -650,7 +651,67 @@ _MIGRATION_17: tuple[str, ...] = (
 )
 
 
-MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+def _migration_18_encrypt_existing_persisted_names(conn: sqlite3.Connection) -> None:
+    """ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE brief.md
+    (exact SHA 5683bac) section 4: one-time, deterministic encryption of
+    any existing plaintext plan_previews.warnings_json /
+    decision_required_snapshots.payload_json, so this fix protects
+    already-persisted records too, not only new writes after this
+    version. A local import (not top-of-file) keeps db.py's normal
+    import graph free of a hard dependency on pii_crypto for every
+    caller that never needs this one-time migration path.
+
+    decision_required_snapshots is append-only via its own
+    BEFORE UPDATE/DELETE triggers (created in _MIGRATION_2 below). Those
+    are dropped and recreated byte-identical to their original
+    definition WITHIN this same migration transaction (migrate() wraps
+    every step in one BEGIN/COMMIT/ROLLBACK) -- a failure here rolls
+    back both the data and the trigger state together, so the
+    append-only invariant is never actually weakened for ordinary
+    runtime; only this one versioned migration step can touch it at
+    all, exactly as the brief requires."""
+    from rota.persistence import pii_crypto
+
+    rows = conn.execute("SELECT site_id, month, warnings_json FROM plan_previews").fetchall()
+    if rows:
+        key = pii_crypto.resolve_key(conn)
+        for site_id, month, warnings_json in rows:
+            if isinstance(warnings_json, (bytes, bytearray)):
+                continue  # already encrypted -- re-running this migration is a no-op
+            aad = pii_crypto.bind_aad("PLAN_PREVIEW_WARNINGS", site_id, month)
+            conn.execute(
+                "UPDATE plan_previews SET warnings_json = ? WHERE site_id = ? AND month = ?",
+                (pii_crypto.encrypt_text(key, warnings_json, aad), site_id, month),
+            )
+
+    conn.execute("DROP TRIGGER IF EXISTS decision_required_snapshots_no_update")
+    conn.execute("DROP TRIGGER IF EXISTS decision_required_snapshots_no_delete")
+    try:
+        rows = conn.execute("SELECT decision_required_id, payload_json FROM decision_required_snapshots").fetchall()
+        if rows:
+            key = pii_crypto.resolve_key(conn)
+            for decision_required_id, payload_json in rows:
+                if isinstance(payload_json, (bytes, bytearray)):
+                    continue
+                aad = pii_crypto.bind_aad("DECISION_REQUIRED_PAYLOAD", decision_required_id)
+                conn.execute(
+                    "UPDATE decision_required_snapshots SET payload_json = ? WHERE decision_required_id = ?",
+                    (pii_crypto.encrypt_text(key, payload_json, aad), decision_required_id),
+                )
+    finally:
+        conn.execute(
+            """CREATE TRIGGER IF NOT EXISTS decision_required_snapshots_no_update
+               BEFORE UPDATE ON decision_required_snapshots
+               BEGIN SELECT RAISE(ABORT, 'decision_required_snapshots is append-only: UPDATE forbidden'); END"""
+        )
+        conn.execute(
+            """CREATE TRIGGER IF NOT EXISTS decision_required_snapshots_no_delete
+               BEFORE DELETE ON decision_required_snapshots
+               BEGIN SELECT RAISE(ABORT, 'decision_required_snapshots is append-only: DELETE forbidden'); END"""
+        )
+
+
+MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], None]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
     (3, _MIGRATION_3),
@@ -668,6 +729,10 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (15, _MIGRATION_15),
     (16, _MIGRATION_16),
     (17, _MIGRATION_17),
+    # ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE: a data
+    # migration (a Python callable, not a tuple of DDL/DML strings) --
+    # see migrate()'s loop below for how the two kinds are dispatched.
+    (18, _migration_18_encrypt_existing_persisted_names),
 )
 
 
@@ -714,8 +779,11 @@ def migrate(conn: sqlite3.Connection) -> None:
         # explicit BEGIN/COMMIT/ROLLBACK is required for real DDL atomicity.
         conn.execute("BEGIN")
         try:
-            for statement in statements:
-                conn.execute(statement)
+            if callable(statements):
+                statements(conn)
+            else:
+                for statement in statements:
+                    conn.execute(statement)
             conn.execute(f"PRAGMA user_version = {version}")
         except BaseException:
             conn.execute("ROLLBACK")

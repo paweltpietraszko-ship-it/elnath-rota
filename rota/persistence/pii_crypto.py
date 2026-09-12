@@ -62,6 +62,8 @@ KEY_SIZE = 32
 NONCE_SIZE = 12
 MAGIC = b"RNAM"
 FORMAT_VERSION = b"\x02"
+TEXT_MAGIC = b"RTXT"
+TEXT_FORMAT_VERSION = b"\x01"
 KEYSTORE_SUFFIX = ".pii_keystore"
 RECOVERY_SIDECAR_SUFFIX = ".pii_recovery"
 RECOVERY_MAGIC = b"RREC\x01"
@@ -426,3 +428,65 @@ def unwrap_dek_from_central_backup(wrapped: bytes) -> bytes:
     if marker != _CENTRAL_MARKER:
         raise RecoveryFailed("not a recognized central-service wrapped DEK")
     return _aes_unwrap(rest, _central_kek())
+
+
+# ---------------------------------------------------------------------------
+# ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE (brief.md exact SHA
+# 5683bac, section 2): a general, versioned, record-bound AEAD envelope for
+# arbitrary text/JSON -- reused by plan_preview_repository.py's
+# warnings_json and site_memory.py's decision_required_snapshots.payload_json
+# instead of copying encrypt_name/decrypt_name's algorithm into each
+# repository. Same DEK/runtime-protector contract as Employee.display_name
+# (resolve_key); no second key or key-management model.
+#
+# Record-bound AAD (section 2.1): the caller supplies `aad`, built via
+# bind_aad() from canonical values already on hand at the call site (e.g.
+# site_id + month for a preview, decision_required_id for a snapshot). This
+# is NOT stored in the ciphertext blob -- the caller reconstructs the exact
+# same bytes from the row's own already-known columns at read time. Binding
+# it into the AEAD tag means copying one whole, validly-decryptable
+# ciphertext blob from one record into a different record of the same class
+# fails the same authenticated way real corruption would (brief.md L4a/L4b):
+# the tag was computed over THIS record's AAD, not the one it got pasted
+# into.
+# ---------------------------------------------------------------------------
+
+
+def bind_aad(class_label: str, *parts: str) -> bytes:
+    """Deterministic AAD from canonical values already known to the caller.
+    NUL-separated so e.g. ("AB", "C") and ("A", "BC") never collide."""
+    return b"\x00".join(part.encode("utf-8") for part in (class_label, *parts))
+
+
+def encrypt_text(key: bytes, plaintext: str, aad: bytes) -> bytes:
+    header = TEXT_MAGIC + TEXT_FORMAT_VERSION
+    full_aad = header + aad
+    nonce = secrets.token_bytes(NONCE_SIZE)
+    ciphertext = AESGCM(key).encrypt(nonce, plaintext.encode("utf-8"), full_aad)
+    return header + nonce + ciphertext
+
+
+def decrypt_text(key: bytes, stored: bytes | str, aad: bytes) -> str:
+    """Same str/bytes trust split as decrypt_name: a genuine `str` (legacy,
+    written before this feature existed) is returned unchanged; a `bytes`
+    value must be complete, current-version ciphertext authenticated under
+    THIS EXACT aad, or this raises -- including when it is otherwise
+    perfectly valid ciphertext for a DIFFERENT record of the same class
+    (wrong aad = wrong tag = InvalidTag, per bind_aad's docstring above)."""
+    if isinstance(stored, str):
+        return stored
+    header_len = len(TEXT_MAGIC) + len(TEXT_FORMAT_VERSION)
+    if len(stored) < header_len + NONCE_SIZE:
+        raise ValueError("encrypted value is too short to be valid")
+    header = stored[:header_len]
+    if not header.startswith(TEXT_MAGIC):
+        raise ValueError("encrypted value has an unrecognized header -- not a legacy string and not valid ciphertext")
+    version = header[len(TEXT_MAGIC):]
+    if version != TEXT_FORMAT_VERSION:
+        raise ValueError(f"encrypted value has unsupported ciphertext format version {version!r}")
+    rest = stored[header_len:]
+    nonce, ciphertext = rest[:NONCE_SIZE], rest[NONCE_SIZE:]
+    try:
+        return AESGCM(key).decrypt(nonce, ciphertext, header + aad).decode("utf-8")
+    except InvalidTag:
+        raise ValueError("encrypted value failed integrity check -- possibly corrupted, tampered, or copied from a different record") from None

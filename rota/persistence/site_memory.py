@@ -9,6 +9,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
+from rota.persistence import pii_crypto
 from rota.persistence.site_rule_repository import get_site_rule_version
 from rota.planning.engine_types import BlockingDemand, Blocker, DecisionRequiredPayload, LoadBlocker, UnblockingOption
 from rota.site_memory_types import (
@@ -352,13 +353,24 @@ def list_action_ids_linking_to(conn: sqlite3.Connection, decision_required_id: s
 
 _SNAPSHOT_COLUMNS = "decision_required_id, site_id, month, schedule_version_id, requested_by, recorded_at, payload_json"
 
+# ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE brief.md section 2.1:
+# constant class label bound into payload_json's AAD alongside
+# decision_required_id, so a full ciphertext swap between two different
+# snapshots fails closed (L4b) instead of decrypting as if it were this one.
+_PAYLOAD_AAD_CLASS = "DECISION_REQUIRED_PAYLOAD"
 
-def _row_to_snapshot(row: tuple) -> DecisionRequiredSnapshotRecord:
+
+def _payload_aad(decision_required_id: str) -> bytes:
+    return pii_crypto.bind_aad(_PAYLOAD_AAD_CLASS, decision_required_id)
+
+
+def _row_to_snapshot(key: bytes, row: tuple) -> DecisionRequiredSnapshotRecord:
     decision_required_id, site_id, month, schedule_version_id, requested_by, recorded_at, payload_json = row
+    payload_plaintext = pii_crypto.decrypt_text(key, payload_json, _payload_aad(decision_required_id))
     return DecisionRequiredSnapshotRecord(
         decision_required_id=decision_required_id, site_id=site_id, month=date.fromisoformat(month),
         schedule_version_id=schedule_version_id, requested_by=requested_by,
-        recorded_at=datetime.fromisoformat(recorded_at), payload=_payload_from_dict(json.loads(payload_json)),
+        recorded_at=datetime.fromisoformat(recorded_at), payload=_payload_from_dict(json.loads(payload_plaintext)),
     )
 
 
@@ -367,11 +379,13 @@ def insert_decision_required_snapshot_no_commit(
     requested_by: str, recorded_at: datetime, payload: DecisionRequiredPayload,
 ) -> DecisionRequiredSnapshotRecord:
     decision_required_id = f"DR-{uuid.uuid4().hex}"
+    payload_json = json.dumps(_payload_to_dict(payload), sort_keys=True, default=_json_default)
     conn.execute(
         f"INSERT INTO decision_required_snapshots ({_SNAPSHOT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             decision_required_id, site_id, month.isoformat(), schedule_version_id, requested_by,
-            recorded_at.isoformat(), json.dumps(_payload_to_dict(payload), sort_keys=True, default=_json_default),
+            recorded_at.isoformat(),
+            pii_crypto.encrypt_text(pii_crypto.resolve_key(conn), payload_json, _payload_aad(decision_required_id)),
         ),
     )
     return DecisionRequiredSnapshotRecord(
@@ -385,7 +399,22 @@ def get_decision_required_snapshot(conn: sqlite3.Connection, decision_required_i
         f"SELECT {_SNAPSHOT_COLUMNS} FROM decision_required_snapshots WHERE decision_required_id = ?",
         (decision_required_id,),
     ).fetchone()
-    return None if row is None else _row_to_snapshot(row)
+    return None if row is None else _row_to_snapshot(pii_crypto.resolve_key(conn), row)
+
+
+def get_decision_required_snapshot_with_key(
+    conn: sqlite3.Connection, decision_required_id: str, key: bytes,
+) -> Optional[DecisionRequiredSnapshotRecord]:
+    """Same as get_decision_required_snapshot but decrypts payload_json
+    with an externally-supplied key rather than resolve_key(conn) -- for
+    disaster-recovery flows reading a detached snapshot copy
+    (rota/application/backup.py), which has no meaningful keystore of
+    its own to resolve (brief.md section 6/L7)."""
+    row = conn.execute(
+        f"SELECT {_SNAPSHOT_COLUMNS} FROM decision_required_snapshots WHERE decision_required_id = ?",
+        (decision_required_id,),
+    ).fetchone()
+    return None if row is None else _row_to_snapshot(key, row)
 
 
 def get_current_decision_required(conn: sqlite3.Connection, *, site_id: str, month: date) -> Optional[DecisionRequiredSnapshotRecord]:
