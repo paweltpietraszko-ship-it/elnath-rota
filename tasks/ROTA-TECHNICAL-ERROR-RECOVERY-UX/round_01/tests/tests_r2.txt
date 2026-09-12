@@ -1,0 +1,60 @@
+ROTA-TECHNICAL-ERROR-RECOVERY-UX — PREIMPLEMENTATION RE-CHECK R2
+
+BRIEF_SHA: fe689a125614d6354df977dda05f8cc7ad3bc367
+CORRECTS_R1: 2b590e99aaf338a07d8f13b16961d659bfa027f8
+BOARD_SHA: 7cdf7893ab1c71c58bb2e68c850b6e3fff0bcdaa
+VERDICT: PASS
+IMPLEMENTATION_HOLD: RELEASED
+
+Zakres
+------
+Wykonano wyłącznie literalny re-check trzech fragmentów skorygowanych po R1.
+Nie ponawiano inventory T021c/T060, nie audytowano implementacji i nie
+uruchamiano testów produktu, pełnej regresji, symulatorów ani benchmarków.
+
+1. Jeden boundary obejmuje cztery ścieżki — TAK
+------------------------------------------------
+`api/routers/schedule.py::_planning_result_out` jest wspólnym wyjściem dla:
+- `post_plan`;
+- `post_replan`;
+- `post_replan_wider_search`;
+- `post_replan_retry`.
+
+Każda z tych ścieżek przekazuje do niego swój `PlanningResult`. Brief pozwala
+równoważny jawnie nazwany helper wyłącznie pod warunkiem użycia przez wszystkie
+cztery miejsca. Nie ma potrzeby logowania w solverze, plan_ops ani osobnych
+handlerach.
+
+2. Jeden sanitizowany wpis bez exception context — TAK
+------------------------------------------------------
+Wspólny boundary może sprawdzić wyłącznie
+`result.status == "TECHNICAL_ERROR"` i wywołać jeden wspólny runtime logger.
+Skorygowany kontrakt jednoznacznie zamraża:
+- dokładnie jeden wpis;
+- kategorię `STRUCTURED_PLANNING_FAILURE` zamiast typu wyjątku;
+- brak stack trace, gdy exception context nie istnieje;
+- zakaz kopiowania `PlanningResult.error_message`;
+- zakaz zmian solvera i DTO `PlanningResult`.
+
+Operacja może zostać przekazana do wspólnego helpera przez cztery istniejące
+wywołania. To minimalny adapter na istniejącym boundary, bez nowego zachowania
+produktowego i bez rozproszonego logowania.
+
+3. TASK_SCOPE i acceptance — TAK
+--------------------------------
+Scope jawnie obejmuje wspólny boundary/równoważny helper. A2 wymaga wpisu dla
+każdego structured `TECHNICAL_ERROR`, A3 zamyka surowy render UI, a A15 wymaga
+jednego ownera wszystkich czterech ścieżek. Macierz testowa obejmuje dokładnie
+te cztery wyjścia, pojedynczość wpisu oraz brak raw `error_message`.
+
+Wniosek
+-------
+Wszystkie trzy punkty re-checku są spełnione. Brief na exact `fe689a1` jest
+testowalny, ma jednego ownera structured TECHNICAL_ERROR i nie wymaga zmian
+solvera/DTO. PREIMPLEMENTATION PASS; implementation HOLD można zwolnić.
+
+Dowody read-only
+----------------
+- `git diff c007eb9..fe689a1 -- tasks/ROTA-TECHNICAL-ERROR-RECOVERY-UX/brief.md`
+- bezpośredni odczyt `api/routers/schedule.py::_planning_result_out` i jego
+  czterech wywołań na produkcji identycznej z bazą briefu.

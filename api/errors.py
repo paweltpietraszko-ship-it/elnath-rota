@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from api.runtime_log import log_runtime_error
 from rota.application.errors import (
     CandidateRejected,
     CoordinatorContextAlreadyActive,
@@ -45,7 +46,12 @@ from rota.planning.shift_catalog import InvalidStandardShift
 PUBLIC_ERROR_HEADER_NAME = "X-Elnath-Public-Error"
 _PUBLIC_ERROR_HEADERS = {PUBLIC_ERROR_HEADER_NAME: "1"}
 
-_UNEXPECTED_ERROR_DETAIL = "Wystąpił nieoczekiwany błąd. Spróbuj ponownie."
+# ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 6): this exact
+# sentence is the ONE frozen technical-error message across the whole app
+# (also reused by frontend/src/api/client.ts for a 5xx/network/timeout it
+# cannot classify as a public error) -- it says what happened and the one
+# real recovery action, never a business-blocker/manual-correction hint.
+_UNEXPECTED_ERROR_DETAIL = "Wystąpiła awaria techniczna. Wyłącz aplikację i uruchom ją ponownie."
 
 _STATUS_AND_DETAIL_BY_EXCEPTION: tuple[tuple[type[Exception], int, str], ...] = (
     (SiteNotFound, 404, "Nie znaleziono wskazanego obiektu."),
@@ -91,4 +97,9 @@ def to_http_exception(exc: Exception) -> HTTPException:
     # ARCHITECT_RULING R2 (brief 2.1.5): an unknown 500 may only ever carry
     # the public marker once its content has been replaced by this fixed,
     # safe, neutral text -- the raw exception is never forwarded.
+    # ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md A1): this is exactly the
+    # "genuinely unhandled backend exception" boundary -- every classified
+    # exception above already has its own defined, human-safe outcome and
+    # is not a technical failure (brief section 8).
+    log_runtime_error(component="API", exc=exc, safe_message="Nieobsłużony wyjątek backendu.")
     return public_http_exception(500, _UNEXPECTED_ERROR_DETAIL)

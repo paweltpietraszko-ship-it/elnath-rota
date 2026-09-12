@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from api.config import DB_PATH
 from api.deps import get_conn
 from api.errors import to_http_exception
+from api.runtime_log import RuntimeLogConfigurationError, resolve_log_dir
 from rota.application.backup import backup_database, build_diagnostic_zip, create_local_recovery_kit
 
 router = APIRouter(prefix="/workspace", tags=["backup"])
@@ -74,6 +75,13 @@ def download_diagnostics(
     fd, path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     frontend_report = payload.frontend_report if payload is not None else None
-    build_diagnostic_zip(conn, path, frontend_report=frontend_report)
+    try:
+        runtime_log_dir = resolve_log_dir()
+    except RuntimeLogConfigurationError:
+        # ROTA-TECHNICAL-ERROR-RECOVERY-UX brief.md section 5: a
+        # misconfigured/absent log location must never break the
+        # diagnostic ZIP itself -- it is produced without the runtime log.
+        runtime_log_dir = None
+    build_diagnostic_zip(conn, path, frontend_report=frontend_report, runtime_log_dir=runtime_log_dir)
     background_tasks.add_task(os.remove, path)
     return FileResponse(path, filename=f"rota-diagnostics-{_timestamp()}.zip", media_type="application/zip")

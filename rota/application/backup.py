@@ -170,9 +170,20 @@ def build_diagnostic_zip(
     destination: str,
     *,
     frontend_report: dict | None = None,
+    runtime_log_dir: Path | str | None = None,
 ) -> None:
+    """ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 5): embeds the
+    current runtime-errors.log plus any of its rotated copies, when they
+    exist -- resolving WHERE they live is a deployment-model concern the
+    caller (api layer) already owns via api.runtime_log, never this
+    application-layer module. A missing/absent log is not an error: the
+    ZIP is produced exactly as before."""
     payload = diagnostics_payload(conn)
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("diagnostics.json", json.dumps(payload, indent=2))
         if frontend_report is not None:
             archive.writestr("frontend_diagnostics.json", json.dumps(frontend_report, indent=2))
+        if runtime_log_dir is not None:
+            log_dir = Path(runtime_log_dir)
+            for log_file in sorted(log_dir.glob("runtime-errors.log*")):
+                archive.write(log_file, f"logs/{log_file.name}")

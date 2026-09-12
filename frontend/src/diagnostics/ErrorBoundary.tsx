@@ -6,6 +6,7 @@ import { Component, ErrorInfo, ReactNode } from "react";
 import { recordEvent, newEventId, nowIso, getCurrentScreen } from "./buffer";
 import { downloadFrontendReport } from "./report";
 import { resolveAction, consumePendingActionId } from "./tracking";
+import { TECHNICAL_ERROR_MESSAGE } from "../api/client";
 
 function shortCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -51,9 +52,16 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
       return (
         <div style={{ padding: 40, maxWidth: 520, margin: "60px auto", fontFamily: "system-ui, sans-serif" }}>
           <h1 style={{ fontSize: 20, marginBottom: 8 }}>Coś poszło nie tak</h1>
+          {/* ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 6, Codex
+              R3-03 on 05f2e2a): the one frozen technical-error sentence,
+              same surface as any other backend/network failure -- this
+              boundary keeps its own diagnostic code (a render crash has
+              richer, code-addressable frontend diagnostics the generic
+              message alone would lose) and reuse/back/refresh actions,
+              never a second ErrorBoundary. */}
+          <p style={{ marginBottom: 4 }}>{TECHNICAL_ERROR_MESSAGE}</p>
           <p style={{ marginBottom: 4 }}>
-            Aplikacja napotkała błąd i nie może pokazać tego ekranu. Kod diagnostyczny:{" "}
-            <strong>{this.state.code}</strong>
+            Kod diagnostyczny: <strong>{this.state.code}</strong>
           </p>
           <p style={{ marginBottom: 20, color: "#666", fontSize: 13 }}>
             Ten kod pozwala odnaleźć zdarzenie w raporcie diagnostycznym — nie trzeba przepisywać treści błędu.
@@ -67,6 +75,9 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
               }}
             >
               Wróć do startu
+            </button>
+            <button disabled title="Wsparcie techniczne niedostępne w tej wersji">
+              Kontakt ze wsparciem
             </button>
           </div>
         </div>

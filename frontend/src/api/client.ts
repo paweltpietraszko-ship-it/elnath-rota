@@ -7,6 +7,14 @@ import { consumePendingActionId, resolveAction, REQUEST_TIMEOUT_MS } from "../di
 import { sanitizeEndpoint } from "../diagnostics/sanitize";
 import { getFrontendReport } from "../diagnostics/report";
 
+// ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 6/A4): the ONE frozen
+// technical-error sentence, shared with api/errors.py's own
+// _UNEXPECTED_ERROR_DETAIL -- a genuine 5xx, a network failure, or a
+// client-side timeout all reach here as something this client cannot
+// classify as a public/human error (T060's X-Elnath-Public-Error), so
+// they all get this exact wording, never a different ad hoc string.
+export const TECHNICAL_ERROR_MESSAGE = "Wystąpiła awaria techniczna. Wyłącz aplikację i uruchom ją ponownie.";
+
 // ROTA-T032: PLAN/REPLAN can legitimately run up to the solver's own
 // operation budget (PLANNING_OPERATION_BUDGET_SECONDS = 45s, see
 // rota/planning/solver.py) -- the global REQUEST_TIMEOUT_MS (20s) is too
@@ -464,7 +472,9 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
         endpoint_template: endpointTemplate,
         duration_ms: duration,
       });
-      throw new Error("Żądanie przekroczyło limit czasu.");
+      // ROTA-TECHNICAL-ERROR-RECOVERY-UX brief.md A4: a client-side
+      // timeout is one of the "same surface" cases, not its own wording.
+      throw new Error(TECHNICAL_ERROR_MESSAGE);
     }
     recordEvent({
       event_id: newEventId(),
@@ -478,7 +488,10 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
       error_category: "network",
       duration_ms: duration,
     });
-    throw e;
+    // ROTA-TECHNICAL-ERROR-RECOVERY-UX brief.md A4: real connectivity loss
+    // (backend down/unreachable) never surfaces the raw fetch/browser
+    // error (e.g. "Failed to fetch") -- same frozen surface as a 5xx.
+    throw new Error(TECHNICAL_ERROR_MESSAGE);
   }
   clearTimeout(timeoutTimer);
   const duration = Math.round(performance.now() - started);
@@ -505,7 +518,17 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
     // missing header, or a non-string detail) falls back to one neutral
     // Polish message instead of ever risking a raw technical string.
     const isPublicError = res.headers.get("X-Elnath-Public-Error") === "1" && typeof body.detail === "string";
-    throw new Error(isPublicError ? body.detail : "Nie udało się wykonać operacji. Spróbuj ponownie.");
+    if (isPublicError) {
+      throw new Error(body.detail);
+    }
+    // ROTA-TECHNICAL-ERROR-RECOVERY-UX brief.md A4: a non-public 5xx here
+    // is always api/errors.py's own unhandled-exception fallback (every
+    // classified domain exception is already public per T060) -- same
+    // frozen surface as PLAN/REPLAN's structured TECHNICAL_ERROR. A
+    // non-public 4xx (e.g. a raw FastAPI validation error) is a genuine
+    // caller/input problem, not a technical failure, and keeps its own
+    // neutral wording (brief section 8).
+    throw new Error(res.status >= 500 ? TECHNICAL_ERROR_MESSAGE : "Nie udało się wykonać operacji. Spróbuj ponownie.");
   }
 
   // R1-3 (round-1 audit): an HTTP-successful response can still fail to

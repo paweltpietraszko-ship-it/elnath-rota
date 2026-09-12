@@ -1,0 +1,48 @@
+ROTA-TECHNICAL-ERROR-RECOVERY-UX — IMPLEMENTATION RE-AUDIT R4
+
+AUDITED_SHA: 09b35d369c32617bbdb9a907c0106fe4861d9253
+CORRECTION_BASE: 05f2e2ac06e1b51e6dbae2db56dcc6e4c7ce4c30
+APPROVED_BRIEF_SHA: fe689a125614d6354df977dda05f8cc7ad3bc367
+VERDICT: PASS
+
+Zakres
+------
+Wykonano wyłącznie proporcjonalny re-check trzech findingów R3. Porównano
+diff 05f2e2a..09b35d3, uruchomiono zachowany niezależny reproduktor, celowane
+testy zmienionego ownera oraz trzy odpowiadające scenariusze przeglądarkowe.
+Zmieniony ErrorBoundary sprawdzono optycznie w realnym frontendzie.
+
+Nie czytano ponownie całej implementacji. Nie uruchamiano pełnej macierzy
+Tasku, pełnej regresji repo, symulatorów ani benchmarków. where.py pominięto,
+ponieważ był to literalny re-check bez zmiany zakresu lub ownershipu.
+
+Re-check findingów R3
+---------------------
+- R3-01 ZAMKNIĘTY: runtime log buduje ślad wyłącznie z filename/lineno/name;
+  nie używa str(exc) ani tekstu źródłowej linii. Zachowany canary z nazwiskiem
+  i tokenem nie występuje ani w logu, ani w ZIP-ie.
+- R3-02 ZAMKNIĘTY: globalny handler Exception obejmuje błąd zależności przed
+  ciałem routera, zapisuje dokładnie jeden wpis i zwraca 500 z nagłówkiem
+  X-Elnath-Public-Error oraz zamrożonym polskim komunikatem.
+- R3-03 ZAMKNIĘTY: istniejący root ErrorBoundary pokazuje zamrożoną instrukcję
+  restartu i nieaktywny „Kontakt ze wsparciem”, zachowując kod diagnostyczny,
+  pobranie raportu, odświeżenie i powrót.
+
+Wyniki
+------
+- diff-check 05f2e2a..09b35d3: PASS;
+- zachowany audit_r3_repro.py: 6 passed;
+- tests/test_runtime_error_log.py: 15 passed;
+- ruff dla zmienionego backendu/testów/reproduktora: PASS;
+- TypeScript build + Vite production build: PASS;
+- Playwright diagnostics.spec.ts, przypadki 1/3/4 (render crash, API 500,
+  timeout): 3 passed;
+- kontrola optyczna realnego crash ekranu: PASS — komunikat czytelny w całości,
+  kod diagnostyczny wyraźny, trzy aktywne akcje dostępne, kontakt ze wsparciem
+  jednoznacznie wyszarzony; brak clippingu i nakładania.
+
+Werdykt
+-------
+PASS dotyczy exact 09b35d369c32617bbdb9a907c0106fe4861d9253.
+Trzy findingi R3 są domknięte. Implementacja jest gotowa do merge w zakresie
+ROTA-TECHNICAL-ERROR-RECOVERY-UX / ROTA-NO-PERSISTENT-ERROR-LOG.
