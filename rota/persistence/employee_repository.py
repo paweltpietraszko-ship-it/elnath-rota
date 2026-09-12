@@ -17,6 +17,7 @@ from rota.domain import (
     ShiftKind,
     SiteMembership,
 )
+from rota.persistence import pii_crypto
 
 
 class EmployeeNotFound(Exception):
@@ -38,6 +39,7 @@ def write_employee_in_open_transaction(conn: sqlite3.Connection, employee: Emplo
     open transaction."""
     if employee.active_to is not None and employee.active_to < employee.active_from:
         raise InvalidEmployeeActivePeriod((employee.active_from, employee.active_to))
+    key = pii_crypto.resolve_key(conn)
     conn.execute(
         """INSERT INTO employees (employee_id, display_name, active_from, active_to, day_only)
            VALUES (?, ?, ?, ?, ?)
@@ -45,7 +47,7 @@ def write_employee_in_open_transaction(conn: sqlite3.Connection, employee: Emplo
             display_name=excluded.display_name, active_from=excluded.active_from,
             active_to=excluded.active_to, day_only=excluded.day_only""",
         (
-            employee.employee_id, employee.display_name, employee.active_from.isoformat(),
+            employee.employee_id, pii_crypto.encrypt_name(key, employee.display_name), employee.active_from.isoformat(),
             employee.active_to.isoformat() if employee.active_to else None, int(employee.day_only),
         ),
     )
@@ -56,10 +58,10 @@ def save_employee(conn: sqlite3.Connection, employee: Employee) -> None:
         write_employee_in_open_transaction(conn, employee)
 
 
-def _row_to_employee(row: tuple) -> Employee:
+def _row_to_employee(key: bytes, row: tuple) -> Employee:
     employee_id, display_name, active_from, active_to, day_only = row
     return Employee(
-        employee_id=employee_id, display_name=display_name,
+        employee_id=employee_id, display_name=pii_crypto.decrypt_name(key, display_name),
         active_from=date.fromisoformat(active_from),
         active_to=date.fromisoformat(active_to) if active_to else None,
         day_only=bool(day_only),
@@ -73,14 +75,15 @@ def get_employee(conn: sqlite3.Connection, employee_id: str) -> Employee:
     ).fetchone()
     if row is None:
         raise EmployeeNotFound(employee_id)
-    return _row_to_employee(row)
+    return _row_to_employee(pii_crypto.resolve_key(conn), row)
 
 
 def list_employees(conn: sqlite3.Connection) -> list[Employee]:
     rows = conn.execute(
         "SELECT employee_id, display_name, active_from, active_to, day_only FROM employees ORDER BY employee_id"
     ).fetchall()
-    return [_row_to_employee(row) for row in rows]
+    key = pii_crypto.resolve_key(conn)
+    return [_row_to_employee(key, row) for row in rows]
 
 
 def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> dict[str, Employee]:
@@ -95,7 +98,8 @@ def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> 
         f"FROM employees WHERE employee_id IN ({placeholders})",
         (*employee_ids,),
     ).fetchall()
-    return {row[0]: _row_to_employee(row) for row in rows}
+    key = pii_crypto.resolve_key(conn)
+    return {row[0]: _row_to_employee(key, row) for row in rows}
 
 
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
