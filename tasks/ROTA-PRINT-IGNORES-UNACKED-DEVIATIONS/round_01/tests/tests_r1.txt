@@ -1,0 +1,99 @@
+ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS — PREIMPLEMENTATION RE-CHECK R1
+
+BRIEF_SHA: 56fe664b3173d6ec3b5023676ea1b21c7f26d2ab
+BOARD_SHA: f06bf02910826063d79387db355a973c980ba96b
+VERDICT: WYMAGA_KOREKTY — IMPLEMENTATION HOLD pozostaje
+
+Zakres
+------
+Wykonano wyłącznie pięć punktów z brief.md §11. Nie uruchamiano testów,
+pełnej regresji, symulatorów ani benchmarków. Kod produktu nie został
+zmieniony.
+
+WHERE_MAP
+---------
+Użyto wąsko dla właściciela eksportu, endpointu i wskazanych plików UI.
+Mapa potwierdziła jeden produkcyjny endpoint PDF i jednego application ownera
+`generate_schedule_pdf`. W briefie wskazano nieistniejącą ścieżkę
+`frontend/src/components/Export.tsx`; rzeczywisty plik to
+`frontend/src/screens/Export.tsx`.
+
+Wynik pięciu punktów
+--------------------
+
+1. Reuse assemblera/validatora i związanie z wersją: TAK, z małą korektą
+   odpowiedzialności.
+
+   Istniejący pion jest kompletny:
+   `assemble_planning_state(..., schedule_version_id=...)` potrafi złożyć
+   jawnie wskazaną wersję wraz z boundary/other-site context, a
+   `rota.planning.validator.validate` wykonuje świeżą walidację. Obecna
+   `lifecycle_ops._fresh_deviations` już składa te elementy, ale jest prywatnym
+   helperem lifecycle. Implementacja ma skonsolidować ten istniejący przebieg
+   jako jeden współdzielony helper application layer używany przez lifecycle
+   i export, zamiast kopiować cztery kroki lub tworzyć drugi validator.
+
+   Eksporter może zapamiętać oczekiwany current version_id, złożyć i
+   zwalidować tę konkretną wersję, zbudować model PDF dla tej samej wersji oraz
+   ponownie sprawdzić current przed zwrotem. Jeżeli wskaźnik się zmieni,
+   wygenerowane bajty są odrzucane. Nie wymaga to redesignu lifecycle.
+
+2. Stabilny fingerprint z obecnych danych: NIE w obecnym kontrakcie
+   transportowym.
+
+   `Deviation` przechowuje tylko: kategorię, source_reference i jeden
+   `affected_assignment_or_employee`; materializacja odrzuca pełne
+   `ViolationDetail.assignment_ids`, `demand_ids` oraz strukturalne dane
+   wskazanych Assignment/Demand. Dlatego z samego obecnego `Deviation` nie da
+   się spełnić P8 dla zmiany faktu przy tej samej regule/indeksie/targetcie.
+
+   Backend może bez zmiany domeny policzyć fingerprint podczas świeżej
+   walidacji z `ViolationDetail` oraz wskazanych przez niego strukturalnych
+   Assignment/Demand. Nie wolno używać `message`. Brakuje jednak jawnego pola,
+   którym ten świeży fingerprint trafia do UI.
+
+3. Reuse istniejącej listy/zaznaczeń: NIE, dopóki nie zostanie domknięty ten
+   jeden transport danych.
+
+   `MonthlyPlanning` przechowuje obecnie wyłącznie zaznaczone
+   `deviation_id`. `Export` nie otrzymuje ani listy odchyleń, ani zaznaczeń,
+   a `ExportResultOut` po blokadzie niesie tylko `problem_code` i `message`.
+   UI nie może więc poznać świeżych fingerprintów, pokazać świeżego LAW w
+   istniejącej liście i odesłać potwierdzenia w drugiej próbie. Samo odesłanie
+   starego `DEV-{index}-{rule}` przeczy P8.
+
+   Wymagana korekta briefu: odpowiedź blokująca eksport musi zwrócić minimalną
+   listę świeżych LAW dla istniejącej powierzchni `Odchylenia`, zawierającą co
+   najmniej backendowy fingerprint i istniejące dane prezentacyjne. Request
+   ponowienia przesyła zaznaczone fingerprinty. Nie jest to nowy panel ani
+   model decyzji, tylko konieczny transport między świeżą walidacją a już
+   istniejącymi checkboxami.
+
+   Dodatkowo obecne checkboxy są ukrywane dla FINAL. Brief musi literalnie
+   zezwolić istniejącej liście na zaznaczenie LAW na potrzeby pojedynczego
+   eksportu również wtedy, gdy drukowana wersja jest FINAL, bez zmiany statusu
+   i bez ponownej finalizacji.
+
+4. Mechaniczne unieważnienie starego preview: TAK.
+
+   `Export` już czyści preview przed każdym requestem. Wystarczy wspólny helper
+   czyszczący oraz efekt zależny od `siteId`, `workingMonth` i przekazanego z
+   `MonthlyPlanning` current version_id. Wynik blokujący korzysta z tego samego
+   czyszczenia. Nie potrzeba lifecycle redesignu.
+
+5. Literalny scope kompletny: NIE — wymaga wyłącznie mechanicznej korekty.
+
+   Należy:
+   - poprawić ścieżkę na `frontend/src/screens/Export.tsx`;
+   - jawnie objąć współdzielony helper świeżej walidacji (obecnie przebieg jest
+     prywatny w `rota/application/lifecycle_ops.py`);
+   - jawnie objąć minimalne pola request/response dla listy świeżych LAW i ich
+     fingerprintów; typ klienta pozostaje w `frontend/src/api/client.ts`.
+
+Jedna blokująca korekta
+----------------------
+Domknąć kontrakt danych: backend zwraca świeże LAW z fingerprintami, istniejąca
+lista `Odchylenia` je pokazuje i odsyła zaznaczone fingerprinty przy ponowieniu.
+Bez tego P5 i P8 są równocześnie niewykonalne. Pozostały projekt jest wąski i
+nie wymaga włączania REPLAN, restore, finalize ani osobnego systemu decyzji.
+
