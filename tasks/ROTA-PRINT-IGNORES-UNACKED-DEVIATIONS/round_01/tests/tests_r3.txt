@@ -1,0 +1,87 @@
+ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS — IMPLEMENTATION AUDIT R3
+
+AUDITED_SHA: 668aeaa2c404bce2d11d5e9d80cc0ce98a69541d
+APPROVED_BRIEF_SHA: 0db122ac790002e2fffb1e88edef7d93f9f34156
+IMPLEMENTATION_BASE: 2903a7382bc2b54b98ed73cbb6e11d4568eb41de
+SUPERSEDED_IMPLEMENTATION_SHA: b1df489163ffd5e4acf69956e8e5c4ad21d160f6
+VERDICT: PASS
+
+Zakres i metoda
+---------------
+Audyt rozpoczęto na b1df489, po czym OWNER wskazał poprawione exact SHA
+668aeaa. Werdykt dotyczy wyłącznie 668aeaa; b1df489 nie jest stanem końcowym.
+
+Sprawdzono:
+- surowy diff zatwierdzonego prechecku 2903a73..668aeaa;
+- wąski diff poprawki b1df489..668aeaa;
+- mapę użycia `fresh_validation`, `_law_fingerprint` i stanu LAW w UI;
+- macierz P1-P12 na application/API/lifecycle;
+- realny ekran: blokada, komunikat, checkbox w istniejącej liście,
+  ponowienie, udany podgląd oraz ponowna blokada z usunięciem starego PDF;
+- optycznie komunikat i układ w widoku 1280x720;
+- lint zmienionego kodu, TypeScript i produkcyjny build frontendu.
+
+Nie uruchamiano pełnej regresji repo. Zgodnie z rulingami nie uruchamiano
+symulatorów ani benchmarków.
+
+Niezależny reproduktor
+----------------------
+Zachowano:
+`tasks/ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS/round_01/tests/audit_r3_repro.py`.
+
+Na b1df489 reproduktor wykazał, że zmiana strukturalnego faktu
+`required_rest_after_hours` z 11 do 24 przy tych samych rule/index/employee,
+assignment IDs i czasach zachowywała stary fingerprint i przepuszczała PDF.
+Spełniało to TRACE=P8, OWNERSHIP=guard eksportu i REPRO=exact SHA.
+
+Poprawka 668aeaa rozszerza fingerprint o `work_period_id`,
+`required_rest_after_hours` i `planning_regime`. Ten sam reproduktor na
+668aeaa: PASS — stary fingerprint jest odrzucany, a zmieniony fakt wymaga
+nowego potwierdzenia.
+
+Drugi niezależny przypadek potwierdził, że udany jednorazowy export-ack nie
+zmienia statusu ScheduleVersion, nie zapisuje Deviation i nie tworzy
+CoordinatorAction.
+
+Wyniki uruchomień na 668aeaa
+---------------------------
+- niezależne reproduktory + Task matrix + pion API + test współdzielonego
+  lifecycle helpera: 20 passed;
+- niezależne reproduktory osobno po finalnej korekcie: 2 passed;
+- ruff zmienionego kodu i reproduktora: PASS;
+- TypeScript `tsc -b`: PASS;
+- Vite production build: PASS;
+- `git diff --check` 2903a73..668aeaa: PASS.
+
+Acceptance P1-P12
+-----------------
+- P1/P2: legalny WORKING oraz non-LAW nadal drukują się — PASS.
+- P3/P4: świeże LAW blokuje także direct POST bez fingerprintów — PASS.
+- P5/P7: komplet świeżych fingerprintów odblokowuje tylko przesłaną próbę;
+  następna bez nich znów blokuje — PASS.
+- P6: brak trwałego acknowledgement, zmiany statusu i historii — PASS.
+- P8: zmiana czasu oraz zmiana wymaganego odpoczynku przy tej samej
+  regule/indexie/targetcie zmienia fingerprint — PASS.
+- P9: zmiana current podczas renderu odrzuca bajty — PASS.
+- P10: blokada usuwa wcześniejszy preview; kod czyści go również po zmianie
+  site/month/current — PASS.
+- P11: exportowa lista/checkbox ma osobny stan, nie zasila finalizacji i jest
+  renderowana również dla FINAL — PASS.
+- P12: brak nowego DECISION_REQUIRED, tabeli, modala i validatora — PASS.
+
+UI
+--
+Na realnym backendzie i izolowanej bazie ekran pokazał:
+„Przed wydrukiem potwierdź wskazane odchylenia prawne (LAW) na liście
+Odchylenia.” W tej samej powierzchni pojawił się checkbox LAW. Po zaznaczeniu
+i ponowieniu powstał podgląd PDF; kolejna próba bez ponownego zaznaczenia
+została zablokowana, a stary podgląd i przycisk pobierania zniknęły.
+
+Test UI wykonano przed mikro-poprawką na b1df489. Jest miarodajny dla 668aeaa,
+ponieważ diff b1df489..668aeaa zmienia wyłącznie backendowy fingerprint i jego
+test; wszystkie pliki frontendu są bajtowo niezmienione. Backend finalnego SHA
+został ponownie sprawdzony reproduktorem i pionem API.
+
+Findingi
+--------
+Brak otwartych findingów na 668aeaa. Task jest gotowy do merge.

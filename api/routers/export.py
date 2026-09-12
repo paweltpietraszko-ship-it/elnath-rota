@@ -13,13 +13,14 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.config import DEV_COORDINATOR_ID
 from api.deps import get_conn
 from api.errors import to_http_exception
+from api.routers.schedule import _deviation_label
 from rota.application.durable_inputs import save_monthly_extra_work_codes, save_print_settings
-from rota.application.schedule_export import ExportReady, generate_schedule_pdf
+from rota.application.schedule_export import ExportLawBlocked, ExportReady, generate_schedule_pdf
 from rota.persistence.site_repository import (
     SitePrintSettings,
     WorkCodeInterval,
@@ -50,7 +51,17 @@ PROBLEM_MESSAGE_PL: dict[str, str] = {
     "ABSENCE_SITE_AMBIGUOUS": "Pracownik ma więcej niż jedno aktywne miejsce pracy — nie można jednoznacznie przypisać nieobecności.",
     "PRINT_FONT_UNAVAILABLE": "Brak w tym środowisku czcionki z pełnym zestawem polskich znaków.",
     "ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT": "Obsada lub nagłówek są zbyt duże, by zmieścić się na jednej stronie wydruku.",
+    # ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: current ScheduleVersion changed
+    # mid-export (finalize/correction/REPLAN raced this request) -- never
+    # a code schedule_export.py's fallback message needs to translate.
+    "SCHEDULE_VERSION_CHANGED": "Grafik zmienił się w trakcie generowania wydruku. Spróbuj ponownie.",
 }
+
+# ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: not a code an unmapped-fallback
+# path could ever reach -- generate_schedule_pdf returns ExportLawBlocked as
+# its own result type, not this ExportProblem.problem_code, but callers of
+# this router still see it as a stable problem_code for UI branching.
+UNACKNOWLEDGED_LAW_PROBLEM_CODE = "UNACKNOWLEDGED_LAW_DEVIATIONS"
 
 
 class WorkCodeIntervalOut(BaseModel):
@@ -85,7 +96,20 @@ class SitePrintSettingsIn(BaseModel):
 
 
 class ExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     period_label: str
+    # ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: fingerprints of the fresh LAW
+    # items the coordinator checked in the existing Odchylenia list for THIS
+    # one export attempt -- never a persisted acknowledgement, never
+    # deviation_id (brief.md section 5).
+    acknowledged_law_fingerprints: list[str] = Field(default_factory=list)
+
+
+class ExportLawItemOut(BaseModel):
+    fingerprint: str
+    category: str
+    label: str
+    affected_assignment_or_employee: str
 
 
 class ExportResultOut(BaseModel):
@@ -95,6 +119,9 @@ class ExportResultOut(BaseModel):
     schedule_provenance: str | None = None
     problem_code: str | None = None
     message: str | None = None
+    # Populated only when problem_code == UNACKNOWLEDGED_LAW_DEVIATIONS --
+    # the minimal fresh LAW list the existing Odchylenia list needs.
+    fresh_law: list[ExportLawItemOut] | None = None
 
 
 def _settings_out(s: SitePrintSettings) -> SitePrintSettingsOut:
@@ -191,13 +218,28 @@ def put_monthly_extra_work_codes(
 @router.post("/sites/{site_id}/schedule/{month}/export", response_model=ExportResultOut)
 def post_export(site_id: str, month: date, payload: ExportRequest, conn=Depends(get_conn)) -> ExportResultOut:
     try:
-        result = generate_schedule_pdf(conn, site_id=site_id, month=month, period_label=payload.period_label)
+        result = generate_schedule_pdf(
+            conn, site_id=site_id, month=month, period_label=payload.period_label,
+            acknowledged_law_fingerprints=frozenset(payload.acknowledged_law_fingerprints),
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc
     if isinstance(result, ExportReady):
         return ExportResultOut(
             ok=True, pdf_base64=base64.b64encode(result.pdf_bytes).decode("ascii"),
             document_revision=result.document_revision, schedule_provenance=result.schedule_provenance,
+        )
+    if isinstance(result, ExportLawBlocked):
+        return ExportResultOut(
+            ok=False, problem_code=UNACKNOWLEDGED_LAW_PROBLEM_CODE,
+            message="Przed wydrukiem potwierdź wskazane odchylenia prawne (LAW) na liście Odchylenia.",
+            fresh_law=[
+                ExportLawItemOut(
+                    fingerprint=item.fingerprint, category="LAW", label=_deviation_label(item.rule),
+                    affected_assignment_or_employee=item.affected_assignment_or_employee,
+                )
+                for item in result.items
+            ],
         )
     # Every code schedule_export.py can raise today is covered above
     # (grepped exhaustively) -- this fallback only guards against a future

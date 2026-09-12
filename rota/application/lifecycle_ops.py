@@ -7,18 +7,19 @@ current reference.
 """
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 
 from rota.application.assembler import assemble_planning_state, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
 from rota.application.deviation_mapping import materialize_deviations
 from rota.application.errors import NoCurrentScheduleVersion, ScheduleVersionNotWorking
-from rota.domain import ScheduleVersion
+from rota.domain import Deviation, ScheduleVersion
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_version_header
-from rota.planning.validator import validate
+from rota.planning.state import PlanningState
+from rota.planning.validator import ViolationDetail, validate
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
 
 
@@ -32,14 +33,29 @@ def _require_current_working(conn, site_id: str, month: date) -> ScheduleVersion
     return header
 
 
-def _fresh_deviations(conn, site_id: str, month: date, header: ScheduleVersion):
-    """In-memory only: assembles fresh context and re-derives the complete
-    current Deviation set. Callers decide separately whether/how to persist."""
-    state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
+@dataclass(frozen=True)
+class FreshValidation:
+    """In-memory only -- callers decide separately whether/how to persist."""
+    state: PlanningState
+    violation_details: list[ViolationDetail]
+    deviations: list[Deviation]
+
+
+def fresh_validation(conn, *, site_id: str, month: date, schedule_version_id: str) -> FreshValidation:
+    """Single application-layer owner of "assemble one exact ScheduleVersion
+    + validate" -- shared by lifecycle revalidate/finalize (below) and the
+    PDF export LAW guard (ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS), so neither
+    duplicates a second validator path."""
+    state, _ = assemble_planning_state(conn, site_id=site_id, month=month, schedule_version_id=schedule_version_id)
     report = validate(state, list(state.existing_assignments))
     all_rules = state.site_rules + state.unresolved_site_rules
     deviations = materialize_deviations(report.violation_details, all_rules)
-    return state, deviations
+    return FreshValidation(state=state, violation_details=report.violation_details, deviations=deviations)
+
+
+def _fresh_deviations(conn, site_id: str, month: date, header: ScheduleVersion):
+    result = fresh_validation(conn, site_id=site_id, month=month, schedule_version_id=header.version_id)
+    return result.state, result.deviations
 
 
 def revalidate(conn, *, site_id: str, month: date, coordinator_id: str | None = None) -> ScheduleVersion:

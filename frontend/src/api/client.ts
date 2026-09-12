@@ -364,6 +364,17 @@ export interface MonthlyExtraWorkCodesOut {
   codes: Record<string, WorkCodeIntervalOut>;
 }
 
+// ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: a fresh, unacknowledged-for-this-
+// export LAW item -- keyed by backend fingerprint, never deviation_id
+// (a fingerprint is not persisted and authorizes nothing beyond this one
+// export attempt).
+export interface ExportLawItemOut {
+  fingerprint: string;
+  category: string;
+  label: string;
+  affected_assignment_or_employee: string;
+}
+
 export interface ExportResultOut {
   ok: boolean;
   pdf_base64: string | null;
@@ -371,6 +382,7 @@ export interface ExportResultOut {
   schedule_provenance: string | null;
   problem_code: string | null;
   message: string | null;
+  fresh_law: ExportLawItemOut[] | null;
 }
 
 export interface OverviewOut {
@@ -782,9 +794,10 @@ export const api = {
     req<MonthlyExtraWorkCodesOut>(`/workspace/sites/${siteId}/print-settings/${month}/extra-work-codes`),
   saveMonthlyExtraWorkCodes: (siteId: string, month: string, codes: Record<string, WorkCodeIntervalOut>) =>
     req<void>(`/workspace/sites/${siteId}/print-settings/${month}/extra-work-codes`, { method: "PUT", body: JSON.stringify({ codes }) }),
-  exportSchedule: (siteId: string, month: string, periodLabel: string) =>
+  exportSchedule: (siteId: string, month: string, periodLabel: string, acknowledgedLawFingerprints: string[] = []) =>
     req<ExportResultOut>(`/workspace/sites/${siteId}/schedule/${month}/export`, {
-      method: "POST", body: JSON.stringify({ period_label: periodLabel }),
+      method: "POST",
+      body: JSON.stringify({ period_label: periodLabel, acknowledged_law_fingerprints: acknowledgedLawFingerprints }),
     }),
 
   // Przeglad (T021)
