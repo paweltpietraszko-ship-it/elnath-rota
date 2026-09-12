@@ -1,0 +1,64 @@
+ROTA-TEST-CLEANUP — independent merge-readiness audit R1
+
+RESULT: FAIL — branch not ready to merge
+EXACT AUDITED SHA: a85626cd14a8eabc151151348627b22642533f97
+
+Scope and proportionality
+-------------------------
+
+This was a narrow audit proportionate to a test-only cleanup. I inspected the
+final commit, checked the complete branch diff that a merge would introduce,
+ran the four retained tests in the changed file, and independently reproduced
+the two removed tests on their last version. No full regression, Task matrix,
+coordinator simulator or legacy benchmark was run.
+
+Latest commit a85626c
+---------------------
+
+PASS in isolation. It removes only test_2/test_3 and their now-unused
+manual_edit import from tests/test_t011_e_pipeline_e2e_hard_stop.py.
+
+Independent evidence:
+
+- the four retained tests: 4 passed in 5.37s;
+- the two removed tests, executed against their last version with unchanged
+  production code: both fail at apply_manual_correction with
+  NoCurrentScheduleVersion after the initial PLAN returned DECISION_REQUIRED.
+
+That failure is the product behavior accepted when ROTA-T061's manual-root
+escape was rejected and ROTA-T062 became the user path. Deleting those two
+stale expectations does not hide a current regression.
+
+Blocking finding — frozen simulator files remain in the merge diff
+-----------------------------------------------------------------
+
+TRACE: AGENTS.md / COORDINATOR_SIMULATORS_FROZEN explicitly freezes these
+three paths and forbids using or editing them in another Task without a new,
+separate OWNER contract:
+
+- tests/property/coordinator_simulator.py
+- tests/property/test_coordinator_simulator.py
+- tests/property/test_coordinator_simulator_variant_b.py
+
+OWNERSHIP: the final ROTA-TEST-CLEANUP branch owns pending modifications to all
+three paths relative to current main. Although the modifications originated in
+the older commit dbc44ca (2026-09-08), merging a85626c now would introduce them
+into main. BOARD also describes the simulators as frozen and outside scope.
+
+REPRO:
+
+`git diff --name-status origin/main...a85626c -- <the three frozen paths>`
+
+returns M for every path. The legacy benchmark paths are absent from the diff.
+
+Required correction
+-------------------
+
+Prepare the merge so these three frozen paths are identical to current main,
+or otherwise exclude their old branch changes without editing/rebuilding their
+content. Do not run them and do not update their frozen baseline. After that,
+only a literal branch-diff re-check is needed; the a85626c test deletion itself
+does not require another behavioral audit.
+
+FAIL applies to merge-readiness of exact SHA
+a85626cd14a8eabc151151348627b22642533f97, not to the isolated deletion commit.
