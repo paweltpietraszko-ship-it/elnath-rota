@@ -94,21 +94,34 @@ def _assert_same_current(conn: sqlite3.Connection, site_id: str, month: date, ex
     # racing this request must never let stale-checked bytes out the door.
     if schedule_repository.get_current_version_id(conn, site_id, month) != expected_version_id:
         raise ExportProblemError("SCHEDULE_VERSION_CHANGED", "current ScheduleVersion changed during export")
-def _law_fingerprint(detail, assignment_lookup: dict) -> str:
+def _law_fingerprint(detail, assignment_lookup: dict, planning_regime: str) -> str:
     # brief.md section 5: derived from ViolationDetail + structural
     # Assignment data only, never from human `message` text. Assignment
-    # start/end are included (not just assignment_id) so a manual
-    # correction that changes the underlying fact never inherits an old
-    # fingerprint's acknowledgement (P8) -- REST-01/WEEKLY-REST-01 can
-    # reference other_site_assignments/boundary_assignments too, not only
-    # existing_assignments, hence the merged lookup.
+    # start/end/work_period_id/required_rest_after_hours are all included
+    # (not just assignment_id) so a manual correction OR a required-rest
+    # change (e.g. an OCHRONA 24h period's effective floor moving 11h->24h,
+    # rota.planning.work_periods.effective_required_rest_after_hours) never
+    # inherits an old fingerprint's acknowledgement for the same underlying
+    # pair (P8, Codex R1 audit finding on b1df489: required_rest_after_hours
+    # was previously omitted, so that exact case kept the stale fingerprint
+    # valid). planning_regime is included at payload level for the same
+    # reason (it gates the ochrona 24h floor bump). REST-01/WEEKLY-REST-01
+    # can reference other_site_assignments/boundary_assignments too, not
+    # only existing_assignments, hence the merged lookup.
     facts = []
     for assignment_id in detail.assignment_ids:
         assignment = assignment_lookup.get(assignment_id)
         if assignment is None:
             raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"LAW violation references unresolvable assignment {assignment_id}")
-        facts.append([assignment.assignment_id, assignment.employee_id, assignment.start_datetime.isoformat(), assignment.end_datetime.isoformat()])
-    payload = {"rule": detail.rule, "affected_employee_id": detail.affected_employee_id, "assignments": sorted(facts)}
+        facts.append([
+            assignment.assignment_id, assignment.employee_id,
+            assignment.start_datetime.isoformat(), assignment.end_datetime.isoformat(),
+            assignment.work_period_id, assignment.required_rest_after_hours,
+        ])
+    payload = {
+        "rule": detail.rule, "affected_employee_id": detail.affected_employee_id,
+        "planning_regime": planning_regime, "assignments": sorted(facts, key=lambda f: [str(x) for x in f]),
+    }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 def _fresh_law_items(conn: sqlite3.Connection, *, site_id: str, month: date, schedule_version_id: str) -> list[ExportLawItem]:
@@ -118,12 +131,13 @@ def _fresh_law_items(conn: sqlite3.Connection, *, site_id: str, month: date, sch
         for pool in (result.state.existing_assignments, result.state.other_site_assignments, result.state.boundary_assignments)
         for a in pool
     }
+    planning_regime = result.state.site.planning_regime.value
     items = []
     for detail, deviation in zip(result.violation_details, result.deviations):
         if deviation.category != DeviationCategory.LAW:
             continue
         items.append(ExportLawItem(
-            fingerprint=_law_fingerprint(detail, assignment_lookup),
+            fingerprint=_law_fingerprint(detail, assignment_lookup, planning_regime),
             rule=detail.rule, affected_assignment_or_employee=deviation.affected_assignment_or_employee,
         ))
     return items

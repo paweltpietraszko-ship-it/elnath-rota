@@ -124,6 +124,30 @@ def test_non_law_deviation_never_blocks(conn):
     assert isinstance(result, ExportReady)
 
 
+def test_p8b_required_rest_change_with_identical_times_invalidates_fingerprint(conn):
+    # Codex R1 audit finding on b1df489: bumping the EARLIER assignment's
+    # own required_rest_after_hours (e.g. an OCHRONA 24h period's effective
+    # floor moving 11h -> 24h) while both assignments' start/end/ids stay
+    # byte-identical is a real changed legal fact (P8) -- the previous
+    # fingerprint omitted this field entirely and kept validating.
+    from dataclasses import replace as _replace
+
+    a1, a2 = _rest01_scenario(conn)
+    blocked = _export(conn)
+    stale_fingerprint = blocked.items[0].fingerprint
+
+    a1_bumped = _replace(a1, required_rest_after_hours=24)
+    demand1, _ = _work_item(1, 6, 18, kind=ShiftKind.D)
+    demand2, _ = _work_item(2, 0, 16, kind=ShiftKind.N)
+    lifecycle.replace_working_snapshot(
+        conn, version_id="SV-1", applied_rule_version_ids=[],
+        shift_demands=[demand1, demand2], assignments=[a1_bumped, a2], deviations=[],
+    )
+    result = _export(conn, acknowledged=frozenset({stale_fingerprint}))
+    assert isinstance(result, ExportLawBlocked)
+    assert result.items[0].fingerprint != stale_fingerprint
+
+
 def test_p9_version_changed_during_render_is_rejected(conn, monkeypatch):
     # brief.md section 6: a coordinator finalize/correction/REPLAN racing
     # this export's own render must never let already-validated-then-stale
