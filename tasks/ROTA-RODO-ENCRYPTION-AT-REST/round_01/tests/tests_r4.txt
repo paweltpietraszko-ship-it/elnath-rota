@@ -1,0 +1,68 @@
+ROTA-RODO-ENCRYPTION-AT-REST — PREIMPLEMENTATION RE-CHECK R4
+
+WYNIK: PASS — IMPLEMENTATION HOLD ZWOLNIONY
+
+Sprawdzony brief: 37620cf70ac768e1caaabeb1be5cf5092331c001
+Baza implementacji: da1982ef933a7543c8c2a1950247bfb50b46dfb7
+Zakres: wyłącznie pięć punktów z §11 briefu.
+
+PRECHECK §11
+
+1. TAK — istniejący field-level AES-256-GCM pozwala oddzielić DEK, runtime
+   protector oraz niezależną recovery capability bez SQLCipher. Zmiana mieści
+   się w istniejącym ownerze `pii_crypto.py` i boundary repozytorium pracownika.
+
+2. TAK — dwa modele są wystarczające bez wyboru KMS:
+   - LOCAL_WINDOWS: DPAPI pozostaje runtime protectorem, a osobno przechowywany
+     recovery package/material zapewnia drugą ścieżkę;
+   - CENTRAL_SERVICE: deployment dostarcza runtime/recovery capability, a Rota
+     nie implementuje dostawcy vault/KMS ani raw-key-file fallbacku.
+
+3. TAK — utrata hasła użytkownika aplikacji nie niszczy danych, ponieważ hasło
+   nie jest DEK ani jedyną zdolnością unwrap. Recovery jest możliwe bez
+   pierwotnego runtime context, jeśli zachował się właściwy niezależny material.
+   Brief uczciwie nie obiecuje odzyskania po utracie komputera, backupu i
+   wszystkich materiałów recovery jednocześnie.
+
+4. TAK — legacy plaintext i nowy ciphertext można rozdzielić typem SQLite:
+   zaakceptowany legacy TEXT pozostaje `str`, a nowy encrypted BLOB pozostaje
+   `bytes`. Nierozpoznany/malformed BLOB może być odrzucony fail-closed zamiast
+   wpadać do `errors="replace"`; wersja/metadata mogą być uwierzytelnione.
+
+5. TAK — literalny scope obejmuje istniejących ownerów backendu oraz minimalne
+   dwa call-site'y frontendu: `frontend/src/api/client.ts` i
+   `frontend/src/screens/Workspace.tsx`. To wystarcza do pobrania backupu i
+   lokalnego recovery package oraz komunikatu o przechowaniu osobno, bez kont,
+   resetu hasła i pełnego UI restore.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+
+Konieczne i pozostawione:
+- `pii_crypto.py`: enforcement kryptograficzny, protectory i recovery primitive;
+- `employee_repository.py`: wyłącznie mechaniczne zachowanie obecnego boundary;
+- `backup.py`: kompozycja istniejącego snapshotu w artefakt recovery;
+- router backupu: istniejący endpoint/download, rozszerzony minimalnie;
+- `client.ts` i `Workspace.tsx`: jedyne znalezione realne wywołanie oraz
+  istniejący przycisk, więc są konieczne dla niezepsucia ścieżki użytkownika;
+- wąskie testy seamów crypto, backup/recovery oraz jednego realnego frontendu.
+
+Niepotrzebne i pozostające poza Taskiem:
+- SQLCipher, nowy magazyn danych, własny KMS/vault lub recovery service;
+- nowy system kont, hasło backupu, escrow producenta i pełny ekran restore;
+- zmiana `backup_repository.py`: istniejący `backup_to` już jest ownerem
+  spójnego snapshotu SQLite i może zostać użyty przez `backup.py` bez duplikacji;
+- nowa biblioteka w `pyproject.toml`: `cryptography>=42` jest już obecne;
+- solver, lifecycle grafiku, diagnostyka, symulatory i benchmarki.
+
+DOWODY I OGRANICZENIA
+
+- Odczytano cały brief exact SHA oraz literalny diff jego korekty.
+- Wąskim `git grep` na exact SHA potwierdzono istniejących ownerów snapshotu,
+  endpointu, klienta i przycisku oraz obecną zależność `cryptography`.
+- `where.py` nie uruchamiano: to literalny re-check briefu, a call-site'y i
+  ownership potrzebne dla §11 zostały już jednoznacznie ustalone.
+- Nie uruchamiano testów produktu, pełnej regresji, symulatorów ani benchmarków.
+
+PASS dotyczy wyłącznie briefu 37620cf70ac768e1caaabeb1be5cf5092331c001.
+CC może rozpocząć implementację w literalnym TASK_SCOPE §10. Każda potrzeba
+wyjścia poza tę listę wraca do architekta zgodnie z kontraktem.
