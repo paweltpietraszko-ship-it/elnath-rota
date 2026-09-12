@@ -54,3 +54,25 @@ naprawa to prawdopodobnie proste przesunięcie okna (np. start dnia 2, nie
 dnia 1) albo świadome pominięcie testu w tym wąskim oknie czasowym.
 
 ---
+
+## 2026-09-12 T059 — 24h SOFT tolerance equity bez regresji CP-SAT
+
+Cel T059 był dobry (equity bez sztywnego progu), ale dwie niezależne próby
+naprawy pokazały, że problem leży głębiej niż sam deadband. Cztery różne
+enkodowania tego samego 24h dead-zone identycznie wysadzają CP-SAT (0.4s →
+45s, budżet wyczerpany, solver nigdy nie dowodzi optymalności). Prostsza
+alternatywa (podniesienie jednej stałej wagi `DN_RHYTHM_REWARD_WEIGHT` z 1
+na 10, żeby rytm dominował equity) też natychmiast wysadza solver tak samo
+— czyli problem nie jest w samym deadbandzie, tylko w całej architekturze
+"wagi muszą się nawzajem dominować przez ogromne stałe": każda zmiana w
+tym łańcuchu jest krucha. Pełny materiał dowodowy:
+`arch/FINDING_2026-09-08_T058_EQUITY_DEADBAND_CPSAT_PERFORMANCE.md`.
+
+Odłożone: właściwa naprawa wymagałaby przeprojektowania sposobu budowania
+celu solvera (np. optymalizacja lexicographic/fazowa zamiast jednej ważonej
+sumy) — duża, kosztowna praca badawcza, bez zgłoszonego realnego przypadku,
+który by jej dziś wymagał. Nie podejmować bez konkretnego, powtarzającego
+się przypadku z życia, w którym brak tej tolerancji faktycznie przeszkadza
+koordynatorowi.
+
+---
