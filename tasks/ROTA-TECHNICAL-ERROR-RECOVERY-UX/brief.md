@@ -6,6 +6,7 @@ SOURCE FINDINGS:
 - `ROTA-NO-PERSISTENT-ERROR-LOG`
 - `ROTA-TECHNICAL-ERROR-RECOVERY-UX`
 - Codex readiness check `d3b2ba366f714cfc92d2fcd9972f6201b1546289`
+- Codex precheck R1 `2b590e99aaf338a07d8f13b16961d659bfa027f8`
 
 OWNER DECISIONS 2026-09-12:
 - oba findingi są jednym Taskiem;
@@ -26,12 +27,13 @@ Obowiązkowo wykorzystać istniejące mechanizmy zamiast tworzyć równoległe:
 1. T021c — istniejący ograniczony bufor frontendu w `sessionStorage`, globalne handlery/ErrorBoundary i istniejący ZIP diagnostyczny. Nowy runtime log ma zostać dołączony do istniejącego pakietu diagnostycznego; nie tworzyć drugiego eksportera diagnostyki.
 2. T060 — `api/errors.py` + wspólny `frontend/src/api/client.ts` pozostają jedyną publiczną ścieżką błędów HTTP. Nie tworzyć drugiego słownika/mappera błędów.
 3. `MonthlyPlanning.tsx` nie może już renderować surowego `PlanningResult.error_message` dla `TECHNICAL_ERROR`.
+4. Dla ustrukturyzowanych wyników planowania wspólnym ownerem rejestracji technicznej jest `api/routers/schedule.py::_planning_result_out` albo jeden równoważny, jawnie nazwany helper używany przez wszystkie istniejące ścieżki PLAN/REPLAN/wider-search/retry. Nie logować osobno w solverze, `plan_ops` ani poszczególnych handlerach.
 
 ## 3. Jeden trwały runtime error log
 
 Backend zapisuje jeden sanitizowany log technicznych awarii aplikacji.
 
-Minimalna zawartość jednego wpisu:
+Minimalna zawartość jednego wpisu dla wyjątku:
 - timestamp UTC;
 - severity (`ERROR` lub `CRITICAL`; `WARNING` tylko jeśli istniejący kod już klasyfikuje zdarzenie jako techniczne ostrzeżenie);
 - stabilna nazwa komponentu/operacji, np. `PLAN`, `REPLAN`, `EXPORT`, `API`;
@@ -39,6 +41,13 @@ Minimalna zawartość jednego wpisu:
 - bezpieczny komunikat techniczny;
 - stack trace dla nieobsłużonego wyjątku lub miejsca, w którym istniejący backend już posiada exception context;
 - krótki losowy/techniczny `incident_id`, który może pojawić się wyłącznie w diagnostyce/logu, nie musi być pokazywany koordynatorowi.
+
+Dla `PlanningResult(status="TECHNICAL_ERROR")` nie ma obowiązku istnienia exception context. Taki wynik także musi dać jeden wpis runtime logu w wspólnym boundary planowania. W tym wpisie:
+- operation = odpowiednia istniejąca operacja (`PLAN` lub `REPLAN`; wider-search/retry zachowują swoją rzeczywistą operację, ale nie tworzą osobnych loggerów);
+- zamiast typu wyjątku użyć stałej kategorii `STRUCTURED_PLANNING_FAILURE`;
+- nie kopiować surowego `PlanningResult.error_message` do logu;
+- brak stack trace jest poprawny, jeśli nie istnieje exception context;
+- nie zmieniać solvera ani DTO `PlanningResult` tylko po to, żeby zbudować log.
 
 Nie logować:
 - nazwisk i innych display_name;
@@ -92,6 +101,7 @@ Dla `TECHNICAL_ERROR`, błędu HTTP, timeoutu, utraty/zawieszenia backendu lub n
 - surowego exception string;
 - kodu HTTP;
 - technicznego identyfikatora;
+- surowego `PlanningResult.error_message`;
 - sugestii Korekty ręcznej;
 - komunikatu sugerującego blocker biznesowy.
 
@@ -131,35 +141,40 @@ Nie wolno mapować wszystkiego do „awaria techniczna”. T060 pozostaje ownere
 
 A1. Nieobsłużony wyjątek backendu zapisuje sanitizowany wpis do `runtime-errors.log` i użytkownik widzi prosty komunikat awarii technicznej.
 
-A2. `TECHNICAL_ERROR` z PLAN/REPLAN nie pokazuje surowego `PlanningResult.error_message`.
+A2. Każdy `PlanningResult(status="TECHNICAL_ERROR")` wychodzący przez wspólny boundary PLAN/REPLAN/wider-search/retry zapisuje dokładnie jeden sanitizowany wpis runtime logu, także bez exception context. Wpis używa kategorii `STRUCTURED_PLANNING_FAILURE` i nie zawiera surowego `PlanningResult.error_message`.
 
-A3. HTTP 5xx / utrata backendu / timeout w kliencie używają tej samej powierzchni komunikatu, bez drugiego mappera.
+A3. `TECHNICAL_ERROR` z PLAN/REPLAN nie pokazuje surowego `PlanningResult.error_message`.
 
-A4. Żaden z A1–A3 nie proponuje Korekty ręcznej.
+A4. HTTP 5xx / utrata backendu / timeout w kliencie używają tej samej powierzchni komunikatu, bez drugiego mappera.
 
-A5. Runtime log nie zawiera nazwiska ani treści request/response body w fixture zawierającym takie dane.
+A5. Żaden z A1–A4 nie proponuje Korekty ręcznej.
 
-A6. Rotacja utrzymuje maksymalnie plik bieżący + 4 kopie po przekroczeniu 1 MiB.
+A6. Runtime log nie zawiera nazwiska ani treści request/response body w fixture zawierającym takie dane.
 
-A7. Istniejący ZIP diagnostyczny zawiera runtime logi, jeżeli istnieją, i nadal działa bez nich.
+A7. Rotacja utrzymuje maksymalnie plik bieżący + 4 kopie po przekroczeniu 1 MiB.
 
-A8. LOCAL_WINDOWS działa bez dodatkowej konfiguracji ścieżki logu.
+A8. Istniejący ZIP diagnostyczny zawiera runtime logi, jeżeli istnieją, i nadal działa bez nich.
 
-A9. CENTRAL_SERVICE używa `ROTA_LOG_DIR`; brak wymaganej trwałej lokalizacji jest jawnym błędem konfiguracji loggera/deploymentu, nie silent fallbackiem.
+A9. LOCAL_WINDOWS działa bez dodatkowej konfiguracji ścieżki logu.
 
-A10. Przycisk `Kontakt ze wsparciem` jest widoczny jako nieaktywny i nie wykonuje akcji.
+A10. CENTRAL_SERVICE używa `ROTA_LOG_DIR`; brak wymaganej trwałej lokalizacji jest jawnym błędem konfiguracji loggera/deploymentu, nie silent fallbackiem.
 
-A11. Restart oznacza wyłącznie instrukcję wyłącz/uruchom ponownie; brak automatycznego restartu backendu.
+A11. Przycisk `Kontakt ze wsparciem` jest widoczny jako nieaktywny i nie wykonuje akcji.
 
-A12. `DECISION_REQUIRED`, `SEARCH_INCOMPLETE` i istniejące ludzkie błędy domenowe nie są regresyjnie zamieniane w komunikat awarii technicznej.
+A12. Restart oznacza wyłącznie instrukcję wyłącz/uruchom ponownie; brak automatycznego restartu backendu.
 
-A13. Nie powstaje drugi ZIP diagnostyczny, drugi ErrorBoundary, drugi HTTP error mapper ani activity log.
+A13. `DECISION_REQUIRED`, `SEARCH_INCOMPLETE` i istniejące ludzkie błędy domenowe nie są regresyjnie zamieniane w komunikat awarii technicznej.
+
+A14. Nie powstaje drugi ZIP diagnostyczny, drugi ErrorBoundary, drugi HTTP error mapper ani activity log.
+
+A15. Wszystkie istniejące ścieżki PLAN/REPLAN/wider-search/retry korzystają z jednego boundary logującego structured `TECHNICAL_ERROR`; brak loggerów rozsianych po solverze, `plan_ops` i handlerach.
 
 ## 10. Literalny TASK_SCOPE
 
 Production — oczekiwany minimalny zakres po prechecku:
 - backendowy moduł/config loggera runtime w `api/` lub istniejącym wspólnym miejscu wskazanym przez where-map;
 - centralne miejsce obsługi nieobsłużonych wyjątków FastAPI / istniejący `api/errors.py` tylko jeśli potrzebne do rejestracji bez zmiany jego publicznego kontraktu T060;
+- `api/routers/schedule.py::_planning_result_out` albo jeden równoważny, jawnie nazwany helper używany przez wszystkie obecne ścieżki PLAN/REPLAN/wider-search/retry — wyłącznie do pojedynczego sanitizowanego wpisu dla `status == "TECHNICAL_ERROR"`, bez zmiany solvera lub DTO;
 - istniejący generator pakietu diagnostycznego T021c — wyłącznie dołączenie `runtime-errors.log*`;
 - `frontend/src/api/client.ts` — reuse istniejącej klasyfikacji/network failure;
 - istniejący ErrorBoundary/global handlers T021c — wyłącznie reuse/ujednolicenie komunikatu, bez drugiego mechanizmu;
@@ -168,6 +183,7 @@ Production — oczekiwany minimalny zakres po prechecku:
 
 Tests:
 - wąskie backend tests dla logowania, sanitizacji, rotacji i ZIP;
+- wąski test wszystkich obecnych ścieżek PLAN/REPLAN/wider-search/retry przez wspólny `_planning_result_out`/równoważny helper: każdy structured `TECHNICAL_ERROR` daje dokładnie jeden sanitizowany wpis, bez raw `error_message`;
 - wąskie frontend/API tests dla komunikatu technicznego i braku raw details;
 - jeden E2E lub pion integracyjny: realna awaria -> komunikat -> runtime log -> pakiet diagnostyczny;
 - bez symulatorów i benchmarków.
@@ -182,15 +198,13 @@ Jawnie poza scope:
 - activity/audit log użytkownika;
 - logowanie payloadów biznesowych;
 - redesign T060/T021c;
-- zmiana logiki planowania, solvera, lifecycle lub decyzji.
+- zmiana logiki planowania, solvera, lifecycle, DTO `PlanningResult` lub decyzji.
 
 ## 11. Preimplementation re-check Codexa
 
-Sprawdzić tylko:
-1. gdzie dokładnie T021c buduje ZIP diagnostyczny i gdzie są istniejące ErrorBoundary/global handlers, aby nie powstał duplikat;
-2. gdzie T060 klasyfikuje HTTP/public errors i jak podłączyć techniczny komunikat bez drugiego mappera;
-3. czy jeden rotating file logger da się wpiąć centralnie bez rozrzucania `logger.exception()` po dziesiątkach handlerów; wskazać najwęższy owner;
-4. czy `ROTA_LOG_DIR` + lokalny default wystarczają obu modelom deploymentu bez dodatkowej infrastruktury;
-5. czy literalny scope pokrywa `PlanningResult.error_message`, network timeout/backend loss, ZIP i disabled support button.
+Ponowić wyłącznie literalny re-check fragmentów skorygowanych po R1:
+1. czy `api/routers/schedule.py::_planning_result_out` (lub wskazany jeden równoważny helper) rzeczywiście obejmuje wszystkie obecne ścieżki PLAN/REPLAN/wider-search/retry zwracające `PlanningResult`;
+2. czy `status == "TECHNICAL_ERROR"` może w tym jednym miejscu zapisać dokładnie jeden sanitizowany wpis `STRUCTURED_PLANNING_FAILURE` bez exception context, bez raw `error_message` i bez zmian solvera/DTO;
+3. czy literalny TASK_SCOPE i acceptance są po tej korekcie kompletne.
 
-Jeżeli 1–5 = TAK: PASS exact brief SHA i zwolnienie IMPLEMENTATION HOLD. Jeżeli NIE: jedna konkretna luka ownera/ścieżki; bez proponowania zewnętrznego systemu logowania.
+Jeżeli 1–3 = TAK: PASS exact brief SHA i zwolnienie IMPLEMENTATION HOLD. Jeżeli NIE: jedna konkretna luka ownera/ścieżki; bez ponawiania inventory T021c/T060 i bez proponowania zewnętrznego systemu logowania.
