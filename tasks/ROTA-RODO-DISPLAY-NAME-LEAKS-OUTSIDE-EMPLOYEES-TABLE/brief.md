@@ -1,10 +1,12 @@
 # ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE — trwałe kopie nazwisk poza `employees`
 
-STATUS: PREIMPLEMENTATION AUDIT REQUIRED — IMPLEMENTATION HOLD
+STATUS: PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
 
 BASE FINDING: `main@c310e19d941c4aad1eedf8607a8f8ce09d9c9d47`
 
-DEPENDENCY: implementować dopiero na bazie zaakceptowanego/zmargowanego `ROTA-RODO-ENCRYPTION-AT-REST`; ten Task nie zastępuje ani nie rozszerza audytu tamtego Tasku w locie.
+DEPENDENCY: implementować dopiero na bazie zaakceptowanego/zmargowanego `ROTA-RODO-ENCRYPTION-AT-REST`; ten Task nie zastępuje ani nie rozszerza audytu tamtego Tasku w locie. Dopóki `ROTA-RODO-ENCRYPTION-AT-REST` nie jest przodkiem `main`, dependency jest niespełnione i IMPLEMENTATION HOLD pozostaje niezależnie od wyniku re-checku briefu.
+
+SOURCE CORRECTION: Codex precheck R1 `task/ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE@ee9f977cff927b975c9435ed9bc5a180277a3542` — record-bound AAD wymagane dla ochrony przed poprawnym kryptograficznie ciphertext swap między rekordami tej samej klasy.
 
 ## 1. Cel
 
@@ -29,6 +31,17 @@ Najwęższe rozwiązanie:
 - nie tworzyć drugiego klucza ani drugiego systemu key management.
 
 `pii_crypto` powinno udostępnić ogólny, versioned AEAD envelope dla tekstu/JSON (`encrypt_text`/`decrypt_text` lub równoważne), zamiast kopiować algorytm `Employee.display_name` do kolejnych repozytoriów.
+
+### 2.1 Record-bound AAD
+
+Sam label klasy danych nie wystarcza. Ciphertext musi być kryptograficznie związany z rekordem, do którego należy, tak aby skopiowanie całego prawidłowego BLOB-u do innego rekordu tej samej klasy kończyło się integrity failure.
+
+Minimalny kontrakt AAD:
+- `plan_previews.warnings_json`: AAD zawiera co najmniej stały context label klasy + `site_id` + `month`;
+- `decision_required_snapshots.payload_json`: AAD zawiera co najmniej stały context label klasy + `decision_required_id`;
+- `Employee.display_name` pozostaje w swojej istniejącej domenie/context zgodnie z bazowym Taskiem; ten Task nie zmienia jego storage semantics.
+
+AAD ma być deterministycznie zbudowane z istniejących canonical values przekazywanych już do repozytorium. Nie dodawać nowych identyfikatorów ani nowej warstwy modelu tylko dla crypto.
 
 ## 3. Co pozostaje jawne
 
@@ -56,21 +69,27 @@ Dla `decision_required_snapshots` obowiązuje szczególna ostrożność: tabela 
 - `requested_by`, `recorded_at`;
 - semantycznie identyczny payload po odszyfrowaniu.
 
+Migracja ma być atomowa. Jeżeli do zaszyfrowania istniejących snapshotów konieczne jest czasowe usunięcie triggerów append-only, wolno to zrobić wyłącznie wewnątrz jednej wersjonowanej transakcji migracyjnej w `db.py`, a następnie odtworzyć dokładnie te same triggery przed podniesieniem `PRAGMA user_version`. Błąd migracji = ROLLBACK obejmujący zarówno dane, jak i stan triggerów.
+
 Nie traktować tej migracji jako zwykłego UPDATE dopuszczonego w runtime i nie osłabiać append-only po zakończeniu migracji.
 
 ## 5. Integralność i legacy
 
 - nowe zaszyfrowane JSON-y korzystają z versioned, authenticated envelope z istniejącego kontraktu crypto;
 - zły klucz/tampering/malformed ciphertext = fail closed;
+- ciphertext swap między dwoma rekordami tej samej klasy również = fail closed dzięki record-bound AAD;
 - rzeczywisty legacy plaintext sprzed tej migracji może zostać odczytany tylko podczas kontrolowanej migracji danych;
 - po zakończeniu migracji runtime nie może cicho akceptować nowego plaintextowego zapisu do chronionych pól.
+
+Nie wystarcza test bit-flip. Obowiązkowy jest test zamiany dwóch całych, kryptograficznie poprawnych ciphertextów między różnymi rekordami tej samej klasy.
 
 ## 6. Backup/recovery
 
 Ponieważ te pola używają tego samego DEK co `Employee.display_name`:
 - istniejący recovery/backup contract z `ROTA-RODO-ENCRYPTION-AT-REST` obejmuje je automatycznie;
 - nie tworzyć osobnego recovery package ani osobnego sekretu dla warnings/payload;
-- recovery test musi potwierdzić, że po odtworzeniu bazy odszyfrowują się także oba chronione JSON-y.
+- recovery test musi potwierdzić, że po odtworzeniu bazy odszyfrowują się także oba chronione JSON-y z ich właściwym record-bound AAD;
+- nie zmieniać formatu backupu, jeśli istniejący snapshot całej bazy + odzyskany DEK wystarczają.
 
 ## 7. Acceptance
 
@@ -81,6 +100,10 @@ L2. DECISION_REQUIRED z opcją zawierającą nazwisko nadal renderuje ten sam te
 L3. Restart/reload zachowuje dokładnie istniejące warnings i decision payload po odszyfrowaniu.
 
 L4. Tampering obu zaszyfrowanych pól jest odrzucany kontrolowanym integrity failure, nie zwraca częściowego/uszkodzonego JSON-u.
+
+L4a. Zamiana całego `warnings_json` ciphertext między dwoma różnymi preview tej samej klasy jest odrzucana dzięki AAD związanym co najmniej z `site_id + month`.
+
+L4b. Zamiana całego `payload_json` ciphertext między dwoma różnymi decision snapshotami jest odrzucana dzięki AAD związanym co najmniej z `decision_required_id`.
 
 L5. Migracja istniejącej bazy z plaintextowymi `warnings_json` i `payload_json` usuwa plaintext nazwisk z pliku i zachowuje semantycznie te same odczyty.
 
@@ -93,15 +116,18 @@ L8. Solver, blocker classification, unblocking guidance i widoczny tekst dla koo
 ## 8. Literalny TASK_SCOPE
 
 Production:
-- `rota/persistence/pii_crypto.py` — ogólny authenticated text/JSON envelope, bez drugiego DEK;
-- `rota/persistence/plan_preview_repository.py` — encrypt-on-write/decrypt-on-read `warnings_json`;
-- `rota/persistence/site_memory.py` — encrypt-on-write/decrypt-on-read `decision_required_snapshots.payload_json`;
-- `rota/persistence/db.py` — wyłącznie wersjonowana migracja istniejących plaintextowych rekordów i zachowanie triggerów/invariants append-only;
+- `rota/persistence/pii_crypto.py` — ogólny authenticated text/JSON envelope, bez drugiego DEK, z record-bound AAD przekazywanym przez caller;
+- `rota/persistence/plan_preview_repository.py` — encrypt-on-write/decrypt-on-read `warnings_json`, AAD co najmniej `class + site_id + month`;
+- `rota/persistence/site_memory.py` — encrypt-on-write/decrypt-on-read `decision_required_snapshots.payload_json`, AAD co najmniej `class + decision_required_id`;
+- `rota/persistence/db.py` — wyłącznie wersjonowana, atomowa migracja istniejących plaintextowych rekordów i zachowanie/odtworzenie triggerów/invariants append-only;
 - `rota/application/backup.py` — tylko jeśli test recovery wymaga mechanicznego rozszerzenia istniejącego recovery primitive o walidację tych pól; bez nowego formatu backupu.
 
 Tests:
 - nowy wąski `tests/test_rodo_display_name_persistence.py`;
 - test migracji istniejącej DB;
+- test ciphertext swap dla dwóch preview;
+- test ciphertext swap dla dwóch decision snapshotów;
+- test potwierdzający po migracji dalszy zakaz UPDATE/DELETE snapshotów;
 - istniejące testy plan preview / decision snapshot mogą być aktualizowane tylko mechanicznie pod zaszyfrowany storage;
 - reuse istniejącego recovery testu z `ROTA-RODO-ENCRYPTION-AT-REST` z dodatkową asercją na oba JSON-y.
 
@@ -121,9 +147,9 @@ Jeżeli implementacja wymaga zmiany treści solver/guidance albo nowego key-mana
 
 Sprawdzić tylko:
 1. czy persistence-boundary encryption obu całych JSON-ów zachowuje istniejące DTO/semantykę bez ruszania solvera i `decision_guidance.py`;
-2. czy ten sam DEK może być bezpiecznie użyty z odrębnymi nonce/AAD/context labels dla trzech klas danych (`Employee.display_name`, preview warnings, decision payload);
-3. czy istniejące plaintextowe rekordy da się zmigrować deterministycznie bez trwałego osłabienia append-only triggerów;
+2. czy ten sam DEK może być bezpiecznie użyty z odrębnymi nonce oraz record-bound AAD dla trzech klas danych; w szczególności czy preview jest związane co najmniej z `site_id + month`, a decision snapshot z `decision_required_id`, tak aby pełny ciphertext swap nie przechodził;
+3. czy istniejące plaintextowe rekordy da się zmigrować deterministycznie i atomowo bez trwałego osłabienia append-only triggerów;
 4. czy backup/recovery z poprzedniego Tasku odzyska te pola bez nowego sekretu/formatu;
 5. czy literalny scope jest kompletny.
 
-Jeżeli 1–5 = TAK: PASS exact brief SHA i zwolnienie IMPLEMENTATION HOLD po spełnieniu dependency. Jeżeli NIE: wskazać konkretną brakującą ścieżkę lub konflikt, bez redesignu solvera/UI.
+Jeżeli 1–5 = TAK: PASS exact brief SHA, ale IMPLEMENTATION HOLD można zwolnić dopiero po spełnieniu dependency. Jeżeli NIE: wskazać konkretną brakującą ścieżkę lub konflikt, bez redesignu solvera/UI.
