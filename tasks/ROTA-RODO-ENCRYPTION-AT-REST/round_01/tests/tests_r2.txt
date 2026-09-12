@@ -1,0 +1,63 @@
+ROTA-RODO-ENCRYPTION-AT-REST — AUDYT R2
+
+WYNIK: FAIL
+
+Audytowana implementacja: da1982ef933a7543c8c2a1950247bfb50b46dfb7
+Poprzedni raport i reproduktory: tests_r1.txt, audit_r1_repro.py
+Data decyzji OWNERA: 2026-09-12
+
+ZAMROŻONA KOREKTA OWNERA
+
+1. Rozwiązanie nie może zakładać wyłącznie lokalnej instalacji na jednym
+   komputerze. Musi uwzględniać zarówno wariant lokalny, jak i możliwość
+   uruchomienia Roty jako centralnej usługi sieciowej.
+2. Backup ma pozwalać odzyskać dane po utracie pierwotnej instalacji; nie może
+   zależeć wyłącznie od tego samego komputera i konta Windows.
+3. Dokładny mechanizm zarządzania kluczami, odzyskiwania i format przenośnego
+   backupu ma określić osobny kontrakt architektoniczny. OWNER nie wybiera teraz
+   dostawcy chmurowego ani konkretnego KMS.
+
+USTALENIA DEFECT_GATE
+
+F2-01 — backup bazy nie jest samodzielnie odzyskiwalny
+
+TRACE: korekta OWNERA pkt 2.
+OWNERSHIP: /workspace/backup eksportuje plik SQLite, a warstwa pii_crypto
+wiąże klucz z bocznym plikiem i ścieżką bazy.
+REPRO: audit_r1_repro.py::test_sqlite_backup_can_read_employee_without_sidecar
+na da1982e — FAIL; odczyt nazwiska z odtworzonej kopii kończy się InvalidTag /
+ValueError, ponieważ dla nowej ścieżki powstaje inny klucz.
+
+F2-02 — zarządzanie kluczem jest związane z jednym modelem wdrożenia
+
+TRACE: korekta OWNERA pkt 1 oraz pkt 3.
+OWNERSHIP: pii_crypto.py wybiera DPAPI na Windows i surowy plik klucza obok
+bazy poza Windows.
+REPRO: inspekcja dokładnego SHA + audit_r1_repro.py potwierdzają, że wariant
+Windows jest związany z DPAPI bieżącego użytkownika/komputera, a wariant
+nie-Windows nie zapewnia mechanizmu kluczy odpowiedniego dla centralnej usługi.
+
+F2-03 — uszkodzenie nagłówka omija kontrolę integralności
+
+TRACE: deklarowane szyfrowanie AEAD danych osobowych oraz brak zgody OWNERA na
+wyświetlanie uszkodzonego szyfrogramu jako nazwiska.
+OWNERSHIP: pii_crypto.decrypt_name rozstrzyga, czy wartość jest szyfrogramem,
+na podstawie nieautentykowanego prefiksu MAGIC.
+REPRO: audit_r1_repro.py::test_tampering_magic_header_is_rejected na da1982e —
+FAIL; zmiana jednego bajtu prefiksu kieruje szyfrogram do ścieżki legacy i
+zwraca znaki zastępcze zamiast błędu integralności.
+
+ZAKRES WERYFIKACJI
+
+- Zachowane wyniki R1: 3/5 reproduktorów PASS, 2/5 FAIL.
+- Zachowane testy celowane istniejących ścieżek: 24 PASS.
+- R2 nie uruchamiał ponownie testów: decyzja OWNERA domknęła TRACE, a dokładny
+  SHA implementacji oraz reprodukcje nie zmieniły się.
+- Nie uruchamiano pełnej regresji, symulatorów ani benchmarków.
+
+PRZEKAZANIE
+
+Obecne da1982e nie jest gotowe do merge. Następny krok to kontrakt architekta
+oddzielający szyfrowanie danych od środowiskowego zabezpieczenia klucza oraz
+definiujący odzyskiwalny backup dla wdrożenia lokalnego i centralnej usługi.
+Nie jest to polecenie wyboru konkretnego dostawcy ani implementacji.

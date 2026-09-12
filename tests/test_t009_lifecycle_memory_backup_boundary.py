@@ -144,14 +144,25 @@ def test_16_structured_rule_command_reaches_decision_ledger(tmp_path) -> None:
 
 
 def test_17_backup_openable_and_diagnostic_zip_excludes_prohibited_data(tmp_path) -> None:
-    conn = connect(tmp_path / "rota.db")
+    db_path = tmp_path / "rota.db"
+    conn = connect(db_path)
     pstate = seed_real_object(conn, case_id="life-5", month=MONTH, seed=404)
     site_id = pstate.site.site_id
     _plan_and_select(conn, site_id)
 
-    backup_path = tmp_path / "backup.db"
-    backup.backup_database(conn, str(backup_path))
-    reopened = connect(backup_path)
+    # ROTA-RODO-ENCRYPTION-AT-REST: backup_database now composes a ZIP
+    # artifact (snapshot + recovery manifest, brief.md section 4), not a
+    # raw .db -- extract the embedded snapshot to prove it is still a
+    # real, openable LocalStore. A LOCAL_WINDOWS backup refuses without a
+    # recovery kit (R5-02), so create one first, matching the order the
+    # production UI now enforces.
+    backup.create_local_recovery_kit(conn, db_path=str(db_path))
+    backup_zip = tmp_path / "backup.zip"
+    backup.backup_database(conn, str(backup_zip), db_path=str(db_path))
+    with zipfile.ZipFile(backup_zip) as archive:
+        snapshot_path = tmp_path / "snapshot.db"
+        snapshot_path.write_bytes(archive.read("snapshot.db"))
+    reopened = connect(snapshot_path)
     assert get_current_version_id(reopened, site_id, MONTH) is not None  # backup is a real, openable LocalStore
 
     zip_path = tmp_path / "diag.zip"

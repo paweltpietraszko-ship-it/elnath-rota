@@ -1,0 +1,89 @@
+ROTA-RODO-ENCRYPTION-AT-REST — PREIMPLEMENTATION RE-CHECK R3
+
+STATUS: OWNER_EXPLANATION_GATE — BEZ WERDYKTU PASS/FAIL
+
+Sprawdzony brief: e38494ae7e34ec603911ba9af5c95aec948a6788
+Sprawdzona baza implementacji: da1982ef933a7543c8c2a1950247bfb50b46dfb7
+Zakres: wyłącznie pięć punktów z §10 briefu.
+
+WYNIK TECHNICZNEGO RE-CHECKU 1–5
+
+1. TAK — rozdział DEK / runtime protector / recovery wrapping jest
+   implementowalny przy istniejącym field-level AES-256-GCM i nie wymaga
+   SQLCipher.
+2. TAK — LOCAL_WINDOWS z DPAPI oraz CENTRAL_SERVICE z zewnętrznie dostarczonym
+   runtime secret/KEK wystarczają jako dwa modele. Aplikacja nie musi wybierać
+   ani implementować konkretnego KMS.
+3. TAK — pojedynczy artefakt zawierający snapshot SQLite, wrapped DEK i
+   niesekretne metadata może zostać odzyskany na nowej instalacji przy użyciu
+   osobnego recovery secret, bez pierwotnego DPAPI/runtime context.
+4. TAK — SQLite zachowuje rozróżnienie typu legacy TEXT (`str`) i nowego BLOB
+   (`bytes`). Odrzucenie każdego nierozpoznanego BLOB oraz uwierzytelnienie
+   wersji/metadata pozwala usunąć downgrade przez zmianę MAGIC, zachowując
+   prawdziwy legacy plaintext.
+5. NIE — literalny TASK_SCOPE nie obejmuje istniejącej ścieżki frontendowej,
+   mimo że kontrakt zmienia wymagane wejście działającego przycisku backupu.
+   `frontend/src/screens/Workspace.tsx` wywołuje `api.downloadBackup()` bez
+   sekretu, a `frontend/src/api/client.ts` wysyła POST `/workspace/backup` bez
+   body. Po wymaganiu recovery secret obecny przycisk nie może utworzyć
+   prawidłowego artefaktu bez zmiany tych plików albo bez jawnej decyzji, że
+   techniczny endpoint nie ma jeszcze działać z istniejącego UI.
+
+OWNER_EXPLANATION_GATE
+
+OWNER_CONFIRMED
+
+- Rota ma uwzględniać instalację lokalną i przyszłą centralną usługę.
+- Backup ma dać się odzyskać po utracie pierwotnego komputera/instalacji.
+- OWNER nie musi wybierać konkretnego KMS ani dostawcy.
+
+OWNER_DECISION_NEEDED
+
+Kontrakt dodaje nowe zachowanie człowieka, którego wcześniejsza korekta OWNERA
+nie rozstrzygnęła: ktoś musi dostarczyć recovery secret/passphrase podczas
+tworzenia backupu i zachować go poza programem.
+
+Trigger: użytkownik wybiera „Utwórz kopię zapasową”.
+Efekt: bez podania recovery secret bezpieczny przenośny backup nie powstanie.
+Dane: sekret trafia do backendu tylko w celu wyprowadzenia recovery key; według
+briefu nie jest zapisywany w DB, backupie, logach ani diagnostyce.
+UI: brief nie określa sposobu wpisania/potwierdzenia sekretu ani ostrzeżenia o
+konsekwencji jego utraty; obecny przycisk nie przekazuje żadnego sekretu.
+Failure/recovery: zły sekret ma dać kontrolowany błąd; utraconego sekretu nie
+da się odzyskać, więc backup staje się trwale bezużyteczny.
+
+TECHNICAL_ONLY
+
+- DEK/KEK, AES-GCM, wrapping, salt, scrypt i versioned metadata są środkami
+  technicznymi; nie wymagają wyboru dostawcy przez OWNERA.
+- Backendowy recovery primitive bez pełnego ekranu restore jest wystarczającym
+  dowodem technicznym, jeśli nie udaje gotowego workflow odtworzenia produktu.
+
+UNAUTHORIZED
+
+- Nie można zamrozić obowiązku podawania i samodzielnego przechowywania hasła
+  przez użytkownika ani zepsuć istniejącego przycisku backupu wyłącznie decyzją
+  architekta. Wymaga to jawnej akceptacji OWNERA.
+
+SAFETY_PRIVACY
+
+- Utrata recovery secret oznacza nieodwracalną utratę możliwości odzyskania
+  backupu.
+- Zbyt słaby sekret obniża odporność skradzionego artefaktu na atak offline;
+  KDF ogranicza ryzyko, ale go nie usuwa.
+
+DOWODY I OGRANICZENIA
+
+- Odczytano cały brief e38494a i sprawdzono literalne odwołania na bazie
+  da1982e w `pii_crypto.py`, `employee_repository.py`, `backup.py`, routerze
+  backupu oraz dwóch realnych wywołaniach frontendowych.
+- Użyto wąskiego `git grep` na exact SHA do prześledzenia endpointu i jego
+  klienta. Nie uruchamiano `where.py`, bo re-check dotyczył briefu, a konkretna
+  szczelina call-site została ustalona bez szerszej mapy.
+- Nie uruchamiano testów, pełnej regresji, symulatorów ani benchmarków.
+
+WARUNEK WZNOWIENIA
+
+Po decyzji OWNERA architekt ma dopisać wyłącznie brakujące zachowanie i
+literalne pliki scope. Dopiero wtedy można ocenić PASS i zwolnić
+IMPLEMENTATION HOLD.

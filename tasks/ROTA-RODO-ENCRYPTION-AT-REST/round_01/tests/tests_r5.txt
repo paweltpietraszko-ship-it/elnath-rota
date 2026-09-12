@@ -1,0 +1,99 @@
+ROTA-RODO-ENCRYPTION-AT-REST — AUDYT CODEX R5
+
+WERDYKT: FAIL
+AUDYTOWANY SHA: a443752e70f9a8b8543b5f19a72021d1b52d6c0a
+KONTRAKT: 37620cf
+PRECHECK: 0534f38
+
+Zakres
+------
+- niezależny, wąski audyt zmienionych ścieżek crypto / backup / minimalnego UI;
+- bez pełnej regresji repozytorium;
+- bez zamrożonych symulatorów i benchmarków;
+- testy implementera potraktowane wyłącznie jako dowód pomocniczy.
+
+FINDING R5-01 — downgrade przez zmianę typu SQLite omija fail-closed
+------------------------------------------------------------------
+TRACE:
+- brief §3: legacy plaintext jest dozwolone wyłącznie dla rzeczywistego legacy
+  typu/formatu, a malformed/tampered encrypted value ma kończyć się
+  kontrolowanym błędem integralności;
+- Acceptance E9: zmiana/usunięcie nagłówka/version marker nie może skierować
+  zaszyfrowanej wartości do legacy plaintext.
+
+OWNERSHIP:
+- rota/persistence/pii_crypto.py::decrypt_name oraz boundary
+  rota/persistence/employee_repository.py rozstrzygają, czy wartość jest
+  ciphertextem, czy legacy plaintextem.
+
+REPRO na exact SHA:
+- test_storage_class_change_cannot_downgrade_ciphertext_to_legacy_plaintext
+  w audit_r5_repro.py;
+- zapisano nazwisko normalną ścieżką (BLOB ciphertext), następnie tę samą
+  kolumnę podmieniono przez SQLite na TEXT "Injected Plaintext";
+- oczekiwany był kontrolowany integrity failure, lecz repozytorium zwróciło
+  podmieniony tekst jako prawidłowe nazwisko.
+
+Skutek:
+- rozdzielenie BLOB=encrypted / TEXT=legacy nie wiąże statusu rekordu z
+  uwierzytelnioną historią lub schematem; zmiana storage class wystarcza, aby
+  ominąć weryfikację AEAD.
+
+FINDING R5-02 — pierwsza poprawnie pobrana kopia LOCAL_WINDOWS jest
+nieodzyskiwalna po utracie komputera
+------------------------------------------------------------------
+TRACE:
+- brief §4: przenośny artefakt backupu ma zawierać co najmniej jedną
+  odzyskiwalną wrapped reprezentację DEK;
+- brief §5.1 i §6 oraz Acceptance E5: backup wraz z niezależnym recovery
+  material ma odzyskać nazwisko bez oryginalnego DPAPI/keystore.
+
+OWNERSHIP:
+- rota/application/backup.py buduje artefakt;
+- api/routers/backup.py i frontend/src/screens/Workspace.tsx wystawiają
+  użytkownikowi kolejność pobierania backupu oraz recovery material.
+
+REPRO na exact SHA:
+- test_first_downloaded_backup_remains_recoverable_when_key_is_downloaded_after_it
+  w audit_r5_repro.py;
+- na świeżej instalacji zapisano zaszyfrowane nazwisko, pobrano backup, a
+  dopiero potem utworzono/pobrano klucz odzyskiwania — zgodnie z kolejnością
+  przycisków w UI;
+- recovery pierwszego backupu kończy się RecoveryFailed, ponieważ ZIP nie ma
+  wrapped_dek.bin. Późniejsze pobranie klucza nie naprawia istniejącego ZIP-a.
+
+Kontrola optyczna realnego UI:
+- komunikat jest widoczny i czytelny;
+- aktywny przycisk "Utwórz kopię zapasową" występuje przed "Pobierz klucz
+  odzyskiwania";
+- kliknięcie pierwszego przycisku na świeżej instalacji pobiera plik bez
+  ostrzeżenia, blokady lub informacji, że kopia nie jest odzyskiwalna poza tym
+  komputerem.
+
+Skutek użytkowy:
+- użytkownik otrzymuje wyglądający na prawidłowy backup, którego nie odzyska
+  po utracie komputera, nawet jeśli zaraz potem wykona widoczny krok pobrania
+  klucza odzyskiwania.
+
+Wykonane dowody
+---------------
+1. Niezależne reproduktory:
+   python -m pytest -q
+   tasks/ROTA-RODO-ENCRYPTION-AT-REST/round_01/tests/audit_r5_repro.py
+   Wynik: 2 failed.
+
+2. Reproduktor implementera i wąskie istniejące testy ścieżek dotkniętych:
+   - audit_r1_repro.py;
+   - test_t009_lifecycle_memory_backup_boundary.py::test_17;
+   - tests/test_local_store_master_data.py;
+   - tests/test_t021_external_support_roster.py.
+   Wynik: 37 passed, 1 warning.
+
+3. git diff --check 37620cf..a443752
+   Wynik: PASS.
+
+Wniosek
+-------
+Oba findings spełniają DEFECT_GATE: mają bezpośredni TRACE do zamrożonego
+kontraktu, leżą w odpowiedzialności zmienionych komponentów i zostały
+niezależnie odtworzone na exact SHA. Implementacja nie jest gotowa do merge.
