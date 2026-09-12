@@ -1,0 +1,134 @@
+ROTA-TECHNICAL-ERROR-RECOVERY-UX — IMPLEMENTATION AUDIT R3
+
+AUDITED_SHA: 05f2e2ac06e1b51e6dbae2db56dcc6e4c7ce4c30
+APPROVED_BRIEF_SHA: fe689a125614d6354df977dda05f8cc7ad3bc367
+IMPLEMENTATION_BASE: fe689a125614d6354df977dda05f8cc7ad3bc367
+VERDICT: FAIL
+
+Zakres i metoda
+---------------
+Sprawdzono diff fe689a1..05f2e2a, zmienionych ownerów przez where.py,
+celowane testy backendu/T060/ZIP, niezależne reproduktory, wszystkie cztery
+wyjścia PLAN/REPLAN, build frontendu oraz realny ekran. Nie uruchamiano pełnej
+regresji repo, symulatorów ani benchmarków.
+
+Decyzja implementacyjna z BOARD
+-------------------------------
+TECHNICAL_ONLY: wykrywanie CENTRAL_SERVICE przez istniejący sygnał
+`ROTA_CENTRAL_KEK` nie dodaje zachowania użytkowego ani drugiego modelu
+deploymentu. Jest zgodne z istniejącym ownerem pii_crypto i nie wymaga bramki
+decyzji OWNERA.
+
+FINDING R3-01 — prywatne dane z tekstu wyjątku trafiają do logu i ZIP-u
+----------------------------------------------------------------------------
+Priorytet: wysoki, SAFETY_PRIVACY.
+
+TRACE:
+- brief §3, wiersze 52–59: runtime log nie może zawierać nazwisk, sekretów,
+  tokenów ani payloadów;
+- A6: fixture z nazwiskiem/request body nie może pozostawić tych danych w logu.
+
+OWNERSHIP:
+`api/runtime_log.py::log_runtime_error` jest jedynym ownerem formatu wpisu.
+Wiersz 112 używa `traceback.format_exception(type(exc), exc, ...)`, które
+zawsze dopisuje na końcu `ExceptionType: str(exc)`.
+
+REPRO exact 05f2e2a:
+`audit_r3_repro.py::test_r3_private_exception_text_is_absent_from_runtime_log_and_zip`
+zgłasza `RuntimeError("Jan Kowalski token=OWNER-SECRET-7391")`. Canary występuje
+w `runtime-errors.log`; ZIP następnie dołącza dokładnie ten plik.
+
+Skutek: zwykły wyjątek zawierający wartość pochodzącą z domeny może utrwalić
+nazwisko/token i wyeksportować je w pakiecie dla CC. Test wykonawcy wręcz
+assertuje obecność tekstu „must not leak” w tracebacku, więc nie pokrywa
+kontraktu prywatności.
+
+Wymagana korekta: zachować informacje o ramach tracebacku bez dołączania
+surowego `str(exc)`/argumentów wyjątku; rozszerzyć canary na log oraz ZIP.
+Nie tworzyć automatycznego redaction engine.
+
+FINDING R3-02 — wyjątek poza ciałem routera omija log i recovery response
+----------------------------------------------------------------------------
+Priorytet: wysoki.
+
+TRACE:
+- A1: nieobsłużony wyjątek backendu zapisuje sanitizowany wpis i użytkownik
+  widzi zamrożony komunikat;
+- §6: nieoczekiwana awaria wykonania nie pokazuje surowej powierzchni;
+- TASK_SCOPE: centralne miejsce obsługi nieobsłużonych wyjątków FastAPI.
+
+OWNERSHIP:
+`to_http_exception` obejmuje tylko wyjątki jawnie złapane wewnątrz routerów.
+`api/main.py` nie ma globalnego exception handlera. Błąd zależności FastAPI,
+middleware, walidacji odpowiedzi lub kodu przed lokalnym `try` nie może dojść
+do `to_http_exception`.
+
+REPRO exact 05f2e2a:
+`audit_r3_repro.py::test_r3_dependency_exception_is_logged_and_returns_public_recovery_message`
+wstrzykuje realny wyjątek `get_conn` przed wejściem do handlera. Odpowiedź to
+plain `500 Internal Server Error`, bez `X-Elnath-Public-Error`, bez polskiego
+komunikatu i bez `runtime-errors.log`.
+
+Wymagana korekta: jeden globalny FastAPI exception boundary dla wyjątków,
+które nie zostały już zamienione przez T060; ma logować dokładnie raz i zwracać
+ten sam bezpieczny publiczny komunikat. Zachować brak podwójnego logowania dla
+ścieżek już przechodzących przez `to_http_exception`.
+
+FINDING R3-03 — istniejący ErrorBoundary nie został ujednolicony
+----------------------------------------------------------------
+Priorytet: średni.
+
+TRACE:
+- §6 obejmuje „inną awarię wykonania” i zamraża instrukcję wyłączenia oraz
+  ponownego uruchomienia aplikacji;
+- TASK_SCOPE wprost obejmuje istniejący ErrorBoundary/global handlers do
+  reuse/ujednolicenia komunikatu;
+- A11 wymaga widocznego, nieaktywnego „Kontakt ze wsparciem”.
+
+OWNERSHIP:
+`frontend/src/diagnostics/ErrorBoundary.tsx` jest pojedynczym root boundary
+dla awarii renderowania.
+
+REPRO/UI exact 05f2e2a:
+W realnym frontendzie użyto istniejącej kontrolki T021c `crash`. Ekran nadal
+pokazuje „Coś poszło nie tak”, proponuje tylko „Odśwież”/„Wróć do startu” i
+nie pokazuje zamrożonej instrukcji restartu ani nieaktywnego „Kontakt ze
+wsparciem”. Widok 653x575 był czytelny i nie miał clippingu; problem jest
+semantyczny, nie optyczny.
+
+Wymagana korekta: ujednolicić ten istniejący boundary zgodnie z §6, bez
+tworzenia drugiego ErrorBoundary ani nowego kanału supportu.
+
+Macierz i wyniki
+----------------
+- niezależny `audit_r3_repro.py`: 2 FAIL, 4 PASS;
+  - FAIL: prywatny canary w logu/ZIP;
+  - FAIL: dependency exception poza routerem;
+  - PASS: PLAN, REPLAN, wider-search i retry dają po jednym wpisie
+    `STRUCTURED_PLANNING_FAILURE`, bez raw `error_message`.
+- testy wykonawcy + T060 + istniejący test ZIP: 26 passed.
+- ruff dla zmienionego backendu/testów/reproduktora: PASS.
+- TypeScript + Vite production build: PASS.
+- diff-check: PASS.
+
+Celowany istniejący Playwright (`diagnostics.spec.ts`, API 500 + timeout):
+2 FAIL wyłącznie na oczekiwaniach tekstowych. Pierwsze oczekiwanie surowego
+`boom` jest stare względem T060; drugie oczekiwanie „limit czasu” stało się
+stare wskutek zaakceptowanego A4. Nie są to defekty produktu, ale Task powinien
+zaktualizować oba oczekiwania i pozwolić testom dojść do dalszych asercji
+T021c dotyczących REQUEST_FAILED/REQUEST_TIMEOUT i ACTION_STALLED.
+
+Realny ekran
+------------
+QA inventory obejmował: komunikat HTTP 500, fatalny render crash, dostępność
+diagnostyki, restart/support oraz brak raw szczegółów. Na rzeczywistym ekranie
+HTTP 500 poprawnie pokazał zamrożone polskie zdanie bez raw exception/HTTP ID.
+Fatalny render crash odtworzył R3-03. W obu sprawdzonych stanach tekst był
+czytelny w małym realnym widoku; nie znaleziono clippingu ani nakładania.
+
+Werdykt
+-------
+FAIL dotyczy wyłącznie exact 05f2e2a. Wszystkie trzy findingi mają TRACE,
+OWNERSHIP i REPRO na audytowanym SHA. Po wąskiej poprawce wystarczy re-run
+zachowanych reproduktorów, testów wykonawcy i dwóch skorygowanych scenariuszy
+UI; pełna regresja nie jest wymagana bez konkretnego nowego ryzyka.
