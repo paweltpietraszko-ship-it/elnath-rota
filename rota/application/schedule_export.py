@@ -15,7 +15,8 @@ from reportlab.lib.pagesizes import A3, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, MembershipKind, ShiftCatalogKind
+from rota.application.lifecycle_ops import fresh_validation
+from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, DeviationCategory, MembershipKind, ShiftCatalogKind
 from rota.persistence import calendar_repository, employee_repository, schedule_repository, site_repository
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
@@ -33,7 +34,17 @@ class ExportReady:
 @dataclass(frozen=True)
 class ExportProblem:
     problem_code: str; message: str  # noqa: E702
-ExportResult = Union[ExportReady, ExportProblem]
+@dataclass(frozen=True)
+class ExportLawItem:
+    # ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: `rule` is the raw built-in
+    # validator code (e.g. "REST-01") -- the api layer, not this one, owns
+    # translating it to a Polish label (mirrors the existing
+    # api/routers/schedule.py::_deviation_label split).
+    fingerprint: str; rule: str; affected_assignment_or_employee: str  # noqa: E702
+@dataclass(frozen=True)
+class ExportLawBlocked:
+    items: tuple[ExportLawItem, ...]
+ExportResult = Union[ExportReady, ExportProblem, ExportLawBlocked]
 @dataclass(frozen=True)
 class RowCells:
     employee_id: str; display_name: str; plan: list[str]; wyk: list[str]  # noqa: E702
@@ -48,15 +59,74 @@ class ExportModel:
 # Entry point
 def generate_schedule_pdf(
     conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str, generated_at: Optional[datetime] = None,
+    acknowledged_law_fingerprints: frozenset = frozenset(),
 ) -> ExportResult:
     try:
+        # ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: these two checks mirror
+        # _assemble_export_model's own opening two -- kept in the SAME
+        # order here so an existing (no settings, no schedule) site keeps
+        # its established PRINT_SETTINGS_MISSING precedence over the new
+        # NO_CURRENT_SCHEDULE pin below, instead of silently reordering an
+        # already-tested problem_code precedence.
+        if month.day != 1:
+            raise ExportProblemError("PROVENANCE_INCOMPLETE", "month must be the first day of the month")
+        if site_repository.get_site_print_settings(conn, site_id) is None:
+            raise ExportProblemError("PRINT_SETTINGS_MISSING", f"no print settings saved for {site_id}")
+        version_id = schedule_repository.get_current_version_id(conn, site_id, month)
+        if version_id is None:
+            raise ExportProblemError("NO_CURRENT_SCHEDULE", f"no current ScheduleVersion for ({site_id}, {month})")
+        law_items = _fresh_law_items(conn, site_id=site_id, month=month, schedule_version_id=version_id)
+        unacknowledged = tuple(item for item in law_items if item.fingerprint not in acknowledged_law_fingerprints)
+        if unacknowledged:
+            return ExportLawBlocked(items=unacknowledged)
         model = _assemble_export_model(conn, site_id=site_id, month=month, period_label=period_label)
+        _assert_same_current(conn, site_id, month, version_id)
         pdf_bytes = _render_pdf(model, generated_at or datetime.now(timezone.utc))
+        _assert_same_current(conn, site_id, month, version_id)
     except ExportProblemError as exc:
         return ExportProblem(exc.code, exc.message)
     except site_repository.InvalidSitePrintSettings as exc:
         return ExportProblem("PRINT_SETTINGS_INVALID", str(exc))
     return ExportReady(pdf_bytes=pdf_bytes, document_revision=_document_revision(model), schedule_provenance=model.provenance_text)
+def _assert_same_current(conn: sqlite3.Connection, site_id: str, month: date, expected_version_id: str) -> None:
+    # brief.md section 6: check -> render must be about the same pinned
+    # ScheduleVersion; a coordinator change (finalize/correction/REPLAN)
+    # racing this request must never let stale-checked bytes out the door.
+    if schedule_repository.get_current_version_id(conn, site_id, month) != expected_version_id:
+        raise ExportProblemError("SCHEDULE_VERSION_CHANGED", "current ScheduleVersion changed during export")
+def _law_fingerprint(detail, assignment_lookup: dict) -> str:
+    # brief.md section 5: derived from ViolationDetail + structural
+    # Assignment data only, never from human `message` text. Assignment
+    # start/end are included (not just assignment_id) so a manual
+    # correction that changes the underlying fact never inherits an old
+    # fingerprint's acknowledgement (P8) -- REST-01/WEEKLY-REST-01 can
+    # reference other_site_assignments/boundary_assignments too, not only
+    # existing_assignments, hence the merged lookup.
+    facts = []
+    for assignment_id in detail.assignment_ids:
+        assignment = assignment_lookup.get(assignment_id)
+        if assignment is None:
+            raise ExportProblemError("WORK_PROVENANCE_INCOMPLETE", f"LAW violation references unresolvable assignment {assignment_id}")
+        facts.append([assignment.assignment_id, assignment.employee_id, assignment.start_datetime.isoformat(), assignment.end_datetime.isoformat()])
+    payload = {"rule": detail.rule, "affected_employee_id": detail.affected_employee_id, "assignments": sorted(facts)}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+def _fresh_law_items(conn: sqlite3.Connection, *, site_id: str, month: date, schedule_version_id: str) -> list[ExportLawItem]:
+    result = fresh_validation(conn, site_id=site_id, month=month, schedule_version_id=schedule_version_id)
+    assignment_lookup = {
+        a.assignment_id: a
+        for pool in (result.state.existing_assignments, result.state.other_site_assignments, result.state.boundary_assignments)
+        for a in pool
+    }
+    items = []
+    for detail, deviation in zip(result.violation_details, result.deviations):
+        if deviation.category != DeviationCategory.LAW:
+            continue
+        items.append(ExportLawItem(
+            fingerprint=_law_fingerprint(detail, assignment_lookup),
+            rule=detail.rule, affected_assignment_or_employee=deviation.affected_assignment_or_employee,
+        ))
+    return items
 # Assembly
 def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str) -> ExportModel:
     if month.day != 1:

@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 
 function firstOfMonthIso(yearMonth: string): string {
@@ -256,6 +256,29 @@ export default function MonthlyPlanning({
   const [selecting, setSelecting] = useState(false);
   const [ackDeviations, setAckDeviations] = useState<Set<string>>(new Set());
   const [finalizing, setFinalizing] = useState(false);
+
+  // ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: a one-time export-ack, separate
+  // from ackDeviations/finalize (brief.md section 4 -- never persisted,
+  // never a finalize/DECISION_REQUIRED input). exportBlockingLaw is the
+  // fresh LAW list the export endpoint just returned; exportAckFingerprints
+  // is what the coordinator has checked for THIS one export attempt.
+  const [exportBlockingLaw, setExportBlockingLaw] = useState<ExportLawItemOut[]>([]);
+  const [exportAckFingerprints, setExportAckFingerprints] = useState<Set<string>>(new Set());
+  const toggleExportAck = (fingerprint: string) => {
+    setExportAckFingerprints((prev) => {
+      const next = new Set(prev);
+      if (next.has(fingerprint)) next.delete(fingerprint);
+      else next.add(fingerprint);
+      return next;
+    });
+  };
+  // brief.md section 8: never keep a stale export-ack/blocking-LAW state
+  // around a site/month/current-version change.
+  const currentVersionId = view?.current_version?.version_id ?? null;
+  useEffect(() => {
+    setExportBlockingLaw([]);
+    setExportAckFingerprints(new Set());
+  }, [siteId, monthIso, currentVersionId]);
 
   const [showHistory, setShowHistory] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -844,7 +867,18 @@ export default function MonthlyPlanning({
           which is specifically about the schedule grid/version lifecycle. */}
       {showPrint && (
         <div style={{ marginTop: 12 }}>
-          <Export siteId={siteId} onOpenPrintSettings={onOpenPrintSettings} workingMonth={workingMonth} />
+          <Export
+            siteId={siteId}
+            onOpenPrintSettings={onOpenPrintSettings}
+            workingMonth={workingMonth}
+            currentVersionId={currentVersionId}
+            acknowledgedLawFingerprints={Array.from(exportAckFingerprints)}
+            onLawBlocked={setExportBlockingLaw}
+            onExportSucceeded={() => {
+              setExportBlockingLaw([]);
+              setExportAckFingerprints(new Set());
+            }}
+          />
         </div>
       )}
 
@@ -1101,27 +1135,59 @@ export default function MonthlyPlanning({
                 )}
               </div>
 
-              {view.deviations.length > 0 && (
+              {(view.deviations.length > 0 || exportBlockingLaw.length > 0) && (
                 <div className="panel" style={{ marginTop: 12 }}>
                   <h3>Odchylenia</h3>
-                  {!isFinal && <p className="panel-hint">Zaznacz wszystkie, żeby móc sfinalizować.</p>}
-                  <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                    {view.deviations.map((d) => (
-                      <li key={d.deviation_id} style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
-                        {!isFinal && (
-                          <input
-                            type="checkbox"
-                            checked={ackDeviations.has(d.deviation_id)}
-                            onChange={() => toggleAck(d.deviation_id)}
-                            style={{ width: "auto" }}
-                          />
-                        )}
-                        <span className={`badge-pill ${d.acknowledged ? "badge-on" : "badge-off"}`}>{d.category}</span>
-                        <span>{d.label}</span>
-                        <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>({d.affected_assignment_or_employee})</span>
-                      </li>
-                    ))}
-                  </ul>
+                  {!isFinal && view.deviations.length > 0 && (
+                    <p className="panel-hint">Zaznacz wszystkie, żeby móc sfinalizować.</p>
+                  )}
+                  {view.deviations.length > 0 && (
+                    <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                      {view.deviations.map((d) => (
+                        <li key={d.deviation_id} style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
+                          {!isFinal && (
+                            <input
+                              type="checkbox"
+                              checked={ackDeviations.has(d.deviation_id)}
+                              onChange={() => toggleAck(d.deviation_id)}
+                              style={{ width: "auto" }}
+                            />
+                          )}
+                          <span className={`badge-pill ${d.acknowledged ? "badge-on" : "badge-off"}`}>{d.category}</span>
+                          <span>{d.label}</span>
+                          <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>({d.affected_assignment_or_employee})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {/* ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: fresh, one-time
+                      export-ack list -- separate identity (fingerprint,
+                      never deviation_id) and separate checkbox state from
+                      the finalize list above; visible even when isFinal
+                      (brief.md section 7/P11), never persisted, never a
+                      finalize input. */}
+                  {exportBlockingLaw.length > 0 && (
+                    <>
+                      <p className="panel-hint" style={{ marginTop: view.deviations.length > 0 ? 12 : 0 }}>
+                        Zaznacz, żeby potwierdzić przed wydrukiem, i wygeneruj PDF ponownie.
+                      </p>
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        {exportBlockingLaw.map((item) => (
+                          <li key={item.fingerprint} style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={exportAckFingerprints.has(item.fingerprint)}
+                              onChange={() => toggleExportAck(item.fingerprint)}
+                              style={{ width: "auto" }}
+                            />
+                            <span className="badge-pill badge-off">{item.category}</span>
+                            <span>{item.label}</span>
+                            <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>({item.affected_assignment_or_employee})</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </div>
               )}
 

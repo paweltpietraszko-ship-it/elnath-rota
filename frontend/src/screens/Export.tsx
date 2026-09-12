@@ -6,7 +6,7 @@
 // already has its own Polish message server-side; this screen never
 // re-translates or shows a raw code.
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, ExportLawItemOut } from "../api/client";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
@@ -48,12 +48,25 @@ export default function Export({
   siteId,
   onOpenPrintSettings,
   workingMonth,
+  currentVersionId,
+  acknowledgedLawFingerprints,
+  onLawBlocked,
+  onExportSucceeded,
 }: {
   siteId: string;
   onOpenPrintSettings: () => void;
   // ROTA-T053: shared Room-level working month (YYYY-MM); Export no longer
   // keeps an independent month/period source (brief §4/§7).
   workingMonth: string;
+  // ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS: the parent (MonthlyPlanning) owns
+  // the fresh-LAW/export-ack state so it can render it through the existing
+  // Odchylenia list -- this screen only sends the current checked set and
+  // reports what the backend returned, per brief.md section 7 ("existing
+  // list remains the only place").
+  currentVersionId: string | null;
+  acknowledgedLawFingerprints: string[];
+  onLawBlocked: (items: ExportLawItemOut[]) => void;
+  onExportSucceeded: () => void;
 }) {
   // R3-02 (round-3 audit): the period label has no independent source of
   // truth at all -- it's derived from workingMonth, not a free-text field.
@@ -92,19 +105,31 @@ export default function Export({
       .finally(() => setLoading(false));
   }, [siteId]);
 
-  const runExport = async () => {
-    setExporting(true);
-    setResult(null);
-    // T41-C09: clear any previous preview up front, before the new call
-    // resolves -- a failed regeneration must never leave the OLD preview on
-    // screen looking like it belongs to this attempt.
+  // T41-C09, extended by brief.md section 8 (ROTA-PRINT-IGNORES-UNACKED-
+  // DEVIATIONS): a stale PDF must never be offered as current after a
+  // blocked export or after site/month/current-version changes underneath
+  // this screen -- a mechanical helper, not a new lifecycle.
+  const clearPreview = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewBlob(null);
     setPreviewFilename(null);
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(clearPreview, [siteId, workingMonth, currentVersionId]);
+
+  const runExport = async () => {
+    setExporting(true);
+    setResult(null);
+    onLawBlocked([]);
+    // T41-C09: clear any previous preview up front, before the new call
+    // resolves -- a failed regeneration must never leave the OLD preview on
+    // screen looking like it belongs to this attempt.
+    clearPreview();
     try {
       const monthIso = firstOfMonthIso(workingMonth);
-      const res = await api.exportSchedule(siteId, monthIso, periodLabel);
+      const res = await api.exportSchedule(siteId, monthIso, periodLabel, acknowledgedLawFingerprints);
       if (res.ok && res.pdf_base64) {
         const blob = base64ToBlob(res.pdf_base64);
         setPreviewBlob(blob);
@@ -115,6 +140,10 @@ export default function Export({
         // from, and does not touch, the T051 verification hash printed
         // inside the PDF itself, which stays exactly as it is.
         setResult({ ok: true, message: "Gotowe." });
+        onExportSucceeded();
+      } else if (res.fresh_law) {
+        onLawBlocked(res.fresh_law);
+        setResult({ ok: false, message: res.message ?? "Nieznany problem eksportu." });
       } else {
         setResult({ ok: false, message: res.message ?? "Nieznany problem eksportu." });
       }
