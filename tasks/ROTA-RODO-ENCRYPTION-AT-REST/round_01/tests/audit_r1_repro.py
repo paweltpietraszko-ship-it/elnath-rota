@@ -106,6 +106,59 @@ def test_storage_class_change_cannot_downgrade_ciphertext_to_legacy_plaintext(tm
         get_employee(conn, "E1")
 
 
+def test_protected_ids_registry_has_no_deletable_sidecar_of_its_own(tmp_path) -> None:
+    """R6 (Codex round-6 audit): a first version of the R5-01 fix kept the
+    protected-ids registry in its own plain `<db>.pii_protected_ids`
+    sidecar -- deleting only that one file, leaving the keystore (and the
+    DEK it protects) untouched, silently reset the registry to "nothing
+    is protected" and reopened the exact storage-class downgrade bypass.
+    The registry now lives INSIDE the same DPAPI/AES-GCM-wrapped keystore
+    blob as the DEK, so there is no separate file left to delete."""
+    db_path = tmp_path / "no-sidecar.db"
+    conn = connect(db_path)
+    save_employee(conn, Employee("E1", "Jan Kowalski", date(2020, 1, 1), None, False))
+
+    assert not (tmp_path / "no-sidecar.db.pii_protected_ids").exists()
+    assert pii_crypto._keystore_path(db_path).exists()
+
+    conn.execute(
+        "UPDATE employees SET display_name = ? WHERE employee_id = ?",
+        ("Injected Plaintext", "E1"),
+    )
+    conn.commit()
+    with pytest.raises(ValueError, match="downgraded"):
+        get_employee(conn, "E1")
+
+
+def test_deleting_the_keystore_fails_closed_instead_of_silently_reenabling_downgrade(tmp_path) -> None:
+    """The only way left to erase "this employee_id was ever encrypted"
+    is to delete/corrupt the keystore itself -- which also destroys the
+    DEK, so every real ciphertext row (not just the one an attacker might
+    target) fails with a loud, already-expected integrity error instead
+    of silently trusting a downgraded value."""
+    db_path = tmp_path / "keystore-loss.db"
+    conn = connect(db_path)
+    save_employee(conn, Employee("E1", "Jan Kowalski", date(2020, 1, 1), None, False))
+    save_employee(conn, Employee("E2", "Anna Nowak", date(2020, 1, 1), None, False))
+
+    pii_crypto._keystore_path(db_path).unlink()
+    pii_crypto._dek_cache_by_path.pop(str(db_path), None)  # force re-reading the (now-missing) keystore
+
+    conn.execute(
+        "UPDATE employees SET display_name = ? WHERE employee_id = ?",
+        ("Injected Plaintext", "E1"),
+    )
+    conn.commit()
+
+    # E1 (the tampered one) is a `str`, not marked in the fresh, empty
+    # registry a new keystore starts with -- but E2 is still real
+    # ciphertext encrypted under the OLD, now-lost DEK, and a brand new
+    # DEK cannot decrypt it: the loss is loud and total, not a silent,
+    # single-record downgrade.
+    with pytest.raises(ValueError, match="integrity"):
+        get_employee(conn, "E2")
+
+
 @pytest.fixture
 def local_windows_only():
     if not pii_crypto._is_windows():

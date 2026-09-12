@@ -64,7 +64,6 @@ MAGIC = b"RNAM"
 FORMAT_VERSION = b"\x02"
 KEYSTORE_SUFFIX = ".pii_keystore"
 RECOVERY_SIDECAR_SUFFIX = ".pii_recovery"
-PROTECTED_IDS_SUFFIX = ".pii_protected_ids"
 RECOVERY_MAGIC = b"RREC\x01"
 CENTRAL_KEK_ENV_VAR = "ROTA_CENTRAL_KEK"
 
@@ -206,6 +205,48 @@ def _write_atomic(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
+def _pack_keystore_payload(dek: bytes, protected_ids: frozenset[str]) -> bytes:
+    ids_blob = "\n".join(sorted(protected_ids)).encode("utf-8")
+    return dek + len(ids_blob).to_bytes(4, "big") + ids_blob
+
+
+def _unpack_keystore_payload(payload: bytes) -> tuple[bytes, frozenset[str]]:
+    dek = payload[:KEY_SIZE]
+    ids_len = int.from_bytes(payload[KEY_SIZE:KEY_SIZE + 4], "big")
+    ids_blob = payload[KEY_SIZE + 4:KEY_SIZE + 4 + ids_len]
+    ids = frozenset(line for line in ids_blob.decode("utf-8").splitlines() if line)
+    return dek, ids
+
+
+def _load_keystore_raw(ks_path: Path) -> tuple[bytes, bytes]:
+    """Returns (marker, unwrapped payload). The payload is DEK +
+    protected-ids, packed by _pack_keystore_payload -- see mark_encrypted
+    for why these live in the SAME DPAPI/AES-GCM-wrapped blob rather than
+    a separate sidecar file (R5-01/R6: a separate file can just be
+    deleted to silently reset "nothing is protected"; this cannot, since
+    removing or corrupting it destroys the DEK too, which already fails
+    closed loudly for every real ciphertext row -- see module docstring)."""
+    blob = ks_path.read_bytes()
+    marker, rest = blob[:1], blob[1:]
+    if marker == _DPAPI_MARKER:
+        if not _is_windows():
+            raise KeyProtectionUnavailable("existing keystore is DPAPI-protected but this host is not Windows")
+        return marker, _dpapi_unprotect(rest)
+    if marker == _CENTRAL_MARKER:
+        return marker, _aes_unwrap(rest, _central_kek())
+    raise ValueError(f"unrecognized keystore protector marker in {ks_path}")
+
+
+def _save_keystore_raw(ks_path: Path, marker: bytes, payload: bytes) -> None:
+    if marker == _DPAPI_MARKER:
+        protected = marker + _dpapi_protect(payload)
+    elif marker == _CENTRAL_MARKER:
+        protected = marker + _aes_wrap(payload, _central_kek())
+    else:
+        raise ValueError(f"unrecognized protector marker {marker!r}")
+    _write_atomic(ks_path, protected)
+
+
 def protector_kind_for(db_path: str | Path) -> str | None:
     """"DPAPI" | "CENTRAL" for an existing keystore, else None (no DEK
     created yet for this path). Lets backup.py decide which recoverable
@@ -224,27 +265,21 @@ def protector_kind_for(db_path: str | Path) -> str | None:
 def _get_or_create_dek_for_path(db_path: Path) -> bytes:
     ks_path = _keystore_path(db_path)
     if ks_path.exists():
-        blob = ks_path.read_bytes()
-        marker, rest = blob[:1], blob[1:]
-        if marker == _DPAPI_MARKER:
-            if not _is_windows():
-                raise KeyProtectionUnavailable("existing keystore is DPAPI-protected but this host is not Windows")
-            return _dpapi_unprotect(rest)
-        if marker == _CENTRAL_MARKER:
-            return _aes_unwrap(rest, _central_kek())
-        raise ValueError(f"unrecognized keystore protector marker in {ks_path}")
+        _marker, payload = _load_keystore_raw(ks_path)
+        dek, _ids = _unpack_keystore_payload(payload)
+        return dek
 
     dek = secrets.token_bytes(KEY_SIZE)
     if os.environ.get(CENTRAL_KEK_ENV_VAR):
-        protected = _CENTRAL_MARKER + _aes_wrap(dek, _central_kek())
+        marker = _CENTRAL_MARKER
     elif _is_windows():
-        protected = _DPAPI_MARKER + _dpapi_protect(dek)
+        marker = _DPAPI_MARKER
     else:
         raise KeyProtectionUnavailable(
             f"no runtime key protector available: set {CENTRAL_KEK_ENV_VAR} for CENTRAL_SERVICE "
             "or run on Windows for LOCAL_WINDOWS (DPAPI) -- no automatic raw-key-file fallback"
         )
-    _write_atomic(ks_path, protected)
+    _save_keystore_raw(ks_path, marker, _pack_keystore_payload(dek, frozenset()))
     return dek
 
 
@@ -257,37 +292,43 @@ def _main_db_file(conn: sqlite3.Connection) -> str:
     return ""
 
 
-def _protected_ids_path(db_path: Path) -> Path:
-    return db_path.with_name(db_path.name + PROTECTED_IDS_SUFFIX)
-
-
-def _read_protected_ids(reg_path: Path) -> set[str]:
-    if not reg_path.exists():
-        return set()
-    return {line for line in reg_path.read_text(encoding="utf-8").splitlines() if line}
-
-
 def mark_encrypted(conn: sqlite3.Connection, employee_id: str) -> None:
-    """R5-01: a genuine legacy row (written before this feature existed)
-    is the ONLY thing decrypt_name should ever trust as plain `str` --
-    but SQLite's storage class alone cannot prove that on its own: a
-    single UPDATE can put an ordinary Python `str` into a column that
-    used to hold ciphertext, and nothing about that byte sequence records
-    it was ever anything else. This sidecar registry (same pattern as the
-    keystore/recovery-package files) is the record: once an employee_id
-    has ever been written through encrypt_name, decrypt_display_names_*
-    callers refuse to accept a `str` for that id ever again, no matter
-    what the column's storage class says later. :memory: has no file and
-    no persisted downgrade threat model, so this is a no-op there."""
+    """R5-01/R6: a genuine legacy row (written before this feature
+    existed) is the ONLY thing decrypt_name should ever trust as plain
+    `str` -- but SQLite's storage class alone cannot prove that on its
+    own: a single UPDATE can put an ordinary Python `str` into a column
+    that used to hold ciphertext, and nothing about that byte sequence
+    records it was ever anything else. This registry is the record: once
+    an employee_id has ever been written through encrypt_name,
+    employee_repository._row_to_employee refuses to accept a `str` for
+    that id ever again, no matter what the column's storage class says
+    later. It lives INSIDE the same DPAPI/AES-GCM-wrapped keystore blob
+    as the DEK (see _load_keystore_raw), not a separate sidecar file --
+    a first version used a plain, unauthenticated `.pii_protected_ids`
+    sidecar, which Codex's R6 audit broke by simply deleting that one
+    file while leaving the keystore (and the DEK it protects) untouched,
+    silently resetting the registry to "nothing is protected" without
+    disturbing anything else. Folding it into the keystore's own
+    authenticated payload means the only way to erase this record is to
+    also destroy/corrupt the DEK, which already fails closed loudly (a
+    real ciphertext row raises an integrity error) rather than silently
+    -- the exact fail-closed behavior brief.md E9/section 3 requires.
+    :memory: has no file and no persisted downgrade threat model, so
+    this is a no-op there. If somehow called before any keystore exists
+    (resolve_key always creates one first in every real write path),
+    there is no DEK yet to bind this registry to, so there is nothing to
+    mark -- also a no-op."""
     path = _main_db_file(conn)
     if not path:
         return
-    reg_path = _protected_ids_path(Path(path))
-    ids = _read_protected_ids(reg_path)
+    ks_path = _keystore_path(Path(path))
+    if not ks_path.exists():
+        return
+    marker, payload = _load_keystore_raw(ks_path)
+    dek, ids = _unpack_keystore_payload(payload)
     if employee_id in ids:
         return
-    ids.add(employee_id)
-    _write_atomic(reg_path, ("\n".join(sorted(ids)) + "\n").encode("utf-8"))
+    _save_keystore_raw(ks_path, marker, _pack_keystore_payload(dek, ids | {employee_id}))
 
 
 def load_protected_ids(conn: sqlite3.Connection) -> frozenset[str]:
@@ -297,7 +338,12 @@ def load_protected_ids(conn: sqlite3.Connection) -> frozenset[str]:
     path = _main_db_file(conn)
     if not path:
         return frozenset()
-    return frozenset(_read_protected_ids(_protected_ids_path(Path(path))))
+    ks_path = _keystore_path(Path(path))
+    if not ks_path.exists():
+        return frozenset()
+    _marker, payload = _load_keystore_raw(ks_path)
+    _dek, ids = _unpack_keystore_payload(payload)
+    return ids
 
 
 def resolve_key(conn: sqlite3.Connection) -> bytes:
