@@ -96,4 +96,3 @@ Domknąć kontrakt danych: backend zwraca świeże LAW z fingerprintami, istniej
 lista `Odchylenia` je pokazuje i odsyła zaznaczone fingerprinty przy ponowieniu.
 Bez tego P5 i P8 są równocześnie niewykonalne. Pozostały projekt jest wąski i
 nie wymaga włączania REPLAN, restore, finalize ani osobnego systemu decyzji.
-
