@@ -1,0 +1,84 @@
+ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE
+PREIMPLEMENTATION RE-CHECK R1
+
+WYNIK: WYMAGA_KOREKTY — BRAK PASS, IMPLEMENTATION HOLD POZOSTAJE
+
+Sprawdzony brief: 21602e7557b97fc3a6e52e728973f4acbf2182ee
+Sprawdzona baza zależności: a443752e70f9a8b8543b5f19a72021d1b52d6c0a
+Main wskazany przez OWNERA: 9058bf89f1d8fb0147a33f7da7896fc1f1b8de11
+Zakres: wyłącznie pięć punktów §9 briefu oraz spełnienie dependency.
+
+PRECHECK §9
+
+1. TAK — szyfrowanie całego `warnings_json` i `payload_json` na granicy
+   persistence zachowuje istniejące DTO i tekst po decrypt-on-read. Nie wymaga
+   zmian w `solver.py`, `decision_guidance.py`, API ani UI.
+
+2. NIE W PEŁNI — jeden DEK może bezpiecznie obsłużyć trzy klasy danych przy
+   osobnych losowych nonce i rozdzieleniu domen przez AAD, ale label samej klasy
+   nie wiąże ciphertextu z rekordem. Skopiowanie kompletnego, prawidłowego BLOB
+   pomiędzy dwoma preview albo dwoma snapshotami zachowa poprawny tag i zwróci
+   semantycznie cudzy JSON. To jest tampering niewykryty przez prosty test
+   bit-flip i narusza L4.
+
+   Wymagana wąska korekta kontraktu:
+   - AAD preview wiąże co najmniej klasę + `site_id` + `month`;
+   - AAD decision snapshot wiąże co najmniej klasę + `decision_required_id`;
+   - testy obejmują zamianę dwóch pełnych ciphertextów między rekordami, nie
+     tylko zmianę bajtu.
+
+   Te dane identyfikujące są już dostępne w obu repozytoriach, więc poprawka
+   mieści się w literalnym scope i nie wymaga nowej warstwy ani zachowania UI.
+
+3. TAK — istniejące rekordy można zmigrować atomowo w `db.py`: w jednej
+   wersjonowanej transakcji czasowo usunąć dokładnie dwa triggery snapshotów,
+   zaszyfrować istniejące wartości, odtworzyć identyczne triggery i dopiero
+   podnieść `user_version`. ROLLBACK przy błędzie przywraca dane oraz triggery.
+   Test musi dowieść zarówno zachowania identyfikatorów/payloadu, jak i zakazu
+   UPDATE/DELETE po migracji.
+
+4. TAK WARUNKOWO — backup zawiera snapshot całej bazy, a recovery odzyskuje ten
+   sam DEK. Oba JSON-y mogą więc zostać odszyfrowane bez nowego sekretu i bez
+   zmiany formatu backupu; dozwolone mechaniczne rozszerzenie istniejącego
+   recovery primitive wystarcza.
+
+5. TAK — literalny scope obejmuje wspólny envelope, oba repozytoria, migrację i
+   ewentualne mechaniczne rozszerzenie recovery. `solver.py`, guidance, DTO/UI,
+   `coordinators.display_name`, SQLCipher i key management poprawnie pozostają
+   poza Taskiem.
+
+DEPENDENCY
+
+NIESPEŁNIONE. `git merge-base --is-ancestor a443752 9058bf89...` zakończyło się
+kodem 1: bazowa implementacja `ROTA-RODO-ENCRYPTION-AT-REST@a443752` nie jest
+przodkiem wskazanego main. Implementacja tego Tasku nie może rozpocząć się,
+dopóki dependency nie zostanie zaakceptowane i scalone zgodnie z briefem.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+
+Konieczne:
+- jeden ogólny envelope w istniejącym `pii_crypto.py`;
+- encrypt/decrypt wyłącznie w dwóch istniejących repozytoriach persistence;
+- jedna wersjonowana migracja storage i test odtworzonych triggerów;
+- reuse tego samego DEK i istniejącego formatu backupu.
+
+Zbędne i pozostające poza zakresem:
+- zmiany generatorów tekstu, solvera, guidance, API i UI;
+- drugi klucz, drugi recovery package, nowy KMS lub SQLCipher;
+- szyfrowanie `employee_id` albo `coordinators.display_name`;
+- osobny subsystem migracji; bieżący `db.py::migrate` jest właściwym ownerem,
+  choć będzie wymagał wąskiej obsługi transformacji danych, nie tylko DDL.
+
+DOWODY I OGRANICZENIA
+
+- Odczytano cały brief exact SHA oraz relevantne implementacje crypto,
+  repozytoriów, mechanizmu migracji i triggerów na `a443752`.
+- Wąski `git grep` potwierdził ownerów i call-site'y; `where.py` pominięto,
+  ponieważ to brief-only precheck, a zakres/ownership były jednoznaczne.
+- Nie uruchamiano testów produktu, pełnej regresji, symulatorów ani benchmarków.
+
+WARUNEK PONOWNEGO PRECHECKU
+
+Architekt dopisuje wyłącznie record-bound AAD oraz test ciphertext swap. Po tej
+korekcie i po spełnieniu dependency wystarczy literalny re-check — bez redesignu
+solvera, UI, KMS ani całego magazynu.
