@@ -1,8 +1,9 @@
 # ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS — blokada wydruku przy świeżym niepotwierdzonym LAW
 
-STATUS: PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
+STATUS: FINAL PREIMPLEMENTATION RE-CHECK REQUIRED — IMPLEMENTATION HOLD
 
 SOURCE FINDING: `main@e4d150442deaa156b90d9ebfdf14155f70bd3588`
+PRECHECK R1: `66e348c00ce1a64a499cd16a4067267d0e2a6411`
 
 ## 1. Cel
 
@@ -28,10 +29,11 @@ Reuse dotyczy komunikacji/UI i istniejącej listy odchyleń. Semantyka `DECISION
 Każdy request generowania PDF musi przed renderem:
 
 1. zidentyfikować dokładnie bieżący `ScheduleVersion` dla `(site_id, month)`;
-2. użyć istniejącego ownera świeżej walidacji / istniejącego validatora do ponownego wyliczenia odchyleń dla tego właśnie grafiku;
-3. wyodrębnić tylko odchylenia kategorii `LAW`;
-4. porównać je z jednorazowym potwierdzeniem dostarczonym przez ten request;
-5. wygenerować PDF tylko wtedy, gdy wszystkie świeże LAW z tej próby zostały potwierdzone.
+2. użyć jednego współdzielonego application-layer helpera świeżej walidacji opartego o istniejące `assemble_planning_state(..., schedule_version_id=...)` + `validate(...)`; helper ma zastąpić duplikowanie przebiegu w lifecycle/export, nie tworzyć drugiego validatora;
+3. wyodrębnić tylko świeże odchylenia kategorii `LAW`;
+4. z tych samych świeżych `ViolationDetail` i wskazanych przez nie strukturalnych Assignment/Demand zbudować minimalne rekordy eksportowego LAW wraz z fingerprintem;
+5. porównać fingerprinty świeżych LAW z jednorazowym potwierdzeniem dostarczonym przez ten request;
+6. wygenerować PDF tylko wtedy, gdy wszystkie świeże LAW z tej próby zostały potwierdzone.
 
 `WORKING` sam w sobie pozostaje drukowalny. Non-LAW nie blokują PDF.
 
@@ -48,27 +50,30 @@ Potwierdzenie LAW dla eksportu:
 - nie tworzy `CoordinatorAction` ani `DECISION_REQUIRED` tylko z powodu wydruku;
 - następny eksport przy nadal istniejącym LAW wymaga ponownego potwierdzenia.
 
-## 5. Tożsamość potwierdzanego LAW
+## 5. Tożsamość i transport świeżego LAW
 
 Nie wolno opierać eksportowego potwierdzenia wyłącznie na obecnym `deviation_id` typu `DEV-{index}-{rule}`, ponieważ taki ID nie identyfikuje wystarczająco faktu naruszenia.
 
-Najwęższy kontrakt: backend buduje stabilny fingerprint z pełnych strukturalnych danych świeżego LAW, które już istnieją w `Deviation` i jego źródłowym fakcie, bez parsowania ludzkiego `message`.
+Najwęższy kontrakt:
+- fingerprint powstaje backendowo podczas świeżej walidacji, bez parsowania ludzkiego `message`;
+- źródłem są `ViolationDetail` oraz strukturalne dane Assignment/Demand wskazane przez ten violation;
+- fingerprint musi odróżniać co najmniej różne: reguły, affected assignment/employee, demand/target/source reference i istotny fakt naruszenia dostępny strukturalnie;
+- nie projektować uniwersalnego systemu fingerprintów dla całego produktu; to jest wąski identyfikator dla jednorazowego eksportowego ack.
 
-Fingerprint musi odróżniać co najmniej różne:
-- reguły;
-- affected assignment/employee;
-- source reference / target;
-- istotny fakt naruszenia, jeśli jest dostępny strukturalnie.
+Blokująca odpowiedź eksportu musi zwrócić minimalną listę świeżych LAW potrzebną do istniejącej powierzchni `Odchylenia`. Każdy element zawiera:
+- backendowy `fingerprint`;
+- istniejące, ludzkie dane prezentacyjne potrzebne do pokazania tego LAW w obecnej liście;
+- bez nowego modelu domenowego i bez trwałego zapisu.
 
-Nie projektować uniwersalnego systemu fingerprintów dla całego produktu. To ma być wąski identyfikator dla jednorazowego eksportowego ack.
+Ponowienie requestu eksportu przesyła wyłącznie zaznaczone fingerprinty świeżych LAW. `deviation_id` może pozostać elementem prezentacyjnym/istniejącego UI, ale nie jest podstawą autoryzacji eksportu.
 
 ## 6. Spójność check -> render
 
 Walidacja i wygenerowanie PDF muszą dotyczyć tej samej bieżącej wersji.
 
-Jeżeli current version zmieni się między fresh-checkiem a renderem, eksport ma odmówić i poprosić o ponowienie zamiast wygenerować dokument dla innego stanu.
+Eksporter zapamiętuje oczekiwany current `version_id`, składa i waliduje tę konkretną wersję, renderuje tę samą wersję i przed zwrotem ponownie sprawdza current. Jeżeli wskaźnik zmienił się w międzyczasie, wygenerowane bajty są odrzucane i użytkownik ma ponowić próbę.
 
-Nie budować nowego transaction/lifecycle subsystemu. Użyć istniejącego `version_id` / revision / provenance, które exporter już zna.
+Nie budować nowego transaction/lifecycle subsystemu. Użyć istniejącego `version_id` / revision / provenance.
 
 ## 7. UI
 
@@ -77,15 +82,23 @@ Istniejąca lista `Odchylenia` pozostaje jedynym miejscem wskazywania LAW przez 
 `Wygeneruj PDF`:
 - przy braku świeżych LAW działa jak dziś;
 - przy świeżych LAW, których bieżąca próba nie potwierdza, nie generuje PDF;
-- pokazuje istniejącą powierzchnią komunikatu prosty komunikat, że przed wydrukiem trzeba potwierdzić wskazane odchylenia prawne;
-- po zaznaczeniu wymaganych LAW koordynator ponawia `Wygeneruj PDF`;
+- blokująca odpowiedź zasila istniejącą listę `Odchylenia` świeżymi LAW/fingerprintami i istniejącą powierzchnią komunikatu pokazuje prosty komunikat, że przed wydrukiem trzeba potwierdzić wskazane odchylenia prawne;
+- po zaznaczeniu wymaganych LAW koordynator ponawia `Wygeneruj PDF`, a frontend odsyła zaznaczone fingerprinty;
 - non-LAW nie muszą być zaznaczone dla wydruku.
+
+Istniejące checkboxy LAW muszą być dostępne na potrzeby jednorazowego eksportu także wtedy, gdy drukowana wersja jest `FINAL`. To nie zmienia statusu, nie otwiera finalizacji i nie zapisuje trwałego acknowledgement.
 
 Nie dodawać drugiego panelu ani modala.
 
 ## 8. Stary preview PDF
 
 Jeżeli eksport zostaje zablokowany z powodu świeżego LAW albo bieżący grafik/miesiąc/obiekt zmienia się przed kolejnym eksportem, UI nie może pozostawiać starego `previewBlob` jako aktualnie oferowanego dokumentu.
+
+`Export` ma użyć jednego mechanicznego helpera czyszczenia preview i wywoływać go co najmniej przy:
+- wyniku blokującym eksport;
+- zmianie `siteId`;
+- zmianie `workingMonth`;
+- zmianie bieżącego `current version_id` przekazanego z `MonthlyPlanning`.
 
 To jest mechaniczna ochrona przed pobraniem starego PDF po zmianie stanu, nie nowy lifecycle.
 
@@ -95,37 +108,41 @@ P1. Legalny `WORKING` bez LAW nadal generuje PDF.
 
 P2. Grafik z non-LAW, ale bez LAW, nadal generuje PDF bez dodatkowego potwierdzenia.
 
-P3. Świeże niepotwierdzone LAW blokuje PDF i zwraca czytelny komunikat do istniejącej powierzchni UI.
+P3. Świeże niepotwierdzone LAW blokuje PDF i zwraca minimalną listę świeżych LAW z fingerprintami oraz czytelny komunikat do istniejącej powierzchni UI.
 
-P4. Bezpośredni POST bez wymaganego export-ack również jest blokowany.
+P4. Bezpośredni POST bez wymaganych fingerprintów export-ack również jest blokowany.
 
-P5. Potwierdzenie wszystkich świeżych LAW dla tej jednej próby pozwala wygenerować PDF.
+P5. Pokazane w istniejącej liście świeże LAW można zaznaczyć; ponowienie requestu z fingerprintami wszystkich aktualnych LAW pozwala wygenerować PDF.
 
 P6. Potwierdzenie eksportowe nie zmienia persisted `Deviation.acknowledged`, statusu wersji, lifecycle ani historii decyzji.
 
 P7. Kolejna próba eksportu tego samego grafiku z tym samym LAW znów wymaga potwierdzenia.
 
-P8. Zmiana faktu naruszenia przy tej samej regule/indexie nie może odziedziczyć starego potwierdzenia; fingerprint musi się różnić.
+P8. Zmiana faktu naruszenia przy tej samej regule/indexie/targetcie nie może odziedziczyć starego potwierdzenia; fingerprint z fresh `ViolationDetail`/Assignment/Demand musi się różnić.
 
 P9. Zmiana current version pomiędzy walidacją a renderem nie może wygenerować PDF dla niesprawdzonego stanu.
 
 P10. Po zablokowanym eksporcie lub zmianie site/month/current UI nie oferuje starego preview jako aktualnego PDF.
 
-P11. Brak nowego `DECISION_REQUIRED`, nowej tabeli, nowego modala i nowego validatora.
+P11. `FINAL` z LAW może użyć tej samej istniejącej listy/checkboxów do jednorazowego export-ack bez ponownej finalizacji i bez zmiany statusu.
+
+P12. Brak nowego `DECISION_REQUIRED`, nowej tabeli, nowego modala i nowego validatora.
 
 ## 10. Literalny TASK_SCOPE
 
 Production — oczekiwany minimalny zakres:
-- `rota/application/schedule_export.py` — świeży LAW guard związany z dokładnie eksportowaną wersją; reuse istniejącego validatora/assemblera;
-- `api/routers/export.py` — transport jednorazowych LAW fingerprints/ack oraz ludzki komunikat problemu;
-- `frontend/src/components/Export.tsx` — przekazanie bieżących zaznaczonych LAW i unieważnienie starego preview;
-- `frontend/src/screens/MonthlyPlanning.tsx` — wyłącznie jeśli potrzebne mechaniczne przekazanie istniejącej listy/zaznaczeń LAW do `Export`; bez nowego panelu;
-- `frontend/src/api/client.ts` — wyłącznie mechaniczna zmiana request type/API call;
-- istniejący helper walidacji/application layer tylko jeśli Codex wskaże konkretną brakującą ścieżkę reuse; bez drugiego validatora.
+- `rota/application/schedule_export.py` — świeży LAW guard związany z dokładnie eksportowaną wersją oraz check current przed zwrotem;
+- istniejący application-layer owner świeżej walidacji — wydzielić/reuse wspólny helper z obecnego przebiegu `lifecycle_ops._fresh_deviations` tak, aby lifecycle i export korzystały z jednego assembler+validator path; bez drugiego validatora;
+- `api/routers/export.py` — minimalny request/response dla jednorazowych LAW fingerprintów oraz blokującej listy świeżych LAW; bez nowego endpointu/workflow;
+- `frontend/src/screens/Export.tsx` — przekazanie bieżących zaznaczonych LAW fingerprintów i unieważnienie starego preview;
+- `frontend/src/screens/MonthlyPlanning.tsx` — wyłącznie mechaniczne reuse istniejącej listy/zaznaczeń LAW, przyjęcie świeżej listy z export result i umożliwienie zaznaczeń także dla FINAL na potrzeby eksportu; bez nowego panelu;
+- `frontend/src/api/client.ts` — mechaniczne pola request/response.
 
 Tests:
 - nowy wąski `tests/test_export_unacknowledged_law.py`;
-- istniejący test/export E2E rozszerzony tylko o P1–P10;
+- istniejący test/export E2E rozszerzony tylko o P1–P11;
+- wymagany przypadek direct POST;
+- wymagany przypadek tej samej reguły/indexu/targetu, ale zmienionego strukturalnego faktu -> stary fingerprint nie przechodzi;
 - bez symulatorów, benchmarków i pełnego lifecycle redesignu.
 
 Jawnie poza scope:
@@ -140,13 +157,13 @@ Jawnie poza scope:
 - techniczne identyfikatory UI jako osobny finding;
 - `ROTA-TECHNICAL-ERROR-RECOVERY-UX`.
 
-## 11. Preimplementation re-check Codexa
+## 11. Finalny preimplementation re-check Codexa
 
-Sprawdzić tylko:
-1. czy `schedule_export` może użyć istniejącego assemblera/validatora i związać wynik z dokładnie renderowaną current version bez nowego validatora;
-2. czy obecne dane `Deviation` wystarczą do stabilnego eksportowego fingerprintu bez parsowania `message`; jeśli nie, wskazać dokładnie brakujące pole, bez redesignu domeny;
-3. czy frontend może reuse istniejącą listę/zaznaczenia LAW i przekazać je do `Export` bez drugiego panelu/modala;
-4. czy stary preview da się mechanicznie unieważnić na zmianę export result/site/month/current;
-5. czy literalny scope jest kompletny.
+Nie otwierać ponownie punktów R1, które już mają TAK. Sprawdzić tylko:
+1. czy wspólny fresh-validation helper może zastąpić prywatny przebieg lifecycle bez duplikacji validatora i bez zmiany semantyki lifecycle;
+2. czy blokujący export response może przenieść minimalne świeże LAW + fingerprinty do istniejącej listy `Odchylenia`, a retry może odesłać zaznaczone fingerprinty bez nowego panelu/modelu;
+3. czy ta sama istniejąca lista może udostępnić checkbox LAW dla `FINAL` wyłącznie na potrzeby jednorazowego export-ack, bez ponownej finalizacji;
+4. czy poprawiony literalny scope (`frontend/src/screens/Export.tsx`, helper, request/response) jest kompletny;
+5. czy nadal nie jest potrzebny REPLAN/restore/finalize redesign ani osobny system decyzji.
 
-Jeżeli 1–5 = TAK: PASS exact brief SHA i zwolnienie IMPLEMENTATION HOLD. Jeżeli NIE: wskazać jedną konkretną lukę ścieżki lub pola; bez poszerzania do lifecycle/REPLAN/restore.
+Jeżeli 1–5 = TAK: PASS exact brief SHA i zwolnienie IMPLEMENTATION HOLD. Jeżeli NIE: wskazać wyłącznie konkretną brakującą ścieżkę/pole, bez poszerzania do lifecycle/REPLAN/restore.
