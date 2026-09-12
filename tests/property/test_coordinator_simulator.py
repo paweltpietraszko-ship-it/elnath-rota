@@ -219,13 +219,7 @@ def test_decision_required_triggers_external_reaction_with_correct_decision_link
     assert reaction["second_plan_result"]["status"] in {"FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"}
 
 
-def test_przelicz_plan_after_material_change_is_a_distinct_reported_event(client):
-    """ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only exists pre-
-    acceptance; a material change (e.g. a new SICK_LEAVE) after acceptance
-    is recomputed via Przelicz Plan (the same /plan endpoint, plan_month),
-    not REPLAN -- calling REPLAN post-acceptance is now a 409. Renamed from
-    test_replan_after_material_change_is_a_distinct_reported_event and
-    updated from sim.run_replan to sim.run_plan accordingly."""
+def test_replan_after_material_change_is_a_distinct_reported_event(client):
     spec = sim.random_object_spec(0, MONTH)
     site_id = sim.build_object(client, spec)
     first = sim.run_plan(client, site_id, MONTH)
@@ -235,8 +229,8 @@ def test_przelicz_plan_after_material_change_is_a_distinct_reported_event(client
     sim.apply_absences(client, site_id, spec, [
         sim.AbsenceDraw(employee_index=0, kind="SICK_LEAVE", start_date=date(2026, 9, 10), end_date=date(2026, 9, 12)),
     ])
-    recomputed = sim.run_plan(client, site_id, MONTH)
-    assert recomputed["status"] in {"FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"}
+    replanned = sim.run_replan(client, site_id, MONTH)
+    assert replanned["status"] in {"FEASIBLE", "DECISION_REQUIRED", "TECHNICAL_ERROR"}
 
 
 def test_quarterly_driver_mechanics_run_without_crashing():
@@ -346,14 +340,9 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
         suffix = "fairness-fail" if fairness_verdict == "FAIRNESS_FAIL" else "fairness-unproven"
         _write_failure_json(f"seed{seed}-{suffix}", row | {"assignments": view["assignments"]}, seed=seed)
 
-    # B5: a deterministic post-acceptance recompute scenario on even seeds
-    # only (kept from Checkpoint A's own open question -- documented here,
-    # not silently resolved: bounds runtime, still deterministic and
-    # reproducible). ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only
-    # exists pre-acceptance -- since this scenario runs after
-    # select_first_candidate, it now uses Przelicz Plan (run_plan) instead
-    # of REPLAN, which would otherwise 409 here and get silently
-    # mislabeled as a product "CRASH" below.
+    # B5: a deterministic REPLAN scenario on even seeds only (kept from
+    # Checkpoint A's own open question -- documented here, not silently
+    # resolved: bounds runtime, still deterministic and reproducible).
     if seed % 2 == 0:
         replan_draws = sim.random_absence_set(
             seed * 104729,
@@ -369,7 +358,7 @@ def _run_one_monthly_object(client: TestClient, seed: int, month: date) -> dict:
             ]
             try:
                 sim.apply_absences(client, site_id, spec, replan_draws)
-                replanned = sim.run_plan(client, site_id, month)
+                replanned = sim.run_replan(client, site_id, month)
             except Exception as exc:  # noqa: BLE001 -- preserve a real product crash
                 row["final_status"] = "CRASH"
                 row["replan"] = {
