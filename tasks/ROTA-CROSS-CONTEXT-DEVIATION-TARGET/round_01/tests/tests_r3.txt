@@ -1,0 +1,39 @@
+ROTA-CROSS-CONTEXT-DEVIATION-TARGET — LITERALNY RE-CHECK CODEX R3
+
+WERDYKT: PASS
+AUDYTOWANY REVERT SHA: 8cd669eec0457cbafa5009b09af2fcd4fd145714
+STAN REFERENCYJNY SPRZED TASKU: fabd835
+OWNER_ACCEPTED: 2026-09-11
+
+Zakres
+------
+- wyłącznie literalny diff mechanicznego reverta;
+- bez ponownego audytu zachowania całego persistence/validatora;
+- bez macierzy Tasku, pełnej regresji, symulatorów i benchmarków;
+- where.py pominięte: owner i scope nie zmieniły się, a wynik jest
+  bajtową kontrolą powrotu do wcześniej audytowanego pliku.
+
+Kontrole
+--------
+1. rota/persistence/schedule_validation.py na 8cd669e jest bajt-w-bajt
+   identyczny z fabd835: PASS.
+
+2. tests/test_cross_context_deviation_target.py został usunięty: PASS.
+
+3. brief.md, tests_r1.txt i tests_r2.txt pozostały zachowane: PASS.
+
+4. Realne istniejące piony:
+   - T36-11: cross-month REST-01 zapisuje target Employee, nie martwy
+     cross-context Assignment;
+   - T58-09: przypadek odpoczynku przez granicę miesiąca nadal działa.
+   Wynik: 2 passed.
+
+5. ruff dla jedynego production file: PASS.
+6. diff check fabd835..8cd669e: PASS.
+
+Wniosek
+-------
+Revert usuwa wyłącznie nieużywaną, szerszą zgodę persistence oraz jej
+bezpośrednio konstruowane testy. Nie zmienia obecnego zachowania użytkownika
+ani realnej obsługi historycznego przypadku, którą nadal posiada T036.
+PASS dotyczy exact SHA 8cd669e. Branch jest gotowy do merge.
