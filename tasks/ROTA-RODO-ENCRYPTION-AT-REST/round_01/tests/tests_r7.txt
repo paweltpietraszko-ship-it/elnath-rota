@@ -1,0 +1,73 @@
+ROTA-RODO-ENCRYPTION-AT-REST — WĄSKI RE-CHECK CODEX R7
+
+WERDYKT: FAIL
+AUDYTOWANY SHA: 016894aba67d60b1c90ee3ca595af1fc6c565373
+POPRZEDNI SHA: 194e26478f206b1b53531ce8c5cb95af7b39ac04
+AUDYT R6: e39eddf
+KONTRAKT: 37620cf
+
+Zakres
+------
+- wyłącznie poprawka R5-01 w diffie e39eddf..016894a;
+- zachowany reproduktor R6, jeden wąski wariant tej samej klasy błędu oraz
+  istniejący zestaw crypto/recovery;
+- R5-02 i UI nietknięte przez diff, więc nie były ponownie audytowane;
+- bez pełnej regresji, symulatorów i benchmarków.
+
+R5-01 — NADAL FAIL
+------------------
+TRACE:
+- brief §3: zmieniony/tampered ciphertext nie może zostać potraktowany jako
+  legacy plaintext i ma zakończyć się kontrolowanym błędem integralności;
+- brief §7: przy zaszyfrowanych danych brak właściwego DEK nie może powodować
+  wygenerowania nowego DEK i kontynuacji jak dla nowej bazy;
+- E9: zmiana/usunięcie identyfikacji zaszyfrowanej wartości nie może skierować
+  jej do legacy plaintext.
+
+OWNERSHIP:
+- pii_crypto._get_or_create_dek_for_path oraz rejestr protected_ids w payloadzie
+  keystore rozstrzygają zachowanie po utracie keystore;
+- employee_repository._row_to_employee ufa TEXT, jeżeli nowy rejestr nie zna
+  employee_id.
+
+REPRO na exact SHA:
+- audit_r7_repro.py::
+  test_keystore_loss_cannot_reenable_downgraded_record_as_legacy_plaintext;
+- zapisano jeden Employee normalną ścieżką, usunięto keystore i cache runtime,
+  następnie zmieniono display_name BLOB -> TEXT;
+- get_employee utworzył nowy keystore/DEK z pustym rejestrem protected_ids i
+  zwrócił "Injected Plaintext" zamiast kontrolowanego błędu;
+- wynik: 1 failed.
+
+Dlaczego test CC nie dowodzi wymaganej własności:
+- test_deleting_the_keystore_fails_closed... pozostawia drugi, nietknięty
+  ciphertext E2 i sprawdza błąd wyłącznie przy odczycie E2;
+- to dowodzi jedynie, że nowy DEK nie odszyfruje starego ciphertextu;
+- nie sprawdza zmienionego E1. E1 jest TEXT, nie występuje w nowym pustym
+  rejestrze i nadal jest zwracany jako legacy plaintext;
+- E9 wymaga fail-closed dla wartości poddanej downgrade'owi, a nie awarii
+  innego, pozostawionego ciphertextu. Przy jednym rekordzie lub po zmianie
+  wszystkich rekordów nie pozostaje żaden BLOB, który ujawni zły DEK.
+
+Klasyfikacja zachowanego reproduktora R6
+---------------------------------------
+audit_r6_repro.py zatrzymuje się teraz na asercji istnienia usuniętego
+.pii_protected_ids. Jest stale względem nowej konstrukcji i sam nie stanowi
+dowodu FAIL R7. Został zachowany bez zmian zgodnie z zasadą zachowania
+oryginalnego reproduktora; właściwość bezpieczeństwa generalizuje nowy,
+niezależny audit_r7_repro.py.
+
+Pozostałe wyniki
+----------------
+- audit_r1_repro.py: 18 passed;
+- audit_r6_repro.py + audit_r7_repro.py: 2 failed, z czego R6 jest stale na
+  asercji konstrukcyjnej, a R7 odtwarza aktywny defekt;
+- diff --check e39eddf..016894a: PASS.
+
+Wniosek
+-------
+016894a nie jest gotowy do merge. Przeniesienie rejestru do keystore usuwa
+osobny kasowalny sidecar, ale nie zapewnia deklarowanej własności, ponieważ po
+utracie keystore kod tworzy nowy DEK i pusty rejestr. Dokładny downgrade nadal
+przechodzi, jeśli nie pozostanie inny ciphertext ujawniający zmianę klucza.
+R5-02 pozostaje zamknięty; następna poprawka ma dotyczyć wyłącznie R5-01.
