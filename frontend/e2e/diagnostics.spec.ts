@@ -55,7 +55,12 @@ test("3: API 500 -- click, request start and request failed share one action_id"
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill(`FAIL-SITE-${uid()}`);
   await page.locator('[data-diag-action="create-site-submit"]').click();
-  await expect(page.getByText("boom")).toBeVisible();
+  // ROTA-TECHNICAL-ERROR-RECOVERY-UX brief.md A4 (Codex R3 advisory on
+  // 05f2e2a): a non-public 5xx with no X-Elnath-Public-Error header (this
+  // mock never sets it) now shows the one frozen technical-error message,
+  // never the raw response body -- "boom" is stale against T060's own
+  // public-error-header contract, predating this Task.
+  await expect(page.getByText("Wystąpiła awaria techniczna. Wyłącz aplikację i uruchom ją ponownie.")).toBeVisible();
 
   await page.unroute("**/api/workspace/sites");
   await createSite(page, `CHK2-SITE-${uid()}`);
@@ -93,7 +98,11 @@ test("4: a hung request produces REQUEST_TIMEOUT, not a false ACTION_STALLED", a
   await page.getByRole("button", { name: "Nowy obiekt (Standardowy)" }).click();
   await page.locator('input[placeholder="np. NORDPLAST II"]').fill(`HANG-SITE-${uid()}`);
   await page.locator('[data-diag-action="create-site-submit"]').click();
-  await expect(page.getByText("limit czasu")).toBeVisible({ timeout: 25000 });
+  // ROTA-TECHNICAL-ERROR-RECOVERY-UX brief.md A4: a client-side timeout is
+  // one of the "same surface" cases now -- "limit czasu" is stale.
+  await expect(
+    page.getByText("Wystąpiła awaria techniczna. Wyłącz aplikację i uruchom ją ponownie."),
+  ).toBeVisible({ timeout: 25000 });
 
   await page.unroute("**/api/workspace/sites");
   await createSite(page, `CHK3-SITE-${uid()}`);

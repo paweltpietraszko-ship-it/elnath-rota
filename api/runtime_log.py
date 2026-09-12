@@ -97,20 +97,28 @@ def log_runtime_error(
     """Writes exactly one sanitized entry and returns its incident_id.
 
     `safe_message` must already be a fixed, non-domain-content sentence.
-    `exc`, when given, contributes its exception type name and full
-    traceback (brief section 3: a real stack trace for a genuinely
-    unhandled exception is the whole point of this log; the brief's
-    "no automatic redaction engine" line means this traceback is not
-    scrubbed further -- callers with a structured, exception-less
-    TECHNICAL_ERROR pass `exception_type` instead, e.g.
-    "STRUCTURED_PLANNING_FAILURE", and never pass exc)."""
+    `exc`, when given, contributes its exception type name and a bare
+    file/line/function frame trail -- brief section 3 requires a real
+    stack trace for a genuinely unhandled exception, but Codex found
+    (05f2e2a R3-01, R3-02 canary) that both a plain
+    `traceback.format_exception` (its final "Type: str(exc)" line) AND
+    `traceback.format_tb` (which echoes each frame's literal SOURCE LINE
+    TEXT) can carry a raw domain value -- a name, a token -- straight
+    into the log/ZIP: not just from the exception's own message, but from
+    a raise statement's literal argument text appearing as "the offending
+    line" in a formatted frame. Only `FrameSummary.filename/lineno/name`
+    are used here, never `.line` (the source text) or the exception's own
+    str() -- `type=` already carries the exception's class name as its
+    own separate, safe field."""
     incident_id = secrets.token_hex(8)
     timestamp = datetime.now(timezone.utc).isoformat()
     resolved_type = exception_type or (type(exc).__name__ if exc is not None else "UNKNOWN")
     line = f"{timestamp} {severity} [{component}] incident={incident_id} type={resolved_type}: {safe_message}"
     if exc is not None:
-        stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).rstrip("\n")
-        line += "\n" + stack
+        frames = traceback.extract_tb(exc.__traceback__)
+        stack = "\n".join(f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}' for frame in frames)
+        if stack:
+            line += "\n" + stack
     logger = _get_logger()
     level = getattr(logging, severity, logging.ERROR)
     logger.log(level, line)

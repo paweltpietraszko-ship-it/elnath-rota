@@ -51,8 +51,15 @@ def test_incident_id_unique_per_call(tmp_path):
 
 
 def test_entry_contains_required_fields_no_raw_exception_message(tmp_path):
+    # Codex R3-01 (exact 05f2e2a): neither the exception's own str() nor a
+    # raise statement's literal source-line text may reach the log -- only
+    # a bare file/line/function frame trail plus the caller's own fixed
+    # safe_message.
+    def _raise_with_domain_value():
+        raise ValueError("Jan Kowalski token=OWNER-SECRET-7391")
+
     try:
-        raise ValueError("boom with a raw detail that must not leak")
+        _raise_with_domain_value()
     except ValueError as exc:
         incident_id = log_runtime_error(component="API", safe_message="Nieobsłużony wyjątek backendu.", exc=exc)
     content = _log_path(tmp_path).read_text(encoding="utf-8")
@@ -60,12 +67,8 @@ def test_entry_contains_required_fields_no_raw_exception_message(tmp_path):
     assert "ERROR [API]" in content
     assert "type=ValueError" in content
     assert "Nieobsłużony wyjątek backendu." in content
-    # A real unhandled exception's own stack trace is an explicit,
-    # accepted exception to "no domain content" (brief section 3: stack
-    # trace is a required field, and "no automatic redaction engine"
-    # means it is not scrubbed) -- but the SAFE MESSAGE constructed for it
-    # must never be the raw exception text itself.
-    assert "boom with a raw detail that must not leak" in content  # from the stack trace, not a separate field
+    assert "_raise_with_domain_value" in content  # a real frame is still present
+    assert "Jan Kowalski token=OWNER-SECRET-7391" not in content
 
 
 def test_structured_planning_failure_never_copies_raw_error_message(tmp_path):
@@ -205,7 +208,9 @@ def test_unhandled_exception_end_to_end_reaches_log_and_diagnostic_zip(tmp_path,
 
     log_content = _log_path(tmp_path).read_text(encoding="utf-8")
     assert "[API]" in log_content
-    assert "a genuinely unclassified internal bug" in log_content  # from the real stack trace
+    assert "type=RuntimeError" in log_content
+    assert "_boom" in log_content  # a real frame from the actual stack trace
+    assert "a genuinely unclassified internal bug" not in log_content  # never the exception's own str()
 
     dest = tmp_path / "diag.zip"
     conn2 = connect(":memory:")
@@ -233,6 +238,29 @@ def test_classified_domain_exception_does_not_log(tmp_path):
     exc = EmployeeNotFound("EMP-999")
     to_http_exception(exc)
     assert not _log_path(tmp_path).exists()
+
+
+def test_dependency_exception_reaches_global_handler_logged_and_public(tmp_path):
+    # Codex R3-02 (exact 05f2e2a): a router's own try/except only ever
+    # covers its own body -- a FastAPI dependency failure (get_conn here)
+    # never reaches it. api/main.py's global Exception handler is the only
+    # other boundary, and must log exactly once and return the same
+    # frozen public message T060 already promises everywhere else.
+    def _broken_dependency():
+        raise RuntimeError("dependency failed with token=SECRET-DEPENDENCY")
+
+    app.dependency_overrides[get_conn] = _broken_dependency
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/workspace/sites")
+        assert resp.status_code == 500
+        assert resp.headers.get("X-Elnath-Public-Error") == "1"
+        assert resp.json()["detail"] == "Wystąpiła awaria techniczna. Wyłącz aplikację i uruchom ją ponownie."
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+    content = _log_path(tmp_path).read_text(encoding="utf-8")
+    assert content.count("type=RuntimeError") == 1  # exactly one entry, never double-logged
+    assert "SECRET-DEPENDENCY" not in content
 
 
 if __name__ == "__main__":
