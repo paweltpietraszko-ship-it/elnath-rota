@@ -246,15 +246,20 @@ def test_r5_invalid_mentor_training_does_not_promote_readiness(tmp_path):
     assert membership.readiness_state == ReadinessState.NOT_READY
 
 
-@pytest.mark.parametrize("operation", ["first-plan", "replan"])
+@pytest.mark.parametrize("operation", ["first-plan", "przelicz-plan"])
 def test_r5_post_write_assembly_failure_leaves_prior_aggregate_intact(tmp_path, monkeypatch, operation):
     """R4-1: a failure on the single pre-write assemble_planning_state read
     (ROTA-T042 Checkpoint B removed the earlier duplicate, discarded read
     that used to precede it) must still leave no half-written version --
-    the exception fires before create_schedule_version is ever called."""
+    the exception fires before create_schedule_version is ever called.
+
+    ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only exists pre-acceptance;
+    the post-acceptance atomicity case (was "replan") now exercises
+    Przelicz Plan (plan_ops.plan_month) instead, the only solver-driven
+    operation left once a version is accepted."""
     conn = connect(tmp_path / "rota.db")
     state = seed_real_object(conn, case_id=f"audit-r5-atomic-{operation}", month=MONTH, seed=804)
-    if operation == "replan":
+    if operation == "przelicz-plan":
         _plan_select(conn, state.site.site_id)
     before_current = get_current_version_id(conn, state.site.site_id, MONTH)
     before_count = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
@@ -279,7 +284,7 @@ def test_r5_post_write_assembly_failure_leaves_prior_aggregate_intact(tmp_path, 
                 effective_from=MONTH,
             )
         else:
-            plan_ops.replan(
+            plan_ops.plan_month(
                 conn,
                 site_id=state.site.site_id,
                 month=MONTH,

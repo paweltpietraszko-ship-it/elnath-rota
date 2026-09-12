@@ -146,6 +146,12 @@ def test_11_manual_split_coverage_storable_and_validates(tmp_path) -> None:
 
 
 def test_12_freeze_affects_later_replan(tmp_path) -> None:
+    """ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only exists before a
+    month's first-ever acceptance -- once anything is accepted (as it is
+    here, via _plan_and_select), the only solver-driven operation is
+    Przelicz Plan (plan_month), not REPLAN. Updated from plan_ops.replan to
+    plan_ops.plan_month accordingly; the assertion under test (frozen is
+    untouched by a later solver pass) is unchanged."""
     conn = connect(tmp_path / "rota.db")
     pstate = seed_real_object(conn, case_id="edit-3", month=MONTH, seed=302)
     site_id = pstate.site.site_id
@@ -158,10 +164,10 @@ def test_12_freeze_affects_later_replan(tmp_path) -> None:
         assignment_id=target.assignment_id, frozen=True,
     )
     from rota.application import plan_ops
-    replanned = plan_ops.replan(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 3))
+    replanned = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=date(2026, 8, 3))
     assert replanned.status == "FEASIBLE"
     frozen_still_there = next(a for a in replanned.candidates[0] if a.assignment_id == target.assignment_id)
-    assert frozen_still_there.employee_id == target.employee_id  # T006: frozen is untouched by REPLAN
+    assert frozen_still_there.employee_id == target.employee_id  # T006: frozen is untouched by a later solver pass
     assert get_schedule_snapshot(conn, v2.version_id).assignments  # sanity: v2 itself persisted correctly
 
 

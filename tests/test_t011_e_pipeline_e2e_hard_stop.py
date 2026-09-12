@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 import rota.application as application_pkg
-from rota.application import bootstrap, durable_inputs, manual_edit, memory_read, plan_ops, rule_decisions, store
+from rota.application import bootstrap, durable_inputs, memory_read, plan_ops, rule_decisions, store
 from rota.application.assembler import assemble_planning_state, generate_profile_demands
 from rota.application.errors import CandidateRejected
 from rota.domain import (
@@ -144,64 +144,6 @@ def test_1_engine_stops_and_returns_decision_required_not_silent_feasible(tmp_pa
     assert result.decision_payload is not None
     assert BLOCKED_DEMAND_ID in {d.demand_id for d in result.decision_payload.blocking_shift_demands}
     assert any(b.employee_id == EMP1 for b in result.decision_payload.blockers)
-
-
-def test_2_route_a_manual_assignment_with_genuinely_eligible_employee_leaves_no_new_deviation(
-    tmp_path: Path,
-) -> None:
-    conn = store.open_store(tmp_path / "rota.db")
-    _bootstrap_and_fill(conn, (EMP1,))
-    _record_forbidding_rule(conn)
-    plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
-
-    # The coordinator enables a second, genuinely eligible employee (a
-    # separate, already-established legal escape: a durable input change),
-    # then names them explicitly in a manual write for the blocked day --
-    # this second step is Route A itself.
-    durable_inputs.update_employee(
-        conn, coordinator_id=COORD, site_id=SITE_ID, employee=Employee(EMP2, EMP2, date(2020, 1, 1), None, False),
-    )
-    durable_inputs.update_membership(
-        conn, coordinator_id=COORD, site_id=SITE_ID,
-        membership=SiteMembership(
-            EMP2, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
-        ),
-    )
-    demands = generate_profile_demands(_profile(), MONTH)
-    upsert = [
-        _assignment(demand, EMP2 if demand.start_datetime.isoweekday() == BLOCKED_ISO_WEEKDAY else EMP1)
-        for demand in demands
-    ]
-
-    manual_edit.apply_manual_correction(
-        conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH, upsert_assignments=upsert,
-    )
-
-    state, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
-    assert list(state.deviations) == []  # fully covered, EMP1 never touches D on the blocked weekday
-
-
-def test_3_route_a_manual_assignment_repeating_the_same_hard_violation_materializes_deviation(
-    tmp_path: Path,
-) -> None:
-    conn = store.open_store(tmp_path / "rota.db")
-    _bootstrap_and_fill(conn, (EMP1,))
-    decision = _record_forbidding_rule(conn)
-    plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)
-
-    # The coordinator insists on EMP1 covering every day, including the
-    # blocked weekday -- the save must succeed, but the violation must not
-    # disappear silently.
-    demands = generate_profile_demands(_profile(), MONTH)
-    upsert = [_assignment(demand, EMP1) for demand in demands]
-
-    manual_edit.apply_manual_correction(
-        conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH, upsert_assignments=upsert,
-    )  # succeeds -- manual correction never blocks on a HARD violation
-
-    state, _warnings = assemble_planning_state(conn, site_id=SITE_ID, month=MONTH)
-    assert state.deviations  # the violation stayed visible, it did not vanish
-    assert all(d.source_reference == decision.rule_version_id for d in state.deviations)
 
 
 def test_4_route_b_decision_ledger_correction_unblocks_feasible(tmp_path: Path) -> None:

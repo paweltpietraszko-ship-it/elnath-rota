@@ -40,6 +40,7 @@ from rota.persistence.schedule_repository import get_schedule_snapshot
 from rota.persistence.work_balance_repository import reconstruct_month_balance, save_work_balance_target
 from rota.application.analytics_read import analytics_for_site_month
 from rota.application.balance_read import quarter_balance
+from rota.planning.absence import IncompleteAbsenceCalendarError
 from rota.planning.engine import plan
 from rota.planning.solver import _effective_targets
 from rota.site_memory_types import CoordinatorActionKind
@@ -57,7 +58,16 @@ from tests.test_t023 import (
     _setup,
 )
 
-BASE_SHA = "e05dfb7dd4463370bf8174db7ae58a9b984cf99e"
+BASE_SHA = "a2e1a2ce4def1bf5e68afc0b55e5d0e7443186e4"
+# ROTA-TEST-CLEANUP (2026-09-08): bumped forward from the original T023
+# Checkpoint B baseline (e05dfb7) -- eligibility.py/constraints.py/
+# work_periods.py were legitimately touched since then by three separate,
+# unrelated later tasks (T023b's ochrona rest rules, T032's NIGHT-STREAK-01,
+# T052's S1 periodic training), each its own reviewed/merged change, not a
+# Checkpoint B regression. This diff-proof only ever protected the ONE round
+# it was written for; like guard.py's FROZEN.lock, the baseline is bumped
+# forward rather than the check deleted, so it keeps catching genuinely
+# unintended future changes to these out-of-scope files.
 # R5-3 needs facts genuinely BEFORE real wall-clock "now" (cutover_at =
 # datetime.now() at select_candidate call time) -- MONTH (2027-03, reused
 # from test_t023.py) is itself always in the future, so a dedicated past
@@ -154,13 +164,23 @@ def test_t23_34_quarter_uses_same_month_results_and_never_guesses(tmp_path) -> N
     assert march.absence_hours == direct.absence_hours == 12
     assert march.month_balance == direct.month_balance  # quarter reconstruction matches the same per-month canonical result
 
+    # ROTA-TEST-CLEANUP (2026-09-08): the "no accepted plan anywhere ->
+    # MISSING, quarter_balance never guesses" scenario below is no longer
+    # constructible. ROTA-T041 OWNER-T041-02 made a SICK_LEAVE-no-accepted-
+    # plan capture require a complete CalendarDay for its own month (see
+    # test_t019.py::test_10/test_12, fixed in this same cleanup) -- so this
+    # _leave() call on a calendar-less conn2 now fails fast at write time
+    # with IncompleteAbsenceCalendarError, never reaching quarter_balance to
+    # demonstrate the MISSING/never-guessed read-side behavior this asserts.
+    # Same open question as test_t019.py::test_11 (flagged there, not
+    # decided here): is there still a real product path to this MISSING
+    # shape for a different reason, or should this half of the test be
+    # deleted as testing dead ground?
     conn2 = _setup(tmp_path, db_name="rota2.db")
     for m in (date(2027, 1, 1), date(2027, 2, 1), date(2027, 3, 1)):
         save_work_balance_target(conn2, employee_id="A", month=m, target_hours=100)
-    _leave(conn2, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))  # no accepted plan anywhere -> MISSING
-    balances2, warnings2 = quarter_balance(conn2, employee_id="A", quarter_first_month=date(2027, 3, 1))
-    assert balances2 == []
-    assert warnings2 != []  # never a guessed partial quarter result
+    with pytest.raises(IncompleteAbsenceCalendarError):
+        _leave(conn2, employee_id="A", kind=AvailabilityKind.SICK_LEAVE, start_date=date(2027, 3, 8), end_date=date(2027, 3, 8))
 
 
 # --- T23-R5-3 REPLAN acceptance cutover --------------------------------------

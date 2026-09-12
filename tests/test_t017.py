@@ -286,26 +286,18 @@ def test_m11_n_zero_gives_at_most_one_candidate():
 
 
 
-# T017-R3-1: literal placement signature captured once from BASE_SHA
-# d1a0ec0438718b1b7fd91e5c146e67b58c4eb4f9 (pre-T017), by running
-# solve(_symmetric_pool_state(6), enforce_load_cap=True,
-# allow_day_only_n_fallback=False, allow_emergency_24h=False) -- the exact
-# Stage 1 capped call plan() makes first -- on that commit and recording its
-# deterministic output (num_search_workers=1, random_seed=0). A real
-# historical oracle, not a second current-code call.
-PRE_T017_STAGE1_SIGNATURE = frozenset({
-    ("D0", "B"), ("D1", "A"), ("D2", "E"), ("D3", "F"), ("D4", "A"), ("D5", "A"),
-})
-
-
-def test_m13_first_candidate_matches_pre_t017_deterministic_result():
-    """Candidate 1 of a multi-variant plan() result must match the frozen
-    pre-T017 placement oracle for the same state and capability context."""
-    state = _symmetric_pool_state(6)
-    result = plan(state)
-    assert result.status == "FEASIBLE"
-    first_full = [a for a in result.candidates[0] if a.covers_demand_id]
-    assert _signature(first_full) == PRE_T017_STAGE1_SIGNATURE
+# T017-R3-1's PRE_T017_STAGE1_SIGNATURE oracle test (test_m13) was removed
+# 2026-09-09 (owner decision, tests/property/... investigation prompted by
+# ROTA-TEST-CLEANUP): it froze one exact CP-SAT placement out of several
+# equally-valid ones on a fully symmetric fixture (_symmetric_pool_state
+# with interchangeable employees/demands) -- inherently brittle to any
+# irrelevant internal change (variable declaration order, search seed
+# handling) that picks a different, equally-correct symmetric solution,
+# with no real bug signal either way. Confirmed real-property coverage
+# already exists elsewhere in this file (test_m10-m12 and friends check
+# actual invariants -- coverage, HARD-rule respect, determinism across
+# repeated solves of the SAME state via _signature equality -- never a
+# frozen literal placement).
 
 
 
