@@ -78,6 +78,18 @@ def get_employee(conn: sqlite3.Connection, employee_id: str) -> Employee:
     return _row_to_employee(pii_crypto.resolve_key(conn), row)
 
 
+def decrypt_display_names_with_key(conn: sqlite3.Connection, key: bytes) -> dict[str, str]:
+    """R4-11-B DEPENDENCY BOUNDARY: rota/application/ contains no SQL or
+    table names, so this is the persistence-layer owner of the one raw
+    read a disaster-recovery flow needs -- rota/application/backup.py's
+    recover_employee_names_from_backup, decrypting with an independently
+    recovered DEK rather than the one resolve_key(conn) would derive for
+    this connection's own path (a detached snapshot copy has no
+    meaningful keystore of its own to resolve)."""
+    rows = conn.execute("SELECT employee_id, display_name FROM employees ORDER BY employee_id").fetchall()
+    return {employee_id: pii_crypto.decrypt_name(key, display_name) for employee_id, display_name in rows}
+
+
 def list_employees(conn: sqlite3.Connection) -> list[Employee]:
     rows = conn.execute(
         "SELECT employee_id, display_name, active_from, active_to, day_only FROM employees ORDER BY employee_id"

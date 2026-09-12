@@ -264,6 +264,11 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
             <div>
               <h3>Kopia zapasowa i diagnostyka</h3>
               <p>Obejmuje wszystkie obiekty naraz — całą bazę danych, nie tylko wybrany obiekt.</p>
+              <p>
+                Nazwiska pracowników są w kopii zapasowej zaszyfrowane. Aby móc je odzyskać po utracie tego
+                komputera, pobierz też klucz odzyskiwania i przechowuj go w innym miejscu niż sama kopia zapasowa
+                (np. inny nośnik, sejf) — nie na tym samym komputerze.
+              </p>
             </div>
             <div className="utility-panel-actions">
               <button
@@ -279,6 +284,13 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
                 onClick={() => api.downloadBackup().catch((e) => setError(String(e.message ?? e)))}
               >
                 Utwórz kopię zapasową
+              </button>
+              <button
+                className="btn-secondary"
+                data-diag-action="download-recovery-key"
+                onClick={() => api.downloadRecoveryKey().catch((e) => setError(String(e.message ?? e)))}
+              >
+                Pobierz klucz odzyskiwania
               </button>
             </div>
           </div>
