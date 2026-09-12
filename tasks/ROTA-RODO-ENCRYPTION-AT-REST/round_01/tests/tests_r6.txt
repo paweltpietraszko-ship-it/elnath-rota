@@ -1,0 +1,79 @@
+ROTA-RODO-ENCRYPTION-AT-REST — WĄSKI RE-CHECK CODEX R6
+
+WERDYKT: FAIL
+AUDYTOWANY SHA: 194e26478f206b1b53531ce8c5cb95af7b39ac04
+POPRZEDNI FAIL: a443752e70f9a8b8543b5f19a72021d1b52d6c0a
+AUDYT R5: ca51c1c
+KONTRAKT: 37620cf
+
+Zakres
+------
+- wyłącznie diff ca51c1c..194e264 dotyczący obu findings R5;
+- zachowane reproduktory R5, jeden wąski reproduktor trwałości poprawki R5-01,
+  testy dotkniętej ścieżki backupu i optyczny re-check UI;
+- bez ponownego czytania całej implementacji;
+- bez pełnej regresji, symulatorów i benchmarków.
+
+R5-02 — ZAMKNIĘTY
+-----------------
+Zmiana kontraktu wykonania jest poprawna: LOCAL_WINDOWS odmawia utworzenia
+backupu, dopóki nie istnieje recovery kit. Jest to zgodne z briefem §4, §5.1,
+§6 i E5, ponieważ użytkownik nie otrzymuje już wyglądającego na prawidłowy,
+lecz nieodzyskiwalnego ZIP-a.
+
+Pierwotny test R5 nadal kończy się FAIL wyłącznie dlatego, że oczekiwał
+utworzenia pierwszego ZIP-a przed kluczem. Nowe zachowanie poprawnie przerywa
+ten krok wyjątkiem RecoveryKitRequired. Zastąpienie tej premisy testem odmowy
+jest akceptowalne i nie wymaga decyzji OWNERA.
+
+Dowody:
+- audit_r1_repro.py + test_t009...::test_17: 17 passed;
+- UI na exact SHA: komunikat mówi, że klucz trzeba pobrać przed pierwszą kopią;
+  przycisk klucza jest przed przyciskiem backupu;
+- próba backupu bez kitu jest odrzucona; po pobraniu klucza backup powstaje.
+
+Uwaga optyczna, nieosobny blocker tego re-checku: odrzucona próba pokazuje
+tekst „400 Bad Request”, mimo że instrukcja nad przyciskami wyjaśnia właściwą
+kolejność. Nie rozszerzam przez to zamrożonego kontraktu R5.
+
+R5-01 — NADAL FAIL
+------------------
+TRACE:
+- brief §3 wymaga jednoznacznego odróżnienia prawdziwego legacy plaintext od
+  uszkodzonego/tampered ciphertextu i kontrolowanego integrity failure;
+- E9 zabrania skierowania zmienionej zaszyfrowanej wartości do legacy
+  plaintext.
+
+OWNERSHIP:
+- pii_crypto.mark_encrypted/load_protected_ids i employee_repository._row_to_employee
+  są jedyną nową granicą poprawki R5-01.
+
+REPRO na exact SHA:
+- audit_r6_repro.py::test_missing_protected_ids_sidecar_cannot_reenable_plaintext_downgrade;
+- zapisano Employee normalną ścieżką, potwierdzono powstanie
+  rota.db.pii_protected_ids, usunięto ten sidecar, następnie zmieniono
+  display_name BLOB -> TEXT;
+- oczekiwany kontrolowany błąd nie wystąpił; repozytorium ponownie zaufało
+  podstawionemu TEXT jako legacy plaintext.
+- wynik: 1 failed.
+
+Dlaczego jest to ten sam finding, a nie nowy wymóg:
+- poprawka przeniosła informację „ten rekord był szyfrowany” do osobnego,
+  nieuwierzytelnionego pliku;
+- brak pliku jest interpretowany przez _read_protected_ids jako pusty rejestr,
+  a więc nie powoduje fail-closed;
+- usunięcie jedynego elementu poprawki przywraca dokładnie pierwotny bypass
+  storage-class downgrade z R5.
+
+Pozostałe wyniki
+----------------
+- audit_r5_repro.py: 1 passed, 1 failed; drugi FAIL jest oczekiwanym skutkiem
+  poprawnej odmowy RecoveryKitRequired i nie stanowi defektu;
+- diff --check ca51c1c..194e264: PASS.
+
+Wniosek
+-------
+194e264 nie jest gotowy do merge. R5-02 jest zamknięty, lecz R5-01 nadal
+spełnia DEFECT_GATE na exact SHA. CC powinien poprawić wyłącznie fail-closed
+przy braku/utracie rejestru chronionych rekordów; nie ma potrzeby ponownie
+projektować naprawionej ścieżki recovery kitu.
