@@ -1,0 +1,96 @@
+ROTA-TECHNICAL-ERROR-RECOVERY-UX — PREIMPLEMENTATION RE-CHECK R1
+
+BRIEF_SHA: c007eb93dd77b1f4fdf4bbf4ba3ca1246aafb845
+BOARD_SHA: 4b9ddaaa26c7458bfa89095596c2abc66e5c54dd
+VERDICT: WYMAGA_KOREKTY
+IMPLEMENTATION: HOLD
+
+Zakres
+------
+Wykonano wyłącznie pięć punktów z §11 briefu. Nie audytowano zachowania,
+nie uruchamiano testów produktu, pełnej regresji, symulatorów ani benchmarków.
+Produkcja na exact brief SHA jest identyczna z main@51d77d6; c007eb9 dodaje
+wyłącznie brief.md.
+
+1. T021c — TAK
+---------------
+Istniejący właściciele są jednoznaczni:
+- `frontend/src/diagnostics/ErrorBoundary.tsx::ErrorBoundary`, zamontowany raz
+  w `frontend/src/main.tsx`;
+- `frontend/src/diagnostics/globalHandlers.ts::installGlobalErrorHandlers`,
+  instalowany raz w `frontend/src/main.tsx`;
+- `frontend/src/diagnostics/buffer.ts` — jeden ograniczony bufor sessionStorage;
+- `rota/application/backup.py::build_diagnostic_zip`, wywoływany przez jeden
+  istniejący endpoint `api/routers/backup.py::download_diagnostics`.
+
+Brief prawidłowo wymaga rozszerzenia tego ZIP-u i reuse istniejących handlerów,
+bez drugiego eksportera/ErrorBoundary.
+
+2. T060 — TAK
+--------------
+`api/errors.py::to_http_exception` jest wspólnym mapperem routerów (where-map:
+89 surowych trafień), a `frontend/src/api/client.ts::req` ufa tylko znacznikowi
+`X-Elnath-Public-Error: 1`. Brief zachowuje te odpowiedzialności i nie dodaje
+drugiego słownika ani mappera.
+
+3. Najwęższe centralne wpięcie loggera — TAK, z luką opisaną w punkcie 5
+----------------------------------------------------------------------------
+Dla wyjątków przechodzących przez routery najwęższym istniejącym miejscem jest
+nieznany fallback `api/errors.py::to_http_exception`; dla wyjątków naprawdę
+nieprzechwyconych można użyć jednego handlera aplikacji w `api/main.py`.
+Jeden moduł konfiguracji rotating loggera może obsłużyć oba miejsca bez
+rozrzucania `logger.exception()` po dziesiątkach routerów.
+
+4. LOCAL_WINDOWS + CENTRAL_SERVICE — TAK
+----------------------------------------
+Brief rozdziela lokalny katalog danych od obowiązkowego `ROTA_LOG_DIR` dla
+centralnego wdrożenia, zabrania silent fallbacku i nie wymaga zewnętrznej
+infrastruktury. Rotacja 1 MiB + cztery kopie daje zamkniętą, testowalną
+retencję. Szczegół rozwiązywania ścieżki pozostaje techniczną konfiguracją
+loggera, bez zachowania produktowego.
+
+5. Kompletność literalnego scope — NIE
+--------------------------------------
+Jedna konkretna luka: ustrukturyzowany `PlanningResult(status="TECHNICAL_ERROR")`
+nie jest wyjątkiem ani odpowiedzią HTTP 5xx. PLAN, REPLAN, wider-search i retry
+zwracają go jako poprawne HTTP 200 przez wspólny
+`api/routers/schedule.py::_planning_result_out`. Taki wynik omija zarówno
+`to_http_exception`, jak i przyszły globalny FastAPI exception handler.
+
+Brief A2 i TASK_SCOPE wymagają tylko, aby `MonthlyPlanning` przestał renderować
+surowe `PlanningResult.error_message`. Nie wymagają, aby ten sam przypadek
+został zapisany do `runtime-errors.log`, a `api/routers/schedule.py` nie jest
+w literalnym TASK_SCOPE. W efekcie można spełnić cały zapisany kontrakt przez
+ukrycie komunikatu w UI, nadal nie pozostawiając CC trwałego śladu głównej
+klasy awarii, od której powstał Task.
+
+Jedna wymagana korekta briefu
+-----------------------------
+Dołączyć dokładnie wspólny boundary
+`api/routers/schedule.py::_planning_result_out` (albo jeden równoważny,
+jawnie nazwany owner, przez który przechodzą wszystkie cztery wyniki) do
+TASK_SCOPE oraz dodać acceptance:
+
+- każdy `PlanningResult.status == "TECHNICAL_ERROR"` z PLAN/REPLAN zapisuje
+  jeden sanitizowany wpis runtime logu, także gdy nie istnieje exception
+  context;
+- dla takiego wyniku brief określa testowalny zamiennik pola „typ wyjątku”
+  (np. stałą kategorię structured planning failure), bez kopiowania surowego
+  `error_message` i bez zmian solvera/PlanningResult DTO;
+- wszystkie cztery endpointy korzystają z tego jednego ownera; bez loggera
+  rozsianego po engine/plan_ops/router handlers.
+
+Po tej jednej konsolidacji wystarczy literalny re-check zmienionych fragmentów
+briefu; nie ma podstaw do ponawiania całego inventory.
+
+Dowody read-only
+----------------
+- `.venv\\Scripts\\python.exe where.py rota/application/backup.py --symbol build_diagnostic_zip`
+- `.venv\\Scripts\\python.exe where.py frontend/src/diagnostics/ErrorBoundary.tsx --symbol ErrorBoundary`
+- `.venv\\Scripts\\python.exe where.py frontend/src/diagnostics/globalHandlers.ts --symbol installGlobalErrorHandlers`
+- `.venv\\Scripts\\python.exe where.py api/errors.py --symbol to_http_exception`
+- `.venv\\Scripts\\python.exe where.py frontend/src/api/client.ts --symbol req`
+- bezpośredni odczyt exact produkcji: `api/main.py`, `api/config.py`,
+  `api/routers/schedule.py`, `rota/application/plan_ops.py`,
+  `rota/planning/engine.py`, `rota/planning/engine_types.py`,
+  `frontend/src/screens/MonthlyPlanning.tsx`.
