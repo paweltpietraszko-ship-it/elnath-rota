@@ -1,0 +1,35 @@
+ROTA-TEST-CLEANUP — literal merge-diff re-check R2
+
+RESULT: PASS — ready to merge
+EXACT AUDITED SHA: 1d97fa479f1ec62ce99bc1296df84591d259c575
+MAIN COMPARED: b0a048d38b283254e594905f7ed32fc566416b67
+PRIOR AUDIT: 6d42b21
+
+Scope
+-----
+
+Only the literal diff requested after R1 was checked. No behavioral tests,
+full regression, Task matrix, coordinator simulator or legacy benchmark was
+run. The behavioral conclusion for a85626c remains the R1 evidence and was not
+re-audited.
+
+Evidence
+--------
+
+The following three frozen paths are byte-identical between main@b0a048d and
+1d97fa4; `git diff --name-status main 1d97fa4 -- <paths>` returned no output:
+
+- tests/property/coordinator_simulator.py
+- tests/property/test_coordinator_simulator.py
+- tests/property/test_coordinator_simulator_variant_b.py
+
+The diff from prior audit commit 6d42b21 to 1d97fa4 contains modifications only
+to those three paths, restoring their branch content to main. They are absent
+from the final merge diff.
+
+The final merge diff contains the R1 report and the non-frozen test-cleanup
+paths only. No legacy benchmark path is present.
+
+The sole R1 merge blocker is therefore closed. PASS applies only to exact SHA
+1d97fa479f1ec62ce99bc1296df84591d259c575 against main
+b0a048d38b283254e594905f7ed32fc566416b67.
