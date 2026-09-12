@@ -16,6 +16,7 @@ from api.config import DEV_COORDINATOR_ID
 from api.decision_payload import DecisionRequiredPayloadOut, decision_payload_out
 from api.deps import get_conn
 from api.errors import to_http_exception
+from api.runtime_log import log_runtime_error
 from rota.application.assembler import assemble_planning_state
 from rota.application.lifecycle_ops import delete_current_version, exclude_from_history, finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
@@ -223,11 +224,24 @@ def _plan_preview_out(conn, preview) -> PlanPreviewOut:
     )
 
 
-def _planning_result_out(conn, result) -> PlanningResultOut:
+def _planning_result_out(conn, result, *, operation: str) -> PlanningResultOut:
+    """ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 3/A2/A15): the
+    ONE shared boundary for every PLAN/REPLAN/wider-search/retry result --
+    a structured TECHNICAL_ERROR (no exception context; the solver simply
+    returned that status) gets exactly one sanitized runtime log entry
+    here, category STRUCTURED_PLANNING_FAILURE, never the raw
+    `result.error_message`. `operation` is "PLAN" or "REPLAN" (wider-
+    search/retry keep the REPLAN category they already continue -- brief
+    section 3: "wider-search/retry zachowują swoją rzeczywistą operację")."""
     all_employee_ids = {a.employee_id for candidate in result.candidates for a in candidate}
     employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
     candidates = [[_assignment_out(a, employees_by_id) for a in candidate] for candidate in result.candidates]
     decision_payload = decision_payload_out(result.decision_payload) if result.decision_payload is not None else None
+    if result.status == "TECHNICAL_ERROR":
+        log_runtime_error(
+            component=operation, exception_type="STRUCTURED_PLANNING_FAILURE",
+            safe_message="Solver zwrócił TECHNICAL_ERROR bez kontekstu wyjątku.",
+        )
     return PlanningResultOut(
         status=result.status, candidates=candidates, decision_payload=decision_payload,
         error_message=result.error_message, warnings=list(result.warnings),
@@ -353,7 +367,7 @@ def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
             search_attempt=payload.search_attempt,
         )
-        return _planning_result_out(conn, result)
+        return _planning_result_out(conn, result, operation="PLAN")
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -430,7 +444,7 @@ def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
-        return _planning_result_out(conn, result)
+        return _planning_result_out(conn, result, operation="REPLAN")
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -452,7 +466,7 @@ def post_replan_wider_search(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
             search_attempt=payload.search_attempt,
         )
-        return _planning_result_out(conn, result)
+        return _planning_result_out(conn, result, operation="REPLAN")
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -470,7 +484,7 @@ def post_replan_retry(
             conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
             search_attempt=payload.search_attempt,
         )
-        return _planning_result_out(conn, result)
+        return _planning_result_out(conn, result, operation="REPLAN")
     except Exception as exc:
         raise to_http_exception(exc) from exc
 

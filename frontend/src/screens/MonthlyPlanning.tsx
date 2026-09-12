@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 
 function firstOfMonthIso(yearMonth: string): string {
@@ -1295,9 +1295,28 @@ export default function MonthlyPlanning({
             </div>
           )}
 
+          {/* ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 6/A3):
+              PlanningResult.error_message for TECHNICAL_ERROR is raw
+              solver/exception text -- never rendered. Same frozen surface
+              as any other backend/network technical failure (A4); the
+              diagnostic package is offered, and "Kontakt ze wsparciem" is
+              a disabled mockup per brief.md section 6 (no real channel
+              yet). Neither button proposes Korekta ręczna (A5). */}
           {planResult && planResult.status === "TECHNICAL_ERROR" && (
             <div className="banner-error" style={{ marginTop: 12 }}>
-              {planResult.error_message ?? "Błąd techniczny solvera."}
+              <p>{TECHNICAL_ERROR_MESSAGE}</p>
+              <div className="create-panel-actions">
+                <button
+                  className="btn-ghost"
+                  data-diag-action="technical-error-download-diagnostics"
+                  onClick={() => api.downloadDiagnostics().catch(() => undefined)}
+                >
+                  Pobierz pakiet diagnostyczny
+                </button>
+                <button className="btn-ghost" disabled title="Wsparcie techniczne niedostępne w tej wersji">
+                  Kontakt ze wsparciem
+                </button>
+              </div>
             </div>
           )}
 
