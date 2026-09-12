@@ -1,0 +1,127 @@
+ROTA-RODO-ENCRYPTION-AT-REST — independent audit R1
+
+STATUS: OWNER_EXPLANATION_GATE — NO PASS/FAIL VERDICT YET
+EXACT IMPLEMENTATION SHA: da1982ef933a7543c8c2a1950247bfb50b46dfb7
+BOARD / OWNER DIRECTION: main@a4cadd5
+
+Why the gate is active
+----------------------
+
+The delivered encryption changes backup recovery and introduces a weaker
+non-Windows key-storage mode that were not explicitly accepted as user-visible
+or deployment behavior. The audit also reproduced a technical integrity-bypass
+bug. Per AGENTS.md, these facts must be explained to OWNER before a verdict.
+
+OWNER_CONFIRMED
+---------------
+
+Trigger: creating or updating an Employee through the existing repository or
+application path.
+
+Effect and data: Employee.display_name is stored as AES-256-GCM ciphertext in
+SQLite. A random key is stored beside the database in a `.pii_keystore` file;
+on Windows that key file is protected for the current Windows account with
+DPAPI. Reads decrypt the name at employee_repository before returning the
+Employee object. API/UI behavior remains transparent.
+
+Legacy behavior: a pre-existing TEXT name remains plaintext at rest and is
+returned unchanged. There is no migration that encrypts existing rows. This is
+consistent with the explicit compatibility direction on BOARD, but it means
+the demo protects new/rewritten names only.
+
+Scope: only Employee.display_name is encrypted. Coordinator names, site names,
+absence/health facts, notes and all other SQLite content remain plaintext. This
+matches the explicit narrow field-level scope and must not be described as
+whole-database encryption.
+
+OWNER_DECISION_NEEDED
+---------------------
+
+1. Backup recovery contract.
+
+Trigger: coordinator downloads `/workspace/backup` and later opens/restores
+that `.db` under another path, after loss of the source keystore, or on another
+machine/account.
+
+Effect/data exported: the downloaded SQLite file contains encrypted employee
+names, but the endpoint exports only the `.db`; it does not export the matching
+DPAPI-protected `.pii_keystore`.
+
+UI result/failure: backup download succeeds. Later the store opens, but reading
+an employee name raises the integrity error because a new unrelated key is
+created for the backup path. The existing backup contract calls the artifact a
+real openable LocalStore; the name data is not recoverable from that artifact
+alone.
+
+Recovery choices need an explicit contract: restrict backup recovery to the
+original database path/account with the original sidecar retained, or design a
+portable protected key/bundle. The audit does not choose between them.
+
+2. Non-Windows company-server behavior.
+
+Trigger: first employee write on a non-Windows host.
+
+Effect/data: the AES key is written in plaintext beside the database with mode
+0600. Anyone who obtains both files can decrypt the names; this is materially
+weaker than DPAPI and may not satisfy the intended at-rest threat model.
+
+UI/failure/recovery: the application works normally and does not warn the
+coordinator. OWNER must confirm whether this is an accepted demo-only fallback
+or the Task is Windows-only. The audit does not create a server requirement.
+
+UNAUTHORIZED / TECHNICAL DEFECT
+-------------------------------
+
+The AEAD integrity claim can be bypassed by changing/removing the five-byte
+MAGIC prefix. decrypt_name then treats the remaining ciphertext as legacy
+plaintext and returns replacement-character garbage instead of authenticating
+and rejecting it. Legitimate legacy names written by this schema are SQLite
+TEXT values, so accepting arbitrary non-MAGIC BLOB bytes is not required by the
+demonstrated legacy case.
+
+SAFETY_PRIVACY
+--------------
+
+- Missing backup key can make employee names unrecoverable while the backup
+  download itself appeared successful.
+- The non-Windows plaintext sidecar protects only through filesystem
+  permissions, not against copying the database directory/disk contents.
+- Header tampering is not detected despite the stated AES-GCM integrity
+  guarantee; corrupted bytes can reach user-visible name fields.
+
+Independent evidence
+--------------------
+
+Retained reproducer: audit_r1_repro.py
+
+- encrypted raw storage + transparent round-trip: PASS;
+- legacy plaintext read: PASS;
+- Windows DPAPI protect/unprotect round-trip: PASS;
+- corrupted MAGIC header rejected: FAIL (no exception);
+- downloaded SQLite backup readable without sidecar key: FAIL (integrity
+  exception while reading Employee).
+
+Result: 3 passed, 2 failed in 1.64s.
+
+Relevant existing vertical checks:
+
+- LocalStore master data + backup boundary + N+1 oracle: 15 passed;
+- roster/API path: 9 passed, one unrelated deprecation warning;
+- targeted Ruff for changed modules and reproducer: PASS.
+
+WHERE_MAP evidence
+------------------
+
+Commands were run for:
+
+- rota/persistence/pii_crypto.py and symbol resolve_key;
+- rota/persistence/employee_repository.py and symbols
+  write_employee_in_open_transaction / get_employee.
+
+The first attempt failed because `python` was not in PATH; the commands were
+rerun through the repository environment. Raw evidence confirmed one write
+owner and the three repository read paths; no second production SQL path reads
+employees.display_name directly.
+
+No full regression was repeated. Frozen coordinator simulators and legacy
+benchmarks were neither run nor used as evidence.
