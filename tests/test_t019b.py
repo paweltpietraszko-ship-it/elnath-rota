@@ -149,7 +149,7 @@ def test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables(
 
     conn = connect(db_path)
     tables_after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 17
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 18
     assert conn.execute("SELECT holiday FROM calendar_days WHERE date='2026-08-03'").fetchone() == (1,)
     assert tables_after - tables_before == {
         "coordinator_action_records", "decision_required_snapshots", "current_decision_required", "site_print_settings",

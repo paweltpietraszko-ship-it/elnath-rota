@@ -1,0 +1,58 @@
+ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE
+PREIMPLEMENTATION RE-CHECK R2
+
+WYNIK BRIEFU: PASS
+IMPLEMENTATION HOLD: POZOSTAJE — DEPENDENCY_NOT_MET
+
+Sprawdzony brief: 5683bac1a4ceb49c721f60250f42fb78923ffcc1
+Poprzedni precheck: ee9f977cff927b975c9435ed9bc5a180277a3542
+Main wskazany przez OWNERA: 8153256f66709814513a1d7322cb549909dbad6f
+Zakres: literalny re-check pięciu punktów §9 i dependency.
+
+PRECHECK §9
+
+1. TAK — persistence-boundary encryption całych JSON-ów zachowuje obecne DTO,
+   tekst i kolejność po decrypt-on-read. Solver i `decision_guidance.py` nie
+   wymagają zmian.
+
+2. TAK — kontrakt wymaga osobnych losowych nonce i record-bound AAD. Preview
+   jest związane co najmniej z `class + site_id + month`, snapshot z
+   `class + decision_required_id`. Pełny swap prawidłowych ciphertextów ma
+   obowiązkowe testy L4a/L4b i musi zakończyć się integrity failure.
+
+3. TAK — migracja jest literalnie atomowa. Ewentualne usunięcie triggerów,
+   transformacja danych, odtworzenie dokładnie tych samych triggerów i zmiana
+   `user_version` należą do jednej transakcji; błąd wycofuje całość. Test po
+   migracji potwierdza dalszy zakaz UPDATE/DELETE snapshotów.
+
+4. TAK — snapshot całej bazy oraz odzyskany wspólny DEK wystarczają do
+   odszyfrowania obu pól. Nie potrzeba nowego sekretu, recovery package ani
+   formatu backupu; `backup.py` może zmienić się tylko mechanicznie dla
+   rozszerzonej walidacji recovery.
+
+5. TAK — scope obejmuje dokładnie wspólny envelope, oba repozytoria, migrację,
+   wąskie testy swap/trigger/recovery i opcjonalny mechaniczny adapter backupu.
+   Solver, guidance, API/UI, `coordinators.display_name`, SQLCipher i key
+   management pozostają poza Taskiem.
+
+REDUKCJA
+
+PRE_IMPLEMENTATION_REDUCTION_GATE z R1 pozostaje bez zmian. Korekta dodała
+wyłącznie record-bound AAD i testy istniejącego L4; nie dodała nowej warstwy,
+identyfikatora, zachowania użytkownika ani modelu kluczy.
+
+DEPENDENCY
+
+NIESPEŁNIONE. `git merge-base --is-ancestor a443752 8153256f...` zakończyło się
+kodem 1. Bazowy `ROTA-RODO-ENCRYPTION-AT-REST@a443752` nie jest przodkiem
+wskazanego main. PASS briefu nie upoważnia do rozpoczęcia implementacji.
+
+DOWODY I OGRANICZENIA
+
+- Odczytano cały brief 5683bac i porównano literalny diff względem 21602e7.
+- Nie czytano ponownie całej implementacji; R1 ustalił ownerów i wykonalność.
+- Nie uruchamiano testów produktu, pełnej regresji, symulatorów ani benchmarków.
+
+PASS dotyczy wyłącznie briefu 5683bac1a4ceb49c721f60250f42fb78923ffcc1.
+Po zaakceptowaniu i scaleniu dependency wystarczy potwierdzić ancestry; nie jest
+potrzebny trzeci precheck kontraktu, o ile brief się nie zmieni.

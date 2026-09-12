@@ -18,6 +18,17 @@ from datetime import date, datetime
 from typing import Literal, Optional
 
 from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind, ShiftDemand, ShiftKind
+from rota.persistence import pii_crypto
+
+# ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE brief.md section 2.1:
+# constant class label bound into warnings_json's AAD alongside site_id and
+# month, so a full ciphertext swap between two different (site, month)
+# previews fails closed (L4a) instead of decrypting as if it belonged here.
+_WARNINGS_AAD_CLASS = "PLAN_PREVIEW_WARNINGS"
+
+
+def _warnings_aad(site_id: str, month: date) -> bytes:
+    return pii_crypto.bind_aad(_WARNINGS_AAD_CLASS, site_id, month.isoformat())
 
 # A-F2 (architect review): "replan" alone loses which REPLAN stage produced
 # it -- a reload could not tell narrow (replan()/replan_retry_narrow()) from
@@ -140,7 +151,11 @@ def save_plan_preview_in_open_transaction(conn: sqlite3.Connection, preview: Pla
             shift_demands_json=excluded.shift_demands_json""",
         (
             preview.site_id, preview.month.isoformat(), preview.schedule_version_id,
-            _candidates_to_json(preview.candidates), json.dumps(list(preview.warnings)),
+            _candidates_to_json(preview.candidates),
+            pii_crypto.encrypt_text(
+                pii_crypto.resolve_key(conn), json.dumps(list(preview.warnings)),
+                _warnings_aad(preview.site_id, preview.month),
+            ),
             int(preview.optimization_complete), preview.operation_kind,
             preview.effective_from.isoformat() if preview.effective_from else None,
             _shift_demands_to_json(list(preview.shift_demands)),
@@ -153,6 +168,19 @@ def save_plan_preview(conn: sqlite3.Connection, preview: PlanPreview) -> None:
         save_plan_preview_in_open_transaction(conn, preview)
 
 
+def _row_to_preview(key: bytes, site_id: str, month: date, row: tuple) -> PlanPreview:
+    (schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind,
+     effective_from, shift_demands_json) = row
+    warnings_plaintext = pii_crypto.decrypt_text(key, warnings_json, _warnings_aad(site_id, month))
+    return PlanPreview(
+        site_id=site_id, month=month, schedule_version_id=schedule_version_id,
+        candidates=_candidates_from_json(candidates_json), warnings=json.loads(warnings_plaintext),
+        optimization_complete=bool(optimization_complete), operation_kind=operation_kind,
+        effective_from=date.fromisoformat(effective_from) if effective_from else None,
+        shift_demands=_shift_demands_from_json(shift_demands_json) if shift_demands_json else [],
+    )
+
+
 def get_plan_preview(conn: sqlite3.Connection, site_id: str, month: date) -> Optional[PlanPreview]:
     row = conn.execute(
         "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from, shift_demands_json "
@@ -161,15 +189,23 @@ def get_plan_preview(conn: sqlite3.Connection, site_id: str, month: date) -> Opt
     ).fetchone()
     if row is None:
         return None
-    (schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind,
-     effective_from, shift_demands_json) = row
-    return PlanPreview(
-        site_id=site_id, month=month, schedule_version_id=schedule_version_id,
-        candidates=_candidates_from_json(candidates_json), warnings=json.loads(warnings_json),
-        optimization_complete=bool(optimization_complete), operation_kind=operation_kind,
-        effective_from=date.fromisoformat(effective_from) if effective_from else None,
-        shift_demands=_shift_demands_from_json(shift_demands_json) if shift_demands_json else [],
-    )
+    return _row_to_preview(pii_crypto.resolve_key(conn), site_id, month, row)
+
+
+def get_plan_preview_with_key(conn: sqlite3.Connection, site_id: str, month: date, key: bytes) -> Optional[PlanPreview]:
+    """Same as get_plan_preview but decrypts warnings_json with an
+    externally-supplied key rather than resolve_key(conn) -- for
+    disaster-recovery flows reading a detached snapshot copy
+    (rota/application/backup.py), which has no meaningful keystore of
+    its own to resolve (brief.md section 6/L7)."""
+    row = conn.execute(
+        "SELECT schedule_version_id, candidates_json, warnings_json, optimization_complete, operation_kind, effective_from, shift_demands_json "
+        "FROM plan_previews WHERE site_id = ? AND month = ?",
+        (site_id, month.isoformat()),
+    ).fetchone()
+    if row is None:
+        return None
+    return _row_to_preview(key, site_id, month, row)
 
 
 def delete_plan_preview_in_open_transaction(conn: sqlite3.Connection, site_id: str, month: date) -> None:

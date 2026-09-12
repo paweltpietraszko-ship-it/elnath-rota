@@ -1,0 +1,82 @@
+ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE — AUDYT CODEX R3
+
+WERDYKT: PASS
+AUDYTOWANY SHA: 351bc80959f774b4639ffa52a1e5844052bdf63a
+KONTRAKT: 5683bac1a4ceb49c721f60250f42fb78923ffcc1
+
+Zakres i dependency
+-------------------
+- surowy diff exact commita 351bc80 oraz literalny TASK_SCOPE §8;
+- accepted encryption-at-rest impl 016894a jest przodkiem 351bc80: PASS;
+- production diff obejmuje wyłącznie pięć dozwolonych plików: wspólne crypto,
+  dwa owner-y persistence, migrację i mechaniczny adapter recovery;
+- solver, decision_guidance, API/UI, coordinators.display_name, KMS i model
+  domeny nie zostały zmienione.
+
+Niezależne warstwy audytu
+------------------------
+1. Realny PLAN -> application persistence -> SQLite -> restart/reload:
+   - produkcyjny solver wygenerował DAY_SHIFT_OFF-01 SOFT z nazwiskiem;
+   - nazwisko pozostało w wyniku dla koordynatora;
+   - warnings_json był BLOB-em, a nazwiska nie było ani w kolumnie, ani w
+     surowym pliku SQLite;
+   - reload zwrócił identyczny tekst.
+
+2. Realny DECISION_REQUIRED -> snapshot -> SQLite -> restart/reload:
+   - produkcyjny solver/guidance wygenerował wskazówkę z nazwiskiem;
+   - payload_json był BLOB-em, a nazwiska nie było ani w kolumnie, ani w
+     surowym pliku SQLite;
+   - reload zwrócił semantycznie identyczny payload.
+
+3. Migracja v17 -> v18:
+   - udana migracja usunęła legacy nazwisko także z surowych bajtów pliku;
+   - wymuszone przerwanie przy drugim chronionym polu wycofało dane,
+     user_version i operacje na triggerach;
+   - oba append-only triggery pozostały obecne po rollbacku.
+
+4. Record-bound AAD:
+   - implementacja CC sprawdza swap preview między site_id oraz swap decision
+     payload między decision_required_id;
+   - niezależny test sprawdził brakujący wariant sibling: ten sam site_id,
+     różne month; pełny poprawny ciphertext swap zakończył się integrity
+     failure, a rekord źródłowy pozostał czytelny.
+
+5. Backup/recovery:
+   - ten sam odzyskany DEK odszyfrował warnings_json i payload_json z kopii;
+   - nie dodano nowego sekretu ani formatu backupu.
+
+Wyniki poleceń
+----------------
+- audit_r3_repro.py: 5 passed;
+- tests/test_rodo_display_name_persistence.py + trzy mechaniczne testy
+  migracji wersji schematu: 12 passed;
+- dwa istniejące testy niezmienionej semantyki realnego PLAN i
+  DECISION_REQUIRED: 2 passed;
+- ruff dla niezależnego reproduktora: PASS;
+- diff check implementacji i plików audytu: PASS.
+
+WHERE_MAP
+---------
+Użyto wąsko dla:
+- plan_preview_repository.py::save_plan_preview_in_open_transaction;
+- plan_preview_repository.py::get_plan_preview;
+- site_memory.py::insert_decision_required_snapshot_no_commit;
+- site_memory.py::get_decision_required_snapshot;
+- db.py::_migration_18_encrypt_existing_persisted_names.
+
+Mapa oraz git grep potwierdziły, że produkcyjne zapisy obu chronionych pól
+przechodzą przez zmienionych ownerów; odczyty produktu i recovery korzystają
+z odpowiadającego decrypt-on-read z właściwym AAD.
+
+Ograniczenia
+------------
+- pełna regresja repozytorium nie była uruchamiana przez Codexa; deklarowany
+  wynik CC jest tylko dowodem pomocniczym;
+- nie uruchamiano ani nie używano zamrożonych symulatorów i benchmarków;
+- UI nie był audytowany optycznie, ponieważ implementacja nie zmienia UI ani
+  DTO i niezależne piony potwierdziły identyczne teksty po reloadzie.
+
+Wniosek
+-------
+Acceptance L1–L8 jest spełnione w zakresie exact SHA. PASS dotyczy wyłącznie
+351bc80 względem briefu 5683bac. Branch jest gotowy do merge.
