@@ -1,0 +1,54 @@
+ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS — FINAL PREIMPLEMENTATION RE-CHECK R2
+
+BRIEF_SHA: 0db122ac790002e2fffb1e88edef7d93f9f34156
+BOARD_SHA: fbf02599e5a498394afc3986cf7bf4314ca3528b
+PRIOR_PRECHECK: 66e348c00ce1a64a499cd16a4067267d0e2a6411
+VERDICT: PASS — IMPLEMENTATION HOLD zwolniony
+
+Zakres
+------
+Sprawdzono wyłącznie korektę briefu 56fe664..0db122a i pięć punktów §11.
+Nie czytano ponownie pozostałej implementacji. Nie uruchamiano testów,
+regresji, symulatorów ani benchmarków. Kod produktu nie został zmieniony.
+
+Wynik
+-----
+1. TAK — wspólny fresh-validation helper może wydzielić obecny przebieg
+   `lifecycle_ops._fresh_deviations` i obsłużyć lifecycle oraz export jednym
+   `assemble_planning_state(..., schedule_version_id=...)` + `validate(...)`.
+   Lifecycle może nadal używać materializowanych Deviation, a export dodatkowo
+   używa tych samych fresh ViolationDetail. Nie powstaje drugi validator i nie
+   zmienia się semantyka lifecycle.
+
+2. TAK — blokujący response ma już jawny minimalny kontrakt: świeże LAW,
+   backendowy fingerprint i istniejące dane prezentacyjne. Istniejąca lista
+   `Odchylenia` przyjmuje ten wynik, a retry odsyła zaznaczone fingerprinty.
+   `deviation_id` nie autoryzuje eksportu. Domyka to P5/P8 bez nowego panelu,
+   modelu domenowego ani trwałego zapisu.
+
+3. TAK — brief jawnie pozwala tej samej istniejącej liście pokazać checkboxy
+   LAW dla FINAL wyłącznie dla jednorazowego export-ack. Nie uruchamia to
+   finalizacji, nie zmienia statusu i nie zapisuje acknowledged.
+
+4. TAK — literalny scope obejmuje rzeczywisty
+   `frontend/src/screens/Export.tsx`, mechaniczne przekazanie przez
+   `MonthlyPlanning.tsx`/`client.ts`, wspólny helper świeżej walidacji oraz
+   minimalne pola request/response. Obejmuje też unieważnienie preview dla
+   wyniku blokującego oraz zmian site/month/current.
+
+5. TAK — nie jest potrzebny redesign REPLAN, restore ani finalize, nowy
+   DECISION_REQUIRED, modal, tabela lub osobny system decyzji.
+
+Redukcja przedimplementacyjna
+-----------------------------
+Każdy element zakresu ma konieczność wynikającą z kontraktu:
+- wspólny helper: enforcement w jedynym właścicielu świeżej walidacji;
+- guard w schedule_export: enforcement na granicy generowania PDF;
+- pola router/client: minimalny adapter jednorazowego potwierdzenia;
+- MonthlyPlanning/Export: istniejący wynik i istniejąca lista widoczna dla
+  użytkownika, bez nowej powierzchni UI;
+- testy: nowa szczelina integracyjna, direct POST, zmieniony fakt pod starym
+  fingerprintem i unieważnienie starego preview.
+
+Nie ma podstaw do usunięcia żadnego z tych elementów ani do dodania osobnego
+workflow. Brief 0db122a jest gotowy do implementacji.
