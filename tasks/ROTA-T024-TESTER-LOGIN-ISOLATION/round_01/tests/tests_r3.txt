@@ -1,0 +1,109 @@
+ROTA-T024-TESTER-LOGIN-ISOLATION — BRIEF PREIMPLEMENTATION PRECHECK R3
+
+CHECKED_SHA: 9246fad11d1d5f47d735381b44cace3078d7349f
+CONCEPT_SHA: e95f4a437550783eb1be60cbb640407198416c89
+PREVIOUS_REPORT_SHA: bf90abfd43c5da42572bd14d109403dd32c649aa
+OUTCOME: PASS — READY FOR IMPLEMENTATION
+IMPLEMENTATION_HOLD: RELEASED
+
+Zakres
+------
+Wykonano wyłącznie osiem punktów z brief.md §14. Sprawdzono exact brief SHA,
+aktualne oficjalne materiały fastapi-users, rozwiązanie zależności na lokalnym
+stacku oraz wąskie inventory seamów DB_PATH/DEV_COORDINATOR_ID, backupu,
+recovery, diagnostics i pii_crypto. Nie uruchamiano testów produktu, pełnej
+regresji, symulatorów ani benchmarków.
+
+Wynik 8/8
+-----------
+1. PASS — bieżący fastapi-users 15.0.5 jest zgodny z Pythonem >=3.10 i
+   deklaruje FastAPI >=0.65.2 bez górnego ograniczenia. Repo na audytowanym
+   stanie działa lokalnie na Pythonie 3.14.4, FastAPI 0.141.1 i Pydantic
+   2.13.5. `pip --dry-run` rozwiązał bez konfliktu dokładny zestaw:
+   `fastapi-users[sqlalchemy]==15.0.5`, `fastapi-users-db-sqlalchemy==7.0.0`,
+   `SQLAlchemy==2.0.52` i `aiosqlite==0.22.1`. Najlżejszy wspierany relacyjny
+   adapter to osobna mała SQLite przez oficjalny async SQLAlchemy adapter;
+   nie wymaga migracji domenowych baz Rota ani Postgresa.
+
+2. PASS — CookieTransport ma domyślnie Secure=True, HttpOnly=True oraz
+   SameSite="lax" i obsługuje login/logout. FastAPIUsers dostarcza
+   `current_user` dependency, z którego można zbudować jeden AuthenticatedContext;
+   nie jest potrzebny drugi parser cookie/token ani drugi owner identity.
+
+3. PASS — biblioteka wspiera zmianę hasła przez UserManager/update oraz
+   PATCH `/users/me`; programowe tworzenie kont przez UserManager.create jest
+   oficjalnie udokumentowane. Ten sam UserManager może w CLI wykonać ręczny
+   reset operatora. Router rejestracji i router forgot/reset password są
+   opcjonalne i w tym Tasku nie powinny być montowane.
+
+4. PASS — produkcyjne użycia globalnej tożsamości są kompletne dla scope:
+   DEV_COORDINATOR_ID występuje w siedmiu nazwanych routerach, a DB_PATH w
+   zwykłym request flow w api/deps.py oraz w trzech operacjach backup routera
+   (backup, recovery-key, diagnostics). api/dev_seed.py pozostaje dev-only;
+   api/runtime_log.py pozostaje świadomie globalnym ownerem logu procesu.
+   Wszystkie endpointy workspace już przechodzą przez get_conn, więc jego
+   zależność od AuthenticatedContext obejmie także routery bez jawnego
+   coordinator_id.
+
+5. PASS — pii_crypto wyprowadza tożsamość DEK z realnej ścieżki głównej bazy,
+   generuje losowy osobny DEK przy braku keystore i w CENTRAL_SERVICE owija go
+   wspólnym ROTA_CENTRAL_KEK. Podanie requestowego db_path do istniejącego
+   backup/recovery seam wystarcza; nowy model kluczy nie jest potrzebny.
+
+6. PASS — build_diagnostic_zip już dołącza runtime log tylko wtedy, gdy caller
+   poda runtime_log_dir. CENTRAL_SERVICE może zatem przekazać None, a
+   LOCAL_WINDOWS zachować resolve_log_dir i dotychczasowy kontrakt T021c.
+   Jest to pojedyncza korekta w api/routers/backup.py, bez loggera per konto.
+
+7. PASS — jeden proces, trwały wolumen, jedna mała auth SQLite i osobne pliki
+   SQLite użytkowników są spójne dla tej fazy. Połączenie domenowe pozostaje
+   request-scoped; różni użytkownicy nie współdzielą jednego pliku. Brief nie
+   obiecuje multi-replica ani poziomego skalowania SQLite.
+
+8. PASS — literalny scope pokrywa T24-1..T24-15 bez zmian solvera, planningu,
+   tabel domenowych, Postgresa, Redis, SMTP, SSO i panelu admina. Poniższa
+   konsolidacja jest wiążącą interpretacją minimalnego adaptera, a nie nowym
+   zachowaniem produktu.
+
+Preimplementation reduction gate — jedna konsolidacja
+-------------------------------------------------------
+SOURCE: brief §3, §4, §10, §13 oraz T24-6/T24-8/T24-15.
+
+- Montować gotowy auth router biblioteki wyłącznie dla login/logout oraz użyć
+  jej `current_user` dependency jako ownera uwierzytelnienia.
+- Nie montować całego `get_users_router`: gotowy router oprócz GET/PATCH `/me`
+  wystawia również zmianę e-maila oraz endpointy administracyjne
+  GET/PATCH/DELETE `/{user_id}`, czyli szerszy surface niż zaakceptowany Task.
+- Minimalnym adapterem Rota są cienkie endpointy bieżącego użytkownika i zmiany
+  hasła, które wyłącznie delegują odczyt użytkownika i hash/update do
+  `current_user`/`UserManager`. Nie wolno w nich implementować hashowania,
+  weryfikacji tokenu ani alternatywnego session flow.
+- Provisioning i ręczny reset operatora mają korzystać z tego samego
+  UserManager/adaptera. Nie montować register, reset-password, verify ani OAuth
+  routerów.
+- Persistence auth i mapowanie mogą współdzielić jedną małą techniczną SQLite
+  (oddzielne odpowiedzialności/tabele); nie tworzyć drugiego rejestru kont ani
+  przenosić SQLAlchemy do baz grafików.
+
+Uwaga nieblokująca
+------------------
+FastAPI Users jest oficjalnie w maintenance mode: nadal otrzymuje aktualizacje
+bezpieczeństwa i zależności, ale nie nowe funkcje. Dla zamrożonego, małego
+zakresu tego Tasku nie jest to niekompatybilność ani powód do budowania własnego
+auth. Wersję należy przypiąć, zamiast pozostawiać nieograniczone `>=`.
+
+Oficjalne źródła sprawdzone 2026-09-13
+-------------------------------------
+- https://pypi.org/project/fastapi-users/
+- https://github.com/fastapi-users/fastapi-users/releases/tag/v15.0.5
+- https://fastapi-users.github.io/fastapi-users/latest/configuration/databases/sqlalchemy/
+- https://fastapi-users.github.io/fastapi-users/latest/configuration/authentication/transports/cookie/
+- https://fastapi-users.github.io/fastapi-users/latest/usage/routes/
+- https://fastapi-users.github.io/fastapi-users/latest/cookbook/create-user-programmatically/
+
+Werdykt
+-------
+PASS dotyczy wyłącznie briefu 9246fad11d1d5f47d735381b44cace3078d7349f.
+IMPLEMENTATION HOLD może zostać zwolniony. CC może implementować dokładnie ten
+zakres z powyższą mechaniczną konsolidacją; pełny users router nie jest częścią
+zaakceptowanego surface.
