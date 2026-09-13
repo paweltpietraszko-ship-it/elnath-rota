@@ -1,0 +1,64 @@
+ROTA-T065-PANEL-CLEANUP — OWNER correction / architect readiness R2
+Data: 2026-09-13
+Baseline decyzji: main@8c9d6d88655b3f9dc27503d7b6a2118290bc16e6
+Poprzedni raport: tests_r1.txt
+
+WYNIK: PASS DO ARCHITEKTA — jako dwa odrębne briefy.
+
+OWNER_CORRECTED — znaczenie ograniczenia
+-----------------------------------------
+Ograniczenie ORDINARY nie jest przywiązane do nazwy, numeru ani pozycji
+zmiany w Katalogu zmian. Opisuje rzeczywistą dostępność godzinową pracownika.
+
+Przykład zaakceptowany przez OWNERA:
+- pracownik jest zablokowany do godziny 12:00;
+- nie może dostać zmiany porannej rozpoczynającej się przed 12:00;
+- nie może również dostać sezonowego/eventowego „środka”, jeżeli ten zaczyna
+  się przed 12:00.
+
+Tym samym pytanie z R1 o przenoszenie zakazu po edycji pozycji katalogowej
+jest bezprzedmiotowe. Ograniczenie ma być oceniane wobec rzeczywistych godzin
+każdej rozważanej pracy. Wcześniejszy pomysł wiązania reguły z konkretnym
+wierszem katalogu nie jest PRODUCT_TRUTH.
+
+OWNER_CONFIRMED — „środek”
+--------------------------
+„Zmiana ruchoma” to inna nazwa tzw. „środka”: dodatkowej pracy pojawiającej
+się sezonowo lub eventowo, zależnie od bieżącej potrzeby.
+
+„Środek”:
+- jest wprowadzany ręcznie w korekcie, podobnym sposobem obsługi jak
+  Szkolenie/S1;
+- nie jest tworzony ani przydzielany przez solver;
+- pozostaje realną pracą, więc podobieństwo do S1 dotyczy wyłącznie ręcznego
+  sposobu wprowadzenia, a nie zwolnień prawnych S1;
+- musi respektować ograniczenie godzinowe pracownika i zwykłe właściwe reguły
+  kontroli ręcznej korekty.
+
+Podział dla architekta
+----------------------
+A. ROTA-T065-ORDINARY-TIME-AVAILABILITY
+   Jeden regime-aware mechanizm ograniczeń godzinowych pracownika dla
+   ORDINARY, oceniany na rzeczywistych start/end pracy. Ma zastąpić mylące
+   D/N/day_only/24h w UI Ordinary, bez przenoszenia ochroniarskich pojęć.
+   OCHRONA pozostaje bez zmiany. `can_work_24h` musi przestać wpływać na
+   eligibility ORDINARY, skoro koncepcja 24h w tym reżimie nie obowiązuje;
+   wspólne pole może technicznie pozostać dla OCHRONA.
+
+B. ROTA-T065-MANUAL-MIDDLE-SHIFT
+   Osobny ręczny przepływ korekty dla „środka”. Nie dodawać go do solvera i
+   nie implementować przez `PERIODIC_TRAINING` ani jego wyjątki. Architekt ma
+   użyć istniejącego lifecycle ręcznej korekty i wspólnych kontroli zamiast
+   budować drugi system grafiku.
+
+Granice
+-------
+- `PrintSettings.tsx` pozostaje wyłącznie w ROTA-T065-PRINT-GAP.
+- Nie łączyć obu briefów w jeden szeroki Task.
+- Nie tworzyć ograniczeń per identyfikator/wiersz Katalogu zmian.
+- Nie dodawać „środka” do automatycznego generowania przez solver.
+- Przed implementacją każdego briefu obowiązuje osobny preimplementation
+  reduction/audit oraz OWNER gate dla ewentualnych nowych zachowań UI.
+
+Nie uruchamiano testów ani regresji — to zapis decyzji OWNERA i ocena
+gotowości findingów do zaprojektowania.
