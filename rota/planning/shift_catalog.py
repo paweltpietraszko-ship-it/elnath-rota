@@ -26,7 +26,15 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from rota.domain import ShiftCatalogKind, ShiftDemand, ShiftKind, SiteProfile, StandardShift
+from rota.domain import (
+    EmployeeRole,
+    ShiftCatalogKind,
+    ShiftDemand,
+    ShiftKind,
+    SitePlanningRegime,
+    SiteProfile,
+    StandardShift,
+)
 
 
 class UnclassifiedShiftError(Exception):
@@ -77,6 +85,35 @@ def shift_duration_hours(shift: StandardShift) -> float:
     start = datetime.combine(anchor, shift.start_time)
     end = datetime.combine(anchor + timedelta(days=1 if shift.end_next_day else 0), shift.end_time)
     return (end - start).total_seconds() / 3600
+
+
+def is_role_based_demand(demand: ShiftDemand) -> bool:
+    """ROTA-T065 audit R2-02 fix: True when a demand carries a store role.
+    Kept as an independently-sufficient signal for callers (e.g. direct
+    eligibility.py unit tests) that construct a role-bearing demand
+    without threading a Site/regime -- see dn_semantics_apply below,
+    which is the actual single owner of the D/N-legal-meaning question
+    after audit R3-01."""
+    return demand.required_role is not None
+
+
+def dn_semantics_apply(demand: ShiftDemand, regime: SitePlanningRegime) -> bool:
+    """ROTA-T065 audit R3-01 fix: whether ShiftKind.D/N carries real
+    OCHRONA legal meaning for this demand -- the ONE shared owner
+    consumed by eligibility.py, validator.py and solver.py so none of
+    them can drift apart (brief.md section 8: "jeden właściciel
+    klasyfikacji").
+
+    OWNER_DECISION 2026-09-13: ORDINARY store roles are optional, so a
+    role-less ORDINARY demand is still new ORDINARY, not legacy OCHRONA
+    -- the SITE's regime is the true signal, never whether a role
+    happens to be set. D/N never carries legal meaning for an ORDINARY
+    site, regardless of role. is_role_based_demand stays an additional,
+    independently-sufficient reason to exempt a demand (never a
+    replacement) for callers that supply a role without a regime."""
+    if regime == SitePlanningRegime.ORDINARY:
+        return False
+    return not is_role_based_demand(demand)
 
 
 def normalized_catalog_kind(shift: StandardShift) -> ShiftCatalogKind:
@@ -146,6 +183,9 @@ class _Component:
     component: Optional[int]
     catalog_kind: ShiftCatalogKind
     required_rest_hours: int
+    # ROTA-T065: same required_role for both halves of a 24h occurrence --
+    # unlike `kind`, role is not "opposite" between the two components.
+    required_role: Optional[EmployeeRole] = None
 
 
 def _components_for_shift(shift: StandardShift, template_id: str, current: date) -> list[_Component]:
@@ -154,13 +194,22 @@ def _components_for_shift(shift: StandardShift, template_id: str, current: date)
         start = datetime.combine(current, shift.start_time)
         end_date = current + (timedelta(days=1) if shift.end_next_day else timedelta())
         end = datetime.combine(end_date, shift.end_time)
-        return [_Component(start, end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours)]
+        return [_Component(
+            start, end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours,
+            required_role=shift.required_role,
+        )]
     first_start = datetime.combine(current, shift.start_time)
     first_end = first_start + timedelta(hours=12)
     second_end = first_start + timedelta(hours=24)
     return [
-        _Component(first_start, first_end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours),
-        _Component(first_end, second_end, _opposite(shift.kind), shift.required_primary_count, template_id, 2, kind, shift.required_rest_hours),
+        _Component(
+            first_start, first_end, shift.kind, shift.required_primary_count, template_id, 1, kind,
+            shift.required_rest_hours, required_role=shift.required_role,
+        ),
+        _Component(
+            first_end, second_end, _opposite(shift.kind), shift.required_primary_count, template_id, 2, kind,
+            shift.required_rest_hours, required_role=shift.required_role,
+        ),
     ]
 
 
@@ -238,7 +287,7 @@ def _components_to_demands(components: list[_Component], emergency_rest: dict[tu
             demand_id, "", c.start, c.end, c.required_primary_count,
             shift_kind=c.kind, catalog_kind=c.catalog_kind, required_rest_hours=c.required_rest_hours,
             work_period_template_id=c.template_id, work_period_component=c.component,
-            emergency_24h_rest_hours=emergency,
+            emergency_24h_rest_hours=emergency, required_role=c.required_role,
         ))
     return tuple(demands)
 

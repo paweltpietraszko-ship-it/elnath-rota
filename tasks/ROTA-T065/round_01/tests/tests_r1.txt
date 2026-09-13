@@ -1,0 +1,112 @@
+ROTA-T065 — preimplementation audit R1
+Data: 2026-09-13
+Exact audited SHA: 1145c9aef3b7ff7219f6520184874463d869bf08
+Audit type: brief + reduction/ownership + ORDINARY/OCHRONA boundary
+
+WYNIK: PASS — implementation może rozpocząć się wyłącznie według tego SHA.
+
+Zakres kontroli
+---------------
+Sprawdzono cały brief oraz wąsko istniejących właścicieli i kontrakty, które
+mogłyby ujawnić drugi system albo przeniesienie zasad Ochrony do ORDINARY:
+- SiteMembership / StandardShift / ShiftDemand;
+- shift_catalog, eligibility, solver i niezależny validator;
+- preview/schedule persistence oraz istniejące API/UI;
+- kontrakty T023b (OCHRONA rest) i T058 (trzecia kolejna służba).
+
+where.py uznano za użyteczne dla tych roszczeń o właścicielach, ale lokalny
+interpreter nie uruchomił narzędzia (odmowa utworzenia procesu). Zastosowano
+fallback wymagany przez AGENTS.md: git grep symboli oraz bezpośredni odczyt
+zgłoszonych fragmentów kodu i kontraktów. Nie uruchamiano testów — nie istnieje
+jeszcze implementacja T065.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+---------------------------------
+1. `SiteMembership.allowed_roles`
+   SOURCE: jawna decyzja OWNERA — role są dopuszczeniem per pracownik i obiekt,
+   jedna osoba może mieć obie.
+   NECESSITY: OWNER-visible result i dane wejściowe istniejącej bramki.
+   To rozszerzenie jednego istniejącego membershipu, nie drugi membership i nie
+   kopia SiteRule.
+
+2. `StandardShift.required_role` -> `ShiftDemand.required_role`
+   SOURCE: jawna decyzja OWNERA — każde istniejące zapotrzebowanie czasowe ma
+   wymagać roli.
+   NECESSITY: StandardShift jest edytowalnym źródłem powtarzalnej konfiguracji,
+   a wersjonowany ShiftDemand jest historycznym snapshotem konkretnego
+   wystąpienia. Te pola opisują dwa kolejne etapy jednego przepływu, więc nie są
+   konkurencyjnymi właścicielami.
+
+3. Jawny znacznik new ORDINARY vs legacy `shift_kind=None`
+   SOURCE: istniejący fallback `classify_demand()` rekonstruuje legacy D/N z
+   bieżącego katalogu.
+   NECESSITY: minimalny adapter zapobiegający zmianie znaczenia historii; brief
+   nie pozwala tworzyć drugiego klasyfikatora ani sklepowej domeny zmian.
+
+4. Validator
+   Niezależne powtórzenie samej asercji roli w validatorze jest obowiązkowym
+   anti-drift mirror istniejącej architektury HARD. Nie jest drugim produktem,
+   drugim pipeline ani drugim właścicielem danych. Solver używa eligibility do
+   budowy slotów; validator niezależnie sprawdza finalne/ręczne Assignmenty.
+
+5. UI/API/persistence
+   Każdy wymieniony seam jest koniecznym przedłużeniem istniejącego właściciela:
+   zapis/odczyt jednego membershipu, zapis/odczyt katalogu i demandu, aktualne
+   ekrany obsady/katalogu/miesiąca. Brief zabrania nowych endpointów PLAN,
+   nowych tabel grafiku i drugiego ekranu planowania.
+
+Nie znaleziono zbędnego helpera, encji, endpointu, response enrichment,
+równoległego SiteRule ról, generatora, solvera, validatora, retry per rola ani
+osobnego external rescue wymaganych przez brief.
+
+Granica ORDINARY / OCHRONA
+-------------------------
+1. Zasady wyłącznie OCHRONA pozostają wyłącznie OCHRONA:
+   - T023b: podniesienie odpoczynku po dokładnie 24h do min. 24h;
+   - T023b: WEEKLY-REST-01 (35h w zdefiniowanym oknie).
+   Oba istniejące wykonania są dziś jawnie bramkowane planning_regime=OCHRONA.
+   Brief §12/§16/T65-09 zabrania rozszerzenia ich na ORDINARY. T065 nie ma
+   powodu modyfikować tych dwóch bramek.
+
+2. Reguły zależne od D/N nie przechodzą na nowe ORDINARY:
+   - NIGHT-STREAK-01;
+   - DAY_ONLY-01 w wariancie blokującym N;
+   - D/N-specific SiteRule;
+   - external allowed_shift_kind=D/N;
+   - SOFT D/N/W/W.
+   Brief wymaga, aby nowe demandy ORDINARY miały jawną semantykę konkretnych
+   godzin i nie były klasyfikowane jako D/N na podstawie pory. OCHRONA zachowuje
+   dotychczasowy klasyfikator. Legacy `shift_kind=None` pozostaje legacy, a nie
+   furtką do nowego ORDINARY.
+
+3. THIRD-CONSECUTIVE-SHIFT-01 nie jest przeciekiem z Ochrony.
+   T058 ma jawny OWNER_FINAL: "wszystkie 3 zmiany pod rząd" i kontrakt nie
+   ogranicza reguły do planning_regime=OCHRONA. Obecny solver i validator
+   wykonują ją globalnie na PRIMARY start dates. T065 ma ją REUSE także dla
+   ORDINARY i nie może jej zawężać, kopiować ani przenosić do modułu sklepu.
+   Warunkowe zdanie z §12 rozstrzyga się więc jednoznacznie: to reguła ogólna,
+   bez zmian w T065.
+
+4. Pozostałe wspólne, już istniejące bramki (enabled, availability, skonfigurowany
+   REST/LOAD, właściwe SiteRule) pozostają wspólne tylko zgodnie z ich obecnym
+   kontraktem. T065 dodaje do wspólnego przebiegu wyłącznie role gate dla
+   nowego demandu ORDINARY; brak nowych pól w OCHRONA/legacy jest neutralny i
+   nie może zostać arbitralnie zinterpretowany jako rola sklepowa.
+
+Wniosek
+-------
+Brief nie przenosi całego systemu Ochrony do ORDINARY. Reużywa wspólny silnik i
+ogólne prawa, a rozdziela semantykę D/N oraz dwie bramki T023b. Nowa logika
+biznesowa jest ograniczona do `allowed_roles` i `required_role`; reszta to
+minimalne przeniesienie/persistencja tych danych w istniejącym pipeline.
+
+PASS nie upoważnia CC do:
+- zmiany THIRD-CONSECUTIVE-SHIFT-01;
+- aktywowania NIGHT-STREAK/DAY_ONLY-N/D-N SiteRule dla nowych ORDINARY;
+- aktywowania T023b 24h-rest/WEEKLY-REST dla ORDINARY;
+- tworzenia sklepowych kopii prawa, solvera, generatora, validatora,
+  manual correction, deviations, audit trail lub PDF.
+
+Po implementacji audyt ma osobno udowodnić macierz reżimów, a nie tylko jeden
+happy path OCHRONA: nowe ORDINARY nocne/INNY bez semantyki D/N, ORDINARY bez
+dwóch bramek T023b, globalny T058 nadal aktywny oraz niezmieniony OCHRONA D/N.

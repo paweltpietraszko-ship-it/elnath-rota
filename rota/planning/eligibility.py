@@ -44,11 +44,16 @@ from rota.domain import (
     ShiftDemand,
     ShiftKind,
     SiteMembership,
+    SitePlanningRegime,
     SiteProfile,
 )
 from rota.domain import SiteRuleVersion
-from rota.planning.shift_catalog import normalized_catalog_kind
-from rota.planning.site_rules import day_only_n_exception_authorizing_rule_version_id, rule_allows_assignment
+from rota.planning.shift_catalog import dn_semantics_apply, normalized_catalog_kind
+from rota.planning.site_rules import (
+    SHIFT_KIND_SPECIFIC_RULE_KINDS,
+    day_only_n_exception_authorizing_rule_version_id,
+    rule_allows_assignment,
+)
 from rota.planning.timeutil import overlaps_date_range
 
 
@@ -127,13 +132,22 @@ def _blocked_by_availability(
 
 
 def _blocked_by_site_rules(
-    employee_id: str, demand: ShiftDemand, shift_kind: ShiftKind, applicable_hard_rules: list[SiteRuleVersion]
+    employee_id: str, demand: ShiftDemand, shift_kind: ShiftKind, applicable_hard_rules: list[SiteRuleVersion],
+    dn_relevant: bool = True,
 ) -> Optional[str]:
     """ROTA-T007 (arch/FROZEN_ADDENDUM_SITE_RULE_EXEC_01.md MULTIPLE RULES):
     every applicable HARD rule must pass (AND) -- the first one that doesn't
     is the blocker, identified by its exact rule_version_id, never a generic
-    condition code."""
+    condition code.
+
+    ROTA-T065 audit R3-01 fix: dn_relevant=False (D/N is purely technical
+    for this demand) skips only the shift-kind-specific rule kinds
+    (EMPLOYEE_ALLOWED_SHIFT_KINDS/EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_
+    WEEKDAYS) -- EMPLOYEE_ALLOWED_WEEKDAYS is purely date-based and must
+    still be enforced regardless."""
     for rule in applicable_hard_rules:
+        if not dn_relevant and rule.rule_kind in SHIFT_KIND_SPECIFIC_RULE_KINDS:
+            continue
         if not rule_allows_assignment(rule, employee_id, demand.start_datetime.date(), shift_kind):
             return rule.rule_version_id
     return None
@@ -157,13 +171,20 @@ def _common_hard_gate(
     availability_records: list[AvailabilityRecord],
     applicable_hard_rules: list[SiteRuleVersion],
     allow_day_only_n_fallback: bool = False,
+    regime: SitePlanningRegime = SitePlanningRegime.OCHRONA,
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled,
-    SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
+    ROLE-01, SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
     LEAVE_GRANTED-01, LEAVE_PLAN-01, and (ROTA-T007) applicable HARD
     SiteRules."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
+    # ROLE-01 (ROTA-T065 brief.md section 10): demand.required_role is None
+    # for every OCHRONA/legacy demand, so this is a strict no-op there.
+    # Applies identically to LOCAL and EXTERNAL_SUPPORT -- no separate role
+    # logic for external (brief section 10/11).
+    if demand.required_role is not None and demand.required_role not in membership.allowed_roles:
+        return EligibilityCheck(False, False, "ROLE-01")
     # SHIFT-24-01 (NORMAL 24h SAME-PERSON HARD, part_b_work_period_rest.md):
     # a mixed 12h/24h profile requires can_work_24h for a catalog_kind=24h
     # demand; an all-24h profile ignores the flag. Never a bypass of the
@@ -172,7 +193,11 @@ def _common_hard_gate(
     if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not is_all_24h_profile(profile):
         return EligibilityCheck(False, False, "SHIFT-24-01")
     day_only_fallback_rule_version_id = None
-    if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
+    # ROTA-T065 audit R3-01 fix: D/N never carries OCHRONA legal meaning
+    # for an ORDINARY site, regardless of role (OWNER_DECISION 2026-09-13)
+    # -- must never activate DAY_ONLY-01 just because a shop happens to
+    # work in the evening/night (brief.md section 8).
+    if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N and dn_semantics_apply(demand, regime):
         # T018 DAY-ONLY-N-FALLBACK-01: the exception NEVER exempts DAY_ONLY-01
         # in a normal pass anymore -- only a fallback-enabled pass may consult
         # it, and only then does a legal match lift the block, still leaving
@@ -186,21 +211,32 @@ def _common_hard_gate(
     reason, leave_plan_collision = _blocked_by_availability(demand, availability_records)
     if reason:
         return EligibilityCheck(False, False, reason)
-    site_rule_block = _blocked_by_site_rules(employee.employee_id, demand, shift_kind, applicable_hard_rules)
+    # ROTA-T065 audit R3-01 fix: EMPLOYEE_ALLOWED_WEEKDAYS still applies to
+    # every demand; only the D/N-specific rule kinds are skipped when D/N
+    # is purely technical for this demand.
+    site_rule_block = _blocked_by_site_rules(
+        employee.employee_id, demand, shift_kind, applicable_hard_rules, dn_semantics_apply(demand, regime),
+    )
     if site_rule_block:
         return EligibilityCheck(False, False, site_rule_block)
     return EligibilityCheck(True, leave_plan_collision, None, day_only_fallback_rule_version_id)
 
 
 def _external_window_covers(
-    employee_id: str, demand: ShiftDemand, shift_kind: ShiftKind, site_id: str, windows: list[ExternalSupportWindow]
+    employee_id: str, demand: ShiftDemand, shift_kind: ShiftKind, site_id: str, windows: list[ExternalSupportWindow],
+    regime: SitePlanningRegime = SitePlanningRegime.OCHRONA,
 ) -> bool:
     """Audit round 13 FINDING R13-4: a window belonging to a different employee
-    was accepted because employee_id was never compared."""
+    was accepted because employee_id was never compared.
+
+    ROTA-T065 audit R3-01 fix: window.allowed_shift_kind is a D/N-specific
+    restriction and must not apply when D/N is purely technical for this
+    demand (dn_semantics_apply)."""
+    kind_restricted = dn_semantics_apply(demand, regime)
     for window in windows:
         if not window.active or window.site_id != site_id or window.employee_id != employee_id:
             continue
-        if window.allowed_shift_kind is not None and window.allowed_shift_kind != shift_kind:
+        if kind_restricted and window.allowed_shift_kind is not None and window.allowed_shift_kind != shift_kind:
             continue
         if window.start_datetime <= demand.start_datetime and window.end_datetime >= demand.end_datetime:
             return True
@@ -218,11 +254,18 @@ def check_eligibility(
     site_id: str,
     applicable_hard_rules: list[SiteRuleVersion] = (),
     allow_day_only_n_fallback: bool = False,
+    regime: SitePlanningRegime = SitePlanningRegime.OCHRONA,
 ) -> EligibilityCheck:
-    """Return whether employee may cover demand, plus a reason code when blocked."""
+    """Return whether employee may cover demand, plus a reason code when blocked.
+
+    regime defaults to OCHRONA (the pre-T065 caller shape) -- ROTA-T065
+    audit R3-01: callers that construct a role-bearing demand directly
+    without threading a real Site/regime still get the correct exemption
+    via is_role_based_demand inside dn_semantics_apply; solver.py's real
+    call site always passes the actual state.site.planning_regime."""
     gate = _common_hard_gate(
         employee, membership, demand, shift_kind, profile, availability_records, applicable_hard_rules,
-        allow_day_only_n_fallback,
+        allow_day_only_n_fallback, regime,
     )
     if not gate.eligible:
         return gate
@@ -234,7 +277,7 @@ def check_eligibility(
     # profile has switched off.
     if not profile.external_support_enabled:
         return EligibilityCheck(False, False, "EXTERNAL_SUPPORT_DISABLED")
-    if _external_window_covers(employee.employee_id, demand, shift_kind, site_id, external_windows):
+    if _external_window_covers(employee.employee_id, demand, shift_kind, site_id, external_windows, regime):
         return gate
     return EligibilityCheck(False, False, "EXTERNAL-01")
 

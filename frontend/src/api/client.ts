@@ -53,18 +53,24 @@ export interface ShiftRowOut {
   active_weekdays: number[];
   duration_hours: number;
   catalog_kind: "12h" | "24h" | "INNY";
+  // ROTA-T065: null for OCHRONA/legacy shifts.
+  required_role: EmployeeRole | null;
 }
 
 export interface ShiftCatalogOut {
   shifts: ShiftRowOut[];
+  // ROTA-T065 audit R2-03 fix: lets SiteShiftCatalog gate its UI by
+  // regime from this same call, without a second endpoint.
+  planning_regime: "OCHRONA" | "ORDINARY";
 }
 
 export interface ShiftRowIn {
-  kind: "D" | "N";
+  kind?: "D" | "N" | null;
   start_time: string;
   end_time: string;
   required_primary_count: number;
   active_weekdays: number[];
+  required_role?: EmployeeRole | null;
 }
 
 export interface CalendarDayOut {
@@ -97,6 +103,8 @@ export interface ShiftDemandOut {
   end_datetime: string;
   required_primary_count: number;
   shift_kind: "D" | "N" | null;
+  // ROTA-T065: null for OCHRONA/legacy demands.
+  required_role: "KIEROWNIK" | "SPRZEDAWCA_ZALOGA" | null;
 }
 
 export interface AssignmentOut {
@@ -198,6 +206,8 @@ export interface ManualCorrectionResultOut {
   deviations: DeviationOut[];
 }
 
+export type EmployeeRole = "KIEROWNIK" | "SPRZEDAWCA_ZALOGA";
+
 export interface RosterRow {
   employee_id: string;
   display_name: string;
@@ -205,6 +215,8 @@ export interface RosterRow {
   can_work_24h: boolean;
   readiness_state: string;
   membership_kind: "LOCAL" | "EXTERNAL_SUPPORT";
+  // ROTA-T065: empty for OCHRONA/legacy memberships.
+  allowed_roles: EmployeeRole[];
 }
 
 export interface PickableEmployee {
@@ -224,6 +236,7 @@ export interface MembershipOut {
   can_work_24h: boolean;
   readiness_state: string;
   readiness_source: string;
+  allowed_roles: EmployeeRole[];
 }
 
 export interface AvailabilityRecordOut {
@@ -774,8 +787,10 @@ export const api = {
       responds_to_decision_required_id?: string | null;
     },
   ) => req<void>(`/workspace/employees/${employeeId}/support-window`, { method: "POST", body: JSON.stringify(payload) }),
-  updateRosterRow: (siteId: string, employeeId: string, payload: { enabled?: boolean; can_work_24h?: boolean }) =>
-    req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  updateRosterRow: (
+    siteId: string, employeeId: string,
+    payload: { enabled?: boolean; can_work_24h?: boolean; allowed_roles?: EmployeeRole[] },
+  ) => req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),
 
   // Employee (brief.md section 5.1)
   createEmployee: (payload: {

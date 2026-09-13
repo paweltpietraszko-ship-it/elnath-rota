@@ -30,6 +30,7 @@ from rota.domain import (
     RuleEnforcement,
     RuleResolution,
     ShiftDemand,
+    Site,
     SiteMembership,
     SiteRuleVersion,
     WorkBalance,
@@ -46,7 +47,19 @@ from rota.planning.site_rules import (
 from rota.planning.solver import SolverOutcome, _effective_targets, solve
 from rota.planning.state import SiteRuleApplicability
 from rota.planning.validator import validate
-from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, base_state
+from tests.support.minimal_state import PROFILE_ID, ReadinessSource, ReadinessState, SITE_ID
+from tests.support.minimal_state import base_state as _base_state
+
+
+def base_state(**overrides):
+    """ROTA-T065 audit R3-01: this file's B10 scenarios test OCHRONA-
+    specific DAY_ONLY-N-FALLBACK-01 legal semantics -- see
+    test_site_rules_execution.py's own base_state override for the full
+    rationale. Pin this file's default site to OCHRONA."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
 
 
 def _local_membership(employee_id: str) -> SiteMembership:
@@ -723,7 +736,7 @@ def _b10_14_seed_context(conn, coord: str, site: str, profile_id: str, emp: str,
         site_profile=SiteProfile(profile_id, "B14 profile", True, [StandardShift(ShiftKind.N, datetime(2026, 10, 1, 17).time(), datetime(2026, 10, 2, 5).time(), True, 1)], True, False, False, False, 1, 999),
     )
     bootstrap.bootstrap_or_resume_coordinator_context(
-        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "B14 site", True, planning_regime=SitePlanningRegime.ORDINARY),
+        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "B14 site", True, planning_regime=SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(coord, site, True),
     )
     durable_inputs.update_employee(conn, coordinator_id=coord, site_id=site, employee=_employee(emp, day_only=True))

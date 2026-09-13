@@ -1,0 +1,151 @@
+ROTA-T065 — audyt implementacji R2
+Data: 2026-09-13
+Exact audited SHA: 04d05c57bb717ef0056dc6e0d0b5260df208ccba
+Baseline: main@8199143
+BOARD intake: main@bf32e1e02e42a371d92bc6102cc21d35444af09b
+
+WYNIK: FAIL — trzy kontraktowe blokery na dokładnym SHA.
+
+Zakres i warstwy audytu
+-----------------------
+- przeczytano literalny diff 8199143..04d05c5 oraz bezpośrednio zmienionych
+  właścicieli roli, katalogu, eligibility, validatora, API i UI;
+- sprawdzono, czy powstał drugi solver/pipeline/właściciel reguł;
+- wykonano niezależne reproduktory pięciu konkretnych granic;
+- wykonano testy Tasku i celowane regresje bezpośrednio związanych ścieżek;
+- sklasyfikowano wskazany historyczny test kształtu źródeł T023;
+- nie uruchamiano pełnej regresji, zamrożonych symulatorów koordynatora ani
+  zamrożonych benchmarków.
+
+`where.py` nie wniósłby tu dodatkowej wartości: diff podaje dokładne zmienione
+pliki, a ownerzy i ścieżki obejścia zostały sprawdzone bezpośrednio oraz przez
+wyszukanie symboli (`required_role`, `allowed_roles`, `covers_demand_id`,
+`classify_demand`). Nie rozszerzano audytu poza klasę T065.
+
+FINDING R2-01 — FAIL — ROLE-01 można ominąć ręcznym Assignmentem bez tagu
+----------------------------------------------------------------------------
+TRACE:
+- brief §3: demand roli może pokryć wyłącznie osoba jawnie dopuszczona do tej
+  roli;
+- brief §10 i T65-A11: ta sama bramka ma obowiązywać w solverze, validatorze i
+  manual correction przez istniejący pipeline.
+
+OWNERSHIP:
+- publiczny `AssignmentIn` w api/routers/schedule.py dopuszcza
+  `covers_demand_id=None`;
+- COVERAGE-01 przypisuje pokrycie na podstawie rzeczywistego przedziału;
+- `_check_role()` w rota/planning/validator.py sprawdza wyłącznie
+  `_covering_demand()`, czyli tag `covers_demand_id`, i pomija Assignment bez
+  tagu.
+
+REPRO:
+`test_validator_role_gate_cannot_be_bypassed_by_missing_demand_tag` tworzy
+jedyny demand KIEROWNIK oraz pokrywający go PRIMARY pracownika mającego tylko
+SPRZEDAWCA_ZALOGA, z `covers_demand_id=None`. Validator nie zgłasza ani
+COVERAGE-01, ani ROLE-01. Finalny/ręczny grafik może więc przejść z osobą bez
+wymaganej roli.
+
+FINDING R2-02 — FAIL — nowe ORDINARY nadal dziedziczy semantykę D/N
+-----------------------------------------------------------------
+TRACE:
+- brief §8: rzeczywiste godziny + rola są znaczeniem new ORDINARY; nocna pora
+  ani techniczny symbol nie mogą aktywować DAY_ONLY-01, D/N-specific SiteRule
+  lub external restriction;
+- brief §12 i preimplementation PASS R1: NIGHT-STREAK-01 jest D/N-specific i
+  nie przechodzi na new ORDINARY; THIRD-CONSECUTIVE-SHIFT-01 pozostaje globalne;
+- brief §13/T65-A9: UI nie wymaga biznesowego kodu i nie może wymuszać D/N.
+
+OWNERSHIP:
+- nowy demand rolowy nadal niesie `shift_kind=D/N`;
+- eligibility.py nadal uruchamia DAY_ONLY-01 na podstawie tego pola bez bramki
+  reżimu/new-ORDINARY;
+- validator.py nadal klasyfikuje taki demand jako N i uruchamia
+  NIGHT-STREAK-01;
+- `SiteShiftCatalog.tsx` nadal pokazuje każdemu obiektowi pole „Rodzaj” z
+  wyborami „Dniówka/Nocka”, a API dla braku kind podstawia techniczne D.
+
+REPRO:
+1. rolowy ORDINARY 22:00–06:00 oznaczony technicznie N odrzuca poprawnego
+   pracownika z właściwą rolą przez DAY_ONLY-01;
+2. trzy takie rolowe demandy zgłaszają NIGHT-STREAK-01. Zgodnie z osobnym
+   globalnym kontraktem T058 równolegle zgłaszane THIRD-CONSECUTIVE-SHIFT-01
+   jest prawidłowe i nie jest findingiem.
+
+To nie jest abstrakcyjna obawa: reproduktory trafiają dokładnie w dwa istniejące
+gaty współdzielonego pipeline. Ta sama nieodseparowana klasyfikacja pozostawia
+też ryzyko wskazanych wprost w §8 SiteRule/external, więc poprawka powinna mieć
+jednego właściciela rozróżnienia legacy D/N vs new ORDINARY, a nie wyjątki w
+każdej regule.
+
+FINDING R2-03 — FAIL — granica konfiguracji ORDINARY/OCHRONA jest nieszczelna
+----------------------------------------------------------------------------
+TRACE:
+- brief §6: każdy nowy rekord zapotrzebowania ORDINARY zawiera wymaganą rolę;
+- brief §13: konfiguracja ORDINARY opiera się na godzinach/dniach/roli/liczbie;
+- brief §16: new ORDINARY bez kompletnej roli/config failuje jawnie, natomiast
+  OCHRONA zachowuje dotychczasowe D/N i brak nowych pól nie dostaje roli sklepu.
+
+OWNERSHIP:
+- PUT `/api/workspace/sites/{site_id}/shift-catalog` zna Site i jego reżim, ale
+  nie waliduje payloadu względem reżimu;
+- `required_role` jest opcjonalne dla każdego wiersza, a role sklepowe są
+  przyjmowane i zapisywane również dla OCHRONA;
+- ekrany katalogu i obsady pokazują kontrolki roli bez rozróżnienia reżimu.
+
+REPRO:
+1. ORDINARY przyjmuje wiersz bez `required_role` (HTTP 204), zamiast jawnie
+   zgłosić niekompletną konfigurację;
+2. OCHRONA przyjmuje i po GET zwraca `required_role=KIEROWNIK` (HTTP 204), więc
+   nowa bramka ROLE-01 może zmienić ochroniarski plan mimo wymogu „bez zmian”.
+
+Redukcja / duplikacja
+---------------------
+Nie znaleziono drugiego solvera, drugiego przebiegu per rola, drugiej tabeli
+grafiku, równoległego membershipu ani nowego magazynu historii. Rozszerzenie
+SiteMembership -> StandardShift -> ShiftDemand -> istniejący pipeline jest
+zasadniczo właściwe. Niezależna kontrola ROLE-01 w validatorze jest wymaganym
+anti-drift mirror, a nie zbędną duplikacją; defekt polega na jej niepełnym
+powiązaniu z tym samym właścicielem pokrycia, którego używa COVERAGE-01.
+
+Wyniki uruchomień
+-----------------
+1. Niezależne reproduktory:
+   `python -m pytest -q tasks/ROTA-T065/round_01/tests/test_audit_r2.py`
+   -> 5 failed (DAY_ONLY-01 leak, NIGHT-STREAK-01 leak, ROLE-01 bypass,
+      incomplete ORDINARY accepted, store role persisted for OCHRONA).
+
+2. Testy Tasku + celowane regresje:
+   `python -m pytest -q tests/test_t065_ordinary_roles.py
+    tests/test_t030_shift_catalog_api.py tests/test_t032_soft_ranking.py
+    tests/test_t058.py tests/test_t023b.py`
+   -> 91 passed.
+
+3. Historyczny test T023:
+   `python -m pytest -q
+    tests/test_t023_checkpoint_b.py::test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b`
+   -> 1 failed, ponieważ test porównuje bieżące repo z bazą Checkpoint B i
+      wykrywa constraints.py/eligibility.py jawnie autoryzowane w TASK_SCOPE
+      T065. To przestarzały source-shape proof, nie regresja zachowania i nie
+      osobny bloker implementacji T065. Nie zmieniano go bocznymi drzwiami.
+
+UI / kontrola optyczna
+----------------------
+Zmiana UI została sprawdzona strukturalnie w dokładnym diffie. Nie wykonano
+renderowanego testu optycznego: worktree nie ma frontend/node_modules, a
+dostępna w tej sesji automatyzacja nie udostępnia wymaganego przez projektowy
+skill interaktywnego runtime Playwright. Nie jest to źródło werdyktu; widoczne
+pole Dniówka/Nocka i brak bramki reżimu są bezpośrednio obecne w JSX.
+
+Warunek ponownego re-checku
+--------------------------
+Wystarczy wąska poprawka trzech właścicieli:
+1. jednoznaczne odróżnienie new ORDINARY od legacy/OCHRONA D/N, konsumowane
+   wspólnie przez eligibility i validator oraz odzwierciedlone w UI;
+2. walidacja katalogu i kontrole UI zależne od planning_regime: role wymagane
+   dla new ORDINARY, nieaktywne dla OCHRONA;
+3. ROLE-01 dla realnego pokrycia finalnego/manual Assignment, również bez lub
+   z błędnym tagiem, bez fałszywego obwiniania nakładających się demandów roli.
+
+Po poprawce: porównać diff 04d05c5..NOWY_SHA, uruchomić zachowane reproduktory,
+testy T065 oraz najbliższe celowane ścieżki. Pełna regresja nie jest wymagana
+do tego re-checku.

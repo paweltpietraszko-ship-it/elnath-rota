@@ -1,0 +1,83 @@
+ROTA-T065 — wąski re-check poprawki R4
+Data: 2026-09-13
+Exact audited SHA: 42740118e838d704cb9679716efb7cdfb51b6083
+Porównanie poprawki: 2e4df35..4274011 (właściwy fix po raporcie: eebed90..4274011)
+BOARD intake: main@3943cae
+
+WYNIK: FAIL — nowe ORDINARY zostało poprawnie odseparowane od D/N, ale
+legacy ORDINARY zostało razem z nim potraktowane jak „bez ograniczeń D/N”,
+co łamie jawną granicę kompatybilności §11.
+
+Zakres re-checku
+----------------
+- literalny diff poprawki;
+- obowiązujące reproduktory R2 i wszystkie reproduktory R3;
+- celowane testy T065 oraz zmienionych/sąsiednich właścicieli SiteRule,
+  eligibility, external, NIGHT-STREAK, DAY_ONLY i T058;
+- dwa niezależne reproduktory zachowania legacy ORDINARY.
+
+Nie czytano ponownie całej implementacji. Nie uruchamiano pełnej regresji,
+zamrożonych symulatorów ani benchmarków. Prośba CC z BOARD o pełną regresję
+nie jest jawną zgodą OWNERA wymaganą przez AGENTS.md i nie była potrzebna do
+rozstrzygnięcia tej wąskiej poprawki.
+
+Co poprawka naprawiła
+---------------------
+1. R2-01 nadal PASS: ręczny/untagged Assignment nie omija ROLE-01.
+2. R2-02 dla new ORDINARY PASS: DAY_ONLY, NIGHT-STREAK, solverowy term D/N,
+   D/N-specific SiteRule i external nie zależą już od technicznego D/N.
+3. R2-03 zgodnie z OWNER_DECISION PASS: role-less ORDINARY jest dozwolone;
+   OCHRONA nie przyjmuje roli katalogu.
+4. R3-01 reproduktory new ORDINARY: 3/3 PASS.
+
+FINDING R4-01 — FAIL — legacy ORDINARY cicho traci ograniczenia D/N
+--------------------------------------------------------------------
+TRACE:
+- brief §8 wymaga jednoznacznego rozróżnienia legacy demand od new ORDINARY;
+- brief §11 mówi wprost, że legacy ORDINARY z `allowed_shift_kind=D/N` ma
+  zostać jawnie rozpoznane jako legacy/niezgodna konfiguracja do świadomej
+  korekty, a nie cicho zmigrowane do „braku ograniczenia”;
+- brief §16 wymaga zachowania dotychczasowego kontraktu legacy.
+
+OWNERSHIP:
+- `dn_semantics_apply(demand, regime)` zwraca False dla KAŻDEGO
+  `regime=ORDINARY`, bez rozróżnienia new vs legacy;
+- eligibility/validator/solver na tej podstawie pomijają D/N-specific
+  SiteRule oraz `ExternalSupportWindow.allowed_shift_kind`;
+- `required_role` nie może służyć do rozróżnienia, bo zgodnie z decyzją OWNERA
+  new ORDINARY może poprawnie nie mieć roli.
+
+REPRO — `test_audit_r4.py`, 2/2 failed na dokładnym SHA:
+1. Legacy ORDINARY demand N (`shift_kind=None`, klasyfikowany z istniejącego
+   katalogu) z aktywnym HARD SiteRule „pracownik tylko D” kończy PLAN jako
+   FEASIBLE. Ograniczenie zostało potraktowane jak nieistniejące.
+2. Ten sam legacy demand N dla EXTERNAL_SUPPORT z oknem „tylko D” również
+   kończy PLAN jako FEASIBLE. Okno zostało po cichu rozszerzone na N.
+
+Oczekiwanie reproduktora jest celowo szerokie (`status != FEASIBLE`): nie
+narzuca sposobu prezentacji niezgodnej konfiguracji. Implementacja może użyć
+istniejącego decision/error flow, ale nie może uznać planu za poprawny i
+bezwarunkowo rozszerzyć dawnego ograniczenia.
+
+Wyniki uruchomień
+-----------------
+1. R2 + R3, bez testu unieważnionego decyzją OWNERA:
+   -> 7 passed, 1 deselected.
+
+2. Pełny celowany zestaw poprawki i sąsiednich ownerów:
+   -> 214 passed, 1 deselected.
+
+3. Niezależne legacy repro R4:
+   `python -m pytest -q tasks/ROTA-T065/round_01/tests/test_audit_r4.py`
+   -> 2 failed.
+
+Warunek następnego re-checku
+----------------------------
+Wprowadzić rzeczywiste rozróżnienie new ORDINARY od legacy ORDINARY, nie tylko
+ORDINARY od OCHRONA. New ORDINARY nadal nie może konsumować D/N; legacy
+konfiguracja D/N musi zostać jawnie zatrzymana/skierowana do korekty, a nie
+potraktowana jako nieograniczona.
+
+Następny re-check: wyłącznie diff 4274011..NOWY_SHA, dwa repro R4, obowiązujące
+repro R2/R3 i celowane testy T065/SiteRule/external. Pełna regresja nie jest
+wymagana.

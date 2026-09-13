@@ -56,7 +56,7 @@ ONE_ROW = {
 def test_get_empty_catalog(client):
     resp = client.get(f"/api/workspace/sites/{SITE}/shift-catalog")
     assert resp.status_code == 200
-    assert resp.json() == {"shifts": []}
+    assert resp.json() == {"shifts": [], "planning_regime": "ORDINARY"}
 
 
 def test_get_existing_catalog_preserves_order(client):

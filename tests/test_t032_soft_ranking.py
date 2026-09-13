@@ -40,7 +40,9 @@ from rota.domain import (
     Employee,
     MembershipKind,
     ShiftDemand,
+    Site,
     SiteMembership,
+    SitePlanningRegime,
     WorkBalance,
 )
 from rota.planning.decision_guidance import _BUILT_IN_CONDITION_TEXT
@@ -48,7 +50,19 @@ from rota.planning.engine import plan
 from rota.planning.engine_types import PlanningResult
 from rota.planning.solver import solve
 from rota.planning.validator import validate
-from tests.support.minimal_state import MONTH, ReadinessSource, ReadinessState, SITE_ID, base_state
+from tests.support.minimal_state import MONTH, PROFILE_ID, ReadinessSource, ReadinessState, SITE_ID
+from tests.support.minimal_state import base_state as _base_state
+
+
+def base_state(**overrides):
+    """ROTA-T065 audit R3-01: this whole file tests OCHRONA-specific
+    NIGHT-STREAK-01 and D/N/wolne/wolne SOFT ranking -- see
+    test_site_rules_execution.py's own base_state override for the full
+    rationale. Pin this file's default site to OCHRONA."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
 
 
 def _membership(employee_id: str) -> SiteMembership:

@@ -15,6 +15,7 @@ from rota.domain import (
     AssignmentState,
     Deviation,
     DeviationCategory,
+    EmployeeRole,
     ScheduleStatus,
     ScheduleVersion,
     ShiftCatalogKind,
@@ -28,7 +29,7 @@ from rota.persistence.schedule_types import ScheduleSnapshot
 
 def _row_to_demand(row: tuple) -> ShiftDemand:
     (schedule_version_id, demand_id, start_dt, end_dt, count,
-     shift_kind, catalog_kind, required_rest_hours, template_id, component, emergency_rest) = row
+     shift_kind, catalog_kind, required_rest_hours, template_id, component, emergency_rest, required_role) = row
     return ShiftDemand(
         demand_id, schedule_version_id, datetime.fromisoformat(start_dt), datetime.fromisoformat(end_dt), count,
         shift_kind=ShiftKind(shift_kind) if shift_kind else None,
@@ -36,6 +37,7 @@ def _row_to_demand(row: tuple) -> ShiftDemand:
         required_rest_hours=required_rest_hours,
         work_period_template_id=template_id, work_period_component=component,
         emergency_24h_rest_hours=emergency_rest,
+        required_role=EmployeeRole(required_role) if required_role else None,
     )
 
 
@@ -90,7 +92,7 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
         _row_to_demand(r) for r in conn.execute(
             "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
             "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
-            "emergency_24h_rest_hours FROM shift_demands WHERE schedule_version_id = ? ORDER BY demand_id",
+            "emergency_24h_rest_hours, required_role FROM shift_demands WHERE schedule_version_id = ? ORDER BY demand_id",
             (version_id,),
         ).fetchall()
     ]
@@ -128,7 +130,7 @@ def get_shift_demands_by_ids(conn: sqlite3.Connection, version_demand_ids: list[
         rows = conn.execute(
             "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
             "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
-            f"emergency_24h_rest_hours FROM shift_demands WHERE schedule_version_id = ? AND demand_id IN ({placeholders})",
+            f"emergency_24h_rest_hours, required_role FROM shift_demands WHERE schedule_version_id = ? AND demand_id IN ({placeholders})",
             (version_id, *demand_ids),
         ).fetchall()
         demands.extend(_row_to_demand(r) for r in rows)

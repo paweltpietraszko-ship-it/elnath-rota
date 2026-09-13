@@ -1,0 +1,45 @@
+ROTA-T065 — korekta werdyktu po decyzji OWNERA R5
+Data: 2026-09-13
+Exact audited implementation SHA: 42740118e838d704cb9679716efb7cdfb51b6083
+Poprzedni raport: tests_r4.txt / audit commit 56e52bf
+
+WYNIK: PASS — 4274011 jest gotowe do merge.
+
+Decyzja OWNERA zamykająca R4-01
+--------------------------------
+OWNER_DECISION 2026-09-13:
+- wszystkie stare obiekty ORDINARY są wyłącznie danymi testowymi i zostaną
+  usunięte;
+- nie istnieje produkcyjna wspólna baza nazwisk przenikająca między obiektami;
+- scenariusz migracji historycznych ograniczeń D/N w ORDINARY nie należy do
+  wspieranego stanu produktu i nie ma blokować T065.
+
+Skutek dla audytu
+-----------------
+R4-01 opierał się na sztucznie skonstruowanym legacy ORDINARY z dawnym
+SiteRule/ExternalSupportWindow „tylko D”. Po decyzji OWNERA taki stan nie jest
+PRODUCT_TRUTH ani wspieraną migracją produkcyjną. Dwa reproduktory R4 pozostają
+historycznym dowodem założenia audytowego, ale są OWNER-excluded i nie są
+gate'em merge. Nie wymagają zmiany implementacji.
+
+Potwierdzony zakres PASS na 4274011
+----------------------------------
+- R2-01: ręczny/untagged Assignment nie omija ROLE-01;
+- new ORDINARY nie dziedziczy DAY_ONLY, NIGHT-STREAK, D/N-specific SiteRule
+  ani external restriction z technicznego D/N;
+- role-less ORDINARY jest prawidłowe zgodnie z decyzją OWNERA;
+- OCHRONA zachowuje własne D/N i nie przyjmuje roli sklepowej w katalogu;
+- nie powstał drugi solver, drugi pipeline ani równoległa domena grafiku.
+
+Dowody wykonane wcześniej na dokładnym 4274011
+----------------------------------------------
+- obowiązujące reproduktory R2+R3: 7 passed, 1 OWNER-deselected;
+- testy T065 oraz celowane testy zmienionych i sąsiednich właścicieli:
+  214 passed, 1 OWNER-deselected;
+- reproduktory R4: 2 failed, obecnie sklasyfikowane jako OWNER-excluded
+  nieprodukcyjny legacy test state.
+
+Nie uruchamiano pełnej regresji, zamrożonych symulatorów ani benchmarków.
+Zakres i ryzyko poprawki nie wymagają dodatkowego gate'u po tej decyzji.
+
+Werdykt PASS dotyczy wyłącznie implementation SHA 4274011.

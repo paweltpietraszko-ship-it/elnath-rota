@@ -18,7 +18,9 @@ from rota.domain import (
     RuleEnforcement,
     RuleResolution,
     ShiftDemand,
+    Site,
     SiteMembership,
+    SitePlanningRegime,
     SiteRuleVersion,
 )
 from rota.persistence.db import connect
@@ -31,7 +33,18 @@ from rota.planning.site_rules import (
 )
 from rota.planning.state import SiteRuleApplicability
 from rota.site_memory_types import NewRuleContent
-from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, base_state
+from tests.support.minimal_state import PROFILE_ID, ReadinessSource, ReadinessState, SITE_ID
+from tests.support.minimal_state import base_state as _base_state
+
+
+def base_state(**overrides):
+    """ROTA-T065 audit R3-01: this file's adversarial SiteRule scenarios
+    test OCHRONA-specific D/N semantics -- see test_site_rules_execution.
+    py's own base_state override for the full rationale."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
 
 
 MONTH = date(2026, 10, 1)
