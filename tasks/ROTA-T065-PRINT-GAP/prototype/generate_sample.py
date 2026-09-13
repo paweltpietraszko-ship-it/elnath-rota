@@ -7,6 +7,15 @@ touches a database -- it only reuses that module's pure, read-only
 presentation helpers (font resolution, page geometry constants) so the
 prototype looks like a real page instead of a made-up one.
 
+Round 2 (2026-09-13, OWNER_ACCEPTED): role is printed once next to the
+employee's name (their real position -- doesn't change day to day, even
+when they cover a shift normally staffed by another role), not repeated
+per shift. Day cells show only hours. Role is echoed as a fill tint on
+the cell for quick scanning, but the fill is not the only signal --
+absences use border style (solid = Urlop, dashed = L4), matching
+OCHRONA's existing convention. Page background is always white (this
+simulates printed paper, not a themed screen).
+
 Run: python tasks/ROTA-T065-PRINT-GAP/prototype/generate_sample.py
 Output: tasks/ROTA-T065-PRINT-GAP/prototype/sample_ordinary.pdf
 """
@@ -14,8 +23,8 @@ from __future__ import annotations
 
 import calendar
 import sys
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -32,8 +41,10 @@ NAME_W = 170.0
 SUM_W = 56.0
 HEADER_H = 90.0
 FOOTER_H = 20.0
-LEGEND_H = 70.0
-WEEKEND_BG = HexColor("#e2e2e2")
+LEGEND_H = 78.0
+WEEKEND_BG = HexColor("#e6e0ce")
+_FILL = {"kier": HexColor("#e4e4e1"), "sprz": HexColor("#b9b9b4"), "uczen": HexColor("#8f8f89")}
+_TEXT_ON_FILL = {"kier": black, "sprz": black, "uczen": white}
 DOW = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
 YEAR, MONTH = 2026, 9
 
@@ -42,14 +53,15 @@ YEAR, MONTH = 2026, 9
 class WorkPiece:
     start_hour: int
     end_hour: int  # > 24 means it crosses into the next day (e.g. 22..30 == 22:00-06:00+1)
-    role_letter: str  # "K" (Kierownik), "S" (Sprzedawca/załoga), or "" (no required_role)
 
 
 @dataclass(frozen=True)
 class EmployeeSchedule:
     display_name: str
+    roles: tuple[str, ...]  # real position(s), printed once at the name -- never per shift
+    fill_key: str  # which _FILL tint echoes this person's role on their work cells
     # date -> list[WorkPiece] (work) OR a single absence/off string ("Urlop", "L4")
-    days: dict[int, "list[WorkPiece] | str"]
+    days: dict[int, "list[WorkPiece] | str"] = field(default_factory=dict)
 
 
 def month_days() -> list[date]:
@@ -58,20 +70,16 @@ def month_days() -> list[date]:
 
 
 def _piece_label(p: WorkPiece) -> str:
-    start = f"{p.start_hour:02d}"
+    start = str(p.start_hour)
     end_hour = p.end_hour % 24
-    end = f"{end_hour:02d}"
     crosses = p.end_hour > 24
-    label = f"{start}-{end}" + ("(+1)" if crosses else "")
-    if p.role_letter:
-        label += f" {p.role_letter}"
-    return label
+    return f"{start}–{end_hour}" + ("(+1)" if crosses else "")
 
 
 def cell_lines(value) -> list[str]:
     """One line per work piece -- stacked vertically instead of joined with
     "/" on one line, which overflowed a full month's narrow day columns for
-    any multi-piece or midnight-crossing cell (CHECKPOINT A finding)."""
+    any multi-piece or midnight-crossing cell (CHECKPOINT A round 1 finding)."""
     if isinstance(value, str):
         return [value]
     if not value:
@@ -81,11 +89,8 @@ def cell_lines(value) -> list[str]:
 
 def cell_hours(value) -> int:
     if not value or isinstance(value, str):
-        return 0  # absences shown as plain words here -- CHECKPOINT A also freezes whether/how these count in the summary column
-    total = 0
-    for p in value:
-        total += p.end_hour - p.start_hour
-    return total
+        return 0  # absences shown as plain words -- not counted in the "Godz." column (OWNER to reconfirm at CHECKPOINT B)
+    return sum(p.end_hour - p.start_hour for p in value)
 
 
 # --- Synthetic roster -------------------------------------------------
@@ -94,59 +99,82 @@ def cell_hours(value) -> int:
 def build_roster() -> list[EmployeeSchedule]:
     roster: list[EmployeeSchedule] = []
 
-    # Hero #1 -- Anna Wilk: KIEROWNIK, demonstrates almost every scenario
-    # from brief section 14 on her own: mixed roles across days (1),
-    # role + no-role assignment (2), two non-overlapping shifts one day (3),
-    # a midnight-crossing shift (4), urlop (5), L4 (6), a plain day off (7).
+    # Hero #1 -- Anna Wilk: KIEROWNIK, demonstrates most scenarios from
+    # brief section 14 on her own: two non-overlapping shifts one day,
+    # a midnight-crossing shift, covering an additional shift (still
+    # printed as Kierownik, never relabeled), urlop, L4, a plain day off.
     anna_days: dict[int, object] = {
-        1: [WorkPiece(5, 12, "K")],
-        2: [WorkPiece(10, 18, "S")],
-        3: [WorkPiece(6, 10, "K"), WorkPiece(16, 20, "K")],
-        4: [WorkPiece(22, 30, "K")],  # 22:00-06:00(+1)
-        5: [WorkPiece(9, 17, "")],  # PRIMARY assignment, no required_role
+        1: [WorkPiece(5, 12)],
+        2: [WorkPiece(6, 10), WorkPiece(16, 20)],
+        3: [WorkPiece(22, 30)],  # 22:00-06:00(+1)
+        4: [WorkPiece(9, 17)],  # covering an additional shift, still Kierownik
         8: "Urlop",
         9: "Urlop",
         12: "L4",
         13: "L4",
         14: "L4",
-        # 6, 7, 10, 11, 15+ intentionally left as plain days off (no work, no absence)
+        # 5-7, 10-11, 15+ intentionally left as plain days off (no work, no absence)
     }
     for d in range(15, 31):
         if d % 6 not in (0, 1):
-            anna_days.setdefault(d, [WorkPiece(5, 13, "K")])
-    roster.append(EmployeeSchedule("Anna Wilk", anna_days))
+            anna_days.setdefault(d, [WorkPiece(5, 13)])
+    roster.append(EmployeeSchedule("Anna Wilk", ("Kierownik",), "kier", anna_days))
 
     # Hero #2 -- Marek Duda: SPRZEDAWCA_ZALOGA, plain realistic weekly rhythm
     marek_days: dict[int, object] = {}
-    for d, day in enumerate(month_days(), start=1):
+    for day in month_days():
         if day.weekday() == 6:  # Sunday off
             continue
-        marek_days[d] = [WorkPiece(10, 18, "S")]
+        marek_days[day.day] = [WorkPiece(10, 18)]
     marek_days[10] = "Urlop"
     marek_days[11] = "Urlop"
-    roster.append(EmployeeSchedule("Marek Duda", marek_days))
+    roster.append(EmployeeSchedule("Marek Duda", ("Sprzedawca / załoga",), "sprz", marek_days))
+
+    # Third role example -- demonstrates the print holding up once the
+    # role list is no longer just the two hardcoded values (see BOARD.md
+    # ROTA-T065-CONFIGURABLE-ROLES). "Uczeń" is a placeholder label for
+    # this visual demo only, not a production EmployeeRole value.
+    bartek_days: dict[int, object] = {}
+    for day in month_days():
+        if day.weekday() in (5, 6):
+            continue
+        bartek_days[day.day] = [WorkPiece(9, 13)]
+    roster.append(EmployeeSchedule("Bartek Wysocki", ("Uczeń",), "uczen", bartek_days))
 
     # Filler employees -- realistic simple patterns, enough headcount x 30
     # days to force a page break at the accepted A3 row-height floor
     # (brief section 14 point 8).
-    filler_names = [
-        "Ola Zielińska", "Tomasz Baran", "Ewa Sikora", "Kuba Wróbel",
-        "Zofia Kowal", "Rafał Mazur", "Julia Pawlak", "Adam Górski",
-        "Nina Kaczmarek", "Bartek Wysocki", "Maja Sokołowska", "Igor Jabłoński",
-        "Karol Witek", "Lena Adamska", "Filip Urban", "Wiktoria Sadowska",
-        "Damian Krupa", "Alicja Kubiak", "Szymon Wilczek", "Natalia Ostrowska",
-        "Michał Zając", "Weronika Kubik",
+    filler_specs = [
+        ("Ola Zielińska", "Kierownik", "kier", 6),
+        ("Tomasz Baran", "Sprzedawca / załoga", "sprz", 10),
+        ("Ewa Sikora", "Sprzedawca / załoga", "sprz", 14),
+        ("Kuba Wróbel", "Sprzedawca / załoga", "sprz", 6),
+        ("Zofia Kowal", "Sprzedawca / załoga", "sprz", 10),
+        ("Rafał Mazur", "Kierownik", "kier", 14),
+        ("Julia Pawlak", "Sprzedawca / załoga", "sprz", 6),
+        ("Adam Górski", "Sprzedawca / załoga", "sprz", 10),
+        ("Nina Kaczmarek", "Sprzedawca / załoga", "sprz", 14),
+        ("Bartek Wysocki (Sprzedaż)", "Sprzedawca / załoga", "sprz", 6),
+        ("Maja Sokołowska", "Kierownik", "kier", 10),
+        ("Igor Jabłoński", "Sprzedawca / załoga", "sprz", 14),
+        ("Karol Witek", "Sprzedawca / załoga", "sprz", 6),
+        ("Lena Adamska", "Sprzedawca / załoga", "sprz", 10),
+        ("Filip Urban", "Sprzedawca / załoga", "sprz", 14),
+        ("Wiktoria Sadowska", "Kierownik", "kier", 6),
+        ("Damian Krupa", "Sprzedawca / załoga", "sprz", 10),
+        ("Alicja Kubiak", "Sprzedawca / załoga", "sprz", 14),
+        ("Szymon Wilczek", "Sprzedawca / załoga", "sprz", 6),
+        ("Natalia Ostrowska", "Sprzedawca / załoga", "sprz", 10),
+        ("Michał Zając", "Kierownik", "kier", 14),
+        ("Weronika Kubik", "Sprzedawca / załoga", "sprz", 6),
     ]
-    for i, name in enumerate(filler_names):
+    for name, role, fill_key, start in filler_specs:
         days: dict[int, object] = {}
-        role = "K" if i % 5 == 0 else "S"
-        start = 6 + (i % 3) * 4
         for day in month_days():
-            d = day.day
             if day.weekday() in (5, 6):
                 continue
-            days[d] = [WorkPiece(start, start + 8, role)]
-        roster.append(EmployeeSchedule(name, days))
+            days[day.day] = [WorkPiece(start, start + 8)]
+        roster.append(EmployeeSchedule(name, (role,), fill_key, days))
 
     return roster
 
@@ -170,31 +198,47 @@ def draw_day_headers(c, day_w, days, bold, y) -> float:
 
 def draw_row(c, y, row_h, day_w, emp: EmployeeSchedule, days, regular, bold) -> None:
     x = MARGIN
-    c.setFont(regular, 7)
-    c.drawString(x + 2, y - row_h + row_h / 2 - 3, emp.display_name)
+    c.setFont(regular, 7.5)
+    c.drawString(x + 2, y - row_h / 2 + 4, emp.display_name)
+    c.setFont(regular, 6)
+    c.setFillColor(HexColor("#5c6156"))
+    c.drawString(x + 2, y - row_h / 2 - 6, " / ".join(emp.roles))
+    c.setFillColor(black)
     x += NAME_W
     total = 0
+    fill = _FILL.get(emp.fill_key)
+    text_color = _TEXT_ON_FILL.get(emp.fill_key, black)
     for day in days:
         value = emp.days.get(day.day)
         lines = cell_lines(value)
         total += cell_hours(value)
+        is_absence = isinstance(value, str)
+        is_off = value is None
         c.setStrokeColor(HexColor("#c8c8c8"))
         c.setLineWidth(0.4)
         c.rect(x, y - row_h, day_w, row_h, stroke=1, fill=0)
-        is_absence = isinstance(value, str)
+        if not is_absence and not is_off and fill is not None:
+            c.setFillColor(fill)
+            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=0, fill=1)
         if is_absence:
             c.setStrokeColor(black)
-            c.setDash(2, 1.5)
+            if value == "Urlop":
+                c.setLineWidth(1.4)
+            else:  # L4
+                c.setDash(2, 1.5)
             c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
             c.setDash()
+            c.setLineWidth(0.4)
         fs = 6.5
         while fs > 4.5 and max(pdfmetrics.stringWidth(t, bold, fs) for t in lines) > day_w - 3:
             fs -= 0.5
         line_h = fs + 1.5
         top = y - row_h / 2 + (len(lines) - 1) * line_h / 2
+        c.setFillColor(black if (is_absence or is_off or fill is None) else text_color)
         c.setFont(bold, fs)
         for i, line in enumerate(lines):
             c.drawCentredString(x + day_w / 2, top - i * line_h - fs * 0.35, line)
+        c.setFillColor(black)
         x += day_w
     c.setFont(regular, 7)
     c.drawCentredString(x + SUM_W / 2, y - row_h / 2 - 3, str(total))
@@ -212,6 +256,9 @@ def render(path: Path) -> None:
     pages = [roster[i : i + rows_per_page] for i in range(0, len(roster), rows_per_page)]
 
     c = canvas.Canvas(str(path), pagesize=landscape(A3))
+    c.setFillColor(white)
+    c.rect(0, 0, page_w, page_h, stroke=0, fill=1)  # explicit white page -- never inherits a themed background
+    c.setFillColor(black)
     for page_num, page_rows in enumerate(pages, start=1):
         y = page_h - MARGIN
         c.setFont(bold, 16)
@@ -233,11 +280,12 @@ def render(path: Path) -> None:
             legend_y -= 12
             c.setFont(regular, 8)
             for line in (
-                "Godziny = rzeczywisty przedział pracy tego dnia (np. 5-12). Litera po godzinach = rola: K = Kierownik, S = Sprzedawca/załoga. Brak litery = brak wymaganej roli.",
-                "Kilka niezależnych zmian jednego dnia rozdzielone znakiem “/”, w kolejności chronologicznej.",
-                "Zmiana przechodząca przez północ: godzina końcowa z dopiskiem (+1) oznacza następną dobę (np. 22-06(+1)).",
-                "Obramowanie przerywane + słowo = nieobecność (Urlop, L4). “–” = zwykły dzień bez pracy, bez nieobecności.",
-                "“Godz.” = suma godzin rzeczywistej pracy w miesiącu (bez godzin absencji — do potwierdzenia w CHECKPOINT A).",
+                "Rola pracownika (rzeczywiste stanowisko) jest wypisana raz pod nazwiskiem, nie przy każdej zmianie — nawet gdy ktoś pokrywa dodatkową zmianę, zostaje swoją rolą.",
+                "Komórki dni pokazują wyłącznie rzeczywiste godziny (np. 5–12); odcień wypełnienia komórki to podpowiedź tej samej roli.",
+                "Kilka niezależnych zmian jednego dnia — osobne linie w tej samej komórce, w kolejności chronologicznej.",
+                "Zmiana przechodząca przez północ: godzina końcowa z dopiskiem (+1) oznacza następną dobę (np. 22–06(+1)).",
+                "Nieobecność: pogrubiona pełna ramka = Urlop, przerywana ramka = L4, bez wypełnienia. “–” = zwykły dzień bez pracy.",
+                "“Godz.” = suma godzin rzeczywistej pracy w miesiącu (bez godzin absencji).",
             ):
                 c.drawString(MARGIN, legend_y, line)
                 legend_y -= 11
