@@ -1,0 +1,50 @@
+AUDIT REPORT: ROTA-E2E-AUDIT-R1-TESTS-STALE (ROUND 2)
+EXACT AUDITED SHA: a04b2b31558a0b28c2664f803e9ea76c08b75a18
+BRANCH: task/ROTA-E2E-AUDIT-R1-TESTS-STALE
+REFERENCE CLASSIFICATION: 51249bfb4218055a4e0855da427e499553b9a407 (round_01/tests/tests_r1.txt)
+AUDITOR: Antigravity (independent auditor)
+DATE: 2026-09-13
+
+================================================================================
+VERDICT: PASS (mechanical cleanup verified against Codex classification 51249bf)
+================================================================================
+
+1. SCOPE AND CLASSIFICATION COMPLIANCE
+The cleanup on exact SHA a04b2b3 was verified line-by-line against Codex's
+classification in 51249bf (tests_r1.txt):
+
+- Case 1 ("a SITE identifier is removed from recorded endpoint paths"):
+  * Codex finding: The test timed out waiting for heading "Panel sterowania",
+    which is a navigation button on Room's default "Przegląd" view, preventing
+    the privacy assertion from executing.
+  * Verified fix in a04b2b3: Replaced `getByRole("heading", ...)` with
+    `getByRole("button", ...)` while keeping the privacy assertion
+    (`expect(serialized).not.toContain(created.site_id)`) completely intact.
+  * Execution: PASS (3.2s). The privacy check executes and passes cleanly.
+
+- Case 2 ("ordinary dev runtime has no clickable failure-injection controls"):
+  * Codex finding: Playwright's shared webServer environment always injects
+    ROTA_E2E_TEST_HOOKS=1 (__E2E_TEST_HOOKS__=true), so expecting 0 test hook
+    buttons within this runner is structurally contradictory to the test runner's
+    own configuration. The product guarantee of 0 controls in plain dev was
+    already confirmed in accepted T021c audit R6 and Codex's manual reproduction.
+  * Verified fix in a04b2b3: Removed the contradictory test from the Playwright
+    spec and documented the rationale citing Codex R1.
+
+- Product Code Integrity:
+  * Zero production code files touched.
+  * Only `frontend/e2e/diagnostics.audit-r1.spec.ts` was modified (+15 lines, -5 lines).
+
+2. TEST EXECUTION EVIDENCE
+- `npx.cmd playwright test e2e/diagnostics.audit-r1.spec.ts`:
+  4 passed (10.7s)
+- `npx.cmd playwright test e2e/diagnostics.spec.ts`:
+  10 passed (33.4s)
+- TypeScript compilation:
+  `npx.cmd tsc -b` (frontend): clean (0 errors)
+
+3. CONCLUSION
+The mechanical cleanup on SHA a04b2b3 faithfully and strictly implements
+Codex's classification from 51249bf without scope creep, without altering
+product logic, and with all 14 diagnostic E2E browser tests passing cleanly.
+Werdykt: PASS.
