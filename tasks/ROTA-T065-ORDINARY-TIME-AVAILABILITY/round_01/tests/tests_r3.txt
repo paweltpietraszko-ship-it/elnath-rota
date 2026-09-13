@@ -1,0 +1,33 @@
+ROTA-T065-ORDINARY-TIME-AVAILABILITY — preimplementation re-check R3
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-ORDINARY-TIME-AVAILABILITY@ebb8e090749c36189487c0743def34cc54982c0a
+Poprzednie raporty: b9f3a5d, 4f59a4e
+BOARD intake: main@c0a844b0fecdbe40106f58efbaf25abdc03ce793
+
+WYNIK: PASS PREIMPLEMENTATION.
+
+Zamknięte punkty
+----------------
+- `AvailabilityRecord` pozostaje jednym append-only ownerem; dochodzi tylko
+  `UNAVAILABLE_TIME_WINDOW` z godzinami.
+- Jeden pure overlap oracle w `rota/planning/availability.py` jest wspólny dla
+  eligibility i manual validatora.
+- V1 dopuszcza wyłącznie `start_time < end_time` w jednej dobie; overnight jest
+  jawnie odrzucany na UI/write boundary.
+- Półotwarte granice są testowalne: `00:00–12:00` nie blokuje pracy od 12:00.
+- `can_work_24h`, day_only i D/N nie uczestniczą w eligibility ORDINARY;
+  OCHRONA zachowuje dotychczasowe zachowanie.
+- Ogólne całodniowe nieobecności i ograniczenia dni tygodnia pozostają
+  dostępne; UI nie usuwa ich wraz z ochroniarskimi kontrolkami.
+- `decision_guidance.py` jest jednym właścicielem ludzkiego komunikatu
+  `UNAVAILABLE_TIME-01`.
+- TASK_SCOPE wskazuje istniejący `db.py`, read/write API, availability matrix,
+  wspólny oracle i zawężone testy. Dodano wymagany WHERE_MAP.
+
+Znaczenie PASS
+--------------
+Implementacja może rozpocząć się na dokładnym SHA briefu. MANUAL-MIDDLE-SHIFT
+ma twardą zależność od gotowego wspólnego oracle i nie może kopiować overlapu.
+
+Nie uruchamiano testów produktu ani regresji — był to literalny re-check
+briefu po R1/R2.
