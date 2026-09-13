@@ -88,6 +88,27 @@ def test_missing_target_hours_degrades_with_a_warning(client, conn):
     assert row["warnings"]
 
 
+def test_warning_text_is_polish_and_carries_no_technical_identifiers(client, conn):
+    # ROTA-ANALYTICS-TECHNICAL-WARNINGS: full pion API -> screen-shaped
+    # payload. Coordinator sees display_name (separate field, unchanged)
+    # and a human Polish warning; the warning text itself must never carry
+    # the raw employee_id, the field name "target_hours", an English
+    # phrase, or a raw exception string -- exactly what Analytics.tsx
+    # renders 1:1 as "{display_name}: {warning}".
+    _add_local_employee(conn, "EMP-ANNA-UUID-LIKE-1234", "Anna A")
+    resp = client.get(f"/api/workspace/sites/{SITE}/analytics?month={MONTH.isoformat()}")
+    assert resp.status_code == 200
+    row = resp.json()["rows"][0]
+    assert row["display_name"] == "Anna A"
+    warning = row["warnings"][0]
+    assert warning == "Brak ustawionego celu godzinowego na październik 2026."
+    assert "EMP-ANNA-UUID-LIKE-1234" not in warning
+    assert "target_hours" not in warning
+    assert "employee" not in warning
+    assert "unavailable" not in warning
+    assert "2026-10-01" not in warning
+
+
 def test_target_hours_set_for_full_quarter_produces_available_row(client, conn):
     _add_local_employee(conn, "A", "Anna A")
     for offset in range(3):

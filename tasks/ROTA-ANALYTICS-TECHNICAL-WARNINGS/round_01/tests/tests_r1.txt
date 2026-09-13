@@ -1,0 +1,64 @@
+AUDIT REPORT: ROTA-ANALYTICS-TECHNICAL-WARNINGS
+EXACT AUDITED SHA: f7a3c570acfc123da4f01d50e3fe3519acb1b8dc
+BRANCH: task/ROTA-ANALYTICS-TECHNICAL-WARNINGS
+SOURCE CONTRACT: arch/FINDING_2026-09-13_ANALYTICS_TECHNICAL_WARNINGS.md (supersedes T060 §2.1/§2.9/§2.14)
+AUDITOR: Antigravity (independent auditor — first pass)
+DATE: 2026-09-13
+
+================================================================================
+VERDICT: PASS
+================================================================================
+
+1. SCOPE AND REASONING
+The task addresses technical identifier and English diagnostic leaks on the
+"Analityka i bilanse" screen by rewriting the four warning strings in
+`rota/application/analytics_read.py` into clear, human-readable Polish text.
+This matches the frozen T060 contract prohibiting raw UUIDs, technical field
+names (`target_hours`), and English error text in coordinator-facing messages.
+
+2. CODE INSPECTION ON EXACT SHA f7a3c57
+- `rota/application/analytics_read.py`:
+  * All 4 warning variants produce clean Polish strings:
+    - Variant 1 (missing requested target):
+      "Brak ustawionego celu godzinowego na <miesiąc> <rok>."
+    - Variant 2 (canonical absence error on requested month):
+      "Analityka za <miesiąc> <rok> jest niedostępna — brak potwierdzonych danych o nieobecności."
+    - Variant 3 (missing other quarter month target):
+      "Bilans kwartalny jest niedostępny — brak ustawionego celu godzinowego na <miesiąc> <rok>."
+    - Variant 4 (canonical absence error on other quarter month):
+      "Bilans kwartalny jest niedostępny — brak potwierdzonych danych o nieobecności za <miesiąc> <rok>."
+  * Polish month labels (`_month_label` using `_MONTH_NAMES_PL`): produces
+    natural Polish forms for all 12 months (e.g. "październik 2026"), completely
+    replacing ISO `YYYY-MM-01` dates.
+  * Exception sanitization: `_first_blocking_quarter_month` now returns only the
+    offending `date`, dropping the raw technical exception message (`str(exc)`).
+  * Statuses (`UNAVAILABLE`, `MONTH_AVAILABLE_QUARTER_UNAVAILABLE`), balances,
+    and fallback behaviors remain strictly preserved.
+  * UI separation: `frontend/src/screens/Analytics.tsx` continues to display
+    `{displayName}: {warning}`. The warning string does not re-embed or regex-parse
+    the employee.
+
+3. INDEPENDENT TEST MATRIX AND VERIFICATION
+- Layer 1: Implementer test execution:
+  * `tests/test_t019.py`: 27 passed, 1 skipped (test_11 pre-existing skip).
+  * `tests/test_t021_analytics_api.py`: 6 passed (including vertical test).
+- Layer 2: Scoped regression:
+  * `tests/test_t011_d_quarter_balance.py`: 9 passed.
+- Layer 3: Static analysis & type integrity:
+  * `ruff check`: clean across all changed files.
+  * `npx.cmd tsc -b` (frontend): clean (0 errors).
+- Layer 4: Independent verification:
+  * Verified all 12 month names in `_month_label` across full calendar range.
+  * Negative checks passed: verified complete absence of raw `employee_id`,
+    UUID patterns, `target_hours`, English diagnostic words (`analytics`,
+    `unavailable`, `missing`, `employee`, `quarter`, `month`), and raw exception traces.
+  * Vertical API -> screen representation verified:
+    HTTP GET `/api/workspace/sites/{site_id}/analytics?month=2026-10-01`
+    returns row with `display_name` ("Piotr Nowak") and warning
+    "Brak ustawionego celu godzinowego na październik 2026.", yielding UI text:
+    "Piotr Nowak: Brak ustawionego celu godzinowego na październik 2026."
+
+4. FROZEN COMPONENTS COMPLIANCE
+- Coordinator Simulators A and B were excluded and not run.
+- Legacy benchmarks were excluded and not run.
+- No solver or persistence modifications were made.

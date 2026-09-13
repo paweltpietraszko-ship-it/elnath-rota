@@ -30,6 +30,19 @@ class AnalyticsHoursScope(str, Enum):
     ALL_SITES = "ALL_SITES"
 
 
+_MONTH_NAMES_PL = (
+    "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
+    "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
+)
+
+
+def _month_label(month: date) -> str:
+    """ROTA-ANALYTICS-TECHNICAL-WARNINGS: coordinator-facing month label
+    (e.g. "październik 2026"), never the technical first-of-month ISO
+    date this module uses internally as a dict/comparison key."""
+    return f"{_MONTH_NAMES_PL[month.month - 1]} {month.year}"
+
+
 @dataclass(frozen=True)
 class AnalyticsMonthData:
     month: date
@@ -83,19 +96,21 @@ def _degraded_row(employee_id, display_name, status, month_data, warning) -> Emp
     )
 
 
-def _first_blocking_quarter_month(quarter_months_list: list[date], absence_facts):
+def _first_blocking_quarter_month(quarter_months_list: list[date], absence_facts) -> date:
     """Attribution-only pass over the same shared canonical_hours_in_range
     primitive compute_month_balance already calls internally -- never
     recomputes hours/balance. Used solely to name which quarter month
     blocks the warning text (T019-R3-2: the balance itself stays fully
-    delegated to rota.balance.compute_quarter_balance)."""
+    delegated to rota.balance.compute_quarter_balance). The exception's
+    own message is technical (status codes, source_mode) and never
+    surfaced to the coordinator -- only the offending month is."""
     for quarter_month in quarter_months_list:
         month_end = _add_months(quarter_month, 1) - timedelta(days=1)
         try:
             canonical_hours_in_range(absence_facts, quarter_month, month_end)
-        except IncompleteAbsenceReferenceError as exc:
-            return quarter_month, str(exc)
-    return quarter_months_list[0], ""
+        except IncompleteAbsenceReferenceError:
+            return quarter_month
+    return quarter_months_list[0]
 
 
 def _quarter_row(
@@ -112,8 +127,11 @@ def _quarter_row(
             employee_id, quarter_months_list[0], target_by_month, assignments, absence_facts,
         )
     except IncompleteAbsenceReferenceError:
-        blocking_month, error_text = _first_blocking_quarter_month(quarter_months_list, absence_facts)
-        warning = f"quarter analytics unavailable for employee '{employee_id}', month {blocking_month.isoformat()}: {error_text}"
+        blocking_month = _first_blocking_quarter_month(quarter_months_list, absence_facts)
+        warning = (
+            f"Bilans kwartalny jest niedostępny — brak potwierdzonych danych "
+            f"o nieobecności za {_month_label(blocking_month)}."
+        )
         return _degraded_row(
             employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
             month_data_only, warning,
@@ -133,15 +151,17 @@ def _row_for_employee(
 ) -> EmployeeAnalyticsRow:
     requested_target = targets.get(month)
     if requested_target is None:
-        warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: missing target_hours"
+        warning = f"Brak ustawionego celu godzinowego na {_month_label(month)}."
         return _degraded_row(employee_id, display_name, AnalyticsDataStatus.UNAVAILABLE, None, warning)
 
     try:
         month_only = compute_month_balance(
             employee_id, month, requested_target, assignments, absence_facts, quarter_balance_before=0,
         )
-    except IncompleteAbsenceReferenceError as exc:
-        warning = f"analytics unavailable for employee '{employee_id}', month {month.isoformat()}: {exc}"
+    except IncompleteAbsenceReferenceError:
+        warning = (
+            f"Analityka za {_month_label(month)} jest niedostępna — brak potwierdzonych danych o nieobecności."
+        )
         return _degraded_row(employee_id, display_name, AnalyticsDataStatus.UNAVAILABLE, None, warning)
 
     month_data_only = AnalyticsMonthData(
@@ -153,7 +173,10 @@ def _row_for_employee(
 
     missing_month = next((m for m in quarter_months_list if m not in targets), None)
     if missing_month is not None:
-        warning = f"quarter analytics unavailable for employee '{employee_id}': missing target_hours for {missing_month.isoformat()}"
+        warning = (
+            f"Bilans kwartalny jest niedostępny — brak ustawionego celu "
+            f"godzinowego na {_month_label(missing_month)}."
+        )
         return _degraded_row(
             employee_id, display_name, AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE,
             month_data_only, warning,
