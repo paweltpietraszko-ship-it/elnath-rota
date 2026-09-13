@@ -1,0 +1,88 @@
+ROTA-T065-PRINT-GAP — prebrief audit R1
+Data: 2026-09-13
+BOARD intake: main@5d6ae4d4fe45638de69b7ac06a978e454528093e
+Audit type: finding reality + ownership/reduction + readiness for architect
+
+WYNIK: PASS — Architekt może napisać brief.
+
+Potwierdzenie problemu
+----------------------
+Finding jest realny w aktualnym wspieranym przepływie, nie jest scenariuszem
+opartym na konflikcie danych syntetycznych:
+- T065 jawnie wyłączył sklepowy PDF do osobnego późniejszego Tasku;
+- `schedule_export._map_work_code()` wymaga ochroniarskiej rodziny D/N oraz
+  dokładnego kodu/interwału;
+- zwykła zmiana ORDINARY o dowolnej pełnogodzinnej długości może kończyć się
+  `WORK_CODE_MAPPING_REQUIRED`;
+- obecny model komórki, legendy, absencji oraz `PrintSettings` jest oparty na
+  D1-D5/N1-N5/U1-U5/C1-C5 i nie niesie prezentacji `required_role`.
+
+Istnieją wystarczające dane źródłowe
+------------------------------------
+T065 zachowuje w wersjonowanym `ShiftDemand` konkretne start/end i opcjonalne
+`required_role`, a `Assignment.covers_demand_id` łączy przydział z demandem.
+Nie potrzeba nowej tabeli grafiku, nowego solvera, snapshotu bieżącego
+membership ani wspólnej bazy pracowników między obiektami.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE — granice briefu
+--------------------------------------------------
+1. Jeden istniejący entry point i lifecycle eksportu:
+   `generate_schedule_pdf`, wybór current ScheduleVersion, lineage,
+   świeża walidacja LAW, fingerprint/acknowledgement, race check, revision,
+   zapis/pobranie PDF oraz obsługa błędów pozostają wspólne.
+
+2. Rozgałęzienie wyłącznie prezentacyjne po `site.planning_regime`:
+   - OCHRONA zachowuje obecny kontrakt kodów i zaakceptowany layout;
+   - ORDINARY buduje komórki z realnych przedziałów czasu i snapshotu roli;
+   - nie powstaje drugi endpoint, drugi pipeline eksportu ani alternatywne
+     naliczanie czasu pracy.
+
+3. Dane historyczne:
+   role na wydruku należy brać z wersjonowanego `ShiftDemand.required_role`,
+   nie z bieżącego `SiteMembership.allowed_roles`, aby zmiana dzisiejszej
+   obsady nie zmieniała ponownego wydruku dawnego miesiąca.
+
+4. Godziny i absencje:
+   renderer może mieć inną reprezentację tekstową dla ORDINARY, ale nie może
+   implementować własnego bilansu. Sumy i typy absencji muszą korzystać z
+   istniejących kanonicznych danych/faktów wykorzystywanych przez T020.
+
+5. `SitePrintSettings`:
+   wspólne pola nagłówka pozostają wspólne. Ochroniarskie
+   `base_regime/work_code_intervals/reserve_hours` nie mogą być wymagane ani
+   pokazywane jako konfiguracja ORDINARY. Architekt ma wybrać minimalne
+   regime-aware rozszerzenie istniejącego właściciela, nie drugi magazyn
+   ustawień.
+
+Decyzje wizualne wymagające checkpointu OWNERA
+----------------------------------------------
+Architekt może przygotować brief, ale przed zamrożeniem implementacji musi
+pokazać OWNEROWI rzeczywistą próbkę PDF ORDINARY obejmującą co najmniej:
+- pracownika wykonującego różne role w różnych dniach;
+- brak roli na części zmian (role są opcjonalne);
+- dwie legalne zmiany jednego pracownika tego samego dnia;
+- zmianę przechodzącą przez północ;
+- urlop, L4 i dzień bez pracy;
+- podział na więcej niż jedną stronę.
+
+Próbka ma rozstrzygnąć user-visible szczegóły, których nie wolno architektowi
+uznać samodzielnie za decyzję OWNERA:
+- dokładny zapis roli przy godzinach oraz zachowanie przy braku roli;
+- separator/kolejność wielu przedziałów w jednej komórce;
+- czy ORDINARY nadal pokazuje osobne wiersze PLAN/WYK;
+- dokładne słowa/skróty absencji i wygląd podsumowań;
+- które elementy nagłówka/stopki/legendy pozostają wspólne.
+
+WHERE_MAP
+---------
+Finding zawiera wynik `where.py --symbol EmployeeRole`. Do briefu należy dodać
+REQUIRED dla rzeczywiście zmienianych ownerów, co najmniej:
+- `rota/application/schedule_export.py` — assembly/model/cell mapping/render;
+- właściciel `SitePrintSettings` i jego API/UI, jeśli brief je zmienia.
+
+Wniosek
+-------
+Architekt ma wystarczający opis realnego problemu, istniejące źródła danych i
+bezpieczną granicę odpowiedzialności, aby napisać brief. Nie musi szukać nowej
+biblioteki ani projektować drugiego systemu wydruku. Implementacja pozostaje
+HOLD do audytu briefu i akceptacji optycznego checkpointu przez OWNERA.
