@@ -6,6 +6,7 @@ SOURCE:
 - `ROTA-T065-PANEL-CLEANUP` finding A
 - audit R1 `tasks/ROTA-T065-ORDINARY-TIME-AVAILABILITY/round_01/tests/tests_r1.txt`
 - OWNER ruling `main@4f59a4e` / `tests_r2.txt`
+- BOARD finding `ROTA-T065-DECISION-GUIDANCE-GAP`
 - OWNER real case: pracownik przez wskazany tydzień jest niedostępny na ranne godziny, np. przed 12:00
 - istniejący append-only `AvailabilityRecord`, eligibility, validator, EmployeeDetail/matrix
 
@@ -79,7 +80,7 @@ KRYTYCZNE:
 
 `SiteMembership.can_work_24h` **NIGDY nie uczestniczy w eligibility ORDINARY**, nawet jeśli techniczny `catalog_kind == H24` albo obiekt działa 24/7.
 
-Warunek `SHIFT-24-01` pozostaje wyłącznie semantyką OCHRONA.
+Warunek `SHIFT-24-01` pozostaje wyłącznie semantyką OCHRONA. W ORDINARY nie jest emitowany, więc `decision_guidance.py` nie może również oferować ochroniarskiej akcji `Zmień 24` dla tego reżimu.
 
 Analogicznie `day_only` i D/N-specific SiteRules nie mogą blokować ORDINARY tylko dlatego, że techniczny katalog ma D/N lub zmianę nocną. Istniejące poprawki T065 `dn_semantics_apply()` pozostają jednym właścicielem tej granicy.
 
@@ -109,7 +110,19 @@ LOCAL i EXTERNAL_SUPPORT przechodzą dokładnie ten sam gate. External nie dosta
 
 Nie dodawać drugiego passu solvera ani fallbacku.
 
-## 8. Manual correction
+## 8. Coordinator guidance — istniejący owner
+
+`rota/planning/decision_guidance.py` pozostaje jedyną warstwą tłumaczącą raw blocker na komunikat koordynatora.
+
+Dla `UNAVAILABLE_TIME-01` dodaje dedykowaną, nie-ochroniarską prezentację:
+- condition text: `Koliduje z dostępnością godzinową`;
+- action: `Zmień dostępność godzinową: {names}` z `target="obsada"`.
+
+Guidance nie przelicza overlapu i nie tworzy nowej decyzji — tylko prezentuje blocker już policzony przez eligibility/engine.
+
+`SHIFT-24-01` nie potrzebuje ORDINARY wariantu tekstu, ponieważ po poprawnym regime gate w ogóle nie jest blockerem ORDINARY. Ochroniarski tekst `Zmień 24` pozostaje dla OCHRONA bez zmian.
+
+## 9. Manual correction
 
 Manual correction nie dostaje drugiej logiki dostępności.
 
@@ -119,7 +132,7 @@ Ten Task nie zmienia ogólnej zasady produktu, że świadoma Manual Correction m
 
 `ROTA-T065-MANUAL-MIDDLE-SHIFT` ma twardą zależność od tego gate'u.
 
-## 9. Persistence / API validation
+## 10. Persistence / API validation
 
 Write boundary dla `UNAVAILABLE_TIME_WINDOW` wymaga:
 - `start_date <= end_date`;
@@ -130,7 +143,7 @@ Write boundary dla `UNAVAILABLE_TIME_WINDOW` wymaga:
 
 Błąd overnight/shape ma być odrzucony przed PLAN, nie dopiero przez solver.
 
-## 10. Acceptance
+## 11. Acceptance
 
 TA-01 — zapis/odczyt append-only `UNAVAILABLE_TIME_WINDOW` zachowuje daty i godziny po restarcie.
 
@@ -142,17 +155,19 @@ TA-04 — write/API odrzuca `20:00–06:00` jako unsupported overnight window.
 
 TA-05 — `can_work_24h=False` nie blokuje żadnego demandu ORDINARY wyłącznie z powodu `catalog_kind=H24`; OCHRONA zachowuje `SHIFT-24-01`.
 
-TA-06 — LOCAL i EXTERNAL_SUPPORT mają identyczny hourly-availability gate.
+TA-06 — DECISION_REQUIRED dla `UNAVAILABLE_TIME-01` pokazuje `Koliduje z dostępnością godzinową` i akcję `Zmień dostępność godzinową`, nigdy `Zmień 24`/`Nocka`.
 
-TA-07 — manual validator wykrywa ten sam overlap tym samym oraclem; nie istnieje drugi algorytm.
+TA-07 — LOCAL i EXTERNAL_SUPPORT mają identyczny hourly-availability gate.
 
-TA-08 — EmployeeDetail ORDINARY nadal pokazuje całodniową niedostępność/L4/urlop i nowe okna godzinowe; ukrycie D/N/24h nie usuwa ogólnych kontrolek dostępności.
+TA-08 — manual validator wykrywa ten sam overlap tym samym oraclem; nie istnieje drugi algorytm.
 
-TA-09 — późniejsza edycja katalogu zmian nie zmienia znaczenia zapisanego okna; jest ono oceniane na realnym przedziale pracy.
+TA-09 — EmployeeDetail ORDINARY nadal pokazuje całodniową niedostępność/L4/urlop i nowe okna godzinowe; ukrycie D/N/24h nie usuwa ogólnych kontrolek dostępności.
 
-TA-10 — OCHRONA regression unchanged.
+TA-10 — późniejsza edycja katalogu zmian nie zmienia znaczenia zapisanego okna; jest ono oceniane na realnym przedziale pracy.
 
-## 11. WHERE_MAP
+TA-11 — OCHRONA regression unchanged, w tym dotychczasowy guidance `SHIFT-24-01`.
+
+## 12. WHERE_MAP
 
 WHERE_MAP: REQUIRED
 - `rota/domain.py` :: `AvailabilityKind`, `AvailabilityRecord.start_time/end_time` — minimalne rozszerzenie istniejącej domeny.
@@ -161,6 +176,7 @@ WHERE_MAP: REQUIRED
 - `rota/planning/availability.py` :: NOWY pojedynczy pure interval-overlap oracle dla hourly window.
 - `rota/planning/eligibility.py` :: użycie oracle + jawny regime guard wyłączający `can_work_24h` dla ORDINARY.
 - `rota/planning/validator.py` :: użycie tego samego oracle, bez kopii obliczeń.
+- `rota/planning/decision_guidance.py` :: prezentacja `UNAVAILABLE_TIME-01`; żadnego ORDINARY `Zmień 24`.
 - `rota/application/availability_matrix.py` :: dołączenie hourly windows do istniejącego read modelu, zachowanie full-day/general weekday facts.
 - `rota/application/durable_inputs.py` :: istniejący audytowalny write path Availability.
 - `api/routers/roster.py` :: EmployeeDetail read/serialization `start_time/end_time`.
@@ -168,7 +184,7 @@ WHERE_MAP: REQUIRED
 - `frontend/src/screens/EmployeeDetail.tsx` :: regime-aware UI; hourly window + zachowane ogólne ograniczenia.
 - `frontend/src/api/client.ts` :: pola API.
 
-## 12. TASK_SCOPE
+## 13. TASK_SCOPE
 
 TASK_SCOPE:
 - tasks/ROTA-T065-ORDINARY-TIME-AVAILABILITY/**
@@ -178,6 +194,7 @@ TASK_SCOPE:
 - rota/planning/availability.py
 - rota/planning/eligibility.py
 - rota/planning/validator.py
+- rota/planning/decision_guidance.py
 - rota/application/availability_matrix.py
 - rota/application/durable_inputs.py
 - api/routers/roster.py
@@ -189,8 +206,8 @@ TASK_SCOPE:
 - tests/test_t021b_employee_matrix_wrappers.py
 - tests/test_t065_ordinary_roles.py
 
-## 13. HOLD
+## 14. HOLD
 
 IMPLEMENTATION HOLD do preimplementation PASS Codexa na dokładnym SHA tego briefu.
 
-Codex ma w wąskim re-checku sprawdzić przede wszystkim: jeden Availability owner, jeden overlap oracle, explicit overnight rejection, bezwarunkowe wyłączenie `can_work_24h` w ORDINARY oraz brak regresji ogólnych kontrolek dostępności.
+Codex ma w wąskim re-checku sprawdzić przede wszystkim: jeden Availability owner, jeden overlap oracle, explicit overnight rejection, bezwarunkowe wyłączenie `can_work_24h` w ORDINARY, poprawny coordinator guidance oraz brak regresji ogólnych kontrolek dostępności.
