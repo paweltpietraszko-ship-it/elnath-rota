@@ -15,11 +15,17 @@ import asyncio
 import sys
 
 from fastapi_users.exceptions import UserAlreadyExists, UserNotExists
+from sqlalchemy import select
 
 from api.auth.db import AccountMapping, create_auth_db_and_tables, get_user_db, session_maker
 from api.auth.manager import UserManager
 from api.auth.schemas import UserCreate, UserUpdate
 from api.config import ACCOUNTS_DB_DIR, IS_CENTRAL_SERVICE
+
+
+class DbFilenameAlreadyInUse(Exception):
+    """R4-01: db_filename is the owning boundary between accounts -- two
+    accounts must never be able to read/write the same domain database."""
 
 
 async def _user_manager(session):
@@ -32,6 +38,13 @@ async def create_account(email: str, password: str, coordinator_id: str, db_file
     await create_auth_db_and_tables()
     ACCOUNTS_DB_DIR.mkdir(parents=True, exist_ok=True)
     async with session_maker()() as session:
+        existing = await session.scalar(
+            select(AccountMapping).where(AccountMapping.db_filename == db_filename)
+        )
+        if existing is not None:
+            raise DbFilenameAlreadyInUse(
+                f"db_filename {db_filename!r} is already assigned to another account"
+            )
         manager = await _user_manager(session)
         try:
             user = await manager.create(UserCreate(email=email, password=password), safe=False)

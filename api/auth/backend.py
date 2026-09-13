@@ -15,7 +15,7 @@ from fastapi_users.authentication import AuthenticationBackend, CookieTransport,
 
 from api.auth.manager import UserManager, get_user_manager
 from api.auth.models import User
-from api.auth.schemas import UserRead, UserUpdate
+from api.auth.schemas import PasswordChangeRequest, UserRead, UserUpdate
 from api.config import AUTH_SECRET
 
 COOKIE_MAX_AGE_SECONDS = 60 * 60 * 8  # 8h session -- ordinary workday length, no "remember me"
@@ -64,13 +64,14 @@ async def read_current_user(user: User = Depends(current_active_user)) -> User:
 
 @me_router.patch("/me/password", response_model=UserRead)
 async def change_own_password(
-    payload: UserUpdate,
+    payload: PasswordChangeRequest,
     user: User = Depends(current_active_user),
     user_manager: UserManager = Depends(get_user_manager),
 ) -> User:
-    # brief section 4/T24-8: delegates hashing/update entirely to the
-    # library's own UserManager -- no Rota-side password logic. `safe=True`
-    # means the caller can never smuggle in is_superuser/is_active/email
-    # changes through this endpoint, only the fields UserUpdate's "safe"
-    # variant permits (password is one of them).
-    return await user_manager.update(payload, user, safe=True)
+    # R4-02 fix: the public payload model (PasswordChangeRequest,
+    # extra="forbid") is password-only and rejects any other field outright --
+    # `UserUpdate`'s safe=True does NOT block email, so accepting it
+    # directly let a password-only endpoint silently change the login
+    # email. The actual hash/update still delegates entirely to the
+    # library's own UserManager -- no Rota-side password logic.
+    return await user_manager.update(UserUpdate(password=payload.password), user, safe=True)
