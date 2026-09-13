@@ -15,8 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.config import DEV_COORDINATOR_ID
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from api.routers.schedule import _deviation_label
 from rota.application.durable_inputs import save_monthly_extra_work_codes, save_print_settings
@@ -146,13 +145,13 @@ def _settings_out(s: SitePrintSettings) -> SitePrintSettingsOut:
 
 
 @router.get("/sites/{site_id}/print-settings", response_model=SitePrintSettingsOut | None)
-def get_print_settings(site_id: str, conn=Depends(get_conn)) -> SitePrintSettingsOut | None:
+def get_print_settings(site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> SitePrintSettingsOut | None:
     settings = get_site_print_settings(conn, site_id)
     return _settings_out(settings) if settings else None
 
 
 @router.put("/sites/{site_id}/print-settings", status_code=204)
-def put_print_settings(site_id: str, payload: SitePrintSettingsIn, conn=Depends(get_conn)) -> None:
+def put_print_settings(site_id: str, payload: SitePrintSettingsIn, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     settings = SitePrintSettings(
         site_id=site_id, company_print_name=payload.company_print_name, site_print_name=payload.site_print_name,
         base_regime=payload.base_regime,
@@ -172,7 +171,7 @@ def put_print_settings(site_id: str, payload: SitePrintSettingsIn, conn=Depends(
         ),
     )
     try:
-        save_print_settings(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, settings=settings)
+        save_print_settings(conn, coordinator_id=coordinator_id, site_id=site_id, settings=settings)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -191,7 +190,7 @@ class MonthlyExtraWorkCodesIn(BaseModel):
     "/sites/{site_id}/print-settings/{month}/extra-work-codes",
     response_model=MonthlyExtraWorkCodesOut,
 )
-def get_monthly_extra_work_codes(site_id: str, month: date, conn=Depends(get_conn)) -> MonthlyExtraWorkCodesOut:
+def get_monthly_extra_work_codes(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> MonthlyExtraWorkCodesOut:
     codes = get_site_monthly_extra_work_codes(conn, site_id, month)
     return MonthlyExtraWorkCodesOut(
         codes={
@@ -203,20 +202,19 @@ def get_monthly_extra_work_codes(site_id: str, month: date, conn=Depends(get_con
 
 @router.put("/sites/{site_id}/print-settings/{month}/extra-work-codes", status_code=204)
 def put_monthly_extra_work_codes(
-    site_id: str, month: date, payload: MonthlyExtraWorkCodesIn, conn=Depends(get_conn),
-) -> None:
+    site_id: str, month: date, payload: MonthlyExtraWorkCodesIn, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     codes = {
         code: WorkCodeInterval(start_time=v.start_time, end_time=v.end_time, end_next_day=v.end_next_day)
         for code, v in payload.codes.items()
     }
     try:
-        save_monthly_extra_work_codes(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, month=month, codes=codes)
+        save_monthly_extra_work_codes(conn, coordinator_id=coordinator_id, site_id=site_id, month=month, codes=codes)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
 
 @router.post("/sites/{site_id}/schedule/{month}/export", response_model=ExportResultOut)
-def post_export(site_id: str, month: date, payload: ExportRequest, conn=Depends(get_conn)) -> ExportResultOut:
+def post_export(site_id: str, month: date, payload: ExportRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> ExportResultOut:
     try:
         result = generate_schedule_pdf(
             conn, site_id=site_id, month=month, period_label=payload.period_label,

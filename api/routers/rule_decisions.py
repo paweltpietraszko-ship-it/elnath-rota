@@ -11,8 +11,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from api.config import DEV_COORDINATOR_ID
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application.rule_decisions import (
     create_day_only_n_exception,
@@ -47,10 +46,10 @@ class CreateShiftUnavailabilityRequest(BaseModel):
 
 
 @router.post("/{employee_id}/matrix/shift-unavailability", status_code=204)
-def create_shift_unavailability(employee_id: str, payload: CreateShiftUnavailabilityRequest, conn=Depends(get_conn)) -> None:
+def create_shift_unavailability(employee_id: str, payload: CreateShiftUnavailabilityRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         create_employee_shift_unavailability(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, employee_id=employee_id,
             shift_kind=ShiftKind(payload.shift_kind),
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
@@ -68,10 +67,10 @@ class CreateWeekdayUnavailabilityRequest(BaseModel):
 
 
 @router.post("/{employee_id}/matrix/weekday-unavailability", status_code=204)
-def create_weekday_unavailability(employee_id: str, payload: CreateWeekdayUnavailabilityRequest, conn=Depends(get_conn)) -> None:
+def create_weekday_unavailability(employee_id: str, payload: CreateWeekdayUnavailabilityRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         create_employee_weekday_unavailability(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, employee_id=employee_id,
             iso_weekday=payload.iso_weekday,
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
@@ -88,10 +87,10 @@ class CreateDayOnlyExceptionRequest(BaseModel):
 
 
 @router.post("/{employee_id}/matrix/day-only-exception", status_code=204)
-def create_day_only_exception(employee_id: str, payload: CreateDayOnlyExceptionRequest, conn=Depends(get_conn)) -> None:
+def create_day_only_exception(employee_id: str, payload: CreateDayOnlyExceptionRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         create_day_only_n_exception(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, employee_id=employee_id,
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -107,10 +106,10 @@ class UpdateMatrixRuleRequest(BaseModel):
 
 
 @router.patch("/{employee_id}/matrix/{rule_id}", status_code=204)
-def update_matrix_rule(employee_id: str, rule_id: str, payload: UpdateMatrixRuleRequest, conn=Depends(get_conn)) -> None:
+def update_matrix_rule(employee_id: str, rule_id: str, payload: UpdateMatrixRuleRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         update_employee_matrix_rule_period(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, rule_id=rule_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, rule_id=rule_id,
             effective_from=date.fromisoformat(payload.effective_from), effective_to=_parse_optional_date(payload.effective_to),
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -125,10 +124,10 @@ class EndMatrixRuleRequest(BaseModel):
 
 
 @router.post("/{employee_id}/matrix/{rule_id}/end-early", status_code=204)
-def end_matrix_rule_early(employee_id: str, rule_id: str, payload: EndMatrixRuleRequest, conn=Depends(get_conn)) -> None:
+def end_matrix_rule_early(employee_id: str, rule_id: str, payload: EndMatrixRuleRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         end_employee_matrix_rule_early(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, rule_id=rule_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, rule_id=rule_id,
             effective_from=date.fromisoformat(payload.effective_from),
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )

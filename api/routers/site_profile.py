@@ -13,8 +13,7 @@ from datetime import time
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from api.config import DEV_COORDINATOR_ID
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application.durable_inputs import update_site_profile
 from rota.domain import ShiftKind, StandardShift
@@ -56,7 +55,7 @@ def _shift_out(shift: StandardShift) -> ShiftRowOut:
 
 
 @router.get("/{site_id}/shift-catalog", response_model=ShiftCatalogOut)
-def get_shift_catalog(site_id: str, conn=Depends(get_conn)) -> ShiftCatalogOut:
+def get_shift_catalog(site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> ShiftCatalogOut:
     try:
         site = get_site(conn, site_id)
         profile = get_site_profile(conn, site.profile_id)
@@ -121,7 +120,7 @@ def _build_shift(row: ShiftRowIn) -> StandardShift:
 
 
 @router.put("/{site_id}/shift-catalog", status_code=204)
-def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_conn)) -> None:
+def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         if not payload.shifts:
             raise ValueError("shift catalog must contain at least one shift")
@@ -132,7 +131,7 @@ def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_co
         current_profile = get_site_profile(conn, site.profile_id)
         updated_profile = replace(current_profile, standard_shifts=shifts)
         update_site_profile(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, profile=updated_profile,
+            conn, coordinator_id=coordinator_id, site_id=site_id, profile=updated_profile,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:

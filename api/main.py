@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from api.config import IS_CENTRAL_SERVICE
 from api.errors import to_http_exception
 from api.routers import (
     analytics, backup, bootstrap, calendar, decisions, durable_inputs, export, history, manual_edit, overview,
@@ -23,6 +24,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if IS_CENTRAL_SERVICE:
+    # ROTA-T024-TESTER-LOGIN-ISOLATION (brief.md section 3): login/logout
+    # (library-owned) + the thin current-user/change-password endpoints
+    # (brief's reduction gate -- never the library's full get_users_router,
+    # which also exposes email-change and admin /{user_id} endpoints).
+    # Mounted ONLY for CENTRAL_SERVICE -- LOCAL_WINDOWS has no login screen
+    # and no auth surface at all (brief section 9/11).
+    from api.auth.backend import auth_router, me_router
+    from api.auth.db import create_auth_db_and_tables
+
+    app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+    app.include_router(me_router, prefix="/api")
+
+    @app.on_event("startup")
+    async def _create_auth_tables() -> None:
+        await create_auth_db_and_tables()
 
 app.include_router(bootstrap.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
