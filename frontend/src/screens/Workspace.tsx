@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, CalendarDayOut, SiteSummary } from "../api/client";
+import { api, authApi, CalendarDayOut, SiteSummary } from "../api/client";
 import { translateMissingReason } from "../api/completeness";
 
 type FilterChip = "ALL" | "DECISION_REQUIRED" | "CONFIG_INCOMPLETE";
@@ -18,6 +18,12 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
   const [creatingRegime, setCreatingRegime] = useState<Regime | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
   const [removedSites, setRemovedSites] = useState<SiteSummary[]>([]);
+  // ROTA-T024-TESTER-LOGIN-ISOLATION brief.md section 10: "prosta akcja
+  // Zmień hasło" -- no account management panel, just this one action.
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [busySiteId, setBusySiteId] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
@@ -295,6 +301,60 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
               </button>
             </div>
           </div>
+
+          {__CENTRAL_SERVICE__ && (
+            <div className="utility-panel">
+              <div>
+                <h3>Konto</h3>
+                {passwordMessage && <p>{passwordMessage}</p>}
+              </div>
+              <div className="utility-panel-actions">
+                {showChangePassword ? (
+                  <>
+                    <input
+                      type="password"
+                      placeholder="Nowe hasło"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                    <button
+                      className="btn-primary"
+                      disabled={passwordSaving || newPassword.length === 0}
+                      onClick={async () => {
+                        setPasswordSaving(true);
+                        setPasswordMessage(null);
+                        try {
+                          await authApi.changePassword(newPassword);
+                          setNewPassword("");
+                          setShowChangePassword(false);
+                          setPasswordMessage("Hasło zmienione.");
+                        } catch (e) {
+                          setPasswordMessage(String((e as Error).message ?? e));
+                        } finally {
+                          setPasswordSaving(false);
+                        }
+                      }}
+                    >
+                      {passwordSaving ? "Zapisywanie…" : "Zapisz nowe hasło"}
+                    </button>
+                    <button className="btn-ghost" onClick={() => setShowChangePassword(false)}>
+                      Anuluj
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn-secondary" onClick={() => setShowChangePassword(true)}>
+                    Zmień hasło
+                  </button>
+                )}
+                <button
+                  className="btn-ghost"
+                  onClick={() => authApi.logout().finally(() => window.location.reload())}
+                >
+                  Wyloguj
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

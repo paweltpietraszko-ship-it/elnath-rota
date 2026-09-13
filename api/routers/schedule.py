@@ -12,9 +12,8 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.config import DEV_COORDINATOR_ID
 from api.decision_payload import DecisionRequiredPayloadOut, decision_payload_out
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from api.runtime_log import log_runtime_error
 from rota.application.assembler import assemble_planning_state
@@ -250,7 +249,7 @@ def _planning_result_out(conn, result, *, operation: str) -> PlanningResultOut:
 
 
 @router.get("/{site_id}/schedule/months", response_model=MonthsOut)
-def get_months(site_id: str, conn=Depends(get_conn)) -> MonthsOut:
+def get_months(site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> MonthsOut:
     try:
         months = months_with_schedule(conn, site_id=site_id)
         return MonthsOut(months=[m.isoformat() for m in months])
@@ -259,7 +258,7 @@ def get_months(site_id: str, conn=Depends(get_conn)) -> MonthsOut:
 
 
 @router.get("/{site_id}/schedule/{month}", response_model=MonthViewOut)
-def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut:
+def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> MonthViewOut:
     try:
         view = open_month(conn, site_id=site_id, month=month)
         current = get_current_schedule_snapshot(conn, site_id=site_id, month=month)
@@ -334,7 +333,7 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn)) -> MonthViewOut
 
 
 @router.get("/{site_id}/schedule/{month}/precheck", response_model=PrecheckOut)
-def get_precheck(site_id: str, month: date, conn=Depends(get_conn)) -> PrecheckOut:
+def get_precheck(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> PrecheckOut:
     try:
         state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
         result = precheck(state)
@@ -354,7 +353,7 @@ class PlanRequest(BaseModel):
 
 
 @router.post("/{site_id}/schedule/{month}/plan", response_model=PlanningResultOut)
-def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_conn)) -> PlanningResultOut:
+def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> PlanningResultOut:
     try:
         effective_from = _parse_date(payload.effective_from) if payload.effective_from else None
         # R1-5 (round-1 audit): raised here as ValueError (caller-input class,
@@ -364,7 +363,7 @@ def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_
         if effective_from is None and get_current_version_id(conn, site_id=site_id, month=month) is None:
             raise ValueError("effective_from is required to create the first schedule version")
         result = plan_month(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result, operation="PLAN")
@@ -408,11 +407,11 @@ class SelectCandidateRequest(BaseModel):
 
 
 @router.post("/{site_id}/schedule/{month}/select-candidate", status_code=204)
-def post_select_candidate(site_id: str, month: date, payload: SelectCandidateRequest, conn=Depends(get_conn)) -> None:
+def post_select_candidate(site_id: str, month: date, payload: SelectCandidateRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         candidate = [_assignment_from_in(a) for a in payload.candidate]
         select_candidate(
-            conn, site_id=site_id, month=month, candidate=candidate, coordinator_id=DEV_COORDINATOR_ID,
+            conn, site_id=site_id, month=month, candidate=candidate, coordinator_id=coordinator_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
@@ -420,11 +419,11 @@ def post_select_candidate(site_id: str, month: date, payload: SelectCandidateReq
 
 
 @router.post("/{site_id}/schedule/{month}/plan-preview/reject", status_code=204)
-def post_reject_plan_preview(site_id: str, month: date, conn=Depends(get_conn)) -> None:
+def post_reject_plan_preview(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """ROTA-T054 (brief section 5, "ODRZUĆ WYNIK"): explicit coordinator
     rejection of the current unaccepted PLAN/REPLAN preview."""
     try:
-        reject_plan_preview(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
+        reject_plan_preview(conn, site_id=site_id, month=month, coordinator_id=coordinator_id)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -437,11 +436,11 @@ class ReplanRequest(BaseModel):
 
 
 @router.post("/{site_id}/schedule/{month}/replan", response_model=PlanningResultOut)
-def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(get_conn)) -> PlanningResultOut:
+def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> PlanningResultOut:
     try:
         effective_from = _parse_date(payload.effective_from)
         result = replan(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, effective_from=effective_from,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
         return _planning_result_out(conn, result, operation="REPLAN")
@@ -456,14 +455,13 @@ class ReplanRetryRequest(BaseModel):
 
 @router.post("/{site_id}/schedule/{month}/replan/wider-search", response_model=PlanningResultOut)
 def post_replan_wider_search(
-    site_id: str, month: date, payload: ReplanRetryRequest = ReplanRetryRequest(), conn=Depends(get_conn),
-) -> PlanningResultOut:
+    site_id: str, month: date, payload: ReplanRetryRequest = ReplanRetryRequest(), conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> PlanningResultOut:
     """Step 2 ("Szukaj szerzej") of the agreed two-step REPLAN flow -- only
     meaningful after a NARROW_SEARCH_EXHAUSTED result from /replan, and only
     on the coordinator's explicit choice. Creates no new ScheduleVersion."""
     try:
         result = replan_wider_search(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result, operation="REPLAN")
@@ -473,15 +471,14 @@ def post_replan_wider_search(
 
 @router.post("/{site_id}/schedule/{month}/replan/retry", response_model=PlanningResultOut)
 def post_replan_retry(
-    site_id: str, month: date, payload: ReplanRetryRequest = ReplanRetryRequest(), conn=Depends(get_conn),
-) -> PlanningResultOut:
+    site_id: str, month: date, payload: ReplanRetryRequest = ReplanRetryRequest(), conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> PlanningResultOut:
     """Integration audit (2026-08-26), point 6: retries the narrow (step 1)
     stage on the SAME CURRENT WORKING child replan() already created, after
     a SEARCH_INCOMPLETE result -- never calls replan() again, which would
     create another child version."""
     try:
         result = replan_retry_narrow(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result, operation="REPLAN")
@@ -490,9 +487,9 @@ def post_replan_retry(
 
 
 @router.post("/{site_id}/schedule/{month}/revalidate", status_code=204)
-def post_revalidate(site_id: str, month: date, conn=Depends(get_conn)) -> None:
+def post_revalidate(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
-        revalidate(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
+        revalidate(conn, site_id=site_id, month=month, coordinator_id=coordinator_id)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -505,10 +502,10 @@ class FinalizeRequest(BaseModel):
 
 
 @router.post("/{site_id}/schedule/{month}/finalize", status_code=204)
-def post_finalize(site_id: str, month: date, payload: FinalizeRequest, conn=Depends(get_conn)) -> None:
+def post_finalize(site_id: str, month: date, payload: FinalizeRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         finalize(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             acknowledged_deviation_ids=set(payload.acknowledged_deviation_ids), reason=payload.reason,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -524,10 +521,10 @@ class RestoreRequest(BaseModel):
 
 
 @router.post("/{site_id}/schedule/{month}/restore", status_code=204)
-def post_restore(site_id: str, month: date, payload: RestoreRequest, conn=Depends(get_conn)) -> None:
+def post_restore(site_id: str, month: date, payload: RestoreRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         restore(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, version_id=payload.version_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
@@ -541,7 +538,7 @@ class VersionSnapshotOut(BaseModel):
 
 
 @router.get("/{site_id}/schedule/{month}/versions/{version_id}", response_model=VersionSnapshotOut)
-def get_version_snapshot(site_id: str, month: date, version_id: str, conn=Depends(get_conn)) -> VersionSnapshotOut:
+def get_version_snapshot(site_id: str, month: date, version_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> VersionSnapshotOut:
     """ROTA-T057 follow-up (owner finding 2026-09-07): read-only view of an
     older, non-current version's content -- "Podglad" for a live month,
     where restore is refused (see restore_schedule_version). Never touches
@@ -568,18 +565,18 @@ class ExcludeFromHistoryRequest(BaseModel):
 
 
 @router.post("/{site_id}/schedule/{month}/exclude-from-history", status_code=204)
-def post_exclude_from_history(site_id: str, month: date, payload: ExcludeFromHistoryRequest, conn=Depends(get_conn)) -> None:
+def post_exclude_from_history(site_id: str, month: date, payload: ExcludeFromHistoryRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         exclude_from_history(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, version_id=payload.version_id,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, version_id=payload.version_id,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
 
 @router.post("/{site_id}/schedule/{month}/delete-current", status_code=204)
-def post_delete_current_version(site_id: str, month: date, conn=Depends(get_conn)) -> None:
+def post_delete_current_version(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
-        delete_current_version(conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID)
+        delete_current_version(conn, site_id=site_id, month=month, coordinator_id=coordinator_id)
     except Exception as exc:
         raise to_http_exception(exc) from exc

@@ -12,8 +12,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from api.config import DEV_COORDINATOR_ID
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application.durable_inputs import (
     add_external_support_window,
@@ -48,11 +47,11 @@ class SetDayRequest(BaseModel):
 
 
 @calendar_router.post("/day", status_code=204)
-def set_day(payload: SetDayRequest, conn=Depends(get_conn)) -> None:
+def set_day(payload: SetDayRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         day_date = date.fromisoformat(payload.date)
         set_calendar_day(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id,
             day=CalendarDay(day_date, payload.holiday),
         )
     except Exception as exc:
@@ -69,14 +68,14 @@ class GenerateMonthResponse(BaseModel):
 
 
 @calendar_router.post("/generate", response_model=GenerateMonthResponse)
-def generate_month(payload: GenerateMonthRequest, conn=Depends(get_conn)) -> GenerateMonthResponse:
+def generate_month(payload: GenerateMonthRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> GenerateMonthResponse:
     """ROTA-T064: fill-missing-only batch generation for one month, PL
     public holidays via the `holidays` library. Never overwrites an
     existing CalendarDay (manual correction or earlier generate)."""
     try:
         month_str = payload.month if len(payload.month) > 7 else f"{payload.month}-01"
         month_date = date.fromisoformat(month_str)
-        created = generate_calendar_month(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, month=month_date)
+        created = generate_calendar_month(conn, coordinator_id=coordinator_id, site_id=payload.site_id, month=month_date)
         return GenerateMonthResponse(created=created)
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -96,10 +95,10 @@ class CreateEmployeeRequest(BaseModel):
 
 
 @roster_router.post("/employees", status_code=204)
-def create_employee(payload: CreateEmployeeRequest, conn=Depends(get_conn)) -> None:
+def create_employee(payload: CreateEmployeeRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         update_employee(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id,
             employee=Employee(payload.employee_id, payload.display_name, date.today(), None, payload.day_only),
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -113,14 +112,14 @@ class UpdateDayOnlyRequest(BaseModel):
 
 
 @roster_router.patch("/employees/{employee_id}", status_code=204)
-def update_day_only(employee_id: str, payload: UpdateDayOnlyRequest, conn=Depends(get_conn)) -> None:
+def update_day_only(employee_id: str, payload: UpdateDayOnlyRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """Reads the employee's current record first and resubmits every
     field unchanged except day_only (brief.md section 5.1, round-7
     R7-2) -- never blanks display_name/active_from/active_to."""
     try:
         current = get_employee(conn, employee_id)
         update_employee(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id,
             employee=Employee(current.employee_id, current.display_name, current.active_from, current.active_to, payload.day_only),
         )
     except Exception as exc:
@@ -142,7 +141,7 @@ class AttachRosterRequest(BaseModel):
 
 
 @roster_router.post("/sites/{site_id}/roster", status_code=204)
-def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(get_conn)) -> None:
+def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """Shared by "nowy pracownik" (after employee creation) and
     "istniejący pracownik" (re-add a disabled row of either
     membership_kind). Reuses the disabled row's own can_work_24h/
@@ -166,7 +165,7 @@ def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(ge
                 can_work_24h=True,
             )
         update_membership(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership,
+            conn, coordinator_id=coordinator_id, site_id=site_id, membership=membership,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
@@ -182,7 +181,7 @@ class CreateSupportWindowRequest(BaseModel):
 
 
 @roster_router.post("/employees/{employee_id}/support-window", status_code=204)
-def create_support_window(employee_id: str, payload: CreateSupportWindowRequest, conn=Depends(get_conn)) -> None:
+def create_support_window(employee_id: str, payload: CreateSupportWindowRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """OWNER_CORRECTED (2026-08-27): the simplest possible shape -- one
     date range the solver may use this EXTERNAL_SUPPORT person within.
     No list/management screen, no separate feature; add_external_support_window
@@ -197,7 +196,7 @@ def create_support_window(employee_id: str, payload: CreateSupportWindowRequest,
             active=True, allowed_shift_kind=ShiftKind(payload.allowed_shift_kind) if payload.allowed_shift_kind else None,
         )
         add_external_support_window(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, window=window,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, window=window,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
     except Exception as exc:
@@ -210,7 +209,7 @@ class UpdateRosterRequest(BaseModel):
 
 
 @roster_router.patch("/sites/{site_id}/roster/{employee_id}", status_code=204)
-def update_roster_row(site_id: str, employee_id: str, payload: UpdateRosterRequest, conn=Depends(get_conn)) -> None:
+def update_roster_row(site_id: str, employee_id: str, payload: UpdateRosterRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """Remove-from-roster (enabled=False) and the 24h toggle both flow
     through here: read the current row fresh, change only the supplied
     field(s), carry every other field over unchanged (brief.md section
@@ -225,7 +224,7 @@ def update_roster_row(site_id: str, employee_id: str, payload: UpdateRosterReque
             readiness_state=current.readiness_state, readiness_source=current.readiness_source,
             can_work_24h=current.can_work_24h if payload.can_work_24h is None else payload.can_work_24h,
         )
-        update_membership(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, membership=membership)
+        update_membership(conn, coordinator_id=coordinator_id, site_id=site_id, membership=membership)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -248,10 +247,10 @@ class CreateAvailabilityRequest(BaseModel):
 
 
 @roster_router.post("/employees/{employee_id}/availability", status_code=204)
-def create_availability(employee_id: str, payload: CreateAvailabilityRequest, conn=Depends(get_conn)) -> None:
+def create_availability(employee_id: str, payload: CreateAvailabilityRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         append_availability(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id,
             availability_id=payload.availability_id, employee_id=employee_id,
             kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
             end_date=date.fromisoformat(payload.end_date), active=True,
@@ -270,11 +269,10 @@ class UpdateAvailabilityRequest(BaseModel):
 
 @roster_router.patch("/employees/{employee_id}/availability/{availability_id}", status_code=204)
 def update_availability(
-    employee_id: str, availability_id: str, payload: UpdateAvailabilityRequest, conn=Depends(get_conn),
-) -> None:
+    employee_id: str, availability_id: str, payload: UpdateAvailabilityRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         append_availability(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id,
             availability_id=availability_id, employee_id=employee_id,
             kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
             end_date=date.fromisoformat(payload.end_date), active=payload.active,
@@ -293,10 +291,10 @@ class SetTargetHoursRequest(BaseModel):
 
 
 @roster_router.post("/employees/{employee_id}/target-hours", status_code=204)
-def set_employee_target_hours(employee_id: str, payload: SetTargetHoursRequest, conn=Depends(get_conn)) -> None:
+def set_employee_target_hours(employee_id: str, payload: SetTargetHoursRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
         set_target_hours(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=payload.site_id, employee_id=employee_id,
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, employee_id=employee_id,
             month=date.fromisoformat(payload.month), target_hours=payload.target_hours,
         )
     except Exception as exc:

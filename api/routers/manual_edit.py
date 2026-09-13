@@ -14,8 +14,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from api.config import DEV_COORDINATOR_ID
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from api.routers.schedule import AssignmentIn, DeviationOut, _assignment_from_in, _deviation_out
 from rota.application.manual_edit import apply_manual_correction, freeze_or_unfreeze, mark_not_worked
@@ -54,11 +53,10 @@ class ManualCorrectionRequest(BaseModel):
     "/{site_id}/schedule/{month}/manual-correction", response_model=ManualCorrectionResultOut,
 )
 def post_manual_correction(
-    site_id: str, month: date, payload: ManualCorrectionRequest, conn=Depends(get_conn),
-) -> ManualCorrectionResultOut:
+    site_id: str, month: date, payload: ManualCorrectionRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> ManualCorrectionResultOut:
     try:
         version = apply_manual_correction(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             upsert_assignments=[_assignment_from_in(a) for a in payload.upsert_assignments],
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -79,11 +77,10 @@ class FreezeRequest(BaseModel):
     "/{site_id}/schedule/{month}/manual-correction/freeze", response_model=ManualCorrectionResultOut,
 )
 def post_freeze_or_unfreeze(
-    site_id: str, month: date, payload: FreezeRequest, conn=Depends(get_conn),
-) -> ManualCorrectionResultOut:
+    site_id: str, month: date, payload: FreezeRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> ManualCorrectionResultOut:
     try:
         version = freeze_or_unfreeze(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, assignment_id=payload.assignment_id,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, assignment_id=payload.assignment_id,
             frozen=payload.frozen, note=payload.note,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
@@ -103,11 +100,10 @@ class MarkNotWorkedRequest(BaseModel):
     "/{site_id}/schedule/{month}/manual-correction/mark-not-worked", response_model=ManualCorrectionResultOut,
 )
 def post_mark_not_worked(
-    site_id: str, month: date, payload: MarkNotWorkedRequest, conn=Depends(get_conn),
-) -> ManualCorrectionResultOut:
+    site_id: str, month: date, payload: MarkNotWorkedRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> ManualCorrectionResultOut:
     try:
         version = mark_not_worked(
-            conn, site_id=site_id, month=month, coordinator_id=DEV_COORDINATOR_ID, assignment_id=payload.assignment_id,
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, assignment_id=payload.assignment_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
         return _result_out(conn, version)

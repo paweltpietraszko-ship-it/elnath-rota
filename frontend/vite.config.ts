@@ -22,6 +22,13 @@ export default defineConfig({
     // clickable self-failure controls. Only Playwright's own webServer
     // (playwright.config.ts) sets ROTA_E2E_TEST_HOOKS.
     __E2E_TEST_HOOKS__: JSON.stringify(Boolean(process.env.ROTA_E2E_TEST_HOOKS)),
+    // ROTA-T024-TESTER-LOGIN-ISOLATION (brief.md section 10/11): the login
+    // screen only exists for a CENTRAL_SERVICE build -- LOCAL_WINDOWS has
+    // no auth surface on the backend at all (api/main.py mounts it
+    // conditionally), so the frontend must not even attempt it there.
+    // Set at build time for a CENTRAL_SERVICE deployment; never a runtime
+    // toggle a viewer could flip.
+    __CENTRAL_SERVICE__: JSON.stringify(Boolean(process.env.ROTA_CENTRAL_SERVICE)),
   },
   server: {
     port: 5173,

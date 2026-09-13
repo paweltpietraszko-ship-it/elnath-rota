@@ -517,6 +517,15 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
     // no client-side error dictionary: anything outside the contract (a
     // missing header, or a non-string detail) falls back to one neutral
     // Polish message instead of ever risking a raw technical string.
+    if (res.status === 401) {
+      // ROTA-T024-TESTER-LOGIN-ISOLATION brief.md section 10/T24-7: any
+      // expired/missing session on a protected endpoint sends the app
+      // back to the login screen -- App.tsx listens for this event.
+      // Only ever relevant for a CENTRAL_SERVICE build (LOCAL_WINDOWS has
+      // no auth surface, so no endpoint ever returns 401 for this reason).
+      window.dispatchEvent(new Event("rota:unauthorized"));
+      throw new Error("Sesja wygasła. Zaloguj się ponownie.");
+    }
     const isPublicError = res.headers.get("X-Elnath-Public-Error") === "1" && typeof body.detail === "string";
     if (isPublicError) {
       throw new Error(body.detail);
@@ -581,6 +590,40 @@ async function req<T>(path: string, init?: RequestInit, timeoutMs: number = REQU
   });
   return data;
 }
+
+// ROTA-T024-TESTER-LOGIN-ISOLATION: only meaningful for a CENTRAL_SERVICE
+// build (__CENTRAL_SERVICE__). fastapi-users' own login endpoint expects
+// OAuth2PasswordRequestForm (form-encoded username/password), not JSON --
+// bypasses req() rather than special-casing its content type.
+export interface CurrentUserOut {
+  id: string;
+  email: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  is_verified: boolean;
+}
+
+export const authApi = {
+  login: async (email: string, password: string): Promise<void> => {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: email, password }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        body.detail === "LOGIN_BAD_CREDENTIALS" ? "Nieprawidłowy e-mail lub hasło." : "Nie udało się zalogować. Spróbuj ponownie.",
+      );
+    }
+  },
+  logout: async (): Promise<void> => {
+    await fetch("/api/auth/logout", { method: "POST" });
+  },
+  getCurrentUser: () => req<CurrentUserOut>("/auth/me"),
+  changePassword: (password: string) =>
+    req<CurrentUserOut>("/auth/me/password", { method: "PATCH", body: JSON.stringify({ password }) }),
+};
 
 export const api = {
   listSites: (includeInactive = false) =>

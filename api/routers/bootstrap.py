@@ -12,8 +12,7 @@ from dataclasses import replace
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from api.config import DEV_COORDINATOR_ID
-from api.deps import get_conn
+from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application import bootstrap
 from rota.application.durable_inputs import update_site
@@ -46,9 +45,9 @@ class CreateSiteResponse(BaseModel):
     profile_id: str
 
 
-def _site_summary(conn, site) -> SiteSummary:
+def _site_summary(conn, coordinator_id: str, site) -> SiteSummary:
     completeness = bootstrap.coordinator_context_completeness(
-        conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site.site_id,
+        conn, coordinator_id=coordinator_id, site_id=site.site_id,
     )
     months = site_memory.current_decision_required_months_for_site(conn, site_id=site.site_id)
     print_settings = get_site_print_settings(conn, site.site_id)
@@ -65,7 +64,9 @@ def _site_summary(conn, site) -> SiteSummary:
 
 
 @router.get("/sites", response_model=list[SiteSummary])
-def list_sites(include_inactive: bool = False, conn=Depends(get_conn)) -> list[SiteSummary]:
+def list_sites(
+    include_inactive: bool = False, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id),
+) -> list[SiteSummary]:
     # 2026-08-26 owner decision: a coordinator can remove a Site from the
     # Workspace (Site.active=False, already-existing durable_inputs.update_site
     # semantics) without deleting anything -- schedule history, employees,
@@ -73,30 +74,30 @@ def list_sites(include_inactive: bool = False, conn=Depends(get_conn)) -> list[S
     # by default. include_inactive=True is the "show removed" view, needed to
     # find something again to reactivate.
     sites = (
-        bootstrap.all_sites_for_coordinator(conn, coordinator_id=DEV_COORDINATOR_ID) if include_inactive
-        else bootstrap.active_sites_for_coordinator(conn, coordinator_id=DEV_COORDINATOR_ID)
+        bootstrap.all_sites_for_coordinator(conn, coordinator_id=coordinator_id) if include_inactive
+        else bootstrap.active_sites_for_coordinator(conn, coordinator_id=coordinator_id)
     )
     try:
-        return [_site_summary(conn, site) for site in sites]
+        return [_site_summary(conn, coordinator_id, site) for site in sites]
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
 
 @router.post("/sites/{site_id}/deactivate", status_code=204)
-def deactivate_site(site_id: str, conn=Depends(get_conn)) -> None:
+def deactivate_site(site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """Hide a Site from the Workspace -- Site.active=False via the existing
     update_site() write path. Never touches schedule/employee/membership
     history; see rota.application.durable_inputs.update_site's own docstring
     for why this is a plain upsert, not a versioned operation."""
     try:
         current = get_site(conn, site_id)
-        update_site(conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, site=replace(current, active=False))
+        update_site(conn, coordinator_id=coordinator_id, site_id=site_id, site=replace(current, active=False))
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
 
 @router.post("/sites/{site_id}/reactivate", status_code=204)
-def reactivate_site(site_id: str, conn=Depends(get_conn)) -> None:
+def reactivate_site(site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     """Bring a removed Site back into the Workspace. update_site() cannot do
     this itself -- its own require_active_coordinator_context guard demands
     the Site already be active (tasks/ROTA-T011-C/brief.md 2026-08-14
@@ -107,14 +108,16 @@ def reactivate_site(site_id: str, conn=Depends(get_conn)) -> None:
     try:
         current = get_site(conn, site_id)
         bootstrap.bootstrap_or_resume_coordinator_context(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, site=replace(current, active=True),
+            conn, coordinator_id=coordinator_id, site_id=site_id, site=replace(current, active=True),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
 
 @router.post("/sites", response_model=CreateSiteResponse, status_code=201)
-def create_site(payload: CreateSiteRequest, conn=Depends(get_conn)) -> CreateSiteResponse:
+def create_site(
+    payload: CreateSiteRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id),
+) -> CreateSiteResponse:
     """ROTA-T049: two UI inputs plus the chosen regime -- SiteProfile.display_name
     is no longer a coordinator input (it has no reader anywhere in the product),
     it is derived from the Site's own display_name instead. Every other field
@@ -145,17 +148,17 @@ def create_site(payload: CreateSiteRequest, conn=Depends(get_conn)) -> CreateSit
         active=True, planning_regime=regime,
     )
     association = CoordinatorSiteAssociation(
-        coordinator_id=DEV_COORDINATOR_ID, site_id=site_id, active=True,
+        coordinator_id=coordinator_id, site_id=site_id, active=True,
     )
     # ROTA-T028: the association below is FK-constrained to an existing
     # coordinators row, but nothing else in this app ever creates one --
     # a fresh/reset database has none. write_coordinator_in_open_transaction
     # is an idempotent UPSERT, so passing this on every call is safe.
-    coordinator = Coordinator(coordinator_id=DEV_COORDINATOR_ID, display_name="Koordynator", active=True)
+    coordinator = Coordinator(coordinator_id=coordinator_id, display_name="Koordynator", active=True)
 
     try:
         bootstrap.bootstrap_or_resume_coordinator_context(
-            conn, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id,
+            conn, coordinator_id=coordinator_id, site_id=site_id,
             coordinator=coordinator, site_profile=site_profile, site=site, association=association,
         )
     except Exception as exc:
