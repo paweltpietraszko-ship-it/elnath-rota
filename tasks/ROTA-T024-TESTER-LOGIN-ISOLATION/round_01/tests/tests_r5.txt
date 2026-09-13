@@ -1,0 +1,80 @@
+ROTA-T024-TESTER-LOGIN-ISOLATION — AUDYT R5 (wąski re-check dwóch blokad R4)
+Data: 2026-09-13
+
+WYNIK: PASS
+
+PASS dotyczy wyłącznie SHA:
+7c17e7aa880da2fa229f36439303e2d335de9d4e
+
+Zakres
+------
+Zgodnie z przekazaniem wykonano wyłącznie re-check zmian
+d9db486f32306d4b5600161fd4687b39519d7196..7c17e7aa880da2fa229f36439303e2d335de9d4e:
+- R4-01: zakaz przypisania jednego db_filename do dwóch kont;
+- R4-02: endpoint zmiany hasła nie przyjmuje pól zmieniających login;
+- jeden pion login -> kontekst konta -> backup.
+
+Nie czytano ponownie całej implementacji. Nie uruchamiano pełnej regresji,
+macierzy spoza Tasku, symulatorów ani benchmarków. where.py pominięto, ponieważ
+był to literalny re-check mikropoprawki bez zmiany właściciela lub zakresu.
+
+Ocena diffu
+-----------
+Zmiana produkcyjna jest ograniczona do czterech plików:
+- api/auth/models.py: unikalność AccountMapping.db_filename;
+- api/provision_account.py: odmowa przed utworzeniem użytkownika, gdy nazwa
+  bazy jest już przypisana;
+- api/auth/schemas.py i api/auth/backend.py: osobny model wejściowy tylko z
+  password oraz odrzucanie dodatkowych pól.
+
+Nie znaleziono rozszerzenia zachowania poza dwiema naprawami R4.
+
+Dowody niezależne
+-----------------
+1. Zachowany reproduktor R4:
+   python -m pytest -q
+   tasks/ROTA-T024-TESTER-LOGIN-ISOLATION/round_01/tests/test_audit_r4.py
+
+   Wynik: 4 passed, 1 failed.
+
+   Jedyny FAIL jest nieaktualnym zakończeniem historycznego reproduktora
+   R4-01, nie defektem poprawki: test jednocześnie wymaga odrzucenia konta B i
+   następnie próbuje zalogować odrzucone konto B oraz potraktować jego odpowiedź
+   401 jako ZIP. Sam fakt odmowy utworzenia B zachodzi przed tym krokiem.
+   Oryginalny reproduktor pozostawiono bez zmian jako zapis R4.
+
+2. Skorygowane niezależne reproduktory R5:
+   python -m pytest -q
+   tasks/ROTA-T024-TESTER-LOGIN-ISOLATION/round_01/tests/test_audit_r5.py
+
+   Wynik: 2 passed in 4.23s.
+
+   - payload zawierający password + email otrzymuje 422; stare dane logowania
+     nadal działają, nowe hasło i nowy email nie działają;
+   - ponowne użycie shared.db kończy się DbFilenameAlreadyInUse; konto B nie
+     powstaje częściowo; po prawidłowym utworzeniu B na b.db oba logowania
+     działają, kontekst B jest pusty, backup B ma 200 i nie zawiera A-ONLY.
+
+3. Testy Tasku implementera:
+   python -m pytest -q tests/test_t024_auth_isolation.py
+
+   Wynik: 12 passed in 21.08s.
+
+4. Kontrole mechaniczne:
+   - ruff na czterech zmienionych plikach produkcyjnych i reproduktorze R5:
+     All checks passed;
+   - git diff --check: PASS.
+
+DEFECT_GATE
+-----------
+R4-01: zamknięty. Właściciel provisioning odrzuca ponowne mapowanie przed
+utworzeniem konta, a poprawna ścieżka dwóch różnych baz zachowuje izolację aż
+do zawartości backupu.
+
+R4-02: zamknięty. Publiczna granica endpointu hasła odrzuca dodatkowe pole i
+nie zmienia ani loginu, ani hasła przy niepoprawnym żądaniu.
+
+WERDYKT
+-------
+PASS dla 7c17e7aa880da2fa229f36439303e2d335de9d4e.
+Oba blokery R4 są naprawione. Task jest gotowy do merge w zakresie tego audytu.
