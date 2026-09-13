@@ -148,8 +148,7 @@ TASK_SCOPE:
 - rota/planning/shift_catalog.py
 - rota/application/durable_inputs.py
 - api/routers/roster.py
-- api/routers/site_config.py
-- api/types.py
+- api/routers/durable_inputs.py
 - frontend/src/screens/ControlPanel.tsx
 - frontend/src/screens/SiteShiftCatalog.tsx
 - frontend/src/screens/EmployeeDetail.tsx
