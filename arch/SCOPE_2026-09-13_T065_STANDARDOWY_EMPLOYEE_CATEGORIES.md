@@ -53,14 +53,23 @@ nie do CC.
 znalazłem żadnego dodatkowego faktu w kodzie, który by to rozstrzygał. Nadal
 otwarte, do decyzji Pawła.
 
-**Interakcja z EXTERNAL_SUPPORT/can_work_24h/SiteRule.** Sprawdzone wprost w
-`eligibility.py::check_eligibility`: `_common_hard_gate` (gdzie żyłaby nowa
-bramka kategorii) wykonuje się PRZED rozgałęzieniem na
-`membership_kind == LOCAL` vs `EXTERNAL_SUPPORT`. Oznacza to konkretne
-pytanie do briefu: czy kategoria ma w ogóle dotyczyć `EXTERNAL_SUPPORT`
-(wsparcie zewnętrzne to koncepcja z Ochrony, obcy sklepowi), czy nowa
-bramka powinna być pomijana dla `EXTERNAL_SUPPORT` tak jak dziś część
-innych reguł jest pomijana dla tego membership_kind. `can_work_24h`
+**Interakcja z EXTERNAL_SUPPORT/can_work_24h/SiteRule — SKORYGOWANE po
+uwadze Pawła (2026-09-13).** Pierwotne założenie w tej sekcji było błędne:
+"wsparcie zewnętrzne to koncepcja z Ochrony, obca sklepowi". Paweł
+sprostował wprost: "W sklepach jak mojej żony gdzie jest 10 punktów,
+wsparcie zewnętrzne jako przejście jednego pracownika na inny punkt jest
+częste." Czyli w realnym docelowym scenariuszu (sieć kilku/kilkunastu
+sklepów) `EXTERNAL_SUPPORT` NIE jest brzegowym przypadkiem do pominięcia —
+jest zwyczajnym, częstym mechanizmem. To podnosi konkretne pytanie do
+briefu, ostrzejsze niż wcześniej sformułowane: gdy pracownik z obiektu A
+(np. "kierownik") pokrywa zmianę na obiekcie B jako `EXTERNAL_SUPPORT`, czy
+musi to być zmiana wymagająca tej samej kategorii ("kierownik" pokrywa
+tylko zmiany kierownicze), czy `EXTERNAL_SUPPORT` z definicji pomija bramkę
+kategorii (dowolna kategoria pokrywa dowolną zmianę jako wsparcie)? Sam kod
+nie rozstrzyga tego — `_common_hard_gate` wykonuje się PRZED rozgałęzieniem
+na `membership_kind == LOCAL` vs `EXTERNAL_SUPPORT`, więc technicznie da
+się zaimplementować którąkolwiek odpowiedź; to czysto produktowa decyzja
+do briefu/Pawła, nie coś do rozstrzygnięcia przez CC. `can_work_24h`
 współistnieje bez konfliktu (inna bramka, inny warunek). SiteRule: bez
 zmian, `_blocked_by_site_rules` działa niezależnie od kategorii.
 
