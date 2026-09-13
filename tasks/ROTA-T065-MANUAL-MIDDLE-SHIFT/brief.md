@@ -1,139 +1,227 @@
-# ROTA-T065-MANUAL-MIDDLE-SHIFT — ręczna dodatkowa praca ORDINARY („środek”)
+# ROTA-T065-MANUAL-MIDDLE-SHIFT — ręczna dodatkowa praca ORDINARY przez istniejącą korektę
 
-STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD UNTIL CODEX PASS
-
-DEPENDENCIES:
-- `ROTA-T065-CONFIGURABLE-ROLES` — wykonywana praca musi wskazywać obowiązkową rolę z katalogu Site, ale nie zmienia stanowiska pracownika;
-- `ROTA-T065-ORDINARY-TIME-AVAILABILITY` — jeśli zostanie wdrożone wcześniej, ręczny środek musi korzystać z tego samego oracla dostępności godzinowej.
+STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD UNTIL DEPENDENCIES + CODEX PASS
 
 SOURCE:
-- finding Codexa `ROTA-T065-PANEL-CLEANUP` część B
-- OWNER correction: „zmiana ruchoma/środek” to sezonowa/eventowa dodatkowa realna praca, dodawana wyłącznie ręcznie
-- istniejący `apply_manual_correction`, ScheduleVersion child, validator, deviations, action trail
+- `ROTA-T065-PANEL-CLEANUP` finding B
+- audit R1 `tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/round_01/tests/tests_r1.txt`
+- OWNER: „zmiana ruchoma/środek” = sezonowa/eventowa dodatkowa praca dodawana ręcznie, nie zadanie solvera
+- OWNER: wykonywanie innej pracy nie zmienia stanowiska organizacyjnego pracownika
+- OWNER: solver nie robi automatycznej hierarchii ról; zastępstwo jest jawną decyzją koordynatora
+- istniejący `apply_manual_correction()` / child `ScheduleVersion` / validator / Deviation / site-memory audit
 
 ## 1. Cel
 
-Umożliwić koordynatorowi dodanie do istniejącego grafiku ORDINARY dodatkowej realnej pracy w dowolnym przedziale godzinowym, np. sezonowego/eventowego „środka”, bez dodawania jej do stałego katalogu i bez angażowania solvera.
+Dla `SitePlanningRegime.ORDINARY` umożliwić koordynatorowi dodanie do istniejącego grafiku konkretnej dodatkowej pracy, np. sezonowego/eventowego „środka” `10:00–16:00`.
 
-Przykład: normalne pokrycie 05:00–12:00 i 12:00–19:00, a w konkretnym dniu koordynator ręcznie dodaje dodatkową osobę 10:00–16:00.
+To jest realna praca:
+- konkretnego pracownika;
+- w konkretnym realnym przedziale czasu;
+- w konkretnej roli wykonywanej pracy;
+- zapisana w historii grafiku.
 
-## 2. To jest Manual Correction, nie planowanie
+Nie jest to nowy rodzaj pracy solvera ani nowy wpis `StandardShift`.
 
-„Środek”:
-- nie jest `StandardShift`;
-- nie generuje `ShiftDemand` dla przyszłych dni;
-- nie jest pracą solvera;
-- nie powoduje nowego PLAN/REPLAN;
-- nie tworzy drugiego generatora;
-- nie tworzy specjalnego pipeline'u sklepowego.
+## 2. Twarde zależności
 
-Ma przejść przez istniejący `apply_manual_correction` i stworzyć normalny child `ScheduleVersion` z istniejącym audytem/deviations.
+Implementacja tego Tasku NIE może ruszyć przed produkcyjnym domknięciem:
 
-## 3. Realna praca, bez zwolnień S1
+1. `ROTA-T065-CONFIGURABLE-ROLES` — dostarcza `position_role_id`, dynamiczne role oraz jedyny `RoleCoverageAuthorization`;
+2. `ROTA-T065-ORDINARY-TIME-AVAILABILITY` — dostarcza jeden shared oracle i `UNAVAILABLE_TIME-01`.
 
-Ręczny „środek” jest normalną pracą.
+Brief może przejść preimplementation review wcześniej, ale implementer nie może lokalnie kopiować brakujących mechanizmów z tych Tasków.
 
-Nie wolno modelować go jako `PERIODIC_TRAINING/S1`, ponieważ S1 ma specjalne zwolnienia REST/WEEKLY-REST i semantykę szkolenia.
+## 3. Jeden lifecycle — Manual Correction
 
-Środek uczestniczy normalnie w:
-- overlap;
-- odpoczynku dobowym;
-- odpoczynku tygodniowym;
-- czasie/obciążeniu pracy;
-- availability;
-- cross-site constraints;
-- innych istniejących HARD-ach właściwych dla ORDINARY.
+„Środek” powstaje wyłącznie przez istniejący manual-correction lifecycle:
 
-Jeżeli koordynator świadomie narusza regułę, używa istniejącego deviation/override lifecycle; nie tworzyć nowego wyjątku.
+`CURRENT ScheduleVersion -> apply_manual_correction() -> validate() -> materialize deviations -> child ScheduleVersion -> CURRENT -> existing audit/action trail`.
 
-## 4. Rola wykonywanej pracy jest obowiązkowa
+Nie tworzyć:
+- `middle_shift_repository`;
+- drugiego endpointu historii grafiku;
+- osobnej tabeli event work;
+- osobnego validatora;
+- solver passu;
+- generatora demandów.
 
-Każdy ręczny środek ORDINARY musi wskazać rolę wykonywanej pracy z katalogu tego Site.
+## 4. Nie używać S1
 
-To jest **rola tej konkretnej pracy**, nie stanowisko pracownika.
+`AssignmentRole.PERIODIC_TRAINING` / S1 pozostaje szkoleniem okresowym i NIE może być markerem „środka”.
+
+Manual middle:
+- jest `AssignmentRole.PRIMARY`;
+- liczy się jako normalna realna praca do overlap/LOAD/REST/WorkBalance zgodnie z istniejącym reżimem ORDINARY;
+- nie dziedziczy żadnego zwolnienia S1 z REST/WEEKLY-REST ani presentation semantics S1.
+
+## 5. Minimalny marker legalnego PRIMARY bez ShiftDemand
+
+Dzisiejszy fail-closed invariant słusznie wymaga `covers_demand_id` dla PRIMARY. Nie wolno go po prostu poluzować.
+
+Manual middle jest jedynym nowym, jawnie opisanym wyjątkiem i musi być strukturalnie rozpoznawalny.
+
+Do `Assignment` dochodzą dwa opcjonalne historyczne pola:
+- `manual_work_role_id`;
+- `manual_work_role_name`.
+
+Te pola są zarazem minimalnym markerem i snapshotem wykonywanej roli pracy.
+
+Persistence invariant:
+
+### 5.1 Zwykły PRIMARY z demandem
+- `covers_demand_id` MUSI istnieć i rozwiązywać się w tej samej ScheduleVersion;
+- `manual_work_role_id/manual_work_role_name` MUSZĄ być `None`.
+
+### 5.2 Legalny manual middle PRIMARY
+- `covers_demand_id is None`;
+- `manual_work_role_id` i `manual_work_role_name` MUSZĄ być oba obecne;
+- Assignment musi pochodzić z `apply_manual_correction()`, nie ze ścieżki solvera/PlanPreview;
+- rola musi istnieć w katalogu tego Site w chwili zapisu;
+- interval i employee muszą przejść normalne validation gates.
+
+### 5.3 Każdy inny PRIMARY bez demandu
+- fail closed jako `MalformedScheduleSnapshot` / istniejący odpowiednik;
+- brak markerów nie może być interpretowany jako manual work „na wszelki wypadek”.
+
+Nie dodawać ogólnego `covers_demand_id optional for PRIMARY` bez tego invariant.
+
+`manual_work_role_name` jest snapshotem historycznym; późniejszy rename/retire roli nie zmienia starej pracy.
+
+## 6. Rola wykonywanej pracy ≠ stanowisko
+
+Pracownik zachowuje `SiteMembership.position_role_id` z `ROTA-T065-CONFIGURABLE-ROLES`.
+
+Jeżeli `manual_work_role_id == position_role_id`, nie potrzeba zastępstwa.
+
+Jeżeli role są różne, manual middle może zostać zapisany tylko wtedy, gdy istnieje aktywne `RoleCoverageAuthorization` tego samego Site/pracownika/roli pokrywające cały interval manual middle.
+
+To jest JEDYNY mechanizm autoryzacji zastępstwa. `ROLE-01` Deviation nie jest alternatywną zgodą na zastępstwo i nie może tworzyć drugiej semantyki.
+
+Brak wymaganej autoryzacji = operacja odrzucona przed utworzeniem child ScheduleVersion, a nie zapisana jako zwykłe odchylenie.
+
+Stanowisko pracownika nie zmienia się w UI, historii ani PDF.
+
+## 7. Availability — obowiązkowo ten sam gate
+
+Manual middle musi przejść `UNAVAILABLE_TIME-01` z `ROTA-T065-ORDINARY-TIME-AVAILABILITY` przy użyciu dokładnie tego samego shared overlap oracle co automatic eligibility.
 
 Przykład:
-- stanowisko osoby: `Kierownik`;
-- ręczna praca: `Sprzedawca`, 10:00–16:00;
-- po zapisie osoba nadal jest prezentowana jako `Kierownik`.
+- niedostępność `00:00–12:00`;
+- manual middle `10:00–16:00`;
+- validator MUSI wykryć `UNAVAILABLE_TIME-01`.
 
-Jeżeli pracownik nie jest dopuszczony do pokrycia tej roli przez reguły z `ROTA-T065-CONFIGURABLE-ROLES`, validator zgłasza naruszenie; UI nie może cicho nadać mu drugiego stanowiska.
+Nie wolno implementować lokalnego porównania godzin w `manual_edit.py`.
 
-## 5. Persistence/history — reuse Assignment/ScheduleVersion
+Zgodnie z istniejącą ogólną semantyką Manual Correction, wykryty HARD może przejść wyłącznie istniejącą ścieżką deviation/acknowledgement, jeżeli obecny lifecycle tę kategorię dopuszcza. Ten Task nie tworzy specjalnego bypassu availability i nie może przepuścić kolizji jako poprawnej bez deviation.
 
-Nie tworzyć osobnej tabeli `middle_shifts` jako równoległej historii grafiku.
+## 8. Walidacja pozostałych reguł
 
-Ręczna praca ma być zapisana w istniejącym snapshotcie ScheduleVersion jako Assignment.
+Manual middle uczestniczy w istniejących sprawdzeniach realnej pracy:
+- overlap;
+- REST;
+- LOAD;
+- cross-Site context;
+- WorkBalance;
+- history/final immutability;
+- odpowiednie ogólne AvailabilityKinds.
 
-Ponieważ taki Assignment nie pokrywa `ShiftDemand`, musi mieć trwały snapshot roli wykonywanej pracy w istniejącym modelu Assignment lub innym minimalnym ownerze powiązanym z Assignment. Nie wolno użyć do tego `Assignment.role`, bo ten enum oznacza `PRIMARY/TRAINEE/PERIODIC_TRAINING`, a nie rolę biznesową.
+Nie aktywuje ochroniarskich D/N/day_only/24h tylko dlatego, że godziny przypominają zmianę ochrony.
 
-Codex ma sfalsyfikować minimalne miejsce pola przed implementacją, ale kontrakt jest twardy: historyczna rola tej pracy nie może zależeć od późniejszej konfiguracji Site.
+Nie dziedziczy zwolnień S1.
 
-## 6. UI
+## 9. UI/API
 
-W istniejącej sekcji `Ręczna korekta` dla ORDINARY dodać operację typu `Dodaj pracę` / `Dodaj środek`.
-
-Minimalne dane wejściowe:
-- pracownik;
-- data;
-- godzina od;
-- godzina do / przejście przez północ jeśli wspiera to istniejący kontrakt czasu;
-- rola wykonywanej pracy z katalogu Site;
-- opcjonalna notatka.
-
-Nie dodawać tej operacji do katalogu stałych zmian.
-
-Nie używać D/N/1/2/3 jako źródła godzin ani roli.
-
-## 7. Eligibility/validation
-
-Ręczny środek nie jest automatycznie blokowany przed zapisem przez osobny sklepowy gate. Ma wejść do istniejącego validatora Manual Correction tak jak inna realna Assignment.
-
-Validator musi widzieć:
-- rzeczywisty interval;
+W istniejącej sekcji `Ręczna korekta` dla ORDINARY dochodzi akcja `Dodaj pracę`/równoważna, która wymaga:
 - pracownika;
-- wykonywaną rolę;
-- istniejące availability;
-- pozostałą pracę tego pracownika w Site i cross-site.
+- daty;
+- godziny od;
+- godziny do;
+- roli wykonywanej pracy z katalogu Site;
+- opcjonalnej notatki istniejącego manual-correction flow.
 
-Jedna wspólna semantyka z automatycznym planowaniem; zero kopiowania reguł prawa pracy.
+Pełnogodzinna precyzja pozostaje zgodna z aktualnym kontraktem grafiku. Nie otwieramy minut.
 
-## 8. Coverage
+UI nie dodaje tej pracy do stałego katalogu zmian i nie oferuje „zapisz jako zmianę”.
 
-Ręczny środek jest dodatkową pracą i domyślnie nie zmienia definicji stałego demandu katalogowego ani jego required_count.
+## 10. Historia i PDF
 
-Jeżeli jego interval/rola faktycznie pokrywa istniejący demand, nie wolno automatycznie przepisywać demandu ani tworzyć nowej semantyki coverage bez osobnego kontraktu. Ten Task dotyczy dodania realnej dodatkowej pracy, nie przebudowy modelu demand coverage.
+Historia ScheduleVersion zachowuje `manual_work_role_id/manual_work_role_name` jako fakt wykonywanej pracy.
 
-## 9. Print/history
+Zaakceptowany kontrakt `ROTA-T065-PRINT-GAP` NIE zmienia się:
+- w komórce ORDINARY drukowane są wyłącznie realne godziny;
+- rola wykonywanej pracy NIE jest dopisywana przy godzinach;
+- pod nazwiskiem widnieje jedno historyczne stanowisko pracownika z configurable-roles snapshotu.
 
-Historyczny ekran i przyszły ORDINARY PDF muszą móc pokazać tę pracę przez rzeczywiste godziny i rolę wykonywanej pracy.
+Ten Task NIE zmienia `schedule_export.py`. Deklaruje integracyjną zależność: produkcyjny PRINT-GAP ma rozpoznawać legalny manual-middle PRIMARY jako realną pracę na podstawie powyższego invariant i drukować jego godziny, bez wymagania `ShiftDemand` i bez roli w komórce.
 
-Nie wolno na tej podstawie zmieniać stanowiska pracownika.
+## 11. Acceptance
 
-`ROTA-T065-PRINT-GAP` pozostaje właścicielem layoutu PDF.
+MM-01 — koordynator może dodać `10:00–16:00` jako PRIMARY manual middle do istniejącego ORDINARY ScheduleVersion; powstaje normalny child i action trail.
 
-## 10. Acceptance — minimum
+MM-02 — zapisany manual middle ma `covers_demand_id=None` oraz komplet `manual_work_role_id/manual_work_role_name`.
 
-1. Koordynator dodaje ręcznie 10:00–16:00 dla konkretnego dnia bez zmiany katalogu i bez uruchamiania solvera.
-2. Zapis tworzy child ScheduleVersion przez istniejący manual-correction lifecycle.
-3. Praca uczestniczy w normalnych REST/load/overlap/availability checks i nie korzysta ze zwolnień S1.
-4. Praca ma obowiązkową rolę biznesową Site, ale nie zmienia stanowiska pracownika.
-5. Brak dopuszczenia do wskazanej roli jest widoczny w istniejącym validation/deviation flow, a nie naprawiany automatycznie.
-6. Historyczny reload zachowuje godziny i rolę konkretnej pracy po późniejszej edycji katalogu ról.
-7. OCHRONA i S1 regression unchanged.
+MM-03 — arbitralny PRIMARY bez demandu i bez obu markerów nadal failuje persistence validation; invariant nie został globalnie rozluźniony.
+
+MM-04 — solver/PlanPreview nigdy nie generuje Assignment z `manual_work_role_*`.
+
+MM-05 — osoba na stanowisku `Kierownik`, bez RoleCoverageAuthorization na rolę `Sprzedawca`, nie może zapisać manual middle jako `Sprzedawca`.
+
+MM-06 — po jawnej, aktywnej autoryzacji pokrywającej interval może wykonać tę pracę, ale jej stanowisko pozostaje `Kierownik`.
+
+MM-07 — `00:00–12:00` hourly unavailability + manual middle `10:00–16:00` generuje `UNAVAILABLE_TIME-01` przez ten sam oracle co solver; nie przechodzi bez wykrytego deviation.
+
+MM-08 — overlap/REST/LOAD dla manual middle zachowują zwykłą semantykę PRIMARY; brak exemption S1.
+
+MM-09 — historyczny reload zachowuje snapshot wykonywanej roli po późniejszym rename/retire katalogu.
+
+MM-10 — PRINT-GAP pokazuje godziny manual middle jako kolejny realny przedział, ale nie drukuje wykonywanej roli w komórce i nie zmienia stanowiska pod nazwiskiem.
+
+MM-11 — OCHRONA i PERIODIC_TRAINING/S1 regression unchanged.
+
+## 12. WHERE_MAP
+
+WHERE_MAP: REQUIRED
+- `rota/domain.py` :: `Assignment.manual_work_role_id/manual_work_role_name`; `AssignmentRole` bez nowej wartości dla middle.
+- `rota/persistence/db.py` :: migracja kolumn Assignment; nie istnieje `schema.py`.
+- `rota/persistence/schedule_validation.py` :: fail-closed invariant PRIMARY z demandem vs legalny manual middle bez demandu.
+- `rota/persistence/schedule_repository.py` :: round-trip obu markerów/snapshotu.
+- `rota/persistence/schedule_lifecycle.py` :: zapis markerów przez ten sam ScheduleVersion lifecycle.
+- `rota/application/manual_edit.py` :: jedyny application owner utworzenia middle; reuse validator/deviation/audit.
+- `rota/planning/validator.py` :: role authorization + hourly availability przez istniejące/shared oracles, bez drugich obliczeń.
+- `api/routers/manual_edit.py` :: istniejący endpoint manual correction rozszerzony o jawny kształt manual work, bez drugiego history endpointu.
+- `api/routers/schedule.py` :: Assignment API round-trip nowych pól tam, gdzie istniejący model Assignment jest marshallowany.
+- `frontend/src/screens/MonthlyPlanning.tsx` :: akcja `Dodaj pracę` wewnątrz istniejącej Manual Correction.
+- `frontend/src/api/client.ts` :: kontrakt request/response.
+- `ROTA-T065-CONFIGURABLE-ROLES` :: jedyny `RoleCoverageAuthorization`, bez lokalnej kopii.
+- `ROTA-T065-ORDINARY-TIME-AVAILABILITY` :: jedyny `UNAVAILABLE_TIME-01` overlap oracle.
+- `ROTA-T065-PRINT-GAP` :: późniejszy consumer legalnego manual-middle PRIMARY; poza zmianami tego Tasku.
+
+## 13. TASK_SCOPE
 
 TASK_SCOPE:
+- tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/**
 - rota/domain.py
-- rota/persistence/schema.py
+- rota/persistence/db.py
+- rota/persistence/schedule_validation.py
 - rota/persistence/schedule_repository.py
+- rota/persistence/schedule_lifecycle.py
 - rota/application/manual_edit.py
 - rota/planning/validator.py
 - api/routers/manual_edit.py
 - api/routers/schedule.py
 - frontend/src/screens/MonthlyPlanning.tsx
 - frontend/src/api/client.ts
-- tests/
+- tests/test_t065_manual_middle_shift.py
+- tests/test_t009_manual_edit.py
+- tests/test_t037_manual_edit_api.py
+- tests/test_local_store_schedule_content_rules.py
+- tests/test_local_store_schedule_version_lifecycle.py
 
-## 11. HOLD
+## 14. HOLD
 
-IMPLEMENTATION HOLD do preimplementation PASS Codexa na dokładnym SHA tego briefu.
+Preimplementation może być audytowane teraz, ale produkcyjna IMPLEMENTATION HOLD aż:
+1. `ROTA-T065-CONFIGURABLE-ROLES` ma PASS i produkcyjny owner autoryzacji;
+2. `ROTA-T065-ORDINARY-TIME-AVAILABILITY` ma PASS i produkcyjny shared overlap oracle;
+3. Codex wyda PASS na dokładny SHA tego briefu.
+
+Codex ma w re-checku sfalsyfikować przede wszystkim fail-closed marker PRIMARY bez demandu, pojedynczy mechanizm role authorization, twardą zależność hourly availability i brak naruszenia zamrożonego layoutu PRINT-GAP.
