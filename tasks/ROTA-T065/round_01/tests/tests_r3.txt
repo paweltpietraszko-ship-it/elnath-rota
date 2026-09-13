@@ -1,0 +1,106 @@
+ROTA-T065 — wąski re-check poprawki R3
+Data: 2026-09-13
+Exact audited SHA: 2e4df35a8389fd6f48dcad4410f87be6d8299bfa
+Porównanie poprawki: 8dc9a80..2e4df35
+Poprzednia implementacja: 04d05c57bb717ef0056dc6e0d0b5260df208ccba
+BOARD intake: main@7f5c6fb
+
+WYNIK: FAIL — R2-01 naprawione, bezsporna część R2-03 naprawiona, lecz
+R2-02 pozostaje niepełne na dwóch literalnie wskazanych kanałach D/N, a nowa
+decyzja OWNERA ujawnia brak rozróżnienia role-less new ORDINARY od legacy.
+
+Jawna decyzja OWNERA przyjęta do PRODUCT_TRUTH
+-----------------------------------------------
+OWNER_DECISION 2026-09-13:
+- ORDINARY jest reżimem ogólnym, także dla branż bez kierownika;
+- role sklepowe KIEROWNIK/SPRZEDAWCA_ZALOGA są opcjonalne;
+- zapis wiersza ORDINARY bez `required_role` jest prawidłowy.
+
+W konsekwencji reproduktor R2
+`test_new_ordinary_catalog_rejects_missing_required_role` jest sprzeczny z
+nowszą decyzją OWNERA. Został jawnie wyłączony z re-checku i nie wpływa na
+werdykt. Nie wolno go „naprawiać” zmianą produktu; pozostaje historycznym
+zapisem wcześniejszego audytu.
+
+Co poprawka naprawiła
+---------------------
+1. R2-01 — PASS:
+   validator sprawdza ROLE-01 także dla Assignment bez poprawnego tagu przez
+   fallback do realnie pokrywanych demandów. Reproduktor przechodzi.
+
+2. R2-02, część DAY_ONLY/NIGHT-STREAK — PASS:
+   role-bearing demand nie aktywuje już DAY_ONLY-01 ani NIGHT-STREAK-01;
+   solverowy term NIGHT-STREAK również został objęty tym samym helperem.
+
+3. R2-03, granica katalogu OCHRONA — PASS:
+   backend odrzuca required_role w katalogu OCHRONA, a SiteShiftCatalog ukrywa
+   D/N dla ORDINARY i pole roli dla OCHRONA. Reproduktor round-trip przechodzi.
+
+FINDING R3-01 — FAIL — techniczne D/N nadal zmienia wynik new ORDINARY
+------------------------------------------------------------------------
+TRACE:
+- brief §8: dla nowych demandów ORDINARY rzeczywiste godziny są znaczeniem,
+  a DAY_ONLY-01, D/N-specific SiteRule i D/N-specific external restriction
+  nie mogą aktywować się przez techniczne D/N;
+- brief §11: legacy ORDINARY z takim ustawieniem ma zostać jawnie rozpoznane
+  jako legacy/niezgodna konfiguracja do korekty, nie dalej stosowane do nowych
+  demandów ani cicho rozszerzone;
+- brief §8/T65-A4: new ORDINARY musi być jednoznacznie odróżnialne od legacy;
+- OWNER_DECISION 2026-09-13: nowy ORDINARY może prawidłowo nie mieć roli.
+
+OWNERSHIP:
+- `is_role_based_demand()` uznaje demand za new ORDINARY wyłącznie wtedy, gdy
+  `required_role is not None`. Po nowej decyzji OWNERA nie jest to prawidłowy
+  znacznik pochodzenia: role-less new ORDINARY trafia z powrotem do legacy D/N;
+- `_blocked_by_site_rules()` nadal przekazuje techniczne `shift_kind` do reguł
+  D/N także dla role-bearing new ORDINARY;
+- `_external_window_covers()` nadal porównuje `allowed_shift_kind` z
+  technicznym kind także dla role-bearing new ORDINARY.
+
+REPRO — `test_audit_r3.py`, 3/3 failed:
+1. Ten sam role-bearing demand ORDINARY, z identycznymi godzinami i rolą,
+   przechodzi przy technicznym D, ale jest blokowany przez `RV-D-ONLY` przy N.
+2. Ten sam role-bearing demand i to samo okno external przechodzi przy D, ale
+   dostaje EXTERNAL-01 przy N.
+3. Prawidłowy role-less new ORDINARY wygenerowany z katalogu 22:00–06:00
+   zostaje uznany za techniczne D i zablokowany przez legacy SiteRule
+   dopuszczający N; PLAN kończy się DECISION_REQUIRED zamiast FEASIBLE.
+
+To jest jeden niedomknięty owner klasyfikacji, nie trzy nowe wymagania.
+Poprawka nie może po prostu wyłączyć legacy ograniczeń: §11 wymaga jawnego
+rozpoznania niezgodnej konfiguracji. Musi natomiast zapewnić, że techniczne D/N
+nie zmienia wyniku żadnego nowego ORDINARY, również bez roli.
+
+Pozostała niespójność UI OCHRONA
+-------------------------------
+`SiteShiftCatalog` poprawnie bramkuje pola reżimem, ale niezmieniony
+`ControlPanel` nadal pokazuje w OCHRONA kolumny „Kierownik” i
+„Sprzedawca/załoga” oraz pozwala zapisywać `allowed_roles`. To nie jest źródło
+obecnego FAIL (role na membership nie wpływają na OCHRONA demand bez roli), ale
+jest pozostałością user-visible spoza celu „OCHRONA bez zmian”. Przy poprawce
+R3-01 należy zastosować tę samą informację o reżimie również do widoku obsady,
+bez tworzenia drugiego endpointu lub systemu ról.
+
+Wyniki uruchomień
+-----------------
+1. Zachowane reproduktory R2 z wyłączeniem unieważnionego przez OWNERA:
+   `python -m pytest -q test_audit_r2.py -k
+    "not new_ordinary_catalog_rejects_missing_required_role"`
+   -> 4 passed, 1 deselected.
+
+2. Nowe reproduktory pełnej klasy D/N:
+   `python -m pytest -q test_audit_r3.py`
+   -> 3 failed.
+
+3. Testy Tasku oraz celowane testy T030, T032, T058, T023b, SiteRule,
+   eligibility i external, wraz z obowiązującymi repro R2:
+   -> 151 passed, 1 deselected.
+
+Nie uruchamiano pełnej regresji, zamrożonych symulatorów ani benchmarków.
+Nie wykonywano ponownego pełnego audytu implementacji.
+
+Warunek kolejnego re-checku
+--------------------------
+Porównać wyłącznie 2e4df35..NOWY_SHA, uruchomić zachowane obowiązujące repro
+R2, trzy repro R3 oraz testy T065 i najbliższych ownerów. Czerwonego testu
+wymagającego roli w każdym ORDINARY nie używać jako gate'u.
