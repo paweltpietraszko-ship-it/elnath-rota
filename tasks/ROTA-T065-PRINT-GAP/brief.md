@@ -6,6 +6,7 @@ BASELINE: `main@3085f6f`
 
 SOURCE:
 - `tasks/ROTA-T065-PRINT-GAP/round_01/tests/tests_r1.txt`
+- `tasks/ROTA-T065-PRINT-GAP/round_01/tests/tests_r2.txt`
 - T065 implementation PASS `42740118e838d704cb9679716efb7cdfb51b6083`
 - istniejący eksport T020/T056/T052 oraz późniejsze zabezpieczenie LAW acknowledgement
 - OWNER rulings: ORDINARY pokazuje rzeczywiste godziny, nie rodzinę D/N; role zawodowe są per demand/membership; PDF sklepu jest osobnym Taskiem prezentacyjnym
@@ -110,7 +111,7 @@ Dokładny zapis wizualny (`22–6`, `22–06 (+1)` itp.) zostaje zamrożony prze
 
 Role są opcjonalne historycznie.
 
-Dla Assignment z demandem posiadającym `required_role` renderer może pokazać rolę przy godzinach.
+Dla Assignment z demandem posiadającym `required_role` renderer MUSI pokazać tę rolę przy godzinach. Dokładna forma wizualna pozostaje decyzją CHECKPOINT A.
 
 Dla demandu bez roli:
 
@@ -179,7 +180,7 @@ Dla ORDINARY użytkownik ma widzieć wyłącznie ustawienia mające sens dla teg
 
 Nagłówek/nazwa firmy/nazwa obiektu pozostają dostępne.
 
-Nie tworzyć osobnego ekranu "Store Print Settings".
+Nie tworzyć osobnego ekranu `Store Print Settings`.
 
 ## 13. Jeden entry point eksportu
 
@@ -241,7 +242,7 @@ Dopiero po OWNER ACCEPTED CHECKPOINT A oraz PASS audytu briefu można zmieniać 
 
 Implementacja B ma odtworzyć zaakceptowany layout na kanonicznych danych historycznych i zachować wszystkie wspólne gates T020.
 
-Nie wolno implementerowi poprawiać zaakceptowanej próbki "dla wygody" bez powrotu do OWNERA.
+Nie wolno implementerowi poprawiać zaakceptowanej próbki `dla wygody` bez powrotu do OWNERA.
 
 ## 16. Acceptance funkcjonalne
 
@@ -299,6 +300,14 @@ Codex ma przed CHECKPOINT A/produkcją sfalsyfikować:
 7. czy CHECKPOINT A jest rzeczywiście izolowany od produkcyjnej implementacji.
 
 PASS preimplementation nie zatwierdza wyglądu. Wygląd zatwierdza OWNER na próbce.
+
+WHERE_MAP: REQUIRED
+- rota/application/schedule_export.py :: `generate_schedule_pdf`, assembly, cell mapping, render — przed CHECKPOINT B potwierdzić wszystkich istniejących callerów/helperów i nie tworzyć drugiego export ownera.
+- rota/persistence/site_repository.py :: `SitePrintSettings`, `validate_site_print_settings`, read/write — przed CHECKPOINT B potwierdzić regime-aware walidację w jednym ownerze.
+- api/routers/export.py :: modele oraz GET/PUT ustawień/entry export — przed CHECKPOINT B potwierdzić istniejący endpoint i brak drugiej ścieżki API.
+- frontend/src/screens/PrintSettings.tsx :: target plikowy UI — przed CHECKPOINT B potwierdzić warunkową prezentację po `planning_regime` bez drugiego ekranu ustawień wydruku.
+
+Mapa WHERE_MAP jest wymagana przed CHECKPOINT B. Nie jest wymagana do izolowanego CHECKPOINT A w `tasks/ROTA-T065-PRINT-GAP/prototype/**`.
 
 TASK_SCOPE:
 - tasks/ROTA-T065-PRINT-GAP/**
