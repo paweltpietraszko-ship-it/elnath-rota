@@ -35,7 +35,11 @@ przed CP-SAT, nie nowa zmienna decyzyjna).
 | `rota/domain.py` | nowe pole kategorii na `SiteMembership` (rekomendacja, patrz §3) i na `StandardShift`/`ShiftDemand` (wymagana kategoria zmiany) |
 | `rota/planning/shift_catalog.py` | `_components_to_demands` przenosi kategorię z `StandardShift`/`_Component` do `ShiftDemand`, dokładnie jak dziś robi to z `catalog_kind` |
 | `rota/planning/eligibility.py` | nowa twarda bramka w `_common_hard_gate`, obok istniejącej `SHIFT-24-01`; pytanie o interakcję z `EXTERNAL_SUPPORT` w §4 |
+| `rota/planning/validator.py` | **DODANE po korekcie Codexa (precheck `bf359d1`).** Niezależny HARD validator (osobny od solvera i od `eligibility.py`), sprawdza istniejące/ręczne `Assignment` po fakcie — np. `_check_membership_enabled`, `_check_day_only`, `_check_external`. Nowa bramka kategorii w `eligibility.py` zabezpiecza tylko GENEROWANIE nowych slotów; bez odpowiednika tutaj ręczna edycja lub REPLAN mogłyby po cichu naruszyć regułę kategorii bez wykrycia. |
 | `rota/planning/solver.py` | prawdopodobnie bez zmian — potwierdzę dopiero przy implementacji, jeśli brief to obejmie |
+| `rota/persistence/db.py` + repozytoria (`employee_repository.py::save_site_membership`, katalog zmian) | **DODANE po korekcie Codexa.** Migracja schematu i ścieżka trwałego zapisu nowego pola — bez tego kategoria nie ma jak przetrwać poza pojedynczym requestem. |
+| `api/routers/roster.py`, `api/routers/durable_inputs.py`, `api/routers/site_profile.py` | **DODANE po korekcie Codexa.** Wejścia, którymi koordynator faktycznie ustawia kategorię na membership/katalogu zmian — bez tego backend ma pole, ale nikt nie może go wypełnić. |
+| `frontend/src/screens/ControlPanel.tsx`, `EmployeeDetail.tsx`, `SiteShiftCatalog.tsx` | **DODANE po korekcie Codexa.** Ekrany, na których koordynator dziś zarządza membership/katalogiem — realistycznie potrzebują UI do kategorii, żeby funkcja była w ogóle używalna, nie tylko API. |
 | `rota/application/schedule_export.py` | `_build_rows` (linia ~601) dziś iteruje `roster_ids` czysto alfabetycznie, zero pojęcia grupowania — wydruk z kategoriami to osobna, nietrywialna zmiana UI/eksportu, nie samo dodanie pola |
 
 ## 3. Otwarte pytania z findingu — stan po sprawdzeniu kodu
@@ -77,14 +81,20 @@ zmian, `_blocked_by_site_rules` działa niezależnie od kategorii.
 kategoria? kolejność kategorii? osobna tabela per kategoria?), nie techniczna.
 Do briefu/architekta.
 
-**Jeden Task czy dwa.** Rekomendacja CC: **dwa Taski.** Backend (domain +
-shift_catalog + eligibility) jest wąski, addytywny, testowalny w izolacji
-(dokładnie jak T012) i nie wymaga UX. Wydruk z grupowaniem dotyka innego
-pliku (`schedule_export.py`), innej warstwy (prezentacja, nie eligibility) i
-wymaga osobnej decyzji UX — łączenie ich w jeden Task tylko powiększa diff
-bez żadnego technicznego sprzężenia między nimi. Druga zmiana (wydruk) może
-zacząć się dopiero gdy backend ma już wartość kategorii do wyświetlenia, ale
-to kolejność, nie powód łączenia w jeden brief/audit.
+**Jeden Task czy dwa.** Rekomendacja CC: **dwa Taski** — podtrzymana, ale ze
+skorygowanym uzasadnieniem po uwadze Codexa. Backend (domain + persistence +
+shift_catalog + eligibility + validator + API + ekrany zarządzania) jest
+większy niż pierwotnie napisałem, ale nadal jedna spójna, testowalna w
+izolacji całość (analogicznie do tego, jak T012 objął domain+eligibility+UI
+razem). Wydruk z grupowaniem to osobna warstwa (prezentacja), ale **zdanie
+"bez żadnego technicznego sprzężenia" było za mocne — Codex słusznie to
+złapał**: wydruk zależy od trwale zapisanej kategorii, więc backend Task
+musi się skończyć pierwszy, a brief musi rozstrzygnąć, z jakiego źródła
+wydruk grupuje wiersz — z BIEŻĄCEGO membership w momencie druku, czy z
+migawki (snapshot) kategorii zapisanej przy generowaniu grafiku/demandu —
+bo to wpływa na to, czy wydruk historycznego miesiąca zmienia się, gdy
+kategoria pracownika zmieni się później. To pytanie do briefu, nie
+rozstrzygnięcie CC.
 
 ## 4. Poza zakresem tej oceny
 
