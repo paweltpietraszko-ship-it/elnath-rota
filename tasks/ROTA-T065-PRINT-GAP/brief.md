@@ -1,15 +1,18 @@
 # ROTA-T065-PRINT-GAP — PDF dla ORDINARY bez drugiego eksportu
 
-STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD
+STATUS: CHECKPOINT A OWNER_ACCEPTED — CHECKPOINT B PREIMPLEMENTATION HOLD UNTIL LITERAL CODEX RE-CHECK + ROLE SOURCE READY
 
 BASELINE: `main@3085f6f`
 
 SOURCE:
 - `tasks/ROTA-T065-PRINT-GAP/round_01/tests/tests_r1.txt`
 - `tasks/ROTA-T065-PRINT-GAP/round_01/tests/tests_r2.txt`
+- preimplementation PASS `task/ROTA-T065-PRINT-GAP@18665e3`
+- OWNER_ACCEPTED prototype `task/ROTA-T065-PRINT-GAP@66c7c23a9d96b4fe4e87c18b3086b2f7b9818f77`
+- CHECKPOINT A handoff audit R4 `task/ROTA-T065-PRINT-GAP@75710f1`
 - T065 implementation PASS `42740118e838d704cb9679716efb7cdfb51b6083`
 - istniejący eksport T020/T056/T052 oraz późniejsze zabezpieczenie LAW acknowledgement
-- OWNER rulings: ORDINARY pokazuje rzeczywiste godziny, nie rodzinę D/N; role zawodowe są per demand/membership; PDF sklepu jest osobnym Taskiem prezentacyjnym
+- zależność semantyczna roli: `ROTA-T065-CONFIGURABLE-ROLES`
 
 ## 1. Cel
 
@@ -27,6 +30,8 @@ Nie powstaje drugi system eksportu. Istniejący `generate_schedule_pdf()` pozost
 
 Rozgałęzienie `OCHRONA` / `ORDINARY` jest wyłącznie prezentacyjne i następuje dopiero przy budowie/renderowaniu modelu wydruku.
 
+CHECKPOINT A został zaakceptowany przez OWNERA. Ten brief zamraża wynik A jako PRODUCT_TRUTH i projektuje CHECKPOINT B.
+
 ## 2. Nienaruszalna granica
 
 T065-PRINT-GAP NIE zmienia:
@@ -40,6 +45,7 @@ T065-PRINT-GAP NIE zmienia:
 - manual correction/deviations;
 - LAW acknowledgement;
 - logiki historycznej T065;
+- modelu ról, hierarchii ani zastępstw;
 - istniejącej semantyki i zaakceptowanego wydruku `OCHRONA`.
 
 Eksporter jest konsumentem już zapisanej prawdy. Nie wolno mu wyliczać legalności, rekonstruować ról z bieżącej obsady ani tworzyć własnego bilansu czasu.
@@ -48,15 +54,30 @@ Eksporter jest konsumentem już zapisanej prawdy. Nie wolno mu wyliczać legalno
 
 Dla `ORDINARY` wydruk bierze pracę z tej samej efektywnej historycznej wersji grafiku, z której dziś korzysta T020.
 
-Dla każdego PRIMARY Assignment:
+Dla PRIMARY Assignment:
 
-- konkretne godziny pochodzą z `Assignment.start_datetime/end_datetime` przy zachowaniu istniejącej kontroli spójności z `covers_demand_id`;
-- rola zawodowa pochodzi z wersjonowanego `ShiftDemand.required_role` powiązanego przez `Assignment.covers_demand_id`;
-- brak `required_role` jest legalnym historycznym faktem i nie może być uzupełniany z dzisiejszego `SiteMembership.allowed_roles`.
+- konkretne godziny pochodzą z `Assignment.start_datetime/end_datetime`;
+- wersja grafiku/lineage pozostaje źródłem pracy historycznej;
+- rola wykonywanej pracy z demandu NIE jest etykietą stanowiska człowieka;
+- renderer nie może użyć bieżącego `SiteMembership.allowed_roles` ani innej bieżącej konfiguracji do zgadywania historycznego stanowiska.
 
-Zmiana dzisiejszej obsady, ról albo katalogu zmian nie może zmienić ponownie wygenerowanego starego PDF.
+Zmiana dzisiejszej obsady, katalogu zmian albo późniejsza zmiana roli nie może zmienić starego reprintu.
 
-Nie tworzyć nowego snapshotu membershipu, tabeli historii wydruku ani tabeli store schedule.
+### 3.1. Historyczne stanowisko pod nazwiskiem — jawna zależność
+
+OWNER zaakceptował jedną stałą etykietę rzeczywistego stanowiska pod nazwiskiem pracownika.
+
+Przykład: osoba organizacyjnie będąca `Kierownikiem`, która pokryła pracę sprzedawcy, nadal drukuje się jako `Kierownik`.
+
+T065-PRINT-GAP NIE może sam wprowadzić pola/encji/tabeli stanowiska tylko dla wydruku.
+
+Historyczne źródło tej etykiety ma pochodzić z docelowego, audytowanego modelu `ROTA-T065-CONFIGURABLE-ROLES`, który rozdziela:
+
+1. stanowisko organizacyjne pracownika;
+2. rolę wymaganej/wykonywanej pracy;
+3. ewentualne jawne dopuszczenie zastępstwa.
+
+Do czasu gdy ten owner udostępnia jednoznaczne historyczne stanowisko dla drukowanej wersji, CHECKPOINT B pozostaje IMPLEMENTATION HOLD. To jest zależność danych, nie zgoda na rozszerzenie scope PRINT-GAP.
 
 ## 4. Reżim OCHRONA — regresja zero
 
@@ -73,76 +94,86 @@ Dla `OCHRONA` pozostają dotychczasowe:
 
 T065-PRINT-GAP nie jest zgodą na estetyczny refactor Ochrony.
 
-## 5. ORDINARY — prezentacja pracy
+## 5. CHECKPOINT A — OWNER_ACCEPTED PRODUCT TRUTH
+
+Poniższe decyzje są zamrożone i nie są już otwartymi pytaniami implementacyjnymi.
+
+1. **Godziny** — literalny zakres z Assignment, bez zer wiodących, np. `5–12`.
+2. **Stanowisko** — pełna nazwa stanowiska drukowana dokładnie raz pod nazwiskiem pracownika; nie zmienia się dzień do dnia tylko dlatego, że osoba pokrywa pracę zwykle przypisaną innej roli.
+3. **Komórki dni** — pokazują godziny pracy, nie stanowisko/rolę.
+4. **Wiele zmian jednego dnia** — osobne linie w tej samej komórce, chronologicznie.
+5. **Zmiana przez północ** — godzina końcowa z `(+1)`, np. `22–6(+1)`, zakotwiczona na dacie startu.
+6. **PLAN/WYK** — jeden wiersz pracownika/dzień dla ORDINARY; nie tworzyć ochroniarskiego duetu PLAN/WYK.
+7. **Absencje** — pełne słowa `Urlop` i `L4`; bez wypełnienia. `Urlop` = pogrubiona pełna ramka, `L4` = przerywana ramka.
+8. **Zwykły dzień bez pracy** — `–`, bez specjalnej ramki.
+9. **Tło strony** — zawsze białe, niezależnie od trybu UI/systemu.
+10. **Wypełnienie komórek pracy** — szarość jest wyłącznie dodatkową podpowiedzią stanowiska, nie jedynym nośnikiem informacji.
+11. **Role konfigurowalne** — język wizualny ma działać dla dowolnych nazw stanowisk; nie hardcodować dwóch wartości ani przykładowego `Uczeń`. Dokładne przypisanie odcieni do N stanowisk może być deterministyczne, lecz nie może zmieniać znaczenia danych.
+
+Nie wolno implementerowi zmieniać tych decyzji `dla wygody` bez nowej jawnej decyzji OWNERA.
+
+## 6. ORDINARY — prezentacja pracy
 
 `ORDINARY` nie mapuje Assignment do D/N ani do kodu pracy.
 
 Komórka pracy jest budowana z rzeczywistych przedziałów czasu tego pracownika w danym dniu.
 
-Przykładowe fakty wejściowe:
+Przykłady:
 
-- 05:00–12:00, rola `KIEROWNIK`;
-- 10:00–18:00, rola `SPRZEDAWCA_ZALOGA`;
-- 22:00–06:00 następnego dnia;
-- dwa niezależne, niepokrywające się Assignments tego samego dnia;
-- Assignment bez roli zawodowej.
+- `05:00–12:00` -> `5–12`;
+- `12:00–19:00` -> `12–19`;
+- `22:00–06:00` następnego dnia -> `22–6(+1)`;
+- dwa niezależne, niepokrywające się Assignments tego samego dnia -> dwie linie w jednej komórce.
 
-Eksporter ORDINARY musi obsłużyć wszystkie te przypadki bez `WORK_CODE_MAPPING_REQUIRED` i bez sztucznego tworzenia D/N.
+Eksporter ORDINARY obsługuje te przypadki bez `WORK_CODE_MAPPING_REQUIRED`, bez D/N i bez ochroniarskiego 24h collapse.
 
-Dokładny tekst komórki, skrót roli, separator wielu przedziałów oraz sposób pokazania zmiany przez północ są decyzją wizualną CHECKPOINT A i nie są jeszcze zamrożone w tym briefie.
+## 7. Wiele zmian jednego dnia
 
-## 6. Wiele zmian jednego dnia
+Obecny błąd `MULTIPLE_WORK_ITEMS_PER_CELL` jest założeniem ochroniarskiej prezentacji i nie może blokować legalnego ORDINARY.
 
-Obecny błąd `MULTIPLE_WORK_ITEMS_PER_CELL` jest ochroniarskim założeniem prezentacyjnym i nie może automatycznie blokować legalnego `ORDINARY`, jeżeli historia zawiera kilka niezależnych, niepokrywających się prac tego samego pracownika tego samego dnia.
+Dla ORDINARY wszystkie niepokrywające się realne przedziały danego pracownika w danym dniu trafiają do jednej komórki w deterministycznej kolejności `(start_datetime, end_datetime, assignment_id)`.
 
-Dla `ORDINARY` wszystkie takie realne przedziały mają trafić do jednej komórki dnia w deterministycznej kolejności chronologicznej.
+T065-PRINT-GAP nie zmienia walidacji overlap. Eksporter nie staje się drugim validatorem.
 
-T065-PRINT-GAP nie zmienia walidacji overlap. Jeżeli zapisany stan jest prawnie/strukturalnie wadliwy, obowiązują istniejące LAW/provenance gates. Eksporter nie staje się drugim validator-em.
+## 8. Zmiana przez północ
 
-## 7. Zmiana przez północ
+Zmiana przechodząca przez północ pozostaje jednym faktem pracy zakotwiczonym w dacie rozpoczęcia.
 
-Dla `ORDINARY` zmiana przechodząca przez północ pozostaje jednym faktem pracy zakotwiczonym w dacie rozpoczęcia, zgodnie z istniejącym Assignment/ScheduleVersion.
+Format jest zamrożony: `start–end(+1)`, bez D/N i bez dzielenia Assignment na dwa dni.
 
-Renderer ma pokazać rzeczywisty przedział bez zamiany na `N` i bez ochroniarskiego 24h collapse.
+## 9. Stanowisko pracownika na wydruku
 
-Dokładny zapis wizualny (`22–6`, `22–06 (+1)` itp.) zostaje zamrożony przez OWNERA w CHECKPOINT A.
+Stanowisko jest informacją o człowieku, nie o każdym Assignment.
 
-## 8. Role zawodowe na wydruku
+Renderer pokazuje jedną pełną nazwę stanowiska pod nazwiskiem pracownika. Nie pokazuje roli przy godzinach i nie buduje etykiety typu `Kierownik/Sprzedawca`.
 
-Role są opcjonalne historycznie.
+Jeżeli pracownik pokrył demand innej roli, komórka nadal pokazuje wyłącznie godziny, a stanowisko pod nazwiskiem pozostaje jego rzeczywistym stanowiskiem organizacyjnym.
 
-Dla Assignment z demandem posiadającym `required_role` renderer MUSI pokazać tę rolę przy godzinach. Dokładna forma wizualna pozostaje decyzją CHECKPOINT A.
+Renderer nie może:
 
-Dla demandu bez roli:
+- wyprowadzać stanowiska z `ShiftDemand.required_role`;
+- scalać historycznie wykonanych ról w listę stanowisk;
+- wybierać arbitralnie jednego elementu z `allowed_roles`;
+- używać nazwy `Kierownik`, `Sprzedawca` lub innych wartości jako hardcode.
 
-- nie wolno zgadywać roli z pracownika;
-- nie wolno dopisywać `SPRZEDAWCA_ZALOGA` jako default;
-- komórka nadal ma być drukowalna.
+## 10. PLAN/WYK, absencje, podsumowania
 
-Dokładny zapis `KIEROWNIK` / `SPRZEDAWCA_ZALOGA` (pełna nazwa, skrót, osobna linia, nawias itp.) jest decyzją CHECKPOINT A.
+ORDINARY ma jeden wiersz na pracownika.
 
-## 9. PLAN / WYK
+Źródłem absencji pozostają istniejące kanoniczne fakty T020 / `canonical_site_absence_days` / `absence_reference_snapshot`.
 
-Nie zmieniamy semantyki istniejących danych PLAN/WYK.
-
-To, czy `ORDINARY` zachowuje dwa osobne wiersze PLAN/WYK, czy przy akceptowanym stanie pokazuje je inaczej, jest user-visible decyzją OWNERA i pozostaje otwarte do próbki CHECKPOINT A.
-
-Implementer nie wybiera tego samodzielnie.
-
-## 10. Absencje i podsumowania
-
-`ORDINARY` nie tworzy własnego mechanizmu absencji ani godzin.
-
-Źródłem pozostają istniejące kanoniczne fakty T020 / `canonical_site_absence_days` / `absence_reference_snapshot` i obecne pola sumaryczne.
-
-Renderer ORDINARY może mieć inną etykietę tekstową niż ochroniarskie U*/C*, ale nie może:
+Renderer nie może:
 
 - inaczej liczyć godzin urlopu/L4;
 - tworzyć Assignment dla nieobecności;
 - rozkładać absencji na fikcyjne sklepowe zmiany;
-- rekonstruować nieobecności z samego layoutu.
+- rekonstruować nieobecności z layoutu.
 
-Dokładne etykiety (`Urlop`, `L4`, skróty) i wygląd podsumowań zamraża CHECKPOINT A.
+Wyświetlanie:
+
+- `Urlop` — pełne słowo, pogrubiona pełna ramka;
+- `L4` — pełne słowo, przerywana ramka;
+- brak pracy/absencji — `–`.
 
 ## 11. SitePrintSettings — jeden owner, regime-aware
 
@@ -153,32 +184,22 @@ Wspólne dla obu reżimów pozostają co najmniej:
 - `company_print_name`;
 - `site_print_name`.
 
-Pola ochroniarskie:
+Pola ochroniarskie (`base_regime`, `work_code_intervals`, `reserve_hours`, D6+/N6+, ustawienia S1) nie mogą być wymagane ani prezentowane jako konfiguracja ORDINARY.
 
-- `base_regime`;
-- `work_code_intervals`;
-- `reserve_hours`;
-- miesięczne D6+/N6+;
-- ustawienia S1 zależne od obecnego kontraktu
-
-nie mogą być wymagane ani prezentowane jako konfiguracja ORDINARY tylko po to, żeby istniejący model przeszedł walidację.
-
-Implementacja ma minimalnie uczynić istniejący owner regime-aware. Preferowane jest zachowanie jednej struktury/API z polami ochroniarskimi opcjonalnymi/ignorowanymi zgodnie z `planning_regime`, zamiast tworzenia równoległego modelu.
-
-Walidacja odczytu i zapisu ma znać reżim Site i failować jawnie na sprzecznej konfiguracji; nie może zgadywać reżimu z obecności kodów.
+Walidacja odczytu i zapisu zna `planning_regime`; nie zgaduje reżimu z obecności kodów.
 
 ## 12. PrintSettings UI
 
 `Panel sterowania -> Obiekt -> Ustawienia wydruku` pozostaje jednym ekranem/komponentem.
 
-Dla ORDINARY użytkownik ma widzieć wyłącznie ustawienia mające sens dla tego reżimu. Nie pokazujemy:
+Dla ORDINARY użytkownik widzi tylko ustawienia mające sens dla tego reżimu. Nie pokazujemy:
 
 - `Reżim bazowy 12h/24h`;
 - tabeli D1..D5/N1..N5;
 - miesięcznych D6+/N6+;
-- ochroniarskich rezerw U/C jako wymaganej konfiguracji sklepowej.
+- ochroniarskich rezerw U/C jako wymaganej konfiguracji.
 
-Nagłówek/nazwa firmy/nazwa obiektu pozostają dostępne.
+Nazwa firmy i nazwa obiektu pozostają dostępne.
 
 Nie tworzyć osobnego ekranu `Store Print Settings`.
 
@@ -186,63 +207,48 @@ Nie tworzyć osobnego ekranu `Store Print Settings`.
 
 `generate_schedule_pdf()` pozostaje jedynym publicznym application entry pointem.
 
-Dozwolony kształt wewnętrzny:
+Kształt B:
 
 1. wspólne pre-gates i LAW acknowledgement;
 2. wspólne przypięcie CURRENT/lineage;
 3. odczyt `Site.planning_regime`;
-4. assembly prezentacyjne odpowiednie dla OCHRONA lub ORDINARY;
-5. wspólny render entry / wspólne revision/provenance/race checks.
+4. wspólne pobranie kanonicznych danych;
+5. prywatne assembly prezentacyjne OCHRONA albo ORDINARY;
+6. wspólny publiczny export result, document revision, provenance i race checks.
 
-Można wydzielić małe prywatne helpery/typy rendererów w istniejącym module, jeśli jest to konieczne do utrzymania czytelności i limitów backendu.
+Dozwolone są prywatne helpery/typy prezentacyjne. Niedozwolone:
 
-Nie wolno tworzyć:
+- `generate_ordinary_pdf()` jako drugi publiczny pipeline;
+- drugi API endpoint;
+- osobna tabela/export lifecycle;
+- alternatywna walidacja LAW;
+- alternatywna provenance/revision.
 
-- `generate_ordinary_pdf()` jako drugiego publicznego pipeline;
-- drugiego API endpointu;
-- osobnej tabeli/export lifecycle;
-- alternatywnej walidacji LAW;
-- alternatywnej provenance/revision.
+## 14. CHECKPOINT A — ZAMKNIĘTY
 
-## 14. CHECKPOINT A — obowiązkowy optyczny gate OWNERA
+CHECKPOINT A został OWNER_ACCEPTED na prototypie `66c7c23`.
 
-Przed implementacją produkcyjnego ORDINARY renderer CC przygotowuje prawdziwy PDF demonstracyjny na danych syntetycznych. To jest artefakt projektowy, nie produkcyjny export path.
+Prototyp pozostaje izolowanym artefaktem projektowym pod `tasks/ROTA-T065-PRINT-GAP/prototype/**` i nie może być importowany przez kod produkcyjny.
 
-Próbka musi zawierać co najmniej:
+Nie powtarzamy audytu prototypu. R4 wymaga wyłącznie literalnego re-checku korekty kontraktu.
 
-1. pracownika wykonującego różne role w różnych dniach;
-2. Assignment z rolą oraz Assignment bez `required_role`;
-3. dwie legalne, niepokrywające się zmiany jednego pracownika tego samego dnia;
-4. zmianę przechodzącą przez północ;
-5. urlop;
-6. L4;
-7. zwykły dzień bez pracy;
-8. wystarczającą liczbę pracowników/dni, aby wymusić więcej niż jedną stronę.
+## 15. CHECKPOINT B — projekt produkcyjny
 
-Próbka ma korzystać z danych wizualnie realistycznych, ale syntetycznych. Nie używać realnych nazwisk.
+CHECKPOINT B odtwarza zaakceptowany layout w istniejącym produkcyjnym eksporcie.
 
-Przed CHECKPOINT A wolno stworzyć wyłącznie izolowany prototype/mock w `tasks/ROTA-T065-PRINT-GAP/prototype/**`; nie wolno modyfikować produkcyjnego `rota/application/schedule_export.py` w celu uzyskania próbki.
+B obejmuje wyłącznie:
 
-OWNER po obejrzeniu próbki zamraża dokładnie:
+1. uczynienie istniejącego `SitePrintSettings` regime-aware;
+2. rozszerzenie istniejącego assembly o model ORDINARY;
+3. prywatne mapowanie ORDINARY Assignment -> komórki rzeczywistych godzin;
+4. jedną etykietę historycznego stanowiska pod nazwiskiem pracownika, pobraną z autoryzowanego ownera modelu ról;
+5. layout ORDINARY zgodny 1:1 z decyzjami §5;
+6. warunkowe UI `PrintSettings` po `planning_regime`;
+7. testy regresji OCHRONA oraz testy nowego ORDINARY.
 
-- sposób zapisu godzin;
-- sposób zapisu roli i brak roli;
-- separator/kolejność wielu przedziałów;
-- zapis zmiany przez północ;
-- PLAN/WYK dla ORDINARY;
-- słowa/skróty absencji;
-- podsumowania;
-- które elementy nagłówka/stopki/legendy pozostają wspólne.
+B NIE obejmuje modelowania stanowisk/ról. Jeżeli `ROTA-T065-CONFIGURABLE-ROLES` nie udostępnia wymaganego historycznego stanowiska, CC zatrzymuje implementację i zgłasza zależność — nie dodaje print-only role source.
 
-Bez jawnego OWNER ACCEPTED CHECKPOINT A implementacja produkcyjna pozostaje HOLD.
-
-## 15. CHECKPOINT B — implementacja produkcyjna
-
-Dopiero po OWNER ACCEPTED CHECKPOINT A oraz PASS audytu briefu można zmieniać produkcyjny eksport.
-
-Implementacja B ma odtworzyć zaakceptowany layout na kanonicznych danych historycznych i zachować wszystkie wspólne gates T020.
-
-Nie wolno implementerowi poprawiać zaakceptowanej próbki `dla wygody` bez powrotu do OWNERA.
+Po PASS literalnego re-checku tego briefu architektura B jest zaakceptowana. Implementacja produkcyjna może rozpocząć się dopiero, gdy zależność stanowiska jest technicznie dostępna na branchu implementacyjnym.
 
 ## 16. Acceptance funkcjonalne
 
@@ -250,25 +256,33 @@ T65P-01 — ten sam publiczny endpoint/generate path drukuje OCHRONA i ORDINARY 
 
 T65P-02 — reprezentatywny OCHRONA PDF zachowuje istniejące kody/layout/legendę i wszystkie gates.
 
-T65P-03 — ORDINARY 05:00–12:00 drukuje realne godziny bez D/N i bez `WORK_CODE_MAPPING_REQUIRED`.
+T65P-03 — ORDINARY `05:00–12:00` drukuje `5–12`, bez D/N i bez `WORK_CODE_MAPPING_REQUIRED`.
 
-T65P-04 — ORDINARY demand z `required_role` pokazuje rolę zgodnie z zaakceptowanym CHECKPOINT A; brak roli nie jest zgadywany.
+T65P-04 — pod nazwiskiem ORDINARY drukuje się jedna pełna historyczna nazwa stanowiska z autoryzowanego modelu ról; rola wykonywanej pracy nie zastępuje stanowiska.
 
-T65P-05 — dwie niepokrywające się prace jednego dnia drukują się deterministycznie w jednej komórce zamiast `MULTIPLE_WORK_ITEMS_PER_CELL`.
+T65P-05 — kierownik pokrywający pracę sprzedawcy nadal drukuje się jako `Kierownik`; komórka pokazuje tylko godziny.
 
-T65P-06 — zmiana przez północ jest jednym faktem zakotwiczonym w dacie startu i prezentuje się zgodnie z CHECKPOINT A.
+T65P-06 — dwie niepokrywające się prace jednego dnia drukują się chronologicznie jako osobne linie w jednej komórce zamiast `MULTIPLE_WORK_ITEMS_PER_CELL`.
 
-T65P-07 — historyczny reprint po zmianie membership roles nadal pokazuje rolę z historycznego `ShiftDemand.required_role`.
+T65P-07 — zmiana przez północ jest jednym faktem zakotwiczonym w dacie startu i ma format `22–6(+1)`.
 
-T65P-08 — urlop/L4 używają kanonicznych danych i nie tworzą nowego bilansu.
+T65P-08 — ORDINARY ma jeden wiersz pracownika, nie osobne PLAN/WYK.
 
-T65P-09 — ORDINARY PrintSettings zapisują/odczytują wspólne pola bez wymuszania ochroniarskiego base_regime/kodów/rezerw.
+T65P-09 — `Urlop` i `L4` używają kanonicznych danych; mają zaakceptowane teksty/ramki; zwykły dzień bez pracy to `–`.
 
-T65P-10 — UI ORDINARY nie pokazuje ochroniarskich ustawień D/N/D1..N5/D6+/N6+.
+T65P-10 — tło PDF jest białe niezależnie od trybu UI/systemu.
 
-T65P-11 — świeża LAW validation, acknowledgement fingerprint, CURRENT race checks, provenance i document revision działają identycznym wspólnym mechanizmem dla obu reżimów.
+T65P-11 — język szarości działa dla dowolnej liczby/nazw stanowisk bez hardcode dwóch ról; tekst stanowiska pozostaje podstawowym nośnikiem znaczenia.
 
-T65P-12 — multipage ORDINARY zachowuje czytelność i nagłówki zgodnie z zaakceptowaną próbką.
+T65P-12 — historyczny reprint nie rekonstruuje stanowiska z bieżącego membershipu ani z ról wykonywanych prac.
+
+T65P-13 — ORDINARY PrintSettings zapisują/odczytują wspólne pola bez wymuszania ochroniarskiego base_regime/kodów/rezerw.
+
+T65P-14 — UI ORDINARY nie pokazuje ochroniarskich ustawień D/N/D1..N5/D6+/N6+.
+
+T65P-15 — świeża LAW validation, acknowledgement fingerprint, CURRENT race checks, provenance i document revision działają identycznym wspólnym mechanizmem dla obu reżimów.
+
+T65P-16 — multipage ORDINARY zachowuje czytelność i nagłówki zgodnie z OWNER_ACCEPTED prototypem.
 
 ## 17. Guardrails przeciw duplikacji
 
@@ -280,34 +294,32 @@ Zakazane:
 - drugi LAW validator;
 - drugi system revision/provenance;
 - drugi owner PrintSettings;
+- print-only model stanowiska;
 - odczyt bieżącego `allowed_roles` do historycznego PDF;
 - przeliczanie absencji od zera;
 - sklepowe D/N albo D1/N1 tylko dla kompatybilności renderera;
 - kopiowanie `schedule_export.py` do `ordinary_schedule_export.py` jako niezależnego pipeline.
 
-Dozwolone jest wyłącznie wydzielenie prywatnej warstwy prezentacyjnej, jeśli wspólne gates i źródła danych pozostają pojedyncze.
+Dozwolone jest wyłącznie wydzielenie prywatnej warstwy prezentacyjnej przy zachowaniu pojedynczych gates i źródeł danych.
 
-## 18. Preimplementation audit
+## 18. Wąski re-check Codexa
 
-Codex ma przed CHECKPOINT A/produkcją sfalsyfikować:
+Po R4 Codex NIE powtarza audytu prototypu ani pełnego preimplementation review.
 
-1. czy brief zachowuje jeden publiczny lifecycle eksportu;
-2. czy ORDINARY może korzystać z zapisanych Assignment + ShiftDemand bez nowego snapshotu;
-3. czy `SitePrintSettings` da się uczynić regime-aware bez drugiego ownera;
-4. czy zakres nie wymusza zmiany solvera/planningu;
-5. czy dwa work items jednego dnia można obsłużyć prezentacyjnie bez omijania istniejących LAW/provenance gates;
-6. czy OCHRONA może pozostać regresyjnie niezmieniona;
-7. czy CHECKPOINT A jest rzeczywiście izolowany od produkcyjnej implementacji.
+Sprawdza literalnie tylko:
 
-PASS preimplementation nie zatwierdza wyglądu. Wygląd zatwierdza OWNER na próbce.
+1. czy 11 zaakceptowanych decyzji CHECKPOINT A znajduje się w briefie jako PRODUCT_TRUTH;
+2. czy stary kontrakt `required_role przy godzinach` został usunięty;
+3. czy jedna etykieta stanowiska ma jawnego ownera/dependency i PRINT-GAP nie tworzy bocznego modelu ról;
+4. czy acceptance B odpowiada zaakceptowanej próbce;
+5. czy jeden export lifecycle pozostaje zachowany.
 
 WHERE_MAP: REQUIRED
-- rota/application/schedule_export.py :: `generate_schedule_pdf`, assembly, cell mapping, render — przed CHECKPOINT B potwierdzić wszystkich istniejących callerów/helperów i nie tworzyć drugiego export ownera.
-- rota/persistence/site_repository.py :: `SitePrintSettings`, `validate_site_print_settings`, read/write — przed CHECKPOINT B potwierdzić regime-aware walidację w jednym ownerze.
-- api/routers/export.py :: modele oraz GET/PUT ustawień/entry export — przed CHECKPOINT B potwierdzić istniejący endpoint i brak drugiej ścieżki API.
-- frontend/src/screens/PrintSettings.tsx :: target plikowy UI — przed CHECKPOINT B potwierdzić warunkową prezentację po `planning_regime` bez drugiego ekranu ustawień wydruku.
-
-Mapa WHERE_MAP jest wymagana przed CHECKPOINT B. Nie jest wymagana do izolowanego CHECKPOINT A w `tasks/ROTA-T065-PRINT-GAP/prototype/**`.
+- rota/application/schedule_export.py :: `generate_schedule_pdf`, `_assemble_export_model`, cell mapping, `_render_pdf` — zachować wspólne gates/result; regime branch tylko w prywatnym assembly/render modelu.
+- rota/persistence/site_repository.py :: `SitePrintSettings`, `validate_site_print_settings`, read/write — regime-aware w jednym ownerze.
+- api/routers/export.py :: istniejące modele oraz GET/PUT ustawień/entry export — bez drugiej ścieżki API.
+- frontend/src/screens/PrintSettings.tsx :: warunkowa prezentacja po `planning_regime`, bez drugiego ekranu.
+- ROTA-T065-CONFIGURABLE-ROLES owner/history API :: tylko read dependency dla historycznego stanowiska; bez implementacji modelu ról w tym Tasku.
 
 TASK_SCOPE:
 - tasks/ROTA-T065-PRINT-GAP/**
@@ -322,6 +334,6 @@ TASK_SCOPE:
 
 ### Scope restrictions
 
-Przed OWNER ACCEPTED CHECKPOINT A dozwolone są zmiany wyłącznie pod `tasks/ROTA-T065-PRINT-GAP/**` oraz raport/BOARD auditora. Produkcyjne pliki z TASK_SCOPE są odblokowane dopiero w CHECKPOINT B.
+`rota/planning/**`, solver, validator, `rota/balance.py`, `rota/domain.py`, schedule lifecycle oraz implementacja modelu ról są poza scope PRINT-GAP.
 
-`rota/planning/**`, solver, validator, `rota/balance.py`, `rota/domain.py`, schedule lifecycle i T065 role/planning implementation są poza scope. Jeżeli produkcyjna implementacja wymaga ich zmiany, CC zatrzymuje się i zgłasza finding zamiast rozszerzać Task.
+PRINT-GAP może wyłącznie odczytać autoryzowane historyczne stanowisko dostarczone przez zależność `ROTA-T065-CONFIGURABLE-ROLES`. Jeżeli do tego potrzebna byłaby zmiana modelu domeny po stronie PRINT-GAP, CC zatrzymuje się i zgłasza finding zamiast rozszerzać Task.
