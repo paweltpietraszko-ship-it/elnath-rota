@@ -18,6 +18,22 @@ brief.md/kontrakcie danego Tasku.
 - If a brief is untestable after 1–2 correction rounds: report and STOP; do not
   use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
 
+## SYNTHETIC_DATA_NOT_PRODUCT_TRUTH
+OWNER_RULING_2026-09-13: dane obecne w programie są syntetyczne/testowe i nie
+opisują jednej wspólnej produkcyjnej bazy osób, obiektów ani konfiguracji.
+
+- NIGDY nie traktuj konfliktu, przenikania lub historycznej kombinacji między
+  niezależnie zasianymi danymi syntetycznymi jako realnego scenariusza produktu
+  ani jako podstawy `FAIL`.
+- Sam fakt, że sztuczny stan da się skonstruować technicznie, nie dowodzi jego
+  osiągalności ani znaczenia w rzeczywistej pracy programu.
+- Reproduktor może używać danych syntetycznych do odtworzenia zachowania
+  wynikającego z PRODUCT_TRUTH, ale testy nie mogą tworzyć przez ich zestawienie
+  nowego kontraktu, wspólnej bazy lub przepływu między obiektami.
+- Jeżeli potencjalny finding zależy od założenia, że takie dane się przenikają
+  albo odpowiadają zachowywanym danym produkcyjnym, najpierw krótko zapytaj
+  OWNERA o realność scenariusza; bez potwierdzenia nie blokuj Tasku.
+
 ## COORDINATOR_SIMULATORS_FROZEN
 OWNER_RULING_2026-09-09: Symulator Koordynatora A i Symulator Koordynatora B
 są w obecnym stanie bezużyteczne i zamrożone.
