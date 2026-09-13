@@ -1,0 +1,71 @@
+ROTA-T065-PANEL-CLEANUP — finding triage R1
+Data: 2026-09-13
+Audytowany stan: main@4ae357e6a9490b1e2f09ad57797945f3dc1cef2f
+Źródło: wiersz BOARD ROTA-T065-PANEL-CLEANUP
+
+WYNIK: OWNER_DECISION_NEEDED — problemy są realne, ale obecny finding nie
+powinien iść do architekta jako jeden brief.
+
+Potwierdzone w kodzie
+---------------------
+1. D/N i `day_only` w ORDINARY są mylącymi kontrolkami.
+   `ControlPanel.tsx` i `EmployeeDetail.tsx` pokazują Dniówkę/Nockę oraz
+   `day_only` bez warunku reżimu. Zapisane ograniczenia dochodzą do
+   `EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS`, ale eligibility przekazuje
+   `dn_semantics_apply(...)=False` dla ORDINARY, więc ograniczenie D/N nie
+   blokuje sklepowego demandu. Użytkownik może zapisać decyzję, która nie ma
+   deklarowanego efektu.
+
+2. `can_work_24h` nie jest wyłącznie martwym polem UI.
+   Kontrolka jest wspólna dla obu reżimów, a `eligibility.py` nadal blokuje
+   demand `catalog_kind=H24`, gdy `membership.can_work_24h=False`, bez wyjątku
+   dla ORDINARY. Jeśli decyzja OWNERA brzmi „koncepcja 24h nie ma zastosowania
+   w ORDINARY”, brief musi zmienić także tę regułę zastosowania, nie tylko
+   ukryć kolumnę. Samo pole może technicznie pozostać we wspólnym modelu dla
+   OCHRONA — to nie jest zachowanie użytkowe.
+
+3. Ograniczenie per konkretna zmiana katalogowa wymaga nowego właściciela
+   semantyki, ale nie drugiego systemu dostępności.
+   Dzisiejszy `StandardShift` nie ma trwałego identyfikatora biznesowego;
+   katalog jest zapisywany jako lista `seq` i przy zapisie przepisywany.
+   Dlatego nie da się uczciwie zamrozić zachowania po edycji godzin bez
+   decyzji OWNERA, czy ograniczenie ma podążać za tą samą pozycją, czy wygasać.
+
+4. „Zmiana ruchoma” jest osobną funkcją planowania.
+   To nowy sposób utworzenia realnego demandu, jego edycji/anulowania i
+   pokrycia Assignmentem przy pełnym eligibility/rest/role. Nie jest cleanupem
+   panelu ani wariantem S1. Łączenie jej z macierzą dostępności tworzyłoby jeden
+   duży brief z dwoma niezależnymi celami i właścicielami.
+
+5. `PrintSettings.tsx` jest już własnością zależnego
+   `ROTA-T065-PRINT-GAP`; nie wolno powtarzać jego logiki w tym Tasku.
+
+Wymagany podział
+----------------
+A. ROTA-T065-ORDINARY-AVAILABILITY
+   - usunięcie/zmiana mylących kontrolek D/N, day_only i 24h dla ORDINARY;
+   - ograniczenia per realna zmiana katalogowa;
+   - wspólny mechanizm historii/reguł, nie równoległa macierz;
+   - jawna poprawka zastosowania `can_work_24h` w eligibility dla ORDINARY;
+   - bez `PrintSettings.tsx`.
+
+B. ROTA-T065-FLEX-SHIFT-DEMAND
+   - osobny finding/brief dla ad-hoc rzeczywistej zmiany;
+   - zwykły ShiftDemand + Assignment i pełne prawo/eligibility/role;
+   - żadnego użycia ścieżki ani zwolnień S1/PERIODIC_TRAINING.
+
+Decyzje OWNERA przed briefami
+-----------------------------
+1. Po zmianie godzin pozycji w katalogu: czy ograniczenie pracownika ma
+   podążać za tą pozycją, czy zostać jawnie wyłączone i wymagać ponownego
+   ustawienia?
+
+2. Dla zmiany ruchomej potwierdzić minimalny przepływ użytkowy: czy w planie
+   konkretnego dnia koordynator podaje godziny, wymaganą rolę i liczbę osób,
+   a następnie może taki demand edytować/anulować przed generowaniem grafiku.
+   Bez tego architekt musiałby sam wymyślić zachowanie widoczne dla użytkownika.
+
+Audit scope
+-----------
+To była weryfikacja realności i ownership findingu. Nie uruchamiano testów,
+pełnej regresji, symulatorów ani benchmarków.
