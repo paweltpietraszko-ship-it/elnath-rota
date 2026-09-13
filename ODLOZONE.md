@@ -17,26 +17,6 @@ Krótki opis (2-4 zdania). Dlaczego odłożone. Gdzie szukać więcej kontekstu
 
 ---
 
-## 2026-09-13 SHIFT-24-01/DAY_ONLY-01/NIGHT-STREAK-01 komunikaty ochroniarskie dla ORDINARY
-
-`rota/planning/decision_guidance.py` (T062) ma trzy komunikaty koordynatora
-pisane wyłącznie pod Ochronę ("Zmień Nocka", "limit dwóch nocek pod rząd",
-"Zmień 24"). DAY_ONLY-01/NIGHT-STREAK-01 są dziś martwe dla ORDINARY
-(zablokowane przez `dn_semantics_apply()`). SHIFT-24-01 technicznie mógłby
-się odpalić (brak bramki regime, sprawdza tylko `catalog_kind == H24`), ale
-Paweł: realne sklepy nie mają 24-godzinnych zmian, więc to teoretyczny
-przypadek bez pokrycia w rzeczywistej pracy koordynatora.
-
-Odłożone: brak realnego scenariusza, w którym się to pokaże. Nie
-podejmować bez konkretnego, powtarzającego się przypadku z życia (ten sam
-próg co inne wpisy tutaj). Osobna, węższa część tego samego findingu —
-`decision_guidance.py` nie ma jeszcze wpisu dla nowego warunku z
-`ROTA-T065-ORDINARY-TIME-AVAILABILITY` — została na BOARD.md jako
-`ROTA-T065-DECISION-GUIDANCE-GAP`, bo to realny, nadchodzący warunek, nie
-teoretyczny.
-
----
-
 ## 2026-09-09 Solver nie dokłada reszty grafiku wokół jednego zaakceptowanego wyjątku od HARD
 
 Gdy koordynator świadomie akceptuje złamanie reguły HARD dla jednej osoby
