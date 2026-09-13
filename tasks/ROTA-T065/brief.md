@@ -1,6 +1,6 @@
 # ROTA-T065 — ORDINARY: role pracowników i rzeczywiste zmiany sklepowe
 
-STATUS: PREIMPLEMENTATION — BRIEF ARCHITEKTA, IMPLEMENTATION HOLD UNTIL CODEX PASS
+STATUS: PREIMPLEMENTATION — BRIEF ARCHITEKTA PO FALSYFIKACJI, IMPLEMENTATION HOLD UNTIL CODEX PASS
 
 BASELINE: `main@8199143e414047447da69554d5c1558d7393d192`
 
@@ -8,21 +8,26 @@ SOURCE:
 - finding Codexa `3d9600f`
 - zweryfikowany scope `66181cf`
 - re-check `c60f944`
+- Work falsification `tests_r1.txt` + uzupełnienie `tests_r2.txt` z 2026-09-13
 - OWNER rulings 2026-09-13 zapisane w historii `BOARD.md`
-- istniejący `SiteMembership`, `StandardShift`, `ShiftDemand`, `generate_catalog_demands` i jeden pipeline PLAN/REPLAN
+- istniejący `SiteMembership`, `StandardShift`, `ShiftDemand`, `generate_catalog_demands`, PLAN/REPLAN, solver/validator, manual correction/deviation/audit lifecycle
 
 ## 1. Cel
 
-T065 ma sprawić, żeby istniejący reżim `ORDINARY` rzeczywiście nadawał się do planowania pracy sklepu, bez budowania drugiego solvera, drugiego przebiegu planowania ani równoległej domeny grafiku.
+T065 ma sprawić, żeby istniejący reżim `ORDINARY` nadawał się do planowania pracy sklepów bez budowania drugiego solvera, drugiego przebiegu planowania ani równoległej domeny grafiku.
 
-T065 dodaje dwie rzeczy do istniejącego pipeline:
+T065 dodaje wyłącznie brakujące pojęcia biznesowe:
 
 1. jawne role obsady sklepu: `KIEROWNIK` oraz `SPRZEDAWCA_ZALOGA`;
-2. sklepowe zapotrzebowanie opisane rzeczywistym przedziałem czasu i dniem, a nie ochroniarską semantyką `D/N` ani biznesowym kodem zmiany.
+2. wymaganie roli na konkretnym istniejącym zapotrzebowaniu czasowym.
 
-Efektem PLAN/REPLAN pozostaje jeden `ScheduleVersion` tworzony przez ten sam solver.
+T065 NIE buduje obsługi zmian 7–9 h. `StandardShift`, `ShiftCatalogKind.OTHER/INNY`, `active_weekdays`, przejście przez północ i istniejący generator już obsługują takie przedziały. T065 ma je wykorzystać.
 
-## 2. Zasada nadrzędna — jeden solver i jedna prawda o obsadzie
+Produkt nie jest projektowany pod jeden konkretny sklep. Sklep OWNERA służy wyłącznie jako realistyczny fixture i źródło przykładów operacyjnych. Kontrakt ma obsłużyć również sklepy 24/7 i inne konfiguracje godzin.
+
+Efektem PLAN/REPLAN pozostaje ten sam `ScheduleVersion` tworzony przez istniejący engine i solver.
+
+## 2. Zasada nadrzędna — jeden istniejący pipeline
 
 T065 NIE tworzy:
 - drugiego solvera dla sklepu;
@@ -30,11 +35,15 @@ T065 NIE tworzy:
 - fallbacku „spróbuj kierownika jako sprzedawcę”;
 - automatycznego szukania pracowników zewnętrznych;
 - pętli „dodawaj ludzi aż grafik stanie się wykonalny”;
-- drugiego generatora zapotrzebowania.
+- drugiego generatora zapotrzebowania;
+- drugiego silnika prawa pracy;
+- drugiego mechanizmu odchyleń/manual override/audytu.
 
-Role dzielą kandydatów w tym samym modelu solve. Wszystkie wymagane wystąpienia zmian trafiają jednocześnie do istniejącego PLAN/REPLAN, a ograniczenie roli tylko zawęża zbiór pracowników dopuszczonych do danego `ShiftDemand`.
+Role zawężają kandydatów w istniejącym pipeline. Wszystkie demandy trafiają do normalnego engine PLAN/REPLAN.
 
-Jeśli aktualna obsada jest niewystarczająca, program zatrzymuje się istniejącym biznesowym mechanizmem. Koordynator zmienia dane obsady, a następny zwykły PLAN/REPLAN pracuje na nowym stanie.
+UWAGA po falsyfikacji Worka: „jeden pipeline” NIE oznacza „dokładnie jedno wywołanie `solve()`”. Obecny engine ma już własne kolejne etapy/próby. T065 nie może ich usuwać ani przerabiać tylko po to, żeby spełnić sztuczny licznik. Zakaz dotyczy wyłącznie dodania nowych przebiegów per rola, sklepowego retry, role fallbacku i osobnego external rescue.
+
+Jeśli aktualna obsada jest niewystarczająca, program korzysta z istniejącego mechanizmu wyniku/decyzji. Koordynator zmienia dane obsady, a następny zwykły PLAN/REPLAN pracuje na nowym stanie.
 
 ## 3. Zakres ról
 
@@ -43,21 +52,23 @@ T065 zna dokładnie dwie role sklepowe:
 - `KIEROWNIK`
 - `SPRZEDAWCA_ZALOGA`
 
-Role są rozłączne jako wymagania obsady: demand wymagający kierownika może pokryć tylko osoba jawnie dopuszczona jako `KIEROWNIK`; demand załogi tylko osoba jawnie dopuszczona jako `SPRZEDAWCA_ZALOGA`.
+Demand wymagający kierownika może pokryć tylko osoba jawnie dopuszczona jako `KIEROWNIK`; demand załogi tylko osoba jawnie dopuszczona jako `SPRZEDAWCA_ZALOGA`.
 
-Jedna osoba MOŻE być jednak jawnie dopuszczona do obu ról na tym samym obiekcie. To nie jest automatyczna zamienność ról.
+Jedna osoba MOŻE być jawnie dopuszczona do obu ról na tym samym obiekcie. To nie jest automatyczna zamienność ról.
 
-Przypadek OWNERA: jeżeli koordynator chce użyć kierownika jako sprzedawcy, najpierw jawnie dopisuje tę osobę także do załogi. Dopiero późniejszy zwykły PLAN/REPLAN może użyć jej przy demandzie `SPRZEDAWCA_ZALOGA`.
+Jeżeli koordynator chce użyć kierownika jako sprzedawcy, najpierw jawnie dopisuje tę osobę także do załogi istniejącym flow obsady. Dopiero późniejszy zwykły PLAN/REPLAN może użyć jej przy demandzie `SPRZEDAWCA_ZALOGA`.
 
 ### 3.1. Właściciel danych roli
 
 Rola jest właściwością dopuszczenia pracownika na konkretnym obiekcie, nie globalną cechą `Employee`.
 
-Obecne `SiteMembership` pozostaje jednym rekordem `(employee_id, site_id)` i nadal jest właścicielem członkostwa LOCAL/EXTERNAL, enabled, readiness i istniejących kwalifikacji. T065 ma dodać do tego członkostwa jawny zbiór dopuszczonych ról, a nie drugie `SiteMembership` dla tej samej osoby i obiektu.
+Obecne `SiteMembership` pozostaje jednym rekordem `(employee_id, site_id)` i nadal jest właścicielem członkostwa LOCAL/EXTERNAL, enabled, readiness i istniejących kwalifikacji. T065 dodaje do tego członkostwa jeden zbiór dopuszczonych ról, zamiast tworzyć drugie `SiteMembership` dla tej samej osoby i obiektu.
 
-Implementacja może użyć osobnej relacji persistence powiązanej z membershipem, ale kontrakt biznesowy jest jeden: dla `(employee_id, site_id)` istnieje zbiór `allowed_roles` zawierający zero, jedną albo obie role. Nie wolno modelować tego pojedynczym polem `role`, które uniemożliwi jawne dopisanie kierownika do załogi.
+Kontrakt biznesowy: dla `(employee_id, site_id)` istnieje `allowed_roles` zawierające zero, jedną albo obie role. Nie wolno modelować tego pojedynczym polem, które uniemożliwiłoby jawne dopisanie kierownika do załogi.
 
-Zmiana `allowed_roles` jest materialną zmianą obsady i ma korzystać z istniejących mechanizmów invalidacji bieżącej decyzji/ponownego PLAN/REPLAN; nie tworzyć osobnej ścieżki lifecycle.
+Nie wolno równolegle zapisywać tych samych ról w `SiteRule`; powstałyby dwa źródła prawdy.
+
+Zmiana `allowed_roles` jest materialną zmianą obsady i korzysta z istniejącego lifecycle invalidacji/ponownego PLAN/REPLAN. Nie tworzyć osobnej ścieżki.
 
 ## 4. Skład ról jest per obiekt
 
@@ -68,94 +79,93 @@ Legalne są m.in.:
 - obiekt wymagający `KIEROWNIK` + `SPRZEDAWCA_ZALOGA`;
 - różne liczby osób wymaganych w danej roli w różnych przedziałach czasu.
 
-Sklep referencyjny OWNERA ma czterech kierowników dostępnych do puli kierowniczej, ale liczba ta NIE jest domyślną regułą produktu.
+Sklep referencyjny OWNERA ma czterech kierowników dostępnych do puli kierowniczej, ale liczba ta jest wyłącznie fixture i NIE jest regułą produktu.
 
-## 5. Zmiana sklepowa jest przedziałem czasu, nie symbolem
+## 5. Zmiana jest konkretnym przedziałem czasu
 
-Dla `ORDINARY` nie wprowadzamy sztywnego enumu ani biznesowej rodziny zmian typu:
-- `D/N`;
-- `RANO/POPOŁUDNIE/NOC`;
-- `R1/R2/...`;
-- `D1..D5/N1..N5`.
-
-Powód: w sklepie mogą istnieć zmiany nakładające się i „środkowe”, a ich liczba nie jest z góry ograniczona.
-
-Solver ma pracować na konkretnym wystąpieniu:
+Dla `ORDINARY` prawdą biznesową solvera jest konkretne wystąpienie:
 
 `start_datetime + end_datetime + required_role + required_primary_count`.
 
-Przykład prezentacyjny: `Poniedziałek 05:00–12:00`, `Wtorek 10:00–18:00`.
+Przykłady: `Poniedziałek 05:00–12:00`, `Wtorek 10:00–18:00`, `22:00–06:00` następnego dnia.
 
-Techniczny identyfikator rekordu/template może istnieć dla stabilnej referencji i historii, ale nie niesie semantyki biznesowej i nie może uruchamiać reguł planowania.
+Nie wolno budować nowej domeny kodów zmian tylko dlatego, że Ochrona historycznie używa `D/N`. W sklepie mogą istnieć zmiany nakładające się i „środkowe”, więc liczba możliwych przedziałów nie jest z góry ograniczona.
 
-## 6. Konfiguracja powtarzalnych zmian obiektu
+OWNER dopuszcza ewentualne pomocnicze oznaczenie kolejności `1/2/3` = pierwsza/druga/trzecia zmiana, jeśli okaże się przydatne dla UI lub kompatybilności istniejącego kodu. Taki numer:
+- jest opcjonalnym metadanym/prezentacją;
+- nie jest źródłem godzin;
+- nie jest źródłem kwalifikacji;
+- nie uruchamia reguł prawa pracy;
+- nie może ograniczać liczby rzeczywistych przedziałów w obiekcie.
 
-Panel sterowania → Obiekt ma pozwalać zdefiniować dla `ORDINARY` powtarzalne zapotrzebowanie jako rekord zawierający co najmniej:
+Techniczny identyfikator rekordu/template może istnieć dla stabilnej referencji i historii, ale nie niesie semantyki prawa pracy.
+
+## 6. Konfiguracja powtarzalnych zmian obiektu — reuse
+
+Panel sterowania → Obiekt dla `ORDINARY` korzysta z istniejącego katalogu czasu i pozwala zdefiniować powtarzalne zapotrzebowanie zawierające co najmniej:
 
 - godzina początku;
 - godzina końca;
-- informacja o przejściu na następny dzień wynikająca jednoznacznie z przedziału/istniejącej semantyki czasu;
+- przejście na następny dzień zgodne z istniejącą semantyką czasu;
 - aktywne dni tygodnia;
 - wymagana rola;
 - wymagana liczba osób.
 
-Nie wymagamy od użytkownika kodu/nazwy zmiany.
-
 T065 zachowuje obecną pełnogodzinną precyzję konfiguracji. Nie otwiera minutowych zmian.
 
-Konfiguracja ma obsługiwać:
-- zmiany 7–9 h;
-- inne dodatnie długości wspierane przez istniejący `StandardShift`;
+Istniejący mechanizm już obsługuje:
+- dodatnie długości inne niż 12/24 h przez `ShiftCatalogKind.OTHER/INNY`;
 - zmiany przechodzące przez północ;
 - kilka nakładających się zmian tego samego dnia;
-- różne zmiany dla różnych dni tygodnia;
-- sklepy działające 24/7 przez odpowiednio zdefiniowane pokrywające dobę zmiany.
+- różne zmiany dla różnych dni tygodnia.
 
-„Sklep całodobowy” NIE oznacza automatycznie 24-godzinnej zmiany jednego pracownika. Produkt ma opisać rzeczywiste przedziały pracy skonfigurowane przez koordynatora.
+T065 ma te możliwości REUSE, a nie implementować ponownie.
 
-## 7. Referencyjny sklep OWNERA — fixture, nie hardcode
+Sklep 24/7 opisuje się przez odpowiednio zdefiniowane przedziały pokrywające dobę. Nie oznacza to automatycznie 24-godzinnej zmiany jednego pracownika.
 
-Dla testu pionowego T065 przyjmujemy referencyjny układ:
+## 7. Sklep referencyjny — wyłącznie fixture
+
+Dla jednego testu pionowego można użyć realistycznego układu:
 
 - poniedziałek–piątek: `05:00–12:00` oraz `12:00–19:00`;
 - sobota: `05:00–14:00`;
 - niedziela: brak demandów;
-- role: co najmniej `KIEROWNIK` i `SPRZEDAWCA_ZALOGA` w liczbach jawnie ustawionych w fixture.
+- role ustawione jawnie w fixture.
 
-Te godziny są wyłącznie fixture do dowodu działania. Nie wolno zaszyć ich w solverze, domenie ani domyślnej klasyfikacji `ORDINARY`.
+Te godziny NIE są profilem produktu, defaultem systemu ani ograniczeniem solvera. T065 musi również przejść scenariusz nietypowy/24h, aby udowodnić brak hardcode.
 
-## 8. Reuse istniejącego `StandardShift` i generatora
+## 8. D/N, INNY i nowe ORDINARY
 
-T065 ma rozwinąć istniejący właściciel konfiguracji czasu (`StandardShift` / katalog obiektu) i istniejący `generate_catalog_demands` zamiast tworzyć równoległy `StoreShift`, `StoreDemandGenerator` lub drugi pipeline.
+`ShiftCatalogKind.OTHER/INNY` już istnieje i oznacza kategorię długości inną niż 12/24 h. Nie jest rolą, nie jest reżimem ORDINARY i nie zastępuje `ShiftKind.D/N`.
 
-Obecny backend już obsługuje arbitralną dodatnią pełnogodzinną długość przez `ShiftCatalogKind.OTHER/INNY` i `active_weekdays`.
+Dla `OCHRONA` obecne `D/N` pozostaje bez zmian.
 
-Problemem do usunięcia jest obowiązkowa semantyka `ShiftKind.D/N` w `ORDINARY`.
+Dla nowych demandów `ORDINARY`:
+- rzeczywiste godziny + rola są źródłem znaczenia biznesowego;
+- godzina nocna nie może sama tworzyć ochroniarskiej semantyki `N`;
+- `DAY_ONLY-01`, D/N-specific SiteRule ani D/N-specific external restriction nie mogą zostać przypadkiem aktywowane tylko dlatego, że sklep pracuje rano/wieczorem/nocą.
 
-Dla `OCHRONA` istniejące `D/N` pozostaje bez zmian.
+KRYTYCZNE po falsyfikacji Worka: nie wolno użyć legacy `shift_kind=None` jako niejawnego nowego znaczenia „ORDINARY bez symbolu”. Obecny `classify_demand()` potrafi dla legacy `None` odtworzyć D/N na podstawie bieżącego katalogu, więc historia zależałaby od późniejszej konfiguracji.
 
-Dla `ORDINARY`:
-- rzeczywiste godziny + rola są źródłem znaczenia demandu;
-- nie wolno sztucznie oznaczać `12:00–19:00` jako `N` ani `05:00–12:00` jako `D` tylko po to, żeby przejść przez istniejący enum;
-- `DAY_ONLY-01`, `EMPLOYEE_ALLOWED_SHIFT_KINDS`, `EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS`, `allowed_shift_kind` external i inne reguły zależne od ochroniarskiego `D/N` nie mogą być przypadkiem aktywowane przez sklepowy przedział czasu.
+Implementacja ma w istniejącym modelu jednoznacznie odróżnić:
+1. legacy demand wymagający istniejącego fallbacku klasyfikacji;
+2. nowy demand ORDINARY, którego semantyka nie może być rekonstruowana z bieżącego katalogu.
 
-Implementacja ma dokonać minimalnego rozdzielenia semantyki `D/N` od `ORDINARY` w istniejącym pipeline. Nie wolno osiągnąć tego przez skopiowanie generatora/eligibility/solvera.
+Brief nie narzuca konkretnego nowego enuma/tabeli. Wymaga minimalnego rozwiązania w istniejącym modelu i jednego właściciela klasyfikacji używanego przez solver i validator. Nie wolno stworzyć drugiego klasyfikatora sklepowego.
 
-## 9. `ShiftDemand` — zamrożona prawda dla solvera i historii
+## 9. `ShiftDemand` — snapshot roli i czasu
 
-Każdy wygenerowany demand `ORDINARY` musi nieść wymaganie roli (`required_role`) razem z istniejącymi konkretnymi `start_datetime`, `end_datetime` i `required_primary_count`.
+Każdy nowy demand `ORDINARY` niesie `required_role` razem z istniejącymi `start_datetime`, `end_datetime` i `required_primary_count`.
 
-`required_role` jest snapshotem demandu i musi być zapisany w tej samej trwałej wersji danych, z której później odtwarzany jest `ScheduleVersion`.
+`required_role` przechodzi CAŁĄ istniejącą drogę:
 
-Po akceptacji grafiku późniejsza zmiana:
-- roli pracownika;
-- katalogu zmian;
-- godzin obiektu;
-- wymaganej liczby osób
+`generator → PlanPreview → wybór → ScheduleVersion/ShiftDemand persistence → reload/history`.
 
-nie może retrospektywnie zmienić starego grafiku.
+Nie wystarczy dodać pola wyłącznie do końcowej tabeli. Istniejące serializery preview/schedule, semantic keys i material-change invalidation muszą przenosić nowe znaczenie tam, gdzie już ręcznie przenoszą pola demandu/membershipu.
 
-Historyczne grafiki są niemodyfikowalne — HARD.
+Nie tworzyć nowego magazynu historii ról ani snapshotu całej dawnej puli `allowed_roles`. Do zachowania faktu, w jakiej roli wykonano konkretną zapisaną zmianę, wystarcza wersjonowany demand z `required_role` + istniejące `Assignment.covers_demand_id`.
+
+Po akceptacji grafiku późniejsza zmiana membershipu albo katalogu nie może retrospektywnie zmieniać starego grafiku. Historyczne grafiki pozostają niemodyfikowalne.
 
 ## 10. Eligibility roli
 
@@ -163,11 +173,11 @@ Do istniejącej wspólnej bramki kwalifikacji dochodzi jedna deterministyczna re
 
 `demand.required_role ∈ membership.allowed_roles`.
 
-Brak roli oznacza brak kwalifikacji do tego demandu.
+Brak wymaganej roli oznacza brak kwalifikacji do tego demandu.
 
-Ta reguła obowiązuje identycznie LOCAL i EXTERNAL_SUPPORT. `EXTERNAL_SUPPORT` nie dostaje osobnej logiki ról ani osobnego solve.
+Ta reguła obowiązuje identycznie LOCAL i EXTERNAL_SUPPORT. Nie ma osobnej logiki ról dla external.
 
-Pozostałe istniejące HARD gate'y, które są rzeczywiście wspólne dla danego reżimu (enabled, absencje, urlopy, chorobowe itd.), pozostają w obecnych właścicielach.
+Pozostałe istniejące gate'y pozostają w swoich obecnych właścicielach.
 
 ## 11. External support — zero nowej automatyki
 
@@ -175,45 +185,57 @@ T065 nie zmienia biznesowego mechanizmu external.
 
 Jeżeli bieżąca obsada nie wystarcza:
 1. solver nie wyszukuje kandydatów;
-2. solver nie uruchamia drugiego przebiegu;
+2. nie powstaje dodatkowy przebieg sklepu/external;
 3. system nie obserwuje rynku/zasobu external;
 4. koordynator dopisuje osobę do obsady istniejącym flow;
-5. nadaje jej jawnie właściwą rolę na tym obiekcie;
-6. istniejący zakres dostępności external nadal ogranicza użycie tej osoby;
+5. nadaje jej właściwą rolę na tym obiekcie;
+6. istniejący zakres dostępności nadal ogranicza użycie tej osoby;
 7. kolejny zwykły PLAN/REPLAN może ją wykorzystać.
 
-Istniejący `membership_kind=EXTERNAL_SUPPORT` pozostaje tym samym membershipem i przechodzi tę samą bramkę roli co LOCAL.
+Stare ograniczenia external oparte na `allowed_shift_kind=D/N` nie mogą być automatycznie zamienione na „brak ograniczenia”, bo rozszerzałoby to dopuszczenie bez decyzji koordynatora. Dla nowych ORDINARY nie tworzymy takich D/N-specific ograniczeń. Jeżeli istnieją legacy ORDINARY z takim ustawieniem, mają zostać jawnie rozpoznane jako legacy/niezgodna konfiguracja do świadomej korekty, a nie cicho zmigrowane.
 
-Nie tworzyć `external_role_solver`, `external retry`, automatycznego rescue ani hidden helper synthesis.
+## 12. Prawo pracy i odchylenia — REUSE, nie nowa domena
 
-## 12. Ogólne prawo pracy, nie profil Ochrona
+T065 NIE tworzy nowych mechanizmów prawa pracy.
 
-`ORDINARY` nie dziedziczy ochroniarskiej semantyki 12/24 h ani specjalnych wyjątków D/N.
+Zasada OWNERA jest taka sama jak w Ochronie:
+- automatyczny solver ma przestrzegać obowiązujących HARD constraints dla danego reżimu;
+- koordynator może użyć istniejącej Manual Correction tam, gdzie produkt już dopuszcza świadome odstępstwo;
+- istniejący mechanizm deviation/action trail/audyt zapisuje jego decyzję;
+- T065 nie kopiuje validatora, nie tworzy `store_law_engine`, nie tworzy osobnej ścieżki override.
 
-T065 ma zachować i stosować istniejące ogólne ograniczenia prawa pracy właściwe dla `ORDINARY`, w szczególności te już reprezentowane w jednym solverze/validatorze jako wspólne ograniczenia czasu pracy i odpoczynku. Nie wolno kopiować ich do osobnej implementacji sklepowej.
+Dla sklepów stosowany jest właściwy skonfigurowany system czasu pracy (w praktyce m.in. równoważny system czasu pracy), ale T065 nie koduje jednego sklepu ani jednego harmonogramu jako prawa produktu.
 
-Jeżeli podczas implementacji okaże się, że konkretna wymagana przez sklep reguła ogólnego Kodeksu pracy nie ma jeszcze właściciela w produkcie, CC NIE implementuje jej „przy okazji” według własnej interpretacji. Zgłasza CONTRACT_GAP do Architekta/OWNERA. T065 nie jest zgodą na budowę nowego, kompletnego silnika prawa pracy.
+W szczególności T065 nie ustanawia nowego uproszczonego HARD typu „<=40 h w każdych ruchomych 7 dniach”. Wymiar, odpoczynki dobowe/tygodniowe, rozliczenie okresu, praca w dniach wolnych oraz istniejące zasady manual deviation mają pozostać w obecnych właścicielach produktu.
 
-Ochroniarskie reguły zależne od `D/N`, 24h rescue albo `OCHRONA` nie mogą zacząć obowiązywać dla `ORDINARY` tylko dlatego, że obecny kod historycznie współdzieli typy.
+Jeżeli istniejąca reguła była zamrożona wyłącznie dla Ochrony, nie wolno rozszerzać jej na ORDINARY tylko dlatego, że kod współdzieli typy. Jeżeli istniejąca reguła ogólna już działa dla ORDINARY, T065 jej nie implementuje ponownie.
 
-## 13. UI Panel sterowania
+Szczególna kontrola po falsyfikacji: `THIRD-CONSECUTIVE-SHIFT-01` obecnie działa także dla ORDINARY, mimo że historycznie pochodzi z T058. CC nie może samodzielnie ani kopiować tej reguły do nowego modułu, ani usuwać jej globalnie. Ma najpierw sprawdzić obowiązujący kontrakt T058 i istniejący podział reżimów. Jeśli jest to ochrona-specyficzny leak do ORDINARY, korekta ma być minimalnym zawężeniem istniejącej reguły, nie nową implementacją prawa pracy. Jeśli kontrakty są sprzeczne, STOP + BOARD finding.
 
-Dla `ORDINARY` Panel sterowania ma odzwierciedlać rzeczywistość sklepu:
+Analogicznie `WEEKLY-REST-01` nie może zostać uznany za „już ogólny” bez sprawdzenia istniejącego kontraktu — Work wykazał, że obecnie jest OCHRONA-only. T065 nie ma samodzielnie budować brakującego silnika odpoczynku.
+
+## 13. UI — Panel sterowania i miesięczny grafik
 
 ### Obsada
 - przy osobie widoczne są jej jawnie dopuszczone role na tym obiekcie;
-- koordynator może dodać/usunąć `KIEROWNIK` i `SPRZEDAWCA_ZALOGA` bez tworzenia drugiego Employee i bez drugiego SiteMembership;
+- koordynator może dodać/usunąć `KIEROWNIK` i `SPRZEDAWCA_ZALOGA` bez drugiego Employee i drugiego SiteMembership;
 - osoba może mieć obie role;
-- membership LOCAL/EXTERNAL pozostaje istniejącym pojęciem i nie jest zastępowany rolą.
+- LOCAL/EXTERNAL pozostaje istniejącym pojęciem.
 
 ### Obiekt / zmiany
-- brak pola `Rodzaj = Dniówka/Nocka` dla `ORDINARY`;
-- koordynator definiuje godziny, dni, rolę i liczbę wymaganych osób;
-- UI nie wymaga symbolu zmiany;
-- pusta konfiguracja `ORDINARY` nie może automatycznie udawać ochroniarskiej zmiany `06:00–18:00`;
-- brak skonfigurowanego zapotrzebowania ma być jawnie niegotową konfiguracją zgodnie z istniejącym readiness/decision flow, a nie zerowym grafikiem uznanym za sukces.
+- dla ORDINARY konfiguracja opiera się na godzinach/dniach/roli/liczbie osób;
+- UI nie wymaga biznesowego kodu zmiany;
+- opcjonalne `1/2/3` może być wyłącznie etykietą kolejności, jeśli reuse istniejącego komponentu tego wymaga;
+- pusta konfiguracja ORDINARY nie może automatycznie udawać ochroniarskiej zmiany `06:00–18:00`;
+- brak skonfigurowanego zapotrzebowania nie może dawać pustego sukcesu.
 
-`OCHRONA` zachowuje dotychczasowy UI/kontrakt D/N poza zmianami koniecznymi technicznie do współdzielenia komponentów.
+### `MonthlyPlanning` / preview
+
+T065 MUSI objąć istniejący renderer miesięcznego grafiku/podglądu w zakresie minimalnym do nowych demandów. Work wykazał, że obecny renderer opiera label na `kind` i dla demandu bez D/N może pokazać `?`.
+
+Dla ORDINARY komórka/podgląd ma pokazywać rzeczywiste godziny zmiany (np. `5–12`, `10–18`) i potrzebne dane roli, bez tworzenia drugiego ekranu planowania.
+
+OCHRONA zachowuje istniejący renderer D/N.
 
 ## 14. PDF — osobny późniejszy Task
 
@@ -224,11 +246,9 @@ T065 NIE przebudowuje ochroniarskiego generatora PDF i NIE wciska sklepu w:
 - `S1/U*/C*`;
 - rodzinę prezentacyjną D/N.
 
-T065 ma wyłącznie zapisać wystarczającą historyczną prawdę (konkretne czasy + required_role + assignments), aby przyszły Task PDF mógł odtworzyć stary grafik bez czytania bieżącej konfiguracji.
+Istniejący PDF może po T065 nie obsługiwać nowych ORDINARY demandów. To świadoma granica dostawy, a nie powód do sztucznego mapowania sklepu na D/N.
 
-Przyszły PDF `ORDINARY` będzie miał własną logikę prezentacji. OWNER ustalił już zasadę: w komórkach pokazuje konkretne godziny, np. `5–12`, `10–18`, zamiast mnożyć symbole zmian; jeden dokument może grupować `KIEROWNIK` i `SPRZEDAWCA/ZALOGA`.
-
-Wspólna może pozostać niskopoziomowa infrastruktura eksportu i źródło tej samej zamrożonej `ScheduleVersion`. To nie jest zgoda na drugi solver.
+T065 zapisuje wystarczającą historyczną prawdę (konkretne czasy + required_role + assignments), aby osobny późniejszy Task PDF mógł zbudować wydruk sklepu z własną logiką prezentacji.
 
 ## 15. Poza zakresem
 
@@ -239,77 +259,78 @@ Poza T065 pozostają:
 - minutowa precyzja zmian;
 - automatyczne zastępowanie ról;
 - automatyczne pozyskiwanie external;
-- nowy solver albo drugi przebieg solvera;
-- nowe ogólne IAM/tenant/account mechanizmy;
-- kompletna implementacja wszystkich możliwych wariantów polskiego prawa pracy;
+- nowy solver albo nowe role-specific przebiegi;
+- nowy silnik prawa pracy;
+- nowy framework deviation/manual override;
+- kompletna implementacja wszystkich wariantów prawa pracy;
 - przebudowa Ochrony dla estetycznej unifikacji.
 
 ## 16. Migracja i kompatybilność
 
-Zmiana ma być addytywna wobec istniejących danych Ochrony.
+Zmiana ma być addytywna wobec istniejących danych Ochrony i historii ORDINARY.
 
 Wymagania:
-- istniejące obiekty `OCHRONA` po migracji zachowują obecne zachowanie D/N;
-- istniejące historyczne `ScheduleVersion` i legacy `ShiftDemand` nadal dają się odczytać;
+- OCHRONA zachowuje obecne zachowanie D/N;
+- historyczne `ScheduleVersion` i legacy `ShiftDemand` nadal dają się odczytać;
+- legacy `shift_kind=None` zachowuje swój dotychczasowy kontrakt i nie staje się nowym znaczeniem ORDINARY;
 - brak nowych pól w legacy danych nie może zostać arbitralnie zinterpretowany jako rola sklepowa;
-- `ORDINARY` wymagający nowych ról/config ma failować jawnie jako niegotowy, a nie zgadywać defaults;
-- migracja nie przepisuje starych grafików na nowe znaczenie.
+- nowy ORDINARY bez kompletu wymaganych ról/config ma failować jawnie jako niegotowy;
+- migracja nie przepisuje starych grafików na nowe znaczenie;
+- zmiana katalogu wpływa na generowanie nowego zapotrzebowania zgodnie z istniejącym lifecycle; nie powstaje synchronizator nadpisujący demandy zaakceptowanej historii.
 
 ## 17. Minimalne scenariusze acceptance
 
-### T65-01 — dwie role w jednym solve
+### T65-01 — dwie role w jednym istniejącym pipeline
 
-Dany jest obiekt `ORDINARY` z demandami `KIEROWNIK` i `SPRZEDAWCA_ZALOGA` w nakładającym się czasie oraz osobami przypisanymi tylko do swoich ról.
+ORDINARY ma nakładające się demandy `KIEROWNIK` i `SPRZEDAWCA_ZALOGA` oraz osoby dopuszczone tylko do swoich ról.
 
-PLAN ma stworzyć jeden kandydat grafiku, w którym każdy demand pokrywa osoba z właściwą rolą. Nie ma dwóch wywołań solvera per rola.
+PLAN ma stworzyć jeden kandydat grafiku, w którym każdy demand pokrywa osoba z właściwą rolą. Test nie zakłada liczby wewnętrznych wywołań `solve()`; dowodzi braku dodatkowego przebiegu per rola.
 
 ### T65-02 — jawne dopisanie kierownika do załogi
 
-Pracownik K ma początkowo tylko `KIEROWNIK`.
+K ma początkowo tylko `KIEROWNIK`. Demand `SPRZEDAWCA_ZALOGA` nie może zostać przez niego pokryty.
 
-Demand `SPRZEDAWCA_ZALOGA` nie może zostać przez niego pokryty.
-
-Koordynator jawnie dodaje K rolę `SPRZEDAWCA_ZALOGA` na tym samym Site, bez tworzenia drugiego Employee i drugiego SiteMembership.
-
-Po zwykłym ponownym PLAN/REPLAN K staje się legalnym kandydatem do demandu załogi.
+Koordynator jawnie dodaje K rolę `SPRZEDAWCA_ZALOGA` na tym samym Site, bez drugiego Employee/SiteMembership. Po zwykłym ponownym PLAN/REPLAN K staje się kandydatem do demandu załogi.
 
 ### T65-03 — brak ukrytej zamienności
 
-Sama obecność wolnego kierownika nie naprawia braku sprzedawcy. Bez jawnego dopisania roli wynik pozostaje biznesowo niewykonalny/decyzyjny zgodnie z istniejącym flow.
+Sama obecność wolnego kierownika nie naprawia braku sprzedawcy. Bez jawnego dopisania roli nie ma fallbacku.
 
-### T65-04 — arbitrary / middle shifts
+### T65-04 — istniejące INNY / middle shifts
 
-Fixture zawiera w tym samym tygodniu co najmniej trzy różne przedziały, w tym zmianę „środkową”, np. `05–12`, `10–18`, `12–19`.
+Fixture zawiera co najmniej trzy różne przedziały, np. `05–12`, `10–18`, `12–19`.
 
-Generator tworzy konkretne demandy bez wymagania kodów biznesowych i jeden solver je obsadza.
+Test dowodzi REUSE istniejącego generatora/INNY i braku nowego generatora/kodu biznesowego zmian.
 
-### T65-05 — zmiana przez północ / sklep 24/7
+### T65-05 — przez północ / 24/7
 
-Fixture `ORDINARY` zawiera co najmniej jeden przedział przechodzący przez północ i zestaw zmian pozwalający opisać działanie obiektu przez pełną dobę.
+Fixture ORDINARY zawiera przedział przechodzący przez północ i zestaw zmian opisujący pełną dobę.
 
-Nie powstaje `N` tylko dlatego, że zmiana przebiega nocą. O legalności decydują konkretne czasy i istniejące ogólne reguły, nie ochroniarski ShiftKind.
+Godzina nocna nie aktywuje ochroniarskiej semantyki N. Nie powstaje drugi solver.
 
-### T65-06 — dni tygodnia
+### T65-06 — historia preview → ScheduleVersion
 
-Fixture referencyjny generuje pon–pt `05–12` i `12–19`, sobotę `05–14`, a niedziela generuje zero demandów.
+`required_role` przechodzi przez preview, wybór, persist, reload i historyczny odczyt. Zmiana bieżącego membership/config nie zmienia starego demandu.
 
 ### T65-07 — external tą samą ścieżką
 
-EXTERNAL_SUPPORT bez wymaganej roli nie może pokryć demandu. Po jawnej zmianie obsady/roli i przy spełnieniu istniejącego support window staje się kandydatem w tym samym solverze.
+EXTERNAL_SUPPORT bez wymaganej roli nie może pokryć demandu. Po jawnej zmianie roli i przy spełnieniu istniejącego support window staje się kandydatem w tym samym pipeline. Brak dodatkowego external retry.
 
-Brak drugiego solve/fallbacku external.
+### T65-08 — MonthlyPlanning
 
-### T65-08 — historia
-
-Po zaakceptowaniu grafiku zmień bieżące role membershipu i katalog zmian. Odczyt starej `ScheduleVersion` nadal zwraca pierwotne konkretne czasy i `required_role`; historyczny stan nie jest rekonstruowany z aktualnego membership/config.
+Nowy ORDINARY demand jest pokazany w istniejącej siatce/podglądzie jako konkretne godziny, nie `?` i nie wymuszony D/N.
 
 ### T65-09 — OCHRONA regression
 
-Reprezentatywny istniejący D/N PLAN dla `OCHRONA` zachowuje wynik i reguły D/N po migracji T065.
+Reprezentatywny istniejący D/N PLAN OCHRONA zachowuje wynik i reguły D/N.
 
 ### T65-10 — brak pustego sukcesu
 
-`ORDINARY` bez kompletnej konfiguracji wymaganych ról/zapotrzebowania nie może zostać uznany za poprawny pusty grafik tylko dlatego, że generator zwrócił zero demandów.
+ORDINARY bez kompletnej konfiguracji wymaganych ról/zapotrzebowania nie może zostać uznany za poprawny pusty grafik.
+
+### T65-11 — brak duplikacji prawa/override
+
+Scenariusz z istniejącym HARD/deviation potwierdza, że T065 używa dotychczasowego solver/validator/manual-correction/deviation trail. Nie istnieje drugi sklepowy validator ani osobny store override.
 
 ## 18. Guardrails implementacyjne
 
@@ -318,80 +339,91 @@ CC ma najpierw użyć istniejących właścicieli kodu i dopiero potem minimalni
 - `rota/domain.py` — istniejące typy domenowe;
 - `rota/planning/shift_catalog.py` — jeden generator demandów;
 - `rota/planning/eligibility.py` — jedna wspólna bramka eligibility;
-- istniejący solver — jeden model solve;
-- istniejące repozytoria `SiteMembership` / profilu / schedule snapshot;
-- istniejące API i ekran Panel sterowania;
-- istniejące invalidation/PLAN/REPLAN lifecycle.
+- istniejący engine/solver/validator;
+- istniejące preview/schedule persistence i semantic keys;
+- istniejący `SiteMembership` / profil;
+- istniejące API i ekrany ControlPanel/SiteShiftCatalog/MonthlyPlanning;
+- istniejące invalidation/PLAN/REPLAN/manual correction/deviation lifecycle.
 
 Zakazane bez powrotu do Architekta:
 - `store_solver.py`;
 - `ordinary_solver.py` jako drugi engine;
-- `generate_store_demands()` obok istniejącego generatora;
-- drugi endpoint PLAN dla sklepu;
+- `generate_store_demands()`;
+- `store_validator.py`;
+- drugi endpoint PLAN;
 - osobna tabela „store schedule”;
+- osobny mechanizm deviations/override;
 - automatyczny role fallback;
 - hidden external synthesis;
 - implementowanie PDF sklepu w T065;
-- zastąpienie obecnego OCHRONA D/N ogólnym refactorem tylko dla „czystości architektury”.
+- zastąpienie OCHRONA D/N ogólnym refactorem tylko dla estetyki.
 
-Jeżeli minimalna implementacja ujawni rzeczywisty konflikt kontraktów, CC zatrzymuje się i wpisuje finding na BOARD zamiast rozszerzać scope.
+Jeżeli minimalna implementacja ujawni konflikt zamrożonych kontraktów, CC zatrzymuje się i wpisuje finding na BOARD zamiast rozszerzać scope.
 
 ## 19. Literalny TASK_SCOPE
 
-Dozwolone są wyłącznie zmiany konieczne do pionowego T065 w następujących obszarach:
+Dozwolone są wyłącznie zmiany konieczne do pionowego T065 w istniejących właścicielach:
 
 1. `tasks/ROTA-T065/**`
 2. `rota/domain.py`
 3. `rota/planning/shift_catalog.py`
 4. `rota/planning/eligibility.py`
-5. istniejący solver/validator tylko tam, gdzie jest to konieczne do wykonania role gate i usunięcia fałszywej semantyki D/N z `ORDINARY`
-6. istniejące persistence/migrations/repositories dla `SiteMembership`, katalogu zmian i `ShiftDemand` snapshot
-7. istniejące API durable inputs / site profile / roster potrzebne do nowych pól
+5. istniejący engine/solver/validator — tylko minimalne połączenie roli i właściwe rozdzielenie legacy D/N vs new ORDINARY
+6. istniejące persistence/migrations/repositories dla `SiteMembership`, PlanPreview, `ShiftDemand` i lifecycle snapshot
+7. istniejące API durable inputs / site profile / roster / schedule DTO
 8. `frontend/src/screens/ControlPanel.tsx`
 9. `frontend/src/screens/SiteShiftCatalog.tsx`
-10. odpowiadające istniejące typy/API client frontend
-11. testy jednostkowe/integracyjne/E2E bez budowania nowej infrastruktury testowej
+10. `frontend/src/screens/MonthlyPlanning.tsx`
+11. istniejący `EmployeeDetail` wyłącznie w zakresie koniecznym do niewprowadzania nowych sprzecznych ustawień D/N dla ORDINARY
+12. odpowiadające istniejące typy/API client frontend
+13. testy jednostkowe/integracyjne/E2E bez nowej infrastruktury testowej
 
 Poza scope bez nowej zgody Architekta pozostają:
-- produkcyjny generator PDF i `PrintSettings` poza ewentualnym compile-only dostosowaniem typu, bez zmiany zachowania;
-- osobne nowe pipeline'y planowania;
-- ogólne refaktory folderów/modułów;
+- produkcyjny generator PDF i `PrintSettings` poza compile-only dostosowaniem typu, bez nowej logiki sklepu;
+- osobne pipeline'y planowania;
+- ogólne refaktory;
 - nowy framework reguł;
 - uczniowie i sprzątanie;
-- nowe algorytmy external.
+- nowe algorytmy external;
+- budowa nowego subsystemu prawa pracy.
 
 ## 20. Acceptance techniczne
 
-T65-A1 — persistence potrafi zapisać jednego `(employee, site)` z obiema rolami bez drugiego SiteMembership.
+T65-A1 — persistence zapisuje jednego `(employee, site)` z obiema rolami bez drugiego SiteMembership i bez równoległego SiteRule ról.
 
-T65-A2 — `ShiftDemand` `ORDINARY` zachowuje konkretne datetimes i immutable `required_role` w snapshot/reload.
+T65-A2 — nowy `ShiftDemand` ORDINARY zachowuje concrete datetimes + immutable `required_role` przez preview/persist/reload/history.
 
-T65-A3 — role gate działa przed wyborem pracownika i identycznie dla LOCAL/EXTERNAL, z zachowaniem istniejących dodatkowych warunków external.
+T65-A3 — role gate działa identycznie dla LOCAL/EXTERNAL, z zachowaniem istniejących dodatkowych gate'ów.
 
-T65-A4 — `ORDINARY` nie wymaga `ShiftKind.D/N` do wygenerowania/obsadzenia nowych demandów i nie uruchamia przez przypadek DAY_ONLY-N ani site-rule D/N tylko z powodu godziny.
+T65-A4 — new ORDINARY ma jednoznaczną semantykę odróżnioną od legacy `shift_kind=None`; późniejsza zmiana katalogu nie przeklasyfikowuje starego demandu.
 
-T65-A5 — `OCHRONA` nadal używa D/N i przechodzi reprezentatywną regresję.
+T65-A5 — OCHRONA nadal używa istniejącego D/N i przechodzi reprezentatywną regresję.
 
-T65-A6 — konfiguracja UI zapisuje co najmniej start/end/weekdays/required_role/required_count i odtwarza te dane po reloadzie.
+T65-A6 — UI zapisuje start/end/weekdays/required_role/required_count i odtwarza je po reloadzie, wykorzystując istniejący katalog/INNY.
 
-T65-A7 — kilka nakładających się definicji czasu jest legalne i daje niezależne demandy.
+T65-A7 — kilka nakładających się definicji czasu daje niezależne demandy bez nowego generatora.
 
 T65-A8 — zmiana przechodząca przez północ zachowuje właściwe end datetime.
 
-T65-A9 — zmiana ról/config po utworzeniu wersji nie zmienia starego snapshotu.
+T65-A9 — MonthlyPlanning/preview pokazuje rzeczywiste godziny dla ORDINARY, nie `?` i nie sztuczne D/N.
 
-T65-A10 — instrumentacja/repro potwierdza jedno wywołanie istniejącego solve dla scenariusza z dwiema rolami; nie ma per-role drugiego przebiegu.
+T65-A10 — instrumentation/repro potwierdza brak DODATKOWEGO solve/pipeline PER ROLA; nie wymaga globalnego `solve_calls == 1`.
+
+T65-A11 — istniejące mechanizmy solver/validator/manual correction/deviation/action trail są reużyte; brak drugiego sklepowego mechanizmu prawa/override.
 
 ## 21. Preimplementation review Codexa
 
-Przed implementacją Codex ma wykonać wąski re-check dokładnego SHA briefu. Bez szerokiego audytu całego repo.
+Codex ma wykonać wąski re-check dokładnego SHA briefu po tej korekcie.
 
-Codex ma sfalsyfikować przede wszystkim:
-1. czy proponowany `allowed_roles` da się wprowadzić bez złamania unikalnego `SiteMembership` i bez duplikowania membership;
-2. czy `required_role` może być trwale snapshottowane razem z istniejącym `ShiftDemand`;
-3. czy usunięcie obowiązkowej semantyki D/N z nowych `ORDINARY` demandów może zostać wykonane w istniejącym generatorze/eligibility/solverze bez drugiej ścieżki;
-4. czy historyczne i bieżące OCHRONA D/N pozostają kompatybilne;
-5. czy TASK_SCOPE wystarcza do jednego pionowego przejścia UI → persistence → generate → solve → snapshot/reload;
-6. czy brief nie wymusza niejawnie przebudowy PDF.
+Ma sfalsyfikować przede wszystkim:
+1. czy `allowed_roles` i `required_role` są jedynymi nowymi pojęciami biznesowymi, bez duplikowania membership/SiteRule;
+2. czy T065 naprawdę reużywa `StandardShift`/INNY/generator zamiast budować obsługę godzin ponownie;
+3. czy rozróżnienie legacy `shift_kind=None` od new ORDINARY może zostać wykonane minimalnie w istniejącym modelu;
+4. czy rola przechodzi przez cały preview → selection → ScheduleVersion/reload bez nowego magazynu historii;
+5. czy engine zachowuje swoje istniejące etapy, a T065 nie dodaje role-specific retry;
+6. czy MonthlyPlanning i schedule DTO wystarczają do prezentacji konkretnych godzin bez drugiego ekranu;
+7. czy istniejące D/N-specific SiteRule/external nie zostają po cichu rozszerzone ani wyzerowane dla legacy;
+8. czy T065 reużywa istniejące prawo/validator/manual deviation/audit zamiast je kopiować;
+9. czy PDF pozostaje świadomie osobnym taskiem.
 
 PASS Codexa oznacza zgodę techniczną na implementację dokładnego briefu. Nie daje zgody na rozszerzenie produktu poza ten dokument i nie zastępuje decyzji OWNERA.
