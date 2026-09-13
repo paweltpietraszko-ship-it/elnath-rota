@@ -1,0 +1,36 @@
+ROTA-T024-TESTER-LOGIN-ISOLATION — CONCEPT PRECHECK R2
+
+CHECKED_SHA: e95f4a437550783eb1be60cbb640407198416c89
+BASE_CONCEPT_SHA: 84def7ec6773d319def693c3c5d1ad13fe6b261c
+PREVIOUS_REPORT_SHA: 9a2a01849bfa8349796f6fb69b3abd81eba3d7e9
+OUTCOME: READY FOR ARCHITECT
+IMPLEMENTATION: HOLD UNTIL ARCHITECT BRIEF
+
+Zakres
+------
+Wykonano wyłącznie literalny re-check pięciu korekt wskazanych w R1 przez
+porównanie diffu 84def7e..e95f4a4. Nie ponawiano inventory kodu, where.py,
+testów produktu, regresji, symulatorów ani benchmarków.
+
+Wynik 5/5
+-----------
+1. PASS — `get_conn()` jest teraz poprawnie opisany jako główny seam zwykłych
+   endpointów, nie jedyny punkt zależny od bazy. Wprost uwzględniono
+   backup/recovery, dev seed oraz runtime log.
+2. PASS — dopisano jeden request-scoped kontekst obejmujący konto, dozwoloną
+   bazę i coordinator_id oraz konieczność usunięcia DEV_COORDINATOR_ID z
+   siedmiu routerów.
+3. PASS — jawnie nazwano overlap z T025 F1/F3 i wymaganie rozstrzygnięcia
+   ownershipu/sekwencji w briefie.
+4. PASS — onboarding został usunięty z zakresu i pozostawiony wyłącznie jako
+   osobny, późniejszy pomysł UX.
+5. PASS — usunięto wariant kodu dostępu oraz sugestie panelu i samorejestracji;
+   zachowano password-based login i ręcznie zakładane konta, a minimalny
+   rejestr, sesję oraz trwałą lokalizację baz pozostawiono architektowi.
+
+Wniosek
+-------
+Koncepcja na exact e95f4a4 jest gotowa jako materiał wejściowy dla architekta.
+Kierunek osobnej bazy SQLite per tester pozostaje technicznie spójny i nie
+wymaga zmian w rota/planning, solverze ani domenie. Architekt ma przygotować
+brief i rozstrzygnąć wskazane granice; implementacja pozostaje HOLD.
