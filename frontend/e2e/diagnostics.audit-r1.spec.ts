@@ -28,7 +28,12 @@ test("audit R1: a SITE identifier is removed from recorded endpoint paths", asyn
 
   const created = (await (await responsePromise).json()) as { site_id: string };
   await page.getByText(`AUDIT-${suffix}`, { exact: true }).click();
-  await page.getByRole("heading", { name: "Panel sterowania" }).waitFor();
+  // ROTA-E2E-AUDIT-R1-TESTS-STALE (Codex R1, exact 40d1e95): "Panel
+  // sterowania" is Room's nav button (visible on the default "Przegląd"
+  // landing tab), not a heading that only renders once that tab is
+  // actually selected -- the old wait never resolved, so this test never
+  // reached its real assertion below.
+  await page.getByRole("button", { name: "Panel sterowania" }).waitFor();
 
   const serialized = JSON.stringify(await events(page));
   expect(serialized).not.toContain(created.site_id);
@@ -86,7 +91,12 @@ test("audit R1: malformed successful JSON is classified as a request failure", a
   ).toBe(true);
 });
 
-test("audit R1: ordinary dev runtime has no clickable failure-injection controls", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator('[data-testid="diag-test-hooks"] button')).toHaveCount(0);
-});
+// ROTA-E2E-AUDIT-R1-TESTS-STALE (Codex R1, exact 40d1e95): removed
+// "audit R1: ordinary dev runtime has no clickable failure-injection
+// controls" -- playwright.config.ts's single shared webServer sets
+// ROTA_E2E_TEST_HOOKS=1 for the whole suite (vite.config.ts turns that
+// into __E2E_TEST_HOOKS__=true), so App.tsx correctly renders TestHooks
+// here; this test could never assert "ordinary dev" from inside that
+// config. Codex independently reconfirmed the actual guarantee by
+// running plain `vite dev` without the flag on this exact commit:
+// test_hook_buttons = 0, matching T021c's own accepted audit R6.
