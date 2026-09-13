@@ -1,130 +1,196 @@
-# ROTA-T065-ORDINARY-TIME-AVAILABILITY — datowana dostępność godzinowa ORDINARY
+# ROTA-T065-ORDINARY-TIME-AVAILABILITY — rzeczywista dostępność godzinowa ORDINARY
 
 STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD UNTIL CODEX PASS
 
-DEPENDENCY:
-- semantycznie zależy od `ROTA-T065-CONFIGURABLE-ROLES` tylko w zakresie zwykłego eligibility; nie tworzy własnego modelu ról.
-
 SOURCE:
-- finding Codexa `ROTA-T065-PANEL-CLEANUP` część A
-- OWNER example: pracownik może zgłosić, że w konkretnym tygodniu z powodu opieki nad dzieckiem jest niedostępny na ranne godziny
-- OWNER correction: ograniczenie ma dotyczyć rzeczywistych godzin pracy, nie symbolu D/N ani wiersza katalogu
-- istniejący append-only `AvailabilityRecord` + eligibility + validator/manual correction
+- `ROTA-T065-PANEL-CLEANUP` finding A
+- audit R1 `tasks/ROTA-T065-ORDINARY-TIME-AVAILABILITY/round_01/tests/tests_r1.txt`
+- OWNER ruling `main@4f59a4e` / `tests_r2.txt`
+- OWNER real case: pracownik przez wskazany tydzień jest niedostępny na ranne godziny, np. przed 12:00
+- istniejący append-only `AvailabilityRecord`, eligibility, validator, EmployeeDetail/matrix
 
 ## 1. Cel
 
-Dla ORDINARY dodać czasowe ograniczenie dostępności godzinowej pracownika bez budowania drugiego systemu dostępności.
+Dla `SitePlanningRegime.ORDINARY` dodać datowane ograniczenie rzeczywistej dostępności godzinowej pracownika bez D/N, bez wiązania go z konkretnym wierszem katalogu i bez drugiego silnika dostępności.
 
 Przykład biznesowy:
-- obowiązuje 14–20.09;
-- pracownik niedostępny każdego dnia w tym zakresie od 00:00 do 12:00;
-- praca 05:00–12:00 odpada;
-- praca 10:00–18:00 odpada;
-- praca 12:00–19:00 jest dozwolona.
 
-Solver ma oceniać realny `start_datetime/end_datetime` pracy, a nie `ShiftKind`, numer zmiany ani nazwę katalogową.
+`2026-09-14..2026-09-20, niedostępny 00:00–12:00`.
 
-## 2. Reuse istniejącego ownera Availability
+W takim okresie:
+- praca `05:00–12:00` jest niedozwolona automatycznie;
+- `10:00–18:00` jest niedozwolona automatycznie;
+- `12:00–19:00` jest dozwolona;
+- ręcznie dodana realna praca również musi przejść ten sam test.
 
-Nie tworzyć drugiej tabeli/serwisu `StoreAvailability`.
+## 2. Jeden owner danych — istniejący AvailabilityRecord
 
-Rozszerzyć istniejący append-only lifecycle `AvailabilityRecord` o jeden jawny wariant godzinowej niedostępności dla ORDINARY.
+Nie powstaje `OrdinaryAvailability`, drugi repository ani SiteRule udający dostępność godzinową.
 
-Minimalna semantyka:
-- `start_date` i `end_date` — jak dziś, zakres dat włącznie;
-- dzienne `start_time` i `end_time` określające okres niedostępności w każdym objętym dniu;
-- aktywność, supersedes i note pozostają w obecnym chain lifecycle.
+Istniejący `AvailabilityRecord`/`availability_repository.py` pozostaje append-only ownerem historii dostępności. Dochodzi jeden rodzaj:
 
-Jeżeli przedział czasu przechodzi przez północ, reprezentacja ma być jednoznaczna i testowana; nie wyprowadzać znaczenia z nazwy zmiany.
+`UNAVAILABLE_TIME_WINDOW`.
 
-Istniejące całodniowe rodzaje (`UNAVAILABLE_24H`, urlopy, L4 itd.) pozostają bez zmiany.
+Dla tego rodzaju rekord przechowuje dodatkowo:
+- `start_time`;
+- `end_time`.
 
-## 3. Jeden oracle nakładania przedziałów
+Dla istniejących rodzajów całodniowych (`UNAVAILABLE_24H`, `SICK_LEAVE`, `LEAVE_GRANTED`, itd.) oba pola pozostają `None` i dotychczasowa semantyka się nie zmienia.
 
-Ma istnieć jeden współdzielony test:
+Nie zmieniać istniejącego linear-chain versioningu `availability_id`.
 
-`czy rzeczywisty interval pracy nachodzi na aktywne godzinowe okno niedostępności?`
+## 3. Zakres V1 — tylko okno dzienne
 
-Ten sam oracle ma być używany przez:
-- solver eligibility;
-- validator ręcznej korekty;
-- każdą inną istniejącą ścieżkę, która waliduje realną Assignment.
+OWNER zamroził V1:
+- okno godzinowe powtarza się każdego dnia w inclusive zakresie `start_date..end_date`;
+- musi mieścić się w jednej dobie;
+- wymagane `start_time < end_time`;
+- okna przez północ są OUT OF SCOPE.
 
-Nie wolno mieć osobnej logiki dla PLAN i osobnej dla Manual Correction.
+Przykład legalny: `00:00–12:00`.
 
-## 4. HARD i odchylenia
+Przykład odrzucony na write boundary: `20:00–06:00`.
 
-Automatyczny solver traktuje aktywną godzinową niedostępność jako HARD — tak jak inne blokujące availability.
+UI i backend mają odrzucać overnight jawnie. Nie wolno interpretować go jako dwóch okien ani zgadywać daty końca.
 
-Ręczna korekta zachowuje istniejącą zasadę produktu:
-- validator zgłasza naruszenie;
-- koordynator może użyć istniejącego mechanizmu świadomego odchylenia tam, gdzie produkt już to dopuszcza;
-- istniejący deviation/action trail zapisuje decyzję.
+## 4. Półotwarta semantyka przedziału — jeden oracle
 
-Nie tworzyć nowego override ani osobnego audytu.
+Okno niedostępności jest półotwarte `[window_start, window_end)`.
 
-## 5. ORDINARY vs OCHRONA
+Praca koliduje, gdy jej realny `[Assignment/ShiftDemand.start_datetime, end_datetime)` ma niepuste przecięcie z dowolnym dziennym wystąpieniem aktywnego `UNAVAILABLE_TIME_WINDOW` w zakresie dat.
 
-Nowa godzinowa dostępność służy ORDINARY i zastępuje potrzebę używania ochroniarskich pojęć `day_only`, D/N lub `can_work_24h` jako protezy dostępności godzinowej.
+Dlatego dla `00:00–12:00`:
+- `10:00–18:00` koliduje;
+- `12:00–19:00` nie koliduje.
 
-Dla ORDINARY:
-- `can_work_24h` nie może blokować zwykłego eligibility tylko dlatego, że katalog ma nietypowy przedział;
-- D/N-specific ograniczenia nie opisują dostępności godzinowej.
+Powstaje jeden czysty oracle w `rota/planning/availability.py` używany przez:
+- automatic eligibility;
+- validator/manual correction.
 
-OCHRONA pozostaje bez zmian.
+Nie wolno kopiować obliczenia overlap do dwóch modułów.
 
-Nie kasować ani nie reinterpretować istniejących ochroniarskich danych.
+Istniejąca semantyka całodniowych AvailabilityKinds zostaje zachowana; helper może ją wywoływać/współdzielić, ale ten Task nie refaktoryzuje całego systemu absencji.
 
-## 6. UI
+## 5. ORDINARY — brak ochroniarskich kwalifikacji D/N/24h
 
-W EmployeeDetail/konfiguracji pracownika ORDINARY nie pokazywać ochroniarskiej macierzy jako sposobu ustawiania godzinowej dostępności.
+Dla `ORDINARY` o możliwości pracy decydują rzeczywiste godziny i ogólne gate'y, a nie ochrona D/N.
 
-Dodać prostą akcję typu `Dodaj niedostępność godzinową` z polami:
-- od dnia;
-- do dnia;
-- od godziny;
-- do godziny;
-- opcjonalna notatka.
+KRYTYCZNE:
 
-UI ma pokazywać zapisane ograniczenia i pozwalać je zakończyć/zmienić przez istniejący version-chain lifecycle, nie przez mutowanie historii.
+`SiteMembership.can_work_24h` **NIGDY nie uczestniczy w eligibility ORDINARY**, nawet jeśli techniczny `catalog_kind == H24` albo obiekt działa 24/7.
 
-## 7. Brak powiązania z katalogiem zmian
+Warunek `SHIFT-24-01` pozostaje wyłącznie semantyką OCHRONA.
 
-Godzinowa niedostępność należy do pracownika i czasu, nie do konkretnego `StandardShift`.
+Analogicznie `day_only` i D/N-specific SiteRules nie mogą blokować ORDINARY tylko dlatego, że techniczny katalog ma D/N lub zmianę nocną. Istniejące poprawki T065 `dn_semantics_apply()` pozostają jednym właścicielem tej granicy.
 
-Po późniejszej edycji katalogu nadal obowiązuje wobec każdego realnego intervala, który na nią nachodzi.
+## 6. Co zachowujemy w UI pracownika
 
-Nie tworzyć checkboxów `1 zmiana / 2 zmiana / 3 zmiana` jako źródła eligibility.
+Dla ORDINARY ukrywamy/wyłączamy jako nieadekwatne:
+- Dniówka/Nocka jako kwalifikacje;
+- `day_only` jako kontrolkę biznesową ORDINARY;
+- `can_work_24h` jako kwalifikację ORDINARY.
 
-## 8. External support
+NIE usuwamy ogólnych mechanizmów dostępności:
+- całodniowa niedostępność;
+- L4;
+- urlop;
+- ogólne ograniczenia dni tygodnia, jeśli istnieją jako niezależna semantyka kalendarzowa;
+- nowe datowane okno godzinowe.
 
-LOCAL i EXTERNAL_SUPPORT podlegają tej samej godzinowej dostępności, jeżeli rekord dotyczy danego pracownika.
+`availability_matrix.py` pozostaje read-ownerem skomponowanego widoku ograniczeń pracownika. Ma zostać rozszerzony o aktywne `UNAVAILABLE_TIME_WINDOW`, zamiast tworzenia drugiego read modelu tylko dla ORDINARY.
 
-Nie tworzyć osobnej wersji tego mechanizmu dla external.
+`api/routers/roster.py` serializuje nowe `start_time/end_time` w istniejącym EmployeeDetail. Writes pozostają w istniejącym `api/routers/durable_inputs.py` / `rota/application/durable_inputs.py`.
 
-## 9. Acceptance — minimum
+## 7. Automatic eligibility
 
-1. Datowane okno 14–20.09, 00:00–12:00 blokuje demand 05:00–12:00 i 10:00–18:00, ale nie 12:00–19:00.
-2. To samo ograniczenie blokuje ręcznie dodaną realną pracę nachodzącą na interval.
-3. Edycja katalogu zmian nie zmienia znaczenia istniejącej niedostępności.
-4. Całodniowe L4/urlop/UNAVAILABLE zachowują obecną semantykę.
-5. Manual correction korzysta z tego samego oracla i istniejącego deviation lifecycle.
-6. OCHRONA regression unchanged.
-7. External nie omija ograniczenia.
+Dla każdego demandu ORDINARY istniejący `check_eligibility()` korzysta ze wspólnego oracle i blokuje kandydata kodem `UNAVAILABLE_TIME-01`, jeżeli demand nachodzi na aktywne okno godzinowe.
+
+LOCAL i EXTERNAL_SUPPORT przechodzą dokładnie ten sam gate. External nie dostaje wyjątku.
+
+Nie dodawać drugiego passu solvera ani fallbacku.
+
+## 8. Manual correction
+
+Manual correction nie dostaje drugiej logiki dostępności.
+
+Istniejący validator korzysta z tego samego oracle i materializuje naruszenie `UNAVAILABLE_TIME-01` zgodnie z istniejącym mechanizmem HARD/deviation/manual override.
+
+Ten Task nie zmienia ogólnej zasady produktu, że świadoma Manual Correction może zapisać odchylenie tam, gdzie istniejący lifecycle to dopuszcza. Wymagane jest natomiast, aby kolizja została wykryta i nigdy nie przeszła jako „brak naruszenia”.
+
+`ROTA-T065-MANUAL-MIDDLE-SHIFT` ma twardą zależność od tego gate'u.
+
+## 9. Persistence / API validation
+
+Write boundary dla `UNAVAILABLE_TIME_WINDOW` wymaga:
+- `start_date <= end_date`;
+- oba `start_time/end_time` obecne;
+- `start_time < end_time`;
+- pełne godziny zgodnie z obecną precyzją produktu, chyba że istniejący wspólny kontrakt Availability już dopuszcza dokładniejszą precyzję; implementer nie rozszerza jej sam;
+- kind inny niż `UNAVAILABLE_TIME_WINDOW` nie może przypadkiem odziedziczyć semantyki godzinowej.
+
+Błąd overnight/shape ma być odrzucony przed PLAN, nie dopiero przez solver.
+
+## 10. Acceptance
+
+TA-01 — zapis/odczyt append-only `UNAVAILABLE_TIME_WINDOW` zachowuje daty i godziny po restarcie.
+
+TA-02 — `00:00–12:00` blokuje ORDINARY `05:00–12:00` i `10:00–18:00`.
+
+TA-03 — `00:00–12:00` NIE blokuje pracy zaczynającej się dokładnie o `12:00`.
+
+TA-04 — write/API odrzuca `20:00–06:00` jako unsupported overnight window.
+
+TA-05 — `can_work_24h=False` nie blokuje żadnego demandu ORDINARY wyłącznie z powodu `catalog_kind=H24`; OCHRONA zachowuje `SHIFT-24-01`.
+
+TA-06 — LOCAL i EXTERNAL_SUPPORT mają identyczny hourly-availability gate.
+
+TA-07 — manual validator wykrywa ten sam overlap tym samym oraclem; nie istnieje drugi algorytm.
+
+TA-08 — EmployeeDetail ORDINARY nadal pokazuje całodniową niedostępność/L4/urlop i nowe okna godzinowe; ukrycie D/N/24h nie usuwa ogólnych kontrolek dostępności.
+
+TA-09 — późniejsza edycja katalogu zmian nie zmienia znaczenia zapisanego okna; jest ono oceniane na realnym przedziale pracy.
+
+TA-10 — OCHRONA regression unchanged.
+
+## 11. WHERE_MAP
+
+WHERE_MAP: REQUIRED
+- `rota/domain.py` :: `AvailabilityKind`, `AvailabilityRecord.start_time/end_time` — minimalne rozszerzenie istniejącej domeny.
+- `rota/persistence/availability_repository.py` :: append/read current/history z nowymi polami; jeden owner danych.
+- `rota/persistence/db.py` :: migracja `availability_versions`; nie istnieje `schema.py`.
+- `rota/planning/availability.py` :: NOWY pojedynczy pure interval-overlap oracle dla hourly window.
+- `rota/planning/eligibility.py` :: użycie oracle + jawny regime guard wyłączający `can_work_24h` dla ORDINARY.
+- `rota/planning/validator.py` :: użycie tego samego oracle, bez kopii obliczeń.
+- `rota/application/availability_matrix.py` :: dołączenie hourly windows do istniejącego read modelu, zachowanie full-day/general weekday facts.
+- `rota/application/durable_inputs.py` :: istniejący audytowalny write path Availability.
+- `api/routers/roster.py` :: EmployeeDetail read/serialization `start_time/end_time`.
+- `api/routers/durable_inputs.py` :: create/update validation godzinowego AvailabilityRecord.
+- `frontend/src/screens/EmployeeDetail.tsx` :: regime-aware UI; hourly window + zachowane ogólne ograniczenia.
+- `frontend/src/api/client.ts` :: pola API.
+
+## 12. TASK_SCOPE
 
 TASK_SCOPE:
+- tasks/ROTA-T065-ORDINARY-TIME-AVAILABILITY/**
 - rota/domain.py
+- rota/persistence/db.py
 - rota/persistence/availability_repository.py
-- rota/persistence/schema.py
+- rota/planning/availability.py
 - rota/planning/eligibility.py
 - rota/planning/validator.py
-- rota/application/assembler.py
+- rota/application/availability_matrix.py
 - rota/application/durable_inputs.py
+- api/routers/roster.py
 - api/routers/durable_inputs.py
 - frontend/src/screens/EmployeeDetail.tsx
 - frontend/src/api/client.ts
-- tests/
+- tests/test_t065_ordinary_time_availability.py
+- tests/test_eligibility_matrix.py
+- tests/test_t021b_employee_matrix_wrappers.py
+- tests/test_t065_ordinary_roles.py
 
-## 10. HOLD
+## 13. HOLD
 
 IMPLEMENTATION HOLD do preimplementation PASS Codexa na dokładnym SHA tego briefu.
+
+Codex ma w wąskim re-checku sprawdzić przede wszystkim: jeden Availability owner, jeden overlap oracle, explicit overnight rejection, bezwarunkowe wyłączenie `can_work_24h` w ORDINARY oraz brak regresji ogólnych kontrolek dostępności.
