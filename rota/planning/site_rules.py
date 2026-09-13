@@ -35,6 +35,15 @@ SUPPORTED_RULE_KINDS = frozenset({
 _VALID_SHIFT_KIND_VALUES = frozenset({"D", "N"})
 _VALID_WEEKDAYS = frozenset(range(1, 8))
 
+# ROTA-T065 audit R3-01: the ONE place that names which rule_kinds actually
+# consult shift_kind -- EMPLOYEE_ALLOWED_WEEKDAYS is purely date-based and
+# must always be enforced regardless of D/N-legal-meaning; only these two
+# kinds must be skipped for a demand where D/N is purely technical.
+SHIFT_KIND_SPECIFIC_RULE_KINDS = frozenset({
+    EMPLOYEE_ALLOWED_SHIFT_KINDS,
+    EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS,
+})
+
 
 class UnsupportedOrMalformedSiteRule(Exception):
     """A RESOLVED rule claims to be executable but isn't -- unknown

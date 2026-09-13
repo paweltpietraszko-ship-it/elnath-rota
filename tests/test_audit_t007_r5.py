@@ -4,10 +4,11 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState
+from rota.domain import Assignment, AssignmentRole, AssignmentState, Site, SitePlanningRegime
 from rota.planning.engine import plan
 from rota.planning.state import SiteRuleApplicability
-from tests.support.minimal_state import base_state
+from tests.support.minimal_state import PROFILE_ID, SITE_ID
+from tests.support.minimal_state import base_state as _base_state
 from tests.test_audit_t007_r3 import (
     MONTH,
     MONTH_END,
@@ -16,6 +17,16 @@ from tests.test_audit_t007_r3 import (
     _night_demand,
     _rule,
 )
+
+
+def base_state(**overrides):
+    """ROTA-T065 audit R3-01: this file's SiteRule/N-demand scenario tests
+    OCHRONA-specific D/N semantics -- see test_site_rules_execution.py's
+    own base_state override for the full rationale."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
 
 
 def _realized_day_assignments() -> tuple[Assignment, ...]:

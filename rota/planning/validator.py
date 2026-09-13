@@ -12,8 +12,13 @@ from rota.domain import (
     ShiftCatalogKind, ShiftKind, SitePlanningRegime,
 )
 from rota.planning.eligibility import is_all_24h_profile
-from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand, is_role_based_demand
-from rota.planning.site_rules import day_only_n_exception_authorizing_rule_version_id, hard_rules_applicable_on, rule_allows_assignment
+from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand, dn_semantics_apply
+from rota.planning.site_rules import (
+    SHIFT_KIND_SPECIFIC_RULE_KINDS,
+    day_only_n_exception_authorizing_rule_version_id,
+    hard_rules_applicable_on,
+    rule_allows_assignment,
+)
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rolling_windows
 from rota.planning.work_periods import (
@@ -235,10 +240,10 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         if assignment.employee_id not in day_only_ids:
             continue
         for demand in _covered_demands(assignment, state):
-            if is_role_based_demand(demand):
-                # ROTA-T065 audit R2-02 fix: a role-bearing demand's
-                # shift_kind is a purely technical value, never OCHRONA
-                # night-work semantics (brief.md section 8).
+            if not dn_semantics_apply(demand, state.site.planning_regime):
+                # ROTA-T065 audit R3-01 fix: D/N never carries OCHRONA
+                # legal meaning for an ORDINARY site, regardless of role
+                # (OWNER_DECISION 2026-09-13).
                 continue
             kind = _demand_kind(demand, state.profile)
             if kind is None:
@@ -367,16 +372,16 @@ def _check_night_streak(state: PlanningState, assignments: list[Assignment], det
             continue
         assignment_by_employee_date[assignment.employee_id, assignment.start_datetime.date()] = assignment.assignment_id
         demand = _covering_demand(assignment, state)
-        # ROTA-T065 audit R2-02 fix: a role-bearing demand's shift_kind is
-        # a purely technical value, never OCHRONA night-work semantics.
-        if demand is not None and not is_role_based_demand(demand) and _demand_kind(demand, state.profile) == ShiftKind.N:
+        # ROTA-T065 audit R3-01 fix: D/N never carries OCHRONA legal
+        # meaning for an ORDINARY site, regardless of role.
+        if demand is not None and dn_semantics_apply(demand, state.site.planning_regime) and _demand_kind(demand, state.profile) == ShiftKind.N:
             n_dates_by_employee.setdefault(assignment.employee_id, set()).add(assignment.start_datetime.date())
 
     for boundary in state.boundary_assignments:
         if boundary.role != AssignmentRole.PRIMARY or boundary.state == AssignmentState.CANCELLED:
             continue
         demand = _covering_demand(boundary, state)
-        if demand is not None and not is_role_based_demand(demand) and _demand_kind(demand, state.profile) == ShiftKind.N:
+        if demand is not None and dn_semantics_apply(demand, state.site.planning_regime) and _demand_kind(demand, state.profile) == ShiftKind.N:
             n_dates_by_employee.setdefault(boundary.employee_id, set()).add(boundary.start_datetime.date())
 
     for employee_id, dates in n_dates_by_employee.items():
@@ -560,13 +565,21 @@ def _check_external(state: PlanningState, assignments: list[Assignment], details
             details.append(ViolationDetail("EXTERNAL-01", (assignment.assignment_id,), f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} uses EXTERNAL_SUPPORT but profile.external_support_enabled is false"))
             continue
         # T022-F1: a window must cover EVERY kind the Assignment's actual interval touches, not just the tagged demand's kind.
+        # ROTA-T065 audit R3-01 fix: only demands where D/N carries real
+        # OCHRONA legal meaning (dn_semantics_apply) contribute a required
+        # kind here -- a role-bearing/ORDINARY demand's technical D/N must
+        # never turn a window's allowed_shift_kind restriction into a block.
         covered_demands = _covered_demands(assignment, state)
-        kinds = {_demand_kind(d, state.profile) for d in covered_demands}
+        dn_relevant_demands = [d for d in covered_demands if dn_semantics_apply(d, state.site.planning_regime)]
+        kinds = {_demand_kind(d, state.profile) for d in dn_relevant_demands}
         if None in kinds:
             # T022-R2-1: an unclassifiable covered demand cannot be verified against any window, restricted or not.
             details.append(ViolationDetail("EXTERNAL-01", (assignment.assignment_id,), f"EXTERNAL-01: {assignment.employee_id} assignment {assignment.assignment_id} covers an unclassifiable demand"))
             continue
-        kinds = kinds or {None}
+        if not covered_demands:
+            # Preserves the pre-T065 edge case (an assignment covering no
+            # demand at all): only an unrestricted window can match.
+            kinds = {None}
         covered = any(
             w.active and w.site_id == state.site.site_id
             and w.employee_id == assignment.employee_id
@@ -586,15 +599,29 @@ def _check_site_rules(state: PlanningState, assignments: list[Assignment], detai
         if assignment.role != AssignmentRole.PRIMARY:
             continue
         for demand in _covered_demands(assignment, state):
+            # ROTA-T065 audit R3-01 fix: dn_relevant=False skips only the
+            # shift-kind-specific rule kinds below -- EMPLOYEE_ALLOWED_
+            # WEEKDAYS is purely date-based and still applies to every demand.
+            dn_relevant = dn_semantics_apply(demand, state.site.planning_regime)
             shift_kind = _demand_kind(demand, state.profile)
             anchor_date = demand.start_datetime.date()
             applicable = hard_rules_applicable_on(state.site_rules, state.site_rule_applicability, anchor_date)
-            if shift_kind is None:
-                # T022-R1-2: an applicable HARD rule's compliance cannot be verified for an unclassifiable demand -- fail closed rather than silently skip.
-                if applicable:
-                    details.append(ViolationDetail("SITE_RULE-01", (assignment.assignment_id,), f"SITE_RULE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers unclassifiable demand {demand.demand_id} with applicable HARD SiteRules"))
-                continue
-            for rule in applicable:
+            evaluable = [
+                r for r in applicable
+                if shift_kind is not None or r.rule_kind not in SHIFT_KIND_SPECIFIC_RULE_KINDS
+            ]
+            unevaluable_dn_specific = [
+                r for r in applicable
+                if shift_kind is None and r.rule_kind in SHIFT_KIND_SPECIFIC_RULE_KINDS and dn_relevant
+            ]
+            if unevaluable_dn_specific:
+                # T022-R1-2: an applicable shift-kind-specific HARD rule's
+                # compliance cannot be verified for an unclassifiable
+                # demand -- fail closed rather than silently skip.
+                details.append(ViolationDetail("SITE_RULE-01", (assignment.assignment_id,), f"SITE_RULE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers unclassifiable demand {demand.demand_id} with applicable HARD SiteRules"))
+            for rule in evaluable:
+                if not dn_relevant and rule.rule_kind in SHIFT_KIND_SPECIFIC_RULE_KINDS:
+                    continue
                 if rule_allows_assignment(rule, assignment.employee_id, anchor_date, shift_kind):
                     continue
                 details.append(ViolationDetail(rule.rule_version_id, (assignment.assignment_id,), f"{rule.rule_version_id}: {assignment.employee_id} assignment {assignment.assignment_id} violates {rule.rule_kind} (demand {demand.demand_id})"))

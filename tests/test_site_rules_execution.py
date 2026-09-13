@@ -16,7 +16,9 @@ from rota.domain import (
     RuleEnforcement,
     RuleResolution,
     ShiftDemand,
+    Site,
     SiteMembership,
+    SitePlanningRegime,
     SiteRuleVersion,
 )
 from rota.planning.engine import plan
@@ -28,7 +30,21 @@ from rota.planning.site_rules import (
 )
 from rota.planning.state import SiteRuleApplicability
 from rota.planning.validator import validate
-from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, base_state
+from tests.support.minimal_state import PROFILE_ID, ReadinessSource, ReadinessState, SITE_ID
+from tests.support.minimal_state import base_state as _base_state
+
+
+def base_state(**overrides):
+    """ROTA-T065 audit R3-01: this whole matrix tests OCHRONA-specific D/N
+    SiteRule enforcement -- minimal_state.base_state's own default site is
+    ORDINARY (a neutral placeholder used broadly across the suite, harmless
+    until D/N legal meaning became regime-gated by dn_semantics_apply).
+    Pin this file's default site to OCHRONA so these tests keep exercising
+    exactly what they always meant to."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
 
 # October 2026: 1=Thu, 2=Fri, 3=Sat, 4=Sun, 5=Mon, 8=Thu, 9=Fri
 MONTH_SPAN = (date(2026, 10, 1), date(2026, 10, 31))

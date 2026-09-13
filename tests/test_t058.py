@@ -271,8 +271,15 @@ def test_t58_12_night_streak_conflict_still_reaches_decision_required_not_blocke
     employee = Employee("A", "A", date(2020, 1, 1), None, False)
     demands = (_n_demand(1), _n_demand(2), _n_demand(3))
     work_balances = (WorkBalance("A", MONTH, 36, 0, 0, 0, 0, 0),)
+    # ROTA-T065 audit R3-01: NIGHT-STREAK-01 is OCHRONA-specific D/N legal
+    # semantics -- base_state()'s own default site is ORDINARY, under
+    # which this demand's technical N no longer triggers NIGHT-STREAK-01.
+    from rota.domain import Site, SitePlanningRegime
+    from tests.support.minimal_state import PROFILE_ID, SITE_ID
+
     state = base_state(
         employees=(employee,), memberships=(_membership("A"),), shift_demands=demands, work_balances=work_balances,
+        site=Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA),
     )
     result = plan(state)
     assert result.status == "DECISION_REQUIRED"

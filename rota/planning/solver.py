@@ -43,7 +43,7 @@ from rota.planning.fairness import (
 from rota.planning.replan_reshuffle import (
     build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
 )
-from rota.planning.shift_catalog import classify_demand, is_role_based_demand
+from rota.planning.shift_catalog import classify_demand, dn_semantics_apply
 from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.state import PlanningState
 from rota.planning.work_periods import resolve_required_rest
@@ -314,7 +314,7 @@ def _evaluate_membership_for_demand(
     result = check_eligibility(
         employee, membership, demand, shift_kind, state.profile, records,
         list(state.external_windows), state.site.site_id, applicable_hard_rules,
-        allow_day_only_n_fallback,
+        allow_day_only_n_fallback, state.site.planning_regime,
     )
     if not result.eligible:
         return False, (employee.employee_id, result.blocked_reason or "UNKNOWN")
@@ -434,7 +434,7 @@ def _build_day_kind_terms(
             e[0] = e[0] + term
         # ROTA-T065 audit R2-02 fix: a role-bearing demand's shift_kind is a
         # purely technical value -- never counted toward NIGHT-STREAK-01.
-        elif slot.shift_kind == ShiftKind.N and not is_role_based_demand(slot.demand):
+        elif slot.shift_kind == ShiftKind.N and dn_semantics_apply(slot.demand, state.site.planning_regime):
             e[1] = e[1] + term
             if e[3] is None:
                 e[3] = slot.demand.demand_id
@@ -458,7 +458,7 @@ def _build_day_kind_terms(
         kind = classify_demand(demand, state.profile)
         if kind == ShiftKind.D:
             e[0] = e[0] + 1
-        elif kind == ShiftKind.N and not is_role_based_demand(demand):
+        elif kind == ShiftKind.N and dn_semantics_apply(demand, state.site.planning_regime):
             e[1] = e[1] + 1
             if e[3] is None:
                 e[3] = demand.demand_id
@@ -480,7 +480,7 @@ def _build_day_kind_terms(
         kind = classify_demand(demand, state.profile)
         if kind == ShiftKind.D:
             e[0] = e[0] + 1
-        elif kind == ShiftKind.N and not is_role_based_demand(demand):
+        elif kind == ShiftKind.N and dn_semantics_apply(demand, state.site.planning_regime):
             e[1] = e[1] + 1
 
     return {employee_id: {d: tuple(vals) for d, vals in by_date.items()} for employee_id, by_date in by_employee.items()}
