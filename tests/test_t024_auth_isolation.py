@@ -189,6 +189,37 @@ def test_password_change_preserves_mapping_and_coordinator(tmp_path):
     assert data["sites_after_status"] == 200  # mapping/coordinator untouched by the password change
 
 
+def test_password_change_endpoint_rejects_email_field(tmp_path):
+    # R4-02 regression guard: a payload carrying any field other than
+    # password (e.g. email) must be rejected outright, not silently
+    # applied via the library's full UserUpdate schema.
+    result = _run(tmp_path, """
+        import asyncio, json
+        from fastapi.testclient import TestClient
+        import api.main
+        from api.provision_account import create_account
+
+        asyncio.run(create_account("old@example.com", "password-1234", "COORD-T1", "t1.db"))
+        with TestClient(api.main.app, base_url="https://testserver") as client:
+            client.post("/api/auth/login", data={"username": "old@example.com", "password": "password-1234"})
+            changed = client.patch("/api/auth/me/password", json={"email": "new@example.com"})
+
+        with TestClient(api.main.app, base_url="https://testserver") as client2:
+            old_login = client2.post("/api/auth/login", data={"username": "old@example.com", "password": "password-1234"})
+            new_login = client2.post("/api/auth/login", data={"username": "new@example.com", "password": "password-1234"})
+
+        print(json.dumps({
+            "changed_status": changed.status_code,
+            "old_login_status": old_login.status_code,
+            "new_login_status": new_login.status_code,
+        }))
+    """)
+    data = _assert_ok(result)
+    assert data["changed_status"] in {400, 422}
+    assert data["old_login_status"] == 204  # login/email untouched
+    assert data["new_login_status"] != 204  # no account was ever created under the new email
+
+
 def test_backup_uses_correct_account_database(tmp_path):
     # T24-10
     result = _run(tmp_path, """
@@ -218,6 +249,62 @@ def test_backup_uses_correct_account_database(tmp_path):
     data = _assert_ok(result)
     assert data["backup_status"] == 200
     assert "snapshot.db" in data["names"]
+
+
+def test_backup_snapshot_content_contains_no_other_accounts_data(tmp_path):
+    # R4-01 regression guard: T24-10's own test only checked the ZIP's
+    # file NAMES, which never inspected the snapshot's actual rows -- the
+    # exact blind spot that let a shared db_filename leak another
+    # account's data undetected. This opens snapshot.db and checks rows.
+    result = _run(tmp_path, """
+        import asyncio, io, json, sqlite3, tempfile, zipfile
+        from fastapi.testclient import TestClient
+        import api.main
+        from api.provision_account import create_account
+
+        asyncio.run(create_account("t1@example.com", "pw-one-1234", "COORD-T1", "t1.db"))
+        asyncio.run(create_account("t2@example.com", "pw-two-1234", "COORD-T2", "t2.db"))
+
+        with TestClient(api.main.app, base_url="https://testserver") as c1, \\
+             TestClient(api.main.app, base_url="https://testserver") as c2:
+            c1.post("/api/auth/login", data={"username": "t1@example.com", "password": "pw-one-1234"})
+            c2.post("/api/auth/login", data={"username": "t2@example.com", "password": "pw-two-1234"})
+            c1.post("/api/workspace/sites", json={
+                "display_name": "T1-ONLY-SITE", "rolling_7d_decision_threshold_hours": 60,
+                "planning_regime": "ORDINARY",
+            })
+            backup_resp = c2.post("/api/workspace/backup")
+
+        archive = zipfile.ZipFile(io.BytesIO(backup_resp.content))
+        with tempfile.TemporaryDirectory() as extracted:
+            snapshot = archive.extract("snapshot.db", extracted)
+            conn = sqlite3.connect(snapshot)
+            names = [row[0] for row in conn.execute("SELECT display_name FROM sites").fetchall()]
+            conn.close()
+        print(json.dumps({"leaked_names": names}))
+    """)
+    data = _assert_ok(result)
+    assert data["leaked_names"] == []
+
+
+def test_provisioning_rejects_reusing_a_db_filename(tmp_path):
+    # R4-01: db_filename is the owning boundary between accounts -- a
+    # second account must never be provisioned onto a filename another
+    # account already owns.
+    result = _run(tmp_path, """
+        import asyncio, json
+        from api.provision_account import create_account, DbFilenameAlreadyInUse
+
+        asyncio.run(create_account("t1@example.com", "pw-one-1234", "COORD-T1", "shared.db"))
+        rejected = False
+        try:
+            asyncio.run(create_account("t2@example.com", "pw-two-1234", "COORD-T2", "shared.db"))
+        except DbFilenameAlreadyInUse:
+            rejected = True
+        print(json.dumps({"rejected": rejected}))
+    """)
+    data = _assert_ok(result)
+    assert data["rejected"] is True
 
 
 def test_diagnostic_zip_excludes_shared_runtime_log(tmp_path):

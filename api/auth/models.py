@@ -35,5 +35,8 @@ class AccountMapping(Base):
 
     auth_user_id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True)
     coordinator_id: Mapped[str] = mapped_column(String, nullable=False)
-    db_filename: Mapped[str] = mapped_column(String, nullable=False)
+    # R4-01 fix: one db_filename must never be assigned to two accounts --
+    # a UNIQUE constraint at the schema level, defense in depth alongside
+    # the provisioning-time check in api/provision_account.py.
+    db_filename: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
