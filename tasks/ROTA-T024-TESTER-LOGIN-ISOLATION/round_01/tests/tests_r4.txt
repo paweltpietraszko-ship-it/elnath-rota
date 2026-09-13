@@ -1,0 +1,108 @@
+ROTA-T024-TESTER-LOGIN-ISOLATION — IMPLEMENTATION AUDIT R4
+
+CHECKED_SHA: d9db486f32306d4b5600161fd4687b39519d7196
+BRIEF_SHA: 9246fad11d1d5f47d735381b44cace3078d7349f
+PREIMPLEMENTATION_REPORT_SHA: fa43ce5f3b3115f366c21060b99765fd25a93379
+OUTCOME: FAIL — 2 BLOCKERS
+
+Zakres audytu
+-------------
+Sprawdzono diff 9246fad..d9db486, nowych ownerów auth/context/persistence,
+wszystkie zmienione routery, tryb CENTRAL_SERVICE i niezmieniony
+LOCAL_WINDOWS. Implementer tests potraktowano wyłącznie jako dowód pomocniczy.
+Nie uruchamiano pełnej regresji, zamrożonych symulatorów ani benchmarków.
+
+R4-01 — FAIL: provisioning pozwala dwóm kontom współdzielić jedną bazę
+------------------------------------------------------------------------
+TRACE:
+- brief §2: każde konto ma własny dozwolony plik SQLite;
+- T24-2: konto A otwiera wyłącznie DB-A, konto B wyłącznie DB-B, a dane A nie
+  mogą znaleźć się w API/backup/diagnostyce B;
+- T24-3: request/sesja nie może zmienić mapowania user -> db/coordinator;
+- §4/§5/§13: provisioning helper jest ownerem ręcznego utworzenia konta i
+  mapowania.
+
+OWNERSHIP:
+`api/provision_account.py::create_account` zapisuje mapping, a
+`api/auth/models.py::AccountMapping` definiuje jego trwałe ograniczenia.
+Żaden późniejszy request nie może naprawić błędnego przypisania, bo właśnie
+temu mappingowi ma ufać AuthenticatedContext.
+
+REPRO na exact SHA:
+1. provision `a@example.com -> shared.db`;
+2. provision `b@example.com -> shared.db` — helper przyjmuje drugie konto;
+3. A tworzy obiekt `A-ONLY`;
+4. B pobiera własny backup;
+5. `snapshot.db` z backupu B zawiera `sites.display_name = 'A-ONLY'`.
+
+Rezultat reproduktora:
+`second_rejected=False`, `b_backup=200`, `leaked_names=['A-ONLY']`.
+
+To jest rzeczywisty cross-account leak przez wspierany helper, nie próba
+obejścia ścieżką spoza produktu. Sam check `db_path.parent` w request context
+broni przed wyjściem poza katalog, ale nie zapewnia relacji jeden plik = jedno
+konto. Poprawka musi odrzucić ponowne przypisanie już używanego db_filename na
+owning boundary i trwale wymusić tę jednoznaczność, nie tylko sprawdzić ją w UI.
+
+R4-02 — FAIL: endpoint „zmiana hasła” zmienia także login/e-mail
+----------------------------------------------------------------
+TRACE:
+- brief §4 i T24-8: zalogowany użytkownik może zmienić własne hasło;
+- brief §13: publiczny surface obejmuje current-user/update-password;
+- wiążąca redukcja prechecku R3: cienki endpoint ma ograniczyć się do zmiany
+  hasła i nie wnosić email-change z pełnego users routera.
+
+OWNERSHIP:
+`api/auth/backend.py::change_own_password` definiuje publiczny payload i
+deleguje go do UserManager. Używa jednak pełnego `UserUpdate`, którego realny
+schema zawiera `password`, `email`, `is_active`, `is_superuser`, `is_verified`.
+`safe=True` nie blokuje pola email.
+
+REPRO na exact SHA:
+1. provision `old@example.com` i login;
+2. PATCH `/api/auth/me/password` z samym `{ "email": "new@example.com" }`;
+3. odpowiedź = 200;
+4. stary login przestaje działać, nowy login działa z dotychczasowym hasłem.
+
+Endpoint nazwany i zakontraktowany jako password-only rozszerza więc publiczne
+zarządzanie kontem, które precheck jawnie usunął. Minimalna korekta to osobny
+wejściowy model zawierający wyłącznie password (z odrzuceniem dodatkowych pól)
+i dalsza delegacja hashowania/update do UserManager; bez własnego auth.
+
+Pozostała macierz i dowody
+--------------------------
+- Testy implementatora `tests/test_t024_auth_isolation.py`: 9/9 PASS.
+  Nie wykrywają R4-01, ponieważ test backupu sprawdza tylko nazwy plików ZIP,
+  nie zawartość snapshotu; nie wykrywają R4-02, bo wysyłają tylko password.
+- Niezależny plik `test_audit_r4.py`: 2 FAIL, 3 PASS.
+  PASS: brak AUTH_SECRET nie wystawia sesji; dwa prawidłowo rozdzielone konta
+  zachowują izolację przy równoległych requestach, login/logout i coordinator
+  context; LOCAL_WINDOWS działa bez auth, a auth routes zwracają 404.
+- Targeted istniejące testy sześciu modułów zmienionych routerów: 47 PASS
+  (`test_t021_decisions_api`, `test_t021_export_api`,
+  `test_t030_shift_catalog_api`, `test_t031_schedule_api`,
+  `test_t037_manual_edit_api`, `test_t033_site_deactivate_reactivate`).
+- Frontend: LOCAL_WINDOWS build PASS; CENTRAL_SERVICE build PASS; TypeScript
+  jest częścią obu buildów.
+- `pip check`: PASS; `ruff` dla zmienionych plików i reproduktora: PASS;
+  `git diff --check 9246fad..d9db486`: PASS; brak zmian w `rota/`.
+- `where.py api/auth/context.py --symbol get_authenticated_context` potwierdził
+  trzy centralne użycia w get_conn/get_coordinator_id/get_db_path.
+  `where.py api/deps.py --symbol get_conn` nie rozpoznaje warunkowo
+  zdefiniowanych top-level funkcji; manualny grep potwierdził 60 użyć
+  Depends(get_conn) w routerach i brak produkcyjnego bypassu. To ograniczenie
+  narzędzia, nie finding produktu.
+
+Nie wykonano niezależnego interaktywnego visual QA: wymagany przez lokalny
+workflow `js_repl` nie jest dostępny w tej sesji. Oba warianty UI zbudowały się
+poprawnie, lecz werdykt i tak blokują dwa reprodukowane defekty backendowego
+kontraktu. Po mikropoprawce wystarczy re-check diffu, oba zachowane reproduktory,
+9 testów Tasku i jeden realny pion login -> context -> backup; pełna regresja
+nie ma uzasadnienia bez zmiany scope.
+
+Werdykt
+-------
+FAIL dotyczy wyłącznie exact d9db486f32306d4b5600161fd4687b39519d7196.
+Do ponownego audytu potrzebne są wyłącznie R4-01 i R4-02. Nie projektować
+nowego auth, panelu administracyjnego, Postgresa, IAM ani dodatkowego modelu
+sesji.
