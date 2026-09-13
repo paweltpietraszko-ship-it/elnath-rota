@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime
+from typing import Optional
 
 from rota.domain import (
     Employee,
+    EmployeeRole,
     ExternalSupportWindow,
     MembershipKind,
     ReadinessSource,
@@ -129,6 +131,18 @@ def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> 
     return {row[0]: _row_to_employee(key, protected_ids, row) for row in rows}
 
 
+def _allowed_roles_to_text(roles: frozenset[EmployeeRole]) -> Optional[str]:
+    if not roles:
+        return None
+    return ",".join(sorted(r.value for r in roles))
+
+
+def _allowed_roles_from_text(text: Optional[str]) -> frozenset[EmployeeRole]:
+    if not text:
+        return frozenset()
+    return frozenset(EmployeeRole(v) for v in text.split(","))
+
+
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
     """Same write as save_site_membership, without its own `with conn:` --
     for a caller (e.g. rota/application/training.py) that must combine this
@@ -141,16 +155,17 @@ def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membersh
         raise UnknownEmployeeOrSite((membership.employee_id, membership.site_id))
     conn.execute(
         """INSERT INTO site_memberships
-           (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+           (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h,
+            allowed_roles)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(employee_id, site_id) DO UPDATE SET
             membership_kind=excluded.membership_kind, enabled=excluded.enabled,
             readiness_state=excluded.readiness_state, readiness_source=excluded.readiness_source,
-            can_work_24h=excluded.can_work_24h""",
+            can_work_24h=excluded.can_work_24h, allowed_roles=excluded.allowed_roles""",
         (
             membership.employee_id, membership.site_id, membership.membership_kind.value,
             int(membership.enabled), membership.readiness_state.value, membership.readiness_source.value,
-            int(membership.can_work_24h),
+            int(membership.can_work_24h), _allowed_roles_to_text(membership.allowed_roles),
         ),
     )
 
@@ -161,20 +176,22 @@ def save_site_membership(conn: sqlite3.Connection, membership: SiteMembership) -
 
 
 def _row_to_membership(row: tuple) -> SiteMembership:
-    employee_id, site_id, kind, enabled, readiness_state, readiness_source, can_work_24h = row
+    employee_id, site_id, kind, enabled, readiness_state, readiness_source, can_work_24h, allowed_roles = row
     return SiteMembership(
         employee_id=employee_id, site_id=site_id, membership_kind=MembershipKind(kind),
         enabled=bool(enabled), readiness_state=ReadinessState(readiness_state),
         readiness_source=ReadinessSource(readiness_source),
         # Legacy (pre-T012) rows have NULL here: default=True.
         can_work_24h=bool(can_work_24h) if can_work_24h is not None else True,
+        # Legacy/OCHRONA (pre-T065) rows have NULL here: default no roles.
+        allowed_roles=_allowed_roles_from_text(allowed_roles),
     )
 
 
 def list_memberships_for_site(conn: sqlite3.Connection, site_id: str) -> list[SiteMembership]:
     rows = conn.execute(
-        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
-        "FROM site_memberships WHERE site_id = ? ORDER BY employee_id",
+        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h, "
+        "allowed_roles FROM site_memberships WHERE site_id = ? ORDER BY employee_id",
         (site_id,),
     ).fetchall()
     return [_row_to_membership(row) for row in rows]
@@ -182,8 +199,8 @@ def list_memberships_for_site(conn: sqlite3.Connection, site_id: str) -> list[Si
 
 def list_memberships_for_employee(conn: sqlite3.Connection, employee_id: str) -> list[SiteMembership]:
     rows = conn.execute(
-        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
-        "FROM site_memberships WHERE employee_id = ? ORDER BY site_id",
+        "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h, "
+        "allowed_roles FROM site_memberships WHERE employee_id = ? ORDER BY site_id",
         (employee_id,),
     ).fetchall()
     return [_row_to_membership(row) for row in rows]
@@ -197,8 +214,8 @@ def list_memberships_for_employees(conn: sqlite3.Connection, employee_ids: list[
         return {}
     placeholders = ",".join("?" for _ in employee_ids)
     rows = conn.execute(
-        f"SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h "
-        f"FROM site_memberships WHERE employee_id IN ({placeholders}) ORDER BY employee_id, site_id",
+        f"SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h, "
+        f"allowed_roles FROM site_memberships WHERE employee_id IN ({placeholders}) ORDER BY employee_id, site_id",
         (*employee_ids,),
     ).fetchall()
     by_employee: dict[str, list[SiteMembership]] = {employee_id: [] for employee_id in employee_ids}

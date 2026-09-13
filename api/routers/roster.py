@@ -54,6 +54,8 @@ class RosterRow(BaseModel):
     can_work_24h: bool
     readiness_state: str
     membership_kind: str
+    # ROTA-T065 brief.md section 13: empty for OCHRONA/legacy memberships.
+    allowed_roles: list[str]
 
 
 class EmployeeOut(BaseModel):
@@ -67,6 +69,7 @@ class MembershipOut(BaseModel):
     can_work_24h: bool
     readiness_state: str
     readiness_source: str
+    allowed_roles: list[str]
 
 
 class AvailabilityRecordOut(BaseModel):
@@ -129,6 +132,7 @@ def list_roster(site_id: str, conn=Depends(get_conn)) -> list[RosterRow]:
             can_work_24h=m.can_work_24h,
             readiness_state=m.readiness_state.value,
             membership_kind=m.membership_kind.value,
+            allowed_roles=sorted(r.value for r in m.allowed_roles),
         )
         for m in memberships
     ]
@@ -170,6 +174,7 @@ def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) 
         membership=MembershipOut(
             enabled=membership.enabled, can_work_24h=membership.can_work_24h,
             readiness_state=membership.readiness_state.value, readiness_source=membership.readiness_source.value,
+            allowed_roles=sorted(r.value for r in membership.allowed_roles),
         ),
         availability=[
             AvailabilityRecordOut(

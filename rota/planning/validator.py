@@ -275,6 +275,39 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
             )
 
 
+def _check_role(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """ROLE-01 (ROTA-T065 brief.md section 10): independent anti-drift
+    mirror of eligibility.py's _common_hard_gate role check, run against
+    the final/manual Assignment set -- exactly the same relationship
+    _check_membership_enabled/_check_external have to their eligibility.py
+    counterparts. demand.required_role is None for every OCHRONA/legacy
+    demand, so this is a strict no-op there. Applies identically to LOCAL
+    and EXTERNAL_SUPPORT membership (brief section 10/11) -- no separate
+    branch for either.
+
+    Uses _covering_demand (the assignment's OWN tagged demand), never the
+    overlap-based _covered_demands: unlike D/N classification (a property
+    of the moment in time, identical for every demand overlapping it),
+    required_role is a property of the SPECIFIC posted position -- brief
+    section 17 T65-01 explicitly allows two demands with different roles
+    to occupy the exact same interval (KIEROWNIK and SPRZEDAWCA_ZALOGA
+    both on duty at once), so an overlap match would falsely blame a
+    correctly-covered demand for a same-interval sibling's role."""
+    membership_by_employee = {m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id}
+    for assignment in assignments:
+        demand = _covering_demand(assignment, state)
+        if demand is None or demand.required_role is None:
+            continue
+        membership = membership_by_employee.get(assignment.employee_id)
+        allowed_roles = membership.allowed_roles if membership is not None else frozenset()
+        if demand.required_role not in allowed_roles:
+            details.append(ViolationDetail(
+                "ROLE-01", (assignment.assignment_id,),
+                f"ROLE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers demand "
+                f"{demand.demand_id} requiring role {demand.required_role.value}, not permitted for this membership",
+            ))
+
+
 def _covering_demand(assignment: Assignment, state: PlanningState):
     for demand in state.shift_demands:
         if demand.demand_id == assignment.covers_demand_id:
@@ -853,6 +886,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_replan_preserves_fixed(state, assignments, details)
     _check_trainee_mentor_reference(assignments, details)
     _check_membership_enabled(state, for_eligibility_checks, details)
+    _check_role(state, for_eligibility_checks, details)
     _check_day_only(state, for_eligibility_checks, details, warnings)
     _check_night_streak(state, assignments, details)
     _check_third_consecutive_shift(state, assignments, details)

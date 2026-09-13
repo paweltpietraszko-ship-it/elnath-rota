@@ -58,10 +58,11 @@ def _insert_content(
     conn.executemany(
         "INSERT INTO shift_demands (schedule_version_id, demand_id, start_datetime, end_datetime, "
         "required_primary_count, shift_kind, catalog_kind, required_rest_hours, work_period_template_id, "
-        "work_period_component, emergency_24h_rest_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "work_period_component, emergency_24h_rest_hours, required_role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(version_id, d.demand_id, d.start_datetime.isoformat(), d.end_datetime.isoformat(), d.required_primary_count,
           d.shift_kind.value if d.shift_kind else None, d.catalog_kind.value if d.catalog_kind else None,
-          d.required_rest_hours, d.work_period_template_id, d.work_period_component, d.emergency_24h_rest_hours)
+          d.required_rest_hours, d.work_period_template_id, d.work_period_component, d.emergency_24h_rest_hours,
+          d.required_role.value if d.required_role else None)
          for d in shift_demands],
     )
     conn.executemany(

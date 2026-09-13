@@ -267,10 +267,11 @@ def update_membership(
         (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == membership.employee_id), None,
     )
     material = before is None or (
-        before.membership_kind, before.enabled, before.readiness_state, before.readiness_source, before.can_work_24h
+        before.membership_kind, before.enabled, before.readiness_state, before.readiness_source, before.can_work_24h,
+        before.allowed_roles,
     ) != (
         membership.membership_kind, membership.enabled, membership.readiness_state, membership.readiness_source,
-        membership.can_work_24h,
+        membership.can_work_24h, membership.allowed_roles,
     )
     with conn:
         site_memory.validate_decision_required_link_no_commit(
@@ -284,6 +285,7 @@ def update_membership(
                     "employee_id": m.employee_id, "site_id": m.site_id, "membership_kind": m.membership_kind.value,
                     "enabled": m.enabled, "readiness_state": m.readiness_state.value,
                     "readiness_source": m.readiness_source.value, "can_work_24h": m.can_work_24h,
+                    "allowed_roles": sorted(r.value for r in m.allowed_roles),
                 }
 
             _record_action_and_invalidate_no_commit(
@@ -478,6 +480,7 @@ def _profile_state(p):
                 "end_next_day": s.end_next_day, "required_primary_count": s.required_primary_count,
                 "catalog_kind": s.catalog_kind.value if s.catalog_kind else None,
                 "required_rest_hours": s.required_rest_hours, "active_weekdays": list(s.active_weekdays),
+                "required_role": s.required_role.value if s.required_role else None,
             }
             for s in p.standard_shifts
         ],

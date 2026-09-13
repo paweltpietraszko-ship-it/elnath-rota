@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from rota.domain import ShiftCatalogKind, ShiftDemand, ShiftKind, SiteProfile, StandardShift
+from rota.domain import EmployeeRole, ShiftCatalogKind, ShiftDemand, ShiftKind, SiteProfile, StandardShift
 
 
 class UnclassifiedShiftError(Exception):
@@ -146,6 +146,9 @@ class _Component:
     component: Optional[int]
     catalog_kind: ShiftCatalogKind
     required_rest_hours: int
+    # ROTA-T065: same required_role for both halves of a 24h occurrence --
+    # unlike `kind`, role is not "opposite" between the two components.
+    required_role: Optional[EmployeeRole] = None
 
 
 def _components_for_shift(shift: StandardShift, template_id: str, current: date) -> list[_Component]:
@@ -154,13 +157,22 @@ def _components_for_shift(shift: StandardShift, template_id: str, current: date)
         start = datetime.combine(current, shift.start_time)
         end_date = current + (timedelta(days=1) if shift.end_next_day else timedelta())
         end = datetime.combine(end_date, shift.end_time)
-        return [_Component(start, end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours)]
+        return [_Component(
+            start, end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours,
+            required_role=shift.required_role,
+        )]
     first_start = datetime.combine(current, shift.start_time)
     first_end = first_start + timedelta(hours=12)
     second_end = first_start + timedelta(hours=24)
     return [
-        _Component(first_start, first_end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours),
-        _Component(first_end, second_end, _opposite(shift.kind), shift.required_primary_count, template_id, 2, kind, shift.required_rest_hours),
+        _Component(
+            first_start, first_end, shift.kind, shift.required_primary_count, template_id, 1, kind,
+            shift.required_rest_hours, required_role=shift.required_role,
+        ),
+        _Component(
+            first_end, second_end, _opposite(shift.kind), shift.required_primary_count, template_id, 2, kind,
+            shift.required_rest_hours, required_role=shift.required_role,
+        ),
     ]
 
 
@@ -238,7 +250,7 @@ def _components_to_demands(components: list[_Component], emergency_rest: dict[tu
             demand_id, "", c.start, c.end, c.required_primary_count,
             shift_kind=c.kind, catalog_kind=c.catalog_kind, required_rest_hours=c.required_rest_hours,
             work_period_template_id=c.template_id, work_period_component=c.component,
-            emergency_24h_rest_hours=emergency,
+            emergency_24h_rest_hours=emergency, required_role=c.required_role,
         ))
     return tuple(demands)
 

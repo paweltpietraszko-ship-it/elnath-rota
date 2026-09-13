@@ -27,6 +27,7 @@ from rota.domain import (
     AvailabilityKind,
     CalendarDay,
     Employee,
+    EmployeeRole,
     ExternalSupportWindow,
     MembershipKind,
     ReadinessSource,
@@ -156,7 +157,7 @@ def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(ge
             membership = SiteMembership(
                 employee_id=payload.employee_id, site_id=site_id, membership_kind=kind,
                 enabled=True, readiness_state=existing.readiness_state, readiness_source=existing.readiness_source,
-                can_work_24h=existing.can_work_24h,
+                can_work_24h=existing.can_work_24h, allowed_roles=existing.allowed_roles,
             )
         else:
             membership = SiteMembership(
@@ -206,14 +207,21 @@ def create_support_window(employee_id: str, payload: CreateSupportWindowRequest,
 class UpdateRosterRequest(BaseModel):
     enabled: bool | None = None
     can_work_24h: bool | None = None
+    # ROTA-T065 brief.md section 3.1/13: the coordinator's full allowed-roles
+    # SET for this (employee, site) -- None leaves it unchanged, an empty
+    # list explicitly clears every role, matching can_work_24h's own
+    # "only touch what's supplied" contract on this same endpoint.
+    allowed_roles: list[str] | None = None
 
 
 @roster_router.patch("/sites/{site_id}/roster/{employee_id}", status_code=204)
 def update_roster_row(site_id: str, employee_id: str, payload: UpdateRosterRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
-    """Remove-from-roster (enabled=False) and the 24h toggle both flow
-    through here: read the current row fresh, change only the supplied
-    field(s), carry every other field over unchanged (brief.md section
-    5.1, round-7 R7-1)."""
+    """Remove-from-roster (enabled=False), the 24h toggle, and the ORDINARY
+    role set all flow through here: read the current row fresh, change
+    only the supplied field(s), carry every other field over unchanged
+    (brief.md section 5.1, round-7 R7-1; ROTA-T065 section 13 extends this
+    same contract to allowed_roles -- no second membership, no second
+    endpoint)."""
     try:
         current = next((m for m in list_memberships_for_site(conn, site_id) if m.employee_id == employee_id), None)
         if current is None:
@@ -223,6 +231,10 @@ def update_roster_row(site_id: str, employee_id: str, payload: UpdateRosterReque
             enabled=current.enabled if payload.enabled is None else payload.enabled,
             readiness_state=current.readiness_state, readiness_source=current.readiness_source,
             can_work_24h=current.can_work_24h if payload.can_work_24h is None else payload.can_work_24h,
+            allowed_roles=(
+                current.allowed_roles if payload.allowed_roles is None
+                else frozenset(EmployeeRole(r) for r in payload.allowed_roles)
+            ),
         )
         update_membership(conn, coordinator_id=coordinator_id, site_id=site_id, membership=membership)
     except Exception as exc:

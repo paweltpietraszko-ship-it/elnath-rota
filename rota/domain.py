@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional, TypedDict, Union
@@ -11,6 +11,17 @@ from typing import Optional, TypedDict, Union
 class ShiftKind(str, Enum):
     D = "D"
     N = "N"
+
+
+class EmployeeRole(str, Enum):
+    """ROTA-T065 brief.md section 3: exactly two ORDINARY store roles.
+    Deliberately not D/N -- a role is a business capability (who may cover
+    a demand), orthogonal to ShiftKind's OCHRONA-era day/night bookkeeping.
+    Never extended to a third value without a new brief (UCZEN/ekipa
+    sprzątająca are explicitly out of scope, brief section 15)."""
+
+    KIEROWNIK = "KIEROWNIK"
+    SPRZEDAWCA_ZALOGA = "SPRZEDAWCA_ZALOGA"
 
 
 class AssignmentRole(str, Enum):
@@ -134,6 +145,11 @@ class StandardShift:
     catalog_kind: Optional["ShiftCatalogKind"] = None
     required_rest_hours: int = 11
     active_weekdays: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7)
+    # ROTA-T065 brief.md section 6/9: the ORDINARY role required to cover
+    # this repeatable shift definition, carried through generate_catalog_
+    # demands to every ShiftDemand it produces. None for OCHRONA/legacy
+    # shifts, which never had a role concept.
+    required_role: Optional["EmployeeRole"] = None
 
 
 # --- Entities ---
@@ -201,6 +217,13 @@ class SiteMembership:
     # Does not disable membership.enabled, DAY_ONLY, Availability, SiteRule,
     # EXTERNAL or any other existing HARD gate.
     can_work_24h: bool = True
+    # ROTA-T065 brief.md section 3.1: ORDINARY store roles this person is
+    # explicitly permitted for AT THIS site -- zero, one, or both. Default
+    # empty is exactly right for OCHRONA/legacy memberships, which never
+    # produce a ShiftDemand.required_role and so never consult this field.
+    # A person may hold both roles at once (no automatic interchangeability
+    # -- the coordinator must add a role explicitly, brief section 3).
+    allowed_roles: frozenset["EmployeeRole"] = field(default_factory=frozenset)
 
 
 @dataclass
@@ -380,6 +403,11 @@ class ShiftDemand:
     # rota.planning.shift_catalog. None means no emergency 24h rescue is
     # possible for this demand.
     emergency_24h_rest_hours: Optional[int] = None
+    # ROTA-T065 brief.md section 9: snapshotted from StandardShift.required_
+    # role at generation time, immutable once persisted (brief section 9/16
+    # -- a later membership/catalog change never retroactively reclassifies
+    # an already-accepted historical demand). None for OCHRONA/legacy.
+    required_role: Optional["EmployeeRole"] = None
 
 
 @dataclass

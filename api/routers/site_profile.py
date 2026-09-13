@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application.durable_inputs import update_site_profile
-from rota.domain import ShiftKind, StandardShift
+from rota.domain import EmployeeRole, ShiftKind, StandardShift
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_repository import get_site
 from rota.planning.shift_catalog import normalized_catalog_kind, shift_duration_hours, validate_standard_shift
@@ -32,6 +32,10 @@ class ShiftRowOut(BaseModel):
     active_weekdays: list[int]
     duration_hours: float
     catalog_kind: str
+    # ROTA-T065 brief.md section 6/13: None for OCHRONA/legacy shifts, which
+    # never had a role concept. UI does not need a shift "code" -- this is
+    # the only new business-meaning field ORDINARY's catalog carries.
+    required_role: str | None = None
 
 
 class ShiftCatalogOut(BaseModel):
@@ -51,6 +55,7 @@ def _shift_out(shift: StandardShift) -> ShiftRowOut:
         active_weekdays=list(shift.active_weekdays),
         duration_hours=shift_duration_hours(shift),
         catalog_kind=normalized_catalog_kind(shift).value,
+        required_role=shift.required_role.value if shift.required_role else None,
     )
 
 
@@ -69,13 +74,21 @@ class ShiftRowIn(BaseModel):
     # fields -- never required_rest_hours/end_next_day/catalog_kind,
     # never a hidden profile field. Extra fields are a hard rejection,
     # not a silent ignore.
+    # ROTA-T065 brief.md section 6/13: "UI nie wymaga biznesowego kodu
+    # zmiany" -- kind is now optional (an ORDINARY-facing client never
+    # sends it; _build_shift defaults to D, a purely internal technical
+    # value carrying no OCHRONA legal meaning, see eligibility.py's D/N
+    # gates, all of which are N-specific). OCHRONA's own client keeps
+    # sending kind explicitly, unaffected. required_role is the one new
+    # business field ORDINARY rows carry.
     model_config = ConfigDict(extra="forbid")
 
-    kind: str
+    kind: str | None = None
     start_time: str
     end_time: str
     required_primary_count: int
     active_weekdays: list[int]
+    required_role: str | None = None
 
 
 class ShiftCatalogIn(BaseModel):
@@ -108,7 +121,7 @@ def _build_shift(row: ShiftRowIn) -> StandardShift:
     # next day; equal times mean a full 24h shift, not a zero-length one.
     end_next_day = end <= start
     return StandardShift(
-        kind=ShiftKind(row.kind),
+        kind=ShiftKind(row.kind) if row.kind is not None else ShiftKind.D,
         start_time=start,
         end_time=end,
         end_next_day=end_next_day,
@@ -116,6 +129,7 @@ def _build_shift(row: ShiftRowIn) -> StandardShift:
         catalog_kind=None,
         required_rest_hours=11,
         active_weekdays=tuple(row.active_weekdays),
+        required_role=EmployeeRole(row.required_role) if row.required_role else None,
     )
 
 

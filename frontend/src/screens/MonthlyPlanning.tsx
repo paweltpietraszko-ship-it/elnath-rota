@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, ShiftDemandOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 
 function firstOfMonthIso(yearMonth: string): string {
@@ -35,7 +35,15 @@ function stripDisplayName(a: AssignmentOut): AssignmentIn {
   return rest;
 }
 
-function cellLabel(a: AssignmentOut, demandKindByDemandId: Map<string, string | null>): string {
+function hourOf(iso: string): number {
+  return new Date(iso).getHours();
+}
+
+// ROTA-T065 brief.md section 13/T65-08/A9: a role-bearing (ORDINARY) demand
+// shows its actual hours (e.g. "5–12"), never a forced/fake D/N label and
+// never "?". OCHRONA/legacy demands (required_role null) keep the existing
+// D/N-label renderer untouched (T65-09).
+function cellLabel(a: AssignmentOut, demandByDemandId: Map<string, ShiftDemandOut>): string {
   // T037 audit finding R1-01: a CANCELLED+NN assignment must not read as an
   // ordinary planned D/N -- operational_code is the ground truth here, not
   // the demand's shift_kind (which still describes the original, now-moot,
@@ -44,8 +52,10 @@ function cellLabel(a: AssignmentOut, demandKindByDemandId: Map<string, string | 
   // ROTA-T052: S1 is clearly visible in the grid as its own code, never
   // folded into the D/N "?" fallback or the TRAINEE "·S" suffix.
   if (a.role === "PERIODIC_TRAINING") return "S1";
-  const kind = a.covers_demand_id ? demandKindByDemandId.get(a.covers_demand_id) : null;
-  const base = kind ?? "?";
+  const demand = a.covers_demand_id ? demandByDemandId.get(a.covers_demand_id) : undefined;
+  const base = demand?.required_role
+    ? `${hourOf(a.start_datetime)}–${hourOf(a.end_datetime)}`
+    : (demand?.shift_kind ?? "?");
   return a.role === "TRAINEE" ? `${base}·S` : base;
 }
 
@@ -65,11 +75,11 @@ function totalHours(assignments: AssignmentOut[]): number {
 }
 
 function ScheduleGrid({
-  monthIso, assignments, demandKindByDemandId, onSelectAssignment,
+  monthIso, assignments, demandByDemandId, onSelectAssignment,
 }: {
   monthIso: string;
   assignments: AssignmentOut[];
-  demandKindByDemandId: Map<string, string | null>;
+  demandByDemandId: Map<string, ShiftDemandOut>;
   onSelectAssignment?: (assignmentId: string) => void;
 }) {
   const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
@@ -134,11 +144,11 @@ function ScheduleGrid({
                             onClick={() => onSelectAssignment(a.assignment_id)}
                             title="Ręczna korekta tej zmiany"
                           >
-                            {cellLabel(a, demandKindByDemandId)}
+                            {cellLabel(a, demandByDemandId)}
                             {a.frozen ? "🔒" : ""}
                           </button>
                         ) : (
-                          cellLabel(a, demandKindByDemandId)
+                          cellLabel(a, demandByDemandId)
                         )}
                       </span>
                     ))}
@@ -416,7 +426,11 @@ export default function MonthlyPlanning({
     ? (view?.demands.find((d) => d.demand_id === editingAssignment.covers_demand_id) ?? null)
     : null;
   const editingFamily = editingDemand?.shift_kind ?? null;
-  const eligibleForExtraCode = editingAssignment?.role === "PRIMARY" && editingAssignment.state !== "CANCELLED" && !editingAssignment.operational_code && editingFamily != null;
+  // ROTA-T065 brief.md section 14: monthly D6+/N6+ extra-work codes are an
+  // OCHRONA-family print concept -- a role-bearing (ORDINARY) demand must
+  // never offer them, even though it still carries a technical shift_kind
+  // internally (brief section 14: "nie wciskać sklepu w D1..D5/N1..N5").
+  const eligibleForExtraCode = editingAssignment?.role === "PRIMARY" && editingAssignment.state !== "CANCELLED" && !editingAssignment.operational_code && editingFamily != null && editingDemand?.required_role == null;
   const extraCodeOptions = eligibleForExtraCode ? Object.keys(extraCodesForMonth).filter((c) => c.startsWith(editingFamily as string)).sort() : [];
 
   const applyExtraCode = (code: string) => {
@@ -544,9 +558,9 @@ export default function MonthlyPlanning({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, monthIso]);
 
-  const demandKindByDemandId = useMemo(() => {
-    const map = new Map<string, string | null>();
-    for (const d of view?.demands ?? []) map.set(d.demand_id, d.shift_kind);
+  const demandByDemandId = useMemo(() => {
+    const map = new Map<string, ShiftDemandOut>();
+    for (const d of view?.demands ?? []) map.set(d.demand_id, d);
     return map;
   }, [view]);
 
@@ -935,7 +949,7 @@ export default function MonthlyPlanning({
               </p>
 
               <ScheduleGrid
-                monthIso={monthIso} assignments={view.assignments} demandKindByDemandId={demandKindByDemandId}
+                monthIso={monthIso} assignments={view.assignments} demandByDemandId={demandByDemandId}
                 onSelectAssignment={setEditingAssignmentId}
               />
 
@@ -1273,8 +1287,8 @@ export default function MonthlyPlanning({
                   <ScheduleGrid
                     monthIso={monthIso}
                     assignments={versionPreview.assignments}
-                    demandKindByDemandId={
-                      new Map(versionPreview.demands.map((d) => [d.demand_id, d.shift_kind]))
+                    demandByDemandId={
+                      new Map(versionPreview.demands.map((d) => [d.demand_id, d]))
                     }
                   />
                 </div>
@@ -1470,7 +1484,7 @@ export default function MonthlyPlanning({
               {planResult.candidates.map((candidate, i) => (
                 <div key={i} style={{ marginBottom: 16 }}>
                   <p className="panel-hint">Kandydat {i + 1}</p>
-                  <ScheduleGrid monthIso={monthIso} assignments={candidate} demandKindByDemandId={demandKindByDemandId} />
+                  <ScheduleGrid monthIso={monthIso} assignments={candidate} demandByDemandId={demandByDemandId} />
                   <div className="create-panel-actions">
                     <button
                       className="btn-primary"

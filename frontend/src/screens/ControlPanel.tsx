@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { View } from "../App";
-import { api, PickableEmployee, RosterRow } from "../api/client";
+import { api, EmployeeRole, PickableEmployee, RosterRow } from "../api/client";
 import PrintSettings from "./PrintSettings";
 import SiteShiftCatalog from "./SiteShiftCatalog";
 
@@ -40,6 +40,20 @@ export default function ControlPanel({
   const toggle24h = async (employeeId: string, current: boolean) => {
     try {
       await api.updateRosterRow(siteId, employeeId, { can_work_24h: !current });
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+
+  // ROTA-T065 brief.md section 3.1/13: toggling one role never touches the
+  // other -- a person may hold both at once, no automatic interchangeability.
+  const toggleRole = async (employeeId: string, currentRoles: EmployeeRole[], role: EmployeeRole) => {
+    const nextRoles = currentRoles.includes(role)
+      ? currentRoles.filter((r) => r !== role)
+      : [...currentRoles, role];
+    try {
+      await api.updateRosterRow(siteId, employeeId, { allowed_roles: nextRoles });
       load();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -141,6 +155,8 @@ export default function ControlPanel({
                     <th>Pracownik</th>
                     <th>Status</th>
                     <th>24h</th>
+                    <th>Kierownik</th>
+                    <th>Sprzedawca/załoga</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -177,6 +193,26 @@ export default function ControlPanel({
                         </button>
                       </td>
                       <td>
+                        <button
+                          className={`matrix-box ${row.allowed_roles.includes("KIEROWNIK") ? "matrix-box-on" : "matrix-box-off"}`}
+                          data-diag-action="roster-toggle-role-kierownik"
+                          onClick={() => toggleRole(row.employee_id, row.allowed_roles, "KIEROWNIK")}
+                          title={row.allowed_roles.includes("KIEROWNIK") ? "może pracować jako kierownik" : "nie dopuszczony jako kierownik"}
+                        >
+                          {row.allowed_roles.includes("KIEROWNIK") ? "✓" : "✕"}
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          className={`matrix-box ${row.allowed_roles.includes("SPRZEDAWCA_ZALOGA") ? "matrix-box-on" : "matrix-box-off"}`}
+                          data-diag-action="roster-toggle-role-sprzedawca"
+                          onClick={() => toggleRole(row.employee_id, row.allowed_roles, "SPRZEDAWCA_ZALOGA")}
+                          title={row.allowed_roles.includes("SPRZEDAWCA_ZALOGA") ? "może pracować jako sprzedawca/załoga" : "nie dopuszczony jako sprzedawca/załoga"}
+                        >
+                          {row.allowed_roles.includes("SPRZEDAWCA_ZALOGA") ? "✓" : "✕"}
+                        </button>
+                      </td>
+                      <td>
                         {row.enabled ? (
                           <button className="btn-ghost" data-diag-action="roster-remove" onClick={() => removeFromRoster(row.employee_id)}>
                             Usuń z obsady
@@ -191,7 +227,7 @@ export default function ControlPanel({
                   ))}
                   {visibleRoster.length === 0 && (
                     <tr>
-                      <td colSpan={4} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
+                      <td colSpan={6} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
                         {roster.length === 0
                           ? "Brak pracowników. Dodaj pierwszą osobę."
                           : "Brak aktywnych pracowników — wszyscy usunięci (włącz „Pokaż usuniętych”, żeby ich zobaczyć)."}

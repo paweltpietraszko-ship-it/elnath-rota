@@ -14,6 +14,11 @@ interface DraftRow {
   end_time: string;
   required_primary_count: number;
   active_weekdays: number[];
+  // ROTA-T065 brief.md section 6/13: "" means no role required (OCHRONA/
+  // legacy, and any ORDINARY row that genuinely needs none). "Rodzaj"
+  // (kind) stays a harmless pre-filled technical default for a shop
+  // coordinator -- this is the one field they actually need to set.
+  required_role: "" | "KIEROWNIK" | "SPRZEDAWCA_ZALOGA";
 }
 
 function newKey(): string {
@@ -49,13 +54,14 @@ function fromServer(rows: ShiftRowOut[]): DraftRow[] {
     end_time: r.end_time,
     required_primary_count: r.required_primary_count,
     active_weekdays: r.active_weekdays,
+    required_role: (r.required_role ?? "") as DraftRow["required_role"],
   }));
 }
 
 function blankRow(): DraftRow {
   return {
     key: newKey(), kind: "D", start_time: "06:00", end_time: "18:00",
-    required_primary_count: 1, active_weekdays: [1, 2, 3, 4, 5, 6, 7],
+    required_primary_count: 1, active_weekdays: [1, 2, 3, 4, 5, 6, 7], required_role: "",
   };
 }
 
@@ -127,6 +133,7 @@ export default function SiteShiftCatalog({
           end_time: r.end_time,
           required_primary_count: r.required_primary_count,
           active_weekdays: r.active_weekdays,
+          required_role: r.required_role || null,
         })),
         respondsToDecisionRequiredId,
       );
@@ -160,12 +167,23 @@ export default function SiteShiftCatalog({
         const hours = durationHours(row.start_time, row.end_time);
         return (
           <div key={row.key} className="create-panel" style={{ marginBottom: 14 }}>
-            <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+            <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
               <label>
                 <span className="field-label">Rodzaj</span>
                 <select value={row.kind} onChange={(e) => updateRow(row.key, { kind: e.target.value as "D" | "N" })}>
                   <option value="D">Dniówka</option>
                   <option value="N">Nocka</option>
+                </select>
+              </label>
+              <label>
+                <span className="field-label">Wymagana rola</span>
+                <select
+                  value={row.required_role}
+                  onChange={(e) => updateRow(row.key, { required_role: e.target.value as DraftRow["required_role"] })}
+                >
+                  <option value="">— brak —</option>
+                  <option value="KIEROWNIK">Kierownik</option>
+                  <option value="SPRZEDAWCA_ZALOGA">Sprzedawca/załoga</option>
                 </select>
               </label>
               <label>

@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 18
+LATEST_SCHEMA_VERSION = 19
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -651,6 +651,22 @@ _MIGRATION_17: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 19 -- ROTA-T065: ORDINARY store roles. `allowed_roles` on
+# site_memberships is a comma-joined EmployeeRole.value list (empty/NULL =
+# no roles, the correct default for every OCHRONA/legacy membership, which
+# never has a role-bearing demand to consult it). `required_role` on
+# standard_shifts/shift_demands is a single EmployeeRole.value or NULL
+# (OCHRONA/legacy never sets it). Every new column is nullable/empty-
+# default; no existing row's meaning changes.
+# ---------------------------------------------------------------------------
+_MIGRATION_19: tuple[str, ...] = (
+    "ALTER TABLE site_memberships ADD COLUMN allowed_roles TEXT",
+    "ALTER TABLE standard_shifts ADD COLUMN required_role TEXT",
+    "ALTER TABLE shift_demands ADD COLUMN required_role TEXT",
+)
+
+
 def _migration_18_encrypt_existing_persisted_names(conn: sqlite3.Connection) -> None:
     """ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE brief.md
     (exact SHA 5683bac) section 4: one-time, deterministic encryption of
@@ -733,6 +749,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], No
     # migration (a Python callable, not a tuple of DDL/DML strings) --
     # see migrate()'s loop below for how the two kinds are dispatched.
     (18, _migration_18_encrypt_existing_persisted_names),
+    (19, _MIGRATION_19),
 )
 
 

@@ -159,11 +159,17 @@ def _common_hard_gate(
     allow_day_only_n_fallback: bool = False,
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled,
-    SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
+    ROLE-01, SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
     LEAVE_GRANTED-01, LEAVE_PLAN-01, and (ROTA-T007) applicable HARD
     SiteRules."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
+    # ROLE-01 (ROTA-T065 brief.md section 10): demand.required_role is None
+    # for every OCHRONA/legacy demand, so this is a strict no-op there.
+    # Applies identically to LOCAL and EXTERNAL_SUPPORT -- no separate role
+    # logic for external (brief section 10/11).
+    if demand.required_role is not None and demand.required_role not in membership.allowed_roles:
+        return EligibilityCheck(False, False, "ROLE-01")
     # SHIFT-24-01 (NORMAL 24h SAME-PERSON HARD, part_b_work_period_rest.md):
     # a mixed 12h/24h profile requires can_work_24h for a catalog_kind=24h
     # demand; an all-24h profile ignores the flag. Never a bypass of the
