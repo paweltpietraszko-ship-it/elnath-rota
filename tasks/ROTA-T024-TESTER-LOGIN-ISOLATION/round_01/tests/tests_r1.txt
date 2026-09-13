@@ -1,0 +1,105 @@
+ROTA-T024-TESTER-LOGIN-ISOLATION — CONCEPT PRECHECK R1
+
+CONCEPT_SHA: 84def7ec6773d319def693c3c5d1ad13fe6b261c
+CONCEPT_PATH: arch/CONCEPT_2026-09-13_T024_TESTER_LOGIN_ISOLATION.md
+OUTCOME: CORRECTION_REQUIRED BEFORE ARCHITECT
+IMPLEMENTATION: HOLD
+
+Ocena ogólna
+-------------
+Kierunek „jeden plik SQLite na testera” jest technicznie realny i jest
+znacznie węższy od dodawania tenant_id do całej persystencji. Zwykłe operacje
+planowania już dostają otwarte `sqlite3.Connection`, więc izolacja wyboru bazy
+nie wymaga zmian w `rota/planning/`, solverze ani `rota/domain.py`.
+
+Koncepcja nie jest jednak jeszcze gotowa do przekazania architektowi jako
+poprawna mapa obecnego systemu. Dwa kluczowe twierdzenia są zbyt szerokie,
+a granica T024/T025 i zbędny onboarding wymagają uporządkowania.
+
+Sprawdzona mapa
+---------------
+Uruchomiono:
+- `where.py api/deps.py --symbol get_conn`;
+- `where.py api/routers/backup.py`;
+- `where.py api/config.py --symbol DEV_COORDINATOR_ID`;
+- `git grep` dla `DB_PATH`, `DEV_COORDINATOR_ID`, `connect()` i `get_conn`.
+
+1. `get_conn()` jest głównym seamem, ale nie jedynym miejscem zależnym od bazy
+-----------------------------------------------------------------------------
+PRAWDA: wszystkie zwykłe endpointy domenowe pobierają połączenie przez
+`Depends(get_conn)`. To wystarcza, aby nie zmieniać repozytoriów, aplikacji,
+planowania i solvera.
+
+NIEPRAWDA: „nigdzie indziej DB_PATH nie jest importowane” i „zmiana dokładnie
+jednego miejsca”. Bezpośrednie użycia produkcyjne istnieją w:
+
+- `api/routers/backup.py`: backup i klucz odzyskiwania przekazują globalny
+  `DB_PATH`, mimo że sam snapshot korzysta z `conn`;
+- `api/dev_seed.py`: seed otwiera globalny `DB_PATH`;
+- `api/runtime_log.py`: lokalizuje wspólny katalog logów względem globalnego
+  `DB_PATH`.
+
+Brief architekta musi przekazywać wybraną ścieżkę bazy także do operacji
+backup/recovery. Musi też jawnie rozstrzygnąć, czy sanitizowany runtime log jest
+wspólny dla wdrożenia, czy pakiet diagnostyczny testera ma widzieć tylko jego
+wpisy. `dev_seed` nie może być przedstawiany jako automatyczne przygotowanie
+każdego konta bez określenia nowej ścieżki inicjalizacji.
+
+2. Wybór bazy nie zastępuje tożsamości działającego koordynatora
+----------------------------------------------------------------
+`DEV_COORDINATOR_ID` jest dziś używany bezpośrednio w wielu routerach:
+bootstrap, durable_inputs, export, manual_edit, rule_decisions, schedule i
+site_profile. Samo uwierzytelnienie tokenu i wybór pliku w `get_conn()` nadal
+zostawiłyby działania zapisane jako jeden stały dev-koordinator.
+
+Istniejący kontrakt T021 §3.3 mówi, że po wdrożeniu realnego logowania ten
+mechanizm ma zostać usunięty, nie rozszerzony. Koncepcja musi więc nazwać jeden
+request-scoped kontekst: uwierzytelnione konto, jego dozwolona baza i właściwy
+`coordinator_id` albo jawnie opisać równoważną izolację. Architekt wybiera
+minimalny kształt; nie wolno zostawić w briefie założenia, że samo `get_conn()`
+załatwia całą autoryzację.
+
+3. To funkcjonalnie T025 F1/F3, nie pierwotne T024
+--------------------------------------------------
+Obowiązujące dokumenty rozdzielają:
+
+- T024: ochrona dystrybucji programu dla testerów;
+- T025 F1/F3: realne logowanie/autoryzacja i strategia bazy dla hostowanej PWA.
+
+Login oraz wybór bazy per konto realizują przede wszystkim T025 F1/F3. Jeżeli
+OWNER chce prowadzić ten wycinek pod nazwą T024, brief musi jawnie zapisać
+zmianę ownershipu/sekwencji, aby później nie powstały dwa konkurencyjne
+kontrakty logowania.
+
+4. Redukcja zakresu przed briefem
+---------------------------------
+Onboarding nie jest konieczny do logowania ani izolacji danych i nie ma
+zatwierdzonego zachowania. Należy go usunąć z tego Tasku i ewentualnie zachować
+jako osobny, późniejszy pomysł.
+
+Panel administracyjny, samodzielna rejestracja, reset hasła i rozbudowane
+zarządzanie kontami nie wynikają z obecnego celu testowego. Architekt nie
+powinien ich dodawać bez osobnej decyzji OWNERA. Obowiązujący kierunek T025
+mówi o prawdziwym logowaniu hasłem; wariant „sam kod dostępu” nie może zostać
+uznany za równoważny bez jawnej korekty OWNERA.
+
+Minimalna korekta CC
+--------------------
+Przed przekazaniem architektowi wystarczy jedna korekta dokumentu:
+
+1. zmienić „dokładnie jeden seam” na „główny seam zwykłych endpointów” i
+   dopisać backup/recovery, dev seed oraz granicę logów diagnostycznych;
+2. dopisać request-scoped tożsamość koordynatora i usunięcie
+   `DEV_COORDINATOR_ID` z routerów;
+3. przypisać rozwiązanie do T025 F1/F3 albo jawnie opisać, że ten wycinek T024
+   przejmuje ich zakres;
+4. usunąć onboarding z zakresu;
+5. pozostawić architektowi wybór minimalnego rejestru kont, sesji i trwałego
+   katalogu baz na wolumenie Railway, bez dodawania panelu/rejestracji.
+
+Po tej korekcie koncepcja może iść do architekta. Nie jest potrzebna kolejna
+runda inventory ani testy produktu; wystarczy literalny re-check pięciu
+punktów powyżej.
+
+Nie uruchamiano testów, pełnej regresji, symulatorów ani benchmarków — był to
+precheck dokumentu i mapy ownershipu, nie audyt implementacji.
