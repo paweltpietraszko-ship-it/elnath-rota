@@ -1,0 +1,37 @@
+ROTA-T065-CONFIGURABLE-ROLES — preimplementation re-check R3
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-CONFIGURABLE-ROLES@b038bb360de9837a2e9931d6e736774e2fc1e3a8
+Poprzednie raporty: 8859b77, 3836d5c
+BOARD intake: main@c0a844b0fecdbe40106f58efbaf25abdc03ce793
+
+WYNIK: PASS PREIMPLEMENTATION.
+
+Zamknięte punkty
+----------------
+- Jeden owner katalogu ról i datowanych zastępstw:
+  `site_role_repository.py`; brak globalnego enuma/hierarchii.
+- Jedno bieżące stanowisko `position_role_id` na membershipie, oddzielone od
+  roli wykonywanej pracy i autoryzacji zastępstwa.
+- Historyczny snapshot demandu (`required_role_id/name`) i stanowiska
+  (`schedule_version_employee_positions`) jest zapisywany w tym samym
+  ScheduleVersion lifecycle; PRINT-GAP nie czyta bieżącego membershipu.
+- Solver zgłasza brak obsady i nigdy sam nie uruchamia zastępstwa. Datowana
+  `RoleCoverageAuthorization` powstaje wyłącznie decyzją koordynatora i nie
+  zmienia stanowiska.
+- ROLE-01 pozostaje jednym gate'em dla LOCAL i EXTERNAL_SUPPORT.
+- TASK_SCOPE obejmuje rzeczywistą DB, persistence demandów/preview/snapshotów,
+  lifecycle, assembler, API/UI oraz zawężone testy; nieistniejący `schema.py`
+  usunięto.
+- Dodano wymagany WHERE_MAP dla ownerów i zmienianych symboli.
+
+Nie wykryto drugiego solvera, drugiego membershipu ani równoległego źródła
+prawdy o rolach. OCHRONA pozostaje poza zmianą.
+
+Znaczenie PASS
+--------------
+Implementacja może rozpocząć się na dokładnym SHA briefu. PRINT-GAP i
+MANUAL-MIDDLE-SHIFT pozostają konsumentami tego ownera i nie mogą lokalnie
+kopiować modelu ról.
+
+Nie uruchamiano testów produktu ani regresji — był to literalny re-check
+briefu po R1/R2.
