@@ -1,0 +1,90 @@
+ROTA-T065-PRINT-GAP — preimplementation audit R2
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-PRINT-GAP@f27d890e2a0acc3551fc82eff862dc48560e5afa
+BOARD intake: main@50427881741881d425592368f7061ad59b78c03e
+Zakres: wyłącznie brief i jego wykonalność względem istniejących ownerów
+
+WYNIK: WYMAGA_KOREKTY — dwie wąskie korekty kontraktu, bez zmiany koncepcji.
+
+Warstwy audytu
+---------------
+1. Jeden lifecycle/endpoint — OK.
+   Brief zachowuje `generate_schedule_pdf()`, CURRENT, lineage/provenance,
+   świeże LAW, acknowledgement, race checks, revision oraz istniejący endpoint.
+   Rozgałęzienie OCHRONA/ORDINARY jest ograniczone do assembly/prezentacji.
+
+2. Źródła historyczne — OK.
+   `Assignment.start_datetime/end_datetime`, powiązany wersjonowany
+   `ShiftDemand.required_role` i istniejący `covers_demand_id` wystarczają.
+   Nie jest potrzebny snapshot membershipu ani nowa tabela grafiku.
+
+3. Brak przenikania OCHRONA -> ORDINARY — OK.
+   Ordinary dostaje realne godziny i opcjonalną rolę z demandu, bez D/N,
+   D1..N5, collapse 24h, rezerw U/C i bez własnego bilansu. Ochrona zachowuje
+   dotychczasowy kontrakt. To jest podział prezentacji, nie dwa systemy.
+
+4. `SitePrintSettings` — wykonalne w jednym ownerze.
+   Istniejąca struktura, repository, API i UI mogą walidować/pokazywać pola
+   zależnie od `Site.planning_regime`; `db.py` jest w zakresie ewentualnej
+   migracji. Nie potrzeba `OrdinaryPrintSettings` ani drugiego endpointu.
+
+5. Wiele prac/doba i overnight — wykonalne prezentacyjnie.
+   Kolekcja już operuje na Assignment i demandach przed zbudowaniem komórek.
+   Ordinary może zachować kilka niepokrywających się pozycji w kolejności
+   czasu oraz zakotwiczyć overnight w dacie startu, bez obchodzenia wspólnych
+   LAW/provenance gates.
+
+6. CHECKPOINT A — izolowany prawidłowo.
+   Przed akceptacją OWNERA zakres ogranicza próbkę do
+   `tasks/ROTA-T065-PRINT-GAP/prototype/**`; produkcja pozostaje HOLD.
+
+Korekty wymagane
+----------------
+R2-01 — sprzeczność normatywna dotycząca roli.
+
+TRACE:
+- SOURCE/brief §3: rola pochodzi z historycznego `ShiftDemand.required_role`;
+- Acceptance T65P-04: demand z `required_role` pokazuje rolę;
+- §8 mówi natomiast, że renderer „może pokazać rolę”, co pozwala jej nie
+  pokazać i czyni T65P-04 opcjonalnym.
+
+KOREKTA:
+W §8 zamienić „może pokazać rolę” na „musi pokazać rolę”. Dokładna forma
+wizualna nadal pozostaje decyzją CHECKPOINT A. Brak roli nadal nie jest
+zgadywany.
+
+R2-02 — brak wymaganego bloku `WHERE_MAP`.
+
+TRACE:
+- raport prebrief R1 jawnie wymagał `WHERE_MAP: REQUIRED` dla rzeczywiście
+  zmienianych ownerów;
+- brief zmienia assembly/cell mapping/render oraz regime-aware walidację
+  właściciela `SitePrintSettings`, jego API i UI;
+- `AGENTS.md/WHERE_MAP` wymaga REQUIRED przy zmianie ownera/helpera/endpointu
+  lub reguły.
+
+KOREKTA:
+Dodać parserowo poprawny blok `WHERE_MAP: REQUIRED` co najmniej dla:
+- `rota/application/schedule_export.py` — `generate_schedule_pdf`, assembly,
+  mapowanie komórek/render;
+- `rota/persistence/site_repository.py` — `SitePrintSettings` i walidacja;
+- `api/routers/export.py` — modele oraz zapis/odczyt ustawień.
+UI można dodać jako target plikowy. Mapa ma być uruchomiona przed CHECKPOINT B;
+nie jest potrzebna do wykonania izolowanej próbki w `tasks/**`.
+
+Sprawdzenie mechaniczne
+----------------------
+Literalny `TASK_SCOPE:` jest w formacie obsługiwanym przez `backend.py`:
+dziewięć względnych wpisów, bez ścieżek absolutnych i bez `..`. Zakres obejmuje
+jednego ownera ustawień, DB/API/UI, istniejący eksport i testy; planning, solver,
+domain i balance pozostają jawnie poza zakresem.
+
+Nie uruchamiano testów produktu, macierzy Tasku, pełnej regresji, symulatorów
+ani benchmarków — to audyt preimplementation briefu.
+
+Wniosek
+-------
+Koncepcja jest poprawna i proporcjonalna do realnego problemu. Po literalnym
+usunięciu R2-01 i R2-02 brief nadaje się do PASS oraz do izolowanego CHECKPOINT
+A. Produkcja pozostaje HOLD do OWNER_ACCEPTED CHECKPOINT A i późniejszego
+CHECKPOINT B.

@@ -1,0 +1,45 @@
+ROTA-T065-PRINT-GAP — preimplementation re-check R3
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-PRINT-GAP@5e1a1f27543f50d5fc09f2be1809942df67a5d72
+Poprzedni raport: task/ROTA-T065-PRINT-GAP@b30bb5d
+BOARD intake: main@ab27d8bcba1a20f3394be701b5321904efc486d4
+
+WYNIK: PASS — brief gotowy do izolowanego CHECKPOINT A.
+
+Zakres re-checku
+----------------
+Sprawdzono wyłącznie diff briefu po R2. Nie czytano ponownie całej
+implementacji i nie powtarzano audytu zaakceptowanej koncepcji.
+
+R2-01 — ZAMKNIĘTE
+-----------------
+§8 wymaga teraz pokazania historycznego `ShiftDemand.required_role`, jeżeli
+rola istnieje. Brak roli nadal pozostaje legalny i nie jest uzupełniany z
+bieżącego membershipu. Dokładna forma wizualna pozostaje prawidłowo otwarta do
+decyzji OWNERA w CHECKPOINT A.
+
+R2-02 — ZAMKNIĘTE
+-----------------
+Dodano `WHERE_MAP: REQUIRED` obejmujący:
+- wspólny `schedule_export.py` i `generate_schedule_pdf`/assembly/render;
+- jednego właściciela `SitePrintSettings` wraz z walidacją i persistence;
+- istniejące modele/endpointy API;
+- istniejący ekran `PrintSettings.tsx`.
+
+Mapa jest wymagana przed produkcyjnym CHECKPOINT B, a nie do izolowanego
+prototypu w `tasks/**`. Nie dodano drugiego eksportu, drugiego ownera ani nowej
+logiki produktowej.
+
+Pozostały diff
+--------------
+Dodanie źródła R2 oraz dwie zmiany znaków cytowania są dokumentacyjne i nie
+zmieniają kontraktu. Literalny `TASK_SCOPE:` pozostał bez zmian.
+
+Nie uruchamiano testów produktu, macierzy Tasku, pełnej regresji, symulatorów
+ani benchmarków — adekwatnie do literalnego re-checku briefu.
+
+Następny dozwolony krok
+----------------------
+Wyłącznie syntetyczny prototyp PDF pod
+`tasks/ROTA-T065-PRINT-GAP/prototype/**` i optyczna decyzja OWNERA.
+Produkcja pozostaje HOLD do jawnego `OWNER_ACCEPTED CHECKPOINT A`.

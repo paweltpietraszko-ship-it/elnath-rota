@@ -1,0 +1,62 @@
+ROTA-T065-PRINT-GAP — CHECKPOINT A handoff audit R4
+Data: 2026-09-13
+Audytowany prototyp: task/ROTA-T065-PRINT-GAP@66c7c23a9d96b4fe4e87c18b3086b2f7b9818f77
+BOARD intake: main@aa7ce19ba3048876a520f20bef63ec1f98367bbc
+Poprzedni PASS briefu: task/ROTA-T065-PRINT-GAP@18665e3
+
+WYNIK: WYMAGA_KOREKTY KONTRAKTU — CHECKPOINT A jest OWNER_ACCEPTED, ale
+CHECKPOINT B nie jest jeszcze bezpiecznie odblokowany.
+
+Potwierdzone
+------------
+- Prototyp pozostaje izolowany: diff od PASS briefu dodaje wyłącznie
+  `tasks/ROTA-T065-PRINT-GAP/prototype/generate_sample.py` oraz PDF próbki.
+- OWNER jawnie zaakceptował decyzje optyczne: zapis godzin, wiele pozycji w
+  komórce, overnight `(+1)`, pojedynczy wiersz ORDINARY, absencje, dzień wolny,
+  białe tło oraz język wypełnień.
+- Produkcyjny `schedule_export.py` nie został zmieniony w CHECKPOINT A.
+
+Bloker B-01 — decyzje są tylko na BOARD
+----------------------------------------
+Nagłówek BOARD jawnie stanowi, że BOARD jest dziennikiem technicznym, a nie
+źródłem ustaleń produktowych. Tymczasem `brief.md` na 66c7c23 nadal opisuje
+decyzje CHECKPOINT A jako otwarte. Przed implementacją architekt musi przenieść
+zaakceptowane punkty do kontraktu/briefu i zaktualizować acceptance.
+
+Bloker B-02 — sprzeczne źródło i miejsce roli
+---------------------------------------------
+Dotychczasowy brief wymaga:
+- roli z historycznego `ShiftDemand.required_role`;
+- pokazania jej przy godzinach Assignment;
+- możliwości różnych ról w różnych dniach;
+- poprawnego historycznego reprintu niezależnego od bieżącego membershipu.
+
+OWNER_ACCEPTED CHECKPOINT A wymaga natomiast:
+- jednej rzeczywistej roli pod nazwiskiem pracownika;
+- roli niezmiennej dzień do dnia;
+- braku roli w komórkach;
+- etykieta nie zmienia się, gdy osoba pokrywa pracę zwykle należącą do innej
+  roli.
+
+Obecny model ma `SiteMembership.allowed_roles` jako zbiór, a nie jedno
+historyczne „rzeczywiste stanowisko”. Dla osoby z wieloma rolami implementer
+nie ma autoryzowanego sposobu wyboru jednej etykiety. Odczyt bieżącego
+membershipu naruszałby również dotychczasową gwarancję historycznego reprintu.
+To nie jest decyzja renderera ani szczegół techniczny do zgadnięcia.
+
+Wymagana korekta architekta
+---------------------------
+1. Przenieść 11 zaakceptowanych punktów z BOARD do `brief.md`/acceptance.
+2. Zastąpić stare wymagania roli nowym, spójnym kontraktem.
+3. Wskazać właściciela i historyczne źródło jednej roli wyświetlanej pod
+   nazwiskiem albo jawnie zadeklarować zależność od
+   `ROTA-T065-CONFIGURABLE-ROLES` i pozostawić produkcję HOLD do jej
+   rozstrzygnięcia.
+4. Nie pozwalać implementacji PRINT-GAP tworzyć bocznym wejściem nowego modelu
+   ról, hierarchii ani substytucji.
+
+Po literalnej korekcie briefu wystarczy wąski re-check diffu kontraktu. Nie ma
+potrzeby powtarzania audytu prototypu ani wcześniejszego preimplementation
+review.
+
+Nie uruchamiano testów produktu, regresji, symulatorów ani benchmarków.
