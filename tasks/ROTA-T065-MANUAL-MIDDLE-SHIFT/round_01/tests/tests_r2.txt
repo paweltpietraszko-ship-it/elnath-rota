@@ -1,0 +1,35 @@
+ROTA-T065-MANUAL-MIDDLE-SHIFT — preimplementation re-check R2
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-MANUAL-MIDDLE-SHIFT@8ab0d94ca40fc99b10dfc1eecc3581cadee1fa8b
+Poprzedni raport: cf0c8f6
+BOARD intake: main@c0a844b0fecdbe40106f58efbaf25abdc03ce793
+
+WYNIK: PASS PREIMPLEMENTATION, IMPLEMENTATION HOLD DO ZALEŻNOŚCI.
+
+Zamknięte punkty
+----------------
+- CONFIGURABLE-ROLES i ORDINARY-TIME-AVAILABILITY są twardymi zależnościami;
+  Task nie kopiuje ich ownerów.
+- „Środek” powstaje wyłącznie przez istniejący `apply_manual_correction()` i
+  child ScheduleVersion; solver/PlanPreview go nie generuje.
+- `manual_work_role_id/name` jest minimalnym markerem i historycznym snapshotem
+  legalnego PRIMARY bez demandu. Zwykły niepowiązany PRIMARY nadal failuje.
+- Ten sam RoleCoverageAuthorization jest jedyną zgodą na wykonanie obcej roli;
+  ROLE-01 deviation nie tworzy drugiego mechanizmu autoryzacji.
+- Ten sam `UNAVAILABLE_TIME-01` oracle wykrywa konflikt środka z dostępnością,
+  w tym zaakceptowany przypadek środka 10–16 przy blokadzie do 12:00.
+- Środek jest realną pracą z normalnymi overlap/REST/LOAD/balance/cross-site
+  checks i bez zwolnień S1.
+- PRINT-GAP zachowuje zaakceptowany layout: w komórce są tylko godziny,
+  stanowisko pod nazwiskiem; rola wykonywanej pracy pozostaje w historii.
+- TASK_SCOPE używa istniejącego `db.py`, obejmuje fail-closed validation,
+  ScheduleVersion lifecycle, API/UI i zawężone testy. Dodano WHERE_MAP.
+
+Znaczenie PASS
+--------------
+Brief jest gotowy. Produkcyjna implementacja pozostaje HOLD, dopóki oba twarde
+Taski zależne nie mają gotowych produkcyjnych ownerów. Potem implementer może
+wykonać ten brief bez ponownego projektowania zachowania.
+
+Nie uruchamiano testów produktu ani regresji — był to literalny re-check
+briefu po R1.
