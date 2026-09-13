@@ -1,0 +1,69 @@
+ROTA-E2E-AUDIT-R1-TESTS-STALE — FINDING VALIDATION R1
+
+CHECKED_SHA: 40d1e95b7ea11d065062e57fe98578e26e3ef350
+CURRENT_MAIN_AT_CHECK: b086af83d37f4e38147c70959fb2308da2d403c4
+PRODUCT_TRUTH: tasks/ROTA-T021c/brief.md + accepted audit R6
+OUTCOME: NOT A PRODUCT DEFECT — TWO STALE TESTS
+ROUTING: CC / MECHANICAL TEST CLEANUP; NOT ARCHITECT
+
+Zakres
+------
+Zweryfikowano wyłącznie dwa przypadki wskazane przez CC w
+frontend/e2e/diagnostics.audit-r1.spec.ts. Uruchomiono je na exact 40d1e95,
+sprawdzono obowiązujący kontrakt T021c i wykonano minimalne niezależne
+reprodukcje. Nie uruchamiano pełnej macierzy, regresji, symulatorów ani
+benchmarków.
+
+Mapa ownershipu
+---------------
+- where.py frontend/src/diagnostics/sanitize.ts --symbol sanitizeEndpoint;
+- where.py frontend/src/App.tsx --symbol __E2E_TEST_HOOKS__.
+
+1. „SITE identifier is removed…” — test nie dochodzi do asercji prywatności
+----------------------------------------------------------------------------
+Istniejący test FAILuje po 30 s na oczekiwaniu nagłówka „Panel sterowania”.
+Aktualny ekran ma „Panel sterowania” jako przycisk nawigacji, więc wykonanie
+kończy się przed odczytem bufora i przed `not.toContain(created.site_id)`.
+Ten FAIL nie dowodzi wycieku identyfikatora.
+
+Tymczasowy reproduktor zmienił wyłącznie ten krok na oczekiwanie istniejącego
+przycisku i zachował właściwą asercję prywatności. Wynik: 1 passed.
+
+Przykładowy utworzony identyfikator:
+SITE-333032ec6b784c8cafcea40041457b3b
+
+Zapisane endpoint_template:
+- /workspace/sites/:id/roster;
+- /workspace/sites/:id/overview.
+
+Pełny bufor nie zawierał utworzonego SITE ID. `sanitizeEndpoint` nadal jest
+jedynym ownerem i prawidłowo zamienia segment SITE-* na :id. Nie ma
+sprzeczności z T021c §3.5 ani §5.10.
+
+2. „ordinary dev runtime…” — test sam uruchamia tryb E2E
+--------------------------------------------------------
+`playwright.config.ts` jawnie przekazuje Vite zmienną
+ROTA_E2E_TEST_HOOKS=1. `vite.config.ts` zamienia ją na __E2E_TEST_HOOKS__=true,
+a App.tsx zgodnie z kontraktem renderuje wtedy TestHooks. Oczekiwanie zera
+przycisków wewnątrz tej konfiguracji jest sprzeczne z setupem własnego testu;
+otrzymane 5 jest poprawnym zachowaniem trybu E2E.
+
+Niezależnie uruchomiono zwykły Vite dev na exact 40d1e95 bez
+ROTA_E2E_TEST_HOOKS. Wynik w realnej przeglądarce:
+test_hook_buttons = 0.
+
+To potwierdza przyjęty wynik T021c audit R6: zwykły dev nie udostępnia
+kontrolek wstrzykiwania awarii.
+
+Wniosek
+-------
+ROTA-E2E-AUDIT-R1-TESTS-STALE nie zawiera realnego problemu produktu i nie
+wymaga decyzji ani briefu architekta. Oba przypadki są mechanicznym długiem
+testowym:
+
+1. test prywatności powinien czekać na aktualny element ekranu, aby dochodził
+   do nadal poprawnej asercji braku SITE ID;
+2. test zwykłego dev musi być wykonywany w konfiguracji bez flagi E2E, a nie
+   w standardowym Playwright webServer, który tę flagę celowo włącza.
+
+Nie proponuje się żadnej zmiany zachowania produktu.
