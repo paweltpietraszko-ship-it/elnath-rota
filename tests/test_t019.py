@@ -279,9 +279,7 @@ def test_8_requested_month_missing_target(tmp_path) -> None:
     assert row.status == AnalyticsDataStatus.UNAVAILABLE
     assert row.month_data is None and row.quarter_months == ()
     assert len(row.warnings) == 1
-    assert row.warnings[0] == (
-        f"analytics unavailable for employee '{EMP_A}', month {AUG.isoformat()}: missing target_hours"
-    )
+    assert row.warnings[0] == "Brak ustawionego celu godzinowego na sierpień 2026."
 
 
 def test_9_other_quarter_month_missing_target(tmp_path) -> None:
@@ -297,7 +295,9 @@ def test_9_other_quarter_month_missing_target(tmp_path) -> None:
     assert row.month_data is not None and row.month_data.target_hours == 100
     assert row.quarter_months == ()
     assert row.month_data.quarter_balance is None and row.month_data.unresolved_carryover is None
-    assert row.warnings[0] == f"quarter analytics unavailable for employee '{EMP_A}': missing target_hours for {JUL.isoformat()}"
+    assert row.warnings[0] == (
+        "Bilans kwartalny jest niedostępny — brak ustawionego celu godzinowego na lipiec 2026."
+    )
 
 
 def test_10_requested_month_incomplete_calendar_with_qualifying_absence(tmp_path) -> None:
@@ -355,7 +355,9 @@ def test_11_other_quarter_month_incomplete_reference_blocks_quarter_only(tmp_pat
     assert row.status == AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE
     assert row.month_data is not None
     assert row.quarter_months == ()
-    assert row.warnings[0].startswith(f"quarter analytics unavailable for employee '{EMP_A}', month {JUL.isoformat()}: ")
+    assert row.warnings[0] == (
+        "Bilans kwartalny jest niedostępny — brak potwierdzonych danych o nieobecności za lipiec 2026."
+    )
 
 
 def test_12_sick_leave_with_no_accepted_plan_uses_weekday_holiday_exclusion(tmp_path) -> None:
@@ -380,7 +382,9 @@ def test_12_sick_leave_with_no_accepted_plan_uses_weekday_holiday_exclusion(tmp_
     assert row.status == AnalyticsDataStatus.MONTH_AVAILABLE_QUARTER_UNAVAILABLE
     assert row.month_data is not None
     assert row.month_data.effective_target_hours == 68
-    assert row.warnings[0] == f"quarter analytics unavailable for employee '{EMP_A}': missing target_hours for {date(2026, 7, 1).isoformat()}"
+    assert row.warnings[0] == (
+        "Bilans kwartalny jest niedostępny — brak ustawionego celu godzinowego na lipiec 2026."
+    )
 
 
 def test_13_leave_granted_weekend_holiday_same_semantics(tmp_path) -> None:
