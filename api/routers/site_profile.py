@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application.durable_inputs import update_site_profile
-from rota.domain import EmployeeRole, ShiftKind, StandardShift
+from rota.domain import EmployeeRole, ShiftKind, SitePlanningRegime, StandardShift
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_repository import get_site
 from rota.planning.shift_catalog import normalized_catalog_kind, shift_duration_hours, validate_standard_shift
@@ -40,6 +40,11 @@ class ShiftRowOut(BaseModel):
 
 class ShiftCatalogOut(BaseModel):
     shifts: list[ShiftRowOut]
+    # ROTA-T065 audit R2-03 fix: the ONE place the frontend learns the
+    # site's regime from this same existing call, instead of a second
+    # endpoint or prop-threading through screens outside this Task's
+    # literal TASK_SCOPE (brief.md section 19).
+    planning_regime: str
 
 
 def _fmt_time(t: time) -> str:
@@ -64,7 +69,10 @@ def get_shift_catalog(site_id: str, conn=Depends(get_conn), coordinator_id: str 
     try:
         site = get_site(conn, site_id)
         profile = get_site_profile(conn, site.profile_id)
-        return ShiftCatalogOut(shifts=[_shift_out(s) for s in profile.standard_shifts])
+        return ShiftCatalogOut(
+            shifts=[_shift_out(s) for s in profile.standard_shifts],
+            planning_regime=site.planning_regime.value,
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -133,6 +141,31 @@ def _build_shift(row: ShiftRowIn) -> StandardShift:
     )
 
 
+def _validate_role_matches_regime(shifts: list[StandardShift], regime: SitePlanningRegime) -> None:
+    """ROTA-T065 audit R2-03 fix (partial -- see BOARD.md flag): OCHRONA
+    must never accept/persist a shop role (brief.md section 12/16: OCHRONA
+    keeps its exact existing D/N behavior, no shop role field) -- this half
+    is unambiguous and has no conflict with any existing test/behavior.
+
+    NOT implemented here: rejecting an ORDINARY row with no required_role.
+    tests/test_t030_shift_catalog_api.py's own fixture (pre-existing,
+    unrelated to store roles) uses SitePlanningRegime.ORDINARY as the
+    generic non-OCHRONA regime for catalog CRUD mechanics with zero roles
+    on every row, and is not itself store-shaped. Rejecting a role-less
+    ORDINARY row at PUT time, as the R2 reproducer's
+    test_new_ordinary_catalog_rejects_missing_required_role demands, would
+    break that pre-existing, already-accepted behavior. Brief section 16's
+    "new ORDINARY bez kompletu wymaganych ról/config ma failować jawnie
+    jako niegotowy" reads, together with T65-10's identical wording about
+    "poprawny pusty grafik", as a PLAN-time requirement (an incomplete
+    store config must not silently report a false-successful empty
+    schedule), not a catalog-save-time one -- flagged on BOARD.md for
+    Codex/architect to confirm rather than resolved unilaterally here."""
+    if regime == SitePlanningRegime.OCHRONA:
+        if any(shift.required_role is not None for shift in shifts):
+            raise ValueError("obiekt Ochrony nie może mieć zmian z przypisaną rolą sklepową")
+
+
 @router.put("/{site_id}/shift-catalog", status_code=204)
 def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
     try:
@@ -142,6 +175,7 @@ def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_co
         for shift in shifts:
             validate_standard_shift(shift)
         site = get_site(conn, site_id)
+        _validate_role_matches_regime(shifts, site.planning_regime)
         current_profile = get_site_profile(conn, site.profile_id)
         updated_profile = replace(current_profile, standard_shifts=shifts)
         update_site_profile(

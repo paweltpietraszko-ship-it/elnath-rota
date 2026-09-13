@@ -79,6 +79,17 @@ def shift_duration_hours(shift: StandardShift) -> float:
     return (end - start).total_seconds() / 3600
 
 
+def is_role_based_demand(demand: ShiftDemand) -> bool:
+    """ROTA-T065 audit R2-02 fix: the ONE shared distinction between a new
+    ORDINARY role-bearing demand and legacy/OCHRONA D/N, consumed by both
+    eligibility.py and validator.py so the two can never drift apart
+    (brief.md section 8: "jeden właściciel klasyfikacji"). A role-bearing
+    demand's shift_kind remains a purely technical, internal bookkeeping
+    value (see module docstring) and must never activate DAY_ONLY-01,
+    NIGHT-STREAK-01, or any other D/N-specific HARD rule."""
+    return demand.required_role is not None
+
+
 def normalized_catalog_kind(shift: StandardShift) -> ShiftCatalogKind:
     """Legacy StandardShift.catalog_kind=None is normalized from actual
     duration -- 24h/12h exactly, anything else is INNY."""

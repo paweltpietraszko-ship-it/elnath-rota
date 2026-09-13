@@ -47,7 +47,7 @@ from rota.domain import (
     SiteProfile,
 )
 from rota.domain import SiteRuleVersion
-from rota.planning.shift_catalog import normalized_catalog_kind
+from rota.planning.shift_catalog import is_role_based_demand, normalized_catalog_kind
 from rota.planning.site_rules import day_only_n_exception_authorizing_rule_version_id, rule_allows_assignment
 from rota.planning.timeutil import overlaps_date_range
 
@@ -178,7 +178,11 @@ def _common_hard_gate(
     if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not is_all_24h_profile(profile):
         return EligibilityCheck(False, False, "SHIFT-24-01")
     day_only_fallback_rule_version_id = None
-    if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N:
+    # ROTA-T065 audit R2-02 fix: a role-bearing demand's shift_kind is a
+    # purely technical value (never OCHRONA night-work semantics) -- must
+    # never activate DAY_ONLY-01 just because a shop happens to work in
+    # the evening/night (brief.md section 8).
+    if profile.day_only_blocks_n and employee.day_only and shift_kind == ShiftKind.N and not is_role_based_demand(demand):
         # T018 DAY-ONLY-N-FALLBACK-01: the exception NEVER exempts DAY_ONLY-01
         # in a normal pass anymore -- only a fallback-enabled pass may consult
         # it, and only then does a legal match lift the block, still leaving

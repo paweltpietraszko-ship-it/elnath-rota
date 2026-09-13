@@ -59,6 +59,9 @@ export interface ShiftRowOut {
 
 export interface ShiftCatalogOut {
   shifts: ShiftRowOut[];
+  // ROTA-T065 audit R2-03 fix: lets SiteShiftCatalog gate its UI by
+  // regime from this same call, without a second endpoint.
+  planning_regime: "OCHRONA" | "ORDINARY";
 }
 
 export interface ShiftRowIn {

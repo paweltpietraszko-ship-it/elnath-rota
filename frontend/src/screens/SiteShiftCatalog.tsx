@@ -75,6 +75,7 @@ export default function SiteShiftCatalog({
   respondsToDecisionRequiredId?: string | null;
 }) {
   const [rows, setRows] = useState<DraftRow[]>([]);
+  const [regime, setRegime] = useState<"OCHRONA" | "ORDINARY">("OCHRONA");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -84,7 +85,10 @@ export default function SiteShiftCatalog({
     setLoading(true);
     api
       .getShiftCatalog(siteId)
-      .then((res) => setRows(res.shifts.length > 0 ? fromServer(res.shifts) : [blankRow()]))
+      .then((res) => {
+        setRegime(res.planning_regime);
+        setRows(res.shifts.length > 0 ? fromServer(res.shifts) : [blankRow()]);
+      })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
   }, [siteId]);
@@ -128,12 +132,15 @@ export default function SiteShiftCatalog({
       await api.putShiftCatalog(
         siteId,
         rows.map((r) => ({
-          kind: r.kind,
+          // ROTA-T065 audit R2-03 fix: OCHRONA never sends required_role
+          // (the field is hidden and would be rejected by the backend);
+          // ORDINARY never sends kind (irrelevant, backend defaults it).
+          kind: regime === "OCHRONA" ? r.kind : null,
           start_time: r.start_time,
           end_time: r.end_time,
           required_primary_count: r.required_primary_count,
           active_weekdays: r.active_weekdays,
-          required_role: r.required_role || null,
+          required_role: regime === "ORDINARY" ? r.required_role || null : null,
         })),
         respondsToDecisionRequiredId,
       );
@@ -167,25 +174,36 @@ export default function SiteShiftCatalog({
         const hours = durationHours(row.start_time, row.end_time);
         return (
           <div key={row.key} className="create-panel" style={{ marginBottom: 14 }}>
-            <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
-              <label>
-                <span className="field-label">Rodzaj</span>
-                <select value={row.kind} onChange={(e) => updateRow(row.key, { kind: e.target.value as "D" | "N" })}>
-                  <option value="D">Dniówka</option>
-                  <option value="N">Nocka</option>
-                </select>
-              </label>
-              <label>
-                <span className="field-label">Wymagana rola</span>
-                <select
-                  value={row.required_role}
-                  onChange={(e) => updateRow(row.key, { required_role: e.target.value as DraftRow["required_role"] })}
-                >
-                  <option value="">— brak —</option>
-                  <option value="KIEROWNIK">Kierownik</option>
-                  <option value="SPRZEDAWCA_ZALOGA">Sprzedawca/załoga</option>
-                </select>
-              </label>
+            <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+              {/* ROTA-T065 audit R2-03 fix: "Rodzaj" (D/N) is an OCHRONA-only
+                  concept -- an ORDINARY coordinator never needs to choose it
+                  (brief.md section 6/13: "UI nie wymaga biznesowego kodu
+                  zmiany"). "Wymagana rola" is the mirror-image ORDINARY-only
+                  field. Whether it should be mandatory for ORDINARY is
+                  flagged on BOARD.md as an open question (conflicts with
+                  pre-existing role-less ORDINARY usage) -- "— brak —" stays
+                  available here until that is resolved. */}
+              {regime === "OCHRONA" ? (
+                <label>
+                  <span className="field-label">Rodzaj</span>
+                  <select value={row.kind} onChange={(e) => updateRow(row.key, { kind: e.target.value as "D" | "N" })}>
+                    <option value="D">Dniówka</option>
+                    <option value="N">Nocka</option>
+                  </select>
+                </label>
+              ) : (
+                <label>
+                  <span className="field-label">Wymagana rola</span>
+                  <select
+                    value={row.required_role}
+                    onChange={(e) => updateRow(row.key, { required_role: e.target.value as DraftRow["required_role"] })}
+                  >
+                    <option value="">— brak —</option>
+                    <option value="KIEROWNIK">Kierownik</option>
+                    <option value="SPRZEDAWCA_ZALOGA">Sprzedawca/załoga</option>
+                  </select>
+                </label>
+              )}
               <label>
                 <span className="field-label">Początek</span>
                 <select value={row.start_time} onChange={(e) => updateRow(row.key, { start_time: e.target.value })}>

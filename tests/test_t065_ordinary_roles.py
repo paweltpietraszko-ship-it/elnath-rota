@@ -387,5 +387,96 @@ def test_legacy_membership_and_shift_default_to_no_role(conn):
     assert reloaded.allowed_roles == frozenset()
 
 
+# --- Audit R2 regression guards ---------------------------------------------
+
+
+def test_role_gate_cannot_be_bypassed_by_untagged_assignment():
+    # R2-01: a manual PRIMARY with no covers_demand_id must still be caught
+    # by ROLE-01 via overlap-based fallback matching.
+    demand = ShiftDemand(
+        "D-MANAGER", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1,
+        shift_kind=ShiftKind.D, required_role=KIEROWNIK,
+    )
+    wrong_role_assignment = Assignment(
+        "A-SELLER", "test-v1", "E1", demand.start_datetime, demand.end_datetime,
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, None, None,
+    )
+    report = validate(
+        base_state(
+            employees=(_employee("E1"),), memberships=(_membership("E1", roles=frozenset({SPRZEDAWCA})),),
+            shift_demands=(demand,),
+        ),
+        [wrong_role_assignment],
+    )
+    codes = {d.rule for d in report.violation_details}
+    assert "ROLE-01" in codes
+    assert "COVERAGE-01" not in codes
+
+
+def test_role_based_demand_never_triggers_day_only_or_night_streak():
+    # R2-02: eligibility.py + validator.py both exempt role-bearing demands
+    # from D/N-specific HARD rules regardless of their technical shift_kind.
+    demand = ShiftDemand(
+        "D-1", "test-v1", datetime(2026, 10, 1, 22, 0), datetime(2026, 10, 2, 6, 0), 1,
+        shift_kind=ShiftKind.N, required_role=SPRZEDAWCA,
+    )
+    eligibility_result = check_eligibility(
+        Employee("E1", "E1", date(2020, 1, 1), None, True),  # day_only=True
+        _membership("E1", roles=frozenset({SPRZEDAWCA})), demand, ShiftKind.N, base_profile(), [], [], SITE_ID,
+    )
+    assert eligibility_result.eligible is True, eligibility_result.blocked_reason
+
+    demands = tuple(
+        ShiftDemand(
+            f"D-{day}", "test-v1", datetime(2026, 10, day, 22, 0), datetime(2026, 10, day + 1, 6, 0), 1,
+            shift_kind=ShiftKind.N, required_role=SPRZEDAWCA,
+        )
+        for day in range(1, 4)
+    )
+    assignments = [
+        Assignment(
+            f"A-{i}", "test-v1", "E1", d.start_datetime, d.end_datetime,
+            AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, d.demand_id, None,
+        )
+        for i, d in enumerate(demands)
+    ]
+    report = validate(
+        base_state(
+            employees=(_employee("E1"),), memberships=(_membership("E1", roles=frozenset({SPRZEDAWCA})),),
+            shift_demands=demands,
+        ),
+        assignments,
+    )
+    codes = {d.rule for d in report.violation_details}
+    assert "NIGHT-STREAK-01" not in codes
+
+
+def test_solver_day_kind_terms_exclude_role_based_demands_from_night_count():
+    # R2-02: the solver's OWN CP-SAT NIGHT-STREAK-01 term builder
+    # (_build_day_kind_terms) must not count a role-bearing N-classified
+    # demand's slot toward the per-day "n" term at all -- checked directly
+    # against the term-builder rather than through a full plan() (a
+    # single-employee 3+-night PLAN scenario also legitimately trips the
+    # unrelated, correct T058 THIRD-CONSECUTIVE-SHIFT-01 global cap,
+    # which would confound the result either way)."""
+    from ortools.sat.python import cp_model
+
+    from rota.planning.solver import SolverSlot, _build_day_kind_terms
+
+    role_demand = ShiftDemand(
+        "D-1", "v1", datetime(2026, 10, 1, 22, 0), datetime(2026, 10, 2, 6, 0), 1,
+        shift_kind=ShiftKind.N, required_role=SPRZEDAWCA,
+    )
+    model = cp_model.CpModel()
+    var = model.NewBoolVar("x")
+    x = {("E1", role_demand.demand_id): var}
+    slot = SolverSlot(employee_id="E1", demand=role_demand, shift_kind=ShiftKind.N, leave_plan_collision=False, day_off_soft_entry=False)
+    state = base_state(employees=(_employee("E1"),), shift_demands=(role_demand,))
+
+    terms = _build_day_kind_terms(state, x, [slot], [])
+    n_term = terms["E1"][date(2026, 10, 1)][1]
+    assert n_term == 0, "a role-based demand's slot must never contribute to the NIGHT-STREAK-01 n-term"
+
+
 if __name__ == "__main__":
     print("test_t065_ordinary_roles module OK")

@@ -12,7 +12,7 @@ from rota.domain import (
     ShiftCatalogKind, ShiftKind, SitePlanningRegime,
 )
 from rota.planning.eligibility import is_all_24h_profile
-from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand
+from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand, is_role_based_demand
 from rota.planning.site_rules import day_only_n_exception_authorizing_rule_version_id, hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
 from rota.planning.timeutil import overlap_hours, overlaps_date_range, rolling_windows
@@ -235,6 +235,11 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
         if assignment.employee_id not in day_only_ids:
             continue
         for demand in _covered_demands(assignment, state):
+            if is_role_based_demand(demand):
+                # ROTA-T065 audit R2-02 fix: a role-bearing demand's
+                # shift_kind is a purely technical value, never OCHRONA
+                # night-work semantics (brief.md section 8).
+                continue
             kind = _demand_kind(demand, state.profile)
             if kind is None:
                 # T022-R1-2: an unclassifiable covered demand cannot be ruled out as N -- fail closed rather than silently skip.
@@ -285,27 +290,36 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
     and EXTERNAL_SUPPORT membership (brief section 10/11) -- no separate
     branch for either.
 
-    Uses _covering_demand (the assignment's OWN tagged demand), never the
-    overlap-based _covered_demands: unlike D/N classification (a property
-    of the moment in time, identical for every demand overlapping it),
-    required_role is a property of the SPECIFIC posted position -- brief
-    section 17 T65-01 explicitly allows two demands with different roles
-    to occupy the exact same interval (KIEROWNIK and SPRZEDAWCA_ZALOGA
-    both on duty at once), so an overlap match would falsely blame a
-    correctly-covered demand for a same-interval sibling's role."""
+    Prefers _covering_demand (the assignment's OWN tagged demand): unlike
+    D/N classification (a property of the moment in time, identical for
+    every demand overlapping it), required_role is a property of the
+    SPECIFIC posted position -- brief section 17 T65-01 explicitly allows
+    two demands with different roles to occupy the exact same interval
+    (KIEROWNIK and SPRZEDAWCA_ZALOGA both on duty at once), so an overlap
+    match would falsely blame a correctly-tagged assignment for a
+    same-interval sibling's role.
+
+    ROTA-T065 audit R2-01 fix: an untagged Assignment (covers_demand_id=
+    None -- the public manual-correction DTO permits this) has no single
+    demand to prefer, so it falls back to every demand whose interval
+    actually overlaps it (_covered_demands) -- fail closed, matching
+    _check_day_only's T022-R1-2 precedent, rather than silently passing
+    an untagged manual write through the gate."""
     membership_by_employee = {m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id}
     for assignment in assignments:
-        demand = _covering_demand(assignment, state)
-        if demand is None or demand.required_role is None:
-            continue
+        tagged = _covering_demand(assignment, state)
+        candidate_demands = [tagged] if tagged is not None else _covered_demands(assignment, state)
         membership = membership_by_employee.get(assignment.employee_id)
         allowed_roles = membership.allowed_roles if membership is not None else frozenset()
-        if demand.required_role not in allowed_roles:
-            details.append(ViolationDetail(
-                "ROLE-01", (assignment.assignment_id,),
-                f"ROLE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers demand "
-                f"{demand.demand_id} requiring role {demand.required_role.value}, not permitted for this membership",
-            ))
+        for demand in candidate_demands:
+            if demand is None or demand.required_role is None:
+                continue
+            if demand.required_role not in allowed_roles:
+                details.append(ViolationDetail(
+                    "ROLE-01", (assignment.assignment_id,),
+                    f"ROLE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers demand "
+                    f"{demand.demand_id} requiring role {demand.required_role.value}, not permitted for this membership",
+                ))
 
 
 def _covering_demand(assignment: Assignment, state: PlanningState):
@@ -353,14 +367,16 @@ def _check_night_streak(state: PlanningState, assignments: list[Assignment], det
             continue
         assignment_by_employee_date[assignment.employee_id, assignment.start_datetime.date()] = assignment.assignment_id
         demand = _covering_demand(assignment, state)
-        if demand is not None and _demand_kind(demand, state.profile) == ShiftKind.N:
+        # ROTA-T065 audit R2-02 fix: a role-bearing demand's shift_kind is
+        # a purely technical value, never OCHRONA night-work semantics.
+        if demand is not None and not is_role_based_demand(demand) and _demand_kind(demand, state.profile) == ShiftKind.N:
             n_dates_by_employee.setdefault(assignment.employee_id, set()).add(assignment.start_datetime.date())
 
     for boundary in state.boundary_assignments:
         if boundary.role != AssignmentRole.PRIMARY or boundary.state == AssignmentState.CANCELLED:
             continue
         demand = _covering_demand(boundary, state)
-        if demand is not None and _demand_kind(demand, state.profile) == ShiftKind.N:
+        if demand is not None and not is_role_based_demand(demand) and _demand_kind(demand, state.profile) == ShiftKind.N:
             n_dates_by_employee.setdefault(boundary.employee_id, set()).add(boundary.start_datetime.date())
 
     for employee_id, dates in n_dates_by_employee.items():
