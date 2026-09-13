@@ -1,0 +1,25 @@
+ROTA-T065-CONFIGURABLE-ROLES — OWNER ruling after audit R1
+Data: 2026-09-13
+Base report: task/ROTA-T065-CONFIGURABLE-ROLES@8859b77
+
+OWNER_CONFIRMED — zastępstwo roli
+---------------------------------
+- Solver nigdy sam nie przydziela kierownika do pracy sprzedawcy ani nie
+  stosuje hierarchii/fallbacku ról.
+- Jeżeli brakuje właściwej obsady, solver zwraca istniejący wynik informujący,
+  że grafiku nie można ułożyć z powodu braku obsady.
+- Dopiero koordynator wybiera rozwiązanie konkretnego braku: wsparcie
+  zewnętrzne albo jawne wykorzystanie kierownika jako sprzedawcy.
+- Taka decyzja nie zmienia stanowiska organizacyjnego kierownika i nie tworzy
+  bezterminowej automatycznej zastępowalności dla solvera.
+
+Kontrakt ma modelować jawne rozstrzygnięcie koordynatora dla obsadzanego
+przypadku/okresu, zachowane w istniejącym audytowalnym lifecycle. Nie wolno
+zamieniać go w globalną relację `Kierownik > Sprzedawca` ani stałą ukrytą cechę
+pracownika.
+
+WYNIK
+-----
+OWNER_DECISION z R1-03 jest zamknięta. Pozostają techniczne korekty R1-01,
+R1-02 i R1-04: konkretny owner/historia stanowiska, pełny TASK_SCOPE oraz
+WHERE_MAP. Po ich naniesieniu brief wraca do Codexa na wąski re-check.
