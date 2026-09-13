@@ -1,0 +1,57 @@
+ROTA-T065-PRINT-GAP — literal contract re-check R5
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-PRINT-GAP@8bf47a21484277ffecf0ae7a6223b28fe970c971
+Poprzedni raport: task/ROTA-T065-PRINT-GAP@75710f1
+BOARD intake: main@5ebd4238c11dc2711a1781e2ff8344142c9cdf5e
+
+WYNIK: PASS — architektura CHECKPOINT B zamknięta.
+
+Zakres
+------
+Sprawdzono wyłącznie pięć literalnych punktów wskazanych w §18 poprawionego
+briefu. Nie powtarzano audytu prototypu ani wcześniejszego preimplementation
+review.
+
+R4/B-01 — ZAMKNIĘTE
+-------------------
+Jedenaście decyzji OWNER_ACCEPTED CHECKPOINT A znajduje się teraz w §5 jako
+PRODUCT_TRUTH oraz zostało przełożonych na testowalne acceptance T65P-03..16:
+godziny, stanowisko, komórki, wiele zmian, overnight, pojedynczy wiersz,
+absencje, dzień wolny, białe tło, szarości i dowolne nazwy stanowisk.
+
+R4/B-02 — ZAMKNIĘTE
+-------------------
+Usunięto dawny wymóg drukowania `ShiftDemand.required_role` przy godzinach.
+Brief jawnie rozdziela rolę wykonywanej pracy od stanowiska organizacyjnego i
+zakazuje wyprowadzania stanowiska z demandu, bieżącego `allowed_roles` albo
+arbitralnego elementu zbioru.
+
+Owner/dependency — OK
+---------------------
+Historyczne stanowisko ma jawnego właściciela w
+`ROTA-T065-CONFIGURABLE-ROLES`. PRINT-GAP może tylko odczytać dostarczone przez
+niego historyczne stanowisko; nie może tworzyć print-only pola, tabeli, modelu
+ról, hierarchii ani substytucji. Brak gotowego źródła pozostaje jawnym HOLD
+implementacyjnym, a nie luką do wypełnienia przez implementera.
+
+Jeden lifecycle — OK
+--------------------
+`generate_schedule_pdf()` pozostaje jedynym publicznym entry pointem. CURRENT,
+lineage, LAW acknowledgement, provenance, revision i race checks są wspólne;
+rozgałęzienie OCHRONA/ORDINARY pozostaje prywatne w assembly/render modelu.
+
+Scope — OK
+----------
+TASK_SCOPE pozostaje literalny i nie obejmuje solvera, planningu, validatora,
+balance, domain ani implementacji modelu ról. WHERE_MAP wskazuje istniejących
+właścicieli oraz wyłącznie read dependency do historycznego stanowiska.
+
+Znaczenie PASS
+--------------
+PASS zamyka projekt CHECKPOINT B. Produkcyjna implementacja PRINT-GAP może
+rozpocząć się dopiero, gdy branch implementacyjny ma technicznie dostępne
+historyczne stanowisko z `ROTA-T065-CONFIGURABLE-ROLES`, dokładnie jak stanowi
+brief. Nie trzeba ponownie audytować prototypu.
+
+Nie uruchamiano testów produktu, regresji, symulatorów ani benchmarków — był to
+wyłącznie literalny re-check kontraktu.
