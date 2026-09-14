@@ -17,6 +17,22 @@ Krótki opis (2-4 zdania). Dlaczego odłożone. Gdzie szukać więcej kontekstu
 
 ---
 
+## 2026-09-14 Kopiowanie katalogu ról między obiektami (sieć sklepów)
+
+`ROTA-T065-CONFIGURABLE-ROLES` wprowadza katalog ról per obiekt, ale każdy
+nowy obiekt zaczyna z pustym katalogiem — koordynator wpisuje role od
+zera. Dla sieci kilku podobnych sklepów (np. żony Pawła, ~10 punktów)
+powtarzanie tych samych ról (Kierownik, Sprzedawca) przy każdym nowym
+obiekcie jest niewygodne.
+
+Odłożone: świadoma decyzja przy starcie Tasku (2026-09-14) — "wystarczy
+osobno" na pytanie o kopiowanie katalogu. Realny mechanizm byłby: przy
+tworzeniu obiektu opcja "skopiuj katalog ról z istniejącego obiektu".
+Podjąć dopiero jeśli powtarzalne wpisywanie ról realnie zacznie przeszkadzać
+(kilka obiektów tej samej sieci pod rząd), nie teraz.
+
+---
+
 ## 2026-09-09 Solver nie dokłada reszty grafiku wokół jednego zaakceptowanego wyjątku od HARD
 
 Gdy koordynator świadomie akceptuje złamanie reguły HARD dla jednej osoby
