@@ -1,52 +1,50 @@
 ROTA-T065-PRINT-GAP — KONTROLA SPÓJNOŚCI PRODUCT_TRUTH R8
 
-WERDYKT: MERGE HOLD — WYMAGANA WYŁĄCZNIE KOREKTA DOKUMENTACJI
+WERDYKT: PASS — GOTOWE DO MERGE
 IMPLEMENTACJA PRODUKCYJNA: 3fa2941fff5b565b6cbb1d7fbf843435c45c80f9
-BRIEF PRINT-GAP OWNER_CORRECTED: 76ec8bf
-POPRZEDNI PASS R7: 88943c0
+BRIEF PRINT-GAP OWNER_CORRECTED: 76ec8bf09aa7ebfd58ba743d2b2515502236a019
+CONFIGURABLE-ROLES §6 OWNER_CORRECTED: cdb509b2ce3e9271814bdaffb3fdbf4e1b90060e
+POPRZEDNI AUDYT R8/HOLD: 4a22adea26a4051b6838052e65fc77e16311fe5f
 
 WYNIK
 -----
-Nieścisłość wskazana przez architekta jest prawdziwa.
+Wymagana w poprzedniej wersji R8 korekta dokumentacji została wykonana.
+Kod produkcyjny pozostaje dokładnie 3fa2941; nie był zmieniany ani ponownie
+audytowany, ponieważ finding dotyczył wyłącznie niespójności PRODUCT_TRUTH.
 
-OWNER zaakceptował zachowanie kodu: pracownik bez żadnego realnego Assignmentu
-w drukowanym miesiącu może mieć pustą etykietę stanowiska. Korekta 76ec8bf
-zapisała to jednak wyłącznie przy T65P-04 w briefie PRINT-GAP.
+LITERALNE PORÓWNANIE OBU BRIEFÓW
+--------------------------------
+1. ROTA-T065-PRINT-GAP T65P-04 OWNER_CORRECTED mówi, że pełna historyczna
+   etykieta stanowiska jest wymagana wyłącznie dla pracownika, który ma co
+   najmniej jedno realne przypisanie pracy w drukowanym miesiącu. Osoba bez
+   żadnego przypisania może mieć pustą etykietę stanowiska.
 
-Nadal obowiązujący brief ROTA-T065-CONFIGURABLE-ROLES §6 jednocześnie mówi,
-że nowy child ScheduleVersion zapisuje snapshot bieżących stanowisk „dla osób
-należących do Site w chwili utworzenia childa”. Ten zapis obejmuje także osobę
-bez Assignmentu i jest sprzeczny z późniejszą decyzją OWNERA oraz zachowaniem
-schedule_lifecycle._insert_employee_positions.
+2. ROTA-T065-CONFIGURABLE-ROLES §6 po OWNER_CORRECTED mówi, że snapshot
+   `schedule_version_employee_positions` obejmuje osoby obecne w realnych
+   `assignments` danej ScheduleVersion. Osoba bez żadnego realnego Assignmentu
+   może nie mieć w snapshotcie wiersza i może drukować pustą etykietę.
 
-KLASYFIKACJA
-------------
-- decyzja OWNERA: jasna i zaakceptowana;
-- kod produkcyjny 3fa2941: nie wymaga zmiany;
-- R6-01: był poprawnym findingiem względem kontraktu obowiązującego w chwili
-  audytu, a następnie został rozwiązany zmianą decyzji produktowej;
-- określenie R6-01 w R7 jako „false positive” było nieprecyzyjne: prawidłowo
-  jest „finding superseded przez OWNER_CORRECTED”;
-- PASS R7 nie jest jeszcze merge-ready, ponieważ PRODUCT_TRUTH pozostaje
-  wewnętrznie sprzeczny między dwoma briefami.
+3. Oba briefy zabraniają odtwarzania brakującego historycznego stanowiska z
+   bieżącego `SiteMembership` albo z roli demandu.
 
-WYMAGANA KOREKTA
+4. Poprzednie sformułowanie CONFIGURABLE-ROLES „dla osób należących do Site”
+   zostało jawnie oznaczone jako superseded. Nie pozostaje drugi obowiązujący
+   zapis wymagający snapshotu stanowiska osoby bez Assignmentu.
+
+KLASYFIKACJA R6/R7
+------------------
+- R6-01 był poprawnym findingiem względem kontraktu obowiązującego w chwili R6.
+- późniejszy OWNER_CORRECTED zmienił PRODUCT_TRUTH i supersedował ten finding;
+- określenie R6-01 w R7 jako „false positive” było nieprecyzyjne;
+- po zsynchronizowaniu §6 nie ma już sprzeczności kontraktowej blokującej merge.
+
+ZAKRES RE-CHECKU
 ----------------
-W ROTA-T065-CONFIGURABLE-ROLES §6 należy jawnie dopisać OWNER_CORRECTED,
-supersedujące wcześniejsze „osoby należące do Site”: snapshot stanowisk obejmuje
-osoby obecne w realnych assignments danej ScheduleVersion; osoba bez żadnego
-przypisania może nie mieć w tym snapshotcie wiersza i może drukować pustą
-etykietę stanowiska.
+Zgodnie z R8 wykonano wyłącznie literalne porównanie obu briefów po korekcie §6.
+Nie powtarzano testów, PDF QA, frontendu, pełnej regresji, symulatorów ani
+benchmarków. Nie ma ku temu podstaw, ponieważ kod produkcyjny pozostaje dokładnie
+3fa2941fff5b565b6cbb1d7fbf843435c45c80f9.
 
-To jest wyłącznie synchronizacja dokumentacji z decyzją OWNERA. Nie zmieniać:
-- schedule_lifecycle.py;
-- schedule_export.py;
-- modelu/tabeli snapshotu;
-- testów zachowania zgodnych z decyzją.
-
-Po korekcie wystarczy literalny re-check diffu obu briefów. Nie ma podstaw do
-powtarzania testów, PDF QA, pełnej regresji, symulatorów ani benchmarków, jeśli
-kod pozostaje dokładnie 3fa2941.
-
-Raport R8 nie zmienia wyniku technicznego implementacji; nakłada wyłącznie HOLD
-na merge do czasu ujednolicenia PRODUCT_TRUTH.
+PASS obejmuje implementację 3fa2941 z PRINT-GAP OWNER_CORRECTED 76ec8bf oraz
+CONFIGURABLE-ROLES §6 OWNER_CORRECTED cdb509b2. Task jest merytorycznie gotowy
+do merge; decyzja o samym merge pozostaje poza tym raportem.
