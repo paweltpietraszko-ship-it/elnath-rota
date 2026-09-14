@@ -1,0 +1,78 @@
+ROTA-T065-MANUAL-MIDDLE-SHIFT — audit implementacji R3
+Data: 2026-09-14
+Audytowany SHA: task/ROTA-T065-MANUAL-MIDDLE-SHIFT@597d4037e39d51bfd9d0fc4e176532db1acb6486
+Brief: task/ROTA-T065-MANUAL-MIDDLE-SHIFT@8ab0d94ca40fc99b10dfc1eecc3581cadee1fa8b
+BOARD intake: main@f26dc95
+
+WYNIK: FAIL — NIEGOTOWE DO MERGE.
+
+FINDING R3-01 — publiczna ręczna korekta omija twardą autoryzację roli
+----------------------------------------------------------------------------
+Waga: wysoka w granicach tego Tasku; zwykły, osiągalny pion API.
+
+TRACE
+- brief §6 oraz MM-05: Kierownik bez aktywnego RoleCoverageAuthorization nie
+  może zapisać manual middle jako Sprzedawca; odmowa ma nastąpić przed childem
+  i nie może zostać zastąpiona Deviation.
+- brief §3 i WHERE_MAP: istniejący manual-correction lifecycle/application
+  owner jest jedyną drogą utworzenia manual middle.
+
+OWNERSHIP
+- `AssignmentIn` publicznego endpointu `/manual-correction` przyjmuje
+  `manual_work_role_id/manual_work_role_name` i przekazuje je bezpośrednio do
+  `apply_manual_correction()`.
+- twardy precheck istnieje tylko w nowym wrapperze `add_manual_middle_work()`.
+  Nie chroni więc drugiej, nadal publicznej drogi zapisu tego samego legalnego
+  kształtu PRIMARY bez demandu.
+- persistence poprawnie akceptuje oba markery razem; nie jest właścicielem
+  decyzji o autoryzacji. Naprawa należy do application/API boundary, nie do
+  downstream validatora ani eksportu.
+
+REPRO
+- `round_01/tests/audit_r3_repro.py` wysyła przez realny FastAPI endpoint
+  `/manual-correction` PRIMARY bez demandu z rolą Sprzedawca dla pracownika,
+  którego stanowiskiem jest Kierownik i który nie ma żadnej autoryzacji.
+- exact SHA odpowiada HTTP 200, tworzy nowy WORKING child i zwraca pustą listę
+  deviations. Oczekiwane: kontrolowane odrzucenie przed utworzeniem childa.
+- wynik: 1 failed; odpowiedź zawierała nowy `version_id` i `deviations: []`.
+
+Wymagana korekta klasy błędu
+----------------------------
+Każda osiągalna droga tworząca PRIMARY z `manual_work_role_*` musi przejść ten
+sam precheck: ORDINARY, aktywna rola Site, enabled membership i pełne pokrycie
+RoleCoverageAuthorization przy roli innej niż stanowisko. Nie należy kopiować
+reguły do persistence/validatora. Najwęższe rozwiązanie może albo scentralizować
+precheck w application ownerze, albo uniemożliwić generycznemu endpointowi
+tworzenie/zmianę tego kształtu i pozostawić jedną jawną drogę.
+
+KOREKTA KONTRAKTU / TASK_SCOPE — osobny mechaniczny HOLD
+--------------------------------------------------------
+Diff implementacyjny względem rodzica `be1c3c5` dotyka 14 plików. Trzy pliki
+produkcyjne nie występują literalnie w zamrożonym TASK_SCOPE:
+- `rota/application/manual_middle_work.py` (nowy owner/wrapper),
+- `rota/application/deviation_mapping.py` (mapowanie UNAVAILABLE_TIME-01),
+- `rota/planning/validator_shared.py` (wyłączenie manual middle z coverage).
+
+Zmiany w dwóch ostatnich plikach są funkcjonalnie potrzebne dla briefu, a nowy
+mały moduł może być uzasadniony limitem wielkości `manual_edit.py`, ale audytor
+nie może po fakcie poszerzyć TASK_SCOPE. Brief musi zostać literalnie
+skorygowany przed kolejnym werdyktem na implementację.
+
+POZYTYWNE DOWODY / WARSTWY AUDYTU
+---------------------------------
+1. WHERE_MAP wykonany dla nowego wrappera, `apply_manual_correction`,
+   schedule validation, validator shared i deviation mapping. Potwierdził
+   delegację do istniejącego lifecycle i wspólny oracle dostępności.
+2. Targeted Task + istniejący pion manual edit/persistence:
+   `tests/test_t065_manual_middle_shift.py`, `tests/test_t009_manual_edit.py`,
+   `tests/test_t037_manual_edit_api.py`,
+   `tests/test_local_store_schedule_content_rules.py`,
+   `tests/test_local_store_schedule_version_lifecycle.py` — 60 passed.
+3. Niezależny realny pion API — 1 failed, FINDING R3-01 powyżej.
+4. Ruff dla zmienionych plików Python i reproduktora — PASS.
+5. Frontend `tsc -b && vite build` — PASS (996 modules).
+
+Nie uruchamiano pełnej regresji, symulatorów koordynatora ani benchmarków.
+Pełna regresja wymaga jawnej zgody OWNERA i nie jest potrzebna do odtworzenia
+tego wąskiego blockera.
+
