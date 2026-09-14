@@ -1,0 +1,74 @@
+ROTA-FILES-REFACTOR-L1-DB — AUDYT R1
+
+WERDYKT: PASS
+AUDYTOWANY SHA: 135ef0e41fd071faefef859d90afbba30dda45ba
+BAZA DIFFU: 8a9a6dfad1969295fdcaf59e7d9fd5a72fe00d65
+
+Zakres
+------
+Wąski audyt mechanicznego podziału rota/persistence/db.py. Nie wykonano
+pełnej regresji repozytorium, zamrożonych symulatorów ani benchmarków — nie
+były potrzebne ani autoryzowane dla tego refaktoru.
+
+Niezależne sprawdzenia
+----------------------
+1. Diff i zakres:
+   - git diff --check 8a9a6df..135ef0e: PASS;
+   - zmiany mieszczą się w TASK_SCOPE: db.py, cztery nowe moduły migracji
+     oraz brief Tasku.
+
+2. Niezależny reproduktor:
+   tasks/ROTA-FILES-REFACTOR-L1-DB/round_01/tests/audit_r1_repro.py
+   Wynik: PASS.
+
+   Reproduktor potwierdził:
+   - identyczne wykonywalne AST wszystkich _MIGRATION_N, helpera triggerów,
+     migracji 18 oraz connect/migrate/init_schema/MIGRATIONS;
+   - brak zgubionego albo zdublowanego właściciela migracji;
+   - prosty graf importów bez cyklu między db.py i modułami migracji;
+   - zachowanie rota.persistence.db._MIGRATION_N jako atrybutów modułu;
+   - niezmienioną kolejność migracji 1..21 i callable dla migracji 18;
+   - byte-for-byte identyczny sqlite_master po wykonaniu starego monolitu
+     i nowego podziału na świeżych bazach :memory:;
+   - user_version == 21 po obu ścieżkach;
+   - limit poniżej 600 linii: db.py 156, moduły 315/183/163/148.
+
+3. Celowane istniejące testy:
+   python -m pytest -q tests/test_local_store_schema_migration.py
+                         tests/test_rodo_display_name_persistence.py
+   Wynik: 16 passed in 1.92s.
+
+   Pokryte zostały: świeża baza, aktualizacja starej niepustej bazy,
+   ponowne otwarcie, przyszła wersja fail-closed, rollback uszkodzonego kroku,
+   monkeypatch MIGRATIONS, migracja 18 istniejących danych i jej idempotencja.
+
+4. Kontrola jakości zmienionych plików i reproduktora:
+   ruff check: PASS.
+
+5. WHERE_MAP (użyty, bo Task relokuje właścicieli migracji):
+   - python where.py rota/persistence/db.py --symbol MIGRATIONS
+   - python where.py rota/persistence/db.py --symbol migrate
+   - python where.py rota/persistence/db.py --symbol connect
+   - python where.py <każdy z czterech db_migrations_*.py>
+
+   Nie wykryto drugiego właściciela ani alternatywnej ścieżki omijającej
+   db.migrate. where.py nie rozpoznaje przypisania MIGRATIONS jako symbolu
+   funkcji/klasy; zostało ono dlatego sprawdzone bezpośrednio w kodzie i
+   niezależnym reproduktorze.
+
+Uwagi nieblokujące
+------------------
+Docstring migracji 18 został lokalizacyjnie dostosowany z „db.py” na „ten
+moduł” oraz usunięto słowo „below”. Jest to TECHNICAL_ONLY: wykonywalne ciało
+funkcji pozostało identyczne.
+
+Podstawa werdyktu
+-----------------
+RL1DB-01: celowane testy ścieżek migracyjnych przechodzą; implementerowy wynik
+pełnej regresji potraktowano wyłącznie jako dowód pomocniczy.
+RL1DB-02: wykonywalny kod i wynikowy rzeczywisty schemat są równoważne.
+RL1DB-03: dotychczasowe atrybuty db._MIGRATION_N oraz monkeypatch MIGRATIONS
+działają.
+RL1DB-04: wszystkie pliki podziału mają mniej niż 600 linii.
+
+PASS dotyczy wyłącznie SHA 135ef0e41fd071faefef859d90afbba30dda45ba.
