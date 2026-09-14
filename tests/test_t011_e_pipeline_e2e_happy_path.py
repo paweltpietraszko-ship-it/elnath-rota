@@ -49,7 +49,10 @@ def _profile() -> SiteProfile:
 
 
 def _site() -> Site:
-    return Site(site_id=SITE_ID, profile_id=PROFILE_ID, display_name="Site E1", active=True, planning_regime=SitePlanningRegime.ORDINARY)
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t011_a -- role-agnostic
+    # pipeline e2e test uses OCHRONA to avoid the ORDINARY active-position
+    # invariant.
+    return Site(site_id=SITE_ID, profile_id=PROFILE_ID, display_name="Site E1", active=True, planning_regime=SitePlanningRegime.OCHRONA)
 
 
 def _coordinator() -> Coordinator:

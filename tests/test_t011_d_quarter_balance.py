@@ -60,11 +60,14 @@ def _profile() -> SiteProfile:
 
 
 def _bootstrap(conn, *, employee_ids=(EMP_A,)) -> None:
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t011_a -- role-agnostic
+    # quarter-balance tests use OCHRONA to avoid the ORDINARY
+    # active-position invariant.
     bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=SITE,
         coordinator=Coordinator(COORD, "Coord T011D", True),
         site_profile=_profile(),
-        site=Site(SITE, PROFILE, "Site T011D", True, planning_regime=SitePlanningRegime.ORDINARY),
+        site=Site(SITE, PROFILE, "Site T011D", True, planning_regime=SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(COORD, SITE, True),
     )
     for employee_id in employee_ids:

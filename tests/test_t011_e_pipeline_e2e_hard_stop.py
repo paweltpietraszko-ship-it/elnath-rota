@@ -86,10 +86,13 @@ BLOCKED_DEMAND_ID = f"{BLOCKED_DATE.isoformat()}-{ShiftKind.D.value}"
 
 
 def _bootstrap_and_fill(conn, employee_ids: tuple[str, ...]) -> None:
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t011_a -- role-agnostic
+    # pipeline hard-stop test uses OCHRONA to avoid the ORDINARY
+    # active-position invariant.
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=SITE_ID,
         coordinator=Coordinator(COORD, "Coord E2", True), site_profile=_profile(),
-        site=Site(SITE_ID, PROFILE_ID, "Site E2", True, planning_regime=SitePlanningRegime.ORDINARY),
+        site=Site(SITE_ID, PROFILE_ID, "Site E2", True, planning_regime=SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(COORD, SITE_ID, True),
     )
     for employee_id in employee_ids:

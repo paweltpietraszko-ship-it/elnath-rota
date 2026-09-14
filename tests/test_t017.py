@@ -566,8 +566,11 @@ def test_m29_select_candidate2_real_persistence_roundtrip(tmp_path):
         conn, coordinator_id=coord, site_id=site, coordinator=Coordinator(coord, "T017 coordinator", True),
         site_profile=SiteProfile(profile_id, "T017 profile", True, [StandardShift(ShiftKind.D, datetime(2026, 10, 1, 5).time(), datetime(2026, 10, 1, 17).time(), False, 1)], True, False, False, False, 1, 999),
     )
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t011_a -- role-agnostic
+    # persistence-roundtrip test uses OCHRONA to avoid the ORDINARY
+    # active-position invariant.
     bootstrap.bootstrap_or_resume_coordinator_context(
-        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "T017 site", True, planning_regime=SitePlanningRegime.ORDINARY),
+        conn, coordinator_id=coord, site_id=site, site=Site(site, profile_id, "T017 site", True, planning_regime=SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(coord, site, True),
     )
     for letter in "ABCDEF":
