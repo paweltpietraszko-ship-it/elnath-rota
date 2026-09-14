@@ -87,10 +87,13 @@ Właścicielem odczytu tego snapshotu jest istniejąca warstwa `rota/persistence
 
 Zasady:
 - snapshot jest materializowany w tej samej transakcji, w której kandydat staje się zaakceptowaną zawartością `ScheduleVersion`;
-- nowy child ScheduleVersion tworzony przez późniejsze operacje zapisuje własny snapshot bieżących stanowisk dla osób należących do Site w chwili utworzenia childa;
+- nowy child ScheduleVersion tworzony przez późniejsze operacje zapisuje własny snapshot bieżących stanowisk dla osób obecnych w realnych `assignments` tej ScheduleVersion w chwili utworzenia childa;
+- osoba bez żadnego realnego `Assignmentu` w tej ScheduleVersion może nie mieć wiersza w `schedule_version_employee_positions`;
 - już istniejący snapshot wersji nigdy nie jest reinterpretowany z dzisiejszego membershipu;
 - `role_name` w snapshotcie jest tekstem historycznym: późniejszy rename/retire katalogu nie zmienia starej wersji;
 - nie snapshotujemy całego membershipu ani listy zastępstw — tylko minimalne `employee_id + role_id + role_name` potrzebne do historycznej prezentacji.
+
+**OWNER_CORRECTED (2026-09-14, po ROTA-T065-PRINT-GAP R6-01):** wcześniejsze sformułowanie „dla osób należących do Site” zostaje superseded. Snapshot stanowisk obejmuje osoby obecne w realnych `assignments` danej ScheduleVersion. Pracownik bez żadnego przypisania w drukowanym miesiącu może nie mieć historycznego wiersza stanowiska i na wydruku może mieć pustą etykietę stanowiska. To jest świadomie zaakceptowane ograniczenie PRODUCT_TRUTH, zgodne z `ROTA-T065-PRINT-GAP` T65P-04 OWNER_CORRECTED; nie wolno z tego powodu odtwarzać stanowiska z bieżącego `SiteMembership` ani z roli demandu.
 
 `ROTA-T065-PRINT-GAP` ma czytać jedną etykietę stanowiska spod nazwiska właśnie z tego snapshotu, nigdy z bieżącego `SiteMembership` i nigdy z roli demandu.
 
