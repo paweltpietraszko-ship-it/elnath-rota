@@ -1,0 +1,49 @@
+ROTA-BACKEND-TASK-SCOPE-FORMAT-DRIFT — AUDYT PRZEDIMPLEMENTACYJNY R2
+
+WERDYKT: WYMAGA JEDNEJ KOREKTY TESTÓW PRZED IMPLEMENTACJĄ
+AUDYTOWANY SHA: 49285a7ad78d013a91cc164b8afe86538c84d1bb
+BASE: bad290f3b6953673266c80206765b45d5f0a2e74
+
+OWNER / CONTRACT
+- Trzy wymagania są zgodne z decyzją OWNERA z 2026-09-14:
+  1. błędny/brakujący TASK_SCOPE kończy gate kontrolowanym FAIL;
+  2. SIZE_FILE 600 obejmuje .py, .ts i .tsx;
+  3. brief używa literalnego `TASK_SCOPE:` oraz wpisów `- plik`.
+- Brak nowego zachowania produktowego i brak potrzeby OWNER_EXPLANATION_GATE.
+- Poprawnie wykluczono parser funkcji TypeScript, migrację starych briefów,
+  refaktor dużych plików i nowy subsystem.
+- Istniejący owner jest zachowany: read_task_scope/check_scope_paths,
+  run_backend oraz check_sizes. where.py nie daje tu dodatkowej wartości.
+
+NIEZALEŻNA WERYFIKACJA
+- tests/test_backend_task_scope_format_drift.py na dokładnym SHA:
+  26 passed, 21 failed — wynik raportu R1 odtworzony.
+- audit_r2_repro.py:
+  1 passed, 1 failed.
+- Poprawny scope zakończony kolejnym nagłówkiem Markdown jest obecnie czytany
+  prawidłowo, ale dostarczona macierz nie zamraża tej ważnej granicy briefu.
+- Plik brief.md z niepoprawnym UTF-8 wyrzuca surowy UnicodeDecodeError, a nie
+  kontrolowany ValueError/TASK_SCOPE FAIL. Dostarczony `test_unreadable_brief`
+  sprawdza wyłącznie nieistniejącą ścieżkę, więc deklaracja „missing/unreadable”
+  w briefie i R1 jest szersza niż realny dowód.
+
+KOREKTA WYMAGANA PRZED IMPLEMENTACJĄ
+1. Do acceptance dodać brief z niepoprawnym UTF-8 i wymagać kontrolowanego
+   `STATUS: FAIL`, powodu `TASK_SCOPE:` oraz niezerowego exit code bez tracebacku
+   i bez mylącego `DIFF_SCOPE:`.
+2. Dodać pozytywny test, że kanoniczna lista może zakończyć się osobnym
+   nagłówkiem Markdown, po którym występuje zwykły tekst briefu.
+3. Zachować audit_r2_repro.py jako niezależny reproduktor do finalnego audytu.
+
+PREIMPLEMENTATION REDUCTION
+- Bez zmiany pokrycia można ograniczyć powtórzenia pionowe CLI:
+  - bezpośrednia macierz parsera pozostaje właścicielem wszystkich klas formatu;
+    CLI potrzebuje reprezentatywnych przypadków pustego i niepustego diffu,
+    nie pełnego iloczynu formatów;
+  - bezpośrednie 599/600/601 dla .py/.ts/.tsx pozostaje właścicielem granic;
+    CLI wystarczy dla reprezentatywnego added .ts, modified .tsx i kontroli 600.
+- To zalecana konsolidacja zgodna z PRE_IMPLEMENTATION_REDUCTION_GATE, bez
+  usuwania żadnej klasy wymagania.
+
+Po tej jednej korekcie wystarczy literalny re-check diffu kontraktu/testów;
+backend.py nadal ma pozostać niezmieniony aż do PASS przedimplementacyjnego.
