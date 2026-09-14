@@ -35,6 +35,16 @@ def test_canonical_scope(tmp_path, newline):
     assert backend.read_task_scope(brief) == ["app.py", "source.ts", "view.tsx"]
 
 
+def test_canonical_scope_may_end_before_markdown_heading(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_text(
+        "# Brief\n\nTASK_SCOPE:\n- backend.py\n- view.tsx\n\n"
+        "## Acceptance\n\nNormal narrative follows.\n",
+        encoding="utf-8",
+    )
+    assert backend.read_task_scope(brief) == ["backend.py", "view.tsx"]
+
+
 @pytest.mark.parametrize("text", INVALID_SCOPES)
 def test_rejects_noncanonical_or_empty_scope(tmp_path, text):
     brief = tmp_path / "brief.md"
@@ -43,9 +53,16 @@ def test_rejects_noncanonical_or_empty_scope(tmp_path, text):
         backend.read_task_scope(brief)
 
 
-def test_unreadable_brief(tmp_path):
+def test_missing_brief_is_controlled_parser_failure(tmp_path):
     with pytest.raises(ValueError):
         backend.read_task_scope(tmp_path / "missing.md")
+
+
+def test_non_utf8_brief_is_controlled_parser_failure(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_bytes(b"TASK_SCOPE:\n- source.ts\n\xff")
+    with pytest.raises(ValueError, match="unable to read brief"):
+        backend.read_task_scope(brief)
 
 
 @pytest.mark.parametrize("entry", ["", "../outside.ts", "/outside.ts"])
@@ -101,9 +118,9 @@ def cli_repo(tmp_path):
     return tmp_path, git(tmp_path, "rev-parse", "HEAD")
 
 
-def run_cli(repo, base, head, text):
+def run_cli_bytes(repo, base, head, brief_bytes):
     brief = repo / "brief.md"
-    brief.write_text(text, encoding="utf-8")
+    brief.write_bytes(brief_bytes)
     output = repo / "backend.txt"
     result = subprocess.run(
         [sys.executable, str(Path(backend.__file__).resolve()), str(brief), base, head, str(output)],
@@ -111,7 +128,12 @@ def run_cli(repo, base, head, text):
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
     assert output.exists(), result.stderr
-    return result.returncode, output.read_text(encoding="utf-8")
+    return result, output.read_text(encoding="utf-8")
+
+
+def run_cli(repo, base, head, text):
+    result, report = run_cli_bytes(repo, base, head, text.encode("utf-8"))
+    return result.returncode, report
 
 
 @pytest.mark.parametrize("text", ["# Missing\n", "TASK_SCOPE:\n", "TASK_SCOPE:\n* source.ts\n"])
@@ -129,10 +151,31 @@ def test_cli_invalid_scope_stops_without_diff_scope_noise(cli_repo, text, change
     assert "  - DIFF_SCOPE:" not in report
 
 
-@pytest.mark.parametrize("suffix", [".ts", ".tsx"])
-@pytest.mark.parametrize("lines", [600, 601])
-@pytest.mark.parametrize("change", ["added", "modified"])
-def test_cli_typescript_file_size(cli_repo, suffix, lines, change):
+def test_cli_non_utf8_brief_is_controlled_scope_failure(cli_repo):
+    repo, base = cli_repo
+    result, report = run_cli_bytes(
+        repo,
+        base,
+        git(repo, "rev-parse", "HEAD"),
+        b"TASK_SCOPE:\n- source.ts\n\xff",
+    )
+    assert result.returncode == 1
+    assert "STATUS: FAIL" in report
+    assert "  - TASK_SCOPE:" in report
+    assert "  - DIFF_SCOPE:" not in report
+    assert "Traceback" not in result.stderr
+    assert "Traceback" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("suffix", "lines", "change"),
+    [
+        (".ts", 601, "added"),
+        (".tsx", 601, "modified"),
+        (".ts", 600, "added"),
+    ],
+)
+def test_cli_typescript_file_size_representative_wiring(cli_repo, suffix, lines, change):
     repo, base = cli_repo
     filename = "source" + suffix
     source = repo / filename
