@@ -151,6 +151,36 @@ def test_write_boundary_rejects_missing_times_for_the_window_kind(tmp_path):
         )
 
 
+# --- Audit R4-01: full-hour precision enforced at the write boundary itself,
+# not only by the API's own parser -------------------------------------------
+
+
+def test_write_boundary_rejects_partial_start_time(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    from rota.persistence.employee_repository import save_employee
+
+    save_employee(conn, _employee())
+    with pytest.raises(ValueError, match="full hour"):
+        append_availability_version(
+            conn, availability_id="AV-7", employee_id=EMP, kind=AvailabilityKind.UNAVAILABLE_TIME_WINDOW,
+            start_date=date(2026, 9, 1), end_date=date(2026, 9, 5), active=True,
+            start_time=time(8, 30), end_time=time(12, 0),
+        )
+
+
+def test_write_boundary_rejects_partial_end_time(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    from rota.persistence.employee_repository import save_employee
+
+    save_employee(conn, _employee())
+    with pytest.raises(ValueError, match="full hour"):
+        append_availability_version(
+            conn, availability_id="AV-8", employee_id=EMP, kind=AvailabilityKind.UNAVAILABLE_TIME_WINDOW,
+            start_date=date(2026, 9, 1), end_date=date(2026, 9, 5), active=True,
+            start_time=time(8, 0), end_time=time(12, 15),
+        )
+
+
 # --- TA-04: overnight rejected at the write boundary ------------------------
 
 

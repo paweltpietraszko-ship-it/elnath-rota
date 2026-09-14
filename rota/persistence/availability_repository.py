@@ -43,6 +43,14 @@ def _validate_time_window(kind: AvailabilityKind, start_time: Optional[time], en
     if kind == AvailabilityKind.UNAVAILABLE_TIME_WINDOW:
         if start_time is None or end_time is None:
             raise ValueError("UNAVAILABLE_TIME_WINDOW requires both start_time and end_time")
+        # Audit R4-01: the API's own full-hour parser is not this data
+        # owner's only caller -- the write boundary itself must reject
+        # sub-hour precision, matching the product's existing time-of-day
+        # precision (brief.md section 10) without this implementation
+        # extending it.
+        for value in (start_time, end_time):
+            if value.minute != 0 or value.second != 0 or value.microsecond != 0:
+                raise ValueError(f"UNAVAILABLE_TIME_WINDOW requires a full hour 00:00-23:00, got {value}")
         if start_time >= end_time:
             raise ValueError(
                 f"UNAVAILABLE_TIME_WINDOW requires start_time < end_time within the same day "
