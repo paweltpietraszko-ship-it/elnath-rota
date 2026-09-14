@@ -1,0 +1,52 @@
+ROTA-FILES-REFACTOR-L1 — NIEZALEŻNY AUDYT IMPLEMENTACJI R1
+
+WERDYKT: PASS
+AUDYTOWANY SHA: 8a9a6dfad1969295fdcaf59e7d9fd5a72fe00d65
+BASE: bad290f3b6953673266c80206765b45d5f0a2e74
+
+ZAKRES I DOWÓD
+- przeczytano brief i literalny diff base..SHA;
+- uruchomiono WHERE_MAP dla przeniesionego validate, coverage_segments,
+  ViolationDetail oraz czterech grup checków;
+- niezależny audit_r1_repro.py porównał AST wszystkich top-level funkcji
+  i klas starego validator.py z sumą sześciu nowych plików;
+- sprawdzono unikalność definicji, publiczne re-exporty, kierunek importów
+  oraz limit 600 linii;
+- uruchomiono wąskie realne piony PLAN, ręcznej korekty, dostępności
+  godzinowej i persistence -> publiczny coverage_segments.
+- nie uruchamiano pełnej regresji, zamrożonych symulatorów ani benchmarków.
+
+WYNIK MECHANICZNY
+- Zbiór top-level funkcji i klas przed/po jest identyczny; żadnego braku ani
+  duplikatu.
+- Wszystkie funkcje `_check_*`, dataclasses i `validate()` mają identyczny AST
+  jak na base. Kolejność wywołań w validate() jest identyczna.
+- Dwa prywatne helpery mają wyłącznie techniczne różnice ekstrakcyjne:
+  `_not_cancelled` przenosi import AssignmentState do wnętrza funkcji,
+  `_demand_kind` nie zachowuje return annotation `ShiftKind | None`.
+  Po znormalizowaniu import-placement/type annotation ich kod jest identyczny;
+  nie zmienia to wyniku produktu ani publicznego kontraktu i nie blokuje PASS.
+- `rota.planning.validator` nadal eksportuje te same obiekty:
+  ViolationDetail, IndependentValidationReport, coverage_segments i validate.
+- Żaden moduł checków nie importuje validator.py ani innego modułu checków;
+  graf zależności jest jednokierunkowy.
+- Rozmiary wszystkich sześciu plików są <=600 linii.
+- diff --check i ruff: PASS.
+
+TESTY NIEZALEŻNE
+- audit_r1_repro.py: 4/4 PASS.
+- aktualny pion PLAN z rolami ORDINARY: PASS.
+- ręczna korekta z coverage gap: PASS.
+- publiczny import coverage_segments używany przez persistence: PASS.
+- hourly availability validator: PASS.
+- razem: 8 właściwych PASS.
+
+KLASYFIKACJA STAREGO CZERWONEGO TESTU
+- tests/test_t011_e_pipeline_e2e_hard_stop.py::test_1_... zatrzymuje się
+  w durable_inputs przed pierwszym wywołaniem validatora, ponieważ stary fixture
+  tworzy ORDINARY membership bez wymaganego stanowiska. Diff Tasku nie zmienia
+  durable_inputs. To pre-existing fallout CONFIGURABLE-ROLES, nie regresja
+  refaktoru i nie blokuje tego PASS.
+
+PASS obowiązuje wyłącznie dla 8a9a6dfad1969295fdcaf59e7d9fd5a72fe00d65.
+Refaktor validator.py jest gotowy do merge.
