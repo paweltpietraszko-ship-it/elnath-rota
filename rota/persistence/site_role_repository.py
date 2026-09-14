@@ -83,11 +83,17 @@ def write_role_coverage_authorization_in_open_transaction(
     if site_row is None or employee_row is None:
         raise UnknownSite((authorization.site_id, authorization.employee_id))
     role_row = conn.execute(
-        "SELECT 1 FROM site_roles WHERE role_id = ? AND site_id = ?",
+        "SELECT active FROM site_roles WHERE role_id = ? AND site_id = ?",
         (authorization.covered_role_id, authorization.site_id),
     ).fetchone()
     if role_row is None:
         raise UnknownSiteRole((authorization.covered_role_id, authorization.site_id))
+    # brief section 3: a retired role can still be referenced to cancel
+    # (active=False) an authorization issued while it was active -- only a
+    # write that leaves the authorization itself active is a "new
+    # configuration" that must use an active role.
+    if authorization.active and not role_row[0]:
+        raise ValueError(f"rola {authorization.covered_role_id!r} nie należy do aktywnego katalogu ról tego obiektu")
     conn.execute(
         """INSERT INTO role_coverage_authorizations
            (authorization_id, site_id, employee_id, covered_role_id, start_datetime, end_datetime, active)

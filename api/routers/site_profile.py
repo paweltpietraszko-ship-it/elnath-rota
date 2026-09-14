@@ -160,10 +160,14 @@ def _validate_role_matches_regime(conn, site_id: str, shifts: list[StandardShift
         return
     if any(shift.required_role_id is None for shift in shifts):
         raise ValueError("każda zmiana obiektu standardowego musi mieć przypisaną rolę")
-    known_role_ids = {r.role_id for r in list_site_roles(conn, site_id)}
+    # brief section 3: active = available for NEW configurations -- a
+    # retired role must never become the required role of a newly-written
+    # catalog row, even though already-persisted demands keep their frozen
+    # required_role_name snapshot untouched.
+    active_role_ids = {r.role_id for r in list_site_roles(conn, site_id, include_inactive=False)}
     for shift in shifts:
-        if shift.required_role_id not in known_role_ids:
-            raise ValueError(f"rola {shift.required_role_id!r} nie należy do katalogu ról tego obiektu")
+        if shift.required_role_id not in active_role_ids:
+            raise ValueError(f"rola {shift.required_role_id!r} nie należy do aktywnego katalogu ról tego obiektu")
 
 
 @router.put("/{site_id}/shift-catalog", status_code=204)

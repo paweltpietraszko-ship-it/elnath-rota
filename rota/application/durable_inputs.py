@@ -49,6 +49,7 @@ from rota.persistence.site_profile_repository import SiteProfileNotFound, get_si
 from rota.persistence.site_role_repository import (
     get_role_coverage_authorization,
     get_site_role,
+    list_site_roles,
     write_role_coverage_authorization_in_open_transaction,
     write_site_role_in_open_transaction,
 )
@@ -264,6 +265,26 @@ def update_employee(
             )
 
 
+def _require_ordinary_position_still_valid(conn, *, site_id: str, membership: SiteMembership, before: SiteMembership | None) -> None:
+    """ROTA-T065-CONFIGURABLE-ROLES section 4: an enabled ORDINARY member
+    who already has a position can never have it cleared, and a retired
+    role can never become anyone's new position. A membership that has
+    never had a position yet (brand-new roster attach, section 9's roster
+    flow) is left alone -- the coordinator sets it afterwards, same as
+    today's readiness/24h onboarding fields."""
+    site = get_site(conn, site_id)
+    if site.planning_regime != SitePlanningRegime.ORDINARY or not membership.enabled:
+        return
+    had_position = before is not None and before.position_role_id is not None
+    if membership.position_role_id is None:
+        if had_position:
+            raise ValueError("nie można usunąć jedynego stanowiska aktywnego pracownika obiektu standardowego")
+        return
+    active_role_ids = {r.role_id for r in list_site_roles(conn, site_id, include_inactive=False)}
+    if membership.position_role_id not in active_role_ids:
+        raise ValueError(f"rola {membership.position_role_id!r} nie należy do aktywnego katalogu ról tego obiektu")
+
+
 def update_membership(
     conn, *, coordinator_id: str, site_id: str, membership: SiteMembership,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
@@ -274,6 +295,7 @@ def update_membership(
     before = next(
         (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == membership.employee_id), None,
     )
+    _require_ordinary_position_still_valid(conn, site_id=site_id, membership=membership, before=before)
     material = before is None or (
         before.membership_kind, before.enabled, before.readiness_state, before.readiness_source, before.can_work_24h,
         before.position_role_id,
