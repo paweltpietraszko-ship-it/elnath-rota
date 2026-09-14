@@ -1,6 +1,6 @@
 # ROTA-T065-MANUAL-MIDDLE-SHIFT — ręczna dodatkowa praca ORDINARY przez istniejącą korektę
 
-STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD UNTIL DEPENDENCIES + CODEX PASS
+STATUS: OWNER_CORRECTED — IMPLEMENTATION PASS R4 / MERGE READY
 
 SOURCE:
 - `ROTA-T065-PANEL-CLEANUP` finding B
@@ -8,6 +8,7 @@ SOURCE:
 - OWNER: „zmiana ruchoma/środek” = sezonowa/eventowa dodatkowa praca dodawana ręcznie, nie zadanie solvera
 - OWNER: wykonywanie innej pracy nie zmienia stanowiska organizacyjnego pracownika
 - OWNER: solver nie robi automatycznej hierarchii ról; zastępstwo jest jawną decyzją koordynatora
+- OWNER_CORRECTED 2026-09-14 po R3-01: wspieranym scenariuszem produktu są ścieżki solvera oraz normalne działania koordynatora przez interfejs programu; ręcznie preparowane techniczne żądania do ogólnego endpointu API poza tym interfejsem nie są scenariuszem pracy produktu ani acceptance tego Tasku
 - istniejący `apply_manual_correction()` / child `ScheduleVersion` / validator / Deviation / site-memory audit
 
 ## 1. Cel
@@ -97,7 +98,9 @@ Jeżeli role są różne, manual middle może zostać zapisany tylko wtedy, gdy 
 
 To jest JEDYNY mechanizm autoryzacji zastępstwa. `ROLE-01` Deviation nie jest alternatywną zgodą na zastępstwo i nie może tworzyć drugiej semantyki.
 
-Brak wymaganej autoryzacji = operacja odrzucona przed utworzeniem child ScheduleVersion, a nie zapisana jako zwykłe odchylenie.
+Brak wymaganej autoryzacji = operacja odrzucona przed utworzeniem child ScheduleVersion, a nie zapisana jako zwykłe odchylenie — dla wspieranej ścieżki produktu, czyli normalnej akcji `Dodaj pracę` w UI i odpowiadającego jej dedykowanego application/API path.
+
+**OWNER_CORRECTED (2026-09-14, po R3-01):** powyższa gwarancja jest kontraktem wspieranej ścieżki produktu, nie ogólnym zabezpieczeniem każdego technicznie osiągalnego kształtu HTTP. Bezpośrednie spreparowanie żądania do generycznego endpointu `/manual-correction` z polami `manual_work_role_*`, którego normalny interfejs programu nie wysyła, jest poza scenariuszem pracy i acceptance tego Tasku. Znana możliwość takiego technicznego obejścia API pozostaje udokumentowaną właściwością techniczną, ale nie jest defektem produktu ani blockerem merge. Nie wolno z tego wnioskować, że UI lub solver mogą omijać `RoleCoverageAuthorization`.
 
 Stanowisko pracownika nie zmienia się w UI, historii ani PDF.
 
@@ -143,6 +146,8 @@ Pełnogodzinna precyzja pozostaje zgodna z aktualnym kontraktem grafiku. Nie otw
 
 UI nie dodaje tej pracy do stałego katalogu zmian i nie oferuje „zapisz jako zmianę”.
 
+Wspieranym entry pointem manual middle jest dedykowana akcja UI `Dodaj pracę` i odpowiadający jej endpoint/application wrapper `add_manual_middle_work()`. Generyczny endpoint manual correction pozostaje technicznym mechanizmem lifecycle i nie jest publicznym kontraktem do ręcznego konstruowania manual middle poza UI.
+
 ## 10. Historia i PDF
 
 Historia ScheduleVersion zachowuje `manual_work_role_id/manual_work_role_name` jako fakt wykonywanej pracy.
@@ -164,7 +169,7 @@ MM-03 — arbitralny PRIMARY bez demandu i bez obu markerów nadal failuje persi
 
 MM-04 — solver/PlanPreview nigdy nie generuje Assignment z `manual_work_role_*`.
 
-MM-05 — osoba na stanowisku `Kierownik`, bez RoleCoverageAuthorization na rolę `Sprzedawca`, nie może zapisać manual middle jako `Sprzedawca`.
+MM-05 — przez wspieraną akcję produktu `Dodaj pracę` osoba na stanowisku `Kierownik`, bez RoleCoverageAuthorization na rolę `Sprzedawca`, nie może zapisać manual middle jako `Sprzedawca`. Bezpośrednio spreparowane żądanie do generycznego technicznego `/manual-correction` jest poza zakresem tego acceptance zgodnie z OWNER_CORRECTED powyżej.
 
 MM-06 — po jawnej, aktywnej autoryzacji pokrywającej interval może wykonać tę pracę, ale jej stanowisko pozostaje `Kierownik`.
 
@@ -186,9 +191,11 @@ WHERE_MAP: REQUIRED
 - `rota/persistence/schedule_validation.py` :: fail-closed invariant PRIMARY z demandem vs legalny manual middle bez demandu.
 - `rota/persistence/schedule_repository.py` :: round-trip obu markerów/snapshotu.
 - `rota/persistence/schedule_lifecycle.py` :: zapis markerów przez ten sam ScheduleVersion lifecycle.
-- `rota/application/manual_edit.py` :: jedyny application owner utworzenia middle; reuse validator/deviation/audit.
-- `rota/planning/validator.py` :: role authorization + hourly availability przez istniejące/shared oracles, bez drugich obliczeń.
-- `api/routers/manual_edit.py` :: istniejący endpoint manual correction rozszerzony o jawny kształt manual work, bez drugiego history endpointu.
+- `rota/application/manual_edit.py` :: istniejący application lifecycle/deviation/audit owner, do którego deleguje manual middle.
+- `rota/application/manual_middle_work.py` :: cienki wspierany entry point manual middle z precheckami ORDINARY/role/membership/RoleCoverageAuthorization; deleguje do istniejącego `apply_manual_correction()`.
+- `rota/application/deviation_mapping.py` :: istniejące mapowanie `UNAVAILABLE_TIME-01` do zaakceptowanej kategorii Deviation; TECHNICAL_ONLY domknięcie istniejącej reguły.
+- `rota/planning/validator.py` + `rota/planning/validator_shared.py` :: role/availability i wyłączenie manual middle z demand coverage w istniejącym validatorze; bez drugiego validatora.
+- `api/routers/manual_edit.py` :: dedykowany endpoint akcji `Dodaj pracę` oraz istniejący generyczny manual-correction lifecycle; techniczne ręczne użycie generycznego endpointu poza UI jest poza kontraktem produktu.
 - `api/routers/schedule.py` :: Assignment API round-trip nowych pól tam, gdzie istniejący model Assignment jest marshallowany.
 - `frontend/src/screens/MonthlyPlanning.tsx` :: akcja `Dodaj pracę` wewnątrz istniejącej Manual Correction.
 - `frontend/src/api/client.ts` :: kontrakt request/response.
@@ -206,7 +213,10 @@ TASK_SCOPE:
 - rota/persistence/schedule_repository.py
 - rota/persistence/schedule_lifecycle.py
 - rota/application/manual_edit.py
+- rota/application/manual_middle_work.py
+- rota/application/deviation_mapping.py
 - rota/planning/validator.py
+- rota/planning/validator_shared.py
 - api/routers/manual_edit.py
 - api/routers/schedule.py
 - frontend/src/screens/MonthlyPlanning.tsx
@@ -217,11 +227,12 @@ TASK_SCOPE:
 - tests/test_local_store_schedule_content_rules.py
 - tests/test_local_store_schedule_version_lifecycle.py
 
-## 14. HOLD
+## 14. FINAL STATUS
 
-Preimplementation może być audytowane teraz, ale produkcyjna IMPLEMENTATION HOLD aż:
-1. `ROTA-T065-CONFIGURABLE-ROLES` ma PASS i produkcyjny owner autoryzacji;
-2. `ROTA-T065-ORDINARY-TIME-AVAILABILITY` ma PASS i produkcyjny shared overlap oracle;
-3. Codex wyda PASS na dokładny SHA tego briefu.
+Zależności są produkcyjnie dostępne, implementacja została ukończona i audyt R4 wydał PASS na dokładnym kodzie `597d4037e39d51bfd9d0fc4e176532db1acb6486`.
 
-Codex ma w re-checku sfalsyfikować przede wszystkim fail-closed marker PRIMARY bez demandu, pojedynczy mechanizm role authorization, twardą zależność hourly availability i brak naruszenia zamrożonego layoutu PRINT-GAP.
+R3-01 pozostaje zachowany jako reproduktor technicznej właściwości generycznego API, ale po OWNER_CORRECTED nie jest findingiem produktowym ani blockerem merge. Nie wymaga zmiany produkcji.
+
+Trzy pliki wcześniej poza literalnym TASK_SCOPE (`manual_middle_work.py`, `deviation_mapping.py`, `validator_shared.py`) są jawnie zaakceptowanymi TECHNICAL_ONLY lokalizacjami implementacji i zostały powyżej dopisane do WHERE_MAP/TASK_SCOPE bez zmiany zachowania produktu.
+
+Werdykt kontraktowy: PASS — GOTOWE DO MERGE na dokładnym kodzie `597d4037e39d51bfd9d0fc4e176532db1acb6486`.
