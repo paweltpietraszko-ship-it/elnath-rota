@@ -50,6 +50,11 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // ROTA-T065-PRINT-GAP brief section 12: ORDINARY hides every ochroniarskie
+  // field (Reżim bazowy, D/N kody, S1, rezerwy) -- same pattern EmployeeDetail.tsx
+  // already uses to learn the Site's regime without a second endpoint.
+  const [regime, setRegime] = useState<"OCHRONA" | "ORDINARY" | null>(null);
+  const isOchrona = regime === "OCHRONA";
 
   // ROTA-T056: monthly D6+/N6+ extra codes -- own load/save cycle, own
   // subresource, independent of the per-site fields above (brief section 6:
@@ -73,6 +78,10 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
       .then((s) => setForm(s ? toFormState(s) : emptySettings()))
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
+  }, [siteId]);
+
+  useEffect(() => {
+    api.getShiftCatalog(siteId).then((c) => setRegime(c.planning_regime));
   }, [siteId]);
 
   const monthIso = firstOfMonthIso(workingMonth);
@@ -174,7 +183,7 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
     }
   };
 
-  if (loading || !form) return <p>Ładowanie…</p>;
+  if (loading || !form || regime === null) return <p>Ładowanie…</p>;
 
   return (
     <div className="create-panel">
@@ -192,142 +201,148 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
           <span className="field-label">Nazwa obiektu na wydruku</span>
           <input value={form.site_print_name} onChange={(e) => setForm({ ...form, site_print_name: e.target.value })} />
         </label>
-        <label>
-          <span className="field-label">Reżim bazowy</span>
-          <select value={form.base_regime} onChange={(e) => setForm({ ...form, base_regime: e.target.value as "12h" | "24h" })}>
-            <option value="12h">12h</option>
-            <option value="24h">24h</option>
-          </select>
-        </label>
+        {isOchrona && (
+          <label>
+            <span className="field-label">Reżim bazowy</span>
+            <select value={form.base_regime} onChange={(e) => setForm({ ...form, base_regime: e.target.value as "12h" | "24h" })}>
+              <option value="12h">12h</option>
+              <option value="24h">24h</option>
+            </select>
+          </label>
+        )}
       </div>
 
-      <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
-        Kody zmian (godzina rozpoczęcia/zakończenia, tylko dla używanych kodów)
-      </p>
-      <div className="matrix-table-wrap">
-        <table className="roster-table">
-          <thead>
-            <tr>
-              <th>Kod</th>
-              <th>Wymagane godziny</th>
-              <th>Start</th>
-              <th>Koniec</th>
-              <th>Koniec nast. dnia</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {WORK_CODE_KEYS.map((code) => {
-              const interval = form.work_code_intervals[code];
-              return (
-                <tr key={code}>
-                  <td>{code}</td>
-                  <td>{FROZEN_WORK_CODE_HOURS[code]}h</td>
+      {isOchrona && (
+        <>
+          <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
+            Kody zmian (godzina rozpoczęcia/zakończenia, tylko dla używanych kodów)
+          </p>
+          <div className="matrix-table-wrap">
+            <table className="roster-table">
+              <thead>
+                <tr>
+                  <th>Kod</th>
+                  <th>Wymagane godziny</th>
+                  <th>Start</th>
+                  <th>Koniec</th>
+                  <th>Koniec nast. dnia</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {WORK_CODE_KEYS.map((code) => {
+                  const interval = form.work_code_intervals[code];
+                  return (
+                    <tr key={code}>
+                      <td>{code}</td>
+                      <td>{FROZEN_WORK_CODE_HOURS[code]}h</td>
+                      <td>
+                        <input
+                          type="time"
+                          value={interval?.start_time ?? ""}
+                          onChange={(e) => setInterval(code, "start_time", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="time"
+                          value={interval?.end_time ?? ""}
+                          onChange={(e) => setInterval(code, "end_time", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto" }}
+                          checked={interval?.end_next_day ?? false}
+                          onChange={(e) => setInterval(code, "end_next_day", e.target.checked)}
+                        />
+                      </td>
+                      <td>
+                        {interval && (
+                          <button className="btn-ghost" onClick={() => clearInterval(code)}>
+                            Wyczyść
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
+            S1 — szkolenie okresowe (domyślny przedział, pełne godziny, zmienna długość)
+          </p>
+          <div className="matrix-table-wrap">
+            <table className="roster-table">
+              <thead>
+                <tr>
+                  <th>Kod</th>
+                  <th>Start</th>
+                  <th>Koniec</th>
+                  <th>Koniec nast. dnia</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>S1</td>
                   <td>
                     <input
                       type="time"
-                      value={interval?.start_time ?? ""}
-                      onChange={(e) => setInterval(code, "start_time", e.target.value)}
+                      step={3600}
+                      value={form.s1_default_interval?.start_time ?? ""}
+                      onChange={(e) => setS1Interval("start_time", e.target.value)}
                     />
                   </td>
                   <td>
                     <input
                       type="time"
-                      value={interval?.end_time ?? ""}
-                      onChange={(e) => setInterval(code, "end_time", e.target.value)}
+                      step={3600}
+                      value={form.s1_default_interval?.end_time ?? ""}
+                      onChange={(e) => setS1Interval("end_time", e.target.value)}
                     />
                   </td>
                   <td>
                     <input
                       type="checkbox"
                       style={{ width: "auto" }}
-                      checked={interval?.end_next_day ?? false}
-                      onChange={(e) => setInterval(code, "end_next_day", e.target.checked)}
+                      checked={form.s1_default_interval?.end_next_day ?? false}
+                      onChange={(e) => setS1Interval("end_next_day", e.target.checked)}
                     />
                   </td>
                   <td>
-                    {interval && (
-                      <button className="btn-ghost" onClick={() => clearInterval(code)}>
+                    {form.s1_default_interval && (
+                      <button className="btn-ghost" onClick={clearS1Interval}>
                         Wyczyść
                       </button>
                     )}
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </tbody>
+            </table>
+          </div>
 
-      <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
-        S1 — szkolenie okresowe (domyślny przedział, pełne godziny, zmienna długość)
-      </p>
-      <div className="matrix-table-wrap">
-        <table className="roster-table">
-          <thead>
-            <tr>
-              <th>Kod</th>
-              <th>Start</th>
-              <th>Koniec</th>
-              <th>Koniec nast. dnia</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>S1</td>
-              <td>
+          <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
+            Rezerwy godzinowe (nieobecności)
+          </p>
+          <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {RESERVE_SLOT_KEYS.map((slot) => (
+              <label key={slot}>
+                <span className="field-label">{slot}</span>
                 <input
-                  type="time"
-                  step={3600}
-                  value={form.s1_default_interval?.start_time ?? ""}
-                  onChange={(e) => setS1Interval("start_time", e.target.value)}
+                  type="number"
+                  min={1}
+                  value={form.reserve_hours[slot] ?? ""}
+                  onChange={(e) => setReserve(slot, e.target.value)}
                 />
-              </td>
-              <td>
-                <input
-                  type="time"
-                  step={3600}
-                  value={form.s1_default_interval?.end_time ?? ""}
-                  onChange={(e) => setS1Interval("end_time", e.target.value)}
-                />
-              </td>
-              <td>
-                <input
-                  type="checkbox"
-                  style={{ width: "auto" }}
-                  checked={form.s1_default_interval?.end_next_day ?? false}
-                  onChange={(e) => setS1Interval("end_next_day", e.target.checked)}
-                />
-              </td>
-              <td>
-                {form.s1_default_interval && (
-                  <button className="btn-ghost" onClick={clearS1Interval}>
-                    Wyczyść
-                  </button>
-                )}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
-        Rezerwy godzinowe (nieobecności)
-      </p>
-      <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-        {RESERVE_SLOT_KEYS.map((slot) => (
-          <label key={slot}>
-            <span className="field-label">{slot}</span>
-            <input
-              type="number"
-              min={1}
-              value={form.reserve_hours[slot] ?? ""}
-              onChange={(e) => setReserve(slot, e.target.value)}
-            />
-          </label>
-        ))}
-      </div>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="create-panel-actions" style={{ marginTop: 18 }}>
         <button className="btn-primary" onClick={save} disabled={saving}>
@@ -336,7 +351,11 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
       </div>
 
       {/* ROTA-T056: dodatkowe kody D6+/N6+ dla wskazanego miesiąca -- osobna
-          sekcja, osobny zapis, niezależna od pól per-obiekt powyżej. */}
+          sekcja, osobny zapis, niezależna od pól per-obiekt powyżej.
+          ROTA-T065-PRINT-GAP brief section 12: ochroniarski kod pracy nie ma
+          sensu dla ORDINARY, ukryty razem z resztą sekcji D/N. */}
+      {isOchrona && (
+      <>
       <p className="field-label" style={{ marginTop: 24, marginBottom: 6 }}>
         Dodatkowe kody dla {workingMonth}
       </p>
@@ -403,6 +422,8 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
             </button>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );
