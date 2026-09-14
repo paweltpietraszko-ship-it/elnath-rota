@@ -189,11 +189,15 @@ WHERE_MAP: REQUIRED
 - `rota/persistence/db.py` :: migracja tabel/kolumn; nie istnieje `schema.py`.
 - `rota/planning/shift_catalog.py` :: generator dynamicznego required role, bez drugiego generatora.
 - `rota/planning/eligibility.py` + `rota/planning/validator.py` :: jeden ROLE-01 oparty na position lub datowanej autoryzacji.
+- `rota/planning/state.py` :: niesie bieżące autoryzacje ról w istniejącym `PlanningState`; bez równoległego state/modelu planowania.
+- `rota/planning/solver.py` :: wyłącznie adapter do istniejącego ROLE-01/zmienionego kształtu domeny; bez drugiego solvera ani nowej logiki zastępstw.
 - `rota/application/assembler.py` :: dostarczenie katalogu/autoryzacji do istniejącego PlanningState.
 - `rota/application/plan_ops.py` :: przy akceptacji kandydata materializacja snapshotu stanowisk w tej samej transakcji.
 - `rota/application/durable_inputs.py` :: jedyny application write path bieżącego stanowiska/katalogu/autoryzacji.
+- `rota/site_memory_types.py` :: kompatybilne DTO/readback dla dynamicznej roli; nie jest ownerem ról.
 - `api/routers/site_profile.py` :: katalog zmian czyta role Site, nie globalny enum.
 - `api/routers/roster.py` + `api/routers/durable_inputs.py` :: stanowisko pracownika i autoryzacja zastępstwa.
+- `api/routers/schedule.py` :: marshalling historycznej nazwy wymaganej roli w istniejącym API grafiku; bez nowego lifecycle.
 - `frontend/src/screens/SiteShiftCatalog.tsx` :: role dynamiczne, obowiązkowe dla ORDINARY.
 - `frontend/src/screens/ControlPanel.tsx` + `frontend/src/screens/EmployeeDetail.tsx` :: jedno stanowisko + osobne zastępstwa.
 - `frontend/src/api/client.ts` :: kontrakty API.
@@ -213,12 +217,16 @@ TASK_SCOPE:
 - rota/planning/shift_catalog.py
 - rota/planning/eligibility.py
 - rota/planning/validator.py
+- rota/planning/solver.py
+- rota/planning/state.py
 - rota/application/assembler.py
 - rota/application/plan_ops.py
 - rota/application/durable_inputs.py
+- rota/site_memory_types.py
 - api/routers/site_profile.py
 - api/routers/roster.py
 - api/routers/durable_inputs.py
+- api/routers/schedule.py
 - frontend/src/screens/SiteShiftCatalog.tsx
 - frontend/src/screens/ControlPanel.tsx
 - frontend/src/screens/EmployeeDetail.tsx
@@ -230,6 +238,13 @@ TASK_SCOPE:
 - tests/test_t030_shift_catalog_api.py
 - tests/test_t031_schedule_api.py
 - tests/test_t021_external_support_roster.py
+- tests/test_t019.py
+- tests/test_t019b.py
+- tests/test_t020.py
+- tests/test_t021_matrix_decision_link.py
+- tests/test_t023b.py
+- tests/test_t062.py
+- tests/test_vertical_full_stack.py
 
 ## 14. HOLD
 
