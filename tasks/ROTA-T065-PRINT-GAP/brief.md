@@ -260,6 +260,8 @@ T65P-03 — ORDINARY `05:00–12:00` drukuje `5–12`, bez D/N i bez `WORK_CODE_
 
 T65P-04 — pod nazwiskiem ORDINARY drukuje się jedna pełna historyczna nazwa stanowiska z autoryzowanego modelu ról; rola wykonywanej pracy nie zastępuje stanowiska.
 
+**OWNER_CORRECTED (2026-09-14, po FAIL R6-01 Codexa):** T65P-04 dotyczy wyłącznie pracownika, który w drukowanym miesiącu ma choć jedno realne przypisanie pracy. Pracownik bez żadnego przypisania w tym miesiącu (np. cały miesiąc na urlopie) może mieć pustą etykietę stanowiska — to świadomie zaakceptowane ograniczenie, nie defekt. Uzasadnienie właściciela: pytanie "kto był kierownikiem na zmianie" dotyczy z definicji kogoś, kto faktycznie miał zmianę; dla kogoś bez żadnej zmiany w danym miesiącu nie ma czego historycznie rozliczać. `rota/persistence/schedule_lifecycle.py::_insert_employee_positions` (właściciel snapshotu, poza TASK_SCOPE PRINT-GAP) NIE wymaga poprawki z tego powodu — pozostaje bez zmian, snapshotuje tylko osoby obecne w `assignments`, zgodnie ze swoim istniejącym, poprawnym zachowaniem.
+
 T65P-05 — kierownik pokrywający pracę sprzedawcy nadal drukuje się jako `Kierownik`; komórka pokazuje tylko godziny.
 
 T65P-06 — dwie niepokrywające się prace jednego dnia drukują się chronologicznie jako osobne linie w jednej komórce zamiast `MULTIPLE_WORK_ITEMS_PER_CELL`.

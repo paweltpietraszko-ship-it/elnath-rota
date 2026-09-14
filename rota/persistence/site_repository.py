@@ -169,8 +169,16 @@ def _validate_s1_default_interval(interval: WorkCodeInterval) -> None:
 
 
 def validate_site_print_settings(
-    settings: SitePrintSettings, *, extra_signatures_by_family: Optional[dict[str, set[tuple]]] = None,
+    settings: SitePrintSettings, *, planning_regime: SitePlanningRegime,
+    extra_signatures_by_family: Optional[dict[str, set[tuple]]] = None,
 ) -> None:
+    """ROTA-T065-PRINT-GAP brief section 11: SitePrintSettings stays the one
+    owner for both regimes, but validation knows `planning_regime` --
+    never guesses it from field contents. The OCHRONA-only fields
+    (base_regime/work_code_intervals/reserve_hours/s1_default_interval)
+    are simply not required/validated for an ORDINARY Site (T65P-13)."""
+    if planning_regime != SitePlanningRegime.OCHRONA:
+        return
     if settings.base_regime not in ("12h", "24h"):
         raise InvalidSitePrintSettings(f"base_regime must be '12h' or '24h', got {settings.base_regime!r}")
     _validate_work_code_intervals(settings.work_code_intervals, extra_signatures_by_family=extra_signatures_by_family)
@@ -312,10 +320,12 @@ def _s1_interval_from_json(raw: Optional[str]) -> Optional[WorkCodeInterval]:
 
 def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettings) -> None:
     extra_signatures_by_family = _all_extra_signatures_for_site(conn, settings.site_id)
-    validate_site_print_settings(settings, extra_signatures_by_family=extra_signatures_by_family)
-    site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (settings.site_id,)).fetchone()
+    site_row = conn.execute("SELECT planning_regime FROM sites WHERE site_id = ?", (settings.site_id,)).fetchone()
     if site_row is None:
         raise SiteNotFound(settings.site_id)
+    validate_site_print_settings(
+        settings, planning_regime=_regime_from_value(site_row[0]), extra_signatures_by_family=extra_signatures_by_family,
+    )
     with conn:
         conn.execute(
             """INSERT INTO site_print_settings
@@ -339,13 +349,14 @@ def save_site_print_settings(conn: sqlite3.Connection, settings: SitePrintSettin
 
 def get_site_print_settings(conn: sqlite3.Connection, site_id: str) -> Optional[SitePrintSettings]:
     row = conn.execute(
-        "SELECT site_id, company_print_name, site_print_name, base_regime, "
-        "work_code_intervals_json, reserve_hours_json, s1_default_interval_json FROM site_print_settings WHERE site_id = ?",
+        "SELECT sps.site_id, sps.company_print_name, sps.site_print_name, sps.base_regime, "
+        "sps.work_code_intervals_json, sps.reserve_hours_json, sps.s1_default_interval_json, s.planning_regime "
+        "FROM site_print_settings sps JOIN sites s ON s.site_id = sps.site_id WHERE sps.site_id = ?",
         (site_id,),
     ).fetchone()
     if row is None:
         return None
-    site_id_, company, site_name, regime, intervals_json, reserve_json, s1_interval_json = row
+    site_id_, company, site_name, regime, intervals_json, reserve_json, s1_interval_json, planning_regime_value = row
     try:
         reserve = json.loads(reserve_json)
     except json.JSONDecodeError as exc:
@@ -357,7 +368,8 @@ def get_site_print_settings(conn: sqlite3.Connection, site_id: str) -> Optional[
         work_code_intervals=_intervals_from_json(intervals_json), reserve_hours=reserve,
         s1_default_interval=_s1_interval_from_json(s1_interval_json),
     )
-    validate_site_print_settings(settings)  # revalidate: corrupt persisted rows must fail closed, never silently pass
+    # revalidate: corrupt persisted rows must fail closed, never silently pass
+    validate_site_print_settings(settings, planning_regime=_regime_from_value(planning_regime_value))
     return settings
 
 

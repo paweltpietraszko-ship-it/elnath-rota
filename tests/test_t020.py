@@ -17,15 +17,17 @@ from rota.application.durable_inputs import append_availability
 from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind, CalendarDay, CoordinatorSiteAssociation, Employee,
     MembershipKind, ReadinessSource, ReadinessState, ShiftCatalogKind, ShiftDemand, ShiftKind, SiteMembership,
-    SitePlanningRegime,
+    SitePlanningRegime, SiteRoleDefinition,
 )
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.coordinator_repository import save_coordinator_site_association
 from rota.persistence.db import LATEST_SCHEMA_VERSION, MIGRATIONS, connect, migrate
 from rota.persistence.employee_repository import save_employee, save_site_membership
+from rota.persistence.site_role_repository import save_site_role
 from rota.persistence.site_repository import (
-    InvalidSitePrintSettings, SitePrintSettings, WorkCodeInterval, get_site_print_settings, save_site_print_settings,
+    InvalidSitePrintSettings, SitePrintSettings, WorkCodeInterval, correct_site_planning_regime_in_open_transaction,
+    get_site_print_settings, save_site_print_settings,
 )
 from tests.support.t008_fixtures import seed_base_entities
 from tests.test_t023 import _accept_version
@@ -46,6 +48,13 @@ def _settings(**overrides) -> SitePrintSettings:
     return SitePrintSettings(**base)
 def _seed(conn, *, employees: tuple[str, ...] = ("EMP-1",), full_calendar: bool = True):
     seed_base_entities(conn, site_id="SITE-1", employee_id=employees[0])
+    # ROTA-T065-PRINT-GAP: seed_base_entities defaults to ORDINARY
+    # (ROTA-T065-CONFIGURABLE-ROLES); this whole file exercises the
+    # pre-existing OCHRONA print pipeline (D1..N5 codes, base_regime,
+    # reserve hours), so SITE-1 must actually be OCHRONA now that
+    # print-settings validation is regime-aware (brief section 11).
+    with conn:
+        correct_site_planning_regime_in_open_transaction(conn, site_id="SITE-1", planning_regime=SitePlanningRegime.OCHRONA)
     save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", "SITE-1", True))
     for emp in employees[1:]:
         save_employee(conn, Employee(emp, f"Pracownik {emp}", date(2026, 1, 1), None, False))
@@ -57,6 +66,24 @@ def _seed(conn, *, employees: tuple[str, ...] = ("EMP-1",), full_calendar: bool 
         n_days = _cal.monthrange(MONTH.year, MONTH.month)[1]
         for i in range(n_days):
             save_calendar_day(conn, CalendarDay(MONTH + timedelta(days=i), False))
+def _seed_ordinary(conn, *, employees: tuple[str, ...] = ("EMP-1",), role: tuple[str, str] = ("ROLE-KIER", "Kierownik")):
+    # ROTA-T065-PRINT-GAP: seed_base_entities already defaults to ORDINARY
+    # (ROTA-T065-CONFIGURABLE-ROLES) -- no regime correction needed here,
+    # unlike _seed() above which corrects to OCHRONA for the pre-existing suite.
+    seed_base_entities(conn, site_id="SITE-1", employee_id=employees[0])
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation("COORD-1", "SITE-1", True))
+    for emp in employees[1:]:
+        save_employee(conn, Employee(emp, f"Pracownik {emp}", date(2026, 1, 1), None, False))
+    role_id, role_name = role
+    save_site_role(conn, SiteRoleDefinition(role_id, "SITE-1", role_name, True))
+    for emp in employees:
+        save_site_membership(conn, SiteMembership(
+            emp, "SITE-1", MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT, True,
+            position_role_id=role_id,
+        ))
+    n_days = _cal.monthrange(MONTH.year, MONTH.month)[1]
+    for i in range(n_days):
+        save_calendar_day(conn, CalendarDay(MONTH + timedelta(days=i), False))
 def _work_item(day: int, start_h: int, end_h: int, *, kind: ShiftKind, employee_id: str = "EMP-1", suffix: str = "", state=AssignmentState.REALIZED):
     d0 = date(2026, 8, day)
     start = datetime.combine(d0, datetime.min.time()).replace(hour=start_h)
@@ -771,3 +798,140 @@ def test_t20_47_emergency_linkage_across_a_year_boundary():
     row = model.rows[0]
     assert row.plan[30] == "24"
     assert row.plan_hours == 24
+
+
+# --- ROTA-T065-PRINT-GAP: ORDINARY export acceptance (brief section 16) ----
+def test_t65p_01_03_ordinary_generates_pdf_with_literal_hours_and_position():
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    save_site_print_settings(conn, _settings())
+    demand, assignment = _work_item(3, 5, 12, kind=ShiftKind.D)
+    _create_version(conn, [demand], [assignment])
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert model.regime == "ORDINARY"
+    row = next(r for r in model.ordinary_rows if r.employee_id == "EMP-1")
+    assert row.position_label == "Kierownik"
+    assert row.day_cells[2] == ["5–12"]  # day index 2 == 2026-08-03
+    result = SE.generate_schedule_pdf(conn, site_id="SITE-1", month=MONTH, period_label="Sierpień 2026")
+    assert isinstance(result, SE.ExportReady)
+    assert result.pdf_bytes.startswith(b"%PDF")
+
+
+def test_t65p_06_08_ordinary_multiple_shifts_one_day_single_row_chronological():
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    save_site_print_settings(conn, _settings())
+    d1, a1 = _work_item(5, 16, 20, kind=ShiftKind.D, suffix="B")
+    d2, a2 = _work_item(5, 6, 10, kind=ShiftKind.D, suffix="A")
+    _create_version(conn, [d1, d2], [a1, a2])
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert len(model.ordinary_rows) == 1  # one row per employee, no PLAN/WYK duet (T65P-08)
+    row = model.ordinary_rows[0]
+    assert row.day_cells[4] == ["6–10", "16–20"]  # chronological regardless of insertion order
+
+
+def test_t65p_07_ordinary_midnight_crossing_anchored_on_start_date():
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    save_site_print_settings(conn, _settings())
+    demand, assignment = _work_item(10, 22, 6, kind=ShiftKind.N)
+    _create_version(conn, [demand], [assignment])
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.ordinary_rows[0]
+    assert row.day_cells[9] == ["22–6(+1)"]
+    assert row.day_cells[10] == ["–"]  # not duplicated onto the next calendar day
+
+
+def test_t65p_12_ordinary_position_frozen_from_snapshot_not_live_membership():
+    conn = connect(":memory:")
+    _seed_ordinary(conn, role=("ROLE-KIER", "Kierownik"))
+    save_site_print_settings(conn, _settings())
+    demand, assignment = _work_item(3, 5, 12, kind=ShiftKind.D)
+    _create_version(conn, [demand], [assignment])
+    # Live membership position changes AFTER the version's positions were
+    # snapshotted -- must never retroactively change what already printed.
+    save_site_role(conn, SiteRoleDefinition("ROLE-SPRZ", "SITE-1", "Sprzedawca", True))
+    save_site_membership(conn, SiteMembership(
+        "EMP-1", "SITE-1", MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT, True,
+        position_role_id="ROLE-SPRZ",
+    ))
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert model.ordinary_rows[0].position_label == "Kierownik"
+
+
+def test_ordinary_missing_position_snapshot_prints_blank_not_error():
+    # rota.persistence.schedule_lifecycle._insert_employee_positions owner
+    # contract: no snapshotted row (never assigned a position) -> print
+    # "no position", never a fail-closed error PRINT-GAP would have to invent.
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    save_employee(conn, Employee("EMP-2", "Pracownik EMP-2", date(2026, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership(
+        "EMP-2", "SITE-1", MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT, True,
+    ))
+    save_site_print_settings(conn, _settings())
+    demand, assignment = _work_item(3, 5, 12, kind=ShiftKind.D, employee_id="EMP-2")
+    _create_version(conn, [demand], [assignment])
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = next(r for r in model.ordinary_rows if r.employee_id == "EMP-2")
+    assert row.position_label == ""
+
+
+def test_t65p_09_ordinary_absence_words_and_blank_day():
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    save_site_print_settings(conn, _settings())
+    _create_version(conn, [], [])
+    _grant_leave(conn, "EMP-1", start=date(2026, 8, 5), end=date(2026, 8, 6))
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    row = model.ordinary_rows[0]
+    assert row.day_cells[4] == ["Urlop"]
+    assert row.day_absence_kind[4] == "URLOP"
+    assert row.day_cells[0] == ["–"]  # plain day off, no work, no absence
+
+
+def test_t65p_11_ordinary_role_shading_generalizes_to_n_positions():
+    conn = connect(":memory:")
+    _seed_ordinary(conn, employees=("EMP-1", "EMP-2", "EMP-3"))
+    for emp, rid, rname in (("EMP-2", "ROLE-SPRZ", "Sprzedawca"), ("EMP-3", "ROLE-MAG", "Magazynier")):
+        save_site_role(conn, SiteRoleDefinition(rid, "SITE-1", rname, True))
+        save_site_membership(conn, SiteMembership(
+            emp, "SITE-1", MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT, True,
+            position_role_id=rid,
+        ))
+    save_site_print_settings(conn, _settings())
+    d1, a1 = _work_item(3, 5, 12, kind=ShiftKind.D, employee_id="EMP-1")
+    d2, a2 = _work_item(3, 5, 12, kind=ShiftKind.D, employee_id="EMP-2", suffix="B")
+    d3, a3 = _work_item(3, 5, 12, kind=ShiftKind.D, employee_id="EMP-3", suffix="C")
+    _create_version(conn, [d1, d2, d3], [a1, a2, a3])
+    model = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    shades = SE._ordinary_position_shades(model.ordinary_rows)
+    assert len(shades) == 3
+    distinct = {(round(fill.red, 3), round(fill.green, 3), round(fill.blue, 3)) for fill, _ in shades.values()}
+    assert len(distinct) == 3
+
+
+def test_t65p_13_ordinary_print_settings_ignore_ochrona_fields():
+    # base_regime is still stored as a placeholder "12h"/"24h" (a plain DB
+    # CHECK constraint, unrelated to this Task's regime-aware validation)
+    # -- the meaningful case is a Python-level OCHRONA check (work code
+    # duration/signature) that ORDINARY must never enforce.
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    bad_settings = _settings(work_code_intervals={**_default_intervals(), "D1": WorkCodeInterval("06:00", "19:00", False)})
+    save_site_print_settings(conn, bad_settings)  # must not raise: OCHRONA fields are inert for ORDINARY
+    loaded = get_site_print_settings(conn, "SITE-1")
+    assert loaded.company_print_name == "ELNATH DEMO"
+
+
+def test_t65p_ordinary_document_revision_reflects_ordinary_content():
+    conn = connect(":memory:")
+    _seed_ordinary(conn)
+    save_site_print_settings(conn, _settings())
+    demand, assignment = _work_item(3, 5, 12, kind=ShiftKind.D)
+    _create_version(conn, [demand], [assignment])
+    m1 = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    m2 = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="x")
+    assert SE._document_revision(m1) == SE._document_revision(m2)
+    m3 = SE._assemble_export_model(conn, site_id="SITE-1", month=MONTH, period_label="y")
+    assert SE._document_revision(m1) != SE._document_revision(m3)

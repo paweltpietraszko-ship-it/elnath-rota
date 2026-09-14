@@ -16,7 +16,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from rota.application.lifecycle_ops import fresh_validation
-from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, DeviationCategory, MembershipKind, ShiftCatalogKind
+from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, DeviationCategory, MembershipKind, ShiftCatalogKind, SitePlanningRegime
 from rota.persistence import calendar_repository, employee_repository, schedule_repository, site_repository
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
@@ -50,12 +50,27 @@ class RowCells:
     employee_id: str; display_name: str; plan: list[str]; wyk: list[str]  # noqa: E702
     plan_hours: int; wyk_hours: int; urlop_hours: int; l4_hours: int  # noqa: E702
 @dataclass(frozen=True)
+class OrdinaryRowCells:
+    # ROTA-T065-PRINT-GAP brief section 5/9: one row per employee (no
+    # PLAN/WYK duet), one fixed historical position label under the name
+    # (never per-shift), day cells are real hour-range lines or absence
+    # words -- never D/N codes. day_absence_kind drives border style only
+    # ("URLOP"=solid, "L4"=dashed, None=plain work/blank cell).
+    employee_id: str; display_name: str; position_label: str  # noqa: E702
+    day_cells: list[list[str]]; day_absence_kind: list[Optional[str]]; total_hours: int  # noqa: E702
+@dataclass(frozen=True)
 class ExportModel:
     site_id: str; month: date; period_label: str; company_print_name: str; site_print_name: str  # noqa: E702
     base_regime: str; work_code_intervals: dict; reserve_hours: dict; current_version_id: str  # noqa: E702
     lineage: list[tuple[str, Optional[str]]]; days: list[date]; rows: list[RowCells]  # noqa: E702
     provenance_text: str; provenance_display_text: str; holiday_by_date: dict; adjacent_facts: list  # noqa: E702
     extra_work_codes: dict  # ROTA-T056: this exact (site_id, month)'s D6+/N6+ definitions
+    # ROTA-T065-PRINT-GAP: regime branch is presentation-only (brief section
+    # 13) -- "OCHRONA" keeps every field above populated as before,
+    # "ORDINARY" leaves them at inert placeholder values and uses
+    # ordinary_rows instead of rows.
+    regime: str = "OCHRONA"
+    ordinary_rows: tuple[OrdinaryRowCells, ...] = ()
 # Entry point
 def generate_schedule_pdf(
     conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str, generated_at: Optional[datetime] = None,
@@ -148,8 +163,16 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     settings = site_repository.get_site_print_settings(conn, site_id)
     if settings is None:
         raise ExportProblemError("PRINT_SETTINGS_MISSING", f"no print settings saved for {site_id}")
+    site = site_repository.get_site(conn, site_id)
     lineage = _reconstruct_lineage(conn, site_id, month)
     days = _month_days(month)
+    calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
+    holiday_by_date = {c.date: c.holiday for c in calendar_days}
+    if site.planning_regime == SitePlanningRegime.ORDINARY:
+        return _assemble_ordinary_export_model(
+            conn, site_id=site_id, month=month, period_label=period_label,
+            settings=settings, lineage=lineage, days=days, holiday_by_date=holiday_by_date,
+        )
     snapshots: dict[str, "schedule_repository.ScheduleSnapshot"] = {}
     daily_version = {d: _version_for_date(lineage, d) for d in days}
     extra_codes = site_repository.get_site_monthly_extra_work_codes(conn, site_id, month)
@@ -159,8 +182,6 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     collected = _collect_real_work_cells(conn, site_id, days, daily_version, snapshots, settings, extra_codes)
     seen_employee_ids = collected[2]
     work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days, extra_codes)
-    calendar_days = calendar_repository.list_calendar_days(conn, days[0], days[-1])
-    holiday_by_date = {c.date: c.holiday for c in calendar_days}
     absence_by_employee = _collect_absence(conn, days, local_ids, work_cells, settings, site_id)
     roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)  # C-R15-3: a bound Site period keeps an Employee here after REPLAN
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
@@ -210,6 +231,160 @@ def _version_for_date(lineage: list, target: date) -> Optional[str]:
         if header.effective_from <= target:
             selected = header.version_id
     return selected
+# ORDINARY assembly (brief section 6/7/9/10) -- no D/N mapping, no 24h
+# collapse, no PLAN/WYK duet, one fixed historical position label per
+# employee. Absence still comes from the same canonical facts as OCHRONA
+# (canonical_site_absence_days), only the presentation is simpler: a plain
+# "Urlop"/"L4" word per active day, never an hour-code decomposition.
+def _assemble_ordinary_export_model(
+    conn: sqlite3.Connection, *, site_id: str, month: date, period_label: str,
+    settings, lineage: list, days: list[date], holiday_by_date: dict,
+) -> "ExportModel":
+    snapshots: dict[str, "schedule_repository.ScheduleSnapshot"] = {}
+    daily_version = {d: _version_for_date(lineage, d) for d in days}
+    memberships = employee_repository.list_memberships_for_site(conn, site_id)
+    local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
+    work_items, seen_employee_ids = _collect_ordinary_work_items(conn, days, daily_version, snapshots)
+    absence_by_employee = _collect_ordinary_absence(conn, days, local_ids, work_items, site_id)
+    roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)
+    employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
+    current_version_id = lineage[-1].version_id
+    positions = schedule_repository.get_schedule_version_employee_positions(conn, current_version_id)
+    rows = _build_ordinary_rows(roster_ids, employees, days, work_items, absence_by_employee, positions)
+    provenance = _provenance_text(lineage, [])
+    provenance_display = _provenance_display_text(lineage, [])
+    return ExportModel(
+        site_id=site_id, month=month, period_label=period_label,
+        company_print_name=settings.company_print_name, site_print_name=settings.site_print_name,
+        base_regime="", work_code_intervals={}, reserve_hours={}, current_version_id=current_version_id,
+        lineage=[(h.version_id, h.effective_from.isoformat() if h.effective_from else None) for h in lineage],
+        days=days, rows=[], provenance_text=provenance, provenance_display_text=provenance_display,
+        holiday_by_date=holiday_by_date, adjacent_facts=[], extra_work_codes={},
+        regime="ORDINARY", ordinary_rows=tuple(rows),
+    )
+def _collect_ordinary_work_items(conn, days: list[date], daily_version: dict, snapshots: dict):
+    """Brief section 6/7: every non-cancelled PRIMARY Assignment for the day
+    is a real interval; ORDINARY never collapses a pair into "24", never
+    maps to a D/N code and never raises MULTIPLE_WORK_ITEMS_PER_CELL -- all
+    non-overlapping real items of a day share one cell as separate
+    chronological lines instead."""
+    items: dict[str, dict[date, list[tuple[datetime, datetime, str]]]] = {}
+    seen_employee_ids: set[str] = set()
+    for day in days:
+        version_id = daily_version[day]
+        if version_id is None:
+            continue
+        if version_id not in snapshots:
+            snapshots[version_id] = schedule_repository.get_schedule_snapshot(conn, version_id)
+        snapshot = snapshots[version_id]
+        for a in snapshot.assignments:
+            if a.start_datetime.date() != day or a.state == AssignmentState.CANCELLED:
+                continue
+            if a.role == AssignmentRole.TRAINEE:
+                raise ExportProblemError("UNSUPPORTED_TRAINEE_PRINT", f"{a.assignment_id} is an effective TRAINEE assignment")
+            if a.role != AssignmentRole.PRIMARY:
+                continue
+            seen_employee_ids.add(a.employee_id)
+            items.setdefault(a.employee_id, {}).setdefault(day, []).append((a.start_datetime, a.end_datetime, a.assignment_id))
+    for by_day in items.values():
+        for day_items in by_day.values():
+            day_items.sort(key=lambda t: (t[0], t[1], t[2]))
+    return items, seen_employee_ids
+def _format_ordinary_hour(dt: datetime) -> str:
+    return str(dt.hour) if dt.minute == 0 else f"{dt.hour}:{dt.minute:02d}"
+def _format_ordinary_piece(start: datetime, end: datetime) -> str:
+    # Brief section 5/6/8: literal hours, no leading zeros, "(+1)" when the
+    # shift ends on a later calendar date than it started; always anchored
+    # on the start date's cell.
+    suffix = "(+1)" if end.date() > start.date() else ""
+    return f"{_format_ordinary_hour(start)}–{_format_ordinary_hour(end)}{suffix}"
+def _ordinary_absence_word(kind: AvailabilityKind) -> str:
+    return "Urlop" if kind == AvailabilityKind.LEAVE_GRANTED else "L4"
+def _collect_ordinary_absence(conn, days: list[date], local_ids: set, work_days: dict, site_id: str) -> dict[str, list[tuple[date, str]]]:
+    # Same canonical source and site-attribution/fail-closed rules as
+    # OCHRONA's _collect_absence -- only the per-day presentation differs
+    # (a plain word, never an hour-code decomposition).
+    month_start, month_end = days[0], days[-1]
+    all_employee_ids = [e.employee_id for e in employee_repository.list_employees(conn)]
+    records = list_active_overlapping_for_employees(conn, all_employee_ids, month_start, month_end)
+    by_employee: dict[str, list] = {}
+    for r in records:
+        by_employee.setdefault(r.employee_id, []).append(r)
+    memberships_by_employee = employee_repository.list_memberships_for_employees(conn, sorted(by_employee))
+    result: dict[str, list[tuple[date, str]]] = {}
+    for employee_id in sorted(by_employee):
+        emp_records = [r for r in by_employee[employee_id] if r.kind in (AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)]
+        if not emp_records:
+            continue
+        snapshots = [(r, get_absence_reference_snapshot(conn, r.availability_version_id)) for r in emp_records]
+        bound_here = any(p.site_id == site_id for _, snap in snapshots if snap for day in snap.days for p in day.periods)
+        if employee_id not in local_ids and not bound_here:
+            continue
+        for r, snapshot in snapshots:
+            if snapshot is None:
+                raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: legacy active {r.kind.value} has no captured reference snapshot")
+        enabled_local = sum(1 for m in memberships_by_employee.get(employee_id, []) if m.membership_kind == MembershipKind.LOCAL and m.enabled)
+        try:
+            canonical_days = canonical_site_absence_days(_detailed_facts(snapshots), range_start=month_start, range_end=month_end, site_id=site_id)
+        except IncompleteAbsenceReferenceError as exc:
+            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", f"{employee_id}: {exc}") from exc
+        pairs = _ordinary_absence_days_for_employee(employee_id, canonical_days, work_days, enabled_local)
+        if pairs:
+            result[employee_id] = pairs
+    return result
+def _ordinary_absence_days_for_employee(employee_id: str, canonical_days, work_days: dict, enabled_local: int) -> list[tuple[date, str]]:
+    for day in canonical_days:
+        if day.the_date in work_days.get(employee_id, {}):
+            raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day.the_date}: real Assignment on an active absence day")
+    pre_plan_days = [d for d in canonical_days if d.source_mode == "PRE_PLAN_LEAVE"]
+    post_plan_days = [d for d in canonical_days if d.source_mode != "PRE_PLAN_LEAVE"]
+    pairs: list[tuple[date, str]] = []
+    if pre_plan_days:
+        if enabled_local > 1:  # T23-46: keeps the existing fail-closed Site-attribution boundary
+            raise ExportProblemError("ABSENCE_SITE_AMBIGUOUS", f"{employee_id} has {enabled_local} enabled LOCAL memberships")
+        for day in pre_plan_days:
+            pairs.append((day.the_date, _ordinary_absence_word(day.kind)))
+    for day in post_plan_days:
+        if day.site_hours == 0:
+            continue  # accepted rest, or no bound period at this Site -- no synthetic absence word (T23-42)
+        pairs.append((day.the_date, _ordinary_absence_word(day.kind)))
+    return pairs
+def _build_ordinary_rows(roster_ids, employees, days: list[date], work_items: dict, absence_by_employee: dict, positions: dict) -> list[OrdinaryRowCells]:
+    rows = []
+    for employee_id in roster_ids:
+        employee = employees[employee_id]
+        # rota.persistence.schedule_lifecycle._insert_employee_positions
+        # (ROTA-T065-CONFIGURABLE-ROLES section 6, owner contract): an
+        # employee with no snapshotted row -- OCHRONA-only external
+        # support, or an ORDINARY employee never assigned a position --
+        # gets no row, and the read side prints "no position", never an
+        # error; PRINT-GAP must not invent a stricter contract here.
+        position = positions.get(employee_id)
+        position_label = position.role_name if position is not None else ""
+        absence_by_date = dict(absence_by_employee.get(employee_id, []))
+        emp_items = work_items.get(employee_id, {})
+        day_cells: list[list[str]] = []
+        day_absence_kind: list[Optional[str]] = []
+        total_hours = 0
+        for day in days:
+            pieces = emp_items.get(day)
+            if pieces:
+                day_cells.append([_format_ordinary_piece(start, end) for start, end, _ in pieces])
+                day_absence_kind.append(None)
+                total_hours += sum(round((end - start).total_seconds() / 3600) for start, end, _ in pieces)
+            elif day in absence_by_date:
+                word = absence_by_date[day]
+                day_cells.append([word])
+                day_absence_kind.append("URLOP" if word == "Urlop" else "L4")
+            else:
+                day_cells.append([BLANK])
+                day_absence_kind.append(None)
+        rows.append(OrdinaryRowCells(
+            employee_id=employee_id, display_name=employee.display_name, position_label=position_label,
+            day_cells=day_cells, day_absence_kind=day_absence_kind, total_hours=total_hours,
+        ))
+    rows.sort(key=lambda r: (r.display_name.casefold(), r.employee_id))
+    return rows
 def _lineage_digest(lineage: list, adjacent_facts: list) -> str:
     ordered = [(h.version_id, h.effective_from.isoformat() if h.effective_from else "") for h in lineage]
     return hashlib.sha256(json.dumps([ordered, adjacent_facts], sort_keys=True).encode("utf-8")).hexdigest()
@@ -625,20 +800,27 @@ def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, re
 # Document revision (Section 17) -- excludes generated_at/filename/PDF metadata.
 def _document_revision(model: ExportModel) -> str:
     payload = {
-        "site_id": model.site_id, "month": model.month.isoformat(),
+        "regime": model.regime, "site_id": model.site_id, "month": model.month.isoformat(),
         "date_range": [model.days[0].isoformat(), model.days[-1].isoformat()],
         "period_label": model.period_label, "company_print_name": model.company_print_name, "site_print_name": model.site_print_name,
-        "base_regime": model.base_regime,
-        "work_code_intervals": {k: (None if v is None else [v.start_time, v.end_time, v.end_next_day]) for k, v in sorted(model.work_code_intervals.items())},
-        "extra_work_codes": {k: [v.start_time, v.end_time, v.end_next_day] for k, v in sorted(model.extra_work_codes.items())},
-        "reserve_hours": dict(sorted(model.reserve_hours.items())),
         "current_version_id": model.current_version_id, "lineage": model.lineage, "adjacent_facts": model.adjacent_facts,
-        "rows": [
+    }
+    if model.regime == "ORDINARY":
+        payload["ordinary_rows"] = [
+            {"employee_id": r.employee_id, "display_name": r.display_name, "position_label": r.position_label,
+             "day_cells": r.day_cells, "day_absence_kind": r.day_absence_kind, "total_hours": r.total_hours}
+            for r in model.ordinary_rows
+        ]
+    else:
+        payload["base_regime"] = model.base_regime
+        payload["work_code_intervals"] = {k: (None if v is None else [v.start_time, v.end_time, v.end_next_day]) for k, v in sorted(model.work_code_intervals.items())}
+        payload["extra_work_codes"] = {k: [v.start_time, v.end_time, v.end_next_day] for k, v in sorted(model.extra_work_codes.items())}
+        payload["reserve_hours"] = dict(sorted(model.reserve_hours.items()))
+        payload["rows"] = [
             {"employee_id": r.employee_id, "display_name": r.display_name, "plan": r.plan, "wyk": r.wyk,
              "plan_hours": r.plan_hours, "wyk_hours": r.wyk_hours, "urlop_hours": r.urlop_hours, "l4_hours": r.l4_hours}
             for r in model.rows
-        ],
-    }
+        ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 # Font resolution (Section 4) -- no hardcoded machine path; env-driven OS search + ReportLab fallback, first candidate covering Polish wins, else fail closed.
@@ -839,6 +1021,13 @@ def _draw_legend_only_page(c, model: ExportModel, regular, bold, italic, page_h)
     c.setFont(bold, 14); c.drawString(MARGIN, y, "Legenda — ciąg dalszy (wszystkie użyte oznaczenia)"); y -= LEGEND_PAGE_TITLE_H  # noqa: E702
     _draw_legend(c, model, regular, bold, italic, y)
 def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
+    # ROTA-T065-PRINT-GAP brief section 13: the regime branch is purely a
+    # private render-model choice -- one public entry point, one PDF result
+    # type, no second document/lifecycle.
+    if model.regime == "ORDINARY":
+        return _render_ordinary_pdf(model, generated_at)
+    return _render_ochrona_pdf(model, generated_at)
+def _render_ochrona_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     regular, bold, italic = _resolve_unicode_font()
     page_w, page_h = landscape(A3)
     day_w = (page_w - 2 * MARGIN - NAME_W - 4 * SUM_W) / len(model.days)
@@ -878,6 +1067,120 @@ def _render_pdf(model: ExportModel, generated_at: datetime) -> bytes:
     if legend_needs_own_page:
         _draw_legend_only_page(c, model, regular, bold, italic, page_h)
         _draw_page_footer(c, regular, page_count, page_count, page_w)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+# ORDINARY rendering (brief section 6/9/10/16 -- T65P-16 "1:1 z OWNER_ACCEPTED prototypem").
+ORD_SUM_W = 56.0
+ORD_ROW_H = 30.0
+ORD_LEGEND_LINES = (
+    "Rola pracownika (rzeczywiste stanowisko) jest wypisana raz pod nazwiskiem, nie przy każdej zmianie — nawet gdy ktoś pokrywa dodatkową zmianę, zostaje swoją rolą.",
+    "Komórki dni pokazują wyłącznie rzeczywiste godziny (np. 5–12); odcień wypełnienia komórki to podpowiedź tej samej roli.",
+    "Kilka niezależnych zmian jednego dnia — osobne linie w tej samej komórce, w kolejności chronologicznej.",
+    "Zmiana przechodząca przez północ: godzina końcowa z dopiskiem (+1) oznacza następną dobę (np. 22–6(+1)).",
+    "Nieobecność: pogrubiona pełna ramka = Urlop, przerywana ramka = L4, bez wypełnienia. „–” = zwykły dzień bez pracy.",
+    "„Godz.” = suma godzin rzeczywistej pracy w miesiącu (bez godzin absencji).",
+)
+def _ordinary_position_shades(rows: "tuple[OrdinaryRowCells, ...]") -> dict[str, tuple]:
+    # Brief section 5/11: deterministic for however many organizational
+    # positions actually appear in this document -- never a hardcoded
+    # two-role palette. The fill is only a secondary cue; the position text
+    # under the name stays the primary carrier of meaning.
+    positions = sorted({r.position_label for r in rows}, key=str.casefold)
+    light, dark = 0xE2, 0x50
+    shades: dict[str, tuple] = {}
+    for index, label in enumerate(positions):
+        level = dark if len(positions) <= 1 else round(light - (light - dark) * index / (len(positions) - 1))
+        fill = HexColor(f"#{level:02x}{level:02x}{level:02x}")
+        shades[label] = (fill, black if level >= 0x90 else white)
+    return shades
+def _check_ordinary_fits(row_h: float) -> int:
+    available = landscape(A3)[1] - 2 * MARGIN - HEADER_H - _ordinary_legend_height() - FOOTER_H
+    rows_per_page = int(available // row_h)
+    if rows_per_page < 1:
+        raise ExportProblemError("ROSTER_TOO_LARGE_FOR_ACCEPTED_LAYOUT", f"not even one employee row fits at the {row_h}pt floor")
+    return rows_per_page
+def _ordinary_legend_height() -> float:
+    return 15 + len(ORD_LEGEND_LINES) * 11 + 6
+def _draw_ordinary_day_headers(c, day_w, days, holiday_by_date, bold, y) -> float:
+    x = MARGIN + NAME_W
+    for d in days:
+        if d.weekday() >= 5 or holiday_by_date.get(d, False):
+            c.setFillColor(_WEEKEND_BG); c.rect(x, y - 30, day_w, 30, stroke=0, fill=1); c.setFillColor(black)  # noqa: E702
+        c.setFont(bold, 6.5); c.drawCentredString(x + day_w / 2, y - 10, _DOW[d.weekday()])  # noqa: E702
+        c.setFont(bold, 8); c.drawCentredString(x + day_w / 2, y - 24, str(d.day))  # noqa: E702
+        x += day_w
+    c.setFont(bold, 6.5); c.drawCentredString(x + ORD_SUM_W / 2, y - 18, "Godz.")  # noqa: E702
+    return y - 32
+def _draw_ordinary_page_header(c, model: ExportModel, day_w, revision: str, generated_at: datetime, regular, bold, page_h) -> float:
+    y = page_h - MARGIN
+    c.setFont(bold, 16); c.drawString(MARGIN, y, f"{model.company_print_name} — {model.site_print_name}"); y -= 18  # noqa: E702
+    c.setFont(regular, 9.5); c.drawString(MARGIN, y, f"Okres: {model.period_label}   Zakres dat: {model.days[0].isoformat()} — {model.days[-1].isoformat()}"); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, model.provenance_display_text); y -= 12  # noqa: E702
+    c.drawString(MARGIN, y, f"Rewizja treści: {revision[:10]}   Wygenerowano: {generated_at.isoformat()}"); y -= 16  # noqa: E702
+    return _draw_ordinary_day_headers(c, day_w, model.days, model.holiday_by_date, bold, y)
+def _draw_ordinary_row(c, y, row_h, day_w, row: "OrdinaryRowCells", days, regular, bold, shades) -> None:
+    x = MARGIN
+    c.setFont(regular, _fit_font_size(row.display_name, regular, 7.5, NAME_W - 4)); c.drawString(x + 2, y - row_h / 2 + 4, row.display_name)  # noqa: E702
+    c.setFont(regular, 6); c.setFillColor(HexColor("#5c6156"))  # noqa: E702
+    c.drawString(x + 2, y - row_h / 2 - 6, row.position_label)
+    c.setFillColor(black)
+    x += NAME_W
+    fill, text_color = shades.get(row.position_label, (None, black))
+    for day_index, _ in enumerate(days):
+        lines = row.day_cells[day_index]
+        absence_kind = row.day_absence_kind[day_index]
+        c.setStrokeColor(HexColor("#c8c8c8")); c.setLineWidth(0.4)  # noqa: E702
+        c.rect(x, y - row_h, day_w, row_h, stroke=1, fill=0)
+        is_blank = lines == [BLANK]
+        if absence_kind is None and not is_blank and fill is not None:
+            c.setFillColor(fill); c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=0, fill=1)  # noqa: E702
+        if absence_kind == "URLOP":
+            c.setStrokeColor(black); c.setLineWidth(1.4)  # noqa: E702
+            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+            c.setLineWidth(0.4)
+        elif absence_kind == "L4":
+            c.setStrokeColor(black); c.setDash(2, 1.5)  # noqa: E702
+            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+            c.setDash(); c.setLineWidth(0.4)  # noqa: E702
+        if not is_blank:
+            fs = 6.5
+            while fs > 4.5 and max(pdfmetrics.stringWidth(t, bold, fs) for t in lines) > day_w - 3:
+                fs -= 0.5
+            line_h = fs + 1.5
+            top = y - row_h / 2 + (len(lines) - 1) * line_h / 2
+            c.setFillColor(black if absence_kind is not None or fill is None else text_color)
+            c.setFont(bold, fs)
+            for i, line in enumerate(lines):
+                c.drawCentredString(x + day_w / 2, top - i * line_h - fs * 0.35, line)
+            c.setFillColor(black)
+        x += day_w
+    c.setFont(regular, 7); c.drawCentredString(x + ORD_SUM_W / 2, y - row_h / 2 - 3, str(row.total_hours))  # noqa: E702
+def _draw_ordinary_legend(c, regular, italic, bold, y: float) -> None:
+    c.setFont(bold, 10); c.drawString(MARGIN, y, "Legenda"); y -= 15  # noqa: E702
+    c.setFont(regular, 8)
+    for line in ORD_LEGEND_LINES:
+        c.drawString(MARGIN, y, line); y -= 11  # noqa: E702
+def _render_ordinary_pdf(model: ExportModel, generated_at: datetime) -> bytes:
+    regular, bold, italic = _resolve_unicode_font()
+    page_w, page_h = landscape(A3)
+    day_w = (page_w - 2 * MARGIN - NAME_W - ORD_SUM_W) / len(model.days)
+    rows_per_page = _check_ordinary_fits(ORD_ROW_H)
+    _check_header_fits(model, regular, bold)
+    revision = _document_revision(model)
+    shades = _ordinary_position_shades(model.ordinary_rows)
+    pages = [model.ordinary_rows[i:i + rows_per_page] for i in range(0, len(model.ordinary_rows), rows_per_page)] or [[]]
+    page_count = len(pages)
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=landscape(A3))
+    for page_num, page_rows in enumerate(pages, start=1):
+        y = _draw_ordinary_page_header(c, model, day_w, revision, generated_at, regular, bold, page_h)
+        for row in page_rows:
+            _draw_ordinary_row(c, y, ORD_ROW_H, day_w, row, model.days, regular, bold, shades)
+            y -= ORD_ROW_H
+        if page_num == page_count:
+            _draw_ordinary_legend(c, regular, italic, bold, y - 10)
+        _draw_page_footer(c, regular, page_num, page_count, page_w)
         c.showPage()
     c.save()
     return buf.getvalue()

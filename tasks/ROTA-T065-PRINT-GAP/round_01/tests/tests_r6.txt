@@ -1,0 +1,109 @@
+ROTA-T065-PRINT-GAP — AUDYT IMPLEMENTACJI CHECKPOINT B R6
+
+WERDYKT: FAIL
+AUDYTOWANY SHA: 3fa2941fff5b565b6cbb1d7fbf843435c45c80f9
+BAZA IMPLEMENTACJI: 45c021b
+BRIEF CHECKPOINT B: 8bf47a21484277ffecf0ae7a6223b28fe970c971
+
+PODSUMOWANIE
+------------
+Główna implementacja jest zgodna z architekturą: pozostaje jeden publiczny
+generate_schedule_pdf, wspólne LAW/CURRENT/provenance/revision/race checks,
+a rozgałęzienie ORDINARY/OCHRONA istnieje dopiero w prywatnym assembly i
+rendererze. Celowane testy, frontend build i wizualna kontrola dwustronicowego
+PDF potwierdziły godziny, układ, białe tło, nagłówki i legendę.
+
+Jeden normalny przypadek nie spełnia jednak zamrożonego kontraktu stanowiska:
+aktywny pracownik ORDINARY z prawidłowo przypisanym stanowiskiem, ale bez
+Assignmentu w danej ScheduleVersion, ma na PDF pustą linię stanowiska.
+
+FINDING R6-01 — pracownik bez zmiany traci stanowisko na wydruku
+----------------------------------------------------------------
+TRACE
+- ROTA-T065-CONFIGURABLE-ROLES brief §6: nowy child ScheduleVersion zapisuje
+  snapshot bieżących stanowisk osób należących do Site w chwili utworzenia;
+- ROTA-T065-PRINT-GAP brief §5 pkt 2 oraz §9: pod nazwiskiem pracownika ma być
+  dokładnie jedna pełna historyczna nazwa stanowiska;
+- T65P-04/T65P-12: stanowisko pochodzi z autoryzowanego historycznego snapshotu,
+  nigdy z bieżącego membershipu ani demandu.
+
+OWNERSHIP
+- właściwym właścicielem poprawki jest
+  rota/persistence/schedule_lifecycle.py::_insert_employee_positions;
+- obecnie buduje on listę wyłącznie z employee_id obecnych w assignments;
+- schedule_export.py poprawnie nie zgaduje stanowiska z bieżących danych.
+  Nie należy dodawać tam fallbacku ani duplikować ownera.
+
+REPRO na exact SHA
+tasks/ROTA-T065-PRINT-GAP/round_01/tests/audit_r6_repro.py
+
+Polecenie:
+python -m pytest -q
+  tasks/ROTA-T065-PRINT-GAP/round_01/tests/audit_r6_repro.py
+
+Wynik: 1 failed.
+
+Reproduktor tworzy dwóch zwykłych aktywnych pracowników jednego sklepu,
+obydwu ze stanowiskiem „Kierownik”. Jeden ma zmianę 5–12, drugi w tym miesiącu
+nie ma zmiany. Produkcyjna ścieżka tworzy prawdziwy PDF i oba wiersze, lecz
+drugi wiersz ma position_label == "" zamiast „Kierownik”. To typowy grafik
+osoby bez przydziału/na całomiesięcznej nieobecności, nie konflikt danych
+syntetycznych ani scenariusz wieloobiektowy.
+
+Wąska korekta
+-------------
+Naprawić ownera snapshotu w CONFIGURABLE-ROLES tak, aby snapshot nowej wersji
+obejmował stanowiska aktywnych osób należących do Site zgodnie z jego briefem,
+również gdy nie występują w assignments. PRINT-GAP ma nadal wyłącznie czytać
+ten snapshot. Zachować reproduktor i po poprawce uruchomić go ponownie wraz z
+celowanymi testami stanowisk/schedule lifecycle i eksportu ORDINARY.
+
+WARSTWY AUDYTU
+--------------
+1. Diff 45c021b..3fa2941 przeczytany; cztery pliki w TASK_SCOPE,
+   git diff --check PASS.
+
+2. WHERE_MAP REQUIRED:
+   - where.py schedule_export.py --symbol generate_schedule_pdf;
+   - --symbol _assemble_export_model;
+   - --symbol _render_pdf;
+   - where.py site_repository.py --symbol validate_site_print_settings;
+   - where.py schedule_repository.py
+     --symbol get_schedule_version_employee_positions.
+
+   Potwierdzono jeden publiczny endpoint/generate path, jednego ownera ustawień
+   i jeden historyczny odczyt stanowisk.
+
+3. Celowana macierz istniejąca:
+   tests/test_t020.py, tests/test_t056.py,
+   tests/test_export_unacknowledged_law.py, tests/test_t021_export_api.py.
+   Wynik: 88 passed, 1 failed. Jedyny fail to znany pre-existing literał
+   LATEST_SCHEMA_VERSION == 20 przy rzeczywistej wersji 21; niezwiązany z
+   PRINT-GAP i nienazwany tutaj nowym findingiem.
+
+4. Niezależny pion:
+   persistence -> ScheduleVersion snapshot -> ORDINARY assembly -> publiczne
+   generate_schedule_pdf -> prawdziwe bytes PDF. Wynik: 1 failed zgodnie z
+   R6-01.
+
+5. PDF QA:
+   produkcyjny renderer, 26 pracowników, dwie strony A3; render Popplerem i
+   kontrola obu stron. Nagłówki, siatka, stanowisko, godziny, suma, białe tło,
+   pagina i legenda są czytelne; nie znaleziono drugiego defektu layoutu.
+
+6. Frontend:
+   npm run build: PASS (tsc + Vite). Statycznie potwierdzono, że ORDINARY ukrywa
+   base_regime, D/N, S1, rezerwy i D6+/N6+, pozostawiając wspólne nazwy.
+   Interaktywnego Playwright QA nie wykonano, ponieważ js_repl wymagany przez
+   dostępny skill nie jest w tej sesji udostępniony; build nie jest przedstawiany
+   jako pełny test wizualny ekranu.
+
+7. Ruff dla zmienionego backendu i reproduktora: PASS.
+
+WYŁĄCZENIA
+----------
+Nie uruchomiono pełnej regresji, zamrożonych symulatorów ani benchmarków.
+Osobnego findingu ROTA-T023-ORDINARY-SITE-FIXTURE-MISMATCH nie włączono do
+werdyktu tego Tasku.
+
+FAIL dotyczy wyłącznie SHA 3fa2941fff5b565b6cbb1d7fbf843435c45c80f9.
