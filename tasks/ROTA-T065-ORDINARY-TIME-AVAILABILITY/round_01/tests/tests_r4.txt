@@ -1,0 +1,75 @@
+ROTA-T065-ORDINARY-TIME-AVAILABILITY — AUDYT IMPLEMENTACJI R4
+
+WERDYKT: FAIL (wąska poprawka walidacji zapisu)
+AUDYTOWANY SHA: 9f3c86d7e502d06984881c5b7244c686247840fa
+IMPLEMENTATION BASE/PARENT: 2fa4870031a760a06aca1b04e1b35147eb4924c9
+PRODUCT TRUTH: brief ebb8e090749c36189487c0743def34cc54982c0a + decyzje OWNERA wskazane w briefie
+
+ZAKRES AUDYTU
+- diff 2fa4870..9f3c86d;
+- wymagany WHERE_MAP dla 13 wskazanych plików produkcyjnych;
+- jeden owner danych AvailabilityRecord i jeden oracle overlapu;
+- write/API shape, półotwarte granice, ORDINARY bez D/N/24h, LOCAL/EXTERNAL,
+  validator/manual path, guidance i EmployeeDetail;
+- wąska macierz Tasku oraz niezależny pionowy PLAN.
+- zgodnie z AGENTS.md nie uruchamiano pełnej regresji, zamrożonych symulatorów
+  ani benchmarków.
+
+FINDING R4-01 — write boundary przyjmuje niepełne godziny
+
+TRACE
+- brief §10: write boundary wymaga „pełne godziny zgodnie z obecną precyzją
+  produktu”; implementer nie może sam rozszerzyć precyzji.
+
+OWNERSHIP
+- brief §2, §10 i WHERE_MAP wskazują
+  rota/persistence/availability_repository.py jako jedynego append-only ownera
+  danych i granicę zapisu.
+- publiczne API ma własny parser pełnych godzin, ale owner repozytorium jest
+  wywoływalny przez istniejącą ścieżkę aplikacyjną z obiektami datetime.time;
+  jego walidacja nie sprawdza minute/second/microsecond.
+
+REPRO NA DOKŁADNYM SHA
+- audit_r4_repro.py::test_write_boundary_rejects_partial_hours
+- zapis UNAVAILABLE_TIME_WINDOW 08:30–12:00 kończy się powodzeniem;
+  oczekiwany ValueError nie powstaje.
+
+SKUTEK
+- baza może utrwalić okno o dokładności, której kontrakt V1 nie dopuszcza.
+- nie jest to wada algorytmu PLAN ani „atak”; to lokalny brak jednego warunku
+  w już istniejącej walidacji zapisu.
+
+WYMAGANA POPRAWKA
+- w jednym ownerze _validate_time_window odrzucić start_time/end_time, jeśli
+  minuta, sekunda albo mikrosekunda nie są zerowe;
+- dodać wąski test repozytorium dla obu końców przedziału. Bez nowego helpera,
+  endpointu ani zachowania produktowego.
+
+DOWODY POZYTYWNE
+- niezależny pionowy reproduktor PlanningState -> plan() PASS: kolizja
+  10:00–18:00 z oknem 00:00–12:00 daje DECISION_REQUIRED, komunikat
+  „Koliduje z dostępnością godzinową” i akcję
+  „Zmień dostępność godzinową: Jan”.
+- implementacja zachowuje jeden AvailabilityRecord owner i jeden pure oracle
+  współdzielony przez eligibility oraz validator.
+- UI ORDINARY ukrywa day_only/D/N/can_work_24h, zachowuje ogólne wpisy
+  dostępności i udostępnia okno godzinowe; OCHRONA nie pokazuje nowego rodzaju.
+- diff --check: PASS.
+- ruff dla zmienionych plików i reproduktora: PASS.
+- macierz: 216 PASS, 1 FAIL.
+  Jedyny FAIL:
+  tests/test_t012.py::test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback
+  został niezależnie uruchomiony na rodzicu 2fa4870 i również FAIL; jest
+  pre-existing i nie stanowi defektu tego Tasku.
+- audit_r4_repro.py: 1 PASS, 1 FAIL (wyłącznie R4-01).
+
+UWAGA TECHNICZNA O SCOPE
+- diff zmienia tests/test_t012.py, którego nie ma w literalnym TASK_SCOPE.
+- zmiana jest test-only i nie jest findingiem produktowym, ale przed finalnym
+  audytem należy ją wycofać z tego Tasku albo jawnie zalegalizować w kontrakcie.
+
+RE-CHECK PO POPRAWCE
+- literalny diff 9f3c86d..NOWY_SHA;
+- audit_r4_repro.py;
+- nowe testy pełnej godziny + tests/test_t065_ordinary_time_availability.py;
+- bez ponownego czytania całej implementacji i bez pełnej regresji.
