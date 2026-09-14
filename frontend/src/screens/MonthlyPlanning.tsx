@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, ShiftDemandOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 
 function firstOfMonthIso(yearMonth: string): string {
@@ -338,6 +338,54 @@ export default function MonthlyPlanning({
   const [s1EndNextDay, setS1EndNextDay] = useState(false);
   const [s1Saving, setS1Saving] = useState(false);
 
+  // ROTA-T065-MANUAL-MIDDLE-SHIFT: manual ORDINARY "środek" (seasonal/event
+  // extra real work) entry, ORDINARY-only, same "Ręczna korekta" section --
+  // never its own screen/table. planningRegime/siteRoles are fetched the
+  // same way EmployeeDetail.tsx/PrintSettings.tsx already do, no new endpoint.
+  const [planningRegime, setPlanningRegime] = useState<"OCHRONA" | "ORDINARY" | null>(null);
+  const [siteRoles, setSiteRoles] = useState<SiteRoleOut[]>([]);
+  useEffect(() => {
+    api.getShiftCatalog(siteId).then((c) => setPlanningRegime(c.planning_regime)).catch(() => undefined);
+    api.listSiteRoles(siteId).then(setSiteRoles).catch(() => undefined);
+  }, [siteId]);
+  const [showAddMiddleWork, setShowAddMiddleWork] = useState(false);
+  const [middleEmployeeId, setMiddleEmployeeId] = useState("");
+  const [middleDay, setMiddleDay] = useState(days[0]);
+  useEffect(() => {
+    setMiddleDay(days[0]);
+  }, [days]);
+  const [middleStart, setMiddleStart] = useState("");
+  const [middleEnd, setMiddleEnd] = useState("");
+  const [middleEndNextDay, setMiddleEndNextDay] = useState(false);
+  const [middleRoleId, setMiddleRoleId] = useState("");
+  const [middleSaving, setMiddleSaving] = useState(false);
+
+  const addManualMiddleWork = async () => {
+    if (!middleEmployeeId || !middleStart || !middleEnd || !middleRoleId) return;
+    if (!middleStart.endsWith(":00") || !middleEnd.endsWith(":00")) {
+      setError("Start i koniec muszą być na pełną godzinę.");
+      return;
+    }
+    const startIso = `${middleDay}T${middleStart}:00`;
+    const endDay = middleEndNextDay ? new Date(new Date(`${middleDay}T00:00:00`).getTime() + 86400000).toISOString().slice(0, 10) : middleDay;
+    const endIso = `${endDay}T${middleEnd}:00`;
+    if (new Date(endIso) <= new Date(startIso)) {
+      setError("Koniec musi być po starcie.");
+      return;
+    }
+    setMiddleSaving(true);
+    setError(null);
+    try {
+      await api.addManualMiddleWork(siteId, monthIso, middleEmployeeId, startIso, endIso, middleRoleId);
+      setShowAddMiddleWork(false);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setMiddleSaving(false);
+    }
+  };
+
   useEffect(() => {
     api
       .getPrintSettings(siteId)
@@ -479,6 +527,7 @@ export default function MonthlyPlanning({
           role: "PERIODIC_TRAINING", state: "PLANNED", frozen: false,
           covers_demand_id: null, mentor_primary_assignment_id: null, operational_code: null,
           work_period_id: null, required_rest_after_hours: null,
+          manual_work_role_id: null, manual_work_role_name: null,
         },
       ]);
       setShowAddS1(false);
@@ -998,6 +1047,70 @@ export default function MonthlyPlanning({
                   <div className="create-panel-actions">
                     <button className="btn-primary" onClick={addS1} disabled={s1Saving || !s1EmployeeId || !s1Start || !s1End}>
                       {s1Saving ? "Zapisywanie…" : "Zapisz S1"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {planningRegime === "ORDINARY" && (
+                <div className="create-panel-actions" style={{ marginTop: 12 }}>
+                  <button className="btn-ghost" onClick={() => setShowAddMiddleWork((v) => !v)}>
+                    {showAddMiddleWork ? "Anuluj dodawanie pracy" : "Dodaj pracę"}
+                  </button>
+                </div>
+              )}
+
+              {planningRegime === "ORDINARY" && showAddMiddleWork && (
+                <div className="panel" style={{ marginTop: 12 }}>
+                  <h3>Dodaj pracę</h3>
+                  <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+                    <label>
+                      <span className="field-label">Pracownik</span>
+                      <select value={middleEmployeeId} onChange={(e) => setMiddleEmployeeId(e.target.value)}>
+                        <option value="">— wybierz —</option>
+                        {rosterEmployees.map((r) => (
+                          <option key={r.employee_id} value={r.employee_id}>{r.display_name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="field-label">Rola wykonywanej pracy</span>
+                      <select value={middleRoleId} onChange={(e) => setMiddleRoleId(e.target.value)}>
+                        <option value="">— wybierz —</option>
+                        {siteRoles.filter((r) => r.active).map((r) => (
+                          <option key={r.role_id} value={r.role_id}>{r.display_name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="field-label">Dzień</span>
+                      <input
+                        type="date" value={middleDay} min={monthIso} max={days[days.length - 1]}
+                        onChange={(e) => setMiddleDay(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">Godzina od</span>
+                      <input type="time" step={3600} value={middleStart} onChange={(e) => setMiddleStart(e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="field-label">Godzina do</span>
+                      <input type="time" step={3600} value={middleEnd} onChange={(e) => setMiddleEnd(e.target.value)} />
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="checkbox" style={{ width: "auto" }}
+                        checked={middleEndNextDay} onChange={(e) => setMiddleEndNextDay(e.target.checked)}
+                      />
+                      <span className="field-label">Koniec nast. dnia</span>
+                    </label>
+                  </div>
+                  <div className="create-panel-actions">
+                    <button
+                      className="btn-primary" onClick={addManualMiddleWork}
+                      disabled={middleSaving || !middleEmployeeId || !middleStart || !middleEnd || !middleRoleId}
+                    >
+                      {middleSaving ? "Zapisywanie…" : "Zapisz pracę"}
                     </button>
                   </div>
                 </div>

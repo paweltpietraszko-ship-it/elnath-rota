@@ -125,6 +125,10 @@ export interface AssignmentOut {
   operational_code: string | null;
   work_period_id: string | null;
   required_rest_after_hours: number | null;
+  // ROTA-T065-MANUAL-MIDDLE-SHIFT: both null for an ordinary demand-
+  // covering PRIMARY; both present only for a legal manual "środek".
+  manual_work_role_id: string | null;
+  manual_work_role_name: string | null;
 }
 
 export interface DeviationOut {
@@ -750,6 +754,20 @@ export const api = {
     req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction/mark-not-worked`, {
       method: "POST",
       body: JSON.stringify({ assignment_id: assignmentId }),
+    }),
+  // ROTA-T065-MANUAL-MIDDLE-SHIFT: ORDINARY-only "Dodaj pracę" inside the
+  // same Ręczna korekta section -- a manual "środek" with no ShiftDemand,
+  // via the same manual-correction lifecycle (no second endpoint/table).
+  addManualMiddleWork: (
+    siteId: string, month: string, employeeId: string, startDatetime: string, endDatetime: string,
+    manualWorkRoleId: string, note?: string,
+  ) =>
+    req<ManualCorrectionResultOut>(`/workspace/sites/${siteId}/schedule/${month}/manual-correction/manual-middle-work`, {
+      method: "POST",
+      body: JSON.stringify({
+        employee_id: employeeId, start_datetime: startDatetime, end_datetime: endDatetime,
+        manual_work_role_id: manualWorkRoleId, note: note ?? null,
+      }),
     }),
 
   getCalendarRange: (start: string, end: string) =>

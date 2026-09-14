@@ -1,0 +1,52 @@
+ROTA-T065-MANUAL-MIDDLE-SHIFT — korekta werdyktu R4
+Data: 2026-09-14
+Audytowany kod: task/ROTA-T065-MANUAL-MIDDLE-SHIFT@597d4037e39d51bfd9d0fc4e176532db1acb6486
+Poprzedni raport/reproduktor: audit@7daace0
+
+WYNIK: PASS — GOTOWE DO MERGE.
+
+Korekta oceny R3-01
+--------------------
+OWNER doprecyzował rzeczywisty kontekst produktu: obsługiwanym scenariuszem
+jest układanie grafiku przez solver oraz ręczne działania koordynatora przez
+normalny interfejs programu. Bezpośrednie preparowanie technicznego żądania do
+ogólnego endpointu API poza tym interfejsem nie jest scenariuszem pracy, dla
+którego ten program ma być projektowany ani audytowany.
+
+W tym kontekście R3-01 nie spełnia TRACE do realnego scenariusza produktu:
+- solver nie tworzy manual middle i nie omija reguł;
+- normalna akcja UI „Dodaj pracę” korzysta z `add_manual_middle_work()`;
+- ta droga sprawdza ORDINARY, aktywną rolę, membership oraz pełne pokrycie
+  RoleCoverageAuthorization przed utworzeniem child ScheduleVersion;
+- reproduktor R3 wymaga ręcznego skonstruowania żądania do technicznego API,
+  którego normalny interfejs nie wysyła.
+
+Reproduktor pozostaje zachowany jako dowód technicznej właściwości API, ale
+nie jest defektem ani blockerem merge w zaakceptowanym modelu używania Rota.
+Nie wymaga poprawki kodu.
+
+TASK_SCOPE
+----------
+Trzy wcześniej wskazane różnice są TECHNICAL_ONLY i nie poszerzają zachowania
+produktu:
+- `manual_middle_work.py` jest małym wydzieleniem zapobiegającym dalszemu
+  wzrostowi `manual_edit.py`, delegującym do tego samego lifecycle;
+- `validator_shared.py` jest po refaktorze rzeczywistym miejscem logiki
+  opisanej w briefie jako `validator.py`;
+- `deviation_mapping.py` domyka istniejące mapowanie zaakceptowanej reguły
+  `UNAVAILABLE_TIME-01`, nie tworząc nowej reguły.
+
+Rozbieżność literalnej listy plików jest odnotowana, ale przy tej wadze i
+jednoznacznym technicznym charakterze nie uzasadnia kolejnej rundy ani HOLD.
+
+Dowody pozostają bez zmian
+--------------------------
+- targeted Task/manual-edit/persistence: 60 PASS;
+- Ruff: PASS;
+- frontend TypeScript/Vite build: PASS;
+- wspólny availability oracle i istniejący ScheduleVersion lifecycle
+  potwierdzone przez WHERE_MAP oraz kod exact SHA.
+
+Nie uruchamiano pełnej regresji, zamrożonych symulatorów ani benchmarków.
+PASS dotyczy dokładnie kodu `597d4037e39d51bfd9d0fc4e176532db1acb6486`.
+

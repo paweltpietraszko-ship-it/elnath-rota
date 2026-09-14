@@ -217,10 +217,26 @@ def _validate_assignment_references(
     version. Manual splits/gaps are truthful operational state, not a
     persistence-layer COVERAGE-01 violation."""
     if assignment.role == AssignmentRole.PRIMARY:
-        if not assignment.covers_demand_id or assignment.mentor_primary_assignment_id:
-            raise MalformedScheduleSnapshot(f"PRIMARY {assignment.assignment_id!r}: covers_demand_id required, mentor forbidden")
-        if assignment.covers_demand_id not in demands_by_id:
-            raise MalformedScheduleSnapshot(f"PRIMARY {assignment.assignment_id!r}: covers_demand_id not in this version")
+        if assignment.mentor_primary_assignment_id:
+            raise MalformedScheduleSnapshot(f"PRIMARY {assignment.assignment_id!r}: mentor forbidden")
+        if assignment.covers_demand_id is not None:
+            # ROTA-T065-MANUAL-MIDDLE-SHIFT section 5.1: an ordinary
+            # demand-covering PRIMARY must never carry the manual-middle
+            # markers -- they are mutually exclusive shapes.
+            if assignment.manual_work_role_id is not None or assignment.manual_work_role_name is not None:
+                raise MalformedScheduleSnapshot(
+                    f"PRIMARY {assignment.assignment_id!r}: covers_demand_id and manual_work_role_* are mutually exclusive"
+                )
+            if assignment.covers_demand_id not in demands_by_id:
+                raise MalformedScheduleSnapshot(f"PRIMARY {assignment.assignment_id!r}: covers_demand_id not in this version")
+        elif assignment.manual_work_role_id is not None and assignment.manual_work_role_name is not None:
+            pass  # ROTA-T065-MANUAL-MIDDLE-SHIFT section 5.2: the one legal manual "środek" shape -- no ShiftDemand, both markers present.
+        else:
+            # ROTA-T065-MANUAL-MIDDLE-SHIFT section 5.3: fail closed -- no demand and no (or only
+            # a half-set) manual-middle marker is never interpreted as manual work "just in case".
+            raise MalformedScheduleSnapshot(
+                f"PRIMARY {assignment.assignment_id!r}: covers_demand_id required unless both manual_work_role_id/name are set"
+            )
     elif assignment.role == AssignmentRole.TRAINEE:
         if assignment.covers_demand_id or not assignment.mentor_primary_assignment_id:
             raise MalformedScheduleSnapshot(f"TRAINEE {assignment.assignment_id!r}: mentor required, covers_demand_id forbidden")

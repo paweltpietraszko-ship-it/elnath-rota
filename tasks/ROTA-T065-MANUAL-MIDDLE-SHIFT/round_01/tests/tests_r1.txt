@@ -1,0 +1,63 @@
+ROTA-T065-MANUAL-MIDDLE-SHIFT — preimplementation audit R1
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-MANUAL-MIDDLE-SHIFT@41f2e4c84fc8498dd87eae7b069b9ac0a659b317
+BOARD intake: main@0c288b97a41acd45b5bcfb64f29b650aab41e9c0
+
+WYNIK: WYMAGA_KOREKTY.
+
+Co jest poprawne
+----------------
+- „środek” jest ręczną, realną pracą, nie wejściem solvera ani StandardShift;
+- korzysta z istniejącego child ScheduleVersion/manual correction/deviation;
+- nie jest S1 i nie dziedziczy jego zwolnień;
+- rola wykonywanej pracy nie zmienia stanowiska człowieka;
+- nie powstaje osobna tabela historii ani drugi validator.
+
+R1-01 — dostępność godzinowa musi być twardą zależnością
+-------------------------------------------------------
+Brief mówi „jeśli zostanie wdrożone wcześniej”. OWNER jawnie ustalił, że osoba
+zablokowana do 12:00 nie może dostać także środka zaczynającego się przed
+12:00. `ROTA-T065-ORDINARY-TIME-AVAILABILITY` musi więc być wymaganą
+zależnością implementacyjną, a acceptance ma zawierać ten przypadek.
+
+R1-02 — konflikt z OWNER_ACCEPTED PDF
+------------------------------------
+§9 wymaga, aby przyszły PDF pokazywał godziny i rolę wykonywanej pracy.
+Zamrożony PRINT-GAP wymaga w komórce wyłącznie godzin oraz jednego stanowiska
+pod nazwiskiem; rola konkretnej pracy nie jest drukowana. Brief środka musi
+zachować rolę w historii/validation, ale nie może rozszerzać layoutu PDF.
+
+R1-03 — brak inwariantu legalnego Assignment bez demandu
+--------------------------------------------------------
+Dzisiejszy model opisuje `covers_demand_id` jako wymagane dla PRIMARY, a
+validator/export traktują niepowiązany PRIMARY jako brak provenance. Brief
+proponuje pole snapshotu roli, ale nie definiuje jednoznacznego znacznika:
+kiedy `covers_demand_id=None` oznacza legalny ręczny środek, a kiedy wadliwy
+Assignment. Kontrakt musi wskazać jeden minimalny wariant/inwariant rozpoznawany
+identycznie przez persistence, validator, history i PRINT-GAP, bez osłabienia
+fail-closed dla przypadkowo niepowiązanych PRIMARY.
+
+R1-04 — TASK_SCOPE jest niepoprawny
+----------------------------------
+- `rota/persistence/schema.py` nie istnieje; zmiana schematu należy do
+  `rota/persistence/db.py`.
+- Jeżeli Task nie zmienia `schedule_export.py`, musi jawnie zadeklarować
+  integracyjną zależność PRINT-GAP na obsługę legalnego środka zamiast obiecywać
+  PDF w tym scope.
+- `tests/` jest zbyt szerokie; zawęzić do testów Tasku i koniecznych regresji.
+
+R1-05 — dopuszczenie roli musi być zgodne z CONFIGURABLE-ROLES
+----------------------------------------------------------------
+Brief dopuszcza przejście braku uprawnienia ROLE-01 przez deviation flow.
+Kontrakt zależnego Tasku musi jednoznacznie powiedzieć, czy takie jednorazowe
+odchylenie samo jest jawnym dopuszczeniem tej konkretnej pracy, czy najpierw
+trzeba utworzyć osobny aktywny fakt zastępstwa. Nie wolno mieć dwóch sposobów
+autoryzacji o różnej semantyce.
+
+R1-06 — brak WHERE_MAP
+---------------------
+Task zmienia inwariant Assignment, manual correction, validator, persistence i
+API/UI. Wymagany jest `WHERE_MAP: REQUIRED` dla tych ownerów przed implementacją.
+
+Po korekcie wystarczy ponowny audyt briefu. Nie uruchamiano testów produktu,
+regresji, symulatorów ani benchmarków.

@@ -126,7 +126,17 @@ def _attributed_overlap_intervals(assignment: Assignment, demand, demand_by_id: 
     sub-interval (the overlap of the tagged demand and `demand` themselves)
     is now excluded; a non-concurrent tail/head of the same assignment
     still counts toward `demand` by plain geometry, exactly as T022
-    requires for a spanning/manual PRIMARY."""
+    requires for a spanning/manual PRIMARY.
+
+    ROTA-T065-MANUAL-MIDDLE-SHIFT: a manual "środek" (manual_work_role_id
+    set, covers_demand_id=None) never counts toward ANY ShiftDemand's
+    coverage, even one it geometrically overlaps -- unlike an untagged
+    legacy PRIMARY, it is by definition extra real work outside the
+    demand/coverage system (brief section 1/8), not a same-work-different-
+    tag case the "absent tag can never hide real coverage" rule above is
+    meant to catch."""
+    if assignment.manual_work_role_id is not None:
+        return []
     a_start = max(assignment.start_datetime, demand.start_datetime)
     a_end = min(assignment.end_datetime, demand.end_datetime)
     if a_start >= a_end:
@@ -162,7 +172,16 @@ def _covering_demand(assignment: Assignment, state: PlanningState):
 def _covered_demands(assignment: Assignment, state: PlanningState) -> list:
     """T022-F1: every state.shift_demands whose interval actually overlaps this Assignment (same interval-truth
     COVERAGE-01 uses) -- a spanning PRIMARY cannot hide a covered demand behind a different covers_demand_id tag.
-    Falls back to the tagged demand only when the interval overlaps no current-month demand at all."""
+    Falls back to the tagged demand only when the interval overlaps no current-month demand at all.
+
+    ROTA-T065-MANUAL-MIDDLE-SHIFT (brief section 8): a manual "środek" never
+    covers any ShiftDemand, geometrically or otherwise -- it sits outside
+    the demand/coverage system entirely (section 1), so callers (ROLE-01,
+    DAY_ONLY-01, EXTERNAL-01, site rules) never activate a demand-derived,
+    OCHRONA/catalog-shaped requirement for it just because its real hours
+    happen to overlap an unrelated demand's time window."""
+    if assignment.manual_work_role_id is not None:
+        return []
     overlapping = [d for d in state.shift_demands if assignment.start_datetime < d.end_datetime and assignment.end_datetime > d.start_datetime]
     if overlapping:
         return overlapping
