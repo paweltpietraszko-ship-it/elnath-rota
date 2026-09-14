@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 21
+LATEST_SCHEMA_VERSION = 22
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -784,6 +784,18 @@ _MIGRATION_21: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# ROTA-T065-MANUAL-MIDDLE-SHIFT brief.md section 5: the minimal marker/
+# historical snapshot for a legal manual "środek" PRIMARY without a
+# ShiftDemand -- both columns stay NULL for every ordinary demand-covering
+# PRIMARY, no behavior change to them.
+# ---------------------------------------------------------------------------
+_MIGRATION_22: tuple[str, ...] = (
+    "ALTER TABLE assignments ADD COLUMN manual_work_role_id TEXT",
+    "ALTER TABLE assignments ADD COLUMN manual_work_role_name TEXT",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], None]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -809,6 +821,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], No
     (19, _MIGRATION_19),
     (20, _MIGRATION_20),
     (21, _MIGRATION_21),
+    (22, _MIGRATION_22),
 )
 
 

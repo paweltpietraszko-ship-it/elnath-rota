@@ -9,7 +9,7 @@ surfaces that resulting Deviation list back to the caller.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
@@ -18,6 +18,7 @@ from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from api.routers.schedule import AssignmentIn, DeviationOut, _assignment_from_in, _deviation_out
 from rota.application.manual_edit import apply_manual_correction, freeze_or_unfreeze, mark_not_worked
+from rota.application.manual_middle_work import add_manual_middle_work
 from rota.persistence.schedule_repository import get_schedule_snapshot
 
 router = APIRouter(prefix="/workspace/sites", tags=["manual-edit"])
@@ -105,6 +106,38 @@ def post_mark_not_worked(
         version = mark_not_worked(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id, assignment_id=payload.assignment_id,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+        return _result_out(conn, version)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class AddManualMiddleWorkRequest(BaseModel):
+    """ROTA-T065-MANUAL-MIDDLE-SHIFT section 9: pracownik, data/godziny,
+    rola wykonywanej pracy z katalogu Site -- pełnogodzinna precyzja,
+    zgodnie z manual_edit.add_manual_middle_work's own ValueError-based
+    fail-closed shape (unknown role, wrong regime, missing authorization)."""
+    model_config = ConfigDict(extra="forbid")
+    employee_id: str
+    start_datetime: str
+    end_datetime: str
+    manual_work_role_id: str
+    note: str | None = None
+    responds_to_decision_required_id: str | None = None
+
+
+@router.post(
+    "/{site_id}/schedule/{month}/manual-correction/manual-middle-work", response_model=ManualCorrectionResultOut,
+)
+def post_add_manual_middle_work(
+    site_id: str, month: date, payload: AddManualMiddleWorkRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> ManualCorrectionResultOut:
+    try:
+        version = add_manual_middle_work(
+            conn, site_id=site_id, month=month, coordinator_id=coordinator_id, employee_id=payload.employee_id,
+            start_datetime=datetime.fromisoformat(payload.start_datetime),
+            end_datetime=datetime.fromisoformat(payload.end_datetime),
+            manual_work_role_id=payload.manual_work_role_id, note=payload.note,
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
         return _result_out(conn, version)
     except Exception as exc:

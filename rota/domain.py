@@ -491,6 +491,17 @@ class Assignment:
     # the REST_MIN_HOURS compatibility fallback).
     work_period_id: Optional[str] = None
     required_rest_after_hours: Optional[int] = None
+    # ROTA-T065-MANUAL-MIDDLE-SHIFT section 5: the ONE new, explicitly
+    # described exception to "PRIMARY must have covers_demand_id" -- a
+    # manually-added ORDINARY "środek" created only via
+    # apply_manual_correction(). Both fields are required together and only
+    # when covers_demand_id is None; both None for every ordinary
+    # demand-covering PRIMARY (see schedule_validation.py for the fail-closed
+    # invariant). manual_work_role_name is a frozen historical snapshot of
+    # the executed-work role -- a later SiteRoleDefinition rename/retire
+    # never changes it.
+    manual_work_role_id: Optional[str] = None
+    manual_work_role_name: Optional[str] = None
 
 
 @dataclass

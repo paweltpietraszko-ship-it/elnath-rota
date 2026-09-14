@@ -16,6 +16,13 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     "LEAVE_GRANTED-01": DeviationCategory.LEAVE_OR_TIME_OFF,
     "UNAVAILABLE-01": DeviationCategory.LEAVE_OR_TIME_OFF,
     "SICK_LEAVE-01": DeviationCategory.LEAVE_OR_TIME_OFF,
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY added this validator rule but
+    # never registered it here -- found via ROTA-T065-MANUAL-MIDDLE-SHIFT's
+    # own MM-07 test, but it already affected the automatic PLAN/REPLAN
+    # acceptance path too (lifecycle_ops.py calls the same
+    # materialize_deviations): any real UNAVAILABLE_TIME-01 HARD violation
+    # crashed with UnknownDeviationSource instead of becoming a Deviation.
+    "UNAVAILABLE_TIME-01": DeviationCategory.LEAVE_OR_TIME_OFF,
     "LOAD-01": DeviationCategory.HOURS,
     "REST-01": DeviationCategory.LAW,
     # ROTA-T023b (frozen addendum section 8): same category as REST-01 --

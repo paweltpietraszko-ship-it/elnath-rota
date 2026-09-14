@@ -119,6 +119,10 @@ class AssignmentOut(BaseModel):
     operational_code: str | None
     work_period_id: str | None
     required_rest_after_hours: int | None
+    # ROTA-T065-MANUAL-MIDDLE-SHIFT: both None for an ordinary demand-
+    # covering PRIMARY; both present only for a legal manual "środek".
+    manual_work_role_id: str | None
+    manual_work_role_name: str | None
 
 
 class DeviationOut(BaseModel):
@@ -204,6 +208,7 @@ def _assignment_out(a, employees_by_id: dict) -> AssignmentOut:
         role=a.role.value, state=a.state.value, frozen=a.frozen, covers_demand_id=a.covers_demand_id,
         mentor_primary_assignment_id=a.mentor_primary_assignment_id, operational_code=a.operational_code,
         work_period_id=a.work_period_id, required_rest_after_hours=a.required_rest_after_hours,
+        manual_work_role_id=a.manual_work_role_id, manual_work_role_name=a.manual_work_role_name,
     )
 
 
@@ -389,6 +394,8 @@ class AssignmentIn(BaseModel):
     operational_code: str | None = None
     work_period_id: str | None = None
     required_rest_after_hours: int | None = None
+    manual_work_role_id: str | None = None
+    manual_work_role_name: str | None = None
 
 
 def _assignment_from_in(a: AssignmentIn) -> Assignment:
@@ -399,6 +406,7 @@ def _assignment_from_in(a: AssignmentIn) -> Assignment:
         covers_demand_id=a.covers_demand_id, mentor_primary_assignment_id=a.mentor_primary_assignment_id,
         operational_code=a.operational_code, work_period_id=a.work_period_id,
         required_rest_after_hours=a.required_rest_after_hours,
+        manual_work_role_id=a.manual_work_role_id, manual_work_role_name=a.manual_work_role_name,
     )
 
 

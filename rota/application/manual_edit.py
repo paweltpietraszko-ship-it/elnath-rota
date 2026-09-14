@@ -239,6 +239,7 @@ def _assignment_state(a: Assignment) -> dict:
         "state": a.state.value, "frozen": a.frozen, "covers_demand_id": a.covers_demand_id,
         "mentor_primary_assignment_id": a.mentor_primary_assignment_id, "operational_code": a.operational_code,
         "work_period_id": a.work_period_id, "required_rest_after_hours": a.required_rest_after_hours,
+        "manual_work_role_id": a.manual_work_role_id, "manual_work_role_name": a.manual_work_role_name,
     }
 
 
@@ -342,6 +343,7 @@ def _freeze_third_consecutive_shift_targets(
 _PROTECTED_FIELDS_UNCHANGED = (
     "start_datetime", "end_datetime", "covers_demand_id", "role", "state", "frozen",
     "operational_code", "work_period_id", "required_rest_after_hours", "mentor_primary_assignment_id",
+    "manual_work_role_id", "manual_work_role_name",
 )
 
 
