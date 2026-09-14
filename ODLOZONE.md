@@ -92,3 +92,45 @@ się przypadku z życia, w którym brak tej tolerancji faktycznie przeszkadza
 koordynatorowi.
 
 ---
+
+## 2026-09-14 Pozostałe 33 pre-existing failury w pełnym pakiecie testów
+
+Pierwszy w tej sesji pełny `pytest tests/ --ignore=tests/property` (1439
+testów) znalazł 64 pre-existing failures na `main`, niezwiązanych z
+żadnym refaktorem tego dnia (potwierdzone bajt-w-bajt na czystym
+worktree). 31 naprawionych tego samego dnia w `ROTA-ORDINARY-POSITION-
+FIXTURE-FALLOUT` (mechaniczne: brak stanowiska ORDINARY, martwe literały
+`LATEST_SCHEMA_VERSION`). Pozostałe 33, świadomie odłożone bez naprawy:
+
+- **~28 testów: `DAY_ONLY-01`/`dn_semantics_apply` rozbieżności.** Np.
+  `test_audit_r25_findings.py::test_r25_1a_...` oczekuje tekstu
+  „Koliduje z ustawieniem: Nocka", dostaje tylko „Koliduje z zapisem:
+  Chorobowe". Prawdopodobnie stare testy nieaktualne po zmianach
+  `dn_semantics_apply` z ROTA-T065, ale niezweryfikowane — wymaga
+  realnej analizy czy to zaniedbany test czy realny regres. Inne pliki
+  z tą grupą: `test_t012.py`, `test_t013.py`, `test_t017.py` (2 z 3
+  testów), `test_t022_planning_integrity.py` (6), `test_manual_audits.py`
+  (3), `test_audit_t009_r4.py`, `test_audit_t010_r3.py`,
+  `test_audit_t010_r5_b.py` (4), `test_t009_plan_select_replan.py`,
+  `test_t010_day_only_n_exception.py` (2), `test_real_object_benchmark.py`,
+  `test_replan_minimal_reshuffle.py`, `test_rota_generic_month.py`,
+  `test_rota_stress_benchmark.py`.
+- **3 testy: fałszywe alarmy w testach "no coupling".**
+  `test_site_memory_decision_ledger.py::test_planning_engine_has_no_site_memory_coupling`,
+  `test_site_profile_persistence.py::test_planning_engine_has_no_persistence_coupling`,
+  `test_site_rules_execution.py::test_o_site_rules_module_has_no_persistence_or_sqlite_coupling`
+  — skanują surowy tekst źródła (nie AST) szukając podciągu typu
+  `"rota.persistence"`, łapią wzmiankę w docstringu
+  `rota/planning/availability.py`, nie prawdziwy import. Wymaga decyzji:
+  przepisać na AST czy przeredagować docstring (kruche, powtórzy się).
+- 1 test celowo samo-unieważniający się (`test_t023_checkpoint_b.py::test_t23_54_...`)
+  — diff-proof że `eligibility.py`/`constraints.py` niezmienione,
+  złamany na stałe odkąd ROTA-T065-ORDINARY-TIME-AVAILABILITY legalnie
+  zmienił `eligibility.py`. Nie wymaga akcji, chyba że ten test zostanie
+  przeprojektowany.
+
+Odłożone: Paweł explicit "nie wiem co z tym zrobić, decyduj sam" — CC
+naprawił tylko klasy mechaniczne/pewne tego dnia, resztę zostawił do
+realnej analizy przy innej okazji, nie w pośpiechu.
+
+---
