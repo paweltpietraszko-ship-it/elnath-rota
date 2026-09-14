@@ -265,21 +265,17 @@ def update_employee(
             )
 
 
-def _require_ordinary_position_still_valid(conn, *, site_id: str, membership: SiteMembership, before: SiteMembership | None) -> None:
-    """ROTA-T065-CONFIGURABLE-ROLES section 4: an enabled ORDINARY member
-    who already has a position can never have it cleared, and a retired
-    role can never become anyone's new position. A membership that has
-    never had a position yet (brand-new roster attach, section 9's roster
-    flow) is left alone -- the coordinator sets it afterwards, same as
-    today's readiness/24h onboarding fields."""
+def _require_ordinary_position_still_valid(conn, *, site_id: str, membership: SiteMembership) -> None:
+    """ROTA-T065-CONFIGURABLE-ROLES sections 4/9: an enabled ORDINARY
+    SiteMembership must always name exactly one active position -- no
+    exception for a brand-new attach (R5-01: onboarding is a normal write
+    boundary too, not a grace period). A disabled membership, or any
+    membership at a non-ORDINARY site, is unaffected."""
     site = get_site(conn, site_id)
     if site.planning_regime != SitePlanningRegime.ORDINARY or not membership.enabled:
         return
-    had_position = before is not None and before.position_role_id is not None
     if membership.position_role_id is None:
-        if had_position:
-            raise ValueError("nie można usunąć jedynego stanowiska aktywnego pracownika obiektu standardowego")
-        return
+        raise ValueError("aktywny pracownik obiektu standardowego musi mieć przypisane stanowisko")
     active_role_ids = {r.role_id for r in list_site_roles(conn, site_id, include_inactive=False)}
     if membership.position_role_id not in active_role_ids:
         raise ValueError(f"rola {membership.position_role_id!r} nie należy do aktywnego katalogu ról tego obiektu")
@@ -291,11 +287,11 @@ def update_membership(
 ) -> None:
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     _require_payload_belongs_to_site(membership.site_id, site_id)
+    _require_ordinary_position_still_valid(conn, site_id=site_id, membership=membership)
     recorded_at = datetime.now()
     before = next(
         (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == membership.employee_id), None,
     )
-    _require_ordinary_position_still_valid(conn, site_id=site_id, membership=membership, before=before)
     material = before is None or (
         before.membership_kind, before.enabled, before.readiness_state, before.readiness_source, before.can_work_24h,
         before.position_role_id,

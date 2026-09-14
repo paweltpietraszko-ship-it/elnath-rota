@@ -142,6 +142,13 @@ class AttachRosterRequest(BaseModel):
     # every existing caller of this endpoint is unaffected.
     membership_kind: str = "LOCAL"
     responds_to_decision_required_id: str | None = None
+    # ROTA-T065-CONFIGURABLE-ROLES R5-01: an ORDINARY site's active
+    # SiteMembership must always name exactly one active position (brief
+    # sections 4/9) -- attach is a normal write boundary too, so it must
+    # be able to set the position atomically in the same call, not leave
+    # it to a follow-up PATCH. None for a re-add carries the existing
+    # row's own position forward unchanged.
+    position_role_id: str | None = None
 
 
 @roster_router.post("/sites/{site_id}/roster", status_code=204)
@@ -157,16 +164,17 @@ def attach_to_roster(site_id: str, payload: AttachRosterRequest, conn=Depends(ge
             (m for m in list_memberships_for_site(conn, site_id) if m.employee_id == payload.employee_id), None,
         )
         if existing is not None:
+            position_role_id = payload.position_role_id if payload.position_role_id is not None else existing.position_role_id
             membership = SiteMembership(
                 employee_id=payload.employee_id, site_id=site_id, membership_kind=kind,
                 enabled=True, readiness_state=existing.readiness_state, readiness_source=existing.readiness_source,
-                can_work_24h=existing.can_work_24h, position_role_id=existing.position_role_id,
+                can_work_24h=existing.can_work_24h, position_role_id=position_role_id,
             )
         else:
             membership = SiteMembership(
                 employee_id=payload.employee_id, site_id=site_id, membership_kind=kind,
                 enabled=True, readiness_state=ReadinessState.NOT_READY, readiness_source=ReadinessSource.DEFAULT,
-                can_work_24h=True,
+                can_work_24h=True, position_role_id=payload.position_role_id,
             )
         update_membership(
             conn, coordinator_id=coordinator_id, site_id=site_id, membership=membership,

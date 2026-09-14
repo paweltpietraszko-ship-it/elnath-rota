@@ -144,6 +144,7 @@ export default function ControlPanel({
           {addOpen && (
             <AddPersonPanel
               siteId={siteId}
+              siteRoles={siteRoles}
               onClose={() => setAddOpen(false)}
               onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
               respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
@@ -259,11 +260,13 @@ function endOfDayExclusive(dateStr: string): string {
 
 function AddPersonPanel({
   siteId,
+  siteRoles,
   onClose,
   onAdded,
   respondsToDecisionRequiredId,
 }: {
   siteId: string;
+  siteRoles: SiteRoleOut[];
   onClose: () => void;
   onAdded: (employeeId: string) => void;
   respondsToDecisionRequiredId?: string | null;
@@ -282,6 +285,12 @@ function AddPersonPanel({
   const [windowFrom, setWindowFrom] = useState("");
   const [windowTo, setWindowTo] = useState("");
   const [allowedShiftKind, setAllowedShiftKind] = useState<"" | "D" | "N">("");
+  // ROTA-T065-CONFIGURABLE-ROLES R5-01: an ORDINARY site's catalog is
+  // non-empty exactly when its membership needs a position at attach time
+  // (OCHRONA never has one) -- shown/required from the same siteRoles the
+  // roster screen already loads, no separate regime plumbing needed here.
+  const [positionRoleId, setPositionRoleId] = useState("");
+  const activeSiteRoles = siteRoles.filter((r) => r.active);
 
   // Generated once (brief.md section 5.1, round-9 R9-1): held until the
   // attach step succeeds, surviving re-render, "Ponów" and a reload
@@ -327,6 +336,9 @@ function AddPersonPanel({
       if (membershipKind === "EXTERNAL_SUPPORT" && (!windowFrom || !windowTo)) {
         throw new Error("Podaj zakres dat, w którym solver może korzystać z tej osoby.");
       }
+      if (activeSiteRoles.length > 0 && !positionRoleId) {
+        throw new Error("Wybierz stanowisko dla tej osoby.");
+      }
       // Audit round-17 R17-1: EVERY material write here (employee creation
       // included, not just membership) unconditionally invalidates the
       // site's current decision, regardless of whether it carries the
@@ -338,7 +350,7 @@ function AddPersonPanel({
           employee_id: newEmployeeId, site_id: siteId, display_name: displayName, day_only: dayOnly,
           responds_to_decision_required_id: respondsToDecisionRequiredId,
         });
-        await api.attachToRoster(siteId, newEmployeeId, membershipKind, null);
+        await api.attachToRoster(siteId, newEmployeeId, membershipKind, null, positionRoleId || null);
         await addSupportWindowIfNeeded(newEmployeeId);
         try {
           sessionStorage.removeItem(newEmployeeIdStorageKey(siteId));
@@ -348,7 +360,7 @@ function AddPersonPanel({
         onAdded(newEmployeeId);
       } else {
         if (!selectedExisting) throw new Error("Wybierz pracownika z listy.");
-        await api.attachToRoster(siteId, selectedExisting, membershipKind, respondsToDecisionRequiredId);
+        await api.attachToRoster(siteId, selectedExisting, membershipKind, respondsToDecisionRequiredId, positionRoleId || null);
         await addSupportWindowIfNeeded(selectedExisting);
         onAdded(selectedExisting);
       }
@@ -380,6 +392,24 @@ function AddPersonPanel({
           Wsparcie zewnętrzne
         </button>
       </div>
+
+      {activeSiteRoles.length > 0 && (
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr", marginBottom: 14 }}>
+          <label>
+            <span className="field-label">Stanowisko</span>
+            <select value={positionRoleId} onChange={(e) => setPositionRoleId(e.target.value)}>
+              <option value="" disabled>
+                — wybierz —
+              </option>
+              {activeSiteRoles.map((r) => (
+                <option key={r.role_id} value={r.role_id}>
+                  {r.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {membershipKind === "EXTERNAL_SUPPORT" && (
         <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>

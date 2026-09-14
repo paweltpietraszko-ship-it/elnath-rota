@@ -785,6 +785,7 @@ export const api = {
     employeeId: string,
     membershipKind: "LOCAL" | "EXTERNAL_SUPPORT" = "LOCAL",
     respondsToDecisionRequiredId?: string | null,
+    positionRoleId?: string | null,
   ) =>
     req<void>(`/workspace/sites/${siteId}/roster`, {
       method: "POST",
@@ -792,6 +793,7 @@ export const api = {
         employee_id: employeeId,
         membership_kind: membershipKind,
         responds_to_decision_required_id: respondsToDecisionRequiredId ?? null,
+        position_role_id: positionRoleId ?? null,
       }),
     }),
   createSupportWindow: (

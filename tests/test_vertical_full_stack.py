@@ -88,9 +88,13 @@ def _bootstrap(conn, *, site_id: str, profile_id: str, profile: SiteProfile, emp
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=site_id, coordinator=Coordinator(COORD, "Coord", True), site_profile=profile,
     )
+    # ROTA-T065-CONFIGURABLE-ROLES: ORDINARY now requires every enabled
+    # SiteMembership to name an active position (brief sections 4/9); these
+    # scenarios are role-agnostic and never configure a role catalog, so
+    # use OCHRONA -- same fix as test_t030_shift_catalog_api.py.
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=site_id,
-        site=Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY), association=CoordinatorSiteAssociation(COORD, site_id, True),
+        site=Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.OCHRONA), association=CoordinatorSiteAssociation(COORD, site_id, True),
     )
     for employee_id in employees:
         durable_inputs.update_employee(conn, coordinator_id=COORD, site_id=site_id, employee=Employee(employee_id, employee_id, date(2020, 1, 1), None, False))

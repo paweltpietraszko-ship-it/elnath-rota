@@ -42,7 +42,11 @@ def conn():
         connection, coordinator_id=DEV_COORDINATOR_ID, site_id=SITE,
         coordinator=Coordinator(DEV_COORDINATOR_ID, "Coordinator", True),
         site_profile=SiteProfile(PROFILE, "Profile", True, [], True, True, False, False, 1, 40),
-        site=Site(SITE, PROFILE, "Site", True, SitePlanningRegime.ORDINARY),
+        # ROTA-T065-CONFIGURABLE-ROLES: ORDINARY now requires an active
+        # position on every enabled SiteMembership (brief sections 4/9);
+        # this file tests role-agnostic roster/external-support mechanics,
+        # never store-shaped, same fix as test_t030_shift_catalog_api.py.
+        site=Site(SITE, PROFILE, "Site", True, SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(DEV_COORDINATOR_ID, SITE, True),
     )
     save_employee(connection, Employee("EXT-1", "External Ela", date(2020, 1, 1), None, False))
@@ -148,7 +152,8 @@ def understaffed_site():
         connection, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id,
         coordinator=Coordinator(DEV_COORDINATOR_ID, "Coordinator", True),
         site_profile=profile,
-        site=Site(site_id, profile_id, "Understaffed", True, SitePlanningRegime.ORDINARY),
+        # ROTA-T065-CONFIGURABLE-ROLES: same fix as above.
+        site=Site(site_id, profile_id, "Understaffed", True, SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(DEV_COORDINATOR_ID, site_id, True),
     )
     save_employee(connection, Employee("EMP-1", "Jan Kowalski", date(2020, 1, 1), None, False))
