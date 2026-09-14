@@ -57,6 +57,19 @@ export default function EmployeeDetail({
   const [detail, setDetail] = useState<EmployeeDetailOut | null>(null);
   const [cells, setCells] = useState<MatrixCellOut[]>([]);
   const month = `${workingMonth}-01`;
+  // Real bug found live 2026-09-14 (both regimes): the matrix's per-day
+  // applicability (applies_from/applies_to, MatrixCellOut) is computed only
+  // for the days of the REQUESTED month (rota/persistence/site_rule_
+  // assembly.py). isActiveToday() below always compares against the real
+  // calendar "today" -- so whenever the coordinator is browsing a different
+  // workingMonth than the current real month, today never appears in that
+  // window, applies_from/applies_to come back null, and a checkbox just
+  // toggled looks unchanged even though the restriction is created (visible
+  // in "Historia ograniczeń"). The checkbox is inherently a "today" question,
+  // independent of whichever month is being scheduled -- so its matrix is
+  // always fetched for the real current month, never workingMonth. Target
+  // hours (genuinely month-scoped) keep using `month` unchanged.
+  const matrixMonth = `${isoToday().slice(0, 7)}-01`;
   const [targetHours, setTargetHoursState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +85,7 @@ export default function EmployeeDetail({
     setLoading(true);
     Promise.all([
       api.getEmployeeDetail(employeeId, siteId),
-      api.getEmployeeMatrix(employeeId, siteId, month),
+      api.getEmployeeMatrix(employeeId, siteId, matrixMonth),
       api.getTargetHours(employeeId, month),
       api.getShiftCatalog(siteId),
     ])
@@ -86,7 +99,7 @@ export default function EmployeeDetail({
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [employeeId, siteId, month]);
+  useEffect(load, [employeeId, siteId, month, matrixMonth]);
 
   if (loading || !detail) return <p>Ładowanie…</p>;
 

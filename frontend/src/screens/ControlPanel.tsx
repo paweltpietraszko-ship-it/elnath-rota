@@ -26,6 +26,16 @@ export default function ControlPanel({
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [showRemoved, setShowRemoved] = useState(false);
+  // Real bug found live 2026-09-14: an ORDINARY site with no roles defined
+  // yet could not add ANY employee -- the position field was silently
+  // hidden (no roles to pick from), so the save failed with a generic
+  // "Nieprawidłowe dane wejściowe" instead of telling the coordinator to
+  // define a role first. Same regime-fetch pattern as PrintSettings.tsx/
+  // EmployeeDetail.tsx (getShiftCatalog), no new endpoint.
+  const [planningRegime, setPlanningRegime] = useState<"OCHRONA" | "ORDINARY" | null>(null);
+  useEffect(() => {
+    api.getShiftCatalog(siteId).then((c) => setPlanningRegime(c.planning_regime)).catch(() => undefined);
+  }, [siteId]);
 
   const load = () => {
     setLoading(true);
@@ -145,6 +155,11 @@ export default function ControlPanel({
             <AddPersonPanel
               siteId={siteId}
               siteRoles={siteRoles}
+              planningRegime={planningRegime}
+              onGoToObiekt={() => {
+                setTab("obiekt");
+                setAddOpen(false);
+              }}
               onClose={() => setAddOpen(false)}
               onAdded={(employeeId) => onNavigate({ screen: "employee", siteId, siteName, employeeId })}
               respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null}
@@ -261,12 +276,16 @@ function endOfDayExclusive(dateStr: string): string {
 function AddPersonPanel({
   siteId,
   siteRoles,
+  planningRegime,
+  onGoToObiekt,
   onClose,
   onAdded,
   respondsToDecisionRequiredId,
 }: {
   siteId: string;
   siteRoles: SiteRoleOut[];
+  planningRegime: "OCHRONA" | "ORDINARY" | null;
+  onGoToObiekt: () => void;
   onClose: () => void;
   onAdded: (employeeId: string) => void;
   respondsToDecisionRequiredId?: string | null;
@@ -370,6 +389,31 @@ function AddPersonPanel({
       setSubmitting(false);
     }
   };
+
+  // Obiekt ORDINARY bez ani jednego zdefiniowanego stanowiska nie może
+  // przyjąć żadnego pracownika (każdy aktywny pracownik musi mieć
+  // stanowisko) -- zamiast pozwolić na próbę zapisu kończącą się
+  // ogólnikowym błędem, blokujemy tu z jasnym komunikatem i skrótem do
+  // katalogu ról.
+  if (planningRegime === "ORDINARY" && activeSiteRoles.length === 0) {
+    return (
+      <div className="create-panel" style={{ marginBottom: 18 }}>
+        <h3>Nowa osoba na obsadzie</h3>
+        <div className="banner-error">
+          Ten obiekt nie ma jeszcze zdefiniowanego żadnego stanowiska. Każdy pracownik obiektu standardowego musi mieć
+          przypisane stanowisko — zdefiniuj przynajmniej jedno w katalogu zmian obiektu, zanim dodasz pracownika.
+        </div>
+        <div className="create-panel-actions">
+          <button className="btn-primary" onClick={onGoToObiekt}>
+            Przejdź do katalogu zmian obiektu
+          </button>
+          <button className="btn-ghost" onClick={onClose}>
+            Anuluj
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="create-panel" style={{ marginBottom: 18 }}>
