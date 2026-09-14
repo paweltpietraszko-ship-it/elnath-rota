@@ -1,0 +1,53 @@
+ROTA-BACKEND-TASK-SCOPE-FORMAT-DRIFT — preimplementation baseline evidence
+DATE: 2026-09-14
+CONTRACT_AND_TEST_SHA: 109d02ff0a68e04d5d1f09dbd5d8f1a028107695
+PRODUCTION_BASE_SHA: bad290f3b6953673266c80206765b45d5f0a2e74
+STATUS: READY FOR INDEPENDENT PREIMPLEMENTATION REVIEW
+
+This is contract/test preparation, not a final implementation audit or self-approval.
+backend.py is unchanged. The explicit current OWNER request supplies the three
+requirements frozen in brief.md; older BOARD prose does not expand their scope.
+No additional OWNER behavior decision has been inferred from model proposals.
+
+Layers performed on CONTRACT_AND_TEST_SHA:
+1. Read backend.py: read_task_scope, check_scope_paths, check_sizes, run_backend.
+2. Acceptance tests for canonical format, malformed/empty scope and preserved
+   path validation; .py/.ts/.tsx file boundaries 599/600/601; Python function
+   boundaries 50/51; missing files retain handling.
+3. Actual backend.py subprocess -> local Git diff/frozen fixture -> report/exit,
+   with added/modified TS and TSX sources and both empty/nonempty diffs.
+
+Command:
+python -m pytest tests/test_backend_task_scope_format_drift.py -q --tb=no
+Result: 21 failed, 26 passed in 7.95s (47 cases); pytest exit 1.
+No mocks replace the gate, Git, frozen-lock check or report in CLI tests.
+These are baseline acceptance failures, intentionally not xfail/skip.
+
+Observed gaps, with TRACE/OWNERSHIP/REPRO:
+- TRACE SCOPE-FAIL-CLOSED/CANONICAL-SCOPE; OWNER read_task_scope/run_backend.
+  Empty and star-list scopes can produce STATUS: PASS with an empty diff.
+  With a changed source file, invalid/empty scope reaches DIFF_SCOPE; a missing
+  scope reports its own reason but also a misleading outside-scope diagnosis.
+  REPRO: test_cli_invalid_scope_stops_without_diff_scope_noise, 5 failing cases.
+  Direct parser rejection cases expose 10 failures (empty/inline/malformed lists).
+- TRACE SOURCE-FILE-SIZE; OWNER check_sizes.
+  .ts and .tsx with 601 lines escape SIZE_FILE. Actual CLI returns zero for both
+  new and modified files. REPRO: test_source_file_size_boundary (2 failures),
+  test_cli_typescript_file_size (4 failures). Existing TOTAL_LINES can still
+  yield WYMAGA_DECYZJI for additions; this does not replace a SIZE_FILE failure.
+
+26 passing controls include canonical LF/CRLF parsing, unreadable brief,
+existing path rejections, Python size/function limits, allowed file boundaries,
+deleted sources, and CLI rejection of a missing scope with an empty diff.
+
+Reduction: use the existing parser/input boundary, run_backend and check_sizes;
+one test module. No new subsystem, TS function parser, frontend linter or product
+change. where.py omitted: no new/relocated owner; relevant chain read directly.
+No existing large files refactored. No legacy briefs migrated.
+
+No application regression, frozen benchmark or frozen coordinator simulator was
+run: this delivery changes only contract/tests. No production implementation
+verdict is issued. Reviewer should inspect this exact contract/test SHA before
+implementation. Final implementation audit remains separate.
+
+Report target was checked absent before creation; no earlier report overwritten.
