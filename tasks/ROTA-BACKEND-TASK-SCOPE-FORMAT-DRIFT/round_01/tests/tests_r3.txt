@@ -1,0 +1,43 @@
+ROTA-BACKEND-TASK-SCOPE-FORMAT-DRIFT — LITERALNY RE-CHECK R3
+
+WERDYKT: PASS PREIMPLEMENTATION
+AUDYTOWANY SHA: df2e859fb263c92d343791d1b9e2a57127b34dda
+POPRZEDNI REVIEW: 42e6c8e / tests_r2.txt
+BASE PRODUKCJI: bad290f3b6953673266c80206765b45d5f0a2e74
+
+ZAKRES
+- literalny diff 42e6c8e..df2e859;
+- poprawiony brief i tests/test_backend_task_scope_format_drift.py;
+- zachowany audit_r2_repro.py;
+- bez ponownego audytu backend.py i bez szerszej regresji.
+
+WYNIK KOREKTY
+- Kontrakt jawnie obejmuje brakujący, nieczytelny UTF-8 i malformed brief:
+  kontrolowany STATUS: FAIL, TASK_SCOPE reason, nonzero exit, bez tracebacku
+  oraz bez mylącego DIFF_SCOPE.
+- Pozytywna granica końca listy jest zamrożona: osobny nagłówek Markdown
+  kończy kanoniczny TASK_SCOPE, a dalszy tekst nie jest wpisem scope.
+- Pełna macierz formatów i granice 599/600/601 pozostają w testach
+  bezpośrednich.
+- Pionowe testy CLI zostały zredukowane do reprezentatywnych przypadków:
+  malformed przy pustym/niepustym diffie, invalid UTF-8, added .ts,
+  modified .tsx i kontrola 600 linii.
+- backend.py pozostaje niezmieniony.
+- diff --check: PASS.
+- ruff dla zmienionych testów i audit_r2_repro.py: PASS.
+
+BASELINE ACCEPTANCE NA DOKŁADNYM SHA
+- moduł Tasku + niezależny reproduktor: 26 passed, 21 failed.
+- Czerwone przypadki są oczekiwanym dowodem istniejących luk przed
+  implementacją. Nie są xfail/skip i nie wydają werdyktu implementacji.
+
+PREIMPLEMENTATION REDUCTION
+- jeden istniejący parser/input boundary, jeden run_backend i jeden check_sizes;
+- brak nowego subsystemu, parsera funkcji TypeScript, migracji starych briefów
+  i refaktoru dużych plików;
+- integracja CLI sprawdza wyłącznie nowe szwy, nie powiela już całego iloczynu
+  testów właścicieli niższej warstwy.
+
+IMPLEMENTACJA MOŻE ROZPOCZĄĆ SIĘ na tym briefie.
+Finalny audyt ma użyć audit_r2_repro.py, modułu acceptance i rzeczywistego CLI.
+PASS dotyczy wyłącznie kontraktu/testów na df2e859fb263c92d343791d1b9e2a57127b34dda.
