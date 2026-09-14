@@ -1,0 +1,53 @@
+ROTA-T065-PRINT-GAP — WĄSKI RE-CHECK OWNER_CORRECTED R7
+
+WERDYKT: PASS — GOTOWE DO MERGE
+IMPLEMENTACJA PRODUKCYJNA: 3fa2941fff5b565b6cbb1d7fbf843435c45c80f9
+KOREKTA BRIEFU: 76ec8bf
+SCALONY TIP TASKU: 084177569f9e093103f754fc9b69d6b7ec61e83c
+POPRZEDNI AUDYT R6: 79c6936
+
+WYNIK
+-----
+OWNER jawnie skorygował PRODUCT_TRUTH po R6-01:
+
+- pełna historyczna etykieta stanowiska jest wymagana dla pracownika, który
+  ma co najmniej jedno realne przypisanie w drukowanym miesiącu;
+- pracownik bez żadnego przypisania w miesiącu może mieć na wydruku pustą
+  etykietę stanowiska;
+- snapshot stanowisk pozostaje ograniczony do osób obecnych w assignments;
+- schedule_export.py nadal nie może zgadywać stanowiska z bieżącego membershipu
+  ani z roli demandu.
+
+Obserwacja z audit_r6_repro.py — pusty position_label dla aktywnej osoby bez
+Assignmentu — jest więc zgodna z nowym, jawnym OWNER_CORRECTED. Oczekiwanie
+„Kierownik” w końcowej asercji reproduktora jest historycznym, obecnie
+nieaktualnym oczekiwaniem. Reproduktor i raport R6 pozostają zachowane; nie
+zostały nadpisane ani usunięte.
+
+WĄSKA WERYFIKACJA
+-----------------
+1. Diff 79c6936..76ec8bf przeczytany literalnie: jedyna merytoryczna zmiana to
+   dwuzdaniowa adnotacja OWNER_CORRECTED przy T65P-04. Kod produkcyjny od
+   3fa2941 nie zmienił się.
+
+2. Commit scalający 0841775 zachowuje równocześnie korektę briefu oraz pliki
+   audytu R6; brak utraty historii dowodowej.
+
+3. Uruchomiono trzy istniejące przypadki dokładnie na scalonym tipie:
+   - pracownik z realną zmianą drukuje historyczne „Kierownik”;
+   - późniejsza zmiana membershipu nie zmienia starego snapshotu;
+   - brak snapshotu/stanowiska do wydruku daje pustą etykietę, nie błąd.
+
+   Wynik: 3 passed in 1.18s.
+
+4. Nie powtarzano pełnego audytu implementacji, PDF QA, frontendu ani macierzy
+   R6. Kod jest identyczny; zmieniła się wyłącznie jawna decyzja właściciela.
+   Nie uruchomiono pełnej regresji, symulatorów ani benchmarków.
+
+KLASYFIKACJA R6-01
+------------------
+R6-01 zostaje zamknięty jako OWNER_ACCEPTED / FALSE POSITIVE WOBEC AKTUALNEGO
+PRODUCT_TRUTH. Nie wymaga poprawki schedule_lifecycle.py ani schedule_export.py.
+
+PASS obejmuje produkcyjny SHA 3fa2941fff5b565b6cbb1d7fbf843435c45c80f9
+z briefem po OWNER_CORRECTED 76ec8bf i scalonym tipem Tasku 0841775.
