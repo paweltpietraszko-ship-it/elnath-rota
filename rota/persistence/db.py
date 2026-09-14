@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 20
+LATEST_SCHEMA_VERSION = 21
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -771,6 +771,19 @@ def _migration_18_encrypt_existing_persisted_names(conn: sqlite3.Connection) -> 
         )
 
 
+# ---------------------------------------------------------------------------
+# ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 2/10: the one new
+# AvailabilityKind (UNAVAILABLE_TIME_WINDOW) stores its daily [start_time,
+# end_time) window on the SAME append-only availability_versions row --
+# both columns stay NULL for every existing kind, no behavior change to
+# them. New columns only, no destructive ALTER.
+# ---------------------------------------------------------------------------
+_MIGRATION_21: tuple[str, ...] = (
+    "ALTER TABLE availability_versions ADD COLUMN start_time TEXT",
+    "ALTER TABLE availability_versions ADD COLUMN end_time TEXT",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], None]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -795,6 +808,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], No
     (18, _migration_18_encrypt_existing_persisted_names),
     (19, _MIGRATION_19),
     (20, _MIGRATION_20),
+    (21, _MIGRATION_21),
 )
 
 

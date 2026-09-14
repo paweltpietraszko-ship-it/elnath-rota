@@ -34,6 +34,9 @@ _BUILT_IN_CONDITION_TEXT = {
     "SHIFT-24-01": "Koliduje z ustawieniem: 24",
     "NIGHT-STREAK-01": "Koliduje z limitem dwóch nocek pod rząd",
     "DAY_SHIFT_OFF-01": "Koliduje z zapisem: Wolne w dzień",
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 8: dedicated,
+    # non-OCHRONA presentation -- never "Zmień 24"/"Nocka".
+    "UNAVAILABLE_TIME-01": "Koliduje z dostępnością godzinową",
 }
 _GENERIC_SITE_RULE_TEXT = "Koliduje z zapisaną regułą obiektu"
 
@@ -46,6 +49,7 @@ _ACTION_TEMPLATES = {
     "UNAVAILABLE-01": UnblockingOption("Zmień Ogólna dostępność: {names}", target="obsada"),
     "DAY_ONLY-01": UnblockingOption("Zmień Nocka: {names}", target="obsada"),
     "SHIFT-24-01": UnblockingOption("Zmień 24: {names}", target="obsada"),
+    "UNAVAILABLE_TIME-01": UnblockingOption("Zmień dostępność godzinową: {names}", target="obsada"),
     "SICK_LEAVE-01": UnblockingOption(
         "Ręczna korekta mimo zapisu Chorobowe zgodnie z kontraktem: {names}", requires_existing_schedule=True,
     ),
@@ -145,7 +149,7 @@ def build_unblocking_options(
     site_rules_by_id = _site_rules_by_id(state)
     options: list[UnblockingOption] = []
 
-    for condition in ("UNAVAILABLE-01", "DAY_ONLY-01", "SHIFT-24-01", "NIGHT-STREAK-01"):
+    for condition in ("UNAVAILABLE-01", "DAY_ONLY-01", "SHIFT-24-01", "UNAVAILABLE_TIME-01", "NIGHT-STREAK-01"):
         names = _names_for(state, raw_blockers, (condition,))
         if names:
             options.append(_formatted(_ACTION_TEMPLATES[condition], names))

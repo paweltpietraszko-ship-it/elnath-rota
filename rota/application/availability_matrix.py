@@ -29,6 +29,10 @@ from rota.planning.state import SiteRuleApplicability
 
 _RELEVANT_AVAILABILITY_KINDS = (
     AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED, AvailabilityKind.UNAVAILABLE_24H,
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 6: this read
+    # model gains the new dated hourly window alongside the existing
+    # whole-day facts, instead of a second ORDINARY-only read model.
+    AvailabilityKind.UNAVAILABLE_TIME_WINDOW,
 )
 _RELEVANT_RULE_KINDS = (EMPLOYEE_FORBIDDEN_SHIFT_KINDS_ON_WEEKDAYS, EMPLOYEE_DAY_ONLY_N_EXCEPTION)
 

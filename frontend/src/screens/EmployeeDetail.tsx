@@ -10,6 +10,10 @@ const AVAILABILITY_KIND_LABELS: Record<string, string> = {
   LEAVE_PLAN: "Urlop (planowany)",
   LEAVE_GRANTED: "Urlop (przyznany)",
   SICK_LEAVE: "Zwolnienie chorobowe",
+  // ROTA-T065-ORDINARY-TIME-AVAILABILITY: ORDINARY-only, ordinary shop
+  // employees' real hourly availability -- never shown/selectable for
+  // OCHRONA (section 6/9).
+  UNAVAILABLE_TIME_WINDOW: "Niedostępność godzinowa",
 };
 
 const isoToday = () => {
@@ -59,6 +63,10 @@ export default function EmployeeDetail({
   const [showAddAbsence, setShowAddAbsence] = useState(false);
   const [showDayOnlyExceptionForm, setShowDayOnlyExceptionForm] = useState(false);
   const [matrixBusy, setMatrixBusy] = useState(false);
+  // ROTA-T065-ORDINARY-TIME-AVAILABILITY section 6: D/N/24h are OCHRONA-only
+  // qualifications -- learned from the same shift-catalog call
+  // SiteShiftCatalog already uses (R2-03 fix), no new endpoint.
+  const [regime, setRegime] = useState<"OCHRONA" | "ORDINARY">("OCHRONA");
 
   const load = () => {
     setLoading(true);
@@ -66,11 +74,13 @@ export default function EmployeeDetail({
       api.getEmployeeDetail(employeeId, siteId),
       api.getEmployeeMatrix(employeeId, siteId, month),
       api.getTargetHours(employeeId, month),
+      api.getShiftCatalog(siteId),
     ])
-      .then(([d, m, t]) => {
+      .then(([d, m, t, catalog]) => {
         setDetail(d);
         setCells(m.cells);
         setTargetHoursState(t.target_hours);
+        setRegime(catalog.planning_regime);
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
@@ -208,12 +218,14 @@ export default function EmployeeDetail({
 
       <div className="panel">
         <h3>Dane pracownika</h3>
-        <div className="field-row">
-          <label>Tylko dniówka (day_only)</label>
-          <button className={`matrix-box ${detail.employee.day_only ? "matrix-box-on" : "matrix-box-off"}`} onClick={toggleDayOnly}>
-            {detail.employee.day_only ? "✓" : "✕"}
-          </button>
-        </div>
+        {regime === "OCHRONA" && (
+          <div className="field-row">
+            <label>Tylko dniówka (day_only)</label>
+            <button className={`matrix-box ${detail.employee.day_only ? "matrix-box-on" : "matrix-box-off"}`} onClick={toggleDayOnly}>
+              {detail.employee.day_only ? "✓" : "✕"}
+            </button>
+          </div>
+        )}
         <div className="field-row">
           <label>Status szkolenia</label>
           <span className="badge-pill badge-off">{detail.membership.readiness_state}</span>
@@ -223,18 +235,22 @@ export default function EmployeeDetail({
       <div className="panel">
         <h3>Macierz dostępności — stan dzisiejszy ({today})</h3>
         <p className="panel-hint" style={{ marginBottom: 14 }}>
-          Ptaszek = solver może użyć tej osoby w tym wymiarze. Kliknij, żeby od razu, na stałe, zmienić decyzję —
-          Nocka dla pracownika „tylko dniówka” to jedyny wyjątek: włączenie jej pyta o termin, bo z założenia jest
-          czasowe.
+          Ptaszek = solver może użyć tej osoby w tym wymiarze. Kliknij, żeby od razu, na stałe, zmienić decyzję
+          {regime === "OCHRONA" &&
+            " — Nocka dla pracownika „tylko dniówka” to jedyny wyjątek: włączenie jej pyta o termin, bo z założenia jest czasowe."}
         </p>
         <div className="matrix-table-wrap">
           <table className="matrix-table">
             <thead>
               <tr>
                 <th>Ogólna</th>
-                <th>Dniówka</th>
-                <th>Nocka</th>
-                <th>24h</th>
+                {regime === "OCHRONA" && (
+                  <>
+                    <th>Dniówka</th>
+                    <th>Nocka</th>
+                    <th>24h</th>
+                  </>
+                )}
                 {WEEKDAY_NAMES.map((w) => (
                   <th key={w}>{w}</th>
                 ))}
@@ -245,31 +261,35 @@ export default function EmployeeDetail({
                 <td>
                   <StatusCell blocked={ogolnaBlocked} />
                 </td>
-                <td>
-                  <button
-                    className={`matrix-box ${dniowkaBlocked ? "matrix-box-off" : "matrix-box-on"}`}
-                    onClick={() => toggleShiftKind("D")}
-                    disabled={matrixBusy}
-                    title={dniowkaBlocked ? "kliknij, żeby zezwolić na Dniówkę" : "kliknij, żeby zablokować Dniówkę"}
-                  >
-                    {dniowkaBlocked ? "✕" : "✓"}
-                  </button>
-                </td>
-                <td>
-                  <button
-                    className={`matrix-box ${nockaBlocked ? "matrix-box-off" : "matrix-box-on"}`}
-                    onClick={toggleNocka}
-                    disabled={matrixBusy}
-                    title={nockaBlocked ? "kliknij, żeby zezwolić na Nockę" : "kliknij, żeby zablokować Nockę"}
-                  >
-                    {nockaBlocked ? "✕" : "✓"}
-                  </button>
-                </td>
-                <td>
-                  <button className={`matrix-box ${detail.membership.can_work_24h ? "matrix-box-on" : "matrix-box-off"}`} onClick={toggle24h}>
-                    {detail.membership.can_work_24h ? "✓" : "✕"}
-                  </button>
-                </td>
+                {regime === "OCHRONA" && (
+                  <>
+                    <td>
+                      <button
+                        className={`matrix-box ${dniowkaBlocked ? "matrix-box-off" : "matrix-box-on"}`}
+                        onClick={() => toggleShiftKind("D")}
+                        disabled={matrixBusy}
+                        title={dniowkaBlocked ? "kliknij, żeby zezwolić na Dniówkę" : "kliknij, żeby zablokować Dniówkę"}
+                      >
+                        {dniowkaBlocked ? "✕" : "✓"}
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        className={`matrix-box ${nockaBlocked ? "matrix-box-off" : "matrix-box-on"}`}
+                        onClick={toggleNocka}
+                        disabled={matrixBusy}
+                        title={nockaBlocked ? "kliknij, żeby zezwolić na Nockę" : "kliknij, żeby zablokować Nockę"}
+                      >
+                        {nockaBlocked ? "✕" : "✓"}
+                      </button>
+                    </td>
+                    <td>
+                      <button className={`matrix-box ${detail.membership.can_work_24h ? "matrix-box-on" : "matrix-box-off"}`} onClick={toggle24h}>
+                        {detail.membership.can_work_24h ? "✓" : "✕"}
+                      </button>
+                    </td>
+                  </>
+                )}
                 {[1, 2, 3, 4, 5, 6, 7].map((w) => {
                   const blocked = cellActiveToday(cells, (c) => c.cell === "weekday" && c.weekday === w);
                   return (
@@ -330,6 +350,7 @@ export default function EmployeeDetail({
             employeeId={employeeId}
             siteId={siteId}
             workingMonth={workingMonth}
+            regime={regime}
             onClose={() => setShowAddAbsence(false)}
             onAdded={() => {
               setShowAddAbsence(false);
@@ -735,6 +756,7 @@ function AbsenceLog({
     try {
       await api.updateAvailability(employeeId, r.availability_id, {
         site_id: siteId, kind: r.kind, start_date: r.start_date, end_date: r.end_date, active: false,
+        start_time: r.start_time, end_time: r.end_time,
       });
       onChanged();
     } catch (e: unknown) {
@@ -772,6 +794,7 @@ function AbsenceLog({
             <div key={r.availability_id} className={`absence-log-item${r.active ? "" : " absence-log-item-ended"}`}>
               <span>
                 <strong>{AVAILABILITY_KIND_LABELS[r.kind] ?? r.kind}</strong> — od {r.start_date} do {r.end_date}
+                {r.start_time && r.end_time && `, ${r.start_time}–${r.end_time}`}
                 {!r.active && " (zakończone)"}
               </span>
               <span style={{ display: "flex", gap: 8 }}>
@@ -807,6 +830,9 @@ function AbsenceEditRow({
 }) {
   const [from, setFrom] = useState(record.start_date);
   const [to, setTo] = useState(record.end_date);
+  const isWindow = record.kind === "UNAVAILABLE_TIME_WINDOW";
+  const [fromTime, setFromTime] = useState(record.start_time ?? "");
+  const [toTime, setToTime] = useState(record.end_time ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -816,6 +842,7 @@ function AbsenceEditRow({
     try {
       await api.updateAvailability(employeeId, record.availability_id, {
         site_id: siteId, kind: record.kind, start_date: from, end_date: to, active: true,
+        start_time: isWindow ? fromTime : null, end_time: isWindow ? toTime : null,
       });
       onDone();
     } catch (e: unknown) {
@@ -838,9 +865,21 @@ function AbsenceEditRow({
           <span className="field-label">Do</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
+        {isWindow && (
+          <>
+            <label>
+              <span className="field-label">Od godziny</span>
+              <input type="time" step={3600} value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
+            </label>
+            <label>
+              <span className="field-label">Do godziny</span>
+              <input type="time" step={3600} value={toTime} onChange={(e) => setToTime(e.target.value)} />
+            </label>
+          </>
+        )}
       </div>
       <div className="create-panel-actions">
-        <button className="btn-primary" onClick={save} disabled={submitting || !from || !to}>
+        <button className="btn-primary" onClick={save} disabled={submitting || !from || !to || (isWindow && (!fromTime || !toTime || fromTime >= toTime))}>
           Zapisz
         </button>
         <button className="btn-ghost" onClick={onCancel} disabled={submitting}>
@@ -861,31 +900,43 @@ function AddAbsenceForm({
   employeeId,
   siteId,
   workingMonth,
+  regime,
   onClose,
   onAdded,
 }: {
   employeeId: string;
   siteId: string;
   workingMonth: string;
+  regime: "OCHRONA" | "ORDINARY";
   onClose: () => void;
   onAdded: () => void;
 }) {
   const [kind, setKind] = useState<keyof typeof AVAILABILITY_KIND_LABELS>("UNAVAILABLE_24H");
   const [range, setRange] = useState<DateRange | undefined>(undefined);
+  const isWindow = kind === "UNAVAILABLE_TIME_WINDOW";
+  const [fromTime, setFromTime] = useState("");
+  const [toTime, setToTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [year, month] = workingMonth.split("-").map(Number);
   const defaultMonth = new Date(year, month - 1, 1);
+  // ROTA-T065-ORDINARY-TIME-AVAILABILITY section 6/9: the new kind exists
+  // only for ORDINARY -- OCHRONA's absence form is byte-identical to before.
+  const availableKinds = Object.entries(AVAILABILITY_KIND_LABELS).filter(
+    ([value]) => regime === "ORDINARY" || value !== "UNAVAILABLE_TIME_WINDOW",
+  );
 
   const submit = async () => {
     if (!range?.from || !range?.to) return;
+    if (isWindow && (!fromTime || !toTime || fromTime >= toTime)) return;
     setSubmitting(true);
     setError(null);
     try {
       await api.createAvailability(employeeId, {
         site_id: siteId, availability_id: crypto.randomUUID(), kind,
         start_date: toLocalIso(range.from), end_date: toLocalIso(range.to),
+        start_time: isWindow ? fromTime : null, end_time: isWindow ? toTime : null,
       });
       onAdded();
     } catch (e: unknown) {
@@ -905,13 +956,25 @@ function AddAbsenceForm({
           onChange={(e) => setKind(e.target.value as keyof typeof AVAILABILITY_KIND_LABELS)}
           style={{ width: "100%", background: "var(--paper-light)", border: "1px solid var(--line)", borderRadius: 8, padding: "9px 12px", color: "var(--ink)" }}
         >
-          {Object.entries(AVAILABILITY_KIND_LABELS).map(([value, label]) => (
+          {availableKinds.map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
           ))}
         </select>
       </label>
+      {isWindow && (
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
+          <label>
+            <span className="field-label">Niedostępny od godziny</span>
+            <input type="time" step={3600} value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
+          </label>
+          <label>
+            <span className="field-label">do godziny</span>
+            <input type="time" step={3600} value={toTime} onChange={(e) => setToTime(e.target.value)} />
+          </label>
+        </div>
+      )}
       <DayPicker
         mode="range"
         selected={range}
@@ -925,7 +988,11 @@ function AddAbsenceForm({
           : "Wybierz datę początkową i końcową."}
       </p>
       <div className="create-panel-actions">
-        <button className="btn-primary" onClick={submit} disabled={submitting || !range?.from || !range?.to}>
+        <button
+          className="btn-primary"
+          onClick={submit}
+          disabled={submitting || !range?.from || !range?.to || (isWindow && (!fromTime || !toTime || fromTime >= toTime))}
+        >
           {submitting ? "Zapisywanie…" : "Zgłoś"}
         </button>
         <button className="btn-ghost" onClick={onClose} disabled={submitting}>

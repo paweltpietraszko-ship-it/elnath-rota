@@ -7,7 +7,7 @@ the existing CalendarDay persistence path -- no new domain layer.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -323,12 +323,39 @@ def set_role_coverage_authorization_endpoint(
 # from the list it already has loaded.
 
 
+def _parse_full_hour(value: str) -> time:
+    """ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 10: same
+    full-hour precision as the rest of the product's time-of-day fields
+    (e.g. api/routers/site_profile.py's shift-catalog rows) -- Availability
+    had no time-of-day field before this Task, so there is no existing
+    contract to defer to, and this implementation does not introduce
+    finer precision on its own."""
+    try:
+        hour_str, minute_str = value.split(":")
+        hour, minute = int(hour_str), int(minute_str)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(f"invalid time format: {value!r}") from exc
+    if minute != 0 or not (0 <= hour <= 23):
+        raise ValueError(f"time must be a full hour 00:00-23:00, got {value!r}")
+    return time(hour=hour, minute=0)
+
+
+def _parse_optional_time(value: str | None) -> time | None:
+    return None if value is None else _parse_full_hour(value)
+
+
 class CreateAvailabilityRequest(BaseModel):
     site_id: str
     availability_id: str
     kind: str
     start_date: str
     end_date: str
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY: set only for kind ==
+    # UNAVAILABLE_TIME_WINDOW -- rota.persistence.availability_repository
+    # is the one write boundary that rejects a missing/overnight/mismatched
+    # combination, not this marshalling layer.
+    start_time: str | None = None
+    end_time: str | None = None
 
 
 @roster_router.post("/employees/{employee_id}/availability", status_code=204)
@@ -339,6 +366,7 @@ def create_availability(employee_id: str, payload: CreateAvailabilityRequest, co
             availability_id=payload.availability_id, employee_id=employee_id,
             kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
             end_date=date.fromisoformat(payload.end_date), active=True,
+            start_time=_parse_optional_time(payload.start_time), end_time=_parse_optional_time(payload.end_time),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -350,6 +378,8 @@ class UpdateAvailabilityRequest(BaseModel):
     start_date: str
     end_date: str
     active: bool
+    start_time: str | None = None
+    end_time: str | None = None
 
 
 @roster_router.patch("/employees/{employee_id}/availability/{availability_id}", status_code=204)
@@ -361,6 +391,7 @@ def update_availability(
             availability_id=availability_id, employee_id=employee_id,
             kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
             end_date=date.fromisoformat(payload.end_date), active=payload.active,
+            start_time=_parse_optional_time(payload.start_time), end_time=_parse_optional_time(payload.end_time),
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

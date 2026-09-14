@@ -69,7 +69,7 @@ from rota.planning.shift_catalog import (
 from rota.planning.site_rules import hard_rules_applicable_on
 from rota.planning.validator import validate
 from rota.planning.work_periods import PeriodComponent, find_malformed_periods, resolve_required_rest
-from tests.support.minimal_state import SITE_ID, base_state
+from tests.support.minimal_state import PROFILE_ID, SITE_ID, base_state
 
 MONTH = date(2026, 10, 1)  # 2026-10-01 is a Thursday (ISO weekday 4)
 
@@ -553,10 +553,16 @@ def test_b_24h_halves_different_employees_is_hard_fail():
 
 
 def test_b_mixed_profile_can_work_24h_false_blocks():
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 5: SHIFT-24-01
+    # is OCHRONA-only semantics -- base_state()'s default regime is
+    # ORDINARY, so this genuinely OCHRONA-shaped scenario (mixed 12h/24h
+    # catalog, can_work_24h gating) needs an explicit override, same fix
+    # shape as tests/test_t030_shift_catalog_api.py's own regime fixture.
     profile = _profile("B-MIXED24", [_h24(ShiftKind.D, 5, 12), _d(9, 11)])
     demands = tuple(d for d in generate_catalog_demands(profile, MONTH) if d.start_datetime.date() == date(2026, 10, 1) and d.catalog_kind == ShiftCatalogKind.H24)
     employee = Employee("A", "A", date(2026, 1, 1), None, False)
-    state = base_state(profile=profile, employees=(employee,), memberships=(_membership("A", can_work_24h=False),), shift_demands=demands)
+    site = Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    state = base_state(site=site, profile=profile, employees=(employee,), memberships=(_membership("A", can_work_24h=False),), shift_demands=demands)
     assert plan(state).status == "DECISION_REQUIRED"
 
 

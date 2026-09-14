@@ -11,6 +11,7 @@ from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind, AvailabilityRecord, MembershipKind,
     ShiftCatalogKind, ShiftKind, SitePlanningRegime,
 )
+from rota.planning.availability import unavailable_time_window_overlaps
 from rota.planning.eligibility import role_covers, is_all_24h_profile
 from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand, dn_semantics_apply
 from rota.planning.site_rules import (
@@ -540,6 +541,26 @@ def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignm
             details.append(ViolationDetail(code, (assignment.assignment_id,), f"{code}: {assignment.employee_id} assignment {assignment.assignment_id} overlaps {kind.value} {record.start_date}-{record.end_date}"))
 
 
+def _check_unavailable_time_window(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    """UNAVAILABLE_TIME-01 (ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md
+    section 9): same shared oracle as eligibility.py, no second overlap
+    algorithm -- a real assignment overlapping an active daily hourly
+    window is always caught, even if it reached this validator via a
+    conscious Manual Correction."""
+    records_by_employee: dict[str, list] = {}
+    for record in state.availability_records:
+        records_by_employee.setdefault(record.employee_id, []).append(record)
+
+    for assignment in assignments:
+        for record in records_by_employee.get(assignment.employee_id, []):
+            if unavailable_time_window_overlaps(record, assignment.start_datetime, assignment.end_datetime):
+                details.append(ViolationDetail(
+                    "UNAVAILABLE_TIME-01", (assignment.assignment_id,),
+                    f"UNAVAILABLE_TIME-01: {assignment.employee_id} assignment {assignment.assignment_id} "
+                    f"overlaps hourly window {record.start_time}-{record.end_time} ({record.start_date}-{record.end_date})",
+                ))
+
+
 def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warnings: list[str]) -> None:
     """LEAVE_PLAN-01: a collision doesn't block the Assignment but must be visible as a warning (R17-4: reaches both existing and solved Assignments uniformly)."""
     records_by_employee: dict[str, list] = {}
@@ -940,6 +961,7 @@ def validate(state: PlanningState, assignments: list[Assignment]) -> Independent
     _check_third_consecutive_shift(state, assignments, details)
     _check_day_shift_off(state, for_eligibility_checks, details, warnings)
     _check_leave_and_unavailable(state, for_eligibility_checks, details)
+    _check_unavailable_time_window(state, for_eligibility_checks, details)
     _check_leave_plan(state, for_eligibility_checks, warnings)
     _check_external(state, for_eligibility_checks, details)
     _check_site_rules(state, for_eligibility_checks, details)

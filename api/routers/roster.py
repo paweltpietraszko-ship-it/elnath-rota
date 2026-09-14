@@ -80,6 +80,10 @@ class AvailabilityRecordOut(BaseModel):
     start_date: str
     end_date: str
     active: bool
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY: set only for kind ==
+    # UNAVAILABLE_TIME_WINDOW; None for every other (whole-day) kind.
+    start_time: str | None = None
+    end_time: str | None = None
 
 
 class EmployeeDetailOut(BaseModel):
@@ -182,6 +186,8 @@ def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) 
             AvailabilityRecordOut(
                 availability_id=r.availability_id, kind=r.kind.value,
                 start_date=r.start_date.isoformat(), end_date=r.end_date.isoformat(), active=r.active,
+                start_time=r.start_time.strftime("%H:%M") if r.start_time is not None else None,
+                end_time=r.end_time.strftime("%H:%M") if r.end_time is not None else None,
             )
             for r in availability
         ],

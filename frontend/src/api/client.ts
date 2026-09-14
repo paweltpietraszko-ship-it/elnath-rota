@@ -258,10 +258,14 @@ export interface MembershipOut {
 
 export interface AvailabilityRecordOut {
   availability_id: string;
-  kind: "DAY_SHIFT_OFF" | "UNAVAILABLE_24H" | "LEAVE_PLAN" | "LEAVE_GRANTED" | "SICK_LEAVE";
+  kind: "DAY_SHIFT_OFF" | "UNAVAILABLE_24H" | "LEAVE_PLAN" | "LEAVE_GRANTED" | "SICK_LEAVE" | "UNAVAILABLE_TIME_WINDOW";
   start_date: string;
   end_date: string;
   active: boolean;
+  // ROTA-T065-ORDINARY-TIME-AVAILABILITY: set only for kind ==
+  // UNAVAILABLE_TIME_WINDOW ("HH:MM"); null for every other kind.
+  start_time: string | null;
+  end_time: string | null;
 }
 
 export interface EmployeeDetailOut {
@@ -844,10 +848,15 @@ export const api = {
     }),
 
   // Availability -- Ogólna dostępność + Zgłoś nieobecność (same mechanism)
-  createAvailability: (employeeId: string, payload: { site_id: string; availability_id: string; kind: string; start_date: string; end_date: string }) =>
-    req<void>(`/workspace/employees/${employeeId}/availability`, { method: "POST", body: JSON.stringify(payload) }),
-  updateAvailability: (employeeId: string, availabilityId: string, payload: { site_id: string; kind: string; start_date: string; end_date: string; active: boolean }) =>
-    req<void>(`/workspace/employees/${employeeId}/availability/${availabilityId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  createAvailability: (
+    employeeId: string,
+    payload: { site_id: string; availability_id: string; kind: string; start_date: string; end_date: string; start_time?: string | null; end_time?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/availability`, { method: "POST", body: JSON.stringify(payload) }),
+  updateAvailability: (
+    employeeId: string,
+    availabilityId: string,
+    payload: { site_id: string; kind: string; start_date: string; end_date: string; active: boolean; start_time?: string | null; end_time?: string | null },
+  ) => req<void>(`/workspace/employees/${employeeId}/availability/${availabilityId}`, { method: "PATCH", body: JSON.stringify(payload) }),
 
   // Target hours
   getTargetHours: (employeeId: string, month: string) =>
