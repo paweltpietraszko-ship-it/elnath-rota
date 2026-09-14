@@ -40,6 +40,7 @@ from rota.domain import (
     Employee,
     ExternalSupportWindow,
     MembershipKind,
+    RoleCoverageAuthorization,
     ShiftCatalogKind,
     ShiftDemand,
     ShiftKind,
@@ -153,6 +154,28 @@ def _blocked_by_site_rules(
     return None
 
 
+def role_covers(demand: ShiftDemand, membership: SiteMembership, authorizations: tuple[RoleCoverageAuthorization, ...]) -> bool:
+    """ROTA-T065-CONFIGURABLE-ROLES section 8: the ONE ROLE-01 test. True
+    when the demand has no required role, OR the employee's own current
+    organizational position already matches it, OR an active
+    RoleCoverageAuthorization for exactly this role covers this demand's
+    entire real interval for this employee. Never a hierarchy/fallback --
+    a covering authorization is a separate, time-bounded fact, checked on
+    its own terms, not derived from role names."""
+    if demand.required_role_id is None:
+        return True
+    if demand.required_role_id == membership.position_role_id:
+        return True
+    for authorization in authorizations:
+        if not authorization.active or authorization.employee_id != membership.employee_id:
+            continue
+        if authorization.covered_role_id != demand.required_role_id:
+            continue
+        if authorization.start_datetime <= demand.start_datetime and authorization.end_datetime >= demand.end_datetime:
+            return True
+    return False
+
+
 def is_all_24h_profile(profile: SiteProfile) -> bool:
     """part_b_work_period_rest.md: an all-24h profile (every StandardShift
     normalizes to catalog_kind=24h) ignores SiteMembership.can_work_24h; a
@@ -172,6 +195,7 @@ def _common_hard_gate(
     applicable_hard_rules: list[SiteRuleVersion],
     allow_day_only_n_fallback: bool = False,
     regime: SitePlanningRegime = SitePlanningRegime.OCHRONA,
+    authorizations: tuple[RoleCoverageAuthorization, ...] = (),
 ) -> EligibilityCheck:
     """Gates that apply regardless of membership_kind: MEMBERSHIP.enabled,
     ROLE-01, SHIFT-24-01, DAY_ONLY-01, DAY_SHIFT_OFF-01, UNAVAILABLE-01,
@@ -179,11 +203,11 @@ def _common_hard_gate(
     SiteRules."""
     if not membership.enabled:
         return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
-    # ROLE-01 (ROTA-T065 brief.md section 10): demand.required_role is None
-    # for every OCHRONA/legacy demand, so this is a strict no-op there.
-    # Applies identically to LOCAL and EXTERNAL_SUPPORT -- no separate role
-    # logic for external (brief section 10/11).
-    if demand.required_role is not None and demand.required_role not in membership.allowed_roles:
+    # ROLE-01 (ROTA-T065-CONFIGURABLE-ROLES section 8): demand.required_
+    # role_id is None for every OCHRONA/legacy demand, so this is a strict
+    # no-op there. Applies identically to LOCAL and EXTERNAL_SUPPORT -- no
+    # separate role logic for external.
+    if not role_covers(demand, membership, authorizations):
         return EligibilityCheck(False, False, "ROLE-01")
     # SHIFT-24-01 (NORMAL 24h SAME-PERSON HARD, part_b_work_period_rest.md):
     # a mixed 12h/24h profile requires can_work_24h for a catalog_kind=24h
@@ -255,6 +279,7 @@ def check_eligibility(
     applicable_hard_rules: list[SiteRuleVersion] = (),
     allow_day_only_n_fallback: bool = False,
     regime: SitePlanningRegime = SitePlanningRegime.OCHRONA,
+    authorizations: tuple[RoleCoverageAuthorization, ...] = (),
 ) -> EligibilityCheck:
     """Return whether employee may cover demand, plus a reason code when blocked.
 
@@ -265,7 +290,7 @@ def check_eligibility(
     call site always passes the actual state.site.planning_regime."""
     gate = _common_hard_gate(
         employee, membership, demand, shift_kind, profile, availability_records, applicable_hard_rules,
-        allow_day_only_n_fallback, regime,
+        allow_day_only_n_fallback, regime, authorizations,
     )
     if not gate.eligible:
         return gate

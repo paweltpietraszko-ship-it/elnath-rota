@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { View } from "../App";
-import { api, EmployeeRole, PickableEmployee, RosterRow } from "../api/client";
+import { api, PickableEmployee, RosterRow, SiteRoleOut } from "../api/client";
 import PrintSettings from "./PrintSettings";
 import SiteShiftCatalog from "./SiteShiftCatalog";
 
@@ -21,6 +21,7 @@ export default function ControlPanel({
 }) {
   const [tab, setTab] = useState<"obiekt" | "obsada">(initialTab);
   const [roster, setRoster] = useState<RosterRow[]>([]);
+  const [siteRoles, setSiteRoles] = useState<SiteRoleOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -28,9 +29,11 @@ export default function ControlPanel({
 
   const load = () => {
     setLoading(true);
-    api
-      .listRoster(siteId)
-      .then(setRoster)
+    Promise.all([api.listRoster(siteId), api.listSiteRoles(siteId)])
+      .then(([r, roles]) => {
+        setRoster(r);
+        setSiteRoles(roles);
+      })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
   };
@@ -46,14 +49,16 @@ export default function ControlPanel({
     }
   };
 
-  // ROTA-T065 brief.md section 3.1/13: toggling one role never touches the
-  // other -- a person may hold both at once, no automatic interchangeability.
-  const toggleRole = async (employeeId: string, currentRoles: EmployeeRole[], role: EmployeeRole) => {
-    const nextRoles = currentRoles.includes(role)
-      ? currentRoles.filter((r) => r !== role)
-      : [...currentRoles, role];
+  // ROTA-T065-CONFIGURABLE-ROLES section 4/9: exactly one current position,
+  // never a list of substitutions -- empty value clears it explicitly
+  // (distinct from "not touched"), never left ambiguous.
+  const setPosition = async (employeeId: string, roleId: string) => {
     try {
-      await api.updateRosterRow(siteId, employeeId, { allowed_roles: nextRoles });
+      if (roleId === "") {
+        await api.updateRosterRow(siteId, employeeId, { clear_position: true });
+      } else {
+        await api.updateRosterRow(siteId, employeeId, { position_role_id: roleId });
+      }
       load();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
@@ -108,7 +113,7 @@ export default function ControlPanel({
 
       {tab === "obiekt" && (
         <>
-          <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} />
+          <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} onRolesChanged={load} />
           <PrintSettings siteId={siteId} workingMonth={workingMonth} />
         </>
       )}
@@ -155,8 +160,7 @@ export default function ControlPanel({
                     <th>Pracownik</th>
                     <th>Status</th>
                     <th>24h</th>
-                    <th>Kierownik</th>
-                    <th>Sprzedawca/załoga</th>
+                    {siteRoles.length > 0 && <th>Stanowisko</th>}
                     <th></th>
                   </tr>
                 </thead>
@@ -192,26 +196,22 @@ export default function ControlPanel({
                           {row.can_work_24h ? "✓" : "✕"}
                         </button>
                       </td>
-                      <td>
-                        <button
-                          className={`matrix-box ${row.allowed_roles.includes("KIEROWNIK") ? "matrix-box-on" : "matrix-box-off"}`}
-                          data-diag-action="roster-toggle-role-kierownik"
-                          onClick={() => toggleRole(row.employee_id, row.allowed_roles, "KIEROWNIK")}
-                          title={row.allowed_roles.includes("KIEROWNIK") ? "może pracować jako kierownik" : "nie dopuszczony jako kierownik"}
-                        >
-                          {row.allowed_roles.includes("KIEROWNIK") ? "✓" : "✕"}
-                        </button>
-                      </td>
-                      <td>
-                        <button
-                          className={`matrix-box ${row.allowed_roles.includes("SPRZEDAWCA_ZALOGA") ? "matrix-box-on" : "matrix-box-off"}`}
-                          data-diag-action="roster-toggle-role-sprzedawca"
-                          onClick={() => toggleRole(row.employee_id, row.allowed_roles, "SPRZEDAWCA_ZALOGA")}
-                          title={row.allowed_roles.includes("SPRZEDAWCA_ZALOGA") ? "może pracować jako sprzedawca/załoga" : "nie dopuszczony jako sprzedawca/załoga"}
-                        >
-                          {row.allowed_roles.includes("SPRZEDAWCA_ZALOGA") ? "✓" : "✕"}
-                        </button>
-                      </td>
+                      {siteRoles.length > 0 && (
+                        <td>
+                          <select
+                            value={row.position_role_id ?? ""}
+                            data-diag-element="roster-position-select"
+                            onChange={(e) => setPosition(row.employee_id, e.target.value)}
+                          >
+                            <option value="">— brak —</option>
+                            {siteRoles.map((r) => (
+                              <option key={r.role_id} value={r.role_id}>
+                                {r.display_name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
                       <td>
                         {row.enabled ? (
                           <button className="btn-ghost" data-diag-action="roster-remove" onClick={() => removeFromRoster(row.employee_id)}>
@@ -227,7 +227,7 @@ export default function ControlPanel({
                   ))}
                   {visibleRoster.length === 0 && (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
+                      <td colSpan={siteRoles.length > 0 ? 5 : 4} style={{ textAlign: "center", color: "var(--ink-faint)", padding: 20 }}>
                         {roster.length === 0
                           ? "Brak pracowników. Dodaj pierwszą osobę."
                           : "Brak aktywnych pracowników — wszyscy usunięci (włącz „Pokaż usuniętych”, żeby ich zobaczyć)."}

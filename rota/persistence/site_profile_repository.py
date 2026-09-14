@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import time
 
-from rota.domain import EmployeeRole, ShiftCatalogKind, ShiftKind, SiteProfile, StandardShift
+from rota.domain import ShiftCatalogKind, ShiftKind, SiteProfile, StandardShift
 from rota.planning.shift_catalog import validate_standard_shift_shape
 
 
@@ -34,12 +34,14 @@ def _standard_shifts_has_t012_columns(conn: sqlite3.Connection) -> bool:
     return "catalog_kind" in columns
 
 
-def _standard_shifts_has_t065_columns(conn: sqlite3.Connection) -> bool:
+def _standard_shifts_has_configurable_roles_columns(conn: sqlite3.Connection) -> bool:
     """Same legacy-schema-detection technique as
-    _standard_shifts_has_t012_columns, for ROTA-T065's required_role
-    column (migration 19)."""
+    _standard_shifts_has_t012_columns, for ROTA-T065-CONFIGURABLE-ROLES'
+    required_role_id column (migration 20). The migration-19 `required_role`
+    column is left in the schema but is no longer written/read by this
+    repository -- see rota/persistence/db.py migration 20 docstring."""
     columns = {row[1] for row in conn.execute("PRAGMA table_info(standard_shifts)").fetchall()}
-    return "required_role" in columns
+    return "required_role_id" in columns
 
 
 def _write_site_profile_header(conn: sqlite3.Connection, profile: SiteProfile) -> None:
@@ -75,7 +77,7 @@ def _write_site_profile_header(conn: sqlite3.Connection, profile: SiteProfile) -
 
 def _write_standard_shift(
     conn: sqlite3.Connection, profile_id: str, seq: int, shift: StandardShift,
-    has_t012_columns: bool, has_t065_columns: bool,
+    has_t012_columns: bool, has_configurable_roles_columns: bool,
 ) -> None:
     # A-R4-4: the T012 shape boundaries (rest/weekdays/catalog-kind-vs-
     # duration) are rejected here, at create/update write time -- not
@@ -95,7 +97,7 @@ def _write_standard_shift(
             ),
         )
         return
-    if not has_t065_columns:
+    if not has_configurable_roles_columns:
         conn.execute(
             """INSERT INTO standard_shifts
                (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count,
@@ -118,7 +120,7 @@ def _write_standard_shift(
     conn.execute(
         """INSERT INTO standard_shifts
            (profile_id, seq, kind, start_time, end_time, end_next_day, required_primary_count,
-            catalog_kind, required_rest_hours, active_weekdays, required_role)
+            catalog_kind, required_rest_hours, active_weekdays, required_role_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             profile_id,
@@ -131,7 +133,7 @@ def _write_standard_shift(
             shift.catalog_kind.value if shift.catalog_kind else None,
             shift.required_rest_hours,
             ",".join(str(w) for w in shift.active_weekdays),
-            shift.required_role.value if shift.required_role else None,
+            shift.required_role_id,
         ),
     )
 
@@ -142,9 +144,9 @@ def write_site_profile_in_open_transaction(conn: sqlite3.Connection, profile: Si
     _write_site_profile_header(conn, profile)
     conn.execute("DELETE FROM standard_shifts WHERE profile_id = ?", (profile.profile_id,))
     has_t012_columns = _standard_shifts_has_t012_columns(conn)
-    has_t065_columns = has_t012_columns and _standard_shifts_has_t065_columns(conn)
+    has_configurable_roles_columns = has_t012_columns and _standard_shifts_has_configurable_roles_columns(conn)
     for seq, shift in enumerate(profile.standard_shifts):
-        _write_standard_shift(conn, profile.profile_id, seq, shift, has_t012_columns, has_t065_columns)
+        _write_standard_shift(conn, profile.profile_id, seq, shift, has_t012_columns, has_configurable_roles_columns)
 
 
 def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
@@ -154,7 +156,7 @@ def save_site_profile(conn: sqlite3.Connection, profile: SiteProfile) -> None:
 
 def _row_to_shift(row: tuple) -> StandardShift:
     (kind, start_time, end_time, end_next_day, required_primary_count,
-     catalog_kind, required_rest_hours, active_weekdays, required_role) = row
+     catalog_kind, required_rest_hours, active_weekdays, required_role_id) = row
     return StandardShift(
         kind=ShiftKind(kind),
         start_time=time.fromisoformat(start_time),
@@ -168,8 +170,8 @@ def _row_to_shift(row: tuple) -> StandardShift:
         catalog_kind=ShiftCatalogKind(catalog_kind) if catalog_kind else None,
         required_rest_hours=required_rest_hours if required_rest_hours is not None else 11,
         active_weekdays=tuple(int(w) for w in active_weekdays.split(",")) if active_weekdays else (1, 2, 3, 4, 5, 6, 7),
-        # Legacy/OCHRONA (pre-T065) rows have NULL here: no role required.
-        required_role=EmployeeRole(required_role) if required_role else None,
+        # Legacy/OCHRONA rows have NULL here: no role required.
+        required_role_id=required_role_id,
     )
 
 
@@ -180,7 +182,7 @@ def _fetch_standard_shifts(conn: sqlite3.Connection, profile_id: str) -> list[St
     # migration.py never reads before reopening via connect().
     rows = conn.execute(
         """SELECT kind, start_time, end_time, end_next_day, required_primary_count,
-                  catalog_kind, required_rest_hours, active_weekdays, required_role
+                  catalog_kind, required_rest_hours, active_weekdays, required_role_id
            FROM standard_shifts WHERE profile_id = ? ORDER BY seq""",
         (profile_id,),
     ).fetchall()

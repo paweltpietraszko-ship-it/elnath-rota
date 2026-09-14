@@ -22,10 +22,12 @@ from rota.domain import (
     CoordinatorSiteAssociation,
     Employee,
     ExternalSupportWindow,
+    RoleCoverageAuthorization,
     Site,
     SiteMembership,
     SitePlanningRegime,
     SiteProfile,
+    SiteRoleDefinition,
 )
 from rota.persistence import site_memory
 from rota.persistence.absence_reference_repository import capture_and_check_in_open_transaction
@@ -44,6 +46,12 @@ from rota.persistence.employee_repository import (
 )
 from rota.persistence.schedule_repository import list_regime_replan_required_months
 from rota.persistence.site_profile_repository import SiteProfileNotFound, get_site_profile, write_site_profile_in_open_transaction
+from rota.persistence.site_role_repository import (
+    get_role_coverage_authorization,
+    get_site_role,
+    write_role_coverage_authorization_in_open_transaction,
+    write_site_role_in_open_transaction,
+)
 from rota.persistence.site_repository import (
     MonthlyExtraWorkCodes,
     SiteNotFound,
@@ -268,10 +276,10 @@ def update_membership(
     )
     material = before is None or (
         before.membership_kind, before.enabled, before.readiness_state, before.readiness_source, before.can_work_24h,
-        before.allowed_roles,
+        before.position_role_id,
     ) != (
         membership.membership_kind, membership.enabled, membership.readiness_state, membership.readiness_source,
-        membership.can_work_24h, membership.allowed_roles,
+        membership.can_work_24h, membership.position_role_id,
     )
     with conn:
         site_memory.validate_decision_required_link_no_commit(
@@ -285,7 +293,7 @@ def update_membership(
                     "employee_id": m.employee_id, "site_id": m.site_id, "membership_kind": m.membership_kind.value,
                     "enabled": m.enabled, "readiness_state": m.readiness_state.value,
                     "readiness_source": m.readiness_source.value, "can_work_24h": m.can_work_24h,
-                    "allowed_roles": sorted(r.value for r in m.allowed_roles),
+                    "position_role_id": m.position_role_id,
                 }
 
             _record_action_and_invalidate_no_commit(
@@ -297,6 +305,93 @@ def update_membership(
                 note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE,
                 source_id=f"{membership.employee_id}:{site_id}",
                 responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=None,
+            )
+
+
+def _site_role_state(role: SiteRoleDefinition | None) -> dict | None:
+    if role is None:
+        return None
+    return {"role_id": role.role_id, "site_id": role.site_id, "display_name": role.display_name, "active": role.active}
+
+
+def save_site_role(
+    conn, *, coordinator_id: str, site_id: str, role: SiteRoleDefinition, note: str | None = None,
+) -> None:
+    """ROTA-T065-CONFIGURABLE-ROLES section 3/9: create, rename or retire
+    (active=False) one entry in this Site's own role catalog. Never rewrites
+    already-persisted historical text (ShiftDemand.required_role_name,
+    ScheduleVersionEmployeePosition.role_name) -- this changes only the
+    current-state catalog row."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    _require_payload_belongs_to_site(role.site_id, site_id)
+    recorded_at = datetime.now()
+    try:
+        before = get_site_role(conn, role.role_id)
+    except KeyError:
+        before = None
+    before_state, after_state = _site_role_state(before), _site_role_state(role)
+    with conn:
+        write_site_role_in_open_transaction(conn, role)
+        if before_state != after_state:
+            _record_action_and_invalidate_no_commit(
+                conn, action_kind=CoordinatorActionKind.SITE_ROLE_CATALOG_CHANGED, origin_site_id=site_id,
+                affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+                effective_from=recorded_at.date(), month=None,
+                affected_entities=[AffectedEntity("SITE_ROLE", role.role_id), AffectedEntity("SITE", site_id)],
+                before_state=before_state, after_state=after_state, note=_normalize_note(note),
+                source_kind=ActionSourceKind.CURRENT_STATE, source_id=role.role_id,
+                responds_to_decision_required_id=None, invalidate_months=None,
+            )
+
+
+def _role_coverage_authorization_state(authorization: RoleCoverageAuthorization | None) -> dict | None:
+    if authorization is None:
+        return None
+    return {
+        "authorization_id": authorization.authorization_id, "site_id": authorization.site_id,
+        "employee_id": authorization.employee_id, "covered_role_id": authorization.covered_role_id,
+        "start_datetime": authorization.start_datetime, "end_datetime": authorization.end_datetime,
+        "active": authorization.active,
+    }
+
+
+def set_role_coverage_authorization(
+    conn, *, coordinator_id: str, site_id: str, authorization: RoleCoverageAuthorization,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
+) -> None:
+    """ROTA-T065-CONFIGURABLE-ROLES section 7: create a new, or cancel
+    (active=False) an existing, time-bounded permission letting one
+    employee cover ShiftDemands requiring a different role than their own
+    SiteMembership.position_role_id. Never changes position_role_id,
+    never implies a hierarchy -- see rota.planning.eligibility.role_covers,
+    the single ROLE-01 owner that consults this fact."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    _require_payload_belongs_to_site(authorization.site_id, site_id)
+    recorded_at = datetime.now()
+    try:
+        before = get_role_coverage_authorization(conn, authorization.authorization_id)
+    except KeyError:
+        before = None
+    before_state, after_state = _role_coverage_authorization_state(before), _role_coverage_authorization_state(authorization)
+    with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        write_role_coverage_authorization_in_open_transaction(conn, authorization)
+        if before_state != after_state:
+            _record_action_and_invalidate_no_commit(
+                conn, action_kind=CoordinatorActionKind.ROLE_COVERAGE_AUTHORIZATION_CHANGED, origin_site_id=site_id,
+                affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+                effective_from=authorization.start_datetime.date(), month=None,
+                affected_entities=[
+                    AffectedEntity("EMPLOYEE", authorization.employee_id),
+                    AffectedEntity("ROLE_COVERAGE_AUTHORIZATION", authorization.authorization_id),
+                    AffectedEntity("SITE", site_id),
+                ],
+                before_state=before_state, after_state=after_state, note=_normalize_note(note),
+                source_kind=ActionSourceKind.CURRENT_STATE, source_id=authorization.authorization_id,
+                responds_to_decision_required_id=responds_to_decision_required_id,
+                invalidate_months=_months_overlapped(authorization.start_datetime.date(), authorization.end_datetime.date()),
             )
 
 
@@ -480,7 +575,7 @@ def _profile_state(p):
                 "end_next_day": s.end_next_day, "required_primary_count": s.required_primary_count,
                 "catalog_kind": s.catalog_kind.value if s.catalog_kind else None,
                 "required_rest_hours": s.required_rest_hours, "active_weekdays": list(s.active_weekdays),
-                "required_role": s.required_role.value if s.required_role else None,
+                "required_role_id": s.required_role_id,
             }
             for s in p.standard_shifts
         ],

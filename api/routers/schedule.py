@@ -191,7 +191,7 @@ def _demand_out(d) -> ShiftDemandOut:
     return ShiftDemandOut(
         demand_id=d.demand_id, start_datetime=d.start_datetime.isoformat(), end_datetime=d.end_datetime.isoformat(),
         required_primary_count=d.required_primary_count, shift_kind=d.shift_kind.value if d.shift_kind else None,
-        required_role=d.required_role.value if d.required_role else None,
+        required_role=d.required_role_name,
     )
 
 

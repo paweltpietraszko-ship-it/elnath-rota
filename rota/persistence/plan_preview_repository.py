@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, EmployeeRole, ShiftCatalogKind, ShiftDemand, ShiftKind
+from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind, ShiftDemand, ShiftKind
 from rota.persistence import pii_crypto
 
 # ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE brief.md section 2.1:
@@ -80,7 +80,7 @@ def _shift_demand_to_dict(d: ShiftDemand) -> dict:
         "required_rest_hours": d.required_rest_hours,
         "work_period_template_id": d.work_period_template_id, "work_period_component": d.work_period_component,
         "emergency_24h_rest_hours": d.emergency_24h_rest_hours,
-        "required_role": d.required_role.value if d.required_role else None,
+        "required_role_id": d.required_role_id, "required_role_name": d.required_role_name,
     }
 
 
@@ -95,8 +95,8 @@ def _shift_demand_from_dict(d: dict) -> ShiftDemand:
         work_period_template_id=d["work_period_template_id"], work_period_component=d["work_period_component"],
         emergency_24h_rest_hours=d["emergency_24h_rest_hours"],
         # .get(): backward-compatible with already-persisted preview JSON
-        # written before this key existed.
-        required_role=EmployeeRole(d["required_role"]) if d.get("required_role") else None,
+        # written before these keys existed.
+        required_role_id=d.get("required_role_id"), required_role_name=d.get("required_role_name"),
     )
 
 

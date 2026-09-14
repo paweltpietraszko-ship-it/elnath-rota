@@ -21,6 +21,7 @@ from rota.persistence.employee_repository import (
     list_memberships_for_site,
 )
 from rota.persistence.availability_repository import get_current_availability_for_employee
+from rota.persistence.site_role_repository import list_role_coverage_authorizations_for_site, list_site_roles
 from rota.persistence.work_balance_repository import get_work_balance_target
 from rota.planning.site_rules import EMPLOYEE_DAY_ONLY_N_EXCEPTION
 
@@ -54,8 +55,9 @@ class RosterRow(BaseModel):
     can_work_24h: bool
     readiness_state: str
     membership_kind: str
-    # ROTA-T065 brief.md section 13: empty for OCHRONA/legacy memberships.
-    allowed_roles: list[str]
+    # ROTA-T065-CONFIGURABLE-ROLES section 4: None for OCHRONA/legacy
+    # memberships, or an ORDINARY employee never assigned a position.
+    position_role_id: str | None
 
 
 class EmployeeOut(BaseModel):
@@ -69,7 +71,7 @@ class MembershipOut(BaseModel):
     can_work_24h: bool
     readiness_state: str
     readiness_source: str
-    allowed_roles: list[str]
+    position_role_id: str | None
 
 
 class AvailabilityRecordOut(BaseModel):
@@ -132,7 +134,7 @@ def list_roster(site_id: str, conn=Depends(get_conn)) -> list[RosterRow]:
             can_work_24h=m.can_work_24h,
             readiness_state=m.readiness_state.value,
             membership_kind=m.membership_kind.value,
-            allowed_roles=sorted(r.value for r in m.allowed_roles),
+            position_role_id=m.position_role_id,
         )
         for m in memberships
     ]
@@ -174,7 +176,7 @@ def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) 
         membership=MembershipOut(
             enabled=membership.enabled, can_work_24h=membership.can_work_24h,
             readiness_state=membership.readiness_state.value, readiness_source=membership.readiness_source.value,
-            allowed_roles=sorted(r.value for r in membership.allowed_roles),
+            position_role_id=membership.position_role_id,
         ),
         availability=[
             AvailabilityRecordOut(
@@ -215,3 +217,39 @@ def get_employee_matrix(employee_id: str, site_id: str, month: str, conn=Depends
             applies_to=applicability.applies_to.isoformat() if applicability else None,
         ))
     return EmployeeMatrixOut(cells=cells)
+
+
+# --- Site role catalog + coverage authorizations (ROTA-T065-CONFIGURABLE-ROLES) ---
+# Writes live in api/routers/durable_inputs.py, matching this whole file's
+# own established read/write split.
+
+
+class SiteRoleOut(BaseModel):
+    role_id: str
+    display_name: str
+    active: bool
+
+
+@router.get("/sites/{site_id}/roles", response_model=list[SiteRoleOut])
+def list_site_roles_endpoint(site_id: str, conn=Depends(get_conn)) -> list[SiteRoleOut]:
+    return [SiteRoleOut(role_id=r.role_id, display_name=r.display_name, active=r.active) for r in list_site_roles(conn, site_id)]
+
+
+class RoleCoverageAuthorizationOut(BaseModel):
+    authorization_id: str
+    employee_id: str
+    covered_role_id: str
+    start_datetime: str
+    end_datetime: str
+    active: bool
+
+
+@router.get("/sites/{site_id}/role-coverage-authorizations", response_model=list[RoleCoverageAuthorizationOut])
+def list_role_coverage_authorizations_endpoint(site_id: str, conn=Depends(get_conn)) -> list[RoleCoverageAuthorizationOut]:
+    return [
+        RoleCoverageAuthorizationOut(
+            authorization_id=a.authorization_id, employee_id=a.employee_id, covered_role_id=a.covered_role_id,
+            start_datetime=a.start_datetime.isoformat(), end_datetime=a.end_datetime.isoformat(), active=a.active,
+        )
+        for a in list_role_coverage_authorizations_for_site(conn, site_id)
+    ]

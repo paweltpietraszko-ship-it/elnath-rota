@@ -57,7 +57,11 @@ def understaffed_site():
         connection, coordinator_id=DEV_COORDINATOR_ID, site_id=site_id,
         coordinator=Coordinator(DEV_COORDINATOR_ID, "Coordinator", True),
         site_profile=profile,
-        site=Site(site_id, profile_id, "Understaffed", True, SitePlanningRegime.ORDINARY),
+        # ROTA-T065-CONFIGURABLE-ROLES: ORDINARY now requires a role on
+        # every shift-catalog row; this fixture's tests are role-agnostic
+        # (decision-clearing mechanics), so use OCHRONA instead -- same
+        # fix as tests/test_t030_shift_catalog_api.py.
+        site=Site(site_id, profile_id, "Understaffed", True, SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(DEV_COORDINATOR_ID, site_id, True),
     )
     save_employee(connection, Employee("EMP-1", "Jan Kowalski", date(2020, 1, 1), None, False))

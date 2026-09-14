@@ -15,9 +15,9 @@ from rota.domain import (
     AssignmentState,
     Deviation,
     DeviationCategory,
-    EmployeeRole,
     ScheduleStatus,
     ScheduleVersion,
+    ScheduleVersionEmployeePosition,
     ShiftCatalogKind,
     ShiftDemand,
     ShiftKind,
@@ -29,7 +29,8 @@ from rota.persistence.schedule_types import ScheduleSnapshot
 
 def _row_to_demand(row: tuple) -> ShiftDemand:
     (schedule_version_id, demand_id, start_dt, end_dt, count,
-     shift_kind, catalog_kind, required_rest_hours, template_id, component, emergency_rest, required_role) = row
+     shift_kind, catalog_kind, required_rest_hours, template_id, component, emergency_rest,
+     required_role_id, required_role_name) = row
     return ShiftDemand(
         demand_id, schedule_version_id, datetime.fromisoformat(start_dt), datetime.fromisoformat(end_dt), count,
         shift_kind=ShiftKind(shift_kind) if shift_kind else None,
@@ -37,7 +38,7 @@ def _row_to_demand(row: tuple) -> ShiftDemand:
         required_rest_hours=required_rest_hours,
         work_period_template_id=template_id, work_period_component=component,
         emergency_24h_rest_hours=emergency_rest,
-        required_role=EmployeeRole(required_role) if required_role else None,
+        required_role_id=required_role_id, required_role_name=required_role_name,
     )
 
 
@@ -92,7 +93,8 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
         _row_to_demand(r) for r in conn.execute(
             "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
             "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
-            "emergency_24h_rest_hours, required_role FROM shift_demands WHERE schedule_version_id = ? ORDER BY demand_id",
+            "emergency_24h_rest_hours, required_role_id, required_role_name FROM shift_demands "
+            "WHERE schedule_version_id = ? ORDER BY demand_id",
             (version_id,),
         ).fetchall()
     ]
@@ -116,6 +118,25 @@ def get_schedule_snapshot(conn: sqlite3.Connection, version_id: str) -> Schedule
     return ScheduleSnapshot(header.status, header.applied_rule_version_ids, demands, assignments, deviations)
 
 
+def get_schedule_version_employee_positions(
+    conn: sqlite3.Connection, version_id: str,
+) -> dict[str, ScheduleVersionEmployeePosition]:
+    """ROTA-T065-CONFIGURABLE-ROLES section 6: the ONE historical source for
+    a printed organizational position -- keyed by employee_id, never
+    re-derived from today's site_memberships.position_role_id. Writing this
+    snapshot is owned by rota/persistence/schedule_lifecycle.py, materialized
+    in the same transaction a candidate becomes this version's content."""
+    rows = conn.execute(
+        "SELECT schedule_version_id, employee_id, role_id, role_name "
+        "FROM schedule_version_employee_positions WHERE schedule_version_id = ?",
+        (version_id,),
+    ).fetchall()
+    return {
+        employee_id: ScheduleVersionEmployeePosition(schedule_version_id, employee_id, role_id, role_name)
+        for schedule_version_id, employee_id, role_id, role_name in rows
+    }
+
+
 def get_shift_demands_by_ids(conn: sqlite3.Connection, version_demand_ids: list[tuple[str, str]]) -> list[ShiftDemand]:
     """ROTA-T012 Part C: batch-fetch ShiftDemand rows by (schedule_version_id,
     demand_id) pairs, grouped per version -- used to reconstruct cross-month
@@ -130,7 +151,8 @@ def get_shift_demands_by_ids(conn: sqlite3.Connection, version_demand_ids: list[
         rows = conn.execute(
             "SELECT schedule_version_id, demand_id, start_datetime, end_datetime, required_primary_count, "
             "shift_kind, catalog_kind, required_rest_hours, work_period_template_id, work_period_component, "
-            f"emergency_24h_rest_hours, required_role FROM shift_demands WHERE schedule_version_id = ? AND demand_id IN ({placeholders})",
+            "emergency_24h_rest_hours, required_role_id, required_role_name FROM shift_demands "
+            f"WHERE schedule_version_id = ? AND demand_id IN ({placeholders})",
             (version_id, *demand_ids),
         ).fetchall()
         demands.extend(_row_to_demand(r) for r in rows)

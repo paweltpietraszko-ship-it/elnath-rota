@@ -11,7 +11,7 @@ from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind, AvailabilityRecord, MembershipKind,
     ShiftCatalogKind, ShiftKind, SitePlanningRegime,
 )
-from rota.planning.eligibility import is_all_24h_profile
+from rota.planning.eligibility import role_covers, is_all_24h_profile
 from rota.planning.shift_catalog import UnclassifiedShiftError, classify_demand, dn_semantics_apply
 from rota.planning.site_rules import (
     SHIFT_KIND_SPECIFIC_RULE_KINDS,
@@ -286,13 +286,14 @@ def _check_day_only(state: PlanningState, assignments: list[Assignment], details
 
 
 def _check_role(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
-    """ROLE-01 (ROTA-T065 brief.md section 10): independent anti-drift
-    mirror of eligibility.py's _common_hard_gate role check, run against
-    the final/manual Assignment set -- exactly the same relationship
-    _check_membership_enabled/_check_external have to their eligibility.py
-    counterparts. demand.required_role is None for every OCHRONA/legacy
-    demand, so this is a strict no-op there. Applies identically to LOCAL
-    and EXTERNAL_SUPPORT membership (brief section 10/11) -- no separate
+    """ROLE-01 (ROTA-T065-CONFIGURABLE-ROLES section 8): independent
+    anti-drift mirror of eligibility.py's role_covers -- the same shared
+    function both call, so there is exactly one ROLE-01 owner (brief
+    section 8: "jeden gate"), run here against the final/manual Assignment
+    set exactly as _check_membership_enabled/_check_external mirror their
+    eligibility.py counterparts. required_role_id is None for every
+    OCHRONA/legacy demand, so this is a strict no-op there. Applies
+    identically to LOCAL and EXTERNAL_SUPPORT membership -- no separate
     branch for either.
 
     Prefers _covering_demand (the assignment's OWN tagged demand): unlike
@@ -300,9 +301,9 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
     every demand overlapping it), required_role is a property of the
     SPECIFIC posted position -- brief section 17 T65-01 explicitly allows
     two demands with different roles to occupy the exact same interval
-    (KIEROWNIK and SPRZEDAWCA_ZALOGA both on duty at once), so an overlap
-    match would falsely blame a correctly-tagged assignment for a
-    same-interval sibling's role.
+    (two different roles both on duty at once), so an overlap match would
+    falsely blame a correctly-tagged assignment for a same-interval
+    sibling's role.
 
     ROTA-T065 audit R2-01 fix: an untagged Assignment (covers_demand_id=
     None -- the public manual-correction DTO permits this) has no single
@@ -315,15 +316,19 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
         tagged = _covering_demand(assignment, state)
         candidate_demands = [tagged] if tagged is not None else _covered_demands(assignment, state)
         membership = membership_by_employee.get(assignment.employee_id)
-        allowed_roles = membership.allowed_roles if membership is not None else frozenset()
         for demand in candidate_demands:
-            if demand is None or demand.required_role is None:
+            if demand is None or demand.required_role_id is None:
                 continue
-            if demand.required_role not in allowed_roles:
+            # No local membership at all is the same fail-closed outcome as
+            # a membership whose position doesn't match -- role_covers
+            # needs a membership object to compare against, so a missing
+            # one is never silently skipped.
+            covered = membership is not None and role_covers(demand, membership, state.role_coverage_authorizations)
+            if not covered:
                 details.append(ViolationDetail(
                     "ROLE-01", (assignment.assignment_id,),
                     f"ROLE-01: {assignment.employee_id} assignment {assignment.assignment_id} covers demand "
-                    f"{demand.demand_id} requiring role {demand.required_role.value}, not permitted for this membership",
+                    f"{demand.demand_id} requiring role {demand.required_role_name}, not permitted for this membership",
                 ))
 
 

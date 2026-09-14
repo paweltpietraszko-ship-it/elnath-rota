@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional, TypedDict, Union
@@ -11,17 +11,6 @@ from typing import Optional, TypedDict, Union
 class ShiftKind(str, Enum):
     D = "D"
     N = "N"
-
-
-class EmployeeRole(str, Enum):
-    """ROTA-T065 brief.md section 3: exactly two ORDINARY store roles.
-    Deliberately not D/N -- a role is a business capability (who may cover
-    a demand), orthogonal to ShiftKind's OCHRONA-era day/night bookkeeping.
-    Never extended to a third value without a new brief (UCZEN/ekipa
-    sprzątająca are explicitly out of scope, brief section 15)."""
-
-    KIEROWNIK = "KIEROWNIK"
-    SPRZEDAWCA_ZALOGA = "SPRZEDAWCA_ZALOGA"
 
 
 class AssignmentRole(str, Enum):
@@ -145,11 +134,12 @@ class StandardShift:
     catalog_kind: Optional["ShiftCatalogKind"] = None
     required_rest_hours: int = 11
     active_weekdays: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7)
-    # ROTA-T065 brief.md section 6/9: the ORDINARY role required to cover
-    # this repeatable shift definition, carried through generate_catalog_
-    # demands to every ShiftDemand it produces. None for OCHRONA/legacy
-    # shifts, which never had a role concept.
-    required_role: Optional["EmployeeRole"] = None
+    # ROTA-T065-CONFIGURABLE-ROLES section 5: the role_id (from this Site's
+    # own SiteRoleDefinition catalog) required to cover this repeatable
+    # shift definition, carried through generate_catalog_demands to every
+    # ShiftDemand it produces. None for OCHRONA/legacy shifts, which never
+    # had a role concept. Not a global enum value -- resolved per Site.
+    required_role_id: Optional[str] = None
 
 
 # --- Entities ---
@@ -217,13 +207,66 @@ class SiteMembership:
     # Does not disable membership.enabled, DAY_ONLY, Availability, SiteRule,
     # EXTERNAL or any other existing HARD gate.
     can_work_24h: bool = True
-    # ROTA-T065 brief.md section 3.1: ORDINARY store roles this person is
-    # explicitly permitted for AT THIS site -- zero, one, or both. Default
-    # empty is exactly right for OCHRONA/legacy memberships, which never
-    # produce a ShiftDemand.required_role and so never consult this field.
-    # A person may hold both roles at once (no automatic interchangeability
-    # -- the coordinator must add a role explicitly, brief section 3).
-    allowed_roles: frozenset["EmployeeRole"] = field(default_factory=frozenset)
+    # ROTA-T065-CONFIGURABLE-ROLES section 2/4: this person's ONE current
+    # organizational position on this Site (a role_id from the Site's own
+    # SiteRoleDefinition catalog) -- who they ARE, never a list of
+    # substitutions. None for OCHRONA/legacy memberships, which never
+    # produce a ShiftDemand.required_role_id and so never consult this
+    # field. Covering a demand that requires a DIFFERENT role never changes
+    # this -- see RoleCoverageAuthorization for that separate, time-bounded
+    # fact (section 7).
+    position_role_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SiteRoleDefinition:
+    """ROTA-T065-CONFIGURABLE-ROLES section 3: one ORDINARY organizational/
+    work role, defined by and scoped to a single Site's own catalog --
+    never a global enum. Different Sites/industries have unrelated role
+    sets (a shop's Kierownik/Sprzedawca vs. a warehouse's Magazynier/
+    Wózkowy/Kasjer). `active=False` hides it from new configuration
+    (catalog rows, position assignment) without touching already-persisted
+    historical snapshots (ShiftDemand.required_role_name,
+    ScheduleVersionEmployeePosition.role_name)."""
+
+    role_id: str
+    site_id: str
+    display_name: str
+    active: bool = True
+
+
+@dataclass(frozen=True)
+class RoleCoverageAuthorization:
+    """ROTA-T065-CONFIGURABLE-ROLES section 7: a coordinator-issued,
+    time-bounded permission letting one employee cover ShiftDemands
+    requiring a role different from their own SiteMembership.
+    position_role_id -- e.g. a Kierownik explicitly authorized to cover
+    Sprzedawca demands for a stated period. Never changes position_role_id,
+    never implies an automatic hierarchy, always finite (no indefinite/
+    permanent substitution -- start/end are both required)."""
+
+    authorization_id: str
+    site_id: str
+    employee_id: str
+    covered_role_id: str
+    start_datetime: datetime
+    end_datetime: datetime
+    active: bool = True
+
+
+@dataclass(frozen=True)
+class ScheduleVersionEmployeePosition:
+    """ROTA-T065-CONFIGURABLE-ROLES section 6: minimal historical-
+    presentation snapshot of an employee's organizational position at the
+    moment a ScheduleVersion's content was accepted -- read-only historical
+    fact for print/reprint, never re-derived from today's
+    SiteMembership.position_role_id. `role_name` is frozen text: a later
+    rename/retire of the live SiteRoleDefinition never changes it."""
+
+    schedule_version_id: str
+    employee_id: str
+    role_id: str
+    role_name: str
 
 
 @dataclass
@@ -403,11 +446,14 @@ class ShiftDemand:
     # rota.planning.shift_catalog. None means no emergency 24h rescue is
     # possible for this demand.
     emergency_24h_rest_hours: Optional[int] = None
-    # ROTA-T065 brief.md section 9: snapshotted from StandardShift.required_
-    # role at generation time, immutable once persisted (brief section 9/16
-    # -- a later membership/catalog change never retroactively reclassifies
-    # an already-accepted historical demand). None for OCHRONA/legacy.
-    required_role: Optional["EmployeeRole"] = None
+    # ROTA-T065-CONFIGURABLE-ROLES section 5: snapshotted from
+    # StandardShift.required_role_id at generation time, immutable once
+    # persisted -- a later SiteRoleDefinition rename/retire or membership
+    # change never retroactively reclassifies an already-accepted historical
+    # demand. required_role_name is frozen historical text captured
+    # alongside the id at the same moment. Both None for OCHRONA/legacy.
+    required_role_id: Optional[str] = None
+    required_role_name: Optional[str] = None
 
 
 @dataclass

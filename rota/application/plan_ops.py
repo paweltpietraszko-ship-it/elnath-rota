@@ -218,7 +218,8 @@ def _stale_empty_working_needs_fresh_demands(state, month: date) -> bool:
     time, ignoring only schedule_version_id (_demand_semantic_key)."""
     if state.existing_assignments:
         return False
-    fresh = generate_profile_demands(state.profile, month)
+    role_names = {r.role_id: r.display_name for r in state.site_roles}
+    fresh = generate_profile_demands(state.profile, month, role_names)
     return {_demand_semantic_key(d) for d in state.shift_demands} != {_demand_semantic_key(d) for d in fresh}
 
 
@@ -335,8 +336,10 @@ def plan_month(
         # pointed at a half-written version.
         header = get_schedule_version_header(conn, current_id)
         fresh_id = f"SV-{uuid.uuid4().hex}"
+        role_names = {r.role_id: r.display_name for r in state.site_roles}
         fresh_demands = tuple(
-            replace(d, schedule_version_id=fresh_id) for d in generate_profile_demands(state.profile, month)
+            replace(d, schedule_version_id=fresh_id)
+            for d in generate_profile_demands(state.profile, month, role_names)
         )
         lifecycle.create_schedule_version(
             conn, version_id=fresh_id, site_id=site_id, month=month, parent_version_id=current_id,

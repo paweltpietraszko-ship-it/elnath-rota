@@ -46,8 +46,36 @@ def _order_assignments_mentor_first(assignments: list[Assignment]) -> list[Assig
     return sorted(assignments, key=lambda a: a.role != AssignmentRole.PRIMARY)
 
 
+def _insert_employee_positions(
+    conn: sqlite3.Connection, version_id: str, site_id: str, assignments: list[Assignment],
+) -> None:
+    """ROTA-T065-CONFIGURABLE-ROLES section 6: snapshot each assigned
+    employee's CURRENT organizational position at the moment this version's
+    content is written -- materialized in the same transaction a candidate
+    becomes this version's accepted content, one row per employee who
+    actually appears in `assignments`. An employee with no position_role_id
+    (OCHRONA, or an ORDINARY employee never assigned one) gets no row --
+    read-side callers (print) treat a missing row as "no position to
+    print", never an error."""
+    employee_ids = sorted({a.employee_id for a in assignments})
+    if not employee_ids:
+        return
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = conn.execute(
+        f"""SELECT sm.employee_id, sm.position_role_id, sr.display_name
+            FROM site_memberships sm JOIN site_roles sr ON sr.role_id = sm.position_role_id
+            WHERE sm.site_id = ? AND sm.employee_id IN ({placeholders}) AND sm.position_role_id IS NOT NULL""",
+        (site_id, *employee_ids),
+    ).fetchall()
+    conn.executemany(
+        "INSERT INTO schedule_version_employee_positions (schedule_version_id, employee_id, role_id, role_name) "
+        "VALUES (?, ?, ?, ?)",
+        [(version_id, employee_id, role_id, role_name) for employee_id, role_id, role_name in rows],
+    )
+
+
 def _insert_content(
-    conn: sqlite3.Connection, version_id: str,
+    conn: sqlite3.Connection, version_id: str, site_id: str,
     applied_rule_version_ids: list[str], shift_demands: list[ShiftDemand],
     assignments: list[Assignment], deviations: list[Deviation],
 ) -> None:
@@ -58,11 +86,12 @@ def _insert_content(
     conn.executemany(
         "INSERT INTO shift_demands (schedule_version_id, demand_id, start_datetime, end_datetime, "
         "required_primary_count, shift_kind, catalog_kind, required_rest_hours, work_period_template_id, "
-        "work_period_component, emergency_24h_rest_hours, required_role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "work_period_component, emergency_24h_rest_hours, required_role_id, required_role_name) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(version_id, d.demand_id, d.start_datetime.isoformat(), d.end_datetime.isoformat(), d.required_primary_count,
           d.shift_kind.value if d.shift_kind else None, d.catalog_kind.value if d.catalog_kind else None,
           d.required_rest_hours, d.work_period_template_id, d.work_period_component, d.emergency_24h_rest_hours,
-          d.required_role.value if d.required_role else None)
+          d.required_role_id, d.required_role_name)
          for d in shift_demands],
     )
     conn.executemany(
@@ -82,6 +111,7 @@ def _insert_content(
           int(d.acknowledged), d.acknowledged_by, d.acknowledged_at.isoformat() if d.acknowledged_at else None,
           d.reason) for d in deviations],
     )
+    _insert_employee_positions(conn, version_id, site_id, assignments)
 
 
 def _delete_content(conn: sqlite3.Connection, version_id: str) -> None:
@@ -92,6 +122,7 @@ def _delete_content(conn: sqlite3.Connection, version_id: str) -> None:
     conn.execute("DELETE FROM deviations WHERE schedule_version_id = ?", (version_id,))
     conn.execute("DELETE FROM assignments WHERE schedule_version_id = ?", (version_id,))
     conn.execute("DELETE FROM shift_demands WHERE schedule_version_id = ?", (version_id,))
+    conn.execute("DELETE FROM schedule_version_employee_positions WHERE schedule_version_id = ?", (version_id,))
 
 
 def _set_current_reference(conn: sqlite3.Connection, site_id: str, month: date, version_id: str) -> None:
@@ -184,7 +215,7 @@ def create_schedule_version(
                 status.value, effective_from.isoformat() if effective_from else None, planning_regime.value,
             ),
         )
-        _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
+        _insert_content(conn, version_id, site_id, applied_rule_version_ids, shift_demands, assignments, deviations)
         _set_current_reference(conn, site_id, month, version_id)
         if on_success is not None:
             on_success(conn)
@@ -224,7 +255,7 @@ def replace_working_snapshot(
             nn_reference_version_id=version_id, allow_new_nn_from_planned_primary=False,
         )
         _delete_content(conn, version_id)
-        _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
+        _insert_content(conn, version_id, header.site_id, applied_rule_version_ids, shift_demands, assignments, deviations)
         conn.execute("UPDATE schedule_versions SET status = ? WHERE version_id = ?", (status.value, version_id))
         if on_success is not None:
             on_success(conn)
@@ -245,7 +276,7 @@ def _replace_content_for_finalize(
         nn_reference_version_id=version_id, allow_new_nn_from_planned_primary=False,
     )
     _delete_content(conn, version_id)
-    _insert_content(conn, version_id, applied_rule_version_ids, shift_demands, assignments, deviations)
+    _insert_content(conn, version_id, header.site_id, applied_rule_version_ids, shift_demands, assignments, deviations)
 
 
 def finalize_schedule_version(

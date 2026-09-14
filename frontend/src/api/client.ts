@@ -53,8 +53,9 @@ export interface ShiftRowOut {
   active_weekdays: number[];
   duration_hours: number;
   catalog_kind: "12h" | "24h" | "INNY";
-  // ROTA-T065: null for OCHRONA/legacy shifts.
-  required_role: EmployeeRole | null;
+  // ROTA-T065-CONFIGURABLE-ROLES: null for OCHRONA/legacy shifts; a
+  // role_id from this Site's own catalog (SiteRoleOut) for ORDINARY.
+  required_role_id: string | null;
 }
 
 export interface ShiftCatalogOut {
@@ -70,7 +71,7 @@ export interface ShiftRowIn {
   end_time: string;
   required_primary_count: number;
   active_weekdays: number[];
-  required_role?: EmployeeRole | null;
+  required_role_id?: string | null;
 }
 
 export interface CalendarDayOut {
@@ -103,8 +104,10 @@ export interface ShiftDemandOut {
   end_datetime: string;
   required_primary_count: number;
   shift_kind: "D" | "N" | null;
-  // ROTA-T065: null for OCHRONA/legacy demands.
-  required_role: "KIEROWNIK" | "SPRZEDAWCA_ZALOGA" | null;
+  // ROTA-T065-CONFIGURABLE-ROLES: the historical role NAME (not an id) --
+  // null for OCHRONA/legacy demands, any Site-specific role display name
+  // for ORDINARY (no longer a fixed two-value set).
+  required_role: string | null;
 }
 
 export interface AssignmentOut {
@@ -206,7 +209,20 @@ export interface ManualCorrectionResultOut {
   deviations: DeviationOut[];
 }
 
-export type EmployeeRole = "KIEROWNIK" | "SPRZEDAWCA_ZALOGA";
+export interface SiteRoleOut {
+  role_id: string;
+  display_name: string;
+  active: boolean;
+}
+
+export interface RoleCoverageAuthorizationOut {
+  authorization_id: string;
+  employee_id: string;
+  covered_role_id: string;
+  start_datetime: string;
+  end_datetime: string;
+  active: boolean;
+}
 
 export interface RosterRow {
   employee_id: string;
@@ -215,8 +231,9 @@ export interface RosterRow {
   can_work_24h: boolean;
   readiness_state: string;
   membership_kind: "LOCAL" | "EXTERNAL_SUPPORT";
-  // ROTA-T065: empty for OCHRONA/legacy memberships.
-  allowed_roles: EmployeeRole[];
+  // ROTA-T065-CONFIGURABLE-ROLES: null for OCHRONA/legacy memberships, or
+  // an ORDINARY employee never assigned a position.
+  position_role_id: string | null;
 }
 
 export interface PickableEmployee {
@@ -236,7 +253,7 @@ export interface MembershipOut {
   can_work_24h: boolean;
   readiness_state: string;
   readiness_source: string;
-  allowed_roles: EmployeeRole[];
+  position_role_id: string | null;
 }
 
 export interface AvailabilityRecordOut {
@@ -789,8 +806,24 @@ export const api = {
   ) => req<void>(`/workspace/employees/${employeeId}/support-window`, { method: "POST", body: JSON.stringify(payload) }),
   updateRosterRow: (
     siteId: string, employeeId: string,
-    payload: { enabled?: boolean; can_work_24h?: boolean; allowed_roles?: EmployeeRole[] },
+    payload: { enabled?: boolean; can_work_24h?: boolean; position_role_id?: string | null; clear_position?: boolean },
   ) => req<void>(`/workspace/sites/${siteId}/roster/${employeeId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+
+  // Site role catalog + coverage authorizations (ROTA-T065-CONFIGURABLE-ROLES)
+  listSiteRoles: (siteId: string) => req<SiteRoleOut[]>(`/workspace/sites/${siteId}/roles`),
+  saveSiteRole: (siteId: string, roleId: string, payload: { role_id: string; display_name: string; active?: boolean }) =>
+    req<void>(`/workspace/sites/${siteId}/roles/${roleId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  listRoleCoverageAuthorizations: (siteId: string) =>
+    req<RoleCoverageAuthorizationOut[]>(`/workspace/sites/${siteId}/role-coverage-authorizations`),
+  setRoleCoverageAuthorization: (
+    siteId: string,
+    authorizationId: string,
+    payload: { authorization_id: string; employee_id: string; covered_role_id: string; start_datetime: string; end_datetime: string; active?: boolean },
+  ) =>
+    req<void>(`/workspace/sites/${siteId}/role-coverage-authorizations/${authorizationId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
   // Employee (brief.md section 5.1)
   createEmployee: (payload: {
