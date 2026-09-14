@@ -45,6 +45,12 @@ class AvailabilityKind(str, Enum):
     # rota/planning/absence.py for why: applying it there too shifted
     # ROTA-REG-001's frozen exact-hours oracle).
     SICK_LEAVE = "SICK_LEAVE"
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 2: the one new
+    # kind, for ORDINARY's real hourly availability. start_time/end_time
+    # are set only for this kind (section 3: same-day window, repeats every
+    # day in [start_date, end_date]); every other kind keeps both None and
+    # its existing whole-day semantics unchanged.
+    UNAVAILABLE_TIME_WINDOW = "UNAVAILABLE_TIME_WINDOW"
 
 
 class MembershipKind(str, Enum):
@@ -297,6 +303,10 @@ class AvailabilityRecord:
     active: bool
     supersedes_availability_version_id: Optional[str]
     note: Optional[str]
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY: set only for kind ==
+    # UNAVAILABLE_TIME_WINDOW; None for every other (whole-day) kind.
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
 
 
 @dataclass

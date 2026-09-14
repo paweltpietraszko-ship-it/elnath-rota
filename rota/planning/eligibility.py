@@ -49,6 +49,7 @@ from rota.domain import (
     SiteProfile,
 )
 from rota.domain import SiteRuleVersion
+from rota.planning.availability import unavailable_time_window_overlaps
 from rota.planning.shift_catalog import dn_semantics_apply, normalized_catalog_kind
 from rota.planning.site_rules import (
     SHIFT_KIND_SPECIFIC_RULE_KINDS,
@@ -80,6 +81,10 @@ _BLOCKING_KIND_PRIORITY = (
     AvailabilityKind.UNAVAILABLE_24H,
     AvailabilityKind.SICK_LEAVE,
     AvailabilityKind.LEAVE_GRANTED,
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY: lowest priority -- an existing
+    # whole-day kind already blocking the same day is more informative to
+    # the coordinator than this hourly one also matching that same day.
+    AvailabilityKind.UNAVAILABLE_TIME_WINDOW,
 )
 # Owner decision 2026-08-14: when SICK_LEAVE and LEAVE_GRANTED overlap the
 # same day, the reported reason must be SICK_LEAVE-01, not LEAVE_GRANTED-01
@@ -103,6 +108,7 @@ _CONDITION_CODE = {
     AvailabilityKind.UNAVAILABLE_24H: "UNAVAILABLE-01",
     AvailabilityKind.SICK_LEAVE: "SICK_LEAVE-01",
     AvailabilityKind.LEAVE_GRANTED: "LEAVE_GRANTED-01",
+    AvailabilityKind.UNAVAILABLE_TIME_WINDOW: "UNAVAILABLE_TIME-01",
 }
 
 
@@ -126,6 +132,9 @@ def _blocked_by_availability(
         elif record.kind == AvailabilityKind.LEAVE_PLAN:
             if overlaps_availability(demand, record):
                 leave_plan_collision = True
+        elif record.kind == AvailabilityKind.UNAVAILABLE_TIME_WINDOW:
+            if unavailable_time_window_overlaps(record, demand.start_datetime, demand.end_datetime):
+                blocking_kinds.add(record.kind)
     for kind in _BLOCKING_KIND_PRIORITY:
         if kind in blocking_kinds:
             return _CONDITION_CODE[kind], leave_plan_collision
@@ -214,7 +223,16 @@ def _common_hard_gate(
     # demand; an all-24h profile ignores the flag. Never a bypass of the
     # other gates below -- e.g. a DAY_ONLY employee still cannot take the N
     # component of a normal 24h occurrence.
-    if demand.catalog_kind == ShiftCatalogKind.H24 and not membership.can_work_24h and not is_all_24h_profile(profile):
+    # ROTA-T065-ORDINARY-TIME-AVAILABILITY brief.md section 5 (CRITICAL):
+    # can_work_24h NEVER participates in ORDINARY eligibility, even when
+    # the technical catalog_kind is H24 -- SHIFT-24-01 is OCHRONA-only
+    # semantics.
+    if (
+        regime == SitePlanningRegime.OCHRONA
+        and demand.catalog_kind == ShiftCatalogKind.H24
+        and not membership.can_work_24h
+        and not is_all_24h_profile(profile)
+    ):
         return EligibilityCheck(False, False, "SHIFT-24-01")
     day_only_fallback_rule_version_id = None
     # ROTA-T065 audit R3-01 fix: D/N never carries OCHRONA legal meaning

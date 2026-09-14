@@ -1,0 +1,22 @@
+ROTA-T065-ORDINARY-TIME-AVAILABILITY — OWNER ruling after audit R1
+Data: 2026-09-13
+Base report: task/ROTA-T065-ORDINARY-TIME-AVAILABILITY@b9f3a5d
+
+OWNER_CONFIRMED — zakres pierwszej wersji
+-----------------------------------------
+Pierwsza wersja obsługuje wyłącznie dzienne okna niedostępności mieszczące się
+w obrębie jednej doby, np. `00:00–12:00`.
+
+Okna niedostępności przechodzące przez północ są poza zakresem tego Tasku.
+UI i write boundary mają je jawnie odrzucić zamiast zgadywać semantykę dat.
+
+Granica jest półotwarta: praca zaczynająca się dokładnie o końcu okna nie
+nachodzi na nie. Dlatego dla `00:00–12:00` praca `12:00–19:00` jest dozwolona,
+a `10:00–18:00` jest zablokowana.
+
+WYNIK
+-----
+OWNER_DECISION z R1-03 jest zamknięta. Pozostają techniczne korekty R1-01,
+R1-02, R1-04 i R1-05: scope/API owner, jednoznaczne wyłączenie
+`can_work_24h` w ORDINARY, zachowanie ogólnych kontrolek dostępności oraz
+WHERE_MAP. Po ich naniesieniu brief wraca do Codexa na wąski re-check.

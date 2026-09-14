@@ -9,7 +9,7 @@ atomically with its domain write and any stale-current-question invalidation.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import holidays as holidays_lib
 
@@ -177,6 +177,11 @@ def _availability_state(record) -> dict | None:
         "employee_id": record.employee_id, "kind": record.kind.value, "start_date": record.start_date,
         "end_date": record.end_date, "active": record.active,
         "supersedes_availability_version_id": record.supersedes_availability_version_id, "note": record.note,
+        # site_memory's action-record JSON serializer only knows date/
+        # datetime, not time -- stringify here rather than widen that
+        # shared serializer for one field.
+        "start_time": record.start_time.isoformat() if record.start_time is not None else None,
+        "end_time": record.end_time.isoformat() if record.end_time is not None else None,
     }
 
 
@@ -195,6 +200,7 @@ def append_availability(
     conn, *, coordinator_id: str, site_id: str, availability_id: str, employee_id: str, kind: AvailabilityKind,
     start_date: date, end_date: date, active: bool, note: str | None = None,
     responds_to_decision_required_id: str | None = None,
+    start_time: time | None = None, end_time: time | None = None,
 ):
     """Covers append/supersede (a new version in the same family) and
     deactivate (active=False) alike -- the append-only chain primitive
@@ -214,6 +220,7 @@ def append_availability(
         record = append_availability_version_in_open_transaction(
             conn, availability_id=availability_id, employee_id=employee_id, kind=kind,
             start_date=start_date, end_date=end_date, active=active, note=normalized_note,
+            start_time=start_time, end_time=end_time,
         )
         capture_and_check_in_open_transaction(
             conn, availability_version_id=record.availability_version_id, employee_id=employee_id, kind=kind,

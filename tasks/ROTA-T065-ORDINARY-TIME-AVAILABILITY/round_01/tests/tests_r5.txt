@@ -1,0 +1,33 @@
+ROTA-T065-ORDINARY-TIME-AVAILABILITY — WĄSKI RE-CHECK R5
+
+WERDYKT: PASS
+AUDYTOWANY SHA: f10bfc8f5f86c85bd3bf364fdf5620a40e58f208
+POPRZEDNI FAIL: 9f3c86d7e502d06984881c5b7244c686247840fa
+RAPORT FAIL: audit 8d569ed / tests_r4.txt
+
+ZAKRES
+- literalny diff 9f3c86d..f10bfc8;
+- istniejący audit_r4_repro.py;
+- tests/test_t065_ordinary_time_availability.py, w tym nowe testy obu końców;
+- ruff dla zmienionego ownera i dwóch plików testowych.
+- bez ponownego czytania całej implementacji, pełnej regresji, symulatorów
+  i benchmarków.
+
+WYNIK
+- R4-01 zamknięty: _validate_time_window odrzuca niezerową minutę, sekundę
+  lub mikrosekundę zarówno start_time, jak i end_time przed zapisem.
+- poprawka pozostaje w jednym istniejącym ownerze; nie powstał drugi parser,
+  endpoint ani nowa semantyka produktu.
+- pytest: 28 passed.
+- ruff: PASS.
+- diff --check: PASS.
+
+SCOPE / OWNER RULING
+- tests/test_t012.py pozostaje historycznie poza literalnym TASK_SCOPE tego
+  Tasku, lecz OWNER 2026-09-14 zdecydował nie blokować tym bieżącego PASS i
+  przenieść przyczynę do osobnego Tasku naprawczego backend.py.
+- przyszły Task ma przywrócić fail-closed dla brakującego/błędnego TASK_SCOPE,
+  objąć kontrolą rozmiaru także .ts/.tsx oraz przywrócić u architekta
+  kanoniczny format `TASK_SCOPE:` z listą `- plik`.
+
+PASS obowiązuje wyłącznie dla f10bfc8f5f86c85bd3bf364fdf5620a40e58f208.

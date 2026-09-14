@@ -1,0 +1,55 @@
+ROTA-T065-ORDINARY-TIME-AVAILABILITY — preimplementation audit R1
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-ORDINARY-TIME-AVAILABILITY@087c228fbea02964cc9e916a1a93637beffc1112
+BOARD intake: main@0c288b97a41acd45b5bcfb64f29b650aab41e9c0
+
+WYNIK: WYMAGA_KOREKTY / OWNER_DECISION_NEEDED.
+
+Co jest poprawne
+----------------
+- ograniczenie opisuje realny czas, nie D/N ani pozycję katalogową;
+- przykład 00:00–12:00 ma poprawne granice: 05–12 i 10–18 są blokowane,
+  12–19 jest dozwolone;
+- jeden append-only owner Availability i jeden overlap oracle obsługują solver
+  oraz korektę ręczną;
+- LOCAL/EXTERNAL korzystają z tego samego mechanizmu;
+- OCHRONA i istniejące pełne nieobecności pozostają bez zmian.
+
+R1-01 — TASK_SCOPE zawiera złą i pomija potrzebne ścieżki
+-------------------------------------------------------
+- `rota/persistence/schema.py` nie istnieje; migracje są w `db.py`.
+- Odczyt EmployeeDetail serializuje Availability przez `api/routers/roster.py`;
+  bez tego UI nie dostanie nowych godzin.
+- Składanie macierzy należy do `rota/application/availability_matrix.py` i
+  wymaga świadomej decyzji: rozszerzyć ten owner albo jawnie pozostawić nowe
+  okna poza starą macierzą. Obecny scope tego nie rozstrzyga.
+- `tests/` jest zbyt szerokie; zawęzić do testów Tasku i koniecznych regresji.
+
+R1-02 — `can_work_24h` ma zbyt słaby kontrakt
+--------------------------------------------
+OWNER ustalił, że koncepcja 24h nie obowiązuje w ORDINARY. Brief mówi tylko,
+że pole nie może blokować „tylko dlatego, że katalog ma nietypowy przedział”.
+To nadal pozwala blokować ORDINARY demand `catalog_kind=H24`. Należy zapisać
+jednoznacznie: `can_work_24h` nigdy nie uczestniczy w eligibility ORDINARY, i
+dodać taki przypadek do acceptance.
+
+R1-03 — niezamrożone okno przez północ
+-------------------------------------
+OWNER podał dzienne ograniczenie do 12:00. Brief dodatkowo otwiera okna
+przechodzące przez północ, ale nie określa, do których dat należą i jak działają
+na granicy zakresu. To nowe zachowanie użytkowe. OWNER powinien albo wyłączyć
+overnight z pierwszej wersji, albo jawnie zaakceptować jego semantykę.
+
+R1-04 — UI nie mówi, co zostaje ze wspólnej dostępności
+------------------------------------------------------
+Należy jawnie zachować lub usunąć osobno: całodniową niedostępność oraz
+ograniczenia dni tygodnia. Nie wolno przez ukrycie „ochroniarskiej macierzy”
+zgubić kontrolek, które nadal mają ogólną semantykę w ORDINARY.
+
+R1-05 — brak WHERE_MAP
+---------------------
+Task zmienia owner Availability, oracle eligibility/validator i UI/API.
+Wymagany jest `WHERE_MAP: REQUIRED` dla tych właścicieli przed implementacją.
+
+Po korekcie wystarczy ponowny audyt briefu. Nie uruchamiano testów produktu,
+regresji, symulatorów ani benchmarków.
