@@ -1,0 +1,315 @@
+"""Migrations 1-2: the pre-T008 baseline schema (site_profiles, standard_shifts,
+rule_families, site_rule_versions, decision_records, decision_relations) and
+the full T008 operational LocalStore (sites, coordinators, employees,
+memberships, availability, calendar, work-balance targets, schedule
+versions/demands/assignments/deviations, and the FINAL-immutability trigger
+generator shared by every FINAL-child table).
+
+Split out of rota/persistence/db.py (2026-09 oversized-file refactor,
+mechanical-only, zero behavior change) -- db.py re-imports every name here
+so `rota.persistence.db._MIGRATION_1`/`_MIGRATION_2` keep resolving exactly
+as before (tests/test_local_store_schema_migration.py accesses them as
+module attributes directly)."""
+from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Migration 1 -- baseline: exactly the pre-T008 T004/T005 schema, unchanged.
+# CREATE-IF-NOT-EXISTS statements so a legacy database that already has these
+# objects (created by the old unversioned init_schema()) converges cleanly.
+# ---------------------------------------------------------------------------
+_MIGRATION_1: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS site_profiles (
+        profile_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        active INTEGER NOT NULL,
+        day_only_blocks_n INTEGER NOT NULL,
+        external_support_enabled INTEGER NOT NULL,
+        training_s_enabled INTEGER NOT NULL,
+        training_s_weekdays_only INTEGER NOT NULL,
+        training_s_default_readiness_threshold INTEGER NOT NULL,
+        rolling_7d_decision_threshold_hours INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS standard_shifts (
+        profile_id TEXT NOT NULL REFERENCES site_profiles(profile_id),
+        seq INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        end_next_day INTEGER NOT NULL,
+        required_primary_count INTEGER NOT NULL,
+        PRIMARY KEY (profile_id, seq)
+    )""",
+    """CREATE TABLE IF NOT EXISTS rule_families (
+        rule_id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS site_rule_versions (
+        rule_version_id TEXT PRIMARY KEY,
+        rule_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        rule_kind TEXT,
+        structured_parameters TEXT,
+        enforcement TEXT NOT NULL,
+        resolution_status TEXT NOT NULL,
+        effective_from TEXT NOT NULL,
+        effective_to TEXT,
+        changed_at TEXT NOT NULL,
+        changed_by TEXT NOT NULL,
+        supersedes_rule_version_id TEXT REFERENCES site_rule_versions(rule_version_id),
+        description TEXT,
+        source TEXT,
+        reason TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS decision_records (
+        decision_id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL,
+        rule_id TEXT NOT NULL,
+        chain_seq INTEGER NOT NULL,
+        statement TEXT NOT NULL,
+        coordinator_id TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        effective_from TEXT NOT NULL,
+        rule_version_id TEXT REFERENCES site_rule_versions(rule_version_id),
+        rel TEXT,
+        predecessor_decision_id TEXT REFERENCES decision_records(decision_id),
+        UNIQUE (site_id, rule_id, chain_seq)
+    )""",
+    """CREATE TABLE IF NOT EXISTS decision_relations (
+        relation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_decision_id TEXT NOT NULL REFERENCES decision_records(decision_id),
+        rel TEXT NOT NULL,
+        to_decision_id TEXT NOT NULL REFERENCES decision_records(decision_id),
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TRIGGER IF NOT EXISTS rule_families_no_update BEFORE UPDATE ON rule_families
+       BEGIN SELECT RAISE(ABORT, 'rule_families is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS rule_families_no_delete BEFORE DELETE ON rule_families
+       BEGIN SELECT RAISE(ABORT, 'rule_families is append-only: DELETE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS site_rule_versions_no_update BEFORE UPDATE ON site_rule_versions
+       BEGIN SELECT RAISE(ABORT, 'site_rule_versions is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS site_rule_versions_no_delete BEFORE DELETE ON site_rule_versions
+       BEGIN SELECT RAISE(ABORT, 'site_rule_versions is append-only: DELETE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS decision_records_no_update BEFORE UPDATE ON decision_records
+       BEGIN SELECT RAISE(ABORT, 'decision_records is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS decision_records_no_delete BEFORE DELETE ON decision_records
+       BEGIN SELECT RAISE(ABORT, 'decision_records is append-only: DELETE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS decision_relations_no_update BEFORE UPDATE ON decision_relations
+       BEGIN SELECT RAISE(ABORT, 'decision_relations is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS decision_relations_no_delete BEFORE DELETE ON decision_relations
+       BEGIN SELECT RAISE(ABORT, 'decision_relations is append-only: DELETE forbidden'); END""",
+)
+
+
+# ---------------------------------------------------------------------------
+# Migration 2 -- ROTA-T008: the full operational LocalStore.
+# ---------------------------------------------------------------------------
+_MIGRATION_2: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS sites (
+        site_id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL REFERENCES site_profiles(profile_id),
+        display_name TEXT NOT NULL,
+        active INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS coordinators (
+        coordinator_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        active INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS coordinator_site_associations (
+        coordinator_id TEXT NOT NULL REFERENCES coordinators(coordinator_id),
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        active INTEGER NOT NULL,
+        PRIMARY KEY (coordinator_id, site_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS employees (
+        employee_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        active_from TEXT NOT NULL,
+        active_to TEXT,
+        day_only INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS site_memberships (
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        membership_kind TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        readiness_state TEXT NOT NULL,
+        readiness_source TEXT NOT NULL,
+        PRIMARY KEY (employee_id, site_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS external_support_windows (
+        window_id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        start_datetime TEXT NOT NULL,
+        end_datetime TEXT NOT NULL,
+        active INTEGER NOT NULL,
+        allowed_shift_kind TEXT
+    )""",
+    # ROTA-T008 AVAILABILITYRECORD -- APPEND-ONLY HISTORY: availability_id
+    # names one logical family; chain_seq mirrors decision_ledger's linear
+    # chain pattern (MAX+1, current end = MAX(chain_seq) per family).
+    """CREATE TABLE IF NOT EXISTS availability_versions (
+        availability_version_id TEXT PRIMARY KEY,
+        availability_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        chain_seq INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        active INTEGER NOT NULL,
+        supersedes_availability_version_id TEXT REFERENCES availability_versions(availability_version_id),
+        note TEXT,
+        UNIQUE (availability_id, chain_seq)
+    )""",
+    """CREATE TRIGGER IF NOT EXISTS availability_versions_no_update BEFORE UPDATE ON availability_versions
+       BEGIN SELECT RAISE(ABORT, 'availability_versions is append-only: UPDATE forbidden'); END""",
+    """CREATE TRIGGER IF NOT EXISTS availability_versions_no_delete BEFORE DELETE ON availability_versions
+       BEGIN SELECT RAISE(ABORT, 'availability_versions is append-only: DELETE forbidden'); END""",
+    """CREATE TABLE IF NOT EXISTS calendar_days (
+        date TEXT PRIMARY KEY,
+        holiday INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS work_balance_targets (
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        month TEXT NOT NULL,
+        target_hours INTEGER NOT NULL,
+        PRIMARY KEY (employee_id, month),
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+    # ScheduleVersion aggregate. status/lineage semantics are enforced by
+    # rota/persistence/schedule_repository.py; the triggers below only
+    # protect the two invariants SQL can express cleanly and that no
+    # repository bug should ever be able to bypass: FINAL is physically
+    # immutable, and identity/lineage header fields never change once set.
+    """CREATE TABLE IF NOT EXISTS schedule_versions (
+        version_id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        parent_version_id TEXT REFERENCES schedule_versions(version_id),
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES coordinators(coordinator_id),
+        status TEXT NOT NULL,
+        CHECK (substr(month, 9, 2) = '01')
+    )""",
+    # R3-2: composite unique target so current_schedule_versions can enforce,
+    # at the storage boundary, that its declared (site_id, month) actually
+    # matches the version_id it points at -- version_id alone is already the
+    # PK, but a bare FK on version_id alone cannot also pin site_id/month.
+    """CREATE UNIQUE INDEX IF NOT EXISTS schedule_versions_identity
+       ON schedule_versions(version_id, site_id, month)""",
+    """CREATE TRIGGER IF NOT EXISTS schedule_versions_no_update_if_final
+       BEFORE UPDATE ON schedule_versions
+       WHEN OLD.status LIKE 'FINAL%'
+       BEGIN SELECT RAISE(ABORT, 'schedule_versions: FINAL header is immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS schedule_versions_no_identity_change
+       BEFORE UPDATE ON schedule_versions
+       WHEN NEW.version_id IS NOT OLD.version_id
+         OR NEW.site_id IS NOT OLD.site_id
+         OR NEW.month IS NOT OLD.month
+         OR NEW.parent_version_id IS NOT OLD.parent_version_id
+         OR NEW.created_at IS NOT OLD.created_at
+         OR NEW.created_by IS NOT OLD.created_by
+       BEGIN SELECT RAISE(ABORT, 'schedule_versions: identity/lineage fields are immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS schedule_versions_no_delete
+       BEFORE DELETE ON schedule_versions
+       BEGIN SELECT RAISE(ABORT, 'schedule_versions: physical delete is not a supported operation'); END""",
+    """CREATE TABLE IF NOT EXISTS schedule_version_applied_rules (
+        version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
+        seq INTEGER NOT NULL,
+        rule_version_id TEXT NOT NULL REFERENCES site_rule_versions(rule_version_id),
+        PRIMARY KEY (version_id, seq)
+    )""",
+    """CREATE TABLE IF NOT EXISTS current_schedule_versions (
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        month TEXT NOT NULL,
+        version_id TEXT NOT NULL,
+        PRIMARY KEY (site_id, month),
+        FOREIGN KEY (version_id, site_id, month) REFERENCES schedule_versions(version_id, site_id, month)
+    )""",
+    """CREATE TABLE IF NOT EXISTS shift_demands (
+        schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
+        demand_id TEXT NOT NULL,
+        start_datetime TEXT NOT NULL,
+        end_datetime TEXT NOT NULL,
+        required_primary_count INTEGER NOT NULL,
+        PRIMARY KEY (schedule_version_id, demand_id)
+    )""",
+    # R3-2: covers_demand_id and mentor_primary_assignment_id must both
+    # belong to the SAME schedule_version_id as the assignment. Both FKs are
+    # immediate (not deferred) so a single raw SQL INSERT/UPDATE fails right
+    # away at the storage boundary, not only at eventual transaction commit.
+    # This requires callers to insert shift_demands before assignments (see
+    # schedule_lifecycle._insert_content) and PRIMARY assignments before any
+    # TRAINEE assignment that names them as mentor (see
+    # schedule_lifecycle._order_assignments_mentor_first).
+    """CREATE TABLE IF NOT EXISTS assignments (
+        schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
+        assignment_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        start_datetime TEXT NOT NULL,
+        end_datetime TEXT NOT NULL,
+        role TEXT NOT NULL,
+        state TEXT NOT NULL,
+        frozen INTEGER NOT NULL,
+        covers_demand_id TEXT,
+        mentor_primary_assignment_id TEXT,
+        PRIMARY KEY (schedule_version_id, assignment_id),
+        FOREIGN KEY (schedule_version_id, covers_demand_id)
+            REFERENCES shift_demands(schedule_version_id, demand_id),
+        FOREIGN KEY (schedule_version_id, mentor_primary_assignment_id)
+            REFERENCES assignments(schedule_version_id, assignment_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS deviations (
+        schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
+        deviation_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        source_reference TEXT NOT NULL,
+        affected_assignment_or_employee TEXT NOT NULL,
+        acknowledged INTEGER NOT NULL,
+        acknowledged_by TEXT REFERENCES coordinators(coordinator_id),
+        acknowledged_at TEXT,
+        reason TEXT,
+        PRIMARY KEY (schedule_version_id, deviation_id)
+    )""",
+)
+
+# BEFORE INSERT/UPDATE/DELETE guards for FINAL immutability of child content,
+# generated once per (table, version-fk-column) instead of hand-duplicated.
+_FINAL_CHILD_TABLES = (
+    ("shift_demands", "schedule_version_id"),
+    ("assignments", "schedule_version_id"),
+    ("deviations", "schedule_version_id"),
+    ("schedule_version_applied_rules", "version_id"),
+)
+
+
+def _final_guard_triggers() -> tuple[str, ...]:
+    # R3-1: UPDATE must reject if EITHER the row's current (OLD) version is
+    # FINAL, OR the row's incoming (NEW) version is FINAL -- otherwise an
+    # UPDATE that reassigns a row from a WORKING version straight into a
+    # FINAL one bypasses the guard entirely (OLD alone is FINAL-free).
+    conditions = {
+        "INSERT": "(SELECT status FROM schedule_versions WHERE version_id = NEW.{col}) LIKE 'FINAL%'",
+        "UPDATE": (
+            "(SELECT status FROM schedule_versions WHERE version_id = OLD.{col}) LIKE 'FINAL%' "
+            "OR (SELECT status FROM schedule_versions WHERE version_id = NEW.{col}) LIKE 'FINAL%'"
+        ),
+        "DELETE": "(SELECT status FROM schedule_versions WHERE version_id = OLD.{col}) LIKE 'FINAL%'",
+    }
+    triggers = []
+    for table, version_col in _FINAL_CHILD_TABLES:
+        for verb, condition_template in conditions.items():
+            condition = condition_template.format(col=version_col)
+            triggers.append(f"""
+                CREATE TRIGGER IF NOT EXISTS {table}_no_{verb.lower()}_if_final
+                BEFORE {verb} ON {table}
+                WHEN {condition}
+                BEGIN SELECT RAISE(ABORT, '{table}: FINAL ScheduleVersion content is immutable'); END
+            """)
+    return tuple(triggers)
+
+
+if __name__ == "__main__":
+    print("persistence.db_migrations_1_2 module OK")
