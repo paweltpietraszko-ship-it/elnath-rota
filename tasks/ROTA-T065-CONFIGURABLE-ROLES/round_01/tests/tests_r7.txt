@@ -1,0 +1,30 @@
+ROTA-T065-CONFIGURABLE-ROLES — LITERALNY RE-CHECK R7
+
+WERDYKT: PASS — GOTOWE DO MERGE
+IMPLEMENTACJA: 9f841e224e47fb23187627973cb08ed3253b3e94
+KOREKTA BRIEFU: 4358f22eda7a793ae2de3192d9f6d4ce9219d7df
+BASE: 1e1a29d0d51add93bcceb3408970fa86c880bf99
+POPRZEDNI AUDYT ZACHOWANIA: 6335ab61cb568b3579ef9b8c7e3051b7f0a6beba
+
+Zakres R7 był wyłącznie mechaniczny. Implementacja i decyzje produktowe nie
+zmieniły się od zachowania zaakceptowanego w R6.
+
+Zweryfikowano:
+
+1. Diff briefu `b038bb3..4358f22` dodaje wyłącznie wcześniej wskazane cztery
+   adaptery produkcyjne do WHERE_MAP/TASK_SCOPE oraz siedem dotkniętych plików
+   testowych do TASK_SCOPE. Nie zmienia zachowania ani acceptance criteria.
+2. `backend.read_task_scope()` odczytuje skorygowany blok w formacie wymaganym
+   przez repozytoryjny parser: 40 wpisów.
+3. `backend.get_changed_files(1e1a29d, 9f841e2)` zwraca 40 plików i brak błędu.
+4. `backend.check_scope_paths(scope)` — PASS, brak błędów ścieżek.
+5. `backend.check_scope_and_files(changed, scope)` — PASS, brak DIFF_SCOPE.
+
+Nie czytano ponownie implementacji i nie powtarzano testów zachowania. Obowiązuje
+dowód R6 na tym samym exact SHA: reproduktory R4+R5 5/5 PASS, testy dotkniętych
+ścieżek 137 passed / 1 skipped, frontend build PASS. Nie uruchomiono pełnej
+regresji, zamrożonych symulatorów ani benchmarków.
+
+PASS obejmuje dokładnie implementację
+`9f841e224e47fb23187627973cb08ed3253b3e94` z kontraktem skorygowanym w
+`4358f22eda7a793ae2de3192d9f6d4ce9219d7df`.

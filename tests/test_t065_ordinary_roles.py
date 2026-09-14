@@ -1,11 +1,15 @@
-"""ROTA-T065 (tasks/ROTA-T065/brief.md): ORDINARY store roles.
+"""ROTA-T065 (tasks/ROTA-T065/brief.md) + ROTA-T065-CONFIGURABLE-ROLES:
+ORDINARY store roles.
 
 Acceptance scenarios T65-01..T65-11 and technical acceptance T65-A1..A11
-from the brief, using the same lightweight tests/support/minimal_state.py
-harness test_eligibility_matrix.py already uses for full-pipeline
-eligibility invariants -- no persistence/API needed for the planning-layer
-proofs; a separate persistence round-trip section exercises the actual
-read/write path.
+from the original brief, re-expressed against the configurable-roles model
+(role_id strings from a per-Site catalog + position_role_id + optional
+RoleCoverageAuthorization, instead of the retired global EmployeeRole
+enum + allowed_roles set) -- using the same lightweight
+tests/support/minimal_state.py harness test_eligibility_matrix.py already
+uses for full-pipeline eligibility invariants. New configurable-roles-
+specific mechanics (catalog CRUD, position snapshot durability, CR-01..
+CR-10 acceptance) live in tests/test_t065_configurable_roles.py.
 """
 from __future__ import annotations
 
@@ -20,13 +24,14 @@ from rota.domain import (
     AssignmentRole,
     AssignmentState,
     Employee,
-    EmployeeRole,
     ExternalSupportWindow,
     MembershipKind,
+    RoleCoverageAuthorization,
     ShiftDemand,
     ShiftKind,
     SiteMembership,
     SiteProfile,
+    SiteRoleDefinition,
     StandardShift,
 )
 from rota.persistence.db import connect
@@ -34,6 +39,7 @@ from rota.persistence.employee_repository import list_memberships_for_site, save
 from rota.persistence.schedule_lifecycle import create_schedule_version
 from rota.persistence.schedule_repository import get_schedule_snapshot
 from rota.persistence.site_profile_repository import get_site_profile, save_site_profile
+from rota.persistence.site_role_repository import save_site_role
 from rota.planning.eligibility import check_eligibility
 from rota.planning.engine import plan
 from rota.planning.shift_catalog import generate_catalog_demands
@@ -41,14 +47,15 @@ from rota.planning.validator import validate
 from tests.support.minimal_state import PROFILE_ID, ReadinessSource, ReadinessState, SITE_ID, base_profile, base_state
 
 MONTH = date(2026, 10, 1)
-KIEROWNIK = EmployeeRole.KIEROWNIK
-SPRZEDAWCA = EmployeeRole.SPRZEDAWCA_ZALOGA
+KIEROWNIK = "ROLE-KIEROWNIK"
+SPRZEDAWCA = "ROLE-SPRZEDAWCA"
+ROLE_NAMES = {KIEROWNIK: "Kierownik", SPRZEDAWCA: "Sprzedawca"}
 
 
-def _membership(employee_id: str, *, kind=MembershipKind.LOCAL, roles: frozenset = frozenset()) -> SiteMembership:
+def _membership(employee_id: str, *, kind=MembershipKind.LOCAL, position: str | None = None) -> SiteMembership:
     return SiteMembership(
         employee_id, SITE_ID, kind, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
-        allowed_roles=roles,
+        position_role_id=position,
     )
 
 
@@ -60,9 +67,9 @@ def _employee(employee_id: str) -> Employee:
 
 
 def test_role_gate_blocks_without_role_and_allows_with_role_local():
-    demand = ShiftDemand("D-1", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=KIEROWNIK)
+    demand = ShiftDemand("D-1", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=KIEROWNIK)
     membership_no_role = _membership("E1")
-    membership_with_role = _membership("E1", roles=frozenset({KIEROWNIK}))
+    membership_with_role = _membership("E1", position=KIEROWNIK)
     employee = _employee("E1")
     profile = base_profile()
 
@@ -79,7 +86,7 @@ def test_role_gate_blocks_without_role_and_allows_with_role_local():
 
 
 def test_role_gate_applies_identically_to_external_support():
-    demand = ShiftDemand("D-1", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=SPRZEDAWCA)
+    demand = ShiftDemand("D-1", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=SPRZEDAWCA)
     profile = base_profile()
     employee = _employee("E1")
     window = ExternalSupportWindow("W1", "E1", SITE_ID, datetime(2026, 10, 1, 0, 0), datetime(2026, 10, 2, 0, 0), True, None)
@@ -91,7 +98,7 @@ def test_role_gate_applies_identically_to_external_support():
     assert blocked.eligible is False
     assert blocked.blocked_reason == "ROLE-01"
 
-    membership_with_role = _membership("E1", kind=MembershipKind.EXTERNAL_SUPPORT, roles=frozenset({SPRZEDAWCA}))
+    membership_with_role = _membership("E1", kind=MembershipKind.EXTERNAL_SUPPORT, position=SPRZEDAWCA)
     allowed = check_eligibility(
         employee, membership_with_role, demand, ShiftKind.D, profile, [], [window], SITE_ID,
     )
@@ -99,8 +106,8 @@ def test_role_gate_applies_identically_to_external_support():
 
 
 def test_role_gate_is_no_op_for_legacy_ochrona_demand():
-    # required_role=None (every OCHRONA/legacy demand) -- strict no-op
-    # regardless of the membership's allowed_roles (empty by default).
+    # required_role_id=None (every OCHRONA/legacy demand) -- strict no-op
+    # regardless of the membership's position_role_id (None by default).
     demand = ShiftDemand("D-1", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0), 1)
     result = check_eligibility(
         _employee("E1"), _membership("E1"), demand, ShiftKind.D, base_profile(), [], [], SITE_ID,
@@ -108,21 +115,62 @@ def test_role_gate_is_no_op_for_legacy_ochrona_demand():
     assert result.eligible is True
 
 
+def test_role_gate_covered_by_active_time_bounded_authorization():
+    # ROTA-T065-CONFIGURABLE-ROLES section 7/8: a Kierownik with no
+    # Sprzedawca position can still cover a Sprzedawca demand when an
+    # active RoleCoverageAuthorization's window fully contains the
+    # demand's real interval -- without ever changing position_role_id.
+    demand = ShiftDemand("D-1", "v1", datetime(2026, 10, 5, 10, 0), datetime(2026, 10, 5, 18, 0), 1, required_role_id=SPRZEDAWCA)
+    membership = _membership("E1", position=KIEROWNIK)
+    employee = _employee("E1")
+    profile = base_profile()
+
+    no_authorization = check_eligibility(employee, membership, demand, ShiftKind.D, profile, [], [], SITE_ID)
+    assert no_authorization.eligible is False
+    assert no_authorization.blocked_reason == "ROLE-01"
+
+    covering_authorization = (
+        RoleCoverageAuthorization(
+            "RCA-1", SITE_ID, "E1", SPRZEDAWCA, datetime(2026, 10, 1, 0, 0), datetime(2026, 10, 10, 0, 0), True,
+        ),
+    )
+    allowed = check_eligibility(
+        employee, membership, demand, ShiftKind.D, profile, [], [], SITE_ID, authorizations=covering_authorization,
+    )
+    assert allowed.eligible is True
+    # membership itself never changes -- the authorization is a separate fact.
+    assert membership.position_role_id == KIEROWNIK
+
+    inactive_authorization = (replace(covering_authorization[0], active=False),)
+    blocked_inactive = check_eligibility(
+        employee, membership, demand, ShiftKind.D, profile, [], [], SITE_ID, authorizations=inactive_authorization,
+    )
+    assert blocked_inactive.eligible is False
+
+    partial_window_authorization = (
+        replace(covering_authorization[0], end_datetime=datetime(2026, 10, 5, 14, 0)),  # ends before the demand does
+    )
+    blocked_partial = check_eligibility(
+        employee, membership, demand, ShiftKind.D, profile, [], [], SITE_ID, authorizations=partial_window_authorization,
+    )
+    assert blocked_partial.eligible is False
+
+
 # --- T65-01: two roles, one pipeline, no per-role second solve -------------
 
 
 def test_two_roles_overlapping_demands_one_plan_pipeline():
     manager_demand = ShiftDemand(
-        "D-MGR", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=KIEROWNIK,
+        "D-MGR", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=KIEROWNIK,
     )
     staff_demand = ShiftDemand(
-        "D-STAFF", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=SPRZEDAWCA,
+        "D-STAFF", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=SPRZEDAWCA,
     )
     state = base_state(
         employees=(_employee("MGR"), _employee("STAFF")),
         memberships=(
-            _membership("MGR", roles=frozenset({KIEROWNIK})),
-            _membership("STAFF", roles=frozenset({SPRZEDAWCA})),
+            _membership("MGR", position=KIEROWNIK),
+            _membership("STAFF", position=SPRZEDAWCA),
         ),
         shift_demands=(manager_demand, staff_demand),
     )
@@ -139,42 +187,45 @@ def test_two_roles_overlapping_demands_one_plan_pipeline():
 
 def test_free_manager_does_not_silently_cover_staff_demand():
     staff_demand = ShiftDemand(
-        "D-STAFF", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=SPRZEDAWCA,
+        "D-STAFF", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=SPRZEDAWCA,
     )
-    # Only a KIEROWNIK-only employee exists -- no one is eligible for the
+    # Only a Kierownik-only employee exists -- no one is eligible for the
     # staff demand, and the solver must not invent an interchangeability
-    # it was never given.
+    # it was never given (no automatic hierarchy, brief.md section 2).
     state = base_state(
         employees=(_employee("MGR"),),
-        memberships=(_membership("MGR", roles=frozenset({KIEROWNIK})),),
+        memberships=(_membership("MGR", position=KIEROWNIK),),
         shift_demands=(staff_demand,),
     )
     result = plan(state)
     assert result.status != "FEASIBLE"
 
 
-# --- T65-02: explicit role addition, then a normal re-plan -----------------
+# --- T65-02: explicit authorization, then a normal re-plan -----------------
 
 
-def test_explicit_role_addition_enables_coverage_on_next_plan():
+def test_explicit_authorization_enables_coverage_on_next_plan():
     staff_demand = ShiftDemand(
-        "D-STAFF", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=SPRZEDAWCA,
+        "D-STAFF", "v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=SPRZEDAWCA,
     )
     kierownik_only = base_state(
         employees=(_employee("MGR"),),
-        memberships=(_membership("MGR", roles=frozenset({KIEROWNIK})),),
+        memberships=(_membership("MGR", position=KIEROWNIK),),
         shift_demands=(staff_demand,),
     )
     assert plan(kierownik_only).status != "FEASIBLE"
 
-    # Coordinator explicitly adds SPRZEDAWCA_ZALOGA to the SAME membership
-    # (no second Employee/SiteMembership) -- a normal subsequent PLAN now
-    # succeeds.
-    both_roles = replace(
+    # Coordinator explicitly authorizes MGR to cover SPRZEDAWCA for October
+    # -- position_role_id stays KIEROWNIK, no second membership.
+    authorized = replace(
         kierownik_only,
-        memberships=(_membership("MGR", roles=frozenset({KIEROWNIK, SPRZEDAWCA})),),
+        role_coverage_authorizations=(
+            RoleCoverageAuthorization(
+                "RCA-1", SITE_ID, "MGR", SPRZEDAWCA, datetime(2026, 10, 1, 0, 0), datetime(2026, 11, 1, 0, 0), True,
+            ),
+        ),
     )
-    result = plan(both_roles)
+    result = plan(authorized)
     assert result.status == "FEASIBLE"
     assert result.candidates[0][0].employee_id == "MGR"
 
@@ -183,10 +234,10 @@ def test_explicit_role_addition_enables_coverage_on_next_plan():
 
 
 def test_validator_role_mirror_flags_manual_violation():
-    demand = ShiftDemand("D-1", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=KIEROWNIK)
+    demand = ShiftDemand("D-1", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=KIEROWNIK)
     state = base_state(
         employees=(_employee("E1"),),
-        memberships=(_membership("E1"),),  # no roles
+        memberships=(_membership("E1"),),  # no position
         shift_demands=(demand,),
     )
     assignment = Assignment(
@@ -199,10 +250,10 @@ def test_validator_role_mirror_flags_manual_violation():
 
 
 def test_validator_role_mirror_passes_with_correct_role():
-    demand = ShiftDemand("D-1", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role=KIEROWNIK)
+    demand = ShiftDemand("D-1", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1, required_role_id=KIEROWNIK)
     state = base_state(
         employees=(_employee("E1"),),
-        memberships=(_membership("E1", roles=frozenset({KIEROWNIK})),),
+        memberships=(_membership("E1", position=KIEROWNIK),),
         shift_demands=(demand,),
     )
     assignment = Assignment(
@@ -221,34 +272,36 @@ def test_generate_catalog_demands_propagates_required_role_and_reuses_generator(
     profile = SiteProfile(
         profile_id=PROFILE_ID, display_name="Shop", active=True,
         standard_shifts=[
-            StandardShift(ShiftKind.D, time(5, 0), time(12, 0), False, 1, required_role=KIEROWNIK),
-            StandardShift(ShiftKind.D, time(12, 0), time(19, 0), False, 1, required_role=SPRZEDAWCA),
+            StandardShift(ShiftKind.D, time(5, 0), time(12, 0), False, 1, required_role_id=KIEROWNIK),
+            StandardShift(ShiftKind.D, time(12, 0), time(19, 0), False, 1, required_role_id=SPRZEDAWCA),
             # A third, overlapping/"middle" INNY shift -- proves reuse of the
             # existing generator for arbitrary full-hour intervals, not a
             # new shop-specific one (T65-04).
-            StandardShift(ShiftKind.D, time(10, 0), time(18, 0), False, 1, required_role=SPRZEDAWCA),
+            StandardShift(ShiftKind.D, time(10, 0), time(18, 0), False, 1, required_role_id=SPRZEDAWCA),
         ],
         day_only_blocks_n=False, external_support_enabled=True,
         training_s_enabled=False, training_s_weekdays_only=False,
         training_s_default_readiness_threshold=1, rolling_7d_decision_threshold_hours=999,
     )
-    demands = generate_catalog_demands(profile, MONTH)
+    demands = generate_catalog_demands(profile, MONTH, ROLE_NAMES)
     assert len(demands) == 3 * 31  # October has 31 days, all weekdays active
-    roles_seen = {d.required_role for d in demands}
+    roles_seen = {d.required_role_id for d in demands}
     assert roles_seen == {KIEROWNIK, SPRZEDAWCA}
+    names_seen = {d.required_role_name for d in demands}
+    assert names_seen == {"Kierownik", "Sprzedawca"}
 
 
 def test_24h_occurrence_keeps_same_required_role_on_both_components():
     profile = SiteProfile(
         profile_id=PROFILE_ID, display_name="24/7 shop", active=True,
-        standard_shifts=[StandardShift(ShiftKind.D, time(6, 0), time(6, 0), True, 1, required_role=SPRZEDAWCA)],
+        standard_shifts=[StandardShift(ShiftKind.D, time(6, 0), time(6, 0), True, 1, required_role_id=SPRZEDAWCA)],
         day_only_blocks_n=False, external_support_enabled=False,
         training_s_enabled=False, training_s_weekdays_only=False,
         training_s_default_readiness_threshold=1, rolling_7d_decision_threshold_hours=999,
     )
-    demands = generate_catalog_demands(profile, MONTH)
+    demands = generate_catalog_demands(profile, MONTH, ROLE_NAMES)
     assert len(demands) == 31 * 2  # 24h -> two 12h components per day
-    assert all(d.required_role == SPRZEDAWCA for d in demands)
+    assert all(d.required_role_id == SPRZEDAWCA for d in demands)
     # kind flips D/N between the two halves (existing T012 shape); role does not.
     kinds = {d.shift_kind for d in demands}
     assert kinds == {ShiftKind.D, ShiftKind.N}
@@ -264,13 +317,13 @@ def test_midnight_crossing_ordinary_demand_never_triggers_night_streak():
     demands = tuple(
         ShiftDemand(
             f"D-{i}", "test-v1", datetime(2026, 10, i, 22, 0), datetime(2026, 10, i + 1, 6, 0), 1,
-            shift_kind=ShiftKind.D, required_role=SPRZEDAWCA,
+            shift_kind=ShiftKind.D, required_role_id=SPRZEDAWCA,
         )
         for i in range(1, 4)
     )
     state = base_state(
         employees=(_employee("E1"),),
-        memberships=(_membership("E1", roles=frozenset({SPRZEDAWCA})),),
+        memberships=(_membership("E1", position=SPRZEDAWCA),),
         shift_demands=demands,
     )
     assignments = [
@@ -300,7 +353,7 @@ def test_ochrona_dn_gate_unaffected_by_role_field_being_none():
     assert result.blocked_reason == "DAY_ONLY-01"
 
 
-# --- Persistence round trip: allowed_roles / required_role (T65-06/A1/A2) -
+# --- Persistence round trip: position_role_id / required_role_id (T65-06/A1/A2) --
 
 
 @pytest.fixture
@@ -317,7 +370,7 @@ def _bootstrap_ordinary_site(conn: sqlite3.Connection) -> None:
     )
     profile = SiteProfile(
         profile_id="PROF-T065", display_name="Shop", active=True,
-        standard_shifts=[StandardShift(ShiftKind.D, time(5, 0), time(12, 0), False, 1, required_role=KIEROWNIK)],
+        standard_shifts=[StandardShift(ShiftKind.D, time(5, 0), time(12, 0), False, 1, required_role_id=KIEROWNIK)],
         day_only_blocks_n=False, external_support_enabled=False,
         training_s_enabled=False, training_s_weekdays_only=False,
         training_s_default_readiness_threshold=1, rolling_7d_decision_threshold_hours=999,
@@ -331,9 +384,11 @@ def _bootstrap_ordinary_site(conn: sqlite3.Connection) -> None:
         "INSERT INTO coordinator_site_associations (coordinator_id, site_id, active) VALUES (?, ?, ?)",
         ("COORD-T065", "SITE-T065", 1),
     )
+    save_site_role(conn, SiteRoleDefinition(KIEROWNIK, "SITE-T065", "Kierownik", True))
+    save_site_role(conn, SiteRoleDefinition(SPRZEDAWCA, "SITE-T065", "Sprzedawca", True))
 
 
-def test_allowed_roles_round_trips_through_site_membership_persistence(conn):
+def test_position_role_id_round_trips_through_site_membership_persistence(conn):
     _bootstrap_ordinary_site(conn)
     conn.execute(
         "INSERT INTO employees (employee_id, display_name, active_from, active_to, day_only) VALUES (?, ?, ?, ?, ?)",
@@ -342,24 +397,24 @@ def test_allowed_roles_round_trips_through_site_membership_persistence(conn):
     membership = SiteMembership(
         employee_id="E1", site_id="SITE-T065", membership_kind=MembershipKind.LOCAL, enabled=True,
         readiness_state=ReadinessState.READY_FOR_PRIMARY, readiness_source=ReadinessSource.DEFAULT,
-        allowed_roles=frozenset({KIEROWNIK, SPRZEDAWCA}),
+        position_role_id=KIEROWNIK,
     )
     save_site_membership(conn, membership)
     reloaded = list_memberships_for_site(conn, "SITE-T065")[0]
-    assert reloaded.allowed_roles == frozenset({KIEROWNIK, SPRZEDAWCA})
+    assert reloaded.position_role_id == KIEROWNIK
 
 
 def test_required_role_round_trips_through_site_profile_persistence(conn):
     _bootstrap_ordinary_site(conn)
     profile = get_site_profile(conn, "PROF-T065")
-    assert profile.standard_shifts[0].required_role == KIEROWNIK
+    assert profile.standard_shifts[0].required_role_id == KIEROWNIK
 
 
 def test_required_role_round_trips_through_schedule_version_persistence(conn):
     _bootstrap_ordinary_site(conn)
     demand = ShiftDemand(
         "DEM-1", "SV-1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1,
-        shift_kind=ShiftKind.D, required_role=KIEROWNIK,
+        shift_kind=ShiftKind.D, required_role_id=KIEROWNIK, required_role_name="Kierownik",
     )
     create_schedule_version(
         conn, version_id="SV-1", site_id="SITE-T065", month=MONTH, parent_version_id=None,
@@ -367,12 +422,13 @@ def test_required_role_round_trips_through_schedule_version_persistence(conn):
         applied_rule_version_ids=[], shift_demands=[demand], assignments=[], deviations=[], effective_from=MONTH,
     )
     snapshot = get_schedule_snapshot(conn, "SV-1")
-    assert snapshot.shift_demands[0].required_role == KIEROWNIK
+    assert snapshot.shift_demands[0].required_role_id == KIEROWNIK
+    assert snapshot.shift_demands[0].required_role_name == "Kierownik"
 
 
 def test_legacy_membership_and_shift_default_to_no_role(conn):
-    """A pre-T065 OCHRONA row (NULL allowed_roles/required_role) reads back
-    as empty/None, never crashes, never invents a role."""
+    """A pre-existing OCHRONA row (NULL position_role_id/required_role_id)
+    reads back as None, never crashes, never invents a role."""
     _bootstrap_ordinary_site(conn)
     conn.execute(
         "INSERT INTO employees (employee_id, display_name, active_from, active_to, day_only) VALUES (?, ?, ?, ?, ?)",
@@ -384,7 +440,7 @@ def test_legacy_membership_and_shift_default_to_no_role(conn):
         ("LEGACY", "SITE-T065", "LOCAL", 1, "READY_FOR_PRIMARY", "DEFAULT", 1),
     )
     reloaded = next(m for m in list_memberships_for_site(conn, "SITE-T065") if m.employee_id == "LEGACY")
-    assert reloaded.allowed_roles == frozenset()
+    assert reloaded.position_role_id is None
 
 
 # --- Audit R2 regression guards ---------------------------------------------
@@ -395,7 +451,7 @@ def test_role_gate_cannot_be_bypassed_by_untagged_assignment():
     # by ROLE-01 via overlap-based fallback matching.
     demand = ShiftDemand(
         "D-MANAGER", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 12, 0), 1,
-        shift_kind=ShiftKind.D, required_role=KIEROWNIK,
+        shift_kind=ShiftKind.D, required_role_id=KIEROWNIK,
     )
     wrong_role_assignment = Assignment(
         "A-SELLER", "test-v1", "E1", demand.start_datetime, demand.end_datetime,
@@ -403,7 +459,7 @@ def test_role_gate_cannot_be_bypassed_by_untagged_assignment():
     )
     report = validate(
         base_state(
-            employees=(_employee("E1"),), memberships=(_membership("E1", roles=frozenset({SPRZEDAWCA})),),
+            employees=(_employee("E1"),), memberships=(_membership("E1", position=SPRZEDAWCA),),
             shift_demands=(demand,),
         ),
         [wrong_role_assignment],
@@ -418,18 +474,18 @@ def test_role_based_demand_never_triggers_day_only_or_night_streak():
     # from D/N-specific HARD rules regardless of their technical shift_kind.
     demand = ShiftDemand(
         "D-1", "test-v1", datetime(2026, 10, 1, 22, 0), datetime(2026, 10, 2, 6, 0), 1,
-        shift_kind=ShiftKind.N, required_role=SPRZEDAWCA,
+        shift_kind=ShiftKind.N, required_role_id=SPRZEDAWCA,
     )
     eligibility_result = check_eligibility(
         Employee("E1", "E1", date(2020, 1, 1), None, True),  # day_only=True
-        _membership("E1", roles=frozenset({SPRZEDAWCA})), demand, ShiftKind.N, base_profile(), [], [], SITE_ID,
+        _membership("E1", position=SPRZEDAWCA), demand, ShiftKind.N, base_profile(), [], [], SITE_ID,
     )
     assert eligibility_result.eligible is True, eligibility_result.blocked_reason
 
     demands = tuple(
         ShiftDemand(
             f"D-{day}", "test-v1", datetime(2026, 10, day, 22, 0), datetime(2026, 10, day + 1, 6, 0), 1,
-            shift_kind=ShiftKind.N, required_role=SPRZEDAWCA,
+            shift_kind=ShiftKind.N, required_role_id=SPRZEDAWCA,
         )
         for day in range(1, 4)
     )
@@ -442,7 +498,7 @@ def test_role_based_demand_never_triggers_day_only_or_night_streak():
     ]
     report = validate(
         base_state(
-            employees=(_employee("E1"),), memberships=(_membership("E1", roles=frozenset({SPRZEDAWCA})),),
+            employees=(_employee("E1"),), memberships=(_membership("E1", position=SPRZEDAWCA),),
             shift_demands=demands,
         ),
         assignments,
@@ -465,7 +521,7 @@ def test_solver_day_kind_terms_exclude_role_based_demands_from_night_count():
 
     role_demand = ShiftDemand(
         "D-1", "v1", datetime(2026, 10, 1, 22, 0), datetime(2026, 10, 2, 6, 0), 1,
-        shift_kind=ShiftKind.N, required_role=SPRZEDAWCA,
+        shift_kind=ShiftKind.N, required_role_id=SPRZEDAWCA,
     )
     model = cp_model.CpModel()
     var = model.NewBoolVar("x")

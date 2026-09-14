@@ -29,6 +29,7 @@ from rota.persistence.availability_repository import get_current_availability_fo
 from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site, list_windows_for_site
 from rota.persistence.site_profile_repository import get_site_profile
+from rota.persistence.site_role_repository import list_role_coverage_authorizations_for_site, list_site_roles
 from rota.planning.shift_catalog import generate_catalog_demands
 from rota.persistence.site_repository import get_site
 from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
@@ -58,7 +59,7 @@ def resolved_rule_version_ids(conn, site_id: str, month: date) -> list[str]:
     return [r.rule_version_id for r in resolved if r.rule_kind != "REST_OVERRIDE_RECORD"]
 
 
-def generate_profile_demands(profile, month: date) -> tuple[ShiftDemand, ...]:
+def generate_profile_demands(profile, month: date, role_names: dict[str, str] | None = None) -> tuple[ShiftDemand, ...]:
     """INITIAL SHIFTDEMAND GENERATION: pure data expansion from
     SiteProfile.standard_shifts, independent of roster/target_hours/
     absences/X-Y.
@@ -67,8 +68,12 @@ def generate_profile_demands(profile, month: date) -> tuple[ShiftDemand, ...]:
     two chained 12h D/N components, and INNY) now lives in
     rota.planning.shift_catalog.generate_catalog_demands -- this stays the
     stable public entry point other callers (bootstrap.py, tests) already
-    import by this name."""
-    return generate_catalog_demands(profile, month)
+    import by this name.
+
+    ROTA-T065-CONFIGURABLE-ROLES: role_names (role_id -> display_name for
+    this Site) snapshots ShiftDemand.required_role_name at generation time;
+    None/empty is correct for OCHRONA/legacy profiles."""
+    return generate_catalog_demands(profile, month, role_names)
 
 
 def _assemble_calendar(conn, month: date) -> tuple[CalendarDay, ...]:
@@ -195,6 +200,7 @@ def _assemble_cross_context(
 
 def _assemble_version_content(
     conn, site_id: str, month: date, shift_demands, assignments, deviations, schedule_version_id, profile,
+    role_names: dict[str, str],
 ) -> tuple[tuple[ShiftDemand, ...], tuple[Assignment, ...], tuple[Deviation, ...], str]:
     """Either uses the explicitly supplied (prepared-in-memory or otherwise
     overridden) content, or reads one specific durable ScheduleVersion when
@@ -221,7 +227,7 @@ def _assemble_version_content(
     if current is not None:
         header, snapshot = current
         return snapshot.shift_demands, snapshot.assignments, snapshot.deviations, header.version_id
-    return generate_profile_demands(profile, month), (), (), ""
+    return generate_profile_demands(profile, month, role_names), (), (), ""
 
 
 def assemble_planning_state(
@@ -235,9 +241,15 @@ def assemble_planning_state(
     employee_ids = [e.employee_id for e in employees]
     windows, availability = _assemble_windows_and_availability(conn, site_id, employee_ids)
     resolved, unresolved, applicability = assemble_monthly_site_rules(conn, site_id, month)
+    # ROTA-T065-CONFIGURABLE-ROLES: this Site's own role catalog + active
+    # coordinator-issued substitutions -- empty for OCHRONA (no site_roles
+    # rows are ever written for it).
+    site_roles = tuple(list_site_roles(conn, site_id))
+    role_names = {r.role_id: r.display_name for r in site_roles}
+    role_coverage_authorizations = tuple(list_role_coverage_authorizations_for_site(conn, site_id))
 
     demands, existing, devs, version_id = _assemble_version_content(
-        conn, site_id, month, shift_demands, assignments, deviations, schedule_version_id, profile,
+        conn, site_id, month, shift_demands, assignments, deviations, schedule_version_id, profile, role_names,
     )
     # R4-2/R4-6/R5-2: the assembled target version's own content (whether
     # read fresh, explicitly named, or a prepared-in-memory snapshot) must
@@ -275,5 +287,6 @@ def assemble_planning_state(
         shift_demands=demands, existing_assignments=existing, deviations=devs,
         work_balances=work_balances, holiday_history=holiday_history, other_site_assignments=other_site,
         schedule_version_id=version_id, boundary_shift_demands=boundary_shift_demands,
+        site_roles=site_roles, role_coverage_authorizations=role_coverage_authorizations,
     )
     return state, warnings

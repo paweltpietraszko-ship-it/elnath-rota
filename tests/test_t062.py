@@ -56,10 +56,14 @@ def _profile() -> SiteProfile:
 
 
 def _bootstrap(conn) -> None:
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t030_shift_catalog_api.py
+    # -- ORDINARY now requires an active position on every enabled
+    # SiteMembership; this file's decision-required/manual-correction tests
+    # are role-agnostic, so use OCHRONA.
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=SITE_ID,
         coordinator=Coordinator(COORD, "Coord T62", True), site_profile=_profile(),
-        site=Site(SITE_ID, PROFILE_ID, "Site T62", True, planning_regime=SitePlanningRegime.ORDINARY),
+        site=Site(SITE_ID, PROFILE_ID, "Site T62", True, planning_regime=SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(COORD, SITE_ID, True),
     )
     durable_inputs.update_employee(conn, coordinator_id=COORD, site_id=SITE_ID, employee=_employee(EMP1))

@@ -66,10 +66,15 @@ def _profile() -> SiteProfile:
     )
 
 def _bootstrap(conn, *, site_id: str = SITE) -> None:
+    # ROTA-T065-CONFIGURABLE-ROLES: ORDINARY now requires every enabled
+    # SiteMembership to name an active position (brief sections 4/9); this
+    # whole file's action-history/audit-log tests are role-agnostic and
+    # never configure a role catalog, so use OCHRONA -- same fix as
+    # test_t030_shift_catalog_api.py / test_t021_external_support_roster.py.
     bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=site_id,
         coordinator=Coordinator(COORD, "Coord", True), site_profile=_profile(),
-        site=Site(site_id, PROFILE, site_id, True, planning_regime=SitePlanningRegime.ORDINARY), association=CoordinatorSiteAssociation(COORD, site_id, True),
+        site=Site(site_id, PROFILE, site_id, True, planning_regime=SitePlanningRegime.OCHRONA), association=CoordinatorSiteAssociation(COORD, site_id, True),
     )
 
 def _employee(conn, employee_id: str = "E1", *, site_id: str = SITE, day_only: bool = False) -> None:
@@ -149,11 +154,13 @@ def test_a1_real_v5_to_latest_migration_preserves_data_and_adds_expected_tables(
 
     conn = connect(db_path)
     tables_after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 19
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_SCHEMA_VERSION == 20
     assert conn.execute("SELECT holiday FROM calendar_days WHERE date='2026-08-03'").fetchone() == (1,)
     assert tables_after - tables_before == {
         "coordinator_action_records", "decision_required_snapshots", "current_decision_required", "site_print_settings",
         "absence_reference_snapshots", "plan_previews", "site_monthly_extra_work_codes", "plan_attempt_signatures",
+        # ROTA-T065-CONFIGURABLE-ROLES: migration 20 adds these three.
+        "site_roles", "role_coverage_authorizations", "schedule_version_employee_positions",
     }
 
 def test_a2_a5_action_and_snapshot_update_delete_rejected(tmp_path) -> None:
@@ -278,9 +285,9 @@ def test_b14_site_active_change_records_display_name_no_action(tmp_path) -> None
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     before_count = len(memory_read.material_action_history(conn))
-    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", True, planning_regime=SitePlanningRegime.ORDINARY))
+    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", True, planning_regime=SitePlanningRegime.OCHRONA))
     assert len(memory_read.material_action_history(conn)) == before_count
-    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", False, planning_regime=SitePlanningRegime.ORDINARY))
+    update_site(conn, coordinator_id=COORD, site_id=SITE, site=Site(SITE, PROFILE, "Renamed", False, planning_regime=SitePlanningRegime.OCHRONA))
     actions = memory_read.material_action_history(conn)
     assert actions[0].action_kind == CoordinatorActionKind.SITE_ACTIVE_CHANGED
 

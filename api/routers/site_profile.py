@@ -16,9 +16,10 @@ from pydantic import BaseModel, ConfigDict
 from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from rota.application.durable_inputs import update_site_profile
-from rota.domain import EmployeeRole, ShiftKind, SitePlanningRegime, StandardShift
+from rota.domain import ShiftKind, SitePlanningRegime, StandardShift
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_repository import get_site
+from rota.persistence.site_role_repository import list_site_roles
 from rota.planning.shift_catalog import normalized_catalog_kind, shift_duration_hours, validate_standard_shift
 
 router = APIRouter(prefix="/workspace/sites", tags=["site-profile"])
@@ -32,10 +33,12 @@ class ShiftRowOut(BaseModel):
     active_weekdays: list[int]
     duration_hours: float
     catalog_kind: str
-    # ROTA-T065 brief.md section 6/13: None for OCHRONA/legacy shifts, which
-    # never had a role concept. UI does not need a shift "code" -- this is
-    # the only new business-meaning field ORDINARY's catalog carries.
-    required_role: str | None = None
+    # ROTA-T065-CONFIGURABLE-ROLES section 5: None for OCHRONA/legacy
+    # shifts, which never had a role concept. Mandatory for every ORDINARY
+    # row (enforced at PUT time by _validate_role_matches_regime) -- UI does
+    # not need a shift "code", this is the only new business-meaning field
+    # ORDINARY's catalog carries.
+    required_role_id: str | None = None
 
 
 class ShiftCatalogOut(BaseModel):
@@ -60,7 +63,7 @@ def _shift_out(shift: StandardShift) -> ShiftRowOut:
         active_weekdays=list(shift.active_weekdays),
         duration_hours=shift_duration_hours(shift),
         catalog_kind=normalized_catalog_kind(shift).value,
-        required_role=shift.required_role.value if shift.required_role else None,
+        required_role_id=shift.required_role_id,
     )
 
 
@@ -82,13 +85,14 @@ class ShiftRowIn(BaseModel):
     # fields -- never required_rest_hours/end_next_day/catalog_kind,
     # never a hidden profile field. Extra fields are a hard rejection,
     # not a silent ignore.
-    # ROTA-T065 brief.md section 6/13: "UI nie wymaga biznesowego kodu
-    # zmiany" -- kind is now optional (an ORDINARY-facing client never
+    # ROTA-T065-CONFIGURABLE-ROLES section 5/9: "UI nie wymaga biznesowego
+    # kodu zmiany" -- kind is now optional (an ORDINARY-facing client never
     # sends it; _build_shift defaults to D, a purely internal technical
     # value carrying no OCHRONA legal meaning, see eligibility.py's D/N
     # gates, all of which are N-specific). OCHRONA's own client keeps
-    # sending kind explicitly, unaffected. required_role is the one new
-    # business field ORDINARY rows carry.
+    # sending kind explicitly, unaffected. required_role_id is the one new
+    # business field ORDINARY rows carry -- mandatory for ORDINARY, forbidden
+    # for OCHRONA (_validate_role_matches_regime).
     model_config = ConfigDict(extra="forbid")
 
     kind: str | None = None
@@ -96,7 +100,7 @@ class ShiftRowIn(BaseModel):
     end_time: str
     required_primary_count: int
     active_weekdays: list[int]
-    required_role: str | None = None
+    required_role_id: str | None = None
 
 
 class ShiftCatalogIn(BaseModel):
@@ -137,33 +141,33 @@ def _build_shift(row: ShiftRowIn) -> StandardShift:
         catalog_kind=None,
         required_rest_hours=11,
         active_weekdays=tuple(row.active_weekdays),
-        required_role=EmployeeRole(row.required_role) if row.required_role else None,
+        required_role_id=row.required_role_id,
     )
 
 
-def _validate_role_matches_regime(shifts: list[StandardShift], regime: SitePlanningRegime) -> None:
-    """ROTA-T065 audit R2-03 fix (partial -- see BOARD.md flag): OCHRONA
-    must never accept/persist a shop role (brief.md section 12/16: OCHRONA
-    keeps its exact existing D/N behavior, no shop role field) -- this half
-    is unambiguous and has no conflict with any existing test/behavior.
-
-    NOT implemented here: rejecting an ORDINARY row with no required_role.
-    tests/test_t030_shift_catalog_api.py's own fixture (pre-existing,
-    unrelated to store roles) uses SitePlanningRegime.ORDINARY as the
-    generic non-OCHRONA regime for catalog CRUD mechanics with zero roles
-    on every row, and is not itself store-shaped. Rejecting a role-less
-    ORDINARY row at PUT time, as the R2 reproducer's
-    test_new_ordinary_catalog_rejects_missing_required_role demands, would
-    break that pre-existing, already-accepted behavior. Brief section 16's
-    "new ORDINARY bez kompletu wymaganych ról/config ma failować jawnie
-    jako niegotowy" reads, together with T65-10's identical wording about
-    "poprawny pusty grafik", as a PLAN-time requirement (an incomplete
-    store config must not silently report a false-successful empty
-    schedule), not a catalog-save-time one -- flagged on BOARD.md for
-    Codex/architect to confirm rather than resolved unilaterally here."""
+def _validate_role_matches_regime(conn, site_id: str, shifts: list[StandardShift], regime: SitePlanningRegime) -> None:
+    """ROTA-T065-CONFIGURABLE-ROLES section 5/9: OCHRONA must never accept/
+    persist a shop role (OCHRONA keeps its exact existing D/N behavior, no
+    shop role field). ORDINARY now REQUIRES a role on every row -- the
+    "— brak —" option is gone (OWNER_DECISION 2026-09-13: every ORDINARY
+    demand always has a role; the earlier ambiguity was CC's own
+    misunderstanding, see BOARD.md ROTA-T065-CONFIGURABLE-ROLES) -- and
+    that role must belong to this Site's own catalog, never an arbitrary
+    string."""
     if regime == SitePlanningRegime.OCHRONA:
-        if any(shift.required_role is not None for shift in shifts):
+        if any(shift.required_role_id is not None for shift in shifts):
             raise ValueError("obiekt Ochrony nie może mieć zmian z przypisaną rolą sklepową")
+        return
+    if any(shift.required_role_id is None for shift in shifts):
+        raise ValueError("każda zmiana obiektu standardowego musi mieć przypisaną rolę")
+    # brief section 3: active = available for NEW configurations -- a
+    # retired role must never become the required role of a newly-written
+    # catalog row, even though already-persisted demands keep their frozen
+    # required_role_name snapshot untouched.
+    active_role_ids = {r.role_id for r in list_site_roles(conn, site_id, include_inactive=False)}
+    for shift in shifts:
+        if shift.required_role_id not in active_role_ids:
+            raise ValueError(f"rola {shift.required_role_id!r} nie należy do aktywnego katalogu ról tego obiektu")
 
 
 @router.put("/{site_id}/shift-catalog", status_code=204)
@@ -175,7 +179,7 @@ def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_co
         for shift in shifts:
             validate_standard_shift(shift)
         site = get_site(conn, site_id)
-        _validate_role_matches_regime(shifts, site.planning_regime)
+        _validate_role_matches_regime(conn, site_id, shifts, site.planning_regime)
         current_profile = get_site_profile(conn, site.profile_id)
         updated_profile = replace(current_profile, standard_shifts=shifts)
         update_site_profile(

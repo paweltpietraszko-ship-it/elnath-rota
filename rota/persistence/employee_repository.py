@@ -7,11 +7,9 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime
-from typing import Optional
 
 from rota.domain import (
     Employee,
-    EmployeeRole,
     ExternalSupportWindow,
     MembershipKind,
     ReadinessSource,
@@ -32,6 +30,11 @@ class InvalidEmployeeActivePeriod(Exception):
 
 class UnknownEmployeeOrSite(Exception):
     """Raised when a membership/window references a missing Employee or Site."""
+
+
+class UnknownSiteRole(Exception):
+    """Raised when a membership's position_role_id doesn't name an existing
+    SiteRoleDefinition belonging to that same Site (brief.md section 4)."""
 
 
 def write_employee_in_open_transaction(conn: sqlite3.Connection, employee: Employee) -> None:
@@ -131,18 +134,6 @@ def list_employees_by_ids(conn: sqlite3.Connection, employee_ids: list[str]) -> 
     return {row[0]: _row_to_employee(key, protected_ids, row) for row in rows}
 
 
-def _allowed_roles_to_text(roles: frozenset[EmployeeRole]) -> Optional[str]:
-    if not roles:
-        return None
-    return ",".join(sorted(r.value for r in roles))
-
-
-def _allowed_roles_from_text(text: Optional[str]) -> frozenset[EmployeeRole]:
-    if not text:
-        return frozenset()
-    return frozenset(EmployeeRole(v) for v in text.split(","))
-
-
 def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membership: SiteMembership) -> None:
     """Same write as save_site_membership, without its own `with conn:` --
     for a caller (e.g. rota/application/training.py) that must combine this
@@ -153,19 +144,26 @@ def write_site_membership_in_open_transaction(conn: sqlite3.Connection, membersh
     site_row = conn.execute("SELECT 1 FROM sites WHERE site_id = ?", (membership.site_id,)).fetchone()
     if employee_row is None or site_row is None:
         raise UnknownEmployeeOrSite((membership.employee_id, membership.site_id))
+    if membership.position_role_id is not None:
+        role_row = conn.execute(
+            "SELECT 1 FROM site_roles WHERE role_id = ? AND site_id = ?",
+            (membership.position_role_id, membership.site_id),
+        ).fetchone()
+        if role_row is None:
+            raise UnknownSiteRole((membership.position_role_id, membership.site_id))
     conn.execute(
         """INSERT INTO site_memberships
            (employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h,
-            allowed_roles)
+            position_role_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(employee_id, site_id) DO UPDATE SET
             membership_kind=excluded.membership_kind, enabled=excluded.enabled,
             readiness_state=excluded.readiness_state, readiness_source=excluded.readiness_source,
-            can_work_24h=excluded.can_work_24h, allowed_roles=excluded.allowed_roles""",
+            can_work_24h=excluded.can_work_24h, position_role_id=excluded.position_role_id""",
         (
             membership.employee_id, membership.site_id, membership.membership_kind.value,
             int(membership.enabled), membership.readiness_state.value, membership.readiness_source.value,
-            int(membership.can_work_24h), _allowed_roles_to_text(membership.allowed_roles),
+            int(membership.can_work_24h), membership.position_role_id,
         ),
     )
 
@@ -176,22 +174,23 @@ def save_site_membership(conn: sqlite3.Connection, membership: SiteMembership) -
 
 
 def _row_to_membership(row: tuple) -> SiteMembership:
-    employee_id, site_id, kind, enabled, readiness_state, readiness_source, can_work_24h, allowed_roles = row
+    employee_id, site_id, kind, enabled, readiness_state, readiness_source, can_work_24h, position_role_id = row
     return SiteMembership(
         employee_id=employee_id, site_id=site_id, membership_kind=MembershipKind(kind),
         enabled=bool(enabled), readiness_state=ReadinessState(readiness_state),
         readiness_source=ReadinessSource(readiness_source),
         # Legacy (pre-T012) rows have NULL here: default=True.
         can_work_24h=bool(can_work_24h) if can_work_24h is not None else True,
-        # Legacy/OCHRONA (pre-T065) rows have NULL here: default no roles.
-        allowed_roles=_allowed_roles_from_text(allowed_roles),
+        # Legacy/OCHRONA (pre-ROTA-T065-CONFIGURABLE-ROLES) rows have NULL
+        # here: no organizational position.
+        position_role_id=position_role_id,
     )
 
 
 def list_memberships_for_site(conn: sqlite3.Connection, site_id: str) -> list[SiteMembership]:
     rows = conn.execute(
         "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h, "
-        "allowed_roles FROM site_memberships WHERE site_id = ? ORDER BY employee_id",
+        "position_role_id FROM site_memberships WHERE site_id = ? ORDER BY employee_id",
         (site_id,),
     ).fetchall()
     return [_row_to_membership(row) for row in rows]
@@ -200,7 +199,7 @@ def list_memberships_for_site(conn: sqlite3.Connection, site_id: str) -> list[Si
 def list_memberships_for_employee(conn: sqlite3.Connection, employee_id: str) -> list[SiteMembership]:
     rows = conn.execute(
         "SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h, "
-        "allowed_roles FROM site_memberships WHERE employee_id = ? ORDER BY site_id",
+        "position_role_id FROM site_memberships WHERE employee_id = ? ORDER BY site_id",
         (employee_id,),
     ).fetchall()
     return [_row_to_membership(row) for row in rows]
@@ -215,7 +214,7 @@ def list_memberships_for_employees(conn: sqlite3.Connection, employee_ids: list[
     placeholders = ",".join("?" for _ in employee_ids)
     rows = conn.execute(
         f"SELECT employee_id, site_id, membership_kind, enabled, readiness_state, readiness_source, can_work_24h, "
-        f"allowed_roles FROM site_memberships WHERE employee_id IN ({placeholders}) ORDER BY employee_id, site_id",
+        f"position_role_id FROM site_memberships WHERE employee_id IN ({placeholders}) ORDER BY employee_id, site_id",
         (*employee_ids,),
     ).fetchall()
     by_employee: dict[str, list[SiteMembership]] = {employee_id: [] for employee_id in employee_ids}

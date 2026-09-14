@@ -1,0 +1,59 @@
+ROTA-T065-CONFIGURABLE-ROLES — WĄSKI RE-CHECK R6
+
+WERDYKT POPRAWKI R5-01: PASS
+MERGE: HOLD — nierozstrzygnięty literalny TASK_SCOPE
+AUDYTOWANY SHA: 9f841e224e47fb23187627973cb08ed3253b3e94
+POPRZEDNI FIX: 47ee3a12776e19229195f3851387fdf2a4c966aa
+POPRZEDNI AUDYT: 86051fd502d4317f90bb3b19509314b8ab6afa09
+BRIEF: b038bb360de9837a2e9931d6e736774e2fc1e3a8
+
+WYNIK
+
+R5-01 jest naprawiony. Każdy zapis aktywnego membershipu ORDINARY wymaga teraz
+jednej istniejącej aktywnej roli, także przy pierwszym dołączeniu i ponownym
+włączeniu. Publiczny endpoint przyjmuje `position_role_id` w tym samym zapisie
+membershipu, a formularz „Dodaj osobę” wymaga wyboru aktywnego stanowiska.
+OCHRONA pozostaje bez obowiązku roli ORDINARY.
+
+Nie znaleziono nowego defektu zachowania w zakresie poprawki.
+
+WARSTWY RE-CHECKU
+
+1. Diff `47ee3a1..9f841e2` przeczytany literalnie; `git diff --check` PASS.
+2. Zachowane niezależne reproduktory:
+   - `audit_r5_repro.py` — PASS;
+   - `audit_r4_repro.py` — 4 PASS.
+3. Testy bezpośrednio dotkniętych ścieżek:
+   `test_t065_configurable_roles.py`, `test_t065_ordinary_roles.py`,
+   `test_t021_external_support_roster.py`, `test_t019.py`, `test_t019b.py`,
+   `test_t062.py`, `test_vertical_full_stack.py` — 137 passed, 1 skipped,
+   2 warnings.
+4. Frontend `tsc -b && vite build` — PASS, bez pobierania zależności.
+
+Nie czytano ponownie całej implementacji. Nie uruchomiono pełnej regresji,
+zamrożonych symulatorów ani benchmarków.
+
+MERGE HOLD — TASK_SCOPE
+
+PASS dotyczy poprawki R5-01 na exact SHA, nie rozstrzyga istniejącego problemu
+zakresu. Cały diff Tasku nadal zawiera pliki poza literalnym TASK_SCOPE briefu;
+po R5 jest ich 11 (cztery produkcyjne adaptery i siedem plików testowych).
+Produkcja poza zakresem:
+- `api/routers/schedule.py`;
+- `rota/planning/solver.py`;
+- `rota/planning/state.py`;
+- `rota/site_memory_types.py`.
+
+Testy poza zakresem:
+- `tests/test_t019.py`;
+- `tests/test_t019b.py`;
+- `tests/test_t020.py`;
+- `tests/test_t021_matrix_decision_link.py`;
+- `tests/test_t023b.py`;
+- `tests/test_t062.py`;
+- `tests/test_vertical_full_stack.py`.
+
+To nie jest nowy finding R6 ani powód zmiany poprawnego zachowania. Przed merge
+architekt/OWNER musi mechanicznie zaakceptować/dopisać rzeczywiście potrzebny
+zakres albo CC musi ograniczyć diff. Do tego czasu nie wydaję pełnego PASS do
+merge mimo zamknięcia R5-01.

@@ -1,0 +1,104 @@
+ROTA-T065-CONFIGURABLE-ROLES — AUDYT IMPLEMENTACJI R4
+
+WERDYKT: FAIL
+AUDYTOWANY SHA: 1ef9bb403e05a52debbacd3db756ddf70c1d5a27
+BASE: 1e1a29d0d51add93bcceb3408970fa86c880bf99
+BRIEF: b038bb360de9837a2e9931d6e736774e2fc1e3a8
+
+PODSUMOWANIE
+
+Główna architektura jest zgodna z briefem: dynamiczny katalog ról jest per
+Site, stanowisko i zastępstwo są rozdzielone, ROLE-01 korzysta z jednego
+gate'u, a nazwy roli demandu i stanowiska ScheduleVersion mają trwałe
+snapshoty. Implementacja nie jest jednak gotowa do merge, ponieważ publiczne
+ścieżki koordynatora pozwalają zapisać bieżącą konfigurację ORDINARY sprzeczną
+z zamrożonym invariantem jednego aktywnego stanowiska.
+
+FINDING R4-01 — ORDINARY dopuszcza brak stanowiska i nowe użycie wycofanej roli
+
+TRACE
+- brief sekcja 3: `active` oznacza dostępność roli dla nowych konfiguracji;
+- brief sekcja 4: SiteMembership ORDINARY ma wskazywać dokładnie jedno aktywne
+  stanowisko organizacyjne tego Site;
+- brief sekcja 9: UI/API utrzymuje katalog i przypisuje pracownikowi jedno
+  stanowisko, a zastępstwo jest osobnym faktem.
+
+OWNERSHIP
+- `api/routers/durable_inputs.py::update_roster_row` oraz
+  `rota/persistence/employee_repository.py::write_site_membership_in_open_transaction`
+  są rzeczywistą ścieżką zapisu stanowiska;
+- `api/routers/site_profile.py` jest publiczną granicą zapisu katalogu zmian;
+- `rota/persistence/site_role_repository.py` jest właścicielem zapisu nowych
+  RoleCoverageAuthorization;
+- frontend dodatkowo pokazuje `— brak —` i wszystkie role, także inactive, w
+  selektorze stanowiska.
+
+REPRO na exact SHA
+`tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/audit_r4_repro.py`
+
+Polecenie:
+`python -m pytest -q tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/audit_r4_repro.py`
+
+Wynik: 4 failed.
+
+1. PATCH obsady z `clear_position=true` zwraca 204 i zapisuje
+   `position_role_id=None` dla aktywnego membershipu ORDINARY.
+2. PATCH obsady przyjmuje jako stanowisko rolę `active=false` i zwraca 204.
+3. PUT katalogu zmian przyjmuje wycofaną rolę dla nowego wiersza i zwraca 204.
+4. PUT nowego zastępstwa przyjmuje wycofaną rolę i zwraca 204.
+
+To są zwykłe operacje produktu na jednym Site, bez konfliktu syntetycznych baz,
+łączenia OCHRONA z ORDINARY ani założenia o ataku. Oczekiwana poprawka jest
+wąska: na granicach nowych konfiguracji ORDINARY wymagać istniejącej aktywnej
+roli oraz nie udostępniać wyczyszczenia jedynego stanowiska aktywnego członka
+obsady. Nie wymaga to zmiany modelu solvera ani snapshotów historycznych.
+
+WARSTWY AUDYTU
+
+1. WHERE_MAP REQUIRED
+Uruchomiono `where.py` dla wszystkich produkcyjnych plików wymienionych w
+sekcji 12 briefu. Mapa potwierdziła jeden owner katalogu/autoryzacji w
+`site_role_repository.py`, jeden `role_covers` w `eligibility.py` oraz użycie
+tego gate'u przez solver i validator.
+
+2. Diff i zakres
+`git diff --check 1e1a29d..1ef9bb4` — PASS.
+
+Diff zawiera także pliki niewymienione literalnie w TASK_SCOPE:
+- `api/routers/schedule.py`;
+- `rota/planning/solver.py`;
+- `rota/planning/state.py`;
+- `rota/site_memory_types.py`;
+- `tests/test_t019b.py`;
+- `tests/test_t020.py`;
+- `tests/test_t021_matrix_decision_link.py`;
+- `tests/test_t023b.py`.
+
+Zmiany produkcyjne w solver/state/schedule są minimalnymi adapterami potrzebnymi
+do przeprowadzenia autoryzacji i nazwy snapshotu istniejącą ścieżką, ale brief
+nie wymienia ich w zamrożonym TASK_SCOPE. Przed merge należy skorygować ten
+mechaniczny zapis zakresu albo ograniczyć diff; nie jest to osobny finding
+zachowania.
+
+3. Macierz Tasku z briefu
+`python -m pytest -q tests/test_t065_configurable_roles.py
+tests/test_t065_ordinary_roles.py tests/test_site_profile_persistence.py
+tests/test_local_store_schema_migration.py tests/test_t030_shift_catalog_api.py
+tests/test_t031_schedule_api.py tests/test_t021_external_support_roster.py`
+
+Wynik: 86 passed, 2 warnings. To jest dowód wspierający implementera, nie
+źródło werdyktu.
+
+4. Niezależna macierz i pionowa ścieżka
+Cztery reproduktory przeszły przez realne REST API -> application durable input
+-> persistence i objęły rodzeństwo tego samego błędu: stanowisko, katalog zmian
+oraz zastępstwo. Wynik: 4 failed zgodnie z R4-01.
+
+5. Frontend
+Build dokładnego SHA (`tsc -b && vite build`) — PASS po podłączeniu istniejących
+lokalnych zależności; bez instalowania lub pobierania pakietów.
+
+6. Wyłączenia
+Pełnej regresji repo nie uruchomiono — po wąskiej zmianie wymaga ona jawnej
+zgody OWNERA i nie jest potrzebna do odtworzenia R4-01. Nie uruchomiono
+zamrożonych symulatorów koordynatora ani benchmarków.

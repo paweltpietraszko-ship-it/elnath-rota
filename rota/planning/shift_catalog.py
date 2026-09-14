@@ -27,7 +27,6 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from rota.domain import (
-    EmployeeRole,
     ShiftCatalogKind,
     ShiftDemand,
     ShiftKind,
@@ -52,6 +51,13 @@ class AmbiguousEmergency24hCapability(Exception):
     start time-of-day/kind) with different required_rest_hours -- a
     config/model error that must fail closed rather than guess which
     rest value an emergency rescue would owe."""
+
+
+class UnresolvedRoleId(Exception):
+    """Raised when a StandardShift.required_role_id has no matching entry
+    in the role_names lookup passed to generate_catalog_demands -- a
+    demand's historical required_role_name (brief.md section 5) must never
+    be silently guessed or left blank."""
 
 
 def classify_demand(demand: ShiftDemand, profile: SiteProfile) -> ShiftKind:
@@ -94,7 +100,7 @@ def is_role_based_demand(demand: ShiftDemand) -> bool:
     without threading a Site/regime -- see dn_semantics_apply below,
     which is the actual single owner of the D/N-legal-meaning question
     after audit R3-01."""
-    return demand.required_role is not None
+    return demand.required_role_id is not None
 
 
 def dn_semantics_apply(demand: ShiftDemand, regime: SitePlanningRegime) -> bool:
@@ -183,9 +189,10 @@ class _Component:
     component: Optional[int]
     catalog_kind: ShiftCatalogKind
     required_rest_hours: int
-    # ROTA-T065: same required_role for both halves of a 24h occurrence --
-    # unlike `kind`, role is not "opposite" between the two components.
-    required_role: Optional[EmployeeRole] = None
+    # ROTA-T065-CONFIGURABLE-ROLES: same required_role_id for both halves of
+    # a 24h occurrence -- unlike `kind`, role is not "opposite" between the
+    # two components.
+    required_role_id: Optional[str] = None
 
 
 def _components_for_shift(shift: StandardShift, template_id: str, current: date) -> list[_Component]:
@@ -196,7 +203,7 @@ def _components_for_shift(shift: StandardShift, template_id: str, current: date)
         end = datetime.combine(end_date, shift.end_time)
         return [_Component(
             start, end, shift.kind, shift.required_primary_count, template_id, 1, kind, shift.required_rest_hours,
-            required_role=shift.required_role,
+            required_role_id=shift.required_role_id,
         )]
     first_start = datetime.combine(current, shift.start_time)
     first_end = first_start + timedelta(hours=12)
@@ -204,11 +211,11 @@ def _components_for_shift(shift: StandardShift, template_id: str, current: date)
     return [
         _Component(
             first_start, first_end, shift.kind, shift.required_primary_count, template_id, 1, kind,
-            shift.required_rest_hours, required_role=shift.required_role,
+            shift.required_rest_hours, required_role_id=shift.required_role_id,
         ),
         _Component(
             first_end, second_end, _opposite(shift.kind), shift.required_primary_count, template_id, 2, kind,
-            shift.required_rest_hours, required_role=shift.required_role,
+            shift.required_rest_hours, required_role_id=shift.required_role_id,
         ),
     ]
 
@@ -259,7 +266,9 @@ def _all_components(profile: SiteProfile, month: date) -> list[_Component]:
     return components
 
 
-def _components_to_demands(components: list[_Component], emergency_rest: dict[tuple, int]) -> tuple[ShiftDemand, ...]:
+def _components_to_demands(
+    components: list[_Component], emergency_rest: dict[tuple, int], role_names: dict[str, str],
+) -> tuple[ShiftDemand, ...]:
     """Deterministic demand_id assignment matches the legacy
     "{date}-{kind}[-{n}]" shape, extended to stay collision-free across
     every occurrence (including both halves of a 24h pair) landing on the
@@ -283,26 +292,40 @@ def _components_to_demands(components: list[_Component], emergency_rest: dict[tu
         # never a 24h component itself (it IS the capability, not a rescue
         # candidate) and never INNY (excluded from emergency pairing).
         emergency = emergency_rest.get((c.kind, c.start.time())) if c.catalog_kind == ShiftCatalogKind.H12 else None
+        required_role_name = None
+        if c.required_role_id is not None:
+            required_role_name = role_names.get(c.required_role_id)
+            if required_role_name is None:
+                raise UnresolvedRoleId(c.required_role_id)
         demands.append(ShiftDemand(
             demand_id, "", c.start, c.end, c.required_primary_count,
             shift_kind=c.kind, catalog_kind=c.catalog_kind, required_rest_hours=c.required_rest_hours,
             work_period_template_id=c.template_id, work_period_component=c.component,
-            emergency_24h_rest_hours=emergency, required_role=c.required_role,
+            emergency_24h_rest_hours=emergency, required_role_id=c.required_role_id,
+            required_role_name=required_role_name,
         ))
     return tuple(demands)
 
 
-def generate_catalog_demands(profile: SiteProfile, month: date) -> tuple[ShiftDemand, ...]:
+def generate_catalog_demands(
+    profile: SiteProfile, month: date, role_names: Optional[dict[str, str]] = None,
+) -> tuple[ShiftDemand, ...]:
     """T012 replacement for the legacy per-day D/N expansion: every active
     StandardShift (12h/INNY/24h) generates its occurrence(s) for each
     active_weekdays day in month, anchored to the occurrence's start day.
     Multiple entries and overlaps are legal and generate independent
-    occurrences."""
+    occurrences.
+
+    ROTA-T065-CONFIGURABLE-ROLES section 5: `role_names` maps this Site's
+    current role_id -> display_name, used ONLY to snapshot
+    ShiftDemand.required_role_name at generation time (immutable once
+    persisted). None/empty is correct for OCHRONA/legacy profiles, whose
+    shifts never set required_role_id."""
     for shift in profile.standard_shifts:
         validate_standard_shift(shift)
     emergency_rest = _emergency_rest_lookup(profile)
     components = _all_components(profile, month)
-    return _components_to_demands(components, emergency_rest)
+    return _components_to_demands(components, emergency_rest, role_names or {})
 
 
 if __name__ == "__main__":

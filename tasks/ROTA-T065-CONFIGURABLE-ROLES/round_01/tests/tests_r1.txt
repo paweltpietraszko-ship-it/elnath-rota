@@ -1,0 +1,59 @@
+ROTA-T065-CONFIGURABLE-ROLES — preimplementation audit R1
+Data: 2026-09-13
+Audytowany brief: task/ROTA-T065-CONFIGURABLE-ROLES@98226a792b24a293bba24bb67365b741b8403234
+BOARD intake: main@0c288b97a41acd45b5bcfb64f29b650aab41e9c0
+
+WYNIK: WYMAGA_KOREKTY / OWNER_DECISION_NEEDED.
+
+Co jest poprawne
+----------------
+- realny problem sztywnego globalnego `EmployeeRole` został trafnie opisany;
+- stanowisko człowieka jest oddzielone od roli wykonywanej pracy;
+- każda nowa praca ORDINARY ma rolę Site;
+- nie ma automatycznej hierarchii ani fallbacku solvera;
+- OCHRONA pozostaje poza zmianą;
+- brak migracji danych syntetycznych jest zgodny z decyzją OWNERA.
+
+R1-01 — brak konkretnego ownera i historii stanowiska
+----------------------------------------------------
+Brief wymaga historycznego stanowiska, ale nie wskazuje minimalnego źródła,
+które zachowuje jego nazwę/identity dla dawnej ScheduleVersion. Dzisiejszy
+`SiteMembership.allowed_roles` jest bieżącym zbiorem i jest nadpisywany; nie
+jest jednym stanowiskiem ani jego historią. Kontrakt musi wskazać:
+- owner katalogu ról per Site;
+- osobne pole stanowiska na membershipie;
+- sposób historycznego odczytu stanowiska dla zapisanej wersji grafiku;
+- zachowanie po zmianie nazwy/wycofaniu roli.
+
+Bez tego PRINT-GAP nadal nie ma technicznie dostępnej zależności, a implementer
+musiałby sam wymyślić snapshot lub odczyt bieżących danych.
+
+R1-02 — TASK_SCOPE nie pozwala wykonać kontraktu
+-----------------------------------------------
+- `rota/persistence/schema.py` nie istnieje; migracje są w
+  `rota/persistence/db.py`.
+- Dynamiczne role w `StandardShift` i `ShiftDemand` są dziś kodowane przez
+  `rota/persistence/site_profile_repository.py`,
+  `rota/persistence/schedule_repository.py` oraz
+  `rota/persistence/plan_preview_repository.py`; nie ma ich w scope.
+- API katalogu zmian konwertuje role w `api/routers/site_profile.py`; tego
+  pliku również brakuje.
+- Trzeba jawnie wskazać istniejący lub nowy pojedynczy repository katalogu ról.
+- `tests/` jest zbyt szerokim upoważnieniem; wskazać testy Tasku i tylko
+  istniejące zestawy rzeczywiście wymagające aktualizacji.
+
+R1-03 — zakres czasowy zastępstwa nie jest zamrożony
+---------------------------------------------------
+Zdanie „jawny zakres obowiązywania albo inny istniejący mechanizm” dopuszcza
+różne zachowania użytkowe. OWNER musi rozstrzygnąć, czy dopuszczenie innej roli
+jest datowane (od/do), czy aktywne do jawnego odwołania. Implementer nie może
+wybrać tego sam.
+
+R1-04 — brak WHERE_MAP
+---------------------
+Task zmienia ownera roli, durable input, gate ROLE-01 i format persistence.
+Brief wymaga `WHERE_MAP: REQUIRED` dla rzeczywiście zmienianych właścicieli i
+symboli przed implementacją.
+
+Po korekcie wystarczy ponowny audyt briefu. Nie uruchamiano testów produktu,
+regresji, symulatorów ani benchmarków.

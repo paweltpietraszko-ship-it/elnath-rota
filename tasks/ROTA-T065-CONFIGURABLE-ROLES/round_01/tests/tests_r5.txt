@@ -1,0 +1,73 @@
+ROTA-T065-CONFIGURABLE-ROLES — WĄSKI RE-CHECK R5
+
+WERDYKT: FAIL
+AUDYTOWANY SHA: 47ee3a12776e19229195f3851387fdf2a4c966aa
+POPRZEDNIA IMPLEMENTACJA: 1ef9bb403e05a52debbacd3db756ddf70c1d5a27
+POPRZEDNI AUDYT: c2e5c965050b4b3d0097215de8516d655177f438
+BRIEF: b038bb360de9837a2e9931d6e736774e2fc1e3a8
+
+PODSUMOWANIE
+
+Fix zamyka wszystkie cztery reproduktory R4: nie można wyczyścić już
+przypisanego stanowiska ani użyć roli inactive jako nowego stanowiska, roli
+katalogu zmian lub roli nowej autoryzacji zastępstwa. Pozostaje jednak normalna
+ścieżka tworząca dokładnie ten sam zabroniony stan: pierwsze dołączenie osoby do
+obsady ORDINARY zapisuje aktywny SiteMembership bez stanowiska.
+
+FINDING R5-01 — onboarding tworzy aktywnego członka ORDINARY bez stanowiska
+
+TRACE
+- brief sekcja 4: SiteMembership ORDINARY wskazuje dokładnie jedno aktywne
+  stanowisko organizacyjne tego Site;
+- brief sekcja 9: konfiguracja ORDINARY przypisuje pracownikowi jedno
+  stanowisko;
+- R4-01 i jego fix potwierdzają, że aktywny członek obsady nie może pozostać w
+  stanie `position_role_id=None`.
+
+OWNERSHIP
+- `api/routers/durable_inputs.py::attach_to_roster` jest publiczną, normalną
+  ścieżką „Dodaj osobę” i sam konstruuje nowy SiteMembership;
+- `rota/application/durable_inputs.py::update_membership` jest właścicielem
+  kontroli zapisu, lecz `_require_ordinary_position_still_valid` jawnie
+  przepuszcza nowy membership bez stanowiska;
+- frontendowy AddPersonPanel nie przekazuje stanowiska w tym samym kroku.
+
+REPRO
+`tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/audit_r5_repro.py`
+
+Polecenie:
+`python -m pytest -q tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/audit_r5_repro.py`
+
+Wynik: 1 failed.
+
+POST `/api/workspace/sites/SITE-1/roster` dla istniejącego Employee na Site
+ORDINARY z aktywnym katalogiem ról zwraca 204 i zapisuje enabled membership z
+`position_role_id=None`.
+
+To nie jest migracja starego obiektu, konflikt danych syntetycznych ani atak.
+Jest to podstawowy flow dodawania nowego pracownika widoczny w UI. Istniejące
+testy T021 potwierdzają zachowanie historycznego endpointu, ale nie mogą
+poszerzyć nowszego kontraktu T065. Wąska korekta powinna pozwolić wybrać aktywne
+stanowisko podczas dołączania do ORDINARY i zapisać membership atomowo; OCHRONA
+pozostaje bez stanowiska ORDINARY.
+
+WERYFIKACJA POPRAWKI R4
+
+1. Diff `1ef9bb4..47ee3a1`: trzy zmienione pliki produkcyjne, raport i zachowany
+   reproduktor; `git diff --check` PASS.
+2. Zachowany `audit_r4_repro.py`: 4 passed.
+3. Wąski zestaw sąsiednich ścieżek:
+   `audit_r4_repro.py`, `test_t065_configurable_roles.py`,
+   `test_t065_ordinary_roles.py`, `test_t021_external_support_roster.py`,
+   `test_t030_shift_catalog_api.py` — 57 passed, 2 warnings.
+4. Nowy pionowy reproduktor onboarding REST -> application -> persistence:
+   1 failed zgodnie z R5-01.
+
+Nie uruchomiono pełnej regresji, zamrożonych symulatorów ani benchmarków.
+Frontend nie zmienił się w fixie R4, więc nie powtarzano jego builda.
+
+UWAGA TECHNICZNA
+
+Wskazane w R4 osiem plików poza literalnym TASK_SCOPE nadal pozostaje
+nierozstrzygnięte na BOARD. Nie jest to źródło R5-01 ani powód rozszerzania tej
+poprawki.

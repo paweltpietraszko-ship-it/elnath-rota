@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 19
+LATEST_SCHEMA_VERSION = 20
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -667,6 +667,50 @@ _MIGRATION_19: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Migration 20 -- ROTA-T065-CONFIGURABLE-ROLES: replaces the fixed 2-value
+# EmployeeRole enum (migration 19) with a per-Site role catalog. The old
+# allowed_roles/required_role TEXT columns from migration 19 are left in
+# place, unused (brief.md section 10: existing ORDINARY data is test-only,
+# no migration of it is required) -- new columns/tables only, no destructive
+# ALTER. `site_roles`/`role_coverage_authorizations` are the one owner
+# (rota/persistence/site_role_repository.py); `schedule_version_employee_
+# positions` is a write-once-per-version historical snapshot for print,
+# owned for reads by schedule_repository.py.
+# ---------------------------------------------------------------------------
+_MIGRATION_20: tuple[str, ...] = (
+    "ALTER TABLE site_memberships ADD COLUMN position_role_id TEXT",
+    "ALTER TABLE standard_shifts ADD COLUMN required_role_id TEXT",
+    "ALTER TABLE shift_demands ADD COLUMN required_role_id TEXT",
+    "ALTER TABLE shift_demands ADD COLUMN required_role_name TEXT",
+    """CREATE TABLE IF NOT EXISTS site_roles (
+        role_id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        display_name TEXT NOT NULL,
+        active INTEGER NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS role_coverage_authorizations (
+        authorization_id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES sites(site_id),
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        covered_role_id TEXT NOT NULL REFERENCES site_roles(role_id),
+        start_datetime TEXT NOT NULL,
+        end_datetime TEXT NOT NULL,
+        active INTEGER NOT NULL
+    )""",
+    # One row per (version, employee) -- the ONLY historical source for
+    # printed position labels (brief.md section 6); never re-derived from
+    # today's site_memberships.position_role_id.
+    """CREATE TABLE IF NOT EXISTS schedule_version_employee_positions (
+        schedule_version_id TEXT NOT NULL REFERENCES schedule_versions(version_id),
+        employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+        role_id TEXT NOT NULL,
+        role_name TEXT NOT NULL,
+        PRIMARY KEY (schedule_version_id, employee_id)
+    )""",
+)
+
+
 def _migration_18_encrypt_existing_persisted_names(conn: sqlite3.Connection) -> None:
     """ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE brief.md
     (exact SHA 5683bac) section 4: one-time, deterministic encryption of
@@ -750,6 +794,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], No
     # see migrate()'s loop below for how the two kinds are dispatched.
     (18, _migration_18_encrypt_existing_persisted_names),
     (19, _MIGRATION_19),
+    (20, _MIGRATION_20),
 )
 
 

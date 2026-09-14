@@ -11,11 +11,13 @@ from rota.domain import (
     Deviation,
     Employee,
     ExternalSupportWindow,
+    RoleCoverageAuthorization,
     ShiftDemand,
     Site,
     SiteMembership,
     SitePlanningRegime,
     SiteProfile,
+    SiteRoleDefinition,
     SiteRuleVersion,
     WorkBalance,
 )
@@ -97,6 +99,13 @@ class PlanningState:
     # None (every caller except Przelicz Plan on an already-live grafik)
     # keeps prior behavior unchanged.
     cutover_at: Optional[datetime] = None
+
+    # ROTA-T065-CONFIGURABLE-ROLES: this Site's own role catalog and active
+    # coordinator-issued substitutions -- empty for OCHRONA/every pre-
+    # existing PlanningState construction (tests, other callers), which
+    # never had a role concept to consult.
+    site_roles: tuple[SiteRoleDefinition, ...] = ()
+    role_coverage_authorizations: tuple[RoleCoverageAuthorization, ...] = ()
 
 
 if __name__ == "__main__":

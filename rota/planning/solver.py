@@ -314,7 +314,7 @@ def _evaluate_membership_for_demand(
     result = check_eligibility(
         employee, membership, demand, shift_kind, state.profile, records,
         list(state.external_windows), state.site.site_id, applicable_hard_rules,
-        allow_day_only_n_fallback, state.site.planning_regime,
+        allow_day_only_n_fallback, state.site.planning_regime, state.role_coverage_authorizations,
     )
     if not result.eligible:
         return False, (employee.employee_id, result.blocked_reason or "UNKNOWN")

@@ -28,7 +28,12 @@ def conn():
         connection, coordinator_id=COORD, site_id=SITE,
         coordinator=Coordinator(COORD, "Coordinator", True),
         site_profile=SiteProfile(PROFILE, "Profile", True, [], True, True, False, False, 1, 40),
-        site=Site(SITE, PROFILE, "Site", True, SitePlanningRegime.ORDINARY),
+        # ROTA-T065-CONFIGURABLE-ROLES: ORDINARY now requires a role on
+        # every row (brief.md section 5), so these generic, role-agnostic
+        # CRUD-mechanics tests (duration/catalog_kind computation,
+        # validation-rejection, completeness) use OCHRONA instead -- they
+        # were never store-shaped to begin with, see git history.
+        site=Site(SITE, PROFILE, "Site", True, SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(COORD, SITE, True),
     )
     try:
@@ -56,7 +61,7 @@ ONE_ROW = {
 def test_get_empty_catalog(client):
     resp = client.get(f"/api/workspace/sites/{SITE}/shift-catalog")
     assert resp.status_code == 200
-    assert resp.json() == {"shifts": [], "planning_regime": "ORDINARY"}
+    assert resp.json() == {"shifts": [], "planning_regime": "OCHRONA"}
 
 
 def test_get_existing_catalog_preserves_order(client):

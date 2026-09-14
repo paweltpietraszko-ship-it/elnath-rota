@@ -350,7 +350,148 @@ export default function EmployeeDetail({
           onSaved={load}
         />
       </div>
+
+      <RoleCoverageAuthorizationsPanel siteId={siteId} employeeId={employeeId} />
     </>
+  );
+}
+
+// ROTA-T065-CONFIGURABLE-ROLES section 7/9: a coordinator-issued, always
+// time-bounded permission letting this employee cover a different role's
+// demands for a stated period -- never a permanent second title (see
+// rota.planning.eligibility.role_covers). Empty for OCHRONA sites (no
+// SiteRoleOut rows exist there), so this panel renders nothing for them.
+function RoleCoverageAuthorizationsPanel({ siteId, employeeId }: { siteId: string; employeeId: string }) {
+  const [roles, setRoles] = useState<{ role_id: string; display_name: string; active: boolean }[]>([]);
+  const [authorizations, setAuthorizations] = useState<
+    { authorization_id: string; employee_id: string; covered_role_id: string; start_datetime: string; end_datetime: string; active: boolean }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [roleId, setRoleId] = useState("");
+  const [from, setFrom] = useState(isoToday());
+  const [to, setTo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    Promise.all([api.listSiteRoles(siteId), api.listRoleCoverageAuthorizations(siteId)])
+      .then(([r, a]) => {
+        setRoles(r);
+        setAuthorizations(a.filter((x) => x.employee_id === employeeId));
+      })
+      .catch((e) => setError(String(e.message ?? e)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, [siteId, employeeId]);
+
+  if (loading || roles.length === 0) return null;
+
+  const submit = async () => {
+    if (!roleId || !from || !to) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const authorizationId = `RCA-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+      await api.setRoleCoverageAuthorization(siteId, authorizationId, {
+        authorization_id: authorizationId, employee_id: employeeId, covered_role_id: roleId,
+        start_datetime: `${from}T00:00:00`, end_datetime: `${to}T23:59:59`, active: true,
+      });
+      setShowAdd(false);
+      setRoleId("");
+      setFrom(isoToday());
+      setTo("");
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancel = async (authorization_id: string, covered_role_id: string, start_datetime: string, end_datetime: string) => {
+    try {
+      await api.setRoleCoverageAuthorization(siteId, authorization_id, {
+        authorization_id, employee_id: employeeId, covered_role_id, start_datetime, end_datetime, active: false,
+      });
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+
+  const roleName = (id: string) => roles.find((r) => r.role_id === id)?.display_name ?? id;
+
+  return (
+    <div className="panel">
+      <div className="panel-title-row">
+        <div>
+          <h3>Zastępstwo roli</h3>
+          <p className="panel-hint">
+            Czasowe dopuszczenie do pokrycia zmiany innej roli (np. Kierownik jako Sprzedawca) na wskazany okres.
+            Nie zmienia stanowiska tej osoby.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowAdd((v) => !v)}>
+          {showAdd ? "Anuluj" : "+ Dodaj zastępstwo"}
+        </button>
+      </div>
+
+      {error && <div className="banner-error">{error}</div>}
+
+      {showAdd && (
+        <div className="create-panel" style={{ marginBottom: 14 }}>
+          <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <label>
+              <span className="field-label">Rola do pokrycia</span>
+              <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+                <option value="" disabled>
+                  — wybierz —
+                </option>
+                {roles.filter((r) => r.active).map((r) => (
+                  <option key={r.role_id} value={r.role_id}>
+                    {r.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="field-label">Od</span>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </label>
+            <label>
+              <span className="field-label">Do</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </label>
+          </div>
+          <div className="create-panel-actions">
+            <button className="btn-primary" onClick={submit} disabled={saving || !roleId || !from || !to}>
+              {saving ? "Zapisywanie…" : "Zapisz"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {authorizations.length === 0 ? (
+        <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak zastępstw.</p>
+      ) : (
+        authorizations.map((a) => (
+          <div key={a.authorization_id} className="absence-log-item">
+            <span>
+              <strong>{roleName(a.covered_role_id)}</strong> — od {a.start_datetime.slice(0, 10)} do{" "}
+              {a.end_datetime.slice(0, 10)} {a.active ? "" : "(anulowane)"}
+            </span>
+            {a.active && (
+              <button className="btn-ghost" onClick={() => cancel(a.authorization_id, a.covered_role_id, a.start_datetime, a.end_datetime)}>
+                Anuluj
+              </button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
