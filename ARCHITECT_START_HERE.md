@@ -53,9 +53,13 @@ wypchnięte na GitHub; treść dostępna wyłącznie w czacie nie jest przekazan
 1. OWNER zatwierdza zachowanie produktu.
 2. Architekt zapisuje minimalny brief na branchu Tasku.
 3. Codex wykonuje krótki precheck briefu i redukcję zbędnego zakresu.
-4. Dopiero po PASS preimplementation CC implementuje literalny `TASK_SCOPE`.
-5. Codex audytuje gotową implementację na exact SHA.
-6. Tylko OWNER wydaje polecenie merge.
+4. CC niezależnie ocenia brief merytorycznie: jego sens, zakres i ryzyko
+   wprowadzenia nieprzemyślanej logiki. Może odesłać brief do korekty mimo PASS
+   Codexa. Jest to osobna brama przed implementacją, nie audyt własnego kodu.
+5. Dopiero po zaakceptowaniu briefu przez obie bramy CC implementuje literalny
+   `TASK_SCOPE`.
+6. Codex audytuje gotową implementację na exact SHA.
+7. Tylko OWNER wydaje polecenie merge.
 
 Jeżeli Codex albo CC zwraca brief do korekty, Architekt poprawia wskazaną
 nieścisłość w jednej rundzie. Nie przeprojektowuje przy tej okazji pozostałych
