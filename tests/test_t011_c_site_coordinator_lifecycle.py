@@ -79,7 +79,10 @@ def _profile(profile_id: str) -> SiteProfile:
 
 
 def _site(site_id: str, profile_id: str, display_name: str, active: bool = True) -> Site:
-    return Site(site_id=site_id, profile_id=profile_id, display_name=display_name, active=active, planning_regime=SitePlanningRegime.ORDINARY)
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t011_a -- role-agnostic
+    # lifecycle tests use OCHRONA to avoid the ORDINARY active-position
+    # invariant.
+    return Site(site_id=site_id, profile_id=profile_id, display_name=display_name, active=active, planning_regime=SitePlanningRegime.OCHRONA)
 
 
 def _bootstrap(

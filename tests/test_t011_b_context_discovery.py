@@ -63,11 +63,14 @@ def _profile() -> SiteProfile:
 
 
 def _bootstrap(conn, *, coordinator_id: str, site_id: str, coordinator_active=True, site_active=True, association_active=True) -> None:
+    # ROTA-T065-CONFIGURABLE-ROLES: same fix as test_t011_a -- role-agnostic
+    # context-discovery tests use OCHRONA to avoid the ORDINARY
+    # active-position invariant.
     bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=coordinator_id, site_id=site_id,
         coordinator=Coordinator(coordinator_id, f"Coord {coordinator_id}", coordinator_active),
         site_profile=_profile(),
-        site=Site(site_id, PROFILE, f"Site {site_id}", site_active, planning_regime=SitePlanningRegime.ORDINARY),
+        site=Site(site_id, PROFILE, f"Site {site_id}", site_active, planning_regime=SitePlanningRegime.OCHRONA),
         association=CoordinatorSiteAssociation(coordinator_id, site_id, association_active),
     )
 

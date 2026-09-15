@@ -1,0 +1,41 @@
+ROTA-ORDINARY-POSITION-FIXTURE-FALLOUT — AUDYT R1
+
+WERDYKT: PASS
+AUDYTOWANY SHA: ba121a09cc22fbbc891b9ba3ec7a26f6a2579780
+BASE: 360ad8b82ebbaadab2b4833ebe4f3f78d36e6b6a
+
+ZAKRES
+- Mechaniczna korekta danych przygotowawczych w 7 plikach testowych T011/T017:
+  testy niezwiązane z rolami używają OCHRONA zamiast niepełnego ORDINARY.
+- Aktualizacja 3 martwych literałów wersji schematu z 20 do 21.
+- Kod produkcyjny nie został zmieniony.
+
+TRACE / OWNERSHIP
+- tasks/ROTA-T065-CONFIGURABLE-ROLES/brief.md, sekcja 4: aktywne membership
+  ORDINARY ma dokładnie jedno stanowisko; OCHRONA pozostawia to pole nieużywane.
+- Ten sam brief, CR-10: zachowanie OCHRONA pozostaje bez zmian.
+- rota/persistence/db.py: LATEST_SCHEMA_VERSION = 21.
+- Nazwy i treść zmienionych testów potwierdzają, że nie testują one kontraktu
+  stanowisk ORDINARY. Zmiana fixture'u nie osłabia ich właściwych asercji.
+
+NIEZALEŻNY REPRODUKTOR
+- Wykonanie test_1_calendar_flips_month_readiness z fixture'em z base odtworzyło:
+  "aktywny pracownik obiektu standardowego musi mieć przypisane stanowisko".
+- Ten sam test z fixture'em z audytowanego SHA przeszedł.
+- Niezależny odczyt świeżej bazy potwierdził PRAGMA user_version ==
+  LATEST_SCHEMA_VERSION == 21.
+
+TESTY CELOWANE
+- 6 kompletnych plików T011 zmienionych przez poprawkę.
+- Zmieniony przypadek T017 oraz 3 zmienione przypadki migracyjne T019b/T020/T023b.
+- Wynik: 55 passed in 30.43s.
+- git diff --check ba121a0^ ba121a0: PASS.
+
+OGRANICZENIA
+- Nie uruchamiano pełnej regresji: zmiana dotyczy wyłącznie fixture'ów i trzech
+  literałów testowych, a pełna regresja nie była potrzebna ani autoryzowana.
+- Reproduktor wypisał po zakończeniu ostrzeżenie Windows o sprzątaniu otwartego
+  pliku tymczasowej bazy. Asercje reproduktora zakończyły się PASS; właściwy
+  przebieg pytest posprzątał zasoby i zakończył się bez tego ostrzeżenia.
+
+PASS dotyczy wyłącznie SHA ba121a09cc22fbbc891b9ba3ec7a26f6a2579780.
