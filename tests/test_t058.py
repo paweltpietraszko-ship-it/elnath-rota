@@ -239,12 +239,21 @@ def test_t58_11_genuinely_unavoidable_third_day_blocks_with_no_decision_required
     """One eligible employee, three mandatory D demands, no alternative --
     T58-04: the automatic solver must not return a HARD-violating candidate,
     must not offer a DECISION_REQUIRED override, and must give a truthful
-    non-decision status instead."""
+    non-decision status instead.
+
+    ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE (OWNER_RULING 2026-09-15):
+    this HARD is now OCHRONA-only, but base_state()'s own default site is
+    ORDINARY (see test_t58_12's own note) -- explicit OCHRONA override
+    keeps this test exercising T058's still-unchanged OCHRONA contract."""
+    from rota.domain import Site, SitePlanningRegime
+    from tests.support.minimal_state import PROFILE_ID, SITE_ID
+
     employee = Employee("A", "A", date(2020, 1, 1), None, False)
     demands = (_d_demand(1), _d_demand(2), _d_demand(3))
     work_balances = (WorkBalance("A", MONTH, 36, 0, 0, 0, 0, 0),)
     state = base_state(
         employees=(employee,), memberships=(_membership("A"),), shift_demands=demands, work_balances=work_balances,
+        site=Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA),
     )
     outcome = solve(state, enforce_load_cap=False)
     assert outcome.assignments is None
@@ -289,9 +298,20 @@ def test_t58_12_night_streak_conflict_still_reaches_decision_required_not_blocke
 
 
 def test_t58_13_manual_correction_creates_flagged_deviation_not_a_block():
+    """ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE (OWNER_RULING
+    2026-09-15): seed_real_object's own default Site is ORDINARY (see
+    benchmarks/real_object_production.py), under which this HARD no longer
+    materializes a Deviation at all -- switched to OCHRONA here so this
+    keeps exercising T058's still-unchanged OCHRONA manual-correction
+    contract; see test_tcso_05 for the ORDINARY no-Deviation case."""
+    from rota.domain import SitePlanningRegime
+    from rota.persistence.site_repository import correct_site_planning_regime_in_open_transaction
+
     conn = connect(":memory:")
     pstate = seed_real_object(conn, case_id="t058-manual", month=date(2026, 8, 1), seed=5058)
     site_id = pstate.site.site_id
+    with conn:
+        correct_site_planning_regime_in_open_transaction(conn, site_id=site_id, planning_regime=SitePlanningRegime.OCHRONA)
     from rota.application import plan_ops
     result = plan_ops.plan_month(
         conn, site_id=site_id, month=date(2026, 8, 1), coordinator_id="COORD-1", effective_from=date(2026, 8, 1),

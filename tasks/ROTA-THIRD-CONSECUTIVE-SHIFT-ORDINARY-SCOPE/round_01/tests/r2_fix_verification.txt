@@ -1,0 +1,29 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\p_pie\AppData\Local\Python\pythoncore-3.14-64\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Projects\Elnath Rota
+configfile: pyproject.toml
+plugins: anyio-4.13.0, hypothesis-6.167.1, socket-0.8.0
+collecting ... collected 17 items
+
+tests/test_t058.py::test_t58_01_ddd_is_infeasible PASSED                 [  5%]
+tests/test_t058.py::test_t58_02_ddn_is_infeasible PASSED                 [ 11%]
+tests/test_t058.py::test_t58_03_dnn_is_infeasible PASSED                 [ 17%]
+tests/test_t058.py::test_t58_04_two_of_three_days_legal PASSED           [ 23%]
+tests/test_t058.py::test_t58_05_h24_pair_counts_as_one_day_not_two PASSED [ 29%]
+tests/test_t058.py::test_t58_06_trainee_never_counts PASSED              [ 35%]
+tests/test_t058.py::test_t58_07_two_fixed_days_block_a_new_third PASSED  [ 41%]
+tests/test_t058.py::test_t58_08_fully_fixed_historical_violation_does_not_poison_the_model PASSED [ 47%]
+tests/test_t058.py::test_t58_09_extends_across_month_boundary PASSED     [ 52%]
+tests/test_t058.py::test_t58_10_real_plan_never_produces_a_third_consecutive_day_when_avoidable PASSED [ 58%]
+tests/test_t058.py::test_t58_11_genuinely_unavoidable_third_day_blocks_with_no_decision_required PASSED [ 64%]
+tests/test_t058.py::test_t58_12_night_streak_conflict_still_reaches_decision_required_not_blocked PASSED [ 70%]
+tests/test_t058.py::test_t58_13_manual_correction_creates_flagged_deviation_not_a_block PASSED [ 76%]
+tests/test_t058.py::test_t58_14_third_consecutive_shift_rule_maps_to_an_existing_category PASSED [ 82%]
+tests/test_t058.py::test_t58_15_manual_third_consecutive_shift_survives_later_przelicz_plan PASSED [ 88%]
+tests/test_third_consecutive_shift_regime_scope.py::test_tcso_03_ordinary_three_consecutive_days_feasible PASSED [ 94%]
+tests/test_third_consecutive_shift_regime_scope.py::test_tcso_05_ordinary_manual_correction_never_materializes_the_deviation PASSED [100%]
+
+============================= 17 passed in 8.64s ==============================
+All checks passed!

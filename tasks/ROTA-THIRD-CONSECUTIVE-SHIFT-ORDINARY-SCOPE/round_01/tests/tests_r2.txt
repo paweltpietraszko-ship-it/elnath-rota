@@ -1,0 +1,31 @@
+ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE — AUDIT R2
+
+AUDITED SHA: 5c091e9a6b2cdaab610af64cd3f750665cb92cb6
+VERDICT: FAIL — jedna wąska poprawka testu, bez zmiany kodu produktu
+
+R2-01 — TCSO-05 nie jest wiarygodnym testem kontraktowym
+
+TRACE
+- brief §6 TCSO-05 i §7 wymagają testu, że ręczna korekta ORDINARY nie materializuje Deviation THIRD-CONSECUTIVE-SHIFT-01;
+- AGENTS.md / LEGACY_BENCHMARKS_FROZEN zabrania używania zamrożonych benchmarków jako dowodu audytowego.
+
+OWNERSHIP
+- tests/test_third_consecutive_shift_regime_scope.py::test_tcso_05_ordinary_manual_correction_never_materializes_the_deviation.
+
+REPRO NA EXACT SHA
+- test importuje tests.support.t009_fixtures.seed_real_object (linia 27), a ten moduł importuje benchmarks.real_object_production i benchmarks.real_object_scenarios (linie 8–9);
+- gdy fixture nie znajdzie układu dwóch kolejnych dni z wolnym trzecim demandem, test wykonuje zwykłe `return` (linie 92–93), więc może przejść bez wywołania apply_manual_correction i bez sprawdzenia Deviation.
+
+WARUNEK ZAMKNIĘCIA
+- zastąpić TCSO-05 małym deterministycznym fixture opartym na zwykłym produkcyjnym zapisie, bez importu z benchmarks/;
+- brak pasującego układu ma być błędem testu, nigdy zielonym `return`;
+- zachować dokładnie obecne oczekiwanie: ORDINARY nie tworzy tego Deviation. Nie zmieniać solver.py ani validator_checks_patterns.py.
+
+DOWODY POZYTYWNE
+- diff produktu jest ograniczony do dwóch autoryzowanych enforcement points;
+- niezależny audit_r2_repro.py potwierdził na identycznym układzie: ORDINARY jest FEASIBLE i validator nie zgłasza reguły, OCHRONA jest blokowana i validator ją zgłasza — 1 passed;
+- dwa celowane testy niewykorzystujące benchmarków: ORDINARY solver/validator oraz OCHRONA solver — passed;
+- początkowy selektor zebrał cztery testy i dwa z nich pośrednio zaimportowały benchmarks/ przez seed_real_object, zanim zależność została wykryta. Ich zielony wynik wyłączono z dowodu i nie uruchamiano ich ponownie.
+
+NIE URUCHAMIANO
+- pełnej macierzy Tasku, pełnej regresji ani symulatorów; zamrożonych narzędzi benchmarkowych nie uruchamiano bezpośrednio.

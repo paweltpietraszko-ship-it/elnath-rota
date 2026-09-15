@@ -1190,7 +1190,12 @@ def solve(
     # relaxation path -- see constraints.py's own docstring); the assumption
     # technique here is used only so an INFEASIBLE can be diagnosed with a
     # readable message, exactly like NIGHT-STREAK-01 above.
-    third_shift_assumptions = add_max_two_consecutive_primary_shift_constraint(model, day_kind_terms, state.month)
+    # ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE (OWNER_RULING 2026-09-15):
+    # OCHRONA-only -- for ORDINARY the only HARD limits on work rhythm are
+    # the labor-code rules (REST-01/WEEKLY-REST-01), unaffected by this gate.
+    third_shift_assumptions = (
+        add_max_two_consecutive_primary_shift_constraint(model, day_kind_terms, state.month) if ochrona else {}
+    )
     model.add_assumptions(
         list(assumptions.values())
         + [var for var, _ in night_streak_assumptions.values()]

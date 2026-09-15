@@ -1,0 +1,58 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\p_pie\AppData\Local\Python\pythoncore-3.14-64\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Projects\Elnath Rota
+configfile: pyproject.toml
+plugins: anyio-4.13.0, hypothesis-6.167.1, socket-0.8.0
+collecting ... collected 46 items
+
+tests/test_t058.py::test_t58_01_ddd_is_infeasible PASSED                 [  2%]
+tests/test_t058.py::test_t58_02_ddn_is_infeasible PASSED                 [  4%]
+tests/test_t058.py::test_t58_03_dnn_is_infeasible PASSED                 [  6%]
+tests/test_t058.py::test_t58_04_two_of_three_days_legal PASSED           [  8%]
+tests/test_t058.py::test_t58_05_h24_pair_counts_as_one_day_not_two PASSED [ 10%]
+tests/test_t058.py::test_t58_06_trainee_never_counts PASSED              [ 13%]
+tests/test_t058.py::test_t58_07_two_fixed_days_block_a_new_third PASSED  [ 15%]
+tests/test_t058.py::test_t58_08_fully_fixed_historical_violation_does_not_poison_the_model PASSED [ 17%]
+tests/test_t058.py::test_t58_09_extends_across_month_boundary PASSED     [ 19%]
+tests/test_t058.py::test_t58_10_real_plan_never_produces_a_third_consecutive_day_when_avoidable PASSED [ 21%]
+tests/test_t058.py::test_t58_11_genuinely_unavoidable_third_day_blocks_with_no_decision_required PASSED [ 23%]
+tests/test_t058.py::test_t58_12_night_streak_conflict_still_reaches_decision_required_not_blocked PASSED [ 26%]
+tests/test_t058.py::test_t58_13_manual_correction_creates_flagged_deviation_not_a_block PASSED [ 28%]
+tests/test_t058.py::test_t58_14_third_consecutive_shift_rule_maps_to_an_existing_category PASSED [ 30%]
+tests/test_t058.py::test_t58_15_manual_third_consecutive_shift_survives_later_przelicz_plan PASSED [ 32%]
+tests/test_third_consecutive_shift_regime_scope.py::test_tcso_03_ordinary_three_consecutive_days_feasible PASSED [ 34%]
+tests/test_third_consecutive_shift_regime_scope.py::test_tcso_05_ordinary_manual_correction_never_materializes_the_deviation PASSED [ 36%]
+tests/test_t034_third_consecutive_shift_soft.py::test_t034_soft_mechanism_is_fully_retired PASSED [ 39%]
+tests/test_t062.py::test_night_streak_option_carries_obsada_target PASSED [ 41%]
+tests/test_t062.py::test_third_shift_payload_names_employees_with_obsada_target PASSED [ 43%]
+tests/test_t062.py::test_third_shift_payload_falls_back_when_no_employee_named PASSED [ 45%]
+tests/test_t062.py::test_drop_options_requiring_existing_schedule_strips_manual_correction_only PASSED [ 47%]
+tests/test_t062.py::test_drop_options_requiring_existing_schedule_falls_back_when_all_stripped PASSED [ 50%]
+tests/test_t062.py::test_old_string_snapshot_reads_back_as_target_less_option PASSED [ 52%]
+tests/test_t062.py::test_no_current_leave_granted_conflict_never_suggests_manual_correction PASSED [ 54%]
+tests/test_t062.py::test_third_shift_readback_replaces_stale_decision_required PASSED [ 56%]
+tests/test_t065_ordinary_roles.py::test_role_gate_blocks_without_role_and_allows_with_role_local PASSED [ 58%]
+tests/test_t065_ordinary_roles.py::test_role_gate_applies_identically_to_external_support PASSED [ 60%]
+tests/test_t065_ordinary_roles.py::test_role_gate_is_no_op_for_legacy_ochrona_demand PASSED [ 63%]
+tests/test_t065_ordinary_roles.py::test_role_gate_covered_by_active_time_bounded_authorization PASSED [ 65%]
+tests/test_t065_ordinary_roles.py::test_two_roles_overlapping_demands_one_plan_pipeline PASSED [ 67%]
+tests/test_t065_ordinary_roles.py::test_free_manager_does_not_silently_cover_staff_demand PASSED [ 69%]
+tests/test_t065_ordinary_roles.py::test_explicit_authorization_enables_coverage_on_next_plan PASSED [ 71%]
+tests/test_t065_ordinary_roles.py::test_validator_role_mirror_flags_manual_violation PASSED [ 73%]
+tests/test_t065_ordinary_roles.py::test_validator_role_mirror_passes_with_correct_role PASSED [ 76%]
+tests/test_t065_ordinary_roles.py::test_generate_catalog_demands_propagates_required_role_and_reuses_generator PASSED [ 78%]
+tests/test_t065_ordinary_roles.py::test_24h_occurrence_keeps_same_required_role_on_both_components PASSED [ 80%]
+tests/test_t065_ordinary_roles.py::test_midnight_crossing_ordinary_demand_never_triggers_night_streak PASSED [ 82%]
+tests/test_t065_ordinary_roles.py::test_ochrona_dn_gate_unaffected_by_role_field_being_none PASSED [ 84%]
+tests/test_t065_ordinary_roles.py::test_position_role_id_round_trips_through_site_membership_persistence PASSED [ 86%]
+tests/test_t065_ordinary_roles.py::test_required_role_round_trips_through_site_profile_persistence PASSED [ 89%]
+tests/test_t065_ordinary_roles.py::test_required_role_round_trips_through_schedule_version_persistence PASSED [ 91%]
+tests/test_t065_ordinary_roles.py::test_legacy_membership_and_shift_default_to_no_role PASSED [ 93%]
+tests/test_t065_ordinary_roles.py::test_role_gate_cannot_be_bypassed_by_untagged_assignment PASSED [ 95%]
+tests/test_t065_ordinary_roles.py::test_role_based_demand_never_triggers_day_only_or_night_streak PASSED [ 97%]
+tests/test_t065_ordinary_roles.py::test_solver_day_kind_terms_exclude_role_based_demands_from_night_count PASSED [100%]
+
+======================== 46 passed in 70.28s (0:01:10) ========================
+All checks passed!
