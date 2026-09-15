@@ -1,0 +1,23 @@
+ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID — PREIMPLEMENTATION R2
+
+WYNIK: PASS PREIMPLEMENTATION
+BRIEF SHA: 64ce44ed4b09fbbdcc28847f64624783fee9e7e1
+BASE: c4fad96788bf13f14b1a63e0dc9e6071d17e4355
+
+LITERALNY RE-CHECK R1
+- Zachowanie i TASK_SCOPE pozostają bez zmian.
+- Dodano WHERE_MAP: REQUIRED dla _plan_preview_out, _planning_result_out,
+  get_month i ScheduleGrid.
+- Mapa obejmuje dokładnie zmieniane szwy projekcji odpowiedzi i siatki, bez
+  rozszerzania zakresu na persistence, lifecycle, solver, validator lub eksport.
+
+REDUKCJA PREIMPLEMENTATION
+- Jeden helper projekcji w istniejącym routerze, istniejące batch odczytu
+  DELEGACJI i nazw, obecne DTO oraz ScheduleGrid pozostają minimalnym zakresem.
+- Nie powstaje sztuczny Assignment, demand, kopia DEL ani nowy lifecycle.
+
+Brief jest jednoznaczny, testowalny i może zostać zaimplementowany bez nowej
+decyzji produktowej.
+
+Nie analizowano diffu produktu, nie uruchamiano where.py ani testów — zgodnie z
+literalnym BRIEF_ONLY_PRECHECK.
