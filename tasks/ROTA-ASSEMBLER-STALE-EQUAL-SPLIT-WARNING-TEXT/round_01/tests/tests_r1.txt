@@ -1,0 +1,17 @@
+ROTA-ASSEMBLER-STALE-EQUAL-SPLIT-WARNING-TEXT — AUDYT R1
+
+WYNIK: PASS
+AUDITED SHA: b5163fc
+BASE: 4c94de0
+
+ZAKRES I DOWÓD
+- Diff zmienia wyłącznie nieprawdziwą końcówkę ostrzeżenia, komentarz oraz
+  bezpośrednią asercję testową.
+- Ostrzeżenie nadal podaje pracownika i miesiąc, a teraz kieruje do ustawienia
+  godzin docelowych zamiast twierdzić, że użyto usuniętego fallbacku.
+- tests/test_t009_open_and_assembler.py::
+  test_5_missing_target_hours_not_invented_and_demand_count_unchanged: PASS
+  (1 passed in 0.84s).
+- git diff --check 4c94de0..b5163fc: PASS.
+
+Nie uruchamiano innych testów ani regresji. PASS dotyczy SHA b5163fc.
