@@ -154,14 +154,25 @@ def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple
         # gap that is moot once they are already excluded.
         if get_work_balance_target(conn, employee_id, month) is None:
             # ROTA-T041 OWNER-T041-01/C-05: must be a Polish, coordinator-facing
-            # message (person + month + that the equal-split fallback is used),
-            # not the old internal-only diagnostic string -- this is the same
-            # `warnings` list plan_ops now threads through to the PLAN response
-            # and open_month already threads to GET /schedule/{month}.
+            # message (person + month), not the old internal-only diagnostic
+            # string -- this is the same `warnings` list plan_ops threads
+            # through to the PLAN response and open_month threads to GET
+            # /schedule/{month}.
+            #
+            # ROTA-ASSEMBLER-STALE-EQUAL-SPLIT-WARNING-TEXT (OWNER_ACCEPTED
+            # 2026-09-15): the old second clause ("użyto awaryjnego, równego
+            # podziału godzin") described the equal-split fallback, removed
+            # from the solver by ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE --
+            # PLAN/REPLAN/precheck now refuse to run at all while any target
+            # is missing (rota.application.plan_ops.
+            # require_complete_target_hours), so that clause was no longer
+            # true. Replaced with a plain instruction; the warning itself
+            # stays (this function's own read, e.g. GET /schedule/{month},
+            # can still reach a genuinely incomplete roster).
             warnings.append(
                 f"Brak wpisanego miesięcznego limitu godzin dla "
                 f"pracownika {employee_id!r} w miesiącu {month.isoformat()} — "
-                "użyto awaryjnego, równego podziału godzin."
+                "ustaw godziny docelowe (Karta pracownika)."
             )
             continue
         carry_in, carry_warnings = _carry_in_before(conn, employee_id=employee_id, month=month)
