@@ -1,0 +1,22 @@
+ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE — DODATKOWY AUDYT CC R5
+
+WYNIK: PASS
+AUDITED SHA: 3ca0e25
+POPRZEDNI PASS: 35b5bf3
+
+ZAKRES
+- Wyłącznie dwa findingi CC ujawnione przez brakujący test E2E.
+- Diff od 35b5bf3: dwa zachowania UI, selektory diagnostyczne i nowy plik E2E.
+
+WERYFIKACJA
+- Zapis celu jednej osoby pokazuje propozycję „ustawić wszystkim?” i nie
+  demontuje jej wcześniejszym load(). Odświeżenie następuje dopiero po wyborze
+  Tak albo Nie.
+- Blocker TARGET_HOURS_REQUIRED używa odrębnego tekstu „Brakuje godzin
+  docelowych…”, zgodnego z kontraktem kontrolowanego braku danych, a nie
+  DECISION_REQUIRED.
+- frontend/e2e/target-hours-required.spec.ts: 2 passed w Chromium.
+- node node_modules/typescript/bin/tsc -b: PASS.
+- git diff --check 35b5bf3..3ca0e25: PASS.
+
+Nie uruchamiano pełnej regresji ani innych testów. PASS dotyczy SHA 3ca0e25.
