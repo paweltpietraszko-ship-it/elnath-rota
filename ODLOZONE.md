@@ -134,3 +134,40 @@ naprawił tylko klasy mechaniczne/pewne tego dnia, resztę zostawił do
 realnej analizy przy innej okazji, nie w pośpiechu.
 
 ---
+
+## 2026-09-15 Refaktor L1-DB i podział EmployeeDetail.tsx
+
+Dwie osobne sprawy, obie odłożone tą samą decyzją właściciela: refaktor
+dopiero po ustabilizowaniu programu, nie w trakcie aktywnego rozwoju
+funkcji.
+
+- **`ROTA-FILES-REFACTOR-L1-DB`** — mechaniczny podział monolitu
+  persystencji na moduły `<600` linii, Codex już dał PASS R1 na
+  `task/ROTA-FILES-REFACTOR-L1-DB` (audit `30efc02` of impl `135ef0e`),
+  ale nie zmergowany.
+- **`ROTA-EMPLOYEE-DETAIL-SIZE-LIMIT`** — `frontend/src/screens/
+  EmployeeDetail.tsx` przekracza limit 600 linii (766 na `main`,
+  było 1055 przed wydzieleniem `EmployeeAvailability.tsx`), narastało
+  Task po Tasku bez podziału.
+
+Odłożone: Paweł "zostawiamy na koniec zgodnie z umową, że refaktor po
+ustabilizowaniu programu" (2026-09-15). Podjąć obie sprawy razem, gdy
+program przestanie dostawać żywe bugfixy/nowe funkcje w tym tempie —
+branch L1-DB istnieje i ma PASS, gotowy do mergu w tamtym momencie.
+
+---
+
+## 2026-09-15 ROTA-BACKEND-TASK-SCOPE-FORMAT-DRIFT — przeniesione do programu Agent
+
+Codex dał PASS PREIMPLEMENTATION R3 na korektę driftu formatu
+TASK_SCOPE w `backend.py` (brief `df2e859`, `task/ROTA-BACKEND-TASK-
+SCOPE-FORMAT-DRIFT`) — mechanizm pipeline'u (guard.py/backend.py/
+task_init.py), nie produkt Rota sam w sobie.
+
+Odłożone: Paweł "trochę za późno dla Rota, zostawiamy do nowego
+programu Agent" (2026-09-15) — Rota jest już w fazie stabilizacji,
+zmiana narzędzia pipeline'u nie jest tu priorytetem. Brief/PASS zostaje
+udokumentowany tutaj jako gotowy punkt startowy, gdyby program Agent
+odziedziczył ten sam pipeline i tę samą usterkę.
+
+---
