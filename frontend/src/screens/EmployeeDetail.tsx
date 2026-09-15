@@ -735,6 +735,12 @@ function TargetHoursEditor({
   const [input, setInput] = useState(value !== null ? String(value) : "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2 ("Ustawienie
+  // wszystkim"): after a successful single save, offer to propagate the
+  // same value to every active LOCAL employee of this Site/month.
+  const [applyAllPromptHours, setApplyAllPromptHours] = useState<number | null>(null);
+  const [applyAllBusy, setApplyAllBusy] = useState(false);
+  const [applyAllError, setApplyAllError] = useState<string | null>(null);
 
   useEffect(() => setInput(value !== null ? String(value) : ""), [value]);
 
@@ -742,12 +748,29 @@ function TargetHoursEditor({
     setSubmitting(true);
     setError(null);
     try {
-      await api.setTargetHours(employeeId, { site_id: siteId, month, target_hours: Number(input) });
+      const savedHours = Number(input);
+      await api.setTargetHours(employeeId, { site_id: siteId, month, target_hours: savedHours });
+      setApplyAllPromptHours(savedHours);
       onSaved();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const applyToAll = async () => {
+    if (applyAllPromptHours === null) return;
+    setApplyAllBusy(true);
+    setApplyAllError(null);
+    try {
+      await api.applyTargetHoursToAll(siteId, month, applyAllPromptHours);
+      setApplyAllPromptHours(null);
+      onSaved();
+    } catch (e: unknown) {
+      setApplyAllError(String((e as Error).message ?? e));
+    } finally {
+      setApplyAllBusy(false);
     }
   };
 
@@ -766,6 +789,18 @@ function TargetHoursEditor({
         Zapisz
       </button>
       {value === null && <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>brak ustawionej wartości</span>}
+      {applyAllPromptHours !== null && (
+        <div className="banner" style={{ marginTop: 8 }}>
+          {applyAllError && <div className="banner-error">{applyAllError}</div>}
+          <p>Ustawić {applyAllPromptHours} h wszystkim pracownikom tego obiektu na {month.slice(0, 7)}?</p>
+          <button className="btn-primary" onClick={applyToAll} disabled={applyAllBusy}>
+            Tak
+          </button>
+          <button className="btn-ghost" onClick={() => setApplyAllPromptHours(null)} disabled={applyAllBusy}>
+            Nie
+          </button>
+        </div>
+      )}
     </div>
   );
 }
