@@ -1,4 +1,8 @@
-# BOARD.md — kolejka przekazań CC ↔ Codex
+# BOARD.md — kolejka przekazań Architekt ↔ Codex ↔ CC
+
+Każda nowa instancja Architekta przed podjęciem Tasku musi przeczytać w całości
+`ARCHITECT_START_HERE.md`. Każda nowa instancja Codexa postępuje zgodnie z
+`AGENTS.md` i `CODEX_START_HERE.md`.
 
 Nie czytane automatycznie jak AGENTS.md — trzeba wprost polecić "na początku
 czytaj BOARD.md" (patrz AGENTS.md). To jest wyłącznie dziennik przekazania:
