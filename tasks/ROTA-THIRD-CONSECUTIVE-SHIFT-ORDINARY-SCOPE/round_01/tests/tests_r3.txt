@@ -1,0 +1,13 @@
+ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE — RE-CHECK R3
+
+AUDITED SHA: ecd2c5578a8d80fde83347cca8efb48e7cf99318
+VERDICT: PASS
+
+Sprawdzono wyłącznie warunek zamknięcia R2:
+- diff 7b2f313..ecd2c55 zmienia test TCSO-05 i jego raport; kod produktu pozostaje bez zmian;
+- TCSO-05 używa deterministycznego zwykłego fixture persistence, bez importu benchmarks/;
+- ręczna korekta zawsze jest wykonywana i jawnie sprawdzana; usunięto pusty `return`;
+- poprawiony TCSO-05 oraz zachowany audit_r2_repro.py: 2 passed.
+
+Nie powtarzano audytu implementacji, pełnej macierzy, regresji, pionów,
+symulatorów ani benchmarków. PASS dotyczy dokładnie ecd2c55.
