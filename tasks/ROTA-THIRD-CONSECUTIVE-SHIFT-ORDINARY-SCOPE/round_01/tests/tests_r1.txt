@@ -1,0 +1,29 @@
+ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE — PREIMPLEMENTATION AUDIT R1
+
+AUDITED SHA: 358a5de1522847e1cd22648aee4da23de2c846f0
+VERDICT: PASS (PREIMPLEMENTATION)
+IMPLEMENTATION: może rozpocząć się po zastosowaniu poniższej redukcji
+
+PRODUCT_TRUTH
+- Jawna decyzja architektoniczna i brief zamrażają THIRD-CONSECUTIVE-SHIFT-01 jako HARD wyłącznie dla OCHRONA.
+- ORDINARY zachowuje własne, niezależne reguły HARD. Zdanie o WEEKLY-REST oznacza „bez zmian”; nie rozszerza tej reguły na ORDINARY, jeśli jej aktualny kontrakt jest OCHRONA-only.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+1. Solver: w rota/planning/solver.py warunkowo wywołać istniejący add_max_two_consecutive_primary_shift_constraint tylko dla state.site.planning_regime == OCHRONA. Dla ORDINARY nie tworzyć tej rodziny ograniczeń ani założeń.
+2. Walidator: w rota/planning/validator_checks_patterns.py istniejący check THIRD-CONSECUTIVE-SHIFT-01 ma natychmiast kończyć się dla reżimu innego niż OCHRONA.
+3. Nie zmieniać sygnatury i logiki rota/planning/constraints.py; nie dodawać nowej reguły, encji, endpointu ani drugiego właściciela reżimu.
+4. Nie zmieniać validator.py, state.py, engine_types.py, API, UI ani persistence, jeżeli implementacja nie wykaże rzeczywistej konieczności. PlanningState już udostępnia Site i planning_regime.
+5. Testy mają sprawdzić tę samą sekwencję zmian w OCHRONA i ORDINARY oraz potwierdzić, że pozostałe niezależne HARD nadal działają. Nie powielać ich pełnych macierzy.
+
+TRACE / OWNERSHIP
+- rota/planning/solver.py: istniejące wpięcie ograniczenia solvera.
+- rota/planning/validator_checks_patterns.py: istniejące wpięcie odpowiadającego komunikatu walidatora.
+- rota/planning/constraints.py: istniejący mechanizm pozostaje właścicielem ograniczenia OCHRONA.
+
+AUDIT LAYERS
+- Pełny brief i wskazane źródła przeczytane na dokładnym SHA.
+- Wykonano ręczne mapowanie właścicieli i ścieżek wywołań. Uruchomienie where.py zostało zablokowane przez środowisko narzędziowe; brak ten nie zmienia wyniku, ponieważ odpowiednie symbole i wywołania zostały sprawdzone bezpośrednio.
+- Nie uruchamiano testów produktu ani regresji: jest to audyt briefu przed implementacją.
+
+QUALITY CHECK
+Brief jest spójny, testowalny i nie nosi oznak urwania wskutek limitu rozmowy. Po redukcji nie zawiera zbędnej architektury ani przenikania zasad OCHRONA do ORDINARY.
