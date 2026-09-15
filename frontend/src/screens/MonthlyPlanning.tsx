@@ -597,6 +597,14 @@ export default function MonthlyPlanning({
   // navigation/reload still reflects reality.
   const loadUnlessFreshPreviewUnpersisted = (result: PlanningResultOut) => {
     if (result.status === "FEASIBLE" && result.warnings.some((w) => w.startsWith("PLAN_PREVIEW_NOT_PERSISTED"))) return;
+    // ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE (Codex audit R3-01): a
+    // TARGET_HOURS_REQUIRED response never touches the version/preview --
+    // reloading here would refetch whatever OLD plan_preview already
+    // existed, and the effect above unconditionally resurrects it as a
+    // fresh FEASIBLE result, silently replacing the blocker the
+    // coordinator needs to see. Same "nothing new to reload" reasoning as
+    // the FEASIBLE-not-persisted case above.
+    if (result.status === "TARGET_HOURS_REQUIRED") return;
     load();
   };
 
