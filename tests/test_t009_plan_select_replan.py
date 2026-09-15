@@ -24,7 +24,7 @@ def _plan_and_select(conn, site_id: str, month: date = MONTH):
 
 def test_3_first_plan_creates_full_profile_version_and_uses_remembered_rules(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="plan-1", month=MONTH, seed=200)
+    pstate = seed_real_object(conn, case_id="plan-1", month=MONTH, seed=200, target_hours=200)
     site_id = pstate.site.site_id
 
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
@@ -43,7 +43,7 @@ def test_3_first_plan_creates_full_profile_version_and_uses_remembered_rules(tmp
 
 def test_7_feasible_candidate_not_persisted_until_selected_and_invalid_rejected(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="plan-2", month=MONTH, seed=201)
+    pstate = seed_real_object(conn, case_id="plan-2", month=MONTH, seed=201, target_hours=200)
     site_id = pstate.site.site_id
 
     result = plan_ops.plan_month(conn, site_id=site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH)
@@ -64,7 +64,7 @@ def test_7_feasible_candidate_not_persisted_until_selected_and_invalid_rejected(
 
 def test_8_decision_required_then_external_window_then_replan_uses_window(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="plan-3", month=date(2027, 5, 1), seed=202)
+    pstate = seed_real_object(conn, case_id="plan-3", month=date(2027, 5, 1), seed=202, target_hours=200)
     site_id = pstate.site.site_id
     month = date(2027, 5, 1)
 
@@ -104,7 +104,7 @@ def test_9_przelicz_plan_creates_child_and_preserves_parent_history_and_frozen(t
     creates a new child + keeps the parent in history, never overwrites in
     place."""
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="plan-4", month=MONTH, seed=203)
+    pstate = seed_real_object(conn, case_id="plan-4", month=MONTH, seed=203, target_hours=200)
     site_id = pstate.site.site_id
 
     _, v1 = _plan_and_select(conn, site_id)

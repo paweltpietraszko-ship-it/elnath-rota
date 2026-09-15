@@ -41,7 +41,7 @@ def _plan_select(conn, site_id):
 
 
 def _seed_two_sites(conn):
-    first = seed_real_object(conn, case_id="audit-site-1", month=MONTH, seed=701)
+    first = seed_real_object(conn, case_id="audit-site-1", month=MONTH, seed=701, target_hours=200)
     site_1 = first.site.site_id
     other_profile = replace(first.profile, profile_id="other-profile")
     save_site_profile(conn, other_profile)
@@ -103,7 +103,7 @@ def test_r4_context_scope_rejects_payload_from_other_site(tmp_path, kind):
 @pytest.mark.parametrize("operation", ["select", "revalidate"])
 def test_r4_every_coordinator_write_requires_active_context(tmp_path, operation):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-write-{operation}", month=MONTH, seed=710)
+    state = seed_real_object(conn, case_id=f"audit-write-{operation}", month=MONTH, seed=710, target_hours=200)
     result = plan_ops.plan_month(
         conn, site_id=state.site.site_id, month=MONTH, coordinator_id="COORD-1", effective_from=MONTH,
     )
@@ -121,7 +121,7 @@ def test_r4_every_coordinator_write_requires_active_context(tmp_path, operation)
 # parent cannot simultaneously enter REST/LOAD context as if it were other work.
 def test_r4_prepared_manual_child_does_not_duplicate_current_parent(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-manual", month=MONTH, seed=702)
+    state = seed_real_object(conn, case_id="audit-manual", month=MONTH, seed=702, target_hours=200)
     v1 = _plan_select(conn, state.site.site_id)
     snapshot = get_schedule_snapshot(conn, v1.version_id)
     target = replace(snapshot.assignments[0], frozen=True)
@@ -134,7 +134,7 @@ def test_r4_prepared_manual_child_does_not_duplicate_current_parent(tmp_path):
 
 def test_r4_assembler_honors_explicit_noncurrent_version(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-version", month=MONTH, seed=711)
+    state = seed_real_object(conn, case_id="audit-version", month=MONTH, seed=711, target_hours=200)
     v1 = _plan_select(conn, state.site.site_id)
     first = get_schedule_snapshot(conn, v1.version_id).assignments[0]
     cancelled = replace(first, state=AssignmentState.CANCELLED)
@@ -155,7 +155,7 @@ def test_r4_assembler_honors_explicit_noncurrent_version(tmp_path):
 # demand that is already fully covered.
 def test_r4_precheck_respects_existing_full_coverage(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-precheck", month=MONTH, seed=703)
+    state = seed_real_object(conn, case_id="audit-precheck", month=MONTH, seed=703, target_hours=200)
     _plan_select(conn, state.site.site_id)
     assembled, _ = assemble_planning_state(conn, site_id=state.site.site_id, month=MONTH)
     target = replace(assembled.existing_assignments[0], state=AssignmentState.REALIZED)
@@ -186,7 +186,7 @@ def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, ope
     test either way: a mid-operation failure leaves the prior aggregate
     untouched."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-first-plan", month=MONTH, seed=712)
+    state = seed_real_object(conn, case_id="audit-first-plan", month=MONTH, seed=712, target_hours=200)
     if operation == "przelicz-plan":
         _plan_select(conn, state.site.site_id)
     before_current = get_current_version_id(conn, state.site.site_id, MONTH)
@@ -211,7 +211,7 @@ def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, ope
 # persist the preceding revalidation or otherwise change the aggregate.
 def test_r4_finalize_rejection_leaves_working_snapshot_unchanged(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-finalize", month=MONTH, seed=704)
+    state = seed_real_object(conn, case_id="audit-finalize", month=MONTH, seed=704, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     first = get_schedule_snapshot(conn, version.version_id).assignments[0]
     durable_inputs.append_availability(
@@ -231,7 +231,7 @@ def test_r4_finalize_rejection_leaves_working_snapshot_unchanged(tmp_path):
 
 def test_r4_finalize_storage_failure_rolls_back_acknowledgement(tmp_path, monkeypatch):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-finalize-2", month=MONTH, seed=7042)
+    state = seed_real_object(conn, case_id="audit-finalize-2", month=MONTH, seed=7042, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     first = get_schedule_snapshot(conn, version.version_id).assignments[0]
     durable_inputs.append_availability(
@@ -260,7 +260,7 @@ def test_r4_finalize_storage_failure_rolls_back_acknowledgement(tmp_path, monkey
 # update must commit or roll back together.
 def test_r4_training_readiness_failure_rolls_back_schedule_child(tmp_path, monkeypatch):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-training", month=MONTH, seed=705)
+    state = seed_real_object(conn, case_id="audit-training", month=MONTH, seed=705, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     save_site_profile(conn, replace(state.profile, training_s_default_readiness_threshold=1))
     snapshot = get_schedule_snapshot(conn, version.version_id)
@@ -301,7 +301,7 @@ def test_r4_training_readiness_failure_rolls_back_schedule_child(tmp_path, monke
 )
 def test_r4_mark_training_realized_rejects_nonqualifying_assignment(tmp_path, role, state_value):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-training-shape", month=MONTH, seed=713)
+    state = seed_real_object(conn, case_id="audit-training-shape", month=MONTH, seed=713, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     mentor = get_schedule_snapshot(conn, version.version_id).assignments[0]
     trainee_id = next(e.employee_id for e in state.employees if e.employee_id != mentor.employee_id)
@@ -332,7 +332,7 @@ def test_r4_mark_training_realized_rejects_nonqualifying_assignment(tmp_path, ro
 @pytest.mark.parametrize("restriction", ["disabled", "weekday-only"])
 def test_r4_mark_training_realized_enforces_profile_qualification(tmp_path, restriction):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-training-{restriction}", month=MONTH, seed=716)
+    state = seed_real_object(conn, case_id=f"audit-training-{restriction}", month=MONTH, seed=716, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     snapshot = get_schedule_snapshot(conn, version.version_id)
     if restriction == "disabled":
@@ -385,7 +385,7 @@ def test_r4_new_versions_require_a_real_date_effective_from(tmp_path, operation,
     plan_month/replan are untouched by that Task and keep this exact
     contract."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-date-{operation}", month=MONTH, seed=714)
+    state = seed_real_object(conn, case_id=f"audit-date-{operation}", month=MONTH, seed=714, target_hours=200)
     version = None if operation == "first-plan" else _plan_select(conn, state.site.site_id)
     before_count = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
     with pytest.raises((TypeError, ValueError)):
@@ -407,7 +407,7 @@ def test_r4_new_versions_require_a_real_date_effective_from(tmp_path, operation,
 
 def test_r4_open_month_returns_current_availability(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-open", month=MONTH, seed=715)
+    state = seed_real_object(conn, case_id="audit-open", month=MONTH, seed=715, target_hours=200)
     employee_id = state.employees[0].employee_id
     durable_inputs.append_availability(
         conn, coordinator_id="COORD-1", site_id=state.site.site_id,
@@ -446,7 +446,7 @@ def test_r4_profile_demand_generation_keeps_distinct_occurrence_per_configured_s
 
 def test_r4_assembler_excludes_inactive_availability_from_planning_state(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-inactive-availability", month=MONTH, seed=717)
+    state = seed_real_object(conn, case_id="audit-inactive-availability", month=MONTH, seed=717, target_hours=200)
     employee_id = state.employees[0].employee_id
     durable_inputs.append_availability(
         conn, coordinator_id="COORD-1", site_id=state.site.site_id,
@@ -460,7 +460,7 @@ def test_r4_assembler_excludes_inactive_availability_from_planning_state(tmp_pat
 
 def test_r4_holiday_history_does_not_double_count_current_realized_assignment(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-holiday-history", month=MONTH, seed=718)
+    state = seed_real_object(conn, case_id="audit-holiday-history", month=MONTH, seed=718, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     target = get_schedule_snapshot(conn, version.version_id).assignments[0]
     save_calendar_day(conn, CalendarDay(target.start_datetime.date(), True))
@@ -483,7 +483,7 @@ def test_r4_holiday_history_does_not_double_count_current_realized_assignment(tm
 # explicit covers_demand_id must still resolve in the version.
 def test_r4_cross_demand_assignment_still_requires_real_demand_reference(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-coverage", month=MONTH, seed=706)
+    state = seed_real_object(conn, case_id="audit-coverage", month=MONTH, seed=706, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     snapshot = get_schedule_snapshot(conn, version.version_id)
     first = snapshot.assignments[0]
@@ -507,7 +507,7 @@ def test_r4_select_candidate_does_not_trust_caller_fabricated_realized(tmp_path,
     one; updated from asserting an empty snapshot to asserting no version
     exists."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-realized-{bypass}", month=MONTH, seed=720)
+    state = seed_real_object(conn, case_id=f"audit-realized-{bypass}", month=MONTH, seed=720, target_hours=200)
     result = plan_ops.plan_month(
         conn, site_id=state.site.site_id, month=MONTH,
         coordinator_id="COORD-1", effective_from=MONTH,

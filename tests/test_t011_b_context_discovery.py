@@ -19,7 +19,7 @@ from rota.application.bootstrap import (
     all_sites_for_coordinator,
     bootstrap_or_resume_coordinator_context,
 )
-from rota.application.durable_inputs import set_calendar_day, update_employee, update_membership
+from rota.application.durable_inputs import set_calendar_day, set_target_hours, update_employee, update_membership
 from rota.application.manual_edit import apply_manual_correction
 from rota.application.open_month import months_with_schedule
 from rota.application.plan_ops import plan_month, select_candidate
@@ -100,7 +100,18 @@ def _fill_calendar(conn, *, coordinator_id: str, site_id: str, month: date) -> N
         set_calendar_day(conn, coordinator_id=coordinator_id, site_id=site_id, day=CalendarDay(date(month.year, month.month, d), False))
 
 
+def _set_targets(conn, *, coordinator_id: str, site_id: str, month: date, employee_id: str = EMP) -> None:
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month now requires a
+    # target_hours for every active LOCAL membership -- _staff always
+    # creates employee_id and its "-2" twin (own known shape), so set both
+    # directly instead of querying rota.persistence (this file's own
+    # module-scope import contract, test 13, forbids that).
+    for eid in (employee_id, f"{employee_id}-2"):
+        set_target_hours(conn, coordinator_id=coordinator_id, site_id=site_id, employee_id=eid, month=month, target_hours=200)
+
+
 def _plan_and_select(conn, *, coordinator_id: str, site_id: str, month: date):
+    _set_targets(conn, coordinator_id=coordinator_id, site_id=site_id, month=month)
     result = plan_month(conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=month)
     assert result.status == "FEASIBLE"
     return select_candidate(conn, site_id=site_id, month=month, candidate=result.candidates[0], coordinator_id=coordinator_id)
@@ -213,6 +224,7 @@ def test_11_abandoned_plan_without_select_candidate_is_not_noise(tmp_path) -> No
     _bootstrap(conn, coordinator_id=COORD_A, site_id=SITE_A)
     _staff(conn, coordinator_id=COORD_A, site_id=SITE_A)
     _fill_calendar(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH_1)
+    _set_targets(conn, coordinator_id=COORD_A, site_id=SITE_A, month=MONTH_1)
 
     result = plan_month(conn, site_id=SITE_A, month=MONTH_1, coordinator_id=COORD_A, effective_from=MONTH_1)
     assert result.status == "FEASIBLE"

@@ -45,7 +45,7 @@ def conn():
 
 @pytest.fixture
 def site_id(conn):
-    pstate = seed_real_object(conn, case_id="t037-api", month=MONTH, seed=910, coordinator_id=DEV_COORDINATOR_ID)
+    pstate = seed_real_object(conn, case_id="t037-api", month=MONTH, seed=910, coordinator_id=DEV_COORDINATOR_ID, target_hours=200)
     return pstate.site.site_id
 
 

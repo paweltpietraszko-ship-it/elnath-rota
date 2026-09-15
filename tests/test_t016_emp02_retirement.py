@@ -189,7 +189,7 @@ def test_category_for_rule_treats_emp02_as_unknown_inactive_source():
 def _seed_training_scenario(conn, month: date):
     """Plans+selects a real-object month, enables training with threshold=1,
     and returns (state, mentor, trainee_id) for a training-readiness test."""
-    state = seed_real_object(conn, case_id="t016-training-readiness", month=month, seed=1601)
+    state = seed_real_object(conn, case_id="t016-training-readiness", month=month, seed=1601, target_hours=200)
     plan_result = plan_ops.plan_month(conn, site_id=state.site.site_id, month=month, coordinator_id="COORD-1", effective_from=month)
     assert plan_result.status == "FEASIBLE"
     version = plan_ops.select_candidate(

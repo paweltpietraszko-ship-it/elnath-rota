@@ -68,6 +68,9 @@ def _bootstrap(conn) -> None:
     )
     durable_inputs.update_employee(conn, coordinator_id=COORD, site_id=SITE_ID, employee=_employee(EMP1))
     durable_inputs.update_membership(conn, coordinator_id=COORD, site_id=SITE_ID, membership=_membership(EMP1))
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month now requires a
+    # target_hours for every active LOCAL membership.
+    durable_inputs.set_target_hours(conn, coordinator_id=COORD, site_id=SITE_ID, employee_id=EMP1, month=MONTH, target_hours=200)
     import calendar as _cal
 
     for day in range(1, _cal.monthrange(MONTH.year, MONTH.month)[1] + 1):
