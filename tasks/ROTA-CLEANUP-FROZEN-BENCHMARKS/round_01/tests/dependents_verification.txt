@@ -1,0 +1,73 @@
+Targeted run of all 15 real, non-frozen test files that depend on
+tests/support/t009_fixtures.py (which imports the moved
+real_object_production.py/real_object_scenarios.py), plus
+tests/test_manual_audits.py (which imports the moved manual_audits.py),
+plus tests/test_t058.py -- on task/ROTA-CLEANUP-FROZEN-BENCHMARKS after
+moving tests/support/real_object_production.py,
+tests/support/real_object_scenarios.py, tests/support/real_object_types.py,
+tests/support/manual_audits.py out of benchmarks/ and deleting the dead
+benchmark evaluator chain (benchmarks/real_object.py,
+real_object_checker.py, real_object_input.py, rota_stress.py,
+REAL_OBJECT_BENCHMARK.md, tests/test_real_object_benchmark.py,
+tests/test_rota_stress_benchmark.py) and tests/property/ (Symulator
+Koordynatora A/B, zero downstream dependents).
+
+=== tail of full run ===
+30   D  E
+31   A  B
+coverage: 62/62 unique=62 exact_match=True
+A: shifts=13 hours=156 min_rest=12h max_7d=53h ok=True
+B: shifts=13 hours=156 min_rest=12h max_7d=55h ok=True
+C: DAY_ONLY VIOLATED (5 night shifts)
+D: shifts=12 hours=144 min_rest=12h max_7d=48h ok=True
+E: shifts=12 hours=144 min_rest=12h max_7d=53h ok=True
+MANUAL_VERDICT=FAIL
+_____________ test_manual_audit_decision_required_proven_by_hand ______________
+
+    def test_manual_audit_decision_required_proven_by_hand():
+>       assert verify_decision_required_by_hand() is True
+E       assert False is True
+E        +  where False = verify_decision_required_by_hand()
+
+tests\test_manual_audits.py:30: AssertionError
+---------------------------- Captured stdout call -----------------------------
+
+=== 2027-12-01 DECISION_REQUIRED case === STATUS=THIRD_CONSECUTIVE_SHIFT_BLOCKED
+blocked demand: 2027-12-20-N, hand-derived eligible set: {}
+hand-proof says infeasible=True, solver says DECISION_REQUIRED=False
+MANUAL_VERDICT=FAIL
+=========================== short test summary info ===========================
+FAILED tests/test_audit_t009_r4.py::test_r4_select_candidate_does_not_trust_caller_fabricated_realized[day-only]
+FAILED tests/test_t009_plan_select_replan.py::test_8_decision_required_then_external_window_then_replan_uses_window
+FAILED tests/test_manual_audits.py::test_manual_audit_feb_2028_leap_year_feasible
+FAILED tests/test_manual_audits.py::test_manual_audit_dense_overlap_oct_2027_feasible
+FAILED tests/test_manual_audits.py::test_manual_audit_decision_required_proven_by_hand
+5 failed, 145 passed in 684.65s (0:11:24)
+
+=== Baseline check on unmodified main (temporary worktree) ===
+Same 5 tests run in isolation on origin/main before this cleanup:
+
+    def test_manual_audit_decision_required_proven_by_hand():
+>       assert verify_decision_required_by_hand() is True
+E       assert False is True
+E        +  where False = verify_decision_required_by_hand()
+
+tests\test_manual_audits.py:27: AssertionError
+---------------------------- Captured stdout call -----------------------------
+
+=== 2027-12-01 DECISION_REQUIRED case === STATUS=THIRD_CONSECUTIVE_SHIFT_BLOCKED
+blocked demand: 2027-12-20-N, hand-derived eligible set: {}
+hand-proof says infeasible=True, solver says DECISION_REQUIRED=False
+MANUAL_VERDICT=FAIL
+=========================== short test summary info ===========================
+FAILED tests/test_audit_t009_r4.py::test_r4_select_candidate_does_not_trust_caller_fabricated_realized[day-only]
+FAILED tests/test_t009_plan_select_replan.py::test_8_decision_required_then_external_window_then_replan_uses_window
+FAILED tests/test_manual_audits.py::test_manual_audit_feb_2028_leap_year_feasible
+FAILED tests/test_manual_audits.py::test_manual_audit_dense_overlap_oct_2027_feasible
+FAILED tests/test_manual_audits.py::test_manual_audit_decision_required_proven_by_hand
+5 failed, 2 passed in 10.55s
+
+CONCLUSION: identical 5 failures pre-exist on unmodified main -- confirmed
+via a throwaway worktree, not caused by this cleanup's file move/deletion.
+Out of this Task's scope (pure benchmarks/tests-property removal); flagged
+separately in BOARD.md.
