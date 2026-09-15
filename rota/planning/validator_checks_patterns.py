@@ -7,7 +7,9 @@ from __future__ import annotations
 import calendar
 from datetime import date, timedelta
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind, ShiftKind
+from rota.domain import (
+    Assignment, AssignmentRole, AssignmentState, ShiftCatalogKind, ShiftKind, SitePlanningRegime,
+)
 from rota.planning.eligibility import is_all_24h_profile
 from rota.planning.shift_catalog import dn_semantics_apply
 from rota.planning.state import PlanningState
@@ -84,6 +86,11 @@ def _check_third_consecutive_shift(state: PlanningState, assignments: list[Assig
     exactly like NIGHT-STREAK-01 -- other_site_assignments and TRAINEE/
     PERIODIC_TRAINING never participate.
 
+    ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE (OWNER_RULING 2026-09-15):
+    this HARD is OCHRONA-only. For ORDINARY the only HARD limits on work
+    rhythm are the labor-code rules (REST-01/WEEKLY-REST-01 etc.), which
+    are independent checks unaffected by this early return.
+
     Code audit round 4 (tests_r4.txt R4-01): state.boundary_assignments'
     own context window is genuinely unbounded (any date, arbitrarily far in
     the past or future), unlike constraints.add_max_two_consecutive_
@@ -97,6 +104,8 @@ def _check_third_consecutive_shift(state: PlanningState, assignments: list[Assig
     window can ever combine with something in `assignments` anyway (a
     window entirely outside it is already this month's own past/future
     problem, not something this validate() call is even asked about)."""
+    if state.site.planning_regime != SitePlanningRegime.OCHRONA:
+        return
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
     month_start = date(state.month.year, state.month.month, 1)
     month_end = date(state.month.year, state.month.month, num_days)
