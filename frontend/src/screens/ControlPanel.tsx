@@ -482,7 +482,12 @@ function AddPersonPanel({
         <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label>
             <span className="field-label">Imię i nazwisko</span>
-            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="np. Jan Kowalski" />
+            <input
+              data-diag-action="add-person-display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="np. Jan Kowalski"
+            />
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 18 }}>
             <input type="checkbox" checked={dayOnly} onChange={(e) => setDayOnly(e.target.checked)} style={{ width: "auto" }} />

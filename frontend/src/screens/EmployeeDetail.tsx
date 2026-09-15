@@ -750,8 +750,13 @@ function TargetHoursEditor({
     try {
       const savedHours = Number(input);
       await api.setTargetHours(employeeId, { site_id: siteId, month, target_hours: savedHours });
+      // Real bug found via e2e (2026-09-15): onSaved (EmployeeDetail's
+      // load()) sets the whole screen to "Ładowanie…" and remounts this
+      // component fresh -- calling it here discarded applyAllPromptHours
+      // (and the prompt with it) before a coordinator could ever see it.
+      // Deferred to dismissPrompt/applyToAll below, once the prompt is
+      // actually resolved one way or the other.
       setApplyAllPromptHours(savedHours);
-      onSaved();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -774,29 +779,35 @@ function TargetHoursEditor({
     }
   };
 
+  const dismissPrompt = () => {
+    setApplyAllPromptHours(null);
+    onSaved();
+  };
+
   return (
     <div className="field-row">
       <label>Godziny docelowe</label>
       {error && <div className="banner-error">{error}</div>}
       <input
         type="number"
+        data-diag-action="target-hours-input"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         placeholder={value === null ? "brak ustawionej wartości" : undefined}
         style={{ width: 120 }}
       />
-      <button className="btn-primary" onClick={save} disabled={submitting || input === ""}>
+      <button className="btn-primary" data-diag-action="target-hours-save" onClick={save} disabled={submitting || input === ""}>
         Zapisz
       </button>
       {value === null && <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>brak ustawionej wartości</span>}
       {applyAllPromptHours !== null && (
-        <div className="banner" style={{ marginTop: 8 }}>
+        <div className="banner" data-diag-action="target-hours-apply-all-prompt" style={{ marginTop: 8 }}>
           {applyAllError && <div className="banner-error">{applyAllError}</div>}
           <p>Ustawić {applyAllPromptHours} h wszystkim pracownikom tego obiektu na {month.slice(0, 7)}?</p>
-          <button className="btn-primary" onClick={applyToAll} disabled={applyAllBusy}>
+          <button className="btn-primary" data-diag-action="target-hours-apply-all-yes" onClick={applyToAll} disabled={applyAllBusy}>
             Tak
           </button>
-          <button className="btn-ghost" onClick={() => setApplyAllPromptHours(null)} disabled={applyAllBusy}>
+          <button className="btn-ghost" onClick={dismissPrompt} disabled={applyAllBusy}>
             Nie
           </button>
         </div>

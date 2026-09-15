@@ -1445,9 +1445,13 @@ export default function MonthlyPlanning({
               (Godziny docelowe, Karta pracownika) and repeats the same
               operation. */}
           {planResult && planResult.status === "TARGET_HOURS_REQUIRED" && (
-            <div className="banner-warning" style={{ marginTop: 12 }}>
+            <div className="banner-warning" data-diag-action="target-hours-required-banner" style={{ marginTop: 12 }}>
               <p>
-                Wymagana decyzja koordynatora: brakuje godzin docelowych dla{" "}
+                {/* Deliberately NOT "Wymagana decyzja koordynatora" -- that
+                    exact phrase is the real, persistent DECISION_REQUIRED
+                    banner elsewhere on this screen (brief.md section 2: this
+                    is a controlled input blocker, never DECISION_REQUIRED). */}
+                Brakuje godzin docelowych dla{" "}
                 {planResult.missing_target_hours.length === 1 ? "pracownika" : "pracowników"}:{" "}
                 {planResult.missing_target_hours.map((m) => m.employee_display_name).join(", ")}. Ustaw godziny
                 docelowe (Karta pracownika) i zaplanuj ponownie.
