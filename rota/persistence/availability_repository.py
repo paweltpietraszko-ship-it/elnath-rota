@@ -60,16 +60,29 @@ def _validate_time_window(kind: AvailabilityKind, start_time: Optional[time], en
         raise ValueError(f"{kind.value} must not carry start_time/end_time")
 
 
+def _validate_delegation_hours(kind: AvailabilityKind, delegation_hours: Optional[int]) -> None:
+    """ROTA-DELEGACJA-ABSENCE-KIND brief.md section 3.2/DEL-05: the write
+    boundary rejects a missing/non-positive value for DELEGACJA and rejects
+    any value for every other kind -- fail closed, never guessed."""
+    if kind == AvailabilityKind.DELEGACJA:
+        if delegation_hours is None or delegation_hours <= 0:
+            raise ValueError("DELEGACJA requires a positive integer delegation_hours")
+    elif delegation_hours is not None:
+        raise ValueError(f"{kind.value} must not carry delegation_hours")
+
+
 def append_availability_version_in_open_transaction(
     conn: sqlite3.Connection, *, availability_id: str, employee_id: str, kind: AvailabilityKind,
     start_date: date, end_date: date, active: bool, note: Optional[str] = None,
     start_time: Optional[time] = None, end_time: Optional[time] = None,
+    delegation_hours: Optional[int] = None,
 ) -> AvailabilityRecord:
     """Same write as append_availability_version, without its own
     `with conn:` (ROTA-T019b atomicity)."""
     if end_date < start_date:
         raise ValueError("AvailabilityRecord.end_date must be >= start_date")
     _validate_time_window(kind, start_time, end_time)
+    _validate_delegation_hours(kind, delegation_hours)
     employee_row = conn.execute("SELECT 1 FROM employees WHERE employee_id = ?", (employee_id,)).fetchone()
     if employee_row is None:
         raise UnknownEmployeeForAvailability(employee_id)
@@ -91,13 +104,14 @@ def append_availability_version_in_open_transaction(
         """INSERT INTO availability_versions
            (availability_version_id, availability_id, employee_id, chain_seq, kind,
             start_date, end_date, active, supersedes_availability_version_id, note,
-            start_time, end_time)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            start_time, end_time, delegation_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             availability_version_id, availability_id, employee_id, chain_seq, kind.value,
             start_date.isoformat(), end_date.isoformat(), int(active), predecessor_id, note,
             start_time.isoformat() if start_time is not None else None,
             end_time.isoformat() if end_time is not None else None,
+            delegation_hours,
         ),
     )
 
@@ -105,7 +119,7 @@ def append_availability_version_in_open_transaction(
         availability_id=availability_id, availability_version_id=availability_version_id,
         employee_id=employee_id, kind=kind, start_date=start_date, end_date=end_date,
         active=active, supersedes_availability_version_id=predecessor_id, note=note,
-        start_time=start_time, end_time=end_time,
+        start_time=start_time, end_time=end_time, delegation_hours=delegation_hours,
     )
 
 
@@ -113,18 +127,19 @@ def append_availability_version(
     conn: sqlite3.Connection, *, availability_id: str, employee_id: str, kind: AvailabilityKind,
     start_date: date, end_date: date, active: bool, note: Optional[str] = None,
     start_time: Optional[time] = None, end_time: Optional[time] = None,
+    delegation_hours: Optional[int] = None,
 ) -> AvailabilityRecord:
     with conn:
         return append_availability_version_in_open_transaction(
             conn, availability_id=availability_id, employee_id=employee_id, kind=kind,
             start_date=start_date, end_date=end_date, active=active, note=note,
-            start_time=start_time, end_time=end_time,
+            start_time=start_time, end_time=end_time, delegation_hours=delegation_hours,
         )
 
 
 def _row_to_record(row: tuple) -> AvailabilityRecord:
     (availability_id, availability_version_id, employee_id, kind, start_date,
-     end_date, active, supersedes, note, start_time, end_time) = row
+     end_date, active, supersedes, note, start_time, end_time, delegation_hours) = row
     return AvailabilityRecord(
         availability_id=availability_id, availability_version_id=availability_version_id,
         employee_id=employee_id, kind=AvailabilityKind(kind),
@@ -132,12 +147,14 @@ def _row_to_record(row: tuple) -> AvailabilityRecord:
         active=bool(active), supersedes_availability_version_id=supersedes, note=note,
         start_time=time.fromisoformat(start_time) if start_time is not None else None,
         end_time=time.fromisoformat(end_time) if end_time is not None else None,
+        delegation_hours=delegation_hours,
     )
 
 
 _COLUMNS = (
     "availability_id, availability_version_id, employee_id, kind, start_date, "
-    "end_date, active, supersedes_availability_version_id, note, start_time, end_time"
+    "end_date, active, supersedes_availability_version_id, note, start_time, end_time, "
+    "delegation_hours"
 )
 
 

@@ -1,20 +1,8 @@
 import { useEffect, useState } from "react";
-import { DateRange, DayPicker } from "@daypicker/react";
-import "@daypicker/react/style.css";
-import { api, AvailabilityRecordOut, EmployeeDetailOut, MatrixCellOut } from "../api/client";
+import { api, EmployeeDetailOut, MatrixCellOut } from "../api/client";
+import EmployeeAvailability from "./EmployeeAvailability";
 
 const WEEKDAY_NAMES = ["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"];
-const AVAILABILITY_KIND_LABELS: Record<string, string> = {
-  DAY_SHIFT_OFF: "Wolne w dzień",
-  UNAVAILABLE_24H: "Ogólna niedostępność",
-  LEAVE_PLAN: "Urlop (planowany)",
-  LEAVE_GRANTED: "Urlop (przyznany)",
-  SICK_LEAVE: "Zwolnienie chorobowe",
-  // ROTA-T065-ORDINARY-TIME-AVAILABILITY: ORDINARY-only, ordinary shop
-  // employees' real hourly availability -- never shown/selectable for
-  // OCHRONA (section 6/9).
-  UNAVAILABLE_TIME_WINDOW: "Niedostępność godzinowa",
-};
 
 const isoToday = () => {
   const d = new Date();
@@ -80,6 +68,9 @@ export default function EmployeeDetail({
   // qualifications -- learned from the same shift-catalog call
   // SiteShiftCatalog already uses (R2-03 fix), no new endpoint.
   const [regime, setRegime] = useState<"OCHRONA" | "ORDINARY">("OCHRONA");
+  // ROTA-DELEGACJA-ABSENCE-KIND brief.md section 4: this Site's current
+  // default, fetched from the one narrow delegation-default-hours resource.
+  const [delegationDefaultHours, setDelegationDefaultHours] = useState<number | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -88,12 +79,14 @@ export default function EmployeeDetail({
       api.getEmployeeMatrix(employeeId, siteId, matrixMonth),
       api.getTargetHours(employeeId, month),
       api.getShiftCatalog(siteId),
+      api.getDelegationDefaultHours(siteId),
     ])
-      .then(([d, m, t, catalog]) => {
+      .then(([d, m, t, catalog, delegationDefault]) => {
         setDetail(d);
         setCells(m.cells);
         setTargetHoursState(t.target_hours);
         setRegime(catalog.planning_regime);
+        setDelegationDefaultHours(delegationDefault.delegation_default_hours);
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
@@ -348,31 +341,17 @@ export default function EmployeeDetail({
         <RestrictionList cells={cells} employeeId={employeeId} siteId={siteId} onChanged={load} respondsToDecisionRequiredId={respondsToDecisionRequiredId} />
       </div>
 
-      <div className="panel">
-        <div className="panel-title-row">
-          <div>
-            <h3>Nieobecności (w tym Ogólna dostępność)</h3>
-            <p className="panel-hint">Urlop, chorobowe i ogólna niedostępność — wszystko w jednym miejscu.</p>
-          </div>
-          <button className="btn-primary" onClick={() => setShowAddAbsence(true)}>
-            + Zgłoś nieobecność
-          </button>
-        </div>
-        {showAddAbsence && (
-          <AddAbsenceForm
-            employeeId={employeeId}
-            siteId={siteId}
-            workingMonth={workingMonth}
-            regime={regime}
-            onClose={() => setShowAddAbsence(false)}
-            onAdded={() => {
-              setShowAddAbsence(false);
-              load();
-            }}
-          />
-        )}
-        <AbsenceLog records={detail.availability} employeeId={employeeId} siteId={siteId} workingMonth={workingMonth} onChanged={load} />
-      </div>
+      <EmployeeAvailability
+        employeeId={employeeId}
+        siteId={siteId}
+        workingMonth={workingMonth}
+        regime={regime}
+        delegationDefaultHours={delegationDefaultHours}
+        records={detail.availability}
+        showAddAbsence={showAddAbsence}
+        onShowAddAbsence={setShowAddAbsence}
+        onChanged={load}
+      />
 
       <div className="panel">
         <h3>Godziny docelowe</h3>
@@ -726,287 +705,6 @@ function DayOnlyExceptionForm({
       <div className="create-panel-actions">
         <button className="btn-primary" onClick={submit} disabled={submitting || !from || !to}>
           {submitting ? "Zapisywanie…" : "Zezwól tymczasowo"}
-        </button>
-        <button className="btn-ghost" onClick={onClose} disabled={submitting}>
-          Anuluj
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ROTA-T064 (brief section 7): only records whose [start_date, end_date]
-// intersects workingMonth, sorted deterministically -- ISO "YYYY-MM-DD"
-// strings compare correctly lexicographically, no Date parsing needed.
-function monthBoundsIso(workingMonth: string): { firstDay: string; lastDay: string } {
-  const [year, month] = workingMonth.split("-").map(Number);
-  const lastDate = new Date(year, month, 0).getDate();
-  return { firstDay: `${workingMonth}-01`, lastDay: `${workingMonth}-${String(lastDate).padStart(2, "0")}` };
-}
-
-function monthLabel(workingMonth: string): string {
-  const [year, month] = workingMonth.split("-").map(Number);
-  return new Date(year, month - 1, 1).toLocaleString("pl-PL", { month: "long", year: "numeric" });
-}
-
-function AbsenceLog({
-  records,
-  employeeId,
-  siteId,
-  workingMonth,
-  onChanged,
-}: {
-  records: AvailabilityRecordOut[];
-  employeeId: string;
-  siteId: string;
-  workingMonth: string;
-  onChanged: () => void;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const endNow = async (r: AvailabilityRecordOut) => {
-    try {
-      await api.updateAvailability(employeeId, r.availability_id, {
-        site_id: siteId, kind: r.kind, start_date: r.start_date, end_date: r.end_date, active: false,
-        start_time: r.start_time, end_time: r.end_time,
-      });
-      onChanged();
-    } catch (e: unknown) {
-      setError(String((e as Error).message ?? e));
-    }
-  };
-
-  const { firstDay, lastDay } = monthBoundsIso(workingMonth);
-  const label = monthLabel(workingMonth);
-  const visible = records
-    .filter((r) => r.start_date <= lastDay && r.end_date >= firstDay)
-    .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.end_date.localeCompare(b.end_date) || a.availability_id.localeCompare(b.availability_id));
-
-  return (
-    <>
-      <p className="panel-hint" style={{ marginTop: 0 }}>Miesiąc roboczy: {label}</p>
-      {error && <div className="banner-error">{error}</div>}
-      {visible.length === 0 ? (
-        <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak nieobecności w wybranym miesiącu.</p>
-      ) : (
-        visible.map((r) =>
-          editingId === r.availability_id ? (
-            <AbsenceEditRow
-              key={r.availability_id}
-              record={r}
-              employeeId={employeeId}
-              siteId={siteId}
-              onDone={() => {
-                setEditingId(null);
-                onChanged();
-              }}
-              onCancel={() => setEditingId(null)}
-            />
-          ) : (
-            <div key={r.availability_id} className={`absence-log-item${r.active ? "" : " absence-log-item-ended"}`}>
-              <span>
-                <strong>{AVAILABILITY_KIND_LABELS[r.kind] ?? r.kind}</strong> — od {r.start_date} do {r.end_date}
-                {r.start_time && r.end_time && `, ${r.start_time}–${r.end_time}`}
-                {!r.active && " (zakończone)"}
-              </span>
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn-ghost" onClick={() => setEditingId(r.availability_id)}>
-                  {r.active ? "Edytuj daty" : "Edytuj / przywróć"}
-                </button>
-                {r.active && (
-                  <button className="btn-ghost" onClick={() => endNow(r)}>
-                    Zakończ teraz
-                  </button>
-                )}
-              </span>
-            </div>
-          ),
-        )
-      )}
-    </>
-  );
-}
-
-function AbsenceEditRow({
-  record,
-  employeeId,
-  siteId,
-  onDone,
-  onCancel,
-}: {
-  record: AvailabilityRecordOut;
-  employeeId: string;
-  siteId: string;
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  const [from, setFrom] = useState(record.start_date);
-  const [to, setTo] = useState(record.end_date);
-  const isWindow = record.kind === "UNAVAILABLE_TIME_WINDOW";
-  const [fromTime, setFromTime] = useState(record.start_time ?? "");
-  const [toTime, setToTime] = useState(record.end_time ?? "");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.updateAvailability(employeeId, record.availability_id, {
-        site_id: siteId, kind: record.kind, start_date: from, end_date: to, active: true,
-        start_time: isWindow ? fromTime : null, end_time: isWindow ? toTime : null,
-      });
-      onDone();
-    } catch (e: unknown) {
-      setError(String((e as Error).message ?? e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="create-panel" style={{ marginBottom: 10 }}>
-      <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{AVAILABILITY_KIND_LABELS[record.kind] ?? record.kind}</p>
-      {error && <div className="banner-error">{error}</div>}
-      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <label>
-          <span className="field-label">Od</span>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label>
-          <span className="field-label">Do</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        {isWindow && (
-          <>
-            <label>
-              <span className="field-label">Od godziny</span>
-              <input type="time" step={3600} value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
-            </label>
-            <label>
-              <span className="field-label">Do godziny</span>
-              <input type="time" step={3600} value={toTime} onChange={(e) => setToTime(e.target.value)} />
-            </label>
-          </>
-        )}
-      </div>
-      <div className="create-panel-actions">
-        <button className="btn-primary" onClick={save} disabled={submitting || !from || !to || (isWindow && (!fromTime || !toTime || fromTime >= toTime))}>
-          Zapisz
-        </button>
-        <button className="btn-ghost" onClick={onCancel} disabled={submitting}>
-          Anuluj
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ROTA-T064 (brief section 6): local calendar date, no UTC shift -- same
-// pattern as isoToday() above, applied to an arbitrary Date from DayPicker.
-function toLocalIso(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function AddAbsenceForm({
-  employeeId,
-  siteId,
-  workingMonth,
-  regime,
-  onClose,
-  onAdded,
-}: {
-  employeeId: string;
-  siteId: string;
-  workingMonth: string;
-  regime: "OCHRONA" | "ORDINARY";
-  onClose: () => void;
-  onAdded: () => void;
-}) {
-  const [kind, setKind] = useState<keyof typeof AVAILABILITY_KIND_LABELS>("UNAVAILABLE_24H");
-  const [range, setRange] = useState<DateRange | undefined>(undefined);
-  const isWindow = kind === "UNAVAILABLE_TIME_WINDOW";
-  const [fromTime, setFromTime] = useState("");
-  const [toTime, setToTime] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [year, month] = workingMonth.split("-").map(Number);
-  const defaultMonth = new Date(year, month - 1, 1);
-  // ROTA-T065-ORDINARY-TIME-AVAILABILITY section 6/9: the new kind exists
-  // only for ORDINARY -- OCHRONA's absence form is byte-identical to before.
-  const availableKinds = Object.entries(AVAILABILITY_KIND_LABELS).filter(
-    ([value]) => regime === "ORDINARY" || value !== "UNAVAILABLE_TIME_WINDOW",
-  );
-
-  const submit = async () => {
-    if (!range?.from || !range?.to) return;
-    if (isWindow && (!fromTime || !toTime || fromTime >= toTime)) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.createAvailability(employeeId, {
-        site_id: siteId, availability_id: crypto.randomUUID(), kind,
-        start_date: toLocalIso(range.from), end_date: toLocalIso(range.to),
-        start_time: isWindow ? fromTime : null, end_time: isWindow ? toTime : null,
-      });
-      onAdded();
-    } catch (e: unknown) {
-      setError(String((e as Error).message ?? e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="create-panel" style={{ marginBottom: 18 }}>
-      {error && <div className="banner-error">{error}</div>}
-      <label style={{ display: "block", marginBottom: 14 }}>
-        <span className="field-label">Powód</span>
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as keyof typeof AVAILABILITY_KIND_LABELS)}
-          style={{ width: "100%", background: "var(--paper-light)", border: "1px solid var(--line)", borderRadius: 8, padding: "9px 12px", color: "var(--ink)" }}
-        >
-          {availableKinds.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {isWindow && (
-        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
-          <label>
-            <span className="field-label">Niedostępny od godziny</span>
-            <input type="time" step={3600} value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
-          </label>
-          <label>
-            <span className="field-label">do godziny</span>
-            <input type="time" step={3600} value={toTime} onChange={(e) => setToTime(e.target.value)} />
-          </label>
-        </div>
-      )}
-      <DayPicker
-        mode="range"
-        selected={range}
-        onSelect={setRange}
-        defaultMonth={defaultMonth}
-        data-diag-element="absence-range-picker"
-      />
-      <p className="field-hint">
-        {range?.from && range?.to
-          ? `Wybrany zakres: ${toLocalIso(range.from)} – ${toLocalIso(range.to)}`
-          : "Wybierz datę początkową i końcową."}
-      </p>
-      <div className="create-panel-actions">
-        <button
-          className="btn-primary"
-          onClick={submit}
-          disabled={submitting || !range?.from || !range?.to || (isWindow && (!fromTime || !toTime || fromTime >= toTime))}
-        >
-          {submitting ? "Zapisywanie…" : "Zgłoś"}
         </button>
         <button className="btn-ghost" onClick={onClose} disabled={submitting}>
           Anuluj

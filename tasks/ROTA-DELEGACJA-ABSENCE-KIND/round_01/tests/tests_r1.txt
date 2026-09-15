@@ -1,0 +1,36 @@
+ROTA-DELEGACJA-ABSENCE-KIND — PREIMPLEMENTATION AUDIT R1
+
+AUDITED SHA: 078ab2aa8dd5fe8049db42500f112d770a705661
+VERDICT: WYMAGA_KOREKTY_BRIEFU
+IMPLEMENTATION: HOLD
+
+OWNER_CONFIRMED
+- DELEGACJA jest całodniową Availability w obu reżimach i blokuje przydział automatyczny.
+- Domyślna liczba godzin pochodzi z Site; rekord delegacji zapamiętuje faktyczną wartość. Dla delegacji wielodniowej wartość obowiązuje za każdy dzień.
+- Godziny liczą się od razu do planu czasu pracy.
+- Koordynator może delegację zmienić, przesunąć albo usunąć; REPLAN korzysta z aktualnej wersji wpisu.
+- Program nigdy nie blokuje ręcznej decyzji koordynatora. Po usunięciu delegacji można wpisać dzień wolny lub urlop. Ewentualna ręczna sprzeczność ma być ostrzeżeniem/odchyleniem ze śladem decyzji, nie nowym twardym zakazem.
+- PDF używa oznaczenia DEL.
+- Nie tworzymy sztucznego Assignmentu ani drugiego systemu rozliczeń.
+- Nakładające się delegacje nie są scenariuszem produktowym: brief, implementacja i testy nie mają dodawać dla nich osobnej logiki.
+
+KOREKTY WYMAGANE PRZED IMPLEMENTACJĄ
+1. Zamrozić semantykę bilansu: delegacja zwiększa istniejące WorkBalance.planned_hours od razu, a nie realized_hours. Nazwy „realnie przepracowane” i wzór worked_hours_total są obecnie mylące. Brief ma opisać wpływ na miesiąc, kwartał i pole „Godz.” oraz brak automatycznego przejścia opartego na zegarze.
+2. Uzupełnić rzeczywiste miejsca integracji bilansu. Obowiązkowo rozstrzygnąć rota/persistence/work_balance_repository.py oraz bezpośrednie wywołania w rota/application/analytics_read.py. assembler.py i balance_read.py mogą pozostać bez zmian, jeśli poprawnie korzystają z repozytorium. Projekcja ma być liczona dokładnie raz.
+3. Wskazać dokładną ścieżkę walidacji ręcznej. Obecnym właścicielem całodniowej Availability jest rota/planning/validator_checks_availability.py. Brief ma wybrać: ponowne użycie istniejącego kodu odchylenia albo jeden nowy kod wraz z polską etykietą w rota/application/deviation_mapping.py. Nie wolno dodawać twardej blokady ręcznej decyzji.
+4. Zastąpić placeholdery w TASK_SCOPE literalnymi ścieżkami. Dotyczy to co najmniej migracji/bazy, helperów, routera i UI. Aktualny moduł schematu to rota/persistence/db.py; nie wystarcza zapis „aktualny moduł/mody migracji”.
+5. Wybrać jeden minimalny właściciel ustawienia domyślnych godzin Site. Istniejący zapis Site prowadzi przez rota/domain.py, rota/persistence/site_repository.py i rota/application/durable_inputs.py. Brief ma wskazać konkretny istniejący router i ekran albo jeden wąski endpoint w istniejącym routerze. Zmiana defaultu jest prefillem dla nowych/edytowanych delegacji i nie może przepisywać snapshotów dawnych rekordów ani unieważniać grafików.
+6. Ograniczyć UI bez szerokiego refaktoru EmployeeDetail.tsx. Brief ma wskazać konkretny mały komponent/plik dla formularza Availability albo jawnie uzależnić pracę od osobnego zadania rozmiarowego; samo „preferuj ekstrakcję” nie jest testowalnym zakresem.
+
+PRE_IMPLEMENTATION_REDUCTION_GATE
+- Reużyć AvailabilityRecord, append-only persistence, istniejącą logikę eligibility, WorkBalance i istniejące renderery eksportu.
+- Nie dodawać Assignmentu, drugiej księgi godzin, nowego ekranu ustawień Site, nowego cyklu życia ani walidacji nakładających się delegacji.
+- Test integracyjny ma objąć nowy szew: zapis/edycja/usunięcie -> automat/REPLAN -> bilans -> PDF. Nie powielać pełnych kontraktów niższych warstw.
+
+AUDIT LAYERS
+- Pełny brief i wskazane źródła przeczytane na dokładnym SHA.
+- Wykonano ręczne mapowanie bieżących właścicieli i alternatywnych ścieżek. Uruchomienie where.py zostało zablokowane przez środowisko narzędziowe; symbole i wywołania sprawdzono bezpośrednio.
+- Nie uruchamiano testów produktu ani regresji: jest to audyt briefu przed implementacją.
+
+QUALITY CHECK
+Brief nie jest urwany, lecz końcówka pracy architekta pozostawiła kilka placeholderów i niespójne nazewnictwo bilansu. Są to korekty techniczne kontraktu, nie kolejne pytania produktowe do OWNERA.

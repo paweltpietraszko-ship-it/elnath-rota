@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Callable
 
-LATEST_SCHEMA_VERSION = 22
+LATEST_SCHEMA_VERSION = 23
 
 
 class UnsupportedSchemaVersion(Exception):
@@ -796,6 +796,17 @@ _MIGRATION_22: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# ROTA-DELEGACJA-ABSENCE-KIND brief.md section 12: nullable columns for the
+# new DELEGACJA AvailabilityKind's historical hours snapshot and each Site's
+# current default -- never backfilled/guessed for existing rows.
+# ---------------------------------------------------------------------------
+_MIGRATION_23: tuple[str, ...] = (
+    "ALTER TABLE availability_versions ADD COLUMN delegation_hours INTEGER",
+    "ALTER TABLE sites ADD COLUMN delegation_default_hours INTEGER",
+)
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], None]], ...] = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2 + _final_guard_triggers()),
@@ -822,6 +833,7 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...] | Callable[[sqlite3.Connection], No
     (20, _MIGRATION_20),
     (21, _MIGRATION_21),
     (22, _MIGRATION_22),
+    (23, _MIGRATION_23),
 )
 
 

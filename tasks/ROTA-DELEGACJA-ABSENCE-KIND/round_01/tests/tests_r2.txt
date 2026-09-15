@@ -1,0 +1,37 @@
+ROTA-DELEGACJA-ABSENCE-KIND — AUDIT R2
+
+AUDITED SHA: 72917779f0af3ce5b92a163f9ee42dccb585c2f1
+VERDICT: FAIL
+
+R2-01 — wydruk blokuje zapisaną ręczną decyzję koordynatora
+
+TRACE
+- jawna decyzja OWNERA: program nie blokuje ręcznej decyzji koordynatora; ostrzega o odchyleniu i zapisuje decyzję;
+- brief §5: manual_edit nie blokuje konfliktu z DELEGACJĄ, lecz materializuje DELEGACJA-01 jako Deviation;
+- zapisanej decyzji nie wolno ponownie zamienić w twardą blokadę podczas wydruku.
+
+OWNERSHIP
+- rota/application/schedule_export.py::_build_ordinary_rows oraz _build_rows.
+
+REPRO NA EXACT SHA
+- audit_r1_repro.py tworzy aktywną DELEGACJĘ i Assignment tego samego dnia,
+  czyli stan dozwolony przez ręczną korektę i zapisany jako odchylenie;
+- _build_ordinary_rows podnosi ExportProblemError(ASSIGNMENT_ABSENCE_CONFLICT),
+  więc koordynator nie może wydrukować zapisanej decyzji;
+- wynik: 1 failed dokładnie na tym wyjątku. Ten sam twardy wyjątek istnieje w
+  rendererze OCHRONA.
+
+WARUNEK ZAMKNIĘCIA
+- usunąć specjalną twardą blokadę konfliktu Assignment + DELEGACJA z obu
+  rendererów i zachować istniejący przepływ ostrzeżenia/Deviation;
+- nie zmieniać możliwości ręcznej korekty ani nie dodawać nowego override;
+- dodać celowany test, że zapisany ręczny konflikt nie blokuje eksportu w obu
+  reżimach. Nie rozszerzać Tasku poza tę klasę.
+
+DOWODY POZYTYWNE
+- 17/17 testów tests/test_delegation_absence.py przeszło;
+- diff i brief sprawdzono na exact SHA; pozostałe objęte tym zestawem domena,
+  persistence, automat, bilans i zwykły eksport DELEGACJI nie dały findingu.
+
+NIE URUCHAMIANO
+- 334-testowej regresji CC, pełnego repo, symulatorów ani benchmarków.

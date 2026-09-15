@@ -61,6 +61,8 @@ _DEVIATION_LABELS = {
     "SHIFT-24-PAIR-01": "niekompletna para 24h",
     # ROTA-T058 (brief section 2.2, "wąski limit jednej polskiej etykiety").
     "THIRD-CONSECUTIVE-SHIFT-01": "trzecia służba pod rząd",
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 5.
+    "DELEGACJA-01": "delegacja",
 }
 
 

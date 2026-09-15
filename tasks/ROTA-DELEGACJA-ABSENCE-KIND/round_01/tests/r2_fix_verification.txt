@@ -1,0 +1,42 @@
+ROTA-DELEGACJA-ABSENCE-KIND -- R2 fix verification
+
+FAIL R2 (audit 327215e, tests_r2.txt R2-01): a coordinator's saved manual
+correction placing a real Assignment on an active DELEGACJA day (legally
+allowed, materialized as a DELEGACJA-01 Deviation, never blocked) was
+turned back into a hard export-time ExportProblemError
+(ASSIGNMENT_ABSENCE_CONFLICT) by both print renderers.
+
+FIX: removed the special ASSIGNMENT_ABSENCE_CONFLICT raise for the
+DELEGACJA+real-Assignment overlap case in both
+rota/application/schedule_export.py::_build_ordinary_rows and ::_build_rows.
+The real work code is now shown for that day, same as any other real
+Assignment day. No other behavior changed; the DELEGACJA-01 Deviation
+lifecycle (manual_edit.py / validator) is untouched.
+
+Two new targeted tests added to tests/test_delegation_absence.py, matching
+Codex's own audit_r1_repro.py shape:
+- test_r2_ordinary_print_does_not_block_a_recorded_manual_assignment_on_delegation_day
+- test_r2_ochrona_print_does_not_block_a_recorded_manual_assignment_on_delegation_day
+
+=== tests/test_delegation_absence.py ===
+19 passed (17 previous + 2 new).
+
+=== Targeted regression (same set as R1) ===
+336 passed, 4 pre-existing/unrelated failures (unchanged from R1's
+verification -- confirmed via git stash on this branch's base):
+- test_site_profile_persistence.py::test_planning_engine_has_no_persistence_coupling
+- test_t012.py::test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback
+- test_t013.py::test_m13_h_final_day_only_gives_nocka_option_only_after_fallback_exhausted
+- test_t020.py::test_t20_01_fresh_db_migrates_to_schema_7
+
+ruff clean on rota/application/schedule_export.py and
+tests/test_delegation_absence.py.
+
+KNOWN FOLLOW-UP, DELIBERATELY NOT FIXED THIS ROUND (not part of R2's
+closing condition, would expand the Task per Codex's own instruction not
+to): on a day where a manual correction places a real Assignment on an
+active DELEGACJA day, total_hours (ORDINARY) / plan_hours+wyk_hours
+(OCHRONA) currently add both the real work hours AND the full
+delegation_hours_in_range for the month, double-counting that one day.
+Left for the owner/architect to decide whether and how to address in a
+future round.

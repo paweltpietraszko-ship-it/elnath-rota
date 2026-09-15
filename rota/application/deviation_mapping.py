@@ -23,6 +23,9 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     # materialize_deviations): any real UNAVAILABLE_TIME-01 HARD violation
     # crashed with UnknownDeviationSource instead of becoming a Deviation.
     "UNAVAILABLE_TIME-01": DeviationCategory.LEAVE_OR_TIME_OFF,
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 5: same category as the
+    # other whole-day availability kinds.
+    "DELEGACJA-01": DeviationCategory.LEAVE_OR_TIME_OFF,
     "LOAD-01": DeviationCategory.HOURS,
     "REST-01": DeviationCategory.LAW,
     # ROTA-T023b (frozen addendum section 8): same category as REST-01 --

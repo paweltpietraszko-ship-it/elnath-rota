@@ -216,13 +216,17 @@ def write_site_in_open_transaction(conn: sqlite3.Connection, site: Site) -> None
             f"use correct_site_planning_regime_in_open_transaction"
         )
     conn.execute(
-        """INSERT INTO sites (site_id, profile_id, display_name, active, planning_regime)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO sites (site_id, profile_id, display_name, active, planning_regime, delegation_default_hours)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(site_id) DO UPDATE SET
             profile_id=excluded.profile_id,
             display_name=excluded.display_name,
-            active=excluded.active""",
-        (site.site_id, site.profile_id, site.display_name, int(site.active), site.planning_regime.value),
+            active=excluded.active,
+            delegation_default_hours=excluded.delegation_default_hours""",
+        (
+            site.site_id, site.profile_id, site.display_name, int(site.active), site.planning_regime.value,
+            site.delegation_default_hours,
+        ),
     )
 
 
@@ -246,27 +250,29 @@ def save_site(conn: sqlite3.Connection, site: Site) -> None:
 
 def get_site(conn: sqlite3.Connection, site_id: str) -> Site:
     row = conn.execute(
-        "SELECT site_id, profile_id, display_name, active, planning_regime FROM sites WHERE site_id = ?", (site_id,)
+        "SELECT site_id, profile_id, display_name, active, planning_regime, delegation_default_hours "
+        "FROM sites WHERE site_id = ?", (site_id,)
     ).fetchone()
     if row is None:
         raise SiteNotFound(site_id)
-    site_id_, profile_id, display_name, active, regime = row
+    site_id_, profile_id, display_name, active, regime, delegation_default_hours = row
     return Site(
         site_id=site_id_, profile_id=profile_id, display_name=display_name, active=bool(active),
-        planning_regime=_regime_from_value(regime),
+        planning_regime=_regime_from_value(regime), delegation_default_hours=delegation_default_hours,
     )
 
 
 def list_sites(conn: sqlite3.Connection) -> list[Site]:
     rows = conn.execute(
-        "SELECT site_id, profile_id, display_name, active, planning_regime FROM sites ORDER BY site_id"
+        "SELECT site_id, profile_id, display_name, active, planning_regime, delegation_default_hours "
+        "FROM sites ORDER BY site_id"
     ).fetchall()
     return [
         Site(
             site_id=site_id, profile_id=profile_id, display_name=display_name, active=bool(active),
-            planning_regime=_regime_from_value(regime),
+            planning_regime=_regime_from_value(regime), delegation_default_hours=delegation_default_hours,
         )
-        for site_id, profile_id, display_name, active, regime in rows
+        for site_id, profile_id, display_name, active, regime, delegation_default_hours in rows
     ]
 
 

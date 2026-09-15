@@ -81,6 +81,10 @@ _BLOCKING_KIND_PRIORITY = (
     AvailabilityKind.UNAVAILABLE_24H,
     AvailabilityKind.SICK_LEAVE,
     AvailabilityKind.LEAVE_GRANTED,
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 5: same whole-day
+    # automatic blocker as the other kinds above -- no OCHRONA/ORDINARY
+    # exception.
+    AvailabilityKind.DELEGACJA,
     # ROTA-T065-ORDINARY-TIME-AVAILABILITY: lowest priority -- an existing
     # whole-day kind already blocking the same day is more informative to
     # the coordinator than this hourly one also matching that same day.
@@ -108,6 +112,7 @@ _CONDITION_CODE = {
     AvailabilityKind.UNAVAILABLE_24H: "UNAVAILABLE-01",
     AvailabilityKind.SICK_LEAVE: "SICK_LEAVE-01",
     AvailabilityKind.LEAVE_GRANTED: "LEAVE_GRANTED-01",
+    AvailabilityKind.DELEGACJA: "DELEGACJA-01",
     AvailabilityKind.UNAVAILABLE_TIME_WINDOW: "UNAVAILABLE_TIME-01",
 }
 
@@ -126,7 +131,10 @@ def _blocked_by_availability(
         if record.kind == AvailabilityKind.DAY_SHIFT_OFF:
             if record.start_date <= demand.start_datetime.date() <= record.end_date:
                 blocking_kinds.add(record.kind)
-        elif record.kind in (AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED):
+        elif record.kind in (
+            AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED,
+            AvailabilityKind.DELEGACJA,
+        ):
             if overlaps_availability(demand, record):
                 blocking_kinds.add(record.kind)
         elif record.kind == AvailabilityKind.LEAVE_PLAN:

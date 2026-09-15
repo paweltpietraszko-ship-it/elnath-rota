@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { View } from "../App";
 import { api, PickableEmployee, RosterRow, SiteRoleOut } from "../api/client";
 import PrintSettings from "./PrintSettings";
+import SiteDelegationSettings from "./SiteDelegationSettings";
 import SiteShiftCatalog from "./SiteShiftCatalog";
 
 export default function ControlPanel({
@@ -125,6 +126,7 @@ export default function ControlPanel({
         <>
           <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} onRolesChanged={load} />
           <PrintSettings siteId={siteId} workingMonth={workingMonth} />
+          <SiteDelegationSettings siteId={siteId} />
         </>
       )}
 

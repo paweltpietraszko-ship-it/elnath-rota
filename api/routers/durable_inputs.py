@@ -356,6 +356,11 @@ class CreateAvailabilityRequest(BaseModel):
     # combination, not this marshalling layer.
     start_time: str | None = None
     end_time: str | None = None
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 11: set only for kind ==
+    # DELEGACJA -- rota.persistence.availability_repository is the one
+    # write boundary that rejects a missing/wrongly-present value, not this
+    # marshalling layer.
+    delegation_hours: int | None = None
 
 
 @roster_router.post("/employees/{employee_id}/availability", status_code=204)
@@ -367,6 +372,7 @@ def create_availability(employee_id: str, payload: CreateAvailabilityRequest, co
             kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
             end_date=date.fromisoformat(payload.end_date), active=True,
             start_time=_parse_optional_time(payload.start_time), end_time=_parse_optional_time(payload.end_time),
+            delegation_hours=payload.delegation_hours,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -380,6 +386,7 @@ class UpdateAvailabilityRequest(BaseModel):
     active: bool
     start_time: str | None = None
     end_time: str | None = None
+    delegation_hours: int | None = None
 
 
 @roster_router.patch("/employees/{employee_id}/availability/{availability_id}", status_code=204)
@@ -392,6 +399,7 @@ def update_availability(
             kind=AvailabilityKind(payload.kind), start_date=date.fromisoformat(payload.start_date),
             end_date=date.fromisoformat(payload.end_date), active=payload.active,
             start_time=_parse_optional_time(payload.start_time), end_time=_parse_optional_time(payload.end_time),
+            delegation_hours=payload.delegation_hours,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

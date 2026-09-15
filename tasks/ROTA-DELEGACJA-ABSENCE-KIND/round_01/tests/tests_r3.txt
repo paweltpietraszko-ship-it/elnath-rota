@@ -1,0 +1,19 @@
+ROTA-DELEGACJA-ABSENCE-KIND — RE-CHECK R3
+
+AUDITED SHA: e03249aad7e6fdb242fbdd5157c6841810c6327b
+VERDICT: PASS
+
+Sprawdzono wyłącznie warunek zamknięcia R2:
+- diff 327215e..e03249a usuwa ASSIGNMENT_ABSENCE_CONFLICT z obu rendererów;
+- zapisany ręczny Assignment ma pierwszeństwo prezentacyjne nad DEL i nie
+  blokuje eksportu; istniejący Deviation/ostrzeżenie pozostaje bez zmian;
+- audit_r1_repro.py oraz dwa celowane testy ORDINARY/OCHRONA: 3 passed.
+
+Uwaga CC o sumie godzin nie blokuje PASS. Zamrożony brief jawnie definiuje
+planned_hours jako planned_assignment_hours + delegation_hours i nie ustanawia
+specjalnej arytmetyki dla konfliktu. Dopóki oba fakty pozostają aktywne, oba są
+liczone; koordynator może zmienić lub usunąć Delegację. Nie otwierać tego jako
+defekt bez nowej decyzji OWNERA.
+
+Nie powtarzano pełnego audytu implementacji, 19-testowej macierzy, regresji,
+UI/E2E, symulatorów ani benchmarków. PASS dotyczy dokładnie e03249a.

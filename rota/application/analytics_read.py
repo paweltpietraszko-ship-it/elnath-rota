@@ -16,7 +16,11 @@ from rota.balance import compute_month_balance, compute_quarter_balance, quarter
 from rota.domain import MembershipKind
 from rota.persistence.employee_repository import list_employees, list_memberships_for_site
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
-from rota.persistence.work_balance_repository import absence_facts_for_employees, list_work_balance_targets_for_employees
+from rota.persistence.work_balance_repository import (
+    absence_facts_for_employees,
+    delegation_records_for_employees,
+    list_work_balance_targets_for_employees,
+)
 from rota.planning.absence import IncompleteAbsenceReferenceError, canonical_hours_in_range
 
 
@@ -115,7 +119,7 @@ def _first_blocking_quarter_month(quarter_months_list: list[date], absence_facts
 
 def _quarter_row(
     employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
-    targets: dict[date, int], assignments, absence_facts, month_data_only: AnalyticsMonthData,
+    targets: dict[date, int], assignments, absence_facts, delegation_records, month_data_only: AnalyticsMonthData,
 ) -> EmployeeAnalyticsRow:
     """Full-quarter attempt, only reached once the requested month is
     already known computable and every quarter month has a target_hours
@@ -124,7 +128,7 @@ def _quarter_row(
     target_by_month = {quarter_month: targets[quarter_month] for quarter_month in quarter_months_list}
     try:
         quarter_balances = compute_quarter_balance(
-            employee_id, quarter_months_list[0], target_by_month, assignments, absence_facts,
+            employee_id, quarter_months_list[0], target_by_month, assignments, absence_facts, delegation_records,
         )
     except IncompleteAbsenceReferenceError:
         blocking_month = _first_blocking_quarter_month(quarter_months_list, absence_facts)
@@ -147,7 +151,7 @@ def _quarter_row(
 
 def _row_for_employee(
     employee_id: str, display_name: str, month: date, quarter_months_list: list[date],
-    targets: dict[date, int], assignments, absence_facts,
+    targets: dict[date, int], assignments, absence_facts, delegation_records,
 ) -> EmployeeAnalyticsRow:
     requested_target = targets.get(month)
     if requested_target is None:
@@ -156,7 +160,8 @@ def _row_for_employee(
 
     try:
         month_only = compute_month_balance(
-            employee_id, month, requested_target, assignments, absence_facts, quarter_balance_before=0,
+            employee_id, month, requested_target, assignments, absence_facts,
+            quarter_balance_before=0, delegation_records=delegation_records,
         )
     except IncompleteAbsenceReferenceError:
         warning = (
@@ -183,7 +188,8 @@ def _row_for_employee(
         )
 
     return _quarter_row(
-        employee_id, display_name, month, quarter_months_list, targets, assignments, absence_facts, month_data_only,
+        employee_id, display_name, month, quarter_months_list, targets, assignments, absence_facts,
+        delegation_records, month_data_only,
     )
 
 
@@ -216,6 +222,9 @@ def analytics_for_site_month(conn, *, site_id: str, month: date) -> CoordinatorA
     absence_facts_by_employee = absence_facts_for_employees(
         conn, roster_ids, quarter_first_month, quarter_end_exclusive - timedelta(days=1)
     )
+    delegation_records_by_employee = delegation_records_for_employees(
+        conn, roster_ids, quarter_first_month, quarter_end_exclusive - timedelta(days=1)
+    )
 
     assignments_by_employee: dict[str, list] = {}
     for assignment in assignments:
@@ -225,7 +234,7 @@ def analytics_for_site_month(conn, *, site_id: str, month: date) -> CoordinatorA
         _row_for_employee(
             employee_id, display_names.get(employee_id, employee_id), month, quarter_months_list,
             targets_by_employee.get(employee_id, {}), assignments_by_employee.get(employee_id, []),
-            absence_facts_by_employee.get(employee_id, []),
+            absence_facts_by_employee.get(employee_id, []), delegation_records_by_employee.get(employee_id, []),
         )
         for employee_id in roster_ids
     )
