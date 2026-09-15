@@ -1,0 +1,71 @@
+ROTA-DELEGACJA-ABSENCE-KIND -- implementation verification (brief @ 032b14f)
+
+Exceptional owner-directed start: implemented directly per Paweł's explicit
+"wyjątkowo zacznij" (2026-09-15), WITHOUT waiting for Codex's
+PASS PREIMPLEMENTATION (Codex unavailable). CC independently merit-reviewed
+the corrected brief against all 6 R1 audit points before starting (see
+BOARD.md). Still requires a full independent Codex audit before merge.
+
+TASK_SCOPE extension found necessary and owner-approved during
+implementation (AskUserQuestion, 2026-09-15): api/routers/roster.py's
+AvailabilityRecordOut/get_employee_detail was not listed in TASK_SCOPE, but
+without exposing delegation_hours there, the frontend cannot resubmit a
+valid update (including deactivation) for an existing DELEGACJA record --
+the write boundary requires delegation_hours on every append of that kind,
+including deactivation. Owner chose "add to scope and continue."
+
+=== New test file: tests/test_delegation_absence.py ===
+17 passed (covers DEL-01/02/04/05/06/07/08/09/11, delegation_hours_in_range
+single/multi-day/clip/inactive/missing-value, validator DELEGACJA-01).
+
+=== Targeted regression (TASK_SCOPE files + heavy consumers of touched
+shared modules: eligibility.py, absence.py, balance.py,
+work_balance_repository.py, analytics_read.py, schedule_export.py,
+availability_repository.py, durable_inputs.py) ===
+
+pytest tests/test_balance.py tests/test_eligibility_matrix.py
+  tests/test_local_store_schema_migration.py tests/test_site_profile_persistence.py
+  tests/test_t037_manual_edit_api.py tests/test_t047_print_export.py
+  tests/test_delegation_absence.py tests/test_t012.py tests/test_t013.py
+  tests/test_t032_soft_ranking.py tests/test_t018.py tests/test_t020.py
+  tests/test_t065_ordinary_roles.py
+
+334 passed, 4 failed. All 4 confirmed pre-existing/unrelated via git stash
+on this exact branch base:
+- test_site_profile_persistence.py::test_planning_engine_has_no_persistence_coupling
+  (false positive: a prose comment in rota/planning/availability.py
+  mentions "rota.persistence...", file untouched by this Task)
+- test_t012.py::test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback
+- test_t013.py::test_m13_h_final_day_only_gives_nocka_option_only_after_fallback_exhausted
+- test_t020.py::test_t20_01_fresh_db_migrates_to_schema_7 (same pre-existing
+  dead-literal class already fixed elsewhere this session under
+  ROTA-ORDINARY-POSITION-FIXTURE-FALLOUT, not yet merged to main -- this
+  Task's migration 22->23 bump only changed which number the stale literal
+  fails against, 22==20 was already false on unmodified main)
+
+=== ruff ===
+Clean on every touched .py file (backend + api routers + new test file).
+
+=== TypeScript ===
+`npx tsc -b` clean (no errors) after all frontend changes:
+- frontend/src/api/client.ts (AvailabilityRecordOut.delegation_hours,
+  create/updateAvailability delegation_hours param,
+  getDelegationDefaultHours/setDelegationDefaultHours)
+- frontend/src/screens/EmployeeAvailability.tsx (NEW -- mechanical
+  extraction of AbsenceLog/AbsenceEditRow/AddAbsenceForm out of
+  EmployeeDetail.tsx, plus DELEGACJA hours field)
+- frontend/src/screens/SiteDelegationSettings.tsx (NEW -- small Site
+  default-hours section)
+- frontend/src/screens/ControlPanel.tsx (embeds SiteDelegationSettings)
+- frontend/src/screens/EmployeeDetail.tsx (1068 -> 766 lines; only imports
+  and embeds <EmployeeAvailability>, no further refactor of the rest of the
+  screen per brief section 11 -- still over the separately-flagged 600-line
+  limit, unchanged pre-existing condition, out of this Task's scope)
+
+=== NOT executed ===
+frontend/e2e/delegation-absence.spec.ts (NEW) was written but NOT run
+against a live dev server in this session -- narrower than a full
+"add employee -> zgłoś delegację" flow (covers only the self-contained
+Site delegation-default-hours save/reload, which needs no role catalog or
+roster setup). Full regression suite / benchmarks / frozen simulators not
+run -- not authorized/needed for this Task.

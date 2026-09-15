@@ -149,13 +149,19 @@ def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], de
                 warnings.append(f"DAY_SHIFT_OFF-01 SOFT: '{assignment.employee_id}' ma zmianę kończącą się w trakcie dnia wolnego ({end_date})")
 
 
-_RELEVANT_UNAVAILABILITY_KINDS = (AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED)
+_RELEVANT_UNAVAILABILITY_KINDS = (
+    AvailabilityKind.UNAVAILABLE_24H, AvailabilityKind.SICK_LEAVE, AvailabilityKind.LEAVE_GRANTED,
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 5: same whole-day
+    # validator gate as the other kinds above.
+    AvailabilityKind.DELEGACJA,
+)
 
 # arch/spec.md:393-394 freezes UNAVAILABLE_24H's code as "UNAVAILABLE-01" (not "UNAVAILABLE_24H-01", R26-2); every other kind's code matches its enum value.
 _CONDITION_CODE = {
     AvailabilityKind.UNAVAILABLE_24H: "UNAVAILABLE-01",
     AvailabilityKind.SICK_LEAVE: "SICK_LEAVE-01",
     AvailabilityKind.LEAVE_GRANTED: "LEAVE_GRANTED-01",
+    AvailabilityKind.DELEGACJA: "DELEGACJA-01",
 }
 
 

@@ -11,7 +11,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 
 from rota.balance import MissingTargetHoursError, compute_month_balance, compute_quarter_balance, quarter_start
-from rota.domain import AvailabilityKind, WorkBalance
+from rota.domain import AvailabilityKind, AvailabilityRecord, WorkBalance
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import get_current_availability_for_employee, list_active_overlapping_for_employees
 from rota.persistence.schedule_repository import get_current_assignments_for_employees
@@ -72,6 +72,34 @@ def absence_facts_for_employees(
                     DailyAbsenceFact(day.the_date, record.kind, day.source_mode, day.status, day.hours)
                 )
     return facts_by_employee
+
+
+def delegation_records_for_employee(
+    conn: sqlite3.Connection, employee_id: str, range_start: date, range_end: date,
+) -> list[AvailabilityRecord]:
+    """ROTA-DELEGACJA-ABSENCE-KIND brief.md section 8: this employee's active
+    DELEGACJA records overlapping [range_start, range_end], for
+    rota.planning.absence.delegation_hours_in_range. Not routed through
+    absence_facts_for_employee -- DELEGACJA is explicitly not excused
+    absence and carries no absence_reference_snapshot."""
+    return [
+        record for record in get_current_availability_for_employee(conn, employee_id)
+        if record.kind == AvailabilityKind.DELEGACJA and record.active
+        and record.start_date <= range_end and record.end_date >= range_start
+    ]
+
+
+def delegation_records_for_employees(
+    conn: sqlite3.Connection, employee_ids: list[str], range_start: date, range_end: date,
+) -> dict[str, list[AvailabilityRecord]]:
+    """Batch form of delegation_records_for_employee for a whole roster
+    (brief.md section 8: one SELECT for analytics instead of one call per
+    employee)."""
+    records_by_employee: dict[str, list[AvailabilityRecord]] = {}
+    for record in list_active_overlapping_for_employees(conn, employee_ids, range_start, range_end):
+        if record.kind == AvailabilityKind.DELEGACJA:
+            records_by_employee.setdefault(record.employee_id, []).append(record)
+    return records_by_employee
 
 
 def write_work_balance_target_in_open_transaction(
@@ -151,7 +179,10 @@ def reconstruct_month_balance(
     absence_facts = absence_facts_for_employee(conn, employee_id, month, month_end)
     if target_hours is None:
         raise MissingTargetHoursError(f"no work_balance_targets entry for employee {employee_id!r}, month {month}")
-    return compute_month_balance(employee_id, month, target_hours, assignments, absence_facts, quarter_balance_before)
+    delegation_records = delegation_records_for_employee(conn, employee_id, month, month_end)
+    return compute_month_balance(
+        employee_id, month, target_hours, assignments, absence_facts, quarter_balance_before, delegation_records,
+    )
 
 
 def reconstruct_quarter_balance(
@@ -167,7 +198,12 @@ def reconstruct_quarter_balance(
         month: hours for month, hours in list_work_balance_targets(conn, employee_id).items()
         if start_month <= month < end_of_quarter
     }
-    return compute_quarter_balance(employee_id, start_month, target_hours_by_month, assignments, absence_facts)
+    delegation_records = delegation_records_for_employee(
+        conn, employee_id, start_month, end_of_quarter - timedelta(days=1),
+    )
+    return compute_quarter_balance(
+        employee_id, start_month, target_hours_by_month, assignments, absence_facts, delegation_records,
+    )
 
 
 if __name__ == "__main__":

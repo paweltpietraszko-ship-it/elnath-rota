@@ -21,10 +21,20 @@ from rota.persistence import calendar_repository, employee_repository, schedule_
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
 from rota.persistence.schedule_errors import ScheduleVersionNotFound
-from rota.planning.absence import DetailedAbsencePeriodFact, DetailedDailyAbsenceFact, IncompleteAbsenceReferenceError, canonical_site_absence_days
+from rota.planning.absence import (
+    DetailedAbsencePeriodFact,
+    DetailedDailyAbsenceFact,
+    IncompleteAbsenceReferenceError,
+    IncompleteDelegationHoursError,
+    canonical_site_absence_days,
+    delegation_hours_in_range,
+)
 from rota.planning.work_periods import PeriodComponent, group_into_periods
 PLAN_PRIORITY = ("D1", "D2", "D3", "D4", "D5", "N1", "N2", "N3", "N4", "N5")
 BLANK = "–"
+# ROTA-DELEGACJA-ABSENCE-KIND brief.md section 10: frozen label for both
+# regimes -- never "D" (already OCHRONA's day-shift code).
+DELEGACJA_LABEL = "DEL"
 class ExportProblemError(Exception):
     def __init__(self, code: str, message: str):
         self.code, self.message = code, message; super().__init__(f"{code}: {message}")  # noqa: E702
@@ -183,9 +193,15 @@ def _assemble_export_model(conn: sqlite3.Connection, *, site_id: str, month: dat
     seen_employee_ids = collected[2]
     work_cells, adjacent_facts = _apply_24h_periods(collected, settings, days, extra_codes)
     absence_by_employee = _collect_absence(conn, days, local_ids, work_cells, settings, site_id)
-    roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)  # C-R15-3: a bound Site period keeps an Employee here after REPLAN
+    delegation_by_employee = _collect_delegation_records(conn, days, local_ids)
+    roster_ids = (
+        local_ids | seen_employee_ids | set(absence_by_employee) | set(delegation_by_employee)
+    )  # C-R15-3: a bound Site period keeps an Employee here after REPLAN
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
-    rows = _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, settings.reserve_hours, extra_hours)
+    rows = _build_rows(
+        roster_ids, employees, days, work_cells, absence_by_employee, delegation_by_employee,
+        settings.reserve_hours, extra_hours,
+    )
     provenance = _provenance_text(lineage, adjacent_facts)
     provenance_display = _provenance_display_text(lineage, adjacent_facts)
     return ExportModel(
@@ -246,11 +262,12 @@ def _assemble_ordinary_export_model(
     local_ids = {m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL and m.enabled}
     work_items, seen_employee_ids = _collect_ordinary_work_items(conn, days, daily_version, snapshots)
     absence_by_employee = _collect_ordinary_absence(conn, days, local_ids, work_items, site_id)
-    roster_ids = local_ids | seen_employee_ids | set(absence_by_employee)
+    delegation_by_employee = _collect_delegation_records(conn, days, local_ids)
+    roster_ids = local_ids | seen_employee_ids | set(absence_by_employee) | set(delegation_by_employee)
     employees = employee_repository.list_employees_by_ids(conn, list(roster_ids))
     current_version_id = lineage[-1].version_id
     positions = schedule_repository.get_schedule_version_employee_positions(conn, current_version_id)
-    rows = _build_ordinary_rows(roster_ids, employees, days, work_items, absence_by_employee, positions)
+    rows = _build_ordinary_rows(roster_ids, employees, days, work_items, absence_by_employee, delegation_by_employee, positions)
     provenance = _provenance_text(lineage, [])
     provenance_display = _provenance_display_text(lineage, [])
     return ExportModel(
@@ -300,6 +317,33 @@ def _format_ordinary_piece(start: datetime, end: datetime) -> str:
     return f"{_format_ordinary_hour(start)}–{_format_ordinary_hour(end)}{suffix}"
 def _ordinary_absence_word(kind: AvailabilityKind) -> str:
     return "Urlop" if kind == AvailabilityKind.LEAVE_GRANTED else "L4"
+def _collect_delegation_records(conn, days: list[date], local_ids: set) -> dict[str, list]:
+    """ROTA-DELEGACJA-ABSENCE-KIND brief.md section 10: DELEGACJA is not
+    excused absence and carries no absence_reference_snapshot (unlike
+    SICK_LEAVE/LEAVE_GRANTED). Returns each LOCAL employee's active
+    DELEGACJA AvailabilityRecords overlapping the month -- shared by both
+    regime renderers. Callers use the one canonical
+    rota.planning.absence.delegation_hours_in_range for any hours
+    arithmetic (brief section 7: this module must never repeat it)."""
+    month_start, month_end = days[0], days[-1]
+    all_employee_ids = [e.employee_id for e in employee_repository.list_employees(conn)]
+    records = list_active_overlapping_for_employees(conn, all_employee_ids, month_start, month_end)
+    result: dict[str, list] = {}
+    for r in records:
+        if r.kind == AvailabilityKind.DELEGACJA and r.employee_id in local_ids:
+            result.setdefault(r.employee_id, []).append(r)
+    return result
+def _delegation_days(records: list, month_start: date, month_end: date) -> set:
+    """Calendar-membership only (which days a cell must show DEL for) --
+    never an hours computation; see _collect_delegation_records' note."""
+    covered: set = set()
+    for r in records:
+        d = max(r.start_date, month_start)
+        end = min(r.end_date, month_end)
+        while d <= end:
+            covered.add(d)
+            d += timedelta(days=1)
+    return covered
 def _collect_ordinary_absence(conn, days: list[date], local_ids: set, work_days: dict, site_id: str) -> dict[str, list[tuple[date, str]]]:
     # Same canonical source and site-attribution/fail-closed rules as
     # OCHRONA's _collect_absence -- only the per-day presentation differs
@@ -349,7 +393,10 @@ def _ordinary_absence_days_for_employee(employee_id: str, canonical_days, work_d
             continue  # accepted rest, or no bound period at this Site -- no synthetic absence word (T23-42)
         pairs.append((day.the_date, _ordinary_absence_word(day.kind)))
     return pairs
-def _build_ordinary_rows(roster_ids, employees, days: list[date], work_items: dict, absence_by_employee: dict, positions: dict) -> list[OrdinaryRowCells]:
+def _build_ordinary_rows(
+    roster_ids, employees, days: list[date], work_items: dict, absence_by_employee: dict,
+    delegation_by_employee: dict, positions: dict,
+) -> list[OrdinaryRowCells]:
     rows = []
     for employee_id in roster_ids:
         employee = employees[employee_id]
@@ -362,6 +409,8 @@ def _build_ordinary_rows(roster_ids, employees, days: list[date], work_items: di
         position = positions.get(employee_id)
         position_label = position.role_name if position is not None else ""
         absence_by_date = dict(absence_by_employee.get(employee_id, []))
+        delegation_records = delegation_by_employee.get(employee_id, [])
+        delegation_days = _delegation_days(delegation_records, days[0], days[-1])
         emp_items = work_items.get(employee_id, {})
         day_cells: list[list[str]] = []
         day_absence_kind: list[Optional[str]] = []
@@ -369,9 +418,14 @@ def _build_ordinary_rows(roster_ids, employees, days: list[date], work_items: di
         for day in days:
             pieces = emp_items.get(day)
             if pieces:
+                if day in delegation_days:
+                    raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day}: real Assignment on an active DELEGACJA day")
                 day_cells.append([_format_ordinary_piece(start, end) for start, end, _ in pieces])
                 day_absence_kind.append(None)
                 total_hours += sum(round((end - start).total_seconds() / 3600) for start, end, _ in pieces)
+            elif day in delegation_days:
+                day_cells.append([DELEGACJA_LABEL])
+                day_absence_kind.append("DEL")
             elif day in absence_by_date:
                 word = absence_by_date[day]
                 day_cells.append([word])
@@ -379,6 +433,10 @@ def _build_ordinary_rows(roster_ids, employees, days: list[date], work_items: di
             else:
                 day_cells.append([BLANK])
                 day_absence_kind.append(None)
+        try:
+            total_hours += delegation_hours_in_range(delegation_records, employee_id, days[0], days[-1])
+        except IncompleteDelegationHoursError as exc:
+            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", str(exc)) from exc
         rows.append(OrdinaryRowCells(
             employee_id=employee_id, display_name=employee.display_name, position_label=position_label,
             day_cells=day_cells, day_absence_kind=day_absence_kind, total_hours=total_hours,
@@ -772,26 +830,45 @@ def _hours_of(code: str, reserve_hours: dict, extra_hours: dict) -> int:
         # sum as 0h -- its duration comes from the validated monthly
         # extra-code configuration, never guessed.
         return extra_hours[code]
+    if code == DELEGACJA_LABEL:
+        # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 7: DELEGACJA's hours
+        # are a per-record rate, never a fixed per-code value like the
+        # FROZEN_WORK_CODE_HOURS table above -- _build_rows adds the real
+        # total once via delegation_hours_in_range, not through this lookup.
+        return 0
     return _legal_uc_value(code, reserve_hours) or 0
-def _build_rows(roster_ids, employees, days, work_cells, absence_by_employee, reserve_hours, extra_hours) -> list[RowCells]:
+def _build_rows(
+    roster_ids, employees, days, work_cells, absence_by_employee, delegation_by_employee,
+    reserve_hours, extra_hours,
+) -> list[RowCells]:
     rows = []
     for employee_id in roster_ids:
         employee = employees[employee_id]
         absence_by_date = {d: (p, u) for d, p, u in absence_by_employee.get(employee_id, [])}
+        delegation_records = delegation_by_employee.get(employee_id, [])
+        delegation_days = _delegation_days(delegation_records, days[0], days[-1])
         emp_work = work_cells.get(employee_id, {})
         plan, wyk = [], []
         for day in days:
             if day in emp_work:
+                if day in delegation_days:
+                    raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day}: real Assignment on an active DELEGACJA day")
                 plan.append(emp_work[day]); wyk.append(emp_work[day])  # noqa: E702
+            elif day in delegation_days:
+                plan.append(DELEGACJA_LABEL); wyk.append(DELEGACJA_LABEL)  # noqa: E702
             elif day in absence_by_date:
                 plan_code, uc_code = absence_by_date[day]
                 plan.append(plan_code); wyk.append(uc_code)  # noqa: E702
             else:
                 plan.append(BLANK); wyk.append(BLANK)  # noqa: E702
+        try:
+            delegation_hours = delegation_hours_in_range(delegation_records, employee_id, days[0], days[-1])
+        except IncompleteDelegationHoursError as exc:
+            raise ExportProblemError("ABSENCE_REFERENCE_INCOMPLETE", str(exc)) from exc
         rows.append(RowCells(
             employee_id=employee_id, display_name=employee.display_name, plan=plan, wyk=wyk,
-            plan_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in plan),
-            wyk_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk),
+            plan_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in plan) + delegation_hours,
+            wyk_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk) + delegation_hours,
             urlop_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk if c.startswith("U")),
             l4_hours=sum(_hours_of(c, reserve_hours, extra_hours) for c in wyk if c.startswith("C")),
         ))
@@ -857,8 +934,17 @@ def _resolve_unicode_font() -> tuple[str, str, str]:
             return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
     raise ExportProblemError("PRINT_FONT_UNAVAILABLE", "no runtime-resolvable font covers the required Polish glyph set")
 # PDF rendering (Section 18) -- accepted Checkpoint A visual baseline: A3 landscape, headers, grid, weekend cue, full legend.
-_FILL = {"d": HexColor("#dcdcdc"), "n": HexColor("#a6a6a6"), "h24": HexColor("#595959"), "u": white, "c": white, "s1": white}
-_TEXT = {"d": black, "n": black, "h24": white, "u": black, "c": black, "off": HexColor("#8a8a8a"), "s1": black}
+_FILL = {
+    "d": HexColor("#dcdcdc"), "n": HexColor("#a6a6a6"), "h24": HexColor("#595959"), "u": white, "c": white,
+    "s1": white,
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 10: DELEGACJA must not
+    # collide with D/N -- its own fill, never the "d" family's.
+    "del": HexColor("#f2e2c4"),
+}
+_TEXT = {
+    "d": black, "n": black, "h24": white, "u": black, "c": black, "off": HexColor("#8a8a8a"), "s1": black,
+    "del": black,
+}
 _WEEKEND_BG = HexColor("#e2e2e2")
 _DOW = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Ni"]
 MARGIN, NAME_W, SUM_W = 24.0, 170.0, 48.0
@@ -873,6 +959,11 @@ def _family(code: str) -> str:
         return "h24"
     if primary == "S1":
         return "s1"
+    if primary == DELEGACJA_LABEL:
+        # ROTA-DELEGACJA-ABSENCE-KIND: checked before the D/N-family
+        # fallback below, which would otherwise misclassify "DEL" as the
+        # "D" (day-shift) family purely from its first letter.
+        return "del"
     if code == BLANK:
         return "off"
     return {"D": "d", "N": "n", "U": "u", "C": "c"}.get(primary[0], "off")
@@ -933,6 +1024,14 @@ def _draw_cell(c, x, y, row_h, day_w, code, bold) -> None:
         c.setStrokeColor(black); c.setDash(1, 1.5)  # noqa: E702
         c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
         c.setDash()
+    elif fam == "del":
+        # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 10: its own border
+        # pattern (distinct from U/C/S1) plus the "del" fill/text colors and
+        # the literal "DEL" text -- unambiguous against D/N even in
+        # black-and-white print.
+        c.setStrokeColor(black); c.setDash(3, 2)  # noqa: E702
+        c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+        c.setDash()
     c.setFillColor(_TEXT.get(fam, black)); c.setFont(bold, 6.5)  # noqa: E702
     c.drawCentredString(x + day_w / 2, y - row_h + 5, "" if code == BLANK or code.endswith("~") else code)
     c.setFillColor(black)
@@ -966,12 +1065,15 @@ def _used_codes(model: ExportModel) -> list[str]:
     ordered += [c for c in ("U1", "U2", "U3", "U4", "U5") if c in used]
     ordered += [c for c in ("C1", "C2", "C3", "C4", "C5") if c in used]
     ordered += [c for c in ("24", "S1") if c in used]
+    ordered += [c for c in (DELEGACJA_LABEL,) if c in used]
     return ordered
 def _legend_entry_text(code: str, model: ExportModel) -> str:
     if code == "24":
         return "24 = pełny okres 24h w dniu rozpoczęcia"
     if code == "S1":
         return "S1 = szkolenie okresowe (ręcznie ustalane przez koordynatora, godziny pracy)"
+    if code == DELEGACJA_LABEL:
+        return "DEL = delegacja (dzień zablokowany dla automatu; godziny wg zapisanego rekordu, liczą się jako praca)"
     if code in site_repository.FROZEN_WORK_CODE_HOURS:
         return f"{code} = {site_repository.FROZEN_WORK_CODE_HOURS[code]}h"
     if code in model.extra_work_codes:  # ROTA-T056: monthly D6+/N6+
@@ -982,7 +1084,7 @@ def _legend_entry_text(code: str, model: ExportModel) -> str:
 _LEGEND_TITLE = "Legenda — użyte w tym wydruku oznaczenia (wartości właściciela, nie normalizowane)"
 _LEGEND_FOOTNOTES = (
     "Numer przy literze NIE oznacza wspólnej wartości dla wszystkich liter (np. D4=2h, N4=24h).",
-    "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana, S1 = obwódka kropkowana — czytelne bez koloru.",
+    "Druk czarno-biały: D/N/24 = gęstość wypełnienia, U = obwódka ciągła, C = obwódka przerywana, S1 = obwódka kropkowana, DEL = obwódka kreskowana — czytelne bez koloru.",
 )
 def _legend_required_height(n_entries: int) -> float:
     # title + ceil(n/2) rows of a 2-column list + fixed footnotes; 0 entries never happens (T56-08 guarantees at least the S1/24/normal work codes if any row exists).
@@ -1079,7 +1181,8 @@ ORD_LEGEND_LINES = (
     "Kilka niezależnych zmian jednego dnia — osobne linie w tej samej komórce, w kolejności chronologicznej.",
     "Zmiana przechodząca przez północ: godzina końcowa z dopiskiem (+1) oznacza następną dobę (np. 22–6(+1)).",
     "Nieobecność: pogrubiona pełna ramka = Urlop, przerywana ramka = L4, bez wypełnienia. „–” = zwykły dzień bez pracy.",
-    "„Godz.” = suma godzin rzeczywistej pracy w miesiącu (bez godzin absencji).",
+    "DEL = delegacja (kropkowana ramka): dzień zablokowany dla automatu, ale jego godziny liczą się jak realna praca.",
+    "„Godz.” = suma godzin rzeczywistej pracy w miesiącu, wliczając godziny delegacji (bez godzin absencji Urlop/L4).",
 )
 def _ordinary_position_shades(rows: "tuple[OrdinaryRowCells, ...]") -> dict[str, tuple]:
     # Brief section 5/11: deterministic for however many organizational
@@ -1141,6 +1244,13 @@ def _draw_ordinary_row(c, y, row_h, day_w, row: "OrdinaryRowCells", days, regula
             c.setLineWidth(0.4)
         elif absence_kind == "L4":
             c.setStrokeColor(black); c.setDash(2, 1.5)  # noqa: E702
+            c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
+            c.setDash(); c.setLineWidth(0.4)  # noqa: E702
+        elif absence_kind == "DEL":
+            # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 10: a third,
+            # visually distinct border -- DELEGACJA counts as real work
+            # hours, so it must not read as Urlop (solid) or L4 (dashed).
+            c.setStrokeColor(black); c.setDash(1, 1.5)  # noqa: E702
             c.rect(x + 1, y - row_h + 1, day_w - 2, row_h - 2, stroke=1, fill=0)
             c.setDash(); c.setLineWidth(0.4)  # noqa: E702
         if not is_blank:

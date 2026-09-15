@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
-from rota.application.durable_inputs import update_site_profile
+from rota.application.durable_inputs import update_site, update_site_profile
 from rota.domain import ShiftKind, SitePlanningRegime, StandardShift
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_repository import get_site
@@ -186,5 +186,42 @@ def put_shift_catalog(site_id: str, payload: ShiftCatalogIn, conn=Depends(get_co
             conn, coordinator_id=coordinator_id, site_id=site_id, profile=updated_profile,
             responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+# --- ROTA-DELEGACJA-ABSENCE-KIND brief.md section 4: one narrow Site-default resource ---
+
+
+class DelegationDefaultHoursOut(BaseModel):
+    delegation_default_hours: int | None
+
+
+class DelegationDefaultHoursIn(BaseModel):
+    delegation_default_hours: int
+
+
+@router.get("/{site_id}/delegation-default-hours", response_model=DelegationDefaultHoursOut)
+def get_delegation_default_hours(
+    site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id),
+) -> DelegationDefaultHoursOut:
+    try:
+        site = get_site(conn, site_id)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+    return DelegationDefaultHoursOut(delegation_default_hours=site.delegation_default_hours)
+
+
+@router.put("/{site_id}/delegation-default-hours", status_code=204)
+def put_delegation_default_hours(
+    site_id: str, payload: DelegationDefaultHoursIn,
+    conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id),
+) -> None:
+    try:
+        if payload.delegation_default_hours <= 0:
+            raise ValueError("delegation_default_hours must be a positive integer")
+        site = get_site(conn, site_id)
+        updated_site = replace(site, delegation_default_hours=payload.delegation_default_hours)
+        update_site(conn, coordinator_id=coordinator_id, site_id=site_id, site=updated_site)
     except Exception as exc:
         raise to_http_exception(exc) from exc

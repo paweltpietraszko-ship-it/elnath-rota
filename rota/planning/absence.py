@@ -277,5 +277,47 @@ def canonical_site_absence_days(
     return tuple(days)
 
 
+# ---------------------------------------------------------------------------
+# ROTA-DELEGACJA-ABSENCE-KIND brief.md sections 7/8: the one canonical
+# delegation-hours projection. Callers (rota.balance,
+# rota/persistence/work_balance_repository.py, rota/application/
+# schedule_export.py) must call this, never re-sum delegation_hours
+# themselves -- DELEGACJA is explicitly NOT excused absence (section 6), so
+# it never touches EXCUSED_ABSENCE_KINDS/EXCUSED_ABSENCE_HOURS_PER_DAY above.
+# ---------------------------------------------------------------------------
+
+
+class IncompleteDelegationHoursError(Exception):
+    """Raised when an active DELEGACJA record intersecting the requested
+    range carries no delegation_hours -- fail closed, never guessed from
+    Site.delegation_default_hours or any other source (brief section 7)."""
+
+
+def delegation_hours_in_range(
+    records: list[AvailabilityRecord], employee_id: str, range_start: date, range_end: date,
+) -> int:
+    """Sum of DELEGACJA hours for employee_id over the inclusive
+    [range_start, range_end] window: each day an active DELEGACJA record
+    covers within the window contributes that record's own
+    `delegation_hours` (a per-day rate, brief section 3.2/4). Overlapping
+    DELEGACJA records for the same employee are summed as-is -- brief
+    section 7 explicitly excludes designing any special overlap semantics,
+    since it is not a real product scenario."""
+    total = 0
+    for record in records:
+        if record.employee_id != employee_id or not record.active or record.kind != AvailabilityKind.DELEGACJA:
+            continue
+        overlap_start = max(record.start_date, range_start)
+        overlap_end = min(record.end_date, range_end)
+        if overlap_start > overlap_end:
+            continue
+        if record.delegation_hours is None:
+            raise IncompleteDelegationHoursError(
+                f"{record.availability_id}: active DELEGACJA record has no delegation_hours"
+            )
+        total += record.delegation_hours * ((overlap_end - overlap_start).days + 1)
+    return total
+
+
 if __name__ == "__main__":
     print("absence module OK")

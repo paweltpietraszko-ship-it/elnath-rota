@@ -84,6 +84,12 @@ class AvailabilityRecordOut(BaseModel):
     # UNAVAILABLE_TIME_WINDOW; None for every other (whole-day) kind.
     start_time: str | None = None
     end_time: str | None = None
+    # ROTA-DELEGACJA-ABSENCE-KIND (owner-confirmed TASK_SCOPE extension,
+    # 2026-09-15): set only for kind == DELEGACJA. Required read-side --
+    # the write boundary requires this value on every append of an
+    # existing DELEGACJA family (including deactivation), so the frontend
+    # must have it to resubmit a valid update.
+    delegation_hours: int | None = None
 
 
 class EmployeeDetailOut(BaseModel):
@@ -188,6 +194,7 @@ def get_employee_detail(employee_id: str, site_id: str, conn=Depends(get_conn)) 
                 start_date=r.start_date.isoformat(), end_date=r.end_date.isoformat(), active=r.active,
                 start_time=r.start_time.strftime("%H:%M") if r.start_time is not None else None,
                 end_time=r.end_time.strftime("%H:%M") if r.end_time is not None else None,
+                delegation_hours=r.delegation_hours,
             )
             for r in availability
         ],

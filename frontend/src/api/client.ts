@@ -262,7 +262,7 @@ export interface MembershipOut {
 
 export interface AvailabilityRecordOut {
   availability_id: string;
-  kind: "DAY_SHIFT_OFF" | "UNAVAILABLE_24H" | "LEAVE_PLAN" | "LEAVE_GRANTED" | "SICK_LEAVE" | "UNAVAILABLE_TIME_WINDOW";
+  kind: "DAY_SHIFT_OFF" | "UNAVAILABLE_24H" | "LEAVE_PLAN" | "LEAVE_GRANTED" | "SICK_LEAVE" | "UNAVAILABLE_TIME_WINDOW" | "DELEGACJA";
   start_date: string;
   end_date: string;
   active: boolean;
@@ -270,6 +270,8 @@ export interface AvailabilityRecordOut {
   // UNAVAILABLE_TIME_WINDOW ("HH:MM"); null for every other kind.
   start_time: string | null;
   end_time: string | null;
+  // ROTA-DELEGACJA-ABSENCE-KIND: set only for kind == DELEGACJA.
+  delegation_hours: number | null;
 }
 
 export interface EmployeeDetailOut {
@@ -868,13 +870,22 @@ export const api = {
   // Availability -- Ogólna dostępność + Zgłoś nieobecność (same mechanism)
   createAvailability: (
     employeeId: string,
-    payload: { site_id: string; availability_id: string; kind: string; start_date: string; end_date: string; start_time?: string | null; end_time?: string | null },
+    payload: { site_id: string; availability_id: string; kind: string; start_date: string; end_date: string; start_time?: string | null; end_time?: string | null; delegation_hours?: number | null },
   ) => req<void>(`/workspace/employees/${employeeId}/availability`, { method: "POST", body: JSON.stringify(payload) }),
   updateAvailability: (
     employeeId: string,
     availabilityId: string,
-    payload: { site_id: string; kind: string; start_date: string; end_date: string; active: boolean; start_time?: string | null; end_time?: string | null },
+    payload: { site_id: string; kind: string; start_date: string; end_date: string; active: boolean; start_time?: string | null; end_time?: string | null; delegation_hours?: number | null },
   ) => req<void>(`/workspace/employees/${employeeId}/availability/${availabilityId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+
+  // ROTA-DELEGACJA-ABSENCE-KIND: Site's current default delegation hours.
+  getDelegationDefaultHours: (siteId: string) =>
+    req<{ delegation_default_hours: number | null }>(`/workspace/sites/${siteId}/delegation-default-hours`),
+  setDelegationDefaultHours: (siteId: string, delegationDefaultHours: number) =>
+    req<void>(`/workspace/sites/${siteId}/delegation-default-hours`, {
+      method: "PUT",
+      body: JSON.stringify({ delegation_default_hours: delegationDefaultHours }),
+    }),
 
   // Target hours
   getTargetHours: (employeeId: string, month: string) =>

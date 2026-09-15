@@ -182,6 +182,7 @@ def _availability_state(record) -> dict | None:
         # shared serializer for one field.
         "start_time": record.start_time.isoformat() if record.start_time is not None else None,
         "end_time": record.end_time.isoformat() if record.end_time is not None else None,
+        "delegation_hours": record.delegation_hours,
     }
 
 
@@ -201,6 +202,7 @@ def append_availability(
     start_date: date, end_date: date, active: bool, note: str | None = None,
     responds_to_decision_required_id: str | None = None,
     start_time: time | None = None, end_time: time | None = None,
+    delegation_hours: int | None = None,
 ):
     """Covers append/supersede (a new version in the same family) and
     deactivate (active=False) alike -- the append-only chain primitive
@@ -220,7 +222,7 @@ def append_availability(
         record = append_availability_version_in_open_transaction(
             conn, availability_id=availability_id, employee_id=employee_id, kind=kind,
             start_date=start_date, end_date=end_date, active=active, note=normalized_note,
-            start_time=start_time, end_time=end_time,
+            start_time=start_time, end_time=end_time, delegation_hours=delegation_hours,
         )
         capture_and_check_in_open_transaction(
             conn, availability_version_id=record.availability_version_id, employee_id=employee_id, kind=kind,

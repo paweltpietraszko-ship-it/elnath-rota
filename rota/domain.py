@@ -51,6 +51,11 @@ class AvailabilityKind(str, Enum):
     # day in [start_date, end_date]); every other kind keeps both None and
     # its existing whole-day semantics unchanged.
     UNAVAILABLE_TIME_WINDOW = "UNAVAILABLE_TIME_WINDOW"
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 3.1: whole-day kind, both
+    # regimes. Blocks automatic Assignment like other whole-day kinds, but
+    # its `delegation_hours` (section 3.2) count as real planned work --
+    # never excused absence (section 6), never target-reducing.
+    DELEGACJA = "DELEGACJA"
 
 
 class MembershipKind(str, Enum):
@@ -175,6 +180,12 @@ class Site:
     # No default -- omission must never silently become ORDINARY; every
     # constructor, production or test, must supply an explicit value.
     planning_regime: SitePlanningRegime
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 4: current default hours
+    # prefilled when a coordinator creates a new DELEGACJA record on this
+    # Site (never re-applied to existing records). NULL/None is a legit
+    # legacy state -- blocks creating a DELEGACJA via UI/API until
+    # configured, never guessed as 7/8h.
+    delegation_default_hours: Optional[int] = None
 
 
 @dataclass
@@ -307,6 +318,11 @@ class AvailabilityRecord:
     # UNAVAILABLE_TIME_WINDOW; None for every other (whole-day) kind.
     start_time: Optional[time] = None
     end_time: Optional[time] = None
+    # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 3.2: set only for kind ==
+    # DELEGACJA (positive int, historical snapshot -- never recomputed from
+    # Site.delegation_default_hours after the fact); None for every other
+    # kind.
+    delegation_hours: Optional[int] = None
 
 
 @dataclass

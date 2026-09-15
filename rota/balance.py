@@ -30,8 +30,8 @@ from __future__ import annotations
 import calendar
 from datetime import date
 
-from rota.domain import Assignment, AssignmentRole, AssignmentState, WorkBalance
-from rota.planning.absence import DailyAbsenceFact, canonical_hours_in_range
+from rota.domain import Assignment, AssignmentRole, AssignmentState, AvailabilityRecord, WorkBalance
+from rota.planning.absence import DailyAbsenceFact, canonical_hours_in_range, delegation_hours_in_range
 
 
 class MissingTargetHoursError(Exception):
@@ -75,7 +75,7 @@ def _month_end(month: date) -> date:
 def compute_month_balance(
     employee_id: str, month: date, target_hours: int,
     assignments: list[Assignment], absence_facts: list[DailyAbsenceFact],
-    quarter_balance_before: int = 0,
+    quarter_balance_before: int = 0, delegation_records: list[AvailabilityRecord] = (),
 ) -> WorkBalance:
     """Compute one month's WorkBalance. `quarter_balance_before` is the
     running balance carried in from earlier months of the same calendar
@@ -99,9 +99,18 @@ def compute_month_balance(
 
     Raises rota.planning.absence.IncompleteAbsenceReferenceError (propagated
     from canonical_hours_in_range) if any date's winning absence fact this
-    month is MISSING/AMBIGUOUS -- never guessed."""
+    month is MISSING/AMBIGUOUS -- never guessed.
+
+    ROTA-DELEGACJA-ABSENCE-KIND brief.md section 8: `delegation_records`
+    (this employee's active DELEGACJA AvailabilityRecords, at least covering
+    this month) add to `planned_hours` via the one canonical
+    rota.planning.absence.delegation_hours_in_range projection -- DELEGACJA
+    is not excused absence, so it never touches `absence_hours`/
+    `effective_target` below. Defaults to `()` so pre-DELEGACJA callers are
+    unaffected."""
     realized_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.REALIZED)
     planned_hours = _hours_in_month(assignments, employee_id, month, AssignmentState.PLANNED)
+    planned_hours += delegation_hours_in_range(delegation_records, employee_id, month, _month_end(month))
     absence_hours = canonical_hours_in_range(absence_facts, month, _month_end(month))
     effective_target = max(0, target_hours - absence_hours)
     month_balance = (realized_hours + planned_hours) - effective_target
@@ -122,6 +131,7 @@ def compute_month_balance(
 def compute_quarter_balance(
     employee_id: str, quarter_first_month: date, target_hours_by_month: dict[date, int],
     assignments: list[Assignment], absence_facts: list[DailyAbsenceFact],
+    delegation_records: list[AvailabilityRecord] = (),
 ) -> list[WorkBalance]:
     """Compute WorkBalance for every month of one calendar quarter in order,
     carrying the running balance forward. The last entry's quarter_balance is
@@ -142,7 +152,7 @@ def compute_quarter_balance(
             )
         target_hours = target_hours_by_month[month]
         balance = compute_month_balance(
-            employee_id, month, target_hours, assignments, absence_facts, running_balance,
+            employee_id, month, target_hours, assignments, absence_facts, running_balance, delegation_records,
         )
         running_balance = balance.quarter_balance
         balances.append(balance)
