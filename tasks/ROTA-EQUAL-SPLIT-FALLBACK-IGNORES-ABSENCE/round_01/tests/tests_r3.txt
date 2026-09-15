@@ -1,0 +1,42 @@
+ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE — IMPLEMENTATION AUDIT R3
+
+WYNIK: FAIL
+AUDITED SHA: cdf389c42b04e2c3e433ec35e65cff6a88a78f2b
+BASE: c4fad96788bf13f14b1a63e0dc9e6071d17e4355
+
+FINDING R3-01 — zapisany wcześniej podgląd zasłania blocker brakujących godzin
+
+TRACE
+- brief.md, „Wspólny kontrakt blockera”: PLAN i cała rodzina REPLAN mają
+  zwrócić TARGET_HOURS_REQUIRED z missing_target_hours.
+- brief.md, TASK_SCOPE dla MonthlyPlanning.tsx: ekran renderuje wspólny blocker
+  i nie uruchamia planowania do czasu uzupełnienia celów.
+
+OWNERSHIP
+- frontend/src/screens/MonthlyPlanning.tsx jest wskazanym w kontrakcie ownerem
+  prezentacji tego blockera.
+
+REPRO NA EXACT SHA
+- W prawdziwym Chromium otwarto ekran z istniejącym, niezatwierdzonym
+  plan_preview, po czym „Szukaj dalej” otrzymało odpowiedź
+  TARGET_HOURS_REQUIRED z missing_target_hours dla „Jan Testowy”.
+- Żądanie PLAN zostało wykonane raz. Oczekiwany tekst „brakuje godzin
+  docelowych” nie pojawił się; ekran nadal pokazywał stary
+  „Niezatwierdzony wynik PLAN” i starego kandydata.
+- Przyczyna jest lokalna: po setPlanResult(result)
+  loadUnlessFreshPreviewUnpersisted() wywołuje load() dla blockera, a efekt
+  view.plan_preview ponownie ustawia planResult na FEASIBLE.
+
+SKUTEK DLA UŻYTKOWNIKA
+- Koordynator nie widzi, dla kogo trzeba uzupełnić godziny, i dostaje stary
+  wynik zamiast instrukcji naprawy. Powtórzenie operacji prowadzi do tego
+  samego blockera po stronie API.
+
+WARSTWY AUDYTU
+- diff produktu na exact SHA;
+- wymagane WHERE_MAP dla nazwanych ownerów i symboli;
+- jeden celowany reproduktor UI w Chromium;
+- testy implementera potraktowano wyłącznie jako dowód pomocniczy.
+
+Nie uruchamiano pełnej regresji ani dodatkowej macierzy — finding jest wąski,
+jednoznaczny i odtworzony na ownerze UI.
