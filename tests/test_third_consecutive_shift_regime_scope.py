@@ -14,17 +14,41 @@ solver call site + validator_checks_patterns.py), never REST/WEEKLY-REST/
 LOAD code, so their own existing test matrices are the isolation proof."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time
 
-from rota.application import manual_edit, plan_ops
-from rota.domain import Employee, WorkBalance
+from rota.application import manual_edit
+from rota.domain import (
+    Assignment,
+    AssignmentRole,
+    AssignmentState,
+    CalendarDay,
+    Coordinator,
+    CoordinatorSiteAssociation,
+    Employee,
+    MembershipKind,
+    ReadinessSource,
+    ReadinessState,
+    ShiftDemand,
+    ShiftKind,
+    Site,
+    SiteMembership,
+    SitePlanningRegime,
+    SiteProfile,
+    StandardShift,
+    WorkBalance,
+)
+from rota.persistence import schedule_lifecycle
+from rota.persistence.calendar_repository import save_calendar_day
+from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
 from rota.persistence.db import connect
+from rota.persistence.employee_repository import save_employee, save_site_membership
 from rota.persistence.schedule_repository import get_schedule_snapshot
+from rota.persistence.site_profile_repository import save_site_profile
+from rota.persistence.site_repository import save_site
 from rota.planning.engine import plan
 from rota.planning.solver import solve
 from rota.planning.validator import validate
 from tests.support.minimal_state import MONTH, base_state
-from tests.support.t009_fixtures import seed_real_object
 from tests.test_t032_soft_ranking import _d_demand, _membership
 
 
@@ -50,57 +74,67 @@ def test_tcso_03_ordinary_three_consecutive_days_feasible():
     assert not any(v.rule == "THIRD-CONSECUTIVE-SHIFT-01" for v in report.violation_details)
 
 
+def _tcso05_ordinary_fixture(conn, *, site_id: str, profile_id: str, coord_id: str, month: date) -> None:
+    """Deterministic ORDINARY bootstrap via the same raw persistence
+    primitives tests/support/t009_fixtures.py uses -- never durable_inputs
+    (its update_membership enforces CONFIGURABLE-ROLES' position-role
+    requirement, irrelevant to this HARD-scope test) and never
+    benchmarks/ (Codex audit R2, tests_r2.txt R2-01: the frozen benchmark
+    scenario generator is not an allowed audit dependency, and its
+    seed-dependent roster shape let this test finish via an empty
+    `return` without ever exercising the manual correction)."""
+    save_site_profile(conn, SiteProfile(
+        profile_id, profile_id, True, [StandardShift(ShiftKind.D, time(6, 0), time(18, 0), False, 1)],
+        False, False, False, False, 1, 999,
+    ))
+    save_site(conn, Site(site_id, profile_id, site_id, True, planning_regime=SitePlanningRegime.ORDINARY))
+    save_coordinator(conn, Coordinator(coord_id, "Coord", True))
+    save_coordinator_site_association(conn, CoordinatorSiteAssociation(coord_id, site_id, True))
+    save_employee(conn, Employee("E1", "E1", date(2020, 1, 1), None, False))
+    save_site_membership(conn, SiteMembership(
+        "E1", site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
+    ))
+    for day in range(1, 32):
+        save_calendar_day(conn, CalendarDay(date(month.year, month.month, day), False))
+
+
 def test_tcso_05_ordinary_manual_correction_never_materializes_the_deviation():
-    """seed_real_object's own default Site is ORDINARY (benchmarks/
-    real_object_production.py) -- a manually forced third-consecutive-day
-    Assignment must not materialize a THIRD-CONSECUTIVE-SHIFT-01 Deviation
-    here, unlike test_t058.py's T58-13 (explicitly switched to OCHRONA)."""
-    from rota.domain import AssignmentRole, AssignmentState, Assignment
-
+    """Two already-fixed consecutive PRIMARY days for E1 (day 1, day 2) plus
+    an open third-day demand (day 3) -- forcing E1 onto day 3 via a manual
+    correction must not materialize a THIRD-CONSECUTIVE-SHIFT-01 Deviation
+    for this ORDINARY Site, unlike test_t058.py's T58-13 (explicitly
+    switched to OCHRONA, where the same shape does materialize it)."""
+    site_id, profile_id, coord_id, month = "TCSO-SITE", "TCSO-PROF", "TCSO-COORD", date(2026, 8, 1)
     conn = connect(":memory:")
-    pstate = seed_real_object(conn, case_id="tcso-manual", month=date(2026, 8, 1), seed=5058)
-    site_id = pstate.site.site_id
-    result = plan_ops.plan_month(
-        conn, site_id=site_id, month=date(2026, 8, 1), coordinator_id="COORD-1", effective_from=date(2026, 8, 1),
-    )
-    assert result.status == "FEASIBLE"
-    v1 = plan_ops.select_candidate(
-        conn, site_id=site_id, month=date(2026, 8, 1), candidate=result.candidates[0], coordinator_id="COORD-1",
-    )
-    snapshot = get_schedule_snapshot(conn, v1.version_id)
-    dates_by_employee: dict[str, set] = {}
-    for a in snapshot.assignments:
-        if a.role == AssignmentRole.PRIMARY and a.covers_demand_id:
-            dates_by_employee.setdefault(a.employee_id, set()).add(a.start_datetime.date())
-    demands_by_date = {}
-    for d in snapshot.shift_demands:
-        demands_by_date.setdefault(d.start_datetime.date(), []).append(d)
+    _tcso05_ordinary_fixture(conn, site_id=site_id, profile_id=profile_id, coord_id=coord_id, month=month)
 
-    employee_id = None
-    third_day_demand = None
-    for candidate_employee, dates in dates_by_employee.items():
-        for d in dates:
-            if (d + timedelta(days=1)) in dates and (d + timedelta(days=2)) not in dates:
-                for demand in demands_by_date.get(d + timedelta(days=2), []):
-                    employee_id = candidate_employee
-                    third_day_demand = demand
-                    break
-            if third_day_demand is not None:
-                break
-        if third_day_demand is not None:
-            break
-    if third_day_demand is None:
-        return  # this seed's roster shape offers no same-employee 2-consecutive-days + open 3rd day -- nothing to force
+    def _demand(day: int) -> ShiftDemand:
+        return ShiftDemand(
+            f"D-{day}", "V0", datetime(month.year, month.month, day, 6), datetime(month.year, month.month, day, 18), 1,
+        )
+
+    def _assignment(day: int) -> Assignment:
+        return Assignment(
+            f"A-{day}", "V0", "E1", datetime(month.year, month.month, day, 6), datetime(month.year, month.month, day, 18),
+            AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, f"D-{day}", None,
+        )
+
+    schedule_lifecycle.create_schedule_version(
+        conn, version_id="V0", site_id=site_id, month=month, parent_version_id=None,
+        created_at=datetime(month.year, month.month, 1, 12), created_by=coord_id, applied_rule_version_ids=[],
+        shift_demands=[_demand(1), _demand(2), _demand(3)], assignments=[_assignment(1), _assignment(2)],
+        deviations=[], effective_from=month,
+    )
     forced = Assignment(
-        f"AS-forced-{third_day_demand.demand_id}", "", employee_id, third_day_demand.start_datetime,
-        third_day_demand.end_datetime, AssignmentRole.PRIMARY, AssignmentState.PLANNED, False,
-        third_day_demand.demand_id, None,
+        "A-3-forced", "", "E1", datetime(month.year, month.month, 3, 6), datetime(month.year, month.month, 3, 18),
+        AssignmentRole.PRIMARY, AssignmentState.PLANNED, False, "D-3", None,
     )
     v2 = manual_edit.apply_manual_correction(
-        conn, site_id=site_id, month=date(2026, 8, 1), coordinator_id="COORD-1",
-        effective_from=date(2026, 8, 2), upsert_assignments=[forced],
+        conn, site_id=site_id, month=month, coordinator_id=coord_id,
+        effective_from=date(month.year, month.month, 2), upsert_assignments=[forced],
     )
     v2_snapshot = get_schedule_snapshot(conn, v2.version_id)
+    assert any(a.assignment_id == "A-3-forced" and a.employee_id == "E1" for a in v2_snapshot.assignments)
     assert not any(d.source_reference == "THIRD-CONSECUTIVE-SHIFT-01" for d in v2_snapshot.deviations)
 
 
