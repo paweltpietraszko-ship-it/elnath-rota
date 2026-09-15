@@ -6,10 +6,10 @@ przeczytać w całości `CODEX_START_HERE.md`. To przekazanie oczekiwanego sposo
 współpracy z OWNEREM; nie zastępuje specyfikacji ani kontraktu Tasku.
 
 ## BOARD
-Na początku każdego zadania przeczytaj `BOARD.md` (kolejka przekazań
-CC ↔ Codex: kto/co/branch/SHA/status/gdzie raport). To dziennik
-techniczny, nie źródło ustaleń produktowych — te nadal tylko w
-brief.md/kontrakcie danego Tasku.
+Na początku zadania przeczytaj nagłówek `BOARD.md` i tylko aktualny wiersz
+danego Tasku. Inne wiersze czytaj wyłącznie wtedy, gdy aktualny wiersz lub brief
+wskazuje konkretną zależność. To dziennik techniczny, nie źródło ustaleń
+produktowych — te nadal tylko w brief.md/kontrakcie danego Tasku.
 
 ## ROLE_AND_ORACLE
 - ROLE = independent tester/auditor; NOT product/architecture author.
@@ -17,6 +17,28 @@ brief.md/kontrakcie danego Tasku.
 - TESTS verify PRODUCT_TRUTH; they never create/broaden it.
 - If a brief is untestable after 1–2 correction rounds: report and STOP; do not
   use repeated FAIL/WYMAGA_DECYZJI rounds as design work.
+
+## BRIEF_ONLY_PRECHECK
+TRIGGER = Task ma brief/kontrakt, ale nie ma jeszcze implementacji do audytu.
+
+Sprawdź wyłącznie:
+1. czy zachowanie wynika z PRODUCT_TRUTH;
+2. czy kontrakt jest jednoznaczny i testowalny;
+3. czy wskazuje istniejącego ownera albo minimalny nowy szew;
+4. czy implementacja może ruszyć bez nowej decyzji produktowej.
+
+W tym trybie NIE stosuj `INDEPENDENT_AUDIT`: nie analizuj diffu produktu, nie
+uruchamiaj testów, reproduktorów, pionów ani regresji i nie mapuj alternatywnych
+ścieżek wykonania. Kod sprawdzaj punktowo tylko wtedy, gdy konkretne zdanie
+briefu wymaga potwierdzenia nazwy istniejącego ownera, pliku lub możliwości
+ponownego użycia. Użyj najpierw jednego celowanego wyszukania i przeczytaj tylko
+trafiony fragment; nie rozszerzaj poszukiwania po znalezieniu wystarczającego
+dowodu.
+
+OUTPUT = `PASS PREIMPLEMENTATION` albo jedna zamknięta lista konkretnych braków
+kontraktu. Nie projektuj implementacji za architekta. Jeżeli rozstrzygnięcie
+wymagałoby szerokiego audytu kodu, wskaż brak w briefie zamiast wykonywać ten
+audyt przed implementacją.
 
 ## SYNTHETIC_DATA_NOT_PRODUCT_TRUTH
 OWNER_RULING_2026-09-13: dane obecne w programie są syntetyczne/testowe i nie
@@ -111,12 +133,12 @@ WHERE_MAP:
 TRIGGER = nontrivial Task contract before implementation starts.
 
 Run exactly once, after OWNER decisions are frozen:
-1. For every proposed entity, endpoint, response field, helper, UI state and
-   test, identify `SOURCE` in PRODUCT_TRUTH and `NECESSITY` as one of:
-   OWNER-visible result; enforcement at the owning boundary; minimal adapter
-   to an existing owner.
-2. Search the repository before adding. Reuse existing owners; remove duplicate
-   validation, connectors, response enrichment and lower-layer test matrices.
+1. Dla każdej nowej odpowiedzialności produkcyjnej wskazanej w briefie ustal
+   `SOURCE` w PRODUCT_TRUTH i `NECESSITY`: wynik widoczny dla OWNERA, enforcement
+   na właściwej granicy albo minimalny adapter do istniejącego ownera.
+2. Punktowo potwierdź w repozytorium tylko ownerów i szwy nazwane w briefie.
+   Reuse existing owners; remove duplicate validation, connectors, response
+   enrichment and lower-layer test matrices. Nie twórz kompletnej mapy kodu.
 3. Integration tests prove the new seam and its failure class. They do not
    repeat complete contracts already owned and tested below that seam.
 4. Do not remove safety, recovery, auditability or error-prevention merely to
@@ -159,19 +181,26 @@ Ambiguous TRACE/OWNERSHIP => `WYMAGA_DECYZJI`, not FAIL. Record accepted
 behavior/false positives; reopen only with new contradiction or OWNER ruling.
 
 ## INDEPENDENT_AUDIT
-Implementer tests = supporting evidence, not verdict. On exact SHA run:
-1. minimal independent reproducer for each named finding;
-2. full Task matrix: authorized equivalence classes, boundaries, sibling and
-   alternate paths of the same bug class;
-3. vertical test through the real relevant chain; it cannot create a contract;
-4. after a narrow fix, targeted tests of the changed code and its relevant real
-   vertical path are required. Full repo regression/gates are optional and may
-   run only after explicit OWNER approval; propose them only when scope/risk
-   gives a concrete reason.
+TRIGGER = dostarczono implementację na exact SHA. Nie stosuje się do samego
+briefu przed implementacją.
 
-Keep original reproducer, then generalize the bug class. Do not blindly repeat
-all implementer tests; target uncovered classes/vertical paths. Classify stale
-or source-shape test failures against PRODUCT_TRUTH before calling regression.
+Implementer tests = supporting evidence, not verdict. Dobierz dowód do wagi i
+zakresu zmiany:
+1. Zawsze przeczytaj diff Tasku na exact SHA i uruchom najmniejszy niezależny
+   reproduktor każdego nazwanego findingu.
+2. Uruchom celowane testy zmienionego ownera. Granice, sibling i alternate paths
+   dodaj tylko wtedy, gdy należą do tej samej realnej klasy błędu.
+3. Uruchom jeden właściwy pion tylko wtedy, gdy zmiana dotyka szwu między
+   warstwami lub zachowania użytkownika. Czysty re-check diffu, dokumentacji albo
+   mechanicznego przeniesienia kodu nie wymaga sztucznego pionu.
+4. Pełną macierz Tasku uruchom tylko wtedy, gdy wymaga jej kontrakt albo zmiana
+   wpływa na wiele klas zachowania. Pełna regresja/gates wymaga jawnej zgody
+   OWNERA i konkretnego uzasadnienia ryzyka.
+
+Przy wąskim re-checku istniejącego findingu zachowaj pierwotny reproduktor i
+uruchom tylko jego oraz testy bezpośrednio dotknięte poprawką; nie odbudowuj
+całego audytu. Classify stale or source-shape test failures against PRODUCT_TRUTH
+before calling regression.
 
 ## VERDICT_PROPOSALS_DELIVERY
 - FAIL only through DEFECT_GATE.

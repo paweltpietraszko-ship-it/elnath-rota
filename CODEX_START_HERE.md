@@ -1,8 +1,8 @@
 # Przekazanie dla nowej instancji Codexa
 
-Aktualne na dzień 2026-09-04. Ten plik opisuje sposób współpracy oczekiwany
-przez Pawła. Nie jest specyfikacją produktu i nie zastępuje kontraktu Tasku,
-zamrożonej specyfikacji ani jawnych decyzji OWNERA.
+Ten plik opisuje stały sposób współpracy oczekiwany przez Pawła. Nie jest
+specyfikacją produktu i nie zastępuje kontraktu Tasku, zamrożonej specyfikacji
+ani jawnych decyzji OWNERA.
 
 ## 1. Kim jesteś w tym projekcie
 
@@ -53,17 +53,24 @@ endpoint, pole odpowiedzi, renderer albo helper, który wystarczy.
 
 ## 4. Jak audytować
 
-Na początku zawsze:
+Na początku nowej instancji przeczytaj `AGENTS.md` i ten plik. Dla konkretnego
+Tasku przeczytaj nagłówek oraz tylko jego aktualny wiersz w `BOARD.md`, cały
+brief i wskazane decyzje OWNERA. Inne wiersze BOARD czytaj wyłącznie przy
+jawnej zależności. Potwierdź branch i exact SHA. `git status -sb` jest wymagany
+przed edycją, nie jako osobny etap każdego odczytu.
 
-1. przeczytaj `AGENTS.md` i ten plik;
-2. przeczytaj aktualne `BOARD.md`;
-3. pobierz aktualne referencje i potwierdź branch oraz exact SHA;
-4. przeczytaj cały brief i wskazane decyzje OWNERA;
-5. sprawdź `git status -sb` i nie dotykaj cudzych plików.
+### Precheck briefu przed implementacją
 
-W audycie:
+To nie jest audyt kodu. Sprawdź tylko źródło zachowania, jednoznaczność,
+testowalność, właściwego ownera i minimalność zakresu. Nie oglądaj diffu
+produktu, nie uruchamiaj testów, reproduktorów, pionów ani regresji. Kod czytaj
+punktowo tylko wtedy, gdy trzeba potwierdzić konkretną nazwę ownera lub pliku.
+Zakończ po `PASS PREIMPLEMENTATION` albo jednej liście braków kontraktu.
 
-- Obejrzyj surowy diff exact SHA, ale nie żądaj od OWNERA czytania diffu.
+### Audyt dostarczonej implementacji
+
+- Obejrzyj surowy diff exact SHA, ale tylko w zakresie Tasku i nie żądaj od
+  OWNERA czytania diffu.
 - Testy implementatora są tylko wskazówką. Zbuduj mały niezależny reproduktor
   rzeczywistej klasy błędu.
 - Sprawdzaj realny pion produktu: produkcyjne operacje, SQLite, assembler,
@@ -74,6 +81,9 @@ W audycie:
   inny entrypoint.
 - FAIL wymaga jednocześnie TRACE, OWNERSHIP i REPRO z `AGENTS.md`.
 - Nie otwieraj kolejnych rund tego samego tematu bez nowego dowodu.
+- Przy literalnym re-checku poprawki uruchom istniejący reproduktor i testy
+  bezpośrednio dotknięte zmianą. Nie powtarzaj analizy całej implementacji,
+  pełnej macierzy ani pionu, jeśli zakres poprawki ich nie zmienił.
 - Raportuj exact SHA, uruchomione warstwy i ograniczenia dowodu. PASS dotyczy
   tylko tego SHA.
 - Nie wystawiaj niezależnego końcowego audytu własnej implementacji. Jeżeli
@@ -114,49 +124,7 @@ daty ani prostego wyjaśnienia.
 - Nie rozbudowuj obecnie warstwy kadrowej. Rota jest przede wszystkim programem
   do tworzenia grafiku.
 
-## 7. Symulator Koordynatora — ważna granica
-
-Symulator nie symuluje solvera i nie ma samemu rozstrzygać jego reguł. Ma
-odtwarzać pracę prawdziwego koordynatora:
-
-1. tworzy różne realistyczne obiekty i ich zapotrzebowania;
-2. wpisuje rzeczywiste ustawienia przez produkcyjne operacje backendowe,
-   tak jak koordynator zaznacza pola i przełączniki;
-3. uruchamia produkcyjne PLAN/REPLAN;
-4. odbiera to, co solver naprawdę zwrócił;
-5. evaluator ocenia gotowy grafik według HARD, SOFT, Kodeksu pracy i
-   sprawiedliwości; błędny albo brak grafiku jest wartościowym wynikiem i ma
-   zostać zachowany z seedem oraz reproduktorem.
-
-Nie wolno:
-
-- dobierać dowolnie większej załogi tylko po to, aby solver stworzył ładny
-  grafik;
-- wpisywać z góry, że dany seed „wymaga wsparcia zewnętrznego”;
-- ręcznie tworzyć wzorcowego grafiku, Assignmentów lub danych, które omijają
-  pracę koordynatora;
-- kalibrować całego narzędzia pod jeden miesiąc i kilka sztywnych seedów;
-- badać pracownika między wieloma obiektami jak w systemie kadrowym — ta
-  funkcja jest obecnie poza produktem.
-
-Obsada ma wynikać z realnej możliwości cyklicznego pokrycia zmian, odpoczynków
-i godzin, a nie z prostego dodawania maksimów z poszczególnych dni. Przykład
-OWNER: dwie osoby w środę, te same dwie w sobotę i jedna osoba w niedzielę
-mogą oznaczać trzy osoby załogi, nie pięć.
-
-Nie zakładaj kanonicznego `target_hours=168`. Wejściowy target ma odpowiadać
-rzeczywistemu miesiącowi i decyzji koordynatora. Ocena grafiku ma respektować
-rozliczenie kwartalne; przy urlopie albo chorobie sprawiedliwość dotyczy łącznego
-wyniku godzin nieobecności i pracy zgodnie z produkcyjną logiką Roty. Symulator
-przekazuje dane wejściowe — nie powiela tych obliczeń i nie „pomaga” solverowi.
-
-W narzędziu testowym można przyjąć domyślną zgodę koordynatora na dodanie
-EXTERNAL_SUPPORT dopiero po rzeczywistej odpowiedzi produktu, że własna załoga
-nie wystarcza. W prawdziwej aplikacji koordynator nadal podejmuje tę decyzję
-ręcznie. LOCAL mają być oceniani sprawiedliwie przez produkcyjny solver;
-symulator nie może sam liczyć lub poprawiać fairness.
-
-## 8. Repozytorium i przekazania
+## 7. Repozytorium i przekazania
 
 - `BOARD.md` jest kolejką techniczną CC ↔ Codex, nie źródłem prawdy produktu.
 - Po audycie zapisz nowy, nieistniejący wcześniej raport pod
@@ -167,17 +135,6 @@ symulator nie może sam liczyć lub poprawiać fairness.
   nie wykonuj force-push.
 - Nie dodawaj do commita przypadkowych plików użytkownika, baz SQLite, PDF-ów,
   worktree ani lokalnych skryptów.
-
-## 9. Stan przy tym przekazaniu
-
-- Bazowy stan produktu przed commitem tego dokumentu:
-  `main@8d07cf1498cb41a75818b65995a2569a47ea444f`.
-- ROTA-T055 zostało scalone; bieżące `BOARD.md` nie zawiera nowego wpisu
-  `READY_FOR_CODEX`.
-- T055 dostarcza ostrzeżenia validatora do ekranu. Późniejsza poprawka
-  architekta zachowała użyteczną datę DAY_ONLY przy ukrywaniu technicznych ID.
-- Na początku następnej sesji nie zakładaj, że ten SHA nadal jest aktualny:
-  wykonaj fetch i ponownie przeczytaj `BOARD.md`.
 
 Najważniejsza zasada: audyt ma wykryć, czy realny człowiek dostaje poprawny
 grafik i zrozumiały program. Liczba zielonych testów nie jest celem sama w sobie.
