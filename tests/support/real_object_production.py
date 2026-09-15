@@ -8,13 +8,13 @@ from __future__ import annotations
 import calendar
 from datetime import datetime, time, timedelta
 
-from benchmarks.real_object_scenarios import (
+from tests.support.real_object_scenarios import (
     EXTERNAL_EMPLOYEES,
     LOCAL_EMPLOYEES,
     SITE_ID,
     demands_for_month,
 )
-from benchmarks.real_object_types import RuleSpec, ScenarioSpec
+from tests.support.real_object_types import RuleSpec, ScenarioSpec
 from rota.domain import (
     Assignment,
     AssignmentRole,
@@ -194,6 +194,6 @@ def build_planning_state(scenario: ScenarioSpec) -> PlanningState:
 
 
 if __name__ == "__main__":
-    from benchmarks.real_object_scenarios import core_scenarios
+    from tests.support.real_object_scenarios import core_scenarios
 
     print(build_planning_state(core_scenarios()[0]).site)

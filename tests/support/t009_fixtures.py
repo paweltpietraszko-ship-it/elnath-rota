@@ -1,12 +1,19 @@
 """Shared builders for ROTA-T009 application-layer tests. Reuses the
-already-audited real-object benchmark scenario builder for a realistic,
-non-trivial roster/profile instead of a bespoke minimal fixture."""
+already-audited real-object scenario builder for a realistic, non-trivial
+roster/profile instead of a bespoke minimal fixture.
+
+ROTA-CLEANUP-FROZEN-BENCHMARKS (owner-directed, 2026-09-15): this scenario
+builder used to live under benchmarks/, entangled with the frozen/broken
+benchmark evaluator (real_object.py/real_object_checker.py) even though it
+has nothing to do with scoring a benchmark -- it is reused test-fixture
+infrastructure. Moved to tests/support/ alongside its own consumer; the
+actual dead evaluator chain was deleted, not moved."""
 from __future__ import annotations
 
 from datetime import date
 
-from benchmarks.real_object_production import build_planning_state
-from benchmarks.real_object_scenarios import _calendar_case
+from tests.support.real_object_production import build_planning_state
+from tests.support.real_object_scenarios import _calendar_case
 from rota.domain import Coordinator, CoordinatorSiteAssociation
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association

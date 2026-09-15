@@ -56,42 +56,38 @@ opisują jednej wspólnej produkcyjnej bazy osób, obiektów ani konfiguracji.
   albo odpowiadają zachowywanym danym produkcyjnym, najpierw krótko zapytaj
   OWNERA o realność scenariusza; bez potwierdzenia nie blokuj Tasku.
 
-## COORDINATOR_SIMULATORS_FROZEN
-OWNER_RULING_2026-09-09: Symulator Koordynatora A i Symulator Koordynatora B
-są w obecnym stanie bezużyteczne i zamrożone.
+## COORDINATOR_SIMULATORS_REMOVED
+OWNER_RULING_2026-09-09 (frozen) → OWNER_RULING_2026-09-15 (removed,
+ROTA-CLEANUP-FROZEN-BENCHMARKS): Symulator Koordynatora A i B były
+bezużyteczne i zamrożone; usunięte w całości jako mylące martwe pliki,
+nikt nigdy nie importował ich spoza siebie. `tests/property/` (cały
+katalog: `coordinator_simulator.py`, `test_coordinator_simulator.py`,
+`test_coordinator_simulator_variant_b.py`) nie istnieje już na `main`.
+Ich powrót wymaga nowej, jawnej decyzji OWNERA i osobnego kontraktu Tasku
+— od zera, nie przez odtworzenie usuniętych plików z historii gita.
 
-- Zakres zamrożenia:
-  - `tests/property/coordinator_simulator.py`;
-  - `tests/property/test_coordinator_simulator.py`;
-  - `tests/property/test_coordinator_simulator_variant_b.py`.
-- NIE uruchamiaj ich jako części audytu, regresji, gate'u, benchmarku ani
-  diagnozy innego Tasku. Nie cytuj ich PASS/FAIL jako dowodu jakości produktu
-  i nie pozwalaj, aby ich wynik blokował werdykt.
-- Gdy szersze polecenie pytest zebrałoby te pliki automatycznie, wyklucz je
-  jawnie i odnotuj wykluczenie w raporcie.
-- NIE poprawiaj, nie usuwaj i nie przebudowuj ich przy okazji innych Tasków.
-  Zamrożenie nie oznacza zgody na dostosowywanie ich do bieżącego kodu.
-- Powrót do używania lub edycji wymaga nowej, jawnej decyzji OWNERA i osobnego
-  kontraktu Tasku poświęconego symulatorom.
+## LEGACY_BENCHMARKS_REMOVED
+OWNER_RULING_2026-09-09 (frozen) → OWNER_RULING_2026-09-15 (removed,
+ROTA-CLEANUP-FROZEN-BENCHMARKS): wspólny zestaw benchmarków był
+bezużyteczny jako dowód jakości produktu; usunięty razem z jedynymi
+konsumentami dowodu benchmarkowego: `benchmarks/real_object.py`,
+`real_object_checker.py`, `real_object_input.py`, `rota_stress.py`,
+`REAL_OBJECT_BENCHMARK.md`, `tests/test_rota_stress_benchmark.py`,
+`tests/test_real_object_benchmark.py` — cały katalog `benchmarks/` nie
+istnieje już na `main`.
 
-## LEGACY_BENCHMARKS_FROZEN
-OWNER_RULING_2026-09-09: istniejący wspólny zestaw benchmarków jest w obecnym
-stanie bezużyteczny jako dowód jakości produktu i zostaje zamrożony.
+Trzy pliki z tego katalogu NIE zostały usunięte, tylko przeniesione, bo
+mimo lokalizacji nigdy nie były częścią zamrożonego dowodu benchmarkowego
+— to żywa, wspólna infrastruktura testowa nadal aktywnie wykorzystywana:
+- `real_object_production.py`/`real_object_scenarios.py`/`real_object_types.py`
+  → `tests/support/` (scenario builder, konsument: `tests/support/t009_fixtures.py`
+  i przez nie 15 realnych plików testowych);
+- `manual_audits.py` → `tests/support/manual_audits.py` (owner-kept
+  regression guard, OWNER_RULING_2026-08-13, konsument:
+  `tests/test_manual_audits.py`).
 
-- Zakres zamrożenia:
-  - cały katalog `benchmarks/`;
-  - `tests/test_rota_stress_benchmark.py`;
-  - `tests/test_real_object_benchmark.py`.
-- NIE uruchamiaj, nie cytuj ani nie używaj tych plików jako części audytu,
-  regresji, gate'u, diagnozy lub dowodu wydajności. Gdy szersze polecenie pytest
-  zebrałoby testy benchmarków, wyklucz je jawnie i odnotuj to w raporcie.
-- NIE poprawiaj, nie usuwaj i nie przebudowuj ich przy okazji innych Tasków.
-- Zamrożenie nie zabrania wąskiego pomiaru czasu lub jakości, jeżeli wymaga go
-  zamrożony kontrakt konkretnego Tasku i kontrakt określa przypadki, metodę oraz
-  oceniane wyniki. Taki pomiar nie może importować ani wykorzystywać zamrożonego
-  zestawu `benchmarks/`.
-- Powrót do używania lub edycji zamrożonych benchmarków wymaga nowej, jawnej
-  decyzji OWNERA i osobnego kontraktu Tasku poświęconego benchmarkom.
+Powrót do zamrożenia/odtworzenia usuniętego benchmarku wymaga nowej,
+jawnej decyzji OWNERA i osobnego kontraktu Tasku.
 
 ## WHERE_MAP
 The architect/auditor MAY require `where.py` on a Task by adding this block to

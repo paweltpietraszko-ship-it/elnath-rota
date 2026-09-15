@@ -4,7 +4,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timedelta
 
-from benchmarks.real_object_types import (
+from tests.support.real_object_types import (
     AvailabilitySpec, DemandSpec, ExpectedStatus, ExpectationKind,
     ExternalWindowSpec, FixedAssignmentSpec, RuleSpec, ScenarioSpec,
 )
