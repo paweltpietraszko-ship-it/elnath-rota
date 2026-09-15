@@ -22,6 +22,7 @@ from rota.application.bootstrap import (
 )
 from rota.application.durable_inputs import (
     set_calendar_day,
+    set_target_hours,
     update_association,
     update_coordinator,
     update_employee,
@@ -117,6 +118,10 @@ def _staff_and_fill_calendar(conn, *, coordinator_id: str, site_id: str, month: 
     days = _calendar.monthrange(month.year, month.month)[1]
     for d in range(1, days + 1):
         set_calendar_day(conn, coordinator_id=coordinator_id, site_id=site_id, day=CalendarDay(date(month.year, month.month, d), False))
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month now requires a
+    # target_hours for every active LOCAL membership.
+    for employee_id in (EMP, EMP2):
+        set_target_hours(conn, coordinator_id=coordinator_id, site_id=site_id, employee_id=employee_id, month=month, target_hours=200)
 
 
 def _plan_and_finalize(conn, *, coordinator_id: str, site_id: str, month: date) -> None:

@@ -22,6 +22,7 @@ from rota.domain import (
     CoordinatorSiteAssociation,
     Employee,
     ExternalSupportWindow,
+    MembershipKind,
     RoleCoverageAuthorization,
     Site,
     SiteMembership,
@@ -445,6 +446,48 @@ def set_target_hours(
                 after_state={"employee_id": employee_id, "month": month, "target_hours": target_hours},
                 note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE,
                 source_id=f"{employee_id}:{month.isoformat()}",
+                responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=[month],
+            )
+
+
+def set_target_hours_for_site_roster(
+    conn, *, coordinator_id: str, site_id: str, month: date, target_hours: int,
+    note: str | None = None, responds_to_decision_required_id: str | None = None,
+) -> None:
+    """ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2 ("Ustawienie
+    wszystkim"): one atomic bulk overwrite of target_hours for every active
+    LOCAL membership of (site_id, month), including employees with Urlop/
+    L4/DELEGACJA and employees who already had a different target (owner
+    decisions 2/3) -- EXTERNAL_SUPPORT never receives a target
+    (OUT_OF_SCOPE). All writes share one open transaction with `with conn:`
+    (same primitive set_target_hours above uses for its single write), so
+    a failure partway through never leaves part of the roster with the new
+    value and part with the old one (owner decision: "Awaria operacji
+    zbiorczej nie może pozostawić części pracowników z nową wartością")."""
+    require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    local_ids = sorted(
+        m.employee_id for m in list_memberships_for_site(conn, site_id)
+        if m.enabled and m.membership_kind == MembershipKind.LOCAL
+    )
+    recorded_at = datetime.now()
+    before_by_employee = {employee_id: get_work_balance_target(conn, employee_id, month) for employee_id in local_ids}
+    with conn:
+        site_memory.validate_decision_required_link_no_commit(
+            conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
+        )
+        for employee_id in local_ids:
+            write_work_balance_target_in_open_transaction(conn, employee_id=employee_id, month=month, target_hours=target_hours)
+        changed_ids = [eid for eid in local_ids if before_by_employee[eid] != target_hours]
+        if changed_ids:
+            _record_action_and_invalidate_no_commit(
+                conn, action_kind=CoordinatorActionKind.TARGET_HOURS_CHANGED, origin_site_id=site_id,
+                affected_site_ids=[site_id], coordinator_id=coordinator_id, recorded_at=recorded_at,
+                effective_from=month, month=month,
+                affected_entities=[AffectedEntity("EMPLOYEE", eid) for eid in changed_ids] + [AffectedEntity("SITE", site_id)],
+                before_state={"site_id": site_id, "month": month, "target_hours_by_employee": before_by_employee},
+                after_state={"site_id": site_id, "month": month, "target_hours": target_hours, "changed_employee_ids": changed_ids},
+                note=_normalize_note(note), source_kind=ActionSourceKind.CURRENT_STATE,
+                source_id=f"{site_id}:{month.isoformat()}:apply-to-all",
                 responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=[month],
             )
 

@@ -579,6 +579,9 @@ def test_m29_select_candidate2_real_persistence_roundtrip(tmp_path):
             conn, coordinator_id=coord, site_id=site,
             membership=SiteMembership(letter, site, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
         )
+        # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month now requires
+        # a target_hours for every active LOCAL membership.
+        durable_inputs.set_target_hours(conn, coordinator_id=coord, site_id=site, employee_id=letter, month=month, target_hours=200)
     import calendar as _calendar_module
     from rota.domain import CalendarDay
 

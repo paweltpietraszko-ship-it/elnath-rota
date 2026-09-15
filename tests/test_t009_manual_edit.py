@@ -101,7 +101,7 @@ def _plan_and_select(conn, site_id: str):
 
 def test_10_manual_coverage_gap_stored_and_validates_no_implicit_replan(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="edit-1", month=MONTH, seed=300)
+    pstate = seed_real_object(conn, case_id="edit-1", month=MONTH, seed=300, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     snapshot = get_schedule_snapshot(conn, v1.version_id)
@@ -125,7 +125,7 @@ def test_10_manual_coverage_gap_stored_and_validates_no_implicit_replan(tmp_path
 
 def test_11_manual_split_coverage_storable_and_validates(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="edit-2", month=MONTH, seed=301)
+    pstate = seed_real_object(conn, case_id="edit-2", month=MONTH, seed=301, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     snapshot = get_schedule_snapshot(conn, v1.version_id)
@@ -153,7 +153,7 @@ def test_12_freeze_affects_later_replan(tmp_path) -> None:
     plan_ops.plan_month accordingly; the assertion under test (frozen is
     untouched by a later solver pass) is unchanged."""
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="edit-3", month=MONTH, seed=302)
+    pstate = seed_real_object(conn, case_id="edit-3", month=MONTH, seed=302, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     snapshot = get_schedule_snapshot(conn, v1.version_id)
@@ -176,7 +176,7 @@ def test_12_freeze_affects_later_replan(tmp_path) -> None:
 
 def test_r1_5_6_7_child_creation_and_effective_from_provenance(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="edit-4", month=MONTH, seed=303)
+    pstate = seed_real_object(conn, case_id="edit-4", month=MONTH, seed=303, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     v1_snapshot_before = get_schedule_snapshot(conn, v1.version_id)
@@ -224,7 +224,7 @@ def test_r1_5_6_7_child_creation_and_effective_from_provenance(tmp_path) -> None
 
 def test_r2_failed_validation_preparation_leaves_no_partial_child(tmp_path, monkeypatch) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="edit-5", month=MONTH, seed=304)
+    pstate = seed_real_object(conn, case_id="edit-5", month=MONTH, seed=304, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     versions_before = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]

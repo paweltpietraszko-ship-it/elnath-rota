@@ -22,6 +22,7 @@ from rota.application.durable_inputs import (
     set_calendar_day,
     set_role_coverage_authorization,
     set_target_hours,
+    set_target_hours_for_site_roster,
     update_employee,
     update_membership,
 )
@@ -420,6 +421,23 @@ def set_employee_target_hours(employee_id: str, payload: SetTargetHoursRequest, 
         set_target_hours(
             conn, coordinator_id=coordinator_id, site_id=payload.site_id, employee_id=employee_id,
             month=date.fromisoformat(payload.month), target_hours=payload.target_hours,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class ApplyTargetHoursToAllRequest(BaseModel):
+    target_hours: int
+
+
+# ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2 ("Ustawienie
+# wszystkim") / section 5.
+@roster_router.post("/sites/{site_id}/target-hours/{month}/apply-to-all", status_code=204)
+def apply_target_hours_to_all(site_id: str, month: str, payload: ApplyTargetHoursToAllRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> None:
+    try:
+        set_target_hours_for_site_roster(
+            conn, coordinator_id=coordinator_id, site_id=site_id,
+            month=date.fromisoformat(month), target_hours=payload.target_hours,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc

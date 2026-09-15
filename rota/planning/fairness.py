@@ -17,7 +17,6 @@ MAX_MONTHLY_HOURS = 744
 TARGET_EQUITY_WEIGHT = 1
 DN_RHYTHM_REWARD_WEIGHT = 1
 MAX_COMPLETION_PCT = 100 * MAX_MONTHLY_HOURS
-EQUAL_SPLIT_FAIRNESS_WEIGHT = 100  # ROTA-T041 AUDIT round-2 FINDING T41-A-R2-01: matches solver.TARGET_DEVIATION_WEIGHT's magnitude, not a number tuned to one test -- this is the same "must dominate weekend/holiday-scale SOFT terms" constant TARGET-01 already establishes, reused for the fallback term that stands in TARGET-01's place. The real per-solve weight solver.py passes is computed to strictly dominate every coexisting term's actual bound (see solver._add_combined_objective); this module constant is only the default used when a caller (e.g. an isolated unit test) does not thread a computed weight through.
 # ROTA-T058 (OWNER_CORRECTED 2026-09-08): the brief's section 2.6 24h
 # equity/equal-split dead zone (EQUITY_DEADBAND_HOURS) was DROPPED, not
 # shipped. Verified live: every CP-SAT encoding tried (one-sided
@@ -29,9 +28,8 @@ EQUAL_SPLIT_FAIRNESS_WEIGHT = 100  # ROTA-T041 AUDIT round-2 FINDING T41-A-R2-01
 # weight change (no new CP-SAT structure at all) reproduced the same
 # failure at a mere 10x weight bump. Owner: "ona miala w zamysle pomagac
 # solverowi, jesli przeszkadza to idzie do kosza" (it was meant to help
-# the solver; if it hurts instead, scrap it) -- both add_target_equity_
-# fairness and add_equal_split_fairness below are the original,
-# pre-T058 forms.
+# the solver; if it hurts instead, scrap it) -- add_target_equity_fairness
+# below is the original, pre-T058 form.
 
 
 def _demand_hours(demand) -> int:
@@ -179,42 +177,6 @@ def add_target_equity_fairness(
     model.add_max_equality(max_completion, completion_vars)
     model.add_min_equality(min_completion, completion_vars)
     penalties.append(TARGET_EQUITY_WEIGHT * (max_completion - min_completion))
-
-
-def add_equal_split_fairness(
-    model: cp_model.CpModel, worked_hours_by_employee: dict[str, object],
-    employee_ids, penalties: list, weight: int = EQUAL_SPLIT_FAIRNESS_WEIGHT,
-) -> None:
-    """ROTA-T041 OWNER-T041-01 / AUDIT-1 C-05: fallback used only for a
-    solve whose target vector is incomplete (at least one available LOCAL
-    employee has no target_hours for the month). TARGET-01 and
-    add_target_equity_fairness both need a target to rank against, so
-    solver._add_combined_objective does not call them for that solve --
-    this replaces them with the plain spread (max-min) of actual PRIMARY
-    hours among employee_ids, the smallest achievable difference being the
-    fairest outcome when nobody has a declared quota to aim for.
-    employee_ids is the caller's job to get right (solver.
-    _available_local_employee_ids): EXTERNAL_SUPPORT and anyone HARD rules
-    make fully ineligible this month are never passed in, so they cannot
-    distort the spread just by being absent from the roster of real
-    candidates. worked_hours_by_employee must already be the same
-    canonical actual-hours expression TARGET-01/target-equity use
-    (section 4.1) -- never recomputed here.
-
-    ROTA-T041 AUDIT round-2 FINDING T41-A-R2-01: `weight` defaults to the
-    plain module constant, but the real caller (solver._add_combined_objective)
-    passes a per-solve weight computed to strictly dominate every other
-    coexisting SOFT term's real bound this solve -- a flat default cannot
-    safely dominate an unbounded holiday history on its own, only a real
-    computed bound can (see add_holiday_fairness's own return value)."""
-    hours_vars = [worked_hours_by_employee[e] for e in employee_ids if e in worked_hours_by_employee]
-    if len(hours_vars) < 2:
-        return
-    max_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "equal_split_hours_max")
-    min_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "equal_split_hours_min")
-    model.add_max_equality(max_hours, hours_vars)
-    model.add_min_equality(min_hours, hours_vars)
-    penalties.append(weight * (max_hours - min_hours))
 
 
 def add_local_over_external_preference(

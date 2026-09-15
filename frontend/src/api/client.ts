@@ -178,6 +178,11 @@ export interface DecisionRequiredPayloadOut {
   unblocking_options: UnblockingOptionOut[];
 }
 
+export interface MissingTargetHoursEmployeeOut {
+  employee_id: string;
+  employee_display_name: string;
+}
+
 export interface PlanningResultOut {
   status:
     | "FEASIBLE"
@@ -186,17 +191,22 @@ export interface PlanningResultOut {
     | "NO_ALTERNATIVE"
     | "NARROW_SEARCH_EXHAUSTED"
     | "SEARCH_INCOMPLETE"
-    | "THIRD_CONSECUTIVE_SHIFT_BLOCKED";
+    | "THIRD_CONSECUTIVE_SHIFT_BLOCKED"
+    // ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: a controlled
+    // input blocker, never DECISION_REQUIRED/TECHNICAL_ERROR.
+    | "TARGET_HOURS_REQUIRED";
   candidates: AssignmentOut[][];
   decision_payload: DecisionRequiredPayloadOut | null;
   error_message: string | null;
   warnings: string[];
   optimization_complete: boolean;
+  missing_target_hours: MissingTargetHoursEmployeeOut[];
 }
 
 export interface PrecheckOut {
-  status: "NO_OBVIOUS_SHORTAGE" | "LIKELY_INSUFFICIENT";
+  status: "NO_OBVIOUS_SHORTAGE" | "LIKELY_INSUFFICIENT" | "TARGET_HOURS_REQUIRED";
   under_covered_demand_ids: string[];
+  missing_target_hours: MissingTargetHoursEmployeeOut[];
 }
 
 // AssignmentIn (select-candidate payload) -- same fields as AssignmentOut
@@ -892,6 +902,12 @@ export const api = {
     req<{ target_hours: number | null }>(`/workspace/employees/${employeeId}/target-hours?month=${month}`),
   setTargetHours: (employeeId: string, payload: { site_id: string; month: string; target_hours: number }) =>
     req<void>(`/workspace/employees/${employeeId}/target-hours`, { method: "POST", body: JSON.stringify(payload) }),
+  // ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2 ("Ustawienie wszystkim").
+  applyTargetHoursToAll: (siteId: string, month: string, targetHours: number) =>
+    req<void>(`/workspace/sites/${siteId}/target-hours/${month}/apply-to-all`, {
+      method: "POST",
+      body: JSON.stringify({ target_hours: targetHours }),
+    }),
 
   // Dniówka/Nocka/weekday matrix (T021b-backed)
   getEmployeeMatrix: (employeeId: string, siteId: string, month: string) =>
