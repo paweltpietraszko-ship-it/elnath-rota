@@ -12,7 +12,31 @@ Kluczowa potrzeba biznesowa: klient może chcieć korzystać z logiki solvera, w
 
 Nie zakładamy jeszcze, że Excel ma zastąpić obecny frontend. Rozważane są zarówno warianty headless, jak i hybrydowe.
 
-## 2. Zasada architektoniczna do zachowania
+## 2. Priorytetowa hipoteza produktowa: Excel jako znane środowisko pracy
+
+Priorytetowo należy rozważyć wariant, w którym użytkownik nie musi przesiadać się na nowe UI Elnath, lecz nadal pracuje w Excelu, a Elnath działa pod spodem jako silnik planowania.
+
+Docelowy użytkownik może być osobą starszą, np. emerytowanym funkcjonariuszem, dla której opanowanie Excela na poziomie pozwalającym samodzielnie układać grafik było istotnym osiągnięciem. W takim przypadku migracja do nowej aplikacji może powodować większe tarcie wdrożeniowe niż sama wartość nowego solvera.
+
+Hipoteza do sprawdzenia z realnymi klientami:
+
+`nie ucz użytkownika Elnath — naucz Elnath jego Excela`
+
+Pożądany przepływ z perspektywy użytkownika:
+
+1. Użytkownik otwiera znany arkusz.
+2. Wprowadza dane w układzie identycznym albo bardzo zbliżonym do obecnego sposobu pracy.
+3. Uruchamia jedną prostą akcję typu „Ułóż grafik” / „Przelicz”.
+4. Adapter przekazuje wymagane dane do Elnath.
+5. Elnath wykonuje walidację i planowanie istniejącymi ownerami.
+6. Wynik wraca do arkusza w znanym układzie.
+7. Użytkownik nadal może drukować, przekazywać i archiwizować grafik tak jak dotychczas.
+
+Priorytet dotyczy sposobu pracy użytkownika, nie konkretnej technologii. Na tym etapie nie zamrażamy, czy integracja będzie zrealizowana przez VBA, Office Script, Power Query, lokalny adapter, Office Add-in czy inną cienką warstwę.
+
+Ważna granica: Excel może być interfejsem użytkownika, ale nie powinien przejmować logiki solvera, walidacji, reguł odpoczynku, REPLAN ani innych ownerów domenowych Elnath.
+
+## 3. Zasada architektoniczna do zachowania
 
 Elnath Rota pozostaje właścicielem logiki planowania. Excel ani inny klient zewnętrzny nie powinien powielać solvera, walidatora, reguł odpoczynku, ograniczeń pracowników, bilansu, logiki REPLAN ani klasyfikacji wyników.
 
@@ -24,7 +48,7 @@ Preferowany kierunek ogólny:
 
 Nie tworzyć osobnego „solvera dla Excela”.
 
-## 3. Wariant A — Elnath jako pełny headless engine
+## 4. Wariant A — Elnath jako pełny headless engine
 
 Użytkownik nie musi korzystać z UI Elnath Rota.
 
@@ -52,7 +76,7 @@ Koszty i pytania:
 - obsługa DECISION_REQUIRED, blockerów i REPLAN bez UI Elnath wymaga jawnego kontraktu dla klienta zewnętrznego;
 - trzeba określić autoryzację, identyfikację Site i rozdzielenie klientów.
 
-## 4. Wariant B — Elnath jako silnik, Excel tylko jako miejsce wyniku
+## 5. Wariant B — Elnath jako silnik, Excel tylko jako miejsce wyniku
 
 Użytkownik nadal wprowadza i utrzymuje dane w Elnath Rota. Excel jest jedynie dodatkowym kanałem prezentacji lub dalszej pracy z gotowym grafikiem.
 
@@ -86,7 +110,7 @@ Koszty i pytania:
 - czy Elnath ma eksportować wyłącznie zatwierdzony grafik, czy również working preview;
 - czy aktualizacja ma nadpisywać arkusz, czy tworzyć nową wersję.
 
-## 5. Wariant C — hybryda: część danych w Elnath, wynik w Excelu, wybrane dane wracają
+## 6. Wariant C — hybryda: część danych w Elnath, wynik w Excelu, wybrane dane wracają
 
 Elnath pozostaje głównym systemem planowania, ale Excel może być zarówno odbiorcą grafiku, jak i źródłem ograniczonej klasy danych.
 
@@ -111,7 +135,28 @@ Ryzyka:
 - synchronizacja dwukierunkowa może szybko stać się bardziej złożona niż sam eksport;
 - konieczne są zasady konfliktu wersji i błędów importu.
 
-## 6. Wariant D — stateless planning API
+## 7. Wariant D — Excel jako główny interfejs użytkownika, Elnath jako ukryty silnik
+
+Ten wariant jest obecnie priorytetowym kandydatem do dalszej eksploracji dla użytkowników silnie przywiązanych do Excela.
+
+Excel pozostaje miejscem, w którym użytkownik widzi pracowników, ograniczenia wejściowe i gotowy grafik. Elnath przejmuje obliczenia, walidację i lifecycle tylko w takim zakresie, jaki będzie konieczny do zachowania poprawności produktu.
+
+Docelowo użytkownik może nie wiedzieć, że korzysta z osobnej aplikacji Elnath. Z jego perspektywy Excel zyskuje funkcję automatycznego, zgodnego z regułami planowania.
+
+Nie oznacza to obowiązku budowy pełnoprawnego Office Add-in. Najpierw należy znaleźć najcieńszy technicznie adapter zapewniający wymagany przepływ.
+
+Otwarte warianty techniczne:
+
+- VBA;
+- Office Script;
+- Power Query;
+- lokalny adapter desktopowy;
+- Office Add-in;
+- inny klient wywołujący API i zapisujący wynik do arkusza.
+
+Kluczowe pytanie architektoniczne: które dane Excel może być ownerem, a które muszą pozostać trwałym stanem Elnath, aby nie rozbić REPLAN, historii, decyzji i audytowalności.
+
+## 8. Wariant E — stateless planning API
 
 Elnath otrzymuje kompletny stan planistyczny w jednym żądaniu i zwraca wynik bez trwałego zapisu danych klienta.
 
@@ -134,7 +179,7 @@ Ryzyka i potencjalny konflikt z obecnym produktem:
 - nie wolno kopiować ani obchodzić istniejących ownerów tylko po to, by stworzyć drugi tor planowania;
 - należy ustalić, czy taki tryb faktycznie jest potrzebą produktową, czy tylko techniczną możliwością.
 
-## 7. Wariant E — stateful API bez obowiązkowego UI Elnath
+## 9. Wariant F — stateful API bez obowiązkowego UI Elnath
 
 Klient zewnętrzny korzysta z API, ale persistence, wersje grafiku, lifecycle, REPLAN, DecisionRequired i audyt pozostają w Elnath.
 
@@ -151,7 +196,7 @@ Koszty:
 - zewnętrzny klient musi obsłużyć więcej stanów i odpowiedzi niż przy prostym solver-as-a-service;
 - kontrakt API staje się produktem samym w sobie i wymaga wersjonowania/stabilności.
 
-## 8. Prawdopodobne poziomy integracji z Excelem
+## 10. Prawdopodobne poziomy integracji z Excelem
 
 ### Poziom 1 — eksport pliku
 
@@ -169,33 +214,39 @@ Elnath nadal jest ownerem danych i planowania.
 
 Excel wysyła dane lub komendę do Elnath i pobiera wynik. Możliwe przez Office Script, VBA lub inny adapter.
 
+Ten poziom jest szczególnie interesujący dla priorytetowego profilu użytkownika, ponieważ zachowuje jego dotychczasowy interfejs i minimalizuje zmianę nawyków.
+
 ### Poziom 4 — dwukierunkowa synchronizacja
 
 Excel może edytować część danych i synchronizować je z Elnath.
 
 Największe ryzyko konfliktu ownerów, wersji i walidacji. Nie przyjmować jako domyślnego kierunku bez konkretnej potrzeby klienta.
 
-## 9. Pytania do rozstrzygnięcia przed wyborem kierunku
+## 11. Pytania do rozstrzygnięcia przed wyborem kierunku
 
 1. Czy typowy klient chce zachować Excel wyłącznie jako format końcowego grafiku, czy również jako miejsce wprowadzania danych?
-2. Czy klient oczekuje ręcznego eksportu, czy automatycznej synchronizacji?
-3. Czy Elnath ma przechowywać dane i historię klienta, czy działać wyłącznie jako silnik obliczeniowy?
-4. Czy REPLAN, historia wersji, DecisionRequired i audyt mają być dostępne klientowi zewnętrznemu?
-5. Czy integracja ma wspierać dowolny arkusz klienta, czy jeden uzgodniony szablon?
-6. Czy istnieje realna potrzeba zapisu z Excela do Elnath, czy wystarczy odczyt wyniku?
-7. Czy pierwszym celem jest produkt ogólny, czy pilotaż dla jednego konkretnego klienta?
+2. Czy typowy użytkownik zaakceptuje nowe UI, czy zmiana narzędzia jest istotną barierą wdrożeniową?
+3. Czy pierwszy pilotaż powinien zachować istniejący arkusz użytkownika niemal bez zmian?
+4. Czy klient oczekuje ręcznego eksportu, czy automatycznej synchronizacji?
+5. Czy Elnath ma przechowywać dane i historię klienta, czy działać wyłącznie jako silnik obliczeniowy?
+6. Czy REPLAN, historia wersji, DecisionRequired i audyt mają być dostępne klientowi zewnętrznemu?
+7. Czy integracja ma wspierać dowolny arkusz klienta, czy jeden uzgodniony szablon?
+8. Czy istnieje realna potrzeba zapisu z Excela do Elnath, czy wystarczy odczyt wyniku?
+9. Czy pierwszym celem jest produkt ogólny, czy pilotaż dla jednego konkretnego klienta?
 
-## 10. Wstępna ocena kierunków
+## 12. Wstępna ocena kierunków
 
-Najmniejszym rozszerzeniem obecnego produktu wydaje się Wariant B: dane i planowanie pozostają w Elnath, a Excel jest dodatkowym miejscem odbioru grafiku.
+Dla użytkowników swobodnie korzystających z nowych aplikacji najmniejszym rozszerzeniem obecnego produktu pozostaje Wariant B: dane i planowanie w Elnath, Excel jako dodatkowe miejsce odbioru grafiku.
 
-Jeżeli pojawi się klient posiadający własny system danych, naturalnym rozszerzeniem jest Wariant E: stateful API Elnath bez obowiązkowego użycia naszego UI.
+Dla priorytetowego profilu użytkownika przywiązanego do Excela mocniejszym kandydatem jest Wariant D: Excel jako główny interfejs, Elnath jako ukryty silnik. Najpierw należy sprawdzić go w możliwie cienkiej formie technicznej, bez budowania pełnego add-inu z góry.
 
-Wariant A/D — pełny headless/stateless engine — może być wartościowy jako docelowa platforma integracyjna, ale przed projektowaniem wymaga sprawdzenia, czy realni klienci potrzebują przekazywać cały stan zewnętrzny, czy tylko odbierać rezultat.
+Jeżeli pojawi się klient posiadający własny system danych, naturalnym rozszerzeniem jest Wariant F: stateful API Elnath bez obowiązkowego użycia naszego UI.
+
+Wariant A/E — pełny headless/stateless engine — może być wartościowy jako docelowa platforma integracyjna, ale przed projektowaniem wymaga sprawdzenia, czy realni klienci potrzebują przekazywać cały stan zewnętrzny, czy tylko odbierać rezultat.
 
 Wariant C ma sens wyłącznie wtedy, gdy zostanie jawnie rozdzielona własność danych. Nie projektować ogólnej synchronizacji dwukierunkowej bez konkretnego przypadku klienta.
 
-## 11. Na razie poza zakresem
+## 13. Na razie poza zakresem
 
 Ten dokument nie decyduje o:
 
@@ -204,7 +255,7 @@ Ten dokument nie decyduje o:
 - uwierzytelnianiu API;
 - wersjonowaniu API;
 - implementacji `.xlsx`;
-- Power Query, VBA, Office Scripts ani Power Automate;
+- Power Query, VBA, Office Scripts, Office Add-in ani Power Automate;
 - modelu licencjonowania;
 - hostingu;
 - multi-tenancy;
