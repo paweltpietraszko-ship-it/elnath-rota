@@ -1,0 +1,39 @@
+ROTA-T023-ORDINARY-SITE-FIXTURE-MISMATCH — AUDYT R1
+
+WERDYKT: PASS
+AUDYTOWANY SHA: ec5fb6910bfa34ffa0e0621746938ae0d8ce84ce
+BASE: 2d32b0fb0ebe5684c8dcadecbc6a7479c4c5f50f
+
+ZAKRES
+- Mechaniczna korekta dwóch fixture'ów w tests/test_t023.py:
+  SITE oraz SITE-B używają OCHRONA zamiast ORDINARY.
+- Kod produkcyjny nie został zmieniony.
+
+TRACE / OWNERSHIP
+- tasks/ROTA-T023/brief.md, T23-40..46: testy sprawdzają ochroniarską
+  prezentację PLAN/WYK, kody D/U/C oraz 12h/24h.
+- tasks/ROTA-T065-PRINT-GAP/brief.md, sekcje 4, 6 i 10: OCHRONA zachowuje
+  D/N, 12h/24h i PLAN/WYK; ORDINARY ma osobny model prezentacyjny, bez tych
+  kodów i bez ochroniarskiego duetu PLAN/WYK.
+- Zmienione fixture'y są danymi przygotowawczymi testów T023. Zmiana reżimu
+  dopasowuje je do zachowania, które te testy od początku weryfikują.
+
+NIEZALEŻNY REPRODUKTOR
+- Na rodzicu 2d32b0f uruchomiono
+  test_t23_40_post_plan_12h_anchored_plan_equal_uc_wyk.
+- Wynik przed poprawką: FAIL, StopIteration przy wyszukiwaniu pracownika w
+  model.rows, ponieważ fixture ORDINARY trafiał do osobnego modelu wydruku.
+- Ten sam przypadek na ec5fb69 przechodzi w zestawie Checkpoint C.
+
+TESTY CELOWANE
+- tests/test_t023_checkpoint_c.py: 10 passed in 1.83s.
+  Zestaw obejmuje 8 wcześniej czerwonych przypadków oraz 2 bezpośrednie
+  przypadki sąsiednie korzystające z tych samych fixture'ów.
+- tests/test_t023.py: 40 passed in 6.68s.
+- git diff --check ec5fb69^ ec5fb69: PASS.
+
+OGRANICZENIA
+- Nie uruchamiano pełnej regresji. Zmiana dotyczy dwóch wartości w testowych
+  fixture'ach, a bezpośredni plik i jego konsumujący Checkpoint C przeszły.
+
+PASS dotyczy wyłącznie SHA ec5fb6910bfa34ffa0e0621746938ae0d8ce84ce.
