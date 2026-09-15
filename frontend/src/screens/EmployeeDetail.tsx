@@ -539,11 +539,16 @@ function RestrictionList({
   // identity; rule_id (unchanged per version) is still what update/end
   // are called with.
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
-  if (cells.length === 0) return <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak aktywnych ograniczeń.</p>;
+  // 2026-09-15 live fix: filter by real applicability (applies_to), not raw
+  // effective_to (always "bez końca") -- an already-ended restriction was
+  // showing as active with a "Zakończ" that always failed.
+  const today = isoToday();
+  const currentCells = cells.filter((c) => c.applies_to === null || c.applies_to >= today);
+  if (currentCells.length === 0) return <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>Brak aktywnych ograniczeń.</p>;
 
   return (
     <>
-      {cells.map((c) =>
+      {currentCells.map((c) =>
         editingVersionId === c.rule_version_id ? (
           <RestrictionEditRow
             key={c.rule_version_id}
@@ -560,7 +565,7 @@ function RestrictionList({
         ) : (
           <div key={c.rule_version_id} className="absence-log-item">
             <span>
-              <strong>{restrictionLabel(c)}</strong> — od {c.effective_from} do {c.effective_to ?? "bez końca"}
+              <strong>{restrictionLabel(c)}</strong> — od {c.applies_from ?? c.effective_from} do {c.applies_to ?? "bez końca"}
             </span>
             <span style={{ display: "flex", gap: 8 }}>
               <button className="btn-ghost" onClick={() => setEditingVersionId(c.rule_version_id)}>
