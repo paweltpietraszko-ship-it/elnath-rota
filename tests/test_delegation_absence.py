@@ -4,7 +4,19 @@ whole-day automatic blocker (section 5) whose delegation_hours count as
 real planned work (section 6/8), never excused absence, presented as `DEL`
 on the PDF for both regimes (section 10). Reuses tests/test_t020.py's own
 OCHRONA/ORDINARY fixtures and tests/test_t047_print_export.py's page-capture
-helper rather than building parallel print infrastructure."""
+helper rather than building parallel print infrastructure.
+
+R2 audit fix (tests_r2.txt R2-01, audit 327215e): a coordinator's manual
+correction may legally place a real Assignment on an active DELEGACJA day
+(materialized as a DELEGACJA-01 Deviation, never a hard block) -- the print
+renderer must not turn that saved decision back into an export-time
+ASSIGNMENT_ABSENCE_CONFLICT exception. Both _build_ordinary_rows and
+_build_rows now just show the real work code for that day, same as any
+other real Assignment day. Known, deliberately out-of-scope-for-this-round
+follow-up (not part of R2's closing condition): on that same day,
+total_hours/plan_hours currently add both the real work hours and the full
+delegation_hours_in_range for the month, double-counting that one day --
+left for a future round if the owner wants it addressed."""
 from __future__ import annotations
 
 from datetime import date
@@ -12,10 +24,12 @@ from datetime import date
 import pytest
 
 from rota.application.durable_inputs import append_availability
-from rota.application.schedule_export import ExportReady
+from rota.application.schedule_export import ExportReady, _build_ordinary_rows, _build_rows
 from rota.application.schedule_export import generate_schedule_pdf as _generate_schedule_pdf
 from rota.balance import compute_month_balance
-from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, AvailabilityRecord, ShiftDemand, ShiftKind
+from rota.domain import (
+    AssignmentRole, AssignmentState, AvailabilityKind, AvailabilityRecord, Employee, ShiftDemand, ShiftKind,
+)
 from rota.persistence.availability_repository import (
     append_availability_version_in_open_transaction,
     get_current_availability_for_employee,
@@ -249,6 +263,39 @@ def test_del_09_ochrona_pdf_shows_del_unambiguous_from_dn(monkeypatch):
     # in the used-codes legend/day letters stays exactly "D1".."D5", never
     # a truncated "DEL".
     assert "D" not in flat
+
+
+# --- R2-01: a saved manual-correction conflict must not block the export --
+
+
+def test_r2_ordinary_print_does_not_block_a_recorded_manual_assignment_on_delegation_day():
+    from datetime import datetime
+
+    day = date(2026, 10, 5)
+    employee = Employee("E1", "Jan", date(2020, 1, 1), None, False)
+    delegation = AvailabilityRecord(
+        "DEL-1", "DEL-V1", "E1", AvailabilityKind.DELEGACJA, day, day, True, None, None, delegation_hours=7,
+    )
+    rows = _build_ordinary_rows(
+        {"E1"}, {"E1": employee}, [day],
+        {"E1": {day: [(datetime(2026, 10, 5, 12), datetime(2026, 10, 5, 19), "A1")]}},
+        {}, {"E1": [delegation]}, {},
+    )
+    assert rows
+    assert rows[0].day_cells[0] != ["DEL"]  # real work shown, not the DELEGACJA label
+
+
+def test_r2_ochrona_print_does_not_block_a_recorded_manual_assignment_on_delegation_day():
+    day = date(2026, 10, 5)
+    employee = Employee("E1", "Jan", date(2020, 1, 1), None, False)
+    delegation = AvailabilityRecord(
+        "DEL-1", "DEL-V1", "E1", AvailabilityKind.DELEGACJA, day, day, True, None, None, delegation_hours=7,
+    )
+    rows = _build_rows(
+        {"E1"}, {"E1": employee}, [day], {"E1": {day: "D1"}}, {}, {"E1": [delegation]}, {}, {},
+    )
+    assert rows
+    assert rows[0].plan == ["D1"]  # real work code shown, not DEL
 
 
 if __name__ == "__main__":

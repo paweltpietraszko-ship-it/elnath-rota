@@ -418,8 +418,14 @@ def _build_ordinary_rows(
         for day in days:
             pieces = emp_items.get(day)
             if pieces:
-                if day in delegation_days:
-                    raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day}: real Assignment on an active DELEGACJA day")
+                # ROTA-DELEGACJA-ABSENCE-KIND audit R2 (tests_r2.txt R2-01):
+                # a coordinator's manual correction may legally place a real
+                # Assignment on an active DELEGACJA day -- the write path
+                # already materializes this as a DELEGACJA-01 Deviation
+                # (warning), never a hard block. The print renderer must
+                # not turn a saved decision back into an export-time
+                # exception; show the real worked hours, exactly as any
+                # other real Assignment day.
                 day_cells.append([_format_ordinary_piece(start, end) for start, end, _ in pieces])
                 day_absence_kind.append(None)
                 total_hours += sum(round((end - start).total_seconds() / 3600) for start, end, _ in pieces)
@@ -851,8 +857,10 @@ def _build_rows(
         plan, wyk = [], []
         for day in days:
             if day in emp_work:
-                if day in delegation_days:
-                    raise ExportProblemError("ASSIGNMENT_ABSENCE_CONFLICT", f"{employee_id}/{day}: real Assignment on an active DELEGACJA day")
+                # ROTA-DELEGACJA-ABSENCE-KIND audit R2 (tests_r2.txt R2-01):
+                # same reasoning as _build_ordinary_rows above -- a saved
+                # manual-correction decision must not become a hard export
+                # block; show the real work code as usual.
                 plan.append(emp_work[day]); wyk.append(emp_work[day])  # noqa: E702
             elif day in delegation_days:
                 plan.append(DELEGACJA_LABEL); wyk.append(DELEGACJA_LABEL)  # noqa: E702
