@@ -1,0 +1,24 @@
+ROTA-CLEANUP-FROZEN-BENCHMARKS — AUDIT R1
+
+AUDITED SHA: 2133538f6a941df92b79a4c50460374ff573f2fc
+AUDITED RANGE: b286bcf..2133538
+VERDICT: PASS
+
+Sprawdzono:
+- tests/property/ oraz zamrożone benchmarki i ich dwa testy zostały usunięte;
+- manual_audits.py, real_object_production.py, real_object_scenarios.py i
+  real_object_types.py zostały najpierw przeniesione 1:1 do tests/support/;
+- następny commit zmienia w nich wyłącznie importy i opis lokalizacji oraz
+  aktualizuje dwóch aktywnych konsumentów i AGENTS.md;
+- aktywny kod poza tasks/ nie zawiera importu z benchmarks/;
+- import trzech przeniesionych modułów: PASS;
+- reprezentatywny konsument tests/test_t009_plan_select_replan.py::test_3...:
+  1 passed;
+- diff-check: PASS.
+
+Jedyny pozostały import benchmarks.rota_stress znajduje się w historycznym
+artefakcie `tasks/ROTA-T003/round_01/implementation/rota_stress_edge_generator.py`.
+Nie jest aktywnym kodem ani testem i nie należy go przepisywać przy cleanupie.
+
+Nie uruchamiano usuniętych symulatorów/benchmarków, pełnej macierzy 145 testów
+ani pełnej regresji. PASS dotyczy dokładnie 2133538.

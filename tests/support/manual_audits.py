@@ -1,25 +1,31 @@
 """Owner-directed manual, human-verifiable solver passes (2026-08-13).
 
-Independent of benchmarks/real_object_checker.py by design: this module
-recomputes coverage/REST-01/LOAD-01/DAY_ONLY from raw Assignment objects
-using its own arithmetic instead of calling the benchmark's checker, so a
-bug shared between the production checker and this one cannot hide behind
-mutual agreement. Every function here prints the full concrete schedule so
-a human can look at it directly, not just a PASS/FAIL string -- this is
-what tests/regression/oracle_rota_reg_001.md (October 2026) and
-tasks/ROTA-REAL-OBJECT-01/round_01/tests/tests_r7.txt (January 2027) already
-did by hand; this module generalizes that same method to more months
-instead of building another self-certifying framework.
+Independent of the former benchmarks/real_object_checker.py by design: this
+module recomputes coverage/REST-01/LOAD-01/DAY_ONLY from raw Assignment
+objects using its own arithmetic instead of calling the benchmark's
+checker, so a bug shared between the production checker and this one
+cannot hide behind mutual agreement. Every function here prints the full
+concrete schedule so a human can look at it directly, not just a PASS/FAIL
+string -- this is what tests/regression/oracle_rota_reg_001.md (October
+2026) and tasks/ROTA-REAL-OBJECT-01/round_01/tests/tests_r7.txt (January
+2027) already did by hand; this module generalizes that same method to
+more months instead of building another self-certifying framework.
 
-Run: python -m benchmarks.manual_audits
+ROTA-CLEANUP-FROZEN-BENCHMARKS (2026-09-15): moved out of benchmarks/,
+which was deleted (real_object.py/real_object_checker.py/real_object_input.py/
+rota_stress.py and their two frozen benchmark test files) -- this module was
+never part of that frozen/broken evaluator, it is a live, owner-kept
+regression guard (see tests/test_manual_audits.py).
+
+Run: python -m tests.support.manual_audits
 """
 from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timedelta
 
-from benchmarks.real_object_production import build_planning_state
-from benchmarks.real_object_scenarios import LOAD_LIMIT_HOURS, REST_MIN_HOURS, _absence, _base
+from tests.support.real_object_production import build_planning_state
+from tests.support.real_object_scenarios import LOAD_LIMIT_HOURS, REST_MIN_HOURS, _absence, _base
 from rota.domain import Assignment
 from rota.planning.engine import plan
 from rota.planning.state import PlanningState
