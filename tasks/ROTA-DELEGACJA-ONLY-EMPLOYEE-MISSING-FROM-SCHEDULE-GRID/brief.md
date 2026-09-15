@@ -131,7 +131,22 @@ TASK_SCOPE:
 solver i validator są istniejącymi ownerami używanymi bez zmian i pozostają
 poza TASK_SCOPE. Każdy inny plik produkcyjny wymaga STOP i korekty briefu.
 
-## 9. Weryfikacja
+## 9. WHERE_MAP
+
+WHERE_MAP:
+- MODE: REQUIRED
+- TARGETS:
+  - `api/routers/schedule.py --symbol _plan_preview_out`
+  - `api/routers/schedule.py --symbol _planning_result_out`
+  - `api/routers/schedule.py --symbol get_month`
+  - `frontend/src/screens/MonthlyPlanning.tsx --symbol ScheduleGrid`
+- REASON: Task zmienia ownerów/szwy projekcji odpowiedzi grafiku i źródło wierszy siatki; mapa ma potwierdzić istniejące call site bez rozszerzania zakresu.
+
+Po zamrożeniu TASK_SCOPE i przed implementacją uruchomić dokładnie powyższe
+celowane komendy `where.py`; wynik jest wyłącznie dowodem wyszukania i nie
+rozszerza TASK_SCOPE.
+
+## 10. Weryfikacja
 
 Wąska macierz:
 1. DTO/helper routera dla current snapshot, świeżego result i persisted preview;
