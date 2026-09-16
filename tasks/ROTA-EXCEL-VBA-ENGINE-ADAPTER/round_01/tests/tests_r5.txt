@@ -1,0 +1,92 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — IMPLEMENTATION AUDIT R5
+
+Werdykt: FAIL
+
+Exact audited SHA: 1ac417f
+Frozen brief: 9bf5fae
+Base: main@c3f8b95
+
+AUDIT LAYERS
+
+- przeczytany dokładny diff implementacji i nowe granice auth/API/projection/VBA;
+- celowane testy zmienionych ownerów: 78 PASS;
+- pion external PLAN -> select_candidate -> accepted schedule: PASS w zestawie
+  produkcyjnym;
+- dwa niezależne reproduktory poniżej: 2 FAIL;
+- punktowa kontrola artefaktów: `.xlsx` nie zawiera vbaProject,
+  `.xlam` zawiera `xl/vbaProject.bin`; kontrakty i INSTALL istnieją;
+- pełnej regresji nie uruchamiano — brak zgody OWNERA i dwa lokalne,
+  rozstrzygające defekty nie wymagają jej do werdyktu.
+
+Komenda celowana:
+
+`python -m pytest -q tests/test_excel_api_key_auth.py tests/test_excel_external_api.py tests/test_schedule_projection.py tests/test_t020.py tests/test_t024_auth_isolation.py tasks/ROTA-EXCEL-VBA-ENGINE-ADAPTER/round_01/tests/audit_r5_repro.py`
+
+Wynik: `78 passed, 2 failed`.
+
+FINDING R5-01 — external API omija wspólną projekcję i gubi legalną pracę
+
+TRACE:
+- brief sekcja 8: PDF i external Excel API mają korzystać z jednego
+  `schedule_projection` dla kodów pracy, nieobecności, DELEGACJI, godzin
+  i kolejności wierszy;
+- XL-12: PDF i Excel używają jednego wspólnego modelu projekcji.
+
+OWNERSHIP:
+- `api/routers/excel_external.py` sam definiuje i wywołuje
+  `_candidate_day_grid`; nie importuje ani nie wywołuje
+  `build_schedule_projection`;
+- ta sama lokalna ścieżka buduje zarówno kandydatów, jak i GET zaakceptowanego
+  grafiku.
+
+REPRO na 1ac417f:
+- `audit_r5_repro.py::test_external_candidate_projection_preserves_all_same_day_work`;
+- dwa legalne, niepokrywające się Assignment tego samego pracownika tego
+  samego dnia: 06–12 i 14–18, razem 10h;
+- `_candidate_day_grid` przechowuje tylko jeden Assignment na
+  `(employee_id, date)`, więc wcześniejszy zostaje nadpisany;
+- wynik pokazuje 4h zamiast 10h i traci kod pierwszej zmiany.
+
+Skutek: Excel może pokazać i zsumować inny grafik niż wspólna projekcja/PDF,
+szczególnie w ORDINARY z wieloma niezależnymi zmianami jednego dnia. Lokalna
+ścieżka pomija też wspólną obsługę nieobecności. To dokładnie duplikacja,
+której brief zabrania.
+
+Wymagana korekta: external API ma budować kandydatów i bieżący grafik przez
+wspólny owner projekcji. Nie utrzymywać drugiej klasyfikacji w routerze.
+
+FINDING R5-02 — payload nie jest walidowany w całości przed pierwszym zapisem
+
+TRACE:
+- brief sekcja 4.2: format całego DTO, miesiąc i wszystkie wymagane pola są
+  walidowane przed pierwszym write;
+- sekcja 4.3 oraz XL-19 opierają bezpieczny retry na tej granicy.
+
+OWNERSHIP:
+- `post_excel_plan` wywołuje `_validate_roster_gate`, a następnie
+  `_apply_monthly_inputs`;
+- `_validate_roster_gate` sprawdza tylko membership;
+- enum `AvailabilityKind`, daty i godziny są parsowane dopiero wewnątrz
+  `_apply_monthly_inputs`, po wcześniejszych zapisach target_hours.
+
+REPRO na 1ac417f:
+- `audit_r5_repro.py::test_invalid_late_availability_is_validated_before_any_write`;
+- payload zawiera zmianę celu EMP-A ze 100 na 55 oraz późniejszy rekord
+  availability z nieistniejącym `kind`;
+- endpoint prawidłowo odpowiada 400, ale odczyt po błędzie zwraca już
+  utrwalone `target_hours=55`, zamiast wcześniejszych 100.
+
+Skutek: użytkownik dostaje informację, że request jest błędny, chociaż część
+danych została trwale zmieniona. Kolejne planowanie pracuje na częściowo
+zastosowanym payloadzie.
+
+Wymagana korekta: przed pierwszym write sparsować i zwalidować wszystkie
+elementy payloadu, w tym enumy, daty, godziny i wymagane kombinacje pól.
+Następnie dopiero uruchamiać reconciler zapisów.
+
+DEFECT_GATE
+
+Oba findingi mają jednoznaczny TRACE do frozen briefu, należą do nowego
+external routera i zostały odtworzone na exact SHA 1ac417f. Werdykt FAIL jest
+ograniczony do tych dwóch klas. Re-check ma uruchomić wyłącznie oba zachowane
+reproduktory oraz bezpośrednio dotknięte testy external/projection.
