@@ -831,25 +831,32 @@ def _build_rows(
     return rows
 
 
-# --- ROTA-EXCEL-VBA-ENGINE-ADAPTER Codex R5-01 fix: shared day-grid for an
-# Assignment list that is NOT (yet) a persisted ScheduleVersion -- a PLAN/
-# REPLAN candidate, or the currently accepted version's own assignments
-# read back for the external Excel API. brief.md section 8/XL-12: one
-# shared projection owner for PDF and Excel, never a second classification
-# in a router. Unlike build_schedule_projection (which reads a real,
-# possibly multi-version ScheduleVersion lineage and collapses D+N pairs
-# into a persisted "24" via work_period_id bookkeeping), this works from a
-# bare in-memory Assignment list with no lineage/24h-period concept --
-# multiple legal, non-overlapping same-day PRIMARY pieces for one employee
-# join with "/", matching MonthlyPlanning.tsx's own display convention,
-# and every piece's hours count toward the total (Codex R5-01: the
-# earlier per-router implementation kept only the LAST same-day
-# Assignment, silently discarding real worked hours).
+# --- ROTA-EXCEL-VBA-ENGINE-ADAPTER Codex R5-01/R6-01 fix: shared day-grid
+# for an Assignment list that is NOT (yet) a persisted ScheduleVersion -- a
+# PLAN/REPLAN candidate, or the currently accepted version's own
+# assignments read back for the external Excel API. brief.md section
+# 8/XL-12: one shared projection owner for PDF and Excel, never a second,
+# poorer classification in a router. Unlike build_schedule_projection
+# (which reads a real, possibly multi-version ScheduleVersion lineage and
+# collapses D+N pairs into a persisted "24" via work_period_id
+# bookkeeping), this works from a bare in-memory Assignment list with no
+# lineage/24h-period concept -- multiple legal, non-overlapping same-day
+# PRIMARY pieces for one employee join with "/", matching
+# MonthlyPlanning.tsx's own display convention, and every piece's hours
+# count toward the total. Absence is NOT reinvented here: it reuses the
+# same canonical facts and the same simple per-day word
+# (_collect_ordinary_absence/_ordinary_absence_word) the ORDINARY PDF
+# renderer already uses -- the OCHRONA PDF's coin-change U/C decomposition
+# needs SitePrintSettings and is print-specific, not part of this shared,
+# simpler day-value contract (brief.md section 3.4: "D, N, DEL,
+# nieobecność, inny kod pracy albo puste").
 
 
 def build_ad_hoc_day_grid(
     assignments: list[Assignment], demands_by_id: dict, days: list[date],
     delegation_by_employee: dict[str, list],
+    *, conn: Optional[sqlite3.Connection] = None, site_id: Optional[str] = None,
+    local_ids: Optional[set[str]] = None,
 ) -> dict[str, tuple[list[str], int]]:
     by_employee_day: dict[str, dict[date, list[Assignment]]] = {}
     for a in assignments:
@@ -857,12 +864,24 @@ def build_ad_hoc_day_grid(
             continue
         by_employee_day.setdefault(a.employee_id, {}).setdefault(a.start_datetime.date(), []).append(a)
 
+    # Canonical absence facts, same source and same simple per-day word as
+    # the ORDINARY PDF renderer -- work_days only feeds the existing
+    # ASSIGNMENT_ABSENCE_CONFLICT guard, exactly as it does there. conn is
+    # optional: a caller with only a bare Assignment list and no database
+    # (e.g. a unit-level check of the same-day merge behavior below) gets
+    # a grid with no absence words rather than a hard failure.
+    absence_words_by_employee: dict[str, dict[date, str]] = {}
+    if conn is not None:
+        absence_by_employee = _collect_ordinary_absence(conn, days, local_ids or set(), by_employee_day, site_id)
+        absence_words_by_employee = {eid: dict(pairs) for eid, pairs in absence_by_employee.items()}
+
     result: dict[str, tuple[list[str], int]] = {}
-    employee_ids = set(by_employee_day) | set(delegation_by_employee)
+    employee_ids = set(by_employee_day) | set(delegation_by_employee) | set(absence_words_by_employee)
     for employee_id in employee_ids:
         emp_days = by_employee_day.get(employee_id, {})
         records = [r for r in delegation_by_employee.get(employee_id, []) if r.kind == AvailabilityKind.DELEGACJA]
         covered_delegation_days = _delegation_days(records, days[0], days[-1])
+        absence_words = absence_words_by_employee.get(employee_id, {})
         cells: list[str] = []
         total_hours = 0
         for day in days:
@@ -882,6 +901,8 @@ def build_ad_hoc_day_grid(
                 cells.append("/".join(codes))
             elif day in covered_delegation_days:
                 cells.append(DELEGACJA_LABEL)
+            elif day in absence_words:
+                cells.append(absence_words[day])
             else:
                 cells.append("")
         total_hours += delegation_hours_in_range(records, employee_id, days[0], days[-1])

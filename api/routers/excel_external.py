@@ -33,7 +33,7 @@ from rota.application.durable_inputs import append_availability, set_target_hour
 from rota.application.errors import CandidateRejected, ReplanNotAvailableAfterAcceptance
 from rota.application.plan_ops import TargetHoursRequired, plan_month, replan, select_candidate
 from rota.domain import Assignment, AvailabilityKind, MembershipKind
-from rota.persistence.availability_repository import get_availability_history
+from rota.persistence.availability_repository import _validate_delegation_hours, _validate_time_window, get_availability_history
 from rota.persistence.coordinator_repository import CoordinatorNotFound, get_coordinator, save_coordinator
 from rota.persistence.db import connect
 from rota.persistence.employee_repository import list_employees_by_ids, list_memberships_for_site
@@ -173,30 +173,43 @@ def _validate_roster_gate(conn: sqlite3.Connection, site_id: str, payload: Excel
 def _validate_payload_shape(payload: ExcelMonthlyInputRequest) -> None:
     """brief.md section 4.2/XL-18/XL-19: the WHOLE payload -- every enum,
     date, and time -- is validated before the first write, not discovered
-    mid-reconciliation. Codex R5-02: an earlier implementation let
-    `_apply_monthly_inputs` parse `AvailabilityKind(item.kind)`/dates/times
-    lazily per row, so a bad LATER row could 400 only after an EARLIER
-    row's set_target_hours had already committed."""
+    mid-reconciliation. Codex R5-02/R6-02: parsability alone is not enough
+    -- an inverted date range (end before start) or a kind/field
+    combination the write owner would reject (e.g. UNAVAILABLE_TIME_
+    WINDOW without both times, DELEGACJA without a positive
+    delegation_hours) must also fail before the first write, not after an
+    earlier row already committed. Reuses the EXACT semantic checks the
+    real write owner (append_availability_version_in_open_transaction)
+    runs, never a second, looser copy of them."""
     for item in payload.availability:
         try:
-            AvailabilityKind(item.kind)
+            kind = AvailabilityKind(item.kind)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400, detail=f"Nieprawidłowy rodzaj nieobecności {item.kind!r} w rekordzie {item.availability_id!r}. Żadne dane nie zostały zapisane.",
             ) from exc
         try:
-            date.fromisoformat(item.start_date)
-            date.fromisoformat(item.end_date)
+            start_date = date.fromisoformat(item.start_date)
+            end_date = date.fromisoformat(item.end_date)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400, detail=f"Nieprawidłowa data w rekordzie {item.availability_id!r}. Żadne dane nie zostały zapisane.",
             ) from exc
         try:
-            _parse_hh_mm(item.start_time)
-            _parse_hh_mm(item.end_time)
+            start_time = _parse_hh_mm(item.start_time)
+            end_time = _parse_hh_mm(item.end_time)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400, detail=f"Nieprawidłowa godzina w rekordzie {item.availability_id!r}. Żadne dane nie zostały zapisane.",
+            ) from exc
+        try:
+            if end_date < start_date:
+                raise ValueError("end_date must be >= start_date")
+            _validate_time_window(kind, start_time, end_time)
+            _validate_delegation_hours(kind, item.delegation_hours)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Nieprawidłowy zakres w rekordzie {item.availability_id!r}: {exc}. Żadne dane nie zostały zapisane.",
             ) from exc
 
 
@@ -262,6 +275,11 @@ def _candidate_day_grid(
     candidate: list[Assignment], demands_by_id: dict, days: list[date],
     delegation_by_employee: dict[str, list],
 ) -> dict[str, tuple[list[str], int]]:
+    # Kept for direct callers with only a bare Assignment list and no
+    # database (e.g. a unit-level check of the same-day merge behavior) --
+    # real endpoint code below calls build_ad_hoc_day_grid directly with
+    # conn/site_id/local_ids so absence also projects correctly (Codex
+    # R6-01).
     return schedule_projection.build_ad_hoc_day_grid(candidate, demands_by_id, days, delegation_by_employee)
 
 
@@ -290,7 +308,10 @@ def _candidates_out(conn: sqlite3.Connection, site_id: str, month: date, candida
     delegation_by_employee = {eid: [r for r in recs if r.kind == AvailabilityKind.DELEGACJA] for eid, recs in delegation_by_employee.items()}
     out = []
     for i, candidate in enumerate(candidates, start=1):
-        grid = _candidate_day_grid(candidate, demands_by_id, days, delegation_by_employee)
+        grid = schedule_projection.build_ad_hoc_day_grid(
+            candidate, demands_by_id, days, delegation_by_employee,
+            conn=conn, site_id=site_id, local_ids=local_ids,
+        )
         all_ids = local_ids | set(grid)
         pseudonyms = _pseudonyms(conn, all_ids)
         rows = []
