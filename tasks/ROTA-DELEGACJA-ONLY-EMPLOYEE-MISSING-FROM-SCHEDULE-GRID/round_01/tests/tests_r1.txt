@@ -1,0 +1,31 @@
+ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID — PREIMPLEMENTATION R1
+
+WYNIK: WYMAGA KOREKTY PREIMPLEMENTATION
+BRIEF SHA: 8b9c7481051a9d428c2fa8d546c22bb7b8e4fe35
+BASE: c4fad96788bf13f14b1a63e0dc9e6071d17e4355
+
+ZAMKNIĘTA LISTA BRAKÓW KONTRAKTU
+
+1. Brak wymaganego WHERE_MAP.
+   Task dodaje dwa DTO, zmienia trzy helpery/endpoint odpowiedzi grafiku i
+   zmienia ScheduleGrid. Zgodnie z AGENTS.md kontrakt musi zawierać
+   WHERE_MAP: REQUIRED dla zmienianych ownerów/szwów, w szczególności
+   _plan_preview_out, _planning_result_out, get_month oraz ScheduleGrid.
+   Mapę uruchamia się dopiero po korekcie briefu; w brief-only prechecku nie
+   uruchamiano where.py.
+
+REDUKCJA PREIMPLEMENTATION
+- Zachowanie ma źródło w jawnej decyzji OWNERA i jest jednoznaczne: aktywny
+  LOCAL pozostaje w siatce, bieżące dni DEL są projekcją odczytową, Assignment
+  ma pierwszeństwo w komórce, a suma zachowuje oba fakty.
+- Minimalny szew jest prawidłowy: jeden helper projekcji w istniejącym routerze,
+  istniejące batch odczytu DELEGACJI i nazw pracowników, rozszerzenie obecnych
+  DTO oraz obecnego ScheduleGrid.
+- Właściciele persistence, Availability lifecycle, solver, validator i eksport
+  pozostają bez zmian; nie ma podstaw do rozszerzenia TASK_SCOPE.
+
+Po dodaniu kompletnego WHERE_MAP brief będzie jednoznaczny i implementowalny
+bez nowej decyzji produktowej.
+
+Nie analizowano diffu produktu i nie uruchamiano testów, reproduktorów ani
+regresji — zgodnie z BRIEF_ONLY_PRECHECK.

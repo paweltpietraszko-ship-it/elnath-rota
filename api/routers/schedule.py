@@ -7,7 +7,8 @@ restore application functions.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+import calendar
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,8 +32,8 @@ from rota.application.plan_ops import (
     select_candidate,
 )
 from rota.application.precheck import precheck
-from rota.domain import Assignment, AssignmentRole, AssignmentState
-from rota.persistence.employee_repository import list_employees_by_ids
+from rota.domain import Assignment, AssignmentRole, AssignmentState, MembershipKind
+from rota.persistence.employee_repository import list_employees_by_ids, list_memberships_for_site
 from rota.persistence.plan_preview_repository import get_plan_preview
 from rota.persistence.schedule_repository import (
     get_current_schedule_snapshot,
@@ -41,6 +42,8 @@ from rota.persistence.schedule_repository import (
     get_schedule_version_header,
     is_schedule_version_live,
 )
+from rota.persistence.work_balance_repository import delegation_records_for_employees
+from rota.planning.absence import delegation_hours_in_range
 
 router = APIRouter(prefix="/workspace/sites", tags=["schedule"])
 
@@ -138,6 +141,18 @@ class DeviationOut(BaseModel):
     acknowledged: bool
 
 
+class ScheduleEmployeeOut(BaseModel):
+    employee_id: str
+    employee_display_name: str
+
+
+class DelegationDayOut(BaseModel):
+    employee_id: str
+    date: str
+    code: str = "DEL"
+    hours: int
+
+
 class PlanPreviewOut(BaseModel):
     # ROTA-T057: None before the very first ScheduleVersion for this
     # (site_id, month) has ever been created (T57-01).
@@ -148,6 +163,9 @@ class PlanPreviewOut(BaseModel):
     # R2-03 audit fix: "plan" or "replan" -- so the frontend can dispatch a
     # further "Szukaj dalej" to the correct continuation after a reload.
     operation_kind: str
+    # ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID sections 2/3.
+    employees: list[ScheduleEmployeeOut] = []
+    delegation_days: list[DelegationDayOut] = []
 
 
 class MonthViewOut(BaseModel):
@@ -170,6 +188,11 @@ class MonthViewOut(BaseModel):
     # response (current schedule) stays untouched either way.
     plan_preview: PlanPreviewOut | None = None
     plan_preview_error: str | None = None
+    # ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID sections 2/3:
+    # the current, active-membership roster + whoever has an active
+    # DELEGACJA this month -- never persisted, recomputed fresh every read.
+    employees: list[ScheduleEmployeeOut] = []
+    delegation_days: list[DelegationDayOut] = []
 
 
 class MissingTargetHoursEmployeeOut(BaseModel):
@@ -188,6 +211,12 @@ class PlanningResultOut(BaseModel):
     # when status == "TARGET_HOURS_REQUIRED" (never DECISION_REQUIRED, never
     # TECHNICAL_ERROR); empty otherwise.
     missing_target_hours: list[MissingTargetHoursEmployeeOut] = []
+    # ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID sections 2/3:
+    # populated for a real solver result (FEASIBLE and friends); left at the
+    # empty default for TARGET_HOURS_REQUIRED, which never reaches the
+    # roster/DEL projection below.
+    employees: list[ScheduleEmployeeOut] = []
+    delegation_days: list[DelegationDayOut] = []
 
 
 class PrecheckOut(BaseModel):
@@ -234,14 +263,79 @@ def _deviation_out(d) -> DeviationOut:
     )
 
 
-def _plan_preview_out(conn, preview) -> PlanPreviewOut:
+def _month_end(month: date) -> date:
+    return date(month.year, month.month, calendar.monthrange(month.year, month.month)[1])
+
+
+def _local_employee_ids(conn, site_id: str) -> set[str]:
+    return {
+        m.employee_id for m in list_memberships_for_site(conn, site_id)
+        if m.enabled and m.membership_kind == MembershipKind.LOCAL
+    }
+
+
+def _delegation_days_out(conn, local_ids: set[str], month: date) -> list[DelegationDayOut]:
+    """ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID section 2: a
+    pure presentational projection from the current, active
+    AvailabilityKind.DELEGACJA records (rota.persistence.work_balance_
+    repository.delegation_records_for_employees, the same batch the
+    analytics path already uses) -- never persisted, never a second
+    lifecycle/version owner. Hours are the one canonical
+    rota.planning.absence.delegation_hours_in_range, called once per
+    covered day (never a repeated ad hoc arithmetic)."""
+    if not local_ids:
+        return []
+    month_start, month_end = month, _month_end(month)
+    records_by_employee = delegation_records_for_employees(conn, list(local_ids), month_start, month_end)
+    out: list[DelegationDayOut] = []
+    for employee_id, records in records_by_employee.items():
+        covered: set[date] = set()
+        for record in records:
+            day = max(record.start_date, month_start)
+            end = min(record.end_date, month_end)
+            while day <= end:
+                covered.add(day)
+                day += timedelta(days=1)
+        for day in covered:
+            hours = delegation_hours_in_range(records, employee_id, day, day)
+            out.append(DelegationDayOut(employee_id=employee_id, date=day.isoformat(), hours=hours))
+    out.sort(key=lambda d: (d.employee_id, d.date))
+    return out
+
+
+def _schedule_employees_out(conn, local_ids: set[str], extra_employee_ids: set[str]) -> list[ScheduleEmployeeOut]:
+    """Section 2: union of the current active enabled LOCAL roster with
+    whoever already appears via real Assignments or an active DELEGACJA in
+    this same response -- never LOCAL alone (a since-disabled employee must
+    not vanish from their own already-accepted history) and never
+    Assignments alone (the DEL-only-employee gap this Task closes)."""
+    all_ids = local_ids | extra_employee_ids
+    if not all_ids:
+        return []
+    employees_by_id = list_employees_by_ids(conn, list(all_ids))
+    out = [
+        ScheduleEmployeeOut(
+            employee_id=eid,
+            employee_display_name=employees_by_id[eid].display_name if eid in employees_by_id else eid,
+        )
+        for eid in all_ids
+    ]
+    out.sort(key=lambda e: (e.employee_display_name, e.employee_id))
+    return out
+
+
+def _plan_preview_out(conn, preview, *, site_id: str, month: date) -> PlanPreviewOut:
     all_employee_ids = {a.employee_id for candidate in preview.candidates for a in candidate}
     employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
     candidates = [[_assignment_out(a, employees_by_id) for a in candidate] for candidate in preview.candidates]
+    local_ids = _local_employee_ids(conn, site_id)
+    delegation_days = _delegation_days_out(conn, local_ids, month)
+    employees_out = _schedule_employees_out(conn, local_ids, all_employee_ids | {d.employee_id for d in delegation_days})
     return PlanPreviewOut(
         schedule_version_id=preview.schedule_version_id, candidates=candidates,
         warnings=list(preview.warnings), optimization_complete=preview.optimization_complete,
         operation_kind=preview.operation_kind,
+        employees=employees_out, delegation_days=delegation_days,
     )
 
 
@@ -271,7 +365,7 @@ def _target_hours_required_out(conn, exc: TargetHoursRequired) -> PlanningResult
     )
 
 
-def _planning_result_out(conn, result, *, operation: str) -> PlanningResultOut:
+def _planning_result_out(conn, result, *, operation: str, site_id: str, month: date) -> PlanningResultOut:
     """ROTA-TECHNICAL-ERROR-RECOVERY-UX (brief.md section 3/A2/A15): the
     ONE shared boundary for every PLAN/REPLAN/wider-search/retry result --
     a structured TECHNICAL_ERROR (no exception context; the solver simply
@@ -279,7 +373,11 @@ def _planning_result_out(conn, result, *, operation: str) -> PlanningResultOut:
     here, category STRUCTURED_PLANNING_FAILURE, never the raw
     `result.error_message`. `operation` is "PLAN" or "REPLAN" (wider-
     search/retry keep the REPLAN category they already continue -- brief
-    section 3: "wider-search/retry zachowują swoją rzeczywistą operację")."""
+    section 3: "wider-search/retry zachowują swoją rzeczywistą operację").
+
+    ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID: site_id/month
+    are the explicit inputs this Task's brief requires for the roster/DEL
+    projection below -- every caller already has both."""
     all_employee_ids = {a.employee_id for candidate in result.candidates for a in candidate}
     employees_by_id = list_employees_by_ids(conn, list(all_employee_ids))
     candidates = [[_assignment_out(a, employees_by_id) for a in candidate] for candidate in result.candidates]
@@ -289,10 +387,14 @@ def _planning_result_out(conn, result, *, operation: str) -> PlanningResultOut:
             component=operation, exception_type="STRUCTURED_PLANNING_FAILURE",
             safe_message="Solver zwrócił TECHNICAL_ERROR bez kontekstu wyjątku.",
         )
+    local_ids = _local_employee_ids(conn, site_id)
+    delegation_days = _delegation_days_out(conn, local_ids, month)
+    employees_out = _schedule_employees_out(conn, local_ids, all_employee_ids | {d.employee_id for d in delegation_days})
     return PlanningResultOut(
         status=result.status, candidates=candidates, decision_payload=decision_payload,
         error_message=result.error_message, warnings=list(result.warnings),
         optimization_complete=result.optimization_complete,
+        employees=employees_out, delegation_days=delegation_days,
     )
 
 
@@ -313,9 +415,11 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
         demands: list = []
         assignments: list = []
         deviations: list = []
+        assignment_employee_ids: set[str] = set()
         if current is not None:
             _, snapshot = current
             employee_ids = list({a.employee_id for a in snapshot.assignments})
+            assignment_employee_ids = set(employee_ids)
             employees_by_id = list_employees_by_ids(conn, employee_ids)
             demands = [_demand_out(d) for d in snapshot.shift_demands]
             assignments = [_assignment_out(a, employees_by_id) for a in snapshot.assignments]
@@ -359,7 +463,7 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
                 )
             )
             if preview_matches_current and readback is None:
-                plan_preview_out = _plan_preview_out(conn, preview)
+                plan_preview_out = _plan_preview_out(conn, preview, site_id=site_id, month=month)
                 if view.current_version is None:
                     # No ScheduleVersion exists to source demands from yet --
                     # show the preview's own (the candidates were solved
@@ -369,12 +473,16 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
                     demands = [_demand_out(d) for d in preview.shift_demands]
         except Exception as exc:  # isolated, never propagated as the whole request's error (T54-07)
             plan_preview_error = str(exc)
+        local_ids = _local_employee_ids(conn, site_id)
+        delegation_days = _delegation_days_out(conn, local_ids, month)
+        employees_out = _schedule_employees_out(conn, local_ids, assignment_employee_ids | {d.employee_id for d in delegation_days})
         return MonthViewOut(
             current_version=_version_out(conn, view.current_version) if view.current_version else None,
             version_history=[_version_out(conn, v) for v in view.version_history],
             demands=demands, assignments=assignments, deviations=deviations,
             decision_required=decision_required, warnings=list(view.warnings),
             plan_preview=plan_preview_out, plan_preview_error=plan_preview_error,
+            employees=employees_out, delegation_days=delegation_days,
         )
     except Exception as exc:
         raise to_http_exception(exc) from exc
@@ -423,7 +531,7 @@ def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             search_attempt=payload.search_attempt,
         )
-        return _planning_result_out(conn, result, operation="PLAN")
+        return _planning_result_out(conn, result, operation="PLAN", site_id=site_id, month=month)
     except TargetHoursRequired as exc:
         return _target_hours_required_out(conn, exc)
     except Exception as exc:
@@ -505,7 +613,7 @@ def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
-        return _planning_result_out(conn, result, operation="REPLAN")
+        return _planning_result_out(conn, result, operation="REPLAN", site_id=site_id, month=month)
     except TargetHoursRequired as exc:
         return _target_hours_required_out(conn, exc)
     except Exception as exc:
@@ -528,7 +636,7 @@ def post_replan_wider_search(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             search_attempt=payload.search_attempt,
         )
-        return _planning_result_out(conn, result, operation="REPLAN")
+        return _planning_result_out(conn, result, operation="REPLAN", site_id=site_id, month=month)
     except TargetHoursRequired as exc:
         return _target_hours_required_out(conn, exc)
     except Exception as exc:
@@ -547,7 +655,7 @@ def post_replan_retry(
             conn, site_id=site_id, month=month, coordinator_id=coordinator_id,
             search_attempt=payload.search_attempt,
         )
-        return _planning_result_out(conn, result, operation="REPLAN")
+        return _planning_result_out(conn, result, operation="REPLAN", site_id=site_id, month=month)
     except TargetHoursRequired as exc:
         return _target_hours_required_out(conn, exc)
     except Exception as exc:

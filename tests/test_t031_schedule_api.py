@@ -94,6 +94,11 @@ def test_plan_creates_first_version_and_returns_candidates(client, site_id):
     assert body["status"] == "FEASIBLE"
     assert len(body["candidates"]) >= 1
     assert body["candidates"][0][0]["employee_display_name"]
+    # ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID: real solver
+    # result now also carries the presentational roster projection -- no
+    # DELEGACJA on this object, so delegation_days stays empty.
+    assert body["employees"]
+    assert body["delegation_days"] == []
 
 
 # T31-03 (ROTA-T057 T57-01, rewritten): after PLAN alone, BEFORE accepting

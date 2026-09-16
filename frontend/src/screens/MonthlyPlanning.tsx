@@ -2,7 +2,7 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, DelegationDayOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleEmployeeOut, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
 
 function firstOfMonthIso(yearMonth: string): string {
@@ -75,19 +75,30 @@ function totalHours(assignments: AssignmentOut[]): number {
 }
 
 function ScheduleGrid({
-  monthIso, assignments, demandByDemandId, onSelectAssignment,
+  monthIso, assignments, demandByDemandId, onSelectAssignment, employees: employeesOut, delegationDays,
 }: {
   monthIso: string;
   assignments: AssignmentOut[];
   demandByDemandId: Map<string, ShiftDemandOut>;
   onSelectAssignment?: (assignmentId: string) => void;
+  // ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID sections 2/3:
+  // optional so the historical version-snapshot call site (VersionSnapshotOut
+  // has no such projection, out of this brief's scope) keeps compiling
+  // unchanged and falls back to the old assignment-derived employee list.
+  employees?: ScheduleEmployeeOut[];
+  delegationDays?: DelegationDayOut[];
 }) {
   const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
   const employees = useMemo(() => {
+    if (employeesOut) {
+      return employeesOut
+        .map((e): [string, string] => [e.employee_id, e.employee_display_name])
+        .sort((a, b) => a[1].localeCompare(b[1]));
+    }
     const byId = new Map<string, string>();
     for (const a of assignments) byId.set(a.employee_id, a.employee_display_name);
     return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [assignments]);
+  }, [assignments, employeesOut]);
   const cellsByEmployeeDay = useMemo(() => {
     const map = new Map<string, AssignmentOut[]>();
     for (const a of assignments) {
@@ -108,6 +119,21 @@ function ScheduleGrid({
     }
     return map;
   }, [assignments]);
+  // DG-07 (frozen precedent): a DEL day only shows on the grid when no real
+  // Assignment already occupies that cell -- the cell shows one symbol,
+  // never a second one stacked next to a manual Assignment.
+  const delegationByEmployeeDay = useMemo(() => {
+    const map = new Map<string, DelegationDayOut>();
+    for (const d of delegationDays ?? []) map.set(`${d.employee_id}|${d.date}`, d);
+    return map;
+  }, [delegationDays]);
+  // DG-07: the row TOTAL legitimately double-counts a day that has both a
+  // manual Assignment and an active DELEGACJA -- not a bug, both are real.
+  const delegationHoursByEmployee = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of delegationDays ?? []) map.set(d.employee_id, (map.get(d.employee_id) ?? 0) + d.hours);
+    return map;
+  }, [delegationDays]);
 
   if (employees.length === 0) {
     return <p className="panel-hint">Brak zapisanych przypisań w tej wersji.</p>;
@@ -131,6 +157,8 @@ function ScheduleGrid({
               <td>{displayName}</td>
               {days.map((d) => {
                 const cell = cellsByEmployeeDay.get(`${employeeId}|${d}`);
+                // DG-07: DEL only renders when the cell has no real Assignment.
+                const delegationDay = !cell?.length ? delegationByEmployeeDay.get(`${employeeId}|${d}`) : undefined;
                 return (
                   <td key={d} style={{ textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
                     {cell?.map((a, i) => (
@@ -152,11 +180,12 @@ function ScheduleGrid({
                         )}
                       </span>
                     ))}
+                    {delegationDay ? delegationDay.code : ""}
                   </td>
                 );
               })}
               <td style={{ textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                {totalHours(assignmentsByEmployee.get(employeeId) ?? [])}h
+                {totalHours(assignmentsByEmployee.get(employeeId) ?? []) + (delegationHoursByEmployee.get(employeeId) ?? 0)}h
               </td>
             </tr>
           ))}
@@ -218,6 +247,8 @@ export default function MonthlyPlanning({
         warnings: view.plan_preview.warnings,
         optimization_complete: view.plan_preview.optimization_complete,
         missing_target_hours: [],
+        employees: view.plan_preview.employees,
+        delegation_days: view.plan_preview.delegation_days,
       });
       // R2-03 audit fix: without this, a "Szukaj dalej" after reload always
       // dispatched to plain PLAN's own retry, even for a REPLAN preview.
@@ -1009,6 +1040,7 @@ export default function MonthlyPlanning({
               <ScheduleGrid
                 monthIso={monthIso} assignments={view.assignments} demandByDemandId={demandByDemandId}
                 onSelectAssignment={setEditingAssignmentId}
+                employees={view.employees} delegationDays={view.delegation_days}
               />
 
               <div className="create-panel-actions" style={{ marginTop: 12 }}>
@@ -1627,7 +1659,10 @@ export default function MonthlyPlanning({
               {planResult.candidates.map((candidate, i) => (
                 <div key={i} style={{ marginBottom: 16 }}>
                   <p className="panel-hint">Kandydat {i + 1}</p>
-                  <ScheduleGrid monthIso={monthIso} assignments={candidate} demandByDemandId={demandByDemandId} />
+                  <ScheduleGrid
+                    monthIso={monthIso} assignments={candidate} demandByDemandId={demandByDemandId}
+                    employees={planResult.employees} delegationDays={planResult.delegation_days}
+                  />
                   <div className="create-panel-actions">
                     <button
                       className="btn-primary"

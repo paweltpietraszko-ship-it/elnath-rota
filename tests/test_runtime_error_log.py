@@ -9,6 +9,7 @@ a real unclassified exception -> HTTP response -> runtime log -> ZIP.
 from __future__ import annotations
 
 import os
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,6 +29,7 @@ from tests.support.t008_fixtures import seed_base_entities
 
 SITE = "SITE-1"
 COORD = "COORD-1"
+MONTH = date(2026, 1, 1)
 
 
 @pytest.fixture(autouse=True)
@@ -78,7 +80,7 @@ def test_structured_planning_failure_never_copies_raw_error_message(tmp_path):
     )
     conn = connect(":memory:")
     seed_base_entities(conn, site_id=SITE, coordinator_id=COORD)
-    _planning_result_out(conn, result, operation="PLAN")
+    _planning_result_out(conn, result, operation="PLAN", site_id=SITE, month=MONTH)
     conn.close()
     content = _log_path(tmp_path).read_text(encoding="utf-8")
     assert "STRUCTURED_PLANNING_FAILURE" in content
@@ -93,7 +95,7 @@ def test_structured_planning_failure_has_no_stack_trace(tmp_path):
     )
     conn = connect(":memory:")
     seed_base_entities(conn, site_id=SITE, coordinator_id=COORD)
-    _planning_result_out(conn, result, operation="REPLAN")
+    _planning_result_out(conn, result, operation="REPLAN", site_id=SITE, month=MONTH)
     conn.close()
     content = _log_path(tmp_path).read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line.strip()]
@@ -108,7 +110,7 @@ def test_feasible_result_does_not_log(tmp_path):
     )
     conn = connect(":memory:")
     seed_base_entities(conn, site_id=SITE, coordinator_id=COORD)
-    _planning_result_out(conn, result, operation="PLAN")
+    _planning_result_out(conn, result, operation="PLAN", site_id=SITE, month=MONTH)
     conn.close()
     assert not _log_path(tmp_path).exists()
 

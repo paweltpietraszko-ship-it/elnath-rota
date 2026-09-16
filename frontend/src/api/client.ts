@@ -140,6 +140,20 @@ export interface DeviationOut {
   acknowledged: boolean;
 }
 
+// ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID sections 2/3: a
+// presentational-only roster/DELEGACJA projection, never persisted.
+export interface ScheduleEmployeeOut {
+  employee_id: string;
+  employee_display_name: string;
+}
+
+export interface DelegationDayOut {
+  employee_id: string;
+  date: string;
+  code: "DEL";
+  hours: number;
+}
+
 // ROTA-T054: the persisted, unaccepted PLAN/REPLAN preview, if one exists
 // and still matches current_version -- a preview tied to an older version
 // is stale and never sent here.
@@ -149,6 +163,8 @@ export interface PlanPreviewOut {
   warnings: string[];
   optimization_complete: boolean;
   operation_kind: "plan" | "replan_narrow" | "replan_wide";
+  employees: ScheduleEmployeeOut[];
+  delegation_days: DelegationDayOut[];
 }
 
 export interface MonthViewOut {
@@ -161,6 +177,8 @@ export interface MonthViewOut {
   warnings: string[];
   plan_preview: PlanPreviewOut | null;
   plan_preview_error: string | null;
+  employees: ScheduleEmployeeOut[];
+  delegation_days: DelegationDayOut[];
 }
 
 // ROTA-T062: text plus a stable navigation target (or null, information
@@ -201,6 +219,8 @@ export interface PlanningResultOut {
   warnings: string[];
   optimization_complete: boolean;
   missing_target_hours: MissingTargetHoursEmployeeOut[];
+  employees: ScheduleEmployeeOut[];
+  delegation_days: DelegationDayOut[];
 }
 
 export interface PrecheckOut {
