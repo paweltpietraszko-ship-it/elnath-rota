@@ -1,0 +1,35 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — AUDIT R7 (narrow re-check)
+
+VERDICT: PASS
+EXACT AUDITED SHA: ab260453aa2f1cfb2d18bf41ca9bbc696efe82d7
+BASE FINDINGS: R6 report at 2fc2abd37baf6e956cb3bcb315f902136386da37
+
+SCOPE
+- Reviewed only the CC fix for R6-01/R6-02.
+- Preserved and reran the original R5 and R6 reproducers.
+- Reran only the two test files directly touched by the fix.
+- No full repository regression was run; OWNER approval was neither requested nor needed for this narrow re-check.
+
+DIFF REVIEW
+- R6-01: the real Excel candidate endpoint now passes conn/site_id/local_ids to
+  schedule_projection.build_ad_hoc_day_grid. That shared projection reads the
+  canonical ORDINARY absence facts and emits the existing ORDINARY day word.
+- R6-02: _validate_payload_shape now checks date ordering and invokes the
+  availability write owner's semantic validators before _apply_monthly_inputs
+  can perform any write.
+- git diff --check ae8518a..ab26045: clean.
+
+INDEPENDENT EVIDENCE
+Command:
+  python -m pytest -q \
+    tasks/ROTA-EXCEL-VBA-ENGINE-ADAPTER/round_01/tests/audit_r5_repro.py \
+    tasks/ROTA-EXCEL-VBA-ENGINE-ADAPTER/round_01/tests/audit_r6_repro.py \
+    tests/test_excel_external_api.py \
+    tests/test_schedule_projection.py
+
+Result: 12 passed in 17.97s.
+
+CONCLUSION
+- R5-01/R6-01 closed: active ORDINARY absence is present in the Excel candidate projection while the original same-day assignment merge remains correct.
+- R5-02/R6-02 closed: semantic payload failure is rejected before target-hours persistence, including end_date earlier than start_date.
+- PASS applies only to exact SHA ab260453aa2f1cfb2d18bf41ca9bbc696efe82d7.
