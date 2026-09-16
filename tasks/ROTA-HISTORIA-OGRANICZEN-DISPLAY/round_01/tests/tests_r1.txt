@@ -1,0 +1,24 @@
+ROTA-HISTORIA-OGRANICZEN-DISPLAY — RETROAKTYWNY AUDYT R1
+
+WYNIK: PASS
+AUDITED SHA: 8676d079aebc871c17ab202fe14537e898982409
+MERGE SHA: 5830a50
+BASE: 21396b7
+
+ZAKRES I DOWÓD
+- Diff obejmuje wyłącznie RestrictionList w EmployeeDetail.tsx.
+- Lista odrzuca komórki, których rzeczywiste applies_to jest wcześniejsze niż
+  dzisiejsza data; zakończona reguła nie dostaje już przycisku
+  „Edytuj / zakończ”.
+- Wyświetlany okres korzysta z applies_from/applies_to, czyli z projekcji
+  faktycznej stosowalności używanej przez backend.
+- end_employee_matrix_rule_early zapisuje decyzję kończącą rodzinę reguły;
+  surowe effective_to poprzedniej wersji nie było właściwym źródłem dla tej
+  listy.
+- Właściciel potwierdził wynik na żywym przykładzie Anny z obiektu FF.
+- node frontend/node_modules/typescript/bin/tsc -b frontend/tsconfig.json:
+  PASS.
+- git diff --check 21396b7..8676d07: PASS.
+
+Nie uruchamiano pełnej regresji ani innych ścieżek UI. PASS dotyczy exact SHA
+8676d079aebc871c17ab202fe14537e898982409.
