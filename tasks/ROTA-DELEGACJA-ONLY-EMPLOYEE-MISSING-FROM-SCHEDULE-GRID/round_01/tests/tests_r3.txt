@@ -1,0 +1,38 @@
+ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID — IMPLEMENTATION AUDIT R3
+
+WYNIK: FAIL
+AUDITED SHA: c7e047a
+IMPLEMENTATION PARENT: b3c1f85
+
+FINDING R3-01 — pominięte żywe call site'y zmienionego helpera
+
+TRACE
+- brief.md sekcja 3 wymaga, aby _planning_result_out dostał jawne site_id i
+  month.
+- brief.md sekcja 9 wymaga WHERE_MAP tego symbolu właśnie w celu ustalenia
+  istniejących call site'ów.
+
+OWNERSHIP
+- Implementacja zmieniła wymaganą sygnaturę _planning_result_out.
+- Obowiązkowy WHERE_MAP wskazał trzy żywe wywołania w
+  tests/test_runtime_error_log.py, lecz Task ich nie zaktualizował.
+
+REPRO NA EXACT SHA
+- python -m pytest -q tests/test_runtime_error_log.py
+- wynik: 3 failed, 12 passed;
+- wszystkie trzy nowe awarie to TypeError: brak keyword-only site_id i month
+  w wywołaniach _planning_result_out.
+
+KOREKTA
+- Punktowo przekazać w trzech istniejących testach zasiany SITE oraz stały
+  miesiąc, bez zmiany zachowania produktu i bez rozszerzania macierzy.
+
+POZOSTAŁE WARSTWY AUDYTU
+- Diff produkcyjny i wymagane cztery WHERE_MAP przeczytane na exact SHA.
+- tests/test_delegation_schedule_grid.py: 9 passed.
+- frontend/e2e/delegation-schedule-grid.spec.ts: 2 passed w Chromium.
+- TypeScript tsc -b: PASS.
+- git diff --check b3c1f85..c7e047a: PASS.
+
+Pełnej regresji nie uruchamiano. Po mechanicznej korekcie wystarczy wąski
+re-check trzech failing testów oraz testów bezpośrednio dotkniętych poprawką.
