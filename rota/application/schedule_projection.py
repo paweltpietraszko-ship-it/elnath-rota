@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from rota.domain import AssignmentRole, AssignmentState, AvailabilityKind, MembershipKind, ShiftCatalogKind, SitePlanningRegime
+from rota.domain import Assignment, AssignmentRole, AssignmentState, AvailabilityKind, MembershipKind, ShiftCatalogKind, SitePlanningRegime
 from rota.persistence import calendar_repository, employee_repository, schedule_repository, site_repository
 from rota.persistence.absence_reference_repository import get_absence_reference_snapshot
 from rota.persistence.availability_repository import list_active_overlapping_for_employees
@@ -829,3 +829,61 @@ def _build_rows(
         ))
     rows.sort(key=lambda r: (r.display_name.casefold(), r.employee_id))
     return rows
+
+
+# --- ROTA-EXCEL-VBA-ENGINE-ADAPTER Codex R5-01 fix: shared day-grid for an
+# Assignment list that is NOT (yet) a persisted ScheduleVersion -- a PLAN/
+# REPLAN candidate, or the currently accepted version's own assignments
+# read back for the external Excel API. brief.md section 8/XL-12: one
+# shared projection owner for PDF and Excel, never a second classification
+# in a router. Unlike build_schedule_projection (which reads a real,
+# possibly multi-version ScheduleVersion lineage and collapses D+N pairs
+# into a persisted "24" via work_period_id bookkeeping), this works from a
+# bare in-memory Assignment list with no lineage/24h-period concept --
+# multiple legal, non-overlapping same-day PRIMARY pieces for one employee
+# join with "/", matching MonthlyPlanning.tsx's own display convention,
+# and every piece's hours count toward the total (Codex R5-01: the
+# earlier per-router implementation kept only the LAST same-day
+# Assignment, silently discarding real worked hours).
+
+
+def build_ad_hoc_day_grid(
+    assignments: list[Assignment], demands_by_id: dict, days: list[date],
+    delegation_by_employee: dict[str, list],
+) -> dict[str, tuple[list[str], int]]:
+    by_employee_day: dict[str, dict[date, list[Assignment]]] = {}
+    for a in assignments:
+        if a.state == AssignmentState.CANCELLED:
+            continue
+        by_employee_day.setdefault(a.employee_id, {}).setdefault(a.start_datetime.date(), []).append(a)
+
+    result: dict[str, tuple[list[str], int]] = {}
+    employee_ids = set(by_employee_day) | set(delegation_by_employee)
+    for employee_id in employee_ids:
+        emp_days = by_employee_day.get(employee_id, {})
+        records = [r for r in delegation_by_employee.get(employee_id, []) if r.kind == AvailabilityKind.DELEGACJA]
+        covered_delegation_days = _delegation_days(records, days[0], days[-1])
+        cells: list[str] = []
+        total_hours = 0
+        for day in days:
+            pieces = emp_days.get(day)
+            if pieces:
+                codes = []
+                for a in pieces:
+                    if a.operational_code:
+                        codes.append(a.operational_code)
+                    elif a.role == AssignmentRole.PERIODIC_TRAINING:
+                        codes.append("S1")
+                    else:
+                        demand = demands_by_id.get(a.covers_demand_id) if a.covers_demand_id else None
+                        codes.append(demand.shift_kind.value if demand and demand.shift_kind else "?")
+                    if a.role in (AssignmentRole.PRIMARY, AssignmentRole.PERIODIC_TRAINING):
+                        total_hours += round((a.end_datetime - a.start_datetime).total_seconds() / 3600)
+                cells.append("/".join(codes))
+            elif day in covered_delegation_days:
+                cells.append(DELEGACJA_LABEL)
+            else:
+                cells.append("")
+        total_hours += delegation_hours_in_range(records, employee_id, days[0], days[-1])
+        result[employee_id] = (cells, total_hours)
+    return result

@@ -28,10 +28,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.auth.api_key import get_authenticated_context_by_api_key
 from api.auth.context import AuthenticatedContext
 from api.errors import to_http_exception
+from rota.application import schedule_projection
 from rota.application.durable_inputs import append_availability, set_target_hours
 from rota.application.errors import CandidateRejected, ReplanNotAvailableAfterAcceptance
 from rota.application.plan_ops import TargetHoursRequired, plan_month, replan, select_candidate
-from rota.domain import Assignment, AssignmentRole, AssignmentState, AvailabilityKind, MembershipKind
+from rota.domain import Assignment, AvailabilityKind, MembershipKind
 from rota.persistence.availability_repository import get_availability_history
 from rota.persistence.coordinator_repository import CoordinatorNotFound, get_coordinator, save_coordinator
 from rota.persistence.db import connect
@@ -39,7 +40,6 @@ from rota.persistence.employee_repository import list_employees_by_ids, list_mem
 from rota.persistence.plan_preview_repository import get_plan_preview
 from rota.persistence.schedule_repository import get_current_schedule_snapshot
 from rota.persistence.work_balance_repository import delegation_records_for_employees, get_work_balance_target
-from rota.planning.absence import delegation_hours_in_range
 from rota.domain import Coordinator
 
 router = APIRouter(prefix="/external/excel", tags=["excel"])
@@ -170,6 +170,36 @@ def _validate_roster_gate(conn: sqlite3.Connection, site_id: str, payload: Excel
         )
 
 
+def _validate_payload_shape(payload: ExcelMonthlyInputRequest) -> None:
+    """brief.md section 4.2/XL-18/XL-19: the WHOLE payload -- every enum,
+    date, and time -- is validated before the first write, not discovered
+    mid-reconciliation. Codex R5-02: an earlier implementation let
+    `_apply_monthly_inputs` parse `AvailabilityKind(item.kind)`/dates/times
+    lazily per row, so a bad LATER row could 400 only after an EARLIER
+    row's set_target_hours had already committed."""
+    for item in payload.availability:
+        try:
+            AvailabilityKind(item.kind)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Nieprawidłowy rodzaj nieobecności {item.kind!r} w rekordzie {item.availability_id!r}. Żadne dane nie zostały zapisane.",
+            ) from exc
+        try:
+            date.fromisoformat(item.start_date)
+            date.fromisoformat(item.end_date)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Nieprawidłowa data w rekordzie {item.availability_id!r}. Żadne dane nie zostały zapisane.",
+            ) from exc
+        try:
+            _parse_hh_mm(item.start_time)
+            _parse_hh_mm(item.end_time)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Nieprawidłowa godzina w rekordzie {item.availability_id!r}. Żadne dane nie zostały zapisane.",
+            ) from exc
+
+
 # --- section 4.3: idempotent reconciler, no new ledger ---------------------
 
 
@@ -219,47 +249,20 @@ def _parse_hh_mm(value: str | None):
     return _time(int(hour), int(minute or 0))
 
 
-# --- section 3.4/3.5: shared, simple day-grid for PLAN/REPLAN candidates ---
-# Mirrors MonthlyPlanning.tsx's own ScheduleGrid cell convention (operational
-# code, else demand shift_kind, else S1/DEL/blank) -- the same convention
-# the React UI already shows for an unaccepted candidate, not a second one.
+# --- section 3.4/3.5/8/XL-12: day-grid for PLAN/REPLAN candidates and the
+# accepted schedule, delegated entirely to the shared projection owner
+# (rota.application.schedule_projection) -- Codex R5-01: an earlier,
+# router-local implementation kept only the LAST same-day Assignment per
+# employee, silently discarding real worked hours whenever an employee had
+# more than one legal, non-overlapping Assignment on the same day. This
+# thin wrapper exists only so callers keep this module's own name.
 
 
 def _candidate_day_grid(
     candidate: list[Assignment], demands_by_id: dict, days: list[date],
     delegation_by_employee: dict[str, list],
 ) -> dict[str, tuple[list[str], int]]:
-    by_employee_day: dict[str, dict[date, Assignment]] = {}
-    for a in candidate:
-        if a.state == AssignmentState.CANCELLED:
-            continue
-        by_employee_day.setdefault(a.employee_id, {})[a.start_datetime.date()] = a
-    result: dict[str, tuple[list[str], int]] = {}
-    employee_ids = set(by_employee_day) | set(delegation_by_employee)
-    for employee_id in employee_ids:
-        emp_days = by_employee_day.get(employee_id, {})
-        records = delegation_by_employee.get(employee_id, [])
-        cells: list[str] = []
-        total_hours = 0
-        for day in days:
-            a = emp_days.get(day)
-            if a is not None:
-                if a.operational_code:
-                    cells.append(a.operational_code)
-                elif a.role == AssignmentRole.PERIODIC_TRAINING:
-                    cells.append("S1")
-                else:
-                    demand = demands_by_id.get(a.covers_demand_id) if a.covers_demand_id else None
-                    cells.append(demand.shift_kind.value if demand and demand.shift_kind else "?")
-                if a.role in (AssignmentRole.PRIMARY, AssignmentRole.PERIODIC_TRAINING):
-                    total_hours += round((a.end_datetime - a.start_datetime).total_seconds() / 3600)
-            elif records and any(r.start_date <= day <= r.end_date and r.active for r in records):
-                cells.append("DEL")
-            else:
-                cells.append("")
-        total_hours += delegation_hours_in_range(records, employee_id, days[0], days[-1])
-        result[employee_id] = (cells, total_hours)
-    return result
+    return schedule_projection.build_ad_hoc_day_grid(candidate, demands_by_id, days, delegation_by_employee)
 
 
 def _candidate_id(candidate: list[Assignment]) -> str:
@@ -344,6 +347,7 @@ def post_excel_plan(
     try:
         month = _parse_month(payload.month)
         _validate_roster_gate(conn, payload.site_id, payload)
+        _validate_payload_shape(payload)
         _apply_monthly_inputs(conn, coordinator_id=coordinator_id, site_id=payload.site_id, month=month, payload=payload)
         # Excel never exposes the lifecycle "effective_from" concept
         # (brief.md section 1/2) -- today() is the sane hidden default,
@@ -367,6 +371,7 @@ def post_excel_replan(
     try:
         month = _parse_month(payload.month)
         _validate_roster_gate(conn, payload.site_id, payload)
+        _validate_payload_shape(payload)
         _apply_monthly_inputs(conn, coordinator_id=coordinator_id, site_id=payload.site_id, month=month, payload=payload)
         result = replan(conn, site_id=payload.site_id, month=month, coordinator_id=coordinator_id, effective_from=date.today())
         return _result_out(conn, payload.site_id, month, result)
