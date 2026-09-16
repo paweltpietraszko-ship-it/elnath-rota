@@ -1,0 +1,18 @@
+ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID — RE-CHECK R4
+
+WYNIK: PASS
+AUDITED SHA: 9f955f9
+POPRZEDNI FINDING SHA: c7e047a
+
+ZAKRES I DOWÓD
+- Diff poprawki dotyka wyłącznie tests/test_runtime_error_log.py.
+- Trzy pominięte wywołania _planning_result_out dostały zasiane SITE oraz
+  stały MONTH, bez zmiany zachowania produktu.
+- Pierwotny reproduktor: python -m pytest -q tests/test_runtime_error_log.py
+  — 15 passed w 1.45s.
+- git diff --check c7e047a..9f955f9: PASS.
+
+Funkcjonalne warstwy Tasku pozostały bez zmian względem audytu R3, w którym
+9 testów API, 2 piony Chromium i tsc przeszły. Finding R3-01 jest zamknięty.
+Pełnej regresji ani dodatkowych testów nie uruchamiano. PASS dotyczy exact SHA
+9f955f9.
