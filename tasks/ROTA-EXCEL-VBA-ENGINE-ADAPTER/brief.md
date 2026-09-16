@@ -3,7 +3,7 @@
 STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD UNTIL CODEX PASS AND CC MERIT PASS
 
 BASE_MAIN_SHA: `89f5aaa84120b2e31a2fb877a43234c03064b2f5`
-SOURCE: `arch/FINDING_2026-09-16_EXCEL_VBA_ENGINE_ADAPTER.md` + OWNER rulings 2026-09-16 + Codex precheck `round_01/tests/tests_r2.txt`
+SOURCE: `arch/FINDING_2026-09-16_EXCEL_VBA_ENGINE_ADAPTER.md` + OWNER rulings 2026-09-16 + Codex prechecks `round_01/tests/tests_r2.txt` and `tests_r3.txt`
 
 ## 1. Cel i jawne decyzje OWNERA
 
@@ -87,11 +87,33 @@ Kolumny dokładnie odpowiadają istniejącemu kontraktowi write-ownera:
 
 Walidacja semantyki kombinacji pól pozostaje w istniejącym ownerze persistence/application; VBA nie implementuje własnych reguł availability.
 
-### 3.4 Wynik
+### 3.4 `ROTA_CANDIDATES` — zamrożony kontrakt podglądu
 
-`ROTA_SCHEDULE_OUTPUT` jest tylko miejscem prezentacji zatwierdzonego kandydata/projekcji. Nie jest źródłem danych solvera.
+`ROTA_CANDIDATES` jest tabelą techniczno-prezentacyjną. Jeden kandydat zajmuje po jednym wierszu na pracownika.
 
-`ROTA_CANDIDATES` pokazuje kandydatów zwróconych przez istniejący lifecycle wraz ze stabilnym `candidate_id` i czytelnym podglądem umożliwiającym wybór. Użytkownik jawnie uruchamia `Użyj tego grafiku` dla wskazanego `candidate_id`.
+Kolumny:
+
+- `candidate_id` — identyczny dla wszystkich wierszy tego kandydata, tylko odczyt;
+- `candidate_no` — kolejny numer prezentacyjny 1..N, tylko odczyt;
+- `employee_id` — stabilne ID, tylko odczyt;
+- `pseudonym` — czytelna lokalna nazwa pracownika;
+- `day_01` ... `day_31` — wartość projekcji danego dnia (`D`, `N`, `DEL`, nieobecność, inny kod pracy albo puste); dni nieistniejące w miesiącu pozostają puste;
+- `total_hours` — suma godzin z projekcji dla pracownika w kandydacie.
+
+Jedna komórka nazwana `ROTA_SELECTED_CANDIDATE_ID` przechowuje `candidate_id` wybrany przez użytkownika. Akcja `Użyj tego grafiku` czyta wyłącznie tę komórkę. Wygląd, kolory i grupowanie wierszy są prezentacją i mogą zostać dobrane przez implementera, ale powyższe kolumny i nazwa komórki są kontraktem.
+
+### 3.5 `ROTA_SCHEDULE_OUTPUT` — zamrożony kontrakt wyniku
+
+`ROTA_SCHEDULE_OUTPUT` jest tabelą jednego zaakceptowanego/bieżącego grafiku. Jeden wiersz = jeden pracownik.
+
+Kolumny:
+
+- `employee_id`;
+- `pseudonym`;
+- `day_01` ... `day_31` — ta sama semantyka wartości co w `ROTA_CANDIDATES`;
+- `total_hours`.
+
+Dane pochodzą wyłącznie ze wspólnej `schedule_projection`. Tabela nie jest źródłem danych solvera i nie jest częściowo aktualizowana: VBA buduje kompletny nowy zestaw w pamięci i dopiero po pełnym sukcesie zastępuje zawartość tabeli.
 
 ## 4. Request DTO i zapis danych wejściowych
 
@@ -122,17 +144,38 @@ availability: [
 
 Nie ma pól `db_path`, `coordinator_id`, pełnego nazwiska ani konfiguracji Site.
 
-### 4.2 Ownerzy zapisu
+### 4.2 Granica rosteru i walidacja całego payloadu przed zapisem
+
+External router przed pierwszym zapisem:
+
+1. rozwiązuje `site_id` w uwierzytelnionym context;
+2. pobiera aktywny roster Site;
+3. buduje zbiór `employee_id` dla rekordów `membership_kind=LOCAL` i `enabled=True`;
+4. sprawdza, że każdy `employee_id` z `target_hours` i `availability` należy do tego zbioru;
+5. waliduje format całego DTO, miesiąc oraz wszystkie wymagane pola.
+
+Jeżeli choć jeden `employee_id` jest obcy, nieaktywny albo nie-LOCAL, cały request zostaje odrzucony przed pierwszym zapisem. Nie wolno częściowo zastosować pozostałych wierszy.
+
+### 4.3 Retry-safe orkiestracja bez nowego ledgeru
+
+Nie tworzyć osobnej tabeli idempotency ani drugiego modelu monthly inputs. External router ma zachowywać się jak idempotentny reconciler bieżących miesięcznych wejść:
+
+- `target_hours`: przed wywołaniem `set_target_hours(...)` odczytać bieżącą wartość; jeżeli jest identyczna z payloadem, pominąć write;
+- `availability`: dla każdego `availability_id` odczytać najnowszą wersję rodziny; jeżeli jej semantyczny stan (`employee_id`, `kind`, daty, czasy, `delegation_hours`, `active`) jest identyczny z payloadem, pominąć `append_availability(...)`;
+- dopiero rekordy różniące się od bieżącego stanu trafiają do istniejących write-ownerów;
+- cały payload musi przejść walidację z 4.2 przed wykonaniem pierwszego write.
+
+Dzięki temu retry po częściowym błędzie nie dopisuje drugi raz już zastosowanych wersji availability i nie wymaga nowego request-ledgera. To jest ochrona wyłącznie na granicy external adaptera; nie zmienia semantyki `append_availability()`.
+
+### 4.4 Ownerzy zapisu
 
 Router external jest wyłącznie orkiestratorem:
 
-- każdy `target_hours` zapisuje przez istniejący `set_target_hours(...)`;
-- każdy wiersz availability zapisuje/aktualizuje przez istniejący `append_availability(...)` z tym samym `availability_id`;
-- po zapisaniu wejść wywołuje istniejący `plan_month(...)` albo `replan(...)` zgodnie z fazą lifecycle.
+- zmieniony `target_hours` zapisuje przez istniejący `set_target_hours(...)`;
+- zmieniony wiersz availability zapisuje przez istniejący `append_availability(...)`;
+- po zastosowaniu wymaganych różnic wywołuje istniejący `plan_month(...)` albo `replan(...)` zgodnie z fazą lifecycle.
 
-Nie tworzyć drugiej tabeli, drugiego modelu monthly inputs ani osobnej logiki walidacyjnej dla Excela.
-
-Jeżeli którykolwiek zapis wejścia zwróci kontrolowany błąd, planowanie nie rusza, `ROTA_SCHEDULE_OUTPUT` pozostaje bez zmian, a użytkownik dostaje komunikat operacyjny. Retry ma być bezpieczny dzięki stabilnym ID i istniejącym write-ownerom.
+Jeżeli walidacja wstępna nie przejdzie, nie ma żadnego zapisu. Jeżeli kontrolowany błąd wystąpi później, `ROTA_SCHEDULE_OUTPUT` pozostaje bez zmian, użytkownik dostaje komunikat operacyjny, a ponowienie tego samego payloadu bezpiecznie pomija już zastosowane identyczne fakty.
 
 ## 5. Zachowanie użytkownika i lifecycle
 
@@ -171,6 +214,21 @@ Minimalna powierzchnia:
 Nie tworzyć endpointu zarządzania personelem, Site ani konfiguracją solvera.
 
 Zewnętrzny response DTO może stabilizować nazwy pól dla klienta Excel, ale status/kandydaci/blockery muszą wynikać z istniejących application operations, bez drugiej klasyfikacji.
+
+### 6.1 `candidate_id` — identyfikator adaptera, nie nowy stan domenowy
+
+Obecny `PlanPreview` przechowuje kandydatów jako listy `Assignment`; Task nie dodaje trwałego candidate entity ani candidate table.
+
+External router przy serializacji aktualnego server-side `PlanPreview` wylicza dla każdego kandydata `candidate_id` jako SHA-256 kanonicznej treści tej listy Assignment. Kanoniczna treść obejmuje co najmniej wszystkie pola Assignment wpływające na tożsamość grafiku i jest sortowana deterministycznie przed hashowaniem. Ten sam kandydat w tym samym preview daje ten sam hash.
+
+`POST /external/excel/select-candidate` nie przyjmuje listy Assignment od klienta. Router:
+
+1. odczytuje aktualny server-side `PlanPreview` dla wskazanego `site_id` + `month`;
+2. ponownie wylicza `candidate_id` dla każdego kandydata z tego preview;
+3. wybiera wyłącznie kandydata, którego wyliczony hash dokładnie odpowiada przesłanemu ID;
+4. dopiero tę server-side listę Assignment przekazuje do istniejącego `select_candidate()`.
+
+Brak dopasowania oznacza kontrolowany blocker: kandydat jest nieaktualny albo nie należy do bieżącego preview; użytkownik ma ponownie wybrać `Przelicz`/`Pokaż inny wariant`. Stary hash, hash z innego Site/miesiąca lub dowolna wartość klienta nie może zostać rozwiązana poza aktualnym preview.
 
 ## 7. Auth — alternatywny credential, ten sam context
 
@@ -249,6 +307,10 @@ PLAN/REPLAN mogą zapisać dane wejściowe w Rota i utworzyć preview/kandydató
 - `XL-13`: standardowy grafik to `.xlsx` bez makr, a repo dostarcza osobny, instalowalny `.xlam` wraz ze źródłem i powtarzalnym buildem.
 - `XL-14`: core SaaS obsługuje jeden zamrożony szablon; obcy layout nie jest automatycznie mapowany.
 - `XL-15`: request do Railway nie wymaga pełnych nazwisk.
+- `XL-16`: `candidate_id` jest wyliczany deterministycznie z aktualnego server-side preview; select odrzuca ID stare/obce i nigdy nie przyjmuje Assignment od klienta.
+- `XL-17`: `ROTA_CANDIDATES`, `ROTA_SELECTED_CANDIDATE_ID` i `ROTA_SCHEDULE_OUTPUT` mają dokładny kontrakt kolumn z sekcji 3.
+- `XL-18`: cały request jest sprawdzany względem aktywnego LOCAL rosteru przed pierwszym zapisem; jeden obcy/nieaktywny employee_id odrzuca całość.
+- `XL-19`: retry tego samego payloadu po częściowym błędzie nie tworzy kolejnej wersji availability dla rekordów już zgodnych z żądanym stanem.
 
 ## 13. OUT_OF_SCOPE
 
@@ -297,8 +359,6 @@ TASK_SCOPE:
 - `api/main.py`
 - `rota/application/schedule_projection.py` (nowy)
 - `rota/application/schedule_export.py`
-- `rota/application/durable_inputs.py` (tylko reuse existing operations; zmiana wyłącznie jeśli niezbędna do cienkiej orkiestracji, bez nowej semantyki)
-- `rota/application/plan_ops.py` (tylko istniejące PLAN/REPLAN/select_candidate seam; bez zmiany lifecycle)
 - `excel/ELNATH_ROTA_TEMPLATE.xlsx` (nowy, bez VBA)
 - `excel/ELNATH_ROTA_ADDIN.xlam` (nowy artefakt binarny)
 - `excel/src/elnath_rota_addin.bas` (nowy)
@@ -344,6 +404,10 @@ Minimalna macierz:
 7. kontrolowany blocker + network/auth/parsing nie zmieniają `ROTA_SCHEDULE_OUTPUT`;
 8. wspólna projection: reprezentatywny OCHRONA, ORDINARY, DEL i nieobecność;
 9. `.xlsx` nie zawiera VBA; osobny `.xlam` jest odtwarzalny ze źródła przez build procedure;
-10. smoke manualny: instalacja add-in -> PLAN -> wybór kandydata -> `Użyj tego grafiku` -> wynik w standardowym arkuszu.
+10. candidate hash: deterministyczny, rozwiązywany tylko wobec aktualnego preview; stary/obcy hash odrzucony;
+11. template contract: dokładne kolumny `ROTA_CANDIDATES` i `ROTA_SCHEDULE_OUTPUT` + `ROTA_SELECTED_CANDIDATE_ID`;
+12. roster gate: jeden employee_id spoza aktywnego LOCAL rosteru odrzuca cały request bez write;
+13. retry po wymuszonym błędzie po części zapisów nie dopisuje ponownie już zgodnych availability;
+14. smoke manualny: instalacja add-in -> PLAN -> wybór kandydata -> `Użyj tego grafiku` -> wynik w standardowym arkuszu.
 
 Nie uruchamiać pełnej regresji bez osobnej zgody OWNERA. Implementacja rusza dopiero po `PASS PREIMPLEMENTATION` Codexa i osobnym PASS merytorycznym CC.
