@@ -28,4 +28,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-EXCEL-VBA-ENGINE-ADAPTER | Codex | CC | `task/ROTA-EXCEL-VBA-ENGINE-ADAPTER` | audited fix `ab26045`; report `2653cf4` | CODEX_REPORTED | **PASS R7 na exact `ab26045`.** Wąski re-check zamknął R6-01/R6-02: zachowane reproduktory R5/R6 oraz bezpośrednio dotknięte testy dały 12/12 PASS. Aktywna nieobecność ORDINARY jest widoczna w projekcji kandydata Excel, a semantycznie błędny payload jest odrzucany przed zapisem godzin. Pełnej regresji nie uruchamiano zgodnie z zakresem re-checku. Raport: `tasks/ROTA-EXCEL-VBA-ENGINE-ADAPTER/round_01/tests/tests_r7.txt`. |
