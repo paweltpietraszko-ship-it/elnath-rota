@@ -3,7 +3,7 @@
 STATUS: PREIMPLEMENTATION — IMPLEMENTATION HOLD UNTIL CODEX PASS AND CC MERIT PASS
 
 BASE_MAIN_SHA: `89f5aaa84120b2e31a2fb877a43234c03064b2f5`
-SOURCE: `arch/FINDING_2026-09-16_EXCEL_VBA_ENGINE_ADAPTER.md` + OWNER rulings 2026-09-16
+SOURCE: `arch/FINDING_2026-09-16_EXCEL_VBA_ENGINE_ADAPTER.md` + OWNER rulings 2026-09-16 + Codex precheck `round_01/tests/tests_r2.txt`
 
 ## 1. Cel i jawne decyzje OWNERA
 
@@ -13,150 +13,279 @@ Zamrożone decyzje:
 
 1. Excel jest głównym interfejsem użytkownika dla tego wariantu.
 2. Integracja używa VBA dla klasycznego desktopowego Excela.
-3. Użytkownik może z Excela uruchomić PLAN oraz REPLAN i odebrać wynik z Rota.
+3. Użytkownik może z Excela uruchomić planowanie i szukanie innego wariantu przed pierwszą akceptacją.
 4. Rota działa jako usługa sieciowa; target ma dostęp do Internetu.
 5. Dostęp z Excela nie wymaga interaktywnego logowania przy każdym użyciu. Administrator wydaje raz klucz dostępu, który dodatek wysyła automatycznie.
-6. Core SaaS obsługuje jeden standardowy szablon grafiku oparty na referencjach z `Grafiki/`. Dopasowanie do dowolnego arkusza klienta jest osobną usługą, nie częścią tego Tasku.
-7. Standardowy plik grafiku pozostaje czystym `.xlsx`. VBA jest dostarczany osobno jako jednorazowo instalowany dodatek `.xlam` lub równoważny artefakt VBA, więc zwykły plik grafiku nie zawiera makr.
-8. Przy wyniku innym niż gotowy grafik użytkownik dostaje prosty polski komunikat opisujący konkretny problem i konkretne następne działanie. Nie pokazujemy mu kodów technicznych typu `DECISION_REQUIRED`, `TARGET_HOURS_REQUIRED`, nazw klas ani surowych payloadów.
-9. Przy takim blockerze lub błędzie arkusz z grafikiem pozostaje niezmieniony. Dane są wpisywane do arkusza dopiero po otrzymaniu poprawnego wyniku możliwego do przedstawienia jako grafik.
-10. W pilotażu chmura ma operować na stabilnych ID/pseudonimach zamiast pełnych nazwisk. Mapowanie na pełne nazwiska może pozostać lokalnie po stronie Excela i nie jest wysyłane do Rota.
+6. Core SaaS obsługuje jeden standardowy szablon oparty na referencji `Grafiki/Zrzut ekranu (630).png` i pozostałych materiałach pomocniczych z `Grafiki/`. Dopasowanie do dowolnego arkusza klienta jest osobną usługą.
+7. Standardowy plik grafiku pozostaje czystym `.xlsx`. VBA jest dostarczany osobno jako jednorazowo instalowany dodatek `.xlam`.
+8. Przy wyniku innym niż gotowy grafik użytkownik dostaje prosty komunikat operacyjny: co jest nie tak, czego/kogo dotyczy i co konkretnie ma zrobić dalej. Nie pokazujemy mu kodów technicznych jako głównej treści.
+9. Przy blockerze lub błędzie obszar wynikowego grafiku w Excelu pozostaje niezmieniony.
+10. W pilotażu chmura operuje na stabilnych ID/pseudonimach zamiast pełnych nazwisk. Mapowanie na pełne nazwiska może pozostać lokalnie po stronie Excela.
+11. PLAN/REPLAN zwracają kandydatów. Użytkownik musi jawnie wybrać kandydata i wykonać akcję `Użyj tego grafiku`; adapter nie wybiera automatycznie pierwszego wyniku.
+12. Zachować istniejący lifecycle: przed pierwszą akceptacją użytkownik może używać REPLAN do szukania innego wariantu. Po akceptacji ponowne przeliczenie używa PLAN; REPLAN nie jest używany po akceptacji.
 
-## 2. Zachowanie użytkownika
+## 2. Granica bieżącego Tasku — miesięczna praca, nie drugi panel administracyjny
+
+Ten Task nie przenosi całego setupu Roty do Excela.
+
+Na wejściu istnieją już w Rota:
+
+- `Site` i jego konfiguracja;
+- aktywny roster i stabilne `employee_id`;
+- pseudonimy/display_name pracowników;
+- reguły, role, shift catalog i pozostałe trwałe ustawienia obiektu.
+
+Excel jest w tym Tasku klientem miesięcznej pracy koordynatora. Może zmieniać wyłącznie dwa rodzaje danych wejściowych, które już mają istniejących ownerów:
+
+1. miesięczny cel godzinowy pracownika — owner `rota.application.durable_inputs.set_target_hours`;
+2. okres dostępności/nieobecności pracownika — owner `rota.application.durable_inputs.append_availability`.
+
+Tworzenie/usuwanie pracowników, zmiana `day_only`, attach/detach rosteru, role, konfiguracja zmian i ustawienia Site są OUT_OF_SCOPE. Dzięki temu adapter nie buduje równoległego panelu administracyjnego.
+
+## 3. Standardowy szablon `.xlsx` — zamrożony kontrakt danych
+
+Implementer ma utworzyć `excel/TEMPLATE_CONTRACT.md` literalnie z poniższego kontraktu; nie wolno mu samodzielnie dodawać pól produktu.
+
+### 3.1 Stabilne nazwy zakresów / tabel
+
+W standardowym `.xlsx` muszą istnieć:
+
+- `ROTA_SITE_ID` — jedna komórka, tylko odczyt dla użytkownika;
+- `ROTA_MONTH` — jedna komórka w formacie `YYYY-MM-01`;
+- tabela `ROTA_EMPLOYEES`;
+- tabela `ROTA_AVAILABILITY`;
+- obszar wynikowy `ROTA_SCHEDULE_OUTPUT`;
+- obszar kandydatów/wyboru `ROTA_CANDIDATES`.
+
+### 3.2 `ROTA_EMPLOYEES`
+
+Jeden wiersz na aktywnego LOCAL pracownika istniejącego już w rosterze.
+
+Kolumny:
+
+- `employee_id` — stabilne ID, ukryte lub techniczne, nieedytowalne przez zwykłego użytkownika;
+- `pseudonym` — lokalna czytelna nazwa; może być pełnym nazwiskiem wyłącznie lokalnie, ale request do Railway wysyła tylko wartość dopuszczoną przez pilota/pseudonim;
+- `target_hours` — liczba całkowita >= 0; jedyne edytowalne pole tego wiersza należące do requestu planistycznego.
+
+`employee_id` musi odpowiadać istniejącemu pracownikowi aktywnego rosteru Site. Adapter nie tworzy pracownika i nie zmienia rosteru.
+
+### 3.3 `ROTA_AVAILABILITY`
+
+Każdy wiersz opisuje jeden trwały rekord availability dla istniejącego `employee_id`.
+
+Kolumny dokładnie odpowiadają istniejącemu kontraktowi write-ownera:
+
+- `availability_id` — stabilne ID; dla nowego wiersza generowane przez klienta raz i zachowywane przy retry;
+- `employee_id`;
+- `kind` — istniejąca wartość `AvailabilityKind`;
+- `start_date` — ISO `YYYY-MM-DD`;
+- `end_date` — ISO `YYYY-MM-DD`;
+- `start_time` — opcjonalne `HH:00`;
+- `end_time` — opcjonalne `HH:00`;
+- `delegation_hours` — opcjonalna liczba całkowita;
+- `active` — boolean.
+
+Walidacja semantyki kombinacji pól pozostaje w istniejącym ownerze persistence/application; VBA nie implementuje własnych reguł availability.
+
+### 3.4 Wynik
+
+`ROTA_SCHEDULE_OUTPUT` jest tylko miejscem prezentacji zatwierdzonego kandydata/projekcji. Nie jest źródłem danych solvera.
+
+`ROTA_CANDIDATES` pokazuje kandydatów zwróconych przez istniejący lifecycle wraz ze stabilnym `candidate_id` i czytelnym podglądem umożliwiającym wybór. Użytkownik jawnie uruchamia `Użyj tego grafiku` dla wskazanego `candidate_id`.
+
+## 4. Request DTO i zapis danych wejściowych
+
+### 4.1 `ExcelMonthlyInputRequest`
+
+Wspólny payload wejściowy dla PLAN/REPLAN:
+
+```text
+site_id: str
+month: str  # YYYY-MM-01
+target_hours: [
+  { employee_id: str, target_hours: int }
+]
+availability: [
+  {
+    availability_id: str,
+    employee_id: str,
+    kind: str,
+    start_date: str,
+    end_date: str,
+    start_time: str | null,
+    end_time: str | null,
+    delegation_hours: int | null,
+    active: bool
+  }
+]
+```
+
+Nie ma pól `db_path`, `coordinator_id`, pełnego nazwiska ani konfiguracji Site.
+
+### 4.2 Ownerzy zapisu
+
+Router external jest wyłącznie orkiestratorem:
+
+- każdy `target_hours` zapisuje przez istniejący `set_target_hours(...)`;
+- każdy wiersz availability zapisuje/aktualizuje przez istniejący `append_availability(...)` z tym samym `availability_id`;
+- po zapisaniu wejść wywołuje istniejący `plan_month(...)` albo `replan(...)` zgodnie z fazą lifecycle.
+
+Nie tworzyć drugiej tabeli, drugiego modelu monthly inputs ani osobnej logiki walidacyjnej dla Excela.
+
+Jeżeli którykolwiek zapis wejścia zwróci kontrolowany błąd, planowanie nie rusza, `ROTA_SCHEDULE_OUTPUT` pozostaje bez zmian, a użytkownik dostaje komunikat operacyjny. Retry ma być bezpieczny dzięki stabilnym ID i istniejącym write-ownerom.
+
+## 5. Zachowanie użytkownika i lifecycle
 
 ### Pierwsza instalacja
 
-Zaufany instalator instaluje dodatek VBA na komputerze użytkownika i konfiguruje w nim adres usługi Rota oraz wydany dla tego klienta klucz dostępu. Użytkownik nie przepisuje klucza przy każdym użyciu.
+Zaufany instalator instaluje `ELNATH_ROTA_ADDIN.xlam` i konfiguruje adres usługi Rota oraz wydany klucz dostępu. Użytkownik nie wpisuje klucza przy każdym użyciu.
 
-### PLAN
+### PLAN / `Przelicz`
 
 1. Użytkownik otwiera standardowy `.xlsx`.
-2. Wprowadza dane wymagane przez uzgodniony szablon.
-3. Uruchamia akcję `Przelicz` z dodatku.
-4. Dodatek odczytuje wyłącznie pola należące do zamrożonego kontraktu szablonu i wysyła je do Rota z kluczem dostępu.
-5. Rota korzysta z istniejących ownerów persistence/application/planning; Excel nie implementuje reguł planowania.
-6. Jeśli wynik jest gotowy do pokazania, dodatek zapisuje grafik do standardowego układu arkusza.
-7. Jeśli operacja jest zablokowana, dodatek pokazuje komunikat po polsku z problemem i działaniem użytkownika, a istniejący grafik w arkuszu pozostaje nietknięty.
+2. Uzupełnia `target_hours` oraz potrzebne okresy w `ROTA_AVAILABILITY`.
+3. Wybiera `Przelicz`.
+4. Dodatek wysyła `ExcelMonthlyInputRequest`.
+5. Rota zapisuje dane przez istniejących ownerów i wywołuje `plan_month()`.
+6. Jeśli Rota zwraca kandydatów, dodatek pokazuje ich w `ROTA_CANDIDATES`; nie zmienia jeszcze zaakceptowanego grafiku.
+7. Użytkownik wybiera jednego kandydata i uruchamia `Użyj tego grafiku`.
+8. Dopiero sukces istniejącego `select_candidate()` pozwala wypełnić `ROTA_SCHEDULE_OUTPUT` projekcją bieżącego grafiku.
 
-Przykładowa forma komunikatu, nie literalny tekst kontraktowy: `Anna nie ma ustawionego celu godzinowego na wrzesień. Ustaw cel godzinowy i ponownie wybierz Przelicz.` zamiast `TARGET_HOURS_REQUIRED`.
+### REPLAN / `Pokaż inny wariant`
 
-### REPLAN
+Przed pierwszą akceptacją miesiąca użytkownik może uruchomić `Pokaż inny wariant`. Adapter wywołuje istniejący `replan()` i ponownie pokazuje kandydatów. Żaden kandydat nie jest akceptowany automatycznie.
 
-REPLAN jest osobną akcją dodatku korzystającą z istniejącego lifecycle Rota. Dodatek nie przelicza lokalnie różnic i nie odtwarza historii wersji. Wynik oraz blockery podlegają tym samym zasadom co PLAN.
+Po pierwszej akceptacji akcja szukania innego wariantu nie używa `replan()`. Jeżeli użytkownik ponownie wybiera `Przelicz`, adapter uruchamia zwykły PLAN zgodnie z aktualnym ownerem lifecycle. Nie zmieniać `ReplanNotAvailableAfterAcceptance` ani reguł lifecycle.
 
-## 3. Granica danych i pseudonimizacja pilota
+## 6. API dla dodatku — cienki adapter
 
-Do API nie jest wymagane pełne nazwisko pracownika. Kontrakt integracji używa `employee_id` oraz opcjonalnej nazwy/pseudonimu potrzebnej do czytelności arkusza.
-
-Mapowanie `employee_id -> pełne nazwisko` może być utrzymywane w lokalnym arkuszu lub lokalnej konfiguracji i nie jest przesyłane do Railway.
-
-To jest minimalizacja danych dla pilota, nie deklaracja pełnej anonimizacji ani kompletnego modelu ochrony danych.
-
-## 4. Auth — minimalny nowy szew dla klienta Excel
-
-Obecny browser/PWA auth pozostaje bez zmian: cookie/JWT z `api/auth/backend.py` i `api/auth/context.py` nadal obsługuje React/PWA.
-
-Dla dodatku Excel dodać odrębny, wąski credential typu API key:
-
-- administrator generuje losowy sekret dla istniejącego konta;
-- serwer zapisuje wyłącznie bezpieczny hash klucza oraz powiązanie z istniejącym account/user id;
-- surowy klucz jest pokazywany tylko przy wydaniu i trafia do konfiguracji dodatku;
-- request dodatku wysyła go jako `Authorization: Bearer <key>` po HTTPS;
-- dependency klucza rozwiązuje ten sam `AccountMapping -> db_path + coordinator_id`, którego używa browser auth;
-- caller nie może podać `db_path`, `coordinator_id` ani innej tożsamości w body/query/path;
-- klucz może zostać unieważniony bez zmiany danych domenowych klienta.
-
-Nie przerabiać istniejącego cookie auth na wspólny własny system tokenów. Nowy credential jest tylko alternatywnym wejściem do tego samego server-side `AuthenticatedContext`.
-
-## 5. API dla dodatku — adapter, nie drugi produkt planistyczny
-
-Dodać jeden router zewnętrznego klienta Excel pod `/external/excel`.
+Dodać jeden router pod `/external/excel`.
 
 Minimalna powierzchnia:
 
-- `POST /external/excel/plan`
-- `POST /external/excel/replan`
-- `GET /external/excel/schedule/{site_id}/{month}`
+- `POST /external/excel/plan` — payload `ExcelMonthlyInputRequest`;
+- `POST /external/excel/replan` — ten sam payload; tylko gdy lifecycle dopuszcza REPLAN;
+- `POST /external/excel/select-candidate` — `{site_id, month, candidate_id}` i delegacja do istniejącego `select_candidate()`;
+- `GET /external/excel/schedule/{site_id}/{month}` — bieżąca projekcja zaakceptowanego grafiku.
 
-Router ma być cienkim adapterem do istniejących ownerów. Nie wolno kopiować solvera, walidatora, gate celów, DecisionRequired lifecycle, preview/version lifecycle ani logiki wyboru grafiku.
+Nie tworzyć endpointu zarządzania personelem, Site ani konfiguracją solvera.
 
-PLAN/REPLAN mają wywoływać te same application operations, których używa obecny API flow. Zewnętrzna odpowiedź może być stabilnym DTO adaptera, ale jej wartości muszą wynikać z istniejącego wyniku Rota, nie z drugiej klasyfikacji.
+Zewnętrzny response DTO może stabilizować nazwy pól dla klienta Excel, ale status/kandydaci/blockery muszą wynikać z istniejących application operations, bez drugiej klasyfikacji.
 
-## 6. Wspólna projekcja grafiku
+## 7. Auth — alternatywny credential, ten sam context
 
-`rota/application/schedule_export.py` ma dziś prywatną, PDF-ową logikę składania grafiku do prezentacji. Nie kopiować tej dekompozycji do Excela.
+Obecny browser/PWA auth pozostaje bez zmian: cookie/JWT z `api/auth/backend.py` i `api/auth/context.py` nadal obsługuje React/PWA.
 
-Wyodrębnić najmniejszy wspólny, niezależny od formatu model/projection builder z obecnej logiki eksportu. PDF oraz adapter Excel mają korzystać z tego samego wyniku projekcji dla kodów pracy, nieobecności, DELEGACJI, godzin i kolejności wierszy.
+Dla dodatku Excel dodać wąski API key:
 
-Renderer PDF pozostaje rendererem PDF. Nowy szew nie może importować `reportlab` ani zawierać wiedzy o komórkach Excela.
+- administrator generuje losowy sekret dla istniejącego konta;
+- serwer zapisuje hash klucza oraz powiązanie z istniejącym account/user id;
+- surowy klucz jest pokazywany tylko przy wydaniu;
+- request wysyła `Authorization: Bearer <key>` po HTTPS;
+- credential rozwiązuje ten sam `AccountMapping -> db_path + coordinator_id`;
+- caller nie może podać `db_path` ani `coordinator_id`;
+- klucz może zostać unieważniony.
 
-## 7. Standardowy szablon `.xlsx` i dodatek VBA
+Nie przerabiać istniejącego cookie auth na własny wspólny system tokenów.
 
-Task nie tworzy uniwersalnego parsera dowolnych arkuszy.
+## 8. Wspólna projekcja grafiku
 
-Dostarczyć jeden standardowy szablon `.xlsx` oparty na referencyjnym układzie z `Grafiki/` oraz osobny artefakt źródłowy dodatku VBA.
+`rota/application/schedule_export.py` ma prywatną, PDF-ową logikę składania grafiku do prezentacji. Nie kopiować tej dekompozycji do Excela.
 
-Dodatek:
+Wyodrębnić najmniejszy wspólny model/projection builder niezależny od formatu. PDF oraz external Excel API korzystają z tego samego wyniku dla kodów pracy, nieobecności, DELEGACJI, godzin i kolejności wierszy.
 
-- udostępnia akcje `Przelicz` i `Przelicz ponownie`;
-- czyta wyłącznie nazwane/stabilne obszary standardowego szablonu;
-- wysyła request do API i wpisuje wynik tylko po sukcesie;
-- nie przechowuje pełnych nazwisk po stronie serwera;
-- nie zawiera logiki solvera ani reguł domenowych;
-- w razie problemu pokazuje prosty komunikat i nie nadpisuje grafiku.
+Renderer PDF pozostaje rendererem PDF. Nowy projection owner nie importuje `reportlab` i nie zna komórek Excela.
 
-Dokładny wygląd komórek ma wynikać z osobnego pliku specyfikacji szablonu w tym Tasku, przygotowanego na podstawie `Grafiki/`, zanim implementer zacznie VBA. Nie rozszerzać go na automatyczne rozpoznawanie obcych formatów.
+## 9. Kontrakt komunikatów dla człowieka
 
-## 8. Kontrakt komunikatów dla człowieka
-
-Adapter mapuje istniejące wyniki Rota na komunikaty operacyjne. Każdy komunikat musi zawierać:
+Każdy kontrolowany komunikat musi zawierać:
 
 1. co konkretnie blokuje operację;
-2. kogo/czego dotyczy, jeśli Rota dostarcza tę informację;
-3. jednoznaczne następne działanie użytkownika;
-4. informację, że można ponowić `Przelicz` po wykonaniu działania, jeżeli to właściwa ścieżka odzyskania.
+2. kogo/czego dotyczy, jeśli backend to wie;
+3. konkretne następne działanie użytkownika;
+4. informację o ponowieniu operacji, jeśli to właściwa recovery path.
 
-Zakazane jako jedyna treść dla użytkownika: surowy status, kod, UUID, traceback, nazwa wyjątku lub ogólne `Wystąpił błąd` bez instrukcji, jeżeli backend dostarcza kontrolowany blocker i recovery.
+Przykład formy: `Pracownik A nie ma ustawionego celu godzinowego na wrzesień. Wpisz cel w kolumnie Godziny i wybierz Przelicz.`
 
-Dla nieoczekiwanego błędu technicznego komunikat nie ujawnia szczegółów technicznych; informuje, że grafik nie został zmieniony i że użytkownik ma ponowić operację albo skontaktować się z obsługą, zależnie od istniejącej klasy recovery.
+Zakazane jako jedyna treść: surowy status/kod, UUID, traceback, nazwa wyjątku albo samo `Wystąpił błąd`, jeżeli backend ma kontrolowany blocker i recovery.
 
-## 9. Atomiczność po stronie Excela
+Przy błędzie sieci/auth/parsing obszar grafiku pozostaje bez zmian.
 
-Przed zapisaniem nowego grafiku dodatek musi mieć kompletną, poprawnie sparsowaną odpowiedź sukcesu.
+## 10. Artefakty Excel/VBA
 
-Nie wolno częściowo aktualizować grafiku podczas pobierania lub parsowania odpowiedzi. Jeśli request, auth, parsing albo kontrolowany blocker zakończy operację bez poprawnego grafiku, dotychczasowa zawartość obszaru wynikowego pozostaje bez zmian.
+Bieżący Task ma dostarczyć realny, testowalny artefakt instalacyjny dodatku, nie wyłącznie źródło `.bas`.
 
-## 10. Acceptance
+Wymagane:
 
-- `XL-01`: użytkownik może z desktopowego Excela uruchomić PLAN bez interaktywnego logowania przy każdym użyciu.
-- `XL-02`: prawidłowy klucz rozwiązuje istniejący server-side `AccountMapping`; request nie może wybrać cudzej bazy ani coordinator_id.
-- `XL-03`: unieważniony/nieprawidłowy klucz nie dociera do domenowej bazy klienta.
-- `XL-04`: browser/PWA cookie auth zachowuje dotychczasowe działanie bez zmiany kontraktu.
-- `XL-05`: PLAN z poprawnymi danymi zwraca grafik pochodzący z istniejącego application/planning flow i zapisuje go do standardowego arkusza.
-- `XL-06`: REPLAN korzysta z istniejącego lifecycle i aktualnego stanu Rota; dodatek nie buduje własnego modelu wersji.
-- `XL-07`: kontrolowany blocker nie nadpisuje istniejącego grafiku i pokazuje komunikat zawierający problem + konkretne działanie użytkownika bez kodu technicznego jako głównej treści.
-- `XL-08`: błąd sieci/auth/parsing nie pozostawia częściowo nadpisanego grafiku.
-- `XL-09`: PDF i Excel korzystają z jednego wspólnego modelu projekcji grafiku; nie istnieją dwie niezależne implementacje dekompozycji DEL/nieobecności/kodów pracy.
-- `XL-10`: standardowy artefakt grafiku jest `.xlsx` bez makr; VBA jest osobnym dodatkiem instalowanym raz.
-- `XL-11`: core SaaS obsługuje jeden zamrożony szablon; obcy layout nie jest automatycznie mapowany.
-- `XL-12`: request do Railway nie wymaga pełnych nazwisk; stabilne ID/pseudonimy wystarczają do przepływu pilota.
+- `excel/ELNATH_ROTA_TEMPLATE.xlsx` — standardowy plik bez VBA;
+- `excel/ELNATH_ROTA_ADDIN.xlam` — instalowalny dodatek;
+- `excel/src/elnath_rota_addin.bas` — źródło VBA odpowiadające artefaktowi;
+- `excel/build_addin.ps1` — powtarzalny skrypt budujący/odtwarzający `.xlam` ze źródła na maszynie z desktopowym Excelem;
+- `excel/INSTALL.md` — jednorazowa instalacja dodatku i konfiguracja `service_url` + access key;
+- `excel/TEMPLATE_CONTRACT.md` — literalny kontrakt z sekcji 3.
 
-## 11. OUT_OF_SCOPE
+Test instalacyjny nie wymaga automatyzowania całego GUI Office w CI. Musi istnieć deterministyczny build/rebuild artefaktu oraz manualny smoke procedure opisany w `INSTALL.md`.
 
+## 11. Atomiczność prezentacji
+
+Dodatek nie zmienia `ROTA_SCHEDULE_OUTPUT`, dopóki nie ma kompletnego sukcesu `select_candidate()` i kompletnej projekcji bieżącego grafiku.
+
+PLAN/REPLAN mogą zapisać dane wejściowe w Rota i utworzyć preview/kandydatów zgodnie z istniejącym lifecycle; nie są jeszcze zmianą zaakceptowanego grafiku. Blocker, błąd sieci, auth lub parsing nie może zostawić częściowo nadpisanego obszaru wynikowego.
+
+## 12. Acceptance
+
+- `XL-01`: z desktopowego Excela można uruchomić PLAN bez interaktywnego logowania przy każdym użyciu.
+- `XL-02`: prawidłowy API key rozwiązuje istniejący server-side `AccountMapping`; request nie może wybrać cudzej bazy/coordinator_id.
+- `XL-03`: invalid/revoked key nie dociera do domenowej bazy klienta.
+- `XL-04`: browser/PWA cookie auth nie zmienia kontraktu.
+- `XL-05`: standardowy szablon ma dokładnie zakresy/tabele z sekcji 3; Excel wysyła tylko zamrożone monthly inputs.
+- `XL-06`: `target_hours` trafia przez `set_target_hours`; availability przez `append_availability`; Excel nie ma drugich write-ownerów.
+- `XL-07`: PLAN zwraca kandydatów i nie akceptuje żadnego automatycznie.
+- `XL-08`: `Użyj tego grafiku` deleguje do istniejącego `select_candidate()` i dopiero po sukcesie aktualizuje wynik w arkuszu.
+- `XL-09`: REPLAN jest dostępny wyłącznie przed pierwszą akceptacją; po akceptacji ponowne `Przelicz` używa PLAN, bez zmiany lifecycle.
+- `XL-10`: kontrolowany blocker nie zmienia wyniku arkusza i pokazuje problem + konkretne działanie bez kodu technicznego jako głównej treści.
+- `XL-11`: błąd sieci/auth/parsing nie pozostawia częściowo nadpisanego grafiku.
+- `XL-12`: PDF i Excel używają jednego wspólnego modelu projekcji grafiku.
+- `XL-13`: standardowy grafik to `.xlsx` bez makr, a repo dostarcza osobny, instalowalny `.xlam` wraz ze źródłem i powtarzalnym buildem.
+- `XL-14`: core SaaS obsługuje jeden zamrożony szablon; obcy layout nie jest automatycznie mapowany.
+- `XL-15`: request do Railway nie wymaga pełnych nazwisk.
+
+## 13. OUT_OF_SCOPE
+
+- tworzenie/usuwanie pracowników i zmiana rosteru z Excela;
+- zmiana `day_only`, ról, Site, shift catalog i innych ustawień administracyjnych z Excela;
 - automatyczne dopasowanie do dowolnego pliku Excel klienta;
-- Office Script / Excel Online / SharePoint jako drugi klient;
-- wbudowanie makra do `.xlsx` albo zmiana standardowego artefaktu na `.xlsm`;
-- solver lub walidacja zaimplementowane w VBA;
-- pełna dwukierunkowa synchronizacja wszystkich danych Rota i Excela;
+- Office Script / Excel Online / SharePoint w tym Tasku;
+- LibreOffice/OpenOffice i Google Sheets w tym Tasku;
+- wbudowanie makra do `.xlsx` lub `.xlsm` jako standardowego grafiku;
+- solver/walidacja domenowa w VBA;
+- pełna dwukierunkowa synchronizacja produktu;
 - interaktywne browser login w dodatku;
-- zmiana istniejącego cookie/JWT auth dla PWA;
+- zmiana cookie/JWT auth dla PWA;
 - nowy solver/stateless planning engine;
 - pełna anonimizacja/GDPR design;
 - billing/licencjonowanie;
-- automatyczne customizowanie layoutu per klient;
-- zmiana reguł domenowych PLAN/REPLAN.
+- zmiana reguł PLAN/REPLAN.
 
-## 12. TASK_SCOPE
+## 14. Ocena przyszłych cienkich klientów — poza implementacją tego Tasku
+
+Neutralny external API + `schedule_projection` celowo nie może zawierać wiedzy o VBA/Excel. Dzięki temu przyszły klient nie musi dotykać solvera ani persistence.
+
+### LibreOffice / OpenOffice
+
+Wykonalność: **tak jako osobny klient**, ale nie zakładać współdzielenia kodu VBA 1:1. LibreOffice ma własny Basic/UNO i mechanizmy pobierania treści webowych; praktyczny klient powinien być cienką warstwą nad tym samym external API. OpenOffice należy traktować jako osobny wariant kompatybilności, nie jako automatycznie zgodny z LibreOffice.
+
+Etapowanie: dopiero po stabilizacji neutralnego API na kliencie Excel. Najpierw spike jednego requestu auth + PLAN + zapis projekcji do Calc, bez zmian backendu poza ewentualną naprawą faktycznej nieprzenośności kontraktu.
+
+### Google Sheets
+
+Wykonalność: **tak jako osobny klient** przez Apps Script: skrypt arkusza może dodać menu/akcję, wysyłać HTTPS requesty do external API i zapisywać wynik do komórek. Wymaga jednak własnego modelu autoryzacji/sekretów i zgód Apps Script, więc nie kopiować założeń instalacyjnych `.xlam`.
+
+Etapowanie: osobny Task po ustabilizowaniu neutralnego API. Spike: Apps Script `Przelicz` -> external API -> pokazanie kandydatów -> jawny wybór -> zapis projekcji. Bez zmian solvera.
+
+Wniosek architektoniczny: nie budować teraz wspólnego „frameworka arkuszy”. Wspólnym produktem ma być neutralny API/projection contract; każdy arkusz dostaje własny cienki adapter.
+
+## 15. TASK_SCOPE
 
 TASK_SCOPE:
 - `tasks/ROTA-EXCEL-VBA-ENGINE-ADAPTER/**`
@@ -168,8 +297,13 @@ TASK_SCOPE:
 - `api/main.py`
 - `rota/application/schedule_projection.py` (nowy)
 - `rota/application/schedule_export.py`
-- `excel/elnath_rota_addin.bas` (nowy)
-- `excel/ELNATH_ROTA_TEMPLATE.xlsx` (nowy artefakt binarny, bez VBA)
+- `rota/application/durable_inputs.py` (tylko reuse existing operations; zmiana wyłącznie jeśli niezbędna do cienkiej orkiestracji, bez nowej semantyki)
+- `rota/application/plan_ops.py` (tylko istniejące PLAN/REPLAN/select_candidate seam; bez zmiany lifecycle)
+- `excel/ELNATH_ROTA_TEMPLATE.xlsx` (nowy, bez VBA)
+- `excel/ELNATH_ROTA_ADDIN.xlam` (nowy artefakt binarny)
+- `excel/src/elnath_rota_addin.bas` (nowy)
+- `excel/build_addin.ps1` (nowy)
+- `excel/INSTALL.md` (nowy)
 - `excel/TEMPLATE_CONTRACT.md` (nowy)
 - `tests/test_excel_api_key_auth.py` (nowy)
 - `tests/test_excel_external_api.py` (nowy)
@@ -179,32 +313,37 @@ TASK_SCOPE:
 
 Każdy inny plik produkcyjny wymaga STOP i korekty briefu.
 
-## 13. WHERE_MAP
+## 16. WHERE_MAP
 
 WHERE_MAP:
 - MODE: REQUIRED
 - TARGETS: `api/auth/context.py --symbol get_authenticated_context`
-- TARGETS: `api/deps.py --symbol get_conn`
-- TARGETS: `api/deps.py --symbol get_coordinator_id`
+- TARGETS: `api/deps.py`
 - TARGETS: `api/routers/schedule.py --symbol _planning_result_out`
 - TARGETS: `rota/application/plan_ops.py --symbol plan_month`
 - TARGETS: `rota/application/plan_ops.py --symbol replan`
+- TARGETS: `rota/application/plan_ops.py --symbol select_candidate`
+- TARGETS: `rota/application/durable_inputs.py --symbol set_target_hours`
+- TARGETS: `rota/application/durable_inputs.py --symbol append_availability`
 - TARGETS: `rota/application/schedule_export.py --symbol _assemble_export_model`
 - TARGETS: `api/main.py`
-- REASON: Task dodaje alternatywny auth client, nowy router PLAN/REPLAN i wydziela wspólny owner projekcji grafiku; przed implementacją trzeba potwierdzić istniejące szwy i uniknąć duplikacji.
+- REASON: Task dodaje alternatywny auth client, cienki external router, reuse dwóch istniejących write-ownerów, istniejący select-candidate lifecycle oraz wydziela wspólną projekcję grafiku.
 
-`where.py` jest dowodem wyszukiwania, nie podstawą zmiany scope. Każdy znaleziony mismatch ownera/szwu należy wrócić do Architekta przed implementacją.
+Dwa wcześniejsze niewykonalne cele symbolowe `api/deps.py --symbol ...` zostały zastąpione jednym celem plikowym zgodnie z precheckiem Codexa. Pozostałe mapy z R2 nie wymagają ponownego szerokiego mapowania repo.
 
-## 14. Weryfikacja
+## 17. Weryfikacja
 
 Minimalna macierz:
 
-1. API-key: valid / invalid / revoked / izolacja tenantów;
+1. API key: valid / invalid / revoked / izolacja tenantów;
 2. brak regresji browser cookie auth;
-3. external PLAN sukces + blocker;
-4. external REPLAN sukces + blocker;
-5. wspólna projection: reprezentatywny OCHRONA, ORDINARY, DEL i nieobecność;
-6. VBA: success zapisuje komplet, blocker/network/auth nie zmienia starego grafiku;
-7. artefakt `.xlsx` nie zawiera VBA, a dodatek jest osobny.
+3. zapis `target_hours` i availability korzysta z istniejących ownerów;
+4. PLAN -> kandydaci, bez automatycznej akceptacji;
+5. REPLAN tylko przed pierwszą akceptacją;
+6. select_candidate -> bieżący grafik -> projection;
+7. kontrolowany blocker + network/auth/parsing nie zmieniają `ROTA_SCHEDULE_OUTPUT`;
+8. wspólna projection: reprezentatywny OCHRONA, ORDINARY, DEL i nieobecność;
+9. `.xlsx` nie zawiera VBA; osobny `.xlam` jest odtwarzalny ze źródła przez build procedure;
+10. smoke manualny: instalacja add-in -> PLAN -> wybór kandydata -> `Użyj tego grafiku` -> wynik w standardowym arkuszu.
 
 Nie uruchamiać pełnej regresji bez osobnej zgody OWNERA. Implementacja rusza dopiero po `PASS PREIMPLEMENTATION` Codexa i osobnym PASS merytorycznym CC.
