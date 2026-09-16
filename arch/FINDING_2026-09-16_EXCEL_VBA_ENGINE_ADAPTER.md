@@ -109,10 +109,44 @@ Verified at `main@63f469f`:
   UX decision).
 - Timeline/priority relative to any other in-flight Task.
 
+## Codex verification (2026-09-16, report `tasks/ROTA-EXCEL-VBA-ENGINE-ADAPTER/round_01/tests/tests_r1.txt`, commit `d2a786a`)
+
+WYMAGA_DECYZJI. All "Facts CC verified" claims confirmed against
+`main@63f469f`, with one correction: current auth transport is JWT
+carried in a secure cookie only (`api/auth/backend.py`) — "bearer-token"
+in this document overstated what is actually configured; no
+`BearerTransport` exists today. `schedule_export.py`'s grid-decomposition
+logic exists but is private and PDF-bound, so a future brief should
+specify a minimal shared projection to extract rather than assume a
+ready-made public helper or reimplement the decomposition a second time.
+
+**Real blocker surfaced**: this finding's decisions 2+6 together implied
+VBA embedded in the SAME standardized workbook Rota ships as the
+`.xlsx` template — but `.xlsx` cannot store a macro. This is a file-
+format fact, not a design choice CC or the architect can route around;
+it needed an explicit owner decision between (a) `.xlsm` as the one
+standard artifact (macro, button, key config all inside one file the
+user opens), or (b) `.xlsx` stays macro-free, VBA delivered separately
+(e.g. an `.xlam` add-in installed once).
+
+## OWNER RULING 2026-09-16
+
+**Option (b) chosen: the standard schedule artifact stays a plain
+`.xlsm`-free `.xlsx`; the VBA macro (button, access-key config, PLAN/
+REPLAN trigger) ships as a separate add-in (`.xlam` or equivalent),
+installed once on the user's machine.** Rationale given: the target
+user profile (retired officers, "pendrive to nowinka") would find
+Excel's recurring "macros disabled, click to enable" security-bar
+warning on every `.xlsm` open confusing/alarming; a one-time add-in
+install by a trusted installer, after which the user only ever sees a
+plain, warning-free schedule file, was judged the better fit for this
+profile. This resolves the blocker above — the rest of this finding's
+scope (VBA/desktop-Excel, Railway engine, access-key auth, one
+standardized template based on the owner's `Grafiki/` file) stands
+unchanged and is now unblocked for a real architect brief.
+
 ## Next step
 
-This is architecture-decision scale (new external client class, new
-credential type, new export format) — needs Codex to confirm the
-"Facts CC verified" section against actual current code (not take it on
-faith), then real architect engagement for an actual brief. Not
+Blocker resolved (OWNER RULING above). Ready for the architect to read
+this finding directly and turn it into an actual Task brief. Not
 implemented, not designed in detail, here.
