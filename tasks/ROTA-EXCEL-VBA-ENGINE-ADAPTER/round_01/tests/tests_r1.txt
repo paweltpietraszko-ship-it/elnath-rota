@@ -1,0 +1,62 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — weryfikacja findingu przed briefem
+
+Werdykt: WYMAGA_DECYZJI
+
+Zweryfikowane wersje:
+- finding: 622bf69
+- stan kodu wskazany przez finding: main@63f469f
+
+Zakres audytu:
+- wyłącznie sekcja „Facts CC verified”;
+- punktowe odczytanie wskazanych ownerów i szwów;
+- bez testów, implementacji i regresji — to finding przed briefem.
+
+POTWIERDZONE
+
+1. Central-service ma jeden request-scoped owner tożsamości:
+   `api/deps.py` kieruje chronione routery przez
+   `get_authenticated_context`, a `api/auth/context.py` pobiera
+   `AccountMapping` po uwierzytelnionym `user.id` i z mapowania serwera
+   wyprowadza `db_path` oraz `coordinator_id`. Klient ich nie podaje.
+
+2. Brakuje typu poświadczenia „wydaj raz i umieść w skoroszycie”.
+   `api/auth/backend.py` konfiguruje fastapi-users z JWT przenoszonym
+   wyłącznie przez bezpieczne cookie. Nowy klucz API wymaga zaprojektowania
+   wydawania, przechowywania, unieważniania i mapowania na istniejący
+   `AccountMapping`.
+
+3. Istniejący router grafiku daje JSON potrzebny do odczytania miesiąca
+   oraz uruchomienia rodziny PLAN/REPLAN. Zawiera bieżący grafik, preview,
+   kandydatów, roster/delegacje i stany m.in. FEASIBLE,
+   DECISION_REQUIRED oraz TARGET_HOURS_REQUIRED. Nie dowodzi to jeszcze,
+   że obecny wewnętrzny kontrakt jest stabilnym API dla zewnętrznego
+   klienta; finding prawidłowo pozostawia tę decyzję architektowi.
+
+4. Nie istnieje eksport `.xlsx`. `rota/application/schedule_export.py`
+   generuje PDF przez reportlab i ma już logikę złożenia danych grafiku.
+   Ta logika jest dziś prywatna i związana z modelem eksportu PDF, więc
+   brief powinien wskazać minimalny wspólny model/projekcję do wydzielenia,
+   zamiast zakładać gotowy publiczny helper albo kopiować rozkład drugi raz.
+
+BLOCKER PRZED BRIEFEM
+
+Finding jednocześnie ustala VBA osadzone w standardowym skoroszycie oraz
+standardowy szablon `.xlsx`. Format `.xlsx` nie przechowuje VBA. Architekt
+nie może bez decyzji właściciela zamienić tego na zachowanie widoczne dla
+użytkownika.
+
+Potrzebna jest jedna decyzja:
+- standardowy skoroszyt Roty jest `.xlsm` i zawiera makro, przycisk oraz
+  konfigurację klucza; albo
+- standardowy wynik pozostaje `.xlsx`, a VBA jest dostarczane osobno
+  (np. dodatek `.xlam` lub osobny skoroszyt makrowy).
+
+DROBNA KOREKTA OPISU DLA ARCHITEKTA
+
+Sformułowanie findingu „session/cookie-or-bearer-token” jest szersze niż
+stan kodu. Na 63f469f skonfigurowany transport to cookie z JWT; bearer-token
+nie jest skonfigurowanym transportem API.
+
+Po rozstrzygnięciu formatu artefaktu pozostały zakres findingu jest
+adekwatny do przygotowania briefu. Nie znalazłem podstaw do rozszerzenia go
+na dowolne pliki klientów, Office Script, tryb offline ani drugi silnik.
