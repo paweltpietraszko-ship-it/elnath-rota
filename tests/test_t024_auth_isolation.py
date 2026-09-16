@@ -369,5 +369,52 @@ def test_cli_reset_password_uses_same_library_helper(tmp_path):
     assert data["new_login_status"] == 204
 
 
+def test_excel_api_key_isolated_from_other_accounts(tmp_path):
+    # ROTA-EXCEL-VBA-ENGINE-ADAPTER brief.md section 7: the add-in's API
+    # key credential must be isolated exactly like the cookie path is
+    # (T24-2 above) -- one account's key must never resolve another
+    # account's database/coordinator_id. Narrow addition to this file's
+    # own T24 matrix; full PLAN/select/REPLAN behavior is covered in
+    # tests/test_excel_external_api.py.
+    result = _run(tmp_path, """
+        import asyncio, json, uuid
+        from fastapi.testclient import TestClient
+        import api.main
+        from api.provision_account import create_account, _user_manager
+        from api.auth.api_key import generate_api_key, hash_api_key
+        from api.auth.db import session_maker
+        from api.auth.models import ApiKey
+
+        asyncio.run(create_account("t1@example.com", "pw-one-1234", "COORD-T1", "t1.db"))
+        asyncio.run(create_account("t2@example.com", "pw-two-1234", "COORD-T2", "t2.db"))
+
+        async def issue(email):
+            async with session_maker()() as session:
+                manager = await _user_manager(session)
+                user = await manager.get_by_email(email)
+                raw = generate_api_key()
+                session.add(ApiKey(key_id=uuid.uuid4(), auth_user_id=user.id, key_hash=hash_api_key(raw), active=True))
+                await session.commit()
+            return raw
+
+        key1 = asyncio.run(issue("t1@example.com"))
+
+        with TestClient(api.main.app, base_url="https://testserver") as cookie_client:
+            cookie_client.post("/api/auth/login", data={"username": "t2@example.com", "password": "pw-two-1234"})
+            site2 = cookie_client.post("/api/workspace/sites", json={
+                "display_name": "SITE-BY-T2", "rolling_7d_decision_threshold_hours": 60, "planning_regime": "OCHRONA",
+            }).json()["site_id"]
+
+        with TestClient(api.main.app, base_url="https://testserver") as client:
+            # t1's own key reading t2's real site_id must find nothing --
+            # it opened t1's own (unrelated) database, not t2's.
+            resp = client.get(f"/api/external/excel/schedule/{site2}/2026-11-01", headers={"Authorization": f"Bearer {key1}"})
+        print(json.dumps({"status": resp.status_code, "rows": resp.json().get("rows")}))
+    """)
+    data = _assert_ok(result)
+    assert data["status"] == 200
+    assert data["rows"] == []
+
+
 if __name__ == "__main__":
     print("test_t024_auth_isolation module OK")

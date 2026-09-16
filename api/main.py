@@ -38,6 +38,13 @@ if IS_CENTRAL_SERVICE:
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(me_router, prefix="/api")
 
+    # ROTA-EXCEL-VBA-ENGINE-ADAPTER: the Excel add-in's external API key
+    # resolves the same CENTRAL_SERVICE AccountMapping the cookie path
+    # does -- mounted only here, same as auth_router/me_router above.
+    from api.routers import excel_external
+
+    app.include_router(excel_external.router, prefix="/api")
+
     @app.on_event("startup")
     async def _create_auth_tables() -> None:
         await create_auth_db_and_tables()

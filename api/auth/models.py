@@ -40,3 +40,19 @@ class AccountMapping(Base):
     # the provisioning-time check in api/provision_account.py.
     db_filename: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ApiKey(Base):
+    """ROTA-EXCEL-VBA-ENGINE-ADAPTER brief.md section 7: an alternative
+    credential for the Excel add-in, issued once by the administrator and
+    embedded in the workbook -- resolves the SAME AccountMapping the
+    browser/PWA cookie path resolves (api/auth/api_key.py), never a second
+    identity model. Only the hash is stored; the raw key is shown once,
+    at issuance, by api/provision_account.py."""
+
+    __tablename__ = "api_key"
+
+    key_id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True)
+    auth_user_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    key_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

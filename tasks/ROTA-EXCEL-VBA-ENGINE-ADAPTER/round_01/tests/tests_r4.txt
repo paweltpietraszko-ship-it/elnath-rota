@@ -1,0 +1,37 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — BRIEF_ONLY_PRECHECK R4
+
+Werdykt: PASS PREIMPLEMENTATION
+
+Exact brief SHA: 9bf5fae
+Sprawdzony zakres: wyłącznie diff 39a7f24..9bf5fae wobec zamkniętej listy
+z tests_r3.txt. Bez testów, regresji, ponownego WHERE_MAP i audytu kodu.
+
+Potwierdzenie zamknięcia R3:
+
+1. `candidate_id` jest deterministycznym hashem kanonicznej server-side
+   listy Assignment. Endpoint wyboru rozwiązuje go wyłącznie wobec
+   aktualnego PlanPreview dla site/month, nie przyjmuje Assignment od klienta
+   i odrzuca stare lub obce ID.
+
+2. `ROTA_CANDIDATES`, `ROTA_SELECTED_CANDIDATE_ID` oraz
+   `ROTA_SCHEDULE_OUTPUT` mają zamrożone kolumny, semantykę dni i granicę
+   pełnej wymiany wyniku. Kontrakt jest testowalny; wygląd ozdobny pozostaje
+   decyzją wykonawczą.
+
+3. External router najpierw waliduje cały payload. Retry porównuje żądany
+   stan z bieżącym i pomija identyczne target_hours oraz najnowsze wersje
+   availability, więc nie dopisuje ponownie już zastosowanych faktów po
+   częściowym błędzie. Semantyka istniejących write-ownerów nie zmienia się.
+
+4. Każdy employee_id jest sprawdzany przed pierwszym write względem
+   aktywnego, enabled LOCAL rosteru wskazanego Site. Jeden mismatch odrzuca
+   cały request.
+
+5. `rota/application/plan_ops.py` i
+   `rota/application/durable_inputs.py` usunięto z plików modyfikowanych;
+   pozostają tylko istniejącymi, niezmienianymi szwami. To zamyka redukcję
+   bez zmiany zachowania produktu.
+
+Brief na 9bf5fae jest jednoznaczny, testowalny, wskazuje istniejących ownerów
+oraz minimalne nowe szwy i może przejść do osobnego merit checku CC, a po nim
+do implementacji. PASS dotyczy wyłącznie tego SHA.

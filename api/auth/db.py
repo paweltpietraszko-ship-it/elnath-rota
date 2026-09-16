@@ -18,7 +18,7 @@ from fastapi import Depends
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from api.auth.models import AccountMapping, Base, User
+from api.auth.models import AccountMapping, ApiKey, Base, User
 
 _engine: AsyncEngine | None = None
 _session_maker: async_sessionmaker[AsyncSession] | None = None
@@ -68,6 +68,6 @@ async def get_user_db(session: AsyncSession = Depends(get_async_session)) -> Asy
 
 
 __all__ = [
-    "AccountMapping", "create_auth_db_and_tables", "get_async_session", "get_user_db",
+    "AccountMapping", "ApiKey", "create_auth_db_and_tables", "get_async_session", "get_user_db",
     "reset_for_tests", "session_maker",
 ]

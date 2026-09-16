@@ -1,0 +1,80 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — WĄSKI RE-CHECK IMPLEMENTATION R6
+
+Werdykt: FAIL — R5-01 i R5-02 zamknięte tylko częściowo
+
+Exact audited fix SHA: ae8518a
+Poprzedni FAIL: 1ac417f / raport 05e3481
+Frozen brief: 9bf5fae
+
+ZAKRES
+
+- diff wyłącznie poprawki 1ac417f..ae8518a;
+- zachowane reproduktory R5;
+- bezpośrednio dotknięte testy external/projection;
+- po jednym minimalnym przypadku z tej samej klasy każdego findingu;
+- bez pełnej regresji i bez ponownego audytu auth/PDF/VBA.
+
+WYNIKI
+
+1. Zachowane reproduktory + dotknięte testy:
+   `audit_r5_repro.py tests/test_excel_external_api.py tests/test_schedule_projection.py`
+   -> 10 PASS.
+
+2. Pozostała klasa R5:
+   `audit_r6_repro.py`
+   -> 2 FAIL.
+
+R5-01 — NADAL FAIL: przeniesienie uproszczonej funkcji do modułu wspólnego
+nie daje wspólnej projekcji
+
+TRACE:
+- brief sekcja 3.4 wymaga wartości nieobecności w komórce kandydata;
+- sekcja 8 i XL-12 wymagają jednego projection ownera dla kodów pracy,
+  nieobecności, DELEGACJI, godzin i kolejności wierszy.
+
+OWNERSHIP:
+- router jest teraz cienkim wrapperem do
+  `schedule_projection.build_ad_hoc_day_grid`, ale nowy helper nadal
+  przyjmuje wyłącznie Assignment, demands i rekordy DELEGACJA;
+- nie korzysta z istniejącej kanonicznej projekcji nieobecności używanej
+  przez `build_schedule_projection`.
+
+REPRO:
+- `audit_r6_repro.py::test_candidate_projection_surfaces_leave_in_day_cell`;
+- realny external PLAN dostaje aktywny LEAVE_GRANTED EMP-A na 10 listopada;
+- odpowiedź FEASIBLE ma dla EMP-A pustą `days[9]`, zamiast wartości
+  nieobecności wymaganej przez kontrakt.
+
+Wymagana korekta pozostaje ta sama: wspólny projection owner musi faktycznie
+obsługiwać komplet zamrożonych klas prezentacji. Samo przeniesienie drugiej,
+uboższej funkcji do tego samego pliku nie zamyka R5-01.
+
+R5-02 — NADAL FAIL: prewalidacja sprawdza składnię, nie całą semantykę
+
+TRACE:
+- brief sekcja 4.2 wymaga walidacji całego DTO przed pierwszym write;
+- tests_r5 wymagał enumów, dat, godzin i wymaganych kombinacji pól przed
+  uruchomieniem reconcilerów zapisujących dane.
+
+OWNERSHIP:
+- `_validate_payload_shape` potwierdza, że daty dają się sparsować, ale nie
+  sprawdza semantyki zakresu;
+- `start_date > end_date` zostaje odrzucone dopiero przez istniejącego
+  write-ownera po wcześniejszym `set_target_hours`.
+
+REPRO:
+- `audit_r6_repro.py::test_semantically_invalid_late_availability_is_validated_before_write`;
+- payload zmienia target_hours EMP-A ze 100 na 55, a później zawiera
+  LEAVE_GRANTED 20–10 listopada;
+- endpoint odpowiada 400, lecz po błędzie target_hours pozostaje 55.
+
+Wymagana korekta pozostaje ta sama: przed pierwszym write wykonać pełną
+walidację semantyczną wszystkich rekordów przez jeden bez-zapisowy szew albo
+inną równoważną granicę. Nie wystarcza samo parsowanie typów.
+
+DEFECT_GATE
+
+Oba przypadki mają ten sam TRACE i ownera co R5 oraz zostały odtworzone na
+exact ae8518a. Nie są nowymi wymaganiami ani rozszerzeniem audytu. Następny
+re-check: zachować `audit_r5_repro.py` i `audit_r6_repro.py`, uruchomić je
+razem z bezpośrednio dotkniętymi testami external/projection.

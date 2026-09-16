@@ -1,0 +1,92 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — wąski BRIEF_ONLY_PRECHECK R3
+
+Wynik: WYMAGA OSTATNIEJ KOREKTY BRIEFU
+
+Exact brief SHA: 39a7f24
+Poprzedni raport: c8e0e02 / tests_r2.txt
+
+Sprawdzono wyłącznie zamknięcie pięciu punktów R2 oraz nowe szwy dodane przez
+poprawkę. Bez testów, regresji i ponownego mapowania wcześniej potwierdzonych
+ownerów.
+
+ZAMKNIĘTE Z R2
+
+- miesięczne wejścia ograniczono do target_hours i availability;
+- przypisano istniejących write-ownerów;
+- przywrócono jawny select_candidate i decyzje OWNERA o wyborze kandydata
+  oraz lifecycle PLAN/REPLAN;
+- zakres zawiera instalowalny `.xlam`, źródło, build i instrukcję;
+- poprawiono niewykonalne cele WHERE_MAP dla `api/deps.py`;
+- przyszłe klienty LibreOffice/OpenOffice i Google Sheets prawidłowo
+  pozostawiono poza implementacją bieżącego Tasku.
+
+OSTATNIA ZAMKNIĘTA LISTA KOREKT
+
+1. `candidate_id` nie istnieje w obecnym lifecycle.
+
+   `PlanningResult.candidates` i zapisany `PlanPreview.candidates` są listami
+   `list[Assignment]`. `select_candidate()` przyjmuje wybraną listę
+   Assignment; produkt nie ma utrwalonego candidate_id. Brief wprowadza
+   „stabilny candidate_id” i endpoint przyjmujący samo ID, lecz nie definiuje
+   jego źródła ani bezpiecznego rozwiązania do bieżącego preview.
+
+   Brief musi zamrozić jedno techniczne mapowanie: np. deterministyczny
+   identyfikator/hash treści kandydata, rozwiązywany wyłącznie względem
+   aktualnego server-side PlanPreview dla tego site/month. Stare, obce lub
+   zmienione ID musi zostać odrzucone; klient nie może dostarczyć własnej
+   listy Assignment pod przykrywką ID.
+
+2. Kontrakt szablonu nadal nie definiuje wyniku i podglądu kandydatów.
+
+   Wejścia mają kolumny, ale `ROTA_SCHEDULE_OUTPUT` i `ROTA_CANDIDATES` są
+   tylko nazwami obszarów. Brakuje kolumn/komórek, reprezentacji dni i zmian,
+   sposobu pokazania wielu kandydatów oraz miejsca wyboru candidate_id.
+   Screenshot referencyjny nie jest wykonywalnym kontraktem.
+
+   Te dwa obszary trzeba opisać w briefie na takim samym poziomie jak tabele
+   wejściowe, aby artefakt `.xlsx`, VBA i test XL-05/XL-08 miały jedno
+   mierzalne oczekiwanie. Wygląd ozdobny może pozostać decyzją wykonawczą.
+
+3. Twierdzenie o bezpiecznym retry availability jest nieprawdziwe bez
+   dodatkowej granicy.
+
+   `append_availability()` jest ownerem append-only: każde wywołanie z tym
+   samym availability_id dopisuje kolejną wersję i akcję. Stałe ID utrzymuje
+   tę samą rodzinę, ale nie czyni powtórnego requestu idempotentnym. Przy
+   sekwencyjnym zapisie wielu wierszy błąd w środku, a potem retry, ponowi
+   także wcześniej zapisane wiersze.
+
+   Brief musi wymagać jednej wąskiej ochrony orkiestracji: walidacji całego
+   payloadu przed pierwszym zapisem oraz request-level idempotency albo
+   atomowego bulk command używającego istniejących primitive'ów. Nie wolno
+   deklarować retry-safe wyłącznie na podstawie availability_id.
+
+4. API musi egzekwować granicę aktywnego LOCAL rosteru.
+
+   Brief mówi, że employee_id ma należeć do aktywnego rosteru Site, ale
+   wskazani write-ownerzy nie przyjmują tej zasady jako swojego pełnego
+   kontraktu: `set_target_hours()` zapisuje po employee_id/month, a
+   `append_availability()` prowadzi rodzinę pracownika i wylicza dotknięte
+   obiekty. External router musi przed zapisem potwierdzić, że każdy ID z
+   requestu należy do aktywnego LOCAL rosteru wskazanego Site, i odrzucić
+   cały request przed pierwszym zapisem przy mismatchu.
+
+REDUKCJA
+
+Jeżeli korekty 1–4 da się wykonać wyłącznie w nowym external routerze i jego
+testach, usunąć `rota/application/plan_ops.py` oraz
+`rota/application/durable_inputs.py` z listy plików modyfikowanych. Brief sam
+zabrania zmiany ich semantyki; samo wywołanie istniejących funkcji nie wymaga
+autoryzowania edycji ich plików. Pozostawić je tylko jako wskazane, niezmieniane
+szwy WHERE_MAP.
+
+NOWY WHERE_MAP WYKONANY NA 39a7f24
+
+- `where.py api/deps.py`
+- `where.py rota/application/plan_ops.py --symbol select_candidate`
+- `where.py rota/application/durable_inputs.py --symbol set_target_hours`
+- `where.py rota/application/durable_inputs.py --symbol append_availability`
+
+Wszystkie cztery wskazania są realne; wynik potwierdził opisane wyżej granice.
+Po literalnym zamknięciu tej listy następny re-check ma obejmować wyłącznie
+diff briefu. Nie prowadzić kolejnej rundy projektowania przez audyt.

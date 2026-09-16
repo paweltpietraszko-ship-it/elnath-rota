@@ -1,0 +1,97 @@
+ROTA-EXCEL-VBA-ENGINE-ADAPTER — BRIEF_ONLY_PRECHECK
+
+Wynik: WYMAGA KOREKTY BRIEFU
+
+Exact brief SHA: 8fe4c90
+Base sprawdzony przez brief: 89f5aaa
+
+Zakres:
+- zgodność z zamrożonymi decyzjami OWNERA;
+- testowalność kontraktu i istniejący owner/szew;
+- PRE_IMPLEMENTATION_REDUCTION_GATE;
+- wymagany WHERE_MAP.
+
+Nie uruchamiano testów ani regresji. Nie analizowano implementacji, bo jej
+jeszcze nie ma.
+
+ZAMKNIĘTA LISTA KOREKT
+
+1. Brakuje zamrożonego kontraktu danych arkusza i requestu.
+
+   Brief mówi, że użytkownik wprowadza dane do `.xlsx`, a dodatek je wysyła,
+   lecz nie określa pól wejściowych, nazwanych zakresów, DTO requestu ani
+   mapowania na istniejących ownerów persistence/application. Obecny
+   `plan_month()` przyjmuje wyłącznie identyfikatory miesiąca/obiektu,
+   aktora, effective_from i search_attempt; planuje z danych już zapisanych
+   w bazie. Sam POST `/external/excel/plan` nie dostarczy danych wpisanych
+   w Excelu do tych ownerów.
+
+   `excel/TEMPLATE_CONTRACT.md` nie może dopiero powstać jako decyzja
+   implementera w trakcie Tasku. Przed implementacją brief musi zamrozić:
+   konkretną referencję z `Grafiki/`, pola wejścia/wyjścia, stabilne zakresy,
+   request DTO oraz istniejące operacje zapisujące każdy rodzaj wejścia.
+   Jeśli Excel ma tylko uruchamiać planowanie na danych już zapisanych w
+   Rota, trzeba to zamiast tego powiedzieć wprost i usunąć krok wysyłania
+   danych arkusza.
+
+2. Brakuje akceptacji kandydata.
+
+   Na base `plan_month()` i `replan()` zapisują preview i zwracają
+   kandydatów. Grafik staje się bieżącą ScheduleVersion dopiero przez
+   osobny owner `select_candidate()`. Minimalna powierzchnia API w briefie
+   nie ma endpointu wyboru kandydata, a brief nie rozstrzyga, czy Excel:
+   pokazuje wybór, automatycznie wybiera jeden wynik, czy wykonuje PLAN i
+   akceptację atomowo. To jest zachowanie widoczne dla użytkownika i musi
+   zostać jawnie zaakceptowane, zanim powstanie brief implementacyjny.
+
+3. Opis REPLAN jest sprzeczny z aktualnym ownerem.
+
+   Na base `replan()` jest dozwolony wyłącznie przed pierwszą akceptacją
+   miesiąca. Po zaakceptowaniu grafiku istniejący kontrakt kieruje ponowne
+   przeliczenie do `plan_month()`; `replan()` zwraca
+   `ReplanNotAvailableAfterAcceptance`. Brief obiecuje osobną akcję
+   „Przelicz ponownie” korzystającą z aktualnego stanu, ale nie zamraża jej
+   mapowania na tę rzeczywistą semantykę. Brief musi albo mapować akcje
+   Excela na obecne operacje zgodnie z fazą miesiąca, albo uzyskać osobną
+   decyzję OWNERA zmieniającą lifecycle.
+
+4. Deliverable dodatku nie spełnia własnej akceptacji instalacyjnej.
+
+   Sekcje 1–2 mówią o instalowanym `.xlam`, a XL-01 o działającym dodatku.
+   TASK_SCOPE zawiera tylko źródło `excel/elnath_rota_addin.bas`; nie zawiera
+   instalowalnego `.xlam`, sposobu jego zbudowania ani instalatora/skryptu
+   konfigurującego URL i klucz. Brief musi wybrać testowalny rezultat:
+   dostarczany artefakt instalowalny wraz z konfiguracją albo wyraźnie
+   węższy Task źródłowy bez obietnicy pierwszej instalacji użytkownika.
+
+5. Dwa wpisy WHERE_MAP są niewykonalne w podanej postaci.
+
+   `where.py api/deps.py --symbol get_conn` oraz odpowiednik dla
+   `get_coordinator_id` zwracają `STATUS: FAIL`, ponieważ funkcje są
+   definiowane warunkowo wewnątrz gałęzi `if IS_CENTRAL_SERVICE`, a narzędzie
+   nie widzi ich jako symboli top-level. Zastąpić je jednym celem plikowym
+   `api/deps.py`. Pozostałe wskazane szwy istnieją.
+
+REDUKCJA PRZED IMPLEMENTACJĄ
+
+Po zamknięciu punktów 1–4 potrzebne pozostają cztery odpowiedzialności:
+alternatywny credential API-key, cienki adapter zewnętrzny, wspólna projekcja
+grafiku oraz klient Excel ze standardowym szablonem. Każda daje bezpośrednio
+zachowanie zaakceptowane przez OWNERA albo enforcement na granicy. Nie ma
+podstaw do dodawania drugiego solvera, duplikowania walidacji, pełnej
+synchronizacji produktu ani macierzy wszystkich reguł solvera w testach tego
+adaptera. Nie wskazuję innej odpowiedzialności produkcyjnej do usunięcia.
+
+WHERE_MAP wykonany na 8fe4c90:
+- `where.py api/auth/context.py --symbol get_authenticated_context`
+- `where.py api/deps.py --symbol get_conn` (FAIL narzędzia, patrz punkt 5)
+- `where.py api/deps.py --symbol get_coordinator_id` (FAIL narzędzia, patrz punkt 5)
+- `where.py api/routers/schedule.py --symbol _planning_result_out`
+- `where.py rota/application/plan_ops.py --symbol plan_month`
+- `where.py rota/application/plan_ops.py --symbol replan`
+- `where.py rota/application/schedule_export.py --symbol _assemble_export_model`
+- `where.py api/main.py`
+
+Po jednej korekcie briefu obejmującej powyższą zamkniętą listę można wykonać
+wąski re-check dokumentu. Nie potrzeba ponownego mapowania repo, jeśli ownerzy
+i TASK_SCOPE się nie zmienią.
