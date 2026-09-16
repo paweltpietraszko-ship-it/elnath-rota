@@ -45,7 +45,7 @@ def _plan_and_select(conn, site_id: str):
 
 def _seed_and_plan(case_id: str, seed: int):
     conn = connect(":memory:")
-    pstate = seed_real_object(conn, case_id=case_id, month=MONTH, seed=seed)
+    pstate = seed_real_object(conn, case_id=case_id, month=MONTH, seed=seed, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     return conn, site_id, pstate, v1

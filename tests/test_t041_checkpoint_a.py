@@ -1,17 +1,27 @@
 """ROTA-T041 Checkpoint A: solver-result correctness.
 
 tasks/ROTA-T041/brief.md section 4:
-- 4.1 OWNER-T041-01 -- an incomplete target_hours vector among available
-  LOCAL employees switches the solver to an equal-split fallback instead
-  of TARGET-01/target-equity, for that solve only (T41-A01..A06).
+- 4.1 OWNER-T041-01 (T41-A01..A06) originally covered an equal-split
+  fallback for an incomplete target_hours vector among available LOCAL
+  employees. ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE (2026-09-15)
+  removed that fallback entirely: PLAN/REPLAN now refuse to reach the
+  solver at all while any active LOCAL membership lacks a target_hours
+  (rota.application.plan_ops.require_complete_target_hours), so an
+  incomplete vector is no longer a real solver-level scenario -- see
+  tests/test_target_hours_required.py for that gate's own coverage.
+  A01/A02/A04/A05 (the fallback-specific cases, including a unit-level
+  proof against the now-deleted solver._available_local_employee_ids)
+  are removed accordingly, per the brief's own instruction to replace
+  historical fallback tests with gate tests rather than keep two
+  contradictory contracts. A03 (complete-vector TARGET-01 regression)
+  remains -- that behavior is unchanged and still real.
 - 4.2 AUDIT-1 C-03 -- COVERAGE-01 must not double-count a PRIMARY that
   actually belongs to a different, independently legal, concurrent
   demand, while still catching real gaps/excess and never letting a
   false or absent covers_demand_id hide real coverage (T41-A07..A13).
 
-A06 (every case passes production validate()) is folded into A01-A04's
-own assertions rather than a separate test. A12 (ROTA-T022's H24 malicious-
-tag protection stays green) is exercised by re-running
+A12 (ROTA-T022's H24 malicious-tag protection stays green) is exercised by
+re-running
 tests/test_t022_planning_integrity.py::test_c_interval_covered_component_hidden_behind_other_tag_fails
 as a narrow regression (see brief section 10), not duplicated here.
 """
@@ -23,10 +33,7 @@ from rota.domain import (
     Assignment,
     AssignmentRole,
     AssignmentState,
-    AvailabilityKind,
-    AvailabilityRecord,
     Employee,
-    ExternalSupportWindow,
     MembershipKind,
     ReadinessSource,
     ReadinessState,
@@ -34,7 +41,6 @@ from rota.domain import (
     SiteMembership,
     WorkBalance,
 )
-from rota.planning import solver as solver_module
 from rota.planning.engine import plan
 from rota.planning.validator import validate
 from tests.support.minimal_state import MONTH, SITE_ID, base_state
@@ -99,44 +105,6 @@ def _worked_hours(candidate: list[Assignment]) -> dict[str, int]:
 # --- 4.1 missing target_hours fallback fairness (T41-A01..A06) -----------
 
 
-def test_t41_a01_one_missing_target_splits_equally_across_all_five():
-    """5 available LOCAL, 720h of work (30 days x D+N x 12h), 4 targets and
-    1 missing -- HARD allows full equality, so the result is 144 each."""
-    employees = tuple(_employee(f"E{i}") for i in range(1, 6))
-    memberships = tuple(_membership(e.employee_id) for e in employees)
-    demands = _dn_demands_for_days(range(1, 31))
-    work_balances = tuple(_wb(f"E{i}", 144) for i in range(1, 5))  # E5 omitted, as assembler would
-    state = base_state(employees=employees, memberships=memberships, shift_demands=demands, work_balances=work_balances)
-
-    result = plan(state)
-    assert result.status == "FEASIBLE"
-    candidate = result.candidates[0]
-    report = validate(state, candidate)
-    assert report.hard_pass, report.violations
-
-    hours = _worked_hours(candidate)
-    assert hours == {f"E{i}": 144 for i in range(1, 6)}
-
-
-def test_t41_a02_more_than_one_missing_target_still_splits_among_all():
-    """Same 720h/5-employee shape, but only 2 of 5 have a target -- every
-    available LOCAL still participates in the equal split."""
-    employees = tuple(_employee(f"E{i}") for i in range(1, 6))
-    memberships = tuple(_membership(e.employee_id) for e in employees)
-    demands = _dn_demands_for_days(range(1, 31))
-    work_balances = (_wb("E1", 144), _wb("E2", 144))  # E3, E4, E5 all omitted
-    state = base_state(employees=employees, memberships=memberships, shift_demands=demands, work_balances=work_balances)
-
-    result = plan(state)
-    assert result.status == "FEASIBLE"
-    candidate = result.candidates[0]
-    report = validate(state, candidate)
-    assert report.hard_pass, report.violations
-
-    hours = _worked_hours(candidate)
-    assert hours == {f"E{i}": 144 for i in range(1, 6)}
-
-
 def test_t41_a03_complete_target_vector_keeps_target01_unchanged():
     """Regression: when every available LOCAL has a target, TARGET-01/
     target-equity behave exactly as before the fallback exists -- distinct,
@@ -160,50 +128,6 @@ def test_t41_a03_complete_target_vector_keeps_target01_unchanged():
 
     hours = _worked_hours(candidate)
     assert hours == targets
-
-
-def test_t41_a04_fully_unavailable_local_excluded_not_artificial_zero():
-    """E5 is HARD-unavailable the whole month (never an artificial
-    participant); E4 is available but missing its target (triggers the
-    fallback). The equal split runs over the 4 real participants only:
-    720h / 4 = 180 each, E5 gets nothing."""
-    employees = tuple(_employee(f"E{i}") for i in range(1, 6))
-    memberships = tuple(_membership(e.employee_id) for e in employees)
-    demands = _dn_demands_for_days(range(1, 31))
-    work_balances = (_wb("E1", 180), _wb("E2", 180), _wb("E3", 180))  # E4, E5 omitted
-    availability = (
-        AvailabilityRecord("av-1", "av-1", "E5", AvailabilityKind.UNAVAILABLE_24H, date(2026, 10, 1), date(2026, 10, 31), True, None, None),
-    )
-    state = base_state(
-        employees=employees, memberships=memberships, shift_demands=demands,
-        work_balances=work_balances, availability_records=availability,
-    )
-
-    result = plan(state)
-    assert result.status == "FEASIBLE"
-    candidate = result.candidates[0]
-    report = validate(state, candidate)
-    assert report.hard_pass, report.violations
-
-    hours = _worked_hours(candidate)
-    assert hours.get("E5", 0) == 0
-    assert hours == {"E1": 180, "E2": 180, "E3": 180, "E4": 180}
-
-
-def test_t41_a05_external_support_excluded_from_available_local_ids():
-    """OWNER-T041-01: EXTERNAL_SUPPORT never participates in the local
-    equal-split comparison -- unit-level proof directly on the seam that
-    decides membership (solver._available_local_employee_ids), since an
-    end-to-end solve cannot deterministically force CP-SAT to use or skip
-    an unconstrained EXTERNAL_SUPPORT slot either way."""
-    local = _membership("E1", MembershipKind.LOCAL)
-    external = _membership("X1", MembershipKind.EXTERNAL_SUPPORT)
-    state = base_state(memberships=(local, external))
-    slots = [
-        solver_module.SolverSlot("E1", _demand("D1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)), None, False, False),
-        solver_module.SolverSlot("X1", _demand("D2", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0)), None, False, False),
-    ]
-    assert solver_module._available_local_employee_ids(state, slots) == {"E1"}
 
 
 # --- 4.2 legal overlapping demands / COVERAGE-01 (T41-A07..A13) ----------

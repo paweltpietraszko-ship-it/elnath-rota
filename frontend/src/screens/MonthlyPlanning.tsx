@@ -217,6 +217,7 @@ export default function MonthlyPlanning({
         error_message: null,
         warnings: view.plan_preview.warnings,
         optimization_complete: view.plan_preview.optimization_complete,
+        missing_target_hours: [],
       });
       // R2-03 audit fix: without this, a "Szukaj dalej" after reload always
       // dispatched to plain PLAN's own retry, even for a REPLAN preview.
@@ -596,6 +597,14 @@ export default function MonthlyPlanning({
   // navigation/reload still reflects reality.
   const loadUnlessFreshPreviewUnpersisted = (result: PlanningResultOut) => {
     if (result.status === "FEASIBLE" && result.warnings.some((w) => w.startsWith("PLAN_PREVIEW_NOT_PERSISTED"))) return;
+    // ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE (Codex audit R3-01): a
+    // TARGET_HOURS_REQUIRED response never touches the version/preview --
+    // reloading here would refetch whatever OLD plan_preview already
+    // existed, and the effect above unconditionally resurrects it as a
+    // fresh FEASIBLE result, silently replacing the blocker the
+    // coordinator needs to see. Same "nothing new to reload" reasoning as
+    // the FEASIBLE-not-persisted case above.
+    if (result.status === "TARGET_HOURS_REQUIRED") return;
     load();
   };
 
@@ -1429,6 +1438,27 @@ export default function MonthlyPlanning({
               diagnostic package is offered, and "Kontakt ze wsparciem" is
               a disabled mockup per brief.md section 6 (no real channel
               yet). Neither button proposes Korekta ręczna (A5). */}
+          {/* ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: a
+              controlled input blocker, never DECISION_REQUIRED/
+              TECHNICAL_ERROR -- PLAN/REPLAN never reached the solver and
+              created/replaced nothing. The coordinator sets target hours
+              (Godziny docelowe, Karta pracownika) and repeats the same
+              operation. */}
+          {planResult && planResult.status === "TARGET_HOURS_REQUIRED" && (
+            <div className="banner-warning" data-diag-action="target-hours-required-banner" style={{ marginTop: 12 }}>
+              <p>
+                {/* Deliberately NOT "Wymagana decyzja koordynatora" -- that
+                    exact phrase is the real, persistent DECISION_REQUIRED
+                    banner elsewhere on this screen (brief.md section 2: this
+                    is a controlled input blocker, never DECISION_REQUIRED). */}
+                Brakuje godzin docelowych dla{" "}
+                {planResult.missing_target_hours.length === 1 ? "pracownika" : "pracowników"}:{" "}
+                {planResult.missing_target_hours.map((m) => m.employee_display_name).join(", ")}. Ustaw godziny
+                docelowe (Karta pracownika) i zaplanuj ponownie.
+              </p>
+            </div>
+          )}
+
           {planResult && planResult.status === "TECHNICAL_ERROR" && (
             <div className="banner-error" style={{ marginTop: 12 }}>
               <p>{TECHNICAL_ERROR_MESSAGE}</p>

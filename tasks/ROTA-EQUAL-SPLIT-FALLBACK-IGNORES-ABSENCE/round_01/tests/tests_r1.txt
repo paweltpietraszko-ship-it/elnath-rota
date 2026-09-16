@@ -1,0 +1,36 @@
+ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE — PREIMPLEMENTATION R1
+
+WYNIK: WYMAGA KOREKTY PREIMPLEMENTATION
+BRIEF SHA: 8176f50a9754e5f03512a69e222dfcd7fcb51e17
+BASE: c4fad96788bf13f14b1a63e0dc9e6071d17e4355
+
+ZAMKNIĘTA LISTA BRAKÓW KONTRAKTU
+
+1. Brak testowalnego kontraktu kontrolowanego blockera celów.
+   Brief określa rezultat dla człowieka i wyklucza DECISION_REQUIRED oraz
+   TECHNICAL_ERROR, ale nie wskazuje, którą istniejącą odpowiedź rozszerzyć ani
+   jaki status/pola niosą listę brakujących employee_id i polskich nazw dla
+   precheck, PLAN i całej rodziny REPLAN. Obecne PrecheckOut i
+   PlanningResultOut nie mają takiego pola. Korekta ma zamrozić jeden wspólny
+   kształt odpowiedzi i miejsce jego wytworzenia, tak aby backend i UI nie
+   zaprojektowały dwóch różnych blockerów. Należy też jawnie opisać rolę
+   rota/application/precheck.py albo usunąć ten plik z TASK_SCOPE.
+
+2. Brak wymaganego WHERE_MAP.
+   Task usuwa helper add_equal_split_fairness i jego produkcyjny call site,
+   dodaje wspólny gate oraz zmienia endpointy. Zgodnie z AGENTS.md kontrakt
+   musi zawierać WHERE_MAP: REQUIRED dla usuwanego helpera/call site i
+   zmienianych właścicieli/szwów. Mapę uruchamia się dopiero po korekcie
+   briefu; w brief-only prechecku nie uruchamiano where.py.
+
+REDUKCJA PREIMPLEMENTATION
+- Konieczne pozostają: jeden gate w plan_ops, reuse batch odczytu/zapisu celów,
+  atomowy zapis zbiorczy, korekta _effective_targets o istniejący canonical
+  helper DEL, usunięcie martwego fallbacku oraz dwa istniejące ekrany/API.
+- rota/application/precheck.py jest obecnie nieuzasadnione opisem zachowania:
+  należy nadać mu jedną jawną rolę w tym samym blockerze albo usunąć ze scope.
+- Nie znaleziono potrzeby nowej tabeli, drugiej księgi, nowego DecisionRequired
+  ani osobnej arytmetyki DEL.
+
+Nie analizowano diffu produktu i nie uruchamiano testów, reproduktorów ani
+regresji — zgodnie z BRIEF_ONLY_PRECHECK.

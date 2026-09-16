@@ -43,7 +43,7 @@ def _strip_display_name(assignment: dict) -> dict:
 @pytest.fixture
 def seeded():
     connection = connect(":memory:")
-    pstate = seed_real_object(connection, case_id="t031-api", month=MONTH, seed=900, coordinator_id=DEV_COORDINATOR_ID)
+    pstate = seed_real_object(connection, case_id="t031-api", month=MONTH, seed=900, coordinator_id=DEV_COORDINATOR_ID, target_hours=200)
     try:
         yield connection, pstate.site.site_id
     finally:

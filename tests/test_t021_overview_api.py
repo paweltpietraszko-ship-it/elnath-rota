@@ -134,7 +134,7 @@ def test_working_version_is_resumable():
     from tests.support.t009_fixtures import seed_real_object
 
     connection = connect(":memory:")
-    pstate = seed_real_object(connection, case_id="t021-overview", month=MONTH, seed=900, coordinator_id=COORD)
+    pstate = seed_real_object(connection, case_id="t021-overview", month=MONTH, seed=900, coordinator_id=COORD, target_hours=200)
     site_id = pstate.site.site_id
     app.dependency_overrides[get_conn] = lambda: (yield connection)
     try:

@@ -1,0 +1,27 @@
+ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE — IMPLEMENTATION RE-CHECK R4
+
+WYNIK: PASS
+AUDITED SHA: 35b5bf3
+BASE FINDING SHA: cdf389c
+
+ZAKRES
+- Wąski re-check findingu R3-01.
+- Diff poprawki: 8 dodanych linii wyłącznie w
+  frontend/src/screens/MonthlyPlanning.tsx.
+
+DOWÓD
+- Pierwotny reproduktor uruchomiony w prawdziwym Chromium: istniejący stary
+  plan_preview, „Szukaj dalej”, odpowiedź TARGET_HOURS_REQUIRED z pracownikiem
+  „Jan Testowy”. Wynik: PASS; blocker i nazwisko pozostają widoczne, stary
+  znacznik podglądu znika.
+- node node_modules/typescript/bin/tsc -b: PASS.
+- git diff --check cdf389c..35b5bf3: PASS.
+
+OCENA
+- loadUnlessFreshPreviewUnpersisted nie odświeża MonthView po
+  TARGET_HOURS_REQUIRED, więc efekt rekonstrukcji starego plan_preview nie może
+  już zastąpić świeżego blockera wynikiem FEASIBLE.
+- Finding R3-01 jest zamknięty na SHA 35b5bf3.
+
+Nie uruchamiano pełnej regresji ani dodatkowej macierzy zgodnie z zasadą
+wąskiego re-checku.

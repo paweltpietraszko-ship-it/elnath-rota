@@ -83,6 +83,12 @@ def _employee(conn, employee_id: str = "E1", *, site_id: str = SITE, day_only: b
         conn, coordinator_id=COORD, site_id=site_id,
         membership=SiteMembership(employee_id, site_id, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
     )
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: PLAN/REPLAN/precheck now
+    # require every active LOCAL membership to have a target_hours for the
+    # month before the solver runs -- this file exercises action-history/
+    # audit-log plumbing, not target-hours behavior, so a generous fixed
+    # value keeps every existing PLAN/REPLAN call unblocked.
+    set_target_hours(conn, coordinator_id=COORD, site_id=site_id, employee_id=employee_id, month=MONTH, target_hours=200)
 
 def _fill_calendar(conn, month: date = MONTH) -> None:
     for d in range(1, 32):
@@ -514,7 +520,13 @@ def test_d32_current_state_never_claims_future_effective(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
     _employee(conn)
-    a = memory_read.material_action_history(conn)[0]
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: _employee now also sets
+    # target_hours (a month-scoped action, effective_from=month by design,
+    # see test_b11), so it -- not the CURRENT_STATE membership change this
+    # test actually probes -- is now history[0]. Look up
+    # SITE_MEMBERSHIP_CHANGED explicitly instead of assuming it is the
+    # most recent action.
+    a = next(a for a in memory_read.material_action_history(conn) if a.action_kind == CoordinatorActionKind.SITE_MEMBERSHIP_CHANGED)
     assert a.effective_from == datetime.now().date()
 
 def test_d33_rule_availability_target_preserve_existing_effective_dates(tmp_path) -> None:

@@ -75,7 +75,10 @@ def test_5_missing_target_hours_not_invented_and_demand_count_unchanged(tmp_path
     state_before, warnings_before = assemble_planning_state(conn, site_id=pstate.site.site_id, month=MONTH)
     demand_count_before = len(state_before.shift_demands)
     assert state_before.work_balances == ()
-    assert any("użyto awaryjnego, równego podziału godzin" in w for w in warnings_before)
+    # ROTA-ASSEMBLER-STALE-EQUAL-SPLIT-WARNING-TEXT (OWNER_ACCEPTED
+    # 2026-09-15): the old clause named the now-removed equal-split
+    # fallback; replaced with a plain instruction to set target hours.
+    assert any("ustaw godziny docelowe" in w for w in warnings_before)
 
     first_employee = pstate.employees[0].employee_id
     save_work_balance_target(conn, employee_id=first_employee, month=MONTH, target_hours=160)
@@ -88,7 +91,7 @@ def test_5_missing_target_hours_not_invented_and_demand_count_unchanged(tmp_path
     # -- and here requires -- one new warning for first_employee's own
     # genuine earlier-month gap, on top of (never instead of) the unchanged
     # per-employee omission warnings below.
-    omitted_warnings = [w for w in warnings_after if "użyto awaryjnego, równego podziału godzin" in w]
+    omitted_warnings = [w for w in warnings_after if "ustaw godziny docelowe" in w]
     carry_in_warnings = [w for w in warnings_after if "bilans godzin z wcześniejszej części kwartału przyjęto jako 0" in w]
     # T050: the missing-target warning is LOCAL-only since T041 (X/Y in this
     # fixture are EXTERNAL_SUPPORT and never get one) -- comparing against

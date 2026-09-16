@@ -107,6 +107,11 @@ def _bootstrap_and_fill(conn, employee_ids: tuple[str, ...]) -> None:
                 ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
             ),
         )
+        # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month now requires
+        # a target_hours for every active LOCAL membership.
+        durable_inputs.set_target_hours(
+            conn, coordinator_id=COORD, site_id=SITE_ID, employee_id=employee_id, month=MONTH, target_hours=200,
+        )
     days = _calendar.monthrange(MONTH.year, MONTH.month)[1]
     for day in range(1, days + 1):
         durable_inputs.set_calendar_day(
@@ -176,6 +181,9 @@ def test_4_route_b_decision_ledger_correction_unblocks_feasible(tmp_path: Path) 
         membership=SiteMembership(
             EMP2, SITE_ID, MembershipKind.LOCAL, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
         ),
+    )
+    durable_inputs.set_target_hours(
+        conn, coordinator_id=COORD, site_id=SITE_ID, employee_id=EMP2, month=MONTH, target_hours=200,
     )
 
     unblocked = plan_ops.plan_month(conn, site_id=SITE_ID, month=MONTH, coordinator_id=COORD, effective_from=MONTH)

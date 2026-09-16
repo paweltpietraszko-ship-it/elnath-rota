@@ -44,6 +44,7 @@ from rota.persistence.schedule_lifecycle import finalize_schedule_version
 from rota.persistence.schedule_repository import get_current_version_id, get_schedule_snapshot
 from rota.persistence.site_profile_repository import save_site_profile
 from rota.persistence.site_repository import save_site
+from rota.persistence.work_balance_repository import write_work_balance_target_in_open_transaction
 from rota.application.errors import ScheduleVersionNotWorking
 from rota.planning.absence import DailyAbsenceFact, DetailedDailyAbsenceFact, canonical_daily_hours, canonical_site_absence_days
 
@@ -79,6 +80,11 @@ def _seed_minimal(conn, *, profile: SiteProfile | None = None) -> None:
 def _employee(conn, employee_id: str, *, kind: MembershipKind = MembershipKind.LOCAL) -> None:
     save_employee(conn, Employee(employee_id, employee_id, date(2020, 1, 1), None, False))
     save_site_membership(conn, SiteMembership(employee_id, SITE, kind, True, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT))
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month now requires a
+    # target_hours for every active LOCAL membership.
+    if kind == MembershipKind.LOCAL:
+        with conn:
+            write_work_balance_target_in_open_transaction(conn, employee_id=employee_id, month=MONTH, target_hours=200)
 
 
 def _seed_month_calendar(conn, month: date, *, holidays: tuple[date, ...] = ()) -> None:

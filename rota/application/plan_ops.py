@@ -17,10 +17,11 @@ from rota.application.errors import (
     ScheduleVersionNotWorking,
     require_real_date,
 )
-from rota.domain import Assignment, AssignmentRole, AssignmentState, ScheduleVersion
+from rota.domain import Assignment, AssignmentRole, AssignmentState, MembershipKind, ScheduleVersion
 from rota.persistence import plan_preview_repository
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
+from rota.persistence.employee_repository import list_memberships_for_site
 from rota.persistence.schedule_repository import (
     get_current_version_id,
     get_first_shift_start,
@@ -29,6 +30,7 @@ from rota.persistence.schedule_repository import (
     is_schedule_version_live,
     set_schedule_version_planning_regime_in_open_transaction,
 )
+from rota.persistence.work_balance_repository import list_work_balance_targets_for_employees
 from rota.planning.decision_guidance import drop_options_requiring_existing_schedule
 from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
 from rota.planning.engine_types import PlanningResult
@@ -40,6 +42,43 @@ class MissingCoordinatorActor(Exception):
     """ROTA-T019b section 14: select_candidate must be told explicitly who
     is selecting -- the previous fallback to the ScheduleVersion's own
     created_by is removed. No other T017 candidate semantics change."""
+
+
+class TargetHoursRequired(Exception):
+    """ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: raised by
+    require_complete_target_hours (below) -- a controlled input blocker,
+    never DECISION_REQUIRED or TECHNICAL_ERROR. employee_ids is
+    deterministic (sorted employee_id); the router (api/routers/
+    schedule.py) is the sole owner of turning these ids into the Polish-
+    name payload the coordinator sees."""
+
+    def __init__(self, employee_ids: list[str]) -> None:
+        self.employee_ids = employee_ids
+        super().__init__(f"target_hours missing for {len(employee_ids)} active LOCAL employee(s)")
+
+
+def _next_month(month: date) -> date:
+    return date(month.year + 1, 1, 1) if month.month == 12 else date(month.year, month.month + 1, 1)
+
+
+def require_complete_target_hours(conn, *, site_id: str, month: date) -> None:
+    """ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE sections 1/2/5: the one
+    owner of the target-hours gate. Called before the solver and before
+    any version/preview write by every PLAN/REPLAN entry point
+    (plan_month, replan, replan_retry_narrow, replan_wider_search) and
+    directly by the precheck endpoint. EXTERNAL_SUPPORT and a disabled
+    membership never participate -- they never receive or need a
+    target_hours (OUT_OF_SCOPE)."""
+    local_ids = sorted(
+        m.employee_id for m in list_memberships_for_site(conn, site_id)
+        if m.enabled and m.membership_kind == MembershipKind.LOCAL
+    )
+    if not local_ids:
+        return
+    targets = list_work_balance_targets_for_employees(conn, local_ids, month, _next_month(month))
+    missing = [employee_id for employee_id in local_ids if month not in targets.get(employee_id, {})]
+    if missing:
+        raise TargetHoursRequired(missing)
 
 
 def _persist_decision_readback(
@@ -285,8 +324,15 @@ def plan_month(
     Assignment/ShiftDemand are scoped by schedule_version_id) -- the state
     handed to plan() must instead already carry the REAL id the version is
     about to be created with, or a REPLAN'd/selected candidate later fails
-    ASSIGN-03/04 as "modified" purely because its scope doesn't match."""
+    ASSIGN-03/04 as "modified" purely because its scope doesn't match.
+
+    ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: require_complete_
+    target_hours runs first, before either branch below and before any
+    version/preview write -- raises TargetHoursRequired, letting the
+    router turn it into a TARGET_HOURS_REQUIRED response instead of ever
+    reaching assemble_planning_state/plan()."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
+    require_complete_target_hours(conn, site_id=site_id, month=month)
     current_id = _require_working_or_absent(conn, site_id, month)
     if current_id is None:
         require_real_date(effective_from)
@@ -679,9 +725,16 @@ def _replan_preacceptance(
     GAP): every plan_attempt_signatures entry recorded so far in this same
     podejscie is read back here and handed to solve_fn, which enforces
     T017's own >=15%-different floor against EACH of them (not just the
-    single, always-empty-pre-acceptance state baseline)."""
+    single, always-empty-pre-acceptance state baseline).
+
+    ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: the same
+    require_complete_target_hours gate as plan_month, covering replan/
+    replan_retry_narrow/replan_wider_search through this one shared
+    function -- before assemble_planning_state and before any preview
+    write."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     _require_no_current_for_replan(conn, site_id, month)
+    require_complete_target_hours(conn, site_id=site_id, month=month)
     if effective_from is None:
         existing_preview = plan_preview_repository.get_plan_preview(conn, site_id, month)
         effective_from = existing_preview.effective_from if existing_preview is not None else None

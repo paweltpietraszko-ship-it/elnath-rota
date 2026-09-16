@@ -37,7 +37,7 @@ def _plan_and_select(conn, site_id: str):
 
 def test_nn_marks_cancelled_and_parent_unchanged(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="nn-1", month=MONTH, seed=400)
+    pstate = seed_real_object(conn, case_id="nn-1", month=MONTH, seed=400, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     v1_snapshot = get_schedule_snapshot(conn, v1.version_id)
@@ -61,7 +61,7 @@ def test_nn_marks_cancelled_and_parent_unchanged(tmp_path) -> None:
 def test_nn_survives_restart(tmp_path) -> None:
     db_path = tmp_path / "rota.db"
     conn = connect(db_path)
-    pstate = seed_real_object(conn, case_id="nn-2", month=MONTH, seed=401)
+    pstate = seed_real_object(conn, case_id="nn-2", month=MONTH, seed=401, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     target = next(a for a in get_schedule_snapshot(conn, v1.version_id).assignments if a.role == AssignmentRole.PRIMARY)
@@ -79,7 +79,7 @@ def test_nn_survives_restart(tmp_path) -> None:
 
 def test_nn_without_replacement_materializes_coverage_deviation(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="nn-3", month=MONTH, seed=402)
+    pstate = seed_real_object(conn, case_id="nn-3", month=MONTH, seed=402, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     target = next(a for a in get_schedule_snapshot(conn, v1.version_id).assignments if a.role == AssignmentRole.PRIMARY)
@@ -95,7 +95,7 @@ def test_nn_without_replacement_materializes_coverage_deviation(tmp_path) -> Non
 
 def test_nn_with_manual_replacement_no_coverage_gap(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="nn-4", month=MONTH, seed=403)
+    pstate = seed_real_object(conn, case_id="nn-4", month=MONTH, seed=403, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     target = next(a for a in get_schedule_snapshot(conn, v1.version_id).assignments if a.role == AssignmentRole.PRIMARY)
@@ -183,7 +183,7 @@ def test_nn_reduces_planned_hours_168_to_156(tmp_path) -> None:
 
 def test_nn_no_availability_record_or_site_rule_side_effect(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="nn-5", month=MONTH, seed=404)
+    pstate = seed_real_object(conn, case_id="nn-5", month=MONTH, seed=404, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     target = next(a for a in get_schedule_snapshot(conn, v1.version_id).assignments if a.role == AssignmentRole.PRIMARY)
@@ -206,7 +206,7 @@ def test_nn_no_availability_record_or_site_rule_side_effect(tmp_path) -> None:
 
 def test_plain_cancelled_without_nn_still_legal(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="nn-6", month=MONTH, seed=405)
+    pstate = seed_real_object(conn, case_id="nn-6", month=MONTH, seed=405, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     target = next(a for a in get_schedule_snapshot(conn, v1.version_id).assignments if a.role == AssignmentRole.PRIMARY)

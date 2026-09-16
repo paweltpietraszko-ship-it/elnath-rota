@@ -43,7 +43,7 @@ def _realize_training_n_times(conn, *, site_id: str, mentor, trainee_id: str, n:
 
 def test_13_realized_training_updates_default_readiness_but_not_override(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="life-1", month=MONTH, seed=400)
+    pstate = seed_real_object(conn, case_id="life-1", month=MONTH, seed=400, target_hours=200)
     site_id = pstate.site.site_id
     v1 = _plan_and_select(conn, site_id)
     snapshot = get_schedule_snapshot(conn, v1.version_id)
@@ -81,7 +81,7 @@ def test_13_realized_training_updates_default_readiness_but_not_override(tmp_pat
 
 def test_14_finalize_revalidates_requires_exact_acknowledgement_and_freezes(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="life-2", month=MONTH, seed=401)
+    pstate = seed_real_object(conn, case_id="life-2", month=MONTH, seed=401, target_hours=200)
     site_id = pstate.site.site_id
     _plan_and_select(conn, site_id)
 
@@ -110,7 +110,7 @@ def test_15_restore_refused_once_month_is_live(tmp_path) -> None:
     so Przelicz Plan (plan_month) is the correct recompute, and restoring
     the pre-recompute version must now be refused, current unchanged."""
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="life-3", month=MONTH, seed=402)
+    pstate = seed_real_object(conn, case_id="life-3", month=MONTH, seed=402, target_hours=200)
     site_id = pstate.site.site_id
     _plan_and_select(conn, site_id)
     finalized = lifecycle_ops.finalize(
@@ -128,7 +128,7 @@ def test_15_restore_refused_once_month_is_live(tmp_path) -> None:
 
 def test_16_structured_rule_command_reaches_decision_ledger(tmp_path) -> None:
     conn = connect(tmp_path / "rota.db")
-    pstate = seed_real_object(conn, case_id="life-4", month=MONTH, seed=403)
+    pstate = seed_real_object(conn, case_id="life-4", month=MONTH, seed=403, target_hours=200)
     site_id = pstate.site.site_id
     content = NewRuleContent(
         category=RuleCategory.LOCAL_RULE, rule_kind=None, structured_parameters=None,
@@ -146,7 +146,7 @@ def test_16_structured_rule_command_reaches_decision_ledger(tmp_path) -> None:
 def test_17_backup_openable_and_diagnostic_zip_excludes_prohibited_data(tmp_path) -> None:
     db_path = tmp_path / "rota.db"
     conn = connect(db_path)
-    pstate = seed_real_object(conn, case_id="life-5", month=MONTH, seed=404)
+    pstate = seed_real_object(conn, case_id="life-5", month=MONTH, seed=404, target_hours=200)
     site_id = pstate.site.site_id
     _plan_and_select(conn, site_id)
 

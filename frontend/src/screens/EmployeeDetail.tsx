@@ -735,6 +735,12 @@ function TargetHoursEditor({
   const [input, setInput] = useState(value !== null ? String(value) : "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2 ("Ustawienie
+  // wszystkim"): after a successful single save, offer to propagate the
+  // same value to every active LOCAL employee of this Site/month.
+  const [applyAllPromptHours, setApplyAllPromptHours] = useState<number | null>(null);
+  const [applyAllBusy, setApplyAllBusy] = useState(false);
+  const [applyAllError, setApplyAllError] = useState<string | null>(null);
 
   useEffect(() => setInput(value !== null ? String(value) : ""), [value]);
 
@@ -742,13 +748,40 @@ function TargetHoursEditor({
     setSubmitting(true);
     setError(null);
     try {
-      await api.setTargetHours(employeeId, { site_id: siteId, month, target_hours: Number(input) });
-      onSaved();
+      const savedHours = Number(input);
+      await api.setTargetHours(employeeId, { site_id: siteId, month, target_hours: savedHours });
+      // Real bug found via e2e (2026-09-15): onSaved (EmployeeDetail's
+      // load()) sets the whole screen to "Ładowanie…" and remounts this
+      // component fresh -- calling it here discarded applyAllPromptHours
+      // (and the prompt with it) before a coordinator could ever see it.
+      // Deferred to dismissPrompt/applyToAll below, once the prompt is
+      // actually resolved one way or the other.
+      setApplyAllPromptHours(savedHours);
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const applyToAll = async () => {
+    if (applyAllPromptHours === null) return;
+    setApplyAllBusy(true);
+    setApplyAllError(null);
+    try {
+      await api.applyTargetHoursToAll(siteId, month, applyAllPromptHours);
+      setApplyAllPromptHours(null);
+      onSaved();
+    } catch (e: unknown) {
+      setApplyAllError(String((e as Error).message ?? e));
+    } finally {
+      setApplyAllBusy(false);
+    }
+  };
+
+  const dismissPrompt = () => {
+    setApplyAllPromptHours(null);
+    onSaved();
   };
 
   return (
@@ -757,15 +790,28 @@ function TargetHoursEditor({
       {error && <div className="banner-error">{error}</div>}
       <input
         type="number"
+        data-diag-action="target-hours-input"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         placeholder={value === null ? "brak ustawionej wartości" : undefined}
         style={{ width: 120 }}
       />
-      <button className="btn-primary" onClick={save} disabled={submitting || input === ""}>
+      <button className="btn-primary" data-diag-action="target-hours-save" onClick={save} disabled={submitting || input === ""}>
         Zapisz
       </button>
       {value === null && <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>brak ustawionej wartości</span>}
+      {applyAllPromptHours !== null && (
+        <div className="banner" data-diag-action="target-hours-apply-all-prompt" style={{ marginTop: 8 }}>
+          {applyAllError && <div className="banner-error">{applyAllError}</div>}
+          <p>Ustawić {applyAllPromptHours} h wszystkim pracownikom tego obiektu na {month.slice(0, 7)}?</p>
+          <button className="btn-primary" data-diag-action="target-hours-apply-all-yes" onClick={applyToAll} disabled={applyAllBusy}>
+            Tak
+          </button>
+          <button className="btn-ghost" onClick={dismissPrompt} disabled={applyAllBusy}>
+            Nie
+          </button>
+        </div>
+      )}
     </div>
   );
 }

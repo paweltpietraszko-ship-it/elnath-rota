@@ -21,11 +21,13 @@ from rota.application.lifecycle_ops import delete_current_version, exclude_from_
 from rota.application.memory_read import current_decision_required
 from rota.application.open_month import months_with_schedule, open_month
 from rota.application.plan_ops import (
+    TargetHoursRequired,
     plan_month,
     reject_plan_preview,
     replan,
     replan_retry_narrow,
     replan_wider_search,
+    require_complete_target_hours,
     select_candidate,
 )
 from rota.application.precheck import precheck
@@ -170,6 +172,11 @@ class MonthViewOut(BaseModel):
     plan_preview_error: str | None = None
 
 
+class MissingTargetHoursEmployeeOut(BaseModel):
+    employee_id: str
+    employee_display_name: str
+
+
 class PlanningResultOut(BaseModel):
     status: str
     candidates: list[list[AssignmentOut]]
@@ -177,11 +184,16 @@ class PlanningResultOut(BaseModel):
     error_message: str | None
     warnings: list[str]
     optimization_complete: bool
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: populated only
+    # when status == "TARGET_HOURS_REQUIRED" (never DECISION_REQUIRED, never
+    # TECHNICAL_ERROR); empty otherwise.
+    missing_target_hours: list[MissingTargetHoursEmployeeOut] = []
 
 
 class PrecheckOut(BaseModel):
     status: str
     under_covered_demand_ids: list[str]
+    missing_target_hours: list[MissingTargetHoursEmployeeOut] = []
 
 
 def _version_out(conn, v) -> ScheduleVersionOut:
@@ -230,6 +242,32 @@ def _plan_preview_out(conn, preview) -> PlanPreviewOut:
         schedule_version_id=preview.schedule_version_id, candidates=candidates,
         warnings=list(preview.warnings), optimization_complete=preview.optimization_complete,
         operation_kind=preview.operation_kind,
+    )
+
+
+def _missing_target_hours_out(conn, employee_ids: list[str]) -> list[MissingTargetHoursEmployeeOut]:
+    """ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: the one owner
+    of turning plan_ops.TargetHoursRequired's deterministic employee_ids
+    into the Polish-name payload shared by precheck and the whole PLAN/
+    REPLAN family. Sorted by employee_display_name, then employee_id, per
+    the frozen contract."""
+    employees_by_id = list_employees_by_ids(conn, employee_ids)
+    out = [
+        MissingTargetHoursEmployeeOut(
+            employee_id=eid,
+            employee_display_name=employees_by_id[eid].display_name if eid in employees_by_id else eid,
+        )
+        for eid in employee_ids
+    ]
+    out.sort(key=lambda m: (m.employee_display_name, m.employee_id))
+    return out
+
+
+def _target_hours_required_out(conn, exc: TargetHoursRequired) -> PlanningResultOut:
+    return PlanningResultOut(
+        status="TARGET_HOURS_REQUIRED", candidates=[], decision_payload=None, error_message=None,
+        warnings=[], optimization_complete=False,
+        missing_target_hours=_missing_target_hours_out(conn, exc.employee_ids),
     )
 
 
@@ -345,9 +383,18 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
 @router.get("/{site_id}/schedule/{month}/precheck", response_model=PrecheckOut)
 def get_precheck(site_id: str, month: date, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> PrecheckOut:
     try:
+        # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE section 2: the shared
+        # gate runs first; precheck.py itself is not the owner of target
+        # hours and is not changed by this Task.
+        require_complete_target_hours(conn, site_id=site_id, month=month)
         state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
         result = precheck(state)
         return PrecheckOut(status=result.status, under_covered_demand_ids=list(result.under_covered_demand_ids))
+    except TargetHoursRequired as exc:
+        return PrecheckOut(
+            status="TARGET_HOURS_REQUIRED", under_covered_demand_ids=[],
+            missing_target_hours=_missing_target_hours_out(conn, exc.employee_ids),
+        )
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -377,6 +424,8 @@ def post_plan(site_id: str, month: date, payload: PlanRequest, conn=Depends(get_
             search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result, operation="PLAN")
+    except TargetHoursRequired as exc:
+        return _target_hours_required_out(conn, exc)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -457,6 +506,8 @@ def post_replan(site_id: str, month: date, payload: ReplanRequest, conn=Depends(
             note=payload.note, responds_to_decision_required_id=payload.responds_to_decision_required_id,
         )
         return _planning_result_out(conn, result, operation="REPLAN")
+    except TargetHoursRequired as exc:
+        return _target_hours_required_out(conn, exc)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -478,6 +529,8 @@ def post_replan_wider_search(
             search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result, operation="REPLAN")
+    except TargetHoursRequired as exc:
+        return _target_hours_required_out(conn, exc)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 
@@ -495,6 +548,8 @@ def post_replan_retry(
             search_attempt=payload.search_attempt,
         )
         return _planning_result_out(conn, result, operation="REPLAN")
+    except TargetHoursRequired as exc:
+        return _target_hours_required_out(conn, exc)
     except Exception as exc:
         raise to_http_exception(exc) from exc
 

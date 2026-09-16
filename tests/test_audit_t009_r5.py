@@ -42,7 +42,7 @@ def _plan_select(conn, site_id: str):
 
 
 def _training_setup(conn, *, threshold: int, weekdays_only: bool):
-    state = seed_real_object(conn, case_id="audit-r5-training", month=MONTH, seed=801)
+    state = seed_real_object(conn, case_id="audit-r5-training", month=MONTH, seed=801, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     save_site_profile(conn, replace(
         state.profile,
@@ -75,7 +75,7 @@ def _trainee(label: str, trainee_id: str, mentor) -> Assignment:
 def test_r5_explicit_version_must_belong_to_requested_context(tmp_path, mismatch):
     """The canonical key is the whole (site_id, month, version_id) tuple."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-r5-version-{mismatch}", month=MONTH, seed=802)
+    state = seed_real_object(conn, case_id=f"audit-r5-version-{mismatch}", month=MONTH, seed=802, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
 
     requested_site, requested_month = state.site.site_id, MONTH
@@ -109,7 +109,7 @@ def test_r5_explicit_version_must_belong_to_requested_context(tmp_path, mismatch
 def test_r5_explicit_noncurrent_target_month_does_not_reenter_as_boundary(tmp_path):
     """Current V2 of the target month is not surrounding context for explicit V1."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-r5-version-boundary", month=MONTH, seed=803)
+    state = seed_real_object(conn, case_id="audit-r5-version-boundary", month=MONTH, seed=803, target_hours=200)
     v1 = _plan_select(conn, state.site.site_id)
     first = get_schedule_snapshot(conn, v1.version_id).assignments[0]
     v2 = manual_edit.apply_manual_correction(
@@ -258,7 +258,7 @@ def test_r5_post_write_assembly_failure_leaves_prior_aggregate_intact(tmp_path, 
     Przelicz Plan (plan_ops.plan_month) instead, the only solver-driven
     operation left once a version is accepted."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-r5-atomic-{operation}", month=MONTH, seed=804)
+    state = seed_real_object(conn, case_id=f"audit-r5-atomic-{operation}", month=MONTH, seed=804, target_hours=200)
     if operation == "przelicz-plan":
         _plan_select(conn, state.site.site_id)
     before_current = get_current_version_id(conn, state.site.site_id, MONTH)
@@ -300,7 +300,7 @@ def test_r5_post_write_assembly_failure_leaves_prior_aggregate_intact(tmp_path, 
 def test_r5_write_requires_the_acting_coordinator_context(tmp_path, operation):
     """Authorization/provenance cannot be inferred from the version creator."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-r5-select-actor", month=MONTH, seed=805)
+    state = seed_real_object(conn, case_id="audit-r5-select-actor", month=MONTH, seed=805, target_hours=200)
     result = plan_ops.plan_month(
         conn,
         site_id=state.site.site_id,
@@ -339,7 +339,7 @@ def test_r5_write_requires_the_acting_coordinator_context(tmp_path, operation):
 def test_r5_manual_structural_violation_fails_before_writing_a_child(tmp_path, monkeypatch, rule):
     """Unknown mappings fail closed, but must not leave a partial version."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-r5-structural-{rule}", month=MONTH, seed=806)
+    state = seed_real_object(conn, case_id=f"audit-r5-structural-{rule}", month=MONTH, seed=806, target_hours=200)
     version = _plan_select(conn, state.site.site_id)
     before = get_schedule_snapshot(conn, version.version_id)
     original_validate = manual_edit.validate
@@ -366,7 +366,7 @@ def test_r5_manual_structural_violation_fails_before_writing_a_child(tmp_path, m
 
 def test_r5_structured_rule_decision_requires_a_real_effective_date(tmp_path):
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id="audit-r5-rule-date", month=MONTH, seed=807)
+    state = seed_real_object(conn, case_id="audit-r5-rule-date", month=MONTH, seed=807, target_hours=200)
     from datetime import datetime
 
     from rota.application import rule_decisions

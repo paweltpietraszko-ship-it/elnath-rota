@@ -1,0 +1,29 @@
+ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE — PREIMPLEMENTATION R2
+
+WYNIK: PASS PREIMPLEMENTATION
+BRIEF SHA: eb9eb0bb521f98e315aa5a7240acd828766d62aa
+BASE: c4fad96788bf13f14b1a63e0dc9e6071d17e4355
+
+LITERALNY RE-CHECK R1
+- Zamrożono jeden owner gate w plan_ops.py i jeden status
+  TARGET_HOURS_REQUIRED dla precheck, PLAN, REPLAN, retry i wider-search.
+- Wspólny payload missing_target_hours ma jednoznaczne pola, kolejność oraz
+  wartości pozostałych pól odpowiedzi.
+- precheck.py pozostaje niezmienionym ownerem heurystyki pokrycia i został
+  usunięty z TASK_SCOPE; router nie tworzy drugiego gate.
+- Dodano WHERE_MAP: REQUIRED dla nowego gate, usuwanego fallbacku/helpera,
+  _effective_targets oraz szwów API/UI, z obsługą symbolu nieistniejącego przed
+  implementacją.
+
+REDUKCJA PREIMPLEMENTATION
+- Odpowiedzialności i pliki pozostające w zakresie są konieczne do jawnie
+  zaakceptowanego gate, atomowego ustawienia celów, odjęcia bieżącej DEL oraz
+  usunięcia martwego fallbacku.
+- Nie powstaje druga walidacja, nowa tabela, nowy DecisionRequired ani osobna
+  arytmetyka DELEGACJI.
+
+Brief jest jednoznaczny, testowalny i może zostać zaimplementowany bez nowej
+decyzji produktowej.
+
+Nie analizowano diffu produktu, nie uruchamiano where.py ani testów — zgodnie z
+literalnym BRIEF_ONLY_PRECHECK.

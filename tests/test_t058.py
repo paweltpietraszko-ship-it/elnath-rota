@@ -308,7 +308,7 @@ def test_t58_13_manual_correction_creates_flagged_deviation_not_a_block():
     from rota.persistence.site_repository import correct_site_planning_regime_in_open_transaction
 
     conn = connect(":memory:")
-    pstate = seed_real_object(conn, case_id="t058-manual", month=date(2026, 8, 1), seed=5058)
+    pstate = seed_real_object(conn, case_id="t058-manual", month=date(2026, 8, 1), seed=5058, target_hours=200)
     site_id = pstate.site.site_id
     with conn:
         correct_site_planning_regime_in_open_transaction(conn, site_id=site_id, planning_regime=SitePlanningRegime.OCHRONA)

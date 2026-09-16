@@ -32,7 +32,7 @@ def _plan_and_select(conn, site_id: str, month: date = MONTH):
 def test_r6_engine_state_names_the_current_version_it_is_planning(tmp_path, monkeypatch, operation):
     """The canonical assembler result must carry the exact target version id."""
     conn = connect(tmp_path / "rota.db")
-    state = seed_real_object(conn, case_id=f"audit-r6-state-{operation}", month=MONTH, seed=901)
+    state = seed_real_object(conn, case_id=f"audit-r6-state-{operation}", month=MONTH, seed=901, target_hours=200)
     captured = []
 
     def capture(planning_state, *_args, **_kwargs):
@@ -104,7 +104,7 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
     conn = connect(tmp_path / "rota.db")
     month = date(2027, 2, 1) if fixed_kind == "trainee" else MONTH
     correction_effective_from = date(month.year, month.month, 2)
-    state = seed_real_object(conn, case_id=f"audit-r6-fixed-{fixed_kind}", month=month, seed=902)
+    state = seed_real_object(conn, case_id=f"audit-r6-fixed-{fixed_kind}", month=month, seed=902, target_hours=200)
     selected = _plan_and_select(conn, state.site.site_id, month)
     snapshot = get_schedule_snapshot(conn, selected.version_id)
     mentor = snapshot.assignments[0]
@@ -146,7 +146,7 @@ def test_r6_replan_candidate_with_fixed_facts_can_be_selected(tmp_path, fixed_ki
 
 
 def _prepare_training_month(conn, month: date, seed: int, trainee_id: str | None = None):
-    state = seed_real_object(conn, case_id=f"audit-r6-training-{month}", month=month, seed=seed)
+    state = seed_real_object(conn, case_id=f"audit-r6-training-{month}", month=month, seed=seed, target_hours=200)
     save_site_profile(conn, replace(
         state.profile, training_s_enabled=True, training_s_weekdays_only=False,
         training_s_default_readiness_threshold=2,

@@ -187,6 +187,10 @@ def test_6_missing_earlier_norm_does_not_block_plan(tmp_path) -> None:
     # tightness, so a second employee restores real slack.
     _bootstrap(conn, employee_ids=(EMP_A, EMP_B))
     set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_A, month=AUG, target_hours=100)
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_month requires a
+    # target_hours for every active LOCAL membership for AUG -- EMP_B's is
+    # unrelated to what this test actually probes (JUL's missing norm).
+    set_target_hours(conn, coordinator_id=COORD, site_id=SITE, employee_id=EMP_B, month=AUG, target_hours=100)
     # JUL (earlier month of the same quarter) has no target_hours.
     _fill_calendar(conn, AUG)
 
