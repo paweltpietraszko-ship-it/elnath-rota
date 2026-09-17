@@ -1,14 +1,20 @@
 # Wdrożenie na Railway (ROTA-RAILWAY-DEPLOY)
 
-Jeden serwis Railway, zbudowany z `Dockerfile` w korzeniu repo (Railway
-wykrywa go automatycznie). Kontener serwuje jednocześnie API i zbudowany
-frontend — przeglądarka nie robi żadnych żądań cross-origin w produkcji.
+Jeden serwis Railway, zbudowany z `Dockerfile` w korzeniu repo. Kontener
+serwuje jednocześnie API i zbudowany frontend — przeglądarka nie robi
+żadnych żądań cross-origin w produkcji. `railway.json` w korzeniu repo
+wymusza builder `DOCKERFILE` -- **bez niego, jeśli serwis powstał zanim
+Dockerfile istniał w repo, Railway zostaje przy raz wybranym Railpackiem
+i cicho ignoruje Dockerfile nawet po jego dodaniu** (dokładnie to się
+stało przy pierwszym prawdziwym deployu 2026-09-17: builder pozostał na
+`RAILPACK` mimo `Dockerfile` w repo, aż do dodania tego pliku).
 
 ## 1. Utwórz serwis
 
 W Railway: **New Project → Deploy from GitHub repo** → wybierz to repo.
-Railway samo znajdzie `Dockerfile` i zbuduje kontener. Nic więcej nie
-trzeba klikać w ustawieniach builda.
+Dzięki `railway.json` serwis od razu zbuduje się z `Dockerfile`. Jeśli
+zakładasz serwis w istniejącym już projekcie, sprawdź w jego Settings →
+Build, że builder to faktycznie "Dockerfile", nie "Railpack".
 
 ## 2. Podłącz trwały dysk (Volume) — zanim ktokolwiek się zaloguje
 
