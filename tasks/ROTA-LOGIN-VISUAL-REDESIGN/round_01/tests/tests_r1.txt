@@ -1,0 +1,31 @@
+ROTA-LOGIN-VISUAL-REDESIGN — AUDIT R1
+
+VERDICT: PASS
+EXACT AUDITED SHA: 97532272027ccd7640a8fdd830edbd068d71371e
+PARENT: 8f001f6f63e5bf2f278b74d720ad0741f5a9e7ca
+
+SCOPE
+- Reviewed the exact two-file visual diff only.
+- Compiled the frontend and inspected the real CENTRAL_SERVICE login render in
+  a browser at a 1280x720 viewport.
+- Exercised the initial form, password visibility toggle, and failed-login
+  message state.
+- No broader frontend regression was run.
+
+EVIDENCE
+- `git diff --check 9753227^..9753227`: clean.
+- `tsc -b`: PASS.
+- Production UI logic is unchanged: submit, loading, error handling,
+  password visibility, and HttpOnly-cookie login path retain their prior code.
+- Initial render uses the existing graphite/paper/brass tokens; the old white
+  `var(--surface, #fff)` fallback is gone.
+- Browser inspection: card, brand mark, labels, inputs, password toggle and
+  primary action are aligned, readable and fully visible with no clipping,
+  overlap or horizontal/vertical overflow in the inspected viewport.
+- Interaction inspection: `Pokaż` changes to `Ukryj`; the error banner appears
+  between the fields and submit button without shifting or obscuring controls.
+
+CONCLUSION
+- The visual redesign matches the existing graphite/brass application design
+  and does not alter the login contract.
+- PASS applies only to exact SHA 97532272027ccd7640a8fdd830edbd068d71371e.
