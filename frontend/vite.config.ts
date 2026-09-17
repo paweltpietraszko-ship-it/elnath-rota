@@ -3,6 +3,14 @@ import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
 
 function resolveBuildSha(): string {
+  // ROTA-RAILWAY-DEPLOY (Codex R1-01 finding on 6b84a34): the Docker build
+  // context has no .git (see .dockerignore), so `git rev-parse` always
+  // fails there and every production build silently got "unknown" --
+  // T021c only allows that for a genuinely non-git dev build. Railway
+  // exposes RAILWAY_GIT_COMMIT_SHA as a build ARG for Dockerfile deploys
+  // (wired through by the Dockerfile below); prefer it when set.
+  const injected = process.env.ROTA_BUILD_SHA;
+  if (injected) return injected.slice(0, 7);
   try {
     return execSync("git rev-parse --short HEAD").toString().trim();
   } catch {

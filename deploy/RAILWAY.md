@@ -25,8 +25,8 @@ Ustaw w **Settings → Variables**:
 
 | Zmienna | Wartość | Po co |
 |---|---|---|
-| `ROTA_CENTRAL_KEK` | wygeneruj sam (patrz niżej) | włącza tryb CENTRAL_SERVICE (logowanie, izolacja kont) i szyfruje dane w bazach |
-| `ROTA_AUTH_SECRET` | wygeneruj sam (patrz niżej) | podpisuje sesje logowania (JWT) |
+| `ROTA_CENTRAL_KEK` | 64 znaki hex (32 bajty) — patrz niżej | włącza tryb CENTRAL_SERVICE (logowanie, izolacja kont) i szyfruje dane w bazach |
+| `ROTA_AUTH_SECRET` | dowolny losowy sekret — patrz niżej | podpisuje sesje logowania (JWT) |
 | `ROTA_DB_PATH` | `/data/rota_dev.db` | główna baza (obiekt bez konta = brak, w CENTRAL_SERVICE każde konto ma swoją bazę w `ROTA_ACCOUNTS_DB_DIR`) |
 | `ROTA_AUTH_DB_PATH` | `/data/rota_auth.db` | baza kont/logowań |
 | `ROTA_ACCOUNTS_DB_DIR` | `/data/accounts` | katalog z bazą każdego konta |
@@ -36,6 +36,11 @@ Ustaw w **Settings → Variables**:
 Wygeneruj każdy sekret osobno lokalnie:
 
 ```
+# ROTA_CENTRAL_KEK -- musi być DOKŁADNIE 64 znaki hex (32 bajty), inaczej
+# rota/persistence/pii_crypto.py odrzuci go przy starcie (KeyProtectionUnavailable):
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# ROTA_AUTH_SECRET -- format dowolny, wystarczy losowy ciąg:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 

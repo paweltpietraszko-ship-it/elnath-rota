@@ -11,6 +11,14 @@ COPY frontend/ ./
 # login screen -- must be set here, not left to a runtime toggle a
 # viewer could flip (frontend/vite.config.ts).
 ENV ROTA_CENTRAL_SERVICE=1
+# Codex R1-02 finding on 6b84a34: .git is excluded from the build context
+# (.dockerignore), so `git rev-parse` inside this stage always failed and
+# every production bundle silently baked in build_sha="unknown". Railway
+# auto-populates this ARG with the real commit SHA for Dockerfile deploys;
+# a plain local `docker build` with no --build-arg falls back to "unknown"
+# same as before (still correct there -- it isn't a Railway build).
+ARG RAILWAY_GIT_COMMIT_SHA=""
+ENV ROTA_BUILD_SHA=$RAILWAY_GIT_COMMIT_SHA
 RUN npm run build
 
 FROM python:3.12-slim AS runtime
