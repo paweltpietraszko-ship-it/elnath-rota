@@ -171,3 +171,26 @@ udokumentowany tutaj jako gotowy punkt startowy, gdyby program Agent
 odziedziczył ten sam pipeline i tę samą usterkę.
 
 ---
+
+## 2026-09-17 DELEGACJA: godziny w weekend i limit normy miesięcznej
+
+Żywy błąd znaleziony przez Pawła przy ręcznym klikaniu: `delegation_hours_
+in_range` (`rota/planning/absence.py`) nalicza godziny delegacji za KAŻDY
+dzień w zakresie rekordu, włącznie z sobotą/niedzielą, bez sprawdzania czy
+to w ogóle dzień roboczy pracownika. Sprawdzone w necie (Kodeks pracy):
+czas pobytu w delegacji nie jest automatycznie czasem pracy — liczą się
+tylko godziny faktycznie przepracowane, weekend w trakcie delegacji
+domyślnie nie generuje godzin, chyba że pracownik naprawdę pracuje (np.
+na targach). Druga część: suma godzin delegacji w miesiącu nie powinna
+przekraczać normy miesięcznej (`WorkBalance.target_hours`) — dziś nic
+tego nie pilnuje, efektywny cel dla solvera (`_effective_targets`) może
+wyjść ujemny.
+
+Odłożone: Paweł "jeśli to pół dnia roboty na solverze, zostawmy to, da
+się ustalić ręcznie kilka delegacji od poniedziałku do piątku" (2026-09-
+17) — obejście ręczne (nie zaznaczać weekendu w zakresie dat rekordu)
+wystarcza na teraz. Dotyka `rota/planning/absence.py::delegation_hours_
+in_range` i `rota/planning/solver.py::_effective_targets` (obszar
+solver-adjacent, pełny proces architekt+Codex gdyby wracać do tematu).
+
+---
