@@ -1023,3 +1023,79 @@ button {
 .absence-log-item-ended {
   opacity: 0.55;
 }
+
+/* Login (ROTA-T024-TESTER-LOGIN-ISOLATION) */
+
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--graphite);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--paper-raised);
+  border: 1.5px solid var(--brass);
+  border-radius: 14px;
+  padding: 40px 36px;
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 30px;
+}
+
+.login-brand-mark {
+  width: 44px;
+  height: 44px;
+  border: 1.5px solid var(--brass);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--brass);
+}
+
+.login-title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+.login-subtitle {
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.login-password-row {
+  position: relative;
+}
+
+.login-password-row input {
+  width: 100%;
+  padding-right: 60px;
+}
+
+.login-password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.login-submit {
+  width: 100%;
+  justify-content: center;
+  padding: 11px 14px;
+  font-size: 14px;
+  margin-top: 4px;
+}
