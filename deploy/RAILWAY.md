@@ -16,8 +16,14 @@ Bez tego kroku **każdy redeploy kasuje wszystkie konta i wszystkie
 grafiki** (bazy to pliki SQLite na dysku kontenera, a dysk kontenera jest
 tymczasowy).
 
-W zakładce serwisu: **Settings → Volumes → New Volume**, mount path:
-`/data`.
+Volume NIE jest zakładką w ustawieniach serwisu — zakłada się go z poziomu
+canvasu całego projektu:
+
+1. Kliknij prawym przyciskiem na **pusty obszar canvasu projektu** (tam,
+   gdzie widać kafelki serwisów) → wybierz opcję dodania Volume (albo
+   `Ctrl+K`/`Cmd+K` → paleta poleceń → wpisz "volume").
+2. Railway zapyta, do którego serwisu podłączyć — wybierz serwis Rota.
+3. W ustawieniach nowego Volume ustaw **mount path**: `/data`.
 
 ## 3. Zmienne środowiskowe
 
