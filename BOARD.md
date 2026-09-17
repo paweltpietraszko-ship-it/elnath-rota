@@ -28,4 +28,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-RAILWAY-DEPLOY | Codex | CC | `task/ROTA-RAILWAY-DEPLOY` | audited fix `3a767e3`; report `dd7eaa6` | CODEX_REPORTED | **PASS R2 na exact `3a767e3`; cały Task ma PASS w audytowanym zakresie.** R1-01 zamknięty: bieżąca instrukcja `token_hex(32)` daje poprawne 64 hex/32 bajty i przechodzi przez ownera kryptografii (1/1 PASS). R1-02 zamknięty: clean-checkout build bez Git, z `ROTA_BUILD_SHA=abcdef1234567890`, umieścił w bundle `build_sha="abcdef1"`; oficjalne docs Railway potwierdzają dostępność `RAILWAY_GIT_COMMIT_SHA` i przekazywanie przez zadeklarowany `ARG`. Bez pełnej regresji i bez budowania obrazu Docker (daemon niedostępny). Raport: `tasks/ROTA-RAILWAY-DEPLOY/round_01/tests/tests_r2.txt`. |
