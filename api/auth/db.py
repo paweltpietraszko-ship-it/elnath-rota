@@ -33,8 +33,16 @@ def reset_for_tests() -> None:
 def _get_engine() -> AsyncEngine:
     global _engine, _session_maker
     if _engine is None:
+        from pathlib import Path
+
         from api.config import AUTH_DB_PATH
 
+        # ROTA-RAILWAY-DEPLOY: found live on first real deploy -- sqlite
+        # raises a bare "unable to open database file" if AUTH_DB_PATH's
+        # parent doesn't exist yet, which it never does the first time a
+        # CENTRAL_SERVICE deployment points this at a fresh Railway Volume
+        # (e.g. /data/rota_auth.db before anything has written to /data).
+        Path(AUTH_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
         _engine = create_async_engine(f"sqlite+aiosqlite:///{AUTH_DB_PATH}")
         _session_maker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
