@@ -1,13 +1,24 @@
 """ROTA-T021 brief.md section 3.2: thin FastAPI pass-through in front of
-rota/application/*.py. Dev-local only until real authentication (T025 F1)
-exists -- must not be exposed on any network the coordinator's own
-machine doesn't already trust.
+rota/application/*.py. LOCAL_WINDOWS deployment must not be exposed on any
+network the coordinator's own machine doesn't already trust; a
+CENTRAL_SERVICE deployment (Railway) is real-auth-gated (T024) and is the
+only mode meant to be reachable over the open internet.
+
+ROTA-RAILWAY-DEPLOY: ROTA_ALLOWED_ORIGINS lets a CENTRAL_SERVICE deployment
+allow its own real origin (e.g. https://elnath-rota.up.railway.app)
+instead of the hardcoded Vite dev-server origin -- comma-separated, no
+default beyond the dev origin so a misconfigured deployment fails closed
+(CORS rejects) rather than silently open.
 """
 from __future__ import annotations
+
+import os
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.config import IS_CENTRAL_SERVICE
 from api.errors import to_http_exception
@@ -18,11 +29,15 @@ from api.routers import (
 
 app = FastAPI(title="Rota API (dev)")
 
+_dev_origin = "http://localhost:5173"
+_extra_origins = [o.strip() for o in os.environ.get("ROTA_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server only
+    allow_origins=[_dev_origin, *_extra_origins],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 if IS_CENTRAL_SERVICE:
@@ -85,3 +100,14 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     `to_http_exception` logs it exactly once (its own fallback branch)."""
     http_exc = to_http_exception(exc)
     return JSONResponse(status_code=http_exc.status_code, content={"detail": http_exc.detail}, headers=http_exc.headers)
+
+
+# ROTA-RAILWAY-DEPLOY: a single container serves both the API and the built
+# frontend (`vite build` output) so Railway only needs one service and the
+# browser never makes a cross-origin request in production. Mounted last so
+# it never shadows an /api/* route above. Absent in local dev (no build
+# artifact on disk) -- `npm run dev`'s own Vite server serves the frontend
+# there instead, proxying /api to this backend (frontend/vite.config.ts).
+_frontend_dist = Path(os.environ.get("ROTA_FRONTEND_DIST", "frontend/dist"))
+if _frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
