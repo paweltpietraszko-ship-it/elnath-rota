@@ -1,0 +1,34 @@
+ROTA-ABSENCE-RANGE-REQUIRE-SECOND-CLICK — AUDIT R1
+
+VERDICT: PASS
+EXACT AUDITED SHA: 2c5f92fd3ea4677c7e87890ae3898d5e62ef1c22
+PARENT: 37b8bc69554cd3b9dcd76163c928962cddf6ee3e
+
+PRODUCT TRUTH
+- Explicit OWNER choice recorded in BOARD.md: completing an absence range always
+  requires a deliberate second click, including a one-day range where the same
+  date is clicked twice.
+
+SCOPE
+- One changed production file: frontend/src/screens/EmployeeAvailability.tsx.
+- Reviewed the exact parent-to-fix diff.
+- Added and ran one focused independent browser reproducer through the real UI.
+- No full regression; the one-file UX fix does not justify it.
+
+EVIDENCE
+- git diff --check 37b8bc6..2c5f92f: clean.
+- TypeScript: tsc -b — PASS.
+- Playwright focused vertical:
+  frontend/e2e/audit-absence-second-click.spec.ts — 1 passed (6.5s).
+
+The browser test proved:
+1. Before any date selection, "Zgłoś" is disabled.
+2. After the first date click, the UI asks for the end date and "Zgłoś" remains disabled.
+3. A second click on the same date completes a one-day range and enables "Zgłoś".
+4. Starting a new selection disables "Zgłoś" again; a second, different date
+   completes a sorted multi-day range and enables it.
+
+CONCLUSION
+- The implementation matches the explicit OWNER decision.
+- Existing multi-day selection remains available.
+- PASS applies only to exact SHA 2c5f92fd3ea4677c7e87890ae3898d5e62ef1c22.
