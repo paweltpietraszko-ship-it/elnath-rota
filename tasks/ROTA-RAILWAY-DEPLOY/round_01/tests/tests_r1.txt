@@ -1,0 +1,74 @@
+ROTA-RAILWAY-DEPLOY — AUDIT R1
+
+VERDICT: FAIL
+EXACT AUDITED SHA: 6b84a34ecf3f383ce6e394ff8439005806da7b52
+PARENT: d158994af2497fd0d145746b724d40b4b021b0d3
+
+SCOPE
+- Read the exact four-file delivery diff.
+- Checked only the deployment seams introduced by this Task: documented
+  secrets, frontend production identity, static/API packaging, and persistence
+  environment paths.
+- No full repository regression was run.
+- Docker is unavailable on this host, so the container image itself was not
+  built. The frontend Docker stage was reproduced independently with Git
+  unavailable, matching the delivered build context (`.git` is excluded).
+
+R1-01 — documented ROTA_CENTRAL_KEK command produces an unusable secret
+
+TRACE
+- `deploy/RAILWAY.md` says to generate each secret with
+  `secrets.token_urlsafe(32)` and says ROTA_CENTRAL_KEK enables the hosted
+  encryption model.
+- Frozen ROTA-RODO-ENCRYPTION-AT-REST contract sections 2.2/5.2/E3 require a
+  valid externally supplied CENTRAL_SERVICE KEK and fail-closed behavior for a
+  bad one.
+
+OWNERSHIP
+- This Task owns the new Railway setup instructions. The existing crypto owner
+  cannot accept the documented value: `pii_crypto._central_kek()` requires
+  exactly 64 hexadecimal characters decoding to 32 bytes.
+
+REPRO
+- `audit_r1_repro.py` executes the documented generator and passes its result
+  to the exact runtime parser on SHA 6b84a34.
+- Result: 1 failed; `KeyProtectionUnavailable: ROTA_CENTRAL_KEK is not valid hex`.
+
+EFFECT
+- Health/import can appear successful, but the first encrypted-data operation
+  fails. Following the deployment guide does not produce a usable service.
+- The guide must give ROTA_CENTRAL_KEK its required 32-byte hexadecimal
+  generator separately from the URL-safe AUTH secret generator.
+
+R1-02 — production frontend is built with build_sha="unknown"
+
+TRACE
+- Frozen `tasks/ROTA-T021c/brief.md` section 3.1 requires a build/commit SHA;
+  explicit `unknown` is allowed only in dev.
+
+OWNERSHIP
+- The new `.dockerignore` excludes `.git`; the new Dockerfile copies only the
+  frontend sources into the build stage and supplies no commit identity by
+  another channel. Therefore `frontend/vite.config.ts` falls through to its
+  dev-only `unknown` fallback during this production build.
+
+REPRO
+- Reproduced the frontend production build on exact SHA with Git unavailable,
+  matching the Docker stage's lack of repository metadata.
+- Build passed, and the generated production bundle contained:
+  `const ... build_sha:Mg ... Mg="unknown"`.
+
+EFFECT
+- Production diagnostic downloads cannot identify the deployed commit.
+- The production build must receive and embed the real deployed commit SHA.
+
+OTHER CHECKS
+- `git diff --check d158994..6b84a34`: clean.
+- Documented database/auth/accounts paths match existing environment-backed
+  configuration owners in `api/config.py`.
+- Docker dependency list matches `pyproject.toml` at this SHA.
+
+CONCLUSION
+- FAIL applies only to exact SHA 6b84a34ecf3f383ce6e394ff8439005806da7b52.
+- Re-check only the two original reproducers and directly changed deployment
+  files after the fix; no broad re-audit is needed.
