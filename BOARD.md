@@ -28,3 +28,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| ROTA-ABSENCE-RANGE-REQUIRE-SECOND-CLICK | CC | Codex | task/ROTA-ABSENCE-RANGE-REQUIRE-SECOND-CLICK | 2c5f92f | READY_FOR_CODEX | Live UX fix (2026-09-17, owner click-through): absence date-range picker w `EmployeeAvailability.tsx` domykał zakres 1-dniowy już po pierwszym kliknięciu (react-day-picker `addToRange` bez `min`), włączając "Zgłoś" zanim koordynator zdążył wybrać drugi dzień. Owner wybrał opcję: zawsze wymagać jawnego drugiego kliknięcia, nawet dla 1 dnia. Zweryfikowane ręcznie na żywym dev-serwerze (realne obiekty/pracownicy); e2e regressiony w t062/t063/t064 sprawdzone przez `git stash` na czystej bazie — identyczne faile, niezwiązane z tą zmianą (pre-existing/środowiskowe). |
