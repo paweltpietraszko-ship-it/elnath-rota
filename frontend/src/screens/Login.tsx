@@ -28,50 +28,40 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   };
 
   return (
-    <div style={{ width: "100vw", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          background: "var(--surface, #fff)", border: "1px solid var(--ink-faint, #ddd)",
-          borderRadius: 12, padding: "40px 48px", width: 360,
-        }}
-      >
-        <h1 className="brand-font" style={{ fontSize: 20, fontWeight: 600, marginBottom: 4, textAlign: "center" }}>
-          Elnath Rota
-        </h1>
-        <p style={{ color: "var(--ink-soft)", fontSize: 13.5, marginBottom: 24, textAlign: "center" }}>
-          Zaloguj się, aby kontynuować.
-        </p>
+    <div className="login-screen">
+      <form className="login-card" onSubmit={handleSubmit}>
+        <div className="login-brand">
+          <div className="login-brand-mark">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 2v6M12 16v6M2 12h6M16 12h6" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="brand-font login-title">Elnath Rota</h1>
+            <p className="login-subtitle">Zaloguj się, aby kontynuować.</p>
+          </div>
+        </div>
 
-        <div className="create-panel-fields">
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr", marginBottom: 0 }}>
           <label>
             <span className="field-label">E-mail</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoFocus
-              required
-              style={{ width: "100%", marginBottom: 16, boxSizing: "border-box" }}
-            />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
           </label>
 
           <label>
             <span className="field-label">Hasło</span>
-            <div style={{ position: "relative", marginBottom: 16 }}>
+            <div className="login-password-row">
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                style={{ width: "100%", boxSizing: "border-box", paddingRight: 40 }}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
                 tabIndex={-1}
-                className="btn-ghost"
-                style={{ position: "absolute", right: 4, top: 2, padding: "4px 8px" }}
+                className="btn-ghost login-password-toggle"
               >
                 {showPassword ? "Ukryj" : "Pokaż"}
               </button>
@@ -80,12 +70,12 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
         </div>
 
         {error && (
-          <div className="banner-error" style={{ marginBottom: 16 }}>
+          <div className="banner-error" style={{ marginTop: 18 }}>
             {error}
           </div>
         )}
 
-        <button type="submit" className="btn-primary" disabled={loading} style={{ width: "100%" }}>
+        <button type="submit" className="btn-primary login-submit" disabled={loading} style={{ marginTop: error ? 0 : 22 }}>
           {loading ? "Logowanie…" : "Zaloguj się"}
         </button>
       </form>
