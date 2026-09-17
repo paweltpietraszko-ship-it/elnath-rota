@@ -1,0 +1,23 @@
+ROTA-RAILWAY-DEPLOY-volume-doc-fix — AUDIT R1
+
+VERDICT: PASS
+EXACT AUDITED SHA: a14607a17b0ce9b66823b8e44f4daa9637166d15
+PARENT: 25b219513d36fa9475ae028ddda6903cf0776755
+
+SCOPE
+- Documentation-only one-file diff.
+- No product tests or regression were run.
+
+EVIDENCE
+- `git diff --check a14607a^..a14607a`: clean.
+- Current official Railway documentation (`https://docs.railway.com/volumes`)
+  states that a Volume is created through the Command Palette or by
+  right-clicking the project canvas, then connected to a selected service.
+- The same documentation requires configuring the mount path and confirms
+  that the selected absolute mount point is available to the service.
+- The corrected Rota instructions describe exactly that flow and retain the
+  required `/data` mount path used by the deployment variables.
+
+CONCLUSION
+- The obsolete service Settings → Volumes instruction is removed.
+- PASS applies only to exact SHA a14607a17b0ce9b66823b8e44f4daa9637166d15.
