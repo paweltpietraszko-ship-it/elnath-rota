@@ -28,3 +28,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| ROTA-RAILWAY-DEPLOY-volume-doc-fix | CC | Codex | `task/ROTA-RAILWAY-DEPLOY-volume-doc-fix` | `a14607a` | READY_FOR_CODEX | Owner nie mógł znaleźć zakładki "Volumes" w Railway -- `deploy/RAILWAY.md` opisywało nieaktualny UI (Settings serwisu). Sprawdzone przez WebFetch na `docs.railway.com/volumes`: Volume zakłada się z canvasu projektu (prawy klik / Ctrl+K), potem wybiera się serwis do podłączenia. Sama treść dokumentacji poprawiona, zero zmian w kodzie/kontrakcie -- Task jednak przez ten sam proces jak reszta. |
