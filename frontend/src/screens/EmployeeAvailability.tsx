@@ -261,6 +261,27 @@ function AddAbsenceForm({
   const parsedDelegationHours = Number(delegationHours);
   const delegationHoursValid = !isDelegacja || (delegationHours !== "" && parsedDelegationHours > 0);
 
+  // ROTA live UX finding (2026-09-17, owner click-through): react-day-
+  // picker's own default range logic completes a 1-day range on the
+  // FIRST click (addToRange with no `min` set), which immediately enables
+  // "Zgłoś" -- a coordinator meaning to mark a multi-day absence could
+  // submit a wrong 1-day one without a deliberate second click, then have
+  // to reopen edit to fix the end date. Owner's choice: always require an
+  // explicit second click, even for a single-day absence (click the same
+  // day twice). Ignores the library's own auto-completed `selected` value
+  // (2nd onSelect arg is the raw clicked day) and tracks the two clicks
+  // ourselves.
+  const handleSelectDay = (triggerDate: Date) => {
+    setRange((prev) => {
+      if (!prev?.from || prev.to) {
+        return { from: triggerDate, to: undefined };
+      }
+      return triggerDate < prev.from
+        ? { from: triggerDate, to: prev.from }
+        : { from: prev.from, to: triggerDate };
+    });
+  };
+
   const submit = async () => {
     if (!range?.from || !range?.to) return;
     if (isWindow && (!fromTime || !toTime || fromTime >= toTime)) return;
@@ -333,14 +354,16 @@ function AddAbsenceForm({
       <DayPicker
         mode="range"
         selected={range}
-        onSelect={setRange}
+        onSelect={(_range, triggerDate) => handleSelectDay(triggerDate)}
         defaultMonth={defaultMonth}
         data-diag-element="absence-range-picker"
       />
       <p className="field-hint">
         {range?.from && range?.to
           ? `Wybrany zakres: ${toLocalIso(range.from)} – ${toLocalIso(range.to)}`
-          : "Wybierz datę początkową i końcową."}
+          : range?.from
+            ? "Kliknij datę końcową (tę samą, jeśli to jeden dzień)."
+            : "Wybierz datę początkową."}
       </p>
       <div className="create-panel-actions">
         <button
