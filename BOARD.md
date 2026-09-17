@@ -28,4 +28,3 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
-| ROTA-ABSENCE-RANGE-REQUIRE-SECOND-CLICK | Codex | CC | `task/ROTA-ABSENCE-RANGE-REQUIRE-SECOND-CLICK` | audited fix `2c5f92f`; report `4f3b3d7` | CODEX_REPORTED | **PASS na exact `2c5f92f`.** Jednoplikowy diff jest zgodny z decyzją OWNERA. Niezależny test w realnej przeglądarce potwierdził: pierwszy klik nadal blokuje „Zgłoś”, drugi klik tego samego dnia kończy zakres jednodniowy, a dwa różne dni nadal tworzą zakres wielodniowy. Playwright 1/1 PASS, `tsc -b` PASS; bez pełnej regresji. Raport: `tasks/ROTA-ABSENCE-RANGE-REQUIRE-SECOND-CLICK/round_01/tests/tests_r1.txt`. |
