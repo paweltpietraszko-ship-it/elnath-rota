@@ -1,0 +1,45 @@
+ROTA-RAILWAY-DEPLOY — AUDIT R2 (narrow re-check)
+
+VERDICT: PASS
+EXACT AUDITED SHA: 3a767e31be9539aa90f938e42cb5ff79c55550ab
+FIX COMMIT: da55a795f5f877044800580f141c9a8958d36ba8
+BASE FINDINGS: R1 report at 92ea0cd53677e1495eb010077837e993fb96dabe
+
+SCOPE
+- Reviewed only the fixes for R1-01 and R1-02.
+- Reran the preserved R1 KEK reproducer, added a current-instruction
+  reproducer, and rebuilt the production frontend with injected build SHA and
+  Git deliberately unavailable.
+- No Docker daemon was available and no full repository regression was run.
+
+R1-01 — CLOSED
+- `deploy/RAILWAY.md` now documents `secrets.token_hex(32)` specifically for
+  ROTA_CENTRAL_KEK and keeps `token_urlsafe(32)` only for ROTA_AUTH_SECRET.
+- `audit_r2_repro.py`: 1 passed. The documented value has 64 hex characters,
+  decodes to 32 bytes, and is accepted by the exact runtime crypto owner.
+- The preserved `audit_r1_repro.py` still fails because it intentionally runs
+  the removed `token_urlsafe(32)` instruction. It is historical evidence of
+  R1-01, not a failure of the current product truth.
+
+R1-02 — CLOSED
+- `frontend/vite.config.ts` prefers ROTA_BUILD_SHA and shortens it to 7 chars.
+- `Dockerfile` declares `ARG RAILWAY_GIT_COMMIT_SHA` in the frontend build
+  stage and exposes it as ROTA_BUILD_SHA before `npm run build`.
+- Clean-checkout simulation with Git unavailable and
+  ROTA_BUILD_SHA=abcdef1234567890 built successfully; the production bundle
+  contained `build_sha="abcdef1"` and did not use the `unknown` fallback.
+- Railway's current official Dockerfile documentation says build-time injected
+  and Railway-provided variables are available when declared with `ARG`.
+  Its variables reference lists RAILWAY_GIT_COMMIT_SHA for GitHub-triggered
+  deployments.
+
+OTHER EVIDENCE
+- `git diff --check 6b84a34..3a767e3`: clean.
+- The initially observed local `vite.config.js` was an ignored compiler
+  artifact absent from Git and therefore absent from Railway's clean source.
+  It was removed before the decisive build reproduction.
+
+CONCLUSION
+- Both R1 findings are closed.
+- The whole ROTA-RAILWAY-DEPLOY Task passes on exact SHA
+  3a767e31be9539aa90f938e42cb5ff79c55550ab within the documented audit scope.
