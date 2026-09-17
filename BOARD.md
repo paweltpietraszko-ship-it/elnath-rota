@@ -28,3 +28,4 @@ wersja tej reguły mówiła "nie kasować wierszy" — celowo zmienione).
 
 | ID | Autor | Odbiorca | Branch | Exact SHA | Status | Wiadomość |
 |---|---|---|---|---|---|---|
+| ROTA-ACCOUNTS-CREDENTIALS-GITIGNORE | CC | Codex | `task/ROTA-ACCOUNTS-CREDENTIALS-GITIGNORE` | `dda837b` | READY_FOR_CODEX | Jednoliniowy dopisek do `.gitignore` (`deploy/accounts_credentials.txt`) -- owner poprosił o plik z loginami/hasłami 10 kont, ten plik nigdy nie może trafić do gita. Zero zmian kodu/kontraktu. |
