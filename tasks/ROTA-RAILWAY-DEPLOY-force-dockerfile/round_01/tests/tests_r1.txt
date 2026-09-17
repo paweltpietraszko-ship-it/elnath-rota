@@ -1,0 +1,45 @@
+ROTA-RAILWAY-DEPLOY-force-dockerfile — AUDIT R1
+
+VERDICT: PASS
+EXACT AUDITED SHA: 22d147c06b00f8ba2da235757c0493e6eff97e5b
+FIX COMMITS: dd273eae5748ea585848a7b7993501b1e23303d5, 22d147c06b00f8ba2da235757c0493e6eff97e5b
+
+SCOPE
+- Checked only the two reported live-deployment blockers.
+- No full repository regression and no repeat of the earlier Railway deployment
+  audit.
+
+EVIDENCE
+- `git diff --check dd273ea^..22d147c`: clean.
+- Official Railway Config as Code reference accepts `build.builder` value
+  `DOCKERFILE`, recognizes root `railway.json`, and states that configuration
+  from code overrides dashboard values for the deployment.
+- `railway.json` parses as JSON and selects exactly the root Dockerfile.
+- Independent reproducer created a fresh nested AUTH_DB_PATH whose parent did
+  not exist. The exact `_get_engine()` owner created the directory before its
+  SQLite engine call; a SQLite file could then be opened there.
+- Focused audit result: 2 passed in 0.22s.
+- The board's successful live `railway up`, `/api/health` 200 and rendered
+  login screen are supporting deployment evidence, not the independent verdict.
+
+ENVIRONMENT CLASSIFICATION
+- Direct import through the local audit venv stopped before the changed code on
+  a pre-existing fastapi-users package mismatch. The independent reproducer
+  stubbed only third-party import surfaces and executed the exact changed
+  `_get_engine()` function; this environment failure is not a Task defect.
+
+MERGE NOTE
+- This branch and ROTA-RAILWAY-DEPLOY-volume-doc-fix both touch
+  `deploy/RAILWAY.md`. Merge conflict resolution must preserve the corrected
+  Volume instructions from `a14607a`; this is an integration note, not a defect
+  in either audited SHA.
+
+ARCHITECTURE_PROPOSAL (NONBLOCKING)
+- Railway's current official documentation marks this Config as Code format as
+  deprecated and says legacy support continues until 2026-12-01. Plan migration
+  to Railway Infrastructure as Code before that date. The configuration is
+  valid and effective for the current deployment.
+
+CONCLUSION
+- Both reported blockers are closed.
+- PASS applies only to exact SHA 22d147c06b00f8ba2da235757c0493e6eff97e5b.
