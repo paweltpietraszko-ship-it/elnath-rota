@@ -549,6 +549,7 @@ button {
   display: flex;
   gap: 10px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .banner-error {
@@ -871,6 +872,38 @@ button {
    into the month picker's row instead of wrapping. Only applies below
    640px -- zero effect on desktop, which never hits this width. */
 @media (max-width: 640px) {
+  /* Same fixed-height/overflow bug as .room-topbar, but this is the
+     separate top-level Workspace ("Twoje obiekty") topbar -- screenshot
+     7908.jpg: search box, calendar/theme icons and "Koordynator" name
+     overflowed off the right edge instead of wrapping. */
+  .topbar {
+    height: auto;
+    min-height: 64px;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand actions"
+      "search search";
+    row-gap: 8px;
+    padding: 10px 16px;
+  }
+
+  .topbar .topbar-brand {
+    grid-area: brand;
+  }
+
+  .topbar .topbar-actions {
+    grid-area: actions;
+  }
+
+  .topbar .topbar-search {
+    grid-area: search;
+    max-width: none;
+  }
+
+  .topbar-user-name {
+    display: none;
+  }
+
   .room-topbar {
     height: auto;
     min-height: 64px;
