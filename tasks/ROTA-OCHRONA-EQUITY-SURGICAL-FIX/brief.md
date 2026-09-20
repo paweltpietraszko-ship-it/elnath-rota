@@ -31,6 +31,26 @@ Legacy fallback NIE może wrócić bez zmian: ignorował absencje (prawdziwy,
 osobny błąd z FF/ORDINARY, poprawnie naprawiony przez `_effective_targets`
 już od 22.08, przed tym Taskiem — patrz `decisive_finding.md`).
 
+**KOREKTA PO PRECHECKU ARCHITEKTA — dokładny mechanizm legacy fallbacku
+(punkt precheku 1):** `add_equal_split_fairness` nie konsumuje żadnego
+targetu — minimalizuje rozstrzał (max-min) **surowych** `worked_hours`
+wśród dostępnych LOCAL. Nie "liczy na `_effective_targets`" (to było
+niespójne sformułowanie w poprzedniej wersji briefu, wycofane). To
+właśnie ten brak świadomości absencji w SUROWEJ metryce jest źródłem
+oryginalnego błędu T041/FF: osoba na 80h urlopu i osoba bez urlopu
+kończyły z niemal identyczną liczbą surowych `worked_hours`, bo fallback
+wyrównywał złą wielkość.
+
+**Zmierzony kompromis rozstrzał/rytm (punkt precheku 4, dane, nie
+założenie):** `incomplete_vector_experiment.py`, 2 powtórzenia na
+warunek, na Royal: niekompletny wektor (fallback) → rozstrzał 12h, **9
+dopasowań rytmu D/N**; kompletny wektor (TARGET-01) → rozstrzał 72h,
+**11 dopasowań**. Sam historyczny fallback NIE zachowuje ani nie poprawia
+rytmu względem TARGET-01 na tym obiekcie — to realny kompromis, nie
+darmowy zysk. Kryterium 1 ("bez regresji rytmu D/N... jak historyczny
+fallback") nie może być więc potwierdzone jako osiągalne z definicji —
+patrz PYTANIE DO OWNERA niżej.
+
 ## 2. Kryteria akceptacji (Architekt, dosłownie z BOARD.md)
 
 1. Royal z kompletnymi targetami zachowuje prawie równy przydział jak
@@ -51,17 +71,43 @@ zidentyfikowane w diagnozie, oba zgodne z kryteriami powyżej, do wyboru
 lub połączenia przez Architekta:
 
 **Kierunek A — reżimowo odtworzony, absencjo-świadomy fallback.**
-Przywrócić `add_equal_split_fairness`-podobny mechanizm, ale:
-(a) tylko dla `SitePlanningRegime.OCHRONA` (ORDINARY bez zmian — gate
-kompletności zostaje jak dziś, bo tam naprawił realny błąd);
-(b) świadomy absencji/delegacji od startu — liczony na `_effective_targets`
-(już istniejący, absencjo-świadomy), nie na surowych godzinach roboczych;
-(c) aktywny NIEZALEŻNIE od kompletności wektora dla OCHRONA — czyli nie
-tylko jako fallback dla niekompletnego wektora (kryterium 1 wymaga
+Przywrócić `add_equal_split_fairness`-podobny mechanizm dla
+`SitePlanningRegime.OCHRONA` (ORDINARY bez zmian — gate kompletności
+zostaje jak dziś, bo tam naprawił realny błąd), z dokładną semantyką
+poniżej (odpowiedź na punkty precheku 2/3):
+
+(a) **Metryka do wyrównania**: nie surowe `worked_hours` (oryginalny błąd
+T041) i nie `_effective_targets` (niezdefiniowane dla osoby bez targetu —
+punkt precheku 2). Zamiast tego wyrównywać **`worked_hours +
+absence_hours + delegation_hours_in_range(...)`** — sumę godzin już
+"zajętych" w miesiącu (rzeczywista praca + urlop/L4 + delegacja) —
+niezależnie od tego, czy dana osoba ma wpisany target. To jedyna
+zmiana konieczna, żeby nie powtórzyć błędu T041 (osoba na urlopie nie
+dostaje PEŁNEGO nowego przydziału na wierzch absencji), bez wymyślania
+nowego progu/wagi — używa już istniejącej, sprawdzonej funkcji
+`rota.planning.absence.delegation_hours_in_range` i pola
+`WorkBalance.absence_hours`.
+
+(b) **Mieszany wektor (część osób ma target, część nie — punkt precheku
+3)**: mechanizm aktywny dla WSZYSTKICH dostępnych LOCAL w OCHRONA
+jednocześnie, niezależnie od indywidualnej kompletności; dla osoby, która
+MA wpisany target, ten target działa wyłącznie jako SUFIT (nigdy jako
+podłoga do "dobicia") — spójne z już wysłanym do architekta finding
+`FINDING_2026-09-20_TARGET_HOURS_IS_A_CEILING_NOT_A_BULLSEYE.md`. Osoba
+bez targetu nie ma sufitu, uczestniczy tylko w wyrównaniu opisanym w (a).
+
+(c) **REPLAN / już przepracowane godziny (punkt precheku 3)**: bez zmian
+względem obecnego mechanizmu `_fixed_hours_by_employee` — już
+zaplanowane/przepracowane godziny liczą się do sumy jak dziś, fallback
+tylko decyduje o rozkładzie NOWYCH, jeszcze nieprzydzielonych zmian.
+
+(d) Aktywny NIEZALEŻNIE od kompletności wektora dla OCHRONA — nie tylko
+jako fallback dla niekompletnego wektora (kryterium 1 wymaga
 sprawiedliwości TAKŻE przy kompletnym wektorze, po "Ustaw wszystkim"),
 raczej jako podstawowa ścieżka sprawiedliwości dla OCHRONA w miejsce
 TARGET-01's `neg`-owej presji.
-(d) gate `require_complete_target_hours` dla OCHRONA złagodzony/wyłączony
+
+(e) gate `require_complete_target_hours` dla OCHRONA złagodzony/wyłączony
 (kryterium 2), dla ORDINARY bez zmian.
 
 **Kierunek B — wariant TARGET-01 bez presji "dobijania" (pos-only lub
@@ -85,6 +131,24 @@ fairness.py`, `rota/planning/solver.py`, `rota/application/plan_ops.py`
 "Ustaw wszystkim" ma się zmienić dla OCHRONA — do potwierdzenia, poza
 zakresem tego briefu, jeśli architekt uzna że niepotrzebne).
 
+## 3a. JEDNO pytanie do OWNERA (decyzja zmieniająca zachowanie koordynatora)
+
+Zmierzone wprost (patrz sekcja 1, punkt precheku 4): na Royal nawet sam
+HISTORYCZNY fallback ma niższy/nie lepszy rytm D/N (9 dopasowań) niż
+dzisiejsze TARGET-01 (11 dopasowań) — rozstrzał i rytm realnie się tu
+wykluczają, to nie efekt konkretnego kodowania. OWNER już wcześniej
+ustalił (BOARD.md, ten sam wątek): "rytm D/N ma pierwszeństwo przed
+dokładnością indywidualnego celu godzin... lecz skrajnego rozstrzału nie
+uznawać automatycznie za poprawny." **Pytanie**: gdy na konkretnym
+miesiącu/obiekcie pełne wyrównanie godzin (kierunek A) i najlepszy
+możliwy rytm D/N faktycznie się wykluczają — co ma priorytet dla OCHRONA:
+(i) wyrównanie godzin zawsze wygrywa, rytm dostaje tyle, ile się da przy
+okazji; czy (ii) należy szukać ograniczonego kompromisu (umiarkowany,
+nie ekstremalny rozstrzał, zachowany rytm) zamiast pełnego wyrównania?
+Odpowiedź decyduje, czy kryterium 1 briefu ma brzmieć "prawie równy
+przydział" (bez zastrzeżeń co do rytmu) czy "ograniczony rozstrzał przy
+zachowanym rytmie".
+
 ## 4. Poza zakresem
 
 - Żadna zmiana dla ORDINARY (gate, `_effective_targets`, TARGET-01,
@@ -96,9 +160,20 @@ zakresem tego briefu, jeśli architekt uzna że niepotrzebne).
 
 ## 5. Dowody / materiały diagnozy (branch `task/ROTA-TARGET-EQUITY-DIAGNOSIS`)
 
-- `decisive_finding.md` + `incomplete_vector_experiment.py` — rozstrzygający dowód (sekcja 1).
+- `decisive_finding.md` + `incomplete_vector_experiment.py` (zaktualizowany
+  o pomiar rytmu, commit `c9b0f85`) — rozstrzygający dowód (sekcja 1).
 - `pos_only_report.md` + `pos_only_experiment.py` — dane kierunku B.
 - `regime_scope_finding.md` — chronologia gate'u i geneza na Ordinary/FF.
+
+## 5a. Doprecyzowanie zakresu testów (punkt precheku 5)
+
+Testy obejmują WYŁĄCZNIE istniejące wejścia PLAN/REPLAN/precheck (te same
+funkcje wejściowe co dziś: `plan_ops.plan_month`/`replan_month`/
+`precheck`), na obu obiektach OCHRONA z sekcji 2 (Royal — komplet
+targetów; `SITE-b8738d357a0f46fb97e0bd2d49565b52` — brak targetów) oraz co
+najmniej jednym obiekcie z MIESZANYM wektorem (część osób z targetem,
+część bez) — żaden nowy system, endpoint ani ekran UI nie wchodzi w
+zakres tego briefu.
 
 ## Verification (do wykonania po wyborze kierunku, przed implementacją)
 
