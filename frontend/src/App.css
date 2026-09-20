@@ -862,6 +862,56 @@ button {
   max-width: 1180px;
 }
 
+/* OWNER 2026-09-20 (7906.jpg): on a phone the sidebar's fixed 248px took
+   half the screen and the fixed-height topbar's breadcrumb overflowed
+   into the month picker's row instead of wrapping. Only applies below
+   640px -- zero effect on desktop, which never hits this width. */
+@media (max-width: 640px) {
+  .room-topbar {
+    height: auto;
+    min-height: 64px;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand month"
+      "breadcrumb breadcrumb";
+    row-gap: 8px;
+    padding: 10px 16px;
+  }
+
+  .room-topbar .topbar-brand {
+    grid-area: brand;
+  }
+
+  .room-topbar .room-working-month {
+    grid-area: month;
+  }
+
+  .room-topbar .room-breadcrumb {
+    grid-area: breadcrumb;
+  }
+
+  .room-body {
+    flex-direction: column;
+  }
+
+  .room-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    overflow-y: visible;
+    padding: 12px 14px;
+  }
+
+  .room-sidebar-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .room-content {
+    padding: 20px 16px 40px;
+  }
+}
+
 .tab-row {
   display: flex;
   gap: 4px;
