@@ -17,7 +17,7 @@ from rota.application.errors import (
     ScheduleVersionNotWorking,
     require_real_date,
 )
-from rota.domain import Assignment, AssignmentRole, AssignmentState, MembershipKind, ScheduleVersion
+from rota.domain import Assignment, AssignmentRole, AssignmentState, MembershipKind, ScheduleVersion, SitePlanningRegime
 from rota.persistence import plan_preview_repository
 from rota.persistence import schedule_lifecycle as lifecycle
 from rota.persistence import site_memory
@@ -30,6 +30,7 @@ from rota.persistence.schedule_repository import (
     is_schedule_version_live,
     set_schedule_version_planning_regime_in_open_transaction,
 )
+from rota.persistence.site_repository import get_site
 from rota.persistence.work_balance_repository import list_work_balance_targets_for_employees
 from rota.planning.decision_guidance import drop_options_requiring_existing_schedule
 from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
@@ -68,7 +69,17 @@ def require_complete_target_hours(conn, *, site_id: str, month: date) -> None:
     (plan_month, replan, replan_retry_narrow, replan_wider_search) and
     directly by the precheck endpoint. EXTERNAL_SUPPORT and a disabled
     membership never participate -- they never receive or need a
-    target_hours (OUT_OF_SCOPE)."""
+    target_hours (OUT_OF_SCOPE).
+
+    ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20): this gate was
+    designed and its only live repro found on ORDINARY (FF) -- it stays
+    mandatory there. OCHRONA never had this problem; solver.py's OCHRONA
+    hours-fairness path (add_ochrona_hours_fairness) is absence/delegation-
+    aware and correct with or without a complete target vector, so OCHRONA
+    is exempt -- see decisive_finding.md, task/ROTA-TARGET-EQUITY-DIAGNOSIS."""
+    site = get_site(conn, site_id)
+    if site.planning_regime == SitePlanningRegime.OCHRONA:
+        return
     local_ids = sorted(
         m.employee_id for m in list_memberships_for_site(conn, site_id)
         if m.enabled and m.membership_kind == MembershipKind.LOCAL
