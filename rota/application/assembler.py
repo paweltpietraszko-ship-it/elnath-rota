@@ -147,7 +147,9 @@ def _carry_in_before(conn, *, employee_id: str, month: date) -> tuple[int, list[
     return running, []
 
 
-def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple[tuple[WorkBalance, ...], list[str]]:
+def _assemble_work_balances(
+    conn, employee_ids: list[str], month: date, regime: SitePlanningRegime = SitePlanningRegime.ORDINARY,
+) -> tuple[tuple[WorkBalance, ...], list[str]]:
     balances, warnings = [], []
     for employee_id in employee_ids:
         # R3-11-D: skip the carry-in lookup entirely for an employee already
@@ -170,14 +172,32 @@ def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple
             # PLAN/REPLAN/precheck now refuse to run at all while any target
             # is missing (rota.application.plan_ops.
             # require_complete_target_hours), so that clause was no longer
-            # true. Replaced with a plain instruction; the warning itself
-            # stays (this function's own read, e.g. GET /schedule/{month},
-            # can still reach a genuinely incomplete roster).
-            warnings.append(
-                f"Brak wpisanego miesięcznego limitu godzin dla "
-                f"pracownika {employee_id!r} w miesiącu {month.isoformat()} — "
-                "ustaw godziny docelowe (Karta pracownika)."
-            )
+            # true for ORDINARY. Replaced with a plain instruction; the
+            # warning itself stays (this function's own read, e.g. GET
+            # /schedule/{month}, can still reach a genuinely incomplete
+            # roster).
+            #
+            # ROTA-OCHRONA-EQUITY-SURGICAL-FIX (architect audit, 2026-09-20,
+            # BOARD.md static review of 7503759): for OCHRONA the ORDINARY
+            # wording is now actively misleading -- planning does NOT
+            # refuse to run without a target there, so a plain "ustaw
+            # godziny docelowe" reads as a blocker it no longer is. Narrow,
+            # regime-scoped wording only; no UI/contract change.
+            if regime == SitePlanningRegime.OCHRONA:
+                warnings.append(
+                    f"Brak wpisanego miesięcznego limitu godzin dla "
+                    f"pracownika {employee_id!r} w miesiącu {month.isoformat()} — "
+                    "planowanie i tak zadziała (godziny zostaną rozdzielone "
+                    "równo), ale bez wpisanego limitu solver nie może "
+                    "chronić tej osoby przed przekroczeniem sufitu godzin; "
+                    "ustaw limit, jeśli ma być egzekwowany (Karta pracownika)."
+                )
+            else:
+                warnings.append(
+                    f"Brak wpisanego miesięcznego limitu godzin dla "
+                    f"pracownika {employee_id!r} w miesiącu {month.isoformat()} — "
+                    "ustaw godziny docelowe (Karta pracownika)."
+                )
             continue
         carry_in, carry_warnings = _carry_in_before(conn, employee_id=employee_id, month=month)
         warnings.extend(carry_warnings)
@@ -324,7 +344,7 @@ def assemble_planning_state(
     # a genuinely forgotten LOCAL target. This was invisible before T041
     # because plan_ops discarded every assembler warning outright.
     local_employee_ids = [m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL]
-    work_balances, warnings = _assemble_work_balances(conn, local_employee_ids, month)
+    work_balances, warnings = _assemble_work_balances(conn, local_employee_ids, month, site.planning_regime)
     unassigned_committed_hours = _assemble_ochrona_unassigned_committed_hours(
         conn, site, local_employee_ids, work_balances, month,
     )

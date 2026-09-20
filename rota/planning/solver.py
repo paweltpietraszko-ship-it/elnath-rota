@@ -697,19 +697,13 @@ def _add_combined_objective(
         add_ochrona_hours_fairness(
             model, committed_hours_by_employee, available_local_ids, penalties, weight=ochrona_fairness_weight,
         )
-        # ROTA-T041 AUDIT round-2 FINDING T41-A-R2-02 precedent: without
-        # this, equalizing hours alone is indifferent between "one LOCAL
-        # works, one doesn't" and "no LOCAL works, EXTERNAL_SUPPORT covers
-        # it instead" (a trivially equal 0/0 split) -- same dominance
-        # pattern as the deleted equal-split fallback used.
-        dominant_weight = ochrona_fairness_weight * (MAX_MONTHLY_HOURS + 1)
-        add_local_over_external_preference(model, x, by_employee, available_local_ids, penalties, weight=dominant_weight)
 
         # Ceiling only for employees who HAVE an explicit target this month
-        # (target_by_employee, from _effective_targets) -- never a floor,
-        # dominates the hours-fairness term's own maximum swing so the
+        # (target_by_employee, from _effective_targets) -- never a floor.
+        # Dominates the hours-fairness term's own maximum swing so the
         # solver never trades away a stated ceiling for a more equal split.
-        ceiling_weight = TARGET_DEVIATION_WEIGHT + dominant_weight
+        ceiling_weight = TARGET_DEVIATION_WEIGHT + ochrona_fairness_weight * (MAX_MONTHLY_HOURS + 1)
+        num_target_holders = 0
         for employee_id, target in target_by_employee.items():
             # A target-holder with zero eligible slots this solve (not in
             # available_local_ids, e.g. fully unavailable this month) has
@@ -718,9 +712,36 @@ def _add_combined_objective(
             worked = worked_by_employee.get(employee_id)
             if worked is None:
                 continue
+            num_target_holders += 1
             pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
             model.add(pos >= worked - target)
             penalties.append(ceiling_weight * pos)
+
+        # OWNER 2026-09-20: "zaproponowanie koordynatorowi zewnętrznego
+        # wsparcia jest możliwe gdy wszystkie inne możliwości polegną" --
+        # prefer LOCAL over EXTERNAL_SUPPORT is the ABSOLUTE top priority
+        # for OCHRONA, above even the ceiling: the solver must never use
+        # EXTERNAL_SUPPORT merely to keep someone under their stated
+        # ceiling -- a ceiling overage is an ordinary, next-month-
+        # correctable SOFT outcome, external support is a last resort for
+        # when LOCAL coverage is genuinely unavailable. ARCHITECT AUDIT
+        # (BOARD.md, static review of 7503759) correctly found the
+        # previous version only dominated ONE unit of this term, not its
+        # provable worst case -- fixed here by sizing this weight to
+        # strictly exceed the ceiling's own worst-case TOTAL (every
+        # target-holder simultaneously at the maximum possible overage),
+        # not the ceiling's per-employee weight alone. Also therefore
+        # strictly dominates ochrona_fairness_weight's swing (ceiling
+        # already does), preserving the full chain: prefer-local > ceiling
+        # > hours-fairness > rhythm/weekend/holiday. add_local_over_
+        # external_preference itself sums one `weight` term per slot
+        # potentially given to a non-LOCAL employee (T41-A-R2-02
+        # precedent: equalizing hours alone is indifferent between "one
+        # LOCAL works, one doesn't" and "no LOCAL works, EXTERNAL_SUPPORT
+        # covers it instead").
+        ceiling_worst_case_total = ceiling_weight * MAX_MONTHLY_HOURS * max(num_target_holders, 1)
+        dominant_weight = ceiling_worst_case_total + 1
+        add_local_over_external_preference(model, x, by_employee, available_local_ids, penalties, weight=dominant_weight)
     else:
         target_weight = (
             TARGET_DEVIATION_WEIGHT
