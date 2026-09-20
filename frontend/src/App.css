@@ -805,6 +805,10 @@ button {
   overflow-y: auto;
 }
 
+.room-sidebar-toggle {
+  display: none;
+}
+
 .room-sidebar-label {
   font-size: 11px;
   text-transform: uppercase;
@@ -899,7 +903,38 @@ button {
     border-right: none;
     border-bottom: 1px solid var(--line);
     overflow-y: visible;
-    padding: 12px 14px;
+    padding: 10px 14px;
+    gap: 0;
+  }
+
+  /* OWNER 2026-09-20 (7907.jpg): the always-open nav list ate half the
+     screen -- collapsed by default here, tap to expand. */
+  .room-sidebar-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--paper-light);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .room-sidebar-toggle-icon {
+    color: var(--ink-faint);
+    font-size: 11px;
+  }
+
+  .room-sidebar-nav-wrap {
+    display: none;
+  }
+
+  .room-sidebar-nav-wrap-open {
+    display: block;
+    margin-top: 10px;
   }
 
   .room-sidebar-nav {
