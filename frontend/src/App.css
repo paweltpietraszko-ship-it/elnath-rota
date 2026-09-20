@@ -904,6 +904,17 @@ button {
     display: none;
   }
 
+  /* 7908.jpg follow-up: .utility-panel-actions already had flex-wrap, but
+     as a flex ITEM of .utility-panel it was never actually constrained to
+     the available width -- it just grew to fit its 3 unwrapped buttons,
+     so its OWN flex-wrap never had a reason to trigger. Forcing it to the
+     full row width once wrapped (.utility-panel's own flex-wrap already
+     puts it on its own line below the panel's text) lets it actually wrap
+     its buttons within that width. */
+  .utility-panel-actions {
+    width: 100%;
+  }
+
   .room-topbar {
     height: auto;
     min-height: 64px;
