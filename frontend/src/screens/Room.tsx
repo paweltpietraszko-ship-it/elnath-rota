@@ -81,6 +81,12 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
   // decision they're resolving on whichever screen they land on.
   const [decisionContext, setDecisionContext] = useState<{ decisionRequiredId: string; month: string } | null>(null);
   const [workingMonth, setWorkingMonth] = useState<string>(loadStoredWorkingMonth);
+  // OWNER 2026-09-20 (screenshot 7907.jpg): on a narrow phone the always-open
+  // "Ekrany" nav list permanently ate half the screen. Collapsed by default
+  // there via CSS (room-sidebar-toggle/.room-sidebar-nav-wrap, only inside
+  // the max-width:640px block) -- has no effect on desktop, which always
+  // shows the full list regardless of this flag.
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -104,6 +110,7 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
     setActiveNav(item as BuiltNavItem);
     if (item !== "Panel sterowania") setDecisionContext(null);
     if (view.screen === "employee") onNavigate({ screen: "room", siteId, siteName });
+    setNavOpen(false);
   };
 
   return (
@@ -137,7 +144,16 @@ export default function Room({ view, onNavigate }: { view: View; onNavigate: (v:
 
       <div className="room-body">
         <div className="room-sidebar">
-          <div>
+          <button
+            type="button"
+            className="room-sidebar-toggle"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            <span>{activeNav}</span>
+            <span className="room-sidebar-toggle-icon">{navOpen ? "▲" : "▼"}</span>
+          </button>
+          <div className={`room-sidebar-nav-wrap${navOpen ? " room-sidebar-nav-wrap-open" : ""}`}>
             <p className="room-sidebar-label">Ekrany</p>
             <div className="room-sidebar-nav">
               {NAV_ITEMS.map((item) => {
