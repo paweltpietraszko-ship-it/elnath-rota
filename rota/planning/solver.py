@@ -23,6 +23,7 @@ from rota.domain import (
     AssignmentRole,
     AssignmentState,
     AvailabilityKind,
+    MembershipKind,
     ShiftDemand,
     ShiftKind,
     SitePlanningRegime,
@@ -36,8 +37,10 @@ from rota.planning.constraints import (
 )
 from rota.planning.eligibility import check_eligibility
 from rota.planning.fairness import (
-    DN_RHYTHM_REWARD_WEIGHT, MAX_COMPLETION_PCT, TARGET_EQUITY_WEIGHT,
-    add_dn_rhythm_reward, add_holiday_fairness, add_target_equity_fairness, add_weekend_fairness,
+    DN_RHYTHM_REWARD_WEIGHT, HOLIDAY_FAIRNESS_WEIGHT, MAX_COMPLETION_PCT, OCHRONA_HOURS_FAIRNESS_WEIGHT,
+    TARGET_EQUITY_WEIGHT, WEEKEND_FAIRNESS_WEIGHT,
+    add_dn_rhythm_reward, add_holiday_fairness, add_local_over_external_preference,
+    add_ochrona_hours_fairness, add_target_equity_fairness, add_weekend_fairness,
 )
 from rota.planning.replan_reshuffle import (
     build_any_difference_expr, build_reshuffle_count_expr, redistributable_baseline_assignments,
@@ -556,10 +559,46 @@ def _worked_hours_by_employee(
     return worked_by_employee, by_employee
 
 
+def _available_local_employee_ids(state: PlanningState, slots: list[SolverSlot]) -> set[str]:
+    """ROTA-OCHRONA-EQUITY-SURGICAL-FIX: restored from the deleted T041
+    OWNER-T041-01 helper of the same name. An employee 'available' for
+    OCHRONA hours-fairness is a LOCAL member with at least one real
+    eligible slot this solve. `slots` is already the fully HARD-rule-
+    filtered eligibility result (_build_slots/check_eligibility) -- never
+    recomputed here. EXTERNAL_SUPPORT is excluded by membership kind;
+    anyone check_eligibility ruled out of every shift this month simply
+    never appears in `slots` and so is not an artificial participant
+    either."""
+    local_ids = {m.employee_id for m in state.memberships if m.membership_kind == MembershipKind.LOCAL}
+    slot_ids = {slot.employee_id for slot in slots}
+    return local_ids & slot_ids
+
+
+def _ochrona_committed_hours_offset(state: PlanningState) -> dict[str, int]:
+    """ROTA-OCHRONA-EQUITY-SURGICAL-FIX: absence + delegation hours already
+    committed this month, for EVERY available LOCAL OCHRONA employee --
+    whether or not they have a WorkBalance (target_hours) this month. For
+    someone WITH a WorkBalance, uses the same WorkBalance.absence_hours +
+    delegation_hours_in_range this module's own _effective_targets already
+    uses (never a second, divergent absence computation). For someone
+    WITHOUT one, uses PlanningState.unassigned_committed_hours, assembled
+    the same canonical way by rota.application.assembler (empty for
+    ORDINARY, which never reaches this function)."""
+    month_end = date(state.month.year, state.month.month, calendar.monthrange(state.month.year, state.month.month)[1])
+    offsets = {
+        wb.employee_id: wb.absence_hours
+        + delegation_hours_in_range(state.availability_records, wb.employee_id, state.month, month_end)
+        for wb in state.work_balances
+    }
+    offsets.update(state.unassigned_committed_hours)
+    return offsets
+
+
 def _add_combined_objective(
     model: cp_model.CpModel, x: dict, slots: list[SolverSlot], state: PlanningState,
     worked_by_employee: dict[str, object], target_by_employee: dict[str, int],
     by_employee: dict[str, list[SolverSlot]], day_kind_terms: dict[str, dict],
+    available_local_ids: set[str] | None = None,
 ) -> None:
     """ONE weighted objective (owner correction 2026-08-25, see
     _solve_lexicographic_phases docstring for why this is one solve, not a
@@ -600,35 +639,101 @@ def _add_combined_objective(
     leave_plan terms (out of scope for this correction, unchanged in shape
     and relative weight).
 
-    ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: the T041 incomplete-target-
-    vector fallback (equal-split among available LOCAL employees when one
-    lacked target_hours) is gone -- the owner decision behind this Task is
-    that PLAN/REPLAN never reach the solver at all until every active LOCAL
-    membership has a target_hours for the month (rota.application.
-    plan_ops.require_complete_target_hours). target_by_employee is
-    therefore always complete now; TARGET-01/target equity are the only
-    hours-fairness path."""
+    ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE (2026-09-15): the T041
+    incomplete-target-vector fallback (equal-split among available LOCAL
+    employees when one lacked target_hours) was deleted here and
+    plan_ops.require_complete_target_hours made every active LOCAL
+    membership's target_hours mandatory before the solver ever runs -- for
+    ORDINARY, where that gate's only live repro (FF) was found, this is
+    unchanged and target_by_employee stays always-complete below.
+
+    ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20, decisive_finding.md):
+    for OCHRONA, that same mandatory-completeness requirement (motivated
+    entirely by the ORDINARY/FF bug, never itself an OCHRONA problem) is
+    what silently switched OCHRONA off the old, absence-blind-but-fair
+    fallback and onto TARGET-01 treating each employee's ceiling as a
+    bullseye to chase from below -- proven directly, same code, same data,
+    varying only vector completeness (12h spread incomplete vs 120h
+    complete). OCHRONA is exempted from the completeness gate
+    (plan_ops.require_complete_target_hours) and instead always uses
+    add_ochrona_hours_fairness below, restoring the SAME hierarchy role
+    the deleted fallback had (a term equalizing hours among available
+    LOCAL, weighted to strictly dominate rhythm+weekend+holiday combined --
+    add_ochrona_hours_fairness's own docstring), fixed to be
+    absence/delegation-aware from the start so the ORIGINAL, separate T041/
+    FF bug (absence-blind equalization) is not reintroduced. `target`, when
+    an employee has one, acts ONLY as a ceiling (ROTA-TARGET-HOURS-
+    CEILING-NOT-BULLSEYE) via a `pos`-only penalty weighted to strictly
+    dominate the hours-fairness term's own maximum swing -- never a floor,
+    never traded away for a more equal split. ORDINARY's TARGET-01
+    (pos+neg, target equity) is completely unchanged below."""
     penalties = []
 
     # Rhythm is built first so its real count (never a worst-case guess) is
-    # known before TARGET_DEVIATION_WEIGHT is sized against it.
+    # known before TARGET_DEVIATION_WEIGHT/the OCHRONA hours-fairness weight
+    # is sized against it.
     rhythm_match_count = add_dn_rhythm_reward(model, state.month, day_kind_terms, penalties)
-    add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
+    weekend_bound = add_weekend_fairness(model, x, by_employee, _fixed_weekend_hours(state), penalties)
     holiday_dates = {cd.date for cd in state.calendar_days if cd.holiday}
-    add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
+    holiday_bound = add_holiday_fairness(model, x, by_employee, holiday_dates, _base_holiday_hours(state, holiday_dates), penalties)
 
-    target_weight = (
-        TARGET_DEVIATION_WEIGHT
-        + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT
-        + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
-    )
-    for employee_id, target in target_by_employee.items():
-        worked = worked_by_employee[employee_id]
-        pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
-        neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
-        model.add(worked - target == pos - neg)
-        penalties.append(target_weight * (pos + neg))
-    add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
+    if state.site.planning_regime == SitePlanningRegime.OCHRONA:
+        assert available_local_ids is not None, "OCHRONA call site must pass available_local_ids"
+        offset_by_employee = _ochrona_committed_hours_offset(state)
+        committed_hours_by_employee: dict[str, object] = {}
+        for employee_id in available_local_ids:
+            worked = worked_by_employee[employee_id]
+            offset = offset_by_employee.get(employee_id, 0)
+            committed = model.new_int_var(0, MAX_MONTHLY_HOURS, f"ochrona_committed_{employee_id}")
+            model.add(committed == worked + offset)
+            committed_hours_by_employee[employee_id] = committed
+
+        ochrona_fairness_weight = (
+            OCHRONA_HOURS_FAIRNESS_WEIGHT
+            + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+            + WEEKEND_FAIRNESS_WEIGHT * weekend_bound
+            + HOLIDAY_FAIRNESS_WEIGHT * holiday_bound
+        )
+        add_ochrona_hours_fairness(
+            model, committed_hours_by_employee, available_local_ids, penalties, weight=ochrona_fairness_weight,
+        )
+        # ROTA-T041 AUDIT round-2 FINDING T41-A-R2-02 precedent: without
+        # this, equalizing hours alone is indifferent between "one LOCAL
+        # works, one doesn't" and "no LOCAL works, EXTERNAL_SUPPORT covers
+        # it instead" (a trivially equal 0/0 split) -- same dominance
+        # pattern as the deleted equal-split fallback used.
+        dominant_weight = ochrona_fairness_weight * (MAX_MONTHLY_HOURS + 1)
+        add_local_over_external_preference(model, x, by_employee, available_local_ids, penalties, weight=dominant_weight)
+
+        # Ceiling only for employees who HAVE an explicit target this month
+        # (target_by_employee, from _effective_targets) -- never a floor,
+        # dominates the hours-fairness term's own maximum swing so the
+        # solver never trades away a stated ceiling for a more equal split.
+        ceiling_weight = TARGET_DEVIATION_WEIGHT + dominant_weight
+        for employee_id, target in target_by_employee.items():
+            # A target-holder with zero eligible slots this solve (not in
+            # available_local_ids, e.g. fully unavailable this month) has
+            # no `worked` var here and trivially cannot exceed a positive
+            # ceiling (worked is always 0) -- skip, never a KeyError.
+            worked = worked_by_employee.get(employee_id)
+            if worked is None:
+                continue
+            pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
+            model.add(pos >= worked - target)
+            penalties.append(ceiling_weight * pos)
+    else:
+        target_weight = (
+            TARGET_DEVIATION_WEIGHT
+            + TARGET_EQUITY_WEIGHT * MAX_COMPLETION_PCT
+            + DN_RHYTHM_REWARD_WEIGHT * rhythm_match_count
+        )
+        for employee_id, target in target_by_employee.items():
+            worked = worked_by_employee[employee_id]
+            pos = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_over_{employee_id}")
+            neg = model.new_int_var(0, MAX_MONTHLY_HOURS, f"target_under_{employee_id}")
+            model.add(worked - target == pos - neg)
+            penalties.append(target_weight * (pos + neg))
+        add_target_equity_fairness(model, worked_by_employee, target_by_employee, penalties)
 
     for slot in slots:
         if slot.leave_plan_collision or slot.day_off_soft_entry:
@@ -974,13 +1079,23 @@ def _solve_lexicographic_phases(
 
     target_by_employee = _effective_targets(state)
     fixed_hours_by_employee = _fixed_hours_by_employee(state)
-    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: plan_ops.
-    # require_complete_target_hours guarantees every active LOCAL
+    # ROTA-EQUAL-SPLIT-FALLBACK-IGNORES-ABSENCE: for ORDINARY,
+    # plan_ops.require_complete_target_hours guarantees every active LOCAL
     # membership has a target_hours before the solver ever runs, so
-    # target_by_employee is always complete here.
-    worked_by_employee, by_employee = _worked_hours_by_employee(x, slots, fixed_hours_by_employee, target_by_employee.keys())
+    # target_by_employee is always complete there.
+    # ROTA-OCHRONA-EQUITY-SURGICAL-FIX: for OCHRONA (exempt from that gate),
+    # the worked-hours expression must span every available LOCAL employee,
+    # not just those with a target -- add_ochrona_hours_fairness needs a
+    # `worked` var for everyone it equalizes.
+    if state.site.planning_regime == SitePlanningRegime.OCHRONA:
+        available_local_ids = _available_local_employee_ids(state, slots)
+        worked_by_employee, by_employee = _worked_hours_by_employee(x, slots, fixed_hours_by_employee, available_local_ids)
+    else:
+        available_local_ids = None
+        worked_by_employee, by_employee = _worked_hours_by_employee(x, slots, fixed_hours_by_employee, target_by_employee.keys())
     _add_combined_objective(
         model, x, slots, state, worked_by_employee, target_by_employee, by_employee, day_kind_terms,
+        available_local_ids=available_local_ids,
     )
     final_solver, final_status = _run_solver(
         model, _remaining_seconds(deadline), search_attempt, stop_at_first_solution=not quality_required,

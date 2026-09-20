@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional
 
@@ -106,6 +106,16 @@ class PlanningState:
     # never had a role concept to consult.
     site_roles: tuple[SiteRoleDefinition, ...] = ()
     role_coverage_authorizations: tuple[RoleCoverageAuthorization, ...] = ()
+
+    # ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20, decisive_finding.md):
+    # OCHRONA-only. Absence (SICK_LEAVE/LEAVE_GRANTED, same canonical source
+    # WorkBalance.absence_hours uses -- never a second, divergent
+    # computation) plus DELEGACJA hours already committed this month for an
+    # active LOCAL employee who has NO WorkBalance this month (missing
+    # target_hours). Empty for ORDINARY (require_complete_target_hours stays
+    # mandatory there) and for every pre-existing PlanningState construction.
+    # Consumed only by solver.py's OCHRONA hours-fairness path.
+    unassigned_committed_hours: dict[str, int] = field(default_factory=dict)
 
 
 if __name__ == "__main__":

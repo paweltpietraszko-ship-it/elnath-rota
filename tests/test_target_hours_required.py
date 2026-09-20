@@ -33,16 +33,20 @@ from rota.domain import (
     SiteMembership,
     SitePlanningRegime,
     SiteProfile,
+    SiteRoleDefinition,
     StandardShift,
     WorkBalance,
 )
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.db import connect
 from rota.persistence.schedule_repository import get_current_version_id
+from rota.persistence.site_role_repository import save_site_role
 from rota.persistence.work_balance_repository import get_work_balance_target
 from rota.planning import fairness as fairness_module
 from rota.planning import solver as solver_module
 from tests.support.minimal_state import base_state
+
+ROLE_ID = "ROLE-TH"
 
 # api/deps.py's dev-mode get_coordinator_id() always returns DEV_COORDINATOR_ID
 # regardless of what a test bootstraps -- the TH-10 (TestClient) tests below
@@ -64,23 +68,40 @@ def _profile() -> SiteProfile:
     )
 
 
-def _bootstrap(conn) -> None:
+def _bootstrap(conn, regime: SitePlanningRegime = SitePlanningRegime.ORDINARY) -> None:
+    # ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20): this whole TH
+    # matrix exercises the require_complete_target_hours GATE, which stays
+    # mandatory for ORDINARY -- its only live repro (FF) was always
+    # ORDINARY. Defaulted to ORDINARY (was OCHRONA); OCHRONA is now
+    # deliberately exempt from this gate, see test_th11_ochrona_exempt_*
+    # below and decisive_finding.md.
     bootstrap.bootstrap_or_resume_coordinator_context(
         conn, coordinator_id=COORD, site_id=SITE_ID,
         coordinator=Coordinator(COORD, "Coord TH", True), site_profile=_profile(),
-        site=Site(SITE_ID, PROFILE_ID, "Site TH", True, planning_regime=SitePlanningRegime.OCHRONA),
+        site=Site(SITE_ID, PROFILE_ID, "Site TH", True, planning_regime=regime),
         association=CoordinatorSiteAssociation(COORD, SITE_ID, True),
     )
+    if regime == SitePlanningRegime.ORDINARY:
+        # ROTA-T065-CONFIGURABLE-ROLES: an enabled ORDINARY membership must
+        # name an active role from this Site's own catalog -- one generic
+        # role is enough for this file's gate-focused tests.
+        save_site_role(conn, SiteRoleDefinition(ROLE_ID, SITE_ID, "TH role", True))
 
 
-def _employee(conn, employee_id: str, *, kind: MembershipKind = MembershipKind.LOCAL, enabled: bool = True) -> None:
+def _employee(
+    conn, employee_id: str, *, kind: MembershipKind = MembershipKind.LOCAL, enabled: bool = True,
+    position_role_id: str | None = None,
+) -> None:
     durable_inputs.update_employee(
         conn, coordinator_id=COORD, site_id=SITE_ID,
         employee=Employee(employee_id, employee_id, date(2020, 1, 1), None, False),
     )
     durable_inputs.update_membership(
         conn, coordinator_id=COORD, site_id=SITE_ID,
-        membership=SiteMembership(employee_id, SITE_ID, kind, enabled, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT),
+        membership=SiteMembership(
+            employee_id, SITE_ID, kind, enabled, ReadinessState.READY_FOR_PRIMARY, ReadinessSource.DEFAULT,
+            position_role_id=position_role_id,
+        ),
     )
 
 
@@ -95,7 +116,7 @@ def _fill_calendar(conn, month: date = MONTH) -> None:
 def test_th01_missing_target_blocks_plan_before_solver_and_version(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
-    _employee(conn, "E1")
+    _employee(conn, "E1", position_role_id=ROLE_ID)
     _fill_calendar(conn)
 
     with pytest.raises(TargetHoursRequired) as exc:
@@ -107,7 +128,7 @@ def test_th01_missing_target_blocks_plan_before_solver_and_version(tmp_path):
 def test_th02_gate_covers_replan(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
-    _employee(conn, "E1")
+    _employee(conn, "E1", position_role_id=ROLE_ID)
     _fill_calendar(conn)
 
     with pytest.raises(TargetHoursRequired):
@@ -124,13 +145,13 @@ def test_th02_gate_covers_replan(tmp_path):
 def test_th03_external_support_and_disabled_membership_do_not_block(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
-    _employee(conn, "E1")
+    _employee(conn, "E1", position_role_id=ROLE_ID)
     # A second real LOCAL employee: one alone covering every day of the
     # month trips the independent HARD max-two-consecutive-PRIMARY-shifts
     # rule, unrelated to what this test isolates (same fixture pattern as
     # e.g. tests/test_t019b.py's _seed_feasible_and_select).
-    _employee(conn, "E4")
-    _employee(conn, "X1", kind=MembershipKind.EXTERNAL_SUPPORT)  # no target, must not block
+    _employee(conn, "E4", position_role_id=ROLE_ID)
+    _employee(conn, "X1", kind=MembershipKind.EXTERNAL_SUPPORT, position_role_id=ROLE_ID)  # no target, must not block
     _employee(conn, "E2", enabled=False)  # disabled, no target, must not block
     _fill_calendar(conn)
     durable_inputs.set_target_hours(conn, coordinator_id=COORD, site_id=SITE_ID, employee_id="E1", month=MONTH, target_hours=100)
@@ -146,9 +167,9 @@ def test_th03_external_support_and_disabled_membership_do_not_block(tmp_path):
 def test_th04_apply_to_all_overwrites_everyone_active_local(tmp_path):
     conn = connect(tmp_path / "rota.db")
     _bootstrap(conn)
-    _employee(conn, "E1")
-    _employee(conn, "E2")  # gets a different pre-existing target, must be overwritten
-    _employee(conn, "X1", kind=MembershipKind.EXTERNAL_SUPPORT)
+    _employee(conn, "E1", position_role_id=ROLE_ID)
+    _employee(conn, "E2", position_role_id=ROLE_ID)  # gets a different pre-existing target, must be overwritten
+    _employee(conn, "X1", kind=MembershipKind.EXTERNAL_SUPPORT, position_role_id=ROLE_ID)
     _employee(conn, "E3", enabled=False)
     durable_inputs.set_target_hours(conn, coordinator_id=COORD, site_id=SITE_ID, employee_id="E2", month=MONTH, target_hours=50)
 
@@ -202,7 +223,22 @@ def test_th08_absence_hours_still_reduce_target_without_delegation():
 def test_th09_equal_split_fallback_removed_from_production():
     assert not hasattr(fairness_module, "add_equal_split_fairness")
     assert not hasattr(solver_module, "add_equal_split_fairness")
-    assert not hasattr(solver_module, "_available_local_employee_ids")
+
+
+# --- TH-11: OWNER 2026-09-20 -- OCHRONA is exempt from this gate -----------
+
+
+def test_th11_ochrona_exempt_from_gate(tmp_path):
+    conn = connect(tmp_path / "rota.db")
+    _bootstrap(conn, regime=SitePlanningRegime.OCHRONA)
+    _employee(conn, "E1")
+    _fill_calendar(conn)
+
+    # Must not raise -- decisive_finding.md: OCHRONA never had the
+    # absence-blindness bug this gate was built for (ORDINARY/FF only),
+    # and solver.add_ochrona_hours_fairness is absence/delegation-aware
+    # with or without a complete target vector.
+    plan_ops.require_complete_target_hours(conn, site_id=SITE_ID, month=MONTH)
 
 
 # --- TH-10: exact response shape on TARGET_HOURS_REQUIRED -------------------
@@ -212,7 +248,7 @@ def test_th09_equal_split_fallback_removed_from_production():
 def conn(tmp_path):
     connection = connect(tmp_path / "rota.db")
     _bootstrap(connection)
-    _employee(connection, "E1")
+    _employee(connection, "E1", position_role_id=ROLE_ID)
     _fill_calendar(connection)
     try:
         yield connection

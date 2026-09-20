@@ -17,6 +17,15 @@ MAX_MONTHLY_HOURS = 744
 TARGET_EQUITY_WEIGHT = 1
 DN_RHYTHM_REWARD_WEIGHT = 1
 MAX_COMPLETION_PCT = 100 * MAX_MONTHLY_HOURS
+# ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20): base weight for
+# add_ochrona_hours_fairness, restoring the deleted T041
+# EQUAL_SPLIT_FAIRNESS_WEIGHT's exact role and magnitude (matches
+# solver.TARGET_DEVIATION_WEIGHT's magnitude, not a number tuned to one
+# test) -- the real per-solve weight solver.py passes is computed to
+# strictly dominate every coexisting term's actual bound this solve (see
+# solver._add_combined_objective), this module constant is only the
+# default used when a caller does not thread a computed weight through.
+OCHRONA_HOURS_FAIRNESS_WEIGHT = 100
 # ROTA-T058 (OWNER_CORRECTED 2026-09-08): the brief's section 2.6 24h
 # equity/equal-split dead zone (EQUITY_DEADBAND_HOURS) was DROPPED, not
 # shipped. Verified live: every CP-SAT encoding tried (one-sided
@@ -177,6 +186,38 @@ def add_target_equity_fairness(
     model.add_max_equality(max_completion, completion_vars)
     model.add_min_equality(min_completion, completion_vars)
     penalties.append(TARGET_EQUITY_WEIGHT * (max_completion - min_completion))
+
+
+def add_ochrona_hours_fairness(
+    model: cp_model.CpModel, committed_hours_by_employee: dict[str, object],
+    employee_ids, penalties: list, weight: int = OCHRONA_HOURS_FAIRNESS_WEIGHT,
+) -> None:
+    """ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20, decisive_finding.md):
+    OCHRONA-only replacement for the deleted T041 add_equal_split_fairness,
+    restoring the SAME hierarchy role (equalizing hours among available
+    LOCAL, dominating rhythm+weekend+holiday combined the same way) but
+    fixing its one real defect: `committed_hours_by_employee[employee_id]`
+    is the caller's `worked` IntVar PLUS that employee's already-known
+    absence_hours + delegation hours this month (a constant offset, from
+    WorkBalance.absence_hours for someone with a target, or
+    PlanningState.unassigned_committed_hours for someone without one) --
+    never raw worked_hours alone, so an employee already on leave/L4/
+    delegation does not also get piled with a full share of NEW work on
+    top (the original T041/FF bug). Active for EVERY available LOCAL
+    employee regardless of whether they have a target_hours this month --
+    see solver._add_combined_objective for how the caller builds
+    `employee_ids` (available LOCAL, not target_by_employee.keys()) and
+    sizes `weight` to dominate rhythm+weekend+holiday's combined real
+    bound this solve, mirroring the deleted function's own
+    EQUAL_SPLIT_FAIRNESS_WEIGHT construction exactly."""
+    hours_vars = [committed_hours_by_employee[e] for e in employee_ids if e in committed_hours_by_employee]
+    if len(hours_vars) < 2:
+        return
+    max_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "ochrona_committed_hours_max")
+    min_hours = model.new_int_var(0, MAX_MONTHLY_HOURS, "ochrona_committed_hours_min")
+    model.add_max_equality(max_hours, hours_vars)
+    model.add_min_equality(min_hours, hours_vars)
+    penalties.append(weight * (max_hours - min_hours))
 
 
 def add_local_over_external_preference(

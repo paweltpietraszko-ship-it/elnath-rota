@@ -22,7 +22,9 @@ from rota.domain import (
     ExternalSupportWindow,
     MembershipKind,
     ShiftDemand,
+    Site,
     SiteMembership,
+    SitePlanningRegime,
     WorkBalance,
 )
 from rota.persistence.availability_repository import get_current_availability_for_employee
@@ -30,9 +32,11 @@ from rota.persistence.calendar_repository import list_calendar_days
 from rota.persistence.employee_repository import get_employee, list_memberships_for_site, list_windows_for_site
 from rota.persistence.site_profile_repository import get_site_profile
 from rota.persistence.site_role_repository import list_role_coverage_authorizations_for_site, list_site_roles
+from rota.planning.absence import canonical_hours_in_range, delegation_hours_in_range
 from rota.planning.shift_catalog import generate_catalog_demands
 from rota.persistence.site_repository import get_site
 from rota.persistence.site_rule_assembly import assemble_monthly_site_rules
+from rota.persistence.work_balance_repository import absence_facts_for_employees, delegation_records_for_employees
 from rota.persistence.schedule_repository import (
     get_current_assignments_for_employees,
     get_current_assignments_in_interval,
@@ -183,6 +187,40 @@ def _assemble_work_balances(conn, employee_ids: list[str], month: date) -> tuple
     return tuple(balances), warnings
 
 
+def _assemble_ochrona_unassigned_committed_hours(
+    conn, site: Site, local_employee_ids: list[str], work_balances: tuple[WorkBalance, ...], month: date,
+) -> dict[str, int]:
+    """ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20): OCHRONA only.
+    Absence (SICK_LEAVE/LEAVE_GRANTED) + DELEGACJA hours already committed
+    this month for a LOCAL employee who has NO WorkBalance (missing
+    target_hours) -- the exact set _assemble_work_balances above skips.
+    Uses the SAME canonical sources reconstruct_month_balance/
+    compute_month_balance use for someone who DOES have a target
+    (absence_facts_for_employees + canonical_hours_in_range,
+    delegation_records_for_employees + delegation_hours_in_range) --
+    never a second, divergent absence computation. Empty for ORDINARY
+    (require_complete_target_hours stays mandatory there, so this
+    situation cannot occur) and empty once every LOCAL employee already
+    has a WorkBalance."""
+    if site.planning_regime != SitePlanningRegime.OCHRONA:
+        return {}
+    covered = {wb.employee_id for wb in work_balances}
+    missing_ids = [e for e in local_employee_ids if e not in covered]
+    if not missing_ids:
+        return {}
+    num_days = calendar.monthrange(month.year, month.month)[1]
+    month_end = date(month.year, month.month, num_days)
+    absence_facts_by_employee = absence_facts_for_employees(conn, missing_ids, month, month_end)
+    delegation_by_employee = delegation_records_for_employees(conn, missing_ids, month, month_end)
+    return {
+        employee_id: (
+            canonical_hours_in_range(absence_facts_by_employee.get(employee_id, []), month, month_end)
+            + delegation_hours_in_range(delegation_by_employee.get(employee_id, []), employee_id, month, month_end)
+        )
+        for employee_id in missing_ids
+    }
+
+
 def _context_window(month: date) -> tuple[datetime, datetime]:
     """ROTA-T012 Part B (B-R10-1): T012 required_rest_hours has NO
     product-imposed upper bound, so ANY fixed-days margin -- no matter how
@@ -287,6 +325,9 @@ def assemble_planning_state(
     # because plan_ops discarded every assembler warning outright.
     local_employee_ids = [m.employee_id for m in memberships if m.membership_kind == MembershipKind.LOCAL]
     work_balances, warnings = _assemble_work_balances(conn, local_employee_ids, month)
+    unassigned_committed_hours = _assemble_ochrona_unassigned_committed_hours(
+        conn, site, local_employee_ids, work_balances, month,
+    )
     holiday_history_raw = get_current_realized_primary_on_holidays(conn, site_id)
     holiday_history = tuple(a for a in holiday_history_raw if a.schedule_version_id not in exclude_version_ids)
 
@@ -299,5 +340,6 @@ def assemble_planning_state(
         work_balances=work_balances, holiday_history=holiday_history, other_site_assignments=other_site,
         schedule_version_id=version_id, boundary_shift_demands=boundary_shift_demands,
         site_roles=site_roles, role_coverage_authorizations=role_coverage_authorizations,
+        unassigned_committed_hours=unassigned_committed_hours,
     )
     return state, warnings
