@@ -456,7 +456,7 @@ function RoleCoverageAuthorizationsPanel({ siteId, employeeId }: { siteId: strin
 
       {showAdd && (
         <div className="create-panel" style={{ marginBottom: 14 }}>
-          <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+          <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
             <label>
               <span className="field-label">Rola do pokrycia</span>
               <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
@@ -630,7 +630,7 @@ function RestrictionEditRow({
     <div className="create-panel" style={{ marginBottom: 10 }}>
       <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{restrictionLabel(cell)}</p>
       {error && <div className="banner-error">{error}</div>}
-      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <label>
           <span className="field-label">Od</span>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -697,7 +697,7 @@ function DayOnlyExceptionForm({
         dozwolona.
       </p>
       {error && <div className="banner-error">{error}</div>}
-      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <label>
           <span className="field-label">Od</span>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />

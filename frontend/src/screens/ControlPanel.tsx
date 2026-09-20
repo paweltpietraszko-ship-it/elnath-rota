@@ -458,7 +458,7 @@ function AddPersonPanel({
       )}
 
       {membershipKind === "EXTERNAL_SUPPORT" && (
-        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 14 }}>
           <label>
             <span className="field-label">Solver może z niej korzystać od</span>
             <input type="date" value={windowFrom} onChange={(e) => setWindowFrom(e.target.value)} />
@@ -479,7 +479,7 @@ function AddPersonPanel({
       )}
 
       {mode === "new" ? (
-        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
           <label>
             <span className="field-label">Imię i nazwisko</span>
             <input

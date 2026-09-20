@@ -287,7 +287,7 @@ export default function SiteShiftCatalog({
           const hours = durationHours(row.start_time, row.end_time);
           return (
             <div key={row.key} className="create-panel" style={{ marginBottom: 14 }}>
-              <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+              <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
                 {/* ROTA-T065-CONFIGURABLE-ROLES section 5/9: "Rodzaj" (D/N)
                     is an OCHRONA-only concept. "Wymagana rola" is the
                     mirror-image ORDINARY-only field, mandatory (no

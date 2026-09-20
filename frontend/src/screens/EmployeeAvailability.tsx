@@ -171,7 +171,7 @@ function AbsenceEditRow({
     <div className="create-panel" style={{ marginBottom: 10 }}>
       <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{AVAILABILITY_KIND_LABELS[record.kind] ?? record.kind}</p>
       {error && <div className="banner-error">{error}</div>}
-      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <label>
           <span className="field-label">Od</span>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -321,7 +321,7 @@ function AddAbsenceForm({
         </select>
       </label>
       {isWindow && (
-        <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
+        <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", marginBottom: 14 }}>
           <label>
             <span className="field-label">Niedostępny od godziny</span>
             <input type="time" step={3600} value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
