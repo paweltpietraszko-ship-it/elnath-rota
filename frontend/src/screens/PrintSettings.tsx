@@ -192,7 +192,7 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
       {error && <div className="banner-error">{error}</div>}
       {savedAt && <div className="banner-warning">Zapisano.</div>}
 
-      <div className="create-panel-fields" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <label>
           <span className="field-label">Nazwa firmy na wydruku</span>
           <input value={form.company_print_name} onChange={(e) => setForm({ ...form, company_print_name: e.target.value })} />
@@ -328,7 +328,7 @@ export default function PrintSettings({ siteId, workingMonth }: { siteId: string
           <p className="field-label" style={{ marginTop: 18, marginBottom: 6 }}>
             Rezerwy godzinowe (nieobecności)
           </p>
-          <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
             {RESERVE_SLOT_KEYS.map((slot) => (
               <label key={slot}>
                 <span className="field-label">{slot}</span>

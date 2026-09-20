@@ -1052,7 +1052,7 @@ export default function MonthlyPlanning({
               {showAddS1 && (
                 <div className="panel" style={{ marginTop: 12 }}>
                   <h3>Dodaj S1</h3>
-                  <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                  <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
                     <label>
                       <span className="field-label">Pracownik</span>
                       <select value={s1EmployeeId} onChange={(e) => setS1EmployeeId(e.target.value)}>
@@ -1104,7 +1104,7 @@ export default function MonthlyPlanning({
               {planningRegime === "ORDINARY" && showAddMiddleWork && (
                 <div className="panel" style={{ marginTop: 12 }}>
                   <h3>Dodaj pracę</h3>
-                  <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+                  <div className="create-panel-fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
                     <label>
                       <span className="field-label">Pracownik</span>
                       <select value={middleEmployeeId} onChange={(e) => setMiddleEmployeeId(e.target.value)}>
