@@ -33,3 +33,13 @@ class PasswordChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     password: str
+
+
+class ApiKeyIssuedOut(BaseModel):
+    """ROTA-EXCEL-UI-PANEL: response for self-service Excel API key
+    issuance -- raw_key is shown exactly once, matching
+    api/provision_account.py's CLI (issue-api-key) behavior; only its
+    hash is ever persisted (api.auth.api_key.create_api_key)."""
+
+    key_id: uuid.UUID
+    raw_key: str

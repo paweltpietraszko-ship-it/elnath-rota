@@ -25,6 +25,12 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [busySiteId, setBusySiteId] = useState<string | null>(null);
+  // ROTA-EXCEL-UI-PANEL: raw_key is shown exactly once, right here --
+  // never re-fetchable, never persisted client-side (matches the CLI's
+  // own one-time-display behavior, api/provision_account.py).
+  const [excelIssuedKey, setExcelIssuedKey] = useState<{ key_id: string; raw_key: string } | null>(null);
+  const [excelBusy, setExcelBusy] = useState<"template" | "addin" | "key" | null>(null);
+  const [excelError, setExcelError] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
@@ -351,6 +357,85 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
                   onClick={() => authApi.logout().finally(() => window.location.reload())}
                 >
                   Wyloguj
+                </button>
+              </div>
+            </div>
+          )}
+
+          {__CENTRAL_SERVICE__ && (
+            <div className="utility-panel">
+              <div>
+                <h3>Excel</h3>
+                <p className="create-panel-hint">
+                  Do pracy z grafikiem w Excelu (bez zmiany dotychczasowego arkusza) potrzebny jest dodatek i
+                  klucz dostępu — instrukcja instalacji jest w pliku dołączonym do dodatku.
+                </p>
+                {excelError && <div className="banner-error">{excelError}</div>}
+                {excelIssuedKey && (
+                  <div className="banner-warning">
+                    <p>
+                      Klucz dostępu (zapisz teraz w dodatku Excela — nie pokażemy go ponownie):
+                    </p>
+                    <p style={{ fontFamily: "monospace", wordBreak: "break-all" }}>{excelIssuedKey.raw_key}</p>
+                    <button className="btn-ghost" onClick={() => setExcelIssuedKey(null)}>
+                      Schowaj
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="utility-panel-actions">
+                <button
+                  className="btn-secondary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("template");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelTemplate();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  Pobierz szablon Excela
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("addin");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelAddin();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  Pobierz dodatek do Excela
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("key");
+                    setExcelError(null);
+                    setExcelIssuedKey(null);
+                    try {
+                      const issued = await authApi.issueExcelApiKey();
+                      setExcelIssuedKey(issued);
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  {excelBusy === "key" ? "Generowanie…" : "Wygeneruj klucz dostępu"}
                 </button>
               </div>
             </div>

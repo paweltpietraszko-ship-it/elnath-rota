@@ -693,6 +693,12 @@ export const authApi = {
   getCurrentUser: () => req<CurrentUserOut>("/auth/me"),
   changePassword: (password: string) =>
     req<CurrentUserOut>("/auth/me/password", { method: "PATCH", body: JSON.stringify({ password }) }),
+  // ROTA-EXCEL-UI-PANEL: self-service counterpart to
+  // `provision_account.py issue-api-key` -- raw_key is shown once by the
+  // caller, never persisted, never re-fetchable.
+  issueExcelApiKey: () => req<{ key_id: string; raw_key: string }>("/auth/me/excel-api-key", { method: "POST" }),
+  downloadExcelTemplate: () => downloadPost("/excel/template"),
+  downloadExcelAddin: () => downloadPost("/excel/addin"),
 };
 
 export const api = {

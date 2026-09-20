@@ -5,9 +5,12 @@ a CENTRAL_SERVICE account is ever created or its password reset, and it
 uses the exact same library-owned UserManager.create/update path a
 logged-in user's own password-change endpoint uses (api/auth/backend.py).
 
-ROTA-EXCEL-VBA-ENGINE-ADAPTER brief.md section 7: this CLI is also the
-only way an Excel add-in's API key is ever issued or revoked -- no
-self-service key issuance endpoint exists.
+ROTA-EXCEL-VBA-ENGINE-ADAPTER brief.md section 7: this CLI can also
+issue/list/revoke an Excel add-in's API key -- a logged-in coordinator
+can also self-serve a key via the "Excel" panel (ROTA-EXCEL-UI-PANEL,
+`POST /api/auth/me/excel-api-key`), which calls the same
+`api.auth.api_key.create_api_key`. Revoking one still requires this CLI
+(no self-service revoke UI exists).
 
 Usage (from repo root, CENTRAL_SERVICE env already set):
     python -m api.provision_account create <email> <password> <coordinator_id> <db_filename>
@@ -25,7 +28,7 @@ import uuid
 from fastapi_users.exceptions import UserAlreadyExists, UserNotExists
 from sqlalchemy import select
 
-from api.auth.api_key import generate_api_key, hash_api_key
+from api.auth.api_key import create_api_key
 from api.auth.db import AccountMapping, ApiKey, create_auth_db_and_tables, get_user_db, session_maker
 from api.auth.manager import UserManager
 from api.auth.schemas import UserCreate, UserUpdate
@@ -82,7 +85,7 @@ async def reset_password(email: str, new_password: str) -> None:
 
 async def issue_api_key(email: str) -> None:
     """brief.md section 7: raw key is shown once here, never again --
-    only its hash is persisted (api.auth.api_key.hash_api_key)."""
+    only its hash is persisted (api.auth.api_key.create_api_key)."""
     async with session_maker()() as session:
         manager = await _user_manager(session)
         try:
@@ -90,10 +93,7 @@ async def issue_api_key(email: str) -> None:
         except UserNotExists:
             print(f"no account {email!r}")
             return
-        raw_key = generate_api_key()
-        key_id = uuid.uuid4()
-        session.add(ApiKey(key_id=key_id, auth_user_id=user.id, key_hash=hash_api_key(raw_key), active=True))
-        await session.commit()
+        key_id, raw_key = await create_api_key(session, user.id)
     print(f"issued api key {key_id} for {email!r}: {raw_key}")
     print("Store this key now -- it will not be shown again.")
 

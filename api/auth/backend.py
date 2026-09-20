@@ -13,10 +13,13 @@ from fastapi import APIRouter, Depends
 from fastapi_users import FastAPIUsers
 from fastapi_users.authentication import AuthenticationBackend, CookieTransport, JWTStrategy
 
+from api.auth.api_key import create_api_key
+from api.auth.db import get_async_session
 from api.auth.manager import UserManager, get_user_manager
 from api.auth.models import User
-from api.auth.schemas import PasswordChangeRequest, UserRead, UserUpdate
+from api.auth.schemas import ApiKeyIssuedOut, PasswordChangeRequest, UserRead, UserUpdate
 from api.config import AUTH_SECRET
+from sqlalchemy.ext.asyncio import AsyncSession
 
 COOKIE_MAX_AGE_SECONDS = 60 * 60 * 8  # 8h session -- ordinary workday length, no "remember me"
 
@@ -75,3 +78,18 @@ async def change_own_password(
     # email. The actual hash/update still delegates entirely to the
     # library's own UserManager -- no Rota-side password logic.
     return await user_manager.update(UserUpdate(password=payload.password), user, safe=True)
+
+
+@me_router.post("/me/excel-api-key", response_model=ApiKeyIssuedOut)
+async def issue_own_excel_api_key(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ApiKeyIssuedOut:
+    """ROTA-EXCEL-UI-PANEL: self-service counterpart to
+    `api/provision_account.py issue-api-key` -- a logged-in coordinator
+    can issue their own Excel add-in key from the "Excel" panel instead
+    of asking an operator to run the CLI. Always issues a NEW key (never
+    revokes existing ones -- matches the CLI's own behavior; revoking
+    stays CLI-only, api/provision_account.py revoke-api-key)."""
+    key_id, raw_key = await create_api_key(session, user.id)
+    return ApiKeyIssuedOut(key_id=key_id, raw_key=raw_key)
