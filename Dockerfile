@@ -36,6 +36,7 @@ RUN pip install --no-cache-dir \
 
 COPY api ./api
 COPY rota ./rota
+COPY excel ./excel
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 ENV PYTHONUNBUFFERED=1

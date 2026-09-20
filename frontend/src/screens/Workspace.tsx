@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api, authApi, CalendarDayOut, SiteSummary } from "../api/client";
 import { translateMissingReason } from "../api/completeness";
 
@@ -25,6 +25,13 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [busySiteId, setBusySiteId] = useState<string | null>(null);
+  // ROTA-EXCEL-UI-PANEL: raw_key is shown exactly once, right here --
+  // never re-fetchable, never persisted client-side (matches the CLI's
+  // own one-time-display behavior, api/provision_account.py).
+  const [excelIssuedKey, setExcelIssuedKey] = useState<{ key_id: string; raw_key: string } | null>(null);
+  const [excelBusy, setExcelBusy] = useState<"template" | "addin" | "key" | null>(null);
+  const [excelError, setExcelError] = useState<string | null>(null);
+  const [excelGuideOpen, setExcelGuideOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
@@ -355,8 +362,92 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
               </div>
             </div>
           )}
+
+          {__CENTRAL_SERVICE__ && (
+            <div className="utility-panel">
+              <div>
+                <h3>Excel</h3>
+                <p className="create-panel-hint">
+                  Do pracy z grafikiem w Excelu (bez zmiany dotychczasowego arkusza) potrzebny jest dodatek i
+                  klucz dostępu — instrukcja instalacji jest w pliku dołączonym do dodatku.
+                </p>
+                {excelError && <div className="banner-error">{excelError}</div>}
+                {excelIssuedKey && (
+                  <div className="banner-warning">
+                    <p>
+                      Klucz dostępu (zapisz teraz w dodatku Excela — nie pokażemy go ponownie):
+                    </p>
+                    <p style={{ fontFamily: "monospace", wordBreak: "break-all" }}>{excelIssuedKey.raw_key}</p>
+                    <button className="btn-ghost" onClick={() => setExcelIssuedKey(null)}>
+                      Schowaj
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="utility-panel-actions">
+                <button
+                  className="btn-secondary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("template");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelTemplate();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  Pobierz szablon Excela
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("addin");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelAddin();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  Pobierz dodatek do Excela
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("key");
+                    setExcelError(null);
+                    setExcelIssuedKey(null);
+                    try {
+                      const issued = await authApi.issueExcelApiKey();
+                      setExcelIssuedKey(issued);
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  {excelBusy === "key" ? "Generowanie…" : "Wygeneruj klucz dostępu"}
+                </button>
+                <button className="btn-ghost" onClick={() => setExcelGuideOpen(true)}>
+                  Instrukcja instalacji
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {excelGuideOpen && <InstallGuideModal onClose={() => setExcelGuideOpen(false)} />}
 
       {calendarOpen && sites.length > 0 && (
         <CalendarModal siteIdForAuth={sites[0].site_id} onClose={() => setCalendarOpen(false)} />
@@ -685,6 +776,103 @@ function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onCl
           <span className="legend-item">
             <i className="calendar-day calendar-day-holiday" /> święto
           </span>
+        </div>
+        <div className="modal-actions">
+          <button className="btn-ghost" onClick={onClose}>
+            Zamknij
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ROTA-EXCEL-UI-PANEL (owner instruction 2026-09-20): renders excel/
+// INSTALL.md inline instead of only offering it as a raw file download --
+// no markdown library added for this; the document's own shape (#/##
+// headings, -/1. lists, **bold**, `code`, blank-line paragraphs) is
+// simple and fixed enough that a small line-based parser covers it.
+function renderInstallGuide(markdown: string) {
+  const renderInline = (text: string, key: string) => {
+    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter((p) => p.length > 0);
+    return parts.map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) return <strong key={`${key}-${i}`}>{part.slice(2, -2)}</strong>;
+      if (part.startsWith("`") && part.endsWith("`")) return <code key={`${key}-${i}`}>{part.slice(1, -1)}</code>;
+      return <span key={`${key}-${i}`}>{part}</span>;
+    });
+  };
+
+  // A "new block" line ends whatever paragraph/list item is being
+  // accumulated; anything else (including a wrapped continuation line
+  // of a list item, common throughout this document) is folded into the
+  // current item/paragraph with a space, never starting a fresh block.
+  const startsNewBlock = (l: string) => l.trim() === "" || /^(#|-\s|\d+\.\s)/.test(l);
+
+  const blocks: ReactNode[] = [];
+  const lines = markdown.split("\n");
+  let i = 0;
+  let key = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith("## ")) {
+      blocks.push(<h2 key={key++}>{renderInline(line.slice(3), `k${key}`)}</h2>);
+      i += 1;
+    } else if (line.startsWith("# ")) {
+      blocks.push(<h1 key={key++}>{renderInline(line.slice(2), `k${key}`)}</h1>);
+      i += 1;
+    } else if (/^-\s/.test(line) || /^\d+\.\s/.test(line)) {
+      const ordered = /^\d+\.\s/.test(line);
+      const marker = ordered ? /^\d+\.\s/ : /^-\s/;
+      const items: string[] = [];
+      while (i < lines.length && (marker.test(lines[i]) || (!startsNewBlock(lines[i]) && items.length > 0))) {
+        if (marker.test(lines[i])) {
+          items.push(lines[i].replace(marker, ""));
+        } else {
+          items[items.length - 1] += ` ${lines[i].trim()}`;
+        }
+        i += 1;
+      }
+      const ListTag = ordered ? "ol" : "ul";
+      blocks.push(
+        <ListTag key={key++}>
+          {items.map((item, idx) => (
+            <li key={idx}>{renderInline(item, `k${key}-${idx}`)}</li>
+          ))}
+        </ListTag>,
+      );
+    } else if (line.trim() === "") {
+      i += 1;
+    } else {
+      const paraLines: string[] = [];
+      while (i < lines.length && !startsNewBlock(lines[i])) {
+        paraLines.push(lines[i]);
+        i += 1;
+      }
+      blocks.push(<p key={key++}>{renderInline(paraLines.join(" "), `k${key}`)}</p>);
+    }
+  }
+  return blocks;
+}
+
+function InstallGuideModal({ onClose }: { onClose: () => void }) {
+  const [markdown, setMarkdown] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    authApi
+      .getExcelInstallGuide()
+      .then((r) => setMarkdown(r.markdown))
+      .catch((e) => setError(String((e as Error).message ?? e)));
+  }, []);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-doc" onClick={(e) => e.stopPropagation()}>
+        <h2>Instrukcja instalacji dodatku Excela</h2>
+        <div className="modal-doc-body">
+          {error && <div className="banner-error">{error}</div>}
+          {!error && markdown === null && <p className="panel-hint">Wczytywanie…</p>}
+          {markdown !== null && renderInstallGuide(markdown)}
         </div>
         <div className="modal-actions">
           <button className="btn-ghost" onClick={onClose}>

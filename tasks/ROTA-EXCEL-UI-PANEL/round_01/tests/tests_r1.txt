@@ -1,0 +1,76 @@
+ROTA-EXCEL-UI-PANEL — AUDIT R1
+
+VERDICT: PASS
+EXACT AUDITED SHA: 0ac89338b985c065a7ea3f8a6c920b87a64cf0a3
+PARENT: 40ccd336b6d74df76830657fa08df5f30fbe11fb
+
+SCOPE
+- Audited the exact delivered diff on SHA 0ac8933:
+  - `Dockerfile`: addition of `COPY excel ./excel`.
+  - `api/auth/api_key.py`: extracted canonical `create_api_key` helper; runtime
+    deferred import of `AuthenticatedContext` inside
+    `get_authenticated_context_by_api_key`.
+  - `api/auth/backend.py`: added `POST /me/excel-api-key` endpoint to `me_router`.
+  - `api/auth/schemas.py`: defined `ApiKeyIssuedOut` response model.
+  - `api/main.py`: mounted `excel_downloads.router` under `IS_CENTRAL_SERVICE`.
+  - `api/provision_account.py`: updated CLI `issue_api_key` to call `create_api_key`.
+  - `api/routers/excel_downloads.py`: static file download routes for template and add-in.
+  - `frontend/src/api/client.ts`: authApi client methods for downloads and key issuance.
+  - `frontend/src/screens/Workspace.tsx`: self-service "Excel" panel for CENTRAL_SERVICE.
+- Built independent verification suite `audit_r1_repro.py` covering:
+  - Authentication requirements (401 on unauthenticated access).
+  - Cookie-authenticated self-service key generation.
+  - Concurrent key coexistence and database persistence (SHA-256 hashing only).
+  - External Excel API authentication using the self-service key and runtime
+    `AuthenticatedContext` resolution.
+  - Exact binary match and headers for template and add-in downloads.
+  - CLI `provision_account.py issue-api-key` compatibility.
+  - LOCAL_WINDOWS gating (endpoints not mounted, return 404).
+
+EVIDENCE
+- `git diff --check 40ccd33..0ac8933`: clean.
+- `ruff check`: clean on all touched backend files.
+- `tsc -b frontend`: clean.
+- `npm run build`: built production frontend cleanly (Vite bundle built in 1.08s).
+- Implementer test suite:
+  - `tests/test_excel_api_key_auth.py` + `tests/test_excel_external_api.py`: 8 passed.
+  - `tests/test_t024_auth_isolation.py`: 13 passed.
+  - Total: 21 passed.
+- Independent test suite (`tasks/ROTA-EXCEL-UI-PANEL/round_01/tests/audit_r1_repro.py`):
+  - Check 1 & 2: Unauthenticated POST to `/api/auth/me/excel-api-key`,
+    `/api/excel/template`, `/api/excel/addin` returns 401: PASS.
+  - Check 3: Login via `/api/auth/login` (HttpOnly secure cookie): PASS.
+  - Check 4: POST `/api/auth/me/excel-api-key` generates valid API key with `rota_` prefix
+    and unique key ID; subsequent calls generate distinct keys: PASS.
+  - Check 5: Auth database stores only SHA-256 hashes in `ApiKey` table; raw keys never
+    persisted: PASS.
+  - Check 6: Calling external Excel API (`/api/external/excel/schedule/...`) with
+    `Authorization: Bearer <key>` succeeds, proving `get_authenticated_context_by_api_key`
+    correctly resolves runtime `AuthenticatedContext`: PASS.
+  - Check 7: POST `/api/excel/template` downloads exact binary of
+    `excel/ELNATH_ROTA_TEMPLATE.xlsx` (19257 bytes) with correct media type
+    (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) and filename: PASS.
+  - Check 8: POST `/api/excel/addin` downloads exact binary of
+    `excel/ELNATH_ROTA_ADDIN.xlam` (29018 bytes) with correct media type
+    (`application/vnd.ms-excel.addin.macroEnabled.12`) and filename: PASS.
+  - Check 9: CLI `provision_account.py issue-api-key` executes shared `create_api_key`
+    path cleanly without duplicate insertion: PASS.
+  - Check 10: In `LOCAL_WINDOWS` mode (`IS_CENTRAL_SERVICE = False`), all three new
+    endpoints are not mounted and return 404: PASS.
+
+UI AUDIT
+- Panel is correctly gated by `{__CENTRAL_SERVICE__ && (...)}`.
+- Polish copy is natural, concise, and avoids technical IDs, raw enums, or UUIDs:
+  - Description: "Do pracy z grafikiem w Excelu (bez zmiany dotychczasowego arkusza) potrzebny jest dodatek i klucz dostępu — instrukcja instalacji jest w pliku dołączonym do dodatku."
+  - Warning banner: "Klucz dostępu (zapisz teraz w dodatku Excela — nie pokażemy go ponownie):"
+  - Buttons: "Pobierz szablon Excela", "Pobierz dodatek do Excela", "Wygeneruj klucz dostępu" (with "Generowanie…" busy state).
+- State and error management:
+  - `excelBusy` disables all three action buttons while a download or key generation is in flight.
+  - Exceptions are caught and displayed in `.banner-error`.
+  - The issued key is formatted in monospace with word-break and includes a "Schowaj" action.
+- Browser test note: Chrome extension was offline; verification performed via static inspection and successful full production bundle compilation (`tsc -b && vite build`).
+
+CONCLUSION
+- Implementation is minimal, correct, adheres to single ownership of key issuance,
+  and fixes the Docker packaging gap.
+- VERDICT: PASS applies strictly to exact SHA 0ac89338b985c065a7ea3f8a6c920b87a64cf0a3.
