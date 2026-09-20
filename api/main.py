@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from api.config import IS_CENTRAL_SERVICE
 from api.errors import to_http_exception
@@ -103,6 +104,28 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     return JSONResponse(status_code=http_exc.status_code, content={"detail": http_exc.detail}, headers=http_exc.headers)
 
 
+class _FrontendStaticFiles(StaticFiles):
+    """ROTA-RAILWAY-DEPLOY cache fix (2026-09-20, found live: a redeploy was
+    invisible on an already-open phone tab). Vite's own JS/CSS filenames are
+    content-hashed (frontend/dist/assets/*) -- safe to cache forever, a
+    changed file always gets a new name. index.html is NOT hashed and had
+    no explicit Cache-Control at all, so a browser's own heuristic caching
+    could keep serving a stale index.html (and therefore the OLD, no-longer-
+    served asset filenames it references) indefinitely across deploys.
+    file_response is the one method every StaticFiles.get_response code
+    path (a real file, the html=True directory-index fallback, and the
+    404.html fallback) already funnels through -- see Starlette's own
+    source, never reimplemented here."""
+
+    def file_response(self, full_path, stat_result, scope: Scope, status_code: int = 200):
+        response = super().file_response(full_path, stat_result, scope, status_code=status_code)
+        if f"{os.sep}assets{os.sep}" in str(full_path):
+            response.headers["cache-control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["cache-control"] = "no-cache"
+        return response
+
+
 # ROTA-RAILWAY-DEPLOY: a single container serves both the API and the built
 # frontend (`vite build` output) so Railway only needs one service and the
 # browser never makes a cross-origin request in production. Mounted last so
@@ -111,4 +134,4 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 # there instead, proxying /api to this backend (frontend/vite.config.ts).
 _frontend_dist = Path(os.environ.get("ROTA_FRONTEND_DIST", "frontend/dist"))
 if _frontend_dist.is_dir():
-    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
+    app.mount("/", _FrontendStaticFiles(directory=_frontend_dist, html=True), name="frontend")
