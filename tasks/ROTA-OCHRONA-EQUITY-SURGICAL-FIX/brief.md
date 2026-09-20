@@ -45,11 +45,14 @@ wyrównywał złą wielkość.
 założenie):** `incomplete_vector_experiment.py`, 2 powtórzenia na
 warunek, na Royal: niekompletny wektor (fallback) → rozstrzał 12h, **9
 dopasowań rytmu D/N**; kompletny wektor (TARGET-01) → rozstrzał 72h,
-**11 dopasowań**. Sam historyczny fallback NIE zachowuje ani nie poprawia
-rytmu względem TARGET-01 na tym obiekcie — to realny kompromis, nie
-darmowy zysk. Kryterium 1 ("bez regresji rytmu D/N... jak historyczny
-fallback") nie może być więc potwierdzone jako osiągalne z definicji —
-patrz PYTANIE DO OWNERA niżej.
+**11 dopasowań**. **OWNER_CORRECTED 2026-09-20 (sekcja 3a)**: to NIE
+oznacza, że sprawiedliwość i rytm są z natury nie do pogodzenia i trzeba
+między nimi wybierać — solver ma już mechanizm hierarchii ważności, który
+wcześniej respektował obie zasady naraz, sacrificing tylko gdy naprawdę
+konieczne. Zmierzony spadek rytmu to sygnał do zweryfikowania przez
+architekta, czy konkretne kodowanie poprawki poprawnie zachowuje tę
+istniejącą hierarchię (patrz sekcja 3a) — nie powód do proszenia OWNERA
+o wybór priorytetu.
 
 ## 2. Kryteria akceptacji (Architekt, dosłownie z BOARD.md)
 
@@ -131,23 +134,43 @@ fairness.py`, `rota/planning/solver.py`, `rota/application/plan_ops.py`
 "Ustaw wszystkim" ma się zmienić dla OCHRONA — do potwierdzenia, poza
 zakresem tego briefu, jeśli architekt uzna że niepotrzebne).
 
-## 3a. JEDNO pytanie do OWNERA (decyzja zmieniająca zachowanie koordynatora)
+## 3a. OWNER_CORRECTED 2026-09-20 — nie wybór priorytetu, przywrócenie hierarchii
 
-Zmierzone wprost (patrz sekcja 1, punkt precheku 4): na Royal nawet sam
-HISTORYCZNY fallback ma niższy/nie lepszy rytm D/N (9 dopasowań) niż
-dzisiejsze TARGET-01 (11 dopasowań) — rozstrzał i rytm realnie się tu
-wykluczają, to nie efekt konkretnego kodowania. OWNER już wcześniej
-ustalił (BOARD.md, ten sam wątek): "rytm D/N ma pierwszeństwo przed
-dokładnością indywidualnego celu godzin... lecz skrajnego rozstrzału nie
-uznawać automatycznie za poprawny." **Pytanie**: gdy na konkretnym
-miesiącu/obiekcie pełne wyrównanie godzin (kierunek A) i najlepszy
-możliwy rytm D/N faktycznie się wykluczają — co ma priorytet dla OCHRONA:
-(i) wyrównanie godzin zawsze wygrywa, rytm dostaje tyle, ile się da przy
-okazji; czy (ii) należy szukać ograniczonego kompromisu (umiarkowany,
-nie ekstremalny rozstrzał, zachowany rytm) zamiast pełnego wyrównania?
-Odpowiedź decyduje, czy kryterium 1 briefu ma brzmieć "prawie równy
-przydział" (bez zastrzeżeń co do rytmu) czy "ograniczony rozstrzał przy
-zachowanym rytmie".
+Poprzednia wersja tej sekcji pytała OWNERA "co ma priorytet, rozstrzał
+czy rytm" — OWNER wprost odrzucił to postawienie sprawy jako fałszywy
+wybór 0/1: "w życiu nie jest tak jak byś chciał czyli 0/1... mnie
+wkurza, że to już działało, a teraz do tego wracamy. Solver powinien
+respektować wszystkie zasady i mieć hierarchię ważności gdy trzeba coś
+poświęcić na rzecz czegoś innego. I to zostało zaprzepaszczone."
+
+**Poprawne ujęcie, potwierdzone przez OWNERA ("Tak, zgadza się")**:
+solver JUŻ MA mechanizm ścisłej hierarchii ważności między zasadami
+SOFT (każda ważniejsza zasada ma wagę matematycznie dominującą sumę
+wszystkich mniej ważnych — `_add_combined_objective`, wzorzec
+"strictly dominate" używany konsekwentnie w tym kodzie, np. TARGET-01 nad
+equity+rytm, dawny equal-split nad rytm+weekend+holiday). Ten mechanizm
+działał poprawnie. To, co się zepsuło, to nie brak hierarchii — to że
+TARGET-01 (kryterium celu godzinowego) dostało w tej hierarchii błędną
+rolę: traktuje niedobicie do sufitu (`neg`) jako coś do naprawienia,
+sztucznie wypychając sprawiedliwość i rytm z ich właściwych miejsc.
+Poprawka MA przywrócić TARGET-01 do roli sufitu (kara tylko za
+przekroczenie), żeby cała istniejąca hierarchia znów działała jak
+wcześniej — nie ma tu do wyboru między sprawiedliwością a rytmem,
+oba mają być respektowane wedle już istniejącej, sprawdzonej hierarchii.
+
+**Ostrzeżenie z danych (do zweryfikowania przez architekta, nie do
+rozstrzygania przez OWNERA)**: eksperyment pos-only (proste wyzerowanie
+`neg`, `pos_only_report.md`) zmierzył spadek rytmu 23→11 na Royal. To
+może oznaczać, że proste zerowanie `neg` jest ZŁYM sposobem przywrócenia
+roli sufitu — jeśli psuje istniejącą hierarchię (np. equity i rytm mają
+dziś RÓWNE wagi, `TARGET_EQUITY_WEIGHT=1`/`DN_RHYTHM_REWARD_WEIGHT=1`,
+więc bez `neg`-owej presji różnicującej mogą zacząć swobodnie ze sobą
+konkurować zamiast zachować zamierzoną kolejność) — a nie że
+sprawiedliwość i rytm są z natury nie do pogodzenia. To pytanie
+techniczne o poprawne kodowanie CP-SAT, nie pytanie do OWNERA — zostaje
+w całości po stronie architekta+Codex do zweryfikowania i naprawienia
+tak, żeby przywrócona hierarchia rzeczywiście działała jak przed
+regresją, bez arbitralnego poświęcania którejkolwiek zasady.
 
 ## 4. Poza zakresem
 
