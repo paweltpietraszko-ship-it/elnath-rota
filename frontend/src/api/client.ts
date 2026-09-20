@@ -699,6 +699,7 @@ export const authApi = {
   issueExcelApiKey: () => req<{ key_id: string; raw_key: string }>("/auth/me/excel-api-key", { method: "POST" }),
   downloadExcelTemplate: () => downloadPost("/excel/template"),
   downloadExcelAddin: () => downloadPost("/excel/addin"),
+  getExcelInstallGuide: () => req<{ markdown: string }>("/excel/install-guide"),
 };
 
 export const api = {
