@@ -1,0 +1,34 @@
+AGENT-HARNESS-BOOKKEEPING-GATE — AUDIT R1
+
+VERDICT: PASS
+AUDITED SHA: 95db737bb31558214982d52e20e90f82b28042b5
+BASE: 893f1abaf601e17a4836f557d1cb74bc40e4c624 (origin/main)
+
+Zakres audytu
+- Diff Tasku: workflow gate, klasyfikator zmian księgowych, jego testy i opis procesu.
+- Celowany test implementera: harness/tests/test_bookkeeping.py — 3 passed.
+- Niezależny reproduktor: zwykła modyfikacja BOARD.md została przepuszczona; jednoczesna zmiana innego pliku, rename BOARD.md i zmiana trybu pliku zostały skierowane do pełnego gate.
+- Analiza bezpieczeństwa ścieżki pull_request_target: źródła wykonywalne pochodzą z checkoutu main; head PR jest traktowany jako dane; workflow ma tylko contents: read; nie znaleziono wykonania kodu z PR ani wpływu PR na ścieżkę trusted scripts.
+
+Wynik
+- Wyjątek księgowy jest zamknięty do niepustego diffu zawierającego wyłącznie zwykłe pliki BOARD.md/ODLOZONE.md, zmodyfikowane w miejscu jako 100644.
+- Dodanie, usunięcie, rename, zmiana trybu, symlink, submodule, dodatkowy plik, podobna nazwa i błąd git failują bezpiecznie do pełnego gate.
+- NUL-delimited git diff chroni klasyfikację nazw zawierających spacje i znaki nowej linii.
+- before jest merge-base origin/main i HEAD, a pełny fetch head checkoutu zapewnia dostęp do historii potrzebnej do tego wyliczenia.
+- Nazwa checku pozostaje gate i może być użyta przez regułę ochrony main.
+
+Warunki uruchomieniowe po merge (nie są findingami kodu)
+1. Polityka GitHub Actions musi dopuszczać zdarzenie pull_request_target. Jeżeli organizacja ma włączoną politykę blokującą ten event, workflow nie wystartuje.
+2. Reguła ochrony main musi wymagać checku gate. Następnie trzeba wykonać zaplanowane dwa testowe PR-y: bookkeeping-only oraz zwykłą zmianę produktu. Dopiero ten test potwierdzi konfigurację GitHub, której nie da się zweryfikować na niepołączonym workflow.
+
+ARCHITECTURE_PROPOSALS (nieblokujące)
+- Ustawić persist-credentials: false także w trusted checkout. Obecny token jest read-only i nie znaleziono drogi z kodu PR do jego użycia, lecz usunięcie go po checkout zmniejsza powierzchnię ataku.
+- Wskazać zaufany harness/ruff.toml z checkoutu main. Obecna konfiguracja z work nie daje znalezionego bypassu (jej zmiana sama narusza chroniony scope), ale zaufana ścieżka uprości model bezpieczeństwa.
+
+Źródła zachowania GitHub Actions
+- https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows
+- https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target
+- https://github.com/github/docs/blob/main/content/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks.md
+- https://github.com/actions/checkout/blob/main/README.md
+
+PASS dotyczy wyłącznie SHA 95db737bb31558214982d52e20e90f82b28042b5.
