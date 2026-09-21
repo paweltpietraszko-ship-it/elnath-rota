@@ -93,6 +93,44 @@ generate_profile_demands` + `rota.planning.engine.plan`:
 - Reproducible in isolation, real-shape, without touching production or
   needing Bolf's actual data again — see Reproduction below.
 
+## Owner input, plain language (2026-09-21, offered to the architect as a candidate direction, not a decision)
+
+Paweł's own proposal after reading this finding: "Nie można tego załatwić
+prostym IF? Solver sprawdza, że pracownik miał poprzednią sobotę/niedzielę
+pracującą i mu nie przydziela następnej?" (a simple rotation rule: don't
+assign an employee this Saturday if they worked the previous one).
+
+CC's honest assessment, not a decision: this is a more targeted, more
+predictable direction than raising `WEEKEND_FAIRNESS_WEIGHT` alone --
+for exactly Bolf's real shape (2 eligible employees), "not the same
+person as last Saturday" mechanically forces alternation, which IS an
+even split in the 2-employee case. Three caveats before this becomes a
+design, all standard territory for a solver-contract change (CC does not
+resolve these, flagging for the architect):
+
+1. **Month boundary**: the first Saturday of a month needs to know who
+   worked the LAST Saturday of the PREVIOUS month -- technically
+   available (same class of lookback `boundary_assignments`/
+   `holiday_history` already do for other facts), but needs to actually
+   be wired to a "last Saturday worked" fact, which doesn't exist today.
+2. **Generalizes weakly beyond 2 employees**: "not the same as
+   immediately previous" only forbids direct repetition -- with 3+
+   employees it does not by itself guarantee even rotation over time
+   (e.g. two employees could still alternate with each other while a
+   third never gets picked). Bolf's case is 2 employees, where this
+   reduces to exactly the fix needed, but the general mechanism the
+   architect designs should account for larger rosters too.
+3. **Must be SOFT with a fallback, not an unconditional HARD block** --
+   direct, hard-won precedent in this project: `arch/` and BOARD.md
+   history show T058's HARD third-consecutive-shift rule needed real
+   OWNER-calibrated tuning after it silently produced infeasible plans
+   in real edge cases (e.g. the only available employee this Saturday
+   is exactly the one who worked last Saturday, everyone else genuinely
+   unavailable). An unconditional HARD "never repeat" constraint risks
+   the exact same failure mode -- this needs to be a preference that
+   yields when there is no other feasible option, not a rule that can
+   make a real month unsolvable.
+
 ## Open question for the architect (CC does not design this)
 
 Same class of question as the original finding, now confirmed against
