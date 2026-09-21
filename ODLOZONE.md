@@ -194,3 +194,9 @@ in_range` i `rota/planning/solver.py::_effective_targets` (obszar
 solver-adjacent, pełny proces architekt+Codex gdyby wracać do tematu).
 
 ---
+
+## 2026-09-21 Podpisanie instalatora Excela / dodatek internetowy (Office.js)
+
+Instalator `ElnathRotaSetup.exe` nie jest podpisany, więc Chrome ("Niepotwierdzony…crdownload" -> Zachowaj) i Windows SmartScreen ostrzegają; część osób nie kliknie. Decyzja Pawła: zostaje jak jest -- użytkownik sam decyduje, czy zaakceptować instalator (instrukcja mówi o obu ostrzeżeniach).
+
+Odłożone opcje: (1) podpisanie przez Azure Artifact Signing (ok. 10 USD/mies., dla Polski tylko dla zarejestrowanej firmy, weryfikacja 1-20 dni roboczych; reputacja SmartScreen i tak narasta stopniowo); (2) dodatek internetowy Office.js zamiast VBA+.exe (bez instalatora, działa też w Excelu w przeglądarce, dystrybucja przez AppSource lub admina M365; przepisanie adaptera); (3) Google Sheets/Apps Script -- ostrzeżenie "niezweryfikowana aplikacja" i limit 100 użytkowników bez weryfikacji OAuth, gorzej dopasowane do odbiorców. Wrócić po testach i po sprawdzeniu, czy klienci w ogóle chcą Excela. Kontekst: rozmowa 2026-09-21, ta sama sesja co `excel/INSTALL.md`.
