@@ -26,12 +26,15 @@ WORKDIR /app
 
 # ROTA-RAILWAY-PDF-MISSING-POLISH-FONT: python:3.12-slim ships with zero
 # TrueType fonts. schedule_export.py's font resolution (_font_candidates)
-# looks for /usr/share/fonts/truetype/dejavu/DejaVuSans*.ttf on Linux --
-# without it, every code path falls through to reportlab's bundled Vera
-# font, which has no Polish diacritics, and every PDF export here fails
-# closed with PRINT_FONT_UNAVAILABLE. fonts-dejavu-core installs to
-# exactly that path with full Polish glyph coverage.
-RUN apt-get update && apt-get install --no-install-recommends -y fonts-dejavu-core \
+# requires all three of DejaVuSans/-Bold/-Oblique.ttf to exist together --
+# fonts-dejavu-core alone only provides Regular+Bold (confirmed live via
+# runtime diagnostics on 2026-09-21: Oblique missing, so the whole
+# candidate was rejected even with 2/3 files present); fonts-dejavu-extra
+# is the separate Debian package carrying the Oblique/BoldOblique variants.
+# Without both, every export falls through to reportlab's bundled Vera
+# font, which has no Polish diacritics, and fails closed with
+# PRINT_FONT_UNAVAILABLE.
+RUN apt-get update && apt-get install --no-install-recommends -y fonts-dejavu-core fonts-dejavu-extra \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependency list mirrors [project.dependencies] in pyproject.toml exactly
