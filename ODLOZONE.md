@@ -200,3 +200,9 @@ solver-adjacent, pełny proces architekt+Codex gdyby wracać do tematu).
 Instalator `ElnathRotaSetup.exe` nie jest podpisany, więc Chrome ("Niepotwierdzony…crdownload" -> Zachowaj) i Windows SmartScreen ostrzegają; część osób nie kliknie. Decyzja Pawła: zostaje jak jest -- użytkownik sam decyduje, czy zaakceptować instalator (instrukcja mówi o obu ostrzeżeniach).
 
 Odłożone opcje: (1) podpisanie przez Azure Artifact Signing (ok. 10 USD/mies., dla Polski tylko dla zarejestrowanej firmy, weryfikacja 1-20 dni roboczych; reputacja SmartScreen i tak narasta stopniowo); (2) dodatek internetowy Office.js zamiast VBA+.exe (bez instalatora, działa też w Excelu w przeglądarce, dystrybucja przez AppSource lub admina M365; przepisanie adaptera); (3) Google Sheets/Apps Script -- ostrzeżenie "niezweryfikowana aplikacja" i limit 100 użytkowników bez weryfikacji OAuth, gorzej dopasowane do odbiorców. Wrócić po testach i po sprawdzeniu, czy klienci w ogóle chcą Excela. Kontekst: rozmowa 2026-09-21, ta sama sesja co `excel/INSTALL.md`.
+
+---
+
+## 2026-09-21 Sentry (zbieranie błędów z żywej aplikacji na Railway)
+
+Pomysł: Sentry (MCP jest podłączony) zbiera błędy testerów ze śladem miejsca w kodzie, bez ręcznych zgłoszeń; CC czyta je przez MCP. Darmowy plan wystarcza na kilku testerów, ale powtarzający się błąd może zużyć limit -- potrzebny filtr. Wymaga zmiany w kodzie Roty (biblioteka `sentry-sdk` + klucz DSN w zmiennych Railway), czyli osobnego briefu i audytu. Przy prawdziwych danych osobowych wyłączyć wysyłanie danych osobowych i sprawdzić, czy ślady ich nie zawierają. Decyzja Pawła: odłożone do pierwszych testerów, żeby nie odciągać od harnessu Agenta. Wrócić, gdy testerzy zaczną używać Roty.
