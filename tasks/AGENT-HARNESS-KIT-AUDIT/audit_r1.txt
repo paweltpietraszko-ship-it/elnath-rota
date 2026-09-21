@@ -1,0 +1,132 @@
+AGENT-HARNESS-KIT-AUDIT — AUDYT CRITICAL, RUNDA 1
+
+WERDYKT: FAIL
+AUDYTOWANE REPO: Agent, branch task/HARNESS-STARTER-KIT
+EXACT SHA: 515920fdebd9a1267ab5dc1adaa1afc23f5d4301
+DATA: 2026-09-21
+
+ZAKRES DOWODU
+- przeczytane: docs/PROCESS.md, AGENTS.md, ARCHITECT_START_HERE.md,
+  harness/backend.py, guard.py, task_init.py, FROZEN.lock,
+  critical_paths.txt, templates/brief.md, .githooks/pre-commit,
+  .github/workflows/gate.yml i harness/tests/;
+- potwierdzono branch, czysty checkout i exact SHA;
+- nie powtarzano 63 testów ani pełnego ruffa zgłoszonych jako zielone przez CC;
+- uruchomiono pięć małych niezależnych reproduktorów klas pominiętych przez
+  testy CC: artefakty, working tree briefu, zmiana baseline, symlink i dziwna
+  nazwa pliku w hooku.
+
+FINDING 1 — FAIL — repo_before.hash pozwala ukryć wcześniejsze commity Tasku
+TRACE:
+- docs/PROCESS.md §3: task_init.py zapisuje bazowy SHA, a bramka ma mierzyć Task
+  od tej bazy; brief jest zamrożony przed implementacją.
+- harness/backend.py: „Everything is measured on the delivered COMMIT” oraz
+  DIFF_SCOPE ma objąć każdy zmieniony plik.
+OWNERSHIP:
+- workflow sam odczytuje tasks/<id>/repo_before.hash z audytowanego HEAD;
+- backend sprawdza tylko, czy podany before_sha jest przodkiem HEAD. Nie wiąże
+  go z bazą zapisaną przed implementacją.
+REPRO na kodzie exact SHA:
+1. Po prawidłowej bazie dodano commit z other.txt poza TASK_SCOPE.
+2. W następnym commicie repo_before.hash ustawiono na SHA tego niedozwolonego
+   commitu i dodano małą dozwoloną zmianę w app/.
+3. Backend uruchomiony dokładnie tak, jak zrobi to workflow: exit 0,
+   STATUS: PASS. Niedozwolony commit nie znalazł się w porównaniu.
+SKUTEK:
+- model może ukryć dowolne wcześniejsze zmiany, także zmianę briefu, locka,
+  harnessu lub workflow, bez czerwonego wyniku późniejszej bramki.
+
+FINDING 2 — FAIL — całe tasks/ i log/ są poza kontrolą zakresu i limitów
+TRACE:
+- docs/PROCESS.md §3 i ARCHITECT_START_HERE.md §3: implementer zmienia tylko
+  TASK_SCOPE; wyjście poza zakres ma zatrzymać pracę.
+- harness/backend.py: artefakty pipeline mają być tylko raportowane, nie
+  zwalnia to dowolnego kodu z kontraktu zakresu i limitów.
+OWNERSHIP:
+- is_artifact() zwalnia każdy plik pod tasks/ i log/, niezależnie od nazwy,
+  typu i roli; check_scope_and_files(), check_python() i diff_stats() już go
+  nie kontrolują.
+REPRO na kodzie exact SHA:
+1. Przy briefie TASK_SCOPE: app/** dodano tasks/T1/payload.py zawierający
+   2000 linii oraz jedną małą dozwoloną zmianę app/note.txt.
+2. Wynik: exit 0, STATUS: PASS.
+SKUTEK:
+- można umieścić kod poza TASK_SCOPE, ominąć NEW_FILES, ruff, składnię,
+  limity pliku/funkcji i TOTAL_LINES. To jest także rzeczywiste obejście przez
+  „podział pliku”, którego zwykłe pliki w TASK_SCOPE same nie umożliwiają.
+
+FINDING 3 — FAIL — lokalna bramka czyta brief z working tree, nie z HEAD
+TRACE:
+- harness/backend.py: cały pomiar ma dotyczyć dostarczonego commitu;
+- BRIEF_FROZEN ma gwarantować, że brief nie zmienił się po before_sha.
+OWNERSHIP:
+- read_brief() używa Path.read_text() z working tree. check_brief_frozen()
+  sprawdza osobno committed diff i nie wykrywa niezacommitowanej treści.
+REPRO na kodzie exact SHA:
+1. Zacommitowano other.txt poza zamrożonym TASK_SCOPE.
+2. Bez commita poszerzono tasks/T1.md w working tree o other.txt.
+3. Lokalny backend dla exact HEAD zwrócił exit 0, STATUS: PASS, mimo że brief
+   w audytowanym commicie nadal nie obejmował other.txt.
+SKUTEK:
+- lokalny wynik cytowany do BOARD może być fałszywym PASS-em. Czysty checkout
+  GitHub Actions nie ma tej konkretnej luki, lecz opisany publiczny interfejs
+  backend.py i lokalny obowiązkowy przebieg ją mają.
+
+FINDING 4 — FAIL — hook przepuszcza niedozwoloną nazwę z końcową spacją
+TRACE:
+- docs/PROCESS.md §7: pre-commit blokuje na main/master wszystko poza dokładnie
+  BOARD.md i ODLOZONE.md.
+OWNERSHIP:
+- hook iteruje po wyniku `git diff --cached --name-only` przez podstawienie
+  polecenia i podział słów shella, więc traci końcową spację nazwy.
+REPRO na kodzie exact SHA:
+1. Do indeksu dodano zwykły plik o nazwie `BOARD.md ` (spacja na końcu), przy
+   core.protectNTFS=false, co odpowiada nazwie możliwej na Linuksie.
+2. Uruchomiono dostarczony hook przez Git for Windows sh.
+3. Hook zwrócił exit 0 i niczego nie zablokował.
+SKUTEK:
+- na systemie dopuszczającym taką nazwę model może zacommitować na main plik
+  inny niż dwa dozwolone. To jest różnica Windows/Linux; zwykła konfiguracja
+  Windows odrzuca taki checkout, Linux nie.
+
+WYMAGA_DECYZJI 1 — symlinki w TASK_SCOPE
+REPRO: wpis indeksu typu symlink app/link wskazujący na
+../../docs/VERTICAL_V0A_FROZEN_SPEC.md przeszedł z STATUS: PASS.
+Kontrakt mówi o ścieżkach plików, ale nie rozstrzyga, czy zakres zezwala na
+symlink ani czy jego cel też musi mieścić się w zakresie. Bez decyzji OWNERA
+nie klasyfikuję tego jako FAIL. Ryzyko: ścieżka w zakresie może pośrednio czytać
+plik chroniony lub plik spoza repozytorium.
+
+WYMAGA_DECYZJI 2 — znaczenie ** w środku wzorca
+Aktualnie app/**/*.py NIE dopasowuje app/x.py; dopasowuje dopiero plik w
+podkatalogu. Dokumentacja mówi tylko „** across folders” i pokazuje app/**,
+więc nie ustala, czy ** oznacza zero lub więcej katalogów jak w typowych
+globach. Bez takiej decyzji jest to obserwacja, nie FAIL.
+
+POZOSTAŁE PYTANIA Z BOARD
+- Rename/deletion: --no-renames celowo zamienia rename na delete+add; oba końce
+  podlegają zakresowi. Testy CC pokrywają delete i rename; kod nie ujawnił nowej
+  luki poza zmianą baseline opisaną wyżej.
+- CRLF: hash zamrożonych plików normalizuje CRLF do LF; splitlines i parser
+  briefu obsługują CRLF. Nie znaleziono nowego fałszywego PASS/FAIL.
+- Windows/Linux: ścieżki z gita są POSIX; git show używa blobów z commita.
+  Hook wymaga sh (Git for Windows go dostarcza). Potwierdzony wyjątek dziwnej
+  nazwy jest w findingu 4.
+- Limity: dla zwykłych plików podział nie omija całego mechanizmu: liczy się
+  NEW_FILES i łączny TOTAL_LINES. WYMAGA_DECYZJI celowo kończy workflow na
+  zielono zgodnie z zaakceptowanym kontraktem; dalsza decyzja jest ludzka.
+  Finding 2 omija jednak również te zabezpieczenia.
+- Workflow permissions: contents: read jest wystarczające i nie daje zbędnego
+  zapisu.
+- github.ref_name: wartość trafia przez env BRANCH, a użycia ścieżek są w
+  cudzysłowach; nie potwierdzono wstrzyknięcia polecenia nazwą brancha.
+- Zmiana samego workflow może usunąć wywołanie bramki bez czerwonego wyniku.
+  Przy niewłączonym rulesecie jest to część jawnie zaakceptowanego dziś ryzyka
+  ochrony main, więc nie dodaję drugiego FAIL za ten sam brak zaufanej granicy.
+- Znany brak mechanicznego wymuszenia ARCHITECT_REVIEW -> Codex pozostaje poza
+  zakresem werdyktu zgodnie z wierszem BOARD.
+
+WARUNEK RE-AUDYTU
+- oryginalne reproduktory findingów 1–4;
+- celowane testy zmienionych funkcji i workflow;
+- bez pełnej macierzy, chyba że poprawka zmieni granicę zaufania całego kitu.
