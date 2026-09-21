@@ -15,9 +15,23 @@ stary przestanie działać.)
 Kliknij **„2. Pobierz instalator”**, a potem uruchom pobrany plik
 (dwa kliknięcia).
 
-Windows może pokazać niebieskie okno **„Windows chronił Twój
-komputer”**. To normalne przy nowych programach — kliknij **„Więcej
-informacji”**, a potem **„Uruchom mimo to”**.
+**Przeglądarka i Windows mogą Cię ostrzec — to normalne.** Instalator nie
+ma jeszcze cyfrowego podpisu (to płatna pieczątka, której na razie nie
+mamy). Dlatego program antywirusowy przeglądarki i Windows traktują go
+ostrożnie, choć nic w nim nie jest groźne. Zobaczysz:
+
+1. **Chrome** może zatrzymać pobieranie (plik nazywa się wtedy
+   „Niepotwierdzony…”). Otwórz listę pobranych plików (`Ctrl+J`) i przy
+   pliku kliknij **„Zachowaj”**.
+2. **Windows** może pokazać niebieskie okno **„Windows chronił Twój
+   komputer”**. Kliknij **„Więcej informacji”**, a potem **„Uruchom
+   mimo to”**.
+
+**To Twoja decyzja.** Jeśli wolisz nie instalować programu z
+ostrzeżeniem, nic się nie stanie: cała Rota — grafik, decyzje i wydruk
+PDF — działa w przeglądarce, bez Excela i bez instalowania czegokolwiek.
+Dodatek do Excela jest tylko wygodą dla tych, którzy chcą pracować w
+arkuszu.
 
 ## Krok 3 — kliknij „Dalej”
 
