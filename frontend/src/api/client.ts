@@ -931,6 +931,21 @@ export const api = {
       body: JSON.stringify({ delegation_default_hours: delegationDefaultHours }),
     }),
 
+  // ROTA-OCHRONA-EDIT-7D-LIMIT: OCHRONA-only edit of the existing rolling
+  // 7-day hours load threshold.
+  getRolling7dLimit: (siteId: string) =>
+    req<{ rolling_7d_decision_threshold_hours: number; planning_regime: string }>(
+      `/workspace/sites/${siteId}/rolling-7d-limit`,
+    ),
+  setRolling7dLimit: (siteId: string, rolling7dDecisionThresholdHours: number, confirmedOver72h: boolean) =>
+    req<void>(`/workspace/sites/${siteId}/rolling-7d-limit`, {
+      method: "PUT",
+      body: JSON.stringify({
+        rolling_7d_decision_threshold_hours: rolling7dDecisionThresholdHours,
+        confirmed_over_72h: confirmedOver72h,
+      }),
+    }),
+
   // Target hours
   getTargetHours: (employeeId: string, month: string) =>
     req<{ target_hours: number | null }>(`/workspace/employees/${employeeId}/target-hours?month=${month}`),

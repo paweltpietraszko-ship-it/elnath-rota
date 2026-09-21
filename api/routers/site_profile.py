@@ -225,3 +225,69 @@ def put_delegation_default_hours(
         update_site(conn, coordinator_id=coordinator_id, site_id=site_id, site=updated_site)
     except Exception as exc:
         raise to_http_exception(exc) from exc
+
+
+# --- ROTA-OCHRONA-EDIT-7D-LIMIT brief.md: OCHRONA-only edit of the
+# existing rolling_7d_decision_threshold_hours, reusing update_site_profile
+# unchanged -- no new field, no new write path, no ORDINARY exposure. ---
+
+ROLLING_7D_WARNING_THRESHOLD_HOURS = 72
+
+
+class Rolling7dLimitOut(BaseModel):
+    rolling_7d_decision_threshold_hours: int
+    planning_regime: str
+
+
+class Rolling7dLimitIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rolling_7d_decision_threshold_hours: int
+    # brief.md: required (server-enforced, not just UI) above 72h -- a
+    # direct API call without it must be refused exactly like the modal's
+    # own unchecked box would refuse to submit.
+    confirmed_over_72h: bool = False
+    responds_to_decision_required_id: str | None = None
+
+
+@router.get("/{site_id}/rolling-7d-limit", response_model=Rolling7dLimitOut)
+def get_rolling_7d_limit(site_id: str, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> Rolling7dLimitOut:
+    try:
+        site = get_site(conn, site_id)
+        profile = get_site_profile(conn, site.profile_id)
+        return Rolling7dLimitOut(
+            rolling_7d_decision_threshold_hours=profile.rolling_7d_decision_threshold_hours,
+            planning_regime=site.planning_regime.value,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.put("/{site_id}/rolling-7d-limit", status_code=204)
+def put_rolling_7d_limit(
+    site_id: str, payload: Rolling7dLimitIn, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id),
+) -> None:
+    try:
+        site = get_site(conn, site_id)
+        if site.planning_regime != SitePlanningRegime.OCHRONA:
+            raise ValueError("limit obciążenia w ruchomych 7 dniach można zmieniać wyłącznie dla obiektów OCHRONA")
+        if payload.rolling_7d_decision_threshold_hours <= 0:
+            raise ValueError("limit godzin w ruchomych 7 dniach musi być dodatnią liczbą całkowitą")
+        if payload.rolling_7d_decision_threshold_hours > ROLLING_7D_WARNING_THRESHOLD_HOURS and not payload.confirmed_over_72h:
+            raise ValueError(
+                "wartość powyżej 72 godzin wymaga świadomego potwierdzenia ostrzeżenia przed zapisem"
+            )
+        current_profile = get_site_profile(conn, site.profile_id)
+        updated_profile = replace(
+            current_profile, rolling_7d_decision_threshold_hours=payload.rolling_7d_decision_threshold_hours,
+        )
+        update_site_profile(
+            conn, coordinator_id=coordinator_id, site_id=site_id, profile=updated_profile,
+            note=(
+                "Potwierdzono ostrzeżenie o limicie obciążenia >72h w ruchomych 7 dniach"
+                if payload.confirmed_over_72h else None
+            ),
+            responds_to_decision_required_id=payload.responds_to_decision_required_id,
+        )
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
