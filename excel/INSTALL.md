@@ -1,4 +1,10 @@
-# Instalacja dodatku Elnath Rota (jednorazowo, na komputerze użytkownika)
+# Instalacja dodatku Elnath Rota — dokument dla ADMINISTRATORA
+
+Ten dokument jest dla administratora Roty (budowa instalatora, wydawanie
+kluczy, rozwiązywanie problemów). Użytkownik końcowy dostaje tylko dwa
+pliki: `ElnathRotaSetup.exe` i osobną, krótką
+[`INSTRUKCJA_DLA_UZYTKOWNIKA.md`](INSTRUKCJA_DLA_UZYTKOWNIKA.md) — bez
+żadnego żargonu technicznego. Nie wysyłaj mu tego dokumentu.
 
 ## 1. Wymagania
 
@@ -8,16 +14,11 @@
   (`python -m api.provision_account issue-api-key <email>`) — administrator
   przesyła go użytkownikowi razem z linkiem do instalatora, np. mailem.
 
-## 2. Instalacja (dla użytkownika: jedno kliknięcie)
+## 2. Instalacja (przekaż użytkownikowi `INSTRUKCJA_DLA_UZYTKOWNIKA.md`)
 
-1. Pobierz i uruchom `ElnathRotaSetup.exe` (przesłany przez administratora).
-2. Wklej klucz dostępu, gdy instalator o niego poprosi. Adres usługi Rota
-   jest już wpisany — zwykle nic tam nie trzeba zmieniać.
-3. Instalator sam wybiera, gdzie zapisać plik grafiku (domyślnie
-   `Dokumenty\Elnath Rota`) — można to zmienić na ekranie instalatora.
-4. Gotowe. Dodatek ładuje się teraz automatycznie przy każdym uruchomieniu
-   Excela — nic więcej nie trzeba robić ręcznie (żadnego okna Dodatki,
-   żadnego uruchamiania makra).
+Skrót tego, co widzi użytkownik: pobiera `ElnathRotaSetup.exe`, uruchamia,
+wkleja klucz dostępu, klika Dalej/Zainstaluj/Zakończ. Bez okna Dodatki,
+bez ręcznego uruchamiania makra.
 
 Instalator kopiuje `ELNATH_ROTA_ADDIN.xlam` do `%APPDATA%\Microsoft\Excel\
 XLSTART` — to domyślnie zaufane miejsce startowe Excela, więc dodatek
@@ -25,7 +26,15 @@ XLSTART` — to domyślnie zaufane miejsce startowe Excela, więc dodatek
 dostępu i adres usługi zapisuje w tym samym miejscu w rejestrze, którego
 używa makro `RotaConfigure` — jakby użytkownik uruchomił je sam.
 
-### Dla administratora: jak zbudować `ElnathRotaSetup.exe`
+**Zaflagowane, nie zrobione — decyzja należy do Ciebie:** `ElnathRotaSetup.exe`
+nie jest podpisany cyfrowo, więc Windows SmartScreen pokaże niebieskie
+ostrzeżenie „Windows chronił Twój komputer” przy pierwszym uruchomieniu
+(`INSTRUKCJA_DLA_UZYTKOWNIKA.md` tłumaczy to jako normalny krok). Żeby to
+ostrzeżenie zniknęło całkowicie, trzeba by kupić certyfikat do podpisywania
+kodu (koszt, decyzja zakupowa) — nie robię tego bez Twojej zgody, na razie
+zostawiam jako świadomy, udokumentowany kompromis.
+
+### Jak zbudować `ElnathRotaSetup.exe`
 
 Źródło instalatora: `excel/installer/ElnathRotaSetup.nsi`, zbudowane
 narzędziem [NSIS](https://nsis.sourceforge.io/) (darmowe, także
