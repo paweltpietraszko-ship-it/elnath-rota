@@ -1,0 +1,34 @@
+AGENT-HARNESS-KIT-AUDIT — RE-AUDYT CRITICAL, RUNDA 4
+
+WERDYKT: PASS
+AUDYTOWANE REPO: Agent, branch task/HARNESS-STARTER-KIT
+EXACT SHA: b724256648634481e56f40824200c5fa25690ef8
+DATA: 2026-09-21
+
+ZAKRES
+- re-check wyłącznie findingu r3 w triggerze .github/workflows/gate.yml;
+- punktowa kontrola rozwiązania konfliktów CLAUDE.md i README.md względem
+  drugiego rodzica merge, czyli commita architekta na main;
+- kontrola docs/PRODUCT_GOAL_AND_ROADMAP.md;
+- backend.py bez zmian: nie powtarzano zamkniętych reproduktorów ani testów.
+
+DOWÓD FINDINGU R3
+- usunięto wyjątek `!task/HARNESS-**`;
+- trigger ma `branches-ignore: ["main"]`, więc każda nazwa brancha poza
+  dokładnym `main` tworzy uruchomienie workflow;
+- `task/HARNESS-*` nie ma już specjalnej drogi ominięcia;
+- branch bez briefu dostaje czerwony wynik na istniejącej kontroli braku
+  briefu. Jest to świadome zachowanie techniczne i nie wymaga decyzji OWNERA.
+
+DOWÓD SCALENIA MAIN
+- exact SHA jest merge commitem rodziców 8cf4269 i 2c7e24f;
+- względem rodzica architekta 2c7e24f: CLAUDE.md ma 26 dodań i 0 usunięć,
+  README.md ma 8 dodań i 0 usunięć;
+- docs/PRODUCT_GOAL_AND_ROADMAP.md jest identyczny z wersją architekta;
+- dodane sekcje ograniczają się do instrukcji procesu i harnessu. Tekst celu,
+  roadmapy i aktualnego Tasku V0A-01 został zachowany.
+
+WYNIK
+- finding r3 zamknięty;
+- nie znaleziono nowego obejścia nazwą brancha ani utraty tekstu architekta;
+- PASS dotyczy wyłącznie exact SHA b724256648634481e56f40824200c5fa25690ef8.
