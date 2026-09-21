@@ -2,6 +2,19 @@
 
 Planning/staffing system for shift scheduling (Ward Mechanical Gate pipeline, OCHRONA pilot profile), governed by `arch/spec.md`.
 
+## Data status — read this before any other document
+
+**All data in this project is synthetic and was created by the owner. There is no
+customer, no pilot with a real company, and no real personal data.** The site names
+"Bolf" and "Royal" are borrowed from real companies that have no connection to this
+project and supplied nothing.
+
+Some documents written on 2026-09-20/21 say "real object" and "production read".
+They mean *a fully assembled site object* and *the owner's own running instance* —
+never a customer or real data. Full statement and terminology:
+**[`arch/DATA_STATUS.md`](arch/DATA_STATUS.md)**, which overrides any document that
+contradicts it.
+
 ## Branch policy
 
 - `main` is protected. No direct commits or pushes to `main`.

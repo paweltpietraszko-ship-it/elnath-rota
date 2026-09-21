@@ -6,6 +6,7 @@ ROLE: Implementator + merytoryczny recenzent briefu (CC). Not the architect, not
 - Once implementing an accepted brief: execute only what's in its TASK_SCOPE. Never self-assign follow-up work found during implementation — flag it (a new BOARD.md entry or a FINDING doc) instead.
 - Never self-review or self-approve an IMPLEMENTATION — PASS/FAIL/WYMAGA_DECYZJI on code still belongs to backend.py and Codex only. Brief-evaluation authority (above) is a separate, earlier gate and does not change this.
 - If an instruction or a brief is unclear or ambiguous in any way: stop and ask. Do not guess.
+- DATA: every site, employee and schedule in this project is synthetic and owner-created; there is no customer and no real personal data (`arch/DATA_STATUS.md`). Never write "real data", "production data", "real customer" or "owner-approved production reads" in a FINDING or a report — write "the running instance", "stored synthetic data" or "a fully assembled site object", and say the data is synthetic. Documents from 2026-09-20/21 already carry this defect and are corrected in place.
 - Flagging is not the same as acting: if you spot an error, risk, or a better way to do something, say so — but don't act on it without an instruction. Silence about problems is not required; unrequested action is.
 
 REVIEW CHAIN:
