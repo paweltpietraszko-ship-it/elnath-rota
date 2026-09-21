@@ -1,34 +1,41 @@
 # Jak zainstalować dodatek Rota do Excela
 
-Dostałeś od administratora dwa pliki: **`ElnathRotaSetup.exe`** i klucz
-dostępu (ciąg liter i cyfr). Będziesz ich potrzebować w tej instrukcji.
+Wszystko robisz sam, w panelu „Excel” w aplikacji Rota — nie musisz nikogo
+o nic prosić.
 
-## Krok 1 — uruchom instalator
+## Krok 1 — wygeneruj swój klucz dostępu
 
-Kliknij dwa razy na **`ElnathRotaSetup.exe`**.
+W aplikacji Rota, w panelu **Excel**, kliknij **„1. Wygeneruj klucz
+dostępu”**. Pokaże się ciąg liter i cyfr — skopiuj go, przyda się za
+chwilę. (Jeśli go zamkniesz bez skopiowania, po prostu wygeneruj nowy —
+stary przestanie działać.)
+
+## Krok 2 — pobierz i uruchom instalator
+
+Kliknij **„2. Pobierz instalator”**, a potem uruchom pobrany plik
+(dwa kliknięcia).
 
 Windows może pokazać niebieskie okno **„Windows chronił Twój
 komputer”**. To normalne przy nowych programach — kliknij **„Więcej
 informacji”**, a potem **„Uruchom mimo to”**.
 
-## Krok 2 — kliknij „Dalej”
+## Krok 3 — kliknij „Dalej”
 
 Pojawi się okienko instalatora. Kliknij **Dalej**.
 
-## Krok 3 — wklej klucz dostępu
+## Krok 4 — wklej klucz dostępu
 
-Wklej klucz dostępu, który dostałeś od administratora, w pole na
-ekranie. Adres usługi Rota jest już wpisany — nic tam nie zmieniaj.
-Kliknij **Dalej**.
+Wklej klucz z Kroku 1 w pole na ekranie. Adres usługi Rota jest już
+wpisany — nic tam nie zmieniaj. Kliknij **Dalej**.
 
-## Krok 4 — dokończ instalację
+## Krok 5 — dokończ instalację
 
 Kliknij **Dalej**, potem **Zainstaluj**, potem **Zakończ**.
 
 ## Gotowe
 
-Otwórz Excel i otwórz plik grafiku, który dostałeś od administratora.
-Nic więcej nie trzeba instalować ani ustawiać.
+Otwórz Excel i otwórz swój plik grafiku. Nic więcej nie trzeba
+instalować ani ustawiać.
 
 ---
 
@@ -38,8 +45,10 @@ Nic więcej nie trzeba instalować ani ustawiać.
   edytowanie”** — kliknij ten przycisk na pasku. To normalne
   zabezpieczenie Excela przy pierwszym otwarciu pliku.
 - **Komunikat „Dodatek nie jest jeszcze skonfigurowany”** — uruchom
-  jeszcze raz `ElnathRotaSetup.exe` i wklej klucz dostępu ponownie.
+  jeszcze raz pobrany instalator i wklej klucz dostępu ponownie (możesz
+  też wygenerować nowy klucz w panelu Excel, jeśli starego już nie masz).
 - **Komunikat „Brak połączenia z usługą Rota”** — sprawdź, czy masz
   internet.
-- **Coś innego / nie wiesz, co zrobić** — napisz do administratora i
-  wklej dokładną treść komunikatu (najlepiej zrzut ekranu).
+- **Coś innego / nie wiesz, co zrobić** — skontaktuj się z opiekunem
+  Twojej firmy w Elnath Rota i opisz dokładną treść komunikatu
+  (najlepiej zrzut ekranu).

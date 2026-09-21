@@ -29,7 +29,7 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
   // never re-fetchable, never persisted client-side (matches the CLI's
   // own one-time-display behavior, api/provision_account.py).
   const [excelIssuedKey, setExcelIssuedKey] = useState<{ key_id: string; raw_key: string } | null>(null);
-  const [excelBusy, setExcelBusy] = useState<"template" | "addin" | "key" | null>(null);
+  const [excelBusy, setExcelBusy] = useState<"template" | "addin" | "key" | "installer" | null>(null);
   const [excelError, setExcelError] = useState<string | null>(null);
   const [excelGuideOpen, setExcelGuideOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -368,8 +368,8 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
               <div>
                 <h3>Excel</h3>
                 <p className="create-panel-hint">
-                  Do pracy z grafikiem w Excelu (bez zmiany dotychczasowego arkusza) potrzebny jest dodatek i
-                  klucz dostępu — instrukcja instalacji jest w pliku dołączonym do dodatku.
+                  Do pracy z grafikiem w Excelu potrzebny jest klucz dostępu i zainstalowany dodatek. Wygeneruj
+                  klucz, pobierz instalator, uruchom go i wklej klucz — reszta dzieje się sama.
                 </p>
                 {excelError && <div className="banner-error">{excelError}</div>}
                 {excelIssuedKey && (
@@ -385,40 +385,6 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
                 )}
               </div>
               <div className="utility-panel-actions">
-                <button
-                  className="btn-secondary"
-                  disabled={excelBusy !== null}
-                  onClick={async () => {
-                    setExcelBusy("template");
-                    setExcelError(null);
-                    try {
-                      await authApi.downloadExcelTemplate();
-                    } catch (e) {
-                      setExcelError(String((e as Error).message ?? e));
-                    } finally {
-                      setExcelBusy(null);
-                    }
-                  }}
-                >
-                  Pobierz szablon Excela
-                </button>
-                <button
-                  className="btn-secondary"
-                  disabled={excelBusy !== null}
-                  onClick={async () => {
-                    setExcelBusy("addin");
-                    setExcelError(null);
-                    try {
-                      await authApi.downloadExcelAddin();
-                    } catch (e) {
-                      setExcelError(String((e as Error).message ?? e));
-                    } finally {
-                      setExcelBusy(null);
-                    }
-                  }}
-                >
-                  Pobierz dodatek do Excela
-                </button>
                 <button
                   className="btn-primary"
                   disabled={excelBusy !== null}
@@ -436,10 +402,61 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
                     }
                   }}
                 >
-                  {excelBusy === "key" ? "Generowanie…" : "Wygeneruj klucz dostępu"}
+                  {excelBusy === "key" ? "Generowanie…" : "1. Wygeneruj klucz dostępu"}
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("installer");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelInstaller();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  {excelBusy === "installer" ? "Pobieranie…" : "2. Pobierz instalator"}
                 </button>
                 <button className="btn-ghost" onClick={() => setExcelGuideOpen(true)}>
                   Instrukcja instalacji
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("template");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelTemplate();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  Pobierz sam szablon Excela
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={excelBusy !== null}
+                  onClick={async () => {
+                    setExcelBusy("addin");
+                    setExcelError(null);
+                    try {
+                      await authApi.downloadExcelAddin();
+                    } catch (e) {
+                      setExcelError(String((e as Error).message ?? e));
+                    } finally {
+                      setExcelBusy(null);
+                    }
+                  }}
+                >
+                  Pobierz sam dodatek (zaawansowane)
                 </button>
               </div>
             </div>

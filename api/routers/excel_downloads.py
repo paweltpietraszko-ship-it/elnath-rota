@@ -22,7 +22,13 @@ router = APIRouter(prefix="/excel", tags=["excel"])
 _EXCEL_DIR = Path(__file__).resolve().parent.parent.parent / "excel"
 _TEMPLATE_PATH = _EXCEL_DIR / "ELNATH_ROTA_TEMPLATE.xlsx"
 _ADDIN_PATH = _EXCEL_DIR / "ELNATH_ROTA_ADDIN.xlam"
-_INSTALL_GUIDE_PATH = _EXCEL_DIR / "INSTALL.md"
+_INSTALLER_PATH = _EXCEL_DIR / "installer" / "ElnathRotaSetup.exe"
+# ROTA-EXCEL-INSTALLER-AUTOMATION: the panel must show the plain-language
+# end-user doc, not INSTALL.md (admin-only: build steps, registry paths,
+# NSIS) -- every coordinator reaching this panel is exactly the "no admin
+# on the team" case, since generating their own key right here IS the
+# self-service path this whole panel exists for.
+_INSTALL_GUIDE_PATH = _EXCEL_DIR / "INSTRUKCJA_DLA_UZYTKOWNIKA.md"
 
 
 class InstallGuideOut(BaseModel):
@@ -46,6 +52,17 @@ def download_template() -> FileResponse:
 @router.post("/addin", dependencies=[Depends(current_active_user)])
 def download_addin() -> FileResponse:
     return _download(_ADDIN_PATH, "ELNATH_ROTA_ADDIN.xlam", "application/vnd.ms-excel.addin.macroEnabled.12")
+
+
+@router.post("/installer", dependencies=[Depends(current_active_user)])
+def download_installer() -> FileResponse:
+    # ROTA-EXCEL-INSTALLER-AUTOMATION: one-click NSIS installer -- copies
+    # the add-in to Excel's XLSTART, writes the access key into the same
+    # registry path RotaConfigure uses, no manual Options dialog and no
+    # macro to run by hand. Replaces the template+addin downloads for a
+    # first-time install; those stay available for re-downloading a fresh
+    # template later.
+    return _download(_INSTALLER_PATH, "ElnathRotaSetup.exe", "application/vnd.microsoft.portable-executable")
 
 
 @router.get("/install-guide", dependencies=[Depends(current_active_user)])
