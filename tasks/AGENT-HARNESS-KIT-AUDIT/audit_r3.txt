@@ -1,0 +1,52 @@
+AGENT-HARNESS-KIT-AUDIT — RE-AUDYT CRITICAL, RUNDA 3
+
+WERDYKT: FAIL
+AUDYTOWANE REPO: Agent, branch task/HARNESS-STARTER-KIT
+EXACT SHA: ec5957633697911aa7acd4e9cdbdeb7f5559cbe9
+DATA: 2026-09-21
+
+ZAKRES
+- diff 8467629..ec59576: cztery zmienione pliki;
+- trzy celowane testy CC wskazane w BOARD: 3 passed;
+- trzy niezależne reproduktory z r2;
+- punktowa kontrola nowej zmiany triggera gate.yml;
+- bez pełnej macierzy i regresji.
+
+ZAMKNIĘTE Z R2
+1. Brak origin/main|origin/master|main|master:
+   STATUS: FAIL z BASE; kontrola działa fail-closed.
+2. tasks/T1/payload.txt poza TASK_SCOPE:
+   STATUS: FAIL z DIFF_SCOPE; tylko dokładne nazwy raportów są zwolnione.
+3. app/**/*.py:
+   obejmuje app/x.py oraz app/sub/x.py; semantyka zero-lub-więcej działa.
+
+FINDING 1 — FAIL — nazwą brancha można całkowicie wyłączyć workflow
+TRACE:
+- docs/PROCESS.md §3: bramka odpala się sama po każdym pushu na task/* i nie
+  zależy od tego, czy model pamięta ją uruchomić;
+- celem workflow jest czerwony wynik dla naruszeń zakresu i chronionych plików.
+OWNERSHIP:
+- .github/workflows/gate.yml sam określa, dla których branchy bramka powstaje.
+REPRO na exact SHA:
+- trigger zawiera kolejno `task/**` i wykluczenie `!task/HARNESS-**`;
+- branch `task/HARNESS-NORMAL` pasuje do obu wzorców, więc wykluczenie wygrywa
+  i GitHub Actions nie tworzy uruchomienia gate;
+- nie jest potrzebny brief ani zmiana harnessu: ominięcie zależy wyłącznie od
+  nazwy brancha.
+SKUTEK:
+- model może nazwać zwykły Task `task/HARNESS-cokolwiek` i wypchnąć dowolne
+  zmiany bez zielonego lub czerwonego wyniku, mimo że proces obiecuje bramkę
+  dla każdego Tasku;
+- brak rulesetu main jest znanym osobnym ryzykiem, ale nie uzasadnia nowego
+  obejścia wszystkich kontroli na branchu zadania.
+
+DECYZJA OWNERA NIE JEST POTRZEBNA
+- to techniczna luka w zakresie triggera;
+- sposób zawężenia wyjątku lub bootstrapu harnessu wybierają CC i architekt,
+  zachowując zasadę, że nazwa zwykłego brancha nie może wyłączyć bramki.
+
+WARUNEK RE-AUDYTU R4
+- oryginalny reproduktor: zwykły Task nazwany z prefiksem HARNESS nadal musi
+  dostać uruchomienie bramki albo mechaniczny czerwony wynik;
+- celowany test/analiza tylko triggera workflow; bez ponawiania zamkniętych
+  reproduktorów r2, jeśli backend.py się nie zmieni.
