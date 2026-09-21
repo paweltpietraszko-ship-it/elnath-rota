@@ -60,6 +60,27 @@ differs from this reconstruction** in a way not yet identified.
   read directly, and independently confirmed by Pawel before this round
   started.
 - Zero `work_balance_targets` rows for either (expected for OCHRONA).
+- Empty `site_roles`, `role_coverage_authorizations`, and
+  `schedule_version_employee_positions` for this site/version — no
+  role-based eligibility mechanism of any kind is in play (also directly
+  addresses Pawel's confirmation that both employees have identical
+  permissions).
+- **Pawel's own hypothesis, tested and RULED OUT**: real `shift_demands`
+  carry `catalog_kind='INNY'` (Polish for OTHER) for the Saturday-only
+  shift and `catalog_kind='12h'` for every weekday shift — a genuinely
+  different, non-standard classification from the ordinary 12h shifts,
+  automatically assigned by duration (`rota.planning.shift_catalog.
+  normalized_catalog_kind`), not something manually configured. `catalog_
+  kind` DOES change solver/validator behavior in several places
+  (`rota/planning/constraints.py`, `eligibility.py`, `work_periods.py` —
+  24h emergency-pairing eligibility, rest-period grouping). Re-ran the
+  experiment using `rota.application.assembler.generate_profile_demands`
+  (the real production code path, confirmed to correctly tag Saturdays
+  `ShiftCatalogKind.OTHER` / weekdays `ShiftCatalogKind.H12`, matching
+  production exactly) instead of hand-built `ShiftDemand` objects with
+  `catalog_kind=None` — result unchanged: still the fair 3/2 split
+  (27h/18h), not 5/0. The non-standard/INNY classification itself does
+  not explain the discrepancy in this reconstruction.
 
 ## What is NOT yet confirmed — the actual gap (named explicitly, per the architect's instruction)
 
