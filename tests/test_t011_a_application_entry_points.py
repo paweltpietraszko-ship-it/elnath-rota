@@ -14,7 +14,7 @@ from rota.application import store
 from rota.application.availability_matrix import availability_history
 from rota.application.bootstrap import bootstrap_or_resume_coordinator_context, month_plan_readiness
 from rota.application.durable_inputs import append_availability, set_calendar_day, update_employee, update_membership
-from rota.application.errors import IncompleteCalendarData, InvalidCoordinatorContext
+from rota.application.errors import InvalidCoordinatorContext
 from rota.application.open_month import open_month
 from rota.domain import (
     AvailabilityKind,
@@ -75,27 +75,54 @@ def _fill_calendar(conn, month: date) -> None:
         set_calendar_day(conn, coordinator_id=COORD, site_id=SITE, day=CalendarDay(date(month.year, month.month, d), False))
 
 
-def test_1_calendar_flips_month_readiness(tmp_path) -> None:
+def test_1_calendar_readiness_auto_heals_a_missing_calendar(tmp_path) -> None:
+    """ROTA-CALENDAR-AUTO-GENERATE (OWNER 2026-09-21): "ludzie nie będą
+    pamiętać, że trzeba wejść w kalendarz i go wygenerować -- nikt tak nie
+    robi." A never-visited month is ready on the FIRST readiness check --
+    month_plan_readiness silently fills the missing CalendarDay rows
+    itself instead of reporting them as missing."""
     conn = store.open_store(tmp_path / "rota.db")
     _bootstrap_context(conn)
-    before = month_plan_readiness(conn, coordinator_id=COORD, site_id=SITE, month=MONTH)
-    assert not before.ready
-    assert any("missing CalendarDay for" in m for m in before.missing)
+    days_in_month = calendar.monthrange(MONTH.year, MONTH.month)[1]
+    assert conn.execute("SELECT COUNT(*) FROM calendar_days").fetchone()[0] == 0
 
-    _fill_calendar(conn, MONTH)
-    after = month_plan_readiness(conn, coordinator_id=COORD, site_id=SITE, month=MONTH)
-    assert after.ready
+    readiness = month_plan_readiness(conn, coordinator_id=COORD, site_id=SITE, month=MONTH)
+    assert readiness.ready
+    assert not any("missing CalendarDay for" in m for m in readiness.missing)
+    assert conn.execute("SELECT COUNT(*) FROM calendar_days").fetchone()[0] == days_in_month
 
 
-def test_2_open_month_stops_raising_after_calendar_is_filled(tmp_path) -> None:
+def test_2_open_month_no_longer_raises_for_a_never_visited_month(tmp_path) -> None:
+    """Same auto-heal, exercised through open_month (assemble_planning_
+    state -> _assemble_calendar) instead of month_plan_readiness --
+    IncompleteCalendarData is no longer reachable for the NORMAL case of a
+    coordinator opening a month for the first time. OpenMonthView itself
+    doesn't expose calendar_days -- check the underlying table directly,
+    which is what actually proves the auto-heal ran."""
     conn = store.open_store(tmp_path / "rota.db")
     _bootstrap_context(conn)
-    with pytest.raises(IncompleteCalendarData):
-        open_month(conn, site_id=SITE, month=MONTH)
-
-    _fill_calendar(conn, MONTH)
     view = open_month(conn, site_id=SITE, month=MONTH)
     assert view.site.site_id == SITE
+    days_in_month = calendar.monthrange(MONTH.year, MONTH.month)[1]
+    count = conn.execute(
+        "SELECT COUNT(*) FROM calendar_days WHERE date >= ? AND date < ?",
+        (MONTH.isoformat(), date(MONTH.year, MONTH.month + 1, 1).isoformat()),
+    ).fetchone()[0]
+    assert count == days_in_month
+
+
+def test_2b_open_month_still_respects_an_earlier_manual_fill(tmp_path) -> None:
+    """Fill-missing-only: a coordinator's own earlier manual entry (e.g. a
+    non-default holiday flag) must survive the auto-heal untouched."""
+    conn = store.open_store(tmp_path / "rota.db")
+    _bootstrap_context(conn)
+    _fill_calendar(conn, MONTH)  # every day holiday=False, coordinator-entered
+    open_month(conn, site_id=SITE, month=MONTH)
+    rows = conn.execute(
+        "SELECT holiday FROM calendar_days WHERE date >= ? AND date < ?",
+        (MONTH.isoformat(), date(MONTH.year, MONTH.month + 1, 1).isoformat()),
+    ).fetchall()
+    assert all(not holiday for (holiday,) in rows)
 
 
 def test_3_set_calendar_day_upserts_not_duplicates(tmp_path) -> None:

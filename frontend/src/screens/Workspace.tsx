@@ -726,6 +726,23 @@ function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onCl
     }
   };
 
+  // OWNER 2026-09-21: "jakiś skrypt, który go sam wypełni na kilka lat do
+  // przodu" -- one click instead of remembering to do this every month.
+  // Fill-missing-only, never overwrites a manual correction -- safe to
+  // click repeatedly or on a month that's already partly configured.
+  const [generatingYears, setGeneratingYears] = useState(false);
+  const generateYears = async () => {
+    setGeneratingYears(true);
+    try {
+      await api.generateCalendarYears(iso(monthStart), siteIdForAuth, 3);
+      load();
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setGeneratingYears(false);
+    }
+  };
+
   const monthLabel = monthStart.toLocaleString("pl-PL", { month: "long", year: "numeric" });
 
   return (
@@ -741,9 +758,14 @@ function CalendarModal({ siteIdForAuth, onClose }: { siteIdForAuth: string; onCl
           </button>
         </div>
         {error && <div className="banner-error">{error}</div>}
-        <button className="btn-secondary" onClick={generate} disabled={generating}>
-          {generating ? "Generowanie…" : `Wygeneruj kalendarz na miesiąc ${monthLabel}`}
-        </button>
+        <div className="calendar-generate-actions">
+          <button className="btn-secondary" onClick={generate} disabled={generating}>
+            {generating ? "Generowanie…" : `Wygeneruj kalendarz na miesiąc ${monthLabel}`}
+          </button>
+          <button className="btn-secondary" onClick={generateYears} disabled={generatingYears}>
+            {generatingYears ? "Generowanie…" : "Wygeneruj kalendarz na najbliższe 3 lata"}
+          </button>
+        </div>
         {loading ? (
           <p>Ładowanie…</p>
         ) : (

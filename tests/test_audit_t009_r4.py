@@ -9,7 +9,7 @@ import pytest
 
 from rota.application import durable_inputs, lifecycle_ops, manual_edit, open_month, plan_ops, training
 from rota.application.assembler import assemble_planning_state, generate_profile_demands
-from rota.application.errors import CandidateRejected, IncompleteCalendarData, InvalidCoordinatorContext
+from rota.application.errors import CandidateRejected, InvalidCoordinatorContext
 from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind, CalendarDay, Coordinator,
     CoordinatorSiteAssociation, ExternalSupportWindow, MembershipKind,
@@ -21,7 +21,7 @@ from rota.persistence.db import connect
 from rota.persistence.employee_repository import (
     get_external_support_window, list_memberships_for_site, save_site_membership,
 )
-from rota.persistence.site_profile_repository import save_site_profile
+from rota.persistence.site_profile_repository import SiteProfileNotFound, save_site_profile
 from rota.persistence.calendar_repository import save_calendar_day
 from rota.persistence.schedule_repository import (
     get_current_version_id, get_schedule_snapshot,
@@ -177,7 +177,7 @@ def test_r4_precheck_respects_existing_full_coverage(tmp_path):
 
 
 @pytest.mark.parametrize("operation", ["first-plan", "przelicz-plan"])
-def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, operation):
+def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, operation, monkeypatch):
     """ROTA-T057 (OWNER_RULING 2026-09-06): REPLAN only exists pre-
     acceptance; the post-acceptance atomicity case (was "replan", calling
     plan_ops.replan on an already-accepted month) now exercises Przelicz
@@ -191,8 +191,21 @@ def test_r4_planning_failure_leaves_prior_version_aggregate_intact(tmp_path, ope
         _plan_select(conn, state.site.site_id)
     before_current = get_current_version_id(conn, state.site.site_id, MONTH)
     before_count = conn.execute("SELECT COUNT(*) FROM schedule_versions").fetchone()[0]
-    conn.execute("DELETE FROM calendar_days WHERE date = ?", (date(2026, 8, 15).isoformat(),))
-    with pytest.raises(IncompleteCalendarData):
+    # ROTA-CALENDAR-AUTO-GENERATE (OWNER 2026-09-21): a missing CalendarDay
+    # no longer fails assembly (it self-heals) -- this test's actual
+    # invariant is generic mid-operation atomicity, not calendar
+    # completeness specifically, so trigger the same "raises partway
+    # through assembly" shape a different way: monkeypatch
+    # assemble_planning_state (called by plan_month before any write --
+    # plan_ops.py L350/388/409) to raise SiteProfileNotFound directly,
+    # same technique this file already uses elsewhere (finalize/training
+    # storage-failure tests below) instead of a row delete, which is
+    # blocked here by the FK from sites to site_profiles.
+    def boom(*args, **kwargs):
+        raise SiteProfileNotFound(state.profile.profile_id)
+
+    monkeypatch.setattr(plan_ops, "assemble_planning_state", boom)
+    with pytest.raises(SiteProfileNotFound):
         if operation == "first-plan":
             plan_ops.plan_month(
                 conn, site_id=state.site.site_id, month=MONTH,

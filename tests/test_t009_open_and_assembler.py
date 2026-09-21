@@ -4,10 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
-import pytest
-
 from rota.application.assembler import assemble_planning_state
-from rota.application.errors import IncompleteCalendarData
 from rota.application.open_month import open_month
 from rota.domain import Assignment, AssignmentRole, AssignmentState, MembershipKind, ShiftDemand
 from rota.persistence.db import connect
@@ -60,13 +57,36 @@ def test_4_restart_reconstructs_same_context(tmp_path: Path) -> None:
     assert warnings  # missing target_hours for every employee, per item 5
 
 
-def test_5_missing_calendar_day_rejected(tmp_path: Path) -> None:
+def test_5_missing_calendar_day_auto_generated(tmp_path: Path) -> None:
+    """ROTA-CALENDAR-AUTO-GENERATE (OWNER 2026-09-21): a coordinator never
+    remembering to visit the Kalendarz screen is the NORMAL case, not an
+    error -- assembly now silently self-heals a missing CalendarDay
+    instead of raising IncompleteCalendarData. 2026-08-15 is a real PL
+    public holiday (Wniebowzięcie NMP), so this also proves the auto-fill
+    reconstructs holiday=True correctly, not just holiday=False."""
     conn = connect(tmp_path / "rota.db")
     pstate = seed_real_object(conn, case_id="cal-1", month=MONTH, seed=102)
-    # delete one calendar day to simulate incomplete input
     conn.execute("DELETE FROM calendar_days WHERE date = ?", (date(2026, 8, 15).isoformat(),))
-    with pytest.raises(IncompleteCalendarData):
-        assemble_planning_state(conn, site_id=pstate.site.site_id, month=MONTH)
+    state, _ = assemble_planning_state(conn, site_id=pstate.site.site_id, month=MONTH)
+    restored = next(d for d in state.calendar_days if d.date == date(2026, 8, 15))
+    assert restored.holiday is True
+
+
+def test_5b_missing_calendar_day_never_overwrites_a_manual_correction(tmp_path: Path) -> None:
+    """The auto-fill is fill-missing-only: a coordinator's own manual
+    correction (e.g. marking a real workday as a company-specific day off)
+    must survive re-assembly untouched, exactly like the manual generate
+    button's own contract."""
+    conn = connect(tmp_path / "rota.db")
+    pstate = seed_real_object(conn, case_id="cal-1b", month=MONTH, seed=104)
+    # 2026-08-10 is an ordinary Monday, not a real PL holiday -- a
+    # coordinator manually overrides it to a company day off.
+    conn.execute(
+        "UPDATE calendar_days SET holiday = 1 WHERE date = ?", (date(2026, 8, 10).isoformat(),),
+    )
+    state, _ = assemble_planning_state(conn, site_id=pstate.site.site_id, month=MONTH)
+    corrected = next(d for d in state.calendar_days if d.date == date(2026, 8, 10))
+    assert corrected.holiday is True
 
 
 def test_5_missing_target_hours_not_invented_and_demand_count_unchanged(tmp_path: Path) -> None:

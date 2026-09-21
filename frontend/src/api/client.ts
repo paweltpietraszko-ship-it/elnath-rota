@@ -824,6 +824,12 @@ export const api = {
       body: JSON.stringify({ month, site_id }),
     }),
 
+  generateCalendarYears: (start_month: string, site_id: string, years = 3) =>
+    req<{ created: number }>("/workspace/calendar/generate-years", {
+      method: "POST",
+      body: JSON.stringify({ start_month, site_id, years }),
+    }),
+
   downloadBackup: () => downloadPost("/workspace/backup"),
   downloadRecoveryKey: () => downloadPost("/workspace/backup/recovery-key"),
   downloadDiagnostics: () => {

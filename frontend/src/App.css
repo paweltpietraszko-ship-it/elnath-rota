@@ -659,6 +659,13 @@ button {
   gap: 8px;
 }
 
+.calendar-generate-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
 .modal h2 {
   font-size: 16px;
   font-weight: 600;
