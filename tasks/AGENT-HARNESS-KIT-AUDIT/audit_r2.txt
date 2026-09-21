@@ -1,0 +1,89 @@
+AGENT-HARNESS-KIT-AUDIT — RE-AUDYT CRITICAL, RUNDA 2
+
+WERDYKT: FAIL
+AUDYTOWANE REPO: Agent, branch task/HARNESS-STARTER-KIT
+EXACT SHA: 84676290fcf3f6aea28cb89edde784a79faa08be
+DATA: 2026-09-21
+
+DECYZJA OWNERA Z 2026-09-21
+- symlinki w zmianach mają automatycznie kończyć się FAIL;
+- `**` ma oznaczać zero lub więcej poziomów katalogu, aby zwykły zakres nie
+  powodował przypadkowych blokad i pytań do OWNERA.
+
+WARSTWY RE-AUDYTU
+- przeczytano diff 515920f..8467629 wyłącznie w sześciu zmienionych plikach;
+- uruchomiono pięć celowanych testów CC dla F1–F4 i symlinków: 5 passed;
+- niezależnie powtórzono klasy dawnych reproduktorów oraz sprawdzono wskazane
+  przez BOARD warianty `check_base` i lokalnych refów;
+- bez pełnej macierzy i regresji.
+
+ZAMKNIĘTE Z R1
+- F1 w zwykłym repo z `main`: przesunięty before_sha daje BASE/FAIL;
+- F2: `tasks/T1/payload.py` podlega zakresowi i daje DIFF_SCOPE/FAIL;
+- F3: niezacommitowany brief nie poszerza już zakresu commita;
+- F4: `BOARD.md ` z końcową spacją jest blokowany przez hook;
+- symlink w TASK_SCOPE daje SYMLINK/FAIL, zgodnie z decyzją OWNERA.
+
+FINDING 1 — FAIL — kontrola bazy działa fail-open bez refu main/master
+TRACE:
+- docs/PROCESS.md: bazą jest punkt odejścia od main i wcześniejszych commitów
+  Tasku nie wolno ukryć;
+- harness/backend.py: BASE ma mechanicznie egzekwować tę regułę także w
+  lokalnym, wymaganym przebiegu bramki.
+OWNERSHIP:
+- check_base() po braku wszystkich BASE_REFS zwraca pustą listę, czyli sukces.
+REPRO na exact SHA:
+1. Task utworzono prawidłowo z main; potem dodano commit poza TASK_SCOPE.
+2. Dodano małą zmianę dozwoloną i podano pierwszy commit jako before_sha.
+3. Usunięto lokalny ref main; repo nie miało origin/main/master.
+4. Wynik backend.py: exit 0, STATUS: PASS.
+SKUTEK:
+- lokalna bramka nadal może zatwierdzić dokładnie klasę F1, jeśli ref bazowy
+  jest niedostępny, usunięty albo klon używa innej konfiguracji refów.
+- GitHub Actions zwykle ma origin/main, więc ten finding dotyczy przede
+  wszystkim fałszywego lokalnego wyniku cytowanego do BOARD.
+
+FINDING 2 — FAIL — rozszerzenie pliku nadal wystarcza do ominięcia zakresu
+TRACE:
+- docs/PROCESS.md i komentarz is_artifact(): zwolnienie dotyczy raportów
+  pipeline; pozostałe pliki podlegają TASK_SCOPE i limitom.
+OWNERSHIP:
+- is_artifact() uznaje każdy `.txt`, `.md` i `.hash` pod dowolnym `tasks/`
+  za raport, bez sprawdzenia dozwolonej nazwy lub roli pliku.
+REPRO na exact SHA:
+1. Brief zawierał wyłącznie TASK_SCOPE: app/**.
+2. Dodano tasks/T1/payload.txt z 2000 liniami oraz mały app/note.txt.
+3. Wynik backend.py: exit 0, STATUS: PASS; payload nie wszedł do DIFF_SCOPE,
+   NEW_FILES ani TOTAL_LINES.
+SKUTEK:
+- dawna klasa obejścia została zwężona z dowolnego pliku do trzech rozszerzeń,
+  ale nie zamknięta. Model może nazwać dowolny plik „raportowym” i ominąć
+  zakres oraz limity.
+
+FINDING 3 — FAIL — `**` jest sprzeczne z decyzją OWNERA
+TRACE:
+- OWNER_ACCEPTED 2026-09-21: `**` obejmuje zero lub więcej poziomów katalogu,
+  aby nie tworzyć przypadkowych blokad.
+OWNERSHIP:
+- glob_regex() tłumaczy `**` na `.*`, ale pozostawia obowiązkowy ukośnik przed
+  nim i po nim.
+REPRO na exact SHA:
+- in_scope("app/x.py", ["app/**/*.py"]) zwróciło False;
+- in_scope("app/sub/x.py", ["app/**/*.py"]) zwróciło True.
+SKUTEK:
+- bezpośredni plik dostaje fałszywy DIFF_SCOPE/FAIL mimo zakresu zaakceptowanego
+  przez OWNERA. To tworzy zbędne zatrzymania zamiast ograniczać monity.
+
+POZOSTAŁE WYNIKI
+- gate.yml sam liczy merge-base origin/main i nie czyta repo_before.hash;
+- uprawnienia workflow i użycie github.ref_name nie zmieniły się;
+- nie znaleziono regresji w poprawce odczytu briefu ani blokadzie symlinków;
+- nie otwieram osobnego findingu dla nazw z końcowym znakiem nowej linii,
+  ponieważ po komunikacie systemu bezpieczeństwa nie wykonywałem tego
+  sztucznego przypadku przez indeks Git.
+
+WARUNEK RE-AUDYTU R3
+- reproduktor F1 z brakiem refu bazowego;
+- payload tekstowy pod tasks/ niebędący dozwolonym raportem;
+- `app/**/*.py` obejmujące zarówno app/x.py, jak i app/sub/x.py;
+- celowane testy tylko zmienionych funkcji.
