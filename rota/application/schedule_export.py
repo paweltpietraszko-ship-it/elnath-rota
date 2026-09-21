@@ -197,16 +197,27 @@ def _covers_polish(font_name: str) -> bool:
 def _resolve_unicode_font() -> tuple[str, str, str]:
     if _FONT_REGULAR in pdfmetrics.getRegisteredFontNames() and _covers_polish(_FONT_REGULAR):
         return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
+    # ROTA-RAILWAY-PDF-MISSING-POLISH-FONT (temporary diagnostic, 2026-09-21):
+    # the fonts-dejavu-core Dockerfile fix didn't clear PRINT_FONT_UNAVAILABLE
+    # on Railway -- logging exactly which candidate paths exist/register/pass
+    # the Polish-glyph check, visible via `railway logs`, to find out why
+    # without needing production shell access.
+    diagnostics = []
     for regular, bold, italic in _font_candidates():
-        if not (regular.exists() and bold.exists() and italic.exists()):
+        exists = regular.exists() and bold.exists() and italic.exists()
+        if not exists:
+            diagnostics.append(f"{regular}: missing (exists={regular.exists()}/{bold.exists()}/{italic.exists()})")
             continue
         try:
             for name, path in zip((_FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC), (regular, bold, italic)):
                 pdfmetrics.registerFont(TTFont(name, str(path)))
-        except Exception:
+        except Exception as exc:
+            diagnostics.append(f"{regular}: registerFont failed: {exc!r}")
             continue
         if _covers_polish(_FONT_REGULAR):
             return _FONT_REGULAR, _FONT_BOLD, _FONT_ITALIC
+        diagnostics.append(f"{regular}: registered but fails Polish-glyph check")
+    print(f"PRINT_FONT_UNAVAILABLE diagnostics: {diagnostics}", flush=True)
     raise ExportProblemError("PRINT_FONT_UNAVAILABLE", "no runtime-resolvable font covers the required Polish glyph set")
 # PDF rendering (Section 18) -- accepted Checkpoint A visual baseline: A3 landscape, headers, grid, weekend cue, full legend.
 _FILL = {
