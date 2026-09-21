@@ -18,6 +18,7 @@ from rota.application.durable_inputs import (
     add_external_support_window,
     append_availability,
     generate_calendar_month,
+    generate_calendar_years,
     save_site_role,
     set_calendar_day,
     set_role_coverage_authorization,
@@ -81,6 +82,28 @@ def generate_month(payload: GenerateMonthRequest, conn=Depends(get_conn), coordi
         month_str = payload.month if len(payload.month) > 7 else f"{payload.month}-01"
         month_date = date.fromisoformat(month_str)
         created = generate_calendar_month(conn, coordinator_id=coordinator_id, site_id=payload.site_id, month=month_date)
+        return GenerateMonthResponse(created=created)
+    except Exception as exc:
+        raise to_http_exception(exc) from exc
+
+
+class GenerateYearsRequest(BaseModel):
+    start_month: str  # "YYYY-MM-01" or "YYYY-MM" -- normalized below
+    site_id: str  # any one of the coordinator's own site_ids -- auth only, never data scope
+    years: int = 3
+
+
+@calendar_router.post("/generate-years", response_model=GenerateMonthResponse)
+def generate_years(payload: GenerateYearsRequest, conn=Depends(get_conn), coordinator_id: str = Depends(get_coordinator_id)) -> GenerateMonthResponse:
+    """OWNER 2026-09-21: one click fills several years ahead instead of one
+    month at a time -- same fill-missing-only, never-overwrite semantics as
+    /generate, just looped (generate_calendar_years)."""
+    try:
+        month_str = payload.start_month if len(payload.start_month) > 7 else f"{payload.start_month}-01"
+        start_month_date = date.fromisoformat(month_str)
+        created = generate_calendar_years(
+            conn, coordinator_id=coordinator_id, site_id=payload.site_id, start_month=start_month_date, years=payload.years,
+        )
         return GenerateMonthResponse(created=created)
     except Exception as exc:
         raise to_http_exception(exc) from exc

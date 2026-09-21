@@ -585,33 +585,64 @@ def set_calendar_day(
             )
 
 
+def ensure_calendar_days_filled(conn, range_start: date, range_end: date) -> list[date]:
+    """ROTA-CALENDAR-AUTO-GENERATE (OWNER 2026-09-21): "ludzie nie będą
+    pamiętać, że trzeba wejść w kalendarz i go wygenerować -- nikt tak nie
+    robi." The ONE canonical fill-missing-only implementation, classifying
+    Polish public holidays via the `holidays` library -- generate_calendar_
+    month/generate_calendar_years (coordinator-triggered, audited) and
+    rota.application.assembler/bootstrap (silent auto-heal during a normal
+    read, no coordinator context required -- this is deterministic,
+    idempotent, judgment-free data, unlike target_hours or a real absence)
+    all call this instead of each deciding what counts as a holiday a
+    second way. Never overwrites an existing CalendarDay -- a coordinator's
+    own manual correction always wins. Returns the dates newly created (not
+    just a count) so a caller that needs to audit-log the exact set of
+    changes still can.
+
+    Same "no own `with conn:`" contract as write_calendar_day_in_open_
+    transaction (ROTA-T019b atomicity) -- a caller that needs this
+    atomic with other writes (generate_calendar_month's audit entry) wraps
+    it in its own `with conn:`; a standalone caller (assembler.py/
+    bootstrap.py's silent auto-heal) wraps it in a bare `with conn:` of its
+    own since there is nothing else to keep atomic with it there."""
+    if range_start > range_end:
+        raise ValueError(f"range_start {range_start} is after range_end {range_end}")
+    existing_dates = {d.date for d in list_calendar_days(conn, range_start, range_end)}
+    if len(existing_dates) == (range_end - range_start).days + 1:
+        return []  # every date in [range_start, range_end] already has a row
+    pl_holidays = holidays_lib.country_holidays("PL", years=list(range(range_start.year, range_end.year + 1)))
+    created: list[date] = []
+    cursor = range_start
+    while cursor <= range_end:
+        if cursor not in existing_dates:
+            write_calendar_day_in_open_transaction(conn, CalendarDay(cursor, cursor in pl_holidays))
+            created.append(cursor)
+        cursor += timedelta(days=1)
+    return created
+
+
 def generate_calendar_month(
     conn, *, coordinator_id: str, site_id: str, month: date,
     note: str | None = None, responds_to_decision_required_id: str | None = None,
 ) -> int:
     """ROTA-T064 (brief.md section 4): fill-missing-only batch generation for
-    one calendar month, classifying Polish public holidays via the
-    `holidays` library. Never overwrites a CalendarDay that already exists
-    -- a coordinator's manual correction (or an earlier generate) always
-    wins. Returns the count of dates newly created."""
+    one calendar month -- coordinator-triggered counterpart to the silent
+    auto-heal in assembler.py/bootstrap.py, sharing the same
+    ensure_calendar_days_filled implementation. Never overwrites a
+    CalendarDay that already exists -- a coordinator's manual correction
+    (or an earlier generate) always wins. Returns the count of dates newly
+    created."""
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     if month.day != 1:
         raise ValueError(f"month {month} is not the first day of its month")
     recorded_at = datetime.now()
     month_end = _add_month(month) - timedelta(days=1)
-    existing_dates = {d.date for d in list_calendar_days(conn, month, month_end)}
-    pl_holidays = holidays_lib.country_holidays("PL", years=[month.year])
-    created: list[date] = []
     with conn:
         site_memory.validate_decision_required_link_no_commit(
             conn, responds_to_decision_required_id=responds_to_decision_required_id, origin_site_id=site_id,
         )
-        cursor = month
-        while cursor <= month_end:
-            if cursor not in existing_dates:
-                write_calendar_day_in_open_transaction(conn, CalendarDay(cursor, cursor in pl_holidays))
-                created.append(cursor)
-            cursor += timedelta(days=1)
+        created = ensure_calendar_days_filled(conn, month, month_end)
         if created:
             affected_site_ids = [s.site_id for s in list_sites(conn)]
             _record_action_and_invalidate_no_commit(
@@ -624,6 +655,27 @@ def generate_calendar_month(
                 responds_to_decision_required_id=responds_to_decision_required_id, invalidate_months=[month],
             )
     return len(created)
+
+
+def generate_calendar_years(
+    conn, *, coordinator_id: str, site_id: str, start_month: date, years: int = 3,
+) -> int:
+    """OWNER 2026-09-21: a coordinator forgetting to generate a future
+    month's calendar before PLAN (IncompleteCalendarData) is a real,
+    recurring failure mode -- "nie spotkałem się z takim rozwiązaniem jak
+    żyję 60 lat" -- so one click here fills years ahead instead of one
+    month at a time. Reuses generate_calendar_month unchanged, once per
+    month in the range -- never reimplements its fill-missing-only/PL-
+    holiday logic a second way (see feedback: reuse means calling, not
+    relocating)."""
+    if start_month.day != 1:
+        raise ValueError(f"start_month {start_month} is not the first day of its month")
+    total_created = 0
+    cursor = start_month
+    for _ in range(years * 12):
+        total_created += generate_calendar_month(conn, coordinator_id=coordinator_id, site_id=site_id, month=cursor)
+        cursor = _add_month(cursor)
+    return total_created
 
 
 def _profile_planning_fields(p):

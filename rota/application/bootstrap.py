@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from rota.application.context import require_active_coordinator_context
+from rota.application.durable_inputs import ensure_calendar_days_filled
 from rota.application.errors import CoordinatorContextAlreadyActive, InvalidCoordinatorContext
 from rota.domain import (
     Coordinator,
@@ -330,13 +331,25 @@ def month_plan_readiness(conn, *, coordinator_id: str, site_id: str, month: date
     completeness = coordinator_context_completeness(conn, coordinator_id=coordinator_id, site_id=site_id)
     missing = list(completeness.missing)
 
+    # ROTA-CALENDAR-AUTO-GENERATE (OWNER 2026-09-21): "ludzie nie będą
+    # pamiętać, że trzeba wejść w kalendarz i go wygenerować" -- silently
+    # self-heal here too (same ensure_calendar_days_filled assembler.py
+    # uses), so the "Konfiguracja niepełna" badge this feeds never fires
+    # for a missing calendar in the first place. No audit entry: nobody
+    # decided anything, this is deterministic system upkeep, not a
+    # coordinator action.
     days_in_month = _calendar.monthrange(month.year, month.month)[1]
     range_start = date(month.year, month.month, 1)
     range_end = date(month.year, month.month, days_in_month)
+    with conn:
+        ensure_calendar_days_filled(conn, range_start, range_end)
     existing_days = {d.date for d in list_calendar_days(conn, range_start, range_end)}
     for day in range(1, days_in_month + 1):
         current = date(month.year, month.month, day)
         if current not in existing_days:
+            # Defensive only -- ensure_calendar_days_filled above should
+            # make this unreachable in practice; kept as a fail-closed
+            # safety net (see assembler.py's own identical comment).
             missing.append(f"missing CalendarDay for {current.isoformat()}")
 
     target_hours_warnings: list[str] = []

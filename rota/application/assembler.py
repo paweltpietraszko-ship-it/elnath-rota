@@ -1,16 +1,20 @@
 """ONE CANONICAL PLANNINGSTATE ASSEMBLER (tasks/ROTA-T009/brief.md).
 
-Read-only. Builds a PlanningState for (site_id, month) from LocalStore, or
-(when shift_demands/assignments/deviations are supplied directly) around a
-prepared-but-not-yet-persisted ScheduleVersion snapshot -- used by the
-atomic manual-correction flow (review_02_architect_clarification.md) to
-validate a child before it is ever written.
+Read-only, with ONE deliberate exception: `_assemble_calendar` below may
+silently fill missing CalendarDay rows for the month being assembled
+(ROTA-CALENDAR-AUTO-GENERATE, OWNER 2026-09-21). Builds a PlanningState for
+(site_id, month) from LocalStore, or (when shift_demands/assignments/
+deviations are supplied directly) around a prepared-but-not-yet-persisted
+ScheduleVersion snapshot -- used by the atomic manual-correction flow
+(review_02_architect_clarification.md) to validate a child before it is
+ever written.
 """
 from __future__ import annotations
 
 import calendar
 from datetime import date, datetime
 
+from rota.application.durable_inputs import ensure_calendar_days_filled
 from rota.application.errors import IncompleteCalendarData, ScheduleVersionContextMismatch
 from rota.balance import MissingTargetHoursError, quarter_start
 from rota.domain import (
@@ -83,11 +87,16 @@ def generate_profile_demands(profile, month: date, role_names: dict[str, str] | 
 def _assemble_calendar(conn, month: date) -> tuple[CalendarDay, ...]:
     days = calendar.monthrange(month.year, month.month)[1]
     range_start, range_end = date(month.year, month.month, 1), date(month.year, month.month, days)
+    with conn:
+        ensure_calendar_days_filled(conn, range_start, range_end)
     rows = {day.date: day for day in list_calendar_days(conn, range_start, range_end)}
     result = []
     for day in range(1, days + 1):
         current = date(month.year, month.month, day)
         if current not in rows:
+            # Defensive only -- ensure_calendar_days_filled above should
+            # make this unreachable in practice; kept as a fail-closed
+            # safety net.
             raise IncompleteCalendarData(f"missing CalendarDay for {current}")
         result.append(rows[current])
     return tuple(result)
