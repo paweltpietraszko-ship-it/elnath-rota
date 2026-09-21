@@ -3,6 +3,7 @@ import type { View } from "../App";
 import { api, PickableEmployee, RosterRow, SiteRoleOut } from "../api/client";
 import PrintSettings from "./PrintSettings";
 import SiteDelegationSettings from "./SiteDelegationSettings";
+import SiteRolling7dLimit from "./SiteRolling7dLimit";
 import SiteShiftCatalog from "./SiteShiftCatalog";
 
 export default function ControlPanel({
@@ -127,6 +128,7 @@ export default function ControlPanel({
           <SiteShiftCatalog siteId={siteId} respondsToDecisionRequiredId={decisionContext?.decisionRequiredId ?? null} onRolesChanged={load} />
           <PrintSettings siteId={siteId} workingMonth={workingMonth} />
           <SiteDelegationSettings siteId={siteId} />
+          {planningRegime === "OCHRONA" && <SiteRolling7dLimit siteId={siteId} />}
         </>
       )}
 
