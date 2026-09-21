@@ -1,39 +1,47 @@
 # Instalacja dodatku Elnath Rota (jednorazowo, na komputerze użytkownika)
 
-Ten dokument opisuje jednorazową instalację dodatku, wykonywaną przez
-zaufaną osobę (administratora), nie przez samego użytkownika przy
-każdym uruchomieniu.
-
 ## 1. Wymagania
 
 - Klasyczny, desktopowy Microsoft Excel (nie Excel Online).
 - Dostęp do internetu na tym komputerze.
-- Adres uruchomionej usługi Rota (np. `https://twoja-rota.up.railway.app/api`).
 - Klucz dostępu wydany przez administratora Roty
-  (`python -m api.provision_account issue-api-key <email>`).
+  (`python -m api.provision_account issue-api-key <email>`) — administrator
+  przesyła go użytkownikowi razem z linkiem do instalatora, np. mailem.
 
-## 2. Instalacja dodatku
+## 2. Instalacja (dla użytkownika: jedno kliknięcie)
 
-1. Skopiuj `ELNATH_ROTA_ADDIN.xlam` na komputer użytkownika, np. do
-   `%APPDATA%\Microsoft\AddIns\`.
-2. W Excelu: **Plik → Opcje → Dodatki → Zarządzaj: Dodatki programu
-   Excel → Przejdź…**.
-3. **Przeglądaj…**, wskaż skopiowany plik `ELNATH_ROTA_ADDIN.xlam`,
-   zaznacz go na liście i zatwierdź.
-4. Dodatek jest teraz załadowany przy każdym uruchomieniu Excela —
-   ten krok wykonuje się raz, nie przy każdym pliku grafiku.
+1. Pobierz i uruchom `ElnathRotaSetup.exe` (przesłany przez administratora).
+2. Wklej klucz dostępu, gdy instalator o niego poprosi. Adres usługi Rota
+   jest już wpisany — zwykle nic tam nie trzeba zmieniać.
+3. Instalator sam wybiera, gdzie zapisać plik grafiku (domyślnie
+   `Dokumenty\Elnath Rota`) — można to zmienić na ekranie instalatora.
+4. Gotowe. Dodatek ładuje się teraz automatycznie przy każdym uruchomieniu
+   Excela — nic więcej nie trzeba robić ręcznie (żadnego okna Dodatki,
+   żadnego uruchamiania makra).
 
-## 3. Konfiguracja adresu usługi i klucza dostępu
+Instalator kopiuje `ELNATH_ROTA_ADDIN.xlam` do `%APPDATA%\Microsoft\Excel\
+XLSTART` — to domyślnie zaufane miejsce startowe Excela, więc dodatek
+ładuje się bez monitu o zabezpieczeniach i bez ręcznej rejestracji. Klucz
+dostępu i adres usługi zapisuje w tym samym miejscu w rejestrze, którego
+używa makro `RotaConfigure` — jakby użytkownik uruchomił je sam.
 
-1. W dowolnym otwartym skoroszycie: **Deweloper → Makra** (albo
-   `Alt+F8`), wybierz `ElnathRotaAddin.RotaConfigure`, **Uruchom**.
-2. Wpisz adres usługi Rota, potem klucz dostępu wydany przez
-   administratora.
-3. Dane są zapisywane lokalnie dla tego użytkownika Windows (rejestr,
-   nigdy w pliku `.xlsx`) — użytkownik nie wpisuje ich ponownie przy
-   kolejnych uruchomieniach.
+### Dla administratora: jak zbudować `ElnathRotaSetup.exe`
 
-## 4. Przygotowanie pliku grafiku
+Źródło instalatora: `excel/installer/ElnathRotaSetup.nsi`, zbudowane
+narzędziem [NSIS](https://nsis.sourceforge.io/) (darmowe, także
+komercyjnie — licencja zlib/libpng, w odróżnieniu od Inno Setup 6.5+,
+które od pewnej wersji wymaga płatnej licencji komercyjnej). Instalacja
+NSIS: `winget install NSIS.NSIS` albo strona projektu. Budowa:
+
+```
+makensis excel\installer\ElnathRotaSetup.nsi
+```
+
+Efekt: `excel\installer\ElnathRotaSetup.exe` — jeden plik do przesłania
+użytkownikowi. Jeśli adres usługi Rota kiedyś się zmieni, edytuj stałą
+`SERVICE_URL_DEFAULT` na górze `.nsi` i zbuduj ponownie.
+
+## 3. Przygotowanie pliku grafiku
 
 1. Rozdaj użytkownikowi jego kopię `ELNATH_ROTA_TEMPLATE.xlsx`
    (`excel/ELNATH_ROTA_TEMPLATE.xlsx`) — plik bez makr, zgodny z
@@ -48,7 +56,7 @@ każdym uruchomieniu.
    - „Użyj tego grafiku” → `ElnathRotaAddin.RotaUseSelectedCandidate`
    - „Odśwież grafik” → `ElnathRotaAddin.RotaRefreshSchedule`
 
-## 5. Procedura smoke-testu (manualna, po instalacji)
+## 4. Procedura smoke-testu (manualna, po instalacji)
 
 1. Otwórz przygotowany plik grafiku.
 2. Uzupełnij cel godzinowy w tabeli `Pracownicy` dla realnych
@@ -66,10 +74,12 @@ każdym uruchomieniu.
 To jest jedyny wymagany dowód instalacyjny — automatyzacja całego GUI
 Office w CI nie jest wymagana (brief.md sekcja 10).
 
-## 6. Rozwiązywanie problemów
+## 5. Rozwiązywanie problemów
 
-- **„Dodatek nie jest jeszcze skonfigurowany”** — uruchom ponownie
-  `RotaConfigure` (krok 3).
+- **„Dodatek nie jest jeszcze skonfigurowany”** — instalator zwykle się
+  tym zajął; jeśli mimo to się pojawia, uruchom ponownie instalator
+  (wklej klucz jeszcze raz), albo ręcznie: **Deweloper → Makra** (`Alt+F8`)
+  → `ElnathRotaAddin.RotaConfigure` → **Uruchom**.
 - **„Brak połączenia z usługą Rota”** — sprawdź internet i adres
   usługi.
 - **„Nieprawidłowy lub unieważniony klucz dostępu”** — poproś
