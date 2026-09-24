@@ -206,3 +206,20 @@ Odłożone opcje: (1) podpisanie przez Azure Artifact Signing (ok. 10 USD/mies.,
 ## 2026-09-21 Sentry (zbieranie błędów z żywej aplikacji na Railway)
 
 Pomysł: Sentry (MCP jest podłączony) zbiera błędy testerów ze śladem miejsca w kodzie, bez ręcznych zgłoszeń; CC czyta je przez MCP. Darmowy plan wystarcza na kilku testerów, ale powtarzający się błąd może zużyć limit -- potrzebny filtr. Wymaga zmiany w kodzie Roty (biblioteka `sentry-sdk` + klucz DSN w zmiennych Railway), czyli osobnego briefu i audytu. Przy prawdziwych danych osobowych wyłączyć wysyłanie danych osobowych i sprawdzić, czy ślady ich nie zawierają. Decyzja Pawła: odłożone do pierwszych testerów, żeby nie odciągać od harnessu Agenta. Wrócić, gdy testerzy zaczną używać Roty.
+
+---
+
+## 2026-09-24 34 stabilne porażki testów na main -- to NIE błędy produktu, naprawa testów w jednym bloku później
+
+Pełna suita na `main@1143eea` (`.venv\Scripts\python.exe -m pytest tests`): 34 failed / 1465 passed. Diagnoza CC (bisect po commitach + eksperyment w tymczasowych worktree, nic w repo nie zmieniono): **żadna porażka nie jest regresją produktu.** Decyzja Pawła: testy naprawiamy dopiero, gdy tester da powód do zmian w Rocie, wtedy jednym blokiem (jedno zadanie testowe: brief, lekki audyt Codexa, pełna suita przed merge). Do tego czasu nie ruszać i nie odkrywać od nowa (pełna suita ~4 min).
+
+Podział:
+- **26 testów** -- pomocnicze fixtury (`tests/support/minimal_state.py`, `state_builder.py`, `real_object_production.py` + jawne `planning_regime=ORDINARY` w `test_t010_day_only_n_exception`, `test_audit_t010_r3`, `test_audit_t010_r5_b`, `test_t017`) tworzą sklep ORDINARY, a testy oczekują reguł OCHRONA (DAY_ONLY, nocki). Od commita `4274011` (2026-09-13, decyzja OWNERA + T065 brief §8, kryterium T65-A5) reguły D/N w sklepie celowo nie działają. Naprawa: przypiąć fixtury do OCHRONA -- sprawdzone w kopii (26/26 przechodzi). Uwaga: zmiana wspólnego `minimal_state.py` dotyka reszty suity -- albo przypinać per plik, albo pełna suita przed merge. Wzór już istnieje w `test_site_rules_execution.py::base_state`.
+- **3 testy** (`test_site_memory_decision_ledger`, `test_site_profile_persistence`, `test_site_rules_execution` -- "planning has no persistence coupling"): fałszywy alarm, `rota/planning/availability.py` ma tekst `rota.persistence` tylko w komentarzu (linia 10), bez importu.
+- **2 testy** `test_t021_screen2_r12/r13_audit`: czytają `EmployeeDetail.tsx`, a edycja/przywracanie absencji jest w `EmployeeAvailability.tsx` (funkcja istnieje).
+- **1 test** `test_t026::test_t26_18`: sprawdza źródło `schedule_export`, logika absencji jest w `schedule_projection` (`_winning_days` nieobecne w obu).
+- **1 test** `test_t023_checkpoint_b::test_t23_54...`: jednorazowy dowód git-diff względem starej bazy, pada od przed 2026-09-12; do usunięcia.
+- **1 test** `test_excel_external_api::test_missing_target_hours...`: test buduje OCHRONA, a od decyzji OWNERA 2026-09-20 (`ROTA-OCHRONA-EQUITY-SURGICAL-FIX`) OCHRONA jest zwolniona z bramki godzin docelowych; potrzebny site ORDINARY.
+- **1 test** `test_t024_auth_isolation::test_no_wide_users_router...` (405 zamiast 404): zależy od lokalnego, gitignorowanego `frontend/dist` (statyczny serwer odpowiada 405); bez `dist` przechodzi.
+
+Nie sprawdzone: czy 2 testy `test_manual_audits` i `test_replan_minimal_reshuffle` mają dodatkowe, niezależne przyczyny -- po przypięciu fixtur przechodzą, ale nie prześledzono ich warunków początkowych. Część 2 planu ("czy program jest skończony" -- przeklikanie prawdziwego scenariusza na żywo) odłożona razem z tym; onboarding w Maestro nie zależy od tych testów. Kontekst: rozmowa 2026-09-24, `arch/FINDING_2026-09-24_TEST_SUITE_34_STABLE_FAILURES.md` (Maestro).
