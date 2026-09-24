@@ -67,3 +67,6 @@ deploy/accounts_credentials.txt
 .env
 .env.*
 !.env.example
+# Maestro's per-repo config holds the Bridge token; .maestro/ holds working briefs
+.maestro.json
+.maestro/
