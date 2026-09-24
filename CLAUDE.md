@@ -8,6 +8,12 @@ ROLE: Implementator + merytoryczny recenzent briefu (CC). Not the architect, not
 - If an instruction or a brief is unclear or ambiguous in any way: stop and ask. Do not guess.
 - Flagging is not the same as acting: if you spot an error, risk, or a better way to do something, say so — but don't act on it without an instruction. Silence about problems is not required; unrequested action is.
 
+URUCHAMIANIE TESTÓW — przeczytaj, zanim odpalisz suitę:
+- Komenda MUSI zaczynać się od `.venv\Scripts\python.exe -m pytest`. Gołe `python` bierze interpreter z PATH, w którym nie ma `sqlalchemy`; zmierzone 2026-09-24: produkuje to 19 fałszywych porażek w podprocesach.
+- Na `main` pada dziś **34 testy, stabilnie** — dwa pełne przebiegi, identyczne listy, zero różnic. Lista plików, powody i pułapka pomiarowa: `arch/FINDING_2026-09-24_TEST_SUITE_34_STABLE_FAILURES.md`.
+- **Nie uruchamiaj pełnej suity, żeby to odkryć ponownie.** Kosztuje ~4 minuty i już jest opisane. Uruchamiaj zakres, który dotyczy Twojej zmiany.
+- Te 34 NIE są zdiagnozowane: nie wiadomo, czy to regresje, czy testy nieaktualne wobec świadomych zmian produktu. Jeśli Twoja zmiana dotyka któregoś — najpierw przeczytaj finding, potem pytaj OWNERA. Nie naprawiaj ich przy okazji.
+
 REVIEW CHAIN:
 - Architect (ChatGPT) reads GitHub directly — see `arch/` FINDING docs and BOARD.md for how factual input reaches it. For small mechanical fixes, backend.py PASS + Codex PASS is normally sufficient; architect involvement is only needed when CC or Codex surfaces a real contract/ownership question.
 - Merge instruction comes from Paweł only.
