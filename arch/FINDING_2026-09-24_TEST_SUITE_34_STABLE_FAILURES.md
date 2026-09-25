@@ -1,8 +1,14 @@
 # FINDING 2026-09-24 — 34 stabilne porażki testów na `main`, niezdiagnozowane
 
-STATUS: pomiar, NIE diagnoza. Nie twierdzę, że to regresje. Nie twierdzę, że
-to nieaktualne testy. Z zewnątrz jedno i drugie wygląda identycznie i
-rozstrzyga to wyłącznie czytanie briefów, czego ta notatka nie zrobiła.
+STATUS: pomiar, **ZDIAGNOZOWANY PÓŹNIEJ TEGO SAMEGO DNIA** — diagnoza jest w
+`ODLOZONE.md`, sekcja „2026-09-24 34 stabilne porażki testów na main". Inna
+sesja zrobiła bisect po commitach i eksperymenty w tymczasowych worktree:
+**żadna z 34 nie jest błędem produktu — to przestarzałe testy.** Naprawa
+odłożona do jednego bloku po opiniach testera.
+
+Ta notatka zostaje jako zapis pomiaru i pułapki z interpreterem. Diagnozy tu
+nie powtarzam — dwie kopie jednego ustalenia z czasem zaczną mówić co innego.
+Obowiązuje `ODLOZONE.md`.
 
 DATA: bez związku z danymi osobowymi; pomiar na kodzie, patrz
 `arch/DATA_STATUS.md`.
@@ -64,13 +70,13 @@ nie jeden zepsuty moduł.
 Kilka z nich siedzi w plikach `test_audit_*`, czyli w testach regresyjnych
 pisanych po to, by zamrozić poprawki znalezione przez audytora.
 
-## Czego ta notatka NIE ustala
+## Czego ta notatka NIE ustalała (rozstrzygnięte w `ODLOZONE.md`)
 
 - czy którakolwiek z tych porażek to regresja funkcjonalna
 - czy którakolwiek to test nieaktualny wobec świadomej zmiany produktu
 - czy `main` jest sprawny dla użytkownika — nie uruchomiono aplikacji
 
-## Co by to rozstrzygnęło
+## Co by to rozstrzygnęło (zrobione — patrz `ODLOZONE.md`)
 
 Dla każdej z 34: znaleźć brief lub decyzję OWNERA, która ustaliła zachowanie
 sprawdzane przez ten test, i porównać z tym, co robi kod dziś. Zgodne z
