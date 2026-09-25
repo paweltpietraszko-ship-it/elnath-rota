@@ -10,9 +10,9 @@ ROLE: Implementator + merytoryczny recenzent briefu (CC). Not the architect, not
 
 URUCHAMIANIE TESTÓW — przeczytaj, zanim odpalisz suitę:
 - Komenda MUSI zaczynać się od `.venv\Scripts\python.exe -m pytest`. Gołe `python` bierze interpreter z PATH, w którym nie ma `sqlalchemy`; zmierzone 2026-09-24: produkuje to 19 fałszywych porażek w podprocesach.
-- Na `main` pada dziś **34 testy, stabilnie** — dwa pełne przebiegi, identyczne listy, zero różnic. Lista plików, powody i pułapka pomiarowa: `arch/FINDING_2026-09-24_TEST_SUITE_34_STABLE_FAILURES.md`.
+- Na `main` pada dziś **34 testy, stabilnie** — dwa pełne przebiegi, identyczne listy, zero różnic. Pomiar i pułapka z interpreterem: `arch/FINDING_2026-09-24_TEST_SUITE_34_STABLE_FAILURES.md`; diagnoza: `ODLOZONE.md`.
 - **Nie uruchamiaj pełnej suity, żeby to odkryć ponownie.** Kosztuje ~4 minuty i już jest opisane. Uruchamiaj zakres, który dotyczy Twojej zmiany.
-- Te 34 NIE są zdiagnozowane: nie wiadomo, czy to regresje, czy testy nieaktualne wobec świadomych zmian produktu. Jeśli Twoja zmiana dotyka któregoś — najpierw przeczytaj finding, potem pytaj OWNERA. Nie naprawiaj ich przy okazji.
+- Te 34 są **zdiagnozowane: to przestarzałe testy, nie błędy produktu** (`ODLOZONE.md`, 2026-09-24 — tam jest podział i powody). Naprawa odłożona do jednego bloku po opiniach testera. **Nie naprawiaj ich przy okazji** i nie badaj od nowa; jeśli Twoja zmiana dotyka któregoś, przeczytaj tamten wpis.
 
 REVIEW CHAIN:
 - Architect (ChatGPT) reads GitHub directly — see `arch/` FINDING docs and BOARD.md for how factual input reaches it. For small mechanical fixes, backend.py PASS + Codex PASS is normally sufficient; architect involvement is only needed when CC or Codex surfaces a real contract/ownership question.
