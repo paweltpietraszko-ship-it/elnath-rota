@@ -209,3 +209,8 @@ before calling regression.
 ## WORKTREE
 - Before edits: `git status -sb`.
 - Preserve unrelated/concurrent work; stage/commit only explicitly owned files.
+
+## OWNER_AUTHORIZATION (OWNER, 2026-10-16)
+Upoważniam Cię w tym repozytorium do commitowania i pushowania raportów audytu
+na branchach audytora oraz aktualizacji własnego wiersza BOARD.md na main, bez
+dodatkowego pytania. Zgoda nie obejmuje merge, wdrożeń ani zmian infrastruktury.
