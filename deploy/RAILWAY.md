@@ -44,6 +44,14 @@ Ustaw w **Settings → Variables**:
 | `ROTA_ACCOUNTS_DB_DIR` | `/data/accounts` | katalog z bazą każdego konta |
 | `ROTA_ALLOWED_ORIGINS` | `https://<twoj-adres>.up.railway.app` | pozwala przeglądarce łączyć się z API (ustaw PO pierwszym deployu, gdy już znasz adres) |
 
+**Strefa czasowa (ROTA-CLOUD-REVIEW-FIXES F5):** `Dockerfile` ustawia
+`TZ=Europe/Warsaw` i instaluje `tzdata`, bo cała Rota liczy w polskim czasie
+ściennym (ochrona rozpoczętej służby, domyślne „Obowiązuje od"). **Nie
+ustawiaj zmiennej `TZ` w panelu Railway** — nadpisałaby tę z obrazu.
+Sprawdzenie: `railway variables --kv | grep -i "^TZ="` ma nic nie zwracać;
+po wdrożeniu `railway ssh date` (albo podgląd czasu w logach) pokazuje czas
+polski (CET zimą, CEST latem).
+
 **Nigdy nie wpisuj tych wartości do repo/gita** — tylko w panelu Railway.
 Wygeneruj każdy sekret osobno lokalnie:
 
@@ -74,6 +82,42 @@ railway run python -m api.provision_account create <email> <haslo> <coordinator_
 
 `plik_bazy` musi być unikalny dla każdego konta (np. `uzytkownik_001.db`)
 — to granica izolacji między kontami, patrz `api/provision_account.py`.
+
+## Migracja z railway.json (ROTA-CLOUD-REVIEW-FIXES R, termin: przed 2026-12-01)
+
+Railway wycofuje `railway.json` (Config as Code) — działa do **2026-12-01**. Następca:
+`.railway/railway.ts` (Infrastructure as Code, opis w `.railway/README.md`).
+
+**Stan sprawdzony 2026-10-16 (`railway config pull --json`, bez wartości sekretów):**
+serwis `elnath-rota`, repo `paweltpietraszko-ship-it/elnath-rota` gałąź `main`, dysk
+`elnath-rota-volume` pod `/data` (5000 MB), region `us-east4-eqdc4a`, 1 replika, domena
+`elnath-rota-production.up.railway.app`, 6 zmiennych `ROTA_*`. **Builder samego serwisu to
+RAILPACK** — Dockerfile wymusza dziś wyłącznie `railway.json`.
+
+**Pułapki znalezione podglądem (`railway config plan`, nic nie zastosowano):**
+1. Plik z `railway config migrate` zostawia Dockerfile tylko jako komentarz → po wyłączeniu
+   `railway.json` serwis budowałby się Railpackiem (bez czcionek PDF, strefy czasu i frontu).
+2. Ten sam plik pomija zmienne, dysk i repo → plan: **usuń 6 zmiennych (w tym
+   `ROTA_CENTRAL_KEK` — klucz szyfrujący dane osobowe), odepnij `/data`, odepnij repo**.
+   Pominięte pole = usuń, nie „zostaw”.
+
+Gotowy `.railway/railway.ts` (import `config pull` + jawny Dockerfile) daje plan:
+`0 to add, 1 to change, 0 to destroy` — tylko `build.builder → DOCKERFILE`.
+
+**Kolejność przejścia (każdy krok wymaga zgody Ownera, nic nie dzieje się samo):**
+1. Merge tego Tasku — `railway.json` **zostaje**, wdrożenia działają jak dotąd.
+2. `cd .railway && npm ci`, potem z katalogu repo: `railway config plan`. Musi pokazać
+   dokładnie jedną zmianę `build.builder → DOCKERFILE` i **0 to destroy**. Każda inna linia
+   (zwłaszcza „Delete variable” albo zmiana `volumeAttachments`) = STOP, nic nie stosować.
+3. Po zgodzie: `railway config apply` — builder serwisu staje się DOCKERFILE na stałe.
+4. Wyłączenie starego pliku: w panelu serwisu wyczyścić ścieżkę „Config as Code”
+   (albo `railway config migrate --apply` — ono samo czyści to ustawienie; **bez**
+   `--include-variables`), potem osobny mały PR usuwa `railway.json`.
+5. Redeploy i sprawdzenie: `/api/health` → ok, logowanie, otwarcie grafiku, wydruk PDF
+   z polskimi znakami, `railway ssh date` → czas polski.
+
+Wycofanie: do kroku 3 nic się nie zmienia na Railway. Po kroku 3 wystarczy przywrócić
+`railway.json` (lub ustawić builder w panelu) — dysk, bazy i zmienne nie są dotykane.
 
 ## Co NIE jest jeszcze zrobione tym Taskiem
 

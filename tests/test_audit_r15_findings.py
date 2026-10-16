@@ -28,7 +28,20 @@ from rota.domain import (
 )
 from rota.planning.engine import plan
 from rota.planning.solver import SolverOutcome
-from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, base_state
+from tests.support.minimal_state import ReadinessSource, ReadinessState, SITE_ID, PROFILE_ID
+from tests.support.minimal_state import base_state as _base_state
+from rota.domain import Site, SitePlanningRegime
+
+def base_state(**overrides):
+    """ROTA-CLOUD-REVIEW-FIXES T: this file tests OCHRONA D/N/DAY_ONLY rules;
+    minimal_state's neutral default site is ORDINARY, where D/N carries no
+    legal meaning since T065 (dn_semantics_apply). Pin OCHRONA locally,
+    same pattern as tests/test_site_rules_execution.py."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
+
 
 DEMAND_D = ShiftDemand("2026-10-01-D", "test-v1", datetime(2026, 10, 1, 5, 0), datetime(2026, 10, 1, 17, 0), 1)
 DEMAND_N = ShiftDemand("2026-10-01-N", "test-v1", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0), 1)

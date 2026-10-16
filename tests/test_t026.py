@@ -13,6 +13,7 @@ from datetime import date, datetime
 import pytest
 
 import rota.application.schedule_export as schedule_export_module
+import rota.application.schedule_projection as schedule_projection_module
 import rota.planning.absence as absence_module
 import rota.planning.engine as engine_module
 from rota.application import plan_ops
@@ -157,10 +158,15 @@ def test_t26_17_missing_status_raises_canonical_error() -> None:
 
 
 def test_t26_18_schedule_export_has_no_local_precedence_or_duration_sum() -> None:
-    source = inspect.getsource(schedule_export_module)
-    assert "canonical_site_absence_days" in source
-    assert "_winning_days" not in source
-    assert not hasattr(schedule_export_module, "_winning_days")
+    # ROTA-CLOUD-REVIEW-FIXES T: the absence assembly moved from
+    # schedule_export into schedule_projection (export only renders the
+    # projection); the canonical single-precedence owner is checked where it
+    # now lives, and neither module may grow a local precedence again.
+    projection_source = inspect.getsource(schedule_projection_module)
+    assert "canonical_site_absence_days" in projection_source
+    for module in (schedule_export_module, schedule_projection_module):
+        assert "_winning_days" not in inspect.getsource(module)
+        assert not hasattr(module, "_winning_days")
 
 
 def test_t26_19_absence_module_imports_no_persistence() -> None:

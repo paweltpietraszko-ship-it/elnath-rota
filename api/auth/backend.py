@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends
-from fastapi_users import FastAPIUsers
+from fastapi_users import FastAPIUsers, InvalidPasswordException
 from fastapi_users.authentication import AuthenticationBackend, CookieTransport, JWTStrategy
 
 from api.auth.api_key import create_api_key
@@ -19,6 +19,7 @@ from api.auth.manager import UserManager, get_user_manager
 from api.auth.models import User
 from api.auth.schemas import ApiKeyIssuedOut, PasswordChangeRequest, UserRead, UserUpdate
 from api.config import AUTH_SECRET
+from api.errors import public_http_exception
 from sqlalchemy.ext.asyncio import AsyncSession
 
 COOKIE_MAX_AGE_SECONDS = 60 * 60 * 8  # 8h session -- ordinary workday length, no "remember me"
@@ -77,7 +78,16 @@ async def change_own_password(
     # directly let a password-only endpoint silently change the login
     # email. The actual hash/update still delegates entirely to the
     # library's own UserManager -- no Rota-side password logic.
-    return await user_manager.update(UserUpdate(password=payload.password), user, safe=True)
+    # ROTA-CLOUD-REVIEW-FIXES F7: the current password is verified with the
+    # library's own password helper first; length lives in
+    # UserManager.validate_password (shared with provisioning/reset).
+    verified, _ = user_manager.password_helper.verify_and_update(payload.current_password, user.hashed_password)
+    if not verified:
+        raise public_http_exception(400, "Obecne hasło jest nieprawidłowe.")
+    try:
+        return await user_manager.update(UserUpdate(password=payload.password), user, safe=True)
+    except InvalidPasswordException as exc:
+        raise public_http_exception(400, str(exc.reason)) from exc
 
 
 @me_router.post("/me/excel-api-key", response_model=ApiKeyIssuedOut)

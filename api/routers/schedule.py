@@ -17,6 +17,7 @@ from api.decision_payload import DecisionRequiredPayloadOut, decision_payload_ou
 from api.deps import get_conn, get_coordinator_id
 from api.errors import to_http_exception
 from api.runtime_log import log_runtime_error
+from api.schedule_validation_messages import describe_violations
 from rota.application.assembler import assemble_planning_state
 from rota.application.lifecycle_ops import delete_current_version, exclude_from_history, finalize, restore, revalidate
 from rota.application.memory_read import current_decision_required
@@ -66,6 +67,17 @@ _DEVIATION_LABELS = {
     "SHIFT-24-PAIR-01": "niekompletna para 24h",
     # ROTA-T058 (brief section 2.2, "wąski limit jednej polskiej etykiety").
     "THIRD-CONSECUTIVE-SHIFT-01": "trzecia służba pod rząd",
+    # ROTA-CLOUD-REVIEW-FIXES F1.
+    "NIGHT-STREAK-01": "trzecia nocka pod rząd",
+    # ROTA-CLOUD-REVIEW-FIXES F6: every remaining code the validator emits,
+    # so the month banner never shows a raw rule code.
+    "ROLE-01": "brak wymaganej roli",
+    "UNAVAILABLE_24H-01": "niedostępność na służbę 24h",
+    "UNAVAILABLE_TIME-01": "niedostępność w tych godzinach",
+    "SITE_RULE-01": "reguła obiektu niemożliwa do sprawdzenia dla tej zmiany",
+    "WORK_PERIOD-01": "nieprawidłowo złożony okres pracy",
+    "FULL_HOUR-01": "zmiana nie zaczyna się lub nie kończy o pełnej godzinie",
+    "ASSIGN": "nieprawidłowe przypisanie osoby szkolonej",
     # ROTA-DELEGACJA-ABSENCE-KIND brief.md section 5.
     "DELEGACJA-01": "delegacja",
 }
@@ -416,6 +428,7 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
         assignments: list = []
         deviations: list = []
         assignment_employee_ids: set[str] = set()
+        violation_messages: list[str] = []
         if current is not None:
             _, snapshot = current
             employee_ids = list({a.employee_id for a in snapshot.assignments})
@@ -424,6 +437,19 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
             demands = [_demand_out(d) for d in snapshot.shift_demands]
             assignments = [_assignment_out(a, employees_by_id) for a in snapshot.assignments]
             deviations = [_deviation_out(d) for d in snapshot.deviations]
+            # ROTA-CLOUD-REVIEW-FIXES F6/O4: every violation the read already
+            # computed reaches the existing warnings banner, in Polish.
+            if view.violation_details:
+                affected_ids = {d.affected_employee_id for d in view.violation_details if d.affected_employee_id}
+                if affected_ids - set(employees_by_id):
+                    employees_by_id = {**employees_by_id, **list_employees_by_ids(conn, list(affected_ids - set(employees_by_id)))}
+                violation_messages = describe_violations(
+                    view.violation_details, labels=_DEVIATION_LABELS,
+                    assignments_by_id={a.assignment_id: a for a in snapshot.assignments},
+                    demands_by_id={d.demand_id: d for d in snapshot.shift_demands},
+                    employees_by_id=employees_by_id,
+                    site_rules_by_id={r.rule_version_id: r for r in view.resolved_rules},
+                )
         readback = current_decision_required(conn, site_id=site_id, month=month)
         decision_required = decision_payload_out(readback.payload) if readback is not None else None
         # ROTA-T054 (brief section 5, "GET MONTH / reload", T54-07/T54-08):
@@ -480,7 +506,7 @@ def get_month(site_id: str, month: date, conn=Depends(get_conn), coordinator_id:
             current_version=_version_out(conn, view.current_version) if view.current_version else None,
             version_history=[_version_out(conn, v) for v in view.version_history],
             demands=demands, assignments=assignments, deviations=deviations,
-            decision_required=decision_required, warnings=list(view.warnings),
+            decision_required=decision_required, warnings=[*violation_messages, *view.warnings],
             plan_preview=plan_preview_out, plan_preview_error=plan_preview_error,
             employees=employees_out, delegation_days=delegation_days,
         )

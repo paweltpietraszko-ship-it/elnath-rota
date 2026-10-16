@@ -34,8 +34,15 @@ WORKDIR /app
 # Without both, every export falls through to reportlab's bundled Vera
 # font, which has no Polish diacritics, and fails closed with
 # PRINT_FONT_UNAVAILABLE.
-RUN apt-get update && apt-get install --no-install-recommends -y fonts-dejavu-core fonts-dejavu-extra \
+# ROTA-CLOUD-REVIEW-FIXES F5: the whole domain uses naive wall-clock
+# datetimes in Polish time, compared with naive datetime.now()/date.today().
+# python:3.12-slim runs in UTC, which shifted the "already started service"
+# guard and the default "Obowiązuje od" by 1-2 h. tzdata + TZ make the
+# process clock Polish local time (winter and summer). Shift lengths stay
+# wall-clock (OWNER O1: a DST night is still 12 h in the schedule).
+RUN apt-get update && apt-get install --no-install-recommends -y fonts-dejavu-core fonts-dejavu-extra tzdata \
     && rm -rf /var/lib/apt/lists/*
+ENV TZ=Europe/Warsaw
 
 # Dependency list mirrors [project.dependencies] in pyproject.toml exactly
 # -- keep both in sync by hand. Not installed via `pip install .`: rota/

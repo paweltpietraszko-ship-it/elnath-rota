@@ -1,0 +1,9 @@
+{
+  "name": "elnath-rota-railway-iac",
+  "private": true,
+  "description": "Railway Infrastructure as Code for the elnath-rota service only (ROTA-CLOUD-REVIEW-FIXES R). Not an application dependency.",
+  "type": "module",
+  "dependencies": {
+    "railway": "3.16.0"
+  }
+}

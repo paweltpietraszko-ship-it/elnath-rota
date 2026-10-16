@@ -12,13 +12,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EMPLOYEE_DETAIL = (ROOT / "frontend/src/screens/EmployeeDetail.tsx").read_text(encoding="utf-8")
+# ROTA-CLOUD-REVIEW-FIXES T: the absence log and its edit/end/restore
+# actions moved out of EmployeeDetail into EmployeeAvailability.
+EMPLOYEE_AVAILABILITY = (ROOT / "frontend/src/screens/EmployeeAvailability.tsx").read_text(encoding="utf-8")
 
 
 def test_ended_availability_log_row_still_exposes_its_restore_edit_action() -> None:
     """brief.md §5.1: every displayed family can be edited active=True."""
     edit_action = "onClick={() => setEditingId(r.availability_id)}"
-    edit_position = EMPLOYEE_DETAIL.index(edit_action)
-    nearby_guard = EMPLOYEE_DETAIL[max(0, edit_position - 250) : edit_position]
+    edit_position = EMPLOYEE_AVAILABILITY.index(edit_action)
+    nearby_guard = EMPLOYEE_AVAILABILITY[max(0, edit_position - 250) : edit_position]
     assert "{r.active && (" not in nearby_guard, (
         "the edit action is inside the active-only guard: after the same family "
         "is ended with active=False, its required active=True correction/restore "

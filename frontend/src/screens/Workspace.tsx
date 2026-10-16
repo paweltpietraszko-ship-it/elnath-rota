@@ -21,6 +21,7 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
   // ROTA-T024-TESTER-LOGIN-ISOLATION brief.md section 10: "prosta akcja
   // Zmień hasło" -- no account management panel, just this one action.
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
@@ -320,18 +321,28 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
                   <>
                     <input
                       type="password"
+                      placeholder="Obecne hasło"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                    />
+                    <input
+                      type="password"
                       placeholder="Nowe hasło"
+                      autoComplete="new-password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                     />
+                    <small>Nowe hasło musi mieć co najmniej 8 znaków.</small>
                     <button
                       className="btn-primary"
-                      disabled={passwordSaving || newPassword.length === 0}
+                      disabled={passwordSaving || currentPassword.length === 0 || newPassword.length === 0}
                       onClick={async () => {
                         setPasswordSaving(true);
                         setPasswordMessage(null);
                         try {
-                          await authApi.changePassword(newPassword);
+                          await authApi.changePassword(currentPassword, newPassword);
+                          setCurrentPassword("");
                           setNewPassword("");
                           setShowChangePassword(false);
                           setPasswordMessage("Hasło zmienione.");
@@ -344,7 +355,14 @@ export default function Workspace({ onOpenSite }: { onOpenSite: (siteId: string,
                     >
                       {passwordSaving ? "Zapisywanie…" : "Zapisz nowe hasło"}
                     </button>
-                    <button className="btn-ghost" onClick={() => setShowChangePassword(false)}>
+                    <button
+                      className="btn-ghost"
+                      onClick={() => {
+                        setCurrentPassword("");
+                        setNewPassword("");
+                        setShowChangePassword(false);
+                      }}
+                    >
                       Anuluj
                     </button>
                   </>

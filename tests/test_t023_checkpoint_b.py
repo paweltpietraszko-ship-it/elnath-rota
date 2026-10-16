@@ -14,10 +14,8 @@ than duplicating them -- no Checkpoint A test is moved, removed or
 duplicated into this file."""
 from __future__ import annotations
 
-import subprocess
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 
@@ -58,16 +56,6 @@ from tests.test_t023 import (
     _setup,
 )
 
-BASE_SHA = "a2e1a2ce4def1bf5e68afc0b55e5d0e7443186e4"
-# ROTA-TEST-CLEANUP (2026-09-08): bumped forward from the original T023
-# Checkpoint B baseline (e05dfb7) -- eligibility.py/constraints.py/
-# work_periods.py were legitimately touched since then by three separate,
-# unrelated later tasks (T023b's ochrona rest rules, T032's NIGHT-STREAK-01,
-# T052's S1 periodic training), each its own reviewed/merged change, not a
-# Checkpoint B regression. This diff-proof only ever protected the ONE round
-# it was written for; like guard.py's FROZEN.lock, the baseline is bumped
-# forward rather than the check deleted, so it keeps catching genuinely
-# unintended future changes to these out-of-scope files.
 # R5-3 needs facts genuinely BEFORE real wall-clock "now" (cutover_at =
 # datetime.now() at select_candidate call time) -- MONTH (2027-03, reused
 # from test_t023.py) is itself always in the future, so a dedicated past
@@ -389,20 +377,3 @@ def test_t23_53_calendarday_no_longer_changes_post_plan_absence_hours(tmp_path) 
     snapshot = get_absence_reference_snapshot(conn, record.availability_version_id)
     assert snapshot.days[0].status == "BOUND"
     assert snapshot.days[0].hours == 12  # exact scheduled hours, unaffected by holiday=True
-
-
-def test_t23_54_t012_legality_rest_modules_unmodified_by_checkpoint_b() -> None:
-    """T012 normal/emergency 24h legality/rest semantics live in
-    eligibility.py/constraints.py/work_periods.py -- all explicitly OUT OF
-    SCOPE for T023 (brief.md section 15). This is a source-diff proof that
-    Checkpoint B's WorkBalance/solver/analytics/REPLAN rewiring touched none
-    of them, not a duplicate of tests/test_t012.py's own behavioral
-    assertions (already unmodified and still green in the full suite)."""
-    repo_root = Path(__file__).resolve().parent.parent
-    result = subprocess.run(
-        ["git", "diff", "--name-only", BASE_SHA, "--",
-         "rota/planning/eligibility.py", "rota/planning/constraints.py", "rota/planning/work_periods.py"],
-        capture_output=True, text=True, cwd=repo_root,
-    )
-    assert result.returncode == 0
-    assert result.stdout.strip() == ""

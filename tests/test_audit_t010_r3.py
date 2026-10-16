@@ -198,6 +198,9 @@ def test_r3_a_two_inflight_bootstraps_of_the_same_context_do_not_both_succeed(
     "wrong_category",
     [RuleCategory.LOCAL_RULE, RuleCategory.CLIENT_REQUIREMENT],
 )
+# ROTA-CLOUD-REVIEW-FIXES T: DAY_ONLY is OCHRONA-only since T065
+# (dn_semantics_apply); minimal_state's default site is ORDINARY, so the
+# state below pins an OCHRONA site explicitly.
 def test_r3_b_day_only_exception_requires_confirmed_exception_category(wrong_category) -> None:
     """A differently categorized rule must not grant the day-only exception."""
     rule = SiteRuleVersion(
@@ -226,6 +229,7 @@ def test_r3_b_day_only_exception_requires_confirmed_exception_category(wrong_cat
         1,
     )
     state = base_state(
+        site=Site("test-site", "TESTPROF", "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA),
         employees=(Employee(EMPLOYEE_ID, "Employee", date(2020, 1, 1), None, True),),
         memberships=(
             SiteMembership(

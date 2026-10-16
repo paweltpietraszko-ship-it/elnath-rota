@@ -13,6 +13,9 @@ unrelated month, which is the measurable "any month" acceptance criterion.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
+from rota.domain import SitePlanningRegime
 from rota.planning.engine import plan
 from rota.planning.validator import validate
 from tests.support.state_builder import build_state_from_fixture
@@ -56,6 +59,9 @@ def test_generic_month_independent_hard_pass():
 
 def test_generic_month_respects_day_only_and_mentor_rule():
     state = build_state_from_fixture(FIXTURE, profile_id="OCHRONA-FEB")
+    # ROTA-CLOUD-REVIEW-FIXES T: DAY_ONLY is OCHRONA-only since T065; the
+    # shared fixture builder's default site is ORDINARY.
+    state = replace(state, site=replace(state.site, planning_regime=SitePlanningRegime.OCHRONA))
     result = plan(state)
     assignments = result.candidates[0]
     assert all(not (a.employee_id == "R" and a.start_datetime.time().hour == 18) for a in assignments)

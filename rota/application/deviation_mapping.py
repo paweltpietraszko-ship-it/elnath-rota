@@ -44,6 +44,10 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     # even though this one is an internal HARD standard, not a statutory
     # minimum. No new category, per brief.
     "THIRD-CONSECUTIVE-SHIFT-01": DeviationCategory.LAW,
+    # ROTA-CLOUD-REVIEW-FIXES F1/O5: a coordinator's deliberate manual N/N/N
+    # is recorded as a LAW Deviation like its THIRD-CONSECUTIVE twin; the
+    # automatic solver HARD is unchanged.
+    "NIGHT-STREAK-01": DeviationCategory.LAW,
 }
 
 _SITE_RULE_CATEGORY: dict[RuleCategory, DeviationCategory] = {

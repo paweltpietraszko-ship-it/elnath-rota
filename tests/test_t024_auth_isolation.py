@@ -165,7 +165,10 @@ def test_password_change_preserves_mapping_and_coordinator(tmp_path):
         asyncio.run(create_account("t1@example.com", "old-password-1", "COORD-T1", "t1.db"))
         with TestClient(api.main.app, base_url="https://testserver") as client:
             client.post("/api/auth/login", data={"username": "t1@example.com", "password": "old-password-1"})
-            change_resp = client.patch("/api/auth/me/password", json={"password": "new-password-1"})
+            # ROTA-CLOUD-REVIEW-FIXES F7: the current password is now required.
+            change_resp = client.patch(
+                "/api/auth/me/password", json={"current_password": "old-password-1", "password": "new-password-1"},
+            )
             still_me = client.get("/api/auth/me")
 
         with TestClient(api.main.app, base_url="https://testserver") as client2:
@@ -342,7 +345,13 @@ def test_no_wide_users_router_or_registration_mounted(tmp_path):
             register = client.post("/api/auth/register", json={"email": "x@example.com", "password": "x"})
             admin_get = client.get("/api/users/00000000-0000-0000-0000-000000000000")
         print(json.dumps({"register_status": register.status_code, "admin_get_status": admin_get.status_code}))
-    """)
+    """, extra_env={
+        # ROTA-CLOUD-REVIEW-FIXES T: this checks the API surface only. A built
+        # frontend/dist in the working copy mounts the SPA at "/", which turns
+        # an unknown POST into 405 instead of 404 -- point the mount at a
+        # directory that never exists so the result does not depend on it.
+        "ROTA_FRONTEND_DIST": str(tmp_path / "no-frontend-dist"),
+    })
     data = _assert_ok(result)
     assert data["register_status"] == 404
     assert data["admin_get_status"] == 404

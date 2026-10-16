@@ -13,6 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CONTROL_PANEL = (ROOT / "frontend/src/screens/ControlPanel.tsx").read_text(encoding="utf-8")
 EMPLOYEE_DETAIL = (ROOT / "frontend/src/screens/EmployeeDetail.tsx").read_text(encoding="utf-8")
+# ROTA-CLOUD-REVIEW-FIXES T: the absence log and its edit/end/restore
+# actions moved out of EmployeeDetail into EmployeeAvailability.
+EMPLOYEE_AVAILABILITY = (ROOT / "frontend/src/screens/EmployeeAvailability.tsx").read_text(encoding="utf-8")
 
 
 def test_new_employee_retry_identity_is_created_on_open_and_survives_reload() -> None:
@@ -38,8 +41,8 @@ def test_saved_matrix_rule_has_a_frontend_period_edit_path() -> None:
 
 def test_saved_absence_has_an_active_period_edit_path_not_only_end() -> None:
     """brief.md §5.1: a selected log row supports both edit and end."""
-    calls = re.findall(r"api\.updateAvailability\(.*?\n\s*\}\);", EMPLOYEE_DETAIL, flags=re.DOTALL)
-    assert calls, "EmployeeDetail has no updateAvailability call"
+    calls = re.findall(r"api\.updateAvailability\(.*?\n\s*\}\);", EMPLOYEE_AVAILABILITY, flags=re.DOTALL)
+    assert calls, "EmployeeAvailability has no updateAvailability call"
     assert any("active: false" not in call for call in calls), (
         "every updateAvailability call is the active=False end path; no call edits "
         "the selected family's dates with an active current end"

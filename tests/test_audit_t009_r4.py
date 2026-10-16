@@ -13,7 +13,7 @@ from rota.application.errors import CandidateRejected, InvalidCoordinatorContext
 from rota.domain import (
     Assignment, AssignmentRole, AssignmentState, AvailabilityKind, CalendarDay, Coordinator,
     CoordinatorSiteAssociation, ExternalSupportWindow, MembershipKind,
-    ReadinessSource, ReadinessState, ShiftKind, SiteMembership, SiteProfile,
+    ReadinessSource, ReadinessState, ShiftKind, SiteMembership, SitePlanningRegime, SiteProfile,
     StandardShift,
 )
 from rota.persistence.coordinator_repository import save_coordinator, save_coordinator_site_association
@@ -510,6 +510,16 @@ def test_r4_cross_demand_assignment_still_requires_real_demand_reference(tmp_pat
     assert get_current_version_id(conn, state.site.site_id, MONTH) == before
 
 
+def _pin_ochrona(conn, state):
+    """ROTA-CLOUD-REVIEW-FIXES T: DAY_ONLY is OCHRONA-only since T065
+    (dn_semantics_apply); the shared real-object seed is ORDINARY. Moved
+    through the one audited regime-correction operation."""
+    durable_inputs.correct_site_planning_regime(
+        conn, coordinator_id="COORD-1", site_id=state.site.site_id, planning_regime=SitePlanningRegime.OCHRONA,
+    )
+    return replace(state, site=replace(state.site, planning_regime=SitePlanningRegime.OCHRONA))
+
+
 @pytest.mark.parametrize("bypass", ["availability", "day-only", "external-window"])
 def test_r4_select_candidate_does_not_trust_caller_fabricated_realized(tmp_path, bypass):
     """ROTA-T057 (BOARD.md OWNER_RULING 2026-09-06): PLAN/REPLAN never
@@ -521,6 +531,8 @@ def test_r4_select_candidate_does_not_trust_caller_fabricated_realized(tmp_path,
     exists."""
     conn = connect(tmp_path / "rota.db")
     state = seed_real_object(conn, case_id=f"audit-realized-{bypass}", month=MONTH, seed=720, target_hours=200)
+    if bypass == "day-only":
+        state = _pin_ochrona(conn, state)
     result = plan_ops.plan_month(
         conn, site_id=state.site.site_id, month=MONTH,
         coordinator_id="COORD-1", effective_from=MONTH,
