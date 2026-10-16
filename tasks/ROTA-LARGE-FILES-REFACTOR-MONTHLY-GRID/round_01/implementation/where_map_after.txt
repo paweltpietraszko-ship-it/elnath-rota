@@ -1,32 +1,32 @@
+# WHERE_MAP after move, on commit a1572100a3de7f2a779cd05b38312452de55cf6b
 ### .venv/bin/python where.py frontend/src/screens/monthly-planning/ScheduleGrid.tsx
 FILE: frontend/src/screens/monthly-planning/ScheduleGrid.tsx
 LAYER: frontend
-WARNING: file is not tracked by git — reference search (git grep) always targets HEAD, so an untracked file's own content cannot be cross-checked against committed references.
 NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
 Pass --symbol NAME to at least get raw text occurrences of a name across the repo.
 ### .venv/bin/python where.py frontend/src/screens/monthly-planning/ScheduleGrid.tsx --symbol ScheduleGrid
 FILE: frontend/src/screens/monthly-planning/ScheduleGrid.tsx
 LAYER: frontend
-WARNING: file is not tracked by git — reference search (git grep) always targets HEAD, so an untracked file's own content cannot be cross-checked against committed references.
 NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
 
 SYMBOL: ScheduleGrid
-  TOTAL_RAW_HITS: 30
+  TOTAL_RAW_HITS: 113
     TEXT OTHER_FILE PRODUCTION     api/routers/excel_external.py:13: tsx's own ScheduleGrid already renders for PLAN/REPLAN candidates --
-    CALL OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:77: function ScheduleGrid({
-    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1040: <ScheduleGrid
-    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1441: <ScheduleGrid
-    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1662: <ScheduleGrid
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/refactor-schedule-grid.spec.ts:3: // ScheduleGrid -- all three real usages (current schedule, persisted
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:7: import { daysInMonth, ScheduleGrid } from "./monthly-planning/ScheduleGrid";
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:875: <ScheduleGrid
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1276: <ScheduleGrid
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1497: <ScheduleGrid
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/monthly-planning/ScheduleGrid.tsx:49: export function ScheduleGrid({
   NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
 
 ### .venv/bin/python where.py frontend/src/screens/monthly-planning/ScheduleGrid.tsx --symbol daysInMonth
 FILE: frontend/src/screens/monthly-planning/ScheduleGrid.tsx
 LAYER: frontend
-WARNING: file is not tracked by git — reference search (git grep) always targets HEAD, so an untracked file's own content cannot be cross-checked against committed references.
 NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
 
 SYMBOL: daysInMonth
-  TOTAL_RAW_HITS: 21
+  TOTAL_RAW_HITS: 83
     TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:69: function currentMonthRange(): { firstIso: string; lastIso: string; daysInMonth: number } {
     TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:74: return { firstIso: toIso(first), lastIso: toIso(last), daysInMonth: last.getDate() };
     TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:126: const { daysInMonth } = currentMonthRange();
@@ -39,12 +39,29 @@ SYMBOL: daysInMonth
     TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:169: await setTargetHours(page, DAILY_DELEGATION_HOURS * daysInMonth);
     TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:180: expect(await row.getByText("DEL", { exact: true }).count()).toBe(daysInMonth);
     TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:181: await expect(row).toContainText(`${DAILY_DELEGATION_HOURS * daysInMonth}h`);
-    CALL OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:27: function daysInMonth(monthIso: string): string[] {
-    CALL OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:91: const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
-    CALL OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:213: const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:7: import { daysInMonth, ScheduleGrid } from "./monthly-planning/ScheduleGrid";
+    CALL OTHER_FILE PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:48: const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/monthly-planning/ScheduleGrid.tsx:4: export function daysInMonth(monthIso: string): string[] {
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/monthly-planning/ScheduleGrid.tsx:63: const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
   NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
 
-### LIMITATION: no TSX parser; targeted grep (frontend/src) after move:
+### .venv/bin/python where.py frontend/src/screens/MonthlyPlanning.tsx --symbol ScheduleGrid
+FILE: frontend/src/screens/MonthlyPlanning.tsx
+LAYER: frontend
+NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
+
+SYMBOL: ScheduleGrid
+  TOTAL_RAW_HITS: 113
+    TEXT OTHER_FILE PRODUCTION     api/routers/excel_external.py:13: tsx's own ScheduleGrid already renders for PLAN/REPLAN candidates --
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/refactor-schedule-grid.spec.ts:3: // ScheduleGrid -- all three real usages (current schedule, persisted
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:7: import { daysInMonth, ScheduleGrid } from "./monthly-planning/ScheduleGrid";
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:875: <ScheduleGrid
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1276: <ScheduleGrid
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1497: <ScheduleGrid
+    CALL OTHER_FILE PRODUCTION     frontend/src/screens/monthly-planning/ScheduleGrid.tsx:49: export function ScheduleGrid({
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### LIMITATION: where.py has no TSX parser; targeted grep (frontend/src) after move:
 --- ScheduleGrid
 frontend/src/screens/monthly-planning/ScheduleGrid.tsx:49:export function ScheduleGrid({
 frontend/src/screens/MonthlyPlanning.tsx:7:import { daysInMonth, ScheduleGrid } from "./monthly-planning/ScheduleGrid";
