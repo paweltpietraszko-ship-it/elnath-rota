@@ -1,0 +1,41 @@
+ROTA-PRESERVED-FACTS-REPLAN — audyt dostawy, 2026-10-16
+VERDICT: PASS
+Exact SHA: b25956387eb1840f1f8246da88b630cd16e020ee
+Diff base: 5371a53d00960702628067d278d6c96e392fa911
+PR: https://github.com/paweltpietraszko-ship-it/elnath-rota/pull/36
+Odbiorca: CC / OWNER. Raport r1 pozostawiony bez zmian.
+
+Przeczytano cały diff 5 plików produkcyjnych i kontrakt/delivery.
+TECHNICAL_ONLY: dodatkowe _fixed_part realizuje już uzgodnioną granicę
+stałych faktów T058; otwarty slot obok stałej służby nie czyni jej ruchomą.
+Potwierdzono kolejność konstrukcji wyrażeń w solver._build_day_kind_terms.
+Solver.py, objective i definicje fixed/NN bez zmian. Bez nowego wyjątku produktu.
+
+Niezależne wykonanie na Windows:
+1. pytest -q tests/test_preserved_facts_replan.py -> 14 passed.
+2. pytest -q <audit_r2_repro.py> tests/test_t058.py
+   tests/test_cloud_review_schedule_fixes.py -> 36 passed.
+3. pytest -q tests/test_t032_soft_ranking.py -k night_streak -> 2 passed.
+Razem 52 passed, w tym 6 własnych przypadków w audit_r2_repro.py.
+Interpreter: C:/Projects/Elnath Rota/.venv/Scripts/python.exe.
+
+Własny pion: rzeczywiste HTTP mark-not-worked -> plan -> select-candidate,
+dwukrotnie; NN zachowane pole po polu (poza id wersji), luka widoczna
+w Deviation, pierwotny rodzic niezmieniony. Istniejące testy sprawdziły
+realną korektę N/N/N -> plan -> akceptacja, LAW i odrzucenie fałszowania NN.
+Własne granice: required=2, NN+dwóch częściowych pracowników; dokładna
+atrybucja przechodzi, luka 1 min i nadmiar 1 min nie dostają wyjątku.
+CP-SAT: stałe N/N/N z opcjonalnymi zmiennymi i bez nich są dopuszczalne,
+nowa czwarta nocka wymuszona w tym samym modelu jest INFEASIBLE.
+Testy T058/T032/F2 potwierdzają zachowanie nowych HARD i granic miesiąca.
+
+WHERE: wykonano where.py dla 5 nazwanych plików/symboli oraz nowego ownera
+is_preserved_violation/gating_hard_pass i _fixed_part; odczytano źródła.
+_gating_hard_pass przeniesiony do preserved_violations.gating_hard_pass.
+Mapa CC ma ostrzeżenie o working tree; niezależna mapa na exact SHA jest czysta.
+
+Brak findings spełniających TRACE+OWNERSHIP+REPRO.
+Dowód CC 925 passed i backend.py: supporting only, nie powtarzano.
+Wyjątki SIZE_FILE/SIZE_FUNC zaakceptowane przez OWNERA wg aktualnego BOARD.
+Nie uruchamiano pełnej regresji/build ani przeglądarki; pion wykonano przez API.
+PASS tylko dla exact SHA powyżej; merge/deploy pozostają decyzją OWNERA.
