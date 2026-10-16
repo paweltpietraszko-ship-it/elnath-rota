@@ -1,0 +1,76 @@
+ROTA-CLOUD-REVIEW-FIXES — niezależny precheck briefu, r1
+DATA: 2026-10-16
+WERDYKT: PASS PREIMPLEMENTATION
+BRANCH: codex/rota-cloud-review-fixes
+EXACT_SHA: ba6287192e18ed445b390ca87fcba48e2bdf4f4c
+BASE_SHA briefu: 1fcc8f86d1030534e6dd81a96f91607aa2eb21bf
+Odbiorca: OWNER / Architekt / Claude Code.
+
+1. Tryb i źródła
+Przeczytano całe AGENTS.md, CODEX_START_HERE.md i brief; nagłówek BOARD
+oraz wiersz tego Tasku. BOARD wskazuje ae26b10; sprawdzono nowszy stan
+ba62871, którego ostatni commit dodaje przekazanie do prechecku.
+Sprawdzono wskazane fragmenty arch/spec.md oraz kontraktów T009, T010-D,
+T024, T032, T058, ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT i
+ROTA-PRINT-IGNORES-UNACKED-DEVIATIONS. Finding chmurowy odczytano przez
+git show 14aa586156b7c5068435717f1436bac8c9fcf411:arch/FINDING_2026-10_CLOUD_CODE_REVIEW.md;
+nie jest obecny jako plik w sprawdzanej gałęzi, ale wskazany obiekt jest dostępny.
+Odczytano wyłącznie wskazaną sekcję ODLOZONE z 2026-09-24.
+Decyzje O1–O5 są utrwalone w §2 briefu jako OWNER_ACCEPTED; nie są
+traktowane jako samodzielne propozycje architekta. Wiersz Tasku na lokalnym
+main dodatkowo potwierdza zlecenie bloku, O1/O2 i uruchomienie naprawy testów.
+
+2. Zgodność i testowalność
+F6/O4: pełna komunikacja już wykrytych naruszeń, bez nowych reguł,
+zapisu przez GET ani drugiej walidacji. Opis obejmuje dane, polski wynik,
+brak części referencji, jawny błąd odczytu i ponowienie.
+F5/O1: konfiguracja polskiego zegara procesu; 12h pozostaje 12h.
+F3: data NN w ownerze zapisu, zachowana historia i zero godzin NN;
+bez doraźnego filtra eksportowego ani migracji historycznych danych.
+F1/O5: jawnie przyjęte odstępstwo od dawnego zakazu wyjątku T032
+wyłącznie dla świadomej korekty; automat nadal przestrzega HARD.
+F2: ograniczenie jednego checka do istniejącego okna solvera;
+historia tego samego obiektu po legalnym wyjątku F1, bez łączenia seedów.
+F4/O2: pierwszy PLAN i akceptacja od wskazanego dnia włącznie,
+spójne preview/demands/snapshot/odczyty; targety i historia bez nowej polityki.
+F7/O3: wspólny hook UserManager, obecne hasło przy zmianie własnej,
+jasna odmowa i recovery; bez utraty logowania starszym krótkim hasłem.
+R: przygotowanie plików i instrukcji, osobna zgoda na konkretny żywy plan.
+T: zamknięte klasy nieaktualnych testów, bez zmiany produktu pod asercje.
+A1–A9 wskazują obserwowalne wyniki i właściwe granice dowodu.
+Jedna pełna suita jest zlecona CC na końcu bloku; Codex jej automatycznie
+nie powtarza. Brak narzędzia ma być NOT_CHECKED/PARTIAL, nie pozorny PASS.
+
+3. Redukcja — jedno niezależne przejście
+Punktowo potwierdzono nazwanych ownerów i szwy: open_month/OpenMonthView,
+plan_month/select_candidate i preview, mark_not_worked,
+deviation_mapping/category_for_rule, _check_night_streak i okno istniejącego
+add_max_two_consecutive_night_constraints, UserManager/change_own_password.
+Istniejący provisioning tworzy/resetuje hasło przez ten sam UserManager;
+nie wymaga nowego connectora ani drugiej walidacji długości w CLI.
+Router miesiąca już przekazuje warnings; MonthlyPlanning ma banner i listę.
+Przeniesienie wyniku walidacji i czysty formatter są niezbędnym adapterem
+prezentacji. Pozostałe odpowiedzialności mają SOURCE/NECESSITY w §4 briefu.
+Nie znaleziono dodatkowej odpowiedzialności do usunięcia. Utrzymać wskazane
+wyłączenia: bez nowych tabel, subsystemów, globalnych fixture i refaktoru
+fresh_validation. Lista plików obejmuje nazwane zmiany i ich minimalne szwy.
+
+4. Railway — weryfikacja źródła zewnętrznego
+https://docs.railway.com/infrastructure-as-code, odczyt 2026-10-16:
+potwierdza migrate bez --apply jako podgląd, named partial dla jednego
+serwisu, preserve() dla zmiennych oraz blokadę planu przy aktywnym CaC.
+Kontrakt poprawnie odróżnia gotowość plików od wykonanej migracji.
+Daty wycofania 2026-12-01 nie potwierdzono niezależnie w tym odczycie;
+nie jest ona kryterium poprawności przygotowywanego rozwiązania.
+Nie odczytywano żywej infrastruktury ani sekretów; CC ma ponownie
+potwierdzić stan i obsługę CLI zgodnie z briefem, inaczej HOLD migracji.
+
+5. Ograniczenia i przekazanie
+To BRIEF_ONLY_PRECHECK: bez diffu produktu, testów, reproduktorów, pionów,
+builda, regresji i mapowania alternatywnych ścieżek. WHERE_MAP świadomie
+pozostawiono implementerowi i audytorowi implementacji, zgodnie z briefem.
+Nie zmieniano kodu ani wymagań. Brak blokujących braków kontraktu.
+PASS dotyczy briefu na wskazanym EXACT_SHA, nie napraw ani bezpieczeństwa
+całego wdrożenia. CC może dostać zadanie do własnej oceny merytorycznej;
+IMPLEMENTATION HOLD zwalniają dopiero obie bramy z §7. Merge i zastosowanie
+Railway pozostają decyzją OWNERA. Autor briefu nie jest autorem tego audytu.
