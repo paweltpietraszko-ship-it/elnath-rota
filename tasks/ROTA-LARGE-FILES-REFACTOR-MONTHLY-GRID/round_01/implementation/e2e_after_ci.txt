@@ -1,0 +1,129 @@
+
+Running 9 tests using 1 worker
+
+  ✓  1 [chromium] › e2e/cloud-review-fixes.spec.ts:53:1 › L4 added after acceptance is shown in the month banner and disappears after it is withdrawn (4.3s)
+  ✓  2 [chromium] › e2e/delegation-schedule-grid.spec.ts:104:1 › DEL-only employee appears in PLAN preview and survives reload without accepting (3.6s)
+  ✓  3 [chromium] › e2e/delegation-schedule-grid.spec.ts:152:1 › DEL-only employee keeps her DEL row and total hours after the candidate is accepted (3.1s)
+  ✓  4 [chromium] › e2e/refactor-schedule-grid.spec.ts:201:1 › current grid shows NN/S1/DEL from the month view, click opens that person/day correction, history preview shows the old version read-only (16.6s)
+  ✓  5 [chromium] › e2e/refactor-schedule-grid.spec.ts:250:1 › persisted Przelicz preview: candidate grid carries the fixed S1 and DEL, survives reload, no write on render (14.5s)
+  ✓  6 [chromium] › e2e/refactor-schedule-grid.spec.ts:276:1 › ORDINARY: current grid and candidate preview show real hours, never D/N (1.7s)
+
+  ✓  7 [chromium] › e2e/t054-independent-audit.spec.ts:16:1 › T54-03: Szukaj dalej asks before replacing a persisted preview (1.5s)
+
+  ✓  8 [chromium] › e2e/t054-independent-audit.spec.ts:65:1 › A-F2: reloaded wide REPLAN continues through the wide endpoint (1.6s)
+
+  ✘  9 [chromium] › e2e/t054-independent-audit.spec.ts:101:1 › T54-06: failed replacement save remains visible with its warning (30.1s)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("CREATE TRIGGER audit_t054_reject_preview_update BEFORE UPDATE ON plan_previews BEGIN SELECT RAISE(ABORT, 'audit preview update failure'); END"); c.commit(); c.close()
+                                                        ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: trigger audit_t054_reject_preview_update already exists
+  ✘  10 [chromium] › e2e/t054-independent-audit.spec.ts:101:1 › T54-06: failed replacement save remains visible with its warning (retry #1) (1.3s)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("CREATE TRIGGER audit_t054_reject_preview_update BEFORE UPDATE ON plan_previews BEGIN SELECT RAISE(ABORT, 'audit preview update failure'); END"); c.commit(); c.close()
+                                                        ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: trigger audit_t054_reject_preview_update already exists
+  ✘  11 [chromium] › e2e/t054-independent-audit.spec.ts:101:1 › T54-06: failed replacement save remains visible with its warning (retry #2) (1.3s)
+
+
+  1) [chromium] › e2e/t054-independent-audit.spec.ts:101:1 › T54-06: failed replacement save remains visible with its warning 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: page.waitForResponse: Test timeout of 30000ms exceeded.
+
+      125 |   // that reload can never resurrect the old (unfailed) persisted preview
+      126 |   // over this fresh one. Wait for the POST /plan response itself instead.
+    > 127 |   const planResponse = page.waitForResponse(
+          |                             ^
+      128 |     (response) => /\/schedule\/[^/]+\/plan$/.test(response.url())
+      129 |       && response.request().method() === "POST",
+      130 |   );
+        at /home/user/elnath-rota/frontend/e2e/t054-independent-audit.spec.ts:127:29
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for locator('[data-diag-action="plan-month-recompute"]')
+
+
+      129 |       && response.request().method() === "POST",
+      130 |   );
+    > 131 |   await page.locator('[data-diag-action="plan-month-recompute"]').click();
+          |                                                                   ^
+      132 |   await planResponse;
+      133 |
+      134 |   await expect(page.getByText(/Ten wynik nie zosta.*zapisany trwale/)).toBeVisible();
+        at /home/user/elnath-rota/frontend/e2e/t054-independent-audit.spec.ts:131:67
+
+    Error Context: test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Command failed: /home/user/elnath-rota/.venv/Scripts/python.exe -c import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("CREATE TRIGGER audit_t054_reject_preview_update BEFORE UPDATE ON plan_previews BEGIN SELECT RAISE(ABORT, 'audit preview update failure'); END"); c.commit(); c.close() /home/user/elnath-rota/rota_e2e.db
+    Traceback (most recent call last):
+      File "<string>", line 1, in <module>
+        import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("CREATE TRIGGER audit_t054_reject_preview_update BEFORE UPDATE ON plan_previews BEGIN SELECT RAISE(ABORT, 'audit preview update failure'); END"); c.commit(); c.close()
+                                                            ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    sqlite3.OperationalError: trigger audit_t054_reject_preview_update already exists
+
+
+      108 |   await expect(page.locator('[data-diag-action="reject-plan-preview"]')).toBeVisible();
+      109 |
+    > 110 |   execFileSync(
+          |   ^
+      111 |     python,
+      112 |     [
+      113 |       "-c",
+        at /home/user/elnath-rota/frontend/e2e/t054-independent-audit.spec.ts:110:3
+
+    Error Context: test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium-retry1/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Command failed: /home/user/elnath-rota/.venv/Scripts/python.exe -c import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("CREATE TRIGGER audit_t054_reject_preview_update BEFORE UPDATE ON plan_previews BEGIN SELECT RAISE(ABORT, 'audit preview update failure'); END"); c.commit(); c.close() /home/user/elnath-rota/rota_e2e.db
+    Traceback (most recent call last):
+      File "<string>", line 1, in <module>
+        import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("CREATE TRIGGER audit_t054_reject_preview_update BEFORE UPDATE ON plan_previews BEGIN SELECT RAISE(ABORT, 'audit preview update failure'); END"); c.commit(); c.close()
+                                                            ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    sqlite3.OperationalError: trigger audit_t054_reject_preview_update already exists
+
+
+      108 |   await expect(page.locator('[data-diag-action="reject-plan-preview"]')).toBeVisible();
+      109 |
+    > 110 |   execFileSync(
+          |   ^
+      111 |     python,
+      112 |     [
+      113 |       "-c",
+        at /home/user/elnath-rota/frontend/e2e/t054-independent-audit.spec.ts:110:3
+
+    Error Context: test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium-retry2/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium-retry2/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/t054-independent-audit-T54-5695d-ns-visible-with-its-warning-chromium-retry2/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › e2e/t054-independent-audit.spec.ts:101:1 › T54-06: failed replacement save remains visible with its warning 
+  8 passed (1.4m)

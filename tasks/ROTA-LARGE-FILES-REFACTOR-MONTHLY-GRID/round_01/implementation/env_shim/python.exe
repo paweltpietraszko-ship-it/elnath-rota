@@ -1,0 +1,6 @@
+#!/bin/sh
+# Local Linux stand-in for frontend/playwright.config.ts's hardcoded
+# .venv/Scripts/python.exe (not committed; copy to .venv/Scripts/).
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONPATH="$REPO_ROOT/tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/round_01/implementation/env_shim:$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+exec "$REPO_ROOT/.venv/bin/python" "$@"

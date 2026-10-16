@@ -1,0 +1,9 @@
+BASE cc7005cc192e7f7c383e20ae441d10cd4d9123ad frontend/src/screens/MonthlyPlanning.tsx  ->  frontend/src/screens/monthly-planning/ScheduleGrid.tsx
+daysInMonth      old L27-31 (5 lines)  new L4-8 (5 lines)  exported=True  body=IDENTICAL
+hourOf           old L38-40 (3 lines)  new L10-12 (3 lines)  exported=False  body=IDENTICAL
+cellLabel        old L42-60 (19 lines)  new L14-32 (19 lines)  exported=False  body=IDENTICAL
+assignmentHours  old L62-66 (5 lines)  new L34-38 (5 lines)  exported=False  body=IDENTICAL
+totalHours       old L68-75 (8 lines)  new L40-47 (8 lines)  exported=False  body=IDENTICAL
+ScheduleGrid     old L77-196 (120 lines)  new L49-168 (120 lines)  exported=True  body=IDENTICAL
+relative order preserved: True
+RESULT: ALL SIX IDENTICAL (only `export` added on ScheduleGrid, daysInMonth)

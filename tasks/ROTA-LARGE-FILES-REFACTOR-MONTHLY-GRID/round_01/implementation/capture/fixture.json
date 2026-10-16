@@ -1,0 +1,34 @@
+{
+  "month": "2026-10",
+  "seeded_at": "2026-10-16T05:39:00.878Z",
+  "A": {
+    "siteId": "SITE-8ced9c5ea9224ba296c254c9cd80baad",
+    "employees": {
+      "Anna": "b5b134fa-f9f6-43bc-a4bf-aa2d023108aa",
+      "Bartek": "fc85b296-5cc3-4629-9f53-a1b0c26c18f5",
+      "Celina": "bde9fade-3065-4048-ac98-9126740d639e",
+      "Darek": "6cc81df6-b211-438d-bc64-955eeb0d76ac",
+      "Ewa": "24e16ed7-a35c-4b23-b764-b16fd3c1f4f2"
+    },
+    "name": "RG-HIST-et27no",
+    "nn_assignment": "solved-2026-10-01-D-b5b134fa-f9f6-43bc-a4bf-aa2d023108aa",
+    "nn_day": "2026-10-01",
+    "s1_employee": "Darek"
+  },
+  "B": {
+    "siteId": "SITE-bda45eb13f214c82a3548dad82e53f50",
+    "employees": {
+      "Anna": "c797aa2e-9eb6-44c9-9acc-82213936a1f1",
+      "Bartek": "4bc80c0c-6d11-4e42-84db-dba6dffdd568",
+      "Celina": "2b16f46a-a77f-46f3-900b-e5f4375b6780",
+      "Darek": "9add2e94-dfe5-480b-ad4a-2a6fbf2478e9",
+      "Ewa": "fd3d98ef-d721-43fb-989c-cd814c48d7fc"
+    },
+    "name": "RG-PREV-jkhrq5",
+    "s1_employee": "Anna"
+  },
+  "C": {
+    "siteId": "SITE-6ca3c3e2a4da4fedafc055eb616c67cd",
+    "name": "RG-ORD-dh367r"
+  }
+}
