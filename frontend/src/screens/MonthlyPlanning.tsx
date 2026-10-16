@@ -9,6 +9,16 @@ function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
 }
 
+// R11-01 / ROTA-OVERNIGHT-NEXT-DAY-TZ: the one "YYYY-MM-DD + 1 day". Pure
+// calendar arithmetic in UTC -- a local-midnight + 86400000 ->
+// toISOString round-trip rolls the date back in a positive-offset zone
+// (Europe/Warsaw) and silently loses "next day".
+function nextDayIso(dayIso: string): string {
+  const [y, m, d] = dayIso.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
 const SCHEDULE_STATUS_LABEL: Record<ScheduleVersionOut["status"], string> = {
   WORKING: "Wersja robocza",
   WORKING_WITH_DEVIATIONS: "Wersja robocza (z odstępstwami)",
@@ -399,7 +409,7 @@ export default function MonthlyPlanning({
       return;
     }
     const startIso = `${middleDay}T${middleStart}:00`;
-    const endDay = middleEndNextDay ? new Date(new Date(`${middleDay}T00:00:00`).getTime() + 86400000).toISOString().slice(0, 10) : middleDay;
+    const endDay = middleEndNextDay ? nextDayIso(middleDay) : middleDay;
     const endIso = `${endDay}T${middleEnd}:00`;
     if (new Date(endIso) <= new Date(startIso)) {
       setError("Koniec musi być po starcie.");
@@ -519,16 +529,8 @@ export default function MonthlyPlanning({
     if (!interval) return;
     const anchor = editingDemand.start_datetime.slice(0, 10);
     const startIso = `${anchor}T${interval.start_time}:00`;
-    // R11-01 fix: local-midnight-plus-86400000-then-toISOString round-trips
-    // through UTC, which in a positive-offset zone (e.g. Europe/Warsaw)
-    // rolls the calendar date back and silently loses "next day". Date.UTC
-    // in and getUTCFullYear/Month/Date out never touches local time, so the
-    // +1 is pure calendar arithmetic regardless of the viewer's timezone.
-    const [y, m, d] = anchor.split("-").map(Number);
-    const endDay = interval.end_next_day ? (() => {
-      const next = new Date(Date.UTC(y, m - 1, d + 1));
-      return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
-    })() : anchor;
+    // R11-01 fix: see nextDayIso.
+    const endDay = interval.end_next_day ? nextDayIso(anchor) : anchor;
     const endIso = `${endDay}T${interval.end_time}:00`;
     runCorrection([{ ...stripDisplayName(editingAssignment), start_datetime: startIso, end_datetime: endIso }]);
   };
@@ -543,7 +545,7 @@ export default function MonthlyPlanning({
       return;
     }
     const startIso = `${s1Day}T${s1Start}:00`;
-    const endDay = s1EndNextDay ? new Date(new Date(`${s1Day}T00:00:00`).getTime() + 86400000).toISOString().slice(0, 10) : s1Day;
+    const endDay = s1EndNextDay ? nextDayIso(s1Day) : s1Day;
     const endIso = `${endDay}T${s1End}:00`;
     if (new Date(endIso) <= new Date(startIso)) {
       setError("Koniec S1 musi być po starcie.");
