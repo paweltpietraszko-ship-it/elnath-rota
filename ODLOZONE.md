@@ -244,3 +244,9 @@ Do zrobienia przed pierwszym prawdziwym klientem:
 5. trwałe usunięcie konta z danymi na żądanie;
 6. krótka procedura na wypadek wycieku (kogo, w jakim czasie powiadomić);
 7. F7 z przeglądu chmurowego (zmiana hasła) znika przy logowaniu linkiem -- uwzględnić przy projektowaniu kont.
+
+---
+
+## 2026-10-16 Refaktor dużych plików (sesja Claude Code w chmurze) + ultrareview po nim
+
+Po zmergowaniu ROTA-CLOUD-REVIEW-FIXES suita jest w całości zielona (1516 passed), co pierwszy raz daje bezpieczną siatkę dla refaktoru. Plan: wyłącznie przenoszenie kodu do mniejszych plików, bez zmiany zachowania, zaczynając od `frontend/src/screens/MonthlyPlanning.tsx` (1688 linii) i `rota/planning/solver.py` (1374); brief architekta, pełna suita, audyt Codexa. Wykonawca: sesja Claude Code w chmurze (kredyt wygasa ok. 2026-11-04). **Decyzja OWNERA 2026-10-16:** ultrareview NIE był użyty dla ROTA-CLOUD-REVIEW-FIXES (mały kod produkcyjny, już pokryty pełną suitą, mutacjami i audytem Codexa r3) -- zostaje zachowany na ten refaktor, gdzie przenoszenie tysięcy linii może ukryć zmianę zachowania. Wcześniejszy kontekst: `ODLOZONE.md` 2026-09-15 „Refaktor L1-DB i podział EmployeeDetail.tsx”.
