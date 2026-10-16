@@ -1,0 +1,73 @@
+ROTA-UNMAPPED-DEVIATION-RULES — niezależny audyt poprawki, r2
+DATA: 2026-10-16
+WERDYKT: PASS
+EXACT_SHA: 93c191415a8abbed14b9b73c156079e665ffac01
+BASE_SHA: c81e78a783e84b8cbe816935ffb76e27e5b269c4
+DOSTAWA: task/ROTA-UNMAPPED-DEVIATION-RULES
+RAPORT: audit/rota-unmapped-deviation-rules
+ODBIORCA: CC / OWNER
+
+1. Oracle i zakres
+Brief R1–R4 oraz jawna decyzja OWNERA z 2026-10-16 utrwalona w przekazaniu
+BOARD i delivery_r1.md: świadoma korekta bez wymaganej roli zapisuje
+odchylenie; wcześniejszy zapis T065-MANUAL-MIDDLE-SHIFT §6 nie blokuje tej
+decyzji człowieka. Nie otwierano ponownie tego rozstrzygnięcia.
+Odczytano aktualne zasady, przekazanie oraz surowy diff BASE..EXACT_SHA.
+Produkcja zmienia się wyłącznie o wpis ROLE-01 -> PREFERENCE i komentarz.
+category_for_rule, _affected_target, validator i role_covers bez zmian;
+brak catch/fallbacku oraz zmian ról pracowników, API lub UI.
+Wpisy pozostałych czterech kodów nie zostały dodane.
+
+2. Najmniejszy niezależny reproduktor
+W oddzielnych worktree BASE i EXACT_SHA uruchomiono ten sam repro.py.
+Użyto seed helpera CC wyłącznie do utworzenia SQLite ORDINARY z istniejącą
+zmianą Sprzedawcy; akcje, wyrocznia i dodatkowe asercje są audytora.
+apply_manual_correction zmienia obsadę z E2/Sprzedawca na E1/Kierownik.
+BASE: UnknownDeviationSource ROLE-01; brak częściowego child/CoordinatorAction.
+EXACT_SHA: PASS — nowy child, dokładnie jedno ROLE-01/PREFERENCE wskazujące
+edytowany Assignment, acknowledged=False i dokładnie jedna powiązana akcja
+MANUAL_SCHEDULE_CORRECTION. Cały snapshot rodzica i pełne SiteMembership
+pozostają bez zmian; nowa rola nie jest nadawana.
+Produkcjny GET miesiąca: 200, etykieta „brak wymaganej roli” oraz bieżący
+banner z nazwą osoby. Następna jawna korekta na E3/Sprzedawcę usuwa stare
+ROLE-01, bez zmiany membershipów. To realny pion application -> SQLite ->
+materialize_deviations/action trail -> router, bez mockowania mapowania.
+Nieznany kod i WORK_PERIOD-01/FULL_HOUR-01/SITE_RULE-01/ASSIGN nadal rzucają
+UnknownDeviationSource. Brak ogólnego fallbacku: PASS.
+Odrzucono dodatkowy wariant seedu „aktywny LOCAL bez stanowiska”: istniejący
+upstream owner go nie zapisuje; nie omijano go bezpośrednim zapisem do bazy
+i nie tworzono z tego sztucznego findingu.
+
+3. Celowane testy na EXACT_SHA
+Interpreter: C:/Projects/Elnath Rota/.venv/Scripts/python.exe.
+-m pytest tests/test_role_deviation_mapping.py oraz wybrane istniejące testy
+test_t065_ordinary_roles: local/external role gate, two_roles_overlapping_demands,
+validator_role_mirror_flags_manual_violation i mirror_passes_with_correct_role;
+flagi -q --disable-warnings.
+WYNIK: 8 passed, 2 warnings in 1.69s.
+Test pipeline solvera potwierdza dotychczasowe planowanie właściwych ról;
+kontrole negatywne nadal odrzucają brak wymaganej roli w automacie.
+Nie powtarzano zestawów 43+207 CC ani pełnej regresji.
+backend_r1.txt dostawy: STATUS: PASS, HEAD_SHA zgodne z audytowanym SHA;
+to dowód CC. Niezależne git diff --check wskazuje tylko końcowe puste linie
+w dwóch plikach surowego WHERE_MAP — techniczna uwaga nieblokująca, bez
+wpływu na produkt. Nie żądano refaktoru ani dodatkowych zmian.
+
+4. WHERE_MAP i ograniczenia
+Na EXACT_SHA wykonano where.py rota/application/deviation_mapping.py
+oraz --symbol category_for_rule. Odczytano rzeczywiste wywołanie
+materialize_deviations oraz konsumentów manual_edit i lifecycle_ops;
+surowa lista importerów nie zastępuje wniosku o ownership.
+Nie stwierdzono rozbieżności zakresu/ownera. Nie zmieniano produkcji.
+Lokalne reproduktory i wyniki mapy poza repo:
+C:/Users/p_pie/.codex/visualizations/2026/10/16/01a1429a-5038-7551-91af-f2f9f322083f/role-r2/
+Polecenie: <python> repro.py base / repro.py head, cwd odpowiedniego worktree.
+Sprawdzono transport istniejącej etykiety przez router; nie wykonywano
+nowej pełnej sesji GUI/eksportu — ich kod i kontrakt się nie zmieniły.
+
+5. Przekazanie
+PASS zamyka wyłącznie poprawkę mapowania ROLE-01 na EXACT_SHA.
+WORK_PERIOD-01, FULL_HOUR-01, SITE_RULE-01, ASSIGN oraz osobno zgłoszona
+blokada „Dodaj pracę” pozostają poza tym zakresem. Nie są tu naprawione
+ani ponownie ocenione. Brak nowych findingów spełniających DEFECT_GATE.
+Merge pozostaje decyzją OWNERA. ARCHITECTURE_PROPOSALS: brak.
