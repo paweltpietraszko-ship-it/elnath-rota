@@ -1,0 +1,30 @@
+ROTA-MANUAL-MIDDLE-ROLE-BLOCK — wąski precheck r1
+DATA: 2026-10-16
+WERDYKT: PASS PREIMPLEMENTATION
+EXACT_SHA: f01a9b27e10bd7fc91f92821e968572c97232ed7
+BRANCH: codex/rota-manual-middle-role-block
+BASE: e38a966df9f5e444025c87173a3eb284b090a2c3
+ODBIORCA: CC / Architekt / OWNER
+
+Odczyt: aktualne przekazanie architekta i cały nowy brief; punktowo tylko
+role_covers, _check_role, bramka autoryzacji i delegacja do apply_manual_correction
+oraz zastępowany fragment §6 starego kontraktu. Wiersz wskazuje 96717cb;
+oceniono nowszy commit przekazania f01a9b2. Znane zasady repo pozostają w mocy.
+Decyzje OWNERA są utrwalone: brak autoryzacji roli daje zapis z odchyleniem,
+brak aktywnego członkostwa nadal odrzuca zapis. Brief wyraźnie zastępuje
+sprzeczne wcześniejsze wymaganie odmowy, bez rozszerzenia decyzji na integralność.
+
+Redukcja: SOURCE = decyzja o świadomym odstępstwie; NECESSITY = po zdjęciu
+blokady trzeba wykryć naruszenie roli pracy bez demandu i zachować jego ślad.
+Istniejące role_covers zawiera potrzebny algorytm; wydzielenie helpera
+przedziałowego i usunięcie lokalnego sprawdzenia utrzymują jednego ownera.
+Zachowanie przy nakładających się demandach i legacy jest określone.
+Zakres trzech plików produkcji i istniejącego pliku testowego jest wystarczający;
+bez nowych modeli, zapisu, drugiej walidacji lub UI/API. Nic do dalszej redukcji.
+Kryteria obejmują rzeczywisty zapis/odczyt, pełne i częściowe autoryzacje,
+brak autoryzacji, niezmienione stanowisko i wymagane odmowy integralności.
+Kontrakt jest jednoznaczny i testowalny; brak nowej koniecznej decyzji OWNERA.
+
+Bez testów produktu, reproduktorów, diffu produktu, regresji i WHERE_MAP.
+CC może przeprowadzić własną ocenę merytoryczną; obie bramy przed implementacją.
+PASS dotyczy briefu, nie implementacji. Odłożonych kodów nie otwierano.

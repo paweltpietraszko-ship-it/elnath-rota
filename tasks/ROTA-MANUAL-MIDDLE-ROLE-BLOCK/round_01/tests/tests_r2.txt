@@ -1,0 +1,36 @@
+ROTA-MANUAL-MIDDLE-ROLE-BLOCK — proporcjonalny audyt dostawy r2
+DATA: 2026-10-16 | WERDYKT: PASS
+EXACT_SHA: 5cf3df554dadcf8feaf0d156f09f8fcfee40c6aa
+BASE_SHA: e13f92d83cf72e7ca001ac8986a3f64ee66721bd
+ODBiorca: CC / OWNER | branch raportu: audit/rota-manual-middle-role-block
+
+Zakres: brief §3/§5, przekazanie CC, surowy diff trzech plików produkcji
+i zmienionych testów. Znane decyzje OWNERA bez ponownego otwierania.
+Helper przedziałowy zachowuje dawną semantykę role_covers, bez sumowania
+autoryzacji; nowa ścieżka waliduje własną rolę pracy bez demandu. Zdjęto
+tylko odmowę braku autoryzacji; integralność i legacy demand path bez zmian.
+
+Dowód niezależny: rzeczywiste add_manual_middle_work na przyszły termin
+12.09.2027, kierownik pracujący jako sprzedawca bez autoryzacji -> SQLite
+child + dokładnie jeden ROLE-01/PREFERENCE na tej pracy + jedna powiązana
+MANUAL_SCHEDULE_CORRECTION. Pełny rodzic, membership i autoryzacje bez zmian.
+GET miesiąca zwraca polską etykietę i ostrzeżenie z datą. PASS.
+Seed helper CC użyty tylko jako setup; akcje i asercje audytora odrębne.
+Pierwsza próba z datą przeszłą została prawidłowo odrzucona przez ochronę
+historii; poprawiono termin we własnym skrypcie, nie kod produktu.
+
+Testy exact SHA: test_t065_manual_middle_shift.py + test_t065_configurable_roles.py:
+30 passed in 2.02s; dodatkowo istniejący solver test_two_roles_overlapping_demands_one_plan_pipeline:
+1 passed in 0.61s. Pokryte m.in. częściowe/nieaktywne/niesumowane autoryzacje,
+własna rola, overlap demandu i odmowy integralności. Bez pełnej regresji
+i bez powtarzania 131 testów sąsiednich CC. Pełnej sesji GUI nie wymagano:
+UI/eksport bez zmian, zgodnie z briefem; istniejąca projekcja w zestawie MM.
+
+WHERE_MAP wykonano dla trzech wskazanych plików i sześciu symboli, w tym
+nowych helperów. Brak usuniętego _authorizes_manual_work_role jest oczekiwany.
+Wyniki i repro.py: C:/Users/p_pie/.codex/visualizations/2026/10/16/01a1429a-5038-7551-91af-f2f9f322083f/middle-delivery/
+Bramka CC: FAIL (SIZE_FUNC 68/52) + TOTAL_LINES 260; OWNER zaakceptował
+wyjątki w przekazaniu 2026-10-16. Niezależnie potwierdzono identyczny AST
+i długości obu wskazanych funkcji na BASE i EXACT_SHA; nie żądano refaktoru.
+Brak findingów spełniających DEFECT_GATE. PASS tylko dla tego SHA i zakresu.
+Nie otwierano odłożonych kodów. Kod CC nietknięty; merge wyłącznie OWNER.

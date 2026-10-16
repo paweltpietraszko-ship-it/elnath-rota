@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from rota.domain import Assignment, AssignmentRole, AvailabilityKind, AvailabilityRecord, MembershipKind, ShiftKind
 from rota.planning.availability import unavailable_time_window_overlaps
-from rota.planning.eligibility import role_covers
+from rota.planning.eligibility import role_covers, role_covers_interval
 from rota.planning.shift_catalog import dn_semantics_apply
 from rota.planning.site_rules import SHIFT_KIND_SPECIFIC_RULE_KINDS, day_only_n_exception_authorizing_rule_version_id, hard_rules_applicable_on, rule_allows_assignment
 from rota.planning.state import PlanningState
@@ -108,6 +108,9 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
     an untagged manual write through the gate."""
     membership_by_employee = {m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id}
     for assignment in assignments:
+        if assignment.manual_work_role_id is not None and assignment.covers_demand_id is None:
+            _check_manual_work_role(state, assignment, membership_by_employee.get(assignment.employee_id), details)
+            continue
         tagged = _covering_demand(assignment, state)
         candidate_demands = [tagged] if tagged is not None else _covered_demands(assignment, state)
         membership = membership_by_employee.get(assignment.employee_id)
@@ -126,6 +129,22 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
                     f"{demand.demand_id} requiring role {demand.required_role_name}, not permitted for this membership",
                 ))
 
+
+
+def _check_manual_work_role(state: PlanningState, assignment: Assignment, membership, details: list[ViolationDetail]) -> None:
+    """ROTA-MANUAL-MIDDLE-ROLE-BLOCK section 3.2: manual middle work has no
+    demand (_covered_demands returns []), so its OWN role is checked over
+    its real interval with the same owner as role_covers. A missing
+    membership stays MEMBERSHIP-01's finding, not a second one here."""
+    if membership is not None and not role_covers_interval(
+        assignment.manual_work_role_id, assignment.start_datetime, assignment.end_datetime,
+        membership, state.role_coverage_authorizations,
+    ):
+        details.append(ViolationDetail(
+            "ROLE-01", (assignment.assignment_id,),
+            f"ROLE-01: {assignment.employee_id} manual work {assignment.assignment_id} in role "
+            f"{assignment.manual_work_role_name}, not permitted for this membership",
+        ))
 
 def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
     off_dates_by_employee: dict[str, set] = {}

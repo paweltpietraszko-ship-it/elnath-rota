@@ -1,0 +1,122 @@
+### where.py rota/planning/eligibility.py --symbol role_covers
+FILE: rota/planning/eligibility.py
+LAYER: rota/planning
+IMPORTS (8):
+  __future__
+  dataclasses
+  typing
+  rota.domain
+  rota.planning.availability
+  rota.planning.shift_catalog
+  rota.planning.site_rules
+  rota.planning.timeutil
+
+TOP_LEVEL_SYMBOLS (1):
+  role_covers
+
+SYMBOL: role_covers
+  TOTAL_RAW_HITS: 19
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/EmployeeDetail.tsx:375: // rota.planning.eligibility.role_covers). Empty for OCHRONA sites (no
+    TEXT OTHER_FILE PRODUCTION     rota/application/deviation_mapping.py:38: # MEMBERSHIP-01; the automatic ROLE-01 gate (role_covers) is unchanged.
+    TEXT OTHER_FILE PRODUCTION     rota/application/durable_inputs.py:394: never implies a hierarchy -- see rota.planning.eligibility.role_covers,
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:174: def role_covers(demand: ShiftDemand, membership: SiteMembership, authorizations: tuple[RoleCoverageAuthorization, ...]) -> bool:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:227: if not role_covers(demand, membership, authorizations):
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:12: from rota.planning.eligibility import role_covers
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:85: anti-drift mirror of eligibility.py's role_covers -- the same shared
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:118: # a membership whose position doesn't match -- role_covers
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:121: covered = membership is not None and role_covers(demand, membership, state.role_coverage_authorizations)
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:78: 1. `rota/planning/eligibility.py`: wydzielić z obecnego `role_covers`
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:84: `role_covers(demand, ...)` zachowuje True przy braku required_role_id,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:143: niezmienionej semantyki role_covers i automatu, bez kopiowania ich kontraktu.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/tests_r4.txt:61: `site_role_repository.py`, jeden `role_covers` w `eligibility.py` oraz użycie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:68: Automat nadal stosuje istniejące `role_covers`: PLAN/REPLAN i akceptacja
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:124: Poza zakresem także: zmiana solvera/walidatora/role_covers, dopisywanie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/delivery_r1.md:9: CHANGE: rota/application/deviation_mapping.py — one `_BUILTIN_RULE_CATEGORY` entry `"ROLE-01": PREFERENCE`. category_for_rule, _affected_target, validator, role_covers untouched; no fallback.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/delivery_r1.md:21: WHERE_MAP: round_01/implementation/where_map_category_for_rule.txt, where_map_file.txt. Consumers: manual_edit.py (manual correction), lifecycle_ops.py (automatic acceptance — unreachable for ROLE-01 because solver applies role_covers), tests. No second owner, no fallback.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r2.txt:17: category_for_rule, _affected_target, validator i role_covers bez zmian;
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/planning/validator_checks_availability.py --symbol _check_role
+FILE: rota/planning/validator_checks_availability.py
+LAYER: rota/planning
+IMPORTS (9):
+  __future__
+  rota.domain
+  rota.planning.availability
+  rota.planning.eligibility
+  rota.planning.shift_catalog
+  rota.planning.site_rules
+  rota.planning.state
+  rota.planning.timeutil
+  rota.planning.validator_shared
+
+TOP_LEVEL_SYMBOLS (1):
+  _check_role
+
+SYMBOL: _check_role
+  TOTAL_RAW_HITS: 8
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:27: _check_role,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:79: _check_role(state, for_eligibility_checks, details)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:83: def _check_role(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:88: 2. `rota/planning/validator_checks_availability.py::_check_role`: dodać
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/tests_r2.txt:37: - `_check_role()` w rota/planning/validator.py sprawdza wyłącznie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:30: `validator_checks_availability._check_role` i istniejącą polską etykietę
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:32: 4. Punktowo potwierdzono nazwane szwy: _check_role emituje ROLE-01 z ID
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/application/manual_middle_work.py --symbol add_manual_middle_work
+FILE: rota/application/manual_middle_work.py
+LAYER: rota/application
+IMPORTS (8):
+  __future__
+  uuid
+  datetime
+  typing
+  rota.application.manual_edit
+  rota.domain
+  rota.persistence
+  rota.persistence.site_repository
+
+TOP_LEVEL_SYMBOLS (1):
+  add_manual_middle_work
+
+SYMBOL: add_manual_middle_work
+  TOTAL_RAW_HITS: 10
+    TEXT OTHER_FILE PRODUCTION     api/routers/manual_edit.py:21: from rota.application.manual_middle_work import add_manual_middle_work
+    TEXT OTHER_FILE PRODUCTION     api/routers/manual_edit.py:118: zgodnie z manual_edit.add_manual_middle_work's own ValueError-based
+    CALL OTHER_FILE PRODUCTION     api/routers/manual_edit.py:135: version = add_manual_middle_work(
+    DEF  SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:45: def add_manual_middle_work(
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:122: - MM-05: rzeczywiste `add_manual_middle_work` bez autoryzacji zapisuje dziecko,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/brief.md:149: Wspieranym entry pointem manual middle jest dedykowana akcja UI `Dodaj pracę` i odpowiadający jej endpoint/application wrapper `add_manual_middle_work()`. Generyczny endpoint manual correction pozostaje technicznym mechanizmem lifecycle i nie jest publicznym kontraktem do ręcznego konstruowania manual middle poza UI.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/round_01/tests/tests_r3.txt:24: - twardy precheck istnieje tylko w nowym wrapperze `add_manual_middle_work()`.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/round_01/tests/tests_r4.txt:18: - normalna akcja UI „Dodaj pracę” korzysta z `add_manual_middle_work()`;
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_manual_middle_shift.py:64: return manual_middle_work.add_manual_middle_work(
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+FILE: rota/application/manual_middle_work.py
+LAYER: rota/application
+IMPORTS (8):
+  __future__
+  uuid
+  datetime
+  typing
+  rota.application.manual_edit
+  rota.domain
+  rota.persistence
+  rota.persistence.site_repository
+
+TOP_LEVEL_SYMBOLS (1):
+  _authorizes_manual_work_role
+
+SYMBOL: _authorizes_manual_work_role
+  TOTAL_RAW_HITS: 4
+    DEF  SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:30: def _authorizes_manual_work_role(
+    CALL SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:78: if membership.position_role_id != manual_work_role_id and not _authorizes_manual_work_role(
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:98: autoryzacji roli i lokalny `_authorizes_manual_work_role`; jego jedyny
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
