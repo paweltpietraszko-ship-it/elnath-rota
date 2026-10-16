@@ -14,7 +14,6 @@ logs
 log
 *.db
 *.db.pii_keystore
-ELNATH_WARD_HANDOFF_FINAL_2026-08-10
 Grafiki
 diffs
 benchmarks
