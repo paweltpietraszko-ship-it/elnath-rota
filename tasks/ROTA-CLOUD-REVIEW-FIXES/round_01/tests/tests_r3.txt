@@ -1,0 +1,176 @@
+ROTA-CLOUD-REVIEW-FIXES — niezależny audyt implementacji, r3
+DATA: 2026-10-16
+EXACT_SHA: 4c45a67362288eb3babe9acacb5dc456cc1ce9db
+BASE: 8512553 (merge zamrożonego briefu)
+DOSTAWA: task/ROTA-CLOUD-REVIEW-FIXES
+BRANCH RAPORTU: audit/rota-cloud-review-fixes
+ODBiorca: OWNER / CC / Architekt
+
+WYNIK: PARTIAL; osobno WYMAGA_DECYZJI OWNERA dla bramki mechanicznej.
+Nie wykryto nowego defektu spełniającego TRACE + OWNERSHIP + REPRO.
+Nie wydaję bezwarunkowego PASS całego bloku: A2/F5 w kontenerze nie zostało
+sprawdzone, a backend_r2.txt nadal ma STATUS: FAIL i WYMAGA_DECYZJI.
+Nie jest to FAIL produktu ani zgoda na merge, deploy lub config apply.
+
+1. ORACLE, ZAKRES, NIEZALEŻNOŚĆ
+Odczytano AGENTS.md, CODEX_START_HERE.md, zamrożony brief i przekazanie CC
+z aktualnego origin/main/BOARD.md (wiersz ROTA-CLOUD-REVIEW-FIXES), delivery_r1.md
+i dosłowną bramkę backend_r2.txt. Obowiązują O1–O5 z §2 briefu oraz wskazane
+tam istniejące kontrakty. Nie otwierano ponownie zatwierdzonych decyzji.
+Audytowano surowy diff 8512553..4c45a67: produkcja, konfiguracja, testy i dowody.
+Niezależne porównanie nazw plików do TASK_SCOPE: OUTSIDE_SCOPE [].
+Nie zmieniono kodu, testów CC ani briefu. Jedyny commitowany plik: ten raport.
+Praca w osobnym worktree .worktrees/codex-cloud-review-fixes na exact SHA;
+bez przełączania głównego checkoutu i bez edycji brancha implementacji CC.
+
+OWNER_EXPLANATION_GATE: nie znaleziono nowego zachowania produktowego poza
+zamrożonym kontraktem. Reuse importu stanu Railway zamiast niepełnego migrate
+zachowuje przyjęte wymagania, nie tworzy nowych zasobów lub uprawnień.
+
+2. URUCHOMIONE DOWODY
+Interpreter: C:/Projects/Elnath Rota/.venv/Scripts/python.exe, cwd worktree exact SHA.
+Pierwszą próbę pytest w sandboxie bez wyniku zatrzymano; wyniki poniżej
+pochodzą z uruchomień poza sandboxem, z PYTHONPATH wskazującym badany checkout.
+
+2.1. Celowane testy dostawy:
+  -m pytest tests/test_cloud_review_schedule_fixes.py
+    tests/test_cloud_review_password_change.py -q --disable-warnings
+WYNIK: 18 passed, 2 warnings in 19.92s.
+To potwierdzenie pomocnicze; niezależne sprawdzenia poniżej są odrębne.
+
+2.2. Niezależne scenariusze audytora:
+  -m pytest <ARTIFACTS>/independent_r3.py -q --disable-warnings
+WYNIK końcowy: 7 passed, 2 warnings in 4.08s.
+Wykorzystano helpery CC wyłącznie do seedu; wyrocznią są wymagania briefu,
+akcje oraz asercje audytora. Wstępne błędy nazw pól wyniku eksportu/importów
+własnego skryptu poprawiono; nie klasyfikowano ich jako defektów produktu.
+
+- F1/A4: ręczna trzecia N przez HTTP, zapis LAW; brak potwierdzeń blokuje
+  finalizację i zwraca ExportLawBlocked zawierający NIGHT-STREAK-01;
+  potwierdzenie dokładnego zestawu pozwala sfinalizować. Test CC dodatkowo
+  sprawdza polską etykietę i jeden CoordinatorAction.
+- F2/A5: stara trójka utworzona legalną ręczną korektą tego samego obiektu
+  nie blokuje prawdziwego PLAN kolejnego miesiąca. Kontrola granicy miesiąca
+  w teście CC nadal wykrywa wrzesień 29/30 + październik 1.
+- F3/A3: N zaczynająca się 30.09 i kończąca 01.10: NN ma datę nie późniejszą
+  niż 30.09; sprawdzono brak jawnej daty, datę późniejszą i wcześniejszą.
+  Projekcja WYK = 0h, rodzic nadal PLANNED. HTTP dla wczoraj/poprzedniego
+  miesiąca oraz oba wejścia projekcji PDF/Excel przechodzą w testach CC.
+- F4/A6: HTTP PLAN od 10.03, brak trwałej wersji przed wyborem, odczyt preview,
+  akceptacja przez rzeczywisty router /external/excel/select-candidate,
+  odczyt Excela i projekcja. Dni 1–9 puste; demands zaczynają się 10.03;
+  suma godzin projekcji zgodna z zapisanymi Assignmentami. Tylko dependency
+  uwierzytelnienia/bazy routera Excel zastąpiono testowym conn/koordynatorem;
+  właściwe select_candidate, SQLite i projekcje są produkcyjne.
+  Testy CC obejmują dzień 1, ostatni dzień i brak nowego N/N/N od automatu.
+- F6/A1: produkcyjna decyzja zakazu D dla osoby mającej D + L4 innej osoby,
+  potem GET: widoczne obie przyczyny, nazwiska i daty; GET bez zapisów.
+  Testy CC obejmują równoczesne naruszenia, inne absencje, FINAL i fallback
+  brakujących/nieznanych referencji. Formatter otrzymuje jedną mapę etykiet;
+  nie parsuje angielskiego message i nie wywołuje ponownie validate.
+
+2.3. Rzeczywisty UI w CENTRAL_SERVICE na exact SHA:
+Lokalny izolowany backend 8157 + Vite 5197; oddzielne testowe konto i baza.
+Playwright Chromium 1440x1100, scenariusz <ARTIFACTS>/ui_r3.cjs.
+Narzędzie interaktywne blokowało localhost (ERR_NETWORK_ACCESS_DENIED);
+ten sam Playwright uruchomiono przez lokalny proces poza sandboxem.
+- F7: maskowane pola; brak obecnego hasła blokuje przycisk; błędne obecne
+  i nowe 7-znakowe hasło dają osobne polskie odmowy. Sukces pokazuje
+  „Hasło zmienione.”. Anulowanie i sukces czyszczą oba pola po ponownym
+  otwarciu. Brak wartości haseł w localStorage/sessionStorage.
+- F6: produkcyjny zapis L4 po akceptacji -> odświeżenie -> widoczny banner
+  „Naruszenie: zwolnienie lekarskie — Anna Kowalska; 28.10.”.
+  Po wycofaniu L4 i odświeżeniu komunikat znika; wersja i deviations bez zmian.
+  Obecne ostrzeżenia pozostają na ekranie. Brak pageerror.
+Obejrzano zrzuty month-l4.png i password-refusal.png; opis naruszenia,
+nazwisko/data oraz odmowa hasła są widoczne i po polsku.
+F7 API: 7/8 znaków, brak/błędne obecne hasło, operator create/reset,
+logowanie starym krótkim hasłem i zmiana oraz brak utraty mapowania:
+przechodzą w trzech testach CENTRAL_SERVICE CC, uruchomionych niezależnie.
+
+2.4. T i wybrane istniejące zabezpieczenia:
+Uruchomiono r15_2; trzy zmienione pliki kontroli importów/site-rules;
+t021_screen2_r12/r13; t26_18; excel missing_target_hours; t024 no_wide_users;
+oraz zachowany audit_r3_repro.py korekty historycznej.
+WYNIK: 67 passed, 2 failed in 8.84s. Oba FAIL dotyczyły starego audit_r3_repro.py,
+który zasiewa ORDINARY bez wymaganych obecnie target_hours i zatrzymuje się
+na TargetHoursRequired przed właściwą asercją — nie regresja tego bloku.
+Bez edycji starego pliku ponowiono jego akcje/asercje z target_hours=168:
+- recorded_at -> effective_from: PASS;
+- zakaz rewrite historycznego NN pod tym samym ID: PASS;
+- recompute po NN: TECHNICAL_ERROR COVERAGE-01, demand 2026-08-01-D.
+Ten ostatni wynik odtworzono identycznie na oddzielnym checkoutcie BASE 8512553
+i na EXACT_SHA. Nie jest nową regresją; nie przypisano mu FAIL dostawy.
+Bez potwierdzenia osiągalności/scope nie rozszerzano zadania o ten stary seed.
+Zmiany T zachowują asercje produktowe, lokalnie ustawiają reżim albo
+poprawiają kontrolę źródła/importu. Usunięty wyłącznie zużyty dowód T23-54.
+
+Pełnej suity nie powtarzano. 1516 passed / 1 skipped w delivery_r1.md
+pozostaje dowodem CC, a nie niezależnym wynikiem Codexa.
+
+3. RAILWAY — NIEZALEŻNY ODCZYT, BEZ ZASTOSOWANIA
+Sprawdzono .railway/railway.ts, package.json/lock, README i deploy/RAILWAY.md.
+Oficjalne źródło: https://docs.railway.com/infrastructure-as-code (2026-10-16).
+SDK z lockfile zainstalowano wyłącznie w .railway (npm ci --ignore-scripts).
+Lokalne railway 5.57.8 obsługuje config plan. Zastosowano udokumentowane
+w .railway/README.md ustawienie env:_ na natywny railway.exe dla Windows.
+Polecenie: railway.cmd config plan --file .railway/railway.ts --json
+WYNIK: ok=true, diagnostics=[], jeden resource.update:
+  Update elnath-rota build.builder -> DOCKERFILE.
+Brak dodawania/usuwania zasobów, zmian env/source/volume/region/replicas.
+Wartości zmiennych pozostają preserve(); bez decrypt/show-values.
+Plan obejmuje właściwy istniejący projekt production, serwis i /data.
+Nie wykonano migrate --apply, config apply, redeploy ani usunięcia railway.json.
+Instrukcja przejścia jest przygotowaniem, nie dowodem wykonanej migracji.
+Przed przyszłym zastosowaniem ponowić plan i uzyskać zgodę na jego wynik.
+
+4. F5 / A2 — PARTIAL, NIE FAIL
+Diff Dockerfile dodaje tzdata oraz TZ=Europe/Warsaw do runtime; brak zmian
+arytmetyki datetime, godzin salda i odpoczynku — zgodnie z O1.
+Docker nie jest dostępny. Nie zbudowano kontenera, nie sprawdzono w nim
+zimy/lata, daty 00:30, granicy dokładnie o starcie i o 06:30 ani nocy DST.
+Host Windows / statyczny Dockerfile nie zastępuje tych dowodów.
+To jawna luka w weryfikacji A2, nie odtworzony błąd konfiguracji.
+Samo „railway ssh date” po wdrożeniu nie pokryje całego A2.
+
+5. BRAMKA MECHANICZNA — WYMAGA_DECYZJI OWNERA, NIE FAIL PRODUKTU
+Przyjęto dosłowny wynik backend_r2.txt (HEAD 530f0d7). Dostarczony 4c45a67
+dodaje do niego tylko dokumentację/dowody; produkcja ma ten sam stan.
+Nie zmieniano limitów i nie ogłaszano zielonej bramki.
+Niezależnie potwierdzono:
+- 8 nowych plików jest jawnie wymienionych w TASK_SCOPE;
+- wszystkie zgłoszone SIZE_FILE przekraczały limit przed Taskiem;
+- apply_manual_correction 85->85; _check_third_consecutive_shift 82->82;
+  test_m29 54->54 — brak nowego przekroczenia długości tych funkcji;
+- plan_month 132->135; get_month 78->92 — wzrost w istniejących ownerach
+  konieczny do F4/F6, bez nowego podsystemu;
+- RATIO 1274/82=15.5:1 i TOTAL_LINES 1356 nadal wymagają decyzji.
+Uzasadnienie dopuszczenia wyjątków jest zgodne z zakresem kontraktu,
+ale audytor nie zastępuje OWNERA w akceptacji tej bramki procesowej.
+
+6. WHERE_MAP I GRANICE DOWODU
+Wykonano where.py <plik> i where.py <plik> --symbol <symbol> dla:
+rota/application/open_month.py open_month;
+rota/application/manual_edit.py mark_not_worked;
+rota/application/plan_ops.py plan_month oraz select_candidate;
+rota/application/deviation_mapping.py category_for_rule;
+rota/planning/validator_checks_patterns.py _check_night_streak;
+api/auth/manager.py UserManager;
+api/auth/backend.py change_own_password.
+Surowe wyniki zachowano w <ARTIFACTS>/where-*-file.txt i *-symbol.txt.
+Odczytano rzeczywistych ownerów i istotne wywołania: manual-edit router,
+web/Excel select-candidate, validator/constraints, provisioning/UserManager.
+Bez wnioskowania o reachability wyłącznie z listy importerów.
+
+ARTIFACTS (lokalne, poza repo; nie commitowane do brancha CC):
+C:/Users/p_pie/.codex/visualizations/2026/10/16/01a1429a-5038-7551-91af-f2f9f322083f/cloud-audit/
+  independent_r3.py, ui_r3.cjs, month-l4.png, password-refusal.png,
+  railway-plan.json (zmienne jako preserve, bez wartości), wyniki where.py.
+
+7. PRZEKAZANIE
+Brak nowych blokujących findingów produktowych. F1/F2/F3/F4/F6/F7/R/T mają
+opisane wyżej pozytywne dowody z konkretnymi ograniczeniami zakresu.
+Całość: PARTIAL z powodu A2; decyzja OWNERA o wyjątkach bramki nadal otwarta.
+Ultrareview/merge i zastosowanie Railway pozostają odrębnymi bramkami.
+Nie rozszerzano zakresu o zgłoszone osobno brakujące mapowania innych reguł.
+ARCHITECTURE_PROPOSALS: brak.
