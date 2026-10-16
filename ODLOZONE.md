@@ -250,3 +250,9 @@ Do zrobienia przed pierwszym prawdziwym klientem:
 ## 2026-10-16 Refaktor dużych plików (sesja Claude Code w chmurze) + ultrareview po nim
 
 Po zmergowaniu ROTA-CLOUD-REVIEW-FIXES suita jest w całości zielona (1516 passed), co pierwszy raz daje bezpieczną siatkę dla refaktoru. Plan: wyłącznie przenoszenie kodu do mniejszych plików, bez zmiany zachowania, zaczynając od `frontend/src/screens/MonthlyPlanning.tsx` (1688 linii) i `rota/planning/solver.py` (1374); brief architekta, pełna suita, audyt Codexa. Wykonawca: sesja Claude Code w chmurze (kredyt wygasa ok. 2026-11-04). **Decyzja OWNERA 2026-10-16:** ultrareview NIE był użyty dla ROTA-CLOUD-REVIEW-FIXES (mały kod produkcyjny, już pokryty pełną suitą, mutacjami i audytem Codexa r3) -- zostaje zachowany na ten refaktor, gdzie przenoszenie tysięcy linii może ukryć zmianę zachowania. Wcześniejszy kontekst: `ODLOZONE.md` 2026-09-15 „Refaktor L1-DB i podział EmployeeDetail.tsx”.
+
+## 2026-10-16 WORK_PERIOD-01, FULL_HOUR-01, SITE_RULE-01, ASSIGN bez DeviationCategory -- znane ograniczenie
+
+OWNER 2026-10-16 zaakceptował zamknięcie jako znane ograniczenie (po ROTA-UNMAPPED-DEVIATION-RULES, gdzie naprawiono tylko ROLE-01).
+Ustalone z kodu (nieuruchomione): WORK_PERIOD-01 (`find_malformed_periods`, grupuje per pracownik+okres -- przestawienie połowy 24h na inną osobę go nie wywołuje) i ASSIGN (szkolony bez mentora) to straże integralności danych; UI nie edytuje godzin zwykłych zmian ani powiązań mentora. FULL_HOUR-01: UI odrzuca niepełne godziny przed wysłaniem (MonthlyPlanning S1/środek). SITE_RULE-01: program nie umie ocenić HARD reguły dla niesklasyfikowanego demandu -- nie jest to łamanie zasady przez koordynatora, rzadkie.
+Skutek, gdyby jednak wystąpiły w ręcznej korekcie: 500 (UnknownDeviationSource). Wracamy tylko z realnym przypadkiem od testera.
