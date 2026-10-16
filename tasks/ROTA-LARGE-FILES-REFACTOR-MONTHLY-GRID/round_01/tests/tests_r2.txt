@@ -1,0 +1,37 @@
+ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID — proporcjonalny audyt r2
+DATA: 2026-10-16
+WYNIK: PASS sprawdzonego refaktoru; oddzielnie otwarta bramka procesowa poniżej.
+EXACT_SHA: a1572100a3de7f2a779cd05b38312452de55cf6b
+BASE_SHA: cc7005cc192e7f7c383e20ae441d10cd4d9123ad
+ODBIORCA: OWNER / CC | raport: audit/rota-large-files-refactor-plan
+
+Zakres: dostawa CC, diff wyłącznie przeniesienia i jego dowody. Produkcja
+zmienia tylko MonthlyPlanning.tsx i nowy ScheduleGrid.tsx; brak zmian backendu.
+Niezależnym skryptem TypeScript AST/tekst potwierdzono identyczne sześć
+deklaracji po usunięciu tylko słowa export. Cały pozostały kod rodzica,
+w tym główny komponent, hooki, akcje i trzy wywołania JSX, jest identyczny.
+Import rodzica dodaje nowy moduł i usuwa dwa nieużywane typy; moduł nie
+importuje rodzica, tylko React i istniejące typy API. Brak nowego cyklu.
+
+Niezależne wykonanie renderowania React: pięć porównań BASE/EXACT_SHA
+jest identycznych (tabela klikalna/read-only, historyczny fallback osób,
+ORDINARY, pusty stan; dane zawierają NN/S1/DEL/frozen i sumy).
+To dodatkowy reproduktor równoważności, nie nowa definicja produktu.
+Osobno porównano surowe dowody przeglądarkowe CC base_recheck/after_repeat:
+12/12 stanów DOM identyczne, 14/14 PNG identyczne bajtowo, writes=[].
+Dwie wcześniejsze różnice PNG mają identyczny odpowiednik BASE/BASE;
+nie stanowią dowodu regresji. UI/click/build/suita pozostają dowodami CC;
+nie deklaruję nowej niezależnej sesji przeglądarkowej lub powtórzonego builda.
+WHERE_MAP CC ogranicza się do braku parsera TSX; niezależna kontrola sześciu
+deklaracji, importów i identycznego rodzica potwierdza właściwą granicę.
+
+Pełnej suity nie powtarzano. Wynik CC 1529 passed/1 skipped na Linuksie
+z testowym shimem DPAPI jest pomocniczy; nie potwierdza natywnego DPAPI.
+Stary T54-06 pada na BASE i po przeniesieniu; bez przypisywania go refaktorowi.
+Nie otwierano osobnych błędów NN/S1 ani kolejnych podziałów.
+
+Proces: backend.py CC = WYMAGA_DECYZJI, tylko TOTAL_LINES 640 (move + spec).
+Nie nazywać tej bramki zieloną: wyjątek akceptuje OWNER. Ultrareview zgodnie
+z BOARD uruchamia OWNER i pozostaje warunkiem przed merge. PASS potwierdza
+wyłącznie mechaniczne przeniesienie na EXACT_SHA, nie zgodę na merge/deploy.
+Brak nowych findingów produktowych; kod implementera bez zmian.
