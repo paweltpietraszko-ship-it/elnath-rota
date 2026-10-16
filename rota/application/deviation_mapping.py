@@ -33,6 +33,10 @@ _BUILTIN_RULE_CATEGORY: dict[str, DeviationCategory] = {
     "WEEKLY-REST-01": DeviationCategory.LAW,
     "DAY_ONLY-01": DeviationCategory.PREFERENCE,
     "MEMBERSHIP-01": DeviationCategory.PREFERENCE,
+    # ROTA-UNMAPPED-DEVIATION-RULES: a coordinator's deliberate manual
+    # assignment without the demand's required role is recorded like
+    # MEMBERSHIP-01; the automatic ROLE-01 gate (role_covers) is unchanged.
+    "ROLE-01": DeviationCategory.PREFERENCE,
     "EXTERNAL-01": DeviationCategory.PREFERENCE,
     # ROTA-T012 Part B (part_b_work_period_rest.md DEVIATION MAPPING):
     # frozen categories, activated in B alongside the built-in HARD codes.

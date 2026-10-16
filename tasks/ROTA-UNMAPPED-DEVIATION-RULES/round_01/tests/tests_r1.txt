@@ -1,0 +1,52 @@
+ROTA-UNMAPPED-DEVIATION-RULES — niezależny precheck, r1
+DATA: 2026-10-16
+WERDYKT: PASS PREIMPLEMENTATION
+EXACT_SHA: 4071bf2ebe950d015825b253a35363543d1227b4
+BRANCH briefu: codex/rota-unmapped-deviation-rules
+BASE_SHA briefu: 3b7e60c26124cec7f1b88d359108ba83d4074d17
+BRANCH raportu: audit/rota-unmapped-deviation-rules
+ODBIORCA: CC / Architekt / OWNER
+
+1. Odczytano aktualne zasady AGENTS.md z origin/main, CODEX_START_HERE.md,
+nagłówek BOARD oraz przekazanie tego Tasku na branchu architekta. Na main
+pozostaje starsze zgłoszenie CC; aktualny precheck wskazuje BOARD w 4071bf2.
+Wiersz wskazuje 6d6150e; oceniono nowszy 4071bf2 zawierający przekazanie.
+Przeczytano cały brief oraz wskazane fragmenty T065 (role w SiteMembership,
+T65-11/T65-A11), T009 §8 i zamrożone O4/O5 z CLOUD-REVIEW-FIXES.
+
+2. Zachowanie ma źródło w istniejącym prawie świadomej korekty człowieka
+oraz reuse manual-correction/deviation/action trail. PREFERENCE pozostaje
+koszykiem raportowania operacyjnego ograniczenia, jak MEMBERSHIP-01;
+nie oznacza zmiany HARD na SOFT ani zgody dla automatu na złamanie reguły.
+Zapis dziecka/Deviation/CoordinatorAction, polska etykieta, brak zmiany
+dopuszczeń osoby, finalizacja, eksport i recovery są opisane jednoznacznie.
+Brak koniecznej nowej decyzji produktowej przed implementacją.
+
+3. Redukcja — jedno przejście: SOURCE = T009 §8, T65-A11 i decyzja OWNERA
+utrwalona w źródłach briefu; NECESSITY = umożliwienie istniejącego zapisu
+świadomej decyzji po walidacji. Wystarcza ROLE-01 -> PREFERENCE w obecnej
+_BUILTIN_RULE_CATEGORY. Nie znaleziono odpowiedzialności do usunięcia.
+Nie są potrzebne zmiany UI/API, solvera, walidatora, category_for_rule,
+_affected_target, nowa walidacja lub nowy magazyn decyzji.
+
+4. Punktowo potwierdzono nazwane szwy: _check_role emituje ROLE-01 z ID
+Assignmentu; istniejący materialize_deviations korzysta z category_for_rule
+i _affected_target; tabela nie ma ROLE-01, ma MEMBERSHIP-01/PREFERENCE.
+Router schedule ma już etykietę „brak wymaganej roli”. Wskazany plik testów
+ról istnieje i zawiera testy automatu oraz niezależnego mirrora walidatora.
+Po wystarczającym dowodzie nie poszerzano analizy kodu.
+
+5. R1–R4 są testowalne: rzeczywisty zapis korekty i odczyt z bazy/routera,
+kontrola osoby z rolą, reuse istniejącego testu automatu i zachowanie błędu
+dla nieznanego źródła. Brak runtime REPRO na etapie briefu jest jawny;
+implementer ma najpierw odtworzyć brak na BASE, a nie dopasowywać kontrakt
+do oczekiwanego wyjątku. Jeden nowy testowy plik i jedno mapowanie wystarczą.
+WORK_PERIOD-01, FULL_HOUR-01, SITE_RULE-01 i ASSIGN pozostają otwarte
+poza tym Taskiem; PASS ich nie obejmuje i nie nadaje im kategorii.
+
+6. BRIEF_ONLY_PRECHECK: bez diffu produktu, testów, reproduktorów, pionów,
+regresji i WHERE_MAP. Mapę zgodnie z briefem uruchomi implementer/audytor
+implementacji. Nie zmieniano briefu ani kodu produktu.
+CC może otrzymać zadanie do własnej oceny merytorycznej; zgodnie z §6
+obie bramy poprzedzają implementację. PASS dotyczy wyłącznie tego briefu
+na EXACT_SHA; nie potwierdza naprawy ani nie udziela zgody na merge.

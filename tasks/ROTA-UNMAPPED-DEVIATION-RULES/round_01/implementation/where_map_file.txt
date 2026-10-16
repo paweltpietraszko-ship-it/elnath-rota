@@ -1,0 +1,119 @@
+FILE: rota/application/deviation_mapping.py
+LAYER: rota/application
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (4):
+  __future__
+  rota.application.errors
+  rota.domain
+  rota.planning.validator
+
+TOP_LEVEL_SYMBOLS (3):
+  category_for_rule
+  _affected_target
+  materialize_deviations
+
+SYMBOL: category_for_rule
+  TOTAL_RAW_HITS: 29
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/ARCHITECT_BRIEF_CROSS_CONTEXT_DEVIATION_TARGET_2026-08-27.md:36: - `rota/application/deviation_mapping.py::_affected_target` (linia 51-56) — bierze `detail.assignment_ids[0]` bez rozróżniania, czy id pochodzi z bieżącej, granicznej czy innej-obiektowej wersji. `category_for_rule` (linia 40-48) mapuje `REST-01`/`WEEKLY-REST-01` → `DeviationCategory.LAW` (linia 20-23, ROTA-T023b).
+    DEF  SAME_FILE  PRODUCTION     rota/application/deviation_mapping.py:60: def category_for_rule(rule_code: str, site_rules_by_version_id: dict[str, SiteRuleVersion]) -> DeviationCategory:
+    CALL SAME_FILE  PRODUCTION     rota/application/deviation_mapping.py:103: category = category_for_rule(detail.rule, by_version_id)
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/CURSOR_AUDIT_2026-08-22_ui_coverage/FINDINGS_VERIFIED.md:128: `category_for_rule`, `save_site_membership`, `require_real_date` — internal plumbing, correctly out of a coordinator-facing spec
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-CLOUD-REVIEW-FIXES/brief.md:375: - TARGETS: rota/application/open_month.py --symbol open_month; rota/application/manual_edit.py --symbol mark_not_worked; rota/application/plan_ops.py --symbol plan_month; rota/application/plan_ops.py --symbol select_candidate; rota/application/deviation_mapping.py --symbol category_for_rule; rota/planning/validator_checks_patterns.py --symbol _check_night_streak; api/auth/manager.py --symbol UserManager; api/auth/backend.py --symbol change_own_password
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-CLOUD-REVIEW-FIXES/round_01/tests/tests_r1.txt:47: deviation_mapping/category_for_rule, _check_night_streak i okno istniejącego
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-CLOUD-REVIEW-FIXES/round_01/tests/tests_r3.txt:156: rota/application/deviation_mapping.py category_for_rule;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T012/part_b_work_period_rest.md:348: - `category_for_rule` dla SHIFT-24-01/PAIR zwraca dokładnie zamrożone kategorie;
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T016/brief.md:182: - `category_for_rule("EMP-02", ...)` po T016 ma zachowywać się jak dla
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T016/brief.md:190: a nie rematerializuje ich przez `category_for_rule`.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T016/brief.md:258: 8. `category_for_rule("EMP-02", {})` nie traktuje EMP-02 jako aktywnego
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T031/brief.md:62: - `materialize_deviations`/`category_for_rule` —
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/brief.md:90: `category_for_rule()` pozostaje bez zmian. `REST-01` i `WEEKLY-REST-01` nadal mapują się do `DeviationCategory.LAW`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:46: Nie zmieniać `category_for_rule`, `_affected_target` ani walidatora.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:103: R4. Nierozpoznany kod w `category_for_rule` nadal daje UnknownDeviationSource;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:130: - TARGETS: rota/application/deviation_mapping.py --symbol category_for_rule
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:135: `--symbol category_for_rule`; dowód czytać przed wnioskami. Nie uruchamiać
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:29: Nie są potrzebne zmiany UI/API, solvera, walidatora, category_for_rule,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:33: Assignmentu; istniejący materialize_deviations korzysta z category_for_rule
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:640: from rota.application.deviation_mapping import category_for_rule
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:643: assert category_for_rule("SHIFT-24-01", {}) == DeviationCategory.PREFERENCE
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:644: assert category_for_rule("SHIFT-24-PAIR-01", {}) == DeviationCategory.COVERAGE
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t016_emp02_retirement.py:21: from rota.application.deviation_mapping import category_for_rule
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t016_emp02_retirement.py:179: category_for_rule("EMP-02", {})
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t016_emp02_retirement.py:183: raise AssertionError("category_for_rule('EMP-02', {}) must not resolve to a known category")
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t023b.py:442: from rota.application.deviation_mapping import category_for_rule
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t023b.py:444: assert category_for_rule("WEEKLY-REST-01", {}) == DeviationCategory.LAW
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t058.py:38: from rota.application.deviation_mapping import category_for_rule
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t058.py:362: assert category_for_rule("THIRD-CONSECUTIVE-SHIFT-01", {}) == DeviationCategory.LAW
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _affected_target
+  TOTAL_RAW_HITS: 19
+  WARNING: name defined in 2 different files — hits below may belong to a different symbol of the same name:
+    DEF SITE: rota/application/deviation_mapping.py
+    DEF SITE: tasks/ROTA-CROSS-CONTEXT-DEVIATION-TARGET/round_01/tests/tests_antigravity_calibration_01.txt
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/ARCHITECT_BRIEF_CROSS_CONTEXT_DEVIATION_TARGET_2026-08-27.md:36: - `rota/application/deviation_mapping.py::_affected_target` (linia 51-56) — bierze `detail.assignment_ids[0]` bez rozróżniania, czy id pochodzi z bieżącej, granicznej czy innej-obiektowej wersji. `category_for_rule` (linia 40-48) mapuje `REST-01`/`WEEKLY-REST-01` → `DeviationCategory.LAW` (linia 20-23, ROTA-T023b).
+    DEF  SAME_FILE  PRODUCTION     rota/application/deviation_mapping.py:81: def _affected_target(detail: ViolationDetail) -> str:
+    CALL SAME_FILE  PRODUCTION     rota/application/deviation_mapping.py:106: source_reference=detail.rule, affected_assignment_or_employee=_affected_target(detail),
+    DEF  OTHER_FILE TEST_TASK_ARCH tasks/ROTA-CROSS-CONTEXT-DEVIATION-TARGET/round_01/tests/tests_antigravity_calibration_01.txt:46: def _affected_target(detail: ViolationDetail) -> str:
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-CROSS-CONTEXT-DEVIATION-TARGET/round_01/tests/tests_antigravity_calibration_01.txt:97: Gdy `_affected_target()` pobiera `detail.assignment_ids[0]`, pobiera identyfikator
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/brief.md:14: Obecny `deviation_mapping._affected_target()` bierze po prostu `ViolationDetail.assignment_ids[0]`. Jeżeli pierwszy element pochodzi z cross-context, `schedule_validation._validate_one_deviation()` odrzuca Deviation, ponieważ trwały target Assignment musi dziś rozwiązać się do Assignment bieżącej wersji.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/brief.md:74: W `rota/application/deviation_mapping.py` `_affected_target(detail)` ma zachować istniejący porządek dla wszystkich źródeł poza dwoma wskazanymi niżej.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:46: Nie zmieniać `category_for_rule`, `_affected_target` ani walidatora.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:30: _affected_target, nowa walidacja lub nowy magazyn decyzji.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:34: i _affected_target; tabela nie ma ROLE-01, ma MEMBERSHIP-01/PREFERENCE.
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:9: _affected_target directly. T36-11 is the mandatory real vertical: a genuine
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:26: from rota.application.deviation_mapping import _BUILTIN_RULE_CATEGORY, _EMPLOYEE_TARGETED_SOURCES, _affected_target, materialize_deviations
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:71: assert _affected_target(detail) == "E1"
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:76: assert _affected_target(detail) == "E1"
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:85: _affected_target(detail)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:91: _affected_target(detail)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:99: assert _affected_target(detail) == "a1"
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:104: assert _affected_target(detail) == "D-1"
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:120: _affected_target(detail)
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: materialize_deviations
+  TOTAL_RAW_HITS: 42
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/ARCHITECT_BRIEF_CROSS_CONTEXT_DEVIATION_TARGET_2026-08-27.md:77: 3. Czy istnieje scenariusz, w którym `WORK_PERIOD-01` (linia 467 validator.py, osobny kod reguły, nieobecny w `_BUILTIN_RULE_CATEGORY`) mógłby też trafić do `materialize_deviations` z cross-context targetem? Jeśli tak — to osobny, nieopisany tu problem (`UnknownDeviationSource`), do zgłoszenia, nie do cichego naprawienia przy okazji.
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-04_VALIDATOR_WARNINGS_NEVER_SURFACED.md:52: `report.violation_details` (via `materialize_deviations`) and
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-05_SOLVER_RHYTHM_VS_TARGET_PRECISION.md:221: istniejące `validate -> materialize_deviations -> coordinator action` wystarcza.
+    CALL OTHER_FILE TEST_TASK_ARCH arch/PREBRIEF_AUDIT_2026-09-05_T056_FOLLOWUPS.md:139: `materialize_deviations()` odrzuca jednak `message` i zapisuje tylko kategorię,
+    CALL OTHER_FILE TEST_TASK_ARCH arch/PREBRIEF_REAUDIT_2026-09-05_PRINT_LIFECYCLE_UI_IDENTIFIERS.md:131: `materialize_deviations()` buduje ID wyłącznie jako:
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/RESEARCH_2026-09-22_THIRD_CONSECUTIVE_DAY_EVIDENCE.md:49: E13 [B, local tests passed, cross-module fail]: [T058 Codex R4 report](https://github.com/paweltpietraszko-ship-it/elnath-rota/blob/25e591d4d723a8c63a753998dc324154287f0173/tasks/ROTA-T058/round_01/tests/tests_r4.txt#L17-L42) for exact `76b3b57` reports 15 targeted tests passed, yet independent application-path reproduction failed. [R4-01 lines 56–91](https://github.com/paweltpietraszko-ship-it/elnath-rota/blob/25e591d4d723a8c63a753998dc324154287f0173/tasks/ROTA-T058/round_01/tests/tests_r4.txt#L56-L91): new validator scanned an unbounded set of other-month `boundary_assignments`, where solver checked only windows touching the planned month. A past unrelated three-day history yielded a violation without attachable Assignment IDs; `manual_edit -> materialize_deviations` raised `UnknownDeviationSource` and blocked a future unrelated manual correction. The report also caught one 85-line new function exceeding mechanical size limit (R4-02). [1f072fa](https://github.com/paweltpietraszko-ship-it/elnath-rota/commit/1f072fa4093f32e2e9a5a73c93d7b68000957cce) states it fixed the R4 issues. No current failure is claimed from this historical reproduction.
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/T021_implementation_pipeline_DRAFT.md:37: materialize_deviations + `_rest_override_pairs`), stops before
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/T021_spec.md:632: (`assemble_planning_state` → `validate` → `materialize_deviations` +
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/T021_ui_facts_2026-08-21.md:648: `validate` → `materialize_deviations`, plus the REST-01
+    TEXT SAME_FILE  PRODUCTION     rota/application/deviation_mapping.py:23: # materialize_deviations): any real UNAVAILABLE_TIME-01 HARD violation
+    DEF  SAME_FILE  PRODUCTION     rota/application/deviation_mapping.py:93: def materialize_deviations(
+    TEXT OTHER_FILE PRODUCTION     rota/application/lifecycle_ops.py:15: from rota.application.deviation_mapping import materialize_deviations
+    CALL OTHER_FILE PRODUCTION     rota/application/lifecycle_ops.py:52: deviations = materialize_deviations(report.violation_details, all_rules)
+    TEXT OTHER_FILE PRODUCTION     rota/application/manual_edit.py:19: from rota.application.deviation_mapping import materialize_deviations
+    CALL OTHER_FILE PRODUCTION     rota/application/manual_edit.py:453: deviations = materialize_deviations(report.violation_details, all_rules)  # step 8
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_patterns.py:99: validate -> materialize_deviations -> coordinator action path.
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_patterns.py:117: assignment_ids at all, and materialize_deviations then had nothing to
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-CLOUD-REVIEW-FIXES/brief.md:143: materialize_deviations -> zapis wersji i CoordinatorAction` zapisuje ręczny
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T031/brief.md:62: - `materialize_deviations`/`category_for_rule` —
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/brief.md:174: `validator.validate(...) -> materialize_deviations(...) -> istniejący schedule lifecycle / persistence validation`
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/round_01/tests/tests_r1.txt:45: validator.validate -> materialize_deviations -> existing lifecycle/
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/round_01/tests/tests_r1.txt:83: 7. Manual correction already calls validate and materialize_deviations;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/round_01/tests/tests_r2.txt:25: validator.validate -> materialize_deviations -> existing lifecycle /
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T036/round_01/tests/tests_r4.txt:18: - materialize_deviations targets Employee E1, not the foreign Assignment.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/brief.md:38: Wtedy istniejący pion `validate -> materialize_deviations -> coordinator action`:
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/repro_r4.py:8: from rota.application.deviation_mapping import materialize_deviations
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/repro_r4.py:54: materialize_deviations(report.violation_details, ())
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/repro_r5.py:6: from rota.application.deviation_mapping import materialize_deviations
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/repro_r5.py:70: deviations = materialize_deviations(details, ())
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/tests_r2.txt:30: in materialize_deviations(), so apply_manual_correction fails instead of
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/tests_r2.txt:42: validate -> materialize_deviations -> coordinator action chain is enough.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/tests_r4.txt:70: materialize_deviations; nie istnieje wcześniejsza granica usuwająca
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T058/round_01/tests/tests_r4.txt:79: - materialize_deviations nie ma celu dla tego obcego okna i rzuca
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:12: naruszenie, lecz `materialize_deviations` nie umie nadać mu kategorii.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:33: Assignmentu; istniejący materialize_deviations korzysta z category_for_rule
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t009_manual_edit.py:10: from rota.application.deviation_mapping import materialize_deviations
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t009_manual_edit.py:86: deviations = materialize_deviations(report.violation_details, ())
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t009_manual_edit.py:235: monkeypatch.setattr("rota.application.manual_edit.materialize_deviations", _boom)
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:26: from rota.application.deviation_mapping import _BUILTIN_RULE_CATEGORY, _EMPLOYEE_TARGETED_SOURCES, _affected_target, materialize_deviations
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:160: deviations = materialize_deviations(report.violation_details, site_rules=())
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:216: deviations = materialize_deviations(report.violation_details, site_rules=())
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t036_rest_deviation_target.py:308: deviations = materialize_deviations(report.violation_details, site_rules=())
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
