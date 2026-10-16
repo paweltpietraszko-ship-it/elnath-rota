@@ -1,0 +1,119 @@
+### base vs base_repeat (original code, two runs, harness determinism)
+A_back_to_month              IDENTICAL
+A_click                      IDENTICAL
+A_current                    IDENTICAL
+A_entry_korekta              IDENTICAL
+A_entry_wydruk               IDENTICAL
+A_history_0                  IDENTICAL
+A_history_1                  IDENTICAL
+A_history_count              IDENTICAL
+A_next_month_text            IDENTICAL
+B_after_reload               IDENTICAL
+B_current_and_preview        IDENTICAL
+C_current_and_preview        IDENTICAL
+writes                       base=[] base_repeat=[]
+A_back_to_month_grid0.png                BYTE-IDENTICAL sha256=68d30c493c6e
+A_current_grid0.png                      BYTE-IDENTICAL sha256=68d30c493c6e
+A_entry_korekta_grid0.png                BYTE-IDENTICAL sha256=3dd282392071
+A_entry_wydruk_grid0.png                 BYTE-IDENTICAL sha256=12b174ae62ab
+A_history_0_grid0.png                    BYTE-IDENTICAL sha256=05c7cf9b9e67
+A_history_0_grid1.png                    BYTE-IDENTICAL sha256=e096f93ea833
+A_history_1_grid0.png                    BYTE-IDENTICAL sha256=68d30c493c6e
+A_history_1_grid1.png                    BYTE-IDENTICAL sha256=a5ee2ec421fb
+B_after_reload_grid0.png                 BYTE-IDENTICAL sha256=3749a6414470
+B_after_reload_grid1.png                 BYTE-IDENTICAL sha256=91cfa9b29d07
+B_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=3749a6414470
+B_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=91cfa9b29d07
+C_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=cd0f94a4956d
+C_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=656dc96293c9
+RESULT: NO DIFFERENCES
+
+### base vs base_recheck (original code, 8 min apart: environmental drift)
+A_back_to_month              IDENTICAL
+A_click                      IDENTICAL
+A_current                    IDENTICAL
+A_entry_korekta              IDENTICAL
+A_entry_wydruk               IDENTICAL
+A_history_0                  IDENTICAL
+A_history_1                  IDENTICAL
+A_history_count              IDENTICAL
+A_next_month_text            IDENTICAL
+B_after_reload               IDENTICAL
+B_current_and_preview        IDENTICAL
+C_current_and_preview        IDENTICAL
+writes                       base=[] base_recheck=[]
+A_back_to_month_grid0.png                BYTE-IDENTICAL sha256=68d30c493c6e
+A_current_grid0.png                      BYTE-IDENTICAL sha256=68d30c493c6e
+A_entry_korekta_grid0.png                BYTE-IDENTICAL sha256=3dd282392071
+A_entry_wydruk_grid0.png                 BYTE-IDENTICAL sha256=12b174ae62ab
+A_history_0_grid0.png                    BYTE-IDENTICAL sha256=05c7cf9b9e67
+A_history_0_grid1.png                    BYTE-IDENTICAL sha256=e096f93ea833
+A_history_1_grid0.png                    BYTE-IDENTICAL sha256=68d30c493c6e
+A_history_1_grid1.png                    BYTE-IDENTICAL sha256=a5ee2ec421fb
+B_after_reload_grid0.png                 BYTE-IDENTICAL sha256=3749a6414470
+B_after_reload_grid1.png                 PIXEL-DIFFERENT sha256=91cfa9b29d07
+B_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=3749a6414470
+B_current_and_preview_grid1.png          PIXEL-DIFFERENT sha256=91cfa9b29d07
+C_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=cd0f94a4956d
+C_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=656dc96293c9
+RESULT: DIFFERENCES: ['B_after_reload_grid1.png', 'B_current_and_preview_grid1.png']
+
+### base_recheck (original code) vs after_repeat (moved code), same session window
+A_back_to_month              IDENTICAL
+A_click                      IDENTICAL
+A_current                    IDENTICAL
+A_entry_korekta              IDENTICAL
+A_entry_wydruk               IDENTICAL
+A_history_0                  IDENTICAL
+A_history_1                  IDENTICAL
+A_history_count              IDENTICAL
+A_next_month_text            IDENTICAL
+B_after_reload               IDENTICAL
+B_current_and_preview        IDENTICAL
+C_current_and_preview        IDENTICAL
+writes                       base_recheck=[] after_repeat=[]
+A_back_to_month_grid0.png                BYTE-IDENTICAL sha256=68d30c493c6e
+A_current_grid0.png                      BYTE-IDENTICAL sha256=68d30c493c6e
+A_entry_korekta_grid0.png                BYTE-IDENTICAL sha256=3dd282392071
+A_entry_wydruk_grid0.png                 BYTE-IDENTICAL sha256=12b174ae62ab
+A_history_0_grid0.png                    BYTE-IDENTICAL sha256=05c7cf9b9e67
+A_history_0_grid1.png                    BYTE-IDENTICAL sha256=e096f93ea833
+A_history_1_grid0.png                    BYTE-IDENTICAL sha256=68d30c493c6e
+A_history_1_grid1.png                    BYTE-IDENTICAL sha256=a5ee2ec421fb
+B_after_reload_grid0.png                 BYTE-IDENTICAL sha256=3749a6414470
+B_after_reload_grid1.png                 BYTE-IDENTICAL sha256=5b3f3fa7f9d7
+B_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=3749a6414470
+B_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=5b3f3fa7f9d7
+C_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=cd0f94a4956d
+C_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=656dc96293c9
+RESULT: NO DIFFERENCES
+
+### after vs after_repeat
+A_back_to_month              IDENTICAL
+A_click                      IDENTICAL
+A_current                    IDENTICAL
+A_entry_korekta              IDENTICAL
+A_entry_wydruk               IDENTICAL
+A_history_0                  IDENTICAL
+A_history_1                  IDENTICAL
+A_history_count              IDENTICAL
+A_next_month_text            IDENTICAL
+B_after_reload               IDENTICAL
+B_current_and_preview        IDENTICAL
+C_current_and_preview        IDENTICAL
+writes                       after=[] after_repeat=[]
+A_back_to_month_grid0.png                BYTE-IDENTICAL sha256=68d30c493c6e
+A_current_grid0.png                      BYTE-IDENTICAL sha256=68d30c493c6e
+A_entry_korekta_grid0.png                BYTE-IDENTICAL sha256=3dd282392071
+A_entry_wydruk_grid0.png                 BYTE-IDENTICAL sha256=12b174ae62ab
+A_history_0_grid0.png                    BYTE-IDENTICAL sha256=05c7cf9b9e67
+A_history_0_grid1.png                    BYTE-IDENTICAL sha256=e096f93ea833
+A_history_1_grid0.png                    BYTE-IDENTICAL sha256=68d30c493c6e
+A_history_1_grid1.png                    BYTE-IDENTICAL sha256=a5ee2ec421fb
+B_after_reload_grid0.png                 BYTE-IDENTICAL sha256=3749a6414470
+B_after_reload_grid1.png                 BYTE-IDENTICAL sha256=5b3f3fa7f9d7
+B_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=3749a6414470
+B_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=5b3f3fa7f9d7
+C_current_and_preview_grid0.png          BYTE-IDENTICAL sha256=cd0f94a4956d
+C_current_and_preview_grid1.png          BYTE-IDENTICAL sha256=656dc96293c9
+RESULT: NO DIFFERENCES

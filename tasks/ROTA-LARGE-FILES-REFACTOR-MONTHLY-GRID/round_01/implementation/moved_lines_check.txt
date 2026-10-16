@@ -1,0 +1,4 @@
+parent diff: -167 / +2 lines
+removed import line(s): ['import { api, AssignmentIn, AssignmentOut, DelegationDayOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleEmployeeOut, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";']
+added line(s): ['import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";', 'import { daysInMonth, ScheduleGrid } from "./monthly-planning/ScheduleGrid";']
+removed code lines == moved body (order kept, blank separators aside): True

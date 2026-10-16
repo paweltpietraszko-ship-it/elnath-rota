@@ -1,0 +1,102 @@
+### .venv/bin/python where.py frontend/src/screens/MonthlyPlanning.tsx 
+FILE: frontend/src/screens/MonthlyPlanning.tsx
+LAYER: frontend
+NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
+Pass --symbol NAME to at least get raw text occurrences of a name across the repo.
+exit=0
+### .venv/bin/python where.py frontend/src/screens/MonthlyPlanning.tsx --symbol ScheduleGrid
+FILE: frontend/src/screens/MonthlyPlanning.tsx
+LAYER: frontend
+NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
+
+SYMBOL: ScheduleGrid
+  TOTAL_RAW_HITS: 30
+    CALL OTHER_FILE PRODUCTION     BOARD.md:34: | ROTA-LARGE-FILES-REFACTOR | Codex | CC / Architekt / OWNER | `codex/rota-large-files-refactor-plan` | `bf98913079b1b602d168ee7e6183ab11ce97238f` | CODEX_REPORTED | **PASS PREIMPLEMENTATION — konserwatywny plan i wyłącznie etap ScheduleGrid (2026-10-16).** Raport `tasks/ROTA-LARGE-FILES-REFACTOR/round_01/tests/tests_r1.txt` na `audit/rota-large-files-refactor-plan`, commit `c31dee5`; CC przenosi raport. Oceniono plan oraz `tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md`, punktowo potwierdzono istniejącą granicę komponentu/helperów; bez testów produktu i audytu pozostałych dużych plików. Solver/engine/constraints/db/plan_ops/schedule_projection NIE DZIELIĆ w tym planie. Reszta MonthlyPlanning pozostaje razem mimo >600 linii; pozostali kandydaci wymagają osobnych przyszłych briefów. STOP/NO_SPLIT: potrzeba zmian stanu/props/obliczeń lub brak dowodu istotnego użycia UI -> pozostawić oryginał, bez wymuszania podziału. [Draft PR #31](https://github.com/paweltpietraszko-ship-it/elnath-rota/pull/31). CC ocenia merytorycznie etap 1; obie bramy przed implementacją. Po niej porównanie deklaracji, rzeczywiste trzy użycia UI, build, pełna suita raz przez CC, niezależny audyt exact SHA i ultrareview. Brak zbiorczej zgody na 12 plików; brak podziału jest poprawnym wynikiem. Merge/deploy wyłącznie OWNER. |
+    TEXT OTHER_FILE PRODUCTION     api/routers/excel_external.py:13: tsx's own ScheduleGrid already renders for PLAN/REPLAN candidates --
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-03_UNACCEPTED_PLAN_PREVIEW.md:30: (lines 339-372, 866-905) — rendered as a `ScheduleGrid` with an
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:77: function ScheduleGrid({
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1040: <ScheduleGrid
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1441: <ScheduleGrid
+    TEXT SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:1662: <ScheduleGrid
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/brief.md:58: `frontend/src/screens/MonthlyPlanning.tsx::ScheduleGrid` nie wyprowadza już
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/brief.md:142: - `frontend/src/screens/MonthlyPlanning.tsx --symbol ScheduleGrid`
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/round_01/tests/tests_r1.txt:11: zmienia ScheduleGrid. Zgodnie z AGENTS.md kontrakt musi zawierać
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/round_01/tests/tests_r1.txt:13: _plan_preview_out, _planning_result_out, get_month oraz ScheduleGrid.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/round_01/tests/tests_r1.txt:23: DTO oraz obecnego ScheduleGrid.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/round_01/tests/tests_r2.txt:10: get_month i ScheduleGrid.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID/round_01/tests/tests_r2.txt:16: DELEGACJI i nazw, obecne DTO oraz ScheduleGrid pozostają minimalnym zakresem.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:16: Wydzielić już istniejący ScheduleGrid, nie rozcinać głównego MonthlyPlanning.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:17: Na bazie planu ScheduleGrid zajmuje linie 77–197; użycia są w liniach
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:22: `frontend/src/screens/monthly-planning/ScheduleGrid.tsx`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:24: - `ScheduleGrid`, wraz z obecnym kształtem props i własnymi useMemo;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:27: Nowy moduł eksportuje nazwany ScheduleGrid i daysInMonth (ten helper jest
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:30: importuje oba symbole z `./monthly-planning/ScheduleGrid` i usuwa wyłącznie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:36: zależności efektów, kolejności hooków, JSX wywołań ScheduleGrid, props,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:114: - TARGETS: frontend/src/screens/MonthlyPlanning.tsx --symbol ScheduleGrid; frontend/src/screens/MonthlyPlanning.tsx --symbol daysInMonth
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:127: - frontend/src/screens/monthly-planning/ScheduleGrid.tsx
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR/brief.md:28: Przenosi już istniejący komponent ScheduleGrid z jego zależnościami lokalnymi;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR/brief.md:33: Punktowo przeczytano ScheduleGrid i jego helpery, trzy miejsca użycia, listy
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR/brief.md:43: | `frontend/src/screens/MonthlyPlanning.tsx` | ETAP 1, tylko ScheduleGrid | Komponent jest już osobną funkcją; props i własne useMemo stanowią istniejącą granicę. Reszta ekranu pozostaje razem. |
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR/round_01/tests/tests_r1.txt:9: Punktowo sprawdzono istniejący ScheduleGrid z pięcioma helperami oraz użycia
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR/round_01/tests/tests_r1.txt:18: Jedyny etap implementacyjny ma naturalną, istniejącą granicę: ScheduleGrid
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T037/round_01/tests/tests_r1.txt:29: - Wyświetlenie komórki należy do ScheduleGrid w
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T054/brief.md:84: - dokładnie ten sam `ScheduleGrid`/candidate UI co po bezpośredniej odpowiedzi PLAN;
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+exit=0
+### .venv/bin/python where.py frontend/src/screens/MonthlyPlanning.tsx --symbol daysInMonth
+FILE: frontend/src/screens/MonthlyPlanning.tsx
+LAYER: frontend
+NOTE: non-Python file — no import/top-level-symbol analysis (no parser for this language). Not a claim that the file has no structure, just that this tool doesn't read it.
+
+SYMBOL: daysInMonth
+  TOTAL_RAW_HITS: 21
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:69: function currentMonthRange(): { firstIso: string; lastIso: string; daysInMonth: number } {
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:74: return { firstIso: toIso(first), lastIso: toIso(last), daysInMonth: last.getDate() };
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:126: const { daysInMonth } = currentMonthRange();
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:127: await setTargetHours(page, DAILY_DELEGATION_HOURS * daysInMonth);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:137: expect(await candidateRow.getByText("DEL", { exact: true }).count()).toBe(daysInMonth);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:138: await expect(candidateRow).toContainText(`${DAILY_DELEGATION_HOURS * daysInMonth}h`);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:148: expect(await previewRow.getByText("DEL", { exact: true }).count()).toBe(daysInMonth);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:149: await expect(previewRow).toContainText(`${DAILY_DELEGATION_HOURS * daysInMonth}h`);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:168: const { daysInMonth } = currentMonthRange();
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:169: await setTargetHours(page, DAILY_DELEGATION_HOURS * daysInMonth);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:180: expect(await row.getByText("DEL", { exact: true }).count()).toBe(daysInMonth);
+    TEXT OTHER_FILE PRODUCTION     frontend/e2e/delegation-schedule-grid.spec.ts:181: await expect(row).toContainText(`${DAILY_DELEGATION_HOURS * daysInMonth}h`);
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:27: function daysInMonth(monthIso: string): string[] {
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:91: const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
+    CALL SAME_FILE  PRODUCTION     frontend/src/screens/MonthlyPlanning.tsx:213: const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:25: - `daysInMonth`, `hourOf`, `cellLabel`, `assignmentHours`, `totalHours`.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:27: Nowy moduł eksportuje nazwany ScheduleGrid i daysInMonth (ten helper jest
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID/brief.md:114: - TARGETS: frontend/src/screens/MonthlyPlanning.tsx --symbol ScheduleGrid; frontend/src/screens/MonthlyPlanning.tsx --symbol daysInMonth
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-LARGE-FILES-REFACTOR/round_01/tests/tests_r1.txt:20: zakres; daysInMonth pozostaje współdzielony z rodzicem przez eksport.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T063/round_01/tests/repro_r5_assertion_gap.mjs:4: function currentPredicate(assignments, allowedNames, daysInMonth) {
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T063/round_01/tests/repro_r5_assertion_gap.mjs:9: return assignments.length === daysInMonth * 2;
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+exit=0
+### LIMITATION: where.py has no TSX parser (see NOTE above) -> targeted grep supplement on exact base cc7005cc192e7f7c383e20ae441d10cd4d9123ad
+--- grep -rnw ScheduleGrid frontend/src
+frontend/src/screens/MonthlyPlanning.tsx:77:function ScheduleGrid({
+frontend/src/screens/MonthlyPlanning.tsx:1040:              <ScheduleGrid
+frontend/src/screens/MonthlyPlanning.tsx:1441:                  <ScheduleGrid
+frontend/src/screens/MonthlyPlanning.tsx:1662:                  <ScheduleGrid
+--- grep -rnw daysInMonth frontend/src
+frontend/src/screens/MonthlyPlanning.tsx:27:function daysInMonth(monthIso: string): string[] {
+frontend/src/screens/MonthlyPlanning.tsx:91:  const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
+frontend/src/screens/MonthlyPlanning.tsx:213:  const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
+--- grep -rnw hourOf frontend/src
+frontend/src/screens/MonthlyPlanning.tsx:38:function hourOf(iso: string): number {
+frontend/src/screens/MonthlyPlanning.tsx:57:    ? `${hourOf(a.start_datetime)}–${hourOf(a.end_datetime)}`
+--- grep -rnw cellLabel frontend/src
+frontend/src/screens/MonthlyPlanning.tsx:46:function cellLabel(a: AssignmentOut, demandByDemandId: Map<string, ShiftDemandOut>): string {
+frontend/src/screens/MonthlyPlanning.tsx:175:                            {cellLabel(a, demandByDemandId)}
+frontend/src/screens/MonthlyPlanning.tsx:179:                          cellLabel(a, demandByDemandId)
+--- grep -rnw assignmentHours frontend/src
+frontend/src/screens/MonthlyPlanning.tsx:62:function assignmentHours(a: AssignmentOut): number {
+frontend/src/screens/MonthlyPlanning.tsx:74:    .reduce((sum, a) => sum + assignmentHours(a), 0);
+--- grep -rnw totalHours frontend/src
+frontend/src/screens/MonthlyPlanning.tsx:71:function totalHours(assignments: AssignmentOut[]): number {
+frontend/src/screens/MonthlyPlanning.tsx:188:                {totalHours(assignmentsByEmployee.get(employeeId) ?? []) + (delegationHoursByEmployee.get(employeeId) ?? 0)}h
+--- importers of MonthlyPlanning
+frontend/src/screens/Room.tsx:8:import MonthlyPlanning from "./MonthlyPlanning";
