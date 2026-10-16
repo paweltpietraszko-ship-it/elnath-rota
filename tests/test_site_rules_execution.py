@@ -423,14 +423,29 @@ def test_m_independent_validator_catches_a_site_rule_violation_solver_never_prod
 # O. NO PLANNING I/O -------------------------------------------------------------
 
 
+def _imported_modules(source: str) -> set[str]:
+    """ROTA-CLOUD-REVIEW-FIXES T: real imports only -- a module path quoted in a
+    docstring/comment (e.g. rota/planning/availability.py's provenance note)
+    is not coupling."""
+    import ast
+
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
 def test_o_site_rules_module_has_no_persistence_or_sqlite_coupling():
     from pathlib import Path
 
     planning_dir = Path(__file__).resolve().parent.parent / "rota" / "planning"
     for path in planning_dir.glob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        assert "rota.persistence" not in source, f"{path} imports persistence"
-        assert "import sqlite3" not in source, f"{path} imports sqlite3 directly"
+        modules = _imported_modules(path.read_text(encoding="utf-8"))
+        assert not any(m.startswith("rota.persistence") for m in modules), f"{path} imports persistence"
+        assert "sqlite3" not in modules, f"{path} imports sqlite3 directly"
 
 
 # P. REPLAN FROZEN CONFLICT -------------------------------------------------------

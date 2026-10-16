@@ -1436,7 +1436,9 @@ def test_c_validator_legacy_shift_kind_none_still_uses_profile_fallback():
     fallback -- an hour matching the profile's N StandardShift is still N."""
     d = ShiftDemand("LEGACY-AT-N-HOUR", "test-v1", datetime(2026, 10, 1, 17, 0), datetime(2026, 10, 2, 5, 0), 1)
     employee = Employee("A", "A", date(2026, 1, 1), None, True)  # day_only
-    state = base_state(shift_demands=(d,), employees=(employee,), memberships=(_membership("A"),))
+    # ROTA-CLOUD-REVIEW-FIXES T: DAY_ONLY is OCHRONA-only since T065.
+    ochrona = Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    state = base_state(site=ochrona, shift_demands=(d,), employees=(employee,), memberships=(_membership("A"),))
     a = _primary("A1", "A", d)
     report = validate(state, [a])
     assert any(det.rule == "DAY_ONLY-01" for det in report.violation_details)

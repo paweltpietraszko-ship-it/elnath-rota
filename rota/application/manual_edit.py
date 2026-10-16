@@ -532,7 +532,8 @@ def mark_not_worked(
     materializes a COVERAGE Deviation unless the coordinator also supplies
     a replacement Assignment in a later manual correction.
     ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT: the client no longer supplies
-    effective_from (defaults to today); NN is inherently retrospective by
+    effective_from (ROTA-CLOUD-REVIEW-FIXES F3: defaults to the marked
+    service's start date, never later); NN is inherently retrospective by
     design (you only know a shift was not worked once it should have
     happened) and is not subject to the historical-mutation guard."""
     current_id = get_current_version_id(conn, site_id, month)
@@ -546,6 +547,14 @@ def mark_not_worked(
             "not a PLANNED PRIMARY -- NN cannot be applied"
         )
     updated = replace(target, state=AssignmentState.CANCELLED, operational_code="NN")
+    # ROTA-CLOUD-REVIEW-FIXES F3: the NN child must take effect from the
+    # service's own start date (like a historical correction), otherwise
+    # every per-day reader (PDF/Excel lineage) keeps reading the parent's
+    # PLANNED row for that day. An explicit later date can never push the
+    # NN effect past the service it marks.
+    service_date = target.start_datetime.date()
+    if effective_from is None or effective_from > service_date:
+        effective_from = service_date
     return apply_manual_correction(
         conn, site_id=site_id, month=month, coordinator_id=coordinator_id, effective_from=effective_from,
         upsert_assignments=[updated], note=note, responds_to_decision_required_id=responds_to_decision_required_id,

@@ -391,10 +391,25 @@ def test_r1_2_json_boundary_rejects_lossy_or_non_standard_values(tmp_path: Path)
             )
 
 
+def _imported_modules(source: str) -> set[str]:
+    """ROTA-CLOUD-REVIEW-FIXES T: real imports only -- a module path quoted in a
+    docstring/comment (e.g. rota/planning/availability.py's provenance note)
+    is not coupling."""
+    import ast
+
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
 def test_planning_engine_has_no_site_memory_coupling() -> None:
     planning_dir = Path(__file__).resolve().parent.parent / "rota" / "planning"
     for path in planning_dir.glob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        assert "rota.persistence" not in source, f"{path} imports persistence"
-        assert "rota.site_memory_types" not in source, f"{path} imports site_memory_types"
-        assert "import sqlite3" not in source, f"{path} imports sqlite3 directly"
+        modules = _imported_modules(path.read_text(encoding="utf-8"))
+        assert not any(m.startswith("rota.persistence") for m in modules), f"{path} imports persistence"
+        assert not any(m.startswith("rota.site_memory_types") for m in modules), f"{path} imports site_memory_types"
+        assert "sqlite3" not in modules, f"{path} imports sqlite3 directly"

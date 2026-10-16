@@ -139,11 +139,26 @@ def test_save_rolls_back_atomically_on_mid_transaction_failure(tmp_path: Path) -
     assert reloaded == original
 
 
+def _imported_modules(source: str) -> set[str]:
+    """ROTA-CLOUD-REVIEW-FIXES T: real imports only -- a module path quoted in a
+    docstring/comment (e.g. rota/planning/availability.py's provenance note)
+    is not coupling."""
+    import ast
+
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
 def test_planning_engine_has_no_persistence_coupling() -> None:
     """arch/spec.md:332-333 / ROTA-T004 brief: PlanningEngine does not open,
     know the path of, read, or write the database."""
     planning_dir = Path(__file__).resolve().parent.parent / "rota" / "planning"
     for path in planning_dir.glob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        assert "rota.persistence" not in source, f"{path} imports persistence"
-        assert "import sqlite3" not in source, f"{path} imports sqlite3 directly"
+        modules = _imported_modules(path.read_text(encoding="utf-8"))
+        assert not any(m.startswith("rota.persistence") for m in modules), f"{path} imports persistence"
+        assert "sqlite3" not in modules, f"{path} imports sqlite3 directly"

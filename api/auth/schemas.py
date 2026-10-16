@@ -32,6 +32,9 @@ class PasswordChangeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # ROTA-CLOUD-REVIEW-FIXES F7/O3: the current password is required for a
+    # self-service change; `password` stays the NEW password.
+    current_password: str
     password: str
 
 

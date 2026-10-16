@@ -691,8 +691,12 @@ export const authApi = {
     await fetch("/api/auth/logout", { method: "POST" });
   },
   getCurrentUser: () => req<CurrentUserOut>("/auth/me"),
-  changePassword: (password: string) =>
-    req<CurrentUserOut>("/auth/me/password", { method: "PATCH", body: JSON.stringify({ password }) }),
+  // ROTA-CLOUD-REVIEW-FIXES F7: the current password is required.
+  changePassword: (currentPassword: string, password: string) =>
+    req<CurrentUserOut>("/auth/me/password", {
+      method: "PATCH",
+      body: JSON.stringify({ current_password: currentPassword, password }),
+    }),
   // ROTA-EXCEL-UI-PANEL: self-service counterpart to
   // `provision_account.py issue-api-key` -- raw_key is shown once by the
   // caller, never persisted, never re-fetchable.

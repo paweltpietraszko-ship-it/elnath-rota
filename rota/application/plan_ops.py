@@ -301,6 +301,16 @@ def _record_shown_variants(conn, site_id: str, month: date, result: PlanningResu
             )
 
 
+def _first_plan_demands(demands, effective_from: date) -> tuple:
+    """ROTA-CLOUD-REVIEW-FIXES F4/O2: the first schedule of a month only
+    covers services starting on or after its "Obowiązuje od" day (OWNER: a
+    schedule set from the 10th does not plan days 1-9). One owner shared by
+    the first PLAN and the first acceptance, so preview, acceptance
+    validation and the first snapshot all see the same demand set. Bounded
+    by start date, so a night starting the day before is excluded."""
+    return tuple(d for d in demands if d.start_datetime.date() >= effective_from)
+
+
 def plan_month(
     conn, *, site_id: str, month: date, coordinator_id: str, effective_from: date | None = None,
     search_attempt: int = 0,
@@ -355,7 +365,10 @@ def plan_month(
         # The real first ScheduleVersion is only ever created by
         # select_candidate at "Uzyj tego grafiku" (T57-01).
         placeholder_id = f"SV-{uuid.uuid4().hex}"
-        demands = tuple(replace(d, schedule_version_id=placeholder_id) for d in state.shift_demands)
+        demands = tuple(
+            replace(d, schedule_version_id=placeholder_id)
+            for d in _first_plan_demands(state.shift_demands, effective_from)
+        )
         state = replace(state, schedule_version_id=placeholder_id, shift_demands=demands)
         result = plan(state, search_attempt=search_attempt)
         # ROTA-T062 (brief section 4 point 8): no current ScheduleVersion
@@ -613,11 +626,7 @@ def select_candidate(
     current_id = _require_working_or_absent(conn, site_id, month)
     require_active_coordinator_context(conn, coordinator_id=coordinator_id, site_id=site_id)
     state, _ = assemble_planning_state(conn, site_id=site_id, month=month)
-    for_validation = _coerce_unproven_realized_to_planned(candidate, state.existing_assignments)
-    report = validate(state, for_validation)
-    if not report.hard_pass:
-        raise CandidateRejected("; ".join(report.violations))
-
+    first_preview = None
     if current_id is None:
         # ROTA-T057 (T57-01, ARCHITECT_DECISION 2026-09-06): first-ever
         # acceptance for this (site_id, month) -- the real first
@@ -625,11 +634,21 @@ def select_candidate(
         # PLAN time. effective_from was captured on the preview back then
         # because the caller (PLAN's HTTP request) is not guaranteed to be
         # the same request that later accepts it.
-        preview = plan_preview_repository.get_plan_preview(conn, site_id, month)
-        if preview is None or preview.effective_from is None:
+        first_preview = plan_preview_repository.get_plan_preview(conn, site_id, month)
+        if first_preview is None or first_preview.effective_from is None:
             raise NoCurrentScheduleVersion(
                 f"no PLAN preview with effective_from for ({site_id}, {month}) to accept"
             )
+        # ROTA-CLOUD-REVIEW-FIXES F4: validate and persist against the same
+        # bounded demand set the first PLAN solved, never the full month.
+        state = replace(state, shift_demands=_first_plan_demands(state.shift_demands, first_preview.effective_from))
+    for_validation = _coerce_unproven_realized_to_planned(candidate, state.existing_assignments)
+    report = validate(state, for_validation)
+    if not report.hard_pass:
+        raise CandidateRejected("; ".join(report.violations))
+
+    if current_id is None:
+        preview = first_preview
         version_id = f"SV-{uuid.uuid4().hex}"
         stamped_demands = [replace(d, schedule_version_id=version_id) for d in state.shift_demands]
         stamped_candidate = [replace(a, schedule_version_id=version_id) for a in candidate]

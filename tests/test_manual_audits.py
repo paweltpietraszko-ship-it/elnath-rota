@@ -8,6 +8,9 @@ the frozen/broken benchmark evaluator chain that was deleted alongside it.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
+from rota.domain import SitePlanningRegime
 from tests.support.manual_audits import (
     _dense_overlap_2027_10,
     _feb_2028_leap_year,
@@ -18,12 +21,19 @@ from tests.support.manual_audits import (
 EMPLOYEES = ("A", "B", "C", "D", "E")
 
 
+def _ochrona(state):
+    """ROTA-CLOUD-REVIEW-FIXES T: these hand-verified real-object passes check
+    OCHRONA DAY_ONLY; the shared builder's default site is ORDINARY, where
+    D/N has no legal meaning since T065."""
+    return replace(state, site=replace(state.site, planning_regime=SitePlanningRegime.OCHRONA))
+
+
 def test_manual_audit_feb_2028_leap_year_feasible():
-    assert verify_feasible_month(_feb_2028_leap_year(), EMPLOYEES) is True
+    assert verify_feasible_month(_ochrona(_feb_2028_leap_year()), EMPLOYEES) is True
 
 
 def test_manual_audit_dense_overlap_oct_2027_feasible():
-    assert verify_feasible_month(_dense_overlap_2027_10(), EMPLOYEES) is True
+    assert verify_feasible_month(_ochrona(_dense_overlap_2027_10()), EMPLOYEES) is True
 
 
 def test_manual_audit_decision_required_proven_by_hand():

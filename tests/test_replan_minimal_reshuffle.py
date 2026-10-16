@@ -20,7 +20,20 @@ from rota.domain import (
 from rota.planning.engine import plan
 from rota.planning.replan_reshuffle import build_reshuffle_count_expr, redistributable_baseline_assignments
 from rota.planning.solver import fixed_existing_assignments
-from tests.support.minimal_state import MONTH, ReadinessSource, ReadinessState, SITE_ID, base_state
+from tests.support.minimal_state import MONTH, ReadinessSource, ReadinessState, SITE_ID, PROFILE_ID
+from tests.support.minimal_state import base_state as _base_state
+from rota.domain import Site, SitePlanningRegime
+
+def base_state(**overrides):
+    """ROTA-CLOUD-REVIEW-FIXES T: this file tests OCHRONA D/N/DAY_ONLY rules;
+    minimal_state's neutral default site is ORDINARY, where D/N carries no
+    legal meaning since T065 (dn_semantics_apply). Pin OCHRONA locally,
+    same pattern as tests/test_site_rules_execution.py."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
+
 
 
 def _membership(employee_id: str) -> SiteMembership:

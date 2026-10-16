@@ -181,10 +181,25 @@ def test_retry_same_availability_payload_does_not_duplicate(tmp_path):
 
 
 def test_missing_target_hours_returns_plain_language_blocker(tmp_path):
+    # ROTA-CLOUD-REVIEW-FIXES T: the target-hours gate is ORDINARY-only since
+    # ROTA-OCHRONA-EQUITY-SURGICAL-FIX (OWNER 2026-09-20: OCHRONA is exempt),
+    # so this blocker is exercised on an ORDINARY site: the shared OCHRONA
+    # bootstrap is moved to ORDINARY through the one audited regime-correction
+    # operation (no HTTP route exists for it); the gate runs before any
+    # catalog/solver read, so the D-only catalog does not matter here.
     result = _run(tmp_path, _BOOTSTRAP + textwrap.dedent(f"""
         # A third LOCAL employee joins with no target_hours at all.
         cookie_client.post("/api/workspace/employees", json={{"employee_id": "EMP-C", "site_id": site_id, "display_name": "Celina Testowa", "day_only": False}})
         cookie_client.post(f"/api/workspace/sites/{{site_id}}/roster", json={{"employee_id": "EMP-C"}})
+        import os
+        from rota.application import durable_inputs
+        from rota.domain import SitePlanningRegime
+        from rota.persistence.db import connect
+        regime_conn = connect(os.path.join(os.environ["ROTA_ACCOUNTS_DB_DIR"], "t1.db"))
+        durable_inputs.correct_site_planning_regime(
+            regime_conn, coordinator_id="COORD-T1", site_id=site_id, planning_regime=SitePlanningRegime.ORDINARY,
+        )
+        regime_conn.close()
 
         resp = excel.post("/api/external/excel/plan", json={{
             "site_id": site_id, "month": "{MONTH}", "target_hours": [], "availability": [],

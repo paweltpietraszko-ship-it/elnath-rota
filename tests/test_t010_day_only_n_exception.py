@@ -38,7 +38,19 @@ from rota.planning.site_rules import (
 )
 from rota.planning.validator import validate
 from rota.site_memory_types import NewRuleContent
-from tests.support.minimal_state import PROFILE_ID, SITE_ID, ReadinessSource, ReadinessState, base_profile, base_state
+from tests.support.minimal_state import PROFILE_ID, SITE_ID, ReadinessSource, ReadinessState, base_profile
+from tests.support.minimal_state import base_state as _base_state
+
+def base_state(**overrides):
+    """ROTA-CLOUD-REVIEW-FIXES T: this file tests OCHRONA D/N/DAY_ONLY rules;
+    minimal_state's neutral default site is ORDINARY, where D/N carries no
+    legal meaning since T065 (dn_semantics_apply). Pin OCHRONA locally,
+    same pattern as tests/test_site_rules_execution.py."""
+    overrides.setdefault(
+        "site", Site(SITE_ID, PROFILE_ID, "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA)
+    )
+    return _base_state(**overrides)
+
 
 EMP = "A-DAYONLY"
 

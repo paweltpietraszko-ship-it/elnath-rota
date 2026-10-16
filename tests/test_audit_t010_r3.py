@@ -225,7 +225,10 @@ def test_r3_b_day_only_exception_requires_confirmed_exception_category(wrong_cat
         datetime(2026, 10, 13, 5),
         1,
     )
+    # ROTA-CLOUD-REVIEW-FIXES T: DAY_ONLY is OCHRONA-only since T065
+    # (dn_semantics_apply); minimal_state's default site is ORDINARY.
     state = base_state(
+        site=Site("test-site", "TESTPROF", "Test Site", True, planning_regime=SitePlanningRegime.OCHRONA),
         employees=(Employee(EMPLOYEE_ID, "Employee", date(2020, 1, 1), None, True),),
         memberships=(
             SiteMembership(
