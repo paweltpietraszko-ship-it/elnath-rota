@@ -223,3 +223,24 @@ Podział:
 - **1 test** `test_t024_auth_isolation::test_no_wide_users_router...` (405 zamiast 404): zależy od lokalnego, gitignorowanego `frontend/dist` (statyczny serwer odpowiada 405); bez `dist` przechodzi.
 
 Nie sprawdzone: czy 2 testy `test_manual_audits` i `test_replan_minimal_reshuffle` mają dodatkowe, niezależne przyczyny -- po przypięciu fixtur przechodzą, ale nie prześledzono ich warunków początkowych. Część 2 planu ("czy program jest skończony" -- przeklikanie prawdziwego scenariusza na żywo) odłożona razem z tym; onboarding w Maestro nie zależy od tych testów. Kontekst: rozmowa 2026-09-24, `arch/FINDING_2026-09-24_TEST_SUITE_34_STABLE_FAILURES.md` (Maestro).
+
+---
+
+## 2026-10-16 Usługa w chmurze (formatka + tani model przez API) -- warunki RODO przed pierwszym prawdziwym klientem
+
+Pomysł Pawła: strona, na której klient opisuje obiekt/miesiąc zwykłymi słowami, tani model przez API zamienia to na dane Roty, Rota liczy, klient pobiera PDF. Ustalone: **konta z logowaniem przez link w e-mailu** (bez hasła); „wypróbuj" bez logowania tylko na danych przykładowych, nic nie zapisuje. Liczy zawsze Rota, model tylko tłumaczy; przed liczeniem podsumowanie do potwierdzenia przez użytkownika.
+
+Rola wg RODO: klient = administrator danych swoich pracowników; Paweł = podmiot przetwarzający (art. 28); Railway i dostawca modelu = podprzetwarzający. Odpowiedzialność Pawła (art. 82 ust. 2): za naruszenie obowiązków przetwarzającego (zabezpieczenie art. 32, działanie tylko na polecenie, zgłoszenie naruszenia art. 33 ust. 2), nie za podstawę prawną klienta. Brak zarobku nie wyłącza RODO.
+
+Jest: szyfrowanie danych osobowych w bazie (`ROTA_CENTRAL_KEK`), osobna baza per konto (potwierdzone w przeglądzie chmurowym 2026-10), DPA z Railway.
+
+**Fakt sprawdzony 2026-10-16:** serwis Rota na Railway działa w regionie **`us-east4` (USA)** -> transfer poza UE. Najprostsze zawężenie: przenieść serwis + wolumen do regionu UE Railway (wtedy klauzule transferowe przestają być potrzebne); inaczej sprawdzić, że DPA Railway ma SCC.
+
+Do zrobienia przed pierwszym prawdziwym klientem:
+1. wzór umowy powierzenia akceptowany przy zakładaniu konta, z listą podprzetwarzających (Railway, dostawca modelu) -- szkic CC, weryfikacja prawnika;
+2. region UE na Railway (patrz wyżej);
+3. przed modelem pseudonimizacja: Paweł ma własny pseudonimizator **LynxMask** (`C:\Projects\LynxMask`, Desktop = Python/FastAPI, maskuj/przywróć tokenami) -- ten sam stos co Rota; potrzebny głównie dla wolnego tekstu („Kowalski urlop 5-12"), bo dane z tabel Roty da się podmienić deterministycznie po `employee_id`; dostawca modelu bez trenowania na danych z API + DPA;
+4. minimalizacja: Rota potrzebuje tylko rozróżnialnych osób -- formatka zachęca do imienia/inicjałów, nie przyjmuje PESEL ani innych identyfikatorów;
+5. trwałe usunięcie konta z danymi na żądanie;
+6. krótka procedura na wypadek wycieku (kogo, w jakim czasie powiadomić);
+7. F7 z przeglądu chmurowego (zmiana hasła) znika przy logowaniu linkiem -- uwzględnić przy projektowaniu kont.
