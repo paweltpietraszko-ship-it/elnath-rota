@@ -1,0 +1,166 @@
+STATUS: FAIL
+HEAD_SHA: b25956387eb1840f1f8246da88b630cd16e020ee
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FILE: rota/planning/constraints.py has 795 lines (max 600)
+  - SIZE_FUNC: rota/planning/constraints.py:add_max_two_consecutive_night_constraints has 66 lines (max 50)
+  - SIZE_FUNC: rota/planning/validator_checks_patterns.py:_check_third_consecutive_shift has 82 lines (max 50)
+  - SIZE_FILE: rota/planning/engine.py has 952 lines (max 600)
+  - SIZE_FUNC: rota/planning/engine.py:_plan_requiring_different_result_narrow has 123 lines (max 50)
+  - SIZE_FILE: rota/application/plan_ops.py has 857 lines (max 600)
+  - SIZE_FUNC: rota/application/plan_ops.py:plan_month has 135 lines (max 50)
+  - SIZE_FUNC: tests/test_t058.py:test_t58_15_manual_third_consecutive_shift_survives_later_przelicz_plan has 65 lines (max 50)
+WYMAGA_DECYZJI:
+  - RATIO: 499/69 = 7.2:1 (threshold 5:1)
+  - TOTAL_LINES: 568 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_audit_r12_findings.py
+  - tests\test_audit_r13_findings.py
+  - tests\test_audit_r14_findings.py
+  - tests\test_audit_r15_findings.py
+  - tests\test_audit_r16_findings.py
+  - tests\test_audit_r17_findings.py
+  - tests\test_audit_r20_r21_findings.py
+  - tests\test_audit_r22_findings.py
+  - tests\test_audit_r23_findings.py
+  - tests\test_audit_r25_findings.py
+  - tests\test_audit_r26_findings.py
+  - tests\test_audit_t007_r3.py
+  - tests\test_audit_t007_r4.py
+  - tests\test_audit_t007_r5.py
+  - tests\test_audit_t010_r3.py
+  - tests\test_eligibility_matrix.py
+  - tests\test_plan_unknown_search_incomplete.py
+  - tests\test_preserved_facts_replan.py
+  - tests\test_replan_and_soft_ranking.py
+  - tests\test_replan_minimal_reshuffle.py
+  - tests\test_rota_generic_month.py
+  - tests\test_rota_reg_001.py
+  - tests\test_sick_leave.py
+  - tests\test_site_rules_execution.py
+  - tests\test_site_rule_execution_integration.py
+  - tests\test_t010_c_readiness_regression.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t012.py
+  - tests\test_t013.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t017.py
+  - tests\test_t018.py
+  - tests\test_t019b.py
+  - tests\test_t022_planning_integrity.py
+  - tests\test_t023b.py
+  - tests\test_t023_checkpoint_b.py
+  - tests\test_t026.py
+  - tests\test_t032_soft_ranking.py
+  - tests\test_t033_replan_must_differ.py
+  - tests\test_t041_checkpoint_a.py
+  - tests\test_t041_checkpoint_b.py
+  - tests\test_t058.py
+  - tests\test_t065_ordinary_roles.py
+  - tests\test_target_hours_required.py
+  - tests\test_third_consecutive_shift_regime_scope.py
+  - tests\support\manual_audits.py
+  - tasks\ROTA-THIRD-CONSECUTIVE-SHIFT-ORDINARY-SCOPE\round_01\tests\audit_r2_repro.py
+  - tasks\ROTA-T065-ORDINARY-TIME-AVAILABILITY\round_01\tests\audit_r4_repro.py
+  - tasks\ROTA-T065\round_01\tests\test_audit_r3.py
+  - tasks\ROTA-T065\round_01\tests\test_audit_r4.py
+  - tasks\ROTA-T062\round_01\tests\repro_r6.py
+  - tasks\ROTA-T062\round_01\tests\repro_r7.py
+  - tasks\ROTA-T058\round_01\tests\impact_probe_r9.py
+  - tasks\ROTA-T058\round_01\tests\repro_r4.py
+  - tasks\ROTA-T041\round_01\tests\test_checkpoint_a_audit.py
+  - tasks\ROTA-T037\round_01\tests\audit_r1_reproducer.py
+  - tasks\ROTA-T033\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r2.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r3.py
+  - tasks\ROTA-T032\round_01\tests\repro_r5.py
+  - tasks\ROTA-T032\round_01\tests\repro_r7.py
+  - tasks\ROTA-T026\round_01\tests\test_t026_r2_audit.py
+  - tasks\ROTA-T023b\round_01\tests\test_t023b_r5_audit.py
+  - tasks\ROTA-T022\round_01\tests\test_t022_r1_audit.py
+  - tasks\ROTA-T012\scenarios\t012_owner_march_2027_probe.py
+  - tasks\ROTA-T003\round_01\implementation\rota_stress_edge_generator.py
+  - tasks\ROTA-RODO-DISPLAY-NAME-LEAKS-OUTSIDE-EMPLOYEES-TABLE\round_01\tests\audit_r3_repro.py
+  - tasks\ROTA-PLAN-UNKNOWN-AS-TECHNICAL-ERROR\round_01\tests\test_audit_r3.py
+  - tasks\ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT\round_01\tests\audit_r3_repro.py
+  - rota\application\plan_ops.py
+  - rota\planning\engine.py
+  - rota\planning\solver.py
+  - rota\planning\validator.py
+  - api\routers\excel_external.py
+  - api\routers\schedule.py
+  - .venv\Lib\site-packages\hypothesis\core.py
+  - .venv\Lib\site-packages\hypothesis\stateful.py
+  - .venv\Lib\site-packages\hypothesis\statistics.py
+  - .venv\Lib\site-packages\sqlalchemy\__init__.py
+  - .venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py
+  - .venv\Lib\site-packages\sqlalchemy\connectors\pyodbc.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\serializer.py
+  - .venv\Lib\site-packages\sqlalchemy\future\engine.py
+  - .venv\Lib\site-packages\sqlalchemy\future\__init__.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\bulk_persistence.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\context.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\dynamic.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\events.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\loading.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\mapper.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\persistence.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\query.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\scoping.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\session.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\state.py
+  - .venv\Lib\site-packages\sqlalchemy\orm\util.py
+  - .venv\Lib\site-packages\sqlalchemy\pool\events.py
+  - .venv\Lib\site-packages\sqlalchemy\sql\base.py
+  - .venv\Lib\site-packages\sqlalchemy\sql\elements.py
+  - .venv\Lib\site-packages\sqlalchemy\sql\schema.py
+  - .venv\Lib\site-packages\sqlalchemy\sql\sqltypes.py
+  - .venv\Lib\site-packages\sqlalchemy\sql\_typing.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\assertions.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\assertsql.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\engines.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\provision.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\util.py
+  - .venv\Lib\site-packages\sqlalchemy\util\preloaded.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\plugin\plugin_base.py
+  - .venv\Lib\site-packages\sqlalchemy\testing\suite\test_reflection.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\asyncio\result.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\asyncio\scoping.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\asyncio\__init__.py
+  - .venv\Lib\site-packages\sqlalchemy\ext\declarative\extensions.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\mssql\base.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\mssql\pymssql.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\mssql\pyodbc.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\mysql\base.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\mysql\pyodbc.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\oracle\base.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\oracle\cx_oracle.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\oracle\oracledb.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\oracle\provision.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\postgresql\base.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\postgresql\pg8000.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\postgresql\psycopg.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\postgresql\_psycopg_common.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py
+  - .venv\Lib\site-packages\sqlalchemy\dialects\sqlite\provision.py
+  - .venv\Lib\site-packages\pandas\io\sql.py
+  - .venv\Lib\site-packages\pandas\tests\io\test_sql.py
+  - .venv\Lib\site-packages\hypothesis\internal\compat.py
+  - .venv\Lib\site-packages\hypothesis\strategies\_internal\collections.py
+  - .venv\Lib\site-packages\hypothesis\internal\conjecture\choice.py
+  - .venv\Lib\site-packages\hypothesis\internal\conjecture\data.py
+  - .venv\Lib\site-packages\hypothesis\internal\conjecture\optimiser.py
+  - .venv\Lib\site-packages\hypothesis\internal\conjecture\pareto.py
+  - .venv\Lib\site-packages\hypothesis\internal\conjecture\shrinker.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-PRESERVED-FACTS-REPLAN/repo_before.hash
+  - tasks/ROTA-PRESERVED-FACTS-REPLAN/round_01/implementation/affected_area_tests.txt
+  - tasks/ROTA-PRESERVED-FACTS-REPLAN/round_01/implementation/base_repro.txt
+  - tasks/ROTA-PRESERVED-FACTS-REPLAN/round_01/implementation/where_map_after.txt
