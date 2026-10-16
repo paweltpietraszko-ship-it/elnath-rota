@@ -2,19 +2,20 @@
 
 Jeden serwis Railway, zbudowany z `Dockerfile` w korzeniu repo. Kontener
 serwuje jednocześnie API i zbudowany frontend — przeglądarka nie robi
-żadnych żądań cross-origin w produkcji. `railway.json` w korzeniu repo
-wymusza builder `DOCKERFILE` -- **bez niego, jeśli serwis powstał zanim
-Dockerfile istniał w repo, Railway zostaje przy raz wybranym Railpackiem
-i cicho ignoruje Dockerfile nawet po jego dodaniu** (dokładnie to się
-stało przy pierwszym prawdziwym deployu 2026-09-17: builder pozostał na
-`RAILPACK` mimo `Dockerfile` w repo, aż do dodania tego pliku).
+żadnych żądań cross-origin w produkcji. **Od 2026-10-16 konfiguracja serwisu
+żyje w `.railway/railway.ts` (Infrastructure as Code)**, w tym builder
+`DOCKERFILE` ustawiony na stałe na serwisie; dawny `railway.json` usunięto
+(Railway wycofuje go 2026-12-01). Bez jawnego buildera serwis, który powstał
+zanim Dockerfile istniał w repo, zostaje przy Railpacku i cicho ignoruje
+Dockerfile — dokładnie to się stało przy pierwszym prawdziwym deployu
+2026-09-17.
 
 ## 1. Utwórz serwis
 
 W Railway: **New Project → Deploy from GitHub repo** → wybierz to repo.
-Dzięki `railway.json` serwis od razu zbuduje się z `Dockerfile`. Jeśli
-zakładasz serwis w istniejącym już projekcie, sprawdź w jego Settings →
-Build, że builder to faktycznie "Dockerfile", nie "Railpack".
+Nowy serwis: po utworzeniu ustaw builder przez `.railway/railway.ts`
+(`railway config plan` → `railway config apply`) albo w Settings → Build
+wybierz "Dockerfile", nie "Railpack".
 
 ## 2. Podłącz trwały dysk (Volume) — zanim ktokolwiek się zaloguje
 
@@ -104,20 +105,18 @@ RAILPACK** — Dockerfile wymusza dziś wyłącznie `railway.json`.
 Gotowy `.railway/railway.ts` (import `config pull` + jawny Dockerfile) daje plan:
 `0 to add, 1 to change, 0 to destroy` — tylko `build.builder → DOCKERFILE`.
 
-**Kolejność przejścia (każdy krok wymaga zgody Ownera, nic nie dzieje się samo):**
-1. Merge tego Tasku — `railway.json` **zostaje**, wdrożenia działają jak dotąd.
-2. `cd .railway && npm ci`, potem z katalogu repo: `railway config plan`. Musi pokazać
-   dokładnie jedną zmianę `build.builder → DOCKERFILE` i **0 to destroy**. Każda inna linia
-   (zwłaszcza „Delete variable” albo zmiana `volumeAttachments`) = STOP, nic nie stosować.
-3. Po zgodzie: `railway config apply` — builder serwisu staje się DOCKERFILE na stałe.
-4. Wyłączenie starego pliku: w panelu serwisu wyczyścić ścieżkę „Config as Code”
-   (albo `railway config migrate --apply` — ono samo czyści to ustawienie; **bez**
-   `--include-variables`), potem osobny mały PR usuwa `railway.json`.
-5. Redeploy i sprawdzenie: `/api/health` → ok, logowanie, otwarcie grafiku, wydruk PDF
-   z polskimi znakami, `railway ssh date` → czas polski.
+**Wykonane 2026-10-16 (zgoda Ownera: „migracje trzeba zrobić już”):**
+1. `railway config plan` → `0 to add, 1 to change, 0 to destroy` (tylko `build.builder → DOCKERFILE`).
+2. `railway config apply --yes` (bez `--confirm-destructive`) → zastosowane; samoczynny redeploy
+   zbudował się z Dockerfile, `/api/health` → ok; ponowny plan: „already up to date”.
+3. Wyczyszczono ustawienie Config as Code na serwisie (`railway config migrate --apply --force`
+   — nadpisany plik lokalny od razu przywrócony z gita, plan nadal „up to date”).
+4. Usunięto `railway.json` z repo.
 
-Wycofanie: do kroku 3 nic się nie zmienia na Railway. Po kroku 3 wystarczy przywrócić
-`railway.json` (lub ustawić builder w panelu) — dysk, bazy i zmienne nie są dotykane.
+**Zmiany konfiguracji od teraz:** edycja `.railway/railway.ts` → `railway config plan` (każda linia
+„Delete variable”, zmiana `volumeAttachments` albo `source` = STOP) → zgoda Ownera →
+`railway config apply --yes`. Push na `main` niczego tu nie stosuje. Nigdy nie generuj tego pliku
+od nowa przez `railway config migrate` — pomija zmienne/dysk/repo i plan usunąłby sekrety.
 
 ## Co NIE jest jeszcze zrobione tym Taskiem
 

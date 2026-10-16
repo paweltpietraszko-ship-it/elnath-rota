@@ -6,7 +6,7 @@
 // Imported from the live project with `railway config pull` (2026-10-16),
 // then ONLY these were added:
 //   - build: DOCKERFILE + Dockerfile -- the live service-level builder is
-//     RAILPACK; today only railway.json forces the Dockerfile. Without this
+//     RAILPACK; until 2026-10-16 only railway.json forced the Dockerfile. Without this
 //     line Railway would silently build without it (no PDF fonts, no TZ, no
 //     frontend) -- the 2026-09-17 incident in deploy/RAILWAY.md.
 //   - branch "main" (the live source branch) and the named single-service
