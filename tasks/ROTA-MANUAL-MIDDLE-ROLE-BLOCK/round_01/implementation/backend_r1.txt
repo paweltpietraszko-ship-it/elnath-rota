@@ -1,0 +1,33 @@
+STATUS: FAIL
+HEAD_SHA: 5cf3df554dadcf8feaf0d156f09f8fcfee40c6aa
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - SIZE_FUNC: rota/planning/eligibility.py:_common_hard_gate has 68 lines (max 50)
+  - SIZE_FUNC: rota/planning/validator_checks_availability.py:_check_day_only has 52 lines (max 50)
+WYMAGA_DECYZJI:
+  - TOTAL_LINES: 260 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - tests\test_audit_r13_findings.py
+  - tests\test_audit_t010_r5_b.py
+  - tests\test_audit_t010_r9_consistency.py
+  - tests\test_delegation_absence.py
+  - tests\test_t010_c_readiness_regression.py
+  - tests\test_t010_day_only_n_exception.py
+  - tests\test_t012.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t065_ordinary_roles.py
+  - tests\test_t065_ordinary_time_availability.py
+  - tasks\ROTA-T065-MANUAL-MIDDLE-SHIFT\round_01\tests\audit_r3_repro.py
+  - tasks\ROTA-T065\round_01\tests\test_audit_r2.py
+  - tasks\ROTA-T065\round_01\tests\test_audit_r3.py
+  - rota\planning\constraints.py
+  - rota\planning\solver.py
+  - rota\planning\validator.py
+  - rota\planning\validator_checks_availability.py
+  - rota\planning\validator_checks_patterns.py
+  - api\routers\manual_edit.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/repo_before.hash
+  - tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/implementation/base_repro_mm05.txt
+  - tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/implementation/where_map_after.txt
+  - tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/implementation/where_map_before.txt
