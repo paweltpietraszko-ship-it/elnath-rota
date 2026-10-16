@@ -109,20 +109,7 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
     membership_by_employee = {m.employee_id: m for m in state.memberships if m.site_id == state.site.site_id}
     for assignment in assignments:
         if assignment.manual_work_role_id is not None and assignment.covers_demand_id is None:
-            # ROTA-MANUAL-MIDDLE-ROLE-BLOCK section 3.2: manual middle work
-            # has no demand (_covered_demands returns []), so its OWN role is
-            # checked over its real interval with the same owner. A missing
-            # membership stays MEMBERSHIP-01's finding, not a second one here.
-            membership = membership_by_employee.get(assignment.employee_id)
-            if membership is not None and not role_covers_interval(
-                assignment.manual_work_role_id, assignment.start_datetime, assignment.end_datetime,
-                membership, state.role_coverage_authorizations,
-            ):
-                details.append(ViolationDetail(
-                    "ROLE-01", (assignment.assignment_id,),
-                    f"ROLE-01: {assignment.employee_id} manual work {assignment.assignment_id} in role "
-                    f"{assignment.manual_work_role_name}, not permitted for this membership",
-                ))
+            _check_manual_work_role(state, assignment, membership_by_employee.get(assignment.employee_id), details)
             continue
         tagged = _covering_demand(assignment, state)
         candidate_demands = [tagged] if tagged is not None else _covered_demands(assignment, state)
@@ -142,6 +129,22 @@ def _check_role(state: PlanningState, assignments: list[Assignment], details: li
                     f"{demand.demand_id} requiring role {demand.required_role_name}, not permitted for this membership",
                 ))
 
+
+
+def _check_manual_work_role(state: PlanningState, assignment: Assignment, membership, details: list[ViolationDetail]) -> None:
+    """ROTA-MANUAL-MIDDLE-ROLE-BLOCK section 3.2: manual middle work has no
+    demand (_covered_demands returns []), so its OWN role is checked over
+    its real interval with the same owner as role_covers. A missing
+    membership stays MEMBERSHIP-01's finding, not a second one here."""
+    if membership is not None and not role_covers_interval(
+        assignment.manual_work_role_id, assignment.start_datetime, assignment.end_datetime,
+        membership, state.role_coverage_authorizations,
+    ):
+        details.append(ViolationDetail(
+            "ROLE-01", (assignment.assignment_id,),
+            f"ROLE-01: {assignment.employee_id} manual work {assignment.assignment_id} in role "
+            f"{assignment.manual_work_role_name}, not permitted for this membership",
+        ))
 
 def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
     off_dates_by_employee: dict[str, set] = {}
