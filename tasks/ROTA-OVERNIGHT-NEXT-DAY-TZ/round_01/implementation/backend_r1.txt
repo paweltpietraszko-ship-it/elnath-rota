@@ -1,0 +1,8 @@
+STATUS: PASS
+HEAD_SHA: 4717c4ee52166e5e80d0bdeb6a5c0b10b0ad26c9
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-OVERNIGHT-NEXT-DAY-TZ/brief.md
+  - tasks/ROTA-OVERNIGHT-NEXT-DAY-TZ/repo_before.hash
+  - tasks/ROTA-OVERNIGHT-NEXT-DAY-TZ/round_01/implementation/nextday_check.mjs
+  - tasks/ROTA-OVERNIGHT-NEXT-DAY-TZ/round_01/implementation/nextday_check_local_tz_warsaw.txt
