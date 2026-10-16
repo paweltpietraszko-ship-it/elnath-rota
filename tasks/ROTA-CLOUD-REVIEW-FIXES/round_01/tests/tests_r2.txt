@@ -1,0 +1,24 @@
+ROTA-CLOUD-REVIEW-FIXES — uzupełnienie briefu po ocenie merytorycznej CC
+DATA: 2026-10-16
+TRYB: mechaniczne uzupełnienie dokumentacji na polecenie OWNERA.
+PUNKT WYJŚCIA: a75da015937a03ee569291b893033dfcbc99d270
+ŹRÓDŁO: wiersz ROTA-CLOUD-REVIEW-FIXES-MERIT w BOARD.md na main.
+
+P1: dodano tests/test_audit_r15_findings.py do TASK_SCOPE. Punktowy odczyt
+test_r15_2_uncapped_load_fallback_does_not_mask_day_only potwierdza wskazany
+przez CC test DAY_ONLY. Zmiana tego pliku jest dozwolona wyłącznie w już
+opisanej klasie T, bez rozszerzenia zakresu naprawy i bez zmian produkcji.
+Poprzedni precheck r1 przeoczył brak tego pliku w literalnej liście zakresu.
+
+P2: w §3/F6 dopisano współdzielenie jednej istniejącej _DEVIATION_LABELS
+przez formatter i router, bez drugiej listy. Punktowo potwierdzono mapę
+w api/routers/schedule.py. Nie narzucono sposobu importów ani nowej warstwy.
+
+Nie zmieniono decyzji O1–O5, kryteriów odbioru ani pozostałych bramek §7.
+Nie wykonano implementacji, testów, WHERE_MAP, regresji ani merge/push.
+Weryfikacja dokumentacji: git diff --check bez uwag; diff briefu ogranicza
+się do P1 i P2. Raportu r1 nie zmieniono.
+Ten zapis dokumentuje własne uzupełnienie; nie jest niezależnym audytem
+własnych zmian ani nowym PASS na niezaimplementowane poprawki.
+Odbiorca: CC / Architekt / OWNER — do odczytania uzupełnienia i kontynuacji
+istniejących bramek. Odrębne warunki startu/merge z §7 pozostają w mocy.

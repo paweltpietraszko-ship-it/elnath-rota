@@ -78,6 +78,9 @@ naruszenia na polski opis i trafia do istniejącego `MonthViewOut.warnings`.
 Obecny banner `month-warnings` w MonthlyPlanning jest powierzchnią prezentacji;
 bez nowego panelu, endpointu, trwałych odchyleń tworzonych przez GET ani
 drugiego wywołania walidatora dla tej samej prezentacji.
+Formatter i router współdzielą jedną istniejącą mapę polskich etykiet
+`_DEVIATION_LABELS` z `api/routers/schedule.py` (uzupełnianą w F1), bez
+tworzenia drugiej listy etykiet reguł.
 
 Każdy wykryty fakt musi być widoczny: nazwa reguły/przyczyna po polsku,
 osoba/osoby i daty lub okres, jeżeli naruszenie je wskazuje; dla braku obsady
@@ -403,6 +406,7 @@ TASK_SCOPE:
 - tests/test_cloud_review_schedule_fixes.py
 - tests/test_cloud_review_password_change.py
 - frontend/e2e/cloud-review-fixes.spec.ts
+- tests/test_audit_r15_findings.py
 - tests/test_audit_r25_findings.py
 - tests/test_audit_t010_r5_b.py
 - tests/test_audit_t010_r3.py
