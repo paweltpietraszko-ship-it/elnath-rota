@@ -209,6 +209,11 @@ before calling regression.
 ## WORKTREE
 - Before edits: `git status -sb`.
 - Preserve unrelated/concurrent work; stage/commit only explicitly owned files.
+- OWNER 2026-10-16: work ONLY in your own `git worktree` (e.g. `.worktrees/codex-<task>`);
+  never switch the branch of the main folder `C:\Projects\Elnath Rota` -- CC works there
+  and in its own worktrees concurrently (2026-10-16 a branch switch there made a CC commit
+  land on a Codex branch). Never leave unpushed commits on local `main`; `git pull`
+  right before editing BOARD.md and push at once.
 
 ## OWNER_AUTHORIZATION (OWNER, 2026-10-16)
 Upoważniam Cię w tym repozytorium do commitowania i pushowania raportów audytu
