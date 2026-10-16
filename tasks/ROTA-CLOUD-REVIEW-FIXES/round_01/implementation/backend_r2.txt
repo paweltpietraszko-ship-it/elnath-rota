@@ -1,0 +1,99 @@
+STATUS: FAIL
+HEAD_SHA: 530f0d769d6c8045e2a3c351008e1a4db9af8132
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+REASON:
+  - NEW_FILES: 8 new files (max 2)
+  - SIZE_FUNC: rota/application/manual_edit.py:apply_manual_correction has 85 lines (max 50)
+  - SIZE_FILE: rota/application/plan_ops.py has 845 lines (max 600)
+  - SIZE_FUNC: rota/application/plan_ops.py:plan_month has 135 lines (max 50)
+  - SIZE_FUNC: rota/planning/validator_checks_patterns.py:_check_third_consecutive_shift has 82 lines (max 50)
+  - SIZE_FILE: api/routers/schedule.py has 784 lines (max 600)
+  - SIZE_FUNC: api/routers/schedule.py:get_month has 92 lines (max 50)
+  - SIZE_FILE: tests/test_t017.py has 625 lines (max 600)
+  - SIZE_FUNC: tests/test_t017.py:test_m29_select_candidate2_real_persistence_roundtrip has 54 lines (max 50)
+  - SIZE_FILE: tests/test_t012.py has 1746 lines (max 600)
+  - SIZE_FILE: tests/test_t022_planning_integrity.py has 664 lines (max 600)
+WYMAGA_DECYZJI:
+  - RATIO: 1274/82 = 15.5:1 (threshold 5:1)
+  - TOTAL_LINES: 1356 lines changed (threshold 150)
+IMPORTERS_FOR_REVIEW:
+  - api\main.py
+  - api\provision_account.py
+  - tests\test_audit_t010_arch1_nn_descendant_identity.py
+  - tests\test_audit_t010_r3.py
+  - tests\test_audit_t010_r6_d.py
+  - tests\test_audit_t010_r7_d.py
+  - tests\test_audit_t010_r9_consistency.py
+  - tests\test_cloud_review_schedule_fixes.py
+  - tests\test_runtime_error_log.py
+  - tests\test_t009_manual_edit.py
+  - tests\test_t009_open_and_assembler.py
+  - tests\test_t011_a_application_entry_points.py
+  - tests\test_t011_b_context_discovery.py
+  - tests\test_t011_c_site_coordinator_lifecycle.py
+  - tests\test_t011_d_quarter_balance.py
+  - tests\test_t012.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t019.py
+  - tests\test_t019b.py
+  - tests\test_t020.py
+  - tests\test_t023b.py
+  - tests\test_t031_schedule_api.py
+  - tests\test_t036_rest_deviation_target.py
+  - tests\test_t041_checkpoint_b.py
+  - tests\test_t058.py
+  - tests\test_target_hours_required.py
+  - tasks\ROTA-TECHNICAL-ERROR-RECOVERY-UX\round_01\tests\audit_r3_repro.py
+  - tasks\ROTA-T062\round_01\tests\repro_r6.py
+  - tasks\ROTA-T062\round_01\tests\repro_r7.py
+  - tasks\ROTA-T058\round_01\tests\repro_r4.py
+  - tasks\ROTA-T058\round_01\tests\repro_r5.py
+  - tasks\ROTA-T055\round_01\tests\test_t055_implementation.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r2_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r4_architect_audit.py
+  - tasks\ROTA-T054\round_01\tests\test_t054_r5_independent.py
+  - tasks\ROTA-T037\round_01\tests\audit_r1_reproducer.py
+  - tasks\ROTA-T032-T033-INTEGRATION\round_01\tests\test_audit_r1.py
+  - tasks\ROTA-T032\round_01\tests\repro_r7.py
+  - tasks\ROTA-T023b\round_01\tests\test_t023b_r5_audit.py
+  - tasks\ROTA-T023\round_01\tests\test_t023_checkpoint_b_audit.py
+  - tasks\ROTA-EXCEL-VBA-ENGINE-ADAPTER\round_01\tests\audit_r5_repro.py
+  - tasks\ROTA-EXCEL-VBA-ENGINE-ADAPTER\round_01\tests\audit_r6_repro.py
+  - tasks\ROTA-CORRECTION-EFFECTIVE-FROM-DEFAULT\round_01\tests\audit_r3_repro.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+  - rota\application\manual_middle_work.py
+  - rota\planning\validator.py
+  - api\auth\backend.py
+  - api\auth\context.py
+  - api\auth\manager.py
+  - api\routers\excel_downloads.py
+  - api\routers\excel_external.py
+  - api\routers\export.py
+  - api\routers\manual_edit.py
+  - api\routers\schedule.py
+  - .venv\Lib\site-packages\fastapi_users\fastapi_users.py
+  - .venv\Lib\site-packages\fastapi_users\__init__.py
+  - .venv\Lib\site-packages\fastapi_users\authentication\authenticator.py
+  - .venv\Lib\site-packages\fastapi_users\authentication\__init__.py
+  - .venv\Lib\site-packages\fastapi_users\router\auth.py
+  - .venv\Lib\site-packages\fastapi_users\router\oauth.py
+  - .venv\Lib\site-packages\fastapi_users\router\register.py
+  - .venv\Lib\site-packages\fastapi_users\router\reset.py
+  - .venv\Lib\site-packages\fastapi_users\router\users.py
+  - .venv\Lib\site-packages\fastapi_users\router\verify.py
+  - .venv\Lib\site-packages\fastapi_users\authentication\strategy\base.py
+  - .venv\Lib\site-packages\fastapi_users\authentication\strategy\jwt.py
+  - .venv\Lib\site-packages\fastapi_users\authentication\strategy\redis.py
+  - .venv\Lib\site-packages\fastapi_users\authentication\strategy\db\strategy.py
+  - .venv\Lib\site-packages\cryptography\hazmat\backends\__init__.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\asymmetric\ec.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\asymmetric\ed448.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\asymmetric\mldsa.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\asymmetric\mlkem.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\asymmetric\x25519.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\asymmetric\x448.py
+  - .venv\Lib\site-packages\cryptography\hazmat\primitives\serialization\pkcs7.py
+  - .venv\Lib\site-packages\cryptography\hazmat\backends\openssl\__init__.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-CLOUD-REVIEW-FIXES/repo_before.hash
