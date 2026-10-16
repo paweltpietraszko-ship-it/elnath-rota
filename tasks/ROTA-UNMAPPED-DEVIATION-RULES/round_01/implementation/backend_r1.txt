@@ -1,0 +1,19 @@
+STATUS: PASS
+HEAD_SHA: 93c191415a8abbed14b9b73c156079e665ffac01
+CHECKS: TASK_SCOPE / STALE_HEAD / GIT_DIFF / FROZEN_LOCK / DIFF_SCOPE / NEW_FILES / DELETED_FILES / RUFF / SIZE_FILE / SIZE_FUNC / RATIO / TOTAL_LINES
+IMPORTERS_FOR_REVIEW:
+  - tests\test_role_deviation_mapping.py
+  - tests\test_t009_manual_edit.py
+  - tests\test_t012.py
+  - tests\test_t016_emp02_retirement.py
+  - tests\test_t023b.py
+  - tests\test_t036_rest_deviation_target.py
+  - tests\test_t058.py
+  - tasks\ROTA-T058\round_01\tests\repro_r4.py
+  - tasks\ROTA-T058\round_01\tests\repro_r5.py
+  - rota\application\lifecycle_ops.py
+  - rota\application\manual_edit.py
+EXCLUDED_ARTIFACTS:
+  - tasks/ROTA-UNMAPPED-DEVIATION-RULES/repo_before.hash
+  - tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/where_map_category_for_rule.txt
+  - tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/where_map_file.txt
