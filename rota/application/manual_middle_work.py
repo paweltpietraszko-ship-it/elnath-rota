@@ -18,28 +18,14 @@ from rota.persistence.site_repository import get_site
 
 
 class ManualMiddleShiftRejected(ValueError):
-    """ROTA-T065-MANUAL-MIDDLE-SHIFT brief section 6: an unauthorized role
-    substitution, an unknown/inactive role, or a non-ORDINARY Site is
-    rejected here, before any child ScheduleVersion is created -- never
-    saved as an ordinary Deviation ("ROLE-01 Deviation nie jest
-    alternatywną zgodą na zastępstwo"). A ValueError subclass so
-    api/errors.py's existing generic ValueError->400 mapping applies
-    without a new registration in that shared, out-of-scope module."""
-
-
-def _authorizes_manual_work_role(
-    conn, *, site_id: str, employee_id: str, role_id: str, start: datetime, end: datetime,
-) -> bool:
-    """The ONE authorization mechanism for performing a role different from
-    one's own position (brief section 6): an active RoleCoverageAuthorization
-    for this exact (site, employee, role) whose interval fully covers
-    [start, end). Reads the single owner in site_role_repository.py --
-    no local copy of RoleCoverageAuthorization."""
-    return any(
-        auth.active and auth.employee_id == employee_id and auth.covered_role_id == role_id
-        and auth.start_datetime <= start and auth.end_datetime >= end
-        for auth in site_role_repository.list_role_coverage_authorizations_for_site(conn, site_id)
-    )
+    """Data-integrity rejections only: an unknown/inactive/foreign role, no
+    active membership, or a non-ORDINARY Site, before any child
+    ScheduleVersion is created. A role different from the person's
+    position without authorization is NOT rejected (ROTA-MANUAL-MIDDLE-
+    ROLE-BLOCK, OWNER 2026-10-16) -- the validator records it as ROLE-01.
+    A ValueError subclass so api/errors.py's existing generic
+    ValueError->400 mapping applies without a new registration in that
+    shared, out-of-scope module."""
 
 
 def add_manual_middle_work(
@@ -53,10 +39,12 @@ def add_manual_middle_work(
     function -> the existing apply_manual_correction() lifecycle (brief
     sections 1/3). Never a second endpoint/table/validator/solver pass.
 
-    Role-substitution authorization (section 6) and the site-regime/role-
-    catalog preconditions are hard gates checked here, BEFORE any child
-    ScheduleVersion is created -- rejecting outright, not materializing an
-    ordinary Deviation. Hourly availability (UNAVAILABLE_TIME-01) and every
+    The site-regime/role-catalog/membership preconditions are hard
+    data-integrity gates checked here, BEFORE any child ScheduleVersion is
+    created. Working in a role other than one's position without a covering
+    RoleCoverageAuthorization is a deliberate coordinator decision
+    (ROTA-MANUAL-MIDDLE-ROLE-BLOCK): saved, and the validator's ROLE-01
+    becomes a PREFERENCE Deviation. Hourly availability (UNAVAILABLE_TIME-01) and every
     other real-work check (overlap/REST/LOAD/WorkBalance/cross-Site) are NOT
     duplicated here -- they run through validate() exactly as for any other
     manual correction, inside apply_manual_correction() below."""
@@ -75,14 +63,6 @@ def add_manual_middle_work(
     )
     if membership is None:
         raise ManualMiddleShiftRejected(f"{employee_id} has no enabled membership at site {site_id!r}")
-    if membership.position_role_id != manual_work_role_id and not _authorizes_manual_work_role(
-        conn, site_id=site_id, employee_id=employee_id, role_id=manual_work_role_id,
-        start=start_datetime, end=end_datetime,
-    ):
-        raise ManualMiddleShiftRejected(
-            f"{employee_id} has no active RoleCoverageAuthorization for role {manual_work_role_id!r} "
-            f"covering {start_datetime.isoformat()}–{end_datetime.isoformat()}"
-        )
     assignment = Assignment(
         assignment_id=f"ASG-{uuid.uuid4().hex}", schedule_version_id="", employee_id=employee_id,
         start_datetime=start_datetime, end_datetime=end_datetime, role=AssignmentRole.PRIMARY,

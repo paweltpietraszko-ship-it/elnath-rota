@@ -32,6 +32,7 @@ kinds beyond that initial catalog remain a separate CONTRACT_GAP.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from rota.domain import (
@@ -181,14 +182,27 @@ def role_covers(demand: ShiftDemand, membership: SiteMembership, authorizations:
     its own terms, not derived from role names."""
     if demand.required_role_id is None:
         return True
-    if demand.required_role_id == membership.position_role_id:
+    return role_covers_interval(demand.required_role_id, demand.start_datetime, demand.end_datetime, membership, authorizations)
+
+
+def role_covers_interval(
+    role_id: str, start: datetime, end: datetime, membership: SiteMembership,
+    authorizations: tuple[RoleCoverageAuthorization, ...],
+) -> bool:
+    """ROTA-MANUAL-MIDDLE-ROLE-BLOCK section 3.1: role_covers' own test for
+    one concrete role and real interval, shared with the validator's
+    manual-middle-work path (no demand) -- still the single ROLE-01 owner.
+    Own position matches, or ONE active authorization of this employee for
+    this role covers the whole [start, end); partial authorizations are
+    never summed."""
+    if role_id == membership.position_role_id:
         return True
     for authorization in authorizations:
         if not authorization.active or authorization.employee_id != membership.employee_id:
             continue
-        if authorization.covered_role_id != demand.required_role_id:
+        if authorization.covered_role_id != role_id:
             continue
-        if authorization.start_datetime <= demand.start_datetime and authorization.end_datetime >= demand.end_datetime:
+        if authorization.start_datetime <= start and authorization.end_datetime >= end:
             return True
     return False
 

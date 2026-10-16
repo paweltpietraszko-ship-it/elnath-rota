@@ -1,0 +1,462 @@
+### where.py rota/planning/eligibility.py
+FILE: rota/planning/eligibility.py
+LAYER: rota/planning
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (9):
+  __future__
+  dataclasses
+  datetime
+  typing
+  rota.domain
+  rota.planning.availability
+  rota.planning.shift_catalog
+  rota.planning.site_rules
+  rota.planning.timeutil
+
+TOP_LEVEL_SYMBOLS (10):
+  EligibilityCheck
+  overlaps_availability
+  _blocked_by_availability
+  _blocked_by_site_rules
+  role_covers
+  role_covers_interval
+  is_all_24h_profile
+  _common_hard_gate
+  _external_window_covers
+  check_eligibility
+
+SYMBOL: EligibilityCheck
+  TOTAL_RAW_HITS: 13
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:63: class EligibilityCheck:
+    TEXT SAME_FILE  PRODUCTION     rota/planning/eligibility.py:101: # returns a single reason by design (EligibilityCheck.blocked_reason is one
+    TEXT SAME_FILE  PRODUCTION     rota/planning/eligibility.py:216: ) -> EligibilityCheck:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:222: return EligibilityCheck(False, False, "MEMBERSHIP_DISABLED")
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:228: return EligibilityCheck(False, False, "ROLE-01")
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:244: return EligibilityCheck(False, False, "SHIFT-24-01")
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:260: return EligibilityCheck(False, False, "DAY_ONLY-01")
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:263: return EligibilityCheck(False, False, reason)
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:271: return EligibilityCheck(False, False, site_rule_block)
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:272: return EligibilityCheck(True, leave_plan_collision, None, day_only_fallback_rule_version_id)
+    TEXT SAME_FILE  PRODUCTION     rota/planning/eligibility.py:309: ) -> EligibilityCheck:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:330: return EligibilityCheck(False, False, "EXTERNAL_SUPPORT_DISABLED")
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:333: return EligibilityCheck(False, False, "EXTERNAL-01")
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: overlaps_availability
+  TOTAL_RAW_HITS: 4
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/T021_ui_facts_2026-08-21.md:420: availability` (same code path, `overlaps_availability`, full date
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:74: def overlaps_availability(demand: ShiftDemand, record: AvailabilityRecord) -> bool:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:138: if overlaps_availability(demand, record):
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:141: if overlaps_availability(demand, record):
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _blocked_by_availability
+  TOTAL_RAW_HITS: 8
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/T021_ui_facts_2026-08-21.md:256: - `rota/planning/eligibility.py::_blocked_by_availability` — pokrywa
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:120: def _blocked_by_availability(
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:261: reason, leave_plan_collision = _blocked_by_availability(demand, availability_records)
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T020/round_01/tests/tests_r4.txt:39: _BLOCKING_KIND_PRIORITY. _blocked_by_availability() w liniach 103–126
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T021/round_01/tests/tests_r1.txt:69: - eligibility._blocked_by_availability applies records only inside inclusive
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_delegation_absence.py:39: from rota.planning.eligibility import _blocked_by_availability
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_delegation_absence.py:132: reason, leave_plan_collision = _blocked_by_availability(demand, [_delegacja_record(date(2026, 8, 5), date(2026, 8, 5))])
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_delegation_absence.py:141: reason, _ = _blocked_by_availability(demand, [_delegacja_record(date(2026, 8, 5), date(2026, 8, 5), active=False)])
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _blocked_by_site_rules
+  TOTAL_RAW_HITS: 5
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:78: zmian, `_blocked_by_site_rules` działa niezależnie od kategorii.
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/T021_ui_facts_2026-08-21.md:259: - `rota/planning/eligibility.py::_blocked_by_site_rules` — pokrywa
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:152: def _blocked_by_site_rules(
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:267: site_rule_block = _blocked_by_site_rules(
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/tests_r3.txt:55: - `_blocked_by_site_rules()` nadal przekazuje techniczne `shift_kind` do reguł
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: role_covers
+  TOTAL_RAW_HITS: 22
+    TEXT OTHER_FILE PRODUCTION     BOARD.md:33: | ROTA-MANUAL-MIDDLE-ROLE-BLOCK | Codex | CC / Architekt | `codex/rota-manual-middle-role-block` | `f01a9b27e10bd7fc91f92821e968572c97232ed7` | CODEX_REPORTED | **PASS PREIMPLEMENTATION — wąski precheck (2026-10-16).** Brief zgodny z decyzjami OWNERA i testowalny; jeden owner pokrycia roli, helper przedziałowy z obecnego role_covers, walidacja własnej roli pracy bez demandu, usunięcie tylko odmowy braku autoryzacji. Odmowy integralności i brak aktywnego członkostwa pozostają zgodnie z decyzją OWNERA. Raport `tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt` na `audit/rota-manual-middle-role-block`, commit `3423af8`; CC przenosi raport. [Draft PR #29](https://github.com/paweltpietraszko-ship-it/elnath-rota/pull/29). Bez testów produktu/WHERE_MAP/regresji na etapie briefu. CC może wykonać własną ocenę merytoryczną; obie bramy przed implementacją. Odłożone WORK_PERIOD-01/FULL_HOUR-01/SITE_RULE-01/ASSIGN pozostają zamknięte jako znane ograniczenie. Merge tylko OWNER. |
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/EmployeeDetail.tsx:375: // rota.planning.eligibility.role_covers). Empty for OCHRONA sites (no
+    TEXT OTHER_FILE PRODUCTION     rota/application/deviation_mapping.py:38: # MEMBERSHIP-01; the automatic ROLE-01 gate (role_covers) is unchanged.
+    TEXT OTHER_FILE PRODUCTION     rota/application/durable_inputs.py:394: never implies a hierarchy -- see rota.planning.eligibility.role_covers,
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:174: def role_covers(demand: ShiftDemand, membership: SiteMembership, authorizations: tuple[RoleCoverageAuthorization, ...]) -> bool:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:227: if not role_covers(demand, membership, authorizations):
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:12: from rota.planning.eligibility import role_covers
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:85: anti-drift mirror of eligibility.py's role_covers -- the same shared
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:118: # a membership whose position doesn't match -- role_covers
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:121: covered = membership is not None and role_covers(demand, membership, state.role_coverage_authorizations)
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:78: 1. `rota/planning/eligibility.py`: wydzielić z obecnego `role_covers`
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:84: `role_covers(demand, ...)` zachowuje True przy braku required_role_id,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:143: niezmienionej semantyki role_covers i automatu, bez kopiowania ich kontraktu.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt:10: role_covers, _check_role, bramka autoryzacji i delegacja do apply_manual_correction
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt:19: Istniejące role_covers zawiera potrzebny algorytm; wydzielenie helpera
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/tests_r4.txt:61: `site_role_repository.py`, jeden `role_covers` w `eligibility.py` oraz użycie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:68: Automat nadal stosuje istniejące `role_covers`: PLAN/REPLAN i akceptacja
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:124: Poza zakresem także: zmiana solvera/walidatora/role_covers, dopisywanie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/delivery_r1.md:9: CHANGE: rota/application/deviation_mapping.py — one `_BUILTIN_RULE_CATEGORY` entry `"ROLE-01": PREFERENCE`. category_for_rule, _affected_target, validator, role_covers untouched; no fallback.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/delivery_r1.md:21: WHERE_MAP: round_01/implementation/where_map_category_for_rule.txt, where_map_file.txt. Consumers: manual_edit.py (manual correction), lifecycle_ops.py (automatic acceptance — unreachable for ROLE-01 because solver applies role_covers), tests. No second owner, no fallback.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r2.txt:17: category_for_rule, _affected_target, validator i role_covers bez zmian;
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: role_covers_interval
+  TOTAL_RAW_HITS: 2
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:79: funkcję `role_covers_interval(role_id, start, end, membership, authorizations)`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:169: `role_covers_interval`. Przeczytać trafienia przed wnioskiem o ownerze.
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: is_all_24h_profile
+  TOTAL_RAW_HITS: 9
+    TEXT OTHER_FILE PRODUCTION     rota/planning/constraints.py:29: from rota.planning.eligibility import is_all_24h_profile
+    CALL OTHER_FILE PRODUCTION     rota/planning/constraints.py:367: if is_all_24h_profile(state.profile):
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:196: def is_all_24h_profile(profile: SiteProfile) -> bool:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:242: and not is_all_24h_profile(profile)
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_patterns.py:13: from rota.planning.eligibility import is_all_24h_profile
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator_checks_patterns.py:222: all_24h = is_all_24h_profile(state.profile)
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/CURSOR_AUDIT_2026-08-23_backend_ui_coverage/round_01/tests/tests_r1.txt:110: - rota/planning/eligibility.py:142-148 defines is_all_24h_profile;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/CC_PREIMPLEMENTATION_ANALYSIS.md:81: and `can_work_24h`, gated by `is_all_24h_profile` short-circuit
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_vertical_full_stack.py:60: # matters because is_all_24h_profile() makes SHIFT-24-01/can_work_24h a no-op,
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _common_hard_gate
+  TOTAL_RAW_HITS: 11
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-03_STANDARDOWY_EMPLOYEE_CATEGORIES.md:99: `DAY_ONLY-01` gates in `_common_hard_gate` (151-192).
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:16: `eligibility.py::_common_hard_gate` (`SHIFT-24-01`), zero zmian w
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:26: `_common_hard_gate` porównująca kategorię z `SiteMembership` do kategorii
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:37: | `rota/planning/eligibility.py` | nowa twarda bramka w `_common_hard_gate`, obok istniejącej `SHIFT-24-01`; pytanie o interakcję z `EXTERNAL_SUPPORT` w §4 |
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:73: nie rozstrzyga tego — `_common_hard_gate` wykonuje się PRZED rozgałęzieniem
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:205: def _common_hard_gate(
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:317: gate = _common_hard_gate(
+    TEXT OTHER_FILE PRODUCTION     rota/planning/site_rules.py:24: # only from the DAY_ONLY-01 check sites (eligibility._common_hard_gate,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T010/round_01/tests/tests_r5.txt:50: - eligibility._common_hard_gate;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T016/brief.md:140: - `_common_hard_gate` nie może sprawdzać `active_from/active_to`;
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T020/round_01/tests/tests_r4.txt:41: _common_hard_gate() w liniach 151–192 zwraca eligible=False przed dodaniem
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _external_window_covers
+  TOTAL_RAW_HITS: 3
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:275: def _external_window_covers(
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:331: if _external_window_covers(employee.employee_id, demand, shift_kind, site_id, external_windows, regime):
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/tests_r3.txt:57: - `_external_window_covers()` nadal porównuje `allowed_shift_kind` z
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: check_eligibility
+  TOTAL_RAW_HITS: 60
+    CALL OTHER_FILE TEST_TASK_ARCH arch/T021_ui_facts_2026-08-21.md:254: - `rota/planning/solver.py:209` woła `check_eligibility(...)` przy
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:296: def check_eligibility(
+    TEXT OTHER_FILE PRODUCTION     rota/planning/solver.py:38: from rota.planning.eligibility import check_eligibility
+    TEXT OTHER_FILE PRODUCTION     rota/planning/solver.py:159: eligibility-based exclusion (check_eligibility at slot-building time)
+    TEXT OTHER_FILE PRODUCTION     rota/planning/solver.py:315: SHIFT-24-01 is enforced by check_eligibility itself, not duplicated here."""
+    CALL OTHER_FILE PRODUCTION     rota/planning/solver.py:316: result = check_eligibility(
+    TEXT OTHER_FILE PRODUCTION     rota/planning/solver.py:567: filtered eligibility result (_build_slots/check_eligibility) -- never
+    TEXT OTHER_FILE PRODUCTION     rota/planning/solver.py:569: anyone check_eligibility ruled out of every shift this month simply
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T003/round_01/tests/tests_r12.txt:63: - check_eligibility() kieruje EXTERNAL bezpośrednio do tej uboższej ścieżki.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T003/round_01/tests/tests_r13.txt:116: - `check_eligibility(X, ...)` zwraca eligible=True.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T003/round_01/tests/tests_r17.txt:82: - solver.py:137–142 iteruje wyłącznie istniejące current-site memberships; Employee bez takiej relacji nie przechodzi przez check_eligibility i nie powstaje reason;
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T018/brief.md:322: Podczas częściowej implementacji B pełna suita wykazała dokładnie jeden dodatkowy legacy test file poza dotychczasowym literalnym TASK_SCOPE: `tests/test_audit_t010_r9_consistency.py`. To jest ten sam mechaniczny wzorzec co R1 amendment item 4/5: stary test autoryzowanego DAY_ONLY N woła `check_eligibility(...)` wprost i musi jawnie wejść w fallback-enabled mode po T018.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T018/brief.md:329: Dokładnie dwa istniejące wywołania `check_eligibility(...)` — pierwsze z bazowym `membership`, drugie z `replace(membership, readiness_state=ReadinessState.NOT_READY)` — mogą dostać `allow_day_only_n_fallback=True`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T018/brief.md:390: `check_eligibility` / private hard gate mogą dostać wyłącznie wewnętrzny, default-false parametr `allow_day_only_n_fallback`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T021/round_01/tests/tests_r1.txt:84: - rota/planning/solver.py:209 calls check_eligibility for membership+demand
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-ORDINARY-TIME-AVAILABILITY/brief.md:107: Dla każdego demandu ORDINARY istniejący `check_eligibility()` korzysta ze wspólnego oracle i blokuje kandydata kodem `UNAVAILABLE_TIME-01`, jeżeli demand nachodzi na aktywne okno godzinowe.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/test_audit_r2.py:29: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/test_audit_r2.py:70: result = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/test_audit_r3.py:20: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/test_audit_r3.py:91: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/test_audit_r3.py:118: result = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_audit_r13_findings.py:23: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_audit_r13_findings.py:152: result = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r5_b.py:38: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r5_b.py:150: return check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r9_consistency.py:35: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r9_consistency.py:76: ready_result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r9_consistency.py:88: not_ready_result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r9_consistency.py:142: eligible = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_audit_t010_r9_consistency.py:154: not_ready = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t010_c_readiness_regression.py:17: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t010_c_readiness_regression.py:38: not_ready = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t010_c_readiness_regression.py:41: ready = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t010_day_only_n_exception.py:33: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t010_day_only_n_exception.py:99: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t010_day_only_n_exception.py:191: result = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:61: from rota.planning.eligibility import check_eligibility
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:648: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:653: result = check_eligibility(Employee("A", "A", date(2026, 1, 1), None, False), membership, demand, demand.shift_kind, profile, [], [], SITE_ID)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:853: result = check_eligibility(employee, membership, demand, demand.shift_kind, profile, [], [], SITE_ID)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t012.py:862: result = check_eligibility(day_only_employee, membership, n_component, ShiftKind.N, profile, [], [], SITE_ID)
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t016_emp02_retirement.py:41: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t016_emp02_retirement.py:95: result = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:43: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:76: blocked = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:82: allowed = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:95: blocked = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:102: allowed = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:112: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:128: no_authorization = check_eligibility(employee, membership, demand, ShiftKind.D, profile, [], [], SITE_ID)
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:137: allowed = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:145: blocked_inactive = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:153: blocked_partial = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:349: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_roles.py:479: eligibility_result = check_eligibility(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_time_availability.py:52: from rota.planning.eligibility import check_eligibility
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_time_availability.py:263: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_time_availability.py:275: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_time_availability.py:289: result = check_eligibility(
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_ordinary_time_availability.py:303: result = check_eligibility(
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/planning/validator_checks_availability.py
+FILE: rota/planning/validator_checks_availability.py
+LAYER: rota/planning
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (9):
+  __future__
+  rota.domain
+  rota.planning.availability
+  rota.planning.eligibility
+  rota.planning.shift_catalog
+  rota.planning.site_rules
+  rota.planning.state
+  rota.planning.timeutil
+  rota.planning.validator_shared
+
+TOP_LEVEL_SYMBOLS (9):
+  _check_membership_enabled
+  _check_day_only
+  _check_role
+  _check_day_shift_off
+  _check_leave_and_unavailable
+  _check_unavailable_time_window
+  _check_leave_plan
+  _check_external
+  _check_site_rules
+
+SYMBOL: _check_membership_enabled
+  TOTAL_RAW_HITS: 5
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:38: | `rota/planning/validator.py` | **DODANE po korekcie Codexa (precheck `bf359d1`).** Niezależny HARD validator (osobny od solvera i od `eligibility.py`), sprawdza istniejące/ręczne `Assignment` po fakcie — np. `_check_membership_enabled`, `_check_day_only`, `_check_external`. Nowa bramka kategorii w `eligibility.py` zabezpiecza tylko GENEROWANIE nowych slotów; bez odpowiednika tutaj ręczna edycja lub REPLAN mogłyby po cichu naruszyć regułę kategorii bez wykrycia. |
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:26: _check_membership_enabled,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:78: _check_membership_enabled(state, for_eligibility_checks, details)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:20: def _check_membership_enabled(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    TEXT SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:88: set exactly as _check_membership_enabled/_check_external mirror their
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_day_only
+  TOTAL_RAW_HITS: 14
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-04_VALIDATOR_WARNINGS_NEVER_SURFACED.md:37: - `_check_day_only` → `DAY_ONLY-N-FALLBACK-01 SOFT`
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:38: | `rota/planning/validator.py` | **DODANE po korekcie Codexa (precheck `bf359d1`).** Niezależny HARD validator (osobny od solvera i od `eligibility.py`), sprawdza istniejące/ręczne `Assignment` po fakcie — np. `_check_membership_enabled`, `_check_day_only`, `_check_external`. Nowa bramka kategorii w `eligibility.py` zabezpiecza tylko GENEROWANIE nowych slotów; bez odpowiednika tutaj ręczna edycja lub REPLAN mogłyby po cichu naruszyć regułę kategorii bez wykrycia. |
+    TEXT OTHER_FILE PRODUCTION     rota/planning/site_rules.py:25: # validator._check_day_only).
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:21: _check_day_only,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:80: _check_day_only(state, for_eligibility_checks, details, warnings)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:29: def _check_day_only(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
+    TEXT SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:107: _check_day_only's T022-R1-2 precedent, rather than silently passing
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/CURSOR_AUDIT_2026-08-21/FINDINGS_VERIFIED.md:27: `rota/planning/validator.py:220-222` (`_check_day_only`) was explicitly
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T010/round_01/tests/tests_r5.txt:51: - validator._check_day_only.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/CC_PREIMPLEMENTATION_ANALYSIS.md:53: - `rota/planning/validator.py:215` (`_check_day_only`)
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/brief.md:106: - `_check_day_only()` skips when that returns `None`;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/round_01/tests/tests_r1.txt:90: - _check_day_only, _check_external and _check_site_rules consequently perform
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T055/round_01/tests/tests_r3.txt:59: - `_check_day_only()` obsługuje `Employee.day_only`: pracownik jest ograniczony do zmian dziennych, a potwierdzona reguła wyjątkowa pozwala mu dostać nockę (`rota/planning/validator.py:233-271`).
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T055/round_01/tests/tests_r3.txt:65: - Nowy tekst w `_check_day_only()` brzmi: „ma nockę mimo dnia wolnego”. To tłumaczenie zostało dodane bezpośrednio w poprawce T055.
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_role
+  TOTAL_RAW_HITS: 9
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:27: _check_role,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:79: _check_role(state, for_eligibility_checks, details)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:83: def _check_role(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:88: 2. `rota/planning/validator_checks_availability.py::_check_role`: dodać
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt:10: role_covers, _check_role, bramka autoryzacji i delegacja do apply_manual_correction
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065/round_01/tests/tests_r2.txt:37: - `_check_role()` w rota/planning/validator.py sprawdza wyłącznie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:30: `validator_checks_availability._check_role` i istniejącą polską etykietę
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r1.txt:32: 4. Punktowo potwierdzono nazwane szwy: _check_role emituje ROLE-01 z ID
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_day_shift_off
+  TOTAL_RAW_HITS: 5
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-04_VALIDATOR_WARNINGS_NEVER_SURFACED.md:38: - `_check_day_shift_off` → `DAY_SHIFT_OFF-01 SOFT` (a **second**,
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:22: _check_day_shift_off,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:83: _check_day_shift_off(state, for_eligibility_checks, details, warnings)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:130: def _check_day_shift_off(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail], warnings: list[str]) -> None:
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T055/round_01/tests/tests_r3.txt:60: - `DAY_SHIFT_OFF` jest oddzielnym mechanizmem dyspozycji/dnia wolnego, sprawdzanym przez `_check_day_shift_off()` (`rota/planning/validator.py:335-358`).
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_leave_and_unavailable
+  TOTAL_RAW_HITS: 8
+    CALL OTHER_FILE PRODUCTION     rota/planning/eligibility.py:104: # validator._check_leave_and_unavailable (FINDING R26-1) a fixed priority
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:24: _check_leave_and_unavailable,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:84: _check_leave_and_unavailable(state, for_eligibility_checks, details)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:168: def _check_leave_and_unavailable(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ABSENCE-KIND/brief.md:94: `rota/planning/validator_checks_availability.py::_check_leave_and_unavailable`
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-DELEGACJA-ABSENCE-KIND/brief.md:311: `_check_leave_and_unavailable`, `DELEGACJA-01`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_delegation_absence.py:40: from rota.planning.validator_checks_availability import _check_leave_and_unavailable
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_delegation_absence.py:160: _check_leave_and_unavailable(state, [assignment], details)
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_unavailable_time_window
+  TOTAL_RAW_HITS: 3
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:29: _check_unavailable_time_window,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:85: _check_unavailable_time_window(state, for_eligibility_checks, details)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:196: def _check_unavailable_time_window(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_leave_plan
+  TOTAL_RAW_HITS: 6
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-04_VALIDATOR_WARNINGS_NEVER_SURFACED.md:40: - `_check_leave_plan` → `LEAVE_PLAN-01 SOFT`
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/FINDING_2026-09-04_VALIDATOR_WARNINGS_NEVER_SURFACED.md:68: was never migrated. A rule added straight to the validator (`_check_leave_plan`,
+    CALL OTHER_FILE PRODUCTION     rota/planning/solver.py:845: validator._check_leave_plan (R17-4) to avoid duplicating the warning.
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:25: _check_leave_plan,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:86: _check_leave_plan(state, for_eligibility_checks, warnings)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:216: def _check_leave_plan(state: PlanningState, assignments: list[Assignment], warnings: list[str]) -> None:
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_external
+  TOTAL_RAW_HITS: 9
+    TEXT OTHER_FILE TEST_TASK_ARCH arch/SCOPE_2026-09-13_T065_STANDARDOWY_EMPLOYEE_CATEGORIES.md:38: | `rota/planning/validator.py` | **DODANE po korekcie Codexa (precheck `bf359d1`).** Niezależny HARD validator (osobny od solvera i od `eligibility.py`), sprawdza istniejące/ręczne `Assignment` po fakcie — np. `_check_membership_enabled`, `_check_day_only`, `_check_external`. Nowa bramka kategorii w `eligibility.py` zabezpiecza tylko GENEROWANIE nowych slotów; bez odpowiednika tutaj ręczna edycja lub REPLAN mogłyby po cichu naruszyć regułę kategorii bez wykrycia. |
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:23: _check_external,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:87: _check_external(state, for_eligibility_checks, details)
+    TEXT SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:88: set exactly as _check_membership_enabled/_check_external mirror their
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:235: def _check_external(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/CC_PREIMPLEMENTATION_ANALYSIS.md:54: - `rota/planning/validator.py:379` (`_check_external`)
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/brief.md:109: - `_check_external()` consumes the same single-kind helper;
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/round_01/tests/tests_r1.txt:90: - _check_day_only, _check_external and _check_site_rules consequently perform
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/round_01/tests/tests_r3.txt:18: - R2 EXTERNAL reproducer now passes only because _check_external adds a
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: _check_site_rules
+  TOTAL_RAW_HITS: 8
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator.py:28: _check_site_rules,
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator.py:88: _check_site_rules(state, for_eligibility_checks, details)
+    DEF  SAME_FILE  PRODUCTION     rota/planning/validator_checks_availability.py:273: def _check_site_rules(state: PlanningState, assignments: list[Assignment], details: list[ViolationDetail]) -> None:
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/CURSOR_AUDIT_2026-08-21/FINDINGS_VERIFIED.md:25: ### C1. `validator._check_site_rules` uses the wrong date anchor
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/CURSOR_AUDIT_2026-08-21/FINDINGS_VERIFIED.md:31: That fix was never applied to `_check_site_rules`, right below it in the
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/CC_PREIMPLEMENTATION_ANALYSIS.md:55: - `rota/planning/validator.py:404` (`_check_site_rules`)
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/brief.md:107: - `_check_site_rules()` also skips and uses `assignment.start_datetime.date()`
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T022/round_01/tests/tests_r1.txt:90: - _check_day_only, _check_external and _check_site_rules consequently perform
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/application/manual_middle_work.py
+FILE: rota/application/manual_middle_work.py
+LAYER: rota/application
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (8):
+  __future__
+  uuid
+  datetime
+  typing
+  rota.application.manual_edit
+  rota.domain
+  rota.persistence
+  rota.persistence.site_repository
+
+TOP_LEVEL_SYMBOLS (2):
+  ManualMiddleShiftRejected
+  add_manual_middle_work
+
+SYMBOL: ManualMiddleShiftRejected
+  TOTAL_RAW_HITS: 9
+    DEF  SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:20: class ManualMiddleShiftRejected(ValueError):
+    CALL SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:65: raise ManualMiddleShiftRejected(f"{site_id}: manual middle work is only defined for SitePlanningRegime.ORDINARY")
+    CALL SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:69: raise ManualMiddleShiftRejected(f"unknown role {manual_work_role_id!r}") from None
+    CALL SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:71: raise ManualMiddleShiftRejected(f"role {manual_work_role_id!r} is not an active role of site {site_id!r}")
+    CALL SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:77: raise ManualMiddleShiftRejected(f"{employee_id} has no enabled membership at site {site_id!r}")
+    CALL SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:82: raise ManualMiddleShiftRejected(
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t065_manual_middle_shift.py:140: with pytest.raises(manual_middle_work.ManualMiddleShiftRejected):
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t065_manual_middle_shift.py:170: with pytest.raises(manual_middle_work.ManualMiddleShiftRejected):
+    TEXT OTHER_FILE TEST_TASK_ARCH tests/test_t065_manual_middle_shift.py:177: with pytest.raises(manual_middle_work.ManualMiddleShiftRejected):
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+SYMBOL: add_manual_middle_work
+  TOTAL_RAW_HITS: 10
+    TEXT OTHER_FILE PRODUCTION     api/routers/manual_edit.py:21: from rota.application.manual_middle_work import add_manual_middle_work
+    TEXT OTHER_FILE PRODUCTION     api/routers/manual_edit.py:118: zgodnie z manual_edit.add_manual_middle_work's own ValueError-based
+    CALL OTHER_FILE PRODUCTION     api/routers/manual_edit.py:135: version = add_manual_middle_work(
+    DEF  SAME_FILE  PRODUCTION     rota/application/manual_middle_work.py:45: def add_manual_middle_work(
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:122: - MM-05: rzeczywiste `add_manual_middle_work` bez autoryzacji zapisuje dziecko,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/brief.md:149: Wspieranym entry pointem manual middle jest dedykowana akcja UI `Dodaj pracę` i odpowiadający jej endpoint/application wrapper `add_manual_middle_work()`. Generyczny endpoint manual correction pozostaje technicznym mechanizmem lifecycle i nie jest publicznym kontraktem do ręcznego konstruowania manual middle poza UI.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/round_01/tests/tests_r3.txt:24: - twardy precheck istnieje tylko w nowym wrapperze `add_manual_middle_work()`.
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-MANUAL-MIDDLE-SHIFT/round_01/tests/tests_r4.txt:18: - normalna akcja UI „Dodaj pracę” korzysta z `add_manual_middle_work()`;
+    CALL OTHER_FILE TEST_TASK_ARCH tests/test_t065_manual_middle_shift.py:64: return manual_middle_work.add_manual_middle_work(
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/planning/eligibility.py --symbol role_covers_interval
+FILE: rota/planning/eligibility.py
+LAYER: rota/planning
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (9):
+  __future__
+  dataclasses
+  datetime
+  typing
+  rota.domain
+  rota.planning.availability
+  rota.planning.shift_catalog
+  rota.planning.site_rules
+  rota.planning.timeutil
+
+TOP_LEVEL_SYMBOLS (1):
+  role_covers_interval
+
+SYMBOL: role_covers_interval
+  TOTAL_RAW_HITS: 2
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:79: funkcję `role_covers_interval(role_id, start, end, membership, authorizations)`.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:169: `role_covers_interval`. Przeczytać trafienia przed wnioskiem o ownerze.
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/planning/eligibility.py --symbol role_covers
+FILE: rota/planning/eligibility.py
+LAYER: rota/planning
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (9):
+  __future__
+  dataclasses
+  datetime
+  typing
+  rota.domain
+  rota.planning.availability
+  rota.planning.shift_catalog
+  rota.planning.site_rules
+  rota.planning.timeutil
+
+TOP_LEVEL_SYMBOLS (1):
+  role_covers
+
+SYMBOL: role_covers
+  TOTAL_RAW_HITS: 22
+    TEXT OTHER_FILE PRODUCTION     BOARD.md:33: | ROTA-MANUAL-MIDDLE-ROLE-BLOCK | Codex | CC / Architekt | `codex/rota-manual-middle-role-block` | `f01a9b27e10bd7fc91f92821e968572c97232ed7` | CODEX_REPORTED | **PASS PREIMPLEMENTATION — wąski precheck (2026-10-16).** Brief zgodny z decyzjami OWNERA i testowalny; jeden owner pokrycia roli, helper przedziałowy z obecnego role_covers, walidacja własnej roli pracy bez demandu, usunięcie tylko odmowy braku autoryzacji. Odmowy integralności i brak aktywnego członkostwa pozostają zgodnie z decyzją OWNERA. Raport `tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt` na `audit/rota-manual-middle-role-block`, commit `3423af8`; CC przenosi raport. [Draft PR #29](https://github.com/paweltpietraszko-ship-it/elnath-rota/pull/29). Bez testów produktu/WHERE_MAP/regresji na etapie briefu. CC może wykonać własną ocenę merytoryczną; obie bramy przed implementacją. Odłożone WORK_PERIOD-01/FULL_HOUR-01/SITE_RULE-01/ASSIGN pozostają zamknięte jako znane ograniczenie. Merge tylko OWNER. |
+    TEXT OTHER_FILE PRODUCTION     frontend/src/screens/EmployeeDetail.tsx:375: // rota.planning.eligibility.role_covers). Empty for OCHRONA sites (no
+    TEXT OTHER_FILE PRODUCTION     rota/application/deviation_mapping.py:38: # MEMBERSHIP-01; the automatic ROLE-01 gate (role_covers) is unchanged.
+    TEXT OTHER_FILE PRODUCTION     rota/application/durable_inputs.py:394: never implies a hierarchy -- see rota.planning.eligibility.role_covers,
+    DEF  SAME_FILE  PRODUCTION     rota/planning/eligibility.py:174: def role_covers(demand: ShiftDemand, membership: SiteMembership, authorizations: tuple[RoleCoverageAuthorization, ...]) -> bool:
+    CALL SAME_FILE  PRODUCTION     rota/planning/eligibility.py:227: if not role_covers(demand, membership, authorizations):
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:12: from rota.planning.eligibility import role_covers
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:85: anti-drift mirror of eligibility.py's role_covers -- the same shared
+    TEXT OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:118: # a membership whose position doesn't match -- role_covers
+    CALL OTHER_FILE PRODUCTION     rota/planning/validator_checks_availability.py:121: covered = membership is not None and role_covers(demand, membership, state.role_coverage_authorizations)
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:78: 1. `rota/planning/eligibility.py`: wydzielić z obecnego `role_covers`
+    CALL OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:84: `role_covers(demand, ...)` zachowuje True przy braku required_role_id,
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:143: niezmienionej semantyki role_covers i automatu, bez kopiowania ich kontraktu.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/brief.md:164: - TARGETS: rota/planning/eligibility.py --symbol role_covers; rota/planning/validator_checks_availability.py --symbol _check_role; rota/application/manual_middle_work.py --symbol add_manual_middle_work; rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt:10: role_covers, _check_role, bramka autoryzacji i delegacja do apply_manual_correction
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-MANUAL-MIDDLE-ROLE-BLOCK/round_01/tests/tests_r1.txt:19: Istniejące role_covers zawiera potrzebny algorytm; wydzielenie helpera
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-T065-CONFIGURABLE-ROLES/round_01/tests/tests_r4.txt:61: `site_role_repository.py`, jeden `role_covers` w `eligibility.py` oraz użycie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:68: Automat nadal stosuje istniejące `role_covers`: PLAN/REPLAN i akceptacja
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/brief.md:124: Poza zakresem także: zmiana solvera/walidatora/role_covers, dopisywanie
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/delivery_r1.md:9: CHANGE: rota/application/deviation_mapping.py — one `_BUILTIN_RULE_CATEGORY` entry `"ROLE-01": PREFERENCE`. category_for_rule, _affected_target, validator, role_covers untouched; no fallback.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/implementation/delivery_r1.md:21: WHERE_MAP: round_01/implementation/where_map_category_for_rule.txt, where_map_file.txt. Consumers: manual_edit.py (manual correction), lifecycle_ops.py (automatic acceptance — unreachable for ROLE-01 because solver applies role_covers), tests. No second owner, no fallback.
+    TEXT OTHER_FILE TEST_TASK_ARCH tasks/ROTA-UNMAPPED-DEVIATION-RULES/round_01/tests/tests_r2.txt:17: category_for_rule, _affected_target, validator i role_covers bez zmian;
+  NOTE: raw text-match evidence only — no reachability/ownership verdict is computed. Read each flagged line yourself, especially DEF hits (possible duplicate name) and CALL hits in files other than the one you're analyzing.
+
+### where.py rota/application/manual_middle_work.py --symbol _authorizes_manual_work_role
+FILE: rota/application/manual_middle_work.py
+LAYER: rota/application
+WARNING: working tree differs from HEAD for this file — symbols/imports below are read from the WORKING TREE, but reference search always targets HEAD. Commit or stash for a consistent view.
+IMPORTS (8):
+  __future__
+  uuid
+  datetime
+  typing
+  rota.application.manual_edit
+  rota.domain
+  rota.persistence
+  rota.persistence.site_repository
+
+STATUS: FAIL
+REASON: symbol '_authorizes_manual_work_role' not found at top level of rota/application/manual_middle_work.py

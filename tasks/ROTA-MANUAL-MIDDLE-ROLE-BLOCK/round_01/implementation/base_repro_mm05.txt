@@ -1,0 +1,9 @@
+..                                                                       [100%]
+2 passed, 9 deselected in 0.44s
+FAILED tests/test_t065_manual_middle_shift.py::test_mm_05_unauthorized_role_saved_as_role_01_preference_deviation
+FAILED tests/test_t065_manual_middle_shift.py::test_mm_05_router_month_shows_polish_label
+FAILED tests/test_t065_manual_middle_shift.py::test_mm_authorization_not_covering_whole_interval_saves_with_role_01[auth_start0-auth_end0-True]
+FAILED tests/test_t065_manual_middle_shift.py::test_mm_authorization_not_covering_whole_interval_saves_with_role_01[auth_start1-auth_end1-True]
+FAILED tests/test_t065_manual_middle_shift.py::test_mm_authorization_not_covering_whole_interval_saves_with_role_01[auth_start2-auth_end2-False]
+FAILED tests/test_t065_manual_middle_shift.py::test_mm_two_partial_authorizations_are_not_summed
+6 failed, 15 deselected in 1.26s
