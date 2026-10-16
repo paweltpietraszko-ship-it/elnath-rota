@@ -10,6 +10,7 @@ from datetime import date, datetime
 
 from rota.application.assembler import assemble_planning_state, generate_profile_demands, resolved_rule_version_ids
 from rota.application.context import require_active_coordinator_context
+from rota.application.deviation_mapping import materialize_deviations
 from rota.application.errors import (
     CandidateRejected,
     NoCurrentScheduleVersion,
@@ -35,6 +36,7 @@ from rota.persistence.work_balance_repository import list_work_balance_targets_f
 from rota.planning.decision_guidance import drop_options_requiring_existing_schedule
 from rota.planning.engine import plan, plan_requiring_different_result_narrow, plan_requiring_different_result_wide
 from rota.planning.engine_types import PlanningResult
+from rota.planning.preserved_violations import gating_hard_pass
 from rota.planning.validator import validate
 from rota.site_memory_types import ActionSourceKind, AffectedEntity, CoordinatorActionKind
 
@@ -644,7 +646,15 @@ def select_candidate(
         state = replace(state, shift_demands=_first_plan_demands(state.shift_demands, first_preview.effective_from))
     for_validation = _coerce_unproven_realized_to_planned(candidate, state.existing_assignments)
     report = validate(state, for_validation)
-    if not report.hard_pass:
+    # R5-3/section 10.1 + ROTA-PRESERVED-FACTS-REPLAN 3C: one clock for the
+    # whole acceptance -- the same cutover_at decides which input facts are
+    # preserved (classification below) and guards them in pre_check.
+    cutover_at = datetime.now()
+    if current_id is None:
+        # A first PLAN has no source version, hence no preserved history.
+        if not report.hard_pass:
+            raise CandidateRejected("; ".join(report.violations))
+    elif not gating_hard_pass(replace(state, cutover_at=cutover_at), report, for_validation):
         raise CandidateRejected("; ".join(report.violations))
 
     if current_id is None:
@@ -689,13 +699,15 @@ def select_candidate(
     child_id = f"SV-{uuid.uuid4().hex}"
     stamped_demands = [replace(d, schedule_version_id=child_id) for d in state.shift_demands]
     stamped_candidate = [replace(a, schedule_version_id=child_id) for a in candidate]
+    # ROTA-PRESERVED-FACTS-REPLAN 3C: preserved violations the child still
+    # carries (historical NN shortage, a saved N/N/N) stay real Deviations
+    # via the existing owner -- empty for an ordinary hard_pass candidate.
+    deviations = materialize_deviations(report.violation_details, state.site_rules + state.unresolved_site_rules)
     before_state, after_state = _candidate_delta(state.existing_assignments, candidate)
-    # R5-3/section 10.1: cutover_at is captured once, immediately before the
-    # cutover-preservation check and the snapshot replacement it guards, and
-    # the same value becomes SCHEDULE_CANDIDATE_SELECTED.recorded_at below.
+    # R5-3/section 10.1: cutover_at (captured once above, before validation)
+    # also becomes SCHEDULE_CANDIDATE_SELECTED.recorded_at below.
     # B-R12-2: the actual comparison runs inside pre_check, against the
     # snapshot current in that same atomic transaction -- not here.
-    cutover_at = datetime.now()
     recorded_at = cutover_at
     hook = _select_first_candidate_hook(
         site_id=site_id, month=month, coordinator_id=coordinator_id, version_id=child_id,
@@ -711,7 +723,7 @@ def select_candidate(
         conn, version_id=child_id, site_id=site_id, month=month, parent_version_id=current_id,
         created_at=recorded_at, created_by=coordinator_id,
         applied_rule_version_ids=resolved_rule_version_ids(conn, site_id, month),
-        shift_demands=stamped_demands, assignments=stamped_candidate, deviations=[],
+        shift_demands=stamped_demands, assignments=stamped_candidate, deviations=deviations,
         effective_from=child_effective_from, on_success=hook, pre_check=pre_check,
     )
 

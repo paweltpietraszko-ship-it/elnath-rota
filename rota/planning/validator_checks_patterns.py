@@ -36,15 +36,16 @@ def _check_night_streak(state: PlanningState, assignments: list[Assignment], det
 
     ROTA-CLOUD-REVIEW-FIXES F2: boundary_assignments is deliberately
     unbounded (assembler context window), so only the solver's own windows
-    count -- start dates [month_start-2, month_end-2], exactly like
-    constraints.add_max_two_consecutive_night_constraints. A triple wholly
-    outside them belongs to another month and must not surface here as an
-    unattributable violation (TECHNICAL_ERROR on an unrelated PLAN)."""
+    count -- start dates [month_start-2, month_end] with context to
+    month_end+2 (ROTA-PRESERVED-FACTS-REPLAN 3A: symmetric at both month
+    edges, exactly like constraints.add_max_two_consecutive_night_
+    constraints and T058). A triple wholly outside them belongs to another
+    month and must not surface here as an unattributable violation."""
     num_days = calendar.monthrange(state.month.year, state.month.month)[1]
     month_start = date(state.month.year, state.month.month, 1)
     month_end = date(state.month.year, state.month.month, num_days)
     first_window_start = month_start - timedelta(days=2)
-    last_window_start = month_end - timedelta(days=2)
+    last_window_start = month_end
     n_dates_by_employee: dict[str, set] = {}
     assignment_by_employee_date: dict[tuple[str, date], str] = {}
     for assignment in assignments:
@@ -60,7 +61,7 @@ def _check_night_streak(state: PlanningState, assignments: list[Assignment], det
     for boundary in state.boundary_assignments:
         if boundary.role != AssignmentRole.PRIMARY or boundary.state == AssignmentState.CANCELLED:
             continue
-        if not (first_window_start <= boundary.start_datetime.date() <= month_end):
+        if not (first_window_start <= boundary.start_datetime.date() <= month_end + timedelta(days=2)):
             continue
         demand = _covering_demand(boundary, state)
         if demand is not None and dn_semantics_apply(demand, state.site.planning_regime) and _demand_kind(demand, state.profile) == ShiftKind.N:
