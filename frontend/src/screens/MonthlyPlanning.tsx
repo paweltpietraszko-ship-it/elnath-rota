@@ -2,8 +2,9 @@
 // over api/routers/schedule.py -- every write re-fetches the month view
 // afterward rather than trusting a locally reconstructed projection.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, AssignmentIn, AssignmentOut, DelegationDayOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleEmployeeOut, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
+import { api, AssignmentIn, AssignmentOut, ExportLawItemOut, MonthViewOut, PlanningResultOut, RosterRow, ScheduleVersionOut, ShiftDemandOut, SiteRoleOut, TECHNICAL_ERROR_MESSAGE, VersionSnapshotOut, WorkCodeIntervalOut } from "../api/client";
 import Export from "./Export";
+import { daysInMonth, ScheduleGrid } from "./monthly-planning/ScheduleGrid";
 
 function firstOfMonthIso(yearMonth: string): string {
   return `${yearMonth}-01`;
@@ -24,175 +25,9 @@ function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL", { dateStyle: "medium", timeStyle: "medium" });
 }
 
-function daysInMonth(monthIso: string): string[] {
-  const [year, month] = monthIso.split("-").map(Number);
-  const count = new Date(year, month, 0).getDate();
-  return Array.from({ length: count }, (_, i) => `${monthIso.slice(0, 8)}${String(i + 1).padStart(2, "0")}`);
-}
-
 function stripDisplayName(a: AssignmentOut): AssignmentIn {
   const { employee_display_name: _drop, ...rest } = a;
   return rest;
-}
-
-function hourOf(iso: string): number {
-  return new Date(iso).getHours();
-}
-
-// ROTA-T065 brief.md section 13/T65-08/A9: a role-bearing (ORDINARY) demand
-// shows its actual hours (e.g. "5–12"), never a forced/fake D/N label and
-// never "?". OCHRONA/legacy demands (required_role null) keep the existing
-// D/N-label renderer untouched (T65-09).
-function cellLabel(a: AssignmentOut, demandByDemandId: Map<string, ShiftDemandOut>): string {
-  // T037 audit finding R1-01: a CANCELLED+NN assignment must not read as an
-  // ordinary planned D/N -- operational_code is the ground truth here, not
-  // the demand's shift_kind (which still describes the original, now-moot,
-  // plan for this slot).
-  if (a.operational_code) return a.operational_code;
-  // ROTA-T052: S1 is clearly visible in the grid as its own code, never
-  // folded into the D/N "?" fallback or the TRAINEE "·S" suffix.
-  if (a.role === "PERIODIC_TRAINING") return "S1";
-  const demand = a.covers_demand_id ? demandByDemandId.get(a.covers_demand_id) : undefined;
-  const base = demand?.required_role
-    ? `${hourOf(a.start_datetime)}–${hourOf(a.end_datetime)}`
-    : (demand?.shift_kind ?? "?");
-  return a.role === "TRAINEE" ? `${base}·S` : base;
-}
-
-function assignmentHours(a: AssignmentOut): number {
-  const start = new Date(a.start_datetime).getTime();
-  const end = new Date(a.end_datetime).getTime();
-  return Math.round((end - start) / (1000 * 60 * 60));
-}
-
-// tasks/ROTA-T031/brief.md section 3: paper reference (Grafiki/7442.jpg) has
-// an hours summary at the end of each row -- PRIMARY only, non-CANCELLED
-// (matches the backend's own monthly-hours convention), TRAINEE excluded.
-function totalHours(assignments: AssignmentOut[]): number {
-  return assignments
-    .filter((a) => a.role === "PRIMARY" && a.state !== "CANCELLED")
-    .reduce((sum, a) => sum + assignmentHours(a), 0);
-}
-
-function ScheduleGrid({
-  monthIso, assignments, demandByDemandId, onSelectAssignment, employees: employeesOut, delegationDays,
-}: {
-  monthIso: string;
-  assignments: AssignmentOut[];
-  demandByDemandId: Map<string, ShiftDemandOut>;
-  onSelectAssignment?: (assignmentId: string) => void;
-  // ROTA-DELEGACJA-ONLY-EMPLOYEE-MISSING-FROM-SCHEDULE-GRID sections 2/3:
-  // optional so the historical version-snapshot call site (VersionSnapshotOut
-  // has no such projection, out of this brief's scope) keeps compiling
-  // unchanged and falls back to the old assignment-derived employee list.
-  employees?: ScheduleEmployeeOut[];
-  delegationDays?: DelegationDayOut[];
-}) {
-  const days = useMemo(() => daysInMonth(monthIso), [monthIso]);
-  const employees = useMemo(() => {
-    if (employeesOut) {
-      return employeesOut
-        .map((e): [string, string] => [e.employee_id, e.employee_display_name])
-        .sort((a, b) => a[1].localeCompare(b[1]));
-    }
-    const byId = new Map<string, string>();
-    for (const a of assignments) byId.set(a.employee_id, a.employee_display_name);
-    return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [assignments, employeesOut]);
-  const cellsByEmployeeDay = useMemo(() => {
-    const map = new Map<string, AssignmentOut[]>();
-    for (const a of assignments) {
-      const day = a.start_datetime.slice(0, 10);
-      const key = `${a.employee_id}|${day}`;
-      const list = map.get(key) ?? [];
-      list.push(a);
-      map.set(key, list);
-    }
-    return map;
-  }, [assignments]);
-  const assignmentsByEmployee = useMemo(() => {
-    const map = new Map<string, AssignmentOut[]>();
-    for (const a of assignments) {
-      const list = map.get(a.employee_id) ?? [];
-      list.push(a);
-      map.set(a.employee_id, list);
-    }
-    return map;
-  }, [assignments]);
-  // DG-07 (frozen precedent): a DEL day only shows on the grid when no real
-  // Assignment already occupies that cell -- the cell shows one symbol,
-  // never a second one stacked next to a manual Assignment.
-  const delegationByEmployeeDay = useMemo(() => {
-    const map = new Map<string, DelegationDayOut>();
-    for (const d of delegationDays ?? []) map.set(`${d.employee_id}|${d.date}`, d);
-    return map;
-  }, [delegationDays]);
-  // DG-07: the row TOTAL legitimately double-counts a day that has both a
-  // manual Assignment and an active DELEGACJA -- not a bug, both are real.
-  const delegationHoursByEmployee = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const d of delegationDays ?? []) map.set(d.employee_id, (map.get(d.employee_id) ?? 0) + d.hours);
-    return map;
-  }, [delegationDays]);
-
-  if (employees.length === 0) {
-    return <p className="panel-hint">Brak zapisanych przypisań w tej wersji.</p>;
-  }
-
-  return (
-    <div className="matrix-table-wrap">
-      <table className="roster-table grid-table">
-        <thead>
-          <tr>
-            <th>Pracownik</th>
-            {days.map((d) => (
-              <th key={d}>{d.slice(8, 10)}</th>
-            ))}
-            <th>Suma godzin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {employees.map(([employeeId, displayName]) => (
-            <tr key={employeeId}>
-              <td>{displayName}</td>
-              {days.map((d) => {
-                const cell = cellsByEmployeeDay.get(`${employeeId}|${d}`);
-                // DG-07: DEL only renders when the cell has no real Assignment.
-                const delegationDay = !cell?.length ? delegationByEmployeeDay.get(`${employeeId}|${d}`) : undefined;
-                return (
-                  <td key={d} style={{ textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-                    {cell?.map((a, i) => (
-                      <span key={a.assignment_id}>
-                        {i > 0 && "/"}
-                        {onSelectAssignment ? (
-                          <button
-                            className="btn-ghost"
-                            style={{ padding: "0 4px", height: "auto", fontSize: "inherit", fontVariantNumeric: "tabular-nums" }}
-                            data-diag-action="manual-correction-select-assignment"
-                            onClick={() => onSelectAssignment(a.assignment_id)}
-                            title="Ręczna korekta tej zmiany"
-                          >
-                            {cellLabel(a, demandByDemandId)}
-                            {a.frozen ? "🔒" : ""}
-                          </button>
-                        ) : (
-                          cellLabel(a, demandByDemandId)
-                        )}
-                      </span>
-                    ))}
-                    {delegationDay ? delegationDay.code : ""}
-                  </td>
-                );
-              })}
-              <td style={{ textAlign: "center", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                {totalHours(assignmentsByEmployee.get(employeeId) ?? []) + (delegationHoursByEmployee.get(employeeId) ?? 0)}h
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 // ROTA-T041 OWNER-T041-04: "Ręczna korekta" and "Wydruk Grafiku" are two nav
