@@ -228,6 +228,8 @@ Nie sprawdzone: czy 2 testy `test_manual_audits` i `test_replan_minimal_reshuffl
 
 ## 2026-10-16 Usługa w chmurze (formatka + tani model przez API) -- warunki RODO przed pierwszym prawdziwym klientem
 
+**PODJĘTE 2026-10-16** → BOARD ROTA-SERVICE-ONBOARDING (jedna aplikacja, prawdziwe dane od startu, bez trybu testowego).
+
 Pomysł Pawła: strona, na której klient opisuje obiekt/miesiąc zwykłymi słowami, tani model przez API zamienia to na dane Roty, Rota liczy, klient pobiera PDF. Ustalone: **konta z logowaniem przez link w e-mailu** (bez hasła); „wypróbuj" bez logowania tylko na danych przykładowych, nic nie zapisuje. Liczy zawsze Rota, model tylko tłumaczy; przed liczeniem podsumowanie do potwierdzenia przez użytkownika.
 
 Rola wg RODO: klient = administrator danych swoich pracowników; Paweł = podmiot przetwarzający (art. 28); Railway i dostawca modelu = podprzetwarzający. Odpowiedzialność Pawła (art. 82 ust. 2): za naruszenie obowiązków przetwarzającego (zabezpieczenie art. 32, działanie tylko na polecenie, zgłoszenie naruszenia art. 33 ust. 2), nie za podstawę prawną klienta. Brak zarobku nie wyłącza RODO.
