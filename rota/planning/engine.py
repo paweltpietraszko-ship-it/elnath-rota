@@ -31,6 +31,7 @@ from datetime import datetime
 
 from rota.domain import Assignment, AssignmentState
 from rota.planning.decision_guidance import build_decision_payload, build_third_shift_payload
+from rota.planning.preserved_violations import gating_hard_pass, is_preserved_violation
 from rota.planning.state import PlanningState
 from rota.planning.engine_types import (
     BlockingDemand,
@@ -216,11 +217,11 @@ def _full_assignments(state: PlanningState, solved: list[Assignment]) -> list[As
 def _evaluate_candidate(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
-    if _gating_hard_pass(state, report):
+    if gating_hard_pass(state, report, full):
         return _feasible_result(
             state, full, list(outcome.warnings) + list(report.warnings), outcome.alternatives, outcome.optimization_complete,
         )
-    if _has_non_load_violations(state, report):
+    if _has_non_load_violations(state, report, full):
         return _decision_for_conflicts(state, full, report, list(outcome.warnings))
     # FINDING R17-1: a demand already fully covered by existing_assignments
     # never gets a SolverSlot, so the LOAD-01 cap constraint is never added
@@ -252,7 +253,7 @@ def _feasible_result(
     for solved, solver_warnings in alternatives:
         full = _full_assignments(state, solved)
         report = validate(state, full)
-        if not _gating_hard_pass(state, report):
+        if not gating_hard_pass(state, report, full):
             return PlanningResult(
                 "TECHNICAL_ERROR", [], None,
                 "independent validator rejected an additional T017 variant candidate", [],
@@ -710,7 +711,7 @@ def _decision_for_conflict(state: PlanningState, outcome: SolverOutcome) -> Plan
 def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> PlanningResult:
     full = _full_assignments(state, outcome.assignments)
     report = validate(state, full)
-    if _has_non_load_violations(state, report):
+    if _has_non_load_violations(state, report, full):
         # Round 15 audit (tests_r15.txt FINDING R15-2): the uncapped fallback
         # candidate is still a candidate and must pass full independent HARD
         # validation (anti-drift rule 12), not just the LOAD-01 slice of it.
@@ -720,10 +721,10 @@ def _decision_for_load(state: PlanningState, outcome: SolverOutcome) -> Planning
     return _load_decision(state, report, list(outcome.warnings), full, outcome.site_rule_exclusions)
 
 
-def _has_non_load_violations(state: PlanningState, report: IndependentValidationReport) -> bool:
+def _has_non_load_violations(state: PlanningState, report: IndependentValidationReport, full: list[Assignment]) -> bool:
     return any(
         d.rule != "LOAD-01" for d in report.violation_details
-        if not _is_fully_historical_third_shift(state, d)
+        if not is_preserved_violation(state, d, full)
     )
 
 
@@ -760,9 +761,9 @@ _FROZEN_BOUNDARY_RULES = frozenset({
     # TECHNICAL_ERROR safety net -- the same role NIGHT-STREAK-01 above
     # already plays. When it is the ONLY violation present, it must not gate
     # anything at all (not even a new DECISION_REQUIRED) -- see
-    # _is_fully_historical_third_shift/_gating_hard_pass/_has_non_load_
-    # violations below, which filter it out before this whitelist is ever
-    # consulted. Unlike REST-01/NIGHT-STREAK-01, this rule did not exist
+    # preserved_violations.is_preserved_violation (ROTA-PRESERVED-FACTS-
+    # REPLAN, also NIGHT-STREAK-01 and historical-NN COVERAGE-01), which
+    # filters it out before this whitelist is ever consulted. Unlike REST-01/NIGHT-STREAK-01, this rule did not exist
     # before T058, so real pre-existing schedule data can contain it purely
     # because the rule is new -- it must never retroactively stall unrelated
     # future planning.
@@ -770,46 +771,8 @@ _FROZEN_BOUNDARY_RULES = frozenset({
 })
 
 
-def _is_fully_historical_third_shift(state: PlanningState, detail: ViolationDetail) -> bool:
-    """ARCHITECT_RULING 2026-09-08 (brief 2.3A point 1): a THIRD-CONSECUTIVE-
-    SHIFT-01 violation is "fully historical" when every one of its three
-    dates already existed before this solve (same-month fixed_existing_
-    assignments -- REALIZED/frozen/mentor-linked/TRAINEE -- or the adjacent
-    month's boundary_assignments), i.e. no NEW solver decision took part in
-    it. Such a violation is not a new solver decision and must never by
-    itself gate FEASIBLE into DECISION_REQUIRED/TECHNICAL_ERROR.
-
-    validator._check_third_consecutive_shift only records an assignment_id
-    for a date it can match in the CURRENT month's assignments list -- a
-    window entirely inside state.boundary_assignments (cross-month) gets
-    NO ids at all, which unambiguously means every one of its dates predates
-    this solve (a "fully new" or "mixed" window always has at least one id,
-    since at least one date is always in the current month's list)."""
-    if detail.rule != "THIRD-CONSECUTIVE-SHIFT-01":
-        return False
-    if not detail.assignment_ids:
-        return True
-    fixed_ids = {a.assignment_id for a in fixed_existing_assignments(state)}
-    return set(detail.assignment_ids) <= fixed_ids
-
-
-def _gating_hard_pass(state: PlanningState, report: IndependentValidationReport) -> bool:
-    """Like report.hard_pass, but a fully-historical THIRD-CONSECUTIVE-
-    SHIFT-01 violation (see above) never counts against it. report.hard_pass
-    is the base signal, never overridden to True by an empty
-    violation_details list alone -- a report can (e.g. in a test double)
-    carry hard_pass=False with violation_details left empty, and that must
-    still gate; `all()` over an empty list is vacuously True and would
-    silently swallow exactly that case otherwise."""
-    if report.hard_pass:
-        return True
-    return bool(report.violation_details) and all(
-        _is_fully_historical_third_shift(state, d) for d in report.violation_details
-    )
-
-
 def _split_frozen_violations(
-    state: PlanningState, report: IndependentValidationReport
+    state: PlanningState, report: IndependentValidationReport, full: list[Assignment],
 ) -> tuple[list[ViolationDetail], list[ViolationDetail]]:
     """FINDING R25-1 (tests_r25.txt): matching only by assignment_id let one
     diagnosed rule "explain away" an independent violation of a DIFFERENT
@@ -847,7 +810,12 @@ def _split_frozen_violations(
             and set(detail.assignment_ids) <= fixed_ids
         )
 
-    non_load_details = [d for d in report.violation_details if d.rule != "LOAD-01"]
+    # ROTA-PRESERVED-FACTS-REPLAN 3C: preserved input facts are neither a
+    # coordinator decision point nor a technical failure -- left out here so
+    # only the genuinely new conflicts are diagnosed.
+    non_load_details = [
+        d for d in report.violation_details if d.rule != "LOAD-01" and not is_preserved_violation(state, d, full)
+    ]
     frozen_details = [d for d in non_load_details if _is_frozen_boundary(d)]
     unexplained = [d for d in non_load_details if not _is_frozen_boundary(d)]
     return frozen_details, unexplained
@@ -863,7 +831,7 @@ def _decision_for_conflicts(
     DECISION_REQUIRED payload, and if anything is left unexplained, fall back
     to TECHNICAL_ERROR (anti-drift rule 12) rather than presenting an
     incomplete decision."""
-    frozen_details, unexplained = _split_frozen_violations(state, report)
+    frozen_details, unexplained = _split_frozen_violations(state, report, full)
     if not frozen_details or unexplained:
         message_source = report.violations if not frozen_details else [d.message for d in unexplained]
         return PlanningResult(

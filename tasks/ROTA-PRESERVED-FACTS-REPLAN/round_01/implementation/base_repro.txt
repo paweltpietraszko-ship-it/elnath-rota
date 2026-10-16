@@ -1,0 +1,8 @@
+FAILED tests/test_preserved_facts_replan.py::test_r1_nn_yesterday_replan_and_accept_keeps_exact_nn_and_visible_gap
+FAILED tests/test_preserved_facts_replan.py::test_r2_frozen_manual_nnn_replan_and_accept_keeps_law_deviation
+FAILED tests/test_preserved_facts_replan.py::test_r2_fully_fixed_nnn_variants_classified_preserved[frozen]
+FAILED tests/test_preserved_facts_replan.py::test_r2_fully_fixed_nnn_variants_classified_preserved[started]
+FAILED tests/test_preserved_facts_replan.py::test_r2_fully_fixed_nnn_variants_classified_preserved[realized]
+FAILED tests/test_preserved_facts_replan.py::test_r3_fixed_trio_gives_no_licence_for_a_fourth_night
+6 failed, 2 passed, 4 deselected in 5.31s
+2 failed, 12 deselected in 1.99s

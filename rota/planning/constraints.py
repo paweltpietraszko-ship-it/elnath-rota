@@ -590,6 +590,20 @@ def add_same_person_24h_constraints(
             _constrain_both_open(model, x, d1.demand_id, d2.demand_id, eligible_by_key, template_id)
 
 
+def _fixed_part(term) -> int:
+    """ROTA-PRESERVED-FACTS-REPLAN: the constant (fixed-fact) component of a
+    day_kind_terms entry. solver._build_day_kind_terms only ever adds
+    integer fixed/boundary counts and unit-coefficient BoolVars, so this
+    constant is the occupancy no decision can remove. Any other expression
+    shape is treated conservatively as 0 (never "fixed")."""
+    if isinstance(term, int):
+        return term
+    offset = getattr(term, "int_offset", None)
+    if offset is None and getattr(term, "coefficient", None) == 1:
+        offset = getattr(term, "offset", None)
+    return offset if isinstance(offset, int) else 0
+
+
 def add_max_two_consecutive_night_constraints(
     model: cp_model.CpModel, day_kind_terms: dict[str, dict], month: date,
 ) -> dict[tuple[str, date], tuple[object, list[str]]]:
@@ -614,10 +628,16 @@ def add_max_two_consecutive_night_constraints(
     Returns one assumption literal per (employee_id, window_start_date) that
     involves at least one real decision term, keyed with the window's own N
     demand_ids (for DECISION_REQUIRED diagnosis, mirroring
-    _add_coverage_constraints) -- a window built entirely from fixed/
-    boundary constants is enforced unconditionally instead (nothing for a
-    coordinator to decide if it is ever inconsistent; that is an anti-drift
-    validator concern like any other fixed-fact HARD conflict)."""
+    _add_coverage_constraints).
+
+    ROTA-PRESERVED-FACTS-REPLAN 3A (same autonomy boundary as T058's
+    _third_shift_window_assumption): a window built entirely from fixed/
+    boundary constants is skipped -- a safe one needs nothing, and an
+    already-saved N/N/N is an unchangeable preserved fact that must not make
+    the whole model INFEASIBLE; its constant terms still block any NEW
+    adjacent night via the mixed windows next to it. Window starts reach
+    [month_start-2, month_end] (context to month_end+2), symmetric at both
+    month edges like T058, never the unbounded history F2 removed."""
     num_days = calendar.monthrange(month.year, month.month)[1]
     month_start = date(month.year, month.month, 1)
     month_end = date(month.year, month.month, num_days)
@@ -625,7 +645,7 @@ def add_max_two_consecutive_night_constraints(
     assumptions: dict[tuple[str, date], tuple[object, list[str]]] = {}
     for employee_id, by_date in day_kind_terms.items():
         window_start = month_start - timedelta(days=2)
-        last_start = month_end - timedelta(days=2)
+        last_start = month_end
         while window_start <= last_start:
             dates = [window_start, window_start + timedelta(days=1), window_start + timedelta(days=2)]
             entries = [by_date.get(d, empty) for d in dates]
@@ -642,8 +662,7 @@ def add_max_two_consecutive_night_constraints(
             if worst_case <= 2:
                 window_start += timedelta(days=1)
                 continue
-            if all(isinstance(t, int) for t in terms):
-                model.add(sum(terms) <= 2)
+            if all(_fixed_part(t) >= 1 for t in terms) or all(isinstance(t, int) for t in terms):
                 window_start += timedelta(days=1)
                 continue
             assume_var = model.new_bool_var(f"assume_night_streak_{employee_id}_{window_start.isoformat()}")
@@ -739,6 +758,12 @@ def _third_shift_window_assumption(
     if worst_case_occupied <= 2:
         return None
     if all(isinstance(t, int) for t in terms):
+        return None
+    # ROTA-PRESERVED-FACTS-REPLAN: every date already holds a fixed PRIMARY
+    # (a same-date decision variable, e.g. an open D slot next to a frozen
+    # N, cannot change that) -- the same fully-fixed historical window as
+    # above, so it must not poison the model either.
+    if all(_fixed_part(t) >= 1 for t in terms):
         return None
     occupied_terms = _third_shift_occupied_terms(model, employee_id, window_start, terms)
     assume_var = model.new_bool_var(f"assume_third_shift_{employee_id}_{window_start.isoformat()}")
