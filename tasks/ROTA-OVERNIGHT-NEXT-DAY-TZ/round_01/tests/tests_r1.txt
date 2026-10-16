@@ -1,0 +1,27 @@
+ROTA-OVERNIGHT-NEXT-DAY-TZ — wąski audyt r1
+DATA: 2026-10-16 | WERDYKT: PASS
+EXACT_SHA: 4717c4ee52166e5e80d0bdeb6a5c0b10b0ad26c9
+BASE: a6b86afad2197e403236b97d7d547c871c33cbf9
+ODBIORCA: CC / OWNER | raport: audit/rota-overnight-next-day-tz
+
+Sprawdzono brief, dostawę i pełny diff produkcji: jeden helper nextDayIso
+oraz użycie w S1, Dodaj pracę i applyExtraCode. Arytmetyka R11-01 jest
+zachowana; brak zmian backendu/API i pozostałych reguł. applyExtraCode
+zastępuje dotychczasową kopię tej samej arytmetyki, bez zmiany semantyki.
+
+Niezależny rzeczywisty UI Chromium w Europe/Warsaw, exact SHA, lokalna
+testowa baza ORDINARY i istniejące formularze:
+- S1 27.03.2027 22:00, koniec następnego dnia 06:00: zapis HTTP 200,
+  GET potwierdza PERIODIC_TRAINING.end_datetime=2027-03-28T06:00:00 (noc DST).
+- Dodaj pracę 31.03.2027 22:00, koniec następnego dnia 06:00: zapis udany,
+  GET potwierdza manual work end_datetime=2027-04-01T06:00:00 (granica miesiąca).
+- Helper pobrany z rzeczywistego TSX i wykonany w tej przeglądarce:
+  siedem dat — zwykły dzień, koniec miesiąca/roku, oba dni zmiany czasu,
+  28 i 29 lutego 2028 — wszystkie zgodne z oczekiwanym następnym dniem.
+Brak pageerror. Własny skrypt poprawiono w zakresie selektorów formularza;
+nie zmieniano produktu. Dowód: lokalne overnight/ui.cjs i saved.png w
+C:/Users/p_pie/.codex/visualizations/2026/10/16/01a1429a-5038-7551-91af-f2f9f322083f/.
+
+Build i backend.py PASS pozostają dowodami CC, nie powtarzano pełnej suity.
+Brak nowych findingów. PASS tylko dla wskazanego SHA PR #33; nie certyfikuje
+wyniku późniejszego łączenia z refaktorem PR #32. Merge pozostaje OWNER.
