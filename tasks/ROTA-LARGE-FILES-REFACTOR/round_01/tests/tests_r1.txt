@@ -1,0 +1,33 @@
+ROTA-LARGE-FILES-REFACTOR — konserwatywny precheck r1
+DATA: 2026-10-16 | WERDYKT: PASS PREIMPLEMENTATION
+EXACT_SHA: bf98913079b1b602d168ee7e6183ab11ce97238f
+BASE: 923bd54917a0f9e8512d759611796e9c159fa70a
+ZAKRES: plan nadrzędny i brief ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID.
+ODBIORCA: CC / Architekt / OWNER
+
+Odczytano oba briefy, właściwe przekazanie BOARD i wskazany wpis ODLOZONE.
+Punktowo sprawdzono istniejący ScheduleGrid z pięcioma helperami oraz użycia
+tych nazw w MonthlyPlanning. Nie wykonywano audytu pozostałych dużych plików.
+Wiersz wskazuje 5b05d29; oceniono nowszy commit przekazania bf98913.
+
+Decyzje OWNERA mają odzwierciedlenie w kontrakcie: brak podziału jest
+poprawnym wynikiem, limit 600 linii nie stanowi celu, ryzykowne obszary zostają.
+Solver/engine/constraints/db/plan_ops/schedule_projection nie są dopuszczone
+do podziału. Kandydaci z tabeli wymagają przyszłych osobnych briefów.
+
+Jedyny etap implementacyjny ma naturalną, istniejącą granicę: ScheduleGrid
+jest osobną funkcją z props i własnymi useMemo. Pięć helperów ma wskazany
+zakres; daysInMonth pozostaje współdzielony z rodzicem przez eksport.
+Nie ma potrzeby nowego stanu, adapterów ani zmiany hooków/akcji rodzica.
+Redukcja: konieczny jest tylko moduł istniejącej tabeli i jego import;
+nie uzasadniono dalszego rozcinania MonthlyPlanning — brief je wyklucza.
+
+Dowód jest testowalny: zachowane ciała/wywołania, porównywalny stan bazowy
+i trzy użycia UI, istotne kody/DEL/sumy, build, pełna suita raz przez CC,
+niezależny audyt i ultrareview. Backend sam nie dowodzi równoważności UI.
+STOP/NO_SPLIT obejmuje zmianę stanu, props, obliczeń, cykle importów oraz
+brak dowodu istotnej ścieżki; nie wolno szukać nowej granicy przy okazji.
+To warunkowa gotowość kontraktu, nie zapewnienie, że refaktor jest bez ryzyka.
+Bez testów produktu, diffu produktu, WHERE_MAP ani regresji w prechecku.
+CC może ocenić merytorycznie wyłącznie ten etap; obie bramy przed pracą.
+PASS nie daje zgody na pozostałe podziały, merge ani wdrożenie.
