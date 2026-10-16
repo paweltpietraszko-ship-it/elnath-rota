@@ -256,3 +256,8 @@ Po zmergowaniu ROTA-CLOUD-REVIEW-FIXES suita jest w całości zielona (1516 pass
 OWNER 2026-10-16 zaakceptował zamknięcie jako znane ograniczenie (po ROTA-UNMAPPED-DEVIATION-RULES, gdzie naprawiono tylko ROLE-01).
 Ustalone z kodu (nieuruchomione): WORK_PERIOD-01 (`find_malformed_periods`, grupuje per pracownik+okres -- przestawienie połowy 24h na inną osobę go nie wywołuje) i ASSIGN (szkolony bez mentora) to straże integralności danych; UI nie edytuje godzin zwykłych zmian ani powiązań mentora. FULL_HOUR-01: UI odrzuca niepełne godziny przed wysłaniem (MonthlyPlanning S1/środek). SITE_RULE-01: program nie umie ocenić HARD reguły dla niesklasyfikowanego demandu -- nie jest to łamanie zasady przez koordynatora, rzadkie.
 Skutek, gdyby jednak wystąpiły w ręcznej korekcie: 500 (UnknownDeviationSource). Wracamy tylko z realnym przypadkiem od testera.
+
+## 2026-10-16 refactor-schedule-grid.spec.ts — kruchość zależna od daty (nity ultrareview)
+
+Ultrareview PR #34 (kod ROTA-LARGE-FILES-REFACTOR-MONTHLY-GRID): tylko test e2e, kod produktu bez uwag. (1) brak `test.skip`, gdy Anna nie ma zmiany rozpoczętej przed dziś (1. dzień miesiąca lub wczesne dni) → TypeError na `started.assignment_id` (l.205–210); (2) w lutym S1 z `addS1OnLastDay` może trafić na DELEGACJĘ Ewy 27–28 (`busy` liczony tylko z assignments, l.81–84); (3) YM/LAST_DAY/`now` liczone w strefie runnera Node, nie Europe/Warsaw (l.21–30) — rozjazd tuż po północy; (4) martwy guard pustych assignments (l.136–137). Skutek: fałszywe porażki e2e w określone dni, nie błąd produktu. Naprawić przy następnym dotknięciu tego speca.
+
