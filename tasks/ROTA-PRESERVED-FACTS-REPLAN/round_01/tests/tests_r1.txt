@@ -1,0 +1,29 @@
+ROTA-PRESERVED-FACTS-REPLAN — niezależny precheck, 2026-10-16
+VERDICT: PASS PREIMPLEMENTATION
+Exact SHA: a6b2ac6705a0f43491eb5a232612c573f89744e5
+Base: 89cd9797bc61490a89ddec97a04abc02b40ae6e4
+PR: https://github.com/paweltpietraszko-ship-it/elnath-rota/pull/35
+Odbiorca: CC / Architekt / OWNER.
+
+Zakres: cały brief; punktowe potwierdzenie źródeł O4/O5, historycznego
+NN i T058 oraz nazwanych istniejących szwów. Bez audytu implementacji.
+Źródła: CLOUD-REVIEW-FIXES O4/O5; CORRECTION-EFFECTIVE-FROM-DEFAULT
+H10/H10a/H10b; T058 §2.3A/T58-14. Nowy brief jawnie ustala analogiczną
+granicę NIGHT-STREAK, nie przedstawia T058 jako wcześniejszego wyjątku nocek.
+
+Kontrakt rozdziela zachowane fakty od nowych decyzji; określa granice
+cutover i miesiąca, obsadę wieloosobową, niepełną atrybucję NN, ochronę
+faktów i atomowość. Nie daje ogólnego wyjątku od HARD ani fikcyjnego pokrycia.
+Pełny raport walidatora i istniejące potwierdzenia LAW pozostają zachowane.
+R1–R5 dają sprawdzalne pozytywy i negatywy oraz rzeczywiste dwa przepływy.
+
+Redukcja: jeden wspólny klasyfikator dla engine i akceptacji jest koniecznym
+szwem, nie drugim walidatorem. Reuse fixed_existing_assignments,
+_historical_nn_facts i istniejącej atrybucji pokrycia; bez nowego algorytmu,
+refaktoru solvera, tabel, API/UI ani kopiowania pełnych testów wrapperów.
+Nie wskazano dodatkowego zakresu do usunięcia. Szersza zmiana uruchamia STOP.
+
+Testów, produktu, pionu, regresji i where.py nie uruchamiano: brief-only.
+WHERE_MAP pozostaje obowiązkiem po zamrożeniu scope, przed implementacją.
+CC może przejść do implementacji po własnej ocenie merytorycznej.
+PASS dotyczy wyłącznie kontraktu na powyższym SHA; dostawa wymaga audytu.
