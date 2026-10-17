@@ -4,6 +4,11 @@ STATUS: finding + reproduced root cause, NOT a design document. Input for
 the architect (same role as other `arch/FINDING_*` docs) — CC does not
 design the solver-engineering fix here.
 
+DATA: all data is synthetic and created by the owner; "real object" and
+"production" here mean a fully assembled site object and the owner's own
+running instance, NOT a customer or real personal data. See
+`arch/DATA_STATUS.md`.
+
 ## The live symptom
 
 Real object "Bolf" (day-shifts-only ORDINARY site): the shift catalog has

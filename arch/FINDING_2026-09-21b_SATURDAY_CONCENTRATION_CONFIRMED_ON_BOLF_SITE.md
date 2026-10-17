@@ -1,19 +1,26 @@
-# FINDING 2026-09-21 (correction/confirmation, round 2) — Saturday-shift concentration confirmed on the real Bolf object, in the ACTUAL regime (OCHRONA) and ACTUAL mechanism (add_ochrona_hours_fairness), superseding the original synthetic-only finding
+# FINDING 2026-09-21 (correction/confirmation, round 2) — Saturday-shift concentration confirmed on the Bolf site object, in the ACTUAL regime (OCHRONA) and ACTUAL mechanism (add_ochrona_hours_fairness), superseding the original synthetic-only finding
 
-STATUS: finding + reproduced root cause on the real object, NOT a design
+STATUS: finding + reproduced root cause on a fully assembled site
+object, NOT a design
 document. Input for the architect (same role as other `arch/FINDING_*`
 docs) — CC does not design the solver-engineering fix here.
+
+DATA: all data is synthetic and created by the owner; "real object" and
+"production" here mean a fully assembled site object and the owner's own
+running instance, NOT a customer or real personal data. See
+`arch/DATA_STATUS.md`.
 
 Supersedes `arch/FINDING_2026-09-21_RARE_WEEKLY_SLOT_PINNED_TO_ONE_
 EMPLOYEE.md` after the architect's own precheck (BOARD.md,
 `ROTA-RARE-WEEKLY-SLOT-PINNED`) correctly flagged that finding's
 synthetic repro (ORDINARY regime, one Saturday/month, cross-month
-rotation framing) as unverified against the real Bolf symptom. This
-round re-investigated directly against real Bolf data (read-only,
-owner-approved production reads) and the original repro's regime
+rotation framing) as unverified against the Bolf site's observed
+symptom. This round re-investigated directly against the Bolf site's
+stored data (read-only queries against the owner's own running
+instance) and the original repro's regime
 assumption was WRONG — corrected and reproduced below.
 
-## Correction: real Bolf is OCHRONA, not ORDINARY
+## Correction: the Bolf site is OCHRONA, not ORDINARY
 
 Confirmed via read-only query: `sites.planning_regime = 'OCHRONA'` for
 Bolf. Shift catalog (`standard_shifts`, read-only): one D shift
@@ -29,7 +36,7 @@ rhythm+weekend+holiday combined) plus `add_weekend_fairness` as a
 SUBORDINATE tie-break term — not `add_target_equity_fairness` as the
 original finding assumed.
 
-## Real data (read-only, 3 independently-planned months, zero absences confirmed by Paweł for January)
+## Stored site data (read-only, 3 independently-planned months, zero absences confirmed by Paweł for January)
 
 | Month | Employee A hours | Employee B hours | Saturday split |
 |---|---|---|---|
@@ -65,15 +72,15 @@ generate_profile_demands` + `rota.planning.engine.plan`:
 - **2026-09 (30 days, 4 Saturdays — an even month)**: perfectly even
   result, 150h/150h total, 18h/18h Saturday (2 Saturdays each). This is
   why the FIRST reconstruction attempt (done before re-checking against
-  real data) looked "fine" and seemed to contradict the original
+  the stored data) looked "fine" and seemed to contradict the original
   finding — September's arithmetic happens to admit a perfectly
   symmetric optimum, masking the issue.
-- **2027-01 (31 days, 5 Saturdays — real Bolf's actually-reported month)**:
+- **2027-01 (31 days, 5 Saturdays — the Bolf site's actually-reported month)**:
   reproduced the same qualitative defect: 150h/147h total (a mere 3h
   gap — near the theoretical minimum, since exact equality is
   impossible with 12h/9h shift granularity), but Saturdays split 2/3
   instead of evenly-as-possible, in a clean, fully symmetric, absence-free
-  synthetic run with no real-object-specific data involved at all.
+  synthetic run with no site-specific stored data involved at all.
 
 ## What this establishes
 
@@ -90,8 +97,9 @@ generate_profile_demands` + `rota.planning.engine.plan`:
   which is not achieving that in practice for this shape (small
   employee pool, an odd/awkward number of Saturdays, two different
   shift durations).
-- Reproducible in isolation, real-shape, without touching production or
-  needing Bolf's actual data again — see Reproduction below.
+- Reproducible in isolation, at full shape, without touching the running
+  instance or needing the Bolf site's stored data again — see
+  Reproduction below.
 
 ## Owner input, plain language (2026-09-21, offered to the architect as a candidate direction, not a decision)
 
@@ -102,7 +110,7 @@ assign an employee this Saturday if they worked the previous one).
 
 CC's honest assessment, not a decision: this is a more targeted, more
 predictable direction than raising `WEEKEND_FAIRNESS_WEIGHT` alone --
-for exactly Bolf's real shape (2 eligible employees), "not the same
+for exactly Bolf's shape (2 eligible employees), "not the same
 person as last Saturday" mechanically forces alternation, which IS an
 even split in the 2-employee case. Three caveats before this becomes a
 design, all standard territory for a solver-contract change (CC does not
@@ -134,7 +142,7 @@ resolve these, flagging for the architect):
 ## Open question for the architect (CC does not design this)
 
 Same class of question as the original finding, now confirmed against
-the real object and its real mechanism:
+the fully assembled site object and its actual mechanism:
 
 - Is `WEEKEND_FAIRNESS_WEIGHT` (currently 1, the smallest unit in the
   penalty hierarchy) simply too weak to reliably win the tie-break
@@ -159,14 +167,14 @@ the real object and its real mechanism:
   targeted fix versus being an edge case of very small OCHRONA rosters.
 
 CC's recommendation, stated plainly (not a decision): both reproductions
-above (real Bolf's own January data, and the clean synthetic
-reconstruction of the same shape) are small, real, and directly
+above (the Bolf site's own stored January data, and the clean synthetic
+reconstruction of the same shape) are small, reproducible, and directly
 actionable — an architect/Codex round can iterate against either without
-needing further production access.
+needing further access to the running instance.
 
 ## Reproduction
 
-Synthetic (no DB, no production access): `SiteProfile` with two
+Synthetic (no DB, no running-instance access): `SiteProfile` with two
 `StandardShift(ShiftKind.D, ...)` entries — 05:00-17:00 `active_weekdays=
 (1,2,3,4,5)` and 05:00-14:00 `active_weekdays=(6,)` — `Site.planning_
 regime = SitePlanningRegime.OCHRONA`, 2 `LOCAL` `Employee`/
@@ -176,8 +184,8 @@ demand set, `rota.planning.engine.plan(state)`. Compare Saturday-hours
 distribution across employees in the FEASIBLE candidate. Re-run for
 `date(2026,9,1)` to see the contrasting even-month case.
 
-Real-object comparison (if the architect wants to re-verify against
-Bolf directly): site_id `SITE-c9aebae1ba32428f8ae9f7a90dc2dfed`,
+Assembled-site comparison (if the architect wants to re-verify against
+the Bolf site directly): site_id `SITE-c9aebae1ba32428f8ae9f7a90dc2dfed`,
 `schedule_versions` for months 2026-09/2026-10/2027-01, `assignments`
 joined on `schedule_version_id`, aggregate hours by `employee_id` and by
 `start_datetime`'s weekday. Read-only, was reviewed live with Paweł's

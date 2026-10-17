@@ -1,4 +1,4 @@
-# FINDING 2026-09-21 (round 3) — the architect-requested controlled experiment does NOT reproduce real Bolf's 5/0 Saturday split; root cause remains UNPROVEN
+# FINDING 2026-09-21 (round 3) — the architect-requested controlled experiment does NOT reproduce the Bolf site's 5/0 Saturday split; root cause remains UNPROVEN
 
 STATUS: experiment result + explicit gap statement, NOT a root-cause
 declaration and NOT a design document, per the architect's own
@@ -6,11 +6,17 @@ instruction in this round's precheck ("jeśli realnego snapshota nie da
 się bezpiecznie odtworzyć, napisz wprost, które dane są brakujące — nie
 zastępuj go syntetycznym... ani nie deklaruj root cause").
 
+DATA: all data is synthetic and created by the owner; "real object" and
+"production" here mean a fully assembled site object and the owner's own
+running instance, NOT a customer or real personal data. See
+`arch/DATA_STATUS.md`.
+
 ## What was run
 
-Exact architect-requested experiment: reconstructed Bolf's real January
-2027 `shift_demands` (all 26 real demand_id/start/end timestamps, read
-read-only from production) and real `calendar_days` (2027-01-01 and
+Exact architect-requested experiment: reconstructed the Bolf site's
+stored January 2027 `shift_demands` (all 26 stored demand_id/start/end
+timestamps, read read-only from the running instance) and its stored
+`calendar_days` (2027-01-01 and
 2027-01-06 holidays, matching real PL calendar), OCHRONA regime, 2
 LOCAL/no-target/no-absence employees (matching real membership fields
 confirmed identical). Ran four solves, capturing real CP-SAT diagnostics
@@ -27,7 +33,7 @@ confirmed identical). Ran four solves, capturing real CP-SAT diagnostics
 
 ## The actual finding: this reconstruction does not reproduce the real symptom
 
-The real Bolf production data (round 2 finding, `FINDING_2026-09-
+The Bolf site's stored data (round 2 finding, `FINDING_2026-09-
 21b_...md`) showed a **5/0** Saturday split (all 5 Saturdays, 45h, to one
 employee) three separate times. This controlled experiment, built from
 the same demands/calendar/regime/employee-eligibility facts, instead
@@ -42,13 +48,13 @@ optimum being resolved unluckily** — under this reconstruction's model,
 5/0 is strictly WORSE than 3/2 (a larger weekend-fairness spread at
 equal committed-hours cost is never cheaper), so a solver proving 3/2
 optimal would never legitimately return 5/0 for the same inputs. Since
-real Bolf DID produce 5/0 three times, **something about the real solve
+the Bolf site DID produce 5/0 three times, **something about the real solve
 differs from this reconstruction** in a way not yet identified.
 
 ## What is confirmed identical (ruled out as the explanation)
 
 - Shift catalog (both StandardShift rows, exact times/weekdays) —
-  read directly from production.
+  read directly from the running instance.
 - `shift_demands` for the real month — all 26 rows used verbatim.
 - `calendar_days`/holidays for the real month — read directly.
 - Site `planning_regime` (OCHRONA) — read directly.
@@ -98,7 +104,7 @@ differs from this reconstruction** in a way not yet identified.
   candidate 0 vs. a later diversity variant, nor whether the real
   solve's OWN diversity search behaved the same way as this
   reconstruction's.
-- **Whether real Bolf's actual January PLAN calls used `search_attempt=0`
+- **Whether the Bolf site's actual January PLAN calls used `search_attempt=0`
   three times in a row, or included at least one non-zero attempt** —
   the three real `schedule_versions` rows only show `created_at`
   timestamps a few minutes apart; nothing in the schema read so far

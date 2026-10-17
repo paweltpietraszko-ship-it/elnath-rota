@@ -8,6 +8,11 @@ read them first) -- this doc explains WHY that weight lever didn't work
 and what the actual fix needs to do instead. CC does not design the
 CP-SAT encoding here.
 
+DATA: all data is synthetic and created by the owner; "real object" and
+"production" here mean a fully assembled site object and the owner's own
+running instance, NOT a customer or real personal data. See
+`arch/DATA_STATUS.md`.
+
 ## The real-world rule (OWNER, 2026-09-20, verbatim reasoning)
 
 "W życiu gdy koordynatorowi brakuje godzin do rozdysponowania uzupełnia
@@ -49,7 +54,7 @@ ceiling that was never meant to be chased, is the actual bug.
   forces are coupled by construction; turning up equity's dial turns up
   its opposing force too. No value of that one constant could have fixed
   this.
-- Real Royal data itself supports this: all 6 employees' `target_hours`
+- The Royal site's stored data itself supports this: all 6 employees' `target_hours`
   came from a single bulk "ustaw wszystkim" apply-to-all action on
   2026-09-18 (`coordinator_action_records`, `TARGET_HOURS_CHANGED`,
   `changed_employee_ids` covering 5 of the 6 seconds after the 6th was
